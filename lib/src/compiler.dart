@@ -8,9 +8,11 @@ FunctionPrototype compileSource(String source) {
   final result = parser.parse(source);
   if (result is Success) {
     final ast = result.value;
+    print(ast);
     final generator = SlangCodeGenerator();
     return generator.generate(ast);
   } else {
-    throw Exception('Failed to parse source: ${result.message}:${result.position}');
+    throw Exception(
+        'Failed to parse source: ${result.message}:${result.position}');
   }
 }

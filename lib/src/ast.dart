@@ -5,21 +5,26 @@ sealed class AstNode {
 }
 
 abstract class AstNodeVisitor<T, A> {
-  T visitAstNode(AstNode node, A arg) {
+  T visit(AstNode node, A arg) {
     return node.accept(this, arg);
   }
 
   T visitIntLiteral(IntLiteral node, A arg);
   T visitStringLiteral(StringLiteral node, A arg);
+  T visitFalseLiteral(FalseLiteral node, A arg);
+  T visitTrueLiteral(TrueLiteral node, A arg);
   T visitTableLiteral(TableLiteral node, A arg);
+  T visitField(Field node, A arg);
 
   T visitName(Name node, A arg);
+  T visitIndex(Index node, A arg);
   T visitBinOp(BinOp node, A arg);
   T visitUnOp(UnOp node, A arg);
 
-  T visitBlock(Block block, A arg);
-  T returnStatement(ReturnStatement statement, A arg);
-  T assignment(Assignment statement, A arg);
+  T visitBlock(Block node, A arg);
+  T visitIfStatement(IfStatement node, A arg);
+  T visitReturnStatement(ReturnStatement node, A arg);
+  T visitAssignment(Assignment node, A arg);
 }
 
 sealed class Exp extends AstNode {
@@ -52,6 +57,28 @@ class StringLiteral extends Exp {
   String toString() => '$runtimeType($value)';
 }
 
+class FalseLiteral extends Exp {
+  const FalseLiteral();
+  @override
+  T accept<T, A>(AstNodeVisitor visitor, A arg) {
+    return visitor.visitFalseLiteral(this, arg);
+  }
+
+  @override
+  String toString() => '$runtimeType';
+}
+
+class TrueLiteral extends Exp {
+  const TrueLiteral();
+  @override
+  T accept<T, A>(AstNodeVisitor visitor, A arg) {
+    return visitor.visitTrueLiteral(this, arg);
+  }
+
+  @override
+  String toString() => '$runtimeType';
+}
+
 class TableLiteral extends Exp {
   final List<Field> fields;
   TableLiteral(this.fields);
@@ -65,10 +92,15 @@ class TableLiteral extends Exp {
   String toString() => '$runtimeType($fields)';
 }
 
-class Field {
+class Field extends AstNode {
   final Exp? key;
   final Exp value;
   Field(this.key, this.value);
+
+  @override
+  T accept<T, A>(AstNodeVisitor<T, A> visitor, A arg) {
+    return visitor.visitField(this, arg);
+  }
 
   @override
   String toString() => '$runtimeType($key, $value)';
@@ -85,6 +117,21 @@ class Name extends Exp {
 
   @override
   String toString() => '$runtimeType($value)';
+}
+
+class Index extends Exp {
+  final Exp target;
+  final Exp key;
+
+  Index(this.target, this.key);
+
+  @override
+  T accept<T, A>(AstNodeVisitor visitor, A arg) {
+    return visitor.visitIndex(this, arg);
+  }
+
+  @override
+  toString() => '$runtimeType($target, $key)';
 }
 
 class BinOp extends Exp {
@@ -120,7 +167,7 @@ sealed class Statement extends AstNode {
   const Statement();
 }
 
-class Block extends AstNode {
+class Block extends Statement {
   final List<Statement> statements;
   final Statement? finalStatement;
 
@@ -130,6 +177,23 @@ class Block extends AstNode {
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
     return visitor.visitBlock(this, arg);
   }
+
+  @override
+  String toString() => '$runtimeType($statements, $finalStatement)';
+}
+
+class IfStatement extends Statement {
+  final Exp condition;
+  final Statement thenBranch;
+  final Statement? elseBranch;
+  IfStatement(this.condition, this.thenBranch, this.elseBranch);
+  @override
+  T accept<T, A>(AstNodeVisitor visitor, A arg) {
+    return visitor.visitIfStatement(this, arg);
+  }
+
+  @override
+  String toString() => '$runtimeType($condition, $thenBranch, $elseBranch)';
 }
 
 class ReturnStatement extends Statement {
@@ -138,18 +202,24 @@ class ReturnStatement extends Statement {
 
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
-    return visitor.returnStatement(this, arg);
+    return visitor.visitReturnStatement(this, arg);
   }
+
+  @override
+  String toString() => '$runtimeType($exp)';
 }
 
 class Assignment extends Statement {
-  final Name name;
+  final Exp left;
   final Exp exp;
   final bool isLocal;
-  Assignment(this.name, this.exp, {required this.isLocal});
+  Assignment(this.left, this.exp, {required this.isLocal});
 
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
-    return visitor.assignment(this, arg);
+    return visitor.visitAssignment(this, arg);
   }
+
+  @override
+  String toString() => '$runtimeType($left, $exp, isLocal: $isLocal)';
 }

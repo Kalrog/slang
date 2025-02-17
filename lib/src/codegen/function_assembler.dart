@@ -4,8 +4,9 @@ import 'package:slang/src/vm/slang_vm_bytecode.dart';
 class LocalVar {
   final int register;
   final String name;
+  final int scope;
 
-  LocalVar(this.register, this.name);
+  LocalVar(this.register, this.name, this.scope);
 }
 
 class FunctionAssembler {
@@ -14,19 +15,36 @@ class FunctionAssembler {
   final Map<String, LocalVar> _locals = {};
   int usedRegisters = 0;
   int maxRegisters = 0;
+  int scope = 0;
 
   LocalVar getLocalVar(String name) {
     if (_locals.containsKey(name)) {
       return _locals[name]!;
     }
     final register = allocateRegister();
-    final localVar = LocalVar(register, name);
+    final localVar = LocalVar(register, name, scope);
     _locals[name] = localVar;
     return localVar;
   }
 
   void freeLocal(LocalVar localVar) {
     _locals.remove(localVar.name);
+    freeRegister();
+  }
+
+  void enterScope() {
+    scope++;
+  }
+
+  void leaveScope() {
+    final locals = _locals.values.where((l) => l.scope == scope).toList();
+    for (final localVar in locals) {
+      freeLocal(localVar);
+    }
+    if (scope > 1) {
+      emitPop(0, locals.length);
+    }
+    scope--;
   }
 
   int allocateRegister() {
@@ -70,7 +88,7 @@ class FunctionAssembler {
     return index;
   }
 
-  void emitABC(OpCodeName opcode, int a, int b, int c) {
+  void emitABC(OpCodeName opcode, [int a = 0, int b = 0, int c = 0]) {
     int instruction = b << 23 | c << 14 | a << 6 | opcode.index;
     _instructions.add(instruction);
   }
@@ -90,86 +108,106 @@ class FunctionAssembler {
     _instructions.add(instruction);
   }
 
-  void emitLoadConstant(int a, Object? value) {
+  void emit(OpCodeName opcode) {
+    int instruction = opcode.index;
+    _instructions.add(instruction);
+  }
+
+  void emitLoadConstant(Object? value) {
     final index = indexOfConstant(value);
-    emitABx(OpCodeName.loadConstant, a, index);
+    emitABx(OpCodeName.loadConstant, 0, index);
   }
 
-  void emitAdd(int a, int b, int c) {
-    emitABC(OpCodeName.add, a, b, c);
-  }
-
-  void emitSub(int a, int b, int c) {
-    emitABC(OpCodeName.sub, a, b, c);
-  }
-
-  void emitMul(int a, int b, int c) {
-    emitABC(OpCodeName.mul, a, b, c);
-  }
-
-  void emitDiv(int a, int b, int c) {
-    emitABC(OpCodeName.div, a, b, c);
-  }
-
-  void emitMod(int a, int b, int c) {
-    emitABC(OpCodeName.mod, a, b, c);
-  }
-
-  void emitNeg(int a, int b) {
-    emitABC(OpCodeName.neg, a, b, 0);
-  }
-
-  void emitBinOp(int a, int b, int c, String op) {
+  void emitBinOp(String op) {
     switch (op) {
       case '+':
-        emitAdd(a, b, c);
-        break;
+        emit(OpCodeName.add);
       case '-':
-        emitSub(a, b, c);
-        break;
+        emit(OpCodeName.sub);
       case '*':
-        emitMul(a, b, c);
-        break;
+        emit(OpCodeName.mul);
       case '/':
-        emitDiv(a, b, c);
-        break;
+        emit(OpCodeName.div);
       case '%':
-        emitMod(a, b, c);
-        break;
+        emit(OpCodeName.mod);
+      case '<':
+        emit(OpCodeName.lt);
+      case '<=':
+        emit(OpCodeName.leq);
+      case "==":
+        emit(OpCodeName.eq);
       default:
-        throw ArgumentError('Unknown operator: $op');
+        throw ArgumentError('Unknown operator: "$op"');
     }
   }
 
-  void emitUnOp(int a, int b, String op) {
+  void emitUnOp(String op) {
     switch (op) {
       case '-':
-        emitNeg(a, b);
-        break;
+        emit(
+          OpCodeName.neg,
+        );
+
+      case 'not':
+        emit(
+          OpCodeName.not,
+        );
       default:
         throw ArgumentError('Unknown operator: $op');
     }
   }
 
-  void emitReturn(int a) {
-    emitAx(OpCodeName.returnOp, a);
+  void emitReturn() {
+    emit(OpCodeName.returnOp);
   }
 
-  void emitMove(int to, int from) {
-    emitABC(OpCodeName.move, to, from, 0);
+  void emitMove(int from) {
+    emitAsBx(OpCodeName.move, 0, from);
   }
 
-  void emitNewTable(int a, int b, int c) {
-    emitABC(OpCodeName.newTable, a, b, c);
+  void emitPush(int a) {
+    emitAsBx(OpCodeName.push, 0, a);
   }
 
-  void emitSetTable(int a, int b, int c) {
-    emitABC(OpCodeName.setTable, a, b, c);
+  void emitNewTable(int listElements, int hashElements) {
+    emitABC(OpCodeName.newTable, 0, listElements, hashElements);
   }
 
-  void emitGetTable(int a, int b, int c) {
-    emitABC(OpCodeName.getTable, a, b, c);
+  void emitSetTable() {
+    emit(OpCodeName.setTable);
   }
+
+  void emitGetTable() {
+    emit(OpCodeName.getTable);
+  }
+
+  void emitLoadBool(bool b, {bool jump = false}) {
+    emitABC(OpCodeName.loadBool, 0, b ? 1 : 0, jump ? 1 : 0);
+  }
+
+  void emitTest(bool c) {
+    emitABC(OpCodeName.test, 0, 0, c ? 1 : 0);
+  }
+
+  int emitJump([int sbx = 0]) {
+    emitAsBx(OpCodeName.jump, 0, sbx);
+    return _instructions.length - 1;
+  }
+
+  void patchJump(int jump, [int? target]) {
+    target = target ?? _instructions.length;
+    final instruction = _instructions[jump];
+    final opcode = instruction & 0x3F;
+    final newSbx = target - jump - 1;
+    final newInstruction = (newSbx + 0x1FFFF) << 14 | opcode;
+    _instructions[jump] = newInstruction;
+  }
+
+  void emitPop([int keep = 0, int pop = 1]) {
+    emitABx(OpCodeName.pop, keep, pop);
+  }
+
+  int get nextInstructionIndex => _instructions.length;
 
   FunctionPrototype assemble() {
     return FunctionPrototype(

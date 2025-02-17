@@ -21,6 +21,7 @@ enum OpMode {
   iABx,
   iAsBx,
   iAx,
+  iNone,
 }
 
 extension BytecodeInstruction on int {
@@ -45,17 +46,26 @@ typedef Instruction = void Function(SlangVm vm, int instruction);
 
 enum OpCodeName {
   loadConstant,
+  loadBool,
   add,
   sub,
   mul,
   div,
   mod,
   neg,
+  not,
+  eq,
+  lt,
+  leq,
   move,
+  push,
+  pop,
   returnOp,
   newTable,
   setTable,
   getTable,
+  test,
+  jump,
 }
 
 class OpCode {
@@ -67,45 +77,69 @@ class OpCode {
 }
 
 const opCodes = <OpCode>[
-  OpCode(OpCodeName.loadConstant, OpMode.iABx, Instructions.loadConstant), // R(A) := Kst(Bx)
-  OpCode(OpCodeName.add, OpMode.iABC, Instructions.add), // R(A) := RK(B) + RK(C)
-  OpCode(OpCodeName.sub, OpMode.iABC, Instructions.sub), // R(A) := RK(B) - RK(C)
-  OpCode(OpCodeName.mul, OpMode.iABC, Instructions.mul), // R(A) := RK(B) * RK(C)
-  OpCode(OpCodeName.div, OpMode.iABC, Instructions.div), // R(A) := RK(B) / RK(C)
-  OpCode(OpCodeName.mod, OpMode.iABC, Instructions.mod), // R(A) := RK(B) % RK(C)
-  OpCode(OpCodeName.neg, OpMode.iABC, Instructions.neg), // R(A) := -R(B)
-  OpCode(OpCodeName.move, OpMode.iABC, Instructions.move), // R(A) := R(B)
-  OpCode(OpCodeName.returnOp, OpMode.iAx, Instructions.returnOp), // return R(A)
+  OpCode(OpCodeName.loadConstant, OpMode.iABx,
+      Instructions.loadConstant), // Put constant K[Bx] onto the stack
+  OpCode(
+      OpCodeName.loadBool,
+      OpMode.iABC,
+      Instructions
+          .loadBool), //Put constant (bool) A onto the stack and if(B) pc++
+  // Arithmetic operations
+  // always take top elements of the stack and apply, then push result
+  OpCode(OpCodeName.add, OpMode.iNone, Instructions.add),
+  OpCode(OpCodeName.sub, OpMode.iNone, Instructions.sub),
+  OpCode(OpCodeName.mul, OpMode.iNone, Instructions.mul),
+  OpCode(OpCodeName.div, OpMode.iNone, Instructions.div),
+
+  OpCode(OpCodeName.mod, OpMode.iNone, Instructions.mod),
+  OpCode(OpCodeName.neg, OpMode.iNone, Instructions.neg),
+  OpCode(OpCodeName.not, OpMode.iNone, Instructions.not),
+  OpCode(OpCodeName.eq, OpMode.iNone, Instructions.eq),
+  OpCode(OpCodeName.lt, OpMode.iNone, Instructions.lt),
+  OpCode(OpCodeName.leq, OpMode.iNone, Instructions.leq),
+  OpCode(OpCodeName.move, OpMode.iAsBx,
+      Instructions.move), //Pop top of stack and put it in Stack[sBx]
+  OpCode(OpCodeName.push, OpMode.iAsBx,
+      Instructions.push), // push Stack[sBx] to top
+  OpCode(
+      OpCodeName.pop,
+      OpMode.iABx,
+      Instructions
+          .pop), // keep the top A elements of the stack and pop Bx elements underneath
+  OpCode(OpCodeName.returnOp, OpMode.iNone,
+      Instructions.returnOp), //  return top of stack
   OpCode(
       OpCodeName.newTable,
       OpMode.iABC,
       Instructions
-          .newTable), // R(A) := {} (b: number of array elements, c: number of hash elements)
-  OpCode(OpCodeName.setTable, OpMode.iABC, Instructions.setTable), // R(A)[RK(B)] := RK(C)
-  OpCode(OpCodeName.getTable, OpMode.iABC, Instructions.getTable), // R(A) := R(B)[RK(C)]
+          .newTable), // push {} (b: number of array elements, c: number of hash elements)
+  OpCode(
+      OpCodeName.setTable,
+      OpMode.iNone,
+      Instructions
+          .setTable), // Stack(-3)[Stack(-2)] = Stack(-1) (will pop the top 3 elements)
+
+  OpCode(OpCodeName.getTable, OpMode.iNone,
+      Instructions.getTable), // push Stack(-2)[Stack(-1)] (will pop
+
+  OpCode(
+      OpCodeName.test,
+      OpMode.iABC,
+      Instructions
+          .test), // if not (Stack(-1) <=> C) then pc++ (pops top of stack)
+
+  OpCode(OpCodeName.jump, OpMode.iAsBx, Instructions.jump), // pc+=sBx
 ];
 
-void printInstruction(int instruction) {
+String instructionToString(int instruction) {
   final opcode = instruction.opcode;
   final op = opCodes[opcode];
-  switch (op.mode) {
-    case OpMode.iABC:
-      print('${op.name.name} A=${instruction.a} B=${instruction.b} C=${instruction.c}');
-      break;
-    case OpMode.iABx:
-      print('${op.name.name} A=${instruction.a} Bx=${instruction.bx}');
-      break;
-    case OpMode.iAsBx:
-      print('${op.name.name} A=${instruction.a} sBx=${instruction.sbx}');
-      break;
-    case OpMode.iAx:
-      print('${op.name.name} Ax=${instruction.ax}');
-      break;
-  }
-}
-
-void printInstructions(List<int> instructions) {
-  for (var i = 0; i < instructions.length; i++) {
-    printInstruction(instructions[i]);
-  }
+  return switch (op.mode) {
+    OpMode.iABC =>
+      '${op.name.name} A=${instruction.a} B=${instruction.b} C=${instruction.c}',
+    OpMode.iABx => '${op.name.name} A=${instruction.a} Bx=${instruction.bx}',
+    OpMode.iAsBx => '${op.name.name} A=${instruction.a} sBx=${instruction.sbx}',
+    OpMode.iAx => '${op.name.name} Ax=${instruction.ax}',
+    OpMode.iNone => op.name.name,
+  };
 }

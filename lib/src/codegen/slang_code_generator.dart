@@ -2,96 +2,162 @@ import 'package:slang/slang.dart';
 import 'package:slang/src/codegen/function_assembler.dart';
 import 'package:slang/src/vm/function_prototype.dart';
 
-class SlangCodeGenerator extends AstNodeVisitor<void, int> {
+class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
   late FunctionAssembler _assembler;
 
   FunctionPrototype generate(AstNode node) {
     _assembler = FunctionAssembler();
-    final outputPosition = _assembler.allocateRegister();
-    node.accept(this, outputPosition);
+    visit(node);
     return _assembler.assemble();
   }
 
   @override
-  void visitIntLiteral(IntLiteral node, int a) {
-    _assembler.emitLoadConstant(a, node.value);
+  void visit(AstNode node, [Null arg]) {
+    super.visit(node, arg);
   }
 
   @override
-  void visitStringLiteral(StringLiteral node, int a) {
-    _assembler.emitLoadConstant(a, node.value);
+  void visitIntLiteral(IntLiteral node, Null arg) {
+    _assembler.emitLoadConstant(node.value);
   }
 
   @override
-  void visitBinOp(BinOp node, int a) {
-    final b = _prepareOperatorArgument(node.left);
-    final c = _prepareOperatorArgument(node.right);
-    _assembler.emitBinOp(a, b, c, node.op);
+  void visitStringLiteral(StringLiteral node, Null arg) {
+    _assembler.emitLoadConstant(node.value);
   }
 
-  int _prepareOperatorArgument(Exp exp) {
-    if (exp case IntLiteral(value: dynamic value) || StringLiteral(value: dynamic value)) {
-      final constIndex = _assembler.indexOfConstant(value);
-      final regOrConst = constIndex | 0x100;
-      return regOrConst;
-    } else if (exp case Name(value: dynamic value)) {
-      final localVar = _assembler.getLocalVar(value);
-      return localVar.register;
+  @override
+  void visitBinOp(BinOp node, Null arg) {
+    if (["and", "or"].contains(node.op)) {
+      visitLogicalBinOp(node);
+    } else {
+      visitArithBinOp(node);
     }
-    final reg = _assembler.allocateRegister();
-    exp.accept(this, reg);
-    return reg;
   }
 
-  @override
-  void visitUnOp(UnOp node, int a) {
-    final b = _prepareOperatorArgument(node.exp);
-    _assembler.emitUnOp(a, b, node.op);
-  }
-
-  @override
-  void assignment(Assignment statement, int arg) {
-    final localVar = _assembler.getLocalVar(statement.name.value);
-    statement.exp.accept(this, localVar.register);
-  }
-
-  @override
-  void returnStatement(ReturnStatement statement, int arg) {
-    final returnVal = _assembler.allocateRegister();
-    statement.exp.accept(this, returnVal);
-    _assembler.emitReturn(returnVal);
-  }
-
-  @override
-  void visitBlock(Block block, int arg) {
-    for (final statement in block.statements) {
-      statement.accept(this, arg);
+  void visitArithBinOp(BinOp node) {
+    visit(node.left, null);
+    visit(node.right, null);
+    switch (node.op) {
+      case '>':
+        _assembler.emitBinOp('<=');
+        _assembler.emitUnOp('not');
+      case '>=':
+        _assembler.emitBinOp('<');
+        _assembler.emitUnOp('not');
+      case '!=':
+        _assembler.emitBinOp('==');
+        _assembler.emitUnOp('not');
+      default:
+        _assembler.emitBinOp(node.op);
     }
-    block.finalStatement?.accept(this, arg);
+  }
+
+  void visitLogicalBinOp(BinOp node) {}
+
+  @override
+  void visitUnOp(UnOp node, Null arg) {
+    visit(node.exp);
+    _assembler.emitUnOp(node.op);
   }
 
   @override
-  void visitName(Name node, int arg) {
+  void visitAssignment(Assignment node, Null arg) {
+    switch (node.left) {
+      case Name(:final value):
+        final localVar = _assembler.getLocalVar(value);
+        visit(node.exp);
+        _assembler.emitMove(localVar.register);
+      case Index(:final target, :final key):
+        visit(target);
+        visit(key);
+        visit(node.exp);
+        _assembler.emitSetTable();
+      default:
+        throw ArgumentError('Invalid assignment target: ${node.left}');
+    }
+  }
+
+  @override
+  void visitReturnStatement(ReturnStatement node, Null arg) {
+    visit(node.exp);
+    _assembler.emitReturn();
+  }
+
+  @override
+  void visitBlock(Block node, Null arg) {
+    _assembler.enterScope();
+    for (final statement in node.statements) {
+      visit(statement);
+    }
+    if (node.finalStatement != null) {
+      visit(node.finalStatement!);
+    }
+    _assembler.leaveScope();
+  }
+
+  @override
+  void visitName(Name node, Null arg) {
     final localVar = _assembler.getLocalVar(node.value);
-    _assembler.emitMove(arg, localVar.register);
-  }
-
-  void insertField(Field node, int tableIndex) {
-    // TODO: implement visitField
-    var key = node.key;
-    var value = node.value;
+    _assembler.emitPush(localVar.register);
   }
 
   @override
-  void visitTableLiteral(TableLiteral node, int a) {
-    List<Field> arrayFields = node.fields.where((node) => node.key == null).toList();
-    List<Field> mapFields = node.fields.where((node) => node.key != null).toList();
-    _assembler.emitNewTable(a, arrayFields.length, mapFields.length);
-    for (var (i, field) in arrayFields.indexed) {
-      field.accept(this, a);
+  void visitField(Field node, Null arg) {
+    _assembler.emitPush(-1);
+    visit(node.key!);
+    visit(node.value);
+    _assembler.emitSetTable();
+  }
+
+  @override
+  void visitTableLiteral(TableLiteral node, Null arg) {
+    List<Field> arrayFields =
+        node.fields.where((node) => node.key == null).toList();
+    List<Field> mapFields =
+        node.fields.where((node) => node.key != null).toList();
+    _assembler.emitNewTable(arrayFields.length, mapFields.length);
+    arrayFields = arrayFields.indexed
+        .map((e) => Field(IntLiteral(e.$1), e.$2.value))
+        .toList();
+    for (var field in arrayFields) {
+      visit(field);
     }
     for (var field in mapFields) {
-      field.accept(this, a);
+      visit(field);
     }
+  }
+
+  @override
+  void visitIndex(Index node, Null arg) {
+    visit(node.target);
+    visit(node.key);
+    _assembler.emitGetTable();
+  }
+
+  @override
+  void visitFalseLiteral(FalseLiteral node, Null arg) {
+    _assembler.emitLoadBool(false);
+  }
+
+  @override
+  void visitIfStatement(IfStatement node, Null arg) {
+    visit(node.condition);
+    _assembler.emitTest(true);
+    int elseJump = _assembler.emitJump();
+    visit(node.thenBranch);
+    if (node.elseBranch != null) {
+      int skipElseJump = _assembler.emitJump();
+      _assembler.patchJump(elseJump);
+      visit(node.elseBranch!);
+      _assembler.patchJump(skipElseJump);
+    } else {
+      _assembler.patchJump(elseJump);
+    }
+  }
+
+  @override
+  void visitTrueLiteral(TrueLiteral node, Null arg) {
+    _assembler.emitLoadBool(true);
   }
 }

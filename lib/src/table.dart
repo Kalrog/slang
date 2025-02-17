@@ -52,4 +52,18 @@ class SlangTable {
   }
 
   int get length => _list.length + _map.length;
+
+  @override
+  String toString() {
+    StringBuffer sb = StringBuffer();
+    sb.write('{');
+    for (var i = 0; i < _list.length; i++) {
+      sb.write('$i: ${_list[i]}, ');
+    }
+    for (var key in _map.keys) {
+      sb.write('$key: ${_map[key]}, ');
+    }
+    sb.write('}');
+    return sb.toString();
+  }
 }

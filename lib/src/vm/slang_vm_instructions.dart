@@ -78,6 +78,18 @@ class Instructions {
     vm.getTable();
   }
 
+  static void setUpvalue(SlangVm vm, int instruction) {
+    vm.setUpvalue(instruction.ax);
+  }
+
+  static void getUpvalue(SlangVm vm, int instruction) {
+    vm.getUpvalue(instruction.ax);
+  }
+
+  static void closeUpvalues(SlangVm vm, int instruction) {
+    vm.closeUpvalues(instruction.ax);
+  }
+
   static void test(SlangVm vm, int instruction) {
     if (vm.toBool(-1) != (instruction.c != 0)) {
       vm.jump(1);
@@ -93,5 +105,13 @@ class Instructions {
     int keep = instruction.a;
     int pop = instruction.bx;
     vm.pop(keep, pop);
+  }
+
+  static void loadClosure(SlangVm vm, int instruction) {
+    vm.loadClosure(instruction.bx);
+  }
+
+  static void call(SlangVm vm, int instruction) {
+    vm.call(instruction.bx);
   }
 }

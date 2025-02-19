@@ -20,8 +20,11 @@ abstract class AstNodeVisitor<T, A> {
   T visitIndex(Index node, A arg);
   T visitBinOp(BinOp node, A arg);
   T visitUnOp(UnOp node, A arg);
+  T visitFunctionExpression(FunctionExpression node, A arg);
+  T visitFunctionCall(FunctionCall node, A arg);
 
   T visitBlock(Block node, A arg);
+  T visitFunctionStatement(FunctionCallStatement node, A arg);
   T visitIfStatement(IfStatement node, A arg);
   T visitReturnStatement(ReturnStatement node, A arg);
   T visitAssignment(Assignment node, A arg);
@@ -163,8 +166,49 @@ class UnOp extends Exp {
   String toString() => '$runtimeType($op, $exp)';
 }
 
+class FunctionExpression extends Exp {
+  final List<Name> params;
+  final Block body;
+  FunctionExpression(this.params, this.body);
+  @override
+  T accept<T, A>(AstNodeVisitor visitor, A arg) {
+    return visitor.visitFunctionExpression(this, arg);
+  }
+
+  @override
+  String toString() => '$runtimeType($params, $body)';
+}
+
+class FunctionCall extends Exp {
+  final Exp target;
+  final List<Exp> args;
+
+  FunctionCall(this.target, this.args);
+
+  @override
+  T accept<T, A>(AstNodeVisitor visitor, A arg) {
+    return visitor.visitFunctionCall(this, arg);
+  }
+
+  @override
+  String toString() => '$runtimeType($target, $args)';
+}
+
 sealed class Statement extends AstNode {
   const Statement();
+}
+
+class FunctionCallStatement extends Statement {
+  final FunctionCall call;
+  FunctionCallStatement(this.call);
+
+  @override
+  T accept<T, A>(AstNodeVisitor visitor, A arg) {
+    return visitor.visitFunctionStatement(this, arg);
+  }
+
+  @override
+  String toString() => '$runtimeType($call)';
 }
 
 class Block extends Statement {

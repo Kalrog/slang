@@ -6,8 +6,11 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
   late FunctionAssembler _assembler;
 
   FunctionPrototype generate(AstNode node) {
-    _assembler = FunctionAssembler();
+    final parent = FunctionAssembler();
+    parent.createLocalVar("_ENV");
+    _assembler = FunctionAssembler(parent: parent);
     visit(node);
+    _assembler.emitReturn();
     return _assembler.assemble();
   }
 
@@ -65,9 +68,25 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
   void visitAssignment(Assignment node, Null arg) {
     switch (node.left) {
       case Name(:final value):
-        final localVar = _assembler.getLocalVar(value);
-        visit(node.exp);
-        _assembler.emitMove(localVar.register);
+        var localVar = _assembler.getLocalVar(value);
+        if (node.isLocal) {
+          localVar = _assembler.createLocalVar(value);
+        }
+        if (localVar != null) {
+          visit(node.exp);
+          _assembler.emitMove(localVar.register);
+          return;
+        }
+
+        var upvalue = _assembler.getUpvalue(value);
+        if (upvalue != null) {
+          visit(node.exp);
+          _assembler.emitSetUpvalue(upvalue.index);
+          return;
+        }
+        visit(
+          Assignment(Index(Name("_ENV"), StringLiteral(value)), node.exp, isLocal: false),
+        );
       case Index(:final target, :final key):
         visit(target);
         visit(key);
@@ -86,20 +105,28 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
 
   @override
   void visitBlock(Block node, Null arg) {
-    _assembler.enterScope();
     for (final statement in node.statements) {
       visit(statement);
     }
     if (node.finalStatement != null) {
       visit(node.finalStatement!);
     }
-    _assembler.leaveScope();
   }
 
   @override
   void visitName(Name node, Null arg) {
     final localVar = _assembler.getLocalVar(node.value);
-    _assembler.emitPush(localVar.register);
+    if (localVar != null) {
+      _assembler.emitPush(localVar.register);
+      return;
+    }
+    final upvalue = _assembler.getUpvalue(node.value);
+    if (upvalue != null) {
+      _assembler.emitGetUpvalue(upvalue.index);
+      return;
+    }
+
+    visit(Index(Name("_ENV"), StringLiteral(node.value)));
   }
 
   @override
@@ -112,14 +139,10 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
 
   @override
   void visitTableLiteral(TableLiteral node, Null arg) {
-    List<Field> arrayFields =
-        node.fields.where((node) => node.key == null).toList();
-    List<Field> mapFields =
-        node.fields.where((node) => node.key != null).toList();
+    List<Field> arrayFields = node.fields.where((node) => node.key == null).toList();
+    List<Field> mapFields = node.fields.where((node) => node.key != null).toList();
     _assembler.emitNewTable(arrayFields.length, mapFields.length);
-    arrayFields = arrayFields.indexed
-        .map((e) => Field(IntLiteral(e.$1), e.$2.value))
-        .toList();
+    arrayFields = arrayFields.indexed.map((e) => Field(IntLiteral(e.$1), e.$2.value)).toList();
     for (var field in arrayFields) {
       visit(field);
     }
@@ -159,5 +182,37 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
   @override
   void visitTrueLiteral(TrueLiteral node, Null arg) {
     _assembler.emitLoadBool(true);
+  }
+
+  @override
+  void visitFunctionExpression(FunctionExpression node, Null arg) {
+    final parent = _assembler;
+    _assembler = FunctionAssembler(parent: parent);
+    parent.children.add(_assembler);
+    for (final param in node.params) {
+      _assembler.createLocalVar(param.value);
+    }
+    _assembler.enterScope();
+    visit(node.body);
+    _assembler.leaveScope();
+    _assembler.emitLoadConstant(null);
+    _assembler.emitReturn();
+    _assembler = parent;
+    _assembler.emitLoadClosure(_assembler.children.length - 1);
+  }
+
+  @override
+  void visitFunctionCall(FunctionCall node, Null arg) {
+    visit(node.target);
+    for (final arg in node.args) {
+      visit(arg);
+    }
+    _assembler.emitCall(node.args.length);
+  }
+
+  @override
+  void visitFunctionStatement(FunctionCallStatement node, Null arg) {
+    visit(node.call);
+    _assembler.emitPop();
   }
 }

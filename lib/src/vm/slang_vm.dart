@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:slang/src/compiler.dart';
 import 'package:slang/src/table.dart';
+import 'package:slang/src/vm/closure.dart';
 import 'package:slang/src/vm/function_prototype.dart';
 import 'package:slang/src/vm/slang_vm_bytecode.dart';
 
@@ -9,9 +10,10 @@ class SlangStackFrame {
   int _pc = 0;
   late List stack = [];
   SlangStackFrame? parent;
-  FunctionPrototype? function;
-  SlangStackFrame([this.function, this.parent]);
+  Closure? closure;
+  SlangStackFrame([this.closure, this.parent]);
 
+  FunctionPrototype? get function => closure?.prototype;
   int get pc => _pc;
 
   int get currentInstruction => function!.instructions[_pc];
@@ -73,7 +75,11 @@ class SlangStackFrame {
   void get top => stack.length;
 
   void setTop(int top) {
-    stack.addAll(List.filled(top - stack.length, null));
+    if (top < stack.length) {
+      stack.removeRange(top, stack.length);
+    } else {
+      stack.addAll(List.filled(top - stack.length, null));
+    }
   }
 }
 
@@ -89,6 +95,7 @@ enum UnOpType { neg, not }
 
 class SlangVm {
   SlangStackFrame frame = SlangStackFrame();
+  SlangTable globals = SlangTable();
 
   void execUnOp(UnOpType op) {
     final a = frame.pop();
@@ -178,28 +185,78 @@ class SlangVm {
     frame.push(table[key]);
   }
 
+  void setUpvalue(int index) {
+    final value = frame.pop();
+    final upvalue = frame.closure!.upvalues[index];
+    upvalue!.set(value);
+  }
+
+  void getUpvalue(int index) {
+    final upvalue = frame.closure!.upvalues[index];
+    frame.push(upvalue!.get());
+  }
+
+  void closeUpvalues(int fromIndex) {
+    for (final upvalue in frame.closure!.upvalues) {
+      if (upvalue != null && upvalue.index >= fromIndex) {
+        upvalue.migrate();
+      }
+    }
+  }
+
   void compile(String code) {
     FunctionPrototype prototype = compileSource(code);
-    frame.push(prototype);
+    Closure closure = Closure.slang(prototype);
+    if (prototype.upvalues.isNotEmpty && prototype.upvalueNames[0] == '_ENV') {
+      closure.upvalues[0] = UpvalueHolder.value(globals);
+    }
+    frame.push(closure);
   }
 
-  void call({bool step = false}) {
-    final prototype = frame.pop();
-    if (prototype is! FunctionPrototype) {
+  void loadClosure(int index) {
+    final prototype = frame.function!.children[index];
+    Closure closure = Closure.slang(prototype);
+    if (prototype.upvalues.isNotEmpty && prototype.upvalueNames[0] == '_ENV') {
+      closure.upvalues[0] = UpvalueHolder.value(globals);
+    }
+    frame.push(closure);
+  }
+
+  bool step = false;
+  void call(int nargs, {bool step = true}) {
+    var args = frame.pop(nargs) ?? [];
+    if (args != List) {
+      args = [args];
+    }
+    final closure = frame.pop();
+    if (closure is! Closure) {
       throw Exception('Expected FunctionPrototype');
     }
-    _pushStack(prototype);
-    frame.setTop(prototype.maxStackSize);
-    try {
-      _runSlangFunction(step: step);
-    } catch (e) {
-      print(e);
-      print(frame);
+    _pushStack(closure);
+    for (final arg in args) {
+      frame.push(arg);
+    }
+    if (closure.prototype != null) {
+      frame.setTop(closure.prototype!.maxStackSize);
+      try {
+        _runSlangFunction(step: step);
+      } catch (e) {
+        print(e);
+        print(frame);
+      }
+    } else {
+      final value = closure.dartFunction!(this, args);
+      _popStack();
+      frame.push(value);
     }
   }
 
-  void _pushStack([FunctionPrototype? function]) {
-    frame = SlangStackFrame(function, frame);
+  void registerDartFunction(String name, DartFunction function) {
+    globals[name] = Closure.dart(function);
+  }
+
+  void _pushStack([Closure? closure]) {
+    frame = SlangStackFrame(closure, frame);
   }
 
   void _popStack() {
@@ -227,9 +284,10 @@ class SlangVm {
       }
 
       op.execute(this, instruction);
-      addPc(1);
       if (op.name == OpCodeName.returnOp) {
         break;
+      } else {
+        addPc(1);
       }
     }
   }

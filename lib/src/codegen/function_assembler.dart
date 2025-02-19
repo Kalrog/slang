@@ -2,34 +2,108 @@ import 'package:slang/src/vm/function_prototype.dart';
 import 'package:slang/src/vm/slang_vm_bytecode.dart';
 
 class LocalVar {
+  /// Register index of the local variable
   final int register;
+
+  /// Name of the local variable
   final String name;
+
+  /// Scope of the local variable
   final int scope;
 
-  LocalVar(this.register, this.name, this.scope);
+  /// Previous definition of a local variable with the same name
+  /// that is shadowed by this one
+  LocalVar? previous;
+
+  bool _captured = false;
+
+  LocalVar(this.previous, this.register, this.name, this.scope);
+
+  /// Whether the local variable is captured
+  bool get captured => _captured;
+
+  void capture() {
+    _captured = true;
+  }
+}
+
+class Upvalue {
+  /// Position of upvalue in the upvalue table
+  final int index;
+
+  /// Position of the referenced local variable in the parents stack
+  final int localVarRegister;
+
+  /// Position of the referenced upvalue in the parents upvalue table
+  final int upvalueIndex;
+
+  Upvalue(this.index, this.localVarRegister, this.upvalueIndex);
 }
 
 class FunctionAssembler {
+  final FunctionAssembler? parent;
   final List<int> _instructions = [];
   final Map<Object?, int> _constants = {};
   final Map<String, LocalVar> _locals = {};
+  final Map<String, Upvalue> _upvalues = {};
+  final List<FunctionAssembler> children = [];
   int usedRegisters = 0;
   int maxRegisters = 0;
   int scope = 0;
 
-  LocalVar getLocalVar(String name) {
+  FunctionAssembler({this.parent});
+
+  LocalVar? getLocalVar(String name) {
     if (_locals.containsKey(name)) {
       return _locals[name]!;
     }
+    return null;
+  }
+
+  LocalVar createLocalVar(String name) {
     final register = allocateRegister();
-    final localVar = LocalVar(register, name, scope);
+    final localVar = LocalVar(_locals[name], register, name, scope);
     _locals[name] = localVar;
     return localVar;
   }
 
+  Upvalue? getUpvalue(String name) {
+    ///check if it's a known upvalue
+    if (_upvalues.containsKey(name)) {
+      return _upvalues[name]!;
+    }
+
+    /// if we have a parent, check if it has a local value with the same name
+    if (parent != null) {
+      final localVar = parent!.getLocalVar(name);
+      if (localVar != null) {
+        localVar.capture();
+        final index = _upvalues.length;
+        final upvalue = Upvalue(index, localVar.register, -1);
+        _upvalues[name] = upvalue;
+        return upvalue;
+      }
+
+      /// if the parent has an upvalue with the same name, return it
+      final upvalue = parent!.getUpvalue(name);
+      if (upvalue != null) {
+        final index = _upvalues.length;
+        final newUpvalue = Upvalue(index, -1, upvalue.index);
+        _upvalues[name] = newUpvalue;
+        return newUpvalue;
+      }
+    }
+
+    return null;
+  }
+
   void freeLocal(LocalVar localVar) {
-    _locals.remove(localVar.name);
-    freeRegister();
+    if (localVar.previous != null) {
+      _locals[localVar.name] = localVar.previous!;
+    } else {
+      _locals.remove(localVar.name);
+      freeRegister();
+    }
   }
 
   void enterScope() {
@@ -38,6 +112,7 @@ class FunctionAssembler {
 
   void leaveScope() {
     final locals = _locals.values.where((l) => l.scope == scope).toList();
+    closeOpenUpvalues(locals);
     for (final localVar in locals) {
       freeLocal(localVar);
     }
@@ -45,6 +120,31 @@ class FunctionAssembler {
       emitPop(0, locals.length);
     }
     scope--;
+  }
+
+  void closeOpenUpvalues(List<LocalVar> locals) {
+    //Find the lowest slot containing a captured local variable
+    int minSlot = maxRegisters;
+    bool hasAnyCaptured = false;
+    for (final local in locals) {
+      for (LocalVar? current = local;
+          current != null && current.scope == scope;
+          current = current.previous) {
+        if (current.captured) {
+          hasAnyCaptured = true;
+          if (current.register < minSlot) {
+            minSlot = current.register;
+          }
+        }
+      }
+    }
+
+    if (!hasAnyCaptured) {
+      return;
+    }
+
+    //Close upvalues
+    emitCloseUpvalues(minSlot);
   }
 
   int allocateRegister() {
@@ -213,6 +313,9 @@ class FunctionAssembler {
     return FunctionPrototype(
       _instructions,
       _constantsToList(),
+      _upvalues.values.toList(),
+      _upvalues.keys.toList(),
+      children.map((c) => c.assemble()).toList(),
       maxStackSize: maxRegisters,
     );
   }
@@ -223,5 +326,25 @@ class FunctionAssembler {
       constants[value] = key;
     });
     return constants;
+  }
+
+  void emitSetUpvalue(int index) {
+    emitAx(OpCodeName.setUpvalue, index);
+  }
+
+  void emitGetUpvalue(int index) {
+    emitAx(OpCodeName.getUpvalue, index);
+  }
+
+  void emitCloseUpvalues(int minSlot) {
+    emitAx(OpCodeName.closeUpvalues, minSlot);
+  }
+
+  void emitLoadClosure(int index) {
+    emitAx(OpCodeName.loadClosure, index);
+  }
+
+  void emitCall(int argCount) {
+    emitABx(OpCodeName.call, 0, argCount);
   }
 }

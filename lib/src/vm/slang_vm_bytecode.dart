@@ -47,6 +47,7 @@ typedef Instruction = void Function(SlangVm vm, int instruction);
 enum OpCodeName {
   loadConstant,
   loadBool,
+  loadClosure,
   add,
   sub,
   mul,
@@ -64,8 +65,12 @@ enum OpCodeName {
   newTable,
   setTable,
   getTable,
+  setUpvalue,
+  getUpvalue,
+  closeUpvalues,
   test,
   jump,
+  call,
 }
 
 class OpCode {
@@ -84,6 +89,8 @@ const opCodes = <OpCode>[
       OpMode.iABC,
       Instructions
           .loadBool), //Put constant (bool) A onto the stack and if(B) pc++
+  OpCode(OpCodeName.loadClosure, OpMode.iAx,
+      Instructions.loadClosure), // put closure Closure[Ax] onto the stack
   // Arithmetic operations
   // always take top elements of the stack and apply, then push result
   OpCode(OpCodeName.add, OpMode.iNone, Instructions.add),
@@ -121,7 +128,12 @@ const opCodes = <OpCode>[
 
   OpCode(OpCodeName.getTable, OpMode.iNone,
       Instructions.getTable), // push Stack(-2)[Stack(-1)] (will pop
-
+  OpCode(OpCodeName.setUpvalue, OpMode.iAx,
+      Instructions.setUpvalue), // upvalue[Ax] = Stack(-1)(will pop stack)
+  OpCode(OpCodeName.getUpvalue, OpMode.iAx,
+      Instructions.getUpvalue), // push upvalue[Ax]
+  OpCode(OpCodeName.closeUpvalues, OpMode.iAx,
+      Instructions.closeUpvalues), // close all upvalues with index >= Ax
   OpCode(
       OpCodeName.test,
       OpMode.iABC,
@@ -129,6 +141,7 @@ const opCodes = <OpCode>[
           .test), // if not (Stack(-1) <=> C) then pc++ (pops top of stack)
 
   OpCode(OpCodeName.jump, OpMode.iAsBx, Instructions.jump), // pc+=sBx
+  OpCode(OpCodeName.call, OpMode.iABx, Instructions.call), // call function
 ];
 
 String instructionToString(int instruction) {

@@ -8,7 +8,9 @@ abstract class SlangGrammer extends GrammarDefinition {
   Parser expr();
 
   Parser intLiteral() {
-    return ((char('-') | char('+')).optional() & digit().plus()).flatten("Expected integer").trim();
+    return ((char('-') | char('+')).optional() & digit().plus())
+        .flatten("Expected integer")
+        .trim();
   }
 
   Parser stringLiteral() {
@@ -35,26 +37,34 @@ abstract class SlangGrammer extends GrammarDefinition {
     return (ref0(expr) & char(':').trim()).trim().optional() & ref0(expr);
   }
 
-  Parser name() => (letter() & pattern('a-zA-Z0-9_').star()).flatten('Expected name').trim();
+  Parser name() =>
+      (letter() & pattern('a-zA-Z0-9_').star()).flatten('Expected name').trim();
 
   Parser args() => (char('(').trim() &
-          ref0(expr).starSeparated(char(',').trim()).map((list) => list.elements) &
+          ref0(expr)
+              .starSeparated(char(',').trim())
+              .map((list) => list.elements) &
           char(')').trim())
       .pick(1);
   Parser varRef() => ref0(name) & ref0(varSuffix).star();
 
   Parser varSuffix() =>
       ref0(args).star() &
-      ((char('.').trim() & ref0(name).map((name) => StringLiteral(name.value))).pick(1) |
+      ((char('.').trim() & ref0(name).map((name) => StringLiteral(name.value)))
+              .pick(1) |
           (char('[').trim() & ref0(expr) & char(']').trim()).pick(1));
 
   Parser prefixExpr() => ref0(varRef) & ref0(args).star();
   Parser functionCall() => ref0(varRef) & ref0(args).plus();
 
-  Parser statement() => ref0(assignment) | ref0(ifStatement) | ref0(block) | ref0(functionCall);
+  Parser statement() =>
+      ref0(assignment) | ref0(ifStatement) | ref0(block) | ref0(functionCall);
 
   Parser assignment() =>
-      string('local').optional().trim() & ref0(varRef) & char('=').trim() & ref0(expr).trim();
+      string('local').optional().trim() &
+      ref0(varRef) &
+      char('=').trim() &
+      ref0(expr).trim();
 
   Parser ifStatement() =>
       string('if').trim() &
@@ -65,8 +75,12 @@ abstract class SlangGrammer extends GrammarDefinition {
       (string('else').trim() & ref0(statement)).optional();
 
   Parser chunk() =>
-      (ref0(statement) & char(';').trim().optional()).map((value) => value[0]).star() &
-      (ref0(finalStatement) & char(';').trim().optional()).map((value) => value[0]).optional();
+      (ref0(statement) & char(';').trim().optional())
+          .map((value) => value[0])
+          .star() &
+      (ref0(finalStatement) & char(';').trim().optional())
+          .map((value) => value[0])
+          .optional();
 
   Parser block() => (char('{').trim() & ref0(chunk) & char('}').trim()).pick(1);
 
@@ -76,7 +90,11 @@ abstract class SlangGrammer extends GrammarDefinition {
 
   /// (args)body | (args) => body
   Parser functionExpression() =>
-      (string('func').trim() & char('(').trim() & ref0(params) & char(')').trim() & ref0(block)) |
+      (string('func').trim() &
+          char('(').trim() &
+          ref0(params) &
+          char(')').trim() &
+          ref0(block)) |
       (string('func').trim() &
           char('(').trim() &
           ref0(params) &
@@ -84,5 +102,6 @@ abstract class SlangGrammer extends GrammarDefinition {
           string('=>').trim() &
           ref0(expr));
 
-  Parser params() => ref0(name).starSeparated(char(',').trim()).map((list) => list.elements);
+  Parser params() =>
+      ref0(name).starSeparated(char(',').trim()).map((list) => list.elements);
 }

@@ -31,8 +31,10 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
 
   @override
   void visitBinOp(BinOp node, Null arg) {
-    if (["and", "or"].contains(node.op)) {
-      visitLogicalBinOp(node);
+    if (node.op case 'and') {
+      visitLogicalAnd(node);
+    } else if (node.op case 'or') {
+      visitLogicalOr(node);
     } else {
       visitArithBinOp(node);
     }
@@ -56,7 +58,25 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
     }
   }
 
-  void visitLogicalBinOp(BinOp node) {}
+  void visitLogicalAnd(BinOp node) {
+    visit(node.left);
+    _assembler.emitPush(-1);
+    _assembler.emitTest(true);
+    final doneJump = _assembler.emitJump();
+    _assembler.emitPop();
+    visit(node.right);
+    _assembler.patchJump(doneJump);
+  }
+
+  void visitLogicalOr(BinOp node) {
+    visit(node.left);
+    _assembler.emitPush(-1);
+    _assembler.emitTest(false);
+    final doneJump = _assembler.emitJump();
+    _assembler.emitPop();
+    visit(node.right);
+    _assembler.patchJump(doneJump);
+  }
 
   @override
   void visitUnOp(UnOp node, Null arg) {

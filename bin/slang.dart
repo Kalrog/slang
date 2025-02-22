@@ -20,27 +20,49 @@ void main(List<String> arguments) {
     print(args[0]);
     return null;
   });
+//   vm.compile('''
+// counter = func (n) {
+//   local v = 0
+//   return {inc:func () {
+//     v = v + n
+//     return v
+//   },dec: func(){
+//     v = v - n
+//     return v
+//   }}
+// }
+// local tbl = counter(2)
+// local inc = tbl.inc
+// local dec = tbl.dec
+// print(inc())
+// print(inc())
+// print(inc())
+// print(dec())
+// print(dec())
+// print(inc())
+// print(dec())
+// ''');
+
   vm.compile('''
-counter = func (n) {
-  local v = 0
-  return {inc:func () {
-    v = v + n
-    return v
-  },dec: func(){
-    v = v - n
-    return v
-  }}
-}
-local tbl = counter(2)
-local inc = tbl.inc
-local dec = tbl.dec
-print(inc())
-print(inc())
-print(inc())
-print(dec())
-print(dec())
-print(inc())
-print(dec())
+  print("Testing and / or short circuiting");
+
+  local a = func(){
+    print("a");
+    return true;
+  }
+  local b = func(){
+    print("b");
+    return false;
+  }
+
+  print("a() and b()");
+  print(a() and b());
+  print("a() or b()");
+  print(a() or b());
+  print("b() and a()");
+  print(b() and a());
+  print("b() or a()");
+  print(b() or a());
 ''');
   // vm.debugPrintInstructions();
   // vm.mode = ExecutionMode.step;

@@ -1,6 +1,5 @@
 import 'dart:collection';
 
-import 'package:slang/src/codegen/function_assembler.dart';
 import 'package:slang/src/vm/slang_vm_bytecode.dart';
 
 class Upvalue {
@@ -10,9 +9,22 @@ class Upvalue {
 
   const Upvalue(this.name, this.index, this.isLocal);
 
+  Upvalue.fromJson(Map<String, dynamic> json)
+      : name = json['name'],
+        index = json['index'],
+        isLocal = json['isLocal'];
+
   @override
   String toString() {
     return 'Upvalue{name: $name, index: $index, isLocal: $isLocal}';
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'name': name,
+      'index': index,
+      'isLocal': isLocal,
+    };
   }
 }
 
@@ -37,11 +49,28 @@ class FunctionPrototype {
         upvalues = UnmodifiableListView(upvalues),
         children = UnmodifiableListView(children);
 
+  FunctionPrototype.fromJson(Map<String, dynamic> json)
+      : instructions = UnmodifiableListView(json['instructions']),
+        constants = UnmodifiableListView(json['constants']),
+        upvalues = UnmodifiableListView((json['upvalues'] as List).map((e) => Upvalue.fromJson(e))),
+        children = UnmodifiableListView(
+            (json['children'] as List).map((e) => FunctionPrototype.fromJson(e))),
+        maxStackSize = json['maxStackSize'];
+
+  Map<String, dynamic> toJson() {
+    return {
+      'instructions': instructions,
+      'constants': constants,
+      'upvalues': upvalues.map((e) => e.toJson()).toList(),
+      'children': children.map((e) => e.toJson()).toList(),
+      'maxStackSize': maxStackSize,
+    };
+  }
+
   String instructionsToString({int? pc, int? context}) {
     StringBuffer buffer = StringBuffer();
     int start = context != null && pc != null ? pc - context : 0;
-    int end =
-        context != null && pc != null ? pc + context : instructions.length;
+    int end = context != null && pc != null ? pc + context : instructions.length;
 
     if (start < 0) {
       start = 0;
@@ -50,8 +79,7 @@ class FunctionPrototype {
       end = instructions.length;
     }
     for (var i = start; i < end; i++) {
-      buffer.writeln(
-          '${i == pc ? ">" : " "} $i: ${instructionToString(instructions[i])}');
+      buffer.writeln('${i == pc ? ">" : " "} $i: ${instructionToString(instructions[i])}');
     }
     return buffer.toString();
   }

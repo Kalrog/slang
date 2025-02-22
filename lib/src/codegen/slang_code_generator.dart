@@ -242,4 +242,24 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
     visit(node.call);
     _assembler.emitPop();
   }
+
+  @override
+  void visitForLoop(ForLoop node, Null arg) {
+    _assembler.enterScope();
+    if (node.init != null) {
+      visit(node.init!);
+    }
+
+    int loopStart = _assembler.nextInstructionIndex;
+    visit(node.condition);
+    _assembler.emitTest(true);
+    int loopEnd = _assembler.emitJump();
+    visit(node.body);
+    if (node.update != null) {
+      visit(node.update!);
+    }
+    _assembler.emitJump(loopStart);
+    _assembler.patchJump(loopEnd);
+    _assembler.leaveScope();
+  }
 }

@@ -301,7 +301,13 @@ class FunctionAssembler {
     emitABC(OpCodeName.test, 0, 0, c ? 1 : 0);
   }
 
-  int emitJump([int sbx = 0]) {
+  int emitJump([int? target]) {
+    final int sbx;
+    if (target != null) {
+      sbx = target - _instructions.length - 1;
+    } else {
+      sbx = 0;
+    }
     emitAsBx(OpCodeName.jump, 0, sbx);
     return _instructions.length - 1;
   }

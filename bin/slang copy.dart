@@ -1,13 +1,8 @@
-import 'dart:io';
-
-import 'package:args/args.dart';
 import 'package:slang/slang.dart';
-import 'package:slang/src/stdlib/stdlib.dart';
 
 void main(List<String> arguments) {
   // print('Hello world: ${slang.calculate()}!');
   final vm = SlangVm();
-  SlangStdLib.register(vm);
   // vm.compile("""thing = (4 + 4) * 6
   // return thing
   // """);
@@ -104,31 +99,4 @@ void main(List<String> arguments) {
   // vm.mode = ExecutionMode.step;
   // vm.call(0);
   // print(vm.toString2(0));
-
-  ArgParser argParser = ArgParser();
-  argParser.addFlag('debug', abbr: 'd', help: 'Debug mode', defaultsTo: false);
-  argParser.addFlag('step', abbr: 's', help: 'Step mode', defaultsTo: false);
-
-  ArgParser runParser = ArgParser();
-  argParser.addCommand('run', runParser);
-
-  var result = argParser.parse(arguments);
-  if (result['debug']) {
-    vm.mode = ExecutionMode.runDebug;
-  }
-  if (result['step']) {
-    vm.mode = ExecutionMode.step;
-  }
-
-  if (result.command?.name == 'run') {
-    final arguments = result.command?.rest;
-    if (arguments != null && arguments.isNotEmpty) {
-      final path = arguments[0];
-      final file = File(path);
-
-      final source = file.readAsStringSync();
-      vm.compile(source);
-      vm.call(0);
-    }
-  }
 }

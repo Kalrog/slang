@@ -245,7 +245,7 @@ class SlangVm {
     }
     final closure = frame.pop();
     if (closure is! Closure) {
-      throw Exception('Expected FunctionPrototype');
+      throw Exception('Expected Closure got $closure');
     }
     _pushStack(closure);
     for (final arg in args) {

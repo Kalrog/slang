@@ -57,7 +57,7 @@ class Closure {
     if (dartFunction != null) {
       return 'Closure{dartFunction}';
     } else {
-      return 'Closure{prototype:${prototype!.instructionsToString()}, upvalues: $upvalues}';
+      return 'Closure{prototype, upvalues: $upvalues}';
     }
   }
 }

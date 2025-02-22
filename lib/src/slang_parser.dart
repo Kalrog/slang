@@ -2,7 +2,7 @@ import 'package:petitparser/petitparser.dart';
 import 'package:slang/src/ast.dart';
 import 'package:slang/src/slang_grammer.dart';
 
-class SlangParser extends SlangGrammer {
+class SlangParser extends SlangGrammar {
   /// Parses an expression.
   /// Includes order of operations.
   ///  ^
@@ -23,11 +23,16 @@ class SlangParser extends SlangGrammer {
     builder.primitive(ref0(listLiteral).cast<Exp>());
     builder.primitive(ref0(functionExpression).cast<Exp>());
     builder.primitive(ref0(prefixExpr).cast<Exp>());
-    builder.group().wrapper(char('(').trim(), char(')').trim(), (left, value, right) => value);
+    builder.group().wrapper(
+        char('(').trim(), char(')').trim(), (left, value, right) => value);
     builder.group().right(char('^').trim(), BinOp.new);
-    builder.group().prefix((char('-').trim() | string('not').trim()).cast<String>(), UnOp.new);
-    builder.group().left((char('*') | char('/') | char('%')).trim().cast<String>(), BinOp.new);
-    builder.group().left((char('-') | char('+')).trim().cast<String>(), BinOp.new);
+    builder.group().prefix(
+        (char('-').trim() | string('not').trim()).cast<String>(), UnOp.new);
+    builder.group().left(
+        (char('*') | char('/') | char('%')).trim().cast<String>(), BinOp.new);
+    builder
+        .group()
+        .left((char('-') | char('+')).trim().cast<String>(), BinOp.new);
     builder.group().left(
         (string('<=').trim() |
                 string('>=').trim() |
@@ -44,10 +49,12 @@ class SlangParser extends SlangGrammer {
   }
 
   @override
-  Parser intLiteral() => super.intLiteral().map((value) => IntLiteral(int.parse(value)));
+  Parser intLiteral() =>
+      super.intLiteral().map((value) => IntLiteral(int.parse(value)));
 
   @override
-  Parser stringLiteral() => super.stringLiteral().map((value) => StringLiteral(value));
+  Parser stringLiteral() =>
+      super.stringLiteral().map((value) => StringLiteral(value));
 
   @override
   Parser trueLiteral() => super.trueLiteral().map((value) => TrueLiteral());
@@ -59,14 +66,15 @@ class SlangParser extends SlangGrammer {
   Parser name() => super.name().map((value) => Name(value));
 
   @override
-  Parser chunk() =>
-      super.chunk().map((value) => Block((value[0] as List<dynamic>).cast<Statement>(), value[1]));
+  Parser chunk() => super.chunk().map((value) =>
+      Block((value[0] as List<dynamic>).cast<Statement>(), value[1]));
 
   @override
   Parser block() => super.block();
 
   @override
-  Parser returnStatement() => super.returnStatement().map((value) => ReturnStatement(value[1]));
+  Parser returnStatement() =>
+      super.returnStatement().map((value) => ReturnStatement(value[1]));
 
   @override
   Parser assignment() => super.assignment().map((value) => Assignment(
@@ -76,7 +84,8 @@ class SlangParser extends SlangGrammer {
       ));
 
   @override
-  Parser listLiteral() => super.listLiteral().castList<Field>().map((value) => TableLiteral(value));
+  Parser listLiteral() =>
+      super.listLiteral().castList<Field>().map((value) => TableLiteral(value));
 
   @override
   Parser field() => super.field().map((list) {
@@ -107,14 +116,19 @@ class SlangParser extends SlangGrammer {
         var exp = value[0];
         final args = value[1] as List<dynamic>;
         return args.fold(
-            exp, (exp, args) => FunctionCall(exp, (args as List<dynamic>).cast<Exp>()));
+            exp,
+            (exp, args) =>
+                FunctionCall(exp, (args as List<dynamic>).cast<Exp>()));
       });
 
   @override
   Parser functionCall() => super.functionCall().map((value) {
         var exp = value[0];
         final args = value[1] as List<dynamic>;
-        exp = args.fold(exp, (exp, args) => FunctionCall(exp, (args as List<dynamic>).cast<Exp>()));
+        exp = args.fold(
+            exp,
+            (exp, args) =>
+                FunctionCall(exp, (args as List<dynamic>).cast<Exp>()));
         return FunctionCallStatement(exp);
       });
 
@@ -126,12 +140,31 @@ class SlangParser extends SlangGrammer {
       ));
 
   @override
-  Parser functionExpression() => super.functionExpression().map((value) {
-        final args = value[2] as List<dynamic>;
-        var body = value[4];
+  Parser forLoop() => super.forLoop().map((values) {
+        final head = values[2] as List<dynamic>;
+        final init = head[0];
+        final condition = head[1];
+        final update = head[2];
+        final body = values[4];
+        return ForLoop(init, condition, update, body);
+      });
+
+  @override
+  Parser functionDefinition() => super.functionDefinition().map((value) {
+        final params = value[1] as List<dynamic>;
+        var body = value[3];
         if (body is String) {
-          body = Block([], ReturnStatement(value[5]));
+          body = Block([], ReturnStatement(value[4]));
         }
-        return FunctionExpression(args.cast<Name>(), body);
+        return FunctionExpression(params.cast<Name>(), body);
       }).labeled('function expression');
+
+  @override
+  Parser functionDefinitonStatement() =>
+      super.functionDefinitonStatement().map((value) {
+        final local = value[0] != null;
+        final name = value[2] as Exp;
+        final exp = value[3] as FunctionExpression;
+        return Assignment(name, exp, isLocal: local);
+      });
 }

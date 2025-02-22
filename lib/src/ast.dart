@@ -33,10 +33,12 @@ abstract class AstNodeVisitor<T, A> {
   T visitIfStatement(IfStatement node, A arg);
   T visitReturnStatement(ReturnStatement node, A arg);
   T visitAssignment(Assignment node, A arg);
+
+  T visitForLoop(ForLoop node, A arg);
 }
 
 class PrettyPrintVisitor extends AstNodeVisitor<void, Null> {
-  StringBuffer _buffer = StringBuffer();
+  final StringBuffer _buffer = StringBuffer();
   int _indent = 0;
 
   void _increaseIndent() {
@@ -191,6 +193,22 @@ class PrettyPrintVisitor extends AstNodeVisitor<void, Null> {
       _append(' else ');
       visit(node.elseBranch!);
     }
+  }
+
+  @override
+  void visitForLoop(ForLoop node, [Null arg]) {
+    _append('for (');
+    if (node.init != null) {
+      visit(node.init!);
+    }
+    _append(';');
+    visit(node.condition);
+    _append(';');
+    if (node.update != null) {
+      visit(node.update!);
+    }
+    _append(')');
+    visit(node.body);
   }
 
   @override
@@ -418,6 +436,21 @@ class IfStatement extends Statement {
 
   @override
   String toString() => '$runtimeType($condition, $thenBranch, $elseBranch)';
+}
+
+class ForLoop extends Statement {
+  final Statement? init;
+  final Exp condition;
+  final Statement? update;
+  final Statement body;
+  ForLoop(this.init, this.condition, this.update, this.body);
+  @override
+  T accept<T, A>(AstNodeVisitor visitor, A arg) {
+    return visitor.visitForLoop(this, arg);
+  }
+
+  @override
+  String toString() => '$runtimeType($init, $condition, $update, $body)';
 }
 
 class ReturnStatement extends Statement {

@@ -11,6 +11,7 @@ class SlangStackFrame {
   late List stack = [];
   SlangStackFrame? parent;
   Closure? closure;
+  Map<int, UpvalueHolder> openUpvalues = {};
   SlangStackFrame([this.closure, this.parent]);
 
   FunctionPrototype? get function => closure?.prototype;
@@ -93,9 +94,12 @@ enum RelOpType {
 
 enum UnOpType { neg, not }
 
+enum ExecutionMode { run, step, runDebug }
+
 class SlangVm {
   SlangStackFrame frame = SlangStackFrame();
   SlangTable globals = SlangTable();
+  ExecutionMode mode = ExecutionMode.run;
 
   void execUnOp(UnOpType op) {
     final a = frame.pop();
@@ -197,17 +201,19 @@ class SlangVm {
   }
 
   void closeUpvalues(int fromIndex) {
-    for (final upvalue in frame.closure!.upvalues) {
-      if (upvalue != null && upvalue.index >= fromIndex) {
+    frame.openUpvalues.removeWhere((_, upvalue) {
+      if (upvalue.index >= fromIndex) {
         upvalue.migrate();
+        return true;
       }
-    }
+      return false;
+    });
   }
 
   void compile(String code) {
     FunctionPrototype prototype = compileSource(code);
     Closure closure = Closure.slang(prototype);
-    if (prototype.upvalues.isNotEmpty && prototype.upvalueNames[0] == '_ENV') {
+    if (prototype.upvalues.isNotEmpty && prototype.upvalues[0].name == '_ENV') {
       closure.upvalues[0] = UpvalueHolder.value(globals);
     }
     frame.push(closure);
@@ -216,14 +222,23 @@ class SlangVm {
   void loadClosure(int index) {
     final prototype = frame.function!.children[index];
     Closure closure = Closure.slang(prototype);
-    if (prototype.upvalues.isNotEmpty && prototype.upvalueNames[0] == '_ENV') {
+    if (prototype.upvalues.isNotEmpty && prototype.upvalues[0].name == '_ENV') {
       closure.upvalues[0] = UpvalueHolder.value(globals);
+    }
+    for (final (index, uv) in prototype.upvalues.indexed) {
+      if (frame.openUpvalues[uv.index] != null) {
+        closure.upvalues[index] = frame.openUpvalues[uv.index];
+      } else if (uv.isLocal) {
+        closure.upvalues[index] = UpvalueHolder.stack(frame, uv.index);
+        frame.openUpvalues[uv.index] = closure.upvalues[index]!;
+      } else {
+        closure.upvalues[index] = frame.closure!.upvalues[uv.index];
+      }
     }
     frame.push(closure);
   }
 
-  bool step = false;
-  void call(int nargs, {bool step = true}) {
+  void call(int nargs) {
     var args = frame.pop(nargs) ?? [];
     if (args != List) {
       args = [args];
@@ -239,7 +254,7 @@ class SlangVm {
     if (closure.prototype != null) {
       frame.setTop(closure.prototype!.maxStackSize);
       try {
-        _runSlangFunction(step: step);
+        _runSlangFunction();
       } catch (e) {
         print(e);
         print(frame);
@@ -260,6 +275,9 @@ class SlangVm {
   }
 
   void _popStack() {
+    for (final upvalue in frame.openUpvalues.values) {
+      upvalue.migrate();
+    }
     frame = frame.parent!;
   }
 
@@ -271,16 +289,88 @@ class SlangVm {
     addPc(n);
   }
 
-  void _runSlangFunction({bool step = false}) {
+  Set<int> breakPoints = {};
+  void _runSlangFunction() {
     while (true) {
       final instruction = frame.currentInstruction;
       final op = instruction.op;
-      if (step) {
-        /// Print the current stack and wait for the user to press enter
-        // print(frame.toString());
+
+      bool brk = false;
+      if (breakPoints.contains(frame.pc) && mode == ExecutionMode.runDebug) {
+        brk = true;
+      }
+      if (mode == ExecutionMode.step) {
+        brk = true;
+      }
+      if (mode case ExecutionMode.runDebug || ExecutionMode.step) {
         debugPrint();
-        //wait for input
-        stdin.readLineSync();
+      }
+      while (brk) {
+        final instr = stdin.readLineSync();
+        switch (instr) {
+          case 'c':
+            mode = ExecutionMode.runDebug;
+            brk = false;
+          case '.' || '':
+            mode = ExecutionMode.step;
+            brk = false;
+          case 's' || 'stk' || 'stack':
+            printStack();
+          case 'i' || 'ins' || 'instructions':
+            printInstructions();
+          case 'c' || 'const' || 'constants':
+            printConstants();
+          case 'u' || 'up' || 'upvalues':
+            printUpvalues();
+          case 'd' || 'debug':
+            debugPrintToggle = !debugPrintToggle;
+          case _ when instr!.startsWith("toggle"):
+            switch (instr.replaceFirst("toggle", "").trim()) {
+              case 'i' || 'ins' || 'instructions':
+                debugPrintInstructions = !debugPrintInstructions;
+              case 's' || 'stk' || 'stack':
+                debugPrintStack = !debugPrintStack;
+              case 'c' || 'const' || 'constants':
+                debugPrintConstants = !debugPrintConstants;
+              case 'u' || 'up' || 'upvalues':
+                debugPrintUpvalues = !debugPrintUpvalues;
+            }
+          default:
+            // set [name] [value]
+            final setRegex = RegExp(r'set (\w+) (.+)');
+            final setMatch = setRegex.firstMatch(instr);
+            if (setMatch != null) {
+              final name = setMatch.group(1);
+              final value = setMatch.group(2);
+              switch (name) {
+                case 'mode':
+                  switch (value) {
+                    case 'run':
+                      mode = ExecutionMode.run;
+                    case 'step':
+                      mode = ExecutionMode.step;
+                  }
+                case 'instr_context':
+                  debugInstructionContext = int.tryParse(value ?? "null");
+              }
+            }
+
+            // b[reak] [pc]
+            final breakRegex = RegExp(r'b(reak)? (\d+)?');
+            final breakMatch = breakRegex.firstMatch(instr);
+            if (breakMatch != null) {
+              final pc = int.tryParse(breakMatch.group(2) ?? "null");
+              if (pc != null) {
+                if (breakPoints.contains(pc)) {
+                  breakPoints.remove(pc);
+                  print("Removed breakpoint at $pc");
+                } else {
+                  breakPoints.add(pc);
+                  print("Set breakpoint at $pc");
+                }
+              }
+            }
+        }
       }
 
       op.execute(this, instruction);
@@ -314,8 +404,56 @@ class SlangVm {
     return frame[n] == null || frame[n] == false;
   }
 
-  void debugPrint() {
-    print(frame.function!.toString(pc: frame.pc));
+  // void debugPrint() {
+  //   print(frame.function!.toString(pc: frame.pc));
+  //   print(frame.toString());
+  // }
+
+  void printStack() {
+    print("Stack:");
     print(frame.toString());
+  }
+
+  int? debugInstructionContext = 5;
+  void printInstructions() {
+    print("Instructions:");
+    print(frame.function!
+        .instructionsToString(pc: frame.pc, context: debugInstructionContext));
+  }
+
+  void printConstants() {
+    print("Constants:");
+    print(frame.function!.constantsToString());
+  }
+
+  void printUpvalues() {
+    print("Upvalues:");
+    for (var i = 0; i < frame.function!.upvalues.length; i++) {
+      print('${frame.function!.upvalues[i]}: ${frame.closure!.upvalues[i]}');
+    }
+  }
+
+  bool debugPrintToggle = true;
+
+  bool debugPrintInstructions = true;
+  bool debugPrintStack = true;
+  bool debugPrintConstants = false;
+  bool debugPrintUpvalues = false;
+
+  void debugPrint() {
+    if (debugPrintToggle) {
+      if (debugPrintInstructions) {
+        printInstructions();
+      }
+      if (debugPrintStack) {
+        printStack();
+      }
+      if (debugPrintConstants) {
+        printConstants();
+      }
+      if (debugPrintUpvalues) {
+        printUpvalues();
+      }
+    }
   }
 }

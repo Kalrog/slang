@@ -21,20 +21,29 @@ void main(List<String> arguments) {
     return null;
   });
   vm.compile('''
-incrementer = func (n) {
+counter = func (n) {
   local v = 0
-  return func () {
+  return {inc:func () {
     v = v + n
     return v
-  }
+  },dec: func(){
+    v = v - n
+    return v
+  }}
 }
-inc = incrementer(2)
+local tbl = counter(2)
+local inc = tbl.inc
+local dec = tbl.dec
 print(inc())
 print(inc())
 print(inc())
+print(dec())
+print(dec())
 print(inc())
+print(dec())
 ''');
   // vm.debugPrintInstructions();
-  vm.call(0, step: true);
+  // vm.mode = ExecutionMode.step;
+  vm.call(0);
   // print(vm.toString2(0));
 }

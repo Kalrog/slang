@@ -27,7 +27,10 @@ class LocalVar {
   }
 }
 
-class Upvalue {
+class UpvalueDef {
+  /// Name of the upvalue
+  final String name;
+
   /// Position of upvalue in the upvalue table
   final int index;
 
@@ -37,7 +40,15 @@ class Upvalue {
   /// Position of the referenced upvalue in the parents upvalue table
   final int upvalueIndex;
 
-  Upvalue(this.index, this.localVarRegister, this.upvalueIndex);
+  UpvalueDef(this.name, this.index, this.localVarRegister, this.upvalueIndex);
+
+  Upvalue toUpvalue() {
+    if (localVarRegister >= 0) {
+      return Upvalue(name, localVarRegister, true);
+    } else {
+      return Upvalue(name, upvalueIndex, false);
+    }
+  }
 }
 
 class FunctionAssembler {
@@ -45,7 +56,7 @@ class FunctionAssembler {
   final List<int> _instructions = [];
   final Map<Object?, int> _constants = {};
   final Map<String, LocalVar> _locals = {};
-  final Map<String, Upvalue> _upvalues = {};
+  final Map<String, UpvalueDef> _upvalues = {};
   final List<FunctionAssembler> children = [];
   int usedRegisters = 0;
   int maxRegisters = 0;
@@ -67,7 +78,7 @@ class FunctionAssembler {
     return localVar;
   }
 
-  Upvalue? getUpvalue(String name) {
+  UpvalueDef? getUpvalue(String name) {
     ///check if it's a known upvalue
     if (_upvalues.containsKey(name)) {
       return _upvalues[name]!;
@@ -79,7 +90,8 @@ class FunctionAssembler {
       if (localVar != null) {
         localVar.capture();
         final index = _upvalues.length;
-        final upvalue = Upvalue(index, localVar.register, -1);
+
+        final upvalue = UpvalueDef(name, index, localVar.register, -1);
         _upvalues[name] = upvalue;
         return upvalue;
       }
@@ -88,7 +100,7 @@ class FunctionAssembler {
       final upvalue = parent!.getUpvalue(name);
       if (upvalue != null) {
         final index = _upvalues.length;
-        final newUpvalue = Upvalue(index, -1, upvalue.index);
+        final newUpvalue = UpvalueDef(name, index, -1, upvalue.index);
         _upvalues[name] = newUpvalue;
         return newUpvalue;
       }
@@ -112,7 +124,6 @@ class FunctionAssembler {
 
   void leaveScope() {
     final locals = _locals.values.where((l) => l.scope == scope).toList();
-    closeOpenUpvalues(locals);
     for (final localVar in locals) {
       freeLocal(localVar);
     }
@@ -122,8 +133,9 @@ class FunctionAssembler {
     scope--;
   }
 
-  void closeOpenUpvalues(List<LocalVar> locals) {
+  void closeOpenUpvalues() {
     //Find the lowest slot containing a captured local variable
+    final locals = _locals.values.where((l) => l.scope == scope).toList();
     int minSlot = maxRegisters;
     bool hasAnyCaptured = false;
     for (final local in locals) {
@@ -313,8 +325,7 @@ class FunctionAssembler {
     return FunctionPrototype(
       _instructions,
       _constantsToList(),
-      _upvalues.values.toList(),
-      _upvalues.keys.toList(),
+      _upvaluesToList(),
       children.map((c) => c.assemble()).toList(),
       maxStackSize: maxRegisters,
     );
@@ -326,6 +337,15 @@ class FunctionAssembler {
       constants[value] = key;
     });
     return constants;
+  }
+
+  List<Upvalue> _upvaluesToList() {
+    final upvalues =
+        List<Upvalue>.filled(_upvalues.length, Upvalue("", 0, false));
+    _upvalues.forEach((key, value) {
+      upvalues[value.index] = value.toUpvalue();
+    });
+    return upvalues;
   }
 
   void emitSetUpvalue(int index) {

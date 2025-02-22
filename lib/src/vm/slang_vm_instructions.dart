@@ -108,7 +108,7 @@ class Instructions {
   }
 
   static void loadClosure(SlangVm vm, int instruction) {
-    vm.loadClosure(instruction.bx);
+    vm.loadClosure(instruction.ax);
   }
 
   static void call(SlangVm vm, int instruction) {

@@ -2,6 +2,11 @@ sealed class AstNode {
   const AstNode();
 
   T accept<T, A>(AstNodeVisitor<T, A> visitor, A arg);
+
+  void prettyPrint() {
+    final visitor = PrettyPrintVisitor();
+    visitor.prettyPrint(this);
+  }
 }
 
 abstract class AstNodeVisitor<T, A> {
@@ -28,6 +33,181 @@ abstract class AstNodeVisitor<T, A> {
   T visitIfStatement(IfStatement node, A arg);
   T visitReturnStatement(ReturnStatement node, A arg);
   T visitAssignment(Assignment node, A arg);
+}
+
+class PrettyPrintVisitor extends AstNodeVisitor<void, Null> {
+  StringBuffer _buffer = StringBuffer();
+  int _indent = 0;
+
+  void _increaseIndent() {
+    _indent += 2;
+  }
+
+  void _decreaseIndent() {
+    _indent -= 2;
+  }
+
+  void _append(String str) {
+    _buffer.write(str);
+  }
+
+  void _newLine() {
+    _buffer.writeln();
+    _buffer.write(' ' * _indent);
+  }
+
+  @override
+  void visit(AstNode node, [Null arg]) {
+    node.accept(this, arg);
+  }
+
+  void prettyPrint(AstNode node) {
+    visit(node);
+    print(_buffer.toString());
+  }
+
+  @override
+  void visitIntLiteral(IntLiteral node, [Null arg]) {
+    _append('${node.value}');
+  }
+
+  @override
+  void visitStringLiteral(StringLiteral node, [Null arg]) {
+    _append(node.value);
+  }
+
+  @override
+  void visitFalseLiteral(FalseLiteral node, [Null arg]) {
+    _append('false');
+  }
+
+  @override
+  void visitTrueLiteral(TrueLiteral node, [Null arg]) {
+    _append('true');
+  }
+
+  @override
+  void visitTableLiteral(TableLiteral node, [Null arg]) {
+    _append('{');
+    _increaseIndent();
+    for (var field in node.fields) {
+      _newLine();
+      visit(field);
+      _append(",");
+    }
+    _decreaseIndent();
+    _newLine();
+    _append('}');
+  }
+
+  @override
+  void visitField(Field node, [Null arg]) {
+    if (node.key != null) {
+      visit(node.key!);
+      _append(':');
+    }
+    visit(node.value);
+  }
+
+  @override
+  void visitName(Name node, [Null arg]) {
+    _append(node.value);
+  }
+
+  @override
+  void visitIndex(Index node, [Null arg]) {
+    visit(node.target);
+    _append('[');
+    visit(node.key);
+    _append(']');
+  }
+
+  @override
+  void visitBinOp(BinOp node, [Null arg]) {
+    visit(node.left);
+    _append(' ${node.op} ');
+    visit(node.right);
+  }
+
+  @override
+  void visitUnOp(UnOp node, [Null arg]) {
+    _append(node.op);
+    visit(node.exp);
+  }
+
+  @override
+  void visitFunctionExpression(FunctionExpression node, [Null arg]) {
+    _append('function(');
+    for (var param in node.params) {
+      _append(param.value);
+      _append(',');
+    }
+    _append(')');
+    visit(node.body);
+  }
+
+  @override
+  void visitFunctionCall(FunctionCall node, [Null arg]) {
+    visit(node.target);
+    _append('(');
+    for (var arg in node.args) {
+      visit(arg);
+      _append(',');
+    }
+    _append(')');
+  }
+
+  @override
+  void visitBlock(Block node, [Null arg]) {
+    _append('{');
+    _increaseIndent();
+    for (var statement in node.statements) {
+      _newLine();
+      visit(statement);
+      _append(';');
+    }
+    if (node.finalStatement != null) {
+      _newLine();
+      visit(node.finalStatement!);
+      _append(';');
+    }
+    _decreaseIndent();
+    _newLine();
+    _append('}');
+  }
+
+  @override
+  void visitFunctionStatement(FunctionCallStatement node, [Null arg]) {
+    visit(node.call);
+  }
+
+  @override
+  void visitIfStatement(IfStatement node, [Null arg]) {
+    _append('if (');
+    visit(node.condition);
+    _append(') ');
+    visit(node.thenBranch);
+    if (node.elseBranch != null) {
+      _append(' else ');
+      visit(node.elseBranch!);
+    }
+  }
+
+  @override
+  void visitReturnStatement(ReturnStatement node, [Null arg]) {
+    _append('return ');
+    visit(node.exp);
+  }
+
+  @override
+  void visitAssignment(Assignment node, [Null arg]) {
+    if (node.isLocal) {
+      _append('local ');
+    }
+    visit(node.left);
+    _append(' = ');
+    visit(node.exp);
+  }
 }
 
 sealed class Exp extends AstNode {

@@ -85,7 +85,8 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
           return;
         }
         visit(
-          Assignment(Index(Name("_ENV"), StringLiteral(value)), node.exp, isLocal: false),
+          Assignment(Index(Name("_ENV"), StringLiteral(value)), node.exp,
+              isLocal: false),
         );
       case Index(:final target, :final key):
         visit(target);
@@ -108,6 +109,8 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
     for (final statement in node.statements) {
       visit(statement);
     }
+
+    _assembler.closeOpenUpvalues();
     if (node.finalStatement != null) {
       visit(node.finalStatement!);
     }
@@ -139,10 +142,14 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
 
   @override
   void visitTableLiteral(TableLiteral node, Null arg) {
-    List<Field> arrayFields = node.fields.where((node) => node.key == null).toList();
-    List<Field> mapFields = node.fields.where((node) => node.key != null).toList();
+    List<Field> arrayFields =
+        node.fields.where((node) => node.key == null).toList();
+    List<Field> mapFields =
+        node.fields.where((node) => node.key != null).toList();
     _assembler.emitNewTable(arrayFields.length, mapFields.length);
-    arrayFields = arrayFields.indexed.map((e) => Field(IntLiteral(e.$1), e.$2.value)).toList();
+    arrayFields = arrayFields.indexed
+        .map((e) => Field(IntLiteral(e.$1), e.$2.value))
+        .toList();
     for (var field in arrayFields) {
       visit(field);
     }
@@ -189,10 +196,10 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
     final parent = _assembler;
     _assembler = FunctionAssembler(parent: parent);
     parent.children.add(_assembler);
+    _assembler.enterScope();
     for (final param in node.params) {
       _assembler.createLocalVar(param.value);
     }
-    _assembler.enterScope();
     visit(node.body);
     _assembler.leaveScope();
     _assembler.emitLoadConstant(null);

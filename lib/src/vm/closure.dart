@@ -8,7 +8,7 @@ class UpvalueHolder {
 
   UpvalueHolder.value(this.value) : index = 0;
 
-  UpvalueHolder(this.stack, this.index);
+  UpvalueHolder.stack(this.stack, this.index);
 
   Object? get() {
     return stack != null ? stack![index] : value;
@@ -28,6 +28,11 @@ class UpvalueHolder {
       stack = null;
     }
   }
+
+  @override
+  String toString() {
+    return 'UpvalueHolder{index: $index, inStack: ${stack != null}, value: ${get()}}';
+  }
 }
 
 typedef DartFunction = Object? Function(SlangVm vm, List<Object?> args);
@@ -46,4 +51,13 @@ class Closure {
       : dartFunction = dartFunction,
         prototype = null,
         upvalues = [];
+
+  @override
+  String toString() {
+    if (dartFunction != null) {
+      return 'Closure{dartFunction}';
+    } else {
+      return 'Closure{prototype:${prototype!.instructionsToString()}, upvalues: $upvalues}';
+    }
+  }
 }

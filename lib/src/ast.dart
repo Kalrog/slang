@@ -379,9 +379,10 @@ class FunctionExpression extends Exp {
 
 class FunctionCall extends Exp {
   final Exp target;
+  final Name? name;
   final List<Exp> args;
 
-  FunctionCall(this.target, this.args);
+  FunctionCall(this.target, this.name, this.args);
 
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {

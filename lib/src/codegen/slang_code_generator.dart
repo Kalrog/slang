@@ -231,10 +231,22 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
   @override
   void visitFunctionCall(FunctionCall node, Null arg) {
     visit(node.target);
-    for (final arg in node.args) {
-      visit(arg);
+    if (node.name != null) {
+      _assembler.emitPush(-1);
+      _assembler.emitLoadConstant(node.name!.value);
+      _assembler.emitGetTable();
+      _assembler.emitPush(-2);
+      for (final arg in node.args) {
+        visit(arg);
+      }
+      _assembler.emitCall(node.args.length + 1);
+      _assembler.emitMove(-1);
+    } else {
+      for (final arg in node.args) {
+        visit(arg);
+      }
+      _assembler.emitCall(node.args.length);
     }
-    _assembler.emitCall(node.args.length);
   }
 
   @override

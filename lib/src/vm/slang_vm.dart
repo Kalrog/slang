@@ -255,8 +255,9 @@ class SlangVm {
       frame.setTop(closure.prototype!.maxStackSize);
       try {
         _runSlangFunction();
-      } catch (e) {
-        print(e);
+      } catch (e, stack) {
+        print("Error: $e");
+        print("Stack: $stack");
         print(frame);
       }
     } else {

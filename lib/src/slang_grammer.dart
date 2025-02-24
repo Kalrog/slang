@@ -52,22 +52,26 @@ abstract class SlangGrammar extends GrammarDefinition {
       .trim()
       .where((name) => !keywords.contains(name));
 
+  Parser nameAndArgs() =>
+      (char(':') & ref0(name)).pick(1).optional() & ref0(args);
+
   Parser args() => (char('(').trim() &
           ref0(expr)
               .starSeparated(char(',').trim())
               .map((list) => list.elements) &
           char(')').trim())
       .pick(1);
+
   Parser varRef() => ref0(name) & ref0(varSuffix).star();
 
   Parser varSuffix() =>
-      ref0(args).star() &
+      ref0(nameAndArgs).star() &
       ((char('.').trim() & ref0(name).map((name) => StringLiteral(name.value)))
               .pick(1) |
           (char('[').trim() & ref0(expr) & char(']').trim()).pick(1));
 
-  Parser prefixExpr() => ref0(varRef) & ref0(args).star();
-  Parser functionCall() => ref0(varRef) & ref0(args).plus();
+  Parser prefixExpr() => ref0(varRef) & ref0(nameAndArgs).star();
+  Parser functionCall() => ref0(varRef) & ref0(nameAndArgs).plus();
 
   Parser statement() =>
       ref0(assignment) |

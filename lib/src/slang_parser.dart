@@ -102,10 +102,14 @@ class SlangParser extends SlangGrammar {
         var name = list[0];
         final suffixes = list[1] as List<dynamic>;
         return suffixes.fold(name, (exp, suffix) {
-          final args = (suffix[0] as List<dynamic>).cast<List<Exp>>();
+          final nameAndArgs = suffix[0];
           final index = suffix[1];
 
-          exp = args.fold(exp, (exp, args) => FunctionCall(exp, args));
+          exp = nameAndArgs.fold(exp, (exp, nameAndArgs) {
+            final name = nameAndArgs[0];
+            final args = nameAndArgs[1];
+            return FunctionCall(exp, name, (args as List<dynamic>).cast<Exp>());
+          });
           exp = Index(exp, index);
           return exp;
         });
@@ -114,21 +118,23 @@ class SlangParser extends SlangGrammar {
   @override
   Parser prefixExpr() => super.prefixExpr().map((value) {
         var exp = value[0];
-        final args = value[1] as List<dynamic>;
-        return args.fold(
-            exp,
-            (exp, args) =>
-                FunctionCall(exp, (args as List<dynamic>).cast<Exp>()));
+        final nameAndArgs = value[1] as List<dynamic>;
+        return nameAndArgs.fold(exp, (exp, nameAndArgs) {
+          final name = nameAndArgs[0];
+          final args = nameAndArgs[1];
+          return FunctionCall(exp, name, (args as List<dynamic>).cast<Exp>());
+        });
       });
 
   @override
   Parser functionCall() => super.functionCall().map((value) {
         var exp = value[0];
-        final args = value[1] as List<dynamic>;
-        exp = args.fold(
-            exp,
-            (exp, args) =>
-                FunctionCall(exp, (args as List<dynamic>).cast<Exp>()));
+        final nameAndArgs = value[1] as List<dynamic>;
+        exp = nameAndArgs.fold(exp, (exp, nameAndArgs) {
+          final name = nameAndArgs[0];
+          final args = nameAndArgs[1];
+          return FunctionCall(exp, name, (args as List<dynamic>).cast<Exp>());
+        });
         return FunctionCallStatement(exp);
       });
 

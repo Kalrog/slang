@@ -16,6 +16,7 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
 
   @override
   void visit(AstNode node, [Null arg]) {
+    _assembler.setLocation(node.token);
     super.visit(node, arg);
   }
 
@@ -87,7 +88,7 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
   @override
   void visitAssignment(Assignment node, Null arg) {
     switch (node.left) {
-      case Name(:final value):
+      case Name(:final token, :final value):
         var localVar = _assembler.getLocalVar(value);
         if (node.isLocal) {
           localVar = _assembler.createLocalVar(value);
@@ -105,7 +106,8 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
           return;
         }
         visit(
-          Assignment(Index(Name("_ENV"), StringLiteral(value)), node.exp,
+          Assignment(
+              token, Index(token, Name(token, "_ENV"), StringLiteral(token, value)), node.exp,
               isLocal: false),
         );
       case Index(:final target, :final key):
@@ -149,7 +151,8 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
       return;
     }
 
-    visit(Index(Name("_ENV"), StringLiteral(node.value)));
+    final token = node.token;
+    visit(Index(token, Name(token, "_ENV"), StringLiteral(token, node.value)));
   }
 
   @override
@@ -162,13 +165,11 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
 
   @override
   void visitTableLiteral(TableLiteral node, Null arg) {
-    List<Field> arrayFields =
-        node.fields.where((node) => node.key == null).toList();
-    List<Field> mapFields =
-        node.fields.where((node) => node.key != null).toList();
+    List<Field> arrayFields = node.fields.where((node) => node.key == null).toList();
+    List<Field> mapFields = node.fields.where((node) => node.key != null).toList();
     _assembler.emitNewTable(arrayFields.length, mapFields.length);
     arrayFields = arrayFields.indexed
-        .map((e) => Field(IntLiteral(e.$1), e.$2.value))
+        .map((e) => Field(e.$2.token, IntLiteral(e.$2.token, e.$1), e.$2.value))
         .toList();
     for (var field in arrayFields) {
       visit(field);

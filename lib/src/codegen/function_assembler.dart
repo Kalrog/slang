@@ -1,3 +1,4 @@
+import 'package:petitparser/petitparser.dart';
 import 'package:slang/src/vm/function_prototype.dart';
 import 'package:slang/src/vm/slang_vm_bytecode.dart';
 
@@ -51,9 +52,51 @@ class UpvalueDef {
   }
 }
 
+class SourceLocation {
+  final int line;
+  final int column;
+
+  SourceLocation(this.line, this.column);
+
+  SourceLocation.fromJson(Map<String, dynamic> json)
+      : line = json['line'],
+        column = json['column'];
+
+  Map<String, dynamic> toJson() {
+    return {
+      'line': line,
+      'column': column,
+    };
+  }
+
+  @override
+  String toString() {
+    return '$line:$column';
+  }
+}
+
+class SourceLocationInfo {
+  final int firstInstruction;
+  final SourceLocation location;
+
+  SourceLocationInfo(this.firstInstruction, this.location);
+
+  SourceLocationInfo.fromJson(Map<String, dynamic> json)
+      : firstInstruction = json['firstInstruction'],
+        location = SourceLocation.fromJson(json['location']);
+
+  Map<String, dynamic> toJson() {
+    return {
+      'firstInstruction': firstInstruction,
+      'location': location.toJson(),
+    };
+  }
+}
+
 class FunctionAssembler {
   final FunctionAssembler? parent;
   final List<int> _instructions = [];
+  final List<SourceLocationInfo> _sourceLocations = [];
   final Map<Object?, int> _constants = {};
   final Map<String, LocalVar> _locals = {};
   final Map<String, UpvalueDef> _upvalues = {};
@@ -200,6 +243,14 @@ class FunctionAssembler {
     return index;
   }
 
+  void setLocation(Token token) {
+    if (_sourceLocations.lastOrNull?.firstInstruction == _instructions.length) {
+      return;
+    }
+    _sourceLocations
+        .add(SourceLocationInfo(_instructions.length, SourceLocation(token.line, token.column)));
+  }
+
   void emitABC(OpCodeName opcode, [int a = 0, int b = 0, int c = 0]) {
     int instruction = b << 23 | c << 14 | a << 6 | opcode.index;
     _instructions.add(instruction);
@@ -330,6 +381,7 @@ class FunctionAssembler {
   FunctionPrototype assemble() {
     return FunctionPrototype(
       _instructions,
+      _sourceLocations,
       _constantsToList(),
       _upvaluesToList(),
       children.map((c) => c.assemble()).toList(),
@@ -346,8 +398,7 @@ class FunctionAssembler {
   }
 
   List<Upvalue> _upvaluesToList() {
-    final upvalues =
-        List<Upvalue>.filled(_upvalues.length, Upvalue("", 0, false));
+    final upvalues = List<Upvalue>.filled(_upvalues.length, Upvalue("", 0, false));
     _upvalues.forEach((key, value) {
       upvalues[value.index] = value.toUpvalue();
     });

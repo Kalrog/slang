@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:slang/src/codegen/function_assembler.dart';
 import 'package:slang/src/compiler.dart';
 import 'package:slang/src/table.dart';
 import 'package:slang/src/vm/closure.dart';
@@ -17,7 +18,24 @@ class SlangStackFrame {
   FunctionPrototype? get function => closure?.prototype;
   int get pc => _pc;
 
-  int get currentInstruction => function!.instructions[_pc];
+  int? get currentInstruction => function?.instructions[_pc];
+
+  SourceLocation? get currentInstructionLocation {
+    if (function == null) {
+      return null;
+    }
+    var index = 0;
+    for (final location in function!.sourceLocations) {
+      if (location.firstInstruction > pc) {
+        break;
+      }
+      index++;
+    }
+    if (index >= function!.sourceLocations.length) {
+      return function!.sourceLocations.last.location;
+    }
+    return function!.sourceLocations[index].location;
+  }
 
   void addPc(int n) {
     _pc += n;
@@ -240,7 +258,7 @@ class SlangVm {
 
   void call(int nargs) {
     var args = frame.pop(nargs) ?? [];
-    if (args != List) {
+    if (args is! List) {
       args = [args];
     }
     final closure = frame.pop();
@@ -256,15 +274,29 @@ class SlangVm {
       try {
         _runSlangFunction();
       } catch (e, stack) {
+        print(buildStackTrace());
         print("Error: $e");
         print("Stack: $stack");
-        print(frame);
+        rethrow;
       }
     } else {
       final value = closure.dartFunction!(this, args);
       _popStack();
       frame.push(value);
     }
+  }
+
+  String buildStackTrace() {
+    final buffer = StringBuffer();
+    for (SlangStackFrame? frame = this.frame; frame != null; frame = frame.parent) {
+      final location = frame.currentInstructionLocation;
+      if (location != null) {
+        buffer.writeln("unknown closure:$location");
+      } else {
+        buffer.writeln("unknown closure:unknown location");
+      }
+    }
+    return buffer.toString();
   }
 
   void registerDartFunction(String name, DartFunction function) {
@@ -294,7 +326,7 @@ class SlangVm {
   void _runSlangFunction() {
     while (true) {
       final instruction = frame.currentInstruction;
-      final op = instruction.op;
+      final op = instruction!.op;
 
       bool brk = false;
       if (breakPoints.contains(frame.pc) && mode == ExecutionMode.runDebug) {
@@ -371,6 +403,35 @@ class SlangVm {
                 }
               }
             }
+            //b(reak)? @line
+            final breakLineRegex = RegExp(r'b(reak)? @(\d+)?');
+            final breakLineMatch = breakLineRegex.firstMatch(instr);
+            if (breakLineMatch != null) {
+              final line = int.tryParse(breakLineMatch.group(2) ?? "null");
+
+              if (line != null) {
+                int? pc;
+                for (int i = 1; i < frame.function!.sourceLocations.length; i++) {
+                  if (frame.function!.sourceLocations[i].location.line == line) {
+                    pc = frame.function!.sourceLocations[i].firstInstruction;
+                    break;
+                  }
+                  if (frame.function!.sourceLocations[i].location.line > line &&
+                      frame.function!.sourceLocations[i - 1].location.line <= line) {
+                    pc = frame.function!.sourceLocations[i - 1].firstInstruction;
+                    break;
+                  }
+                }
+                pc ??= frame.function!.sourceLocations.last.firstInstruction;
+                if (breakPoints.contains(pc)) {
+                  breakPoints.remove(pc);
+                  print("Removed breakpoint at $pc");
+                } else {
+                  breakPoints.add(pc);
+                  print("Set breakpoint at $pc");
+                }
+              }
+            }
         }
       }
 
@@ -418,8 +479,7 @@ class SlangVm {
   int? debugInstructionContext = 5;
   void printInstructions() {
     print("Instructions:");
-    print(frame.function!
-        .instructionsToString(pc: frame.pc, context: debugInstructionContext));
+    print(frame.function!.instructionsToString(pc: frame.pc, context: debugInstructionContext));
   }
 
   void printConstants() {

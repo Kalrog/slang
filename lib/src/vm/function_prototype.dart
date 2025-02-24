@@ -1,5 +1,6 @@
 import 'dart:collection';
 
+import 'package:slang/src/codegen/function_assembler.dart';
 import 'package:slang/src/vm/slang_vm_bytecode.dart';
 
 class Upvalue {
@@ -33,6 +34,7 @@ class Upvalue {
 /// The prototype can be used to execute the function.
 class FunctionPrototype {
   final UnmodifiableListView<int> instructions;
+  final UnmodifiableListView<SourceLocationInfo> sourceLocations;
   final UnmodifiableListView<Object?> constants;
   final UnmodifiableListView<Upvalue> upvalues;
   final UnmodifiableListView<FunctionPrototype> children;
@@ -40,17 +42,21 @@ class FunctionPrototype {
 
   FunctionPrototype(
     List<int> instructions,
+    List<SourceLocationInfo> sourceLocations,
     List<Object?> constants,
     List<Upvalue> upvalues,
     List<FunctionPrototype> children, {
     required this.maxStackSize,
   })  : instructions = UnmodifiableListView(instructions),
+        sourceLocations = UnmodifiableListView(sourceLocations),
         constants = UnmodifiableListView(constants),
         upvalues = UnmodifiableListView(upvalues),
         children = UnmodifiableListView(children);
 
   FunctionPrototype.fromJson(Map<String, dynamic> json)
       : instructions = UnmodifiableListView(json['instructions']),
+        sourceLocations = UnmodifiableListView(
+            (json['sourceLocations'] as List).map((e) => SourceLocationInfo.fromJson(e))),
         constants = UnmodifiableListView(json['constants']),
         upvalues = UnmodifiableListView((json['upvalues'] as List).map((e) => Upvalue.fromJson(e))),
         children = UnmodifiableListView(
@@ -60,6 +66,7 @@ class FunctionPrototype {
   Map<String, dynamic> toJson() {
     return {
       'instructions': instructions,
+      'sourceLocations': sourceLocations.map((e) => e.toJson()).toList(),
       'constants': constants,
       'upvalues': upvalues.map((e) => e.toJson()).toList(),
       'children': children.map((e) => e.toJson()).toList(),
@@ -79,7 +86,8 @@ class FunctionPrototype {
       end = instructions.length;
     }
     for (var i = start; i < end; i++) {
-      buffer.writeln('${i == pc ? ">" : " "} $i: ${instructionToString(instructions[i])}');
+      buffer.writeln(
+          '${i == pc ? ">" : " "} $i: ${instructionToString(instructions[i])}  ${sourceLocations.where((sl) => sl.firstInstruction == i).map((sl) => sl.location.toString()).firstOrNull ?? ""}');
     }
     return buffer.toString();
   }

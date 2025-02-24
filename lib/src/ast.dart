@@ -1,5 +1,9 @@
+import 'package:petitparser/petitparser.dart';
+
 sealed class AstNode {
-  const AstNode();
+  const AstNode(this.token);
+
+  final Token token;
 
   T accept<T, A>(AstNodeVisitor<T, A> visitor, A arg);
 
@@ -126,9 +130,11 @@ class PrettyPrintVisitor extends AstNodeVisitor<void, Null> {
 
   @override
   void visitBinOp(BinOp node, [Null arg]) {
+    _append('(');
     visit(node.left);
     _append(' ${node.op} ');
     visit(node.right);
+    _append(')');
   }
 
   @override
@@ -229,12 +235,12 @@ class PrettyPrintVisitor extends AstNodeVisitor<void, Null> {
 }
 
 sealed class Exp extends AstNode {
-  const Exp();
+  const Exp(super.token);
 }
 
 class IntLiteral extends Exp {
   final int value;
-  IntLiteral(this.value);
+  IntLiteral(super.token, this.value);
 
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
@@ -247,7 +253,7 @@ class IntLiteral extends Exp {
 
 class StringLiteral extends Exp {
   final String value;
-  StringLiteral(this.value);
+  StringLiteral(super.token, this.value);
 
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
@@ -259,7 +265,7 @@ class StringLiteral extends Exp {
 }
 
 class FalseLiteral extends Exp {
-  const FalseLiteral();
+  const FalseLiteral(super.token);
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
     return visitor.visitFalseLiteral(this, arg);
@@ -270,7 +276,7 @@ class FalseLiteral extends Exp {
 }
 
 class TrueLiteral extends Exp {
-  const TrueLiteral();
+  const TrueLiteral(super.token);
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
     return visitor.visitTrueLiteral(this, arg);
@@ -282,7 +288,7 @@ class TrueLiteral extends Exp {
 
 class TableLiteral extends Exp {
   final List<Field> fields;
-  TableLiteral(this.fields);
+  TableLiteral(super.token, this.fields);
 
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
@@ -296,7 +302,7 @@ class TableLiteral extends Exp {
 class Field extends AstNode {
   final Exp? key;
   final Exp value;
-  Field(this.key, this.value);
+  Field(super.token, this.key, this.value);
 
   @override
   T accept<T, A>(AstNodeVisitor<T, A> visitor, A arg) {
@@ -309,7 +315,7 @@ class Field extends AstNode {
 
 class Name extends Exp {
   final String value;
-  Name(this.value);
+  Name(super.token, this.value);
 
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
@@ -324,7 +330,7 @@ class Index extends Exp {
   final Exp target;
   final Exp key;
 
-  Index(this.target, this.key);
+  Index(super.token, this.target, this.key);
 
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
@@ -339,7 +345,7 @@ class BinOp extends Exp {
   final Exp left;
   final Exp right;
   final String op;
-  BinOp(this.left, this.op, this.right);
+  BinOp(super.token, this.left, this.op, this.right);
 
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
@@ -353,7 +359,7 @@ class BinOp extends Exp {
 class UnOp extends Exp {
   final Exp exp;
   final String op;
-  UnOp(this.op, this.exp);
+  UnOp(super.token, this.op, this.exp);
 
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
@@ -367,7 +373,7 @@ class UnOp extends Exp {
 class FunctionExpression extends Exp {
   final List<Name> params;
   final Block body;
-  FunctionExpression(this.params, this.body);
+  FunctionExpression(super.token, this.params, this.body);
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
     return visitor.visitFunctionExpression(this, arg);
@@ -382,7 +388,7 @@ class FunctionCall extends Exp {
   final Name? name;
   final List<Exp> args;
 
-  FunctionCall(this.target, this.name, this.args);
+  FunctionCall(super.token, this.target, this.name, this.args);
 
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
@@ -394,12 +400,12 @@ class FunctionCall extends Exp {
 }
 
 sealed class Statement extends AstNode {
-  const Statement();
+  const Statement(super.token);
 }
 
 class FunctionCallStatement extends Statement {
   final FunctionCall call;
-  FunctionCallStatement(this.call);
+  FunctionCallStatement(super.token, this.call);
 
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
@@ -414,7 +420,7 @@ class Block extends Statement {
   final List<Statement> statements;
   final Statement? finalStatement;
 
-  Block(this.statements, [this.finalStatement]);
+  Block(super.token, this.statements, [this.finalStatement]);
 
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
@@ -429,7 +435,7 @@ class IfStatement extends Statement {
   final Exp condition;
   final Statement thenBranch;
   final Statement? elseBranch;
-  IfStatement(this.condition, this.thenBranch, this.elseBranch);
+  IfStatement(super.token, this.condition, this.thenBranch, this.elseBranch);
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
     return visitor.visitIfStatement(this, arg);
@@ -444,7 +450,7 @@ class ForLoop extends Statement {
   final Exp condition;
   final Statement? update;
   final Statement body;
-  ForLoop(this.init, this.condition, this.update, this.body);
+  ForLoop(super.token, this.init, this.condition, this.update, this.body);
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
     return visitor.visitForLoop(this, arg);
@@ -456,7 +462,7 @@ class ForLoop extends Statement {
 
 class ReturnStatement extends Statement {
   final Exp exp;
-  ReturnStatement(this.exp);
+  ReturnStatement(super.token, this.exp);
 
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
@@ -471,7 +477,7 @@ class Assignment extends Statement {
   final Exp left;
   final Exp exp;
   final bool isLocal;
-  Assignment(this.left, this.exp, {required this.isLocal});
+  Assignment(super.token, this.left, this.exp, {required this.isLocal});
 
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {

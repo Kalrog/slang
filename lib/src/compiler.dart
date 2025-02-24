@@ -14,7 +14,6 @@ FunctionPrototype compileSource(String source) {
     // print(func);
     return func;
   } else {
-    throw Exception(
-        'Failed to parse source: ${result.message}:${result.position}');
+    throw Exception('Failed to parse source: ${result.message}:${result.position}');
   }
 }

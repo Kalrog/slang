@@ -192,6 +192,16 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
   }
 
   @override
+  void visitTrueLiteral(TrueLiteral node, Null arg) {
+    _assembler.emitLoadBool(true);
+  }
+
+  @override
+  void visitNullLiteral(NullLiteral node, Null arg) {
+    _assembler.emitLoadConstant(null);
+  }
+
+  @override
   void visitIfStatement(IfStatement node, Null arg) {
     visit(node.condition);
     _assembler.emitTest(true);
@@ -205,11 +215,6 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
     } else {
       _assembler.patchJump(elseJump);
     }
-  }
-
-  @override
-  void visitTrueLiteral(TrueLiteral node, Null arg) {
-    _assembler.emitLoadBool(true);
   }
 
   @override

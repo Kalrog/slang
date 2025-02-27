@@ -66,4 +66,16 @@ class SlangTable {
     sb.write('}');
     return sb.toString();
   }
+
+  Map toMap() {
+    final map = Map<Object, Object?>.from(_map);
+    for (var i = 0; i < _list.length; i++) {
+      map[i] = _list[i];
+    }
+    return map;
+  }
+
+  List toList() {
+    return List.from(_list);
+  }
 }

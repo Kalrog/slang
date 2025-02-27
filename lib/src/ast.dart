@@ -22,6 +22,7 @@ abstract class AstNodeVisitor<T, A> {
   T visitStringLiteral(StringLiteral node, A arg);
   T visitFalseLiteral(FalseLiteral node, A arg);
   T visitTrueLiteral(TrueLiteral node, A arg);
+  T visitNullLiteral(NullLiteral node, A arg);
   T visitTableLiteral(TableLiteral node, A arg);
   T visitField(Field node, A arg);
 
@@ -90,6 +91,11 @@ class PrettyPrintVisitor extends AstNodeVisitor<void, Null> {
   @override
   void visitTrueLiteral(TrueLiteral node, [Null arg]) {
     _append('true');
+  }
+
+  @override
+  void visitNullLiteral(NullLiteral node, [Null arg]) {
+    _append('null');
   }
 
   @override
@@ -277,9 +283,22 @@ class FalseLiteral extends Exp {
 
 class TrueLiteral extends Exp {
   const TrueLiteral(super.token);
+
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
     return visitor.visitTrueLiteral(this, arg);
+  }
+
+  @override
+  String toString() => '$runtimeType';
+}
+
+class NullLiteral extends Exp {
+  const NullLiteral(super.token);
+
+  @override
+  T accept<T, A>(AstNodeVisitor<T, A> visitor, A arg) {
+    return visitor.visitNullLiteral(this, arg);
   }
 
   @override

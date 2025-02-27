@@ -22,6 +22,8 @@ abstract class SlangGrammar extends GrammarDefinition {
 
   Parser falseLiteral() => string('false').trim();
 
+  Parser nullLiteral() => string('null').trim();
+
   Parser listLiteral() {
     return (char('{').trim() &
             ref0(field).starSeparated(char(',').trim()) &

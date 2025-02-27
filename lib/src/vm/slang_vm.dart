@@ -228,8 +228,8 @@ class SlangVm {
     });
   }
 
-  void compile(String code) {
-    FunctionPrototype prototype = compileSource(code);
+  void compile(String code, {bool repl = false}) {
+    final prototype = repl ? compileREPL(code) : compileSource(code);
     Closure closure = Closure.slang(prototype);
     if (prototype.upvalues.isNotEmpty && prototype.upvalues[0].name == '_ENV') {
       closure.upvalues[0] = UpvalueHolder.value(globals);
@@ -301,6 +301,10 @@ class SlangVm {
 
   void registerDartFunction(String name, DartFunction function) {
     globals[name] = Closure.dart(function);
+  }
+
+  void pushDartFunction(DartFunction function) {
+    push(Closure.dart(function));
   }
 
   void _pushStack([Closure? closure]) {
@@ -448,6 +452,17 @@ class SlangVm {
     final result = frame[n];
     _popStack();
     frame.push(result);
+  }
+
+  T to<T>(int n) {
+    final value = frame[n];
+    if (value is T) {
+      return value;
+    }
+    if (null is T) {
+      return null as T;
+    }
+    throw SlangTypeError(expected: T, got: value.runtimeType);
   }
 
   int toInt(int n) {

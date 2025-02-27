@@ -61,3 +61,40 @@ class Closure {
     }
   }
 }
+
+class SlangArgumentCountError {
+  final String functionName;
+  final int expected;
+  final int got;
+
+  SlangArgumentCountError(this.functionName, this.expected, this.got);
+
+  @override
+  String toString() {
+    return 'SlangArgumentError{functionName: $functionName, expected: $expected, got: $got}';
+  }
+}
+
+class SlangArgumentTypeError {
+  final String functionName;
+  final Type expected;
+  final Type got;
+
+  SlangArgumentTypeError(this.functionName, {required this.expected, required this.got});
+
+  @override
+  String toString() {
+    return 'SlangArgumentError{functionName: $functionName, expected: $expected, got: $got}';
+  }
+}
+
+class SlangTypeError {
+  final Type expected;
+  final Type got;
+  SlangTypeError({required this.expected, required this.got});
+
+  @override
+  String toString() {
+    return 'SlangTypeError{expected: $expected, got: $got}';
+  }
+}

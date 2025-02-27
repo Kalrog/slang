@@ -17,3 +17,27 @@ FunctionPrototype compileSource(String source) {
     throw Exception('Failed to parse source: ${result.message}:${result.position}');
   }
 }
+
+FunctionPrototype compileREPL(String source) {
+  final statement = SlangParser().build();
+  final result = statement.parse(source);
+  if (result is Success) {
+    final ast = result.value;
+    final generator = SlangCodeGenerator();
+    final func = generator.generate(ast);
+    return func;
+  } else {
+    // throw Exception('Failed to parse source: ${result.message}:${result.position}');
+    final expression = SlangParser().buildFrom(SlangParser().expr());
+    final result = expression.parse(source);
+    if (result is Success) {
+      final ast = result.value as Exp;
+      final statementAst = ReturnStatement(ast.token, ast);
+      final generator = SlangCodeGenerator();
+      final func = generator.generate(statementAst);
+      return func;
+    } else {
+      throw Exception('Failed to parse source: ${result.message}:${result.position}');
+    }
+  }
+}

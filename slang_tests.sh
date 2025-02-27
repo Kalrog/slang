@@ -1,5 +1,6 @@
 #!/bin/zsh
+dart compile exe bin/slang.dart
 for test in test/*_test.slang; do
   echo "Running $test"
-  dart run bin/slang.dart run $test
+  bin/slang.exe run $test
 done

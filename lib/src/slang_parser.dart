@@ -67,6 +67,9 @@ class SlangParser extends SlangGrammar {
   Parser falseLiteral() => super.falseLiteral().token().map((token) => FalseLiteral(token));
 
   @override
+  Parser nullLiteral() => super.nullLiteral().token().map((token) => NullLiteral(token));
+
+  @override
   Parser name() => super.name().token().map((token) => Name(token, token.value));
 
   @override

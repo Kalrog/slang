@@ -24,7 +24,7 @@ class SlangRepl {
       try {
         vm.compile(line, repl: true);
         vm.call(0);
-        print(vm.to<Object?>(-1));
+        print(vm.toAny(-1));
         vm.pop();
       } catch (e) {
         print(e);

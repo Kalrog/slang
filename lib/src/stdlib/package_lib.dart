@@ -16,7 +16,9 @@ class SlangPackageLib {
           expected: String, got: args[0].runtimeType);
     }
     var package = args[0] as String;
-    final loaded = (vm.globals['__LOADED_PACKAGES'] as SlangTable).toMap().cast<String, Closure>();
+    final loaded = (vm.globals['__LOADED_PACKAGES'] as SlangTable)
+        .toMap()
+        .cast<String, Closure>();
     return loaded[package];
   }
 
@@ -25,7 +27,8 @@ class SlangPackageLib {
       throw SlangArgumentCountError('require', 1, args.length);
     }
     if (args[0] is! String) {
-      throw SlangArgumentTypeError('require', expected: String, got: args[0].runtimeType);
+      throw SlangArgumentTypeError('require',
+          expected: String, got: args[0].runtimeType);
     }
     final packageName = args[0] as String;
     vm.push(vm.globals['__PACKAGE_LOADERS']);
@@ -35,9 +38,9 @@ class SlangPackageLib {
       vm.pushValue(i);
       vm.getTable();
       vm.push(packageName);
-      
+
       vm.call(1);
-      final package = vm.to<Object?>(-1);
+      final package = vm.toAny(-1);
       if (package != null) {
         return package;
       }

@@ -288,7 +288,9 @@ class SlangVm {
 
   String buildStackTrace() {
     final buffer = StringBuffer();
-    for (SlangStackFrame? frame = this.frame; frame != null; frame = frame.parent) {
+    for (SlangStackFrame? frame = this.frame;
+        frame != null;
+        frame = frame.parent) {
       final location = frame.currentInstructionLocation;
       if (location != null) {
         buffer.writeln("unknown closure:$location");
@@ -415,14 +417,19 @@ class SlangVm {
 
               if (line != null) {
                 int? pc;
-                for (int i = 1; i < frame.function!.sourceLocations.length; i++) {
-                  if (frame.function!.sourceLocations[i].location.line == line) {
+                for (int i = 1;
+                    i < frame.function!.sourceLocations.length;
+                    i++) {
+                  if (frame.function!.sourceLocations[i].location.line ==
+                      line) {
                     pc = frame.function!.sourceLocations[i].firstInstruction;
                     break;
                   }
                   if (frame.function!.sourceLocations[i].location.line > line &&
-                      frame.function!.sourceLocations[i - 1].location.line <= line) {
-                    pc = frame.function!.sourceLocations[i - 1].firstInstruction;
+                      frame.function!.sourceLocations[i - 1].location.line <=
+                          line) {
+                    pc =
+                        frame.function!.sourceLocations[i - 1].firstInstruction;
                     break;
                   }
                 }
@@ -454,15 +461,9 @@ class SlangVm {
     frame.push(result);
   }
 
-  T to<T>(int n) {
+  Object? toAny(int n) {
     final value = frame[n];
-    if (value is T) {
-      return value;
-    }
-    if (null is T) {
-      return null as T;
-    }
-    throw SlangTypeError(expected: T, got: value.runtimeType);
+    return value;
   }
 
   int toInt(int n) {
@@ -473,18 +474,29 @@ class SlangVm {
     return frame[n] as String;
   }
 
-  SlangTable toTable(int n) {
-    return frame[n] as SlangTable;
-  }
-
   bool toBool(int n) {
     return frame[n] == null || frame[n] == false;
   }
 
-  // void debugPrint() {
-  //   print(frame.function!.toString(pc: frame.pc));
-  //   print(frame.toString());
-  // }
+  bool checkInt(int n) {
+    return frame[n] is int;
+  }
+
+  bool checkString(int n) {
+    return frame[n] is String;
+  }
+
+  bool checkTable(int n) {
+    return frame[n] is SlangTable;
+  }
+
+  bool checkFunction(int n) {
+    return frame[n] is Closure;
+  }
+
+  bool checkNull(int n) {
+    return frame[n] == null;
+  }
 
   void printStack() {
     print("Stack:");
@@ -494,7 +506,8 @@ class SlangVm {
   int? debugInstructionContext = 5;
   void printInstructions() {
     print("Instructions:");
-    print(frame.function!.instructionsToString(pc: frame.pc, context: debugInstructionContext));
+    print(frame.function!
+        .instructionsToString(pc: frame.pc, context: debugInstructionContext));
   }
 
   void printConstants() {

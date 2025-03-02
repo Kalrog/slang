@@ -23,69 +23,72 @@ class SlangParser extends SlangGrammar {
     builder.primitive(ref0(listLiteral).cast<Exp>());
     builder.primitive(ref0(functionExpression).cast<Exp>());
     builder.primitive(ref0(prefixExpr).cast<Exp>());
-    builder.group().wrapper(char('(').trim(), char(')').trim(), (left, value, right) => value);
-    // builder.group().right(char('^').trim(), BinOp.new);
-    builder.group().right(char('^').trim().token(),
+    builder.group().wrapper(
+        ref1(token, '('), ref1(token, ')'), (left, value, right) => value);
+    // builder.group().right(ref1(token,'^'), BinOp.new);
+    builder.group().right(ref1(token, '^'),
         (left, opToken, right) => BinOp(opToken, left, opToken.value, right));
-    builder.group().prefix((char('-').trim() | string('not').trim()).cast<String>().token(),
+    builder.group().prefix(ref1(token, '-') | ref1(token, 'not'),
         (opToken, exp) => UnOp(opToken, opToken.value, exp));
-    builder.group().left((char('*') | char('/') | char('%')).trim().cast<String>().token(),
+    builder.group().left(ref1(token, '*') | ref1(token, '/') | ref1(token, '%'),
         (left, opToken, right) => BinOp(opToken, left, opToken.value, right));
 
-    builder.group().left((char('-') | char('+')).trim().cast<String>().token(),
+    builder.group().left((ref1(token, '-') | ref1(token, '+')),
         (left, opToken, right) => BinOp(opToken, left, opToken.value, right));
     builder.group().left(
-        (string('<=').trim() |
-                string('>=').trim() |
-                string('!=').trim() |
-                string('==').trim() |
-                string('>').trim() |
-                string('<').trim())
-            .cast<String>()
-            .token(),
+        ref1(token, '<=') |
+            ref1(token, '>=') |
+            ref1(token, '!=') |
+            ref1(token, '==') |
+            ref1(token, '>') |
+            ref1(token, '<'),
         (left, opToken, right) => BinOp(opToken, left, opToken.value, right));
-    builder.group().left(string('and').trim().cast<String>().token(),
+    builder.group().left(ref1(token, 'and'),
         (left, opToken, right) => BinOp(opToken, left, opToken.value, right));
-    builder.group().left(string('or').trim().cast<String>().token(),
+    builder.group().left(ref1(token, 'or'),
         (left, opToken, right) => BinOp(opToken, left, opToken.value, right));
 
     return builder.build().labeled('expression');
   }
 
   @override
-  Parser intLiteral() =>
-      super.intLiteral().token().map((token) => IntLiteral(token, int.parse(token.value)));
+  Parser intLiteral() => super
+      .intLiteral()
+      .map((token) => IntLiteral(token, int.parse(token.value)));
 
   @override
   Parser stringLiteral() =>
-      super.stringLiteral().token().map((token) => StringLiteral(token, token.value));
+      super.stringLiteral().map((token) => StringLiteral(token, token.value));
 
   @override
-  Parser trueLiteral() => super.trueLiteral().token().map((token) => TrueLiteral(token));
+  Parser trueLiteral() =>
+      super.trueLiteral().map((token) => TrueLiteral(token));
 
   @override
-  Parser falseLiteral() => super.falseLiteral().token().map((token) => FalseLiteral(token));
+  Parser falseLiteral() =>
+      super.falseLiteral().map((token) => FalseLiteral(token));
 
   @override
-  Parser nullLiteral() => super.nullLiteral().token().map((token) => NullLiteral(token));
+  Parser nullLiteral() =>
+      super.nullLiteral().map((token) => NullLiteral(token));
 
   @override
-  Parser name() => super.name().token().map((token) => Name(token, token.value));
+  Parser name() => super.name().map((token) => Name(token, token.value));
 
   @override
-  Parser chunk() => super.chunk().token().map(
-      (token) => Block(token, (token.value[0] as List<dynamic>).cast<Statement>(), token.value[1]));
+  Parser chunk() => super.chunk().token().map((token) => Block(token,
+      (token.value[0] as List<dynamic>).cast<Statement>(), token.value[1]));
 
   @override
   Parser returnStatement() =>
-      super.returnStatement().token().map((token) => ReturnStatement(token, token.value[1]));
+      super.returnStatement().map((list) => ReturnStatement(list[0], list[1]));
 
   @override
-  Parser assignment() => super.assignment().token().map((token) => Assignment(
-        token,
-        token.value[1],
-        token.value[3],
-        isLocal: token.value[0] != null,
+  Parser assignment() => super.assignment().map((list) => Assignment(
+        list[2],
+        list[1],
+        list[3],
+        isLocal: list[0] != null,
       ));
 
   @override
@@ -119,7 +122,8 @@ class SlangParser extends SlangGrammar {
             final name = nameAndArgs[0];
             final args = nameAndArgs[1];
             final token = nameAndArgs[2];
-            return FunctionCall(token, exp, name, (args as List<dynamic>).cast<Exp>());
+            return FunctionCall(
+                token, exp, name, (args as List<dynamic>).cast<Exp>());
           });
           exp = Index(token, exp, index);
           return exp;
@@ -135,7 +139,8 @@ class SlangParser extends SlangGrammar {
           final args = nameAndArgs[1];
           final token = nameAndArgs[2];
 
-          return FunctionCall(token, exp, name, (args as List<dynamic>).cast<Exp>());
+          return FunctionCall(
+              token, exp, name, (args as List<dynamic>).cast<Exp>());
         });
       });
 
@@ -149,7 +154,8 @@ class SlangParser extends SlangGrammar {
           final args = nameAndArgs[1];
           final token = nameAndArgs[2];
 
-          return FunctionCall(token, exp, name, (args as List<dynamic>).cast<Exp>());
+          return FunctionCall(
+              token, exp, name, (args as List<dynamic>).cast<Exp>());
         });
         return FunctionCallStatement(token, exp);
       });
@@ -162,19 +168,21 @@ class SlangParser extends SlangGrammar {
         return [name, args, token];
       });
 
-  Parser varSuffix() => super.varSuffix().token().map((token) => [...token.value, token]);
+  @override
+  Parser varSuffix() =>
+      super.varSuffix().token().map((token) => [...token.value, token]);
 
   @override
-  Parser ifStatement() => super.ifStatement().token().map((token) => IfStatement(
-        token,
-        token.value[2],
-        token.value[4],
-        token.value[5] == null ? null : token.value[5][1],
+  Parser ifStatement() => super.ifStatement().map((values) => IfStatement(
+        values[0],
+        values[2],
+        values[4],
+        values[5] == null ? null : values[5][1],
       ));
 
   @override
-  Parser forLoop() => super.forLoop().token().map((token) {
-        final values = token.value;
+  Parser forLoop() => super.forLoop().map((values) {
+        final token = values[0];
         final head = values[2] as List<dynamic>;
         final init = head[0];
         final condition = head[1];
@@ -184,7 +192,8 @@ class SlangParser extends SlangGrammar {
       });
 
   @override
-  Parser functionDefinition() => super.functionDefinition().token().map((token) {
+  Parser functionDefinition() =>
+      super.functionDefinition().token().map((token) {
         final value = token.value;
         final params = value[1] as List<dynamic>;
         var body = value[3];
@@ -196,11 +205,11 @@ class SlangParser extends SlangGrammar {
       }).labeled('function expression');
 
   @override
-  Parser functionDefinitonStatement() => super.functionDefinitonStatement().token().map((token) {
-        final value = token.value;
+  Parser functionDefinitonStatement() =>
+      super.functionDefinitonStatement().map((value) {
         final local = value[0] != null;
         final name = value[2] as Exp;
         final exp = value[3] as FunctionExpression;
-        return Assignment(token, name, exp, isLocal: local);
+        return Assignment(value[1], name, exp, isLocal: local);
       });
 }

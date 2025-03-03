@@ -24,13 +24,22 @@ abstract class SlangGrammar extends GrammarDefinition {
 
   Parser expr();
 
-  Parser intLiteral() {
-    return ref2(
-      token,
-      ((char('-') | char('+')).optional() & digit().plus()),
-      "int",
-    );
-  }
+  Parser intLiteral() => ref2(
+        token,
+        ((char('-') | char('+')).optional() & ref0(number)),
+        "int",
+      );
+
+  Parser number() => digit().plus();
+
+  Parser doubleLiteral() => ref2(
+        token,
+        (char('-') | char('+')).optional() &
+            ref0(number) &
+            char('.') &
+            ref0(number),
+        "double",
+      );
 
   Parser stringLiteral() {
     return ref2(
@@ -103,17 +112,19 @@ abstract class SlangGrammar extends GrammarDefinition {
 
   Parser statement() =>
       ref0(assignment) |
+      ref0(declaration) |
       ref0(ifStatement) |
       ref0(forLoop) |
       ref0(block) |
       ref0(functionCall) |
       ref0(functionDefinitonStatement);
 
-  Parser assignment() =>
-      ref1(token, 'local').optional() &
-      ref0(varRef) &
-      ref1(token, '=') &
-      ref0(expr);
+  Parser assignment() => ref0(varRef) & ref1(token, '=') & ref0(expr);
+
+  Parser declaration() =>
+      ref1(token, 'local') &
+      ref0(name) &
+      (ref1(token, '=') & ref0(expr)).optional();
 
   Parser ifStatement() =>
       ref1(token, 'if') &

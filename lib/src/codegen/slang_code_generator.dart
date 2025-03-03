@@ -26,6 +26,11 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
   }
 
   @override
+  void visitDoubleLiteral(DoubleLiteral node, Null arg) {
+    _assembler.emitLoadConstant(node.value);
+  }
+
+  @override
   void visitStringLiteral(StringLiteral node, Null arg) {
     _assembler.emitLoadConstant(node.value);
   }
@@ -90,30 +95,63 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
     switch (node.left) {
       case Name(:final token, :final value):
         var localVar = _assembler.getLocalVar(value);
-        if (node.isLocal) {
-          localVar = _assembler.createLocalVar(value);
-        }
         if (localVar != null) {
-          visit(node.exp);
+          visit(node.right);
           _assembler.emitMove(localVar.register);
           return;
         }
 
         var upvalue = _assembler.getUpvalue(value);
         if (upvalue != null) {
-          visit(node.exp);
+          visit(node.right);
           _assembler.emitSetUpvalue(upvalue.index);
           return;
         }
         visit(
           Assignment(
-              token, Index(token, Name(token, "_ENV"), StringLiteral(token, value)), node.exp,
-              isLocal: false),
+            token,
+            Index(token, Name(token, "_ENV"), StringLiteral(token, value)),
+            node.right,
+          ),
         );
       case Index(:final target, :final key):
         visit(target);
         visit(key);
-        visit(node.exp);
+        visit(node.right);
+        _assembler.emitSetTable();
+      default:
+        throw ArgumentError('Invalid assignment target: ${node.left}');
+    }
+  }
+
+  void visitDeclaration(Declaration node, Null arg) {
+    switch (node.left) {
+      case Name(:final token, :final value):
+        if (node.isLocal) {
+          if (_assembler.getLocalVar(value) != null) {
+            throw Exception(
+                'Variable already declared: $value ${token.line}:${token.column}');
+          }
+          _assembler.createLocalVar(value);
+          var localVar = _assembler.getLocalVar(value);
+          if (node.right != null) {
+            visit(node.right!);
+            _assembler.emitMove(localVar!.register);
+          }
+          return;
+        }
+
+        visit(
+          Assignment(
+            token,
+            Index(token, Name(token, "_ENV"), StringLiteral(token, value)),
+            node.right ?? NullLiteral(token),
+          ),
+        );
+      case Index(:final target, :final key):
+        visit(target);
+        visit(key);
+        visit(node.right!);
         _assembler.emitSetTable();
       default:
         throw ArgumentError('Invalid assignment target: ${node.left}');
@@ -165,8 +203,10 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
 
   @override
   void visitTableLiteral(TableLiteral node, Null arg) {
-    List<Field> arrayFields = node.fields.where((node) => node.key == null).toList();
-    List<Field> mapFields = node.fields.where((node) => node.key != null).toList();
+    List<Field> arrayFields =
+        node.fields.where((node) => node.key == null).toList();
+    List<Field> mapFields =
+        node.fields.where((node) => node.key != null).toList();
     _assembler.emitNewTable(arrayFields.length, mapFields.length);
     arrayFields = arrayFields.indexed
         .map((e) => Field(e.$2.token, IntLiteral(e.$2.token, e.$1), e.$2.value))

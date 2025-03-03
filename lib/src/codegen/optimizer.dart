@@ -3,6 +3,7 @@ import 'package:slang/slang.dart';
 class SlangConstantExpressionOptimizer extends AstNodeVisitor<AstNode, Null> {
   bool _isConstant(Exp exp) {
     return exp is IntLiteral ||
+        exp is DoubleLiteral ||
         exp is StringLiteral ||
         exp is TrueLiteral ||
         exp is FalseLiteral ||
@@ -12,6 +13,8 @@ class SlangConstantExpressionOptimizer extends AstNodeVisitor<AstNode, Null> {
   dynamic _evaluate(Exp exp) {
     switch (exp) {
       case IntLiteral():
+        return exp.value;
+      case DoubleLiteral():
         return exp.value;
       case StringLiteral():
         return exp.value;
@@ -84,8 +87,11 @@ class SlangConstantExpressionOptimizer extends AstNodeVisitor<AstNode, Null> {
 
   @override
   AstNode visitAssignment(Assignment node, Null arg) {
-    return Assignment(node.token, node.left, visit(node.exp) as Exp,
-        isLocal: node.isLocal);
+    return Assignment(
+      node.token,
+      node.left,
+      visit(node.right) as Exp,
+    );
   }
 
   @override
@@ -167,6 +173,11 @@ class SlangConstantExpressionOptimizer extends AstNodeVisitor<AstNode, Null> {
   }
 
   @override
+  AstNode visitDoubleLiteral(DoubleLiteral node, Null arg) {
+    return node;
+  }
+
+  @override
   AstNode visitName(Name node, Null arg) {
     return node;
   }
@@ -210,5 +221,11 @@ class SlangConstantExpressionOptimizer extends AstNodeVisitor<AstNode, Null> {
       }
     }
     return UnOp(node.token, node.op, exp);
+  }
+
+  @override
+  AstNode visitDeclaration(Declaration node, Null arg) {
+    return Declaration(
+        node.token, node.isLocal, node.left, maybeVisit(node.right) as Exp?);
   }
 }

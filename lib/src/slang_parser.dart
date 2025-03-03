@@ -16,6 +16,7 @@ class SlangParser extends SlangGrammar {
   @override
   Parser expr() {
     final builder = ExpressionBuilder<Exp>();
+    builder.primitive(ref0(doubleLiteral).cast<Exp>());
     builder.primitive(ref0(intLiteral).cast<Exp>());
     builder.primitive(ref0(stringLiteral).cast<Exp>());
     builder.primitive(ref0(trueLiteral).cast<Exp>());
@@ -57,6 +58,11 @@ class SlangParser extends SlangGrammar {
       .map((token) => IntLiteral(token, int.parse(token.value)));
 
   @override
+  Parser doubleLiteral() => super
+      .doubleLiteral()
+      .map((token) => DoubleLiteral(token, double.parse(token.value)));
+
+  @override
   Parser stringLiteral() =>
       super.stringLiteral().map((token) => StringLiteral(token, token.value));
 
@@ -85,11 +91,18 @@ class SlangParser extends SlangGrammar {
 
   @override
   Parser assignment() => super.assignment().map((list) => Assignment(
-        list[2],
         list[1],
-        list[3],
-        isLocal: list[0] != null,
+        list[0],
+        list[2],
       ));
+
+  @override
+  Parser declaration() => super.declaration().map((list) {
+        final local = list[0].value == 'local';
+        final name = list[1];
+        final assignment = list[2];
+        return Declaration(list[0], local, name, assignment?[1]);
+      });
 
   @override
   Parser listLiteral() => super
@@ -210,6 +223,6 @@ class SlangParser extends SlangGrammar {
         final local = value[0] != null;
         final name = value[2] as Exp;
         final exp = value[3] as FunctionExpression;
-        return Assignment(value[1], name, exp, isLocal: local);
+        return Declaration(value[1], local, name, exp);
       });
 }

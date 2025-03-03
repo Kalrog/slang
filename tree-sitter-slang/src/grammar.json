@@ -375,6 +375,10 @@
       "type": "PATTERN",
       "value": "[+-]?\\d+"
     },
+    "double": {
+      "type": "PATTERN",
+      "value": "[+-]?\\d+\\.\\d+"
+    },
     "string": {
       "type": "PATTERN",
       "value": "\"[^\"]*\""
@@ -769,6 +773,10 @@
         },
         {
           "type": "SYMBOL",
+          "name": "double"
+        },
+        {
+          "type": "SYMBOL",
           "name": "string"
         },
         {
@@ -1153,6 +1161,23 @@
     {
       "type": "PATTERN",
       "value": "\\n"
+    },
+    {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "//"
+        },
+        {
+          "type": "PATTERN",
+          "value": "[^\\n]*"
+        },
+        {
+          "type": "STRING",
+          "value": "\n"
+        }
+      ]
     }
   ],
   "conflicts": [

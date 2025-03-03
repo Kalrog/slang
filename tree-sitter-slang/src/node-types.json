@@ -110,6 +110,10 @@
           "named": true
         },
         {
+          "type": "double",
+          "named": true
+        },
+        {
           "type": "expression",
           "named": true
         },
@@ -607,6 +611,10 @@
   {
     "type": "and",
     "named": false
+  },
+  {
+    "type": "double",
+    "named": true
   },
   {
     "type": "else",

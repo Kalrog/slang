@@ -17,14 +17,15 @@ module.exports = grammar({
     /\s/,
     //allow newlines anywhere
     /\n/,
+    seq("//", /[^\n]*/, "\n")
   ],
   rules: {
-    // TODO: add the actual grammar rules
     source_file: $ => seq(
       repeat(seq($.statement, optional(";"))),
       optional(seq($.finalStatement, optional(";")))
     ),
     statement: $ => choice(
+      $.declaration,
       $.assignment,
       $.ifStatement,
       $.forLoop,
@@ -33,10 +34,14 @@ module.exports = grammar({
       $.functionDefinitionStatement,
     ),
     assignment: $ => seq(
-      optional("local"),
       $.varRef,
       "=",
       $.expression
+    ),
+    declaration: $ => seq(
+      "local",
+      $.varRef,
+      optional(seq("=", $.expression)),
     ),
     ifStatement: $ => prec.left(seq(
       "if",
@@ -80,6 +85,7 @@ module.exports = grammar({
     ),
 
     int: $ => /[+-]?\d+/,
+    double: $ => /[+-]?\d+\.\d+/,
     string: $ => /"[^"]*"/,
     true: $ => "true",
     false: $ => "false",
@@ -117,6 +123,7 @@ module.exports = grammar({
     params: $ => seq("(", optional(seq($.name, repeat(seq(",", $.name)))), ")"),
     expression: $ => choice(
       $.int,
+      $.double,
       $.string,
       $.true,
       $.false,

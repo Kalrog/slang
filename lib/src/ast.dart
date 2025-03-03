@@ -19,6 +19,7 @@ abstract class AstNodeVisitor<T, A> {
   }
 
   T visitIntLiteral(IntLiteral node, A arg);
+  T visitDoubleLiteral(DoubleLiteral node, A arg);
   T visitStringLiteral(StringLiteral node, A arg);
   T visitFalseLiteral(FalseLiteral node, A arg);
   T visitTrueLiteral(TrueLiteral node, A arg);
@@ -38,6 +39,7 @@ abstract class AstNodeVisitor<T, A> {
   T visitIfStatement(IfStatement node, A arg);
   T visitReturnStatement(ReturnStatement node, A arg);
   T visitAssignment(Assignment node, A arg);
+  T visitDeclaration(Declaration node, A arg);
 
   T visitForLoop(ForLoop node, A arg);
 }
@@ -75,6 +77,11 @@ class PrettyPrintVisitor extends AstNodeVisitor<void, Null> {
 
   @override
   void visitIntLiteral(IntLiteral node, [Null arg]) {
+    _append('${node.value}');
+  }
+
+  @override
+  void visitDoubleLiteral(DoubleLiteral node, Null arg) {
     _append('${node.value}');
   }
 
@@ -231,12 +238,24 @@ class PrettyPrintVisitor extends AstNodeVisitor<void, Null> {
 
   @override
   void visitAssignment(Assignment node, [Null arg]) {
-    if (node.isLocal) {
-      _append('local ');
-    }
     visit(node.left);
     _append(' = ');
-    visit(node.exp);
+    visit(node.right);
+  }
+
+  @override
+  void visitDeclaration(Declaration node, Null arg) {
+    if (node.isLocal) {
+      _append('local ');
+    } else {
+      _append('global ');
+    }
+
+    visit(node.left);
+    if (node.right != null) {
+      _append(' = ');
+      visit(node.right!);
+    }
   }
 }
 
@@ -251,6 +270,18 @@ class IntLiteral extends Exp {
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
     return visitor.visitIntLiteral(this, arg);
+  }
+
+  @override
+  String toString() => '$runtimeType($value)';
+}
+
+class DoubleLiteral extends Exp {
+  final double value;
+  DoubleLiteral(super.token, this.value);
+  @override
+  T accept<T, A>(AstNodeVisitor visitor, A arg) {
+    return visitor.visitDoubleLiteral(this, arg);
   }
 
   @override
@@ -494,9 +525,8 @@ class ReturnStatement extends Statement {
 
 class Assignment extends Statement {
   final Exp left;
-  final Exp exp;
-  final bool isLocal;
-  Assignment(super.token, this.left, this.exp, {required this.isLocal});
+  final Exp right;
+  Assignment(super.token, this.left, this.right);
 
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
@@ -504,5 +534,20 @@ class Assignment extends Statement {
   }
 
   @override
-  String toString() => '$runtimeType($left, $exp, isLocal: $isLocal)';
+  String toString() => '$runtimeType($left, $right)';
+}
+
+class Declaration extends Statement {
+  final bool isLocal;
+  final Exp left;
+  final Exp? right;
+  Declaration(super.token, this.isLocal, this.left, this.right);
+
+  @override
+  T accept<T, A>(AstNodeVisitor visitor, A arg) {
+    return visitor.visitDeclaration(this, arg);
+  }
+
+  @override
+  String toString() => '$runtimeType($isLocal, $left, $right)';
 }

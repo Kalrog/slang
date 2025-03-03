@@ -1,3 +1,4 @@
+import 'package:petitparser/debug.dart';
 import 'package:petitparser/petitparser.dart';
 import 'package:petitparser/reflection.dart';
 import 'package:slang/slang.dart';
@@ -17,7 +18,7 @@ FunctionPrototype compileSource(String source) {
     return func;
   } else {
     throw Exception(
-        'Failed to parse source: ${result.message}:${result.position}');
+        'Failed to parse source: ${result.message}:${result.toPositionString()}');
   }
 }
 

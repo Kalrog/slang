@@ -1,5 +1,6 @@
 import 'package:slang/slang.dart';
 import 'package:slang/src/codegen/function_assembler.dart';
+import 'package:slang/src/codegen/pattern_assembler.dart';
 import 'package:slang/src/vm/function_prototype.dart';
 
 class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
@@ -124,13 +125,13 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
     }
   }
 
+  @override
   void visitDeclaration(Declaration node, Null arg) {
     switch (node.left) {
       case Name(:final token, :final value):
         if (node.isLocal) {
           if (_assembler.getLocalVar(value) != null) {
-            throw Exception(
-                'Variable already declared: $value ${token.line}:${token.column}');
+            throw Exception('Variable already declared: $value ${token.line}:${token.column}');
           }
           _assembler.createLocalVar(value);
           var localVar = _assembler.getLocalVar(value);
@@ -203,10 +204,8 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
 
   @override
   void visitTableLiteral(TableLiteral node, Null arg) {
-    List<Field> arrayFields =
-        node.fields.where((node) => node.key == null).toList();
-    List<Field> mapFields =
-        node.fields.where((node) => node.key != null).toList();
+    List<Field> arrayFields = node.fields.where((node) => node.key == null).toList();
+    List<Field> mapFields = node.fields.where((node) => node.key != null).toList();
     _assembler.emitNewTable(arrayFields.length, mapFields.length);
     arrayFields = arrayFields.indexed
         .map((e) => Field(e.$2.token, IntLiteral(e.$2.token, e.$1), e.$2.value))
@@ -319,5 +318,149 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
     _assembler.emitJump(loopStart);
     _assembler.patchJump(loopEnd);
     _assembler.leaveScope();
+  }
+
+  @override
+  void visitConstPattern(ConstPattern node, Null arg) {
+    final patternAsm = _assembler.currentPattern!;
+    switch (patternAsm.step) {
+      case PatternAssemblyStep.check:
+        //check top of stack(previous check value, should be true)
+        _assembler.emitPush(-1);
+        _assembler.emitTest(true);
+        //jump to next check if false
+        final missmatchJump = _assembler.emitJump();
+        _assembler.emitPop();
+        //check value
+        visit(node.exp);
+        //compare value with pattern
+        _assembler.emitBinOp('==');
+        _assembler.patchJump(missmatchJump);
+      case PatternAssemblyStep.assign:
+      //nothing to do here
+    }
+  }
+
+  @override
+  void visitFieldPattern(FieldPattern node, Null arg) {
+    final patternAsm = _assembler.currentPattern!;
+    switch (patternAsm.step) {
+      case PatternAssemblyStep.check:
+        //check value
+        _assembler.emitPush(-1);
+        _assembler.emitLoadConstant(node.key!.value);
+        _assembler.emitGetTable();
+        _assembler.emitLoadBool(true);
+        visit(node.value);
+      case PatternAssemblyStep.assign:
+        if (node.value is TablePattern || node.value is VarPattern) {
+          //assign value
+          _assembler.emitPush(-1);
+          _assembler.emitLoadConstant(node.key!.value);
+          _assembler.emitGetTable();
+          visit(node.value);
+        }
+    }
+  }
+
+  @override
+  void visitTablePattern(TablePattern node, Null arg) {
+    final patternAsm = _assembler.currentPattern!;
+    switch (patternAsm.step) {
+      case PatternAssemblyStep.check:
+        //check top of stack(previous check value, should be true)
+        _assembler.emitPush(-1);
+        _assembler.emitTest(true);
+        //jump to next check if false
+        final missmatchJumps = [];
+        missmatchJumps.add(_assembler.emitJump());
+        _assembler.emitPop();
+        _assembler.emitPush(-1);
+        _assembler.emitLoadConstant(null);
+        _assembler.emitBinOp('==');
+        _assembler.emitTest(false);
+        missmatchJumps.add(_assembler.emitJump());
+        //top of stack is a table, visit each named field and after each check if it fails jump to missmatch
+        for (final field in node.fields) {
+          visit(field);
+          _assembler.emitTest(true);
+          missmatchJumps.add(_assembler.emitJump());
+        }
+        _assembler.emitLoadBool(true, jump: true);
+        for (final jump in missmatchJumps) {
+          _assembler.patchJump(jump);
+        }
+        _assembler.emitLoadBool(false);
+        _assembler.emitPop();
+      case PatternAssemblyStep.assign:
+        //run the assign step for each of the fields
+        for (final field in node.fields) {
+          visit(field);
+        }
+    }
+  }
+
+  @override
+  void visitVarPattern(VarPattern node, Null arg) {
+    final patternAsm = _assembler.currentPattern!;
+    switch (patternAsm.step) {
+      case PatternAssemblyStep.check:
+        //check top of stack(previous check value, should be true)
+        _assembler.emitPush(-1);
+        _assembler.emitTest(true);
+        //jump to next check if false
+        final missmatchJumps = [];
+        missmatchJumps.add(_assembler.emitJump());
+        _assembler.emitPop();
+        if (!node.canBeNull) {
+          _assembler.emitLoadConstant(null);
+          _assembler.emitBinOp('==');
+          _assembler.emitTest(false);
+          missmatchJumps.add(_assembler.emitJump());
+        } else {
+          _assembler.emitPop();
+        }
+        _assembler.emitLoadBool(true, jump: true);
+        for (final jump in missmatchJumps) {
+          _assembler.patchJump(jump);
+        }
+        _assembler.emitLoadBool(false);
+
+      case PatternAssemblyStep.assign:
+        //assign value
+        if (node.isLocal) {
+          _assembler.createLocalVar(node.name.value);
+          _assembler.emitMove(_assembler.getLocalVar(node.name.value)!.register);
+        } else {
+          visit(Name(node.token, "_ENV"));
+          _assembler.emitLoadConstant(node.name.value);
+          _assembler.emitPush(-3);
+          _assembler.emitSetTable();
+          _assembler.emitPop();
+        }
+    }
+  }
+
+  @override
+  void visitPatternAssignmentExp(PatternAssignmentExp node, Null arg) {
+    //push value to stack
+    visit(node.value);
+    _assembler.emitPush(-1);
+    _assembler.emitLoadBool(true);
+    final patternAssembler = _assembler.startPattern();
+    //check pattern
+    visit(node.pattern);
+    patternAssembler.completedCheck();
+    _assembler.emitTest(true);
+    final missmatchJump = _assembler.emitJump();
+    //assign variables
+    visit(node.pattern);
+    _assembler.emitPop();
+    _assembler.emitPop();
+    //put true on the stack and skip the next instruction that would put false on the stack (for the missmatch jump)
+
+    _assembler.emitLoadBool(true, jump: true);
+    _assembler.patchJump(missmatchJump);
+    _assembler.emitLoadBool(false);
   }
 }

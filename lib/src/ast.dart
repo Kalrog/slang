@@ -33,6 +33,7 @@ abstract class AstNodeVisitor<T, A> {
   T visitUnOp(UnOp node, A arg);
   T visitFunctionExpression(FunctionExpression node, A arg);
   T visitFunctionCall(FunctionCall node, A arg);
+  T visitPatternAssignmentExp(PatternAssignmentExp node, A arg);
 
   T visitBlock(Block node, A arg);
   T visitFunctionStatement(FunctionCallStatement node, A arg);
@@ -42,6 +43,11 @@ abstract class AstNodeVisitor<T, A> {
   T visitDeclaration(Declaration node, A arg);
 
   T visitForLoop(ForLoop node, A arg);
+
+  T visitVarPattern(VarPattern node, A arg);
+  T visitTablePattern(TablePattern node, A arg);
+  T visitFieldPattern(FieldPattern node, A arg);
+  T visitConstPattern(ConstPattern node, A arg);
 }
 
 class PrettyPrintVisitor extends AstNodeVisitor<void, Null> {
@@ -256,6 +262,54 @@ class PrettyPrintVisitor extends AstNodeVisitor<void, Null> {
       _append(' = ');
       visit(node.right!);
     }
+  }
+
+  @override
+  void visitConstPattern(ConstPattern node, Null arg) {
+    visit(node.exp);
+  }
+
+  @override
+  void visitFieldPattern(FieldPattern node, Null arg) {
+    if (node.key != null) {
+      visit(node.key!);
+      _append(':');
+    }
+    visit(node.value);
+  }
+
+  @override
+  void visitTablePattern(TablePattern node, Null arg) {
+    _append('{');
+    _increaseIndent();
+    for (var field in node.fields) {
+      _newLine();
+      visit(field);
+      _append(',');
+    }
+    _decreaseIndent();
+    _newLine();
+    _append('}');
+  }
+
+  @override
+  void visitVarPattern(VarPattern node, Null arg) {
+    if (node.isLocal) {
+      _append('local ');
+    } else {
+      _append('global ');
+    }
+    _append(node.name.value);
+    if (node.canBeNull) {
+      _append('?');
+    }
+  }
+
+  @override
+  void visitPatternAssignmentExp(PatternAssignmentExp node, Null arg) {
+    visit(node.value);
+    _append(' => ');
+    visit(node.pattern);
   }
 }
 
@@ -550,4 +604,84 @@ class Declaration extends Statement {
 
   @override
   String toString() => '$runtimeType($isLocal, $left, $right)';
+}
+
+sealed class Pattern extends AstNode {
+  const Pattern(super.token);
+}
+
+class VarPattern extends Pattern {
+  final bool isLocal;
+  final Name name;
+  final bool canBeNull;
+  VarPattern(super.token, this.name, {required this.isLocal, required this.canBeNull});
+
+  @override
+  T accept<T, A>(AstNodeVisitor visitor, A arg) {
+    return visitor.visitVarPattern(this, arg);
+  }
+
+  @override
+  String toString() => '$runtimeType($name)';
+}
+
+class TablePattern extends Pattern {
+  final List<FieldPattern> fields;
+  TablePattern(super.token, this.fields);
+
+  @override
+  T accept<T, A>(AstNodeVisitor visitor, A arg) {
+    return visitor.visitTablePattern(this, arg);
+  }
+
+  @override
+  String toString() => '$runtimeType($fields)';
+}
+
+class FieldPattern extends AstNode {
+  final Name? key;
+  final Pattern value;
+  FieldPattern(super.token, this.key, this.value);
+
+  @override
+  T accept<T, A>(AstNodeVisitor<T, A> visitor, A arg) {
+    return visitor.visitFieldPattern(this, arg);
+  }
+
+  @override
+  String toString() => '$runtimeType($key, $value)';
+}
+
+class ConstPattern extends Pattern {
+  final Exp exp;
+  ConstPattern(super.token, this.exp)
+      : assert(exp is IntLiteral ||
+            exp is DoubleLiteral ||
+            exp is StringLiteral ||
+            exp is TrueLiteral ||
+            exp is FalseLiteral ||
+            exp is NullLiteral);
+
+  @override
+  T accept<T, A>(AstNodeVisitor visitor, A arg) {
+    return visitor.visitConstPattern(this, arg);
+  }
+
+  @override
+  String toString() => '$runtimeType($exp)';
+}
+
+class PatternAssignmentExp extends Exp {
+  final Exp value;
+  final Pattern pattern;
+
+  PatternAssignmentExp(super.token, this.pattern, this.value);
+
+  @override
+  T accept<T, A>(AstNodeVisitor visitor, A arg) {
+    return visitor.visitPatternAssignmentExp(this, arg);
+  }
+
+  @override
+  String toString() => '$runtimeType($value, $pattern)';
 }

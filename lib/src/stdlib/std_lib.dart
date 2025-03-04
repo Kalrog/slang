@@ -35,8 +35,10 @@ class SlangStdLib {
     if (args.isEmpty) {
       throw ArgumentError("assert requires at least one argument");
     }
-    if (args[0] == false) {
-      throw ArgumentError("assertion failed");
+    final assertion = args[0];
+    final message = args.length > 1 ? args[1] : "assertion failed";
+    if (assertion == null || assertion == false) {
+      throw ArgumentError(message);
     }
     return null;
   }

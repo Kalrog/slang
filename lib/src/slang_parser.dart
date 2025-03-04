@@ -21,10 +21,10 @@ class SlangParser extends SlangGrammar {
     builder.primitive(ref0(stringLiteral).cast<Exp>());
     builder.primitive(ref0(trueLiteral).cast<Exp>());
     builder.primitive(ref0(falseLiteral).cast<Exp>());
+    builder.primitive(ref0(patternAssignmentExp).cast<Exp>());
     builder.primitive(ref0(listLiteral).cast<Exp>());
     builder.primitive(ref0(functionExpression).cast<Exp>());
     builder.primitive(ref0(prefixExpr).cast<Exp>());
-    builder.primitive(ref0(patternAssignmentExp).cast<Exp>());
     builder.group().wrapper(ref1(token, '('), ref1(token, ')'), (left, value, right) => value);
     // builder.group().right(ref1(token,'^'), BinOp.new);
     builder.group().right(

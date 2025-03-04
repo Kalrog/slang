@@ -639,7 +639,7 @@ class TablePattern extends Pattern {
 }
 
 class FieldPattern extends AstNode {
-  final Name? key;
+  final Exp? key;
   final Pattern value;
   FieldPattern(super.token, this.key, this.value);
 

@@ -242,6 +242,7 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
 
   @override
   void visitIfStatement(IfStatement node, Null arg) {
+    _assembler.enterScope();
     visit(node.condition);
     _assembler.emitTest(true);
     int elseJump = _assembler.emitJump();
@@ -254,6 +255,7 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
     } else {
       _assembler.patchJump(elseJump);
     }
+    _assembler.leaveScope();
   }
 
   @override
@@ -325,17 +327,10 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
     final patternAsm = _assembler.currentPattern!;
     switch (patternAsm.step) {
       case PatternAssemblyStep.check:
-        //check top of stack(previous check value, should be true)
-        _assembler.emitPush(-1);
-        _assembler.emitTest(true);
-        //jump to next check if false
-        final missmatchJump = _assembler.emitJump();
-        _assembler.emitPop();
-        //check value
         visit(node.exp);
-        //compare value with pattern
         _assembler.emitBinOp('==');
-        _assembler.patchJump(missmatchJump);
+        patternAsm.decreaseStackHeight();
+        patternAsm.testMissmatch(missmatchIf: false);
       case PatternAssemblyStep.assign:
       //nothing to do here
     }
@@ -346,17 +341,16 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
     final patternAsm = _assembler.currentPattern!;
     switch (patternAsm.step) {
       case PatternAssemblyStep.check:
-        //check value
         _assembler.emitPush(-1);
-        _assembler.emitLoadConstant(node.key!.value);
+        visit(node.key!);
         _assembler.emitGetTable();
-        _assembler.emitLoadBool(true);
+        patternAsm.increaseStackHeight();
         visit(node.value);
       case PatternAssemblyStep.assign:
         if (node.value is TablePattern || node.value is VarPattern) {
           //assign value
           _assembler.emitPush(-1);
-          _assembler.emitLoadConstant(node.key!.value);
+          visit(node.key!);
           _assembler.emitGetTable();
           visit(node.value);
         }
@@ -366,37 +360,41 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
   @override
   void visitTablePattern(TablePattern node, Null arg) {
     final patternAsm = _assembler.currentPattern!;
+    //TODO: only run this table algo once
+    final fields = [];
+    int lastNumber = -1;
+    for (final field in node.fields) {
+      switch (field.key) {
+        case IntLiteral(:var value):
+          lastNumber = value;
+          fields.add(field);
+        case null:
+          lastNumber++;
+          final number = lastNumber;
+          fields.add(FieldPattern(field.token, IntLiteral(field.token, number), field.value));
+        default:
+          fields.add(field);
+      }
+    }
     switch (patternAsm.step) {
       case PatternAssemblyStep.check:
-        //check top of stack(previous check value, should be true)
+        //check if the value is not null
         _assembler.emitPush(-1);
-        _assembler.emitTest(true);
-        //jump to next check if false
-        final missmatchJumps = [];
-        missmatchJumps.add(_assembler.emitJump());
-        _assembler.emitPop();
-        _assembler.emitPush(-1);
-        _assembler.emitLoadConstant(null);
-        _assembler.emitBinOp('==');
-        _assembler.emitTest(false);
-        missmatchJumps.add(_assembler.emitJump());
-        //top of stack is a table, visit each named field and after each check if it fails jump to missmatch
-        for (final field in node.fields) {
+        patternAsm.testMissmatch(missmatchIf: false);
+
+        for (final field in fields) {
           visit(field);
-          _assembler.emitTest(true);
-          missmatchJumps.add(_assembler.emitJump());
         }
-        _assembler.emitLoadBool(true, jump: true);
-        for (final jump in missmatchJumps) {
-          _assembler.patchJump(jump);
-        }
-        _assembler.emitLoadBool(false);
         _assembler.emitPop();
+        patternAsm.decreaseStackHeight();
+
       case PatternAssemblyStep.assign:
         //run the assign step for each of the fields
-        for (final field in node.fields) {
+        for (final field in fields) {
           visit(field);
         }
+        _assembler.emitPop();
+        patternAsm.decreaseStackHeight();
     }
   }
 
@@ -405,27 +403,13 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
     final patternAsm = _assembler.currentPattern!;
     switch (patternAsm.step) {
       case PatternAssemblyStep.check:
-        //check top of stack(previous check value, should be true)
-        _assembler.emitPush(-1);
-        _assembler.emitTest(true);
-        //jump to next check if false
-        final missmatchJumps = [];
-        missmatchJumps.add(_assembler.emitJump());
-        _assembler.emitPop();
-        if (!node.canBeNull) {
-          _assembler.emitLoadConstant(null);
-          _assembler.emitBinOp('==');
-          _assembler.emitTest(false);
-          missmatchJumps.add(_assembler.emitJump());
-        } else {
+        if (node.canBeNull) {
           _assembler.emitPop();
+          patternAsm.decreaseStackHeight();
+          return;
         }
-        _assembler.emitLoadBool(true, jump: true);
-        for (final jump in missmatchJumps) {
-          _assembler.patchJump(jump);
-        }
-        _assembler.emitLoadBool(false);
-
+        patternAsm.decreaseStackHeight();
+        patternAsm.testMissmatch(missmatchIf: false);
       case PatternAssemblyStep.assign:
         //assign value
         if (node.isLocal) {
@@ -444,23 +428,19 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
   @override
   void visitPatternAssignmentExp(PatternAssignmentExp node, Null arg) {
     //push value to stack
-    visit(node.value);
-    _assembler.emitPush(-1);
-    _assembler.emitLoadBool(true);
+
     final patternAssembler = _assembler.startPattern();
+    visit(node.value);
+    patternAssembler.increaseStackHeight();
+    _assembler.emitPush(-1);
+    patternAssembler.increaseStackHeight();
+
     //check pattern
     visit(node.pattern);
-    patternAssembler.completedCheck();
-    _assembler.emitTest(true);
-    final missmatchJump = _assembler.emitJump();
-    //assign variables
+    patternAssembler.completeCheckStep();
     visit(node.pattern);
-    _assembler.emitPop();
-    _assembler.emitPop();
-    //put true on the stack and skip the next instruction that would put false on the stack (for the missmatch jump)
-
     _assembler.emitLoadBool(true, jump: true);
-    _assembler.patchJump(missmatchJump);
+    patternAssembler.closeMissmatchJumps();
     _assembler.emitLoadBool(false);
   }
 }

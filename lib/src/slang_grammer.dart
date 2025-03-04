@@ -164,8 +164,14 @@ abstract class SlangGrammar extends GrammarDefinition {
 
   Parser fieldPattern() =>
       ((ref0(name) & ref1(token, ':')).pick(0) |
-              (ref1(token, '[') & ref0(expr) & ref1(token, ']')).pick(1))
-          .optional() &
+              (ref1(token, '[') & ref0(expr) & ref1(token, ']') & ref1(token, ':')).pick(1))
+          .map((exp) {
+        if (exp is Name) {
+          return StringLiteral(exp.token, exp.value);
+        } else {
+          return exp;
+        }
+      }).optional() &
       ref0(slangPattern);
 
   Parser constPattern() =>

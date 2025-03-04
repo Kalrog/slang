@@ -4,10 +4,9 @@ import 'package:slang/slang.dart';
 import 'package:slang/src/codegen/slang_code_generator.dart';
 import 'package:slang/src/vm/function_prototype.dart';
 
+final _parser = optimize(SlangParser().build());
 FunctionPrototype compileSource(String source) {
-  var parser = SlangParser().build();
-  parser = optimize(parser);
-  final result = parser.parse(source);
+  final result = _parser.parse(source);
   if (result is Success) {
     final ast = result.value;
     // ast.prettyPrint();

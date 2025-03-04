@@ -428,7 +428,7 @@ class FunctionAssembler {
   }
 
   PatternAssembler startPattern() {
-    final patternAssembler = PatternAssembler();
+    final patternAssembler = PatternAssembler(this);
     _patternAssemblers.add(patternAssembler);
     return patternAssembler;
   }

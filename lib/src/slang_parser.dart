@@ -243,8 +243,8 @@ class SlangParser extends SlangGrammar {
 
   @override
   Parser patternAssignmentExp() => super.patternAssignmentExp().map((value) {
-        final pattern = value[0];
-        final exp = value[2];
-        return PatternAssignmentExp(value[1], pattern, exp);
+        final pattern = value[1];
+        final exp = value[3];
+        return PatternAssignmentExp(value[0], pattern, exp);
       });
 }

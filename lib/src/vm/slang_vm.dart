@@ -195,7 +195,32 @@ class SlangVm {
     if (table is! SlangTable) {
       throw Exception('Expected SlangTable got ${table.runtimeType}');
     }
-    table[key] = value;
+    _setTable(table, key, value);
+  }
+
+  void _setTable(SlangTable table, Object key, Object value) {
+    // table[key] = value;
+    if (table[key] != null || table.metatable == null || table.metatable!["__newindex"] == null) {
+      table[key] = value;
+      return;
+    }
+
+    final metatable = table.metatable!;
+    final newindex = metatable["__newindex"];
+    switch (newindex) {
+      case Closure closure:
+        frame.push(closure);
+        frame.push(table);
+        frame.push(key);
+        frame.push(value);
+        call(3);
+        return;
+      case SlangTable table:
+        _setTable(table, key, value);
+        return;
+      default:
+        return;
+    }
   }
 
   void getTable() {
@@ -204,7 +229,31 @@ class SlangVm {
     if (table is! SlangTable) {
       throw Exception('Expected SlangTable got ${table.runtimeType}');
     }
-    frame.push(table[key]);
+    _getTable(table, key);
+  }
+
+  void _getTable(SlangTable table, Object key) {
+    final value = table[key];
+    if (value != null || table.metatable == null || table.metatable!["__index"] == null) {
+      frame.push(value);
+      return;
+    }
+    final metatable = table.metatable!;
+    final index = metatable["__index"];
+    switch (index) {
+      case Closure closure:
+        frame.push(closure);
+        frame.push(table);
+        frame.push(key);
+        call(2);
+        return;
+      case SlangTable table:
+        _getTable(table, key);
+        return;
+      default:
+        frame.push(null);
+        return;
+    }
   }
 
   void setUpvalue(int index) {
@@ -288,9 +337,7 @@ class SlangVm {
 
   String buildStackTrace() {
     final buffer = StringBuffer();
-    for (SlangStackFrame? frame = this.frame;
-        frame != null;
-        frame = frame.parent) {
+    for (SlangStackFrame? frame = this.frame; frame != null; frame = frame.parent) {
       final location = frame.currentInstructionLocation;
       if (location != null) {
         buffer.writeln("unknown closure:$location");
@@ -417,19 +464,14 @@ class SlangVm {
 
               if (line != null) {
                 int? pc;
-                for (int i = 1;
-                    i < frame.function!.sourceLocations.length;
-                    i++) {
-                  if (frame.function!.sourceLocations[i].location.line ==
-                      line) {
+                for (int i = 1; i < frame.function!.sourceLocations.length; i++) {
+                  if (frame.function!.sourceLocations[i].location.line == line) {
                     pc = frame.function!.sourceLocations[i].firstInstruction;
                     break;
                   }
                   if (frame.function!.sourceLocations[i].location.line > line &&
-                      frame.function!.sourceLocations[i - 1].location.line <=
-                          line) {
-                    pc =
-                        frame.function!.sourceLocations[i - 1].firstInstruction;
+                      frame.function!.sourceLocations[i - 1].location.line <= line) {
+                    pc = frame.function!.sourceLocations[i - 1].firstInstruction;
                     break;
                   }
                 }
@@ -506,8 +548,7 @@ class SlangVm {
   int? debugInstructionContext = 5;
   void printInstructions() {
     print("Instructions:");
-    print(frame.function!
-        .instructionsToString(pc: frame.pc, context: debugInstructionContext));
+    print(frame.function!.instructionsToString(pc: frame.pc, context: debugInstructionContext));
   }
 
   void printConstants() {

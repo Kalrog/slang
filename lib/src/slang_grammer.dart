@@ -184,5 +184,6 @@ abstract class SlangGrammar extends GrammarDefinition {
 
   Parser varPattern() => ref1(token, 'local').optional() & ref0(name) & ref1(token, '?').optional();
 
-  Parser patternAssignmentExp() => ref0(slangPattern) & ref1(token, '=') & ref0(expr);
+  Parser patternAssignmentExp() =>
+      ref1(token, "let") & ref0(slangPattern) & ref1(token, '=') & ref0(expr);
 }

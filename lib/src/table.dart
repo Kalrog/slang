@@ -1,6 +1,7 @@
 class SlangTable {
   final Map<Object, Object?> _map;
   final List<Object?> _list;
+  SlangTable? metatable;
 
   SlangTable([int nArray = 0, int nHash = 0])
       : _map = {},
@@ -30,7 +31,9 @@ class SlangTable {
   }
 
   Object? operator [](Object key) {
-    if (key is int && key < _list.length && key >= 0) {
+    if (key is String && key == "meta") {
+      return metatable;
+    } else if (key is int && key < _list.length && key >= 0) {
       return _list[key];
     } else {
       return _map[key];
@@ -38,7 +41,9 @@ class SlangTable {
   }
 
   void operator []=(Object key, Object value) {
-    if (key is int) {
+    if (key is String && key == "meta") {
+      metatable = value as SlangTable?;
+    } else if (key is int) {
       if (key < _list.length && key >= 0) {
         _list[key] = value;
       } else if (key == _list.length) {

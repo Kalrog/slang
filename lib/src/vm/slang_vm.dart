@@ -91,7 +91,7 @@ class SlangStackFrame {
     return buffer.toString();
   }
 
-  void get top => stack.length;
+  int get top => stack.length;
 
   void setTop(int top) {
     if (top < stack.length) {
@@ -115,83 +115,87 @@ enum UnOpType { neg, not }
 enum ExecutionMode { run, step, runDebug }
 
 class SlangVm {
-  SlangStackFrame frame = SlangStackFrame();
-  SlangTable globals = SlangTable();
+  SlangStackFrame _frame = SlangStackFrame();
+  final SlangTable _globals = SlangTable();
   ExecutionMode mode = ExecutionMode.run;
 
   void execUnOp(UnOpType op) {
-    final a = frame.pop();
+    final a = _frame.pop();
     switch (op) {
       case UnOpType.neg:
-        frame.push(-a);
+        _frame.push(-a);
       case UnOpType.not:
-        frame.push(!a);
+        _frame.push(!a);
     }
   }
 
   void execBinOp(BinOpType op) {
-    final b = frame.pop();
-    final a = frame.pop();
+    final b = _frame.pop();
+    final a = _frame.pop();
     switch (op) {
       case BinOpType.add:
-        frame.push(a + b);
+        _frame.push(a + b);
       case BinOpType.sub:
-        frame.push(a - b);
+        _frame.push(a - b);
       case BinOpType.mul:
-        frame.push(a * b);
+        _frame.push(a * b);
       case BinOpType.div:
-        frame.push(a / b);
+        _frame.push(a / b);
       case BinOpType.mod:
-        frame.push(a % b);
+        _frame.push(a % b);
     }
   }
 
   void execRelOp(RelOpType op) {
-    final b = frame.pop();
-    final a = frame.pop();
+    final b = _frame.pop();
+    final a = _frame.pop();
     switch (op) {
       case RelOpType.lt:
-        frame.push(a < b);
+        _frame.push(a < b);
       case RelOpType.leq:
-        frame.push(a <= b);
+        _frame.push(a <= b);
       case RelOpType.eq:
-        frame.push(a == b);
+        _frame.push(a == b);
     }
   }
 
   void push(dynamic value) {
-    frame.push(value);
+    _frame.push(value);
   }
 
   void pushValue(int index) {
-    frame.push(frame[index]);
+    _frame.push(_frame[index]);
   }
 
   void pop([int keep = 0, int pop = 1]) {
-    final popped = frame.pop(pop + keep);
+    final popped = _frame.pop(pop + keep);
     if (keep > 0) {
       final kept = popped.sublist(pop);
-      frame.stack.addAll(kept);
+      _frame.stack.addAll(kept);
     }
   }
 
+  int getTop() {
+    return _frame.top;
+  }
+
   void replace(int index) {
-    frame[index] = frame.pop();
+    _frame[index] = _frame.pop();
   }
 
   void loadConstant(int index) {
-    final k = frame.function!.constants[index];
-    frame.push(k);
+    final k = _frame.function!.constants[index];
+    _frame.push(k);
   }
 
   void newTable([int nArray = 0, int nHash = 0]) {
-    frame.push(SlangTable(nArray, nHash));
+    _frame.push(SlangTable(nArray, nHash));
   }
 
   void setTable() {
-    final value = frame.pop();
-    final key = frame.pop();
-    final table = frame.pop();
+    final value = _frame.pop();
+    final key = _frame.pop();
+    final table = _frame.pop();
     if (table is! SlangTable) {
       throw Exception('Expected SlangTable got ${table.runtimeType}');
     }
@@ -209,10 +213,10 @@ class SlangVm {
     final newindex = metatable["__newindex"];
     switch (newindex) {
       case Closure closure:
-        frame.push(closure);
-        frame.push(table);
-        frame.push(key);
-        frame.push(value);
+        _frame.push(closure);
+        _frame.push(table);
+        _frame.push(key);
+        _frame.push(value);
         call(3);
         return;
       case SlangTable table:
@@ -224,8 +228,8 @@ class SlangVm {
   }
 
   void getTable() {
-    final key = frame.pop();
-    final table = frame.pop();
+    final key = _frame.pop();
+    final table = _frame.pop();
     if (table is! SlangTable) {
       throw Exception('Expected SlangTable got ${table.runtimeType}');
     }
@@ -235,40 +239,40 @@ class SlangVm {
   void _getTable(SlangTable table, Object key) {
     final value = table[key];
     if (value != null || table.metatable == null || table.metatable!["__index"] == null) {
-      frame.push(value);
+      _frame.push(value);
       return;
     }
     final metatable = table.metatable!;
     final index = metatable["__index"];
     switch (index) {
       case Closure closure:
-        frame.push(closure);
-        frame.push(table);
-        frame.push(key);
+        _frame.push(closure);
+        _frame.push(table);
+        _frame.push(key);
         call(2);
         return;
       case SlangTable table:
         _getTable(table, key);
         return;
       default:
-        frame.push(null);
+        _frame.push(null);
         return;
     }
   }
 
   void setUpvalue(int index) {
-    final value = frame.pop();
-    final upvalue = frame.closure!.upvalues[index];
+    final value = _frame.pop();
+    final upvalue = _frame.closure!.upvalues[index];
     upvalue!.set(value);
   }
 
   void getUpvalue(int index) {
-    final upvalue = frame.closure!.upvalues[index];
-    frame.push(upvalue!.get());
+    final upvalue = _frame.closure!.upvalues[index];
+    _frame.push(upvalue!.get());
   }
 
   void closeUpvalues(int fromIndex) {
-    frame.openUpvalues.removeWhere((_, upvalue) {
+    _frame.openUpvalues.removeWhere((_, upvalue) {
       if (upvalue.index >= fromIndex) {
         upvalue.migrate();
         return true;
@@ -281,63 +285,62 @@ class SlangVm {
     final prototype = repl ? compileREPL(code) : compileSource(code);
     Closure closure = Closure.slang(prototype);
     if (prototype.upvalues.isNotEmpty && prototype.upvalues[0].name == '_ENV') {
-      closure.upvalues[0] = UpvalueHolder.value(globals);
+      closure.upvalues[0] = UpvalueHolder.value(_globals);
     }
-    frame.push(closure);
+    _frame.push(closure);
   }
 
   void loadClosure(int index) {
-    final prototype = frame.function!.children[index];
+    final prototype = _frame.function!.children[index];
     Closure closure = Closure.slang(prototype);
     if (prototype.upvalues.isNotEmpty && prototype.upvalues[0].name == '_ENV') {
-      closure.upvalues[0] = UpvalueHolder.value(globals);
+      closure.upvalues[0] = UpvalueHolder.value(_globals);
     }
     for (final (index, uv) in prototype.upvalues.indexed) {
-      if (frame.openUpvalues[uv.index] != null) {
-        closure.upvalues[index] = frame.openUpvalues[uv.index];
+      if (_frame.openUpvalues[uv.index] != null) {
+        closure.upvalues[index] = _frame.openUpvalues[uv.index];
       } else if (uv.isLocal) {
-        closure.upvalues[index] = UpvalueHolder.stack(frame, uv.index);
-        frame.openUpvalues[uv.index] = closure.upvalues[index]!;
+        closure.upvalues[index] = UpvalueHolder.stack(_frame, uv.index);
+        _frame.openUpvalues[uv.index] = closure.upvalues[index]!;
       } else {
-        closure.upvalues[index] = frame.closure!.upvalues[uv.index];
+        closure.upvalues[index] = _frame.closure!.upvalues[uv.index];
       }
     }
-    frame.push(closure);
+    _frame.push(closure);
   }
 
   void call(int nargs) {
-    var args = frame.pop(nargs) ?? [];
+    var args = _frame.pop(nargs) ?? [];
     if (args is! List) {
       args = [args];
     }
-    final closure = frame.pop();
+    final closure = _frame.pop();
     if (closure is! Closure) {
       throw Exception('Expected Closure got $closure');
     }
     _pushStack(closure);
     for (final arg in args) {
-      frame.push(arg);
+      _frame.push(arg);
     }
-    if (closure.prototype != null) {
-      frame.setTop(closure.prototype!.maxStackSize);
-      try {
+
+    try {
+      if (closure.prototype != null) {
+        _frame.setTop(closure.prototype!.maxStackSize);
         _runSlangFunction();
-      } catch (e, stack) {
-        print(buildStackTrace());
-        print("Error: $e");
-        print("Stack: $stack");
-        rethrow;
+      } else {
+        _runDartFunction();
       }
-    } else {
-      final value = closure.dartFunction!(this, args);
-      _popStack();
-      frame.push(value);
+    } catch (e, stack) {
+      print(buildStackTrace());
+      print("Error: $e");
+      print("Stack: $stack");
+      rethrow;
     }
   }
 
   String buildStackTrace() {
     final buffer = StringBuffer();
-    for (SlangStackFrame? frame = this.frame; frame != null; frame = frame.parent) {
+    for (SlangStackFrame? frame = this._frame; frame != null; frame = frame.parent) {
       final location = frame.currentInstructionLocation;
       if (location != null) {
         buffer.writeln("unknown closure:$location");
@@ -349,7 +352,7 @@ class SlangVm {
   }
 
   void registerDartFunction(String name, DartFunction function) {
-    globals[name] = Closure.dart(function);
+    _globals[name] = Closure.dart(function);
   }
 
   void pushDartFunction(DartFunction function) {
@@ -357,18 +360,18 @@ class SlangVm {
   }
 
   void _pushStack([Closure? closure]) {
-    frame = SlangStackFrame(closure, frame);
+    _frame = SlangStackFrame(closure, _frame);
   }
 
   void _popStack() {
-    for (final upvalue in frame.openUpvalues.values) {
+    for (final upvalue in _frame.openUpvalues.values) {
       upvalue.migrate();
     }
-    frame = frame.parent!;
+    _frame = _frame.parent!;
   }
 
   void addPc(int n) {
-    frame.addPc(n);
+    _frame.addPc(n);
   }
 
   void jump(int n) {
@@ -378,11 +381,11 @@ class SlangVm {
   Set<int> breakPoints = {};
   void _runSlangFunction() {
     while (true) {
-      final instruction = frame.currentInstruction;
+      final instruction = _frame.currentInstruction;
       final op = instruction!.op;
 
       bool brk = false;
-      if (breakPoints.contains(frame.pc) && mode == ExecutionMode.runDebug) {
+      if (breakPoints.contains(_frame.pc) && mode == ExecutionMode.runDebug) {
         brk = true;
       }
       if (mode == ExecutionMode.step) {
@@ -464,18 +467,18 @@ class SlangVm {
 
               if (line != null) {
                 int? pc;
-                for (int i = 1; i < frame.function!.sourceLocations.length; i++) {
-                  if (frame.function!.sourceLocations[i].location.line == line) {
-                    pc = frame.function!.sourceLocations[i].firstInstruction;
+                for (int i = 1; i < _frame.function!.sourceLocations.length; i++) {
+                  if (_frame.function!.sourceLocations[i].location.line == line) {
+                    pc = _frame.function!.sourceLocations[i].firstInstruction;
                     break;
                   }
-                  if (frame.function!.sourceLocations[i].location.line > line &&
-                      frame.function!.sourceLocations[i - 1].location.line <= line) {
-                    pc = frame.function!.sourceLocations[i - 1].firstInstruction;
+                  if (_frame.function!.sourceLocations[i].location.line > line &&
+                      _frame.function!.sourceLocations[i - 1].location.line <= line) {
+                    pc = _frame.function!.sourceLocations[i - 1].firstInstruction;
                     break;
                   }
                 }
-                pc ??= frame.function!.sourceLocations.last.firstInstruction;
+                pc ??= _frame.function!.sourceLocations.last.firstInstruction;
                 if (breakPoints.contains(pc)) {
                   breakPoints.remove(pc);
                   print("Removed breakpoint at $pc");
@@ -497,69 +500,90 @@ class SlangVm {
     }
   }
 
-  void returnOp(int n) {
-    final result = frame[n];
+  void _runDartFunction() {
+    final function = _frame.closure!.dartFunction!;
+    final returnsValue = function(this);
+    Object? returnValue;
+    if (returnsValue) {
+      returnValue = _frame.pop();
+    }
     _popStack();
-    frame.push(result);
+    _frame.push(returnValue);
+  }
+
+  void returnOp(int n) {
+    final result = _frame[n];
+    _popStack();
+    _frame.push(result);
   }
 
   Object? toAny(int n) {
-    final value = frame[n];
+    final value = _frame[n];
     return value;
   }
 
   int toInt(int n) {
-    return frame[n] as int;
+    return _frame[n] as int;
   }
 
   String toString2(int n) {
-    return frame[n] as String;
+    return _frame[n] as String;
   }
 
   bool toBool(int n) {
-    return frame[n] == null || frame[n] == false;
+    return _frame[n] == null || _frame[n] == false;
   }
 
   bool checkInt(int n) {
-    return frame[n] is int;
+    return _frame[n] is int;
   }
 
   bool checkString(int n) {
-    return frame[n] is String;
+    return _frame[n] is String;
   }
 
   bool checkTable(int n) {
-    return frame[n] is SlangTable;
+    return _frame[n] is SlangTable;
   }
 
   bool checkFunction(int n) {
-    return frame[n] is Closure;
+    return _frame[n] is Closure;
   }
 
   bool checkNull(int n) {
-    return frame[n] == null;
+    return _frame[n] == null;
+  }
+
+  /// Push `global[identifier]` onto the stack
+  void getGlobal(Object identifier) {
+    _frame.push(_globals[identifier]);
+  }
+
+  /// Take value from stack and set `global[identifier]`
+  void setGlobal(Object identifier) {
+    _globals[identifier] = _frame.pop();
   }
 
   void printStack() {
     print("Stack:");
-    print(frame.toString());
+    print(_frame.toString());
   }
 
   int? debugInstructionContext = 5;
   void printInstructions() {
     print("Instructions:");
-    print(frame.function!.instructionsToString(pc: frame.pc, context: debugInstructionContext));
+    print(_frame.function!.instructionsToString(pc: _frame.pc, context: debugInstructionContext));
   }
 
   void printConstants() {
     print("Constants:");
-    print(frame.function!.constantsToString());
+    print(_frame.function!.constantsToString());
   }
 
   void printUpvalues() {
     print("Upvalues:");
-    for (var i = 0; i < frame.function!.upvalues.length; i++) {
-      print('${frame.function!.upvalues[i]}: ${frame.closure!.upvalues[i]}');
+    for (var i = 0; i < _frame.function!.upvalues.length; i++) {
+      print('${_frame.function!.upvalues[i]}: ${_frame.closure!.upvalues[i]}');
     }
   }
 

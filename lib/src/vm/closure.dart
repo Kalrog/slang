@@ -35,7 +35,7 @@ class UpvalueHolder {
   }
 }
 
-typedef DartFunction = Object? Function(SlangVm vm, List<Object?> args);
+typedef DartFunction = bool Function(SlangVm vm);
 
 class Closure {
   final FunctionPrototype? prototype;

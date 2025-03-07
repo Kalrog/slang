@@ -5,7 +5,6 @@ local test = {
     b: 2,
   },
 }
-
 if(let {hello: local variable,inner:{b:2}} = test){
   print("match")
   assert(variable == "world")

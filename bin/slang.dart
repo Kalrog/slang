@@ -3,12 +3,14 @@ import 'dart:io';
 import 'package:args/args.dart';
 import 'package:slang/slang.dart';
 import 'package:slang/src/repl.dart';
+import 'package:slang/src/stdlib/package_lib.dart';
 import 'package:slang/src/stdlib/std_lib.dart';
 
 void main(List<String> arguments) {
   // print('Hello world: ${slang.calculate()}!');
   final vm = SlangVm();
   SlangStdLib.register(vm);
+  SlangPackageLib.register(vm);
 
   ArgParser argParser = ArgParser();
   argParser.addFlag('debug', abbr: 'd', help: 'Debug mode', defaultsTo: false);

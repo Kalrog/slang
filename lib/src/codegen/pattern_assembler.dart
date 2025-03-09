@@ -20,7 +20,8 @@ class PatternAssembler {
 
   void completeCheckStep() {
     if (step != PatternAssemblyStep.check) {
-      throw Exception('Cannot complete check step after completing the assign step');
+      throw Exception(
+          'Cannot complete check step after completing the assign step');
     }
     _step = PatternAssemblyStep.assign;
   }
@@ -40,7 +41,7 @@ class PatternAssembler {
   }
 
   void testMissmatch({required bool missmatchIf}) {
-    _parent.emitTest(missmatchIf);
+    _parent.emitTest(!missmatchIf);
     final matchJump = _parent.emitJump();
     if (_stackIncrease > 0) {
       _parent.emitPop(0, _stackIncrease);

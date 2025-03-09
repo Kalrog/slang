@@ -68,7 +68,7 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
   void visitLogicalAnd(BinOp node) {
     visit(node.left);
     _assembler.emitPush(-1);
-    _assembler.emitTest(true);
+    _assembler.emitTest(false);
     final doneJump = _assembler.emitJump();
     _assembler.emitPop();
     visit(node.right);
@@ -78,7 +78,7 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
   void visitLogicalOr(BinOp node) {
     visit(node.left);
     _assembler.emitPush(-1);
-    _assembler.emitTest(false);
+    _assembler.emitTest(true);
     final doneJump = _assembler.emitJump();
     _assembler.emitPop();
     visit(node.right);
@@ -131,7 +131,8 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
       case Name(:final token, :final value):
         if (node.isLocal) {
           if (_assembler.getLocalVar(value) != null) {
-            throw Exception('Variable already declared: $value ${token.line}:${token.column}');
+            throw Exception(
+                'Variable already declared: $value ${token.line}:${token.column}');
           }
           _assembler.createLocalVar(value);
           var localVar = _assembler.getLocalVar(value);
@@ -204,8 +205,10 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
 
   @override
   void visitTableLiteral(TableLiteral node, Null arg) {
-    List<Field> arrayFields = node.fields.where((node) => node.key == null).toList();
-    List<Field> mapFields = node.fields.where((node) => node.key != null).toList();
+    List<Field> arrayFields =
+        node.fields.where((node) => node.key == null).toList();
+    List<Field> mapFields =
+        node.fields.where((node) => node.key != null).toList();
     _assembler.emitNewTable(arrayFields.length, mapFields.length);
     arrayFields = arrayFields.indexed
         .map((e) => Field(e.$2.token, IntLiteral(e.$2.token, e.$1), e.$2.value))
@@ -244,7 +247,7 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
   void visitIfStatement(IfStatement node, Null arg) {
     _assembler.enterScope();
     visit(node.condition);
-    _assembler.emitTest(true);
+    _assembler.emitTest(false);
     int elseJump = _assembler.emitJump();
     visit(node.thenBranch);
     if (node.elseBranch != null) {
@@ -311,7 +314,7 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
 
     int loopStart = _assembler.nextInstructionIndex;
     visit(node.condition);
-    _assembler.emitTest(true);
+    _assembler.emitTest(false);
     int loopEnd = _assembler.emitJump();
     visit(node.body);
     if (node.update != null) {
@@ -371,7 +374,8 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
         case null:
           lastNumber++;
           final number = lastNumber;
-          fields.add(FieldPattern(field.token, IntLiteral(field.token, number), field.value));
+          fields.add(FieldPattern(
+              field.token, IntLiteral(field.token, number), field.value));
         default:
           fields.add(field);
       }
@@ -414,7 +418,8 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
         //assign value
         if (node.isLocal) {
           _assembler.createLocalVar(node.name.value);
-          _assembler.emitMove(_assembler.getLocalVar(node.name.value)!.register);
+          _assembler
+              .emitMove(_assembler.getLocalVar(node.name.value)!.register);
         } else {
           visit(Name(node.token, "_ENV"));
           _assembler.emitLoadConstant(node.name.value);

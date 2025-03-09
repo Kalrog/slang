@@ -15,6 +15,6 @@ bar.meta = {
 assert(bar.bar == 42, "metatable get table (__index) correctly")
 assert(bar.fooBar == 12, "metatable get normal table value correctly")
 
-if(not let{type: "Bar", bar: 42} = bar){
+if(not let {type: "Bar", bar: 42} = bar){
   assert(false, "should never reach here")
 }

@@ -1,48 +1,121 @@
-// class SlangPackageLib {
-//   static Map<String, DartFunction> functions = {
-//     "require": _require,
-//   };
+import 'dart:io';
 
-//   static Object? _getPackageFromLoadedPackages(SlangVm vm, List args) {
-//     if (args.length != 1) {
-//       throw SlangArgumentCountError('require_loader_preloaded', 1, args.length);
-//     }
-//     if (args[0] is! String) {
-//       throw SlangArgumentTypeError('require_loader_preloaded',
-//           expected: String, got: args[0].runtimeType);
-//     }
-//     var package = args[0] as String;
-//     final loaded = (vm.globals['__LOADED_PACKAGES'] as SlangTable).toMap().cast<String, Closure>();
-//     return loaded[package];
-//   }
+import 'package:slang/src/vm/closure.dart';
+import 'package:slang/src/vm/slang_vm.dart';
 
-//   static Object? _require(SlangVm vm, List args) {
-//     if (args.length != 1) {
-//       throw SlangArgumentCountError('require', 1, args.length);
-//     }
-//     if (args[0] is! String) {
-//       throw SlangArgumentTypeError('require', expected: String, got: args[0].runtimeType);
-//     }
-//     final packageName = args[0] as String;
-//     vm.push(vm.globals['__PACKAGE_LOADERS']);
-//     int i = 0;
-//     while (true) {
-//       vm.pushValue(-1);
-//       vm.pushValue(i);
-//       vm.getTable();
-//       vm.push(packageName);
+class SlangPackageLib {
+  static Map<String, DartFunction> functions = {
+    "require": _require,
+  };
 
-//       vm.call(1);
-//       final package = vm.toAny(-1);
-//       if (package != null) {
-//         return package;
-//       }
-//     }
-//   }
+  static bool _require(SlangVm vm) {
+    final packageName = vm.getStringArg(0, name: "packageName");
+    vm.getGlobal('__PACKAGES');
+    vm.push("loaders");
+    vm.getTable();
+    int i = 0;
+    while (true) {
+      vm.pushValue(-1);
+      vm.push(i);
+      vm.getTable();
+      if (vm.checkNull(-1)) {
+        break;
+      }
+      vm.push(packageName);
+      vm.call(1);
+      if (!vm.checkNull(-1)) {
+        return true;
+      }
+      vm.pop();
+      i++;
+    }
+    return false;
+  }
 
-//   static void register(SlangVm vm) {
-//     for (var entry in functions.entries) {
-//       vm.registerDartFunction(entry.key, entry.value);
-//     }
-//   }
-// }
+  static bool _preloadedPackages(SlangVm vm) {
+    final packageName = vm.getStringArg(0, name: "packageName");
+    vm.getGlobal('__PACKAGES');
+    vm.push("preloaded");
+    vm.getTable();
+    vm.push(packageName);
+    vm.getTable();
+    return true;
+  }
+
+  /// Searches for files named `packageName.slang` in the search paths
+  /// and loads the first one found.
+  static bool _searchPath(SlangVm vm) {
+    final packageName = vm.getStringArg(0, name: "packageName");
+    vm.getGlobal('__PACKAGES');
+    vm.push("searchPaths");
+    vm.getTable();
+    int i = 0;
+    while (true) {
+      vm.pushValue(-1);
+      vm.push(i);
+      vm.getTable();
+      if (vm.checkNull(-1)) {
+        break;
+      }
+      final searchPath = vm.toString2(-1);
+      //combine with package name and check if it exists
+      final path = "$searchPath/$packageName.slang";
+      final file = File(path);
+      if (file.existsSync()) {
+        final code = file.readAsStringSync();
+        vm.compile(code);
+        vm.call(0);
+        vm.getGlobal("__PACKAGES");
+        vm.push("preloaded");
+        vm.getTable();
+        vm.pushValue(-2);
+        vm.appendTable();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  static void register(SlangVm vm) {
+    _initPackagesTable(vm);
+    for (var entry in functions.entries) {
+      vm.registerDartFunction(entry.key, entry.value);
+    }
+  }
+
+  static void _initPackagesTable(SlangVm vm) {
+    vm.newTable(0, 0);
+
+    vm.pushValue(-1);
+    vm.push("loaders");
+    vm.newTable(0, 0);
+    vm.pushValue(-1);
+    vm.push(0);
+    vm.pushDartFunction(_preloadedPackages);
+    vm.setTable();
+    vm.pushValue(-1);
+    vm.push(1);
+    vm.pushDartFunction(_searchPath);
+    vm.setTable();
+    vm.setTable();
+
+    vm.pushValue(-1);
+    vm.push("preloaded");
+    vm.newTable(0, 0);
+    vm.setTable();
+
+    vm.pushValue(-1);
+    vm.push("searchPaths");
+    final searchPaths = ["."];
+    vm.newTable(0, 0);
+    for (int i = 0; i < searchPaths.length; i++) {
+      vm.pushValue(-1);
+      vm.push(i);
+      vm.push(searchPaths[i]);
+      vm.setTable();
+    }
+    vm.setTable();
+
+    vm.setGlobal("__PACKAGES");
+  }
+}

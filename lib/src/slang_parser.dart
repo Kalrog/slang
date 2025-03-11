@@ -25,12 +25,13 @@ class SlangParser extends SlangGrammar {
     builder.primitive(ref0(listLiteral).cast<Exp>());
     builder.primitive(ref0(functionExpression).cast<Exp>());
     builder.primitive(ref0(prefixExpr).cast<Exp>());
-    builder.group().wrapper(ref1(token, '('), ref1(token, ')'), (left, value, right) => value);
+    builder.group().wrapper(
+        ref1(token, '('), ref1(token, ')'), (left, value, right) => value);
     // builder.group().right(ref1(token,'^'), BinOp.new);
-    builder.group().right(
-        ref1(token, '^'), (left, opToken, right) => BinOp(opToken, left, opToken.value, right));
-    builder.group().prefix(
-        ref1(token, '-') | ref1(token, 'not'), (opToken, exp) => UnOp(opToken, opToken.value, exp));
+    builder.group().right(ref1(token, '^'),
+        (left, opToken, right) => BinOp(opToken, left, opToken.value, right));
+    builder.group().prefix(ref1(token, '-') | ref1(token, 'not'),
+        (opToken, exp) => UnOp(opToken, opToken.value, exp));
     builder.group().left(ref1(token, '*') | ref1(token, '/') | ref1(token, '%'),
         (left, opToken, right) => BinOp(opToken, left, opToken.value, right));
 
@@ -44,42 +45,46 @@ class SlangParser extends SlangGrammar {
             ref1(token, '>') |
             ref1(token, '<'),
         (left, opToken, right) => BinOp(opToken, left, opToken.value, right));
-    builder.group().left(
-        ref1(token, 'and'), (left, opToken, right) => BinOp(opToken, left, opToken.value, right));
-    builder.group().left(
-        ref1(token, 'or'), (left, opToken, right) => BinOp(opToken, left, opToken.value, right));
+    builder.group().left(ref1(token, 'and'),
+        (left, opToken, right) => BinOp(opToken, left, opToken.value, right));
+    builder.group().left(ref1(token, 'or'),
+        (left, opToken, right) => BinOp(opToken, left, opToken.value, right));
 
     return builder.build().labeled('expression');
   }
 
   @override
-  Parser intLiteral() =>
-      super.intLiteral().map((token) => IntLiteral(token, int.parse(token.value)));
+  Parser intLiteral() => super
+      .intLiteral()
+      .map((token) => IntLiteral(token, int.parse(token.value)));
 
   @override
-  Parser doubleLiteral() =>
-      super.doubleLiteral().map((token) => DoubleLiteral(token, double.parse(token.value)));
+  Parser doubleLiteral() => super
+      .doubleLiteral()
+      .map((token) => DoubleLiteral(token, double.parse(token.value)));
 
   @override
-  Parser stringLiteral() => super
-      .stringLiteral()
-      .map((token) => StringLiteral(token, token.value.substring(1, token.value.length - 1)));
+  Parser stringLiteral() => super.stringLiteral().map((token) =>
+      StringLiteral(token, token.value.substring(1, token.value.length - 1)));
 
   @override
-  Parser trueLiteral() => super.trueLiteral().map((token) => TrueLiteral(token));
+  Parser trueLiteral() =>
+      super.trueLiteral().map((token) => TrueLiteral(token));
 
   @override
-  Parser falseLiteral() => super.falseLiteral().map((token) => FalseLiteral(token));
+  Parser falseLiteral() =>
+      super.falseLiteral().map((token) => FalseLiteral(token));
 
   @override
-  Parser nullLiteral() => super.nullLiteral().map((token) => NullLiteral(token));
+  Parser nullLiteral() =>
+      super.nullLiteral().map((token) => NullLiteral(token));
 
   @override
   Parser name() => super.name().map((token) => Name(token, token.value));
 
   @override
-  Parser chunk() => super.chunk().token().map(
-      (token) => Block(token, (token.value[0] as List<dynamic>).cast<Statement>(), token.value[1]));
+  Parser chunk() => super.chunk().token().map((token) => Block(token,
+      (token.value[0] as List<dynamic>).cast<Statement>(), token.value[1]));
 
   @override
   Parser returnStatement() =>
@@ -131,7 +136,8 @@ class SlangParser extends SlangGrammar {
             final name = nameAndArgs[0];
             final args = nameAndArgs[1];
             final token = nameAndArgs[2];
-            return FunctionCall(token, exp, name, (args as List<dynamic>).cast<Exp>());
+            return FunctionCall(
+                token, exp, name, (args as List<dynamic>).cast<Exp>());
           });
           exp = Index(token, exp, index);
           return exp;
@@ -147,7 +153,8 @@ class SlangParser extends SlangGrammar {
           final args = nameAndArgs[1];
           final token = nameAndArgs[2];
 
-          return FunctionCall(token, exp, name, (args as List<dynamic>).cast<Exp>());
+          return FunctionCall(
+              token, exp, name, (args as List<dynamic>).cast<Exp>());
         });
       });
 
@@ -161,7 +168,8 @@ class SlangParser extends SlangGrammar {
           final args = nameAndArgs[1];
           final token = nameAndArgs[2];
 
-          return FunctionCall(token, exp, name, (args as List<dynamic>).cast<Exp>());
+          return FunctionCall(
+              token, exp, name, (args as List<dynamic>).cast<Exp>());
         });
         return FunctionCallStatement(token, exp);
       });
@@ -175,7 +183,8 @@ class SlangParser extends SlangGrammar {
       });
 
   @override
-  Parser varSuffix() => super.varSuffix().token().map((token) => [...token.value, token]);
+  Parser varSuffix() =>
+      super.varSuffix().token().map((token) => [...token.value, token]);
 
   @override
   Parser ifStatement() => super.ifStatement().map((values) => IfStatement(
@@ -197,7 +206,17 @@ class SlangParser extends SlangGrammar {
       });
 
   @override
-  Parser functionDefinition() => super.functionDefinition().token().map((token) {
+  Parser forInLoop() => super.forInLoop().map((values) {
+        final token = values[0];
+        final pattern = values[2];
+        final exp = values[4];
+        final body = values[6];
+        return ForInLoop(token, pattern, exp, body);
+      });
+
+  @override
+  Parser functionDefinition() =>
+      super.functionDefinition().token().map((token) {
         final value = token.value;
         final params = value[1] as List<dynamic>;
         var body = value[3];
@@ -209,7 +228,8 @@ class SlangParser extends SlangGrammar {
       }).labeled('function expression');
 
   @override
-  Parser functionDefinitonStatement() => super.functionDefinitonStatement().map((value) {
+  Parser functionDefinitonStatement() =>
+      super.functionDefinitonStatement().map((value) {
         final local = value[0] != null;
         final name = value[2] as Exp;
         final exp = value[3] as FunctionExpression;
@@ -221,11 +241,13 @@ class SlangParser extends SlangGrammar {
         final isLocal = value[0] != null;
         final name = value[1];
         final canBeNull = value[2] != null;
-        return VarPattern(name.token, name, isLocal: isLocal, canBeNull: canBeNull);
+        return VarPattern(name.token, name,
+            isLocal: isLocal, canBeNull: canBeNull);
       });
 
   @override
-  Parser constPattern() => super.constPattern().map((exp) => ConstPattern(exp.token, exp));
+  Parser constPattern() =>
+      super.constPattern().map((exp) => ConstPattern(exp.token, exp));
 
   @override
   Parser fieldPattern() => super.fieldPattern().map((value) {

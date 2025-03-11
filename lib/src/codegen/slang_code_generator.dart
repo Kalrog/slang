@@ -180,18 +180,22 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
 
   @override
   void visitName(Name node, Null arg) {
+    print("looking for name: ${node.value}");
     final localVar = _assembler.getLocalVar(node.value);
     if (localVar != null) {
+      print("Found local var");
       _assembler.emitPush(localVar.register);
       return;
     }
     final upvalue = _assembler.getUpvalue(node.value);
     if (upvalue != null) {
+      print("Found upvalue");
       _assembler.emitGetUpvalue(upvalue.index);
       return;
     }
 
     final token = node.token;
+    print("trying global");
     visit(Index(token, Name(token, "_ENV"), StringLiteral(token, node.value)));
   }
 
@@ -322,6 +326,31 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
     }
     _assembler.emitJump(loopStart);
     _assembler.patchJump(loopEnd);
+    _assembler.leaveScope();
+  }
+
+  @override
+  void visitForInLoop(ForInLoop node, Null arg) {
+    //right of the for loop is an expression that evaluates to a closure that will
+    // output the net value in the loop
+    // left is a pattern to match the value to
+
+    _assembler.enterScope();
+    visit(node.itterator);
+    int loopStart = _assembler.nextInstructionIndex;
+    final patternAssembler = _assembler.startPattern();
+    _assembler.emitPush(-1);
+    _assembler.emitCall(0);
+    patternAssembler.increaseStackHeight();
+    _assembler.emitPush(-1);
+    patternAssembler.increaseStackHeight();
+
+    //check pattern
+    visit(node.pattern);
+    patternAssembler.completeCheckStep();
+    visit(node.pattern);
+    _assembler.emitJump(loopStart);
+    patternAssembler.closeMissmatchJumps();
     _assembler.leaveScope();
   }
 

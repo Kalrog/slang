@@ -57,7 +57,7 @@ class Closure {
     if (dartFunction != null) {
       return 'Closure{dartFunction}';
     } else {
-      return 'Closure{prototype, upvalues: $upvalues}';
+      return 'Closure{prototype}';
     }
   }
 }
@@ -80,7 +80,8 @@ class SlangArgumentTypeError {
   final Type expected;
   final Type got;
 
-  SlangArgumentTypeError(this.functionName, {required this.expected, required this.got});
+  SlangArgumentTypeError(this.functionName,
+      {required this.expected, required this.got});
 
   @override
   String toString() {

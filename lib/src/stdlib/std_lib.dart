@@ -1,4 +1,5 @@
 import 'package:slang/slang.dart';
+import 'package:slang/src/table.dart';
 import 'package:slang/src/vm/closure.dart';
 
 class SlangStdLib {
@@ -6,13 +7,16 @@ class SlangStdLib {
     "print": _print,
     "compile": _compile,
     "assert": _assert,
+    "append": _append,
+    "keys": _keys,
+    "values": _values,
   };
 
   static bool _print(SlangVm vm) {
     int nargs = vm.getTop();
     // print(args[0]);
     final sb = StringBuffer();
-    for (int i = 0; i < nargs; i++) {
+    for (int i = 0; i <= nargs; i++) {
       sb.write(vm.toString2(i));
     }
     print(sb.toString());
@@ -41,6 +45,49 @@ class SlangStdLib {
       throw Exception(message);
     }
     return false;
+  }
+
+  static bool _append(SlangVm vm) {
+    vm.appendTable();
+    return false;
+  }
+
+  static bool _keys(SlangVm vm) {
+    if (!vm.checkTable(0)) {
+      return false;
+    }
+    final table = vm.toAny(0) as SlangTable;
+    final keys = table.keys;
+    int i = 0;
+    vm.pushDartFunction((SlangVm vm) {
+      if (i < keys.length) {
+        vm.push(keys[i]);
+        i++;
+        return true;
+      } else {
+        return false;
+      }
+    });
+    return true;
+  }
+
+  static bool _values(SlangVm vm) {
+    if (!vm.checkTable(0)) {
+      return false;
+    }
+    final table = vm.toAny(0) as SlangTable;
+    final keys = table.keys;
+    int i = 0;
+    vm.pushDartFunction((SlangVm vm) {
+      if (i < keys.length) {
+        vm.push(table[keys[i]]);
+        i++;
+        return true;
+      } else {
+        return false;
+      }
+    });
+    return true;
   }
 
   static void register(SlangVm vm) {

@@ -45,17 +45,29 @@ class SlangConstantExpressionOptimizer extends AstNodeVisitor<AstNode, Null> {
       case "%":
         return IntLiteral(node.token, leftValue % rightValue);
       case "==":
-        return leftValue == rightValue ? TrueLiteral(node.token) : FalseLiteral(node.token);
+        return leftValue == rightValue
+            ? TrueLiteral(node.token)
+            : FalseLiteral(node.token);
       case "!=":
-        return leftValue != rightValue ? TrueLiteral(node.token) : FalseLiteral(node.token);
+        return leftValue != rightValue
+            ? TrueLiteral(node.token)
+            : FalseLiteral(node.token);
       case "<":
-        return leftValue < rightValue ? TrueLiteral(node.token) : FalseLiteral(node.token);
+        return leftValue < rightValue
+            ? TrueLiteral(node.token)
+            : FalseLiteral(node.token);
       case "<=":
-        return leftValue <= rightValue ? TrueLiteral(node.token) : FalseLiteral(node.token);
+        return leftValue <= rightValue
+            ? TrueLiteral(node.token)
+            : FalseLiteral(node.token);
       case ">":
-        return leftValue > rightValue ? TrueLiteral(node.token) : FalseLiteral(node.token);
+        return leftValue > rightValue
+            ? TrueLiteral(node.token)
+            : FalseLiteral(node.token);
       case ">=":
-        return leftValue >= rightValue ? TrueLiteral(node.token) : FalseLiteral(node.token);
+        return leftValue >= rightValue
+            ? TrueLiteral(node.token)
+            : FalseLiteral(node.token);
       default:
         return node;
     }
@@ -94,7 +106,9 @@ class SlangConstantExpressionOptimizer extends AstNodeVisitor<AstNode, Null> {
 
   @override
   AstNode visitBlock(Block node, Null arg) {
-    return Block(node.token, node.statements.map(visit).cast<Statement>().toList(),
+    return Block(
+        node.token,
+        node.statements.map(visit).cast<Statement>().toList(),
         maybeVisit(node.finalStatement) as Statement?);
   }
 
@@ -105,24 +119,33 @@ class SlangConstantExpressionOptimizer extends AstNodeVisitor<AstNode, Null> {
 
   @override
   AstNode visitField(Field node, Null arg) {
-    return Field(node.token, maybeVisit(node.key) as Exp?, visit(node.value) as Exp);
+    return Field(
+        node.token, maybeVisit(node.key) as Exp?, visit(node.value) as Exp);
   }
 
   @override
   AstNode visitForLoop(ForLoop node, Null arg) {
-    return ForLoop(node.token, maybeVisit(node.init) as Statement, visit(node.condition) as Exp,
-        maybeVisit(node.update) as Statement, visit(node.body) as Statement);
+    return ForLoop(
+        node.token,
+        maybeVisit(node.init) as Statement,
+        visit(node.condition) as Exp,
+        maybeVisit(node.update) as Statement,
+        visit(node.body) as Statement);
   }
 
   @override
   AstNode visitFunctionCall(FunctionCall node, Null arg) {
-    return FunctionCall(node.token, visit(node.target) as Exp, maybeVisit(node.name) as Name?,
+    return FunctionCall(
+        node.token,
+        visit(node.target) as Exp,
+        maybeVisit(node.name) as Name?,
         node.args.map(visit).cast<Exp>().toList());
   }
 
   @override
   AstNode visitFunctionExpression(FunctionExpression node, Null arg) {
-    return FunctionExpression(node.token, node.params, visit(node.body) as Block);
+    return FunctionExpression(
+        node.token, node.params, visit(node.body) as Block);
   }
 
   @override
@@ -132,8 +155,11 @@ class SlangConstantExpressionOptimizer extends AstNodeVisitor<AstNode, Null> {
 
   @override
   AstNode visitIfStatement(IfStatement node, Null arg) {
-    return IfStatement(node.token, visit(node.condition) as Exp,
-        visit(node.thenBranch) as Statement, maybeVisit(node.elseBranch) as Statement?);
+    return IfStatement(
+        node.token,
+        visit(node.condition) as Exp,
+        visit(node.thenBranch) as Statement,
+        maybeVisit(node.elseBranch) as Statement?);
   }
 
   @override
@@ -173,7 +199,8 @@ class SlangConstantExpressionOptimizer extends AstNodeVisitor<AstNode, Null> {
 
   @override
   AstNode visitTableLiteral(TableLiteral node, Null arg) {
-    return TableLiteral(node.token, node.fields.map(visit).cast<Field>().toList());
+    return TableLiteral(
+        node.token, node.fields.map(visit).cast<Field>().toList());
   }
 
   @override
@@ -198,7 +225,8 @@ class SlangConstantExpressionOptimizer extends AstNodeVisitor<AstNode, Null> {
 
   @override
   AstNode visitDeclaration(Declaration node, Null arg) {
-    return Declaration(node.token, node.isLocal, node.left, maybeVisit(node.right) as Exp?);
+    return Declaration(
+        node.token, node.isLocal, node.left, maybeVisit(node.right) as Exp?);
   }
 
 // TODO(JonathanKohlhas): Might want to optimize patterns too? once we add support for pattern matching against an expression that is not a constant?
@@ -225,6 +253,11 @@ class SlangConstantExpressionOptimizer extends AstNodeVisitor<AstNode, Null> {
 
   @override
   AstNode visitPatternAssignmentExp(PatternAssignmentExp node, Null arg) {
+    return node;
+  }
+
+  @override
+  AstNode visitForInLoop(ForInLoop node, Null arg) {
     return node;
   }
 }

@@ -83,4 +83,15 @@ class SlangTable {
   List toList() {
     return List.from(_list);
   }
+
+  List<Object> get keys {
+    final keys = <Object>[];
+    for (var i = 0; i < _list.length; i++) {
+      keys.add(i);
+    }
+    keys.addAll(_map.keys);
+    return keys;
+  }
+
+  List<Object?> get values => [..._list, ..._map.values];
 }

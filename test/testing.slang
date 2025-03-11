@@ -1,9 +1,4 @@
-local m = {
-  current: group.new('root'),
-}
-
 local group = {}
-
 func group.new(name){
   local new = {
     name: name,
@@ -20,16 +15,23 @@ func group.add_child(self,child){
 }
 
 func group.run(self){
-  for _, child in self.children {
-    for _, setup in self.setups {
+  for (child in values(self.children)) {
+    for (setup in values(self.setups)) {
       setup()
     }
     child.run()
-    for _, teardown in self.teardowns {
+    for (teardown in values(self.teardowns)) {
       teardown()
     }
   }
 }
+
+local current= group.new("root")
+local m = {
+
+}
+
+
 
 local test = {}
 
@@ -49,16 +51,16 @@ func test.run(self){
 
 func m.group(name, f) {
   local g = group.new(name)
-  local parent = m.current
-  m.current = g
+  local parent = current
+  current = g
   f()
-  m.current = parent
-  parent.add_child(g)
+  current = parent
+  parent:add_child(g)
 }
 
 func m.test(name, f) {
-  local parent = m.current
-  parent.add_child(test.new(name, f))
+  local parent = current
+  parent:add_child(test.new(name, f))
 }
 
 func m.setup(f){
@@ -69,4 +71,9 @@ func m.teardown(f){
   append(m.current.teardowns, f)
 }
 
+func m.run(){
+  m.current.run()
+}
+
+return m
 

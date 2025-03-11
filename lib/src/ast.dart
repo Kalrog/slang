@@ -43,6 +43,7 @@ abstract class AstNodeVisitor<T, A> {
   T visitDeclaration(Declaration node, A arg);
 
   T visitForLoop(ForLoop node, A arg);
+  T visitForInLoop(ForInLoop node, A arg);
 
   T visitVarPattern(VarPattern node, A arg);
   T visitTablePattern(TablePattern node, A arg);
@@ -232,6 +233,16 @@ class PrettyPrintVisitor extends AstNodeVisitor<void, Null> {
     if (node.update != null) {
       visit(node.update!);
     }
+    _append(')');
+    visit(node.body);
+  }
+
+  @override
+  void visitForInLoop(ForInLoop node, [Null arg]) {
+    _append('for (');
+    visit(node.pattern);
+    _append(' in ');
+    visit(node.itterator);
     _append(')');
     visit(node.body);
   }
@@ -564,6 +575,20 @@ class ForLoop extends Statement {
   String toString() => '$runtimeType($init, $condition, $update, $body)';
 }
 
+class ForInLoop extends Statement {
+  final Pattern pattern;
+  final Exp itterator;
+  final Statement body;
+  ForInLoop(super.token, this.pattern, this.itterator, this.body);
+  @override
+  T accept<T, A>(AstNodeVisitor visitor, A arg) {
+    return visitor.visitForInLoop(this, arg);
+  }
+
+  @override
+  String toString() => '$runtimeType($pattern, $itterator, $body)';
+}
+
 class ReturnStatement extends Statement {
   final Exp exp;
   ReturnStatement(super.token, this.exp);
@@ -614,7 +639,8 @@ class VarPattern extends Pattern {
   final bool isLocal;
   final Name name;
   final bool canBeNull;
-  VarPattern(super.token, this.name, {required this.isLocal, required this.canBeNull});
+  VarPattern(super.token, this.name,
+      {required this.isLocal, required this.canBeNull});
 
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {

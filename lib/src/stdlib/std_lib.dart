@@ -18,6 +18,21 @@ class SlangStdLib {
     "len": _len,
   };
 
+  static Map<String, String> slangFunction = {
+    "module": """
+      local vm = require("slang/vm");
+
+      return func(mfunc){
+        local m = {};
+        m.meta = {__index:_ENV};
+        vm.setUpvalue(mfunc,"_ENV", m);
+        mfunc();
+        m.meta.__index = null;
+        return m;
+      }
+  """
+  };
+
   static bool _print(SlangVm vm) {
     int nargs = vm.getTop();
     // print(args[0]);
@@ -37,15 +52,6 @@ class SlangStdLib {
   }
 
   static bool _assert(SlangVm vm) {
-    // if (args.isEmpty) {
-    //   throw ArgumentError("assert requires at least one argument");
-    // }
-    // final assertion = args[0];
-    // final message = args.length > 1 ? args[1] : "assertion failed";
-    // if (assertion == null || assertion == false) {
-    //   throw Exception(message);
-    // }
-    // return null;
     final assertion = vm.toBool(0);
     final message = vm.getTop() > 1 ? vm.toString2(1) : "assertion failed";
     if (!assertion) {
@@ -157,6 +163,11 @@ class SlangStdLib {
   static void register(SlangVm vm) {
     for (var entry in functions.entries) {
       vm.registerDartFunction(entry.key, entry.value);
+    }
+    for (var entry in slangFunction.entries) {
+      vm.compile(entry.value);
+      vm.call(0);
+      vm.setGlobal(entry.key);
     }
   }
 }

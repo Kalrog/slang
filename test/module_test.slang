@@ -1,20 +1,28 @@
-local test = require("test/testing")
+local t = require("test/testing")
 local mod = require("test/test_module")
 
-test.group("modules",func(){
-  test.test("can export functions",func(){
+t.group("modules"){
+
+  t.test("can export functions") {
     assert(mod.returnTrue(),"returnTrue should return true")
     assert(mod.add(1,2) == 3,"add should return 3")
-  })
-  test.test("can export variables", func(){
+  }
+
+  t.test("can export variables") {
     assert(mod.publicVar == 20, "publicVar should be 20")
     mod.publicVar = 30
     assert(mod.publicVar == 30, "publicVar should be 30")
-  })
-  test.test("will hide private variables", func(){
+  }
+
+  t.test("will hide private variables") {
     assert(mod.privateVar == nil, "privateVar should be nil")
-  })
-  test.test("will hide private functions", func(){
+  }
+
+  t.test("will hide private functions") {
     assert(mod.privateFunc == nil, "privateFunc should be nil")
-  })
-})
+  }
+
+  t.test("will not export global environment") {
+    assert(mod.print == nil, "print should be null")
+  }
+}

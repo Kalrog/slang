@@ -7,7 +7,7 @@ import 'package:slang/src/vm/slang_vm.dart';
 class SlangPackageLib {
   static Map<String, DartFunction> functions = {
     "require": _require,
-    "module": _module,
+    // "module": _module,
   };
 
   static bool _require(SlangVm vm) {
@@ -92,28 +92,39 @@ class SlangPackageLib {
     vm.pop();
   }
 
-  static bool _module(SlangVm vm) {
-    final nargs = vm.getTop();
-    if (nargs != 1) {
-      throw ArgumentError("module expects exactly one argument");
-    }
-    final closure = vm.toAny(0) as Closure;
-    final upvalueDefs = closure.prototype!.upvalues;
-    final module = SlangTable();
-    final meta = SlangTable();
-    meta["__index"] = vm.globals;
-    module.metatable = meta;
-    for (var i = 0; i < upvalueDefs.length; i++) {
-      final upvalueDef = upvalueDefs[i];
-      if (upvalueDef.name == "_ENV") {
-        closure.upvalues[i] = UpvalueHolder.value(module);
-      }
-    }
-    vm.call(0);
-    module.metatable!.remove("__index");
-    vm.push(module);
-    return true;
+  /// take any value and loads it into the module enviromnet
+  static preloadModuleValue(SlangVm vm, String modulName) {
+    vm.getGlobal("__PACKAGES");
+    vm.push("preloaded");
+    vm.getTable();
+    vm.push(modulName);
+    vm.pushValue(-3);
+    vm.setTable();
+    vm.pop();
   }
+
+  // static bool _module(SlangVm vm) {
+  //   final nargs = vm.getTop();
+  //   if (nargs != 1) {
+  //     throw ArgumentError("module expects exactly one argument");
+  //   }
+  //   final closure = vm.toAny(0) as Closure;
+  //   final upvalueDefs = closure.prototype!.upvalues;
+  //   final module = SlangTable();
+  //   final meta = SlangTable();
+  //   meta["__index"] = vm.globals;
+  //   module.metatable = meta;
+  //   for (var i = 0; i < upvalueDefs.length; i++) {
+  //     final upvalueDef = upvalueDefs[i];
+  //     if (upvalueDef.name == "_ENV") {
+  //       closure.upvalues[i] = UpvalueHolder.value(module);
+  //     }
+  //   }
+  //   vm.call(0);
+  //   module.metatable!.remove("__index");
+  //   vm.push(module);
+  //   return true;
+  // }
 
   static void register(SlangVm vm) {
     _initPackagesTable(vm);

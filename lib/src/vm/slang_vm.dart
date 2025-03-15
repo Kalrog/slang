@@ -119,7 +119,7 @@ enum ExecutionMode { run, step, runDebug }
 
 class SlangVm {
   SlangStackFrame _frame = SlangStackFrame();
-  final SlangTable _globals = SlangTable();
+  final SlangTable globals = SlangTable();
   ExecutionMode mode = ExecutionMode.run;
 
   void execUnOp(UnOpType op) {
@@ -216,7 +216,9 @@ class SlangVm {
 
   void _setTable(SlangTable table, Object key, Object? value) {
     // table[key] = value;
-    if (table[key] != null || table.metatable == null || table.metatable!["__newindex"] == null) {
+    if (table[key] != null ||
+        table.metatable == null ||
+        table.metatable!["__newindex"] == null) {
       table[key] = value;
       return;
     }
@@ -250,7 +252,9 @@ class SlangVm {
 
   void _getTable(SlangTable table, Object key) {
     final value = table[key];
-    if (value != null || table.metatable == null || table.metatable!["__index"] == null) {
+    if (value != null ||
+        table.metatable == null ||
+        table.metatable!["__index"] == null) {
       _frame.push(value);
       return;
     }
@@ -297,7 +301,7 @@ class SlangVm {
     final prototype = repl ? compileREPL(code) : compileSource(code);
     Closure closure = Closure.slang(prototype);
     if (prototype.upvalues.isNotEmpty && prototype.upvalues[0].name == '_ENV') {
-      closure.upvalues[0] = UpvalueHolder.value(_globals);
+      closure.upvalues[0] = UpvalueHolder.value(globals);
     }
     _frame.push(closure);
   }
@@ -306,7 +310,7 @@ class SlangVm {
     final prototype = _frame.function!.children[index];
     Closure closure = Closure.slang(prototype);
     if (prototype.upvalues.isNotEmpty && prototype.upvalues[0].name == '_ENV') {
-      closure.upvalues[0] = UpvalueHolder.value(_globals);
+      closure.upvalues[0] = UpvalueHolder.value(globals);
     }
     for (final (index, uv) in prototype.upvalues.indexed) {
       if (uv.isLocal && _frame.openUpvalues[uv.index] != null) {
@@ -388,7 +392,9 @@ class SlangVm {
 
   String buildStackTrace() {
     final buffer = StringBuffer();
-    for (SlangStackFrame? frame = this._frame; frame != null; frame = frame.parent) {
+    for (SlangStackFrame? frame = this._frame;
+        frame != null;
+        frame = frame.parent) {
       final location = frame.currentInstructionLocation;
       if (location != null) {
         buffer.writeln("unknown closure:$location");
@@ -400,7 +406,7 @@ class SlangVm {
   }
 
   void registerDartFunction(String name, DartFunction function) {
-    _globals[name] = Closure.dart(function);
+    globals[name] = Closure.dart(function);
   }
 
   void pushDartFunction(DartFunction function) {
@@ -517,14 +523,20 @@ class SlangVm {
 
               if (line != null) {
                 int? pc;
-                for (int i = 1; i < _frame.function!.sourceLocations.length; i++) {
-                  if (_frame.function!.sourceLocations[i].location.line == line) {
+                for (int i = 1;
+                    i < _frame.function!.sourceLocations.length;
+                    i++) {
+                  if (_frame.function!.sourceLocations[i].location.line ==
+                      line) {
                     pc = _frame.function!.sourceLocations[i].firstInstruction;
                     break;
                   }
-                  if (_frame.function!.sourceLocations[i].location.line > line &&
-                      _frame.function!.sourceLocations[i - 1].location.line <= line) {
-                    pc = _frame.function!.sourceLocations[i - 1].firstInstruction;
+                  if (_frame.function!.sourceLocations[i].location.line >
+                          line &&
+                      _frame.function!.sourceLocations[i - 1].location.line <=
+                          line) {
+                    pc = _frame
+                        .function!.sourceLocations[i - 1].firstInstruction;
                     break;
                   }
                 }
@@ -614,40 +626,44 @@ class SlangVm {
 
   int getIntArg(int n, {String? name, int? defaultValue}) {
     if (!checkInt(n)) {
-      throw Exception('Expected int for ${name ?? n.toString()} got ${_frame[n].runtimeType}');
+      throw Exception(
+          'Expected int for ${name ?? n.toString()} got ${_frame[n].runtimeType}');
     }
     return toInt(n);
   }
 
   String getStringArg(int n, {String? name, String? defaultValue}) {
     if (!checkString(n)) {
-      throw Exception('Expected String for ${name ?? n.toString()} got ${_frame[n].runtimeType}');
+      throw Exception(
+          'Expected String for ${name ?? n.toString()} got ${_frame[n].runtimeType}');
     }
     return toString2(n);
   }
 
   double getDoubleArg(int n, {String? name, double? defaultValue}) {
     if (!checkDouble(n)) {
-      throw Exception('Expected double for ${name ?? n.toString()} got ${_frame[n].runtimeType}');
+      throw Exception(
+          'Expected double for ${name ?? n.toString()} got ${_frame[n].runtimeType}');
     }
     return toDouble(n);
   }
 
   bool getBoolArg(int n, {String? name, bool? defaultValue}) {
     if (!checkInt(n)) {
-      throw Exception('Expected bool for ${name ?? n.toString()} got ${_frame[n].runtimeType}');
+      throw Exception(
+          'Expected bool for ${name ?? n.toString()} got ${_frame[n].runtimeType}');
     }
     return toBool(n);
   }
 
   /// Push `global[identifier]` onto the stack
   void getGlobal(Object identifier) {
-    _frame.push(_globals[identifier]);
+    _frame.push(globals[identifier]);
   }
 
   /// Take value from stack and set `global[identifier]`
   void setGlobal(Object identifier) {
-    _globals[identifier] = _frame.pop();
+    globals[identifier] = _frame.pop();
   }
 
   void printStack() {
@@ -658,7 +674,8 @@ class SlangVm {
   int? debugInstructionContext = 5;
   void printInstructions() {
     print("Instructions:");
-    print(_frame.function!.instructionsToString(pc: _frame.pc, context: debugInstructionContext));
+    print(_frame.function!
+        .instructionsToString(pc: _frame.pc, context: debugInstructionContext));
   }
 
   void printConstants() {

@@ -175,6 +175,21 @@ class SlangParser extends SlangGrammar {
       });
 
   @override
+  Parser args() => super.args().map((args) {
+        if (args is List) {
+          final normalArgs = args[0] as List<dynamic>;
+          final blockArg = args[1] as Block?;
+          if (blockArg != null) {
+            normalArgs.add(FunctionExpression(blockArg.token, [], blockArg));
+          }
+          return normalArgs;
+        } else {
+          final blockArg = args as Block;
+          return [FunctionExpression(blockArg.token, [], blockArg)];
+        }
+      });
+
+  @override
   Parser nameAndArgs() => super.nameAndArgs().token().map((token) {
         final value = token.value;
         final name = value[0];

@@ -27,14 +27,14 @@
           "named": true
         },
         {
-          "type": "varRef",
+          "type": "var_ref",
           "named": true
         }
       ]
     }
   },
   {
-    "type": "binaryExpression",
+    "type": "binary_expression",
     "named": true,
     "fields": {},
     "children": {
@@ -57,18 +57,18 @@
       "required": false,
       "types": [
         {
-          "type": "finalStatement",
+          "type": "final_statement",
           "named": true
         },
         {
-          "type": "statement",
+          "type": "statement_or_block",
           "named": true
         }
       ]
     }
   },
   {
-    "type": "bracketSuffix",
+    "type": "bracket_suffix",
     "named": true,
     "fields": {},
     "children": {
@@ -83,7 +83,61 @@
     }
   },
   {
-    "type": "dotSuffix",
+    "type": "const_pattern",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "double",
+          "named": true
+        },
+        {
+          "type": "false",
+          "named": true
+        },
+        {
+          "type": "int",
+          "named": true
+        },
+        {
+          "type": "null",
+          "named": true
+        },
+        {
+          "type": "string",
+          "named": true
+        },
+        {
+          "type": "true",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "declaration",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "expression",
+          "named": true
+        },
+        {
+          "type": "var_ref",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "dot_suffix",
     "named": true,
     "fields": {},
     "children": {
@@ -106,7 +160,7 @@
       "required": true,
       "types": [
         {
-          "type": "binaryExpression",
+          "type": "binary_expression",
           "named": true
         },
         {
@@ -122,7 +176,7 @@
           "named": true
         },
         {
-          "type": "functionExpression",
+          "type": "function_expression",
           "named": true
         },
         {
@@ -130,15 +184,15 @@
           "named": true
         },
         {
-          "type": "list",
-          "named": true
-        },
-        {
           "type": "null",
           "named": true
         },
         {
-          "type": "prefixExpression",
+          "type": "pattern_assignment_expression",
+          "named": true
+        },
+        {
+          "type": "prefix_expression",
           "named": true
         },
         {
@@ -146,18 +200,41 @@
           "named": true
         },
         {
+          "type": "table",
+          "named": true
+        },
+        {
           "type": "true",
           "named": true
         },
         {
-          "type": "unaryExpression",
+          "type": "unary_expression",
           "named": true
         }
       ]
     }
   },
   {
-    "type": "field",
+    "type": "field_key",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "expression",
+          "named": true
+        },
+        {
+          "type": "name",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "field_pattern",
     "named": true,
     "fields": {},
     "children": {
@@ -167,12 +244,20 @@
         {
           "type": "expression",
           "named": true
+        },
+        {
+          "type": "name",
+          "named": true
+        },
+        {
+          "type": "slang_pattern",
+          "named": true
         }
       ]
     }
   },
   {
-    "type": "finalStatement",
+    "type": "final_statement",
     "named": true,
     "fields": {},
     "children": {
@@ -180,14 +265,14 @@
       "required": true,
       "types": [
         {
-          "type": "returnStatement",
+          "type": "return_statement",
           "named": true
         }
       ]
     }
   },
   {
-    "type": "forLoop",
+    "type": "for_loop",
     "named": true,
     "fields": {},
     "children": {
@@ -201,12 +286,16 @@
         {
           "type": "statement",
           "named": true
+        },
+        {
+          "type": "statement_or_block",
+          "named": true
         }
       ]
     }
   },
   {
-    "type": "functionCall",
+    "type": "function_call",
     "named": true,
     "fields": {
       "name": {
@@ -214,7 +303,7 @@
         "required": true,
         "types": [
           {
-            "type": "varRef",
+            "type": "var_ref",
             "named": true
           }
         ]
@@ -225,14 +314,14 @@
       "required": true,
       "types": [
         {
-          "type": "nameAndArgs",
+          "type": "name_and_args",
           "named": true
         }
       ]
     }
   },
   {
-    "type": "functionDefinition",
+    "type": "function_definition",
     "named": true,
     "fields": {},
     "children": {
@@ -255,7 +344,7 @@
     }
   },
   {
-    "type": "functionDefinitionStatement",
+    "type": "function_definition_statement",
     "named": true,
     "fields": {
       "name": {
@@ -263,7 +352,7 @@
         "required": true,
         "types": [
           {
-            "type": "varRef",
+            "type": "var_ref",
             "named": true
           }
         ]
@@ -274,14 +363,14 @@
       "required": true,
       "types": [
         {
-          "type": "functionDefinition",
+          "type": "function_definition",
           "named": true
         }
       ]
     }
   },
   {
-    "type": "functionExpression",
+    "type": "function_expression",
     "named": true,
     "fields": {},
     "children": {
@@ -289,14 +378,14 @@
       "required": true,
       "types": [
         {
-          "type": "functionDefinition",
+          "type": "function_definition",
           "named": true
         }
       ]
     }
   },
   {
-    "type": "ifStatement",
+    "type": "if_statement",
     "named": true,
     "fields": {},
     "children": {
@@ -308,29 +397,14 @@
           "named": true
         },
         {
-          "type": "statement",
+          "type": "statement_or_block",
           "named": true
         }
       ]
     }
   },
   {
-    "type": "list",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": false,
-      "types": [
-        {
-          "type": "field",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
-    "type": "nameAndArgs",
+    "type": "name_and_args",
     "named": true,
     "fields": {
       "args": {
@@ -375,7 +449,7 @@
     }
   },
   {
-    "type": "prefixExpression",
+    "type": "pattern_assignment_expression",
     "named": true,
     "fields": {},
     "children": {
@@ -383,18 +457,37 @@
       "required": true,
       "types": [
         {
-          "type": "nameAndArgs",
+          "type": "expression",
           "named": true
         },
         {
-          "type": "varRef",
+          "type": "slang_pattern",
           "named": true
         }
       ]
     }
   },
   {
-    "type": "returnStatement",
+    "type": "prefix_expression",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "name_and_args",
+          "named": true
+        },
+        {
+          "type": "var_ref",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "return_statement",
     "named": true,
     "fields": {},
     "children": {
@@ -403,6 +496,29 @@
       "types": [
         {
           "type": "expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "slang_pattern",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "const_pattern",
+          "named": true
+        },
+        {
+          "type": "table_pattern",
+          "named": true
+        },
+        {
+          "type": "var_pattern",
           "named": true
         }
       ]
@@ -418,7 +534,7 @@
       "required": false,
       "types": [
         {
-          "type": "finalStatement",
+          "type": "final_statement",
           "named": true
         },
         {
@@ -441,30 +557,105 @@
           "named": true
         },
         {
-          "type": "block",
+          "type": "declaration",
           "named": true
         },
         {
-          "type": "forLoop",
+          "type": "for_loop",
           "named": true
         },
         {
-          "type": "functionCall",
+          "type": "function_call",
           "named": true
         },
         {
-          "type": "functionDefinitionStatement",
+          "type": "function_definition_statement",
           "named": true
         },
         {
-          "type": "ifStatement",
+          "type": "if_statement",
           "named": true
         }
       ]
     }
   },
   {
-    "type": "unaryExpression",
+    "type": "statement_or_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "block",
+          "named": true
+        },
+        {
+          "type": "statement",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "table",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "table_field",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "table_field",
+    "named": true,
+    "fields": {
+      "key": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "field_key",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "table_pattern",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "field_pattern",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "unary_expression",
     "named": true,
     "fields": {},
     "children": {
@@ -479,26 +670,48 @@
     }
   },
   {
-    "type": "varRef",
+    "type": "var_pattern",
     "named": true,
     "fields": {},
     "children": {
-      "multiple": true,
+      "multiple": false,
       "required": true,
       "types": [
         {
           "type": "name",
-          "named": true
-        },
-        {
-          "type": "varSuffix",
           "named": true
         }
       ]
     }
   },
   {
-    "type": "varSuffix",
+    "type": "var_ref",
+    "named": true,
+    "fields": {
+      "suffix": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "var_suffix",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "name",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "var_suffix",
     "named": true,
     "fields": {},
     "children": {
@@ -506,15 +719,15 @@
       "required": true,
       "types": [
         {
-          "type": "bracketSuffix",
+          "type": "bracket_suffix",
           "named": true
         },
         {
-          "type": "dotSuffix",
+          "type": "dot_suffix",
           "named": true
         },
         {
-          "type": "nameAndArgs",
+          "type": "name_and_args",
           "named": true
         }
       ]
@@ -597,6 +810,10 @@
     "named": false
   },
   {
+    "type": "?",
+    "named": false
+  },
+  {
     "type": "[",
     "named": false
   },
@@ -639,6 +856,10 @@
   {
     "type": "int",
     "named": true
+  },
+  {
+    "type": "let",
+    "named": false
   },
   {
     "type": "local",

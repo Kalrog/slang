@@ -1,16 +1,33 @@
+         
+         
 
-"func" @keyword
-"local" @keyword
-"if" @keyword
-"else" @keyword
-"return" @keyword
-"for" @keyword
-(functionDefinitionStatement name:(varRef) @function)
-(functionCall name:(varRef) @function (nameAndArgs !name))
-(nameAndArgs name:(_) @function.method)
-(prefixExpression . (varRef) @function (nameAndArgs !name))
-(assignment "local" (varRef) @variable)
+[
+  "func" 
+  "local" 
+  "if" 
+  "else" 
+  "return" 
+  "for" 
+]@keyword
+(function_definition_statement name:([
+ (var_ref (name) @function !suffix)
+ (var_ref (var_suffix (dot_suffix (name) @function)) .)
+         ]))
+(name_and_args name:(name) @function.method)
+(prefix_expression  [
+ (var_ref (name) @function !suffix)
+ (var_ref (var_suffix (dot_suffix (name) @function)) .)
+         ] . (name_and_args !name))
+(function_call name:[
+ (var_ref (name) @function !suffix)
+ (var_ref (var_suffix (dot_suffix (name) @function)) .)
+         ]. (name_and_args !name))
+(declaration "local" (var_ref) @variable)
+(declaration (var_ref) @variable)
+(var_pattern (name) @variable)
+(assignment (var_ref) @variable)
 (params (name) @variable.parameter)
+(field_key (name) @identifier)
 (string) @string
 [
   "+"
@@ -29,8 +46,8 @@
   "or"
   "not"
 ] @operator
-(dotSuffix (name) @property)
-(bracketSuffix (expression) @index)
+(dot_suffix (name) @property)
+(bracket_suffix (expression) @index)
 [
   "("
   ")"
@@ -44,11 +61,17 @@
   "."
   ":"
   ","
-] @punctuation
+] @punctuation.delimiter
 [
   (true)
   (false)
-  (null)
-] @constant
+] @boolean
+(string) @string
+[
+ (int)
+ (double)
+]@number
+
+(null) @constant.null
 
 

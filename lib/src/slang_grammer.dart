@@ -4,10 +4,7 @@ import 'package:slang/slang.dart';
 abstract class SlangGrammar extends GrammarDefinition {
   Parser<Token> token(Object source, [String? message]) {
     if (source is String) {
-      return source
-          .toParser(message: "Expected: ${message ?? source}")
-          .token()
-          .trim(ref0(space));
+      return source.toParser(message: "Expected: ${message ?? source}").token().trim(ref0(space));
     } else if (source is Parser) {
       ArgumentError.checkNotNull(message, 'message');
       return source.flatten(message).token().trim(ref0(space));
@@ -34,19 +31,14 @@ abstract class SlangGrammar extends GrammarDefinition {
 
   Parser doubleLiteral() => ref2(
         token,
-        (char('-') | char('+')).optional() &
-            ref0(number) &
-            char('.') &
-            ref0(number),
+        (char('-') | char('+')).optional() & ref0(number) & char('.') & ref0(number),
         "double",
       );
 
   Parser stringLiteral() {
     return ref2(
         token,
-        (char('"') & pattern('^"').star() & char('"'))
-            .pick(1)
-            .map((value) => value.join()),
+        (char('"') & pattern('^"').star() & char('"')).pick(1).map((value) => value.join()),
         "string");
   }
 
@@ -90,13 +82,10 @@ abstract class SlangGrammar extends GrammarDefinition {
           .where((name) => !keywords.contains(name)),
       "identifier");
 
-  Parser nameAndArgs() =>
-      (ref1(token, ':') & ref0(name)).pick(1).optional() & ref0(args);
+  Parser nameAndArgs() => (ref1(token, ':') & ref0(name)).pick(1).optional() & ref0(args);
 
   Parser args() => (ref1(token, '(') &
-          ref0(expr)
-              .starSeparated(ref1(token, ','))
-              .map((list) => list.elements) &
+          ref0(expr).starSeparated(ref1(token, ',')).map((list) => list.elements) &
           ref1(token, ')'))
       .pick(1);
 
@@ -105,9 +94,7 @@ abstract class SlangGrammar extends GrammarDefinition {
   Parser varSuffix() =>
       ref0(nameAndArgs).star() &
       ((ref1(token, '.') &
-                  ref0(name)
-                      .token()
-                      .map((token) => StringLiteral(token, token.value.value)))
+                  ref0(name).token().map((token) => StringLiteral(token, token.value.value)))
               .pick(1) |
           (ref1(token, '[') & ref0(expr) & ref1(token, ']')).pick(1));
 
@@ -127,9 +114,7 @@ abstract class SlangGrammar extends GrammarDefinition {
   Parser assignment() => ref0(varRef) & ref1(token, '=') & ref0(expr);
 
   Parser declaration() =>
-      ref1(token, 'local') &
-      ref0(name) &
-      (ref1(token, '=') & ref0(expr)).optional();
+      ref1(token, 'local') & ref0(name) & (ref1(token, '=') & ref0(expr)).optional();
 
   Parser ifStatement() =>
       ref1(token, 'if') &
@@ -168,12 +153,8 @@ abstract class SlangGrammar extends GrammarDefinition {
       ref0(functionDefinition);
 
   Parser chunk() =>
-      (ref0(statement) & ref1(token, ';').optional())
-          .map((value) => value[0])
-          .star() &
-      (ref0(finalStatement) & ref1(token, ';').optional())
-          .map((value) => value[0])
-          .optional();
+      (ref0(statement) & ref1(token, ';').optional()).map((value) => value[0]).star() &
+      (ref0(finalStatement) & ref1(token, ';').optional()).map((value) => value[0]).optional();
 
   Parser block() => (ref1(token, '{') & ref0(chunk) & ref1(token, '}')).pick(1);
 
@@ -182,35 +163,22 @@ abstract class SlangGrammar extends GrammarDefinition {
   Parser returnStatement() => ref1(token, 'return') & ref0(expr);
 
   /// func(args)body | func(args) => body
-  Parser functionExpression() =>
-      (ref1(token, 'func') & ref0(functionDefinition)).pick(1);
+  Parser functionExpression() => (ref1(token, 'func') & ref0(functionDefinition)).pick(1);
 
   Parser functionDefinition() =>
       (ref1(token, '(') & ref0(params) & ref1(token, ')') & ref0(block)) |
-      (ref1(token, '(') &
-          ref0(params) &
-          ref1(token, ')') &
-          ref1(token, '=>') &
-          ref0(expr));
+      (ref1(token, '(') & ref0(params) & ref1(token, ')') & ref1(token, '=>') & ref0(expr));
 
-  Parser params() =>
-      ref0(name).starSeparated(ref1(token, ',')).map((list) => list.elements);
+  Parser params() => ref0(name).starSeparated(ref1(token, ',')).map((list) => list.elements);
 
-  Parser slangPattern() =>
-      ref0(tablePattern) | ref0(constPattern) | ref0(varPattern);
+  Parser slangPattern() => ref0(tablePattern) | ref0(constPattern) | ref0(varPattern);
 
   Parser tablePattern() =>
-      ref1(token, '{') &
-      ref0(fieldPattern).starSeparated(ref1(token, ',')) &
-      ref1(token, '}');
+      ref1(token, '{') & ref0(fieldPattern).starSeparated(ref1(token, ',')) & ref1(token, '}');
 
   Parser fieldPattern() =>
       ((ref0(name) & ref1(token, ':')).pick(0) |
-              (ref1(token, '[') &
-                      ref0(expr) &
-                      ref1(token, ']') &
-                      ref1(token, ':'))
-                  .pick(1))
+              (ref1(token, '[') & ref0(expr) & ref1(token, ']') & ref1(token, ':')).pick(1))
           .map((exp) {
         if (exp is Name) {
           return StringLiteral(exp.token, exp.value);
@@ -228,10 +196,7 @@ abstract class SlangGrammar extends GrammarDefinition {
       ref0(falseLiteral) |
       ref0(nullLiteral);
 
-  Parser varPattern() =>
-      ref1(token, 'local').optional() &
-      ref0(name) &
-      ref1(token, '?').optional();
+  Parser varPattern() => ref1(token, 'local').optional() & ref0(name) & ref1(token, '?').optional();
 
   Parser patternAssignmentExp() =>
       ref1(token, "let") & ref0(slangPattern) & ref1(token, '=') & ref0(expr);

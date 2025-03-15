@@ -15,8 +15,14 @@ class SlangTable {
     }
   }
 
-  void add(Object value) {
+  void add(Object? value) {
     _list.add(value);
+    _fixList();
+  }
+
+  void addAll(SlangTable table) {
+    _list.addAll(table._list);
+    _map.addAll(table._map);
     _fixList();
   }
 
@@ -40,7 +46,7 @@ class SlangTable {
     }
   }
 
-  void operator []=(Object key, Object value) {
+  void operator []=(Object key, Object? value) {
     if (key is String && key == "meta") {
       metatable = value as SlangTable?;
     } else if (key is int) {

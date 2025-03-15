@@ -16,8 +16,9 @@ void main(List<String> arguments) {
   argParser.addFlag('debug', abbr: 'd', help: 'Debug mode', defaultsTo: false);
   argParser.addFlag('step', abbr: 's', help: 'Step mode', defaultsTo: false);
 
-  ArgParser runParser = ArgParser();
-  argParser.addCommand('run', runParser);
+  argParser.addCommand('repl');
+
+  argParser.addCommand('run');
 
   var result = argParser.parse(arguments);
   if (result['debug']) {
@@ -27,7 +28,9 @@ void main(List<String> arguments) {
     vm.mode = ExecutionMode.step;
   }
 
-  if (result.command?.name == 'run') {
+  if (result.command?.name == 'repl') {
+    //repl mode
+    final repl = SlangRepl(vm);
     final arguments = result.command?.rest;
     if (arguments != null && arguments.isNotEmpty) {
       final path = arguments[0];
@@ -37,9 +40,16 @@ void main(List<String> arguments) {
       vm.compile(source);
       vm.call(0);
     }
-  } else {
-    //repl mode
-    final repl = SlangRepl(vm);
     repl.run();
+  } else {
+    final arguments = result.command?.rest ?? result.rest;
+    if (arguments.isNotEmpty) {
+      final path = arguments[0];
+      final file = File(path);
+
+      final source = file.readAsStringSync();
+      vm.compile(source);
+      vm.call(0);
+    }
   }
 }

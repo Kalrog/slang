@@ -68,8 +68,9 @@ class SlangPackageLib {
         vm.getGlobal("__PACKAGES");
         vm.push("preloaded");
         vm.getTable();
-        vm.pushValue(-2);
-        vm.appendTable();
+        vm.push(packageName);
+        vm.pushValue(-3);
+        vm.setTable();
         return true;
       }
     }

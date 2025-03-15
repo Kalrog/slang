@@ -32,4 +32,3 @@ test.group("for in loop", func(){
   })
 })
 
-test.run()

@@ -1,5 +1,6 @@
-func createVector(x,y){
-  return {x: x, y: y, add: vectorAdd, sub: vectorSub}
+
+func works(){
+  print("works")
 }
 
 func vectorAdd(v1,v2){
@@ -7,8 +8,22 @@ func vectorAdd(v1,v2){
 }
 
 func vectorSub(v1,v2){
+  print("works")
+  works()
   return createVector(v1.x - v2.x, v1.y - v2.y)
 }
+
+local vector = {
+  add: vectorAdd,
+  sub: vectorSub,
+}
+
+func createVector(x,y){
+  local self = {x: x, y: y}
+  self.meta = {__index:vector}
+  return self
+}
+
 
 local func test(){
   local v1 = createVector(1,2)

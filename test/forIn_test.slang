@@ -1,4 +1,4 @@
-local test = require("test/testing")
+local test = require("slang/test")
 
 test.group("for in loop", func(){
   test.test("basic for in over all values", func(){

@@ -1,4 +1,4 @@
-local test = require("test/testing")
+local test = require("slang/test")
 
 test.group("pattern matching",func(){
   test.setup(func(){

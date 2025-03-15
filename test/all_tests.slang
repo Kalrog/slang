@@ -1,4 +1,4 @@
-local test = require("test/testing")
+local test = require("slang/test")
 require("test/block_arg_test")
 require("test/closures_test")
 require("test/forIn_test")

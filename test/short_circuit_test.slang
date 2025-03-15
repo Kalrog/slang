@@ -17,7 +17,7 @@ assert(r == true)
 r = false and never_eval()
 assert(r == false)
 
-local test = require("test/testing")
+local test = require("slang/test")
 
 test.group("logical operators",func(){
     test.test("and works",func(){

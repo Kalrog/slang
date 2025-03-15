@@ -1,4 +1,4 @@
-local test = require("test/testing")
+local test = require("slang/test")
 
 local func blockStatement(block){
   assert(block(),"block should return true if called")

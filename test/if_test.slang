@@ -1,4 +1,4 @@
-local test = require("test/testing")
+local test = require("slang/test")
 
 test.group("if test", func(){
   test.test("if works", func(){

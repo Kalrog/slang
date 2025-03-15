@@ -1,4 +1,4 @@
-local t = require("test/testing")
+local t = require("slang/test")
 local mod = require("test/test_module")
 
 t.group("modules"){

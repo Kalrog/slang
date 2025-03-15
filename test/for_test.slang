@@ -1,4 +1,4 @@
-local test = require("test/testing")
+local test = require("slang/test")
 
 test.group("for loops",func (){
   test.test("for loop works",func(){

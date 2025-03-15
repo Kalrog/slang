@@ -65,7 +65,7 @@ class SlangPackageLib {
       final file = File(path);
       if (file.existsSync()) {
         final code = file.readAsStringSync();
-        vm.compile(code);
+        vm.compile(code, origin: packageName);
         vm.call(0);
         vm.getGlobal("__PACKAGES");
         vm.push("preloaded");
@@ -80,24 +80,24 @@ class SlangPackageLib {
   }
 
   /// compiles the given string and preloads it into the module enviromnet
-  static preloadModule(SlangVm vm, String modulName, String code) {
-    vm.compile(code);
+  static preloadModule(SlangVm vm, String moduleName, String code) {
+    vm.compile(code, origin: moduleName);
     vm.call(0);
     vm.getGlobal("__PACKAGES");
     vm.push("preloaded");
     vm.getTable();
-    vm.push(modulName);
+    vm.push(moduleName);
     vm.pushValue(-3);
     vm.setTable();
     vm.pop();
   }
 
   /// take any value and loads it into the module enviromnet
-  static preloadModuleValue(SlangVm vm, String modulName) {
+  static preloadModuleValue(SlangVm vm, String moduleName) {
     vm.getGlobal("__PACKAGES");
     vm.push("preloaded");
     vm.getTable();
-    vm.push(modulName);
+    vm.push(moduleName);
     vm.pushValue(-3);
     vm.setTable();
     vm.pop();

@@ -54,17 +54,20 @@ class UpvalueDef {
 }
 
 class SourceLocation {
+  final String origin;
   final int line;
   final int column;
 
-  SourceLocation(this.line, this.column);
+  SourceLocation(this.origin, this.line, this.column);
 
   SourceLocation.fromJson(Map<String, dynamic> json)
       : line = json['line'],
-        column = json['column'];
+        column = json['column'],
+        origin = json['origin'];
 
   Map<String, dynamic> toJson() {
     return {
+      'origin': origin,
       'line': line,
       'column': column,
     };
@@ -72,7 +75,7 @@ class SourceLocation {
 
   @override
   String toString() {
-    return '$line:$column';
+    return '$origin:$line:$column';
   }
 }
 
@@ -96,6 +99,7 @@ class SourceLocationInfo {
 
 class FunctionAssembler {
   final FunctionAssembler? parent;
+  final String origin;
   final List<int> _instructions = [];
   final List<SourceLocationInfo> _sourceLocations = [];
   final List<PatternAssembler> _patternAssemblers = [];
@@ -107,7 +111,9 @@ class FunctionAssembler {
   int maxRegisters = 0;
   int scope = 0;
 
-  FunctionAssembler({this.parent});
+  FunctionAssembler({this.parent, String? origin})
+      : assert(origin != null || parent != null),
+        origin = origin ?? parent!.origin;
 
   LocalVar? getLocalVar(String name) {
     if (_locals.containsKey(name)) {
@@ -249,8 +255,8 @@ class FunctionAssembler {
     if (_sourceLocations.lastOrNull?.firstInstruction == _instructions.length) {
       return;
     }
-    _sourceLocations
-        .add(SourceLocationInfo(_instructions.length, SourceLocation(token.line, token.column)));
+    _sourceLocations.add(SourceLocationInfo(_instructions.length,
+        SourceLocation(origin, token.line, token.column)));
   }
 
   void emitABC(OpCodeName opcode, [int a = 0, int b = 0, int c = 0]) {
@@ -400,7 +406,8 @@ class FunctionAssembler {
   }
 
   List<Upvalue> _upvaluesToList() {
-    final upvalues = List<Upvalue>.filled(_upvalues.length, Upvalue("", 0, false));
+    final upvalues =
+        List<Upvalue>.filled(_upvalues.length, Upvalue("", 0, false));
     _upvalues.forEach((key, value) {
       upvalues[value.index] = value.toUpvalue();
     });

@@ -297,8 +297,8 @@ class SlangVm {
     });
   }
 
-  void compile(String code, {bool repl = false}) {
-    final prototype = repl ? compileREPL(code) : compileSource(code);
+  void compile(String code, {bool repl = false, String origin = "string"}) {
+    final prototype = repl ? compileREPL(code) : compileSource(code, origin);
     Closure closure = Closure.slang(prototype);
     if (prototype.upvalues.isNotEmpty && prototype.upvalues[0].name == '_ENV') {
       closure.upvalues[0] = UpvalueHolder.value(globals);
@@ -326,6 +326,7 @@ class SlangVm {
   }
 
   void call(int nargs) {
+    bool isRoot = _frame.parent == null;
     var args = _frame.pop(nargs) ?? [];
     if (args is! List) {
       args = [args];
@@ -347,7 +348,7 @@ class SlangVm {
         _runDartFunction();
       }
     } catch (e, stack) {
-      if (mode != ExecutionMode.run) {
+      if (isRoot) {
         print(buildStackTrace());
         print("Error: $e");
         print("Stack: $stack");

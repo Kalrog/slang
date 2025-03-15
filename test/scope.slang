@@ -8,7 +8,7 @@ func hello(){
 hello();
 assert(x==null);
 
-local test = require("test/testing")
+local test = require("slang/test")
 
 test.group("scope test",func(){
   test.test("local scope",func(){

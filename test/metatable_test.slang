@@ -1,4 +1,4 @@
-local t = require("test/testing")
+local t = require("slang/test")
 
 t.group("metatables"){
 

@@ -1,7 +1,7 @@
 //i know this is ironic, using the testing package to test
 //that packages work, if packages ever break, all other tests would
 //break anyway but hey
-local test = require("test/testing")
+local test = require("slang/test")
 
 test.group("package test", func(){
   test.test("package import", func(){

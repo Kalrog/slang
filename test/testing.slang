@@ -1,3 +1,12 @@
+local indent = 0
+local func indentStr(){
+  local str = ""
+  for (local i = 0; i < indent; i = i + 1) {
+    str = concat(str, "  ")
+  }
+  return str
+}
+
 local group = {}
 func group.new(name){
   local new = {
@@ -15,15 +24,34 @@ func group.add_child(self,child){
 }
 
 func group.run(self){
-  for (child in values(self.children)) {
-    for (setup in values(self.setups)) {
+  if (self.name != "root") {
+    print(indentStr(),"Group: ",self.name,"\n")
+    indent = indent + 1
+  }
+  for (local child in values(self.children)) {
+    for (local setup in values(self.setups)) {
       setup()
     }
-    child.run()
-    for (teardown in values(self.teardowns)) {
+    pcall(child.run,child)
+
+    for (local teardown in values(self.teardowns)) {
       teardown()
     }
   }
+  if (self.name != "root") {
+    indent = indent - 1
+  }
+}
+
+func group.count(self) {
+  local succeded = 0
+  local failed = 0
+  for (local child in values(self.children)) {
+    local count = child:count()
+    succeded = succeded + count[0]
+    failed = failed + count[1]
+  } 
+  return {succeded,failed}
 }
 
 local current= group.new("root")
@@ -31,21 +59,40 @@ local m = {
 
 }
 
-
-
 local test = {}
 
 func test.new(name, f){
   local new = {
     name: name,
     f: f,
+    succeded: false,
   }
   new.meta = {__index: test}
   return new
 }
 
 func test.run(self){
-  self.f()
+  print(indentStr(),"Test: ",self.name)
+  local r = pcall(self.f)
+  if(let {"ok"} = r){
+    print(" Passed\n")
+    self.succeded = true
+  }else if (let {"err",local e} = r){
+    print(" Failed\n")
+    print(indentStr(),"  Error: ",e.message)
+    if(e.location){
+      print("@",e.location.line,":",e.location.column)
+    }
+    print("\n")
+  }
+}
+
+func test.count(self){
+  if (self.succeded) {
+    return {1,0}
+  }else{
+    return {0,1}
+  }
 }
 
 
@@ -64,15 +111,26 @@ func m.test(name, f) {
 }
 
 func m.setup(f){
-  append(m.current.setups, f)
+  append(current.setups, f)
 }
 
 func m.teardown(f){
-  append(m.current.teardowns, f)
+  append(current.teardowns, f)
 }
 
 func m.run(){
-  m.current.run()
+  print("Running tests\n")
+  current:run()
+  local stats = current:count()
+  local total = stats[0] + stats[1]
+  print("Tests succeded: ",stats[0],"\n")
+  print("Tests failed: ",stats[1],"\n")
+  print("Total tests: ",total,"\n")
+  if(stats[1] > 0){
+    print("Some tests failed\n")
+  }else{
+    print("All tests passed\n")
+  }
 }
 
 return m

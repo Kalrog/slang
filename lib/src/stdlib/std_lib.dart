@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:slang/slang.dart';
 import 'package:slang/src/table.dart';
 import 'package:slang/src/vm/closure.dart';
@@ -10,16 +12,21 @@ class SlangStdLib {
     "append": _append,
     "keys": _keys,
     "values": _values,
+    "concat": _concat,
+    "pcall": _pcall,
+    "error": _error,
+    "len": _len,
   };
 
   static bool _print(SlangVm vm) {
     int nargs = vm.getTop();
     // print(args[0]);
     final sb = StringBuffer();
-    for (int i = 0; i <= nargs; i++) {
+    for (int i = 0; i < nargs; i++) {
       sb.write(vm.toString2(i));
     }
-    print(sb.toString());
+    //todo: make this work in browser
+    stdout.write(sb.toString());
     return false;
   }
 
@@ -72,10 +79,7 @@ class SlangStdLib {
   }
 
   static bool _values(SlangVm vm) {
-    if (!vm.checkTable(0)) {
-      return false;
-    }
-    final table = vm.toAny(0) as SlangTable;
+    final table = (vm.toAny(0) as SlangTable?) ?? SlangTable();
     final keys = table.keys;
     int i = 0;
     vm.pushDartFunction((SlangVm vm) {
@@ -87,6 +91,66 @@ class SlangStdLib {
         return false;
       }
     });
+    return true;
+  }
+
+  static bool _concat(SlangVm vm) {
+    if (vm.checkString(0)) {
+      //build string
+      var sb = StringBuffer();
+      for (int i = 1; i < vm.getTop(); i++) {
+        sb.write(vm.toString2(i));
+      }
+      vm.push(sb.toString());
+      return true;
+    } else if (vm.checkTable(0)) {
+      final table = SlangTable();
+      for (int i = 0; i < vm.getTop(); i++) {
+        final value = vm.toAny(i) as SlangTable;
+        table.addAll(value);
+      }
+      vm.push(table);
+      return true;
+    } else {
+      throw ArgumentError("concat requires a table or string");
+    }
+    // final sb = StringBuffer();
+    // for (int i = 0; i < vm.getTop(); i++) {
+    //   sb.write(vm.toString2(i));
+    // }
+    // vm.push(sb.toString());
+    return true;
+  }
+
+  static bool _pcall(SlangVm vm) {
+    final nargs = vm.getTop();
+    if (nargs < 1) {
+      throw ArgumentError("pcall requires at least one argument");
+    }
+    vm.pCall(nargs - 1);
+    return true;
+  }
+
+  static bool _error(SlangVm vm) {
+    final sb = StringBuffer();
+    for (int i = 0; i < vm.getTop(); i++) {
+      sb.write(vm.toString2(i));
+    }
+    final message = sb.toString();
+    vm.error(message);
+    return false;
+  }
+
+  static bool _len(SlangVm vm) {
+    if (vm.checkTable(0)) {
+      final table = vm.toAny(0) as SlangTable;
+      vm.push(table.length);
+    } else if (vm.checkString(0)) {
+      final str = vm.toAny(0) as String;
+      vm.push(str.length);
+    } else {
+      throw ArgumentError("len requires a table or string");
+    }
     return true;
   }
 

@@ -172,9 +172,9 @@ class FunctionAssembler {
     for (final localVar in locals) {
       freeLocal(localVar);
     }
-    if (scope > 1) {
-      emitPop(0, locals.length);
-    }
+    // if (scope > 1) {
+    //   emitPop(0, locals.length);
+    // }
     scope--;
   }
 

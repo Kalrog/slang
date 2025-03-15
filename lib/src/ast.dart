@@ -355,7 +355,7 @@ class DoubleLiteral extends Exp {
 
 class StringLiteral extends Exp {
   final String value;
-  StringLiteral(super.token, this.value);
+  StringLiteral(super.token, String value) : value = resolveEscapes(value);
 
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
@@ -364,6 +364,49 @@ class StringLiteral extends Exp {
 
   @override
   String toString() => '$runtimeType($value)';
+
+  static String resolveEscapes(String literal) {
+    final buffer = StringBuffer();
+    for (var i = 0; i < literal.length; i++) {
+      if (literal[i] == '\\') {
+        i++;
+        if (i >= literal.length) {
+          throw Exception('Invalid escape sequence');
+        }
+        switch (literal[i]) {
+          case 'n':
+            buffer.write('\n');
+            break;
+          case 'r':
+            buffer.write('\r');
+            break;
+          case 't':
+            buffer.write('\t');
+            break;
+          case 'b':
+            buffer.write('\b');
+            break;
+          case 'f':
+            buffer.write('\f');
+            break;
+          case 'v':
+            buffer.write('\v');
+            break;
+          case '\\':
+            buffer.write('\\');
+            break;
+          case '"':
+            buffer.write('"');
+            break;
+          default:
+            throw Exception('Invalid escape sequence');
+        }
+      } else {
+        buffer.write(literal[i]);
+      }
+    }
+    return buffer.toString();
+  }
 }
 
 class FalseLiteral extends Exp {
@@ -639,8 +682,7 @@ class VarPattern extends Pattern {
   final bool isLocal;
   final Name name;
   final bool canBeNull;
-  VarPattern(super.token, this.name,
-      {required this.isLocal, required this.canBeNull});
+  VarPattern(super.token, this.name, {required this.isLocal, required this.canBeNull});
 
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {

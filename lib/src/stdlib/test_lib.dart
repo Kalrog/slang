@@ -85,7 +85,7 @@ func test.run(self){
     print(" Failed\n")
     print(indentStr(),"  Error: ",e.message)
     if(e.location){
-      print("@",e.location.line,":",e.location.column)
+      print(" @",e.location.origin,":",e.location.line,":",e.location.column)
     }
     print("\n")
   }
@@ -141,7 +141,7 @@ return m
 """;
 
   static void register(SlangVm vm) {
-    vm.compile(testLib);
+    vm.compile(testLib, origin: "slang/test");
     vm.call(0);
     SlangPackageLib.preloadModuleValue(vm, "slang/test");
   }

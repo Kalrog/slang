@@ -39,6 +39,8 @@ class FunctionPrototype {
   final UnmodifiableListView<Upvalue> upvalues;
   final UnmodifiableListView<FunctionPrototype> children;
   final int maxStackSize;
+  final int nargs;
+  final bool isVarArg;
 
   FunctionPrototype(
     List<int> instructions,
@@ -47,6 +49,8 @@ class FunctionPrototype {
     List<Upvalue> upvalues,
     List<FunctionPrototype> children, {
     required this.maxStackSize,
+    required this.isVarArg,
+    required this.nargs,
   })  : instructions = UnmodifiableListView(instructions),
         sourceLocations = UnmodifiableListView(sourceLocations),
         constants = UnmodifiableListView(constants),
@@ -55,13 +59,16 @@ class FunctionPrototype {
 
   FunctionPrototype.fromJson(Map<String, dynamic> json)
       : instructions = UnmodifiableListView(json['instructions']),
-        sourceLocations = UnmodifiableListView(
-            (json['sourceLocations'] as List).map((e) => SourceLocationInfo.fromJson(e))),
+        sourceLocations = UnmodifiableListView((json['sourceLocations'] as List)
+            .map((e) => SourceLocationInfo.fromJson(e))),
         constants = UnmodifiableListView(json['constants']),
-        upvalues = UnmodifiableListView((json['upvalues'] as List).map((e) => Upvalue.fromJson(e))),
-        children = UnmodifiableListView(
-            (json['children'] as List).map((e) => FunctionPrototype.fromJson(e))),
-        maxStackSize = json['maxStackSize'];
+        upvalues = UnmodifiableListView(
+            (json['upvalues'] as List).map((e) => Upvalue.fromJson(e))),
+        children = UnmodifiableListView((json['children'] as List)
+            .map((e) => FunctionPrototype.fromJson(e))),
+        maxStackSize = json['maxStackSize'],
+        isVarArg = json['isVarArg'],
+        nargs = json['nargs'];
 
   Map<String, dynamic> toJson() {
     return {
@@ -71,13 +78,16 @@ class FunctionPrototype {
       'upvalues': upvalues.map((e) => e.toJson()).toList(),
       'children': children.map((e) => e.toJson()).toList(),
       'maxStackSize': maxStackSize,
+      'isVarArg': isVarArg,
+      'nargs': nargs,
     };
   }
 
   String instructionsToString({int? pc, int? context}) {
     StringBuffer buffer = StringBuffer();
     int start = context != null && pc != null ? pc - context : 0;
-    int end = context != null && pc != null ? pc + context : instructions.length;
+    int end =
+        context != null && pc != null ? pc + context : instructions.length;
 
     if (start < 0) {
       start = 0;

@@ -265,11 +265,26 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
   @override
   void visitFunctionExpression(FunctionExpression node, Null arg) {
     final parent = _assembler;
-    _assembler = FunctionAssembler(parent: parent);
+    //error if any params are ... that are not the last
+    if (node.params.isNotEmpty &&
+        node.params.any((element) =>
+            element.value.startsWith("...") && element != node.params.last)) {
+      throw Exception(
+          'Vararg must be the last parameter but was found in ${node.token.line}');
+    }
+    final isVarArg = node.params.isNotEmpty &&
+        node.params.last.value.startsWith("...") == true;
+    final nargs = node.params.length;
+    _assembler =
+        FunctionAssembler(parent: parent, nargs: nargs, isVarArg: isVarArg);
     parent.children.add(_assembler);
     _assembler.enterScope();
     for (final param in node.params) {
-      _assembler.createLocalVar(param.value);
+      var name = param.value;
+      if (name.startsWith("...")) {
+        name = name.substring(3);
+      }
+      _assembler.createLocalVar(name);
     }
     visit(node.body);
     _assembler.leaveScope();

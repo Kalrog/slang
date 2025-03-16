@@ -30,5 +30,17 @@ test.group("for in loop", func(){
       current = current + 1
     }
   })
+
+  test.test("for in entries"){
+    local shoppingList = {
+      apples: 5,
+      oranges: 10,
+      bananas: 15,
+    }
+
+    for ({local key, local value} in entries(shoppingList)){
+      assert(shoppingList[key] == value, "value is not equal to current")
+    }
+  }
 })
 

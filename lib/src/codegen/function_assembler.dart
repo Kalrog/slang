@@ -107,11 +107,14 @@ class FunctionAssembler {
   final Map<String, LocalVar> _locals = {};
   final Map<String, UpvalueDef> _upvalues = {};
   final List<FunctionAssembler> children = [];
+  final int nargs;
+  final bool isVarArg;
   int usedRegisters = 0;
   int maxRegisters = 0;
   int scope = 0;
 
-  FunctionAssembler({this.parent, String? origin})
+  FunctionAssembler(
+      {this.parent, String? origin, this.nargs = 0, this.isVarArg = false})
       : assert(origin != null || parent != null),
         origin = origin ?? parent!.origin;
 
@@ -394,6 +397,8 @@ class FunctionAssembler {
       _upvaluesToList(),
       children.map((c) => c.assemble()).toList(),
       maxStackSize: maxRegisters,
+      nargs: nargs,
+      isVarArg: isVarArg,
     );
   }
 

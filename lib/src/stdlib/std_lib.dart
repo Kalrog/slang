@@ -12,6 +12,7 @@ class SlangStdLib {
     "append": _append,
     "keys": _keys,
     "values": _values,
+    "entries": _entries,
     "concat": _concat,
     "pcall": _pcall,
     "error": _error,
@@ -91,6 +92,26 @@ class SlangStdLib {
     vm.pushDartFunction((SlangVm vm) {
       if (i < keys.length) {
         vm.push(table[keys[i]]);
+        i++;
+        return true;
+      } else {
+        return false;
+      }
+    });
+    return true;
+  }
+
+  static bool _entries(SlangVm vm) {
+    final table = (vm.toAny(0) as SlangTable?) ?? SlangTable();
+    final keys = table.keys;
+    int i = 0;
+    vm.pushDartFunction((SlangVm vm) {
+      if (i < keys.length) {
+        final key = keys[i];
+        final slangTable = SlangTable();
+        slangTable[0] = key;
+        slangTable[1] = table[key];
+        vm.push(slangTable);
         i++;
         return true;
       } else {

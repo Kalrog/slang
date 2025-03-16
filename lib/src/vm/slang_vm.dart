@@ -336,8 +336,24 @@ class SlangVm {
       throw Exception('Expected Closure got $closure');
     }
     _pushStack(closure);
-    for (final arg in args) {
-      _frame.push(arg);
+    if (closure.prototype != null) {
+      final proto = closure.prototype!;
+      final nargs = proto.isVarArg ? proto.nargs - 1 : proto.nargs;
+      final extraArgs = SlangTable();
+      for (final (index, arg) in args.indexed) {
+        if (index < nargs) {
+          _frame.push(arg);
+        } else {
+          extraArgs.add(arg);
+        }
+      }
+      if (proto.isVarArg) {
+        _frame.push(extraArgs);
+      }
+    } else {
+      for (final arg in args) {
+        _frame.push(arg);
+      }
     }
 
     try {
@@ -369,10 +385,11 @@ class SlangVm {
       pushValue(-3);
       appendTable();
       pop(1, 1);
-    } catch (e) {
+    } catch (e, stack) {
       var err = e;
       if (err is! SlangException) {
-        err = SlangException(err.toString(), _frame.currentInstructionLocation);
+        err = SlangException("$err ${buildStackTrace()} $stack",
+            _frame.currentInstructionLocation);
       }
       while (_frame != currentStack) {
         _popStack();
@@ -384,6 +401,10 @@ class SlangVm {
       pushValue(-1);
       err.toSlang(this);
       appendTable();
+      if (mode == ExecutionMode.runDebug) {
+        mode = ExecutionMode.step;
+        print(err);
+      }
     }
   }
 
@@ -754,6 +775,10 @@ class SlangException implements Exception {
       vm.pushValue(-1);
       vm.push("column");
       vm.push(location!.column);
+      vm.setTable();
+      vm.pushValue(-1);
+      vm.push("origin");
+      vm.push(location!.origin);
       vm.setTable();
       vm.setTable();
     }

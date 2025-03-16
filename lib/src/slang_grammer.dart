@@ -85,7 +85,9 @@ abstract class SlangGrammar extends GrammarDefinition {
   ];
   Parser name() => ref2(
       token,
-      (pattern('a-zA-Z_') & pattern('a-zA-Z0-9_').star())
+      (string('...').optional() &
+              pattern('a-zA-Z_') &
+              pattern('a-zA-Z0-9_').star())
           .flatten("Expected: identifier")
           .where((name) => !keywords.contains(name)),
       "identifier");

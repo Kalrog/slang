@@ -81,6 +81,7 @@ abstract class SlangGrammar extends GrammarDefinition {
     'local',
     'true',
     'false',
+    'null',
     'matches',
   ];
   Parser name() => ref2(

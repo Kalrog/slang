@@ -141,8 +141,6 @@ return m
 """;
 
   static void register(SlangVm vm) {
-    vm.compile(testLib, origin: "slang/test");
-    vm.call(0);
-    SlangPackageLib.preloadModuleValue(vm, "slang/test");
+    SlangPackageLib.preloadModule(vm, "slang/test", testLib);
   }
 }

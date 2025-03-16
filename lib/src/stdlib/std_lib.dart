@@ -17,6 +17,7 @@ class SlangStdLib {
     "pcall": _pcall,
     "error": _error,
     "len": _len,
+    "type": _type,
   };
 
   static Map<String, String> slangFunction = {
@@ -178,6 +179,11 @@ class SlangStdLib {
     } else {
       throw ArgumentError("len requires a table or string");
     }
+    return true;
+  }
+
+  static bool _type(SlangVm vm) {
+    vm.type();
     return true;
   }
 

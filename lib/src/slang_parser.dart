@@ -21,6 +21,7 @@ class SlangParser extends SlangGrammar {
     builder.primitive(ref0(stringLiteral).cast<Exp>());
     builder.primitive(ref0(trueLiteral).cast<Exp>());
     builder.primitive(ref0(falseLiteral).cast<Exp>());
+    builder.primitive(ref0(nullLiteral).cast<Exp>());
     builder.primitive(ref0(patternAssignmentExp).cast<Exp>());
     builder.primitive(ref0(listLiteral).cast<Exp>());
     builder.primitive(ref0(functionExpression).cast<Exp>());

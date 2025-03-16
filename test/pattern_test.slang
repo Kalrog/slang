@@ -56,4 +56,12 @@ test.group("pattern matching",func(){
       }
     }
   })
+  test.test("no error on type missmatch"){
+    //early versions of the pattern matching would error if the pattern was a table
+    //but the value was not, the correct behavior is to just not match
+    local value = 123
+    if(let {hello:local var} = value){
+      assert(false,"should never reach here")
+    }
+  }
 })

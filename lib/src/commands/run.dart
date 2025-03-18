@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
@@ -12,8 +11,7 @@ class RunCommand extends Command {
   final name = "run";
 
   RunCommand() {
-    argParser.addFlag('debug',
-        abbr: 'd', help: 'Debug mode', defaultsTo: false);
+    argParser.addFlag('debug', abbr: 'd', help: 'Debug mode', defaultsTo: false);
     argParser.addFlag('step', abbr: 's', help: 'Step mode', defaultsTo: false);
   }
   @override

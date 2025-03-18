@@ -20,8 +20,7 @@ class PatternAssembler {
 
   void completeCheckStep() {
     if (step != PatternAssemblyStep.check) {
-      throw Exception(
-          'Cannot complete check step after completing the assign step');
+      throw Exception('Cannot complete check step after completing the assign step');
     }
     _step = PatternAssemblyStep.assign;
   }

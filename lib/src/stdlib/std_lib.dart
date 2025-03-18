@@ -23,6 +23,7 @@ class SlangStdLib {
 
   static String slangFunctions = '''
 local vm = require("slang/vm");
+local table = require("slang/table");
 
 func module(mfunc){
   local m = {};
@@ -35,24 +36,6 @@ func module(mfunc){
 
 func run(rfunc){
   return rfunc();
-}
-
-func with(context, f){
-  local globalTable = _ENV;
-  local func indexContextOrGlobal(self, key){
-    local value = context[key];
-    if(value != nil){
-      return value;
-    }
-    return globalTable[key];
-  }
-  local env = {};
-  env.meta = {__index: indexContextOrGlobal};
-  local oldEnv = vm.getUpvalue(f, "_ENV");
-  vm.setUpvalue(f, "_ENV", env);
-  local result = f();
-  vm.setUpvalue(f, "_ENV", oldEnv);
-  return result;
 }
 ''';
 
@@ -222,7 +205,7 @@ func with(context, f){
     for (var entry in functions.entries) {
       vm.registerDartFunction(entry.key, entry.value);
     }
-    vm.compile(slangFunctions);
+    vm.compile(slangFunctions, origin: "slang/std");
     vm.call(0);
   }
 }

@@ -1,4 +1,5 @@
 import 'package:slang/src/stdlib/package_lib.dart';
+import 'package:slang/src/table.dart';
 import 'package:slang/src/vm/closure.dart';
 import 'package:slang/src/vm/slang_vm.dart';
 
@@ -6,6 +7,7 @@ class SlangVmLib {
   static Map<String, DartFunction> functions = {
     "setUpvalue": _setUpvalue,
     "getUpvalue": _getUpvalue,
+    "upvalueNames": _upvalueNames,
   };
 
   /// setUpvalue(closure,name,value)
@@ -50,6 +52,22 @@ class SlangVmLib {
       }
     }
     vm.push(null);
+    return true;
+  }
+
+  static bool _upvalueNames(SlangVm vm) {
+    final nargs = vm.getTop();
+    if (nargs != 1) {
+      throw ArgumentError("module expects exactly one argument");
+    }
+    final closure = vm.toAny(0) as Closure;
+    final upvalueDefs = closure.prototype!.upvalues;
+    final names = upvalueDefs.map((e) => e.name).toList();
+    SlangTable table = SlangTable();
+    for (var name in names) {
+      table.add(name);
+    }
+    vm.push(table);
     return true;
   }
 

@@ -29,6 +29,9 @@ class SlangPackageLib {
       vm.pop();
       i++;
     }
+    if (vm.mode == ExecutionMode.runDebug) {
+      print("Package not found: $packageName");
+    }
     return false;
   }
 
@@ -73,6 +76,8 @@ class SlangPackageLib {
         vm.setTable();
         return true;
       }
+      vm.pop();
+      i++;
     }
     return false;
   }

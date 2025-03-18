@@ -5,6 +5,7 @@ import 'package:slang/src/vm/slang_vm.dart';
 class SlangVmLib {
   static Map<String, DartFunction> functions = {
     "setUpvalue": _setUpvalue,
+    "getUpvalue": _getUpvalue,
   };
 
   /// setUpvalue(closure,name,value)
@@ -27,6 +28,29 @@ class SlangVmLib {
       }
     }
     return false;
+  }
+
+  /// getUpvalue(closure,name)
+  /// returns the value of the upvalue with name `name` of closure.
+  /// If the upvalue does not exist, it returns nil.
+  static bool _getUpvalue(SlangVm vm) {
+    final nargs = vm.getTop();
+    if (nargs != 2) {
+      throw ArgumentError("module expects exactly one argument");
+    }
+    final closure = vm.toAny(0) as Closure;
+    final name = vm.getStringArg(1, name: "name");
+    final upvalueDefs = closure.prototype!.upvalues;
+    for (var i = 0; i < upvalueDefs.length; i++) {
+      final upvalueDef = upvalueDefs[i];
+      if (upvalueDef.name == name) {
+        final upvalue = closure.upvalues[i];
+        vm.push(upvalue?.get());
+        return true;
+      }
+    }
+    vm.push(null);
+    return true;
   }
 
   static void register(SlangVm vm) {

@@ -19,20 +19,40 @@ class SlangStdLib {
     "len": _len,
   };
 
-  static Map<String, String> slangFunction = {
-    "module": """
-      local vm = require("slang/vm");
+  static String slangFunctions = '''
+local vm = require("slang/vm");
 
-      return func(mfunc){
-        local m = {};
-        m.meta = {__index:_ENV};
-        vm.setUpvalue(mfunc,"_ENV", m);
-        mfunc();
-        m.meta.__index = null;
-        return m;
-      }
-  """
-  };
+func module(mfunc){
+  local m = {};
+  m.meta = {__index:_ENV};
+  vm.setUpvalue(mfunc,"_ENV", m);
+  mfunc();
+  m.meta.__index = null;
+  return m;
+}
+
+func run(rfunc){
+  return rfunc();
+}
+
+func with(context, f){
+  local globalTable = _ENV;
+  local func indexContextOrGlobal(self, key){
+    local value = context[key];
+    if(value != nil){
+      return value;
+    }
+    return globalTable[key];
+  }
+  local env = {};
+  env.meta = {__index: indexContextOrGlobal};
+  local oldEnv = vm.getUpvalue(f, "_ENV");
+  vm.setUpvalue(f, "_ENV", env);
+  local result = f();
+  vm.setUpvalue(f, "_ENV", oldEnv);
+  return result;
+}
+''';
 
   static bool _print(SlangVm vm) {
     int nargs = vm.getTop();
@@ -185,10 +205,7 @@ class SlangStdLib {
     for (var entry in functions.entries) {
       vm.registerDartFunction(entry.key, entry.value);
     }
-    for (var entry in slangFunction.entries) {
-      vm.compile(entry.value);
-      vm.call(0);
-      vm.setGlobal(entry.key);
-    }
+    vm.compile(slangFunctions);
+    vm.call(0);
   }
 }

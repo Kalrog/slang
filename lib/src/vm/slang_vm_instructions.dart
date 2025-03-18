@@ -114,4 +114,8 @@ class Instructions {
   static void call(SlangVm vm, int instruction) {
     vm.call(instruction.bx);
   }
+
+  static void type(SlangVm vm, int instruction) {
+    vm.type();
+  }
 }

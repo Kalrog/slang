@@ -682,7 +682,8 @@ class VarPattern extends Pattern {
   final bool isLocal;
   final Name name;
   final bool canBeNull;
-  VarPattern(super.token, this.name, {required this.isLocal, required this.canBeNull});
+  VarPattern(super.token, this.name,
+      {required this.isLocal, required this.canBeNull});
 
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {

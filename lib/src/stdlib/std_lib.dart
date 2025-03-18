@@ -10,6 +10,7 @@ class SlangStdLib {
     "compile": _compile,
     "assert": _assert,
     "append": _append,
+    "remove": _remove,
     "keys": _keys,
     "values": _values,
     "entries": _entries,
@@ -17,6 +18,7 @@ class SlangStdLib {
     "pcall": _pcall,
     "error": _error,
     "len": _len,
+    "type": _type,
   };
 
   static String slangFunctions = '''
@@ -83,6 +85,16 @@ func with(context, f){
 
   static bool _append(SlangVm vm) {
     vm.appendTable();
+    return false;
+  }
+
+  static bool _remove(SlangVm vm) {
+    if (!vm.checkTable(0)) {
+      return false;
+    }
+    final table = vm.toAny(0) as SlangTable;
+    final key = vm.toAny(1) as Object;
+    table.remove(key);
     return false;
   }
 
@@ -198,6 +210,11 @@ func with(context, f){
     } else {
       throw ArgumentError("len requires a table or string");
     }
+    return true;
+  }
+
+  static bool _type(SlangVm vm) {
+    vm.type();
     return true;
   }
 

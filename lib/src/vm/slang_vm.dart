@@ -327,9 +327,12 @@ class SlangVm {
 
   void call(int nargs) {
     bool isRoot = _frame.parent == null;
-    var args = _frame.pop(nargs) ?? [];
+    var args = _frame.pop(nargs);
+    if (nargs == 0) {
+      args = [];
+    }
     if (args is! List) {
-      args = [args];
+      args = <Object?>[args];
     }
     final closure = _frame.pop();
     if (closure is! Closure) {
@@ -599,6 +602,25 @@ class SlangVm {
     final result = _frame[n];
     _popStack();
     _frame.push(result);
+  }
+
+  void type() {
+    final value = _frame.pop();
+    if (value is int) {
+      _frame.push("int");
+    } else if (value is double) {
+      _frame.push("double");
+    } else if (value is String) {
+      _frame.push("string");
+    } else if (value is bool) {
+      _frame.push("bool");
+    } else if (value is Closure) {
+      _frame.push("function");
+    } else if (value is SlangTable) {
+      _frame.push("table");
+    } else {
+      _frame.push("null");
+    }
   }
 
   Object? toAny(int n) {

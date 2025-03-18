@@ -71,6 +71,7 @@ enum OpCodeName {
   test,
   jump,
   call,
+  type,
 }
 
 class OpCode {
@@ -139,9 +140,10 @@ const opCodes = <OpCode>[
       OpMode.iABC,
       Instructions
           .test), // if not (Stack(-1) <=> C) then pc++ (pops top of stack)
-
   OpCode(OpCodeName.jump, OpMode.iAsBx, Instructions.jump), // pc+=sBx
   OpCode(OpCodeName.call, OpMode.iABx, Instructions.call), // call function
+  OpCode(OpCodeName.type, OpMode.iNone,
+      Instructions.type), // replace Stack(-1) with string of it's type
 ];
 
 String instructionToString(int instruction) {

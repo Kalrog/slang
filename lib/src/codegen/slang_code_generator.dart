@@ -427,6 +427,9 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
       case PatternAssemblyStep.check:
         //check if the value is not null
         _assembler.emitPush(-1);
+        _assembler.emitType();
+        _assembler.emitLoadConstant("table");
+        _assembler.emitBinOp('==');
         patternAsm.testMissmatch(missmatchIf: false);
 
         for (final field in fields) {

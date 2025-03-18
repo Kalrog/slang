@@ -439,6 +439,10 @@ class FunctionAssembler {
     emitABx(OpCodeName.call, 0, argCount);
   }
 
+  void emitType() {
+    emit(OpCodeName.type);
+  }
+
   PatternAssembler startPattern() {
     final patternAssembler = PatternAssembler(this);
     _patternAssemblers.add(patternAssembler);

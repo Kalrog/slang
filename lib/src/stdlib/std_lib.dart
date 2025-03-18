@@ -10,6 +10,7 @@ class SlangStdLib {
     "compile": _compile,
     "assert": _assert,
     "append": _append,
+    "remove": _remove,
     "keys": _keys,
     "values": _values,
     "entries": _entries,
@@ -64,6 +65,16 @@ class SlangStdLib {
 
   static bool _append(SlangVm vm) {
     vm.appendTable();
+    return false;
+  }
+
+  static bool _remove(SlangVm vm) {
+    if (!vm.checkTable(0)) {
+      return false;
+    }
+    final table = vm.toAny(0) as SlangTable;
+    final key = vm.toAny(1) as Object;
+    table.remove(key);
     return false;
   }
 

@@ -1,4 +1,5 @@
 local t = require("slang/test")
+local thread = require("slang/thread")
 
 t.group("std lib"){
   t.test("run"){
@@ -16,6 +17,7 @@ t.group("std lib"){
     assert(type(null) == "null", "type(null) == null")
     assert(type(true) == "bool", "type(true) == bool")
     assert(type(0.1) == "double", "type(0.1) == double")
+    assert(type(thread.create(func(){return 1})) == "thread", "type(thread.create(func(){return 1})) == thread")
   }
 }
 

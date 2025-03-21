@@ -47,6 +47,10 @@ class SlangTable {
   }
 
   void operator []=(Object key, Object? value) {
+    if (value == null) {
+      remove(key);
+      return;
+    }
     if (key is String && key == "meta") {
       metatable = value as SlangTable?;
     } else if (key is int) {

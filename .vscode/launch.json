@@ -5,13 +5,34 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Run Slang Tests",
+      "name": "Slang: Tests",
       "type": "dart",
       "request": "launch",
       "program": "bin/slang.dart",
       "args": [
         "test"
       ]
-    }
+    },
+    {
+      "name": "Slang: Debug Current File",
+      "type": "dart",
+      "request": "launch",
+      "program": "bin/slang.dart",
+      "args": [
+        "run",
+        "-d",
+        "${file}"
+      ]
+    },
+    {
+      "name": "Slang: Run Current File",
+      "type": "dart",
+      "request": "launch",
+      "program": "bin/slang.dart",
+      "args": [
+        "run",
+        "${file}"
+      ]
+    },
   ]
 }

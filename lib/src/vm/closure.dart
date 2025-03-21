@@ -42,6 +42,9 @@ class Closure {
   final DartFunction? dartFunction;
   final List<UpvalueHolder?> upvalues;
 
+  bool get isDart => dartFunction != null;
+  bool get isSlang => prototype != null;
+
   Closure.slang(FunctionPrototype prototype)
       : dartFunction = null,
         prototype = prototype,
@@ -80,8 +83,7 @@ class SlangArgumentTypeError {
   final Type expected;
   final Type got;
 
-  SlangArgumentTypeError(this.functionName,
-      {required this.expected, required this.got});
+  SlangArgumentTypeError(this.functionName, {required this.expected, required this.got});
 
   @override
   String toString() {

@@ -1,6 +1,8 @@
 import 'package:slang/slang.dart';
+import 'package:slang/src/stdlib/math_lib.dart';
 import 'package:slang/src/stdlib/package_lib.dart';
 import 'package:slang/src/stdlib/std_lib.dart';
+import 'package:slang/src/stdlib/string_lib.dart';
 import 'package:slang/src/stdlib/table_lib.dart';
 import 'package:slang/src/stdlib/test_lib.dart';
 import 'package:slang/src/stdlib/threads_lib.dart';
@@ -12,7 +14,9 @@ SlangVm cliSlangVm() {
   SlangVmLib.register(vm);
   SlangTableLib.register(vm);
   SlangStdLib.register(vm);
+  SlangStringLib.register(vm);
   SlangTestLib.register(vm);
   SlangThreadsLib.register(vm);
+  SlangMathLib.register(vm);
   return vm;
 }

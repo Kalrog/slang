@@ -2,7 +2,9 @@ import 'package:slang/slang.dart';
 import 'package:slang/src/stdlib/package_lib.dart';
 
 class SlangTestLib {
-  static const testLib = """local indent = 0
+  static const testLib = """
+local string = require("slang/string")
+local indent = 0
 local func indentStr(){
   local str = ""
   for (local i = 0; i < indent; i = i + 1) {
@@ -70,13 +72,17 @@ func test.new(name, f){
     name: name,
     f: f,
     succeded: false,
+    log: {},
   }
   new.meta = {__index: test}
   return new
 }
 
+
 func test.run(self){
   print(indentStr(),"Test: ",self.name)
+
+
   local r = pcall(self.f)
   if(let {"ok"} = r){
     print(" Passed\n")

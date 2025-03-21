@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math';
 
 import 'package:slang/src/codegen/function_assembler.dart';
 import 'package:slang/src/compiler.dart';
@@ -9,9 +10,25 @@ import 'package:slang/src/vm/slang_vm_bytecode.dart';
 
 enum BinOpType { add, sub, mul, div, mod }
 
-enum ExecutionMode { run, step, runDebug }
+enum DebugMode { run, step, runDebug }
 
-enum ThreadState { init, running, dead }
+enum ExecutionMode {
+  /// Execution of slang code will create an equivalent dart stack
+  /// each call to a slang function will result in a call to a dart function
+  /// to execute each of the instructions in the slang function
+  /// In dart stack mode, preemtive parallelization is not possible, because
+  /// the
+  dartStack,
+
+  /// Execution of slang code is driven by a single source, that repeatedly steps the
+  /// slang vm until the slang function is completed.
+  /// The call stack only exists within the slang vm.
+  /// In step mode, preemtive parallelization is possible, because the source can
+  /// switch between driving different threads(VMs).
+  step,
+}
+
+enum ThreadState { init, running, suspended, dead }
 
 enum RelOpType {
   lt,
@@ -61,6 +78,7 @@ class SlangStackFrame {
   late List stack = [];
   SlangStackFrame? parent;
   Closure? closure;
+  DartFunction? continuation;
   Map<int, UpvalueHolder> openUpvalues = {};
   SlangStackFrame([this.closure, this.parent]);
 
@@ -155,10 +173,13 @@ class SlangStackFrame {
 }
 
 class SlangVm {
+  static int _id = 0;
+  final int id = SlangVm._id++;
   SlangStackFrame _frame = SlangStackFrame();
   SlangTable _globals = SlangTable();
   SlangTable get globals => _globals;
-  ExecutionMode mode = ExecutionMode.run;
+  DebugMode debugMode = DebugMode.run;
+  ExecutionMode executionMode = ExecutionMode.dartStack;
   ThreadState state = ThreadState.init;
 
   Set<int> breakPoints = {};
@@ -195,10 +216,11 @@ class SlangVm {
     buffer.write(_frame.toString());
     for (SlangStackFrame? frame = this._frame; frame != null; frame = frame.parent) {
       final location = frame.currentInstructionLocation;
+      final closureName = frame.closure?.isDart == true ? "dart closure" : "unknown closure";
       if (location != null) {
-        buffer.writeln("unknown closure:$location");
+        buffer.writeln("$closureName:$location");
       } else {
-        buffer.writeln("unknown closure:unknown location");
+        buffer.writeln("$closureName:unknown location");
       }
     }
     return buffer.toString();
@@ -230,10 +252,14 @@ class SlangVm {
         for (final arg in args) {
           thread.push(arg);
         }
-        while (thread._frame.closure?.prototype != null) {
-          //complete step over the yield call instruction
-          thread.addPc(1);
-          thread._runSlangFunction();
+        while (thread._frame.closure != null) {
+          if (thread._frame.closure!.isDart) {
+            thread._runDartFunction(continuation: true);
+          } else {
+            //complete step over the yield call instruction
+            // thread.addPc(1);
+            thread._runSlangFunction();
+          }
         }
       } else if (thread.state == ThreadState.init) {
         for (final arg in args) {
@@ -260,6 +286,7 @@ class SlangVm {
       print(buildStackTrace());
       print("Error: $e");
       print("Stack: $stack");
+      rethrow;
     }
 
     return;
@@ -280,9 +307,123 @@ class SlangVm {
     push(thread);
   }
 
-  void call(int nargs) {
-    state = ThreadState.running;
+  bool _allSuspended(List<SlangVm> threads) =>
+      threads.every((t) => t.state == ThreadState.dead || t.state == ThreadState.suspended);
+
+  bool get _inAtomicSection {
+    return (globals["__thread"] as SlangTable)["atomic"] as bool;
+  }
+
+  set _inAtomicSection(bool value) {
+    (globals["__thread"] as SlangTable)["atomic"] = value;
+  }
+
+  static const _threadSwitchTime = 10;
+
+  // Runs a set of slang threads using preemtive parallelization
+  // all threads will be run until either all are dead or all are suspended
+  void parallel(int nargs) {
+    var args = _frame.pop(nargs);
+    if (args is! List) {
+      args = [args];
+    }
+    List<SlangVm> threads = (args as List<Object?>).cast<SlangVm>();
+    final originalThreads = threads;
+    threads.removeWhere((t) => t.state == ThreadState.dead);
+    int current = 0;
+    for (final thread in threads) {
+      thread.executionMode = ExecutionMode.step;
+      thread.debugMode = debugMode;
+    }
+    while (threads.isNotEmpty && !_allSuspended(threads)) {
+      final thread = threads[current];
+      // TODO(JonathanKohlhas): Replace with set number for actually using it, but
+      // great for testing, makes the point at which threads switch random
+      for (int i = 0; i < Random().nextInt(20); i++) {
+        if (thread.state == ThreadState.dead ||
+            (thread.state == ThreadState.suspended && !_inAtomicSection)) {
+          break;
+        }
+
+        try {
+          final inInitState = thread.state == ThreadState.init;
+          if (inInitState) {
+            thread.call(0);
+          }
+          if (thread._frame.closure == null) {
+            thread.state = ThreadState.dead;
+            break;
+          } else if (thread._frame.closure!.isSlang) {
+            thread._step();
+          } else {
+            //if we did just come from init state we don't run the continuation
+            thread._runDartFunction(continuation: !inInitState);
+          }
+        } on SlangYield {
+          thread.state = ThreadState.suspended;
+        } catch (e, stack) {
+          print(buildStackTrace());
+          print("Error: $e");
+          print("Stack: $stack");
+          rethrow;
+        }
+      }
+      if (!_inAtomicSection) {
+        threads.removeWhere((t) => t.state == ThreadState.dead);
+        if (threads.isNotEmpty) {
+          current = (current + 1) % threads.length;
+        }
+      }
+    }
+    for (final thread in originalThreads) {
+      thread.executionMode = ExecutionMode.dartStack;
+    }
+  }
+
+  void startAtomic() {
+    if (_inAtomicSection) {
+      throw Exception("Cannot start atomic section inside atomic section");
+    }
+    _inAtomicSection = true;
+  }
+
+  void endAtomic() {
+    if (!_inAtomicSection) {
+      throw Exception("Cannot end atomic section outside atomic section");
+    }
+    _inAtomicSection = false;
+  }
+
+  void call(int nargs, {DartFunction? then}) {
+    _frame.continuation = then;
     bool isRoot = _frame.parent == null;
+    var closure = _prepareCall(nargs);
+
+    try {
+      if (closure.prototype != null) {
+        if (executionMode == ExecutionMode.dartStack) {
+          _runSlangFunction();
+        }
+      } else {
+        _runDartFunction();
+      }
+    } on SlangYield {
+      rethrow;
+    } catch (e, stack) {
+      if (isRoot) {
+        print(buildStackTrace());
+        print("Error: $e");
+        print("Stack: $stack");
+      }
+      rethrow;
+    }
+  }
+
+  /// Prepare the call by popping the arguments and closure from the stack
+  /// and pushing the arguments onto the stack of the new frame
+  /// returns the closure that is being called
+  Closure _prepareCall(int nargs) {
+    state = ThreadState.running;
     var args = _frame.pop(nargs);
     if (nargs == 0) {
       args = [];
@@ -292,9 +433,11 @@ class SlangVm {
     }
     final closure = _frame.pop();
     if (closure is! Closure) {
+      printStack();
       throw Exception('Expected Closure got $closure');
     }
     _pushStack(closure);
+
     if (closure.prototype != null) {
       final proto = closure.prototype!;
       final nargs = proto.isVarArg ? proto.nargs - 1 : proto.nargs;
@@ -314,24 +457,10 @@ class SlangVm {
         _frame.push(arg);
       }
     }
-
-    try {
-      if (closure.prototype != null) {
-        _frame.setTop(closure.prototype!.maxStackSize);
-        _runSlangFunction();
-      } else {
-        _runDartFunction();
-      }
-    } on SlangYield {
-      rethrow;
-    } catch (e, stack) {
-      if (isRoot) {
-        print(buildStackTrace());
-        print("Error: $e");
-        print("Stack: $stack");
-      }
-      rethrow;
+    if (closure.isSlang) {
+      _frame.setTop(closure.prototype!.maxStackSize);
     }
+    return closure;
   }
 
   bool checkDouble(int n) {
@@ -356,6 +485,10 @@ class SlangVm {
 
   bool checkTable(int n) {
     return _frame[n] is SlangTable;
+  }
+
+  bool checkThread(int n) {
+    return _frame[n] is SlangVm;
   }
 
   void closeUpvalues(int fromIndex) {
@@ -455,6 +588,13 @@ class SlangVm {
     return toDouble(n);
   }
 
+  num getNumArg(int n, {String? name, num? defaultValue}) {
+    if (!checkDouble(n) && !checkInt(n)) {
+      throw Exception('Expected num for ${name ?? n.toString()} got ${_frame[n].runtimeType}');
+    }
+    return _frame[n] as num;
+  }
+
   /// Push `global[identifier]` onto the stack
   void getGlobal(Object identifier) {
     _frame.push(globals[identifier]);
@@ -524,7 +664,8 @@ class SlangVm {
     _frame.push(SlangTable(nArray, nHash));
   }
 
-  void pCall(int nargs) {
+  void pCall(int nargs, {DartFunction? then}) {
+    _frame.continuation = then;
     final currentStack = _frame;
     try {
       call(nargs);
@@ -553,8 +694,8 @@ class SlangVm {
       pushValue(-1);
       err.toSlang(this);
       appendTable();
-      if (mode == ExecutionMode.runDebug) {
-        mode = ExecutionMode.step;
+      if (debugMode == DebugMode.runDebug) {
+        debugMode = DebugMode.step;
         print(err);
       }
     }
@@ -617,7 +758,9 @@ class SlangVm {
   }
 
   void registerDartFunction(String name, DartFunction function) {
-    globals[name] = Closure.dart(function);
+    // globals[name] = Closure.dart(function);
+    pushDartFunction(function);
+    setGlobal(name);
   }
 
   void replace(int index) {
@@ -670,6 +813,10 @@ class SlangVm {
 
   String toString2(int n) {
     return _frame[n].toString();
+  }
+
+  SlangVm toThread(int n) {
+    return _frame[n] as SlangVm;
   }
 
   void type() {
@@ -728,9 +875,20 @@ class SlangVm {
     _frame = SlangStackFrame(closure, _frame);
   }
 
-  void _runDartFunction() {
-    final function = _frame.closure!.dartFunction!;
-    final returnsValue = function(this);
+  void _runDartFunction({bool continuation = false}) {
+    if (continuation && _frame.continuation == null) {
+      // throw Exception("Cannot run continuation without a continuation function");
+      _popStack();
+      _frame.push(null);
+      return;
+    }
+    final function = continuation ? _frame.continuation! : _frame.closure!.dartFunction!;
+    var returnsValue = function(this);
+    //if we aren't already running the continuation and the function doesn't return before the continuation
+    //we run the continuation if it exists
+    if (!continuation && !returnsValue && _frame.continuation != null) {
+      returnsValue = _frame.continuation!(this);
+    }
     Object? returnValue;
     if (returnsValue) {
       returnValue = _frame.pop();
@@ -739,127 +897,139 @@ class SlangVm {
     _frame.push(returnValue);
   }
 
-  void _runSlangFunction() {
-    while (true) {
-      final instruction = _frame.currentInstruction;
-      final op = instruction!.op;
-
-      bool brk = false;
-      if (breakPoints.contains(_frame.pc) && mode == ExecutionMode.runDebug) {
-        brk = true;
-      }
-      if (mode == ExecutionMode.step) {
-        brk = true;
-      }
-      if (mode case ExecutionMode.runDebug || ExecutionMode.step) {
-        debugPrint();
-      }
-      while (brk) {
-        final instr = stdin.readLineSync();
-        switch (instr) {
-          case 'c':
-            mode = ExecutionMode.runDebug;
-            brk = false;
-          case '.' || '':
-            mode = ExecutionMode.step;
-            brk = false;
-          case 's' || 'stk' || 'stack':
-            printStack();
-          case 'i' || 'ins' || 'instructions':
-            printInstructions();
-          case 'c' || 'const' || 'constants':
-            printConstants();
-          case 'u' || 'up' || 'upvalues':
-            printUpvalues();
-          case 'd' || 'debug':
-            debugPrintToggle = !debugPrintToggle;
-          case _ when instr!.startsWith("toggle"):
-            switch (instr.replaceFirst("toggle", "").trim()) {
-              case 'i' || 'ins' || 'instructions':
-                debugPrintInstructions = !debugPrintInstructions;
-              case 's' || 'stk' || 'stack':
-                debugPrintStack = !debugPrintStack;
-              case 'c' || 'const' || 'constants':
-                debugPrintConstants = !debugPrintConstants;
-              case 'u' || 'up' || 'upvalues':
-                debugPrintUpvalues = !debugPrintUpvalues;
-              case 'o' || 'open' || 'openupvalues':
-                debugPrintOpenUpvalues = !debugPrintOpenUpvalues;
+  void _runDebugFunctionality() {
+    bool brk = false;
+    if (breakPoints.contains(_frame.pc) && debugMode == DebugMode.runDebug) {
+      brk = true;
+    }
+    if (debugMode == DebugMode.step) {
+      brk = true;
+    }
+    if (debugMode case DebugMode.runDebug || DebugMode.step) {
+      debugPrint();
+    }
+    while (brk) {
+      final instr = stdin.readLineSync();
+      switch (instr) {
+        case 'c':
+          debugMode = DebugMode.runDebug;
+          brk = false;
+        case '.' || '':
+          debugMode = DebugMode.step;
+          brk = false;
+        case 's' || 'stk' || 'stack':
+          printStack();
+        case 'i' || 'ins' || 'instructions':
+          printInstructions();
+        case 'c' || 'const' || 'constants':
+          printConstants();
+        case 'u' || 'up' || 'upvalues':
+          printUpvalues();
+        case 'd' || 'debug':
+          debugPrintToggle = !debugPrintToggle;
+        case _ when instr!.startsWith("toggle"):
+          switch (instr.replaceFirst("toggle", "").trim()) {
+            case 'i' || 'ins' || 'instructions':
+              debugPrintInstructions = !debugPrintInstructions;
+            case 's' || 'stk' || 'stack':
+              debugPrintStack = !debugPrintStack;
+            case 'c' || 'const' || 'constants':
+              debugPrintConstants = !debugPrintConstants;
+            case 'u' || 'up' || 'upvalues':
+              debugPrintUpvalues = !debugPrintUpvalues;
+            case 'o' || 'open' || 'openupvalues':
+              debugPrintOpenUpvalues = !debugPrintOpenUpvalues;
+          }
+        default:
+          // set [name] [value]
+          final setRegex = RegExp(r'set (\w+) (.+)');
+          final setMatch = setRegex.firstMatch(instr);
+          if (setMatch != null) {
+            final name = setMatch.group(1);
+            final value = setMatch.group(2);
+            switch (name) {
+              case 'mode':
+                switch (value) {
+                  case 'run':
+                    debugMode = DebugMode.run;
+                  case 'step':
+                    debugMode = DebugMode.step;
+                }
+              case 'instr_context':
+                debugInstructionContext = int.tryParse(value ?? "null");
             }
-          default:
-            // set [name] [value]
-            final setRegex = RegExp(r'set (\w+) (.+)');
-            final setMatch = setRegex.firstMatch(instr);
-            if (setMatch != null) {
-              final name = setMatch.group(1);
-              final value = setMatch.group(2);
-              switch (name) {
-                case 'mode':
-                  switch (value) {
-                    case 'run':
-                      mode = ExecutionMode.run;
-                    case 'step':
-                      mode = ExecutionMode.step;
-                  }
-                case 'instr_context':
-                  debugInstructionContext = int.tryParse(value ?? "null");
+          }
+
+          // b[reak] [pc]
+          final breakRegex = RegExp(r'b(reak)? (\d+)?');
+          final breakMatch = breakRegex.firstMatch(instr);
+          if (breakMatch != null) {
+            final pc = int.tryParse(breakMatch.group(2) ?? "null");
+            if (pc != null) {
+              if (breakPoints.contains(pc)) {
+                breakPoints.remove(pc);
+                print("Removed breakpoint at $pc");
+              } else {
+                breakPoints.add(pc);
+                print("Set breakpoint at $pc");
               }
             }
+          }
+          //b(reak)? @line
+          final breakLineRegex = RegExp(r'b(reak)? @(\d+)?');
+          final breakLineMatch = breakLineRegex.firstMatch(instr);
+          if (breakLineMatch != null) {
+            final line = int.tryParse(breakLineMatch.group(2) ?? "null");
 
-            // b[reak] [pc]
-            final breakRegex = RegExp(r'b(reak)? (\d+)?');
-            final breakMatch = breakRegex.firstMatch(instr);
-            if (breakMatch != null) {
-              final pc = int.tryParse(breakMatch.group(2) ?? "null");
-              if (pc != null) {
-                if (breakPoints.contains(pc)) {
-                  breakPoints.remove(pc);
-                  print("Removed breakpoint at $pc");
-                } else {
-                  breakPoints.add(pc);
-                  print("Set breakpoint at $pc");
+            if (line != null) {
+              int? pc;
+              for (int i = 1; i < _frame.function!.sourceLocations.length; i++) {
+                if (_frame.function!.sourceLocations[i].location.line == line) {
+                  pc = _frame.function!.sourceLocations[i].firstInstruction;
+                  break;
+                }
+                if (_frame.function!.sourceLocations[i].location.line > line &&
+                    _frame.function!.sourceLocations[i - 1].location.line <= line) {
+                  pc = _frame.function!.sourceLocations[i - 1].firstInstruction;
+                  break;
                 }
               }
-            }
-            //b(reak)? @line
-            final breakLineRegex = RegExp(r'b(reak)? @(\d+)?');
-            final breakLineMatch = breakLineRegex.firstMatch(instr);
-            if (breakLineMatch != null) {
-              final line = int.tryParse(breakLineMatch.group(2) ?? "null");
-
-              if (line != null) {
-                int? pc;
-                for (int i = 1; i < _frame.function!.sourceLocations.length; i++) {
-                  if (_frame.function!.sourceLocations[i].location.line == line) {
-                    pc = _frame.function!.sourceLocations[i].firstInstruction;
-                    break;
-                  }
-                  if (_frame.function!.sourceLocations[i].location.line > line &&
-                      _frame.function!.sourceLocations[i - 1].location.line <= line) {
-                    pc = _frame.function!.sourceLocations[i - 1].firstInstruction;
-                    break;
-                  }
-                }
-                pc ??= _frame.function!.sourceLocations.last.firstInstruction;
-                if (breakPoints.contains(pc)) {
-                  breakPoints.remove(pc);
-                  print("Removed breakpoint at $pc");
-                } else {
-                  breakPoints.add(pc);
-                  print("Set breakpoint at $pc");
-                }
+              pc ??= _frame.function!.sourceLocations.last.firstInstruction;
+              if (breakPoints.contains(pc)) {
+                breakPoints.remove(pc);
+                print("Removed breakpoint at $pc");
+              } else {
+                breakPoints.add(pc);
+                print("Set breakpoint at $pc");
               }
             }
-        }
-      }
-
-      op.execute(this, instruction);
-      if (op.name == OpCodeName.returnOp) {
-        break;
-      } else {
-        addPc(1);
+          }
       }
     }
+  }
+
+  void _runSlangFunction() {
+    state = ThreadState.running;
+    while (true) {
+      if (_step()) {
+        break;
+      }
+    }
+  }
+
+  bool _step() {
+    if (_frame.closure?.prototype == null) {
+      throw (Exception("Cannot step while not inside slang function"));
+    }
+    final instruction = _frame.currentInstruction;
+    final op = instruction!.op;
+    addPc(1);
+    _runDebugFunctionality();
+    op.execute(this, instruction);
+    if (op.name == OpCodeName.returnOp) {
+      return true;
+    }
+    return false;
   }
 
   void _setTable(SlangTable table, Object key, Object? value) {

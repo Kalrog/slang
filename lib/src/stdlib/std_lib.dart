@@ -59,9 +59,19 @@ func run(rfunc){
 
   static bool _assert(SlangVm vm) {
     final assertion = vm.toBool(0);
-    final message = vm.getTop() > 1 ? vm.toString2(1) : "assertion failed";
+    // final message = vm.getTop() > 1 ? vm.toString2(1) : "assertion failed";
+    // if (!assertion) {
+    //   throw Exception(message);
+    // }
+    String message = "";
+    for (int i = 1; i < vm.getTop(); i++) {
+      message += vm.toString2(i);
+    }
+    if (message.isEmpty) {
+      message = "assertion failed";
+    }
     if (!assertion) {
-      throw Exception(message);
+      vm.error(message);
     }
     return false;
   }
@@ -77,8 +87,8 @@ func run(rfunc){
     }
     final table = vm.toAny(0) as SlangTable;
     final key = vm.toAny(1) as Object;
-    table.remove(key);
-    return false;
+    vm.push(table.remove(key));
+    return true;
   }
 
   static bool _keys(SlangVm vm) {
@@ -140,7 +150,7 @@ func run(rfunc){
     if (vm.checkString(0)) {
       //build string
       var sb = StringBuffer();
-      for (int i = 1; i < vm.getTop(); i++) {
+      for (int i = 0; i < vm.getTop(); i++) {
         sb.write(vm.toString2(i));
       }
       vm.push(sb.toString());

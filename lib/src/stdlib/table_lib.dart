@@ -37,6 +37,10 @@ class SlangTableLib {
     }
     return result
   }
+
+  func m.dequeue(t){
+    return remove(t,0) 
+  }
   return m
 """;
 

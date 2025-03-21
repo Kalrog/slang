@@ -18,10 +18,10 @@ class RunCommand extends Command {
   void run() {
     final vm = cliSlangVm();
     if (argResults?['debug'] == true) {
-      vm.mode = ExecutionMode.runDebug;
+      vm.debugMode = DebugMode.runDebug;
     }
     if (argResults?['step'] == true) {
-      vm.mode = ExecutionMode.step;
+      vm.debugMode = DebugMode.step;
     }
     final arguments = argResults?.command?.rest ?? argResults?.rest;
     if (arguments != null && arguments.isNotEmpty) {
@@ -29,7 +29,7 @@ class RunCommand extends Command {
       final file = File(path);
 
       final source = file.readAsStringSync();
-      vm.compile(source, origin: "path");
+      vm.compile(source, origin: path);
       vm.call(0);
     }
   }

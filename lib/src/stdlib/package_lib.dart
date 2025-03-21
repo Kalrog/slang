@@ -29,7 +29,7 @@ class SlangPackageLib {
       vm.pop();
       i++;
     }
-    if (vm.mode == ExecutionMode.runDebug) {
+    if (vm.debugMode == DebugMode.runDebug) {
       print("Package not found: $packageName");
     }
     return false;

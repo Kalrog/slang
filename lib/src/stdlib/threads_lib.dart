@@ -1,6 +1,6 @@
+import 'package:slang/src/slang_vm.dart';
 import 'package:slang/src/stdlib/package_lib.dart';
 import 'package:slang/src/table.dart';
-import 'package:slang/src/vm/closure.dart';
 import 'package:slang/src/vm/slang_vm.dart';
 
 class SlangThreadsLib {
@@ -174,12 +174,13 @@ class SlangThreadsLib {
   /// If any of these restrictions are violated, behavior is undefined, although in most cases
   /// an exception will be thrown, but in some cases a deadlock might occur.
   static bool _atomic(SlangVm vm) {
+    final vmi = vm as SlangVmImpl;
     vm.startAtomic();
     try {
-      final mode = vm.executionMode;
-      vm.executionMode = ExecutionMode.dartStack;
+      final mode = vmi.executionMode;
+      vmi.executionMode = ExecutionMode.dartStack;
       vm.call(0);
-      vm.executionMode = mode;
+      vmi.executionMode = mode;
     } on SlangYield {
       throw Exception("Cannot yield inside atomic section");
     } finally {
@@ -191,9 +192,9 @@ class SlangThreadsLib {
   /// suspend([thread])
   /// Suspend the current thread or the given thread.
   static bool _suspend(SlangVm vm) {
-    var thread = vm;
+    var thread = vm as SlangVmImpl;
     if (vm.getTop() == 1) {
-      thread = vm.toAny(-1) as SlangVm;
+      thread = vm.toAny(-1) as SlangVmImpl;
     }
     thread.state = ThreadState.suspended;
     return false;
@@ -203,7 +204,7 @@ class SlangThreadsLib {
   /// Wake up the given thread, unlike resume, this will not start the thread
   /// so it will only work in preemptive/parallel mode.
   static bool _wake(SlangVm vm) {
-    final thread = vm.toAny(-1) as SlangVm;
+    final thread = vm.toAny(-1) as SlangVmImpl;
     thread.state = ThreadState.running;
     return false;
   }

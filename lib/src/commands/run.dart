@@ -18,10 +18,10 @@ class RunCommand extends Command {
   void run() {
     final vm = cliSlangVm();
     if (argResults?['debug'] == true) {
-      vm.debugMode = DebugMode.runDebug;
+      vm.debug.mode = DebugMode.runDebug;
     }
     if (argResults?['step'] == true) {
-      vm.debugMode = DebugMode.step;
+      vm.debug.mode = DebugMode.step;
     }
     final arguments = argResults?.command?.rest ?? argResults?.rest;
     if (arguments != null && arguments.isNotEmpty) {

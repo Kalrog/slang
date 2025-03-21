@@ -1,6 +1,7 @@
 import 'package:petitparser/petitparser.dart';
-import 'package:slang/slang.dart';
+import 'package:slang/src/ast.dart';
 import 'package:slang/src/codegen/optimizer.dart';
+import 'package:slang/src/slang_parser.dart';
 import 'package:test/test.dart';
 
 class AstMatcher extends Matcher {
@@ -41,8 +42,7 @@ void main() {
           )
         )) {
     } else {
-      throw Exception(
-          "Expected optimized ast to be 'return 7', but got $optimized");
+      throw Exception("Expected optimized ast to be 'return 7', but got $optimized");
     }
   });
 }

@@ -1,4 +1,4 @@
-import 'package:slang/slang.dart';
+import 'package:slang/src/ast.dart';
 import 'package:slang/src/codegen/function_assembler.dart';
 import 'package:slang/src/codegen/pattern_assembler.dart';
 import 'package:slang/src/vm/function_prototype.dart';
@@ -132,8 +132,7 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
       case Name(:final token, :final value):
         if (node.isLocal) {
           if (_assembler.getLocalVar(value) != null) {
-            throw Exception(
-                'Variable already declared: $value ${token.line}:${token.column}');
+            throw Exception('Variable already declared: $value ${token.line}:${token.column}');
           }
           _assembler.createLocalVar(value);
           var localVar = _assembler.getLocalVar(value);
@@ -206,10 +205,8 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
 
   @override
   void visitTableLiteral(TableLiteral node, Null arg) {
-    List<Field> arrayFields =
-        node.fields.where((node) => node.key == null).toList();
-    List<Field> mapFields =
-        node.fields.where((node) => node.key != null).toList();
+    List<Field> arrayFields = node.fields.where((node) => node.key == null).toList();
+    List<Field> mapFields = node.fields.where((node) => node.key != null).toList();
     _assembler.emitNewTable(arrayFields.length, mapFields.length);
     arrayFields = arrayFields.indexed
         .map((e) => Field(e.$2.token, IntLiteral(e.$2.token, e.$1), e.$2.value))
@@ -267,16 +264,13 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
     final parent = _assembler;
     //error if any params are ... that are not the last
     if (node.params.isNotEmpty &&
-        node.params.any((element) =>
-            element.value.startsWith("...") && element != node.params.last)) {
-      throw Exception(
-          'Vararg must be the last parameter but was found in ${node.token.line}');
+        node.params
+            .any((element) => element.value.startsWith("...") && element != node.params.last)) {
+      throw Exception('Vararg must be the last parameter but was found in ${node.token.line}');
     }
-    final isVarArg = node.params.isNotEmpty &&
-        node.params.last.value.startsWith("...") == true;
+    final isVarArg = node.params.isNotEmpty && node.params.last.value.startsWith("...") == true;
     final nargs = node.params.length;
-    _assembler =
-        FunctionAssembler(parent: parent, nargs: nargs, isVarArg: isVarArg);
+    _assembler = FunctionAssembler(parent: parent, nargs: nargs, isVarArg: isVarArg);
     parent.children.add(_assembler);
     _assembler.enterScope();
     for (final param in node.params) {
@@ -417,8 +411,7 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
         case null:
           lastNumber++;
           final number = lastNumber;
-          fields.add(FieldPattern(
-              field.token, IntLiteral(field.token, number), field.value));
+          fields.add(FieldPattern(field.token, IntLiteral(field.token, number), field.value));
         default:
           fields.add(field);
       }
@@ -464,8 +457,7 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
         //assign value
         if (node.isLocal) {
           _assembler.createLocalVar(node.name.value);
-          _assembler
-              .emitMove(_assembler.getLocalVar(node.name.value)!.register);
+          _assembler.emitMove(_assembler.getLocalVar(node.name.value)!.register);
         } else {
           visit(Name(node.token, "_ENV"));
           _assembler.emitLoadConstant(node.name.value);

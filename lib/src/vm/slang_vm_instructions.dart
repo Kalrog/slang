@@ -1,4 +1,4 @@
-import 'package:slang/src/vm/slang_vm.dart';
+import 'package:slang/src/slang_vm.dart';
 import 'package:slang/src/vm/slang_vm_bytecode.dart';
 
 class Instructions {

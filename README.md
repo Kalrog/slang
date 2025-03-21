@@ -179,7 +179,9 @@ a = run{
     - [x] check if patterns can be matched against table
     - [ ] allow for type check as part of patterns
 - [x] add varargs 
-- [x] coroutines
+- [x] multitasking
+    - [x] cooperative (coroutines,yield,resume)
+    - [x] preemptive (threads,atomic,semaphores,channels)
 - [ ] user data (like in lua)
 - [ ] bitwise operators
 - [ ] break/continue

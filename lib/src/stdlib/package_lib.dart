@@ -1,7 +1,6 @@
 import 'dart:io';
 
-import 'package:slang/src/vm/closure.dart';
-import 'package:slang/src/vm/slang_vm.dart';
+import 'package:slang/src/slang_vm.dart';
 
 class SlangPackageLib {
   static Map<String, DartFunction> functions = {
@@ -29,7 +28,7 @@ class SlangPackageLib {
       vm.pop();
       i++;
     }
-    if (vm.debugMode == DebugMode.runDebug) {
+    if (vm.debug.mode == DebugMode.runDebug) {
       print("Package not found: $packageName");
     }
     return false;

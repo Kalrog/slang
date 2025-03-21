@@ -1,5 +1,6 @@
-import 'package:slang/slang.dart';
+import 'package:slang/src/slang_vm.dart';
 import 'package:slang/src/vm/function_prototype.dart';
+import 'package:slang/src/vm/slang_vm.dart';
 
 class UpvalueHolder {
   final int index;
@@ -34,8 +35,6 @@ class UpvalueHolder {
     return 'UpvalueHolder{index: $index, inStack: ${stack != null}, value: ${get()}}';
   }
 }
-
-typedef DartFunction = bool Function(SlangVm vm);
 
 class Closure {
   final FunctionPrototype? prototype;

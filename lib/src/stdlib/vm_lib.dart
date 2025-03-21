@@ -1,7 +1,7 @@
+import 'package:slang/src/slang_vm.dart';
 import 'package:slang/src/stdlib/package_lib.dart';
 import 'package:slang/src/table.dart';
 import 'package:slang/src/vm/closure.dart';
-import 'package:slang/src/vm/slang_vm.dart';
 
 class SlangVmLib {
   static Map<String, DartFunction> functions = {

@@ -1,4 +1,4 @@
-import 'package:slang/src/vm/slang_vm.dart';
+import 'package:slang/src/slang_vm.dart';
 import 'package:slang/src/vm/slang_vm_instructions.dart';
 
 /// Bytecode Layout:
@@ -85,11 +85,8 @@ class OpCode {
 const opCodes = <OpCode>[
   OpCode(OpCodeName.loadConstant, OpMode.iABx,
       Instructions.loadConstant), // Put constant K[Bx] onto the stack
-  OpCode(
-      OpCodeName.loadBool,
-      OpMode.iABC,
-      Instructions
-          .loadBool), //Put constant (bool) A onto the stack and if(B) pc++
+  OpCode(OpCodeName.loadBool, OpMode.iABC,
+      Instructions.loadBool), //Put constant (bool) A onto the stack and if(B) pc++
   OpCode(OpCodeName.loadClosure, OpMode.iAx,
       Instructions.loadClosure), // put closure Closure[Ax] onto the stack
   // Arithmetic operations
@@ -105,41 +102,26 @@ const opCodes = <OpCode>[
   OpCode(OpCodeName.eq, OpMode.iNone, Instructions.eq),
   OpCode(OpCodeName.lt, OpMode.iNone, Instructions.lt),
   OpCode(OpCodeName.leq, OpMode.iNone, Instructions.leq),
-  OpCode(OpCodeName.move, OpMode.iAsBx,
-      Instructions.move), //Pop top of stack and put it in Stack[sBx]
-  OpCode(OpCodeName.push, OpMode.iAsBx,
-      Instructions.push), // push Stack[sBx] to top
   OpCode(
-      OpCodeName.pop,
-      OpMode.iABx,
-      Instructions
-          .pop), // keep the top A elements of the stack and pop Bx elements underneath
-  OpCode(OpCodeName.returnOp, OpMode.iNone,
-      Instructions.returnOp), //  return top of stack
-  OpCode(
-      OpCodeName.newTable,
-      OpMode.iABC,
-      Instructions
-          .newTable), // push {} (b: number of array elements, c: number of hash elements)
-  OpCode(
-      OpCodeName.setTable,
-      OpMode.iNone,
-      Instructions
-          .setTable), // Stack(-3)[Stack(-2)] = Stack(-1) (will pop the top 3 elements)
+      OpCodeName.move, OpMode.iAsBx, Instructions.move), //Pop top of stack and put it in Stack[sBx]
+  OpCode(OpCodeName.push, OpMode.iAsBx, Instructions.push), // push Stack[sBx] to top
+  OpCode(OpCodeName.pop, OpMode.iABx,
+      Instructions.pop), // keep the top A elements of the stack and pop Bx elements underneath
+  OpCode(OpCodeName.returnOp, OpMode.iNone, Instructions.returnOp), //  return top of stack
+  OpCode(OpCodeName.newTable, OpMode.iABC,
+      Instructions.newTable), // push {} (b: number of array elements, c: number of hash elements)
+  OpCode(OpCodeName.setTable, OpMode.iNone,
+      Instructions.setTable), // Stack(-3)[Stack(-2)] = Stack(-1) (will pop the top 3 elements)
 
   OpCode(OpCodeName.getTable, OpMode.iNone,
       Instructions.getTable), // push Stack(-2)[Stack(-1)] (will pop
   OpCode(OpCodeName.setUpvalue, OpMode.iAx,
       Instructions.setUpvalue), // upvalue[Ax] = Stack(-1)(will pop stack)
-  OpCode(OpCodeName.getUpvalue, OpMode.iAx,
-      Instructions.getUpvalue), // push upvalue[Ax]
+  OpCode(OpCodeName.getUpvalue, OpMode.iAx, Instructions.getUpvalue), // push upvalue[Ax]
   OpCode(OpCodeName.closeUpvalues, OpMode.iAx,
       Instructions.closeUpvalues), // close all upvalues with index >= Ax
-  OpCode(
-      OpCodeName.test,
-      OpMode.iABC,
-      Instructions
-          .test), // if not (Stack(-1) <=> C) then pc++ (pops top of stack)
+  OpCode(OpCodeName.test, OpMode.iABC,
+      Instructions.test), // if not (Stack(-1) <=> C) then pc++ (pops top of stack)
   OpCode(OpCodeName.jump, OpMode.iAsBx, Instructions.jump), // pc+=sBx
   OpCode(OpCodeName.call, OpMode.iABx, Instructions.call), // call function
   OpCode(OpCodeName.type, OpMode.iNone,
@@ -150,8 +132,7 @@ String instructionToString(int instruction) {
   final opcode = instruction.opcode;
   final op = opCodes[opcode];
   return switch (op.mode) {
-    OpMode.iABC =>
-      '${op.name.name} A=${instruction.a} B=${instruction.b} C=${instruction.c}',
+    OpMode.iABC => '${op.name.name} A=${instruction.a} B=${instruction.b} C=${instruction.c}',
     OpMode.iABx => '${op.name.name} A=${instruction.a} Bx=${instruction.bx}',
     OpMode.iAsBx => '${op.name.name} A=${instruction.a} sBx=${instruction.sbx}',
     OpMode.iAx => '${op.name.name} Ax=${instruction.ax}',

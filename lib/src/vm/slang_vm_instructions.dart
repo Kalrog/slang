@@ -1,6 +1,9 @@
-import 'package:slang/src/slang_vm.dart';
-import 'package:slang/src/vm/slang_vm_bytecode.dart';
+part of 'slang_vm.dart';
 
+/// [Instructions] contains the implementation of the different bytecode instructions on the Slang VM.
+/// Each instruction is implemented as a static method that takes the VM and the bytecode instruction as arguments.
+/// The method is responsible for extracting the arguments from the bytecode instruction and calling the appropriate
+/// method on the VM to execute the instruction.
 class Instructions {
   static void loadConstant(SlangVm vm, int instruction) {
     vm.loadConstant(instruction.bx);

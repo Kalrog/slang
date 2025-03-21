@@ -1,5 +1,5 @@
 import 'package:slang/src/slang_vm.dart';
-import 'package:slang/src/vm/slang_vm_instructions.dart';
+import 'package:slang/src/vm/slang_vm.dart';
 
 /// Bytecode Layout:
 ///  31       22       13       5    0
@@ -17,31 +17,54 @@ import 'package:slang/src/vm/slang_vm_instructions.dart';
 /// If the extra bit is set, the value is an index into the constant table.
 /// If the extra bit is not set, the value is an index into the register table.
 enum OpMode {
+  /// The opcode uses the A, B, and C fields to extract arguments.
   iABC,
+
+  /// The opcode uses the A and Bx fields to extract arguments.
   iABx,
+
+  /// The opcode uses the A and sBx fields to extract arguments.
   iAsBx,
+
+  /// The opcode uses the Ax field to extract arguments.
   iAx,
+
+  /// The opcode does not use any arguments.
   iNone,
 }
 
+/// Utility extension on [int] to extract the different fields from a bytecode instruction.
 extension BytecodeInstruction on int {
+  /// Extracts the opcode number from the instruction.
   int get opcode => this & 0x3F;
 
+  /// Extracts the opcode from the instruction.
   OpCode get op => opCodes[opcode];
 
+  /// Extracts the A field from the instruction.
   int get a => (this >> 6) & 0xFF;
 
+  /// Extracts the B field from the instruction.
   int get c => (this >> 14) & 0x1FF;
 
+  /// Extracts the C field from the instruction.
   int get b => (this >> 23) & 0x1FF;
 
+  /// Extracts the extended B (Bx) field from the instruction.
   int get bx => this >> 14;
 
+  /// Extracts the signed extended B (sBx) field from the instruction.
   int get sbx => bx - 0x1FFFF;
 
+  /// Extracts the extended A (Ax) field from the instruction.
   int get ax => this >> 6;
 }
 
+/// Instructions for the Slang VM.
+/// [instruction] is the bytecode instruction that the VM will execute and contains the opcode and arguments.
+/// [vm] is the VM that is executing the instruction.
+/// The function itself is responsible for extracting the arguments from the bytecode instruction
+/// and calling the appropriate function on the VM to execute the instruction.
 typedef Instruction = void Function(SlangVm vm, int instruction);
 
 enum OpCodeName {
@@ -74,11 +97,22 @@ enum OpCodeName {
   type,
 }
 
+/// [OpCode] implement the different operations that the Slang VM can execute.
+/// Each [OpCode] defines an [Instruction] that is executed when the opcode is encountered.
+/// The [OpCode] also defines the [OpMode] that the opcode uses to extract the arguments from the bytecode.
+/// While not necessary for the VM to function, they also have an associated [OpCodeName] for debugging purposes
+/// and to make the code generator easier to read.
 class OpCode {
+  /// The name of the opcode.
   final OpCodeName name;
+
+  /// The mode that the opcode uses to extract arguments from the bytecode.
   final OpMode mode;
+
+  /// The instruction that the opcode executes.
   final Instruction execute;
 
+  /// Creates a new opcode with the given [name], [mode], and [execute] function.
   const OpCode(this.name, this.mode, this.execute);
 }
 

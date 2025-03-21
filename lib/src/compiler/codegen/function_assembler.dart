@@ -395,7 +395,7 @@ class FunctionAssembler {
       _constantsToList(),
       _upvaluesToList(),
       children.map((c) => c.assemble()).toList(),
-      maxStackSize: maxRegisters,
+      maxVarStackSize: maxRegisters,
       nargs: nargs,
       isVarArg: isVarArg,
     );

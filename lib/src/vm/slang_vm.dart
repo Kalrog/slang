@@ -7,45 +7,25 @@ import 'package:slang/src/slang_vm.dart';
 import 'package:slang/src/table.dart';
 import 'package:slang/src/vm/closure.dart';
 import 'package:slang/src/vm/function_prototype.dart';
+import 'package:slang/src/vm/slang_exception.dart';
 import 'package:slang/src/vm/slang_vm_bytecode.dart';
 
-class SlangException implements Exception {
-  final String message;
-  final SourceLocation? location;
-  SlangException(this.message, this.location);
+part 'slang_vm_debug.dart';
+part 'slang_vm_instructions.dart';
 
-  void toSlang(SlangVmImpl vm) {
-    vm.newTable();
-    vm.pushValue(-1);
-    vm.push("message");
-    vm.push(message);
-    vm.setTable();
-    if (location != null) {
-      vm.pushValue(-1);
-      vm.push("location");
-      vm.newTable();
-      vm.pushValue(-1);
-      vm.push("line");
-      vm.push(location!.line);
-      vm.setTable();
-      vm.pushValue(-1);
-      vm.push("column");
-      vm.push(location!.column);
-      vm.setTable();
-      vm.pushValue(-1);
-      vm.push("origin");
-      vm.push(location!.origin);
-      vm.setTable();
-      vm.setTable();
-    }
-  }
-
-  @override
-  String toString() {
-    return 'SlangException: $message at $location';
-  }
-}
-
+/// The slang vm is a stack based virtual machine that executes slang bytecode
+/// It can operate in two modes:
+/// 1. Dart stack mode: When a slang function is called, a stackframe is created and the slang function
+/// instructions are loaded, then a dart function called _runSlangFunction is called that will execute
+/// each step of the slang function until it is completed.
+/// When the slang function returns, the dart function will also return.
+/// In this mode, preemtive parallelization is not possible, because to do so the slang vm would
+/// have to preemtively switch out of the _runSlangFunction function, which is not possible.
+/// 2. Step mode: When a slang function is called, a stackframe is created and the slang function
+/// instructions are loaded, but nothing else is done. To execute actually the function, repeated calls
+/// to the _step function must be made until the slang function is completed.
+/// This allows for preemtive parallelization, because it is possible to switch between calling _step
+/// on different SlangVm instances.
 enum ExecutionMode {
   /// Execution of slang code will create an equivalent dart stack
   /// each call to a slang function will result in a call to a dart function
@@ -62,16 +42,51 @@ enum ExecutionMode {
   step,
 }
 
+/// The [SlangStackFrame] is reponsible for holding the stack of the slang vm for the execution of a single
+/// function.
+/// It holds a stack of values and a reference to the previous stack frame.
+/// Depending of if the executed [closure] is a slang function or dart function, the following other fields
+/// are used by the slang vm.
+/// Slang:
+/// - Program Counter: The index of the current instruction in the function
+/// - Open Upvalues: A map of open upvalues that are captured by closures created within the function
+/// Dart:
+/// - Continuation: A function that is called to continue execution of the dart function, after the slang vm
+/// has finished executing a function called by the dart function.
 class SlangStackFrame {
   int _pc = 0;
+
+  /// The actual stack memory of this stack frame
   late List stack = [];
+
+  /// The stack frame of the function that called this function
   SlangStackFrame? parent;
+
+  /// The closure that is being executed in this stack frame
+  /// or null if this is the root stack frame
   Closure? closure;
+
+  /// The continuation function (for dart functions) that is called after the slang vm has finished executing a function
+  /// called by the dart function
   DartFunction? continuation;
+
+  /// A map of open upvalues that are captured by closures created within the function
+  /// The [UpvalueHolder]s reference values in this stack frame and can only stay open as long as
+  /// this stack frame exists. Then they are migrated.
+  /// When this function returns, the vm will close over all open upvalues and migrate the values
+  /// to be stored inside the [UpvalueHolder]s instead of on this stack frame.
   Map<int, UpvalueHolder> openUpvalues = {};
+
+  /// Creates a new stack frame, optionally with a closure to execute and a parent stack frame to
+  /// return to after the closure has finished executing
   SlangStackFrame([this.closure, this.parent]);
 
+  /// Returns the current instruction of the closure that is being executed in this stack frame
+  /// or null if the closure is null or a dart function
   int? get currentInstruction => function?.instructions[_pc];
+
+  /// Returns the current source location of the instruction that is being executed in this stack frame
+  /// or null if the closure is null or a dart function
   SourceLocation? get currentInstructionLocation {
     if (function == null) {
       return null;
@@ -89,36 +104,50 @@ class SlangStackFrame {
     return function!.sourceLocations[index].location;
   }
 
+  /// Returns the function prototype of the closure that is being executed in this stack frame
+  /// or null if the closure is null or a dart function
   FunctionPrototype? get function => closure?.prototype;
 
+  /// Returns the program counter of the closure that is being executed in this stack frame
   int get pc => _pc;
 
+  /// Returns the height/top of the stack
   int get top => stack.length;
 
+  /// Returns the value at the given index of the stack
+  /// for negative indices, the index is counted from the top of the stack
+  /// if the index is out of bounds, null is returned
   operator [](int index) {
-    final absIdx = absIndex(index);
+    final absIdx = _absIndex(index);
     if (absIdx >= stack.length || absIdx < 0) {
       return null;
     }
     return stack[absIdx];
   }
 
+  /// Sets the value at the given index of the stack
+  /// for negative indices, the index is counted from the top of the stack
   operator []=(int index, dynamic value) {
-    final absIdx = absIndex(index);
+    final absIdx = _absIndex(index);
     stack[absIdx] = value;
   }
 
-  int absIndex(int index) {
+  int _absIndex(int index) {
     if (index < 0) {
       return stack.length + index;
     }
     return index;
   }
 
+  /// Increments the program counter by [n]
   void addPc(int n) {
     _pc += n;
   }
 
+  /// Pops [n] values from the stack and returns them
+  /// If [n] is 0, null is returned
+  /// If [n] is 1, only the top value is returned
+  /// If [n] is greater than 1, a list of the top [n] values is returned
   dynamic pop([int n = 1]) {
     // return stack.removeLast();
     if (n == 0) {
@@ -132,6 +161,8 @@ class SlangStackFrame {
     return result;
   }
 
+  /// Pushes a value onto the stack
+  /// If the stack is already at the maximum size of 5000, a stack overflow exception is thrown
   void push(dynamic value) {
     stack.add(value);
     if (stack.length > 5000) {
@@ -139,6 +170,9 @@ class SlangStackFrame {
     }
   }
 
+  /// Removes all values from the stack that are above the given index
+  /// If the index is greater than the current stack size, null values are added to the stack
+  /// until the stack is at the given index
   void setTop(int top) {
     if (top < stack.length) {
       stack.removeRange(top, stack.length);
@@ -161,6 +195,7 @@ class SlangStackFrame {
   }
 }
 
+/// Implementation of the Slang VM
 class SlangVmImpl implements SlangVm {
   static int _id = 0;
   static const _threadSwitchTime = 10;
@@ -170,8 +205,11 @@ class SlangVmImpl implements SlangVm {
   SlangTable _globals = SlangTable();
   @override
   late final SlangVmImplDebug debug = SlangVmImplDebug(this);
-  @override
+
+  /// The current execution mode of the slang vm
+  /// See [ExecutionMode] for more information
   ExecutionMode executionMode = ExecutionMode.dartStack;
+
   @override
   ThreadState state = ThreadState.init;
 
@@ -205,7 +243,7 @@ class SlangVmImpl implements SlangVm {
   String buildStackTrace() {
     final buffer = StringBuffer();
     buffer.write(_frame.toString());
-    for (SlangStackFrame? frame = this._frame; frame != null; frame = frame.parent) {
+    for (SlangStackFrame? frame = _frame; frame != null; frame = frame.parent) {
       final location = frame.currentInstructionLocation;
       final closureName = frame.closure?.isDart == true ? "dart closure" : "unknown closure";
       if (location != null) {
@@ -474,6 +512,8 @@ class SlangVmImpl implements SlangVm {
   // all threads will be run until either all are dead or all are suspended
   @override
   void parallel(int nargs) {
+    bool _allSuspended(List<SlangVmImpl> threads) =>
+        threads.every((t) => t.state == ThreadState.dead || t.state == ThreadState.suspended);
     var args = _frame.pop(nargs);
     if (args is! List) {
       args = [args];
@@ -769,9 +809,6 @@ class SlangVmImpl implements SlangVm {
     throw SlangYield();
   }
 
-  bool _allSuspended(List<SlangVmImpl> threads) =>
-      threads.every((t) => t.state == ThreadState.dead || t.state == ThreadState.suspended);
-
   void _getTable(SlangTable table, Object key) {
     final value = table[key];
     if (value != null || table.metatable == null || table.metatable!["__index"] == null) {
@@ -842,7 +879,7 @@ class SlangVmImpl implements SlangVm {
       }
     }
     if (closure.isSlang) {
-      _frame.setTop(closure.prototype!.maxStackSize);
+      _frame.setTop(closure.prototype!.maxVarStackSize);
     }
     return closure;
   }
@@ -920,204 +957,6 @@ class SlangVmImpl implements SlangVm {
       return true;
     }
     return false;
-  }
-}
-
-class SlangVmImplDebug implements SlangVmDebug {
-  final SlangVmImpl vm;
-  @override
-  DebugMode mode = DebugMode.run;
-
-  Set<int> breakPoints = {};
-  int? debugInstructionContext = 5;
-
-  bool debugPrintToggle = true;
-
-  bool debugPrintInstructions = true;
-
-  bool debugPrintStack = true;
-
-  bool debugPrintConstants = false;
-
-  bool debugPrintUpvalues = false;
-
-  bool debugPrintOpenUpvalues = false;
-
-  SlangVmImplDebug(this.vm);
-
-  @override
-  void debugPrint() {
-    if (debugPrintToggle) {
-      if (debugPrintInstructions) {
-        printInstructions();
-      }
-      if (debugPrintStack) {
-        printStack();
-      }
-      if (debugPrintConstants) {
-        printConstants();
-      }
-      if (debugPrintUpvalues) {
-        printUpvalues();
-      }
-      if (debugPrintOpenUpvalues) {
-        printOpenUpvalues();
-      }
-    }
-  }
-
-  @override
-  void printAllStackFrames() {
-    for (SlangStackFrame? frame = vm._frame; frame != null; frame = frame.parent) {
-      print("Stack:");
-      print(frame.toString());
-    }
-  }
-
-  @override
-  void printConstants() {
-    print("Constants:");
-    print(vm._frame.function!.constantsToString());
-  }
-
-  @override
-  void printInstructions() {
-    print("Instructions:");
-    print(vm._frame.function!
-        .instructionsToString(pc: vm._frame.pc, context: debugInstructionContext));
-  }
-
-  @override
-  void printOpenUpvalues() {
-    print("Open Upvalues:");
-    for (final upvalue in vm._frame.openUpvalues.values) {
-      print('${upvalue.index}: $upvalue');
-    }
-  }
-
-  @override
-  void printStack() {
-    print("Stack:");
-    print(vm._frame.toString());
-  }
-
-  @override
-  void printUpvalues() {
-    print("Upvalues:");
-    for (var i = 0; i < vm._frame.function!.upvalues.length; i++) {
-      print('${vm._frame.function!.upvalues[i]}: ${vm._frame.closure!.upvalues[i]}');
-    }
-  }
-
-  void _runDebugFunctionality() {
-    bool brk = false;
-    if (breakPoints.contains(vm._frame.pc) && mode == DebugMode.runDebug) {
-      brk = true;
-    }
-    if (mode == DebugMode.step) {
-      brk = true;
-    }
-    if (mode case DebugMode.runDebug || DebugMode.step) {
-      debugPrint();
-    }
-    while (brk) {
-      final instr = stdin.readLineSync();
-      switch (instr) {
-        case 'c':
-          mode = DebugMode.runDebug;
-          brk = false;
-        case '.' || '':
-          mode = DebugMode.step;
-          brk = false;
-        case 's' || 'stk' || 'stack':
-          printStack();
-        case 'i' || 'ins' || 'instructions':
-          printInstructions();
-        case 'c' || 'const' || 'constants':
-          printConstants();
-        case 'u' || 'up' || 'upvalues':
-          printUpvalues();
-        case 'd' || 'debug':
-          debugPrintToggle = !debugPrintToggle;
-        case _ when instr!.startsWith("toggle"):
-          switch (instr.replaceFirst("toggle", "").trim()) {
-            case 'i' || 'ins' || 'instructions':
-              debugPrintInstructions = !debugPrintInstructions;
-            case 's' || 'stk' || 'stack':
-              debugPrintStack = !debugPrintStack;
-            case 'c' || 'const' || 'constants':
-              debugPrintConstants = !debugPrintConstants;
-            case 'u' || 'up' || 'upvalues':
-              debugPrintUpvalues = !debugPrintUpvalues;
-            case 'o' || 'open' || 'openupvalues':
-              debugPrintOpenUpvalues = !debugPrintOpenUpvalues;
-          }
-        default:
-          // set [name] [value]
-          final setRegex = RegExp(r'set (\w+) (.+)');
-          final setMatch = setRegex.firstMatch(instr);
-          if (setMatch != null) {
-            final name = setMatch.group(1);
-            final value = setMatch.group(2);
-            switch (name) {
-              case 'mode':
-                switch (value) {
-                  case 'run':
-                    mode = DebugMode.run;
-                  case 'step':
-                    mode = DebugMode.step;
-                }
-              case 'instr_context':
-                debugInstructionContext = int.tryParse(value ?? "null");
-            }
-          }
-
-          // b[reak] [pc]
-          final breakRegex = RegExp(r'b(reak)? (\d+)?');
-          final breakMatch = breakRegex.firstMatch(instr);
-          if (breakMatch != null) {
-            final pc = int.tryParse(breakMatch.group(2) ?? "null");
-            if (pc != null) {
-              if (breakPoints.contains(pc)) {
-                breakPoints.remove(pc);
-                print("Removed breakpoint at $pc");
-              } else {
-                breakPoints.add(pc);
-                print("Set breakpoint at $pc");
-              }
-            }
-          }
-          //b(reak)? @line
-          final breakLineRegex = RegExp(r'b(reak)? @(\d+)?');
-          final breakLineMatch = breakLineRegex.firstMatch(instr);
-          if (breakLineMatch != null) {
-            final line = int.tryParse(breakLineMatch.group(2) ?? "null");
-
-            if (line != null) {
-              int? pc;
-              for (int i = 1; i < vm._frame.function!.sourceLocations.length; i++) {
-                if (vm._frame.function!.sourceLocations[i].location.line == line) {
-                  pc = vm._frame.function!.sourceLocations[i].firstInstruction;
-                  break;
-                }
-                if (vm._frame.function!.sourceLocations[i].location.line > line &&
-                    vm._frame.function!.sourceLocations[i - 1].location.line <= line) {
-                  pc = vm._frame.function!.sourceLocations[i - 1].firstInstruction;
-                  break;
-                }
-              }
-              pc ??= vm._frame.function!.sourceLocations.last.firstInstruction;
-              if (breakPoints.contains(pc)) {
-                breakPoints.remove(pc);
-                print("Removed breakpoint at $pc");
-              } else {
-                breakPoints.add(pc);
-                print("Set breakpoint at $pc");
-              }
-            }
-          }
-      }
-    }
   }
 }
 

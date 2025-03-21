@@ -1,6 +1,6 @@
-import 'package:slang/src/ast.dart';
-import 'package:slang/src/codegen/function_assembler.dart';
-import 'package:slang/src/codegen/pattern_assembler.dart';
+import 'package:slang/src/compiler/ast.dart';
+import 'package:slang/src/compiler/codegen/function_assembler.dart';
+import 'package:slang/src/compiler/codegen/pattern_assembler.dart';
 import 'package:slang/src/vm/function_prototype.dart';
 
 class SlangCodeGenerator extends AstNodeVisitor<void, Null> {

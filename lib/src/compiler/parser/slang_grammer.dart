@@ -1,5 +1,5 @@
 import 'package:petitparser/petitparser.dart';
-import 'package:slang/src/ast.dart';
+import 'package:slang/src/compiler/ast.dart';
 
 abstract class SlangGrammar extends GrammarDefinition {
   Parser<Token> token(Object source, [String? message]) {

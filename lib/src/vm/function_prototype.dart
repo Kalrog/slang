@@ -1,6 +1,6 @@
 import 'dart:collection';
 
-import 'package:slang/src/codegen/function_assembler.dart';
+import 'package:slang/src/compiler/codegen/function_assembler.dart';
 import 'package:slang/src/vm/slang_vm_bytecode.dart';
 
 class Upvalue {
@@ -59,13 +59,12 @@ class FunctionPrototype {
 
   FunctionPrototype.fromJson(Map<String, dynamic> json)
       : instructions = UnmodifiableListView(json['instructions']),
-        sourceLocations = UnmodifiableListView((json['sourceLocations'] as List)
-            .map((e) => SourceLocationInfo.fromJson(e))),
+        sourceLocations = UnmodifiableListView(
+            (json['sourceLocations'] as List).map((e) => SourceLocationInfo.fromJson(e))),
         constants = UnmodifiableListView(json['constants']),
-        upvalues = UnmodifiableListView(
-            (json['upvalues'] as List).map((e) => Upvalue.fromJson(e))),
-        children = UnmodifiableListView((json['children'] as List)
-            .map((e) => FunctionPrototype.fromJson(e))),
+        upvalues = UnmodifiableListView((json['upvalues'] as List).map((e) => Upvalue.fromJson(e))),
+        children = UnmodifiableListView(
+            (json['children'] as List).map((e) => FunctionPrototype.fromJson(e))),
         maxStackSize = json['maxStackSize'],
         isVarArg = json['isVarArg'],
         nargs = json['nargs'];
@@ -86,8 +85,7 @@ class FunctionPrototype {
   String instructionsToString({int? pc, int? context}) {
     StringBuffer buffer = StringBuffer();
     int start = context != null && pc != null ? pc - context : 0;
-    int end =
-        context != null && pc != null ? pc + context : instructions.length;
+    int end = context != null && pc != null ? pc + context : instructions.length;
 
     if (start < 0) {
       start = 0;

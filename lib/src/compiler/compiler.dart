@@ -1,8 +1,8 @@
 import 'package:petitparser/petitparser.dart';
 import 'package:petitparser/reflection.dart';
-import 'package:slang/src/ast.dart';
-import 'package:slang/src/codegen/slang_code_generator.dart';
-import 'package:slang/src/slang_parser.dart';
+import 'package:slang/src/compiler/ast.dart';
+import 'package:slang/src/compiler/codegen/slang_code_generator.dart';
+import 'package:slang/src/compiler/parser/slang_parser.dart';
 import 'package:slang/src/vm/function_prototype.dart';
 
 final _parser = optimize(SlangParser().build());

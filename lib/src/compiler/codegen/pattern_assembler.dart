@@ -1,4 +1,4 @@
-import 'package:slang/src/codegen/function_assembler.dart';
+import 'package:slang/src/compiler/codegen/function_assembler.dart';
 
 enum PatternAssemblyStep {
   /// Checking if the value matches the pattern

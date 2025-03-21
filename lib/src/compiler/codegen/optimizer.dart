@@ -1,4 +1,4 @@
-import 'package:slang/src/ast.dart';
+import 'package:slang/src/compiler/ast.dart';
 
 class SlangConstantExpressionOptimizer extends AstNodeVisitor<AstNode, Null> {
   bool _isConstant(Exp exp) {

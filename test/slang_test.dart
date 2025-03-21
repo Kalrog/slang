@@ -1,7 +1,7 @@
 import 'package:petitparser/petitparser.dart';
-import 'package:slang/src/ast.dart';
-import 'package:slang/src/codegen/optimizer.dart';
-import 'package:slang/src/slang_parser.dart';
+import 'package:slang/src/compiler/ast.dart';
+import 'package:slang/src/compiler/codegen/optimizer.dart';
+import 'package:slang/src/compiler/parser/slang_parser.dart';
 import 'package:test/test.dart';
 
 class AstMatcher extends Matcher {

@@ -1,8 +1,6 @@
 import 'dart:io';
 
 import 'package:slang/slang.dart';
-import 'package:slang/src/table.dart';
-import 'package:slang/src/vm/closure.dart';
 
 class SlangStdLib {
   static Map<String, DartFunction> functions = {
@@ -179,8 +177,10 @@ func run(rfunc){
     if (nargs < 1) {
       throw ArgumentError("pcall requires at least one argument");
     }
-    vm.pCall(nargs - 1);
-    return true;
+    vm.pCall(nargs - 1, then: (SlangVm vm) {
+      return true;
+    });
+    return false;
   }
 
   static bool _error(SlangVm vm) {
@@ -217,5 +217,6 @@ func run(rfunc){
     }
     vm.compile(slangFunctions, origin: "slang/std");
     vm.call(0);
+    vm.run();
   }
 }

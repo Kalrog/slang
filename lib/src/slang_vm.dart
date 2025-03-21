@@ -45,6 +45,8 @@ abstract class SlangVm {
 
   void call(int nargs, {DartFunction? then});
 
+  void run();
+
   bool checkDouble(int n);
 
   bool checkFunction(int n);
@@ -123,7 +125,7 @@ abstract class SlangVm {
 
   void replace(int index);
 
-  void resume(int nargs);
+  bool resume(int nargs);
 
   void returnOp(int n);
 

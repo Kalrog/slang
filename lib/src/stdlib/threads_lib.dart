@@ -4,7 +4,7 @@ import 'package:slang/src/table.dart';
 import 'package:slang/src/vm/slang_vm.dart';
 
 class SlangThreadsLib {
-  static Map<String, DartFunction> functions = {
+  static final Map<String, DartFunction> _functions = {
     "create": _create,
     "resume": _resume,
     "yield": _yield,
@@ -14,10 +14,11 @@ class SlangThreadsLib {
     "suspend": _suspend,
     "wake": _wake,
     "current": _current,
+    "spawn": _spawn,
     "id": _id,
   };
 
-  static const String slangFunctions = '''
+  static const String _slangFunctions = '''
   local thread = require("slang/thread"); 
   local table = require("slang/table");
   local atomic = thread.atomic;
@@ -97,15 +98,17 @@ class SlangThreadsLib {
   /// When starting a thread, the value is passed to the thread function.
   /// When resuming a thread, the value is returned by the yield function.
   static bool _resume(SlangVm vm) {
-    vm.resume(vm.getTop() - 1);
-    return true;
+    return vm.resume(vm.getTop() - 1);
   }
 
   /// yield([value])
   /// Yield the current thread, optionally returning a value.
   static bool _yield(SlangVm vm) {
+    if (vm.getTop() == 0) {
+      vm.push(null);
+    }
     vm.yield();
-    return false;
+    return true;
   }
 
   /// state([thread])
@@ -164,6 +167,17 @@ class SlangThreadsLib {
     return false;
   }
 
+  /// spawn(func) or spawn { ... }
+  /// Create a new thread and run in the current parallel execution environment.
+  static bool _spawn(SlangVm vm) {
+    vm.getGlobal("__thread");
+    vm.push("spawn");
+    vm.getTable();
+    vm.createThread();
+    vm.appendTable();
+    return false;
+  }
+
   /// atomic(func) or atomic { ... }
   /// Run the given function or block in an atomic section.
   /// This will prevent any other thread from running until the atomic section is done.
@@ -174,15 +188,10 @@ class SlangThreadsLib {
   /// If any of these restrictions are violated, behavior is undefined, although in most cases
   /// an exception will be thrown, but in some cases a deadlock might occur.
   static bool _atomic(SlangVm vm) {
-    final vmi = vm as SlangVmImpl;
     vm.startAtomic();
     try {
-      final mode = vmi.executionMode;
-      vmi.executionMode = ExecutionMode.dartStack;
       vm.call(0);
-      vmi.executionMode = mode;
-    } on SlangYield {
-      throw Exception("Cannot yield inside atomic section");
+      vm.run();
     } finally {
       vm.endAtomic();
     }
@@ -216,6 +225,8 @@ class SlangThreadsLib {
     return true;
   }
 
+  /// id()
+  /// Returns the id of the current thread.
   static bool _id(SlangVm vm) {
     vm.push(vm.id);
     return true;
@@ -227,16 +238,21 @@ class SlangThreadsLib {
     vm.push("atomic");
     vm.push(false);
     vm.setTable();
+    vm.pushValue(-1);
+    vm.push("spawn");
+    vm.newTable();
+    vm.setTable();
     vm.setGlobal("__thread");
     vm.newTable(0, 0);
-    for (var entry in functions.entries) {
+    for (var entry in _functions.entries) {
       vm.pushValue(-1);
       vm.push(entry.key);
       vm.pushDartFunction(entry.value);
       vm.setTable();
     }
     SlangPackageLib.preloadModuleValue(vm, "slang/thread");
-    vm.compile(slangFunctions, origin: "slang/thread");
+    vm.compile(_slangFunctions, origin: "slang/thread");
     vm.call(0);
+    vm.run();
   }
 }

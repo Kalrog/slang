@@ -2,10 +2,9 @@ import 'dart:math';
 
 import 'package:slang/slang.dart';
 import 'package:slang/src/stdlib/package_lib.dart';
-import 'package:slang/src/vm/closure.dart';
 
 class SlangMathLib {
-  static Map<String, DartFunction> functions = {
+  static final Map<String, DartFunction> _functions = {
     "random": _random,
     "round": _round,
     "floor": _floor,
@@ -25,7 +24,7 @@ class SlangMathLib {
     "exp": _exp,
   };
 
-  static Map<String, Object> constants = {
+  static final Map<String, Object> _constants = {
     "pi": pi,
     "e": e,
   };
@@ -182,13 +181,13 @@ class SlangMathLib {
 
   static void register(SlangVm vm) {
     vm.newTable();
-    for (var entry in functions.entries) {
+    for (var entry in _functions.entries) {
       vm.pushValue(-1);
       vm.push(entry.key);
       vm.pushDartFunction(entry.value);
       vm.setTable();
     }
-    for (var entry in constants.entries) {
+    for (var entry in _constants.entries) {
       vm.pushValue(-1);
       vm.push(entry.key);
       vm.push(entry.value);

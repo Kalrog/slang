@@ -104,4 +104,10 @@ class SlangTable {
   }
 
   List<Object?> get values => [..._list, ..._map.values];
+
+  /// Removel all objects from this table.
+  void clear() {
+    _list.clear();
+    _map.clear();
+  }
 }

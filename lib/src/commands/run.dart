@@ -31,6 +31,7 @@ class RunCommand extends Command {
       final source = file.readAsStringSync();
       vm.compile(source, origin: path);
       vm.call(0);
+      vm.run();
     }
   }
 }

@@ -30,6 +30,7 @@ local t = thread.create(func(){
 
     vm.compile(slangScript);
     vm.call(0);
+    vm.run();
     assert(continuationRun);
   });
 }

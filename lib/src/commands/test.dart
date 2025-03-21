@@ -36,11 +36,13 @@ class TestCommand extends Command {
       test.run()
     """, origin: "test runner");
     vm.call(0);
+    vm.run();
   }
 
   void compileTestFile(SlangVm vm, File file) {
     final content = file.readAsStringSync();
     vm.compile(content, origin: file.path);
     vm.call(0);
+    vm.run();
   }
 }

@@ -22,6 +22,7 @@ class SlangPackageLib {
       }
       vm.push(packageName);
       vm.call(1);
+      vm.run();
       if (!vm.checkNull(-1)) {
         return true;
       }
@@ -67,6 +68,7 @@ class SlangPackageLib {
         final code = file.readAsStringSync();
         vm.compile(code, origin: packageName);
         vm.call(0);
+        vm.run();
         vm.getGlobal("__PACKAGES");
         vm.push("preloaded");
         vm.getTable();
@@ -85,6 +87,7 @@ class SlangPackageLib {
   static preloadModule(SlangVm vm, String moduleName, String code) {
     vm.compile(code, origin: moduleName);
     vm.call(0);
+    vm.run();
     vm.getGlobal("__PACKAGES");
     vm.push("preloaded");
     vm.getTable();

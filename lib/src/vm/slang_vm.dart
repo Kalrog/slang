@@ -13,35 +13,6 @@ import 'package:slang/src/vm/slang_vm_bytecode.dart';
 part 'slang_vm_debug.dart';
 part 'slang_vm_instructions.dart';
 
-/// The slang vm is a stack based virtual machine that executes slang bytecode
-/// It can operate in two modes:
-/// 1. Dart stack mode: When a slang function is called, a stackframe is created and the slang function
-/// instructions are loaded, then a dart function called _runSlangFunction is called that will execute
-/// each step of the slang function until it is completed.
-/// When the slang function returns, the dart function will also return.
-/// In this mode, preemtive parallelization is not possible, because to do so the slang vm would
-/// have to preemtively switch out of the _runSlangFunction function, which is not possible.
-/// 2. Step mode: When a slang function is called, a stackframe is created and the slang function
-/// instructions are loaded, but nothing else is done. To execute actually the function, repeated calls
-/// to the _step function must be made until the slang function is completed.
-/// This allows for preemtive parallelization, because it is possible to switch between calling _step
-/// on different SlangVm instances.
-enum ExecutionMode {
-  /// Execution of slang code will create an equivalent dart stack
-  /// each call to a slang function will result in a call to a dart function
-  /// to execute each of the instructions in the slang function
-  /// In dart stack mode, preemtive parallelization is not possible, because
-  /// the
-  dartStack,
-
-  /// Execution of slang code is driven by a single source, that repeatedly steps the
-  /// slang vm until the slang function is completed.
-  /// The call stack only exists within the slang vm.
-  /// In step mode, preemtive parallelization is possible, because the source can
-  /// switch between driving different threads(VMs).
-  step,
-}
-
 /// The [SlangStackFrame] is reponsible for holding the stack of the slang vm for the execution of a single
 /// function.
 /// It holds a stack of values and a reference to the previous stack frame.
@@ -76,6 +47,12 @@ class SlangStackFrame {
   /// When this function returns, the vm will close over all open upvalues and migrate the values
   /// to be stored inside the [UpvalueHolder]s instead of on this stack frame.
   Map<int, UpvalueHolder> openUpvalues = {};
+
+  /// A function that is called when an exception is thrown in the Slang VM
+  /// The function is called with the exception and the stack trace and should return true if the exception
+  /// was handled and the vm should continue execution or false if the exception was not handled and the vm
+  /// pass the exception to the parent stack frame
+  bool Function(SlangVm vm, Object exception, StackTrace stackTrace)? exceptionHandler;
 
   /// Creates a new stack frame, optionally with a closure to execute and a parent stack frame to
   /// return to after the closure has finished executing
@@ -206,10 +183,6 @@ class SlangVmImpl implements SlangVm {
   @override
   late final SlangVmImplDebug debug = SlangVmImplDebug(this);
 
-  /// The current execution mode of the slang vm
-  /// See [ExecutionMode] for more information
-  ExecutionMode executionMode = ExecutionMode.dartStack;
-
   @override
   ThreadState state = ThreadState.init;
 
@@ -256,28 +229,63 @@ class SlangVmImpl implements SlangVm {
   }
 
   @override
+  void pCall(int nargs, {DartFunction? then}) {
+    final currentStack = _frame;
+    _frame.exceptionHandler = (vm, exception, stackTrace) {
+      var err = exception;
+      if (err is! SlangException) {
+        err = SlangException(
+            "$err ${buildStackTrace()} $stackTrace", _frame.currentInstructionLocation);
+      }
+      while (_frame != currentStack) {
+        _popStack();
+      }
+      _popStack();
+      newTable();
+      pushValue(-1);
+      push("err");
+      appendTable();
+      pushValue(-1);
+      err.toSlang(this);
+      appendTable();
+      if (debug.mode == DebugMode.runDebug) {
+        debug.mode = DebugMode.step;
+        print(err);
+      }
+      return true;
+    };
+
+    call(
+      nargs,
+      then: (vm) {
+        newTable();
+        pushValue(-1);
+        push("ok");
+        appendTable();
+        pushValue(-1);
+        pushValue(-3);
+        appendTable();
+        pop(1, 1);
+        if (then != null) {
+          return then(this);
+        } else {
+          return true;
+        }
+      },
+    );
+  }
+
+  @override
   void call(int nargs, {DartFunction? then}) {
     _frame.continuation = then;
-    bool isRoot = _frame.parent == null;
-    var closure = _prepareCall(nargs);
+    _prepareCall(nargs);
+  }
 
-    try {
-      if (closure.prototype != null) {
-        if (executionMode == ExecutionMode.dartStack) {
-          _runSlangFunction();
-        }
-      } else {
-        _runDartFunction();
-      }
-    } on SlangYield {
-      rethrow;
-    } catch (e, stack) {
-      if (isRoot) {
-        print(buildStackTrace());
-        print("Error: $e");
-        print("Stack: $stack");
-      }
-      rethrow;
+  @override
+  void run() {
+    final parentFrame = _frame.parent;
+    while (_frame != parentFrame && _frame.closure != null) {
+      step();
     }
   }
 
@@ -512,21 +520,22 @@ class SlangVmImpl implements SlangVm {
   // all threads will be run until either all are dead or all are suspended
   @override
   void parallel(int nargs) {
-    bool _allSuspended(List<SlangVmImpl> threads) =>
+    bool allSuspended(List<SlangVmImpl> threads) =>
         threads.every((t) => t.state == ThreadState.dead || t.state == ThreadState.suspended);
+
+    final SlangTable spawned = (globals["__thread"] as SlangTable)["spawn"] as SlangTable;
+
     var args = _frame.pop(nargs);
     if (args is! List) {
       args = [args];
     }
     List<SlangVmImpl> threads = (args as List<Object?>).cast<SlangVmImpl>();
-    final originalThreads = threads;
     threads.removeWhere((t) => t.state == ThreadState.dead);
     int current = 0;
     for (final thread in threads) {
-      thread.executionMode = ExecutionMode.step;
       thread.debug.mode = debug.mode;
     }
-    while (threads.isNotEmpty && !_allSuspended(threads)) {
+    while (threads.isNotEmpty && !allSuspended(threads)) {
       final thread = threads[current];
       // TODO(JonathanKohlhas): Replace with set number for actually using it, but
       // great for testing, makes the point at which threads switch random
@@ -537,21 +546,15 @@ class SlangVmImpl implements SlangVm {
         }
 
         try {
-          final inInitState = thread.state == ThreadState.init;
-          if (inInitState) {
+          if (thread.state == ThreadState.init) {
             thread.call(0);
           }
           if (thread._frame.closure == null) {
             thread.state = ThreadState.dead;
             break;
-          } else if (thread._frame.closure!.isSlang) {
-            thread._step();
           } else {
-            //if we did just come from init state we don't run the continuation
-            thread._runDartFunction(continuation: !inInitState);
+            thread.step();
           }
-        } on SlangYield {
-          thread.state = ThreadState.suspended;
         } catch (e, stack) {
           print(buildStackTrace());
           print("Error: $e");
@@ -560,51 +563,14 @@ class SlangVmImpl implements SlangVm {
         }
       }
       if (!_inAtomicSection) {
+        // remove dead threads
         threads.removeWhere((t) => t.state == ThreadState.dead);
+        // add newly spawned threads
+        threads.addAll(spawned.values.whereType<SlangVmImpl>());
+        spawned.clear();
         if (threads.isNotEmpty) {
           current = (current + 1) % threads.length;
         }
-      }
-    }
-    for (final thread in originalThreads) {
-      thread.executionMode = ExecutionMode.dartStack;
-    }
-  }
-
-  @override
-  void pCall(int nargs, {DartFunction? then}) {
-    _frame.continuation = then;
-    final currentStack = _frame;
-    try {
-      call(nargs);
-      newTable();
-      pushValue(-1);
-      push("ok");
-      appendTable();
-      pushValue(-1);
-      pushValue(-3);
-      appendTable();
-      pop(1, 1);
-    } on SlangYield {
-      rethrow;
-    } catch (e, stack) {
-      var err = e;
-      if (err is! SlangException) {
-        err = SlangException("$err ${buildStackTrace()} $stack", _frame.currentInstructionLocation);
-      }
-      while (_frame != currentStack) {
-        _popStack();
-      }
-      newTable();
-      pushValue(-1);
-      push("err");
-      appendTable();
-      pushValue(-1);
-      err.toSlang(this);
-      appendTable();
-      if (debug.mode == DebugMode.runDebug) {
-        debug.mode = DebugMode.step;
-        print(err);
       }
     }
   }
@@ -646,7 +612,7 @@ class SlangVmImpl implements SlangVm {
   }
 
   @override
-  void resume(int nargs) {
+  bool resume(int nargs) {
     final List<Object?> args;
     switch (nargs) {
       case 0:
@@ -661,55 +627,46 @@ class SlangVmImpl implements SlangVm {
       throw Exception('Expected Thread got $thread');
     }
     if (thread.state == ThreadState.dead) {
-      push(null);
-      return;
+      return false;
+    }
+    if (thread.state == ThreadState.init) {
+      for (final arg in args) {
+        thread.push(arg);
+      }
+      thread.call(args.length);
+      thread.state == ThreadState.running;
     }
 
-    try {
-      if (thread.state == ThreadState.running) {
-        //remove the yield frame
-        thread._popStack();
-        for (final arg in args) {
-          thread.push(arg);
-        }
-        while (thread._frame.closure != null) {
-          if (thread._frame.closure!.isDart) {
-            thread._runDartFunction(continuation: true);
-          } else {
-            //complete step over the yield call instruction
-            // thread.addPc(1);
-            thread._runSlangFunction();
-          }
-        }
-      } else if (thread.state == ThreadState.init) {
-        for (final arg in args) {
-          thread.push(arg);
-        }
-        thread.call(args.length);
+    if (thread.state == ThreadState.suspended) {
+      //remove the yield return value and push the actual return value
+      for (final arg in args) {
+        thread.push(arg);
       }
-      //completed normally => thread is dead
-      thread.state = ThreadState.dead;
-      if (thread._frame.top > 0) {
-        push(thread._frame.pop());
-      } else {
-        push(null);
-      }
-    } on SlangYield {
-      // take top of stack and put it on our stack
-      if (thread._frame.top > 0) {
-        push(thread._frame.pop());
-      } else {
-        push(null);
-      }
-      return;
-    } catch (e, stack) {
-      print(buildStackTrace());
-      print("Error: $e");
-      print("Stack: $stack");
-      rethrow;
+      thread.state = ThreadState.running;
     }
 
-    return;
+    //run the thread until it yields again
+    bool runUntilYields(SlangVm vm) {
+      final vmi = vm as SlangVmImpl;
+      vmi._frame.continuation = runUntilYields;
+      thread.step();
+      if (thread.state == ThreadState.suspended || thread._frame.closure == null) {
+        if (thread._frame.closure == null) {
+          thread.state = ThreadState.dead;
+        }
+        vmi._frame.continuation = null;
+        // take top of stack and put it on our stack
+        if (thread._frame.top > 0) {
+          push(thread._frame.pop());
+        } else {
+          push(null);
+        }
+        return true;
+      }
+      return false;
+    }
+
+    return runUntilYields(this);
   }
 
   @override
@@ -806,7 +763,7 @@ class SlangVmImpl implements SlangVm {
 
   @override
   void yield() {
-    throw SlangYield();
+    state = ThreadState.suspended;
   }
 
   void _getTable(SlangTable table, Object key) {
@@ -823,6 +780,7 @@ class SlangVmImpl implements SlangVm {
         _frame.push(table);
         _frame.push(key);
         call(2);
+        run();
         return;
       case SlangTable table:
         _getTable(table, key);
@@ -859,7 +817,11 @@ class SlangVmImpl implements SlangVm {
     }
     _pushStack(closure);
 
-    if (closure.prototype != null) {
+    if (closure.isDart) {
+      _frame.continuation = closure.dartFunction;
+    }
+
+    if (closure.isSlang) {
       final proto = closure.prototype!;
       final nargs = proto.isVarArg ? proto.nargs - 1 : proto.nargs;
       final extraArgs = SlangTable();
@@ -888,36 +850,36 @@ class SlangVmImpl implements SlangVm {
     _frame = SlangStackFrame(closure, _frame);
   }
 
-  void _runDartFunction({bool continuation = false}) {
-    if (continuation && _frame.continuation == null) {
-      // throw Exception("Cannot run continuation without a continuation function");
-      _popStack();
-      _frame.push(null);
-      return;
-    }
-    final function = continuation ? _frame.continuation! : _frame.closure!.dartFunction!;
-    var returnsValue = function(this);
-    //if we aren't already running the continuation and the function doesn't return before the continuation
-    //we run the continuation if it exists
-    if (!continuation && !returnsValue && _frame.continuation != null) {
-      returnsValue = _frame.continuation!(this);
-    }
-    Object? returnValue;
-    if (returnsValue) {
-      returnValue = _frame.pop();
-    }
-    _popStack();
-    _frame.push(returnValue);
-  }
+  // void _runDartFunction({bool continuation = false}) {
+  //   if (continuation && _frame.continuation == null) {
+  //     // throw Exception("Cannot run continuation without a continuation function");
+  //     _popStack();
+  //     _frame.push(null);
+  //     return;
+  //   }
+  //   final function = continuation ? _frame.continuation! : _frame.closure!.dartFunction!;
+  //   var returnsValue = function(this);
+  //   //if we aren't already running the continuation and the function doesn't return before the continuation
+  //   //we run the continuation if it exists
+  //   if (!continuation && !returnsValue && _frame.continuation != null) {
+  //     returnsValue = _frame.continuation!(this);
+  //   }
+  //   Object? returnValue;
+  //   if (returnsValue) {
+  //     returnValue = _frame.pop();
+  //   }
+  //   _popStack();
+  //   _frame.push(returnValue);
+  // }
 
-  void _runSlangFunction() {
-    state = ThreadState.running;
-    while (true) {
-      if (_step()) {
-        break;
-      }
-    }
-  }
+  // void _runSlangFunction() {
+  //   state = ThreadState.running;
+  //   while (true) {
+  //     if (_stepSlang()) {
+  //       break;
+  //     }
+  //   }
+  // }
 
   void _setTable(SlangTable table, Object key, Object? value) {
     // table[key] = value;
@@ -935,6 +897,7 @@ class SlangVmImpl implements SlangVm {
         _frame.push(key);
         _frame.push(value);
         call(3);
+        run();
         return;
       case SlangTable table:
         _setTable(table, key, value);
@@ -944,22 +907,68 @@ class SlangVmImpl implements SlangVm {
     }
   }
 
-  bool _step() {
-    if (_frame.closure?.prototype == null) {
-      throw (Exception("Cannot step while not inside slang function"));
+  void _stepSlang() {
+    if (_frame.closure?.isSlang != true) {
+      throw (Exception("Cannot step slang function while not inside slang function"));
     }
     final instruction = _frame.currentInstruction;
     final op = instruction!.op;
-    addPc(1);
     debug._runDebugFunctionality();
+    addPc(1);
     op.execute(this, instruction);
-    if (op.name == OpCodeName.returnOp) {
-      return true;
-    }
-    return false;
   }
-}
 
-class SlangYield implements Exception {
-  SlangYield();
+  void _stepDart() {
+    final dartFrame = _frame;
+    if (_frame.closure?.isDart != true) {
+      throw (Exception("Cannot step dart function while not inside dart function"));
+    }
+    final function = _frame.continuation;
+    if (function == null) {
+      throw Exception("Cannot run continuation without a continuation function");
+    }
+    _frame.continuation =
+        null; //we are going to run this continuation now, so it is no longer needed on the stack
+    var returnsValue = function(this);
+
+    if (dartFrame.continuation == null || returnsValue == true) {
+      /// no more other stuff this dart function wants to do
+      /// so we can return
+      assert(_frame ==
+          dartFrame); // if we are done with continuations, we should be back at the same stack frame
+
+      Object? returnValue;
+      if (returnsValue) {
+        returnValue = _frame.pop();
+      }
+      _popStack();
+      _frame.push(returnValue);
+    }
+  }
+
+  /// Run a single step of the slang vm
+  void step() {
+    try {
+      if (_frame.closure?.isSlang == true) {
+        _stepSlang();
+      } else if (_frame.closure?.isDart == true) {
+        _stepDart();
+      } else {
+        throw Exception("Cannot step while not inside a function");
+      }
+    } catch (e, stack) {
+      for (SlangStackFrame? frame = _frame; frame != null; frame = frame.parent) {
+        if (frame.exceptionHandler != null) {
+          if (frame.exceptionHandler!(this, e, stack)) {
+            return;
+          }
+        }
+      }
+      print("Uncaught exception");
+      print(buildStackTrace());
+      print("Error: $e");
+      print("Stack: $stack");
+      rethrow;
+    }
+  }
 }

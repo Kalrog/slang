@@ -1,6 +1,5 @@
 import 'package:slang/slang.dart';
 import 'package:slang/src/commands/shared.dart';
-import 'package:test/test.dart';
 
 void main() {
   SlangVm vm = cliSlangVm();
@@ -195,9 +194,11 @@ g:add_edge("technique", "orchestra", 15);
 
   ''');
   vm.call(0);
+  vm.run();
   vm.push("fix");
   final sw = Stopwatch()..start();
   vm.call(1);
+  vm.run();
   final slangTime = sw.elapsedMicroseconds;
   final slangTicks = sw.elapsedTicks;
   print('Slang took $slangTime micro seconds');

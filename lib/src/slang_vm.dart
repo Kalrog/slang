@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:slang/src/table.dart';
 import 'package:slang/src/vm/slang_vm.dart';
 
@@ -34,6 +36,9 @@ abstract class SlangVm {
     }
     return vm;
   }
+
+  StreamSink<List<int>> get stdout;
+  Stream<List<int>> get stdin;
 
   ThreadState get state;
 

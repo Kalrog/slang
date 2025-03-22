@@ -45,7 +45,8 @@ func run(rfunc){
       sb.write(vm.toString2(i));
     }
     //todo: make this work in browser
-    stdout.write(sb.toString());
+    // stdout.write(sb.toString());
+    vm.stdout.add(sb.toString().codeUnits);
     return false;
   }
 

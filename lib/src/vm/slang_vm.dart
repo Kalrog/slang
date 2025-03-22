@@ -1,4 +1,5 @@
-import 'dart:io';
+import 'dart:async';
+import 'dart:io' as io;
 import 'dart:math';
 
 import 'package:slang/src/compiler/codegen/function_assembler.dart';
@@ -52,7 +53,8 @@ class SlangStackFrame {
   /// The function is called with the exception and the stack trace and should return true if the exception
   /// was handled and the vm should continue execution or false if the exception was not handled and the vm
   /// pass the exception to the parent stack frame
-  bool Function(SlangVm vm, Object exception, StackTrace stackTrace)? exceptionHandler;
+  bool Function(SlangVm vm, Object exception, StackTrace stackTrace)?
+      exceptionHandler;
 
   /// Creates a new stack frame, optionally with a closure to execute and a parent stack frame to
   /// return to after the closure has finished executing
@@ -198,6 +200,12 @@ class SlangVmImpl implements SlangVm {
   }
 
   @override
+  Stream<List<int>> stdin = io.stdin;
+
+  @override
+  StreamSink<List<int>> stdout = io.stdout;
+
+  @override
   void addPc(int n) {
     _frame.addPc(n);
   }
@@ -218,7 +226,8 @@ class SlangVmImpl implements SlangVm {
     buffer.write(_frame.toString());
     for (SlangStackFrame? frame = _frame; frame != null; frame = frame.parent) {
       final location = frame.currentInstructionLocation;
-      final closureName = frame.closure?.isDart == true ? "dart closure" : "unknown closure";
+      final closureName =
+          frame.closure?.isDart == true ? "dart closure" : "unknown closure";
       if (location != null) {
         buffer.writeln("$closureName:$location");
       } else {
@@ -234,8 +243,8 @@ class SlangVmImpl implements SlangVm {
     _frame.exceptionHandler = (vm, exception, stackTrace) {
       var err = exception;
       if (err is! SlangException) {
-        err = SlangException(
-            "$err ${buildStackTrace()} $stackTrace", _frame.currentInstructionLocation);
+        err = SlangException("$err ${buildStackTrace()} $stackTrace",
+            _frame.currentInstructionLocation);
       }
       while (_frame != currentStack) {
         _popStack();
@@ -416,7 +425,8 @@ class SlangVmImpl implements SlangVm {
   @override
   bool getBoolArg(int n, {String? name, bool? defaultValue}) {
     if (!checkInt(n)) {
-      throw Exception('Expected bool for ${name ?? n.toString()} got ${_frame[n].runtimeType}');
+      throw Exception(
+          'Expected bool for ${name ?? n.toString()} got ${_frame[n].runtimeType}');
     }
     return toBool(n);
   }
@@ -424,7 +434,8 @@ class SlangVmImpl implements SlangVm {
   @override
   double getDoubleArg(int n, {String? name, double? defaultValue}) {
     if (!checkDouble(n)) {
-      throw Exception('Expected double for ${name ?? n.toString()} got ${_frame[n].runtimeType}');
+      throw Exception(
+          'Expected double for ${name ?? n.toString()} got ${_frame[n].runtimeType}');
     }
     return toDouble(n);
   }
@@ -438,7 +449,8 @@ class SlangVmImpl implements SlangVm {
   @override
   int getIntArg(int n, {String? name, int? defaultValue}) {
     if (!checkInt(n)) {
-      throw Exception('Expected int for ${name ?? n.toString()} got ${_frame[n].runtimeType}');
+      throw Exception(
+          'Expected int for ${name ?? n.toString()} got ${_frame[n].runtimeType}');
     }
     return toInt(n);
   }
@@ -446,7 +458,8 @@ class SlangVmImpl implements SlangVm {
   @override
   num getNumArg(int n, {String? name, num? defaultValue}) {
     if (!checkDouble(n) && !checkInt(n)) {
-      throw Exception('Expected num for ${name ?? n.toString()} got ${_frame[n].runtimeType}');
+      throw Exception(
+          'Expected num for ${name ?? n.toString()} got ${_frame[n].runtimeType}');
     }
     return _frame[n] as num;
   }
@@ -454,7 +467,8 @@ class SlangVmImpl implements SlangVm {
   @override
   String getStringArg(int n, {String? name, String? defaultValue}) {
     if (!checkString(n)) {
-      throw Exception('Expected String for ${name ?? n.toString()} got ${_frame[n].runtimeType}');
+      throw Exception(
+          'Expected String for ${name ?? n.toString()} got ${_frame[n].runtimeType}');
     }
     return toString2(n);
   }
@@ -464,7 +478,8 @@ class SlangVmImpl implements SlangVm {
     final key = _frame.pop();
     final table = _frame.pop();
     if (table is! SlangTable) {
-      throw Exception('Expected SlangTable got ${table.runtimeType}, $table[$key]');
+      throw Exception(
+          'Expected SlangTable got ${table.runtimeType}, $table[$key]');
     }
     _getTable(table, key);
   }
@@ -520,10 +535,11 @@ class SlangVmImpl implements SlangVm {
   // all threads will be run until either all are dead or all are suspended
   @override
   void parallel(int nargs) {
-    bool allSuspended(List<SlangVmImpl> threads) =>
-        threads.every((t) => t.state == ThreadState.dead || t.state == ThreadState.suspended);
+    bool allSuspended(List<SlangVmImpl> threads) => threads.every(
+        (t) => t.state == ThreadState.dead || t.state == ThreadState.suspended);
 
-    final SlangTable spawned = (globals["__thread"] as SlangTable)["spawn"] as SlangTable;
+    final SlangTable spawned =
+        (globals["__thread"] as SlangTable)["spawn"] as SlangTable;
 
     var args = _frame.pop(nargs);
     if (args is! List) {
@@ -650,7 +666,8 @@ class SlangVmImpl implements SlangVm {
       final vmi = vm as SlangVmImpl;
       vmi._frame.continuation = runUntilYields;
       thread.step();
-      if (thread.state == ThreadState.suspended || thread._frame.closure == null) {
+      if (thread.state == ThreadState.suspended ||
+          thread._frame.closure == null) {
         if (thread._frame.closure == null) {
           thread.state = ThreadState.dead;
         }
@@ -768,7 +785,9 @@ class SlangVmImpl implements SlangVm {
 
   void _getTable(SlangTable table, Object key) {
     final value = table[key];
-    if (value != null || table.metatable == null || table.metatable!["__index"] == null) {
+    if (value != null ||
+        table.metatable == null ||
+        table.metatable!["__index"] == null) {
       _frame.push(value);
       return;
     }
@@ -883,7 +902,9 @@ class SlangVmImpl implements SlangVm {
 
   void _setTable(SlangTable table, Object key, Object? value) {
     // table[key] = value;
-    if (table[key] != null || table.metatable == null || table.metatable!["__newindex"] == null) {
+    if (table[key] != null ||
+        table.metatable == null ||
+        table.metatable!["__newindex"] == null) {
       table[key] = value;
       return;
     }
@@ -909,7 +930,8 @@ class SlangVmImpl implements SlangVm {
 
   void _stepSlang() {
     if (_frame.closure?.isSlang != true) {
-      throw (Exception("Cannot step slang function while not inside slang function"));
+      throw (Exception(
+          "Cannot step slang function while not inside slang function"));
     }
     final instruction = _frame.currentInstruction;
     final op = instruction!.op;
@@ -921,11 +943,13 @@ class SlangVmImpl implements SlangVm {
   void _stepDart() {
     final dartFrame = _frame;
     if (_frame.closure?.isDart != true) {
-      throw (Exception("Cannot step dart function while not inside dart function"));
+      throw (Exception(
+          "Cannot step dart function while not inside dart function"));
     }
     final function = _frame.continuation;
     if (function == null) {
-      throw Exception("Cannot run continuation without a continuation function");
+      throw Exception(
+          "Cannot run continuation without a continuation function");
     }
     _frame.continuation =
         null; //we are going to run this continuation now, so it is no longer needed on the stack
@@ -957,7 +981,9 @@ class SlangVmImpl implements SlangVm {
         throw Exception("Cannot step while not inside a function");
       }
     } catch (e, stack) {
-      for (SlangStackFrame? frame = _frame; frame != null; frame = frame.parent) {
+      for (SlangStackFrame? frame = _frame;
+          frame != null;
+          frame = frame.parent) {
         if (frame.exceptionHandler != null) {
           if (frame.exceptionHandler!(this, e, stack)) {
             return;

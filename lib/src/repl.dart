@@ -1,17 +1,19 @@
 import 'dart:io';
 
+import 'package:dart_console/dart_console.dart';
 import 'package:slang/slang.dart';
 
 class SlangRepl {
   SlangVm vm;
+  Console console = Console.scrolling();
 
   SlangRepl(this.vm);
 
   void run() {
-    print("Slang REPL");
+    console.writeLine("Slang REPL");
     while (true) {
-      stdout.write(">>> ");
-      final line = stdin.readLineSync();
+      console.write(">>> ");
+      final line = console.readLine(cancelOnBreak: true);
       if (line == null) {
         break;
       }
@@ -25,10 +27,10 @@ class SlangRepl {
         vm.compile(line, repl: true);
         vm.call(0);
         vm.run();
-        print(vm.toAny(-1));
+        console.writeLine(vm.toAny(-1));
         vm.pop();
       } catch (e) {
-        print(e);
+        console.writeLine(e);
       }
     }
   }

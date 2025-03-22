@@ -19,6 +19,8 @@ class SlangThreadsLib {
   };
 
   static const String _slangFunctions = '''
+  //slang
+
   local thread = require("slang/thread"); 
   local table = require("slang/table");
   local atomic = thread.atomic;
@@ -81,8 +83,52 @@ class SlangThreadsLib {
     return value;
   }
 
+  local barrier = {};
+  func barrier.new(count){
+    local b = {};
+    b.threads = count;
+    b.counts = 0;
+    b.mutex = semaphore.new(1);
+    b.turnstile1 = semaphore.new(0);
+    b.turnstile2 = semaphore.new(1);
+    b.meta = {__index:barrier};
+    return b;
+  }
+
+  func barrier.stepA(self){
+    self.mutex:wait();
+      self.count = self.count + 1;
+      if(self.count == self.threads){
+        self.turnstile2:wait();
+        self.turnstile1:signal();
+      }
+    self.mutex:signal();
+
+    self.turnstile1:wait();
+    self.turnstile1:signal();
+  }
+
+  func barrier.stepB(self){
+    self.mutex:wait();
+      self.count = self.count - 1;
+      if(self.count == 0){
+        self.turnstile1:wait();
+        self.turnstile2:signal();
+      }
+    self.mutex:signal();
+
+    self.turnstile2:wait();
+    self.turnstile2:signal();
+  }
+
+  func barrier.wait(self){
+    self:stepA();
+    self:stepB();
+  }
+
   thread.semaphore = semaphore;
   thread.channel = channel;
+  thread.barrier = barrier;
 ''';
 
   /// create(func) or create { ... }
@@ -170,12 +216,13 @@ class SlangThreadsLib {
   /// spawn(func) or spawn { ... }
   /// Create a new thread and run in the current parallel execution environment.
   static bool _spawn(SlangVm vm) {
+    vm.createThread();
     vm.getGlobal("__thread");
     vm.push("spawn");
     vm.getTable();
-    vm.createThread();
+    vm.pushValue(-2);
     vm.appendTable();
-    return false;
+    return true;
   }
 
   /// atomic(func) or atomic { ... }

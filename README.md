@@ -122,7 +122,7 @@ a:add(b)
 // this will be very familiar to lua users
 ```
 ### Pattern Matching
-```
+```slang
 // matches a value against a pattern
 patient = {name: "John", age: 30}
 print(let {name: "John"} = patient) // true

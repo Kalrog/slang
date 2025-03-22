@@ -11,6 +11,12 @@ sealed class AstNode {
     final visitor = PrettyPrintVisitor();
     visitor.prettyPrint(this);
   }
+
+  @override
+  String toString() {
+    final visitor = PrettyPrintVisitor();
+    return visitor.visitToString(this);
+  }
 }
 
 abstract class AstNodeVisitor<T, A> {
@@ -80,6 +86,11 @@ class PrettyPrintVisitor extends AstNodeVisitor<void, Null> {
   void prettyPrint(AstNode node) {
     visit(node);
     print(_buffer.toString());
+  }
+
+  String visitToString(AstNode node) {
+    visit(node);
+    return _buffer.toString();
   }
 
   @override
@@ -336,9 +347,6 @@ class IntLiteral extends Exp {
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
     return visitor.visitIntLiteral(this, arg);
   }
-
-  @override
-  String toString() => '$runtimeType($value)';
 }
 
 class DoubleLiteral extends Exp {
@@ -348,9 +356,6 @@ class DoubleLiteral extends Exp {
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
     return visitor.visitDoubleLiteral(this, arg);
   }
-
-  @override
-  String toString() => '$runtimeType($value)';
 }
 
 class StringLiteral extends Exp {
@@ -361,9 +366,6 @@ class StringLiteral extends Exp {
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
     return visitor.visitStringLiteral(this, arg);
   }
-
-  @override
-  String toString() => '$runtimeType($value)';
 
   static String resolveEscapes(String literal) {
     final buffer = StringBuffer();
@@ -415,9 +417,6 @@ class FalseLiteral extends Exp {
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
     return visitor.visitFalseLiteral(this, arg);
   }
-
-  @override
-  String toString() => '$runtimeType';
 }
 
 class TrueLiteral extends Exp {
@@ -427,9 +426,6 @@ class TrueLiteral extends Exp {
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
     return visitor.visitTrueLiteral(this, arg);
   }
-
-  @override
-  String toString() => '$runtimeType';
 }
 
 class NullLiteral extends Exp {
@@ -439,9 +435,6 @@ class NullLiteral extends Exp {
   T accept<T, A>(AstNodeVisitor<T, A> visitor, A arg) {
     return visitor.visitNullLiteral(this, arg);
   }
-
-  @override
-  String toString() => '$runtimeType';
 }
 
 class TableLiteral extends Exp {
@@ -452,9 +445,6 @@ class TableLiteral extends Exp {
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
     return visitor.visitTableLiteral(this, arg);
   }
-
-  @override
-  String toString() => '$runtimeType($fields)';
 }
 
 class Field extends AstNode {
@@ -466,9 +456,6 @@ class Field extends AstNode {
   T accept<T, A>(AstNodeVisitor<T, A> visitor, A arg) {
     return visitor.visitField(this, arg);
   }
-
-  @override
-  String toString() => '$runtimeType($key, $value)';
 }
 
 class Name extends Exp {
@@ -479,9 +466,6 @@ class Name extends Exp {
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
     return visitor.visitName(this, arg);
   }
-
-  @override
-  String toString() => '$runtimeType($value)';
 }
 
 class Index extends Exp {
@@ -494,9 +478,6 @@ class Index extends Exp {
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
     return visitor.visitIndex(this, arg);
   }
-
-  @override
-  toString() => '$runtimeType($target, $key)';
 }
 
 class BinOp extends Exp {
@@ -509,9 +490,6 @@ class BinOp extends Exp {
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
     return visitor.visitBinOp(this, arg);
   }
-
-  @override
-  String toString() => '$runtimeType($left, $op, $right)';
 }
 
 class UnOp extends Exp {
@@ -523,9 +501,6 @@ class UnOp extends Exp {
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
     return visitor.visitUnOp(this, arg);
   }
-
-  @override
-  String toString() => '$runtimeType($op, $exp)';
 }
 
 class FunctionExpression extends Exp {
@@ -536,9 +511,6 @@ class FunctionExpression extends Exp {
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
     return visitor.visitFunctionExpression(this, arg);
   }
-
-  @override
-  String toString() => '$runtimeType($params, $body)';
 }
 
 class FunctionCall extends Exp {
@@ -552,9 +524,6 @@ class FunctionCall extends Exp {
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
     return visitor.visitFunctionCall(this, arg);
   }
-
-  @override
-  String toString() => '$runtimeType($target, $args)';
 }
 
 sealed class Statement extends AstNode {
@@ -569,9 +538,6 @@ class FunctionCallStatement extends Statement {
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
     return visitor.visitFunctionStatement(this, arg);
   }
-
-  @override
-  String toString() => '$runtimeType($call)';
 }
 
 class Block extends Statement {
@@ -584,9 +550,6 @@ class Block extends Statement {
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
     return visitor.visitBlock(this, arg);
   }
-
-  @override
-  String toString() => '$runtimeType($statements, $finalStatement)';
 }
 
 class IfStatement extends Statement {
@@ -598,9 +561,6 @@ class IfStatement extends Statement {
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
     return visitor.visitIfStatement(this, arg);
   }
-
-  @override
-  String toString() => '$runtimeType($condition, $thenBranch, $elseBranch)';
 }
 
 class ForLoop extends Statement {
@@ -613,9 +573,6 @@ class ForLoop extends Statement {
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
     return visitor.visitForLoop(this, arg);
   }
-
-  @override
-  String toString() => '$runtimeType($init, $condition, $update, $body)';
 }
 
 class ForInLoop extends Statement {
@@ -627,9 +584,6 @@ class ForInLoop extends Statement {
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
     return visitor.visitForInLoop(this, arg);
   }
-
-  @override
-  String toString() => '$runtimeType($pattern, $itterator, $body)';
 }
 
 class ReturnStatement extends Statement {
@@ -640,9 +594,6 @@ class ReturnStatement extends Statement {
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
     return visitor.visitReturnStatement(this, arg);
   }
-
-  @override
-  String toString() => '$runtimeType($exp)';
 }
 
 class Assignment extends Statement {
@@ -654,9 +605,6 @@ class Assignment extends Statement {
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
     return visitor.visitAssignment(this, arg);
   }
-
-  @override
-  String toString() => '$runtimeType($left, $right)';
 }
 
 class Declaration extends Statement {
@@ -669,9 +617,6 @@ class Declaration extends Statement {
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
     return visitor.visitDeclaration(this, arg);
   }
-
-  @override
-  String toString() => '$runtimeType($isLocal, $left, $right)';
 }
 
 sealed class Pattern extends AstNode {
@@ -682,15 +627,13 @@ class VarPattern extends Pattern {
   final bool isLocal;
   final Name name;
   final bool canBeNull;
-  VarPattern(super.token, this.name, {required this.isLocal, required this.canBeNull});
+  VarPattern(super.token, this.name,
+      {required this.isLocal, required this.canBeNull});
 
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
     return visitor.visitVarPattern(this, arg);
   }
-
-  @override
-  String toString() => '$runtimeType($name)';
 }
 
 class TablePattern extends Pattern {
@@ -701,9 +644,6 @@ class TablePattern extends Pattern {
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
     return visitor.visitTablePattern(this, arg);
   }
-
-  @override
-  String toString() => '$runtimeType($fields)';
 }
 
 class FieldPattern extends AstNode {
@@ -715,9 +655,6 @@ class FieldPattern extends AstNode {
   T accept<T, A>(AstNodeVisitor<T, A> visitor, A arg) {
     return visitor.visitFieldPattern(this, arg);
   }
-
-  @override
-  String toString() => '$runtimeType($key, $value)';
 }
 
 class ConstPattern extends Pattern {
@@ -734,9 +671,6 @@ class ConstPattern extends Pattern {
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
     return visitor.visitConstPattern(this, arg);
   }
-
-  @override
-  String toString() => '$runtimeType($exp)';
 }
 
 class PatternAssignmentExp extends Exp {
@@ -749,7 +683,4 @@ class PatternAssignmentExp extends Exp {
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
     return visitor.visitPatternAssignmentExp(this, arg);
   }
-
-  @override
-  String toString() => '$runtimeType($value, $pattern)';
 }

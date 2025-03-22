@@ -310,5 +310,28 @@ t.group("threads"){
       }
       thread.parallel(threads)
     }
+    t.test("thread spawn"){
+      local i = 0;
+      local mutex = semaphore.new(1);
+      local ta = thread.create{
+
+        thread.spawn{
+          for (local j = 0; j < 100; j = j + 1){
+            mutex:wait();
+            i = i + 1;
+            mutex:signal();
+          }
+        }
+
+        for (local j = 0; j < 100; j = j + 1){
+          mutex:wait();
+          i = i + 1;
+          mutex:signal();
+        }
+      }
+
+      thread.parallel(ta)
+      assert(i == 200, "i should be 200")
+    }
   }
 }

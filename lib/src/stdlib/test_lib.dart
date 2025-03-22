@@ -3,6 +3,8 @@ import 'package:slang/src/stdlib/package_lib.dart';
 
 class SlangTestLib {
   static const testLib = """
+//slang
+
 local string = require("slang/string")
 local indent = 0
 local func indentStr(){
@@ -81,8 +83,6 @@ func test.new(name, f){
 
 func test.run(self){
   print(indentStr(),"Test: ",self.name)
-
-
   local r = pcall(self.f)
   if(let {"ok"} = r){
     print(" Passed\n")

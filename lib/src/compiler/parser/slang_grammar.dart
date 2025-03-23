@@ -94,7 +94,8 @@ abstract class SlangGrammar extends GrammarDefinition {
     'true',
     'false',
     'null',
-    'matches',
+    'let',
+    'break',
   ];
   Parser name() => ref2(
       token,
@@ -140,7 +141,8 @@ abstract class SlangGrammar extends GrammarDefinition {
       ref0(forInLoop) |
       ref0(block) |
       ref0(functionCall) |
-      ref0(functionDefinitonStatement);
+      ref0(functionDefinitonStatement) |
+      ref0(breakStatement);
 
   Parser assignment() => ref0(varRef) & ref1(token, '=') & ref0(expr);
 
@@ -194,6 +196,8 @@ abstract class SlangGrammar extends GrammarDefinition {
           .optional();
 
   Parser block() => (ref1(token, '{') & ref0(chunk) & ref1(token, '}')).pick(1);
+
+  Parser breakStatement() => (ref1(token, 'break'));
 
   Parser finalStatement() => ref0(returnStatement);
 

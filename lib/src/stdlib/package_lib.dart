@@ -14,7 +14,7 @@ class SlangPackageLib {
     vm.getTable();
     int i = 0;
     while (true) {
-      vm.pushValue(-1);
+      vm.pushStack(-1);
       vm.push(i);
       vm.getTable();
       if (vm.checkNull(-1)) {
@@ -54,7 +54,7 @@ class SlangPackageLib {
     vm.getTable();
     int i = 0;
     while (true) {
-      vm.pushValue(-1);
+      vm.pushStack(-1);
       vm.push(i);
       vm.getTable();
       if (vm.checkNull(-1)) {
@@ -73,7 +73,7 @@ class SlangPackageLib {
         vm.push("preloaded");
         vm.getTable();
         vm.push(packageName);
-        vm.pushValue(-3);
+        vm.pushStack(-3);
         vm.setTable();
         return true;
       }
@@ -92,7 +92,7 @@ class SlangPackageLib {
     vm.push("preloaded");
     vm.getTable();
     vm.push(moduleName);
-    vm.pushValue(-3);
+    vm.pushStack(-3);
     vm.setTable();
     vm.pop();
   }
@@ -103,7 +103,7 @@ class SlangPackageLib {
     vm.push("preloaded");
     vm.getTable();
     vm.push(moduleName);
-    vm.pushValue(-3);
+    vm.pushStack(-3);
     vm.setTable();
     vm.pop();
   }
@@ -118,30 +118,30 @@ class SlangPackageLib {
   static void _initPackagesTable(SlangVm vm) {
     vm.newTable(0, 0);
 
-    vm.pushValue(-1);
+    vm.pushStack(-1);
     vm.push("loaders");
     vm.newTable(0, 0);
-    vm.pushValue(-1);
+    vm.pushStack(-1);
     vm.push(0);
     vm.pushDartFunction(_preloadedPackages);
     vm.setTable();
-    vm.pushValue(-1);
+    vm.pushStack(-1);
     vm.push(1);
     vm.pushDartFunction(_searchPath);
     vm.setTable();
     vm.setTable();
 
-    vm.pushValue(-1);
+    vm.pushStack(-1);
     vm.push("preloaded");
     vm.newTable(0, 0);
     vm.setTable();
 
-    vm.pushValue(-1);
+    vm.pushStack(-1);
     vm.push("searchPaths");
     final searchPaths = ["."];
     vm.newTable(0, 0);
     for (int i = 0; i < searchPaths.length; i++) {
-      vm.pushValue(-1);
+      vm.pushStack(-1);
       vm.push(i);
       vm.push(searchPaths[i]);
       vm.setTable();

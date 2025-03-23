@@ -47,6 +47,7 @@ abstract class AstNodeVisitor<T, A> {
   T visitReturnStatement(ReturnStatement node, A arg);
   T visitAssignment(Assignment node, A arg);
   T visitDeclaration(Declaration node, A arg);
+  T visitBreak(Break node, A arg);
 
   T visitForLoop(ForLoop node, A arg);
   T visitForInLoop(ForInLoop node, A arg);
@@ -332,6 +333,10 @@ class PrettyPrintVisitor extends AstNodeVisitor<void, Null> {
     visit(node.value);
     _append(' => ');
     visit(node.pattern);
+  }
+
+  void visitBreak(Break node, Null arg) {
+    _append('break');
   }
 }
 
@@ -682,5 +687,13 @@ class PatternAssignmentExp extends Exp {
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
     return visitor.visitPatternAssignmentExp(this, arg);
+  }
+}
+
+class Break extends Statement {
+  Break(super.token);
+  @override
+  T accept<T, A>(AstNodeVisitor visitor, A arg) {
+    return visitor.visitBreak(this, arg);
   }
 }

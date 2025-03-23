@@ -182,13 +182,13 @@ class SlangMathLib {
   static void register(SlangVm vm) {
     vm.newTable();
     for (var entry in _functions.entries) {
-      vm.pushValue(-1);
+      vm.pushStack(-1);
       vm.push(entry.key);
       vm.pushDartFunction(entry.value);
       vm.setTable();
     }
     for (var entry in _constants.entries) {
-      vm.pushValue(-1);
+      vm.pushStack(-1);
       vm.push(entry.key);
       vm.push(entry.value);
       vm.setTable();

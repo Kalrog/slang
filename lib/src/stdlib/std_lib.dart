@@ -4,7 +4,10 @@ import 'package:slang/slang.dart';
 
 class SlangStdLib {
   static Map<String, DartFunction> functions = {
+    "args": _args,
     "print": _print,
+    "readLine": _readLine,
+    "open": _open,
     "compile": _compile,
     "assert": _assert,
     "append": _append,
@@ -17,6 +20,8 @@ class SlangStdLib {
     "error": _error,
     "len": _len,
     "type": _type,
+    "setRaw": _setRaw,
+    "getRaw": _getRaw,
   };
 
   static String slangFunctions = '''
@@ -37,6 +42,15 @@ func run(rfunc){
 }
 ''';
 
+  static bool _args(SlangVm vm) {
+    final args = SlangTable();
+    for (String arg in vm.args) {
+      args.add(arg);
+    }
+    vm.push(args);
+    return true;
+  }
+
   static bool _print(SlangVm vm) {
     int nargs = vm.getTop();
     // print(args[0]);
@@ -47,6 +61,112 @@ func run(rfunc){
     //todo: make this work in browser
     // stdout.write(sb.toString());
     vm.stdout.add(sb.toString().codeUnits);
+    return false;
+  }
+
+  static bool _readLine(SlangVm vm) {
+    vm.push(vm.stdin.readLineSync());
+    return true;
+  }
+
+  static final SlangTable _fileMetaTable = SlangTable();
+
+  static void _prepareFileMetatable(SlangVm vm) {
+    Map<String, DartFunction> fileFunctions = {
+      "read": _readStringFile,
+      "write": _writeStringFile,
+      "readBytes": _readBytesFile,
+      "writeBytes": _writeBytesFile,
+      "close": _closeFile,
+    };
+    vm.newTable();
+    for (var entry in fileFunctions.entries) {
+      vm.pushStack(-1);
+      vm.push(entry.key);
+      vm.pushDartFunction(entry.value);
+      vm.setTable();
+    }
+    final indexTable = vm.toAny(-1) as SlangTable;
+    vm.pop();
+    _fileMetaTable['__index'] = indexTable;
+  }
+
+  static bool _open(SlangVm vm) {
+    final path = vm.getStringArg(0, name: "path");
+    final modeStr = vm.getStringArg(1, name: "mode", defaultValue: "r");
+
+    FileMode mode = FileMode.read;
+    if (modeStr.contains("r") && modeStr.contains("w")) {
+      mode = FileMode.write;
+    } else if (modeStr.contains("r")) {
+      mode = FileMode.read;
+    } else if (modeStr.contains("w")) {
+      mode = FileMode.writeOnly;
+    }
+    if (modeStr.contains("a")) {
+      switch (mode) {
+        case FileMode.read:
+          mode = FileMode.append;
+          break;
+        case FileMode.write:
+          mode = FileMode.append;
+          break;
+        case FileMode.writeOnly:
+          mode = FileMode.writeOnlyAppend;
+          break;
+        default:
+          mode = FileMode.append;
+          break;
+      }
+    }
+
+    final file = File(path);
+    if (!file.existsSync()) {
+      file.createSync(recursive: true);
+    }
+    final raf = file.openSync(mode: mode);
+    vm.push(raf);
+    vm.pushStack(-1);
+    vm.push(_fileMetaTable);
+    vm.setMetaTable();
+    return true;
+  }
+
+  static bool _readStringFile(SlangVm vm) {
+    final file = vm.getUserdataArg<RandomAccessFile>(0, name: "file");
+    final length =
+        vm.getIntArg(1, name: "length", defaultValue: file.lengthSync());
+    final buffer = file.readSync(length);
+    vm.push(String.fromCharCodes(buffer));
+    return true;
+  }
+
+  static bool _writeStringFile(SlangVm vm) {
+    final file = vm.getUserdataArg<RandomAccessFile>(0, name: "file");
+    final str = vm.getStringArg(1, name: "str");
+    file.writeStringSync(str);
+    return false;
+  }
+
+  static bool _readBytesFile(SlangVm vm) {
+    final file = vm.getUserdataArg<RandomAccessFile>(0, name: "file");
+    final length =
+        vm.getIntArg(1, name: "length", defaultValue: file.lengthSync());
+    final buffer = file.readSync(length);
+    vm.push(buffer);
+    return true;
+  }
+
+  static bool _writeBytesFile(SlangVm vm) {
+    final file = vm.getUserdataArg<RandomAccessFile>(0, name: "file");
+    final buffer = vm.toAny(1) as List<int>;
+    file.writeFromSync(buffer);
+    return false;
+  }
+
+  static bool _closeFile(SlangVm vm) {
+    final file = vm.getUserdataArg<RandomAccessFile>(0, name: "file");
+    file.closeSync();
     return false;
   }
 
@@ -212,7 +332,19 @@ func run(rfunc){
     return true;
   }
 
+  static bool _setRaw(SlangVm vm) {
+    vm.setTableRaw();
+    return false;
+  }
+
+  static bool _getRaw(SlangVm vm) {
+    vm.getTableRaw();
+    return true;
+  }
+
+  /// Register all standard library functions in the given vm.
   static void register(SlangVm vm) {
+    _prepareFileMetatable(vm);
     for (var entry in functions.entries) {
       vm.registerDartFunction(entry.key, entry.value);
     }

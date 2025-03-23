@@ -17,4 +17,13 @@ test.group("for loops",func (){
     }
     assert(sum == 1100)
   })
+  test.test("for loop break"){
+    local i
+    for(i = 0; i <= 100; i = i + 1){
+      if(i == 51){
+        break
+      }
+    }
+    assert(i == 51, "i should be 51")
+  }
 })

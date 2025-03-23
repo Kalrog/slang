@@ -62,7 +62,7 @@ class Instructions {
   }
 
   static void push(SlangVm vm, int instruction) {
-    vm.pushValue(instruction.sbx);
+    vm.pushStack(instruction.sbx);
   }
 
   static void returnOp(SlangVm vm, int instruction) {

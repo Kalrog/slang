@@ -1,6 +1,16 @@
 class SlangTable {
   final Map<Object, Object?> _map;
   final List<Object?> _list;
+
+  /// Metatable of the SlangTable.
+  /// The metatable can define a number of special behaviors for the table, by
+  /// assigning values to specific entries in the metatable.
+  /// The Slang VM uses the following keys in the metatable:
+  /// __index: a function(func(table,key) -> value ) or table to be called/used
+  /// when a non-existent key is accessed on the table.
+  /// __newindex: a function(func(table,key,value) ) or table to be called/used
+  /// when a non-existent key is assigned on the table.
+  /// __type: a string that represents the type of the table.
   SlangTable? metatable;
 
   SlangTable([int nArray = 0, int nHash = 0])
@@ -110,4 +120,23 @@ class SlangTable {
     _list.clear();
     _map.clear();
   }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! SlangTable) return false;
+    if (other.length != length) return false;
+    if (other._list.length != _list.length) return false;
+    if (other._map.length != _map.length) return false;
+    for (int i = 0; i < _list.length; i++) {
+      if (other._list[i] != _list[i]) return false;
+    }
+    for (Object key in _map.keys) {
+      if (other._map[key] != _map[key]) return false;
+    }
+    return true;
+  }
+
+  @override
+  int get hashCode => Object.hash(_list, _map, metatable);
 }

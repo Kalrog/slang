@@ -220,7 +220,7 @@ class SlangThreadsLib {
     vm.getGlobal("__thread");
     vm.push("spawn");
     vm.getTable();
-    vm.pushValue(-2);
+    vm.pushStack(-2);
     vm.appendTable();
     return true;
   }
@@ -281,18 +281,18 @@ class SlangThreadsLib {
 
   static void register(SlangVm vm) {
     vm.newTable(0, 0);
-    vm.pushValue(-1);
+    vm.pushStack(-1);
     vm.push("atomic");
     vm.push(false);
     vm.setTable();
-    vm.pushValue(-1);
+    vm.pushStack(-1);
     vm.push("spawn");
     vm.newTable();
     vm.setTable();
     vm.setGlobal("__thread");
     vm.newTable(0, 0);
     for (var entry in _functions.entries) {
-      vm.pushValue(-1);
+      vm.pushStack(-1);
       vm.push(entry.key);
       vm.pushDartFunction(entry.value);
       vm.setTable();

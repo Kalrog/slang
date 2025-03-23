@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:slang/src/table.dart';
 import 'package:slang/src/vm/slang_vm.dart';
@@ -37,8 +39,11 @@ abstract class SlangVm {
     return vm;
   }
 
-  StreamSink<List<int>> get stdout;
-  Stream<List<int>> get stdin;
+  List<String> get args;
+  set args(List<String> args);
+
+  Stdout get stdout;
+  Stdin get stdin;
 
   ThreadState get state;
 
@@ -62,13 +67,17 @@ abstract class SlangVm {
 
   bool checkString(int n);
 
+  bool checkUserdata<T>(int n);
+
   bool checkTable(int n);
 
   bool checkThread(int n);
 
   void closeUpvalues(int fromIndex);
 
-  void compile(String code, {bool repl = false, String origin = "string"});
+  void compile(dynamic code, {bool repl = false, String origin = "string"});
+
+  Uint8List functionToBytes();
 
   void createThread();
 
@@ -96,7 +105,13 @@ abstract class SlangVm {
 
   String getStringArg(int n, {String? name, String? defaultValue});
 
+  T getUserdataArg<T>(int n, {String? name, T? defaultValue});
+
   void getTable();
+
+  void getTableRaw();
+
+  void getMetaTable();
 
   int getTop();
 
@@ -124,7 +139,7 @@ abstract class SlangVm {
 
   void pushDartFunction(DartFunction function);
 
-  void pushValue(int index);
+  void pushStack(int index);
 
   void registerDartFunction(String name, DartFunction function);
 
@@ -137,6 +152,10 @@ abstract class SlangVm {
   void setGlobal(Object identifier);
 
   void setTable();
+
+  void setTableRaw();
+
+  void setMetaTable();
 
   void setUpvalue(int index);
 

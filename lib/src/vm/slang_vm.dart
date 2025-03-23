@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io' as io;
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:slang/src/compiler/codegen/function_assembler.dart';
 import 'package:slang/src/compiler/compiler.dart';
@@ -10,6 +11,7 @@ import 'package:slang/src/vm/closure.dart';
 import 'package:slang/src/vm/function_prototype.dart';
 import 'package:slang/src/vm/slang_exception.dart';
 import 'package:slang/src/vm/slang_vm_bytecode.dart';
+import 'package:slang/src/vm/userdata.dart';
 
 part 'slang_vm_debug.dart';
 part 'slang_vm_instructions.dart';
@@ -191,6 +193,9 @@ class SlangVmImpl implements SlangVm {
   @override
   SlangTable get globals => _globals;
 
+  @override
+  List<String> args = [];
+
   bool get _inAtomicSection {
     return (globals["__thread"] as SlangTable)["atomic"] as bool;
   }
@@ -200,10 +205,10 @@ class SlangVmImpl implements SlangVm {
   }
 
   @override
-  Stream<List<int>> stdin = io.stdin;
+  io.Stdin stdin = io.stdin;
 
   @override
-  StreamSink<List<int>> stdout = io.stdout;
+  io.Stdout stdout = io.stdout;
 
   @override
   void addPc(int n) {
@@ -251,10 +256,10 @@ class SlangVmImpl implements SlangVm {
       }
       _popStack();
       newTable();
-      pushValue(-1);
+      pushStack(-1);
       push("err");
       appendTable();
-      pushValue(-1);
+      pushStack(-1);
       err.toSlang(this);
       appendTable();
       if (debug.mode == DebugMode.runDebug) {
@@ -268,11 +273,11 @@ class SlangVmImpl implements SlangVm {
       nargs,
       then: (vm) {
         newTable();
-        pushValue(-1);
+        pushStack(-1);
         push("ok");
         appendTable();
-        pushValue(-1);
-        pushValue(-3);
+        pushStack(-1);
+        pushStack(-3);
         appendTable();
         pop(1, 1);
         if (then != null) {
@@ -324,6 +329,11 @@ class SlangVmImpl implements SlangVm {
   }
 
   @override
+  bool checkUserdata<T>(int n) {
+    return _frame[n] is Userdata && _frame[n].value is T;
+  }
+
+  @override
   bool checkTable(int n) {
     return _frame[n] is SlangTable;
   }
@@ -345,13 +355,37 @@ class SlangVmImpl implements SlangVm {
   }
 
   @override
-  void compile(String code, {bool repl = false, String origin = "string"}) {
-    final prototype = repl ? compileREPL(code) : compileSource(code, origin);
+  void compile(dynamic code, {bool repl = false, String origin = "string"}) {
+    FunctionPrototype? prototype;
+
+    if (code is Uint8List) {
+      prototype = PrototypeEncoder().decode(code);
+    }
+    if (prototype == null) {
+      final codeString = code is String ? code : String.fromCharCodes(code);
+      prototype =
+          repl ? compileREPL(codeString) : compileSource(codeString, origin);
+    }
+
     Closure closure = Closure.slang(prototype);
+
     if (prototype.upvalues.isNotEmpty && prototype.upvalues[0].name == '_ENV') {
       closure.upvalues[0] = UpvalueHolder.value(globals);
     }
     _frame.push(closure);
+  }
+
+  @override
+  Uint8List functionToBytes() {
+    final closure = _frame.pop();
+    if (closure is! Closure) {
+      throw Exception('Expected Closure got $closure');
+    }
+    if (closure.prototype == null) {
+      throw Exception('Closure has no prototype');
+    }
+    final bytes = PrototypeEncoder().encode(closure.prototype!);
+    return bytes;
   }
 
   @override
@@ -422,9 +456,18 @@ class SlangVmImpl implements SlangVm {
     }
   }
 
+  /// Push `global[identifier]` onto the stack
+  @override
+  void getGlobal(Object identifier) {
+    _frame.push(globals[identifier]);
+  }
+
   @override
   bool getBoolArg(int n, {String? name, bool? defaultValue}) {
     if (!checkInt(n)) {
+      if (defaultValue != null) {
+        return defaultValue;
+      }
       throw Exception(
           'Expected bool for ${name ?? n.toString()} got ${_frame[n].runtimeType}');
     }
@@ -434,21 +477,21 @@ class SlangVmImpl implements SlangVm {
   @override
   double getDoubleArg(int n, {String? name, double? defaultValue}) {
     if (!checkDouble(n)) {
+      if (defaultValue != null) {
+        return defaultValue;
+      }
       throw Exception(
           'Expected double for ${name ?? n.toString()} got ${_frame[n].runtimeType}');
     }
     return toDouble(n);
   }
 
-  /// Push `global[identifier]` onto the stack
-  @override
-  void getGlobal(Object identifier) {
-    _frame.push(globals[identifier]);
-  }
-
   @override
   int getIntArg(int n, {String? name, int? defaultValue}) {
     if (!checkInt(n)) {
+      if (defaultValue != null) {
+        return defaultValue;
+      }
       throw Exception(
           'Expected int for ${name ?? n.toString()} got ${_frame[n].runtimeType}');
     }
@@ -458,6 +501,9 @@ class SlangVmImpl implements SlangVm {
   @override
   num getNumArg(int n, {String? name, num? defaultValue}) {
     if (!checkDouble(n) && !checkInt(n)) {
+      if (defaultValue != null) {
+        return defaultValue;
+      }
       throw Exception(
           'Expected num for ${name ?? n.toString()} got ${_frame[n].runtimeType}');
     }
@@ -467,6 +513,9 @@ class SlangVmImpl implements SlangVm {
   @override
   String getStringArg(int n, {String? name, String? defaultValue}) {
     if (!checkString(n)) {
+      if (defaultValue != null) {
+        return defaultValue;
+      }
       throw Exception(
           'Expected String for ${name ?? n.toString()} got ${_frame[n].runtimeType}');
     }
@@ -474,14 +523,54 @@ class SlangVmImpl implements SlangVm {
   }
 
   @override
+  T getUserdataArg<T>(int n, {String? name, T? defaultValue}) {
+    if (!checkUserdata<T>(n)) {
+      if (defaultValue != null) {
+        return defaultValue;
+      }
+      throw Exception(
+          'Expected SlangTable for ${name ?? n.toString()} got ${_frame[n].runtimeType}');
+    }
+    final table = _frame[n];
+    if (table is! Userdata) {
+      throw Exception(
+          'Expected Userdata for ${name ?? n.toString()} got ${table.runtimeType}');
+    }
+    return table.value as T;
+  }
+
+  @override
   void getTable() {
     final key = _frame.pop();
     final table = _frame.pop();
-    if (table is! SlangTable) {
-      throw Exception(
-          'Expected SlangTable got ${table.runtimeType}, $table[$key]');
+    if (table == null) {
+      throw Exception('Expected SlangTable got null');
     }
     _getTable(table, key);
+  }
+
+  @override
+  void getTableRaw() {
+    final key = _frame.pop();
+    final table = _frame.pop();
+    if (table is! SlangTable) {
+      throw Exception('Expected SlangTable got ${table.runtimeType}');
+    }
+    _frame.push(table[key]);
+  }
+
+  @override
+  void getMetaTable() {
+    final table = _frame.pop();
+    switch (table) {
+      case SlangTable(metatable: final meta):
+        _frame.push(meta);
+      case Userdata(metatable: final meta):
+        _frame.push(meta);
+      default:
+        throw Exception(
+            'Expected SlangTable or Userdata got ${table.runtimeType}');
+    }
   }
 
   @override
@@ -602,7 +691,21 @@ class SlangVmImpl implements SlangVm {
 
   @override
   void push(dynamic value) {
-    _frame.push(value);
+    switch (value) {
+      case int() ||
+            double() ||
+            String() ||
+            bool() ||
+            Null() ||
+            Closure() ||
+            SlangVmImpl() ||
+            Userdata() ||
+            SlangTable() ||
+            DartFunction():
+        _frame.push(value);
+      case Object any:
+        _frame.push(Userdata(any));
+    }
   }
 
   @override
@@ -611,7 +714,7 @@ class SlangVmImpl implements SlangVm {
   }
 
   @override
-  void pushValue(int index) {
+  void pushStack(int index) {
     _frame.push(_frame[index]);
   }
 
@@ -704,10 +807,39 @@ class SlangVmImpl implements SlangVm {
     final value = _frame.pop();
     final key = _frame.pop();
     final table = _frame.pop();
+    if (table == null) {
+      throw Exception('Expected SlangTable got null');
+    }
+    _setTable(table, key, value);
+  }
+
+  @override
+  void setTableRaw() {
+    final value = _frame.pop();
+    final key = _frame.pop();
+    final table = _frame.pop();
     if (table is! SlangTable) {
       throw Exception('Expected SlangTable got ${table.runtimeType}');
     }
-    _setTable(table, key, value);
+    table[key] = value;
+  }
+
+  @override
+  void setMetaTable() {
+    final value = _frame.pop();
+    final table = _frame.pop();
+    if (value is! SlangTable?) {
+      throw Exception('Expected SlangTable got ${value.runtimeType}');
+    }
+    switch (table) {
+      case SlangTable slangTable:
+        slangTable.metatable = value;
+      case Userdata userdata:
+        userdata.metatable = value;
+      default:
+        throw Exception(
+            'Expected SlangTable or Userdata got ${table.runtimeType}');
+    }
   }
 
   @override
@@ -759,22 +891,36 @@ class SlangVmImpl implements SlangVm {
   @override
   void type() {
     final value = _frame.pop();
-    if (value is int) {
-      _frame.push("int");
-    } else if (value is double) {
-      _frame.push("double");
-    } else if (value is String) {
-      _frame.push("string");
-    } else if (value is bool) {
-      _frame.push("bool");
-    } else if (value is Closure) {
-      _frame.push("function");
-    } else if (value is SlangTable) {
-      _frame.push("table");
-    } else if (value is SlangVmImpl) {
-      _frame.push("thread");
-    } else {
+    if (value == null) {
       _frame.push("null");
+      return;
+    }
+    final type = _getMetafield(value, "__type");
+    if (type != null) {
+      _frame.push(type);
+      return;
+    }
+
+    switch (value) {
+      case int():
+        _frame.push("int");
+      case double():
+        _frame.push("double");
+      case String():
+        _frame.push("string");
+      case bool():
+        _frame.push("bool");
+      case Closure():
+        _frame.push("function");
+      case SlangVmImpl():
+        _frame.push("thread");
+      case Userdata():
+        _frame.push("userdata");
+      case SlangTable():
+        _frame.push("table");
+      default:
+        // _frame.push("null");
+        throw Exception('Cannot get type of $value');
     }
   }
 
@@ -783,16 +929,36 @@ class SlangVmImpl implements SlangVm {
     state = ThreadState.suspended;
   }
 
-  void _getTable(SlangTable table, Object key) {
-    final value = table[key];
-    if (value != null ||
-        table.metatable == null ||
-        table.metatable!["__index"] == null) {
+  Object? _getMetafield(Object object, String field) {
+    return switch (object) {
+      SlangTable(metatable: final meta) => meta?[field],
+      Userdata(metatable: final meta) => meta?[field],
+      _ => null,
+    };
+  }
+
+  Object? _getRaw(Object object, Object key) {
+    if (object case SlangTable table) {
+      return table[key];
+    }
+    return null;
+  }
+
+  void _setRaw(Object object, Object key, Object? value) {
+    if (object case SlangTable table) {
+      table[key] = value;
+      return;
+    }
+    throw Exception('Cannot set value on $object');
+  }
+
+  void _getTable(Object table, Object key) {
+    final value = _getRaw(table, key);
+    final index = _getMetafield(table, "__index");
+    if (value != null || index == null) {
       _frame.push(value);
       return;
     }
-    final metatable = table.metatable!;
-    final index = metatable["__index"];
     switch (index) {
       case Closure closure:
         _frame.push(closure);
@@ -869,49 +1035,15 @@ class SlangVmImpl implements SlangVm {
     _frame = SlangStackFrame(closure, _frame);
   }
 
-  // void _runDartFunction({bool continuation = false}) {
-  //   if (continuation && _frame.continuation == null) {
-  //     // throw Exception("Cannot run continuation without a continuation function");
-  //     _popStack();
-  //     _frame.push(null);
-  //     return;
-  //   }
-  //   final function = continuation ? _frame.continuation! : _frame.closure!.dartFunction!;
-  //   var returnsValue = function(this);
-  //   //if we aren't already running the continuation and the function doesn't return before the continuation
-  //   //we run the continuation if it exists
-  //   if (!continuation && !returnsValue && _frame.continuation != null) {
-  //     returnsValue = _frame.continuation!(this);
-  //   }
-  //   Object? returnValue;
-  //   if (returnsValue) {
-  //     returnValue = _frame.pop();
-  //   }
-  //   _popStack();
-  //   _frame.push(returnValue);
-  // }
-
-  // void _runSlangFunction() {
-  //   state = ThreadState.running;
-  //   while (true) {
-  //     if (_stepSlang()) {
-  //       break;
-  //     }
-  //   }
-  // }
-
-  void _setTable(SlangTable table, Object key, Object? value) {
-    // table[key] = value;
-    if (table[key] != null ||
-        table.metatable == null ||
-        table.metatable!["__newindex"] == null) {
-      table[key] = value;
+  void _setTable(Object table, Object key, Object? value) {
+    final current = _getRaw(table, key);
+    final newIndex = _getMetafield(table, "__newindex");
+    if (current != null || newIndex == null) {
+      _setRaw(table, key, value);
       return;
     }
 
-    final metatable = table.metatable!;
-    final newindex = metatable["__newindex"];
-    switch (newindex) {
+    switch (newIndex) {
       case Closure closure:
         _frame.push(closure);
         _frame.push(table);

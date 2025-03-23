@@ -8,23 +8,23 @@ class SlangException implements Exception {
 
   void toSlang(SlangVmImpl vm) {
     vm.newTable();
-    vm.pushValue(-1);
+    vm.pushStack(-1);
     vm.push("message");
     vm.push(message);
     vm.setTable();
     if (location != null) {
-      vm.pushValue(-1);
+      vm.pushStack(-1);
       vm.push("location");
       vm.newTable();
-      vm.pushValue(-1);
+      vm.pushStack(-1);
       vm.push("line");
       vm.push(location!.line);
       vm.setTable();
-      vm.pushValue(-1);
+      vm.pushStack(-1);
       vm.push("column");
       vm.push(location!.column);
       vm.setTable();
-      vm.pushValue(-1);
+      vm.pushStack(-1);
       vm.push("origin");
       vm.push(location!.origin);
       vm.setTable();

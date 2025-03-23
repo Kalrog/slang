@@ -231,6 +231,10 @@ class SlangParser extends SlangGrammar {
       });
 
   @override
+  Parser breakStatement() =>
+      super.breakStatement().map((token) => Break(token));
+
+  @override
   Parser functionDefinition() =>
       super.functionDefinition().token().map((token) {
         final value = token.value;

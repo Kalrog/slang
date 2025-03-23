@@ -97,6 +97,12 @@ class SourceLocationInfo {
   }
 }
 
+class Scope {
+  final bool breakable;
+  final List<int> breakJumps = [];
+  Scope(this.breakable);
+}
+
 class FunctionAssembler {
   final FunctionAssembler? parent;
   final String origin;
@@ -107,13 +113,16 @@ class FunctionAssembler {
   final Map<String, LocalVar> _locals = {};
   final Map<String, UpvalueDef> _upvalues = {};
   final List<FunctionAssembler> children = [];
+  final List<Scope> _scopes = [];
+
   final int nargs;
   final bool isVarArg;
   int usedRegisters = 0;
   int maxRegisters = 0;
   int scope = 0;
 
-  FunctionAssembler({this.parent, String? origin, this.nargs = 0, this.isVarArg = false})
+  FunctionAssembler(
+      {this.parent, String? origin, this.nargs = 0, this.isVarArg = false})
       : assert(origin != null || parent != null),
         origin = origin ?? parent!.origin;
 
@@ -171,14 +180,19 @@ class FunctionAssembler {
     }
   }
 
-  void enterScope() {
+  void enterScope({bool breakable = false}) {
     scope++;
+    _scopes.add(Scope(breakable));
   }
 
   void leaveScope() {
     final locals = _locals.values.where((l) => l.scope == scope).toList();
     for (final localVar in locals) {
       freeLocal(localVar);
+    }
+    final leavingScope = _scopes.removeLast();
+    for (final jump in leavingScope.breakJumps) {
+      patchJump(jump);
     }
     // if (scope > 1) {
     //   emitPop(0, locals.length);
@@ -257,8 +271,8 @@ class FunctionAssembler {
     if (_sourceLocations.lastOrNull?.firstInstruction == _instructions.length) {
       return;
     }
-    _sourceLocations.add(
-        SourceLocationInfo(_instructions.length, SourceLocation(origin, token.line, token.column)));
+    _sourceLocations.add(SourceLocationInfo(_instructions.length,
+        SourceLocation(origin, token.line, token.column)));
   }
 
   void emitABC(OpCodeName opcode, [int a = 0, int b = 0, int c = 0]) {
@@ -382,6 +396,14 @@ class FunctionAssembler {
     _instructions[jump] = newInstruction;
   }
 
+  void emitBreak() {
+    final breakAbleScope = _scopes.lastWhere((s) => s.breakable,
+        orElse: () => throw Exception("Cannot break outside of a loop"));
+
+    final jump = emitJump();
+    breakAbleScope.breakJumps.add(jump);
+  }
+
   void emitPop([int keep = 0, int pop = 1]) {
     emitABx(OpCodeName.pop, keep, pop);
   }
@@ -410,7 +432,8 @@ class FunctionAssembler {
   }
 
   List<Upvalue> _upvaluesToList() {
-    final upvalues = List<Upvalue>.filled(_upvalues.length, Upvalue("", 0, false));
+    final upvalues =
+        List<Upvalue>.filled(_upvalues.length, Upvalue("", 0, false));
     _upvalues.forEach((key, value) {
       upvalues[value.index] = value.toUpvalue();
     });

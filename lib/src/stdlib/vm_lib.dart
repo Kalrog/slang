@@ -74,7 +74,7 @@ class SlangVmLib {
   static void register(SlangVm vm) {
     vm.newTable(0, 0);
     for (var entry in functions.entries) {
-      vm.pushValue(-1);
+      vm.pushStack(-1);
       vm.push(entry.key);
       vm.pushDartFunction(entry.value);
       vm.setTable();

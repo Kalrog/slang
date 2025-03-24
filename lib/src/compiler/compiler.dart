@@ -1,4 +1,3 @@
-import 'package:petitparser/debug.dart';
 import 'package:petitparser/petitparser.dart';
 import 'package:petitparser/reflection.dart';
 import 'package:slang/src/compiler/ast.dart';
@@ -41,8 +40,7 @@ FunctionPrototype compileREPL(String source) {
       final func = generator.generate(statementAst, 'repl');
       return func;
     } else {
-      throw Exception(
-          'Failed to parse source: ${result.message}:${result.position}');
+      throw Exception('Failed to parse source: ${result.message}:${result.position}');
     }
   }
 }

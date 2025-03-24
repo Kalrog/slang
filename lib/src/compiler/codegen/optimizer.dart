@@ -29,21 +29,47 @@ class SlangConstantExpressionOptimizer extends AstNodeVisitor<AstNode, Null> {
     }
   }
 
+  double _fmod(double a, double b) {
+    return a - (a ~/ b) * b;
+  }
+
   AstNode _evaluateBinOp(BinOp node, Exp left, Exp right) {
     final leftValue = _evaluate(left);
     final rightValue = _evaluate(right);
+    final isDouble = leftValue is double || rightValue is double;
 
     switch (node.op) {
+      // case "+":
+      //   return IntLiteral(node.token, leftValue + rightValue);
+      // case "-":
+      //   return IntLiteral(node.token, leftValue - rightValue);
+      // case "*":
+      //   return IntLiteral(node.token, leftValue * rightValue);
+      // case "/":
+      //   return IntLiteral(node.token, leftValue ~/ rightValue);
+      // case "%":
+      //   return IntLiteral(node.token, leftValue % rightValue);
       case "+":
-        return IntLiteral(node.token, leftValue + rightValue);
+        return isDouble
+            ? DoubleLiteral(node.token, leftValue + rightValue)
+            : IntLiteral(node.token, leftValue + rightValue);
       case "-":
-        return IntLiteral(node.token, leftValue - rightValue);
+        return isDouble
+            ? DoubleLiteral(node.token, leftValue - rightValue)
+            : IntLiteral(node.token, leftValue - rightValue);
       case "*":
-        return IntLiteral(node.token, leftValue * rightValue);
+        return isDouble
+            ? DoubleLiteral(node.token, leftValue * rightValue)
+            : IntLiteral(node.token, leftValue * rightValue);
       case "/":
-        return IntLiteral(node.token, leftValue ~/ rightValue);
+        return isDouble
+            ? DoubleLiteral(node.token, leftValue / rightValue)
+            : IntLiteral(node.token, leftValue ~/ rightValue);
       case "%":
-        return IntLiteral(node.token, leftValue % rightValue);
+        return isDouble
+            ? DoubleLiteral(node.token, _fmod(leftValue, rightValue))
+            : IntLiteral(node.token, leftValue % rightValue);
+
       case "==":
         return leftValue == rightValue ? TrueLiteral(node.token) : FalseLiteral(node.token);
       case "!=":
@@ -110,8 +136,8 @@ class SlangConstantExpressionOptimizer extends AstNodeVisitor<AstNode, Null> {
 
   @override
   AstNode visitForLoop(ForLoop node, Null arg) {
-    return ForLoop(node.token, maybeVisit(node.init) as Statement, visit(node.condition) as Exp,
-        maybeVisit(node.update) as Statement, visit(node.body) as Statement);
+    return ForLoop(node.token, maybeVisit(node.init) as Statement?, visit(node.condition) as Exp,
+        maybeVisit(node.update) as Statement?, visit(node.body) as Statement);
   }
 
   @override
@@ -230,6 +256,11 @@ class SlangConstantExpressionOptimizer extends AstNodeVisitor<AstNode, Null> {
 
   @override
   AstNode visitForInLoop(ForInLoop node, Null arg) {
+    return node;
+  }
+
+  @override
+  AstNode visitBreak(Break node, Null arg) {
     return node;
   }
 }

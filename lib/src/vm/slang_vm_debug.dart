@@ -46,9 +46,7 @@ class SlangVmImplDebug implements SlangVmDebug {
 
   @override
   void printAllStackFrames() {
-    for (SlangStackFrame? frame = vm._frame;
-        frame != null;
-        frame = frame.parent) {
+    for (SlangStackFrame? frame = vm._frame; frame != null; frame = frame.parent) {
       print("Stack:");
       print(frame.toString());
     }
@@ -63,8 +61,8 @@ class SlangVmImplDebug implements SlangVmDebug {
   @override
   void printInstructions() {
     print("Instructions:");
-    print(vm._frame.function!.instructionsToString(
-        pc: vm._frame.pc, context: debugInstructionContext));
+    print(vm._frame.function!
+        .instructionsToString(pc: vm._frame.pc, context: debugInstructionContext));
   }
 
   @override
@@ -85,12 +83,14 @@ class SlangVmImplDebug implements SlangVmDebug {
   void printUpvalues() {
     print("Upvalues:");
     for (var i = 0; i < vm._frame.function!.upvalues.length; i++) {
-      print(
-          '${vm._frame.function!.upvalues[i]}: ${vm._frame.closure!.upvalues[i]}');
+      print('${vm._frame.function!.upvalues[i]}: ${vm._frame.closure!.upvalues[i]}');
     }
   }
 
   void _runDebugFunctionality() {
+    if (mode == DebugMode.run) {
+      return;
+    }
     bool brk = false;
     if (breakPoints.contains(vm._frame.pc) && mode == DebugMode.runDebug) {
       brk = true;
@@ -176,20 +176,14 @@ class SlangVmImplDebug implements SlangVmDebug {
 
             if (line != null) {
               int? pc;
-              for (int i = 1;
-                  i < vm._frame.function!.sourceLocations.length;
-                  i++) {
-                if (vm._frame.function!.sourceLocations[i].location.line ==
-                    line) {
+              for (int i = 1; i < vm._frame.function!.sourceLocations.length; i++) {
+                if (vm._frame.function!.sourceLocations[i].location.line == line) {
                   pc = vm._frame.function!.sourceLocations[i].firstInstruction;
                   break;
                 }
-                if (vm._frame.function!.sourceLocations[i].location.line >
-                        line &&
-                    vm._frame.function!.sourceLocations[i - 1].location.line <=
-                        line) {
-                  pc = vm
-                      ._frame.function!.sourceLocations[i - 1].firstInstruction;
+                if (vm._frame.function!.sourceLocations[i].location.line > line &&
+                    vm._frame.function!.sourceLocations[i - 1].location.line <= line) {
+                  pc = vm._frame.function!.sourceLocations[i - 1].firstInstruction;
                   break;
                 }
               }

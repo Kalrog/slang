@@ -187,18 +187,22 @@ g:add_edge("engine", "freedom", 22);
 g:add_edge("technique", "orchestra", 15);
 
   return func(start){
+    queue = {};
     local result = g:dijkstra(start);
-    print("distance to cage ", result.distance["cage"],"\n");
-    print("distance to orchestra ", result.distance["orchestra"],"\n");
   };
 
   ''');
   vm.call(0);
   vm.run();
-  vm.push("fix");
   final sw = Stopwatch()..start();
-  vm.call(1);
-  vm.run();
+  for (int i = 0; i < 1000; i++) {
+    vm.pushStack(-1);
+    vm.push("fix");
+    vm.call(1);
+    vm.run();
+    vm.pop();
+  }
+  sw.stop();
   final slangTime = sw.elapsedMicroseconds;
   final slangTicks = sw.elapsedTicks;
   print('Slang took $slangTime micro seconds');
@@ -323,12 +327,17 @@ g:add_edge("technique", "orchestra", 15);
   g.addEdge('technique', 'orchestra', 15);
 
   sw.reset();
-  final result = g.dijkstra('fix');
+  sw.start();
+  for (int i = 0; i < 1000; i++) {
+    queue = [];
+    final result = g.dijkstra('fix');
+    //print('distance to cage ${result['distance']['cage']}');
+    //print('distance to orchestra ${result['distance']['orchestra']}');
+  }
+  sw.stop();
   final dartTime = sw.elapsedMicroseconds;
   final dartTicks = sw.elapsedTicks;
   print('Dart took $dartTime micro seconds');
-  print('distance to cage ${result['distance']['cage']}');
-  print('distance to orchestra ${result['distance']['orchestra']}');
 
   final ratio = slangTicks / dartTicks;
   print('Slang is $ratio times slower than Dart');

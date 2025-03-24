@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:collection';
 import 'dart:typed_data';
 
@@ -51,7 +50,7 @@ class Upvalue {
 /// and child functions.
 class FunctionPrototype {
   /// The bytecode instructions for the function.
-  final UnmodifiableListView<int> instructions;
+  final Uint32List instructions;
 
   /// The source locations for different instructions.
   final UnmodifiableListView<SourceLocationInfo> sourceLocations;
@@ -84,21 +83,20 @@ class FunctionPrototype {
     required this.maxVarStackSize,
     required this.isVarArg,
     required this.nargs,
-  })  : instructions = UnmodifiableListView(instructions),
+  })  : instructions = Uint32List.fromList(instructions),
         sourceLocations = UnmodifiableListView(sourceLocations),
         constants = UnmodifiableListView(constants),
         upvalues = UnmodifiableListView(upvalues),
         children = UnmodifiableListView(children);
 
   FunctionPrototype.fromJson(Map<String, dynamic> json)
-      : instructions = UnmodifiableListView(json['instructions']),
-        sourceLocations = UnmodifiableListView((json['sourceLocations'] as List)
-            .map((e) => SourceLocationInfo.fromJson(e))),
+      : instructions = Uint32List.fromList(json['instructions']),
+        sourceLocations = UnmodifiableListView(
+            (json['sourceLocations'] as List).map((e) => SourceLocationInfo.fromJson(e))),
         constants = UnmodifiableListView(json['constants']),
-        upvalues = UnmodifiableListView(
-            (json['upvalues'] as List).map((e) => Upvalue.fromJson(e))),
-        children = UnmodifiableListView((json['children'] as List)
-            .map((e) => FunctionPrototype.fromJson(e))),
+        upvalues = UnmodifiableListView((json['upvalues'] as List).map((e) => Upvalue.fromJson(e))),
+        children = UnmodifiableListView(
+            (json['children'] as List).map((e) => FunctionPrototype.fromJson(e))),
         maxVarStackSize = json['maxStackSize'],
         isVarArg = json['isVarArg'],
         nargs = json['nargs'];
@@ -122,8 +120,7 @@ class FunctionPrototype {
   String instructionsToString({int? pc, int? context}) {
     StringBuffer buffer = StringBuffer();
     int start = context != null && pc != null ? pc - context : 0;
-    int end =
-        context != null && pc != null ? pc + context : instructions.length;
+    int end = context != null && pc != null ? pc + context : instructions.length;
 
     if (start < 0) {
       start = 0;
@@ -279,8 +276,7 @@ class PrototypeEncoder {
 
   FunctionPrototype? decode(Uint8List bytes) {
     ByteReader rd = ByteReader(bytes);
-    List<int> header =
-        List.generate(slangHeader.length, (index) => rd.readByte());
+    List<int> header = List.generate(slangHeader.length, (index) => rd.readByte());
     for (var i = 0; i < slangHeader.length; i++) {
       if (header[i] != slangHeader[i]) {
         return null;
@@ -295,22 +291,17 @@ class PrototypeEncoder {
     int nargs = rd.readInt();
     bool isVarArg = rd.readBool();
     int nInstructions = rd.readInt();
-    List<int> instructions =
-        List.generate(nInstructions, (index) => rd.readInt());
+    List<int> instructions = List.generate(nInstructions, (index) => rd.readInt());
     int nSourceLocations = rd.readInt();
-    List<SourceLocationInfo> sourceLocations = List.generate(
-        nSourceLocations, (index) => _decodeSourceLocationInfo(rd));
+    List<SourceLocationInfo> sourceLocations =
+        List.generate(nSourceLocations, (index) => _decodeSourceLocationInfo(rd));
     int nConstants = rd.readInt();
-    List<Object?> constants =
-        List.generate(nConstants, (index) => _decodeConstant(rd));
+    List<Object?> constants = List.generate(nConstants, (index) => _decodeConstant(rd));
     int nUpvalues = rd.readInt();
-    List<Upvalue> upvalues =
-        List.generate(nUpvalues, (index) => _decodeUpvalue(rd));
+    List<Upvalue> upvalues = List.generate(nUpvalues, (index) => _decodeUpvalue(rd));
     int nChildren = rd.readInt();
-    List<FunctionPrototype> children =
-        List.generate(nChildren, (index) => _decodeProto(rd));
-    return FunctionPrototype(
-        instructions, sourceLocations, constants, upvalues, children,
+    List<FunctionPrototype> children = List.generate(nChildren, (index) => _decodeProto(rd));
+    return FunctionPrototype(instructions, sourceLocations, constants, upvalues, children,
         maxVarStackSize: maxVarStackSize, nargs: nargs, isVarArg: isVarArg);
   }
 

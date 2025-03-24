@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io' as io;
 import 'dart:math';
 import 'dart:typed_data';
@@ -55,8 +54,7 @@ class SlangStackFrame {
   /// The function is called with the exception and the stack trace and should return true if the exception
   /// was handled and the vm should continue execution or false if the exception was not handled and the vm
   /// pass the exception to the parent stack frame
-  bool Function(SlangVm vm, Object exception, StackTrace stackTrace)?
-      exceptionHandler;
+  bool Function(SlangVm vm, Object exception, StackTrace stackTrace)? exceptionHandler;
 
   /// Creates a new stack frame, optionally with a closure to execute and a parent stack frame to
   /// return to after the closure has finished executing
@@ -211,6 +209,7 @@ class SlangVmImpl implements SlangVm {
   io.Stdout stdout = io.stdout;
 
   @override
+  @pragma("vm:prefer-inline")
   void addPc(int n) {
     _frame.addPc(n);
   }
@@ -231,8 +230,7 @@ class SlangVmImpl implements SlangVm {
     buffer.write(_frame.toString());
     for (SlangStackFrame? frame = _frame; frame != null; frame = frame.parent) {
       final location = frame.currentInstructionLocation;
-      final closureName =
-          frame.closure?.isDart == true ? "dart closure" : "unknown closure";
+      final closureName = frame.closure?.isDart == true ? "dart closure" : "unknown closure";
       if (location != null) {
         buffer.writeln("$closureName:$location");
       } else {
@@ -248,8 +246,8 @@ class SlangVmImpl implements SlangVm {
     _frame.exceptionHandler = (vm, exception, stackTrace) {
       var err = exception;
       if (err is! SlangException) {
-        err = SlangException("$err ${buildStackTrace()} $stackTrace",
-            _frame.currentInstructionLocation);
+        err = SlangException(
+            "$err ${buildStackTrace()} $stackTrace", _frame.currentInstructionLocation);
       }
       while (_frame != currentStack) {
         _popStack();
@@ -363,8 +361,7 @@ class SlangVmImpl implements SlangVm {
     }
     if (prototype == null) {
       final codeString = code is String ? code : String.fromCharCodes(code);
-      prototype =
-          repl ? compileREPL(codeString) : compileSource(codeString, origin);
+      prototype = repl ? compileREPL(codeString) : compileSource(codeString, origin);
     }
 
     Closure closure = Closure.slang(prototype);
@@ -414,6 +411,7 @@ class SlangVmImpl implements SlangVm {
   }
 
   @override
+  @pragma("vm:prefer-inline")
   void execBinOp(BinOpType op) {
     final b = _frame.pop();
     final a = _frame.pop();
@@ -432,6 +430,7 @@ class SlangVmImpl implements SlangVm {
   }
 
   @override
+  @pragma("vm:prefer-inline")
   void execRelOp(RelOpType op) {
     final b = _frame.pop();
     final a = _frame.pop();
@@ -446,6 +445,7 @@ class SlangVmImpl implements SlangVm {
   }
 
   @override
+  @pragma("vm:prefer-inline")
   void execUnOp(UnOpType op) {
     final a = _frame.pop();
     switch (op) {
@@ -468,8 +468,7 @@ class SlangVmImpl implements SlangVm {
       if (defaultValue != null) {
         return defaultValue;
       }
-      throw Exception(
-          'Expected bool for ${name ?? n.toString()} got ${_frame[n].runtimeType}');
+      throw Exception('Expected bool for ${name ?? n.toString()} got ${_frame[n].runtimeType}');
     }
     return toBool(n);
   }
@@ -480,8 +479,7 @@ class SlangVmImpl implements SlangVm {
       if (defaultValue != null) {
         return defaultValue;
       }
-      throw Exception(
-          'Expected double for ${name ?? n.toString()} got ${_frame[n].runtimeType}');
+      throw Exception('Expected double for ${name ?? n.toString()} got ${_frame[n].runtimeType}');
     }
     return toDouble(n);
   }
@@ -492,8 +490,7 @@ class SlangVmImpl implements SlangVm {
       if (defaultValue != null) {
         return defaultValue;
       }
-      throw Exception(
-          'Expected int for ${name ?? n.toString()} got ${_frame[n].runtimeType}');
+      throw Exception('Expected int for ${name ?? n.toString()} got ${_frame[n].runtimeType}');
     }
     return toInt(n);
   }
@@ -504,8 +501,7 @@ class SlangVmImpl implements SlangVm {
       if (defaultValue != null) {
         return defaultValue;
       }
-      throw Exception(
-          'Expected num for ${name ?? n.toString()} got ${_frame[n].runtimeType}');
+      throw Exception('Expected num for ${name ?? n.toString()} got ${_frame[n].runtimeType}');
     }
     return _frame[n] as num;
   }
@@ -516,8 +512,7 @@ class SlangVmImpl implements SlangVm {
       if (defaultValue != null) {
         return defaultValue;
       }
-      throw Exception(
-          'Expected String for ${name ?? n.toString()} got ${_frame[n].runtimeType}');
+      throw Exception('Expected String for ${name ?? n.toString()} got ${_frame[n].runtimeType}');
     }
     return toString2(n);
   }
@@ -533,8 +528,7 @@ class SlangVmImpl implements SlangVm {
     }
     final table = _frame[n];
     if (table is! Userdata) {
-      throw Exception(
-          'Expected Userdata for ${name ?? n.toString()} got ${table.runtimeType}');
+      throw Exception('Expected Userdata for ${name ?? n.toString()} got ${table.runtimeType}');
     }
     return table.value as T;
   }
@@ -568,8 +562,7 @@ class SlangVmImpl implements SlangVm {
       case Userdata(metatable: final meta):
         _frame.push(meta);
       default:
-        throw Exception(
-            'Expected SlangTable or Userdata got ${table.runtimeType}');
+        throw Exception('Expected SlangTable or Userdata got ${table.runtimeType}');
     }
   }
 
@@ -624,11 +617,10 @@ class SlangVmImpl implements SlangVm {
   // all threads will be run until either all are dead or all are suspended
   @override
   void parallel(int nargs) {
-    bool allSuspended(List<SlangVmImpl> threads) => threads.every(
-        (t) => t.state == ThreadState.dead || t.state == ThreadState.suspended);
+    bool allSuspended(List<SlangVmImpl> threads) =>
+        threads.every((t) => t.state == ThreadState.dead || t.state == ThreadState.suspended);
 
-    final SlangTable spawned =
-        (globals["__thread"] as SlangTable)["spawn"] as SlangTable;
+    final SlangTable spawned = (globals["__thread"] as SlangTable)["spawn"] as SlangTable;
 
     var args = _frame.pop(nargs);
     if (args is! List) {
@@ -714,6 +706,7 @@ class SlangVmImpl implements SlangVm {
   }
 
   @override
+  @pragma("vm:prefer-inline")
   void pushStack(int index) {
     _frame.push(_frame[index]);
   }
@@ -726,6 +719,7 @@ class SlangVmImpl implements SlangVm {
   }
 
   @override
+  @pragma("vm:prefer-inline")
   void replace(int index) {
     _frame[index] = _frame.pop();
   }
@@ -769,8 +763,7 @@ class SlangVmImpl implements SlangVm {
       final vmi = vm as SlangVmImpl;
       vmi._frame.continuation = runUntilYields;
       thread.step();
-      if (thread.state == ThreadState.suspended ||
-          thread._frame.closure == null) {
+      if (thread.state == ThreadState.suspended || thread._frame.closure == null) {
         if (thread._frame.closure == null) {
           thread.state = ThreadState.dead;
         }
@@ -837,8 +830,7 @@ class SlangVmImpl implements SlangVm {
       case Userdata userdata:
         userdata.metatable = value;
       default:
-        throw Exception(
-            'Expected SlangTable or Userdata got ${table.runtimeType}');
+        throw Exception('Expected SlangTable or Userdata got ${table.runtimeType}');
     }
   }
 
@@ -1062,8 +1054,7 @@ class SlangVmImpl implements SlangVm {
 
   void _stepSlang() {
     if (_frame.closure?.isSlang != true) {
-      throw (Exception(
-          "Cannot step slang function while not inside slang function"));
+      throw (Exception("Cannot step slang function while not inside slang function"));
     }
     final instruction = _frame.currentInstruction;
     final op = instruction!.op;
@@ -1072,16 +1063,94 @@ class SlangVmImpl implements SlangVm {
     op.execute(this, instruction);
   }
 
+  @pragma("vm:prefer-inline")
+  void _stepSwitchSlang() {
+    if (_frame.closure?.isSlang != true) {
+      throw (Exception("Cannot step slang function while not inside slang function"));
+    }
+    final instruction = _frame.closure!.prototype!.instructions[_frame.pc];
+    // final op = instruction!.op;
+    final op = instruction.opcode;
+    debug._runDebugFunctionality();
+    // addPc(1);
+    // _frame.addPc(1);
+    _frame._pc += 1;
+    // op.execute(this, instruction);
+    switch (op) {
+      case 0: // LOAD CONSTANT
+        loadConstant(instruction.bx);
+      case 1: //Load BOOL
+        bool value = instruction.b != 0;
+        push(value);
+        if (instruction.c != 0) {
+          jump(1);
+        }
+      case 2: //load closure
+        loadClosure(instruction.ax);
+      case 3: //ADD
+        execBinOp(BinOpType.add);
+      case 4: //SUB
+        execBinOp(BinOpType.sub);
+      case 5: //MUL
+        execBinOp(BinOpType.mul);
+      case 6: //DIV
+        execBinOp(BinOpType.div);
+      case 7: //MOD
+        execBinOp(BinOpType.mod);
+      case 8: //NEG
+        execUnOp(UnOpType.neg);
+      case 9: //NOT
+        execUnOp(UnOpType.not);
+      case 10: //EQ
+        execRelOp(RelOpType.eq);
+      case 11: //LT
+        execRelOp(RelOpType.lt);
+      case 12: //LEQ
+        execRelOp(RelOpType.leq);
+      case 13: //move
+        replace(instruction.sbx);
+      case 14: //push
+        pushStack(instruction.sbx);
+      case 15: //pop
+        pop(instruction.a, instruction.bx);
+      case 16: //return
+        returnOp(-1);
+      case 17: //new table
+        newTable(instruction.b, instruction.c);
+      case 18: //set table
+        setTable();
+      case 19: //get table
+        getTable();
+      case 20: //set upvalue
+        setUpvalue(instruction.ax);
+      case 21: //get upvalue
+        getUpvalue(instruction.ax);
+      case 22: //close upvalues
+        closeUpvalues(instruction.ax);
+      case 23: //test
+        if (toBool(-1) != (instruction.c != 0)) {
+          jump(1);
+        }
+        pop();
+      case 24: //jump
+        jump(instruction.sbx);
+      case 25: //call
+        call(instruction.bx);
+      case 26: //type
+        type();
+      default:
+        throw Exception("Unknown opcode $op");
+    }
+  }
+
   void _stepDart() {
     final dartFrame = _frame;
     if (_frame.closure?.isDart != true) {
-      throw (Exception(
-          "Cannot step dart function while not inside dart function"));
+      throw (Exception("Cannot step dart function while not inside dart function"));
     }
     final function = _frame.continuation;
     if (function == null) {
-      throw Exception(
-          "Cannot run continuation without a continuation function");
+      throw Exception("Cannot run continuation without a continuation function");
     }
     _frame.continuation =
         null; //we are going to run this continuation now, so it is no longer needed on the stack
@@ -1103,19 +1172,18 @@ class SlangVmImpl implements SlangVm {
   }
 
   /// Run a single step of the slang vm
+  @pragma("vm:prefer-inline")
   void step() {
     try {
       if (_frame.closure?.isSlang == true) {
-        _stepSlang();
+        _stepSwitchSlang();
       } else if (_frame.closure?.isDart == true) {
         _stepDart();
       } else {
         throw Exception("Cannot step while not inside a function");
       }
     } catch (e, stack) {
-      for (SlangStackFrame? frame = _frame;
-          frame != null;
-          frame = frame.parent) {
+      for (SlangStackFrame? frame = _frame; frame != null; frame = frame.parent) {
         if (frame.exceptionHandler != null) {
           if (frame.exceptionHandler!(this, e, stack)) {
             return;

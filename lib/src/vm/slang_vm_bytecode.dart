@@ -36,27 +36,35 @@ enum OpMode {
 /// Utility extension on [int] to extract the different fields from a bytecode instruction.
 extension BytecodeInstruction on int {
   /// Extracts the opcode number from the instruction.
+  @pragma("vm:prefer-inline")
   int get opcode => this & 0x3F;
 
   /// Extracts the opcode from the instruction.
+  @pragma("vm:prefer-inline")
   OpCode get op => opCodes[opcode];
 
   /// Extracts the A field from the instruction.
+  @pragma("vm:prefer-inline")
   int get a => (this >> 6) & 0xFF;
 
   /// Extracts the B field from the instruction.
+  @pragma("vm:prefer-inline")
   int get c => (this >> 14) & 0x1FF;
 
   /// Extracts the C field from the instruction.
+  @pragma("vm:prefer-inline")
   int get b => (this >> 23) & 0x1FF;
 
   /// Extracts the extended B (Bx) field from the instruction.
+  @pragma("vm:prefer-inline")
   int get bx => this >> 14;
 
   /// Extracts the signed extended B (sBx) field from the instruction.
+  @pragma("vm:prefer-inline")
   int get sbx => bx - 0x1FFFF;
 
   /// Extracts the extended A (Ax) field from the instruction.
+  @pragma("vm:prefer-inline")
   int get ax => this >> 6;
 }
 

@@ -149,6 +149,13 @@ class SlangStackFrame {
     }
   }
 
+  void pushAll(List values) {
+    stack.addAll(values);
+    if (stack.length > 5000) {
+      throw Exception("Stack overflow");
+    }
+  }
+
   /// Removes all values from the stack that are above the given index
   /// If the index is greater than the current stack size, null values are added to the stack
   /// until the stack is at the given index
@@ -1002,20 +1009,24 @@ class SlangVmImpl implements SlangVm {
       final proto = closure.prototype!;
       final nargs = proto.isVarArg ? proto.nargs - 1 : proto.nargs;
       final extraArgs = SlangTable();
-      for (final (index, arg) in args.indexed) {
-        if (index < nargs) {
-          _frame.push(arg);
-        } else {
-          extraArgs.add(arg);
-        }
-      }
+      final normalArgs = args.sublist(0, nargs);
+      // for (final (index, arg) in args.indexed) {
+      //   if (index < nargs) {
+      //     _frame.push(arg);
+      //   } else if (proto.isVarArg) {
+      //     extraArgs.add(arg);
+      //   }
+      // }
       if (proto.isVarArg) {
-        _frame.push(extraArgs);
+        extraArgs.addAllList(args.sublist(nargs));
+        normalArgs.add(extraArgs);
       }
+      _frame.pushAll(normalArgs);
     } else {
-      for (final arg in args) {
-        _frame.push(arg);
-      }
+      // for (final arg in args) {
+      //   // _frame.push(arg);
+      // }
+      _frame.pushAll(args);
     }
     if (closure.isSlang) {
       _frame.setTop(closure.prototype!.maxVarStackSize);

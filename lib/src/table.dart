@@ -139,4 +139,9 @@ class SlangTable {
 
   @override
   int get hashCode => Object.hash(_list, _map, metatable);
+
+  void addAllList(List list) {
+    _list.addAll(list);
+    _fixList();
+  }
 }

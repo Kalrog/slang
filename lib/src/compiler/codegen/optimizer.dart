@@ -142,8 +142,8 @@ class SlangConstantExpressionOptimizer extends AstNodeVisitor<AstNode, Null> {
 
   @override
   AstNode visitFunctionCall(FunctionCall node, Null arg) {
-    return FunctionCall(node.token, visit(node.target) as Exp, maybeVisit(node.name) as Name?,
-        node.args.map(visit).cast<Exp>().toList());
+    return FunctionCall(node.token, visit(node.function) as Exp,
+        maybeVisit(node.name) as Identifier?, node.args.map(visit).cast<Exp>().toList());
   }
 
   @override
@@ -164,7 +164,7 @@ class SlangConstantExpressionOptimizer extends AstNodeVisitor<AstNode, Null> {
 
   @override
   AstNode visitIndex(Index node, Null arg) {
-    return Index(node.token, visit(node.target) as Exp, visit(node.key) as Exp);
+    return Index(node.token, visit(node.receiver) as Exp, visit(node.index) as Exp);
   }
 
   @override
@@ -178,7 +178,7 @@ class SlangConstantExpressionOptimizer extends AstNodeVisitor<AstNode, Null> {
   }
 
   @override
-  AstNode visitName(Name node, Null arg) {
+  AstNode visitIdentifier(Identifier node, Null arg) {
     return node;
   }
 
@@ -189,7 +189,7 @@ class SlangConstantExpressionOptimizer extends AstNodeVisitor<AstNode, Null> {
 
   @override
   AstNode visitReturnStatement(ReturnStatement node, Null arg) {
-    return ReturnStatement(node.token, visit(node.exp) as Exp);
+    return ReturnStatement(node.token, visit(node.value) as Exp);
   }
 
   @override
@@ -209,7 +209,7 @@ class SlangConstantExpressionOptimizer extends AstNodeVisitor<AstNode, Null> {
 
   @override
   AstNode visitUnOp(UnOp node, Null arg) {
-    final exp = visit(node.exp) as Exp;
+    final exp = visit(node.operand) as Exp;
     if (_isConstant(exp)) {
       final value = _evaluate(exp);
       switch (node.op) {
@@ -261,6 +261,11 @@ class SlangConstantExpressionOptimizer extends AstNodeVisitor<AstNode, Null> {
 
   @override
   AstNode visitBreak(Break node, Null arg) {
+    return node;
+  }
+
+  @override
+  AstNode visitQuote(Quote node, Null arg) {
     return node;
   }
 }

@@ -3,7 +3,7 @@ import 'package:slang/src/commands/shared.dart';
 
 void main() {
   SlangVm vm = cliSlangVm();
-  vm.compile('''
+  vm.load('''
     // Dijkstra's algorithm
     local queue = {};
     local func queue_insert(node, weight){

@@ -32,7 +32,7 @@ void main() {
     assert(test_value.value == 123);
     ''';
 
-    vm.compile(slangScript);
+    vm.load(slangScript);
     vm.call(0);
     vm.run();
   });

@@ -1,9 +1,16 @@
 import 'package:petitparser/petitparser.dart';
 import 'package:slang/src/compiler/ast.dart';
+import 'package:slang/src/compiler/ast_converter.dart';
+import 'package:slang/src/compiler/codegen/slang_code_generator.dart';
+import 'package:slang/src/slang_vm.dart';
 
 /// Defines the Slang grammar.
 /// Complete parsing is implemented in the [SlangParser].
 abstract class SlangGrammar extends GrammarDefinition {
+  final SlangVm vm;
+
+  SlangGrammar(this.vm);
+
   /// Returns a token parser that will return a single token for the
   /// given [source].
   /// If source is a [String], the token parser will match the string.
@@ -11,10 +18,7 @@ abstract class SlangGrammar extends GrammarDefinition {
   /// flatten the result into a string stored in a token.
   Parser<Token> token(Object source, [String? message]) {
     if (source is String) {
-      return source
-          .toParser(message: "Expected: ${message ?? source}")
-          .token()
-          .trim(ref0(space));
+      return source.toParser(message: "Expected: ${message ?? source}").token().trim(ref0(space));
     } else if (source is Parser) {
       ArgumentError.checkNotNull(message, 'message');
       return source.flatten(message).token().trim(ref0(space));
@@ -46,19 +50,14 @@ abstract class SlangGrammar extends GrammarDefinition {
 
   Parser doubleLiteral() => ref2(
         token,
-        (char('-') | char('+')).optional() &
-            ref0(number) &
-            char('.') &
-            ref0(number),
+        (char('-') | char('+')).optional() & ref0(number) & char('.') & ref0(number),
         "double",
       );
 
   Parser stringLiteral() {
     return ref2(
         token,
-        (char('"') & pattern('^"').star() & char('"'))
-            .pick(1)
-            .map((value) => value.join()),
+        (char('"') & pattern('^"').star() & char('"')).pick(1).map((value) => value.join()),
         "string");
   }
 
@@ -97,36 +96,29 @@ abstract class SlangGrammar extends GrammarDefinition {
     'let',
     'break',
   ];
-  Parser name() => ref2(
+  Parser identifier() => ref2(
       token,
-      (string('...').optional() &
-              pattern('a-zA-Z_') &
-              pattern('a-zA-Z0-9_').star())
+      (string('...').optional() & pattern('a-zA-Z_') & pattern('a-zA-Z0-9_').star())
           .flatten("Expected: identifier")
           .where((name) => !keywords.contains(name)),
       "identifier");
 
-  Parser nameAndArgs() =>
-      (ref1(token, ':') & ref0(name)).pick(1).optional() & ref0(args);
+  Parser nameAndArgs() => (ref1(token, ':') & ref0(identifier)).pick(1).optional() & ref0(args);
 
   Parser args() =>
       ((ref1(token, '(') &
-                  ref0(expr)
-                      .starSeparated(ref1(token, ','))
-                      .map((list) => list.elements) &
+                  ref0(expr).starSeparated(ref1(token, ',')).map((list) => list.elements) &
                   ref1(token, ')'))
               .pick(1) &
           ref0(block).optional()) |
       ref0(block);
 
-  Parser varRef() => ref0(name) & ref0(varSuffix).star();
+  Parser varRef() => ref0(identifier) & ref0(varSuffix).star();
 
   Parser varSuffix() =>
       ref0(nameAndArgs).star() &
       ((ref1(token, '.') &
-                  ref0(name)
-                      .token()
-                      .map((token) => StringLiteral(token, token.value.value)))
+                  ref0(identifier).token().map((token) => StringLiteral(token, token.value.value)))
               .pick(1) |
           (ref1(token, '[') & ref0(expr) & ref1(token, ']')).pick(1));
 
@@ -142,14 +134,13 @@ abstract class SlangGrammar extends GrammarDefinition {
       ref0(block) |
       ref0(functionCall) |
       ref0(functionDefinitonStatement) |
-      ref0(breakStatement);
+      ref0(breakStatement) |
+      ref0(unquote);
 
   Parser assignment() => ref0(varRef) & ref1(token, '=') & ref0(expr);
 
   Parser declaration() =>
-      ref1(token, 'local') &
-      ref0(name) &
-      (ref1(token, '=') & ref0(expr)).optional();
+      ref1(token, 'local') & ref0(identifier) & (ref1(token, '=') & ref0(expr)).optional();
 
   Parser ifStatement() =>
       ref1(token, 'if') &
@@ -188,12 +179,8 @@ abstract class SlangGrammar extends GrammarDefinition {
       ref0(functionDefinition);
 
   Parser chunk() =>
-      (ref0(statement) & ref1(token, ';').optional())
-          .map((value) => value[0])
-          .star() &
-      (ref0(finalStatement) & ref1(token, ';').optional())
-          .map((value) => value[0])
-          .optional();
+      (ref0(statement) & ref1(token, ';').optional()).map((value) => value[0]).star() &
+      (ref0(finalStatement) & ref1(token, ';').optional()).map((value) => value[0]).optional();
 
   Parser block() => (ref1(token, '{') & ref0(chunk) & ref1(token, '}')).pick(1);
 
@@ -204,8 +191,7 @@ abstract class SlangGrammar extends GrammarDefinition {
   Parser returnStatement() => ref1(token, 'return') & ref0(expr);
 
   /// func(args)body | func(args) => body
-  Parser functionExpression() =>
-      (ref1(token, 'func') & ref0(functionDefinition)).pick(1);
+  Parser functionExpression() => (ref1(token, 'func') & ref0(functionDefinition)).pick(1);
 
   Parser functionDefinition() =>
       ref1(token, '(') &
@@ -213,26 +199,18 @@ abstract class SlangGrammar extends GrammarDefinition {
       ref1(token, ')') &
       (ref0(block) | (ref1(token, '=>') & ref0(expr)));
 
-  Parser params() =>
-      ref0(name).starSeparated(ref1(token, ',')).map((list) => list.elements);
+  Parser params() => ref0(identifier).starSeparated(ref1(token, ',')).map((list) => list.elements);
 
-  Parser slangPattern() =>
-      ref0(tablePattern) | ref0(constPattern) | ref0(varPattern);
+  Parser slangPattern() => ref0(tablePattern) | ref0(constPattern) | ref0(varPattern);
 
   Parser tablePattern() =>
-      ref1(token, '{') &
-      ref0(fieldPattern).starSeparated(ref1(token, ',')) &
-      ref1(token, '}');
+      ref1(token, '{') & ref0(fieldPattern).starSeparated(ref1(token, ',')) & ref1(token, '}');
 
   Parser fieldPattern() =>
-      ((ref0(name) & ref1(token, ':')).pick(0) |
-              (ref1(token, '[') &
-                      ref0(expr) &
-                      ref1(token, ']') &
-                      ref1(token, ':'))
-                  .pick(1))
+      ((ref0(identifier) & ref1(token, ':')).pick(0) |
+              (ref1(token, '[') & ref0(expr) & ref1(token, ']') & ref1(token, ':')).pick(1))
           .map((exp) {
-        if (exp is Name) {
+        if (exp is Identifier) {
           return StringLiteral(exp.token, exp.value);
         } else {
           return exp;
@@ -249,10 +227,77 @@ abstract class SlangGrammar extends GrammarDefinition {
       ref0(nullLiteral);
 
   Parser varPattern() =>
-      ref1(token, 'local').optional() &
-      ref0(name) &
-      ref1(token, '?').optional();
+      ref1(token, 'local').optional() & ref0(identifier) & ref1(token, '?').optional();
 
   Parser patternAssignmentExp() =>
       ref1(token, "let") & ref0(slangPattern) & ref1(token, '=') & ref0(expr);
+
+  bool inQuote = false;
+
+  Parser quote() => (ref1(token, '+') &
+          ref1(token, '{') &
+          ref0(quoteBody).callCC((continuation, context) {
+            final prevInQuote = inQuote;
+            inQuote = true;
+            final result = continuation(context);
+            inQuote = prevInQuote;
+            return result;
+          }) &
+          ref1(token, '}'))
+      .pick(2);
+
+  Parser unquote() => (ref1(token, '-') &
+          ref1(token, '{') &
+          ref0(quoteBody).token().callCC((continuation, context) {
+            final tokenResult = continuation(context);
+            if (tokenResult is Failure) {
+              return tokenResult;
+            }
+            final token = tokenResult.value;
+            final body = token.value as List<dynamic>;
+            dynamic type;
+            dynamic ast;
+            if (body.length == 2) {
+              type = 'expr';
+              ast = body[1];
+            } else {
+              type = body[0].value;
+              ast = body[2];
+            }
+
+            // print("Unquote: $type: $ast inQuote: $inQuote");
+            if (inQuote) {
+              print("in quote");
+              // we just want the contents of this to be spliced into the quote, so we can just continue here
+              return context.success(Unquote(token, type, ast), context.position + token.length);
+            } else {
+              if (type != 'expr' && type != 'block') {
+                return context
+                    .failure("Unquote outside of quote can only be used with expr or block");
+              }
+              // we are not inside a quote, we want to parse this execute the code inside the unquote and put the resulting ast as the result
+              if (type == 'expr') {
+                ast = Block(ast.token, [], ReturnStatement(ast.token, ast));
+              }
+              final function = SlangCodeGenerator().generate(ast, "unquote");
+              vm.load(function);
+              vm.call(0);
+              vm.run();
+              final result = vm.toAny(-1);
+              vm.pop();
+              if (result == null) {
+                return context.success(null, context.position + token.length);
+              }
+              final outAst = SlangTableAstDecoder(token).decode(result);
+              return context.success(outAst, context.position + token.length);
+            }
+          }) &
+          ref1(token, '}'))
+      .pick(2);
+
+  Parser quoteBody() =>
+      (ref1(token, 'id') & ref1(token, ':') & ref0(identifier)) |
+      (ref1(token, 'block') & ref1(token, ':') & ref0(chunk)) |
+      (ref1(token, 'stat') & ref1(token, ':') & ref0(statement)) |
+      ((ref1(token, 'expr') & ref1(token, ':')).optional() & ref0(expr));
 }

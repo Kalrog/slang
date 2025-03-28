@@ -28,7 +28,7 @@ local t = thread.create(func(){
  assert(thread.resume(t));
 ''';
 
-    vm.compile(slangScript);
+    vm.load(slangScript);
     vm.call(0);
     vm.run();
     assert(continuationRun);

@@ -66,7 +66,7 @@ class SlangPackageLib {
       final file = File(path);
       if (file.existsSync()) {
         final code = file.readAsStringSync();
-        vm.compile(code, origin: packageName);
+        vm.load(code, origin: packageName);
         vm.call(0);
         vm.run();
         vm.getGlobal("__PACKAGES");
@@ -85,7 +85,7 @@ class SlangPackageLib {
 
   /// compiles the given string and preloads it into the module enviromnet
   static preloadModule(SlangVm vm, String moduleName, String code) {
-    vm.compile(code, origin: moduleName);
+    vm.load(code, origin: moduleName);
     vm.call(0);
     vm.run();
     vm.getGlobal("__PACKAGES");

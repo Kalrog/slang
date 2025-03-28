@@ -11,8 +11,7 @@ class RunCommand extends Command {
   final name = "run";
 
   RunCommand() {
-    argParser.addFlag('debug',
-        abbr: 'd', help: 'Debug mode', defaultsTo: false);
+    argParser.addFlag('debug', abbr: 'd', help: 'Debug mode', defaultsTo: false);
     argParser.addFlag('step', abbr: 's', help: 'Step mode', defaultsTo: false);
   }
   @override
@@ -31,10 +30,9 @@ class RunCommand extends Command {
 
       final args = arguments.sublist(1);
       vm.args = args;
-      print(args);
 
       final source = file.readAsBytesSync();
-      vm.compile(source, origin: path);
+      vm.load(source, origin: path);
       vm.call(0);
       vm.run();
     }

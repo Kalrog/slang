@@ -183,6 +183,7 @@ class SlangStackFrame {
 
 /// Implementation of the Slang VM
 class SlangVmImpl implements SlangVm {
+  late final SlangCompiler compiler = SlangCompiler(this);
   static int _id = 0;
   static const _threadSwitchTime = 10;
   @override
@@ -360,15 +361,19 @@ class SlangVmImpl implements SlangVm {
   }
 
   @override
-  void compile(dynamic code, {bool repl = false, String origin = "string"}) {
+  void load(dynamic code, {bool repl = false, String origin = "string"}) {
     FunctionPrototype? prototype;
 
     if (code is Uint8List) {
       prototype = PrototypeEncoder().decode(code);
     }
+    if (code is FunctionPrototype) {
+      prototype = code;
+    }
     if (prototype == null) {
       final codeString = code is String ? code : String.fromCharCodes(code);
-      prototype = repl ? compileREPL(codeString) : compileSource(codeString, origin);
+      prototype =
+          repl ? compiler.compileREPL(codeString) : compiler.compileSource(codeString, origin);
     }
 
     Closure closure = Closure.slang(prototype);
@@ -392,14 +397,19 @@ class SlangVmImpl implements SlangVm {
     return bytes;
   }
 
+  SlangVm createChild() {
+    final vm = SlangVmImpl();
+    vm._globals = globals;
+    return vm;
+  }
+
   @override
   void createThread() {
     final closure = _frame.pop();
     if (closure is! Closure) {
       throw Exception('Expected Closure got $closure');
     }
-    final thread = SlangVmImpl();
-    thread._globals = globals;
+    final thread = createChild();
     thread.push(closure);
     push(thread);
   }

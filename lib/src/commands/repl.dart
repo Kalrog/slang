@@ -22,7 +22,7 @@ class ReplCommand extends Command {
       final file = File(path);
 
       final source = file.readAsStringSync();
-      vm.compile(source);
+      vm.load(source);
       vm.call(0);
     }
     repl.run();

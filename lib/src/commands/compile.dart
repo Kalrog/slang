@@ -21,7 +21,7 @@ class CompileCommand extends Command {
       final file = File(path);
 
       final source = file.readAsStringSync();
-      vm.compile(source, origin: path);
+      vm.load(source, origin: path);
       final bytes = vm.functionToBytes();
 
       /// new file name => remove .slang add .slb

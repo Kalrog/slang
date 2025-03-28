@@ -1,4 +1,5 @@
 import 'package:petitparser/petitparser.dart';
+import 'package:slang/src/compiler/to_string_visitor.dart';
 
 sealed class AstNode {
   const AstNode(this.token);
@@ -8,13 +9,13 @@ sealed class AstNode {
   T accept<T, A>(AstNodeVisitor<T, A> visitor, A arg);
 
   void prettyPrint() {
-    final visitor = PrettyPrintVisitor();
+    final visitor = ToStringVisitor();
     visitor.prettyPrint(this);
   }
 
   @override
   String toString() {
-    final visitor = PrettyPrintVisitor();
+    final visitor = ToStringVisitor();
     return visitor.visitToString(this);
   }
 }
@@ -33,7 +34,7 @@ abstract class AstNodeVisitor<T, A> {
   T visitTableLiteral(TableLiteral node, A arg);
   T visitField(Field node, A arg);
 
-  T visitName(Name node, A arg);
+  T visitIdentifier(Identifier node, A arg);
   T visitIndex(Index node, A arg);
   T visitBinOp(BinOp node, A arg);
   T visitUnOp(UnOp node, A arg);
@@ -56,288 +57,8 @@ abstract class AstNodeVisitor<T, A> {
   T visitTablePattern(TablePattern node, A arg);
   T visitFieldPattern(FieldPattern node, A arg);
   T visitConstPattern(ConstPattern node, A arg);
-}
 
-class PrettyPrintVisitor extends AstNodeVisitor<void, Null> {
-  final StringBuffer _buffer = StringBuffer();
-  int _indent = 0;
-
-  void _increaseIndent() {
-    _indent += 2;
-  }
-
-  void _decreaseIndent() {
-    _indent -= 2;
-  }
-
-  void _append(String str) {
-    _buffer.write(str);
-  }
-
-  void _newLine() {
-    _buffer.writeln();
-    _buffer.write(' ' * _indent);
-  }
-
-  @override
-  void visit(AstNode node, [Null arg]) {
-    node.accept(this, arg);
-  }
-
-  void prettyPrint(AstNode node) {
-    visit(node);
-    print(_buffer.toString());
-  }
-
-  String visitToString(AstNode node) {
-    visit(node);
-    return _buffer.toString();
-  }
-
-  @override
-  void visitIntLiteral(IntLiteral node, [Null arg]) {
-    _append('${node.value}');
-  }
-
-  @override
-  void visitDoubleLiteral(DoubleLiteral node, Null arg) {
-    _append('${node.value}');
-  }
-
-  @override
-  void visitStringLiteral(StringLiteral node, [Null arg]) {
-    _append(node.value);
-  }
-
-  @override
-  void visitFalseLiteral(FalseLiteral node, [Null arg]) {
-    _append('false');
-  }
-
-  @override
-  void visitTrueLiteral(TrueLiteral node, [Null arg]) {
-    _append('true');
-  }
-
-  @override
-  void visitNullLiteral(NullLiteral node, [Null arg]) {
-    _append('null');
-  }
-
-  @override
-  void visitTableLiteral(TableLiteral node, [Null arg]) {
-    _append('{');
-    _increaseIndent();
-    for (var field in node.fields) {
-      _newLine();
-      visit(field);
-      _append(",");
-    }
-    _decreaseIndent();
-    _newLine();
-    _append('}');
-  }
-
-  @override
-  void visitField(Field node, [Null arg]) {
-    if (node.key != null) {
-      visit(node.key!);
-      _append(':');
-    }
-    visit(node.value);
-  }
-
-  @override
-  void visitName(Name node, [Null arg]) {
-    _append(node.value);
-  }
-
-  @override
-  void visitIndex(Index node, [Null arg]) {
-    visit(node.target);
-    _append('[');
-    visit(node.key);
-    _append(']');
-  }
-
-  @override
-  void visitBinOp(BinOp node, [Null arg]) {
-    _append('(');
-    visit(node.left);
-    _append(' ${node.op} ');
-    visit(node.right);
-    _append(')');
-  }
-
-  @override
-  void visitUnOp(UnOp node, [Null arg]) {
-    _append(node.op);
-    visit(node.exp);
-  }
-
-  @override
-  void visitFunctionExpression(FunctionExpression node, [Null arg]) {
-    _append('function(');
-    for (var param in node.params) {
-      _append(param.value);
-      _append(',');
-    }
-    _append(')');
-    visit(node.body);
-  }
-
-  @override
-  void visitFunctionCall(FunctionCall node, [Null arg]) {
-    visit(node.target);
-    _append('(');
-    for (var arg in node.args) {
-      visit(arg);
-      _append(',');
-    }
-    _append(')');
-  }
-
-  @override
-  void visitBlock(Block node, [Null arg]) {
-    _append('{');
-    _increaseIndent();
-    for (var statement in node.statements) {
-      _newLine();
-      visit(statement);
-      _append(';');
-    }
-    if (node.finalStatement != null) {
-      _newLine();
-      visit(node.finalStatement!);
-      _append(';');
-    }
-    _decreaseIndent();
-    _newLine();
-    _append('}');
-  }
-
-  @override
-  void visitFunctionStatement(FunctionCallStatement node, [Null arg]) {
-    visit(node.call);
-  }
-
-  @override
-  void visitIfStatement(IfStatement node, [Null arg]) {
-    _append('if (');
-    visit(node.condition);
-    _append(') ');
-    visit(node.thenBranch);
-    if (node.elseBranch != null) {
-      _append(' else ');
-      visit(node.elseBranch!);
-    }
-  }
-
-  @override
-  void visitForLoop(ForLoop node, [Null arg]) {
-    _append('for (');
-    if (node.init != null) {
-      visit(node.init!);
-    }
-    _append(';');
-    visit(node.condition);
-    _append(';');
-    if (node.update != null) {
-      visit(node.update!);
-    }
-    _append(')');
-    visit(node.body);
-  }
-
-  @override
-  void visitForInLoop(ForInLoop node, [Null arg]) {
-    _append('for (');
-    visit(node.pattern);
-    _append(' in ');
-    visit(node.itterator);
-    _append(')');
-    visit(node.body);
-  }
-
-  @override
-  void visitReturnStatement(ReturnStatement node, [Null arg]) {
-    _append('return ');
-    visit(node.exp);
-  }
-
-  @override
-  void visitAssignment(Assignment node, [Null arg]) {
-    visit(node.left);
-    _append(' = ');
-    visit(node.right);
-  }
-
-  @override
-  void visitDeclaration(Declaration node, Null arg) {
-    if (node.isLocal) {
-      _append('local ');
-    } else {
-      _append('global ');
-    }
-
-    visit(node.left);
-    if (node.right != null) {
-      _append(' = ');
-      visit(node.right!);
-    }
-  }
-
-  @override
-  void visitConstPattern(ConstPattern node, Null arg) {
-    visit(node.exp);
-  }
-
-  @override
-  void visitFieldPattern(FieldPattern node, Null arg) {
-    if (node.key != null) {
-      visit(node.key!);
-      _append(':');
-    }
-    visit(node.value);
-  }
-
-  @override
-  void visitTablePattern(TablePattern node, Null arg) {
-    _append('{');
-    _increaseIndent();
-    for (var field in node.fields) {
-      _newLine();
-      visit(field);
-      _append(',');
-    }
-    _decreaseIndent();
-    _newLine();
-    _append('}');
-  }
-
-  @override
-  void visitVarPattern(VarPattern node, Null arg) {
-    if (node.isLocal) {
-      _append('local ');
-    } else {
-      _append('global ');
-    }
-    _append(node.name.value);
-    if (node.canBeNull) {
-      _append('?');
-    }
-  }
-
-  @override
-  void visitPatternAssignmentExp(PatternAssignmentExp node, Null arg) {
-    visit(node.value);
-    _append(' => ');
-    visit(node.pattern);
-  }
-
-  void visitBreak(Break node, Null arg) {
-    _append('break');
-  }
+  T visitQuote(Quote node, A arg);
 }
 
 sealed class Exp extends AstNode {
@@ -463,21 +184,21 @@ class Field extends AstNode {
   }
 }
 
-class Name extends Exp {
+class Identifier extends Exp {
   final String value;
-  Name(super.token, this.value);
+  Identifier(super.token, this.value);
 
   @override
-  T accept<T, A>(AstNodeVisitor visitor, A arg) {
-    return visitor.visitName(this, arg);
+  T accept<T, A>(AstNodeVisitor<T, A> visitor, A arg) {
+    return visitor.visitIdentifier(this, arg);
   }
 }
 
 class Index extends Exp {
-  final Exp target;
-  final Exp key;
+  final Exp receiver;
+  final Exp index;
 
-  Index(super.token, this.target, this.key);
+  Index(super.token, this.receiver, this.index);
 
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
@@ -498,9 +219,9 @@ class BinOp extends Exp {
 }
 
 class UnOp extends Exp {
-  final Exp exp;
+  final Exp operand;
   final String op;
-  UnOp(super.token, this.op, this.exp);
+  UnOp(super.token, this.op, this.operand);
 
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
@@ -509,7 +230,7 @@ class UnOp extends Exp {
 }
 
 class FunctionExpression extends Exp {
-  final List<Name> params;
+  final List<Identifier> params;
   final Block body;
   FunctionExpression(super.token, this.params, this.body);
   @override
@@ -519,15 +240,26 @@ class FunctionExpression extends Exp {
 }
 
 class FunctionCall extends Exp {
-  final Exp target;
-  final Name? name;
+  final Exp function;
+  final Identifier? name;
   final List<Exp> args;
 
-  FunctionCall(super.token, this.target, this.name, this.args);
+  FunctionCall(super.token, this.function, this.name, this.args);
 
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
     return visitor.visitFunctionCall(this, arg);
+  }
+}
+
+class Quote extends Exp {
+  final String type;
+  final AstNode ast;
+  Quote(super.token, this.type, this.ast);
+
+  @override
+  T accept<T, A>(AstNodeVisitor visitor, A arg) {
+    return visitor.visitQuote(this, arg);
   }
 }
 
@@ -549,7 +281,8 @@ class Block extends Statement {
   final List<Statement> statements;
   final Statement? finalStatement;
 
-  Block(super.token, this.statements, [this.finalStatement]);
+  Block(super.token, List<Statement?> statements, [this.finalStatement])
+      : statements = statements.whereType<Statement>().toList();
 
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
@@ -592,8 +325,8 @@ class ForInLoop extends Statement {
 }
 
 class ReturnStatement extends Statement {
-  final Exp exp;
-  ReturnStatement(super.token, this.exp);
+  final Exp value;
+  ReturnStatement(super.token, this.value);
 
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
@@ -630,10 +363,9 @@ sealed class Pattern extends AstNode {
 
 class VarPattern extends Pattern {
   final bool isLocal;
-  final Name name;
+  final Identifier name;
   final bool canBeNull;
-  VarPattern(super.token, this.name,
-      {required this.isLocal, required this.canBeNull});
+  VarPattern(super.token, this.name, {required this.isLocal, required this.canBeNull});
 
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
@@ -663,14 +395,14 @@ class FieldPattern extends AstNode {
 }
 
 class ConstPattern extends Pattern {
-  final Exp exp;
-  ConstPattern(super.token, this.exp)
-      : assert(exp is IntLiteral ||
-            exp is DoubleLiteral ||
-            exp is StringLiteral ||
-            exp is TrueLiteral ||
-            exp is FalseLiteral ||
-            exp is NullLiteral);
+  final Exp value;
+  ConstPattern(super.token, this.value)
+      : assert(value is IntLiteral ||
+            value is DoubleLiteral ||
+            value is StringLiteral ||
+            value is TrueLiteral ||
+            value is FalseLiteral ||
+            value is NullLiteral);
 
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
@@ -679,10 +411,10 @@ class ConstPattern extends Pattern {
 }
 
 class PatternAssignmentExp extends Exp {
-  final Exp value;
+  final Exp right;
   final Pattern pattern;
 
-  PatternAssignmentExp(super.token, this.pattern, this.value);
+  PatternAssignmentExp(super.token, this.pattern, this.right);
 
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
@@ -695,5 +427,22 @@ class Break extends Statement {
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
     return visitor.visitBreak(this, arg);
+  }
+}
+
+class Unquote extends AstNode implements Statement, Exp {
+  final AstNode ast;
+  final String type;
+
+  Unquote(super.token, this.type, this.ast);
+
+  @override
+  T accept<T, A>(AstNodeVisitor<T, A> visitor, A arg) {
+    throw UnimplementedError();
+  }
+
+  @override
+  void prettyPrint() {
+    print('-{$ast}');
   }
 }

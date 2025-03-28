@@ -1,3 +1,9 @@
+extension ItterableToSlangTable<T> on Iterable<T> {
+  SlangTable toSlangTable() {
+    return SlangTable.fromList(toList());
+  }
+}
+
 class SlangTable {
   final Map<Object, Object?> _map;
   final List<Object?> _list;
@@ -16,6 +22,22 @@ class SlangTable {
   SlangTable([int nArray = 0, int nHash = 0])
       : _map = {},
         _list = List.filled(nArray, null, growable: true);
+
+  SlangTable.fromMap(Map<Object, Object?> map)
+      : _map = Map.from(map),
+        _list = [] {
+    _fixList();
+  }
+
+  SlangTable.fromList(List<Object?> list)
+      : _map = {},
+        _list = List.from(list);
+
+  SlangTable.fromParts(List<Object?> list, Map<Object, Object?> map)
+      : _map = Map.from(map),
+        _list = List.from(list) {
+    _fixList();
+  }
 
   Object? remove(Object key) {
     if (key is int && key < _list.length && key >= 0) {

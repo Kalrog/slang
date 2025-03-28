@@ -4,6 +4,7 @@ import 'package:slang/src/compiler/codegen/optimizer.dart';
 import 'package:slang/src/compiler/parser/slang_grammar.dart';
 
 class SlangParser extends SlangGrammar {
+  SlangParser(super.vm);
   @override
   Parser start() =>
       super.start().cast<Block>().map((block) => SlangConstantExpressionOptimizer().visit(block));
@@ -20,29 +21,30 @@ class SlangParser extends SlangGrammar {
   ///  or
   @override
   Parser expr() {
-    final builder = ExpressionBuilder<Exp>();
-    builder.primitive(ref0(doubleLiteral).cast<Exp>());
-    builder.primitive(ref0(intLiteral).cast<Exp>());
-    builder.primitive(ref0(stringLiteral).cast<Exp>());
-    builder.primitive(ref0(trueLiteral).cast<Exp>());
-    builder.primitive(ref0(falseLiteral).cast<Exp>());
-    builder.primitive(ref0(nullLiteral).cast<Exp>());
-    builder.primitive(ref0(patternAssignmentExp).cast<Exp>());
-    builder.primitive(ref0(listLiteral).cast<Exp>());
-    builder.primitive(ref0(functionExpression).cast<Exp>());
-    builder.primitive(ref0(prefixExpr).cast<Exp>());
-    builder.group().wrapper(ref1(token, '('), ref1(token, ')'), (left, value, right) => value);
+    final b = ExpressionBuilder<Exp>();
+    b.primitive(ref0(doubleLiteral).cast<Exp>());
+    b.primitive(ref0(intLiteral).cast<Exp>());
+    b.primitive(ref0(stringLiteral).cast<Exp>());
+    b.primitive(ref0(trueLiteral).cast<Exp>());
+    b.primitive(ref0(falseLiteral).cast<Exp>());
+    b.primitive(ref0(nullLiteral).cast<Exp>());
+    b.primitive(ref0(patternAssignmentExp).cast<Exp>());
+    b.primitive(ref0(listLiteral).cast<Exp>());
+    b.primitive(ref0(functionExpression).cast<Exp>());
+    b.primitive(ref0(prefixExpr).cast<Exp>());
+    b.primitive(ref0(quote).cast<Exp>());
+    b.group().wrapper(ref1(token, '('), ref1(token, ')'), (left, value, right) => value);
     // builder.group().right(ref1(token,'^'), BinOp.new);
-    builder.group().right(
+    b.group().right(
         ref1(token, '^'), (left, opToken, right) => BinOp(opToken, left, opToken.value, right));
-    builder.group().prefix(
+    b.group().prefix(
         ref1(token, '-') | ref1(token, 'not'), (opToken, exp) => UnOp(opToken, opToken.value, exp));
-    builder.group().left(ref1(token, '*') | ref1(token, '/') | ref1(token, '%'),
+    b.group().left(ref1(token, '*') | ref1(token, '/') | ref1(token, '%'),
         (left, opToken, right) => BinOp(opToken, left, opToken.value, right));
 
-    builder.group().left((ref1(token, '-') | ref1(token, '+')),
+    b.group().left((ref1(token, '-') | ref1(token, '+')),
         (left, opToken, right) => BinOp(opToken, left, opToken.value, right));
-    builder.group().left(
+    b.group().left(
         ref1(token, '<=') |
             ref1(token, '>=') |
             ref1(token, '!=') |
@@ -50,12 +52,12 @@ class SlangParser extends SlangGrammar {
             ref1(token, '>') |
             ref1(token, '<'),
         (left, opToken, right) => BinOp(opToken, left, opToken.value, right));
-    builder.group().left(
+    b.group().left(
         ref1(token, 'and'), (left, opToken, right) => BinOp(opToken, left, opToken.value, right));
-    builder.group().left(
+    b.group().left(
         ref1(token, 'or'), (left, opToken, right) => BinOp(opToken, left, opToken.value, right));
 
-    return builder.build().labeled('expression');
+    return ref0(unquote) | b.build().labeled('expression');
   }
 
   @override
@@ -81,11 +83,11 @@ class SlangParser extends SlangGrammar {
   Parser nullLiteral() => super.nullLiteral().map((token) => NullLiteral(token));
 
   @override
-  Parser name() => super.name().map((token) => Name(token, token.value));
+  Parser identifier() => super.identifier().map((token) => Identifier(token, token.value));
 
   @override
-  Parser chunk() => super.chunk().token().map(
-      (token) => Block(token, (token.value[0] as List<dynamic>).cast<Statement>(), token.value[1]));
+  Parser chunk() => super.chunk().token().map((token) =>
+      Block(token, (token.value[0] as List<dynamic>).cast<Statement?>(), token.value[1]));
 
   @override
   Parser returnStatement() =>
@@ -118,7 +120,7 @@ class SlangParser extends SlangGrammar {
         final list = token.value;
         var key = list[0];
         final value = list[1];
-        if (key is Name) {
+        if (key is Identifier) {
           key = StringLiteral(key.token, key.value);
         }
         return Field(token, key, value);
@@ -238,7 +240,7 @@ class SlangParser extends SlangGrammar {
           Exp returnExp = body[1];
           body = Block(token, [], ReturnStatement(returnExp.token, returnExp));
         }
-        return FunctionExpression(token, params.cast<Name>(), body);
+        return FunctionExpression(token, params.cast<Identifier>(), body);
       }).labeled('function expression');
 
   @override
@@ -279,5 +281,20 @@ class SlangParser extends SlangGrammar {
         final pattern = value[1];
         final exp = value[3];
         return PatternAssignmentExp(value[0], pattern, exp);
+      });
+
+  @override
+  Parser quote() => super.quote().token().map((token) {
+        final body = token.value as List<dynamic>;
+        final type;
+        final ast;
+        if (body.length == 3) {
+          type = body[0].value;
+          ast = body[2];
+        } else {
+          type = "expr";
+          ast = body[1];
+        }
+        return Quote(token, type, ast);
       });
 }

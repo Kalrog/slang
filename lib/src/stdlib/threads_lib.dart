@@ -298,7 +298,7 @@ class SlangThreadsLib {
       vm.setTable();
     }
     SlangPackageLib.preloadModuleValue(vm, "slang/thread");
-    vm.compile(_slangFunctions, origin: "slang/thread");
+    vm.load(_slangFunctions, origin: "slang/thread");
     vm.call(0);
     vm.run();
   }

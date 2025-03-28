@@ -134,8 +134,7 @@ func run(rfunc){
 
   static bool _readStringFile(SlangVm vm) {
     final file = vm.getUserdataArg<RandomAccessFile>(0, name: "file");
-    final length =
-        vm.getIntArg(1, name: "length", defaultValue: file.lengthSync());
+    final length = vm.getIntArg(1, name: "length", defaultValue: file.lengthSync());
     final buffer = file.readSync(length);
     vm.push(String.fromCharCodes(buffer));
     return true;
@@ -150,8 +149,7 @@ func run(rfunc){
 
   static bool _readBytesFile(SlangVm vm) {
     final file = vm.getUserdataArg<RandomAccessFile>(0, name: "file");
-    final length =
-        vm.getIntArg(1, name: "length", defaultValue: file.lengthSync());
+    final length = vm.getIntArg(1, name: "length", defaultValue: file.lengthSync());
     final buffer = file.readSync(length);
     vm.push(buffer);
     return true;
@@ -172,7 +170,7 @@ func run(rfunc){
 
   static bool _compile(SlangVm vm) {
     final code = vm.toString2(0);
-    vm.compile(code);
+    vm.load(code);
     return true;
   }
 
@@ -348,7 +346,7 @@ func run(rfunc){
     for (var entry in functions.entries) {
       vm.registerDartFunction(entry.key, entry.value);
     }
-    vm.compile(slangFunctions, origin: "slang/std");
+    vm.load(slangFunctions, origin: "slang/std");
     vm.call(0);
     vm.run();
   }

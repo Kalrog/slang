@@ -24,7 +24,7 @@ class SlangRepl {
         break;
       }
       try {
-        vm.compile(line, repl: true);
+        vm.load(line, repl: true);
         vm.call(0);
         vm.run();
         console.writeLine(vm.toAny(-1));

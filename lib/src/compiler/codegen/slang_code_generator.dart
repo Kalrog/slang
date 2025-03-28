@@ -1,4 +1,5 @@
 import 'package:slang/src/compiler/ast.dart';
+import 'package:slang/src/compiler/ast_converter.dart';
 import 'package:slang/src/compiler/codegen/function_assembler.dart';
 import 'package:slang/src/compiler/codegen/pattern_assembler.dart';
 import 'package:slang/src/vm/function_prototype.dart';
@@ -88,14 +89,14 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
 
   @override
   void visitUnOp(UnOp node, Null arg) {
-    visit(node.exp);
+    visit(node.operand);
     _assembler.emitUnOp(node.op);
   }
 
   @override
   void visitAssignment(Assignment node, Null arg) {
     switch (node.left) {
-      case Name(:final token, :final value):
+      case Identifier(:final token, :final value):
         var localVar = _assembler.getLocalVar(value);
         if (localVar != null) {
           visit(node.right);
@@ -112,11 +113,11 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
         visit(
           Assignment(
             token,
-            Index(token, Name(token, "_ENV"), StringLiteral(token, value)),
+            Index(token, Identifier(token, "_ENV"), StringLiteral(token, value)),
             node.right,
           ),
         );
-      case Index(:final target, :final key):
+      case Index(receiver: final target, index: final key):
         visit(target);
         visit(key);
         visit(node.right);
@@ -129,11 +130,10 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
   @override
   void visitDeclaration(Declaration node, Null arg) {
     switch (node.left) {
-      case Name(:final token, :final value):
+      case Identifier(:final token, :final value):
         if (node.isLocal) {
           if (_assembler.getLocalVar(value) != null) {
-            throw Exception(
-                'Variable already declared: $value ${token.line}:${token.column}');
+            throw Exception('Variable already declared: $value ${token.line}:${token.column}');
           }
           _assembler.createLocalVar(value);
           var localVar = _assembler.getLocalVar(value);
@@ -147,11 +147,11 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
         visit(
           Assignment(
             token,
-            Index(token, Name(token, "_ENV"), StringLiteral(token, value)),
+            Index(token, Identifier(token, "_ENV"), StringLiteral(token, value)),
             node.right ?? NullLiteral(token),
           ),
         );
-      case Index(:final target, :final key):
+      case Index(receiver: final target, index: final key):
         visit(target);
         visit(key);
         visit(node.right!);
@@ -163,7 +163,7 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
 
   @override
   void visitReturnStatement(ReturnStatement node, Null arg) {
-    visit(node.exp);
+    visit(node.value);
     _assembler.emitReturn();
   }
 
@@ -180,7 +180,7 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
   }
 
   @override
-  void visitName(Name node, Null arg) {
+  void visitIdentifier(Identifier node, Null arg) {
     final localVar = _assembler.getLocalVar(node.value);
     if (localVar != null) {
       _assembler.emitPush(localVar.register);
@@ -193,7 +193,7 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
     }
 
     final token = node.token;
-    visit(Index(token, Name(token, "_ENV"), StringLiteral(token, node.value)));
+    visit(Index(token, Identifier(token, "_ENV"), StringLiteral(token, node.value)));
   }
 
   @override
@@ -206,10 +206,8 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
 
   @override
   void visitTableLiteral(TableLiteral node, Null arg) {
-    List<Field> arrayFields =
-        node.fields.where((node) => node.key == null).toList();
-    List<Field> mapFields =
-        node.fields.where((node) => node.key != null).toList();
+    List<Field> arrayFields = node.fields.where((node) => node.key == null).toList();
+    List<Field> mapFields = node.fields.where((node) => node.key != null).toList();
     _assembler.emitNewTable(arrayFields.length, mapFields.length);
     arrayFields = arrayFields.indexed
         .map((e) => Field(e.$2.token, IntLiteral(e.$2.token, e.$1), e.$2.value))
@@ -224,8 +222,8 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
 
   @override
   void visitIndex(Index node, Null arg) {
-    visit(node.target);
-    visit(node.key);
+    visit(node.receiver);
+    visit(node.index);
     _assembler.emitGetTable();
   }
 
@@ -267,16 +265,13 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
     final parent = _assembler;
     //error if any params are ... that are not the last
     if (node.params.isNotEmpty &&
-        node.params.any((element) =>
-            element.value.startsWith("...") && element != node.params.last)) {
-      throw Exception(
-          'Vararg must be the last parameter but was found in ${node.token.line}');
+        node.params
+            .any((element) => element.value.startsWith("...") && element != node.params.last)) {
+      throw Exception('Vararg must be the last parameter but was found in ${node.token.line}');
     }
-    final isVarArg = node.params.isNotEmpty &&
-        node.params.last.value.startsWith("...") == true;
+    final isVarArg = node.params.isNotEmpty && node.params.last.value.startsWith("...") == true;
     final nargs = node.params.length;
-    _assembler =
-        FunctionAssembler(parent: parent, nargs: nargs, isVarArg: isVarArg);
+    _assembler = FunctionAssembler(parent: parent, nargs: nargs, isVarArg: isVarArg);
     parent.children.add(_assembler);
     _assembler.enterScope();
     for (final param in node.params) {
@@ -296,7 +291,7 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
 
   @override
   void visitFunctionCall(FunctionCall node, Null arg) {
-    visit(node.target);
+    visit(node.function);
     if (node.name != null) {
       _assembler.emitPush(-1);
       _assembler.emitLoadConstant(node.name!.value);
@@ -373,7 +368,7 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
     final patternAsm = _assembler.currentPattern!;
     switch (patternAsm.step) {
       case PatternAssemblyStep.check:
-        visit(node.exp);
+        visit(node.value);
         _assembler.emitBinOp('==');
         patternAsm.decreaseStackHeight();
         patternAsm.testMissmatch(missmatchIf: false);
@@ -417,8 +412,7 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
         case null:
           lastNumber++;
           final number = lastNumber;
-          fields.add(FieldPattern(
-              field.token, IntLiteral(field.token, number), field.value));
+          fields.add(FieldPattern(field.token, IntLiteral(field.token, number), field.value));
         default:
           fields.add(field);
       }
@@ -464,10 +458,9 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
         //assign value
         if (node.isLocal) {
           _assembler.createLocalVar(node.name.value);
-          _assembler
-              .emitMove(_assembler.getLocalVar(node.name.value)!.register);
+          _assembler.emitMove(_assembler.getLocalVar(node.name.value)!.register);
         } else {
-          visit(Name(node.token, "_ENV"));
+          visit(Identifier(node.token, "_ENV"));
           _assembler.emitLoadConstant(node.name.value);
           _assembler.emitPush(-3);
           _assembler.emitSetTable();
@@ -481,7 +474,7 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
     //push value to stack
 
     final patternAssembler = _assembler.startPattern();
-    visit(node.value);
+    visit(node.right);
     patternAssembler.increaseStackHeight();
     _assembler.emitPush(-1);
     patternAssembler.increaseStackHeight();
@@ -498,5 +491,12 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
   @override
   void visitBreak(Break node, Null arg) {
     _assembler.emitBreak();
+  }
+
+  @override
+  void visitQuote(Quote node, Null arg) {
+    final table = AstToTableLiteral().visit(node.ast);
+    print(table);
+    visit(table);
   }
 }

@@ -31,7 +31,7 @@ class TestCommand extends Command {
       compileTestFile(vm, testFile);
     }
 
-    vm.compile("""
+    vm.load("""
       local test = require("slang/test")
       test.run()
     """, origin: "test runner");
@@ -41,7 +41,7 @@ class TestCommand extends Command {
 
   void compileTestFile(SlangVm vm, File file) {
     final content = file.readAsStringSync();
-    vm.compile(content, origin: file.path);
+    vm.load(content, origin: file.path);
     vm.call(0);
     vm.run();
   }

@@ -36,7 +36,7 @@ void main() {
     if (optimized
         case Block(
           finalStatement: ReturnStatement(
-            exp: IntLiteral(
+            value: IntLiteral(
               value: 7,
             ),
           )

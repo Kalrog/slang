@@ -59,6 +59,7 @@ abstract class AstNodeVisitor<T, A> {
   T visitConstPattern(ConstPattern node, A arg);
 
   T visitQuote(Quote node, A arg);
+  T visitUnquote(Unquote node, A arg);
 }
 
 sealed class Exp extends AstNode {
@@ -99,7 +100,7 @@ class StringLiteral extends Exp {
       if (literal[i] == '\\') {
         i++;
         if (i >= literal.length) {
-          throw Exception('Invalid escape sequence');
+          throw Exception('Invalid escape sequence in $literal');
         }
         switch (literal[i]) {
           case 'n':
@@ -127,7 +128,7 @@ class StringLiteral extends Exp {
             buffer.write('"');
             break;
           default:
-            throw Exception('Invalid escape sequence');
+            throw Exception('Invalid escape sequence in $literal');
         }
       } else {
         buffer.write(literal[i]);
@@ -430,7 +431,7 @@ class Break extends Statement {
   }
 }
 
-class Unquote extends AstNode implements Statement, Exp {
+class Unquote extends AstNode implements Statement, Exp, Identifier {
   final AstNode ast;
   final String type;
 
@@ -438,11 +439,9 @@ class Unquote extends AstNode implements Statement, Exp {
 
   @override
   T accept<T, A>(AstNodeVisitor<T, A> visitor, A arg) {
-    throw UnimplementedError();
+    return visitor.visitUnquote(this, arg);
   }
 
   @override
-  void prettyPrint() {
-    print('-{$ast}');
-  }
+  String get value => throw UnimplementedError();
 }

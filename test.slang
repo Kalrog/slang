@@ -1,23 +1,62 @@
 -{block:
-  version="full"
-  versionText = +{"Full version"}
-  func in_demo(ast){
-    if(version == "demo"){
-      return ast;
-    }else{
-      return null;
-    }
-  }
-  func in_full(ast){
-    if(version == "demo"){
-      return null;
-    }else{
-      return ast;
-    }
-  }
+  local p = require("slang/parser")
+   p.add_statement(
+    p.seq(
+      p.keyword("unless"),
+      p.token("("),
+      p.expr(),
+      p.token(")"),
+      p.block()
+    ):map(func(list){
+      return {
+        token:list[0],
+        ast:+{stat:
+            if(not -{list[2]}){
+              -{list[4]}
+            }
+        }
+      }
+    })
+  );
+  p.add_statement(
+    p.seq(
+      p.keyword("do"),
+      p.block(),
+      p.keyword("while"),
+      p.token("("),
+      p.expr(),
+      p.token(")")
+    ):map(func(list){
+      local first_run = p.uniq_id()
+      return {
+        token:list[0],
+        ast:+{block:
+            local -{first_run} = true
+            for(-{list[4]} or -{first_run}){
+              -{list[1]}
+              -{first_run} = false
+            }
+        }
+      }
+    })
+  );
+  print("        added do while\n");
 }
+print("start\n")
 
--{+{stat:print("Hello ", -{versionText}, "\n")}}
+local a = true
 
--{in_demo(+{stat:print("Demo version features.\n")})}
--{in_full(+{stat:print("Full version features.\n")})}
+print(-{block:
+print("should only","print once\n")
+return +{a}
+}, "should print true\n")
+
+unless(a){
+  print("a is not 1\n")
+}
+print("a is 1\n")
+
+do{
+  print("should print once\n")
+}while(not a)
+

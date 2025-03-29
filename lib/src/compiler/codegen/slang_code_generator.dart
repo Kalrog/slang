@@ -496,7 +496,12 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
   @override
   void visitQuote(Quote node, Null arg) {
     final table = AstToTableLiteral().visit(node.ast);
-    print(table);
     visit(table);
+  }
+
+  @override
+  void visitUnquote(Unquote node, Null arg) {
+    throw Exception(
+        'Unquote was not resolved in parsing step: ${node.token.line}:${node.token.column}');
   }
 }

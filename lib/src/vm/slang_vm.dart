@@ -537,11 +537,10 @@ class SlangVmImpl implements SlangVm {
   @override
   T getUserdataArg<T>(int n, {String? name, T? defaultValue}) {
     if (!checkUserdata<T>(n)) {
-      if (defaultValue != null) {
+      if (defaultValue is T) {
         return defaultValue;
       }
-      throw Exception(
-          'Expected SlangTable for ${name ?? n.toString()} got ${_frame[n].runtimeType}');
+      throw Exception('Expected $T for ${name ?? n.toString()} got ${_frame[n].runtimeType}');
     }
     final table = _frame[n];
     if (table is! Userdata) {

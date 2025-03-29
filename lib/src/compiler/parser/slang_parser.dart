@@ -4,10 +4,61 @@ import 'package:slang/src/compiler/codegen/optimizer.dart';
 import 'package:slang/src/compiler/parser/slang_grammar.dart';
 
 class SlangParser extends SlangGrammar {
-  SlangParser(super.vm);
+  ExpressionBuilder<Exp> expressionBuilder = ExpressionBuilder<Exp>();
+  List<ExpressionGroup<Exp>> expressionGroups = [];
+
+  SlangParser(super.vm) {
+    initExpressionBuilder();
+  }
   @override
   Parser start() =>
       super.start().cast<Block>().map((block) => SlangConstantExpressionOptimizer().visit(block));
+
+  void initExpressionBuilder() {
+    expressionBuilder.primitive(ref0(unquoteExpression).cast<Exp>());
+    expressionBuilder.primitive(ref0(doubleLiteral).cast<Exp>());
+    expressionBuilder.primitive(ref0(intLiteral).cast<Exp>());
+    expressionBuilder.primitive(ref0(stringLiteral).cast<Exp>());
+    expressionBuilder.primitive(ref0(trueLiteral).cast<Exp>());
+    expressionBuilder.primitive(ref0(falseLiteral).cast<Exp>());
+    expressionBuilder.primitive(ref0(nullLiteral).cast<Exp>());
+    expressionBuilder.primitive(ref0(patternAssignmentExp).cast<Exp>());
+    expressionBuilder.primitive(ref0(listLiteral).cast<Exp>());
+    expressionBuilder.primitive(ref0(functionExpression).cast<Exp>());
+    expressionBuilder.primitive(ref0(prefixExpr).cast<Exp>());
+    expressionBuilder.primitive(ref0(quote).cast<Exp>());
+    expressionBuilder
+        .group()
+        .wrapper(ref1(token, '('), ref1(token, ')'), (left, value, right) => value);
+    // builder.group().right(ref1(token,'^'), BinOp.new);
+    expressionGroups.add(expressionBuilder.group()
+      ..right(
+          ref1(token, '^'), (left, opToken, right) => BinOp(opToken, left, opToken.value, right)));
+    expressionGroups.add(expressionBuilder.group()
+      ..prefix(ref1(token, '-').seq(char('{').not()) | ref1(token, 'not'),
+          (opToken, exp) => UnOp(opToken, opToken.value, exp)));
+    expressionGroups.add(expressionBuilder.group()
+      ..left(ref1(token, '*') | ref1(token, '/') | ref1(token, '%'),
+          (left, opToken, right) => BinOp(opToken, left, opToken.value, right)));
+    expressionGroups.add(expressionBuilder.group()
+      ..left((ref1(token, '-') | ref1(token, '+')),
+          (left, opToken, right) => BinOp(opToken, left, opToken.value, right)));
+    expressionGroups.add(expressionBuilder.group()
+      ..left(
+          ref1(token, '<=') |
+              ref1(token, '>=') |
+              ref1(token, '!=') |
+              ref1(token, '==') |
+              ref1(token, '>') |
+              ref1(token, '<'),
+          (left, opToken, right) => BinOp(opToken, left, opToken.value, right)));
+    expressionGroups.add(expressionBuilder.group()
+      ..left(ref1(token, 'and'),
+          (left, opToken, right) => BinOp(opToken, left, opToken.value, right)));
+    expressionGroups.add(expressionBuilder.group()
+      ..left(
+          ref1(token, 'or'), (left, opToken, right) => BinOp(opToken, left, opToken.value, right)));
+  }
 
   /// Parses an expression.
   /// Includes order of operations.
@@ -21,43 +72,7 @@ class SlangParser extends SlangGrammar {
   ///  or
   @override
   Parser expr() {
-    final b = ExpressionBuilder<Exp>();
-    b.primitive(ref0(doubleLiteral).cast<Exp>());
-    b.primitive(ref0(intLiteral).cast<Exp>());
-    b.primitive(ref0(stringLiteral).cast<Exp>());
-    b.primitive(ref0(trueLiteral).cast<Exp>());
-    b.primitive(ref0(falseLiteral).cast<Exp>());
-    b.primitive(ref0(nullLiteral).cast<Exp>());
-    b.primitive(ref0(patternAssignmentExp).cast<Exp>());
-    b.primitive(ref0(listLiteral).cast<Exp>());
-    b.primitive(ref0(functionExpression).cast<Exp>());
-    b.primitive(ref0(prefixExpr).cast<Exp>());
-    b.primitive(ref0(quote).cast<Exp>());
-    b.group().wrapper(ref1(token, '('), ref1(token, ')'), (left, value, right) => value);
-    // builder.group().right(ref1(token,'^'), BinOp.new);
-    b.group().right(
-        ref1(token, '^'), (left, opToken, right) => BinOp(opToken, left, opToken.value, right));
-    b.group().prefix(
-        ref1(token, '-') | ref1(token, 'not'), (opToken, exp) => UnOp(opToken, opToken.value, exp));
-    b.group().left(ref1(token, '*') | ref1(token, '/') | ref1(token, '%'),
-        (left, opToken, right) => BinOp(opToken, left, opToken.value, right));
-
-    b.group().left((ref1(token, '-') | ref1(token, '+')),
-        (left, opToken, right) => BinOp(opToken, left, opToken.value, right));
-    b.group().left(
-        ref1(token, '<=') |
-            ref1(token, '>=') |
-            ref1(token, '!=') |
-            ref1(token, '==') |
-            ref1(token, '>') |
-            ref1(token, '<'),
-        (left, opToken, right) => BinOp(opToken, left, opToken.value, right));
-    b.group().left(
-        ref1(token, 'and'), (left, opToken, right) => BinOp(opToken, left, opToken.value, right));
-    b.group().left(
-        ref1(token, 'or'), (left, opToken, right) => BinOp(opToken, left, opToken.value, right));
-
-    return ref0(unquote) | b.build().labeled('expression');
+    return expressionBuilder.build().labeled('expression');
   }
 
   @override
@@ -83,7 +98,7 @@ class SlangParser extends SlangGrammar {
   Parser nullLiteral() => super.nullLiteral().map((token) => NullLiteral(token));
 
   @override
-  Parser identifier() => super.identifier().map((token) => Identifier(token, token.value));
+  Parser textIdentifier() => super.textIdentifier().map((token) => Identifier(token, token.value));
 
   @override
   Parser chunk() => super.chunk().token().map((token) =>
@@ -128,35 +143,28 @@ class SlangParser extends SlangGrammar {
 
   @override
   Parser varRef() => super.varRef().map((list) {
-        var name = list[0];
+        Exp name = list[0];
         final suffixes = list[1] as List<dynamic>;
-        return suffixes.fold(name, (exp, suffix) {
-          final nameAndArgs = suffix[0];
-          final index = suffix[1];
-          final token = suffix[2];
-
-          exp = nameAndArgs.fold(exp, (exp, nameAndArgs) {
-            final name = nameAndArgs[0];
-            final args = nameAndArgs[1];
-            final token = nameAndArgs[2];
-            return FunctionCall(token, exp, name, (args as List<dynamic>).cast<Exp>());
-          });
-          exp = Index(token, exp, index);
-          return exp;
-        });
+        return suffixes.fold(name, _applyVarSuffix);
       }).labeled('var ref');
+
+  Parser unquoteExpression() => super.unquoteExpression().map((list) {
+        Exp unquote = list[0];
+        final suffix = list[1] as List<dynamic>?;
+        if (suffix != null) {
+          final varSuffix = suffix[0] as List<dynamic>;
+          final nameAndArgs = suffix[1] as List<dynamic>;
+          unquote = varSuffix.fold(unquote, _applyVarSuffix);
+          unquote = nameAndArgs.fold(unquote, _applyNameAndArgs);
+        }
+        return unquote;
+      });
 
   @override
   Parser prefixExpr() => super.prefixExpr().map((value) {
         var exp = value[0];
         final nameAndArgs = value[1] as List<dynamic>;
-        return nameAndArgs.fold(exp, (exp, nameAndArgs) {
-          final name = nameAndArgs[0];
-          final args = nameAndArgs[1];
-          final token = nameAndArgs[2];
-
-          return FunctionCall(token, exp, name, (args as List<dynamic>).cast<Exp>());
-        });
+        return nameAndArgs.fold(exp as Exp, _applyNameAndArgs);
       });
 
   @override
@@ -164,14 +172,8 @@ class SlangParser extends SlangGrammar {
         final value = token.value;
         var exp = value[0];
         final nameAndArgs = value[1] as List<dynamic>;
-        exp = nameAndArgs.fold(exp, (exp, nameAndArgs) {
-          final name = nameAndArgs[0];
-          final args = nameAndArgs[1];
-          final token = nameAndArgs[2];
-
-          return FunctionCall(token, exp, name, (args as List<dynamic>).cast<Exp>());
-        });
-        return FunctionCallStatement(token, exp);
+        exp = nameAndArgs.fold(exp as Exp, _applyNameAndArgs);
+        return FunctionCallStatement(token, exp as FunctionCall);
       });
 
   @override
@@ -297,4 +299,45 @@ class SlangParser extends SlangGrammar {
         }
         return Quote(token, type, ast);
       });
+
+  @override
+  Parser unquoteStatement() => super.unquoteStatement().map((value) {
+        var unquote = value[0];
+        final suffix = value[1];
+        if (suffix != null) {
+          final varSuffix = suffix[0] as List<dynamic>?;
+
+          if (varSuffix != null) {
+            unquote = varSuffix.fold(unquote as Exp, _applyVarSuffix);
+          }
+          final argsOrAssignment = suffix[1];
+          switch (argsOrAssignment) {
+            case [Token(value: '='), ...]:
+              final right = argsOrAssignment[1];
+              return Assignment(unquote.token, unquote, right);
+            case List<dynamic> args?:
+              final nameAndArgs = args;
+              unquote = nameAndArgs.fold(unquote as Exp, _applyNameAndArgs);
+              return FunctionCallStatement(unquote.token, unquote as FunctionCall);
+          }
+        }
+        return unquote;
+      });
+
+  Exp _applyVarSuffix(Exp exp, suffix) {
+    final nameAndArgs = suffix[0] as List<dynamic>;
+    final index = suffix[1];
+    final token = suffix[2];
+
+    exp = nameAndArgs.fold(exp, _applyNameAndArgs);
+    exp = Index(token, exp, index);
+    return exp;
+  }
+
+  Exp _applyNameAndArgs(Exp exp, nameAndArgs) {
+    final name = nameAndArgs[0];
+    final args = nameAndArgs[1];
+    final token = nameAndArgs[2];
+    return FunctionCall(token, exp, name, (args as List<dynamic>).cast<Exp>());
+  }
 }

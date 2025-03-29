@@ -20,4 +20,9 @@ class Userdata<T extends Object> {
   set value(T value) {
     _value[0] = value;
   }
+
+  @override
+  String toString() {
+    return value.toString();
+  }
 }

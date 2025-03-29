@@ -291,4 +291,14 @@ class ToStringVisitor extends AstNodeVisitor<void, Null> {
     visit(quote.ast);
     _append('}');
   }
+
+  @override
+  void visitUnquote(Unquote node, Null arg) {
+    _append('-');
+    _append('{');
+    _append(node.type);
+    _append(':');
+    visit(node.ast);
+    _append('}');
+  }
 }

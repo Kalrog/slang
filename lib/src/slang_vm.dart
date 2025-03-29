@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:slang/src/stdlib/parser_libs.dart';
 import 'package:slang/src/table.dart';
 import 'package:slang/src/vm/slang_vm.dart';
 
@@ -34,7 +35,9 @@ abstract class SlangVm {
       SlangTestLib.register(vm);
       SlangThreadsLib.register(vm);
       SlangMathLib.register(vm);
+      SlangParserLib.register(vm);
     }
+    vm.compiler.trace = true;
     return vm;
   }
 

@@ -22,6 +22,8 @@ class SlangStdLib {
     "type": _type,
     "setRaw": _setRaw,
     "getRaw": _getRaw,
+    "toInt": _toInt,
+    "string": _string,
   };
 
   static String slangFunctions = '''
@@ -337,6 +339,25 @@ func run(rfunc){
 
   static bool _getRaw(SlangVm vm) {
     vm.getTableRaw();
+    return true;
+  }
+
+  static bool _toInt(SlangVm vm) {
+    final arg = vm.toAny(0);
+    if (arg is int) {
+      vm.push(arg);
+    } else if (arg is String) {
+      vm.push(int.parse(arg));
+    } else if (arg is double) {
+      vm.push(arg.toInt());
+    } else {
+      throw ArgumentError("toInt requires an integer or string");
+    }
+    return true;
+  }
+
+  static bool _string(SlangVm vm) {
+    vm.push(vm.toString2(0));
     return true;
   }
 

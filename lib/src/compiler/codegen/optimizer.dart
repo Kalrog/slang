@@ -268,4 +268,9 @@ class SlangConstantExpressionOptimizer extends AstNodeVisitor<AstNode, Null> {
   AstNode visitQuote(Quote node, Null arg) {
     return node;
   }
+
+  @override
+  AstNode visitUnquote(Unquote node, Null arg) {
+    return node;
+  }
 }

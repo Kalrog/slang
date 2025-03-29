@@ -121,8 +121,7 @@ class FunctionAssembler {
   int maxRegisters = 0;
   int scope = 0;
 
-  FunctionAssembler(
-      {this.parent, String? origin, this.nargs = 0, this.isVarArg = false})
+  FunctionAssembler({this.parent, String? origin, this.nargs = 0, this.isVarArg = false})
       : assert(origin != null || parent != null),
         origin = origin ?? parent!.origin;
 
@@ -271,8 +270,8 @@ class FunctionAssembler {
     if (_sourceLocations.lastOrNull?.firstInstruction == _instructions.length) {
       return;
     }
-    _sourceLocations.add(SourceLocationInfo(_instructions.length,
-        SourceLocation(origin, token.line, token.column)));
+    _sourceLocations.add(
+        SourceLocationInfo(_instructions.length, SourceLocation(origin, token.line, token.column)));
   }
 
   void emitABC(OpCodeName opcode, [int a = 0, int b = 0, int c = 0]) {
@@ -432,8 +431,7 @@ class FunctionAssembler {
   }
 
   List<Upvalue> _upvaluesToList() {
-    final upvalues =
-        List<Upvalue>.filled(_upvalues.length, Upvalue("", 0, false));
+    final upvalues = List<Upvalue>.filled(_upvalues.length, Upvalue("", 0, false));
     _upvalues.forEach((key, value) {
       upvalues[value.index] = value.toUpvalue();
     });

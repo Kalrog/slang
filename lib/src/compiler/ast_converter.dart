@@ -214,6 +214,13 @@ abstract class AstEncoder<T> extends AstNodeVisitor<T, Null> {
         'ast_type': encodePrimitive(node, node.type),
         'ast': visit(node.ast),
       });
+
+  @override
+  T visitUnquote(Unquote node, [Null arg]) => encodeNode(node, {
+        'type': encodePrimitive(node, 'Unquote'),
+        'ast_type': encodePrimitive(node, node.type),
+        'ast': visit(node.ast),
+      });
 }
 
 class AstToTableLiteral extends AstEncoder<Exp> {
@@ -261,6 +268,10 @@ class AstToTableLiteral extends AstEncoder<Exp> {
   }
 }
 
+SlangTable astToTable(AstNode node) {
+  return AstToSlangTable().visit(node);
+}
+
 class AstToSlangTable extends AstEncoder<dynamic> {
   @override
   SlangTable encodeList(AstNode node, List values) {
@@ -276,6 +287,10 @@ class AstToSlangTable extends AstEncoder<dynamic> {
   dynamic encodePrimitive(AstNode node, value) {
     return value;
   }
+}
+
+T decodeAst<T extends AstNode>(dynamic table) {
+  return SlangTableAstDecoder(table['token']).decode<T>(table['ast']);
 }
 
 class SlangTableAstDecoder {

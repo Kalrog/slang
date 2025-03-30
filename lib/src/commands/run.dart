@@ -35,6 +35,7 @@ class RunCommand extends Command {
       vm.load(source, origin: path);
       vm.call(0);
       vm.run();
+      vm.pop();
     }
   }
 }

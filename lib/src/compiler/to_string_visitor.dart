@@ -46,9 +46,21 @@ class ToStringVisitor extends AstNodeVisitor<void, Null> {
     _append('${node.value}');
   }
 
+  String _escapeString(String str) {
+    return str
+        .replaceAll('"', '\\"')
+        .replaceAll('\n', '\\n')
+        .replaceAll('\r', '\\r')
+        .replaceAll('\t', '\\t')
+        .replaceAll('\b', '\\b')
+        .replaceAll('\f', '\\f');
+  }
+
   @override
   void visitStringLiteral(StringLiteral node, [Null arg]) {
-    _append(node.value);
+    _append('"');
+    _append(_escapeString(node.value));
+    _append('"');
   }
 
   @override
@@ -96,10 +108,20 @@ class ToStringVisitor extends AstNodeVisitor<void, Null> {
 
   @override
   void visitIndex(Index node, [Null arg]) {
-    visit(node.receiver);
-    _append('[');
-    visit(node.index);
-    _append(']');
+    if (node.dotStyle) {
+      visit(node.receiver);
+      _append('.');
+      if (node.index is StringLiteral) {
+        _append((node.index as StringLiteral).value);
+      } else {
+        visit(node.index);
+      }
+    } else {
+      visit(node.receiver);
+      _append('[');
+      visit(node.index);
+      _append(']');
+    }
   }
 
   @override

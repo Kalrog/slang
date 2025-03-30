@@ -164,7 +164,8 @@ class SlangConstantExpressionOptimizer extends AstNodeVisitor<AstNode, Null> {
 
   @override
   AstNode visitIndex(Index node, Null arg) {
-    return Index(node.token, visit(node.receiver) as Exp, visit(node.index) as Exp);
+    return Index(node.token, visit(node.receiver) as Exp, visit(node.index) as Exp,
+        dotStyle: node.dotStyle);
   }
 
   @override

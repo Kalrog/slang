@@ -301,5 +301,6 @@ class SlangThreadsLib {
     vm.load(_slangFunctions, origin: "slang/thread");
     vm.call(0);
     vm.run();
+    vm.pop();
   }
 }

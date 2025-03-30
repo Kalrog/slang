@@ -2,6 +2,7 @@ import 'package:petitparser/petitparser.dart';
 import 'package:slang/slang.dart';
 import 'package:slang/src/compiler/ast.dart';
 import 'package:slang/src/compiler/ast_converter.dart';
+import 'package:slang/src/compiler/parser/slang_extensible_parser.dart';
 import 'package:slang/src/stdlib/package_lib.dart';
 import 'package:slang/src/vm/closure.dart';
 import 'package:slang/src/vm/slang_vm.dart';
@@ -18,10 +19,18 @@ class SlangParserLib {
     "token": _token,
     "keyword": _keyword,
     "add_statement": _addStatement,
+    "add_primitive_expression": _addPrimitiveExpression,
+    "add_primitive_expression_after": _addPrimitiveExpressionAfter,
+    "add_primitive_expression_before": _addPrimitiveExpressionBefore,
+    "add_expression_group_after": _addExpressionGroupAfter,
+    "add_expression_group_before": _addExpressionGroupBefore,
+    "get_primitive_expression_names": _primitiveExpressionNames,
+    "get_expression_group_names": _expressionGroupNames,
     "expr": _expression,
     "stat": _statement,
     "block": _block,
     "uniq_id": _uniqId,
+    "ast_to_string": _astToString,
   };
 
   /// Parser methods
@@ -49,18 +58,19 @@ class SlangParserLib {
     "trim": _trim,
   };
 
-  /// Returns the library itself as a slang table from the given vm
-  static void _self(SlangVm vm) {
-    vm.getGlobal("require");
-    vm.push("slang/parser");
-    vm.call(0);
-    vm.run();
-  }
+  static Map<String, DartFunction> _expressionGroupMethods = {
+    "prefix": _prefix,
+    "postfix": _postfix,
+    "left": _left,
+    "right": _right,
+  };
 
-  static void _setParserMetatable(SlangVm vm) {
+  static void _setMetatable(SlangVm vm, String name) {
     // set parser meta table
     vm.pushStack(-1);
-    vm.getGlobal("__parser_meta");
+    vm.getGlobal("__parser_lib_metas");
+    vm.push(name);
+    vm.getTable();
     vm.setMetaTable();
   }
 
@@ -70,7 +80,7 @@ class SlangParserLib {
     // push parser as userdata
     vm.push(string(str));
     // set parser meta table
-    _setParserMetatable(vm);
+    _setMetatable(vm, "parser");
     return true;
   }
 
@@ -80,7 +90,7 @@ class SlangParserLib {
     final vmi = vm as SlangVmImpl;
     final vmparser = vmi.compiler.extensibleParser;
     vm.push(ref1(vmparser.token, str));
-    _setParserMetatable(vm);
+    _setMetatable(vm, "parser");
     return true;
   }
 
@@ -91,7 +101,7 @@ class SlangParserLib {
     final vmparser = vmi.compiler.extensibleParser;
     vmparser.keywords.add(str);
     vm.push(ref1(vmparser.token, str));
-    _setParserMetatable(vm);
+    _setMetatable(vm, "parser");
     return true;
   }
 
@@ -99,7 +109,7 @@ class SlangParserLib {
   static bool _char(SlangVm vm) {
     final str = vm.getStringArg(0, name: "str");
     vm.push(char(str));
-    _setParserMetatable(vm);
+    _setMetatable(vm, "parser");
     return true;
   }
 
@@ -111,7 +121,7 @@ class SlangParserLib {
     }
     final parser = SequenceParser(parsers);
     vm.push(parser);
-    _setParserMetatable(vm);
+    _setMetatable(vm, "parser");
     return true;
   }
 
@@ -123,7 +133,7 @@ class SlangParserLib {
     }
     final parser = ChoiceParser(parsers);
     vm.push(parser);
-    _setParserMetatable(vm);
+    _setMetatable(vm, "parser");
     return true;
   }
 
@@ -131,7 +141,7 @@ class SlangParserLib {
   static bool _pattern(SlangVm vm) {
     final str = vm.getStringArg(0, name: "str");
     vm.push(pattern(str));
-    _setParserMetatable(vm);
+    _setMetatable(vm, "parser");
     return true;
   }
 
@@ -156,14 +166,14 @@ class SlangParserLib {
     }
 
     vm.push(ref(dartFunc, vm, args));
-    _setParserMetatable(vm);
+    _setMetatable(vm, "parser");
     return true;
   }
 
   /// Creates a parser that matches any character
   static bool _any(SlangVm vm) {
     vm.push(any());
-    _setParserMetatable(vm);
+    _setMetatable(vm, "parser");
     return true;
   }
 
@@ -171,7 +181,7 @@ class SlangParserLib {
   static bool _plus(SlangVm vm) {
     final parser = vm.getUserdataArg<Parser>(0, name: "parser");
     vm.push(parser.plus());
-    _setParserMetatable(vm);
+    _setMetatable(vm, "parser");
     return true;
   }
 
@@ -179,7 +189,7 @@ class SlangParserLib {
   static bool _star(SlangVm vm) {
     final parser = vm.getUserdataArg<Parser>(0, name: "parser");
     vm.push(parser.star());
-    _setParserMetatable(vm);
+    _setMetatable(vm, "parser");
     return true;
   }
 
@@ -188,7 +198,7 @@ class SlangParserLib {
     final parser = vm.getUserdataArg<Parser>(0, name: "parser");
     final limit = vm.getUserdataArg<Parser>(1, name: "limit");
     vm.push(parser.starLazy(limit));
-    _setParserMetatable(vm);
+    _setMetatable(vm, "parser");
     return true;
   }
 
@@ -198,7 +208,7 @@ class SlangParserLib {
     final parser = vm.getUserdataArg<Parser>(0, name: "parser");
     final seperator = vm.getUserdataArg<Parser>(1, name: "seperator");
     vm.push(parser.starSeparated(seperator));
-    _setParserMetatable(vm);
+    _setMetatable(vm, "parser");
     return true;
   }
 
@@ -206,7 +216,7 @@ class SlangParserLib {
   static bool _optional(SlangVm vm) {
     final parser = vm.getUserdataArg<Parser>(0, name: "parser");
     vm.push(parser.optional());
-    _setParserMetatable(vm);
+    _setMetatable(vm, "parser");
     return true;
   }
 
@@ -215,7 +225,7 @@ class SlangParserLib {
     final parser = vm.getUserdataArg<Parser>(0, name: "parser");
 
     vm.push(parser.cast<List>().pick(vm.getIntArg(1, name: "index")));
-    _setParserMetatable(vm);
+    _setMetatable(vm, "parser");
     return true;
   }
 
@@ -259,13 +269,7 @@ class SlangParserLib {
     final func = vm.toAny(1) as Closure;
     dartFunc(arg) {
       vm.push(func);
-      // vm.push(arg);
-      switch (arg) {
-        case List list:
-          vm.push(SlangTable.fromList(list));
-        default:
-          vm.push(arg);
-      }
+      vm.push(arg);
       vm.call(1);
       vm.run();
       final val = vm.toAny(-1);
@@ -274,7 +278,7 @@ class SlangParserLib {
     }
 
     vm.push(parser.map(dartFunc));
-    _setParserMetatable(vm);
+    _setMetatable(vm, "parser");
     return true;
   }
 
@@ -283,7 +287,7 @@ class SlangParserLib {
   static bool _flatten(SlangVm vm) {
     final parser = vm.getUserdataArg<Parser<List>>(0, name: "parser");
     vm.push(parser.flatten());
-    _setParserMetatable(vm);
+    _setMetatable(vm, "parser");
     return true;
   }
 
@@ -295,7 +299,7 @@ class SlangParserLib {
     } else {
       vm.push(parser.end());
     }
-    _setParserMetatable(vm);
+    _setMetatable(vm, "parser");
     return true;
   }
 
@@ -311,7 +315,7 @@ class SlangParserLib {
       after = vm.getUserdataArg<Parser?>(2, name: "after");
     }
     vm.push(parser.trim(before, after));
-    _setParserMetatable(vm);
+    _setMetatable(vm, "parser");
     return true;
   }
 
@@ -324,12 +328,182 @@ class SlangParserLib {
     return false;
   }
 
+  /// Adds a primitive expression to the parser
+  static bool _addPrimitiveExpression(SlangVm vm) {
+    final name = vm.getStringArg(0, name: "name");
+    final parser = vm.getUserdataArg<Parser>(1, name: "parser");
+    final vmi = vm as SlangVmImpl;
+    final vmparser = vmi.compiler.extensibleParser;
+    vmparser.addPrimitiveExpression(PrimitiveExpressionLevel(name, parser.map(decodeAst<Exp>)));
+    return false;
+  }
+
+  /// Adds a primitive expression to the parser after the given name
+  static bool _addPrimitiveExpressionAfter(SlangVm vm) {
+    final after = vm.getStringArg(0, name: "after");
+    final name = vm.getStringArg(1, name: "name");
+    final parser = vm.getUserdataArg<Parser>(2, name: "parser");
+    final vmi = vm as SlangVmImpl;
+    final vmparser = vmi.compiler.extensibleParser;
+    vmparser.addPrimitiveExpressionAfter(
+        after, PrimitiveExpressionLevel(name, parser.map(decodeAst<Exp>)));
+    return false;
+  }
+
+  /// Adds a primitive expression to the parser before the given name
+  static bool _addPrimitiveExpressionBefore(SlangVm vm) {
+    final before = vm.getStringArg(0, name: "before");
+    final name = vm.getStringArg(1, name: "name");
+    final parser = vm.getUserdataArg<Parser>(2, name: "parser");
+    final vmi = vm as SlangVmImpl;
+    final vmparser = vmi.compiler.extensibleParser;
+    vmparser.addPrimitiveExpressionBefore(
+        before, PrimitiveExpressionLevel(name, parser.map(decodeAst<Exp>)));
+    return false;
+  }
+
+  /// group:prefix(parser,(result,exp)->exp)
+  static bool _prefix(SlangVm vm) {
+    final group = vm.getUserdataArg<ExpressionGroup>(0, name: "group");
+    final parser = vm.getUserdataArg<Parser>(1, name: "parser");
+    final func = vm.toAny(2) as Closure;
+    group.prefix(parser, (op, exp) {
+      vm.push(func);
+      vm.push(op);
+      vm.push(astToTable(exp));
+      vm.call(2);
+      vm.run();
+      final val = vm.toAny(-1);
+      vm.pop();
+      return decodeAst<Exp>(val);
+    });
+    return false;
+  }
+
+  /// group:postfix(parser,(result,exp)->exp)
+  static bool _postfix(SlangVm vm) {
+    final group = vm.getUserdataArg<ExpressionGroup>(0, name: "group");
+    final parser = vm.getUserdataArg<Parser>(1, name: "parser");
+    final func = vm.toAny(2) as Closure;
+    group.postfix(parser, (exp, op) {
+      vm.push(func);
+      vm.push(astToTable(exp));
+      vm.push(op);
+      vm.call(2);
+      vm.run();
+      final val = vm.toAny(-1);
+      vm.pop();
+      return decodeAst<Exp>(val);
+    });
+    return false;
+  }
+
+  /// group:left(parser,(exp,result,exp)->exp)
+  static bool _left(SlangVm vm) {
+    final group = vm.getUserdataArg<ExpressionGroup>(0, name: "group");
+    final parser = vm.getUserdataArg<Parser>(1, name: "parser");
+    final func = vm.toAny(2) as Closure;
+    group.left(parser, (left, op, right) {
+      vm.push(func);
+      vm.push(astToTable(left));
+      vm.push(op);
+      vm.push(astToTable(right));
+      vm.call(3);
+      vm.run();
+      final val = vm.toAny(-1);
+      vm.pop();
+      return decodeAst<Exp>(val);
+    });
+    return false;
+  }
+
+  /// group:right(parser,(exp,result,exp)->exp)
+  static bool _right(SlangVm vm) {
+    final group = vm.getUserdataArg<ExpressionGroup>(0, name: "group");
+    final parser = vm.getUserdataArg<Parser>(1, name: "parser");
+    final func = vm.toAny(2) as Closure;
+    group.right(parser, (right, op, left) {
+      vm.push(func);
+      vm.push(astToTable(right));
+      vm.push(op);
+      vm.push(astToTable(left));
+      vm.call(3);
+      vm.run();
+      final val = vm.toAny(-1);
+      vm.pop();
+      return decodeAst<Exp>(val);
+    });
+    return false;
+  }
+
+  /// Adds an expression group to the parser
+  /// add_expression_group_after(after,name,(group)->group)
+  static bool _addExpressionGroupAfter(SlangVm vm) {
+    final after = vm.getStringArg(0, name: "after");
+    final name = vm.getStringArg(1, name: "name");
+    final func = vm.toAny(2) as Closure;
+    final vmi = vm as SlangVmImpl;
+    final vmparser = vmi.compiler.extensibleParser;
+    vmparser.addExpressionGroupAfter(
+        after,
+        ExpressionGroupLevel(name, (builder) {
+          final group = builder.group();
+          vm.push(func);
+          vm.push(group);
+          _setMetatable(vm, "group");
+          vm.call(1);
+          vm.run();
+          final val = vm.toUserdata<ExpressionGroup>(-1);
+          vm.pop();
+          return val;
+        }));
+    return false;
+  }
+
+  /// Adds an expression group to the parser
+  /// add_expression_group_before(before,name,(group)->group)
+  static bool _addExpressionGroupBefore(SlangVm vm) {
+    final before = vm.getStringArg(0, name: "before");
+    final name = vm.getStringArg(1, name: "name");
+    final func = vm.toAny(2) as Closure;
+    final vmi = vm as SlangVmImpl;
+    final vmparser = vmi.compiler.extensibleParser;
+    vmparser.addExpressionGroupBefore(
+        before,
+        ExpressionGroupLevel(name, (builder) {
+          final group = builder.group();
+          vm.push(func);
+          vm.push(group);
+          _setMetatable(vm, "group");
+          vm.call(1);
+          vm.run();
+          final val = vm.toUserdata<ExpressionGroup>(-1);
+          vm.pop();
+          return val;
+        }));
+    return false;
+  }
+
+  static bool _primitiveExpressionNames(SlangVm vm) {
+    final vmi = vm as SlangVmImpl;
+    final vmparser = vmi.compiler.extensibleParser;
+    vm.push(vmparser.primitiveExpressionNames);
+    return true;
+  }
+
+  static bool _expressionGroupNames(SlangVm vm) {
+    final vmi = vm as SlangVmImpl;
+    final vmparser = vmi.compiler.extensibleParser;
+    vm.push(vmparser.expressionGroupNames);
+    return true;
+  }
+
   /// Returns a reference to the slang expression parser
   static bool _expression(SlangVm vm) {
     final vmi = vm as SlangVmImpl;
     final vmparser = vmi.compiler.extensibleParser;
     vm.push(ref0(vmparser.expr).cast<AstNode>().map(astToTable));
-    SlangParserLib._setParserMetatable(vm);
+    SlangParserLib._setMetatable(vm, "parser");
     return true;
   }
 
@@ -338,7 +512,7 @@ class SlangParserLib {
     final vmi = vm as SlangVmImpl;
     final vmparser = vmi.compiler.extensibleParser;
     vm.push(ref0(vmparser.statement).cast<AstNode>().map(astToTable));
-    SlangParserLib._setParserMetatable(vm);
+    SlangParserLib._setMetatable(vm, "parser");
     return true;
   }
 
@@ -347,7 +521,7 @@ class SlangParserLib {
     final vmi = vm as SlangVmImpl;
     final vmparser = vmi.compiler.extensibleParser;
     vm.push(ref0(vmparser.block).cast<AstNode>().map(astToTable));
-    SlangParserLib._setParserMetatable(vm);
+    SlangParserLib._setMetatable(vm, "parser");
     return true;
   }
 
@@ -358,8 +532,50 @@ class SlangParserLib {
     return true;
   }
 
+  /// ast_to_string(ast)
+  /// Returns a string representation of the given ast
+  static bool _astToString(SlangVm vm) {
+    final ast = vm.toAny(0);
+    if (ast is AstNode) {
+      vm.push(ast.toString());
+    } else {
+      vm.push(decodeAst(ast).toString());
+    }
+    return true;
+  }
+
   /// Registers the parser library in the given vm
   static void register(SlangVm vm) {
+    preloadLib(vm);
+    setupMetatable(vm);
+  }
+
+  static void setupMetatable(SlangVm vm) {
+    vm.newTable();
+    vm.newTable();
+    vm.newTable();
+    for (var entry in _sharedFunctions.entries) {
+      vm.pushDartFunction(entry.value);
+      vm.setField(-2, entry.key);
+    }
+    for (var entry in _parserMethods.entries) {
+      vm.pushDartFunction(entry.value);
+      vm.setField(-2, entry.key);
+    }
+    vm.setField(-2, "__index");
+    vm.setField(-2, "parser");
+    vm.newTable();
+    vm.newTable();
+    for (var entry in _expressionGroupMethods.entries) {
+      vm.pushDartFunction(entry.value);
+      vm.setField(-2, entry.key);
+    }
+    vm.setField(-2, "__index");
+    vm.setField(-2, "group");
+    vm.setGlobal("__parser_lib_metas");
+  }
+
+  static void preloadLib(SlangVm vm) {
     vm.newTable(0, 0);
     for (var entry in _sharedFunctions.entries) {
       vm.pushDartFunction(entry.value);
@@ -370,18 +586,5 @@ class SlangParserLib {
       vm.setField(-2, entry.key);
     }
     SlangPackageLib.preloadModuleValue(vm, "slang/parser");
-
-    vm.newTable();
-    vm.newTable(0, 0);
-    for (var entry in _sharedFunctions.entries) {
-      vm.pushDartFunction(entry.value);
-      vm.setField(-2, entry.key);
-    }
-    for (var entry in _parserMethods.entries) {
-      vm.pushDartFunction(entry.value);
-      vm.setField(-2, entry.key);
-    }
-    vm.setField(-2, "__index");
-    vm.setGlobal("__parser_meta");
   }
 }

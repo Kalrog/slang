@@ -6,6 +6,7 @@ import 'package:slang/src/compiler/codegen/function_assembler.dart';
 import 'package:slang/src/compiler/compiler.dart';
 import 'package:slang/src/slang_vm.dart';
 import 'package:slang/src/table.dart';
+import 'package:slang/src/util/convension.dart';
 import 'package:slang/src/vm/closure.dart';
 import 'package:slang/src/vm/function_prototype.dart';
 import 'package:slang/src/vm/slang_exception.dart';
@@ -542,11 +543,7 @@ class SlangVmImpl implements SlangVm {
       }
       throw Exception('Expected $T for ${name ?? n.toString()} got ${_frame[n].runtimeType}');
     }
-    final table = _frame[n];
-    if (table is! Userdata) {
-      throw Exception('Expected Userdata for ${name ?? n.toString()} got ${table.runtimeType}');
-    }
-    return table.value as T;
+    return toUserdata<T>(n);
   }
 
   @override
@@ -699,21 +696,7 @@ class SlangVmImpl implements SlangVm {
 
   @override
   void push(dynamic value) {
-    switch (value) {
-      case int() ||
-            double() ||
-            String() ||
-            bool() ||
-            Null() ||
-            Closure() ||
-            SlangVmImpl() ||
-            Userdata() ||
-            SlangTable() ||
-            DartFunction():
-        _frame.push(value);
-      case Object any:
-        _frame.push(Userdata(any));
-    }
+    _frame.push(toSlang(value));
   }
 
   @override
@@ -894,6 +877,15 @@ class SlangVmImpl implements SlangVm {
   @override
   SlangVmImpl toThread(int n) {
     return _frame[n] as SlangVmImpl;
+  }
+
+  @override
+  T toUserdata<T>(int n) {
+    final value = _frame[n];
+    if (value is! Userdata) {
+      throw Exception('Expected Userdata for ${n.toString()} got ${value.runtimeType}');
+    }
+    return value.value as T;
   }
 
   @override

@@ -4,7 +4,7 @@ import 'package:slang/src/compiler/to_string_visitor.dart';
 sealed class AstNode {
   const AstNode(this.token);
 
-  final Token token;
+  final Token? token;
 
   T accept<T, A>(AstNodeVisitor<T, A> visitor, A arg);
 
@@ -66,6 +66,8 @@ sealed class Exp extends AstNode {
   const Exp(super.token);
 }
 
+interface class Assignable {}
+
 class IntLiteral extends Exp {
   final int value;
   IntLiteral(super.token, this.value);
@@ -88,6 +90,10 @@ class DoubleLiteral extends Exp {
 class StringLiteral extends Exp {
   final String value;
   StringLiteral(super.token, String value) : value = resolveEscapes(value);
+
+  StringLiteral.fromIdentifier(Identifier id)
+      : value = id.value,
+        super(id.token);
 
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
@@ -185,7 +191,7 @@ class Field extends AstNode {
   }
 }
 
-class Identifier extends Exp {
+class Identifier extends Exp implements Assignable {
   final String value;
   Identifier(super.token, this.value);
 
@@ -195,11 +201,15 @@ class Identifier extends Exp {
   }
 }
 
-class Index extends Exp {
+class Index extends Exp implements Assignable {
   final Exp receiver;
   final Exp index;
 
-  Index(super.token, this.receiver, this.index);
+  /// [dotStyle] is true if the index was written in the dot style.
+  /// e.g. `x.y` instead of `x[y]`
+  final bool dotStyle;
+
+  Index(super.token, this.receiver, this.index, {this.dotStyle = false});
 
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {

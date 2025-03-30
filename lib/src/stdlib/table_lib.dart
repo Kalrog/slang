@@ -6,10 +6,11 @@ class SlangTableLib {
   local m = {}
   func m.contains(t, value){
     for (local k in values(t)){
-      if (t[k] == value){
+      if (k == value){
         return true
       }
     }
+    return false
   }
 
   func m.map(t, f){

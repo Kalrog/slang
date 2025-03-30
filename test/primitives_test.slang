@@ -13,3 +13,12 @@ assert("foo" == "foo");
 print("test bool");
 assert(true == true);
 assert(true != false);
+print("test multiline string");
+print("""
+"foo"
+bar
+""")
+assert("""
+"foo"
+bar
+""" == "\n\"foo\"\nbar\n");

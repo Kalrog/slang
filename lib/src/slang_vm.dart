@@ -37,7 +37,6 @@ abstract class SlangVm {
       SlangMathLib.register(vm);
       SlangParserLib.register(vm);
     }
-    vm.compiler.trace = true;
     return vm;
   }
 
@@ -174,6 +173,8 @@ abstract class SlangVm {
   String toString2(int n);
 
   SlangVm toThread(int n);
+
+  T toUserdata<T>(int n);
 
   void type();
 

@@ -9,30 +9,35 @@ class SlangPackageLib {
 
   static bool _require(SlangVm vm) {
     final packageName = vm.getStringArg(0, name: "packageName");
-    vm.getGlobal('__PACKAGES');
-    vm.push("loaders");
-    vm.getTable();
-    int i = 0;
-    while (true) {
-      vm.pushStack(-1);
-      vm.push(i);
+    try {
+      vm.getGlobal('__PACKAGES');
+      vm.push("loaders");
       vm.getTable();
-      if (vm.checkNull(-1)) {
-        break;
+      int i = 0;
+      while (true) {
+        vm.pushStack(-1);
+        vm.push(i);
+        vm.getTable();
+        if (vm.checkNull(-1)) {
+          break;
+        }
+        vm.push(packageName);
+        vm.call(1);
+        vm.run();
+        if (!vm.checkNull(-1)) {
+          return true;
+        }
+        vm.pop();
+        i++;
       }
-      vm.push(packageName);
-      vm.call(1);
-      vm.run();
-      if (!vm.checkNull(-1)) {
-        return true;
+      if (vm.debug.mode == DebugMode.runDebug) {
+        print("Package not found: $packageName");
       }
-      vm.pop();
-      i++;
+      return false;
+    } catch (e) {
+      print("Error loading package: $packageName");
+      rethrow;
     }
-    if (vm.debug.mode == DebugMode.runDebug) {
-      print("Package not found: $packageName");
-    }
-    return false;
   }
 
   static bool _preloadedPackages(SlangVm vm) {

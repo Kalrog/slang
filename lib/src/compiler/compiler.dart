@@ -1,4 +1,3 @@
-import 'package:petitparser/debug.dart' as debug;
 import 'package:petitparser/petitparser.dart';
 import 'package:slang/src/compiler/ast.dart';
 import 'package:slang/src/compiler/codegen/slang_code_generator.dart';
@@ -13,21 +12,7 @@ class SlangCompiler {
   SlangCompiler(this.vm);
 
   late final SlangExtensibleParser extensibleParser = SlangExtensibleParser(vm);
-  late Parser _basicParser = extensibleParser.build();
-  late Parser _traceParser =
-      debug.trace(_basicParser, predicate: (parser) => parser is LabeledParser);
-  late Parser parser = AlwaysSettableParser(_basicParser);
-
-  bool _trace = false;
-  bool get trace => _trace;
-  set trace(bool value) {
-    _trace = value;
-    if (value) {
-      parser = AlwaysSettableParser(_traceParser);
-    } else {
-      parser = AlwaysSettableParser(_basicParser);
-    }
-  }
+  late Parser parser = extensibleParser.build();
 
   FunctionPrototype compileSource(String source, String origin) {
     final result = parser.parse(source);

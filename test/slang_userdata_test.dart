@@ -35,5 +35,6 @@ void main() {
     vm.load(slangScript);
     vm.call(0);
     vm.run();
+    vm.pop();
   });
 }

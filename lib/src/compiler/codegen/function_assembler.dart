@@ -266,7 +266,10 @@ class FunctionAssembler {
     return index;
   }
 
-  void setLocation(Token token) {
+  void setLocation(Token? token) {
+    if (token == null) {
+      return;
+    }
     if (_sourceLocations.lastOrNull?.firstInstruction == _instructions.length) {
       return;
     }

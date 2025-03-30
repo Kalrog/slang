@@ -54,27 +54,31 @@ abstract class SlangGrammar extends GrammarDefinition {
         "double",
       );
 
-  Parser stringLiteral() {
-    return ref2(
-        token,
-        (char('"') & ref0(slangChar).starLazy(char('"')) & char('"'))
-            .pick(1)
-            .map((value) => value.join()),
-        "string");
-  }
+  Parser stringLiteral() => ref0(multilineStringLiteral) | ref0(doubleQuotedStringLiteral);
 
-  Parser slangChar() => ref0(validEscape) | any();
+  Parser doubleQuotedStringLiteral() =>
+      (char('"') & ref0(slangChar).starLazy(char('"')).map((value) => value.join()) & char('"'))
+          .pick(1)
+          .token();
 
-  Parser validEscape() =>
-      char('\\') &
-      (char('"') |
-          char('\\') |
-          char('n') |
-          char('r') |
-          char('t') |
-          char('b') |
-          char('f') |
-          char('v'));
+  Parser multilineStringLiteral() => (string('"""') &
+          (ref0(slangChar) | char('\n')).starLazy(string('"""')).map((value) => value.join()) &
+          string('"""'))
+      .pick(1)
+      .token();
+
+  Parser slangChar() => ref0(validEscape) | char('\n').neg();
+
+  Parser validEscape() => (char('\\') &
+          (char('"') |
+              char('\\') |
+              char('n') |
+              char('r') |
+              char('t') |
+              char('b') |
+              char('f') |
+              char('v')))
+      .flatten();
 
   Parser trueLiteral() => ref1(token, 'true');
 
@@ -92,7 +96,7 @@ abstract class SlangGrammar extends GrammarDefinition {
   }
 
   Parser field() {
-    return ((ref0(expr) & ref1(token, ':')).pick(0) |
+    return ((ref0(identifier) & ref1(token, ':')).pick(0) |
                 (ref1(token, '[') & ref0(expr) & ref1(token, ']')).pick(1))
             .optional() &
         ref0(expr);
@@ -111,14 +115,22 @@ abstract class SlangGrammar extends GrammarDefinition {
     'let',
     'break',
   ];
-  Parser identifier() => ref0(textIdentifier) | ref0(unquote).labeled("unquote identifier");
 
-  Parser textIdentifier() => ref2(
+  Parser identifier() => ref2(
       token,
       (string('...').optional() & pattern('a-zA-Z_') & pattern('a-zA-Z0-9_').star())
           .flatten("Expected: identifier")
           .where((name) => !keywords.contains(name)),
       "identifier");
+
+  Parser identifierAndIndex() =>
+      ref0(identifier) &
+      ((ref1(token, '[') & ref0(expr) & ref1(token, ']')).pick(1).map((e) => [e, "bracket"]) |
+              (ref1(token, '.') &
+                      ref0(identifier).cast<Identifier>().map<Exp>(StringLiteral.fromIdentifier))
+                  .pick(1)
+                  .map((e) => [e, "dot"]))
+          .star();
 
   Parser nameAndArgs() => (ref1(token, ':') & ref0(identifier)).pick(1).optional() & ref0(args);
 
@@ -130,44 +142,23 @@ abstract class SlangGrammar extends GrammarDefinition {
           ref0(block).optional()) |
       ref0(block);
 
-  Parser varRef() => ref0(identifier) & ref0(varSuffix).star();
-  Parser prefixExpr() => ref0(varRef) & ref0(nameAndArgs).star();
-  Parser functionCall() => ref0(varRef) & ref0(nameAndArgs).plus();
-  Parser varSuffix() =>
-      ref0(nameAndArgs).star() &
-      ((ref1(token, '.') &
-                  ref0(identifier).token().map((token) => StringLiteral(token, token.value.value)))
-              .pick(1) |
-          (ref1(token, '[') & ref0(expr) & ref1(token, ']')).pick(1));
+  Parser statement() => expressionOrStatement().where((value) => value is Statement?);
 
-  /// -{...} (var suffix)* (name and args)*
-  /// Parses an unquote and then possibly a var suffix
-  /// Either the unquote itself is an expression or it is an
-  /// unquoted identifier and is followed by a var suffix to creat a varRef
-  Parser unquoteExpression() => ref0(unquote) & ref0(unquoteExpressionSuffix).optional();
+  Parser expressionOrStatement() =>
+      ref0(localDeclaration) |
+      ref0(ifStatement) |
+      ref0(forLoop) |
+      ref0(forInLoop) |
+      ref0(block) |
+      ref0(functionDefinitonStatement) |
+      ref0(exprStatement);
 
-  Parser unquoteExpressionSuffix() => ref0(varSuffix).star() & ref0(nameAndArgs).star();
+  Parser exprStatement() => ref0(expr) & (ref1(token, '=') & ref0(expr)).optional();
 
-  Parser statement() => (ref0(unquoteStatement) |
-          ref0(assignment) |
-          ref0(declaration) |
-          ref0(ifStatement) |
-          ref0(forLoop) |
-          ref0(forInLoop) |
-          ref0(block) |
-          ref0(functionCall) |
-          ref0(functionDefinitonStatement))
-      .labeled("statement");
+  Parser assignment() => ref0(expr) & ref1(token, '=') & ref0(expr);
 
-  Parser assignment() => ref0(varRef) & ref1(token, '=') & ref0(expr);
-
-  Parser unquoteStatement() => ref0(unquote) & ref0(unquoteStatementSuffix).optional();
-
-  Parser unquoteStatementSuffix() =>
-      ref0(varSuffix).star() & (ref0(nameAndArgs).plus() | ref1(token, '=') & ref0(expr));
-
-  Parser declaration() =>
-      ref1(token, 'local') & ref0(identifier) & (ref1(token, '=') & ref0(expr)).optional();
+  Parser localDeclaration() =>
+      ref1(token, 'local') & ref0(expr) & (ref1(token, '=') & ref0(expr)).optional();
 
   Parser ifStatement() =>
       ref1(token, 'if') &
@@ -180,9 +171,9 @@ abstract class SlangGrammar extends GrammarDefinition {
   Parser forLoop() =>
       ref1(token, 'for') &
       ref1(token, '(') &
-      ((ref0(statement) & ref1(token, ';')).pick(0).optional() &
-          ref0(expr) &
-          (ref1(token, ';') & ref0(statement)).pick(1).optional()) &
+      ref0(expressionOrStatement) &
+      (ref1(token, ';') & ref0(expressionOrStatement)).pick(1).optional() &
+      (ref1(token, ';') & ref0(statement)).pick(1).optional() &
       char(')') &
       ref0(statement);
 
@@ -202,7 +193,7 @@ abstract class SlangGrammar extends GrammarDefinition {
   Parser functionDefinitonStatement() =>
       ref1(token, 'local').optional() &
       ref1(token, 'func') &
-      ref0(varRef) &
+      ref0(identifierAndIndex) &
       ref0(functionDefinition);
 
   Parser chunk() =>
@@ -311,15 +302,14 @@ abstract class SlangGrammar extends GrammarDefinition {
               final result = vm.toAny(-1);
               vm.pop();
               if (result == null) {
-                return context.success(null, context.position + token.length);
+                return context.success(NullLiteral(ast.token), context.position + token.length);
               }
               final outAst = SlangTableAstDecoder(token).decode(result);
               return context.success(outAst, context.position + token.length);
             }
           }) &
           ref1(token, '}'))
-      .pick(2)
-      .labeled("unquote");
+      .pick(2);
 
   Parser quoteBody() =>
       (ref1(token, 'id') & ref1(token, ':') & ref0(identifier)) |

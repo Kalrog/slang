@@ -37,6 +37,7 @@ class TestCommand extends Command {
     """, origin: "test runner");
     vm.call(0);
     vm.run();
+    vm.pop();
   }
 
   void compileTestFile(SlangVm vm, File file) {
@@ -44,5 +45,6 @@ class TestCommand extends Command {
     vm.load(content, origin: file.path);
     vm.call(0);
     vm.run();
+    vm.pop();
   }
 }

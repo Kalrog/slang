@@ -33,7 +33,7 @@ func group.add_child(self,child){
 
 func group.run(self){
   if (self.name != "root") {
-    print(indentStr(),"Group: ",self.name,"\n")
+    print(indentStr(),"Group: ",self.name,"\\n")
     indent = indent + 1
   }
   for (local child in values(self.children)) {
@@ -85,15 +85,15 @@ func test.run(self){
   print(indentStr(),"Test: ",self.name)
   local r = pcall(self.f)
   if(let {"ok"} = r){
-    print(" Passed\n")
+    print(" Passed\\n")
     self.succeded = true
   }else if (let {"err",local e} = r){
-    print(" Failed\n")
+    print(" Failed\\n")
     print(indentStr(),"  Error: ",e.message)
     if(e.location){
       print(" @",e.location.origin,":",e.location.line,":",e.location.column)
     }
-    print("\n")
+    print("\\n")
   }
 }
 
@@ -129,17 +129,17 @@ func m.teardown(f){
 }
 
 func m.run(){
-  print("Running tests\n")
+  print("Running tests\\n")
   current:run()
   local stats = current:count()
   local total = stats[0] + stats[1]
-  print("Tests succeded: ",stats[0],"\n")
-  print("Tests failed: ",stats[1],"\n")
-  print("Total tests: ",total,"\n")
+  print("Tests succeded: ",stats[0],"\\n")
+  print("Tests failed: ",stats[1],"\\n")
+  print("Total tests: ",total,"\\n")
   if(stats[1] > 0){
-    print("Some tests failed\n")
+    print("Some tests failed\\n")
   }else{
-    print("All tests passed\n")
+    print("All tests passed\\n")
   }
 }
 

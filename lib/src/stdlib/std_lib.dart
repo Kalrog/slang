@@ -8,7 +8,7 @@ class SlangStdLib {
     "print": _print,
     "readLine": _readLine,
     "open": _open,
-    "compile": _compile,
+    "compile": _load,
     "assert": _assert,
     "append": _append,
     "remove": _remove,
@@ -170,9 +170,10 @@ func run(rfunc){
     return false;
   }
 
-  static bool _compile(SlangVm vm) {
-    final code = vm.toString2(0);
-    vm.load(code);
+  static bool _load(SlangVm vm) {
+    final code = vm.toAny(0) as String;
+    final origin = vm.getTop() > 1 ? vm.toString2(1) : "string";
+    vm.load(code, origin: origin);
     return true;
   }
 
@@ -370,5 +371,6 @@ func run(rfunc){
     vm.load(slangFunctions, origin: "slang/std");
     vm.call(0);
     vm.run();
+    vm.pop();
   }
 }

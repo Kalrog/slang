@@ -28,4 +28,150 @@ t.group("quote"){
     assert(block.statements[2].type == "Return");
     
   }
+  t.test("unquote expression"){
+    local exp = +{expr:2+2}
+    local statement = +{stat: local x = -{exp}}
+    assert(statement.type == "Declaration");
+    assert(statement.is_local == true);
+    assert(statement.left.type == "Identifier");
+    assert(statement.left.value == "x");
+    assert(statement.right.type == "BinOp");
+    print(statement);
+  }
+  t.test("unquote statement"){
+    local stat = +{stat:local x = 2+2}
+    local statement = +{block:
+      -{stat}
+      print(x)
+      return x * x
+    }
+    assert(statement.type == "Block");
+    assert(statement.statements[0].type == "Declaration");
+    assert(statement.statements[1].type == "CallStat");
+    assert(statement.statements[2].type == "Return");
+    print(statement);
+  }
+  t.test("unquote compile time execution"){ 
+    compileTimeRun = false
+    runTimeRun = false
+    local run = compile("""
+    -{block:
+      compileTimeRun = true 
+      return +{stat:
+         runTimeRun = true 
+      }
+    }
+    //this should run the first part at compile time and the second part at run time
+    """) 
+    assert(compileTimeRun == true, "compileTimeRun should be true")
+    run()
+    assert(runTimeRun == true, "runTimeRun should be true")
+  }
+  t.test("add statement to parser"){
+    ranUnless = false
+    nRuns = 0
+    local run = compile("""
+      -{block:
+        local p = require("slang/parser")
+        p.add_statement(
+          p.seq(
+            p.keyword("unless"),
+            p.token("("),
+            p.expr(),
+            p.token(")"),
+            p.block()
+          ):map(func(results){
+            return {
+              token:results[0],
+              ast:+{stat:
+                  if(not -{results[2]}){
+                    -{results[4]}
+                  }
+              }
+            }
+          })
+        )
+        nRuns = nRuns + 1
+      }
+      unless(false){
+        ranUnless = true
+      }
+    """)
+    run()
+    assert(ranUnless == true, "ranUnless should be true")
+    assert(nRuns == 1, "unquote should only run once")
+  }
+  t.test("add primitive expression to parser"){
+    value = 0
+    local run = compile("""
+      -{block:
+        local p = require("slang/parser")
+        p.add_primitive_expression(
+            "one",
+            p.keyword("one"):map(func(token){
+            return {  
+              token:token,
+              ast:+{1}
+            }
+          }) 
+        )
+      }
+      value = one
+    ""","add expression test")
+    run()
+
+    assert(value == 1, "value should be 1")
+  }
+  t.test("add postfix ++ to parser"){
+    value = 0
+    local run = compile("""
+      -{block:
+        local p = require("slang/parser")
+        local table = require("slang/table")
+        p.add_expression_group_after("indexAndCall", "increment", func(group){
+          group:postfix(p.token("++"), func(exp, op){
+            return {
+              token: op,
+              ast:+{
+                func(){
+                  -{exp} = -{exp} + 1
+                  return -{exp}
+                }()
+              }
+            } 
+          })
+          return group
+        })
+        assert(table.contains(p.get_expression_group_names(), "increment"))
+      }
+
+      print(value++)
+      print(value++)
+    ""","add postfix ++ to parser")
+    run()
+    assert(value == 2, "value should be 2")
+  }
+  t.test("add infix <> for string concatenation"){
+    result = ""
+    local run = compile("""
+      -{block:
+        local p = require("slang/parser")
+        local table = require("slang/table")
+        p.add_expression_group_before("compare", "concat", func(group){
+          group:left(p.token("<>"), func(left, op, right){
+            return {
+              token: op,
+              ast: +{concat(-{left},-{right})}
+            }
+          })
+          return group
+        })
+        assert(table.contains(p.get_expression_group_names(), "concat"), "concat should be in the expression group names")
+      }
+      print("hello" <> " world");
+      result = "hello" <> " world";
+    ""","add infix <> for string concatenation")
+    run()
+    assert(result == "hello world", "result should be hello world")
+  }
 }

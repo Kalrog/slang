@@ -133,7 +133,7 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
       case Identifier(:final token, :final value):
         if (node.isLocal) {
           if (_assembler.getLocalVar(value) != null) {
-            throw Exception('Variable already declared: $value ${token.line}:${token.column}');
+            throw Exception('Variable already declared: $value ${token?.line}:${token?.column}');
           }
           _assembler.createLocalVar(value);
           var localVar = _assembler.getLocalVar(value);
@@ -267,7 +267,7 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
     if (node.params.isNotEmpty &&
         node.params
             .any((element) => element.value.startsWith("...") && element != node.params.last)) {
-      throw Exception('Vararg must be the last parameter but was found in ${node.token.line}');
+      throw Exception('Vararg must be the last parameter but was found in ${node.token?.line}');
     }
     final isVarArg = node.params.isNotEmpty && node.params.last.value.startsWith("...") == true;
     final nargs = node.params.length;
@@ -502,6 +502,6 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
   @override
   void visitUnquote(Unquote node, Null arg) {
     throw Exception(
-        'Unquote was not resolved in parsing step: ${node.token.line}:${node.token.column}');
+        'Unquote was not resolved in parsing step: ${node.token?.line}:${node.token?.column}');
   }
 }

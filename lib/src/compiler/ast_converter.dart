@@ -1,6 +1,7 @@
 import 'package:petitparser/petitparser.dart';
 import 'package:slang/src/compiler/ast.dart';
 import 'package:slang/src/table.dart';
+import 'package:slang/src/vm/userdata.dart';
 
 abstract class AstEncoder<T> extends AstNodeVisitor<T, Null> {
   T encodeNode(AstNode node, Map<String, T?> values);
@@ -139,6 +140,7 @@ abstract class AstEncoder<T> extends AstNodeVisitor<T, Null> {
         'type': encodePrimitive(node, 'Index'),
         'receiver': visit(node.receiver),
         'index': visit(node.index),
+        'dotStyle': encodePrimitive(node, node.dotStyle),
       });
 
   @override
@@ -224,7 +226,7 @@ abstract class AstEncoder<T> extends AstNodeVisitor<T, Null> {
 }
 
 class AstToTableLiteral extends AstEncoder<Exp> {
-  TableLiteral tableLiteralFromMap(Token token, Map<String, Exp?> map) {
+  TableLiteral tableLiteralFromMap(Token? token, Map<String, Exp?> map) {
     return TableLiteral(
         token,
         map.entries
@@ -233,7 +235,7 @@ class AstToTableLiteral extends AstEncoder<Exp> {
             .toList());
   }
 
-  TableLiteral tableLiteralFromList(Token token, List<Exp> list) {
+  TableLiteral tableLiteralFromList(Token? token, List<Exp> list) {
     return TableLiteral(token, list.map((e) => Field(token, null, e)).toList());
   }
 
@@ -290,19 +292,25 @@ class AstToSlangTable extends AstEncoder<dynamic> {
 }
 
 T decodeAst<T extends AstNode>(dynamic table) {
-  return SlangTableAstDecoder(table['token']).decode<T>(table['ast']);
+  final Userdata? tokenUserdata = table['token'];
+  final Token? token = tokenUserdata?.value as Token?;
+  final ast = table['ast'];
+  if (ast == null) {
+    return SlangTableAstDecoder(token).decode<T>(table);
+  }
+  return SlangTableAstDecoder(token).decode<T>(table['ast']);
 }
 
 class SlangTableAstDecoder {
   /// The token to use for the decoded AST nodes.
   /// Should be the token of the unqoute node that returned the ast.
-  final Token token;
+  final Token? token;
 
   SlangTableAstDecoder(this.token);
 
   T decode<T extends AstNode>(dynamic table) {
     if (table is! SlangTable) {
-      throw ArgumentError('Invalid table: $table, expected $T');
+      throw ArgumentError('Invalid table: $table of type ${table.runtimeType} expected $T');
     }
     switch (table['type']) {
       case "Assignment":
@@ -396,6 +404,7 @@ class SlangTableAstDecoder {
           token,
           decode<Exp>(table['receiver']),
           decode<Exp>(table['index']),
+          dotStyle: table['dotStyle'] as bool? ?? false,
         ) as T;
       case "Int":
         return IntLiteral(token, table['value'] as int) as T;

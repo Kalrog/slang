@@ -12,7 +12,7 @@ class SlangCompiler {
   SlangCompiler(this.vm);
 
   late final SlangExtensibleParser extensibleParser = SlangExtensibleParser(vm);
-  late Parser parser = extensibleParser.build();
+  late Parser parser = (extensibleParser.build());
 
   FunctionPrototype compileSource(String source, String origin) {
     final result = parser.parse(source);

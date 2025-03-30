@@ -1,7 +1,6 @@
 local t = require("slang/test")
 
 t.group("metatables"){
-
     t.test("metatable __index basic"){
         local foo = {
             type: "Foo",
@@ -14,7 +13,7 @@ t.group("metatables"){
         }
 
         bar.meta = {
-            "__index": foo,
+            __index: foo,
         }
 
         assert(bar.bar == 42, "metatable get table (__index) correctly")
@@ -33,7 +32,7 @@ t.group("metatables"){
         }
 
         bar.meta = {
-            "__index": foo,
+            __index: foo,
         }
 
         if(not let {type: "Bar", bar: 42} = bar){
@@ -51,7 +50,7 @@ t.group("metatables"){
           fooBar: 12,
       }
       bar.meta = {
-          "__index": foo,
+          __index: foo,
       }
       bar.bar = 12
       assert(bar.bar == 12, "metatable set table value correctly")
@@ -68,7 +67,7 @@ t.group("metatables"){
           fooBar: 12,
       }
       bar.meta = {
-          "__newindex": foo,
+          __newindex: foo,
       }
       bar.bar = 12
       assert(foo.bar == 12, "metatable set table value correctly")
@@ -96,7 +95,7 @@ t.group("metatables"){
       }
 
       foo.meta = {
-          "__index": index,
+          __index: index,
       }
 
       expect(null, null)
@@ -124,7 +123,7 @@ t.group("metatables"){
         bar: 42,
       }
       foo.meta = {
-        "__newindex": newindex,
+        __newindex: newindex,
       }
       expect(null, null, null)
       foo.bar = 42

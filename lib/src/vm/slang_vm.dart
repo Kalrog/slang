@@ -1188,7 +1188,7 @@ class SlangVmImpl implements SlangVm {
   void step() {
     try {
       if (_frame.closure?.isSlang == true) {
-        _stepSwitchSlang();
+        _stepSlang();
       } else if (_frame.closure?.isDart == true) {
         _stepDart();
       } else {

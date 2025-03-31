@@ -130,6 +130,7 @@ class SlangExtensibleParser extends SlangParser {
     }),
   ];
 
+  /// Extensible version of the slang parser
   SlangExtensibleParser(super.vm);
 
   @override
@@ -142,7 +143,7 @@ class SlangExtensibleParser extends SlangParser {
     }
   }
 
-  final List<Parser<Statement>> _statements = [];
+  final Map<String, Parser<Statement>> _statements = {};
 
   late final Parser<Statement?> _initialStatementParser = super.statement().cast<Statement?>();
 
@@ -161,11 +162,13 @@ class SlangExtensibleParser extends SlangParser {
   Parser expr() => _expressionParser;
 
   /// Adds a statement to the parser
-  void addStatement(Parser<Statement> statement) {
-    _statements.add(resolve(statement));
-    _statementParser.set(ChoiceParser<Statement?>([..._statements, _initialStatementParser]));
+  void addStatement(String name, Parser<Statement> statement) {
+    _statements[name] = resolve(statement);
+    _statementParser
+        .set(ChoiceParser<Statement?>([..._statements.values, _initialStatementParser]));
   }
 
+  /// Rebuilds the current expression parser
   void rebuildExpressionParser() {
     expressionBuilder = ExpressionBuilder();
     for (var level in _primitiveExpressionLevels) {
@@ -177,6 +180,7 @@ class SlangExtensibleParser extends SlangParser {
     _expressionParser.set(resolve(expressionBuilder.build()));
   }
 
+  /// Add a primitive expression with a priority less than the one with the name [name]
   void addPrimitiveExpressionAfter(String name, PrimitiveExpressionLevel level) {
     final index = _primitiveExpressionLevels.indexWhere((element) => element.name == name);
     if (index == -1) {
@@ -187,6 +191,7 @@ class SlangExtensibleParser extends SlangParser {
     rebuildExpressionParser();
   }
 
+  /// Add a primitive expression with a priority greater than the one with the name [name]
   void addPrimitiveExpressionBefore(String name, PrimitiveExpressionLevel level) {
     final index = _primitiveExpressionLevels.indexWhere((element) => element.name == name);
     if (index == -1) {
@@ -196,12 +201,16 @@ class SlangExtensibleParser extends SlangParser {
     rebuildExpressionParser();
   }
 
+  /// Adds a new primitive expression with the lowest priority
   void addPrimitiveExpression(PrimitiveExpressionLevel level) {
+    _primitiveExpressionLevels.removeWhere((e) => e.name == level.name);
     _primitiveExpressionLevels.add(level);
     rebuildExpressionParser();
   }
 
+  /// Adds a new expression group with lower precedence than the one with the name [name]
   void addExpressionGroupAfter(String name, ExpressionGroupLevel level) {
+    _expressionGroupLevels.removeWhere((e) => e.name == level.name);
     final index = _expressionGroupLevels.indexWhere((element) => element.name == name);
     if (index == -1) {
       throw ArgumentError("Expression group $name not found");
@@ -210,7 +219,9 @@ class SlangExtensibleParser extends SlangParser {
     rebuildExpressionParser();
   }
 
+  /// Adds a new expression group with higher precedence than the one with the name [name]
   void addExpressionGroupBefore(String name, ExpressionGroupLevel level) {
+    _expressionGroupLevels.removeWhere((e) => e.name == level.name);
     final index = _expressionGroupLevels.indexWhere((element) => element.name == name);
     if (index == -1) {
       throw ArgumentError("Expression group $name not found");
@@ -219,8 +230,10 @@ class SlangExtensibleParser extends SlangParser {
     rebuildExpressionParser();
   }
 
+  /// list of all primitive expression names
   List<String> get primitiveExpressionNames =>
       _primitiveExpressionLevels.map((e) => e.name).toList();
 
+  /// list of all expression group names
   List<String> get expressionGroupNames => _expressionGroupLevels.map((e) => e.name).toList();
 }

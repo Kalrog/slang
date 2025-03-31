@@ -4,6 +4,7 @@ import 'package:slang/src/compiler/ast.dart';
 import 'package:slang/src/compiler/ast_converter.dart';
 import 'package:slang/src/compiler/parser/slang_extensible_parser.dart';
 import 'package:slang/src/stdlib/package_lib.dart';
+import 'package:slang/src/util/convension.dart';
 import 'package:slang/src/vm/closure.dart';
 import 'package:slang/src/vm/slang_vm.dart';
 import 'package:slang/src/vm/vm_extension.dart';
@@ -26,9 +27,11 @@ class SlangParserLib {
     "add_expression_group_before": _addExpressionGroupBefore,
     "get_primitive_expression_names": _primitiveExpressionNames,
     "get_expression_group_names": _expressionGroupNames,
+    "identifier": _identifier,
     "expr": _expression,
     "stat": _statement,
     "block": _block,
+    "slang_pattern": _slangPattern,
     "uniq_id": _uniqId,
     "ast_to_string": _astToString,
   };
@@ -47,8 +50,8 @@ class SlangParserLib {
     "ref": _ref,
     "any": _any,
     "star": _star,
-    "starLazy": _starLazy,
-    "starSeperated": _starSeparated,
+    "star_lazy": _starLazy,
+    "star_seperated": _starSeparated,
     "plus": _plus,
     "optional": _optional,
     "pick": _pick,
@@ -207,7 +210,8 @@ class SlangParserLib {
   static bool _starSeparated(SlangVm vm) {
     final parser = vm.getUserdataArg<Parser>(0, name: "parser");
     final seperator = vm.getUserdataArg<Parser>(1, name: "seperator");
-    vm.push(parser.starSeparated(seperator));
+    vm.push(parser.starSeparated(seperator).map((value) => SlangTable.fromMap(
+        {"separators": toSlang(value.separators), "elements": toSlang(value.elements)})));
     _setMetatable(vm, "parser");
     return true;
   }
@@ -321,10 +325,11 @@ class SlangParserLib {
 
   /// Adds a statement to the parser
   static bool _addStatement(SlangVm vm) {
-    final parser = vm.getUserdataArg<Parser>(0, name: "parser");
+    final name = vm.getStringArg(0, name: "name");
+    final parser = vm.getUserdataArg<Parser>(1, name: "parser");
     final vmi = vm as SlangVmImpl;
     final vmparser = vmi.compiler.extensibleParser;
-    vmparser.addStatement(parser.map(decodeAst<Statement>));
+    vmparser.addStatement(name, parser.map(decodeAst<Statement>));
     return false;
   }
 
@@ -375,7 +380,7 @@ class SlangParserLib {
       vm.run();
       final val = vm.toAny(-1);
       vm.pop();
-      return decodeAst<Exp>(val);
+      return decodeAst(val);
     });
     return false;
   }
@@ -498,6 +503,15 @@ class SlangParserLib {
     return true;
   }
 
+  /// Returns a reference to the slang identifier parser
+  static bool _identifier(SlangVm vm) {
+    final vmi = vm as SlangVmImpl;
+    final vmparser = vmi.compiler.extensibleParser;
+    vm.push(ref0(vmparser.identifier).cast<AstNode>().map(astToTable));
+    SlangParserLib._setMetatable(vm, "parser");
+    return true;
+  }
+
   /// Returns a reference to the slang expression parser
   static bool _expression(SlangVm vm) {
     final vmi = vm as SlangVmImpl;
@@ -518,10 +532,24 @@ class SlangParserLib {
 
   /// Returns a reference to the slang block parser
   static bool _block(SlangVm vm) {
+    final brackets = vm.getBoolArg(0, name: "brackets", defaultValue: true);
     final vmi = vm as SlangVmImpl;
     final vmparser = vmi.compiler.extensibleParser;
-    vm.push(ref0(vmparser.block).cast<AstNode>().map(astToTable));
+    if (brackets) {
+      vm.push(ref0(vmparser.block).cast<AstNode>().map(astToTable));
+    } else {
+      vm.push(ref0(vmparser.chunk).cast<AstNode>().map(astToTable));
+    }
     SlangParserLib._setMetatable(vm, "parser");
+    return true;
+  }
+
+  /// Returns a reference to the slang pattern parser
+  static bool _slangPattern(SlangVm vm) {
+    final vmi = vm as SlangVmImpl;
+    final vmparser = vmi.compiler.extensibleParser;
+    vm.push(ref0(vmparser.slangPattern).cast<AstNode>().map(astToTable));
+    _setMetatable(vm, "parser");
     return true;
   }
 

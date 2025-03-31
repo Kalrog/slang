@@ -35,7 +35,7 @@ t.group("metatables"){
             __index: foo,
         }
 
-        if(not let {type: "Bar", bar: 42} = bar){
+        if(not let {bar: 42} = bar){
           assert(false, "should never reach here")
         }
     }
@@ -132,5 +132,4 @@ t.group("metatables"){
       foo.foo = 42
       assert(foo.foo == null, "__newindex works and is called")
     }
-
 }

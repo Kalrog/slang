@@ -422,7 +422,7 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
         //check if the value is not null
         _assembler.emitPush(-1);
         _assembler.emitType();
-        _assembler.emitLoadConstant("table");
+        _assembler.emitLoadConstant(node.type);
         _assembler.emitBinOp('==');
         patternAsm.testMissmatch(missmatchIf: false);
 
@@ -470,7 +470,7 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
   }
 
   @override
-  void visitPatternAssignmentExp(PatternAssignmentExp node, Null arg) {
+  void visitLetExp(LetExp node, Null arg) {
     //push value to stack
 
     final patternAssembler = _assembler.startPattern();

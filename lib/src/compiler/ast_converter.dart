@@ -24,8 +24,8 @@ abstract class AstEncoder<T> extends AstNodeVisitor<T, Null> {
   T visitBinOp(BinOp node, [Null arg]) => encodeNode(node, {
         'type': encodePrimitive(node, 'BinOp'),
         'left': visit(node.left),
-        'right': visit(node.right),
         'op': encodePrimitive(node, node.op),
+        'right': visit(node.right),
       });
 
   @override
@@ -131,8 +131,8 @@ abstract class AstEncoder<T> extends AstNodeVisitor<T, Null> {
   T visitIfStatement(IfStatement node, [Null arg]) => encodeNode(node, {
         'type': encodePrimitive(node, 'If'),
         'condition': visit(node.condition),
-        'then': visit(node.thenBranch),
-        'else': maybeVisit(node.elseBranch),
+        'thenBranch': visit(node.thenBranch),
+        'elseBranch': maybeVisit(node.elseBranch),
       });
 
   @override
@@ -161,8 +161,8 @@ abstract class AstEncoder<T> extends AstNodeVisitor<T, Null> {
       });
 
   @override
-  T visitPatternAssignmentExp(PatternAssignmentExp node, [Null arg]) => encodeNode(node, {
-        'type': encodePrimitive(node, 'PatternAssignment'),
+  T visitLetExp(LetExp node, [Null arg]) => encodeNode(node, {
+        'type': encodePrimitive(node, 'Let'),
         'pattern': visit(node.pattern),
         'right': visit(node.right),
       });
@@ -188,6 +188,7 @@ abstract class AstEncoder<T> extends AstNodeVisitor<T, Null> {
   @override
   T visitTablePattern(TablePattern node, [Null arg]) => encodeNode(node, {
         'type': encodePrimitive(node, 'TablePattern'),
+        'type_check': encodePrimitive(node, node.type),
         'fields': encodeList(node, node.fields.map(visit).toList()),
       });
   @override
@@ -227,12 +228,21 @@ abstract class AstEncoder<T> extends AstNodeVisitor<T, Null> {
 
 class AstToTableLiteral extends AstEncoder<Exp> {
   TableLiteral tableLiteralFromMap(Token? token, Map<String, Exp?> map) {
-    return TableLiteral(
+    final table = TableLiteral(
         token,
         map.entries
             .where((e) => e.value != null)
             .map((e) => Field(token, StringLiteral(token, e.key), e.value!))
             .toList());
+    if (map['type'] != null) {
+      table.fields.add(Field(
+          token,
+          StringLiteral(token, "meta"),
+          TableLiteral(token, [
+            Field(token, StringLiteral(token, "__type"), map['type']!),
+          ])));
+    }
+    return table;
   }
 
   TableLiteral tableLiteralFromList(Token? token, List<Exp> list) {
@@ -282,7 +292,13 @@ class AstToSlangTable extends AstEncoder<dynamic> {
 
   @override
   SlangTable encodeNode(AstNode node, Map<String, dynamic> values) {
-    return SlangTable.fromMap(values);
+    final table = SlangTable.fromMap(values);
+    if (values['type'] != null) {
+      table.metatable = SlangTable.fromMap({
+        '__type': values['type'],
+      });
+    }
+    return table;
   }
 
   @override
@@ -291,7 +307,11 @@ class AstToSlangTable extends AstEncoder<dynamic> {
   }
 }
 
-T decodeAst<T extends AstNode>(dynamic table) {
+T decodeAst<T extends AstNode?>(dynamic table) {
+  if (table == null && null is T) {
+    return null as T;
+  }
+
   final Userdata? tokenUserdata = table['token'];
   final Token? token = tokenUserdata?.value as Token?;
   final ast = table['ast'];
@@ -308,10 +328,14 @@ class SlangTableAstDecoder {
 
   SlangTableAstDecoder(this.token);
 
-  T decode<T extends AstNode>(dynamic table) {
+  T decode<T extends AstNode?>(dynamic table) {
+    if (table == null && null is T) {
+      return null as T;
+    }
     if (table is! SlangTable) {
       throw ArgumentError('Invalid table: $table of type ${table.runtimeType} expected $T');
     }
+
     switch (table['type']) {
       case "Assignment":
         return Assignment(token, decode<Exp>(table['left']), decode<Exp>(table['right'])) as T;
@@ -396,8 +420,8 @@ class SlangTableAstDecoder {
         return IfStatement(
           token,
           decode<Exp>(table['condition']),
-          decode<Statement>(table['then']),
-          maybeDecode<Statement>(table['else']),
+          decode<Statement>(table['thenBranch']),
+          maybeDecode<Statement>(table['elseBranch']),
         ) as T;
       case "Index":
         return Index(
@@ -412,8 +436,8 @@ class SlangTableAstDecoder {
         return Identifier(token, table['value'] as String) as T;
       case "Null":
         return NullLiteral(token) as T;
-      case "PatternAssignment":
-        return PatternAssignmentExp(
+      case "Let":
+        return LetExp(
           token,
           decode<Pattern>(table['pattern']),
           decode<Exp>(table['right']),
@@ -434,6 +458,7 @@ class SlangTableAstDecoder {
         return TablePattern(
           token,
           decodeList<FieldPattern>(table['fields']),
+          type: table['type_check'] as String?,
         ) as T;
       case "True":
         return TrueLiteral(token) as T;
@@ -451,8 +476,9 @@ class SlangTableAstDecoder {
           canBeNull: table['canBeNull'] as bool,
         ) as T;
       case "Quote":
-        throw ArgumentError(
-            'Cannot unquote a quote ast node, this indicates a bug in the compiler, the quote ast node should have been processed before this unquote');
+        return Quote(token, table['ast_type'] as String, decode<AstNode>(table['ast'])) as T;
+      case "Unquote":
+        return Unquote(token, table['ast_type'] as String, decode<AstNode>(table['ast'])) as T;
 
       default:
         throw ArgumentError('Invalid type: ${table['type']}');

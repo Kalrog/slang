@@ -103,6 +103,10 @@ class SlangTable {
   @override
   String toString() {
     StringBuffer sb = StringBuffer();
+    if (metatable?['__type'] is String) {
+      sb.write("'${metatable!['__type']}");
+    }
+
     sb.write('{');
     for (var i = 0; i < _list.length; i++) {
       sb.write('$i: ${_list[i]}, ');

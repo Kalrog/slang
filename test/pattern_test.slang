@@ -64,4 +64,17 @@ test.group("pattern matching",func(){
       assert(false,"should never reach here")
     }
   }
+  test.test("pattern matching with type"){
+    local value = {
+      hello: "world",
+      meta: {
+        __type: "HelloWorld"
+      }
+    }
+    if(let 'HelloWorld{hello:local var} = value){
+      assert(var == "world","pattern should match")
+    }else{
+      assert(false,"should never reach here")
+    }
+  }
 })

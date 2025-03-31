@@ -230,9 +230,9 @@ class SlangParser extends SlangGrammar {
   @override
   Parser forInLoop() => super.forInLoop().labeled("forInLoop").map((values) {
         final token = values[0];
-        final pattern = values[2];
-        final exp = values[4];
-        final body = values[6];
+        final pattern = values[3];
+        final exp = values[5];
+        final body = values[7];
         return ForInLoop(token, pattern, exp, body);
       });
 
@@ -283,9 +283,10 @@ class SlangParser extends SlangGrammar {
 
   @override
   Parser tablePattern() => super.tablePattern().labeled("tablePattern").map((value) {
-        final fields = value[1] as SeparatedList;
+        final Identifier? type = value[0];
+        final fields = value[2] as SeparatedList;
         final values = fields.elements;
-        return TablePattern(value[0], values.cast<FieldPattern>());
+        return TablePattern(value[1], values.cast<FieldPattern>(), type: type?.value);
       });
 
   @override
@@ -293,7 +294,7 @@ class SlangParser extends SlangGrammar {
       super.patternAssignmentExp().labeled("patternAssignmentExp").map((value) {
         final pattern = value[1];
         final exp = value[3];
-        return PatternAssignmentExp(value[0], pattern, exp);
+        return LetExp(value[0], pattern, exp);
       });
 
   @override

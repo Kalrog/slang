@@ -4,7 +4,7 @@ t.group("varargs"){
   t.test("basic function with varargs"){
     local func add(...numbers){
       local sum = 0
-      for(local v in values(numbers)){
+      for(let local v in values(numbers)){
         sum = sum + v
       }
       return sum
@@ -17,7 +17,7 @@ t.group("varargs"){
   t.test("varargs with normal arguments"){
     local func mult_add(a, ...numbers){
       local sum = 0 
-      for(local v in values(numbers)){
+      for(let local v in values(numbers)){
       sum = sum + a * v
       }
       return sum

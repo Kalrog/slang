@@ -2,7 +2,10 @@ import 'dart:io' as io;
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:slang/src/compiler/ast.dart';
+import 'package:slang/src/compiler/ast_converter.dart';
 import 'package:slang/src/compiler/codegen/function_assembler.dart';
+import 'package:slang/src/compiler/codegen/slang_code_generator.dart';
 import 'package:slang/src/compiler/compiler.dart';
 import 'package:slang/src/slang_vm.dart';
 import 'package:slang/src/table.dart';
@@ -68,7 +71,7 @@ class SlangStackFrame {
   /// Returns the current source location of the instruction that is being executed in this stack frame
   /// or null if the closure is null or a dart function
   SourceLocation? get currentInstructionLocation {
-    if (function == null) {
+    if (function == null || function!.sourceLocations.isEmpty) {
       return null;
     }
     var index = 0;
@@ -365,9 +368,16 @@ class SlangVmImpl implements SlangVm {
   void load(dynamic code, {bool repl = false, String origin = "string"}) {
     FunctionPrototype? prototype;
 
+    // slang ast
+    if (code is SlangTable) {
+      final ast = decodeAst<AstNode>(code);
+      prototype = SlangCodeGenerator().generate(ast, origin);
+    }
+    // byte encoded prototype
     if (code is Uint8List) {
       prototype = PrototypeEncoder().decode(code);
     }
+    // function prototype
     if (code is FunctionPrototype) {
       prototype = code;
     }
@@ -482,13 +492,8 @@ class SlangVmImpl implements SlangVm {
 
   @override
   bool getBoolArg(int n, {String? name, bool? defaultValue}) {
-    if (!checkInt(n)) {
-      if (defaultValue != null) {
-        return defaultValue;
-      }
-      throw Exception('Expected bool for ${name ?? n.toString()} got ${_frame[n].runtimeType}');
-    }
-    return toBool(n);
+    final value = _frame[n] ?? defaultValue;
+    return value != false;
   }
 
   @override
@@ -898,6 +903,11 @@ class SlangVmImpl implements SlangVm {
     final type = _getMetafield(value, "__type");
     if (type != null) {
       _frame.push(type);
+      if (type is Closure) {
+        _frame.push(value);
+        call(1);
+        run();
+      }
       return;
     }
 
@@ -1010,7 +1020,7 @@ class SlangVmImpl implements SlangVm {
       final proto = closure.prototype!;
       final nargs = proto.isVarArg ? proto.nargs - 1 : proto.nargs;
       final extraArgs = SlangTable();
-      final normalArgs = args.sublist(0, nargs);
+      final normalArgs = args.sublist(0, min(nargs, args.length));
       // for (final (index, arg) in args.indexed) {
       //   if (index < nargs) {
       //     _frame.push(arg);

@@ -36,13 +36,13 @@ func group.run(self){
     print(indentStr(),"Group: ",self.name,"\\n")
     indent = indent + 1
   }
-  for (local child in values(self.children)) {
-    for (local setup in values(self.setups)) {
+  for (let local child in values(self.children)) {
+    for (let local setup in values(self.setups)) {
       setup()
     }
     pcall(child.run,child)
 
-    for (local teardown in values(self.teardowns)) {
+    for (let local teardown in values(self.teardowns)) {
       teardown()
     }
   }
@@ -54,7 +54,7 @@ func group.run(self){
 func group.count(self) {
   local succeded = 0
   local failed = 0
-  for (local child in values(self.children)) {
+  for (let local child in values(self.children)) {
     local count = child:count()
     succeded = succeded + count[0]
     failed = failed + count[1]

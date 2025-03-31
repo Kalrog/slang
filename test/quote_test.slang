@@ -15,6 +15,14 @@ t.group("quote"){
     assert(stat.left.type == "Identifier");
     assert(stat.left.value == "x");
     assert(stat.right.type == "BinOp");
+    assert(let 'Declaration{
+      is_local:true,
+      left:'Identifier{value:"x"},
+      right:'BinOp{
+        left:'Int{value:2},
+        op:"+",
+        right:'Int{value:2}
+      }} = stat);
   }
   t.test("quote block"){
     local block = +{block:
@@ -74,6 +82,7 @@ t.group("quote"){
       -{block:
         local p = require("slang/parser")
         p.add_statement(
+          "unless",
           p.seq(
             p.keyword("unless"),
             p.token("("),
@@ -173,5 +182,45 @@ t.group("quote"){
     ""","add infix <> for string concatenation")
     run()
     assert(result == "hello world", "result should be hello world")
+  }
+  t.test("add lambda shorthand |x| "){
+    result = func(){return 0}
+    resultAst = nil
+    local run = compile("""
+    -{block:
+      local p = require("slang/parser")
+      p.add_primitive_expression(
+        "lambda",
+        p.seq(
+          p.token("|"),
+          p.identifier():star_seperated(p.token(",")):map(func(values){
+            return values.elements
+          }),
+          p.token("|"),
+          p.expr()
+        ):map(func(results){
+          local params = results[1]
+          local expression = results[3]
+          return {
+            token:results[0],
+            ast: {
+              type: "Function", 
+              params:params,
+              body:+{block:return -{expression}}
+            }
+          }
+        })
+      );
+      print("ran add lambda shorthand")
+    } 
+    result = |x| x+1
+    resultAst = +{|x| x+1}
+    """)
+    run()
+    assert(result(1) == 2, "result should be 2")
+    print(resultAst)
+    equivalent = +{func(x){return x+1}}
+    assert(resultAst == equivalent, "resultAst should be equivalent to long form")
+    
   }
 }

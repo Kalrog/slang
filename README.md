@@ -132,12 +132,12 @@ if (let {name: name, age: 30} = patient) {
 }
 // can be used in for loops
 patients = [{name: "John", age: 30}, {name: "Jane", age: 40}]
-for({name: local name, age: local age} in values(patients)) {
+for(let {name: local name, age: local age} in values(patients)) {
     print(name, "is", age, "years old")
 }
 // loops stop when they encounter a value that does not match the pattern
 patients = [{name: "John", age: 30}, {name: "Jane", age: 40}{name: "John", age: 45},]
-for({name: "John", age: local age} in values(patients)) {
+for(let {name: "John", age: local age} in values(patients)) {
     print(name, "is", age, "years old") // Would only print once
 }
 ```
@@ -185,10 +185,10 @@ a = run{
 - [ ] user data (like in lua)
 - [ ] bitwise operators
 - [ ] break/continue
-- [ ] metaprogramming
-    - [ ] macros?
+- [x] metaprogramming
+    - [x] macros?
     - [ ] reflection (for functions)
-    - [ ] manipulate AST, add to grammar
+    - [x] manipulate AST, add to grammar
 - [ ] add static typing
     - [ ] struct types
     - [ ] function types

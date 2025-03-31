@@ -99,7 +99,7 @@ switch(somevalue){
 This example is missing the actual implementation of the switch statement, which would be done by mapping the results of the parser to an ast that the basic interpreter can understand.
 For example:
 ``` slang
-for(local value in list){
+for(let local value in list){
   print(value);
 }
 ```

@@ -171,7 +171,7 @@ func run(rfunc){
   }
 
   static bool _load(SlangVm vm) {
-    final code = vm.toAny(0) as String;
+    final code = vm.toAny(0);
     final origin = vm.getTop() > 1 ? vm.toString2(1) : "string";
     vm.load(code, origin: origin);
     return true;

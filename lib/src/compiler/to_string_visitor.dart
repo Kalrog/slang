@@ -293,7 +293,7 @@ class ToStringVisitor extends AstNodeVisitor<void, Null> {
   }
 
   @override
-  void visitPatternAssignmentExp(PatternAssignmentExp node, Null arg) {
+  void visitLetExp(LetExp node, Null arg) {
     visit(node.right);
     _append(' => ');
     visit(node.pattern);

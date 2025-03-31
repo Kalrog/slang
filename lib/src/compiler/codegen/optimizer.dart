@@ -251,7 +251,7 @@ class SlangConstantExpressionOptimizer extends AstNodeVisitor<AstNode, Null> {
   }
 
   @override
-  AstNode visitPatternAssignmentExp(PatternAssignmentExp node, Null arg) {
+  AstNode visitLetExp(LetExp node, Null arg) {
     return node;
   }
 

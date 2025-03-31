@@ -40,7 +40,7 @@ abstract class AstNodeVisitor<T, A> {
   T visitUnOp(UnOp node, A arg);
   T visitFunctionExpression(FunctionExpression node, A arg);
   T visitFunctionCall(FunctionCall node, A arg);
-  T visitPatternAssignmentExp(PatternAssignmentExp node, A arg);
+  T visitLetExp(LetExp node, A arg);
 
   T visitBlock(Block node, A arg);
   T visitFunctionStatement(FunctionCallStatement node, A arg);
@@ -385,8 +385,9 @@ class VarPattern extends Pattern {
 }
 
 class TablePattern extends Pattern {
+  final String type;
   final List<FieldPattern> fields;
-  TablePattern(super.token, this.fields);
+  TablePattern(super.token, this.fields, {String? type}) : type = type ?? "table";
 
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
@@ -421,15 +422,15 @@ class ConstPattern extends Pattern {
   }
 }
 
-class PatternAssignmentExp extends Exp {
+class LetExp extends Exp {
   final Exp right;
   final Pattern pattern;
 
-  PatternAssignmentExp(super.token, this.pattern, this.right);
+  LetExp(super.token, this.pattern, this.right);
 
   @override
   T accept<T, A>(AstNodeVisitor visitor, A arg) {
-    return visitor.visitPatternAssignmentExp(this, arg);
+    return visitor.visitLetExp(this, arg);
   }
 }
 

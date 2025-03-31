@@ -11,7 +11,7 @@ test.group("for in loop", func(){
 
     local current = 1;
 
-    for(v in values(testTable)){
+    for (let v in values(testTable)){
       assert(v == current, "value is not equal to current")
       current = current + 1
     }
@@ -25,7 +25,7 @@ test.group("for in loop", func(){
     }
     local current = 0;
 
-    for ({name: "John"} in values(testTable)){
+    for (let {name: "John"} in values(testTable)){
       assert(current == 0, "only one itteration should happen")
       current = current + 1
     }
@@ -38,7 +38,7 @@ test.group("for in loop", func(){
       bananas: 15,
     }
 
-    for ({local key, local value} in entries(shoppingList)){
+    for (let {local key, local value} in entries(shoppingList)){
       assert(shoppingList[key] == value, "value is not equal to current")
     }
   }

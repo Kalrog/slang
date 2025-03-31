@@ -40,7 +40,7 @@ void main() {
     func graph.dijkstra(graph, start){
       local dist = {};
       local prev = {};
-      for(local node in keys(graph.nodes)){
+      for(let local node in keys(graph.nodes)){
         dist[node] = 100000000;
         prev[node] = null;
       }
@@ -48,7 +48,7 @@ void main() {
       queue_insert(start, 0);
       for(len(queue) > 0){
         local node = queue_pop();
-        for(local connection in values(graph.nodes[node])){
+        for(let local connection in values(graph.nodes[node])){
           local alt = dist[node] + connection[2];
           local other;
           if(connection[1] == node){

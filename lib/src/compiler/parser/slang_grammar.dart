@@ -180,6 +180,7 @@ abstract class SlangGrammar extends GrammarDefinition {
   Parser forInLoop() =>
       ref1(token, 'for') &
       ref1(token, '(') &
+      ref1(token, 'let') &
       ref0(slangPattern) &
       ref1(token, 'in') &
       ref0(expr) &
@@ -222,7 +223,10 @@ abstract class SlangGrammar extends GrammarDefinition {
   Parser slangPattern() => ref0(tablePattern) | ref0(constPattern) | ref0(varPattern);
 
   Parser tablePattern() =>
-      ref1(token, '{') & ref0(fieldPattern).starSeparated(ref1(token, ',')) & ref1(token, '}');
+      (ref1(token, "'") & ref0(identifier)).pick(1).optional() &
+      ref1(token, '{') &
+      ref0(fieldPattern).starSeparated(ref1(token, ',')) &
+      ref1(token, '}');
 
   Parser fieldPattern() =>
       ((ref0(identifier) & ref1(token, ':')).pick(0) |
@@ -304,7 +308,7 @@ abstract class SlangGrammar extends GrammarDefinition {
               if (result == null) {
                 return context.success(NullLiteral(ast.token), context.position + token.length);
               }
-              final outAst = SlangTableAstDecoder(token).decode(result);
+              final outAst = decodeAst<Statement?>(result);
               return context.success(outAst, context.position + token.length);
             }
           }) &

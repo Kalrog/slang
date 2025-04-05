@@ -1,13 +1,13 @@
 local p = require("slang/parser")
 
 local switch_statement = {}
-local case = {}
+local case_block = {}
 
-func switch_statement.new(token,value, cases){
+func switch_statement.new(token,value, case_blocks){
   local obj = {
     token: token,
     value: value,
-    cases: cases,
+    case_blocks: cases,
     meta: {
       __index: switch_statement
     }
@@ -18,8 +18,8 @@ func switch_statement.new(token,value, cases){
 func switch_statement.build(self){
   local current = {}
   local result = current
-  for(let local case in values(self.cases)){
-    local ast = case:build(self.value)
+  for(let local case_block in values(self.cases)){
+    local ast = case_block:build(self.value)
     current.elseBranch = ast
     current = ast
   }
@@ -33,40 +33,40 @@ func switch_statement.parser(){
     p.expr(),
     p.token(")"),
     p.token("{"),
-    case.parser():star(),
+    case_block.parser():star(),
     p.token("}")
   ):map(func(result){
     return switch_statement.new(result[0],result[2],result[5])
   })
 }
 
-func case.new(token,pattern,body){
+func case_block.new(token,pattern,body){
   local obj = {
     token: token,
     pattern: pattern,
     body: body,
     meta: {
-      __index: case
+      __index: case_block
     }
   }
   return obj
 }
 
-func case.build(self,value){
+func case_block.build(self,value){
   return +{stat:
     if(-{{type:"Let",pattern:self.pattern,right:value}})
     -{self.body}
   } 
 }
 
-func case.parser(){
+func case_block.parser(){
   return p.seq(
     p.keyword("case"),
     p.slang_pattern(),
     p.token(":"),
     p.block(false)
   ):map(func(result){
-    return case.new(result[0],result[1],result[3])
+    return case_block.new(result[0],result[1],result[3])
   })
 }
 

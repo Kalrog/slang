@@ -480,7 +480,11 @@ class SlangVmImpl implements SlangVm {
       case UnOpType.neg:
         _frame.push(-a);
       case UnOpType.not:
-        _frame.push(!a);
+        if (a is bool) {
+          _frame.push(!a);
+        } else {
+          _frame.push((a == null || a == false));
+        }
     }
   }
 
@@ -896,6 +900,7 @@ class SlangVmImpl implements SlangVm {
   @override
   void type() {
     final value = _frame.pop();
+    // print(value + " is " + value.runtimeType);
     if (value == null) {
       _frame.push("null");
       return;
@@ -1008,7 +1013,7 @@ class SlangVmImpl implements SlangVm {
     final closure = _frame.pop();
     if (closure is! Closure) {
       debug.printStack();
-      throw Exception('Expected Closure got $closure');
+      throw Exception('Expected Closure got $closure ${closure.runtimeType} $args');
     }
     _pushStack(closure);
 

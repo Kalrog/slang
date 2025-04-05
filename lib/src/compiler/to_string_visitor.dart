@@ -153,6 +153,10 @@ class ToStringVisitor extends AstNodeVisitor<void, Null> {
   @override
   void visitFunctionCall(FunctionCall node, [Null arg]) {
     visit(node.function);
+    if (node.name != null) {
+      _append(':');
+      _append(node.name!.value);
+    }
     _append('(');
     for (var arg in node.args) {
       visit(arg);
@@ -268,14 +272,10 @@ class ToStringVisitor extends AstNodeVisitor<void, Null> {
   @override
   void visitTablePattern(TablePattern node, Null arg) {
     _append('{');
-    _increaseIndent();
     for (var field in node.fields) {
-      _newLine();
       visit(field);
       _append(',');
     }
-    _decreaseIndent();
-    _newLine();
     _append('}');
   }
 
@@ -294,9 +294,10 @@ class ToStringVisitor extends AstNodeVisitor<void, Null> {
 
   @override
   void visitLetExp(LetExp node, Null arg) {
-    visit(node.right);
-    _append(' => ');
+    _append('let ');
     visit(node.pattern);
+    _append(' = ');
+    visit(node.right);
   }
 
   @override
@@ -306,7 +307,7 @@ class ToStringVisitor extends AstNodeVisitor<void, Null> {
 
   @override
   void visitQuote(Quote quote, Null arg) {
-    _append('+');
+    _append('quote');
     _append('{');
     _append(quote.type);
     _append(':');
@@ -316,7 +317,7 @@ class ToStringVisitor extends AstNodeVisitor<void, Null> {
 
   @override
   void visitUnquote(Unquote node, Null arg) {
-    _append('-');
+    _append('unquote');
     _append('{');
     _append(node.type);
     _append(':');

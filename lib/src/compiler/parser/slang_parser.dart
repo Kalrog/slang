@@ -27,7 +27,7 @@ class SlangParser extends SlangGrammar {
     expressionBuilder.primitive(ref0(falseLiteral).cast<Exp>());
     expressionBuilder.primitive(ref0(nullLiteral).cast<Exp>());
     expressionBuilder.primitive(ref0(patternAssignmentExp).cast<Exp>());
-    expressionBuilder.primitive(ref0(listLiteral).cast<Exp>());
+    expressionBuilder.primitive(ref0(tableLiteral).cast<Exp>());
     expressionBuilder.primitive(ref0(functionExpression).cast<Exp>());
     // expressionBuilder.primitive(ref0(prefixExpr).cast<Exp>());
     expressionBuilder
@@ -159,8 +159,8 @@ class SlangParser extends SlangGrammar {
       });
 
   @override
-  Parser listLiteral() => super
-      .listLiteral()
+  Parser tableLiteral() => super
+      .tableLiteral()
       .castList<Field>()
       .token()
       .map((token) => TableLiteral(token, token.value));

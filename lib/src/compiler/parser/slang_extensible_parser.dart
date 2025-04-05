@@ -1,4 +1,5 @@
 import 'package:meta/meta.dart';
+import 'package:petitparser/debug.dart';
 import 'package:petitparser/petitparser.dart';
 import 'package:slang/src/compiler/ast.dart';
 import 'package:slang/src/compiler/parser/slang_parser.dart';
@@ -42,10 +43,12 @@ class ExpressionGroupLevel {
 }
 
 class PrimitiveExpressionLevel {
+  static const _trace = [];
   final String name;
   final Parser parser;
 
-  PrimitiveExpressionLevel(this.name, this.parser);
+  PrimitiveExpressionLevel(this.name, Parser parser)
+      : parser = _trace.contains(name) ? trace(parser) : parser;
 }
 
 /// Slang parser with options to extend the existing grammar
@@ -61,7 +64,7 @@ class SlangExtensibleParser extends SlangParser {
     PrimitiveExpressionLevel("falseLiteral", ref0(falseLiteral)),
     PrimitiveExpressionLevel("nullLiteral", ref0(nullLiteral)),
     PrimitiveExpressionLevel("patternAssignmentExp", ref0(patternAssignmentExp)),
-    PrimitiveExpressionLevel("listLiteral", ref0(listLiteral)),
+    PrimitiveExpressionLevel("listLiteral", ref0(tableLiteral)),
     PrimitiveExpressionLevel("functionExpression", ref0(functionExpression)),
   ];
   late final List<ExpressionGroupLevel> _expressionGroupLevels = [

@@ -43,6 +43,19 @@ class Upvalue {
       'isLocal': isLocal,
     };
   }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is Upvalue) {
+      return name == other.name && index == other.index && isLocal == other.isLocal;
+    }
+    return false;
+  }
+
+  @override
+  int get hashCode {
+    return Object.hash(name, index, isLocal);
+  }
 }
 
 /// Prototype for a function.
@@ -184,6 +197,27 @@ class FunctionPrototype {
     }
 
     return sb.toString();
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is FunctionPrototype) {
+      return instructions == other.instructions &&
+          sourceLocations == other.sourceLocations &&
+          constants == other.constants &&
+          upvalues == other.upvalues &&
+          children == other.children &&
+          maxVarStackSize == other.maxVarStackSize &&
+          isVarArg == other.isVarArg &&
+          nargs == other.nargs;
+    }
+    return false;
+  }
+
+  @override
+  int get hashCode {
+    return Object.hash(instructions, sourceLocations, constants, upvalues, children,
+        maxVarStackSize, isVarArg, nargs);
   }
 }
 

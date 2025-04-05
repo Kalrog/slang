@@ -328,6 +328,10 @@ class SlangTableAstDecoder {
 
   SlangTableAstDecoder(this.token);
 
+  /// Decodes a SlangTable into an AST node of type T.
+  ///
+  /// [table] The SlangTable to decode
+  /// Returns an AST node of type T
   T decode<T extends AstNode?>(dynamic table) {
     if (table == null && null is T) {
       return null as T;
@@ -481,7 +485,7 @@ class SlangTableAstDecoder {
         return Unquote(token, table['ast_type'] as String, decode<AstNode>(table['ast'])) as T;
 
       default:
-        throw ArgumentError('Invalid type: ${table['type']}');
+        throw ArgumentError('Invalid type: ${table['type']} value: $table');
     }
   }
 

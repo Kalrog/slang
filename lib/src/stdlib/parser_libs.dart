@@ -10,6 +10,66 @@ import 'package:slang/src/vm/slang_vm.dart';
 import 'package:slang/src/vm/vm_extension.dart';
 import 'package:uuid/uuid.dart';
 
+Never _throwUnsupported() => throw UnsupportedError('Unsupported operation on parser reference');
+
+class SlangReferenceParser<R> extends Parser<R> implements ResolvableParser<R> {
+  SlangReferenceParser(this.vm, this.closure, this.arguments);
+
+  final SlangVm vm;
+  final Closure closure;
+  final List<dynamic> arguments;
+
+  @override
+  Parser<R> resolve() {
+    vm.push(closure);
+    for (var arg in arguments) {
+      vm.push(arg);
+    }
+    vm.call(arguments.length);
+    vm.run();
+    final val = vm.toUserdata<Parser>(-1);
+    vm.pop();
+    return val as Parser<R>;
+  }
+
+  @override
+  Result<R> parseOn(Context context) => _throwUnsupported();
+
+  @override
+  SlangReferenceParser<R> copy() => _throwUnsupported();
+
+  @override
+  bool operator ==(Object other) {
+    if (other is SlangReferenceParser) {
+      if (closure != other.closure || arguments.length != other.arguments.length) {
+        return false;
+      }
+      for (var i = 0; i < arguments.length; i++) {
+        final a = arguments[i], b = other.arguments[i];
+        if (a is Parser &&
+            a is! SlangReferenceParser &&
+            b is Parser &&
+            b is! SlangReferenceParser) {
+          // for parsers do a deep equality check
+          if (!a.isEqualTo(b)) {
+            return false;
+          }
+        } else {
+          // for everything else just do standard equality
+          if (a != b) {
+            return false;
+          }
+        }
+      }
+      return true;
+    }
+    return false;
+  }
+
+  @override
+  int get hashCode => closure.hashCode;
+}
+
 /// Parser library for slang
 ///
 /// This library provides slang bindings for the petit parser library.
@@ -32,8 +92,10 @@ class SlangParserLib {
     "stat": _statement,
     "block": _block,
     "slang_pattern": _slangPattern,
+    "table_literal": _tableLiteral,
     "uniq_id": _uniqId,
     "ast_to_string": _astToString,
+    "resolve": _resolve,
   };
 
   /// Parser methods
@@ -53,8 +115,11 @@ class SlangParserLib {
     "star_lazy": _starLazy,
     "star_seperated": _starSeparated,
     "plus": _plus,
+    "plus_seperated": _plusSeparated,
     "optional": _optional,
+    "forbid": _not,
     "pick": _pick,
+    "permute": _permute,
     "map": _map,
     "flatten": _flatten,
     "end": _end,
@@ -148,6 +213,18 @@ class SlangParserLib {
     return true;
   }
 
+  // static Parser _parserFuncWrapper(SlangVm vm, Closure func, List<dynamic> args) {
+  //   vm.push(func);
+  //   for (var arg in args) {
+  //     vm.push(arg);
+  //   }
+  //   vm.call(args.length);
+  //   vm.run();
+  //   final val = vm.toUserdata<Parser>(-1);
+  //   vm.pop();
+  //   return val;
+  // }
+
   /// Creates a reference to a parser that is created later by
   /// calling the given function
   static bool _ref(SlangVm vm) {
@@ -156,19 +233,8 @@ class SlangParserLib {
     for (var i = 1; i < vm.getTop(); i++) {
       args.add(vm.toAny(i));
     }
-    dartFunc(vm, args) {
-      vm.push(func);
-      for (var arg in args) {
-        vm.push(arg);
-      }
-      vm.call(args.length);
-      vm.run();
-      final val = vm.toAny(-1);
-      vm.pop();
-      return val;
-    }
 
-    vm.push(ref(dartFunc, vm, args));
+    vm.push(SlangReferenceParser(vm, func, args));
     _setMetatable(vm, "parser");
     return true;
   }
@@ -216,10 +282,29 @@ class SlangParserLib {
     return true;
   }
 
+  /// Creates a parser that matches one or more of the given parser
+  /// seperated by the given parser
+  static bool _plusSeparated(SlangVm vm) {
+    final parser = vm.getUserdataArg<Parser>(0, name: "parser");
+    final seperator = vm.getUserdataArg<Parser>(1, name: "seperator");
+    vm.push(parser.plusSeparated(seperator).map((value) => SlangTable.fromMap(
+        {"separators": toSlang(value.separators), "elements": toSlang(value.elements)})));
+    _setMetatable(vm, "parser");
+    return true;
+  }
+
   /// Creates a parser that matches zero or one of the given parser
   static bool _optional(SlangVm vm) {
     final parser = vm.getUserdataArg<Parser>(0, name: "parser");
     vm.push(parser.optional());
+    _setMetatable(vm, "parser");
+    return true;
+  }
+
+  /// Creates a parser that matches the negation of the given parser
+  static bool _not(SlangVm vm) {
+    final parser = vm.getUserdataArg<Parser>(0, name: "parser");
+    vm.push(parser.not());
     _setMetatable(vm, "parser");
     return true;
   }
@@ -229,6 +314,17 @@ class SlangParserLib {
     final parser = vm.getUserdataArg<Parser>(0, name: "parser");
 
     vm.push(parser.cast<List>().pick(vm.getIntArg(1, name: "index")));
+    _setMetatable(vm, "parser");
+    return true;
+  }
+
+  static bool _permute(SlangVm vm) {
+    final parser = vm.getUserdataArg<Parser>(0, name: "parser");
+    final indices = <int>[];
+    for (var i = 1; i < vm.getTop(); i++) {
+      indices.add(vm.getIntArg(i, name: "index"));
+    }
+    vm.push(parser.cast<List>().permute(indices));
     _setMetatable(vm, "parser");
     return true;
   }
@@ -261,7 +357,7 @@ class SlangParserLib {
     } else {
       vm.push("error");
       vm.setField(-2, 0);
-      vm.push(result.message);
+      vm.push("${result.message} at ${result.toPositionString()}");
       vm.setField(-2, 1);
     }
     return true;
@@ -289,7 +385,7 @@ class SlangParserLib {
   /// Creates a parser that flattens the result of the given parser
   /// into a single string
   static bool _flatten(SlangVm vm) {
-    final parser = vm.getUserdataArg<Parser<List>>(0, name: "parser");
+    final parser = vm.getUserdataArg<Parser>(0, name: "parser");
     vm.push(parser.flatten());
     _setMetatable(vm, "parser");
     return true;
@@ -339,7 +435,9 @@ class SlangParserLib {
     final parser = vm.getUserdataArg<Parser>(1, name: "parser");
     final vmi = vm as SlangVmImpl;
     final vmparser = vmi.compiler.extensibleParser;
-    vmparser.addPrimitiveExpression(PrimitiveExpressionLevel(name, parser.map(decodeAst<Exp>)));
+
+    vmparser.addPrimitiveExpression(
+        PrimitiveExpressionLevel(name, resolve(parser.map(decodeAst<Exp>))));
     return false;
   }
 
@@ -553,6 +651,15 @@ class SlangParserLib {
     return true;
   }
 
+  /// Returns a reference to the slang table literal parser
+  static bool _tableLiteral(SlangVm vm) {
+    final vmi = vm as SlangVmImpl;
+    final vmparser = vmi.compiler.extensibleParser;
+    vm.push(ref0(vmparser.tableLiteral).cast<AstNode>().map(astToTable));
+    _setMetatable(vm, "parser");
+    return true;
+  }
+
   /// Returns a guaranteed unique identifier
   static bool _uniqId(SlangVm vm) {
     final uuid = Uuid().v4().toString();
@@ -569,6 +676,15 @@ class SlangParserLib {
     } else {
       vm.push(decodeAst(ast).toString());
     }
+    return true;
+  }
+
+  /// resolve(parser)
+  /// Resolves the given parser, any references within the parser are resolved
+  static bool _resolve(SlangVm vm) {
+    final parser = vm.getUserdataArg<Parser>(0, name: "parser");
+    vm.push(resolve(parser));
+    _setMetatable(vm, "parser");
     return true;
   }
 

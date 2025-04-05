@@ -95,6 +95,19 @@ class SourceLocationInfo {
       'location': location.toJson(),
     };
   }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is SourceLocationInfo) {
+      return firstInstruction == other.firstInstruction && location == other.location;
+    }
+    return false;
+  }
+
+  @override
+  int get hashCode {
+    return Object.hash(firstInstruction, location);
+  }
 }
 
 class Scope {

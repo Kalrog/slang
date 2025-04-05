@@ -14,7 +14,7 @@ t.group("parser lib"){
     local result = parser:parse("world")
     print(result,"\n")
     assert(result[0] == "error", "result should be error")
-    assert(result[1] == "\"hello\" expected", "result should be \"hello\" expected")
+    assert(result[1] == "\"hello\" expected at 1:1", "result should be \"hello\" expected at 1:1")
   }
   t.test("map"){
     local parser = p.pattern("0-9"):star():flatten():map(func(str){

@@ -131,11 +131,13 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
   void visitDeclaration(Declaration node, Null arg) {
     switch (node.left) {
       case Identifier(:final token, :final value):
-        if (node.isLocal) {
-          if (_assembler.getLocalVar(value) != null) {
+        if (node.isLocal || _assembler.getLocalVar(value) != null) {
+          if (node.isLocal && _assembler.getLocalVar(value) != null) {
             throw Exception('Variable already declared: $value ${token?.line}:${token?.column}');
           }
-          _assembler.createLocalVar(value);
+          if (_assembler.getLocalVar(value) == null) {
+            _assembler.createLocalVar(value);
+          }
           var localVar = _assembler.getLocalVar(value);
           if (node.right != null) {
             visit(node.right!);

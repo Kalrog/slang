@@ -86,7 +86,7 @@ abstract class SlangGrammar extends GrammarDefinition {
 
   Parser nullLiteral() => ref1(token, 'null');
 
-  Parser listLiteral() {
+  Parser tableLiteral() {
     return (ref1(token, '{') &
             ref0(field).starSeparated(ref1(token, ',')) &
             ref1(token, ',').optional() &
@@ -318,6 +318,6 @@ abstract class SlangGrammar extends GrammarDefinition {
   Parser quoteBody() =>
       (ref1(token, 'id') & ref1(token, ':') & ref0(identifier)) |
       (ref1(token, 'block') & ref1(token, ':') & ref0(chunk)) |
-      (ref1(token, 'stat') & ref1(token, ':') & ref0(statement)) |
+      (ref1(token, 'stat') & ref1(token, ':') & (ref0(statement) | ref0(finalStatement))) |
       ((ref1(token, 'expr') & ref1(token, ':')).optional() & ref0(expr));
 }

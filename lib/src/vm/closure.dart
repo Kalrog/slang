@@ -100,6 +100,19 @@ class Closure {
       return 'Closure{prototype}';
     }
   }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is Closure) {
+      return prototype == other.prototype && dartFunction == other.dartFunction;
+    }
+    return false;
+  }
+
+  @override
+  int get hashCode {
+    return Object.hash(prototype, dartFunction);
+  }
 }
 
 class SlangArgumentCountError {

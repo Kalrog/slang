@@ -182,13 +182,16 @@ a = run{
 - [x] multitasking
     - [x] cooperative (coroutines,yield,resume)
     - [x] preemptive (threads,atomic,semaphores,channels)
-- [ ] user data (like in lua)
+- [x] user data (like in lua)
 - [ ] bitwise operators
-- [ ] break/continue
+- [-] break/continue
 - [x] metaprogramming
     - [x] macros?
     - [ ] reflection (for functions)
     - [x] manipulate AST, add to grammar
+    - [x] extensions (compile time code to modify the Compiler/Parser)
+    - [ ] custom ast nodes and visitors
+    - [ ] bytecode generation (generate byte code in the language itself?)
 - [ ] add static typing
     - [ ] struct types
     - [ ] function types

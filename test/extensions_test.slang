@@ -86,5 +86,45 @@ switch(value){
 assert(ran == true, "ran should be true")
 ""","switch test")()
   }
+  t.test("table type"){
+    compile(
+"""
+-{block:require("extensions/table_type")}
+
+local table = 'Person{name: "bob", age: 20}
+assert(table.name == "bob", "table.name should be bob")
+assert(table.age == 20, "table.age should be 20")
+assert(type(table) == "Person", "table should be a Person")
+""","table type")()
+  }
+  t.test("parser syntax"){
+    compile(
+"""
+-{block:require("extensions/parser_syntax")}
+local p = require("slang/parser")
+
+local c_struct = parser{
+  start -> struct_def
+  struct_def -> ("struct" identifier "{" field* "}") P(name:1,fields:3)
+  field -> (type identifier ";") P(type:0,name:1)
+  type -> primitive_type (array| pointer)*
+  primitive_type -> "int" | "float" | "char" | "bool" | "void"
+  array -> ("[" integer "]") P(index:1)
+  pointer -> "*"
+  integer -> [0-9]+_
+  identifier -> ([a-zA-Z_][a-zA-Z0-9_]*)_
+}
+
+print(c_struct:parse(\"\"\"
+struct car{
+  int id;
+  char* name;
+  float price;
+  bool is_sold;
+  int*[5]  parts;
+}
+\"\"\"))
+""","parser_syntax")()
+  }
 }
 

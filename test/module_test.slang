@@ -1,8 +1,10 @@
 local t = require("slang/test")
 local mod = require("test/test_module")
 
+
 t.group("modules"){
 
+  print(mod)
   t.test("can export functions") {
     assert(mod.returnTrue(),"returnTrue should return true")
     assert(mod.add(1,2) == 3,"add should return 3")

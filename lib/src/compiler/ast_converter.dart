@@ -308,17 +308,22 @@ class AstToSlangTable extends AstEncoder<dynamic> {
 }
 
 T decodeAst<T extends AstNode?>(dynamic table) {
-  if (table == null && null is T) {
-    return null as T;
-  }
+  try {
+    if (table == null && null is T) {
+      return null as T;
+    }
 
-  final Userdata? tokenUserdata = table['token'];
-  final Token? token = tokenUserdata?.value as Token?;
-  final ast = table['ast'];
-  if (ast == null) {
-    return SlangTableAstDecoder(token).decode<T>(table);
+    final Userdata? tokenUserdata = table['token'];
+    final Token? token = tokenUserdata?.value as Token?;
+    final ast = table['ast'];
+    if (ast == null) {
+      return SlangTableAstDecoder(token).decode<T>(table);
+    }
+    return SlangTableAstDecoder(token).decode<T>(table['ast']);
+  } catch (e) {
+    print("Failed to decode $table as AST:\n $e");
+    rethrow;
   }
-  return SlangTableAstDecoder(token).decode<T>(table['ast']);
 }
 
 class SlangTableAstDecoder {

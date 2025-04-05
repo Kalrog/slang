@@ -1,5 +1,4 @@
 local p = require("slang/parser")
-
 local switch_statement = {}
 local case_block = {}
 
@@ -7,7 +6,7 @@ func switch_statement.new(token,value, case_blocks){
   local obj = {
     token: token,
     value: value,
-    case_blocks: cases,
+    case_blocks: case_blocks,
     meta: {
       __index: switch_statement
     }
@@ -18,12 +17,15 @@ func switch_statement.new(token,value, case_blocks){
 func switch_statement.build(self){
   local current = {}
   local result = current
-  for(let local case_block in values(self.cases)){
-    local ast = case_block:build(self.value)
+  for(let local c in values(self.case_blocks)){
+    local ast = c:build(self.value)
     current.elseBranch = ast
     current = ast
   }
-  return result.elseBranch
+  return {
+    token: self.token,
+    ast: result.elseBranch
+  }
 }
 
 func switch_statement.parser(){
@@ -72,7 +74,7 @@ func case_block.parser(){
 
 p.add_statement(
   "switch",
-  switch_statement.parser():map(func (switch){
-    return switch:build();
+  switch_statement.parser():map(func (result){
+    return result:build();
   })
 )

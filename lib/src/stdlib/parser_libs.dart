@@ -2,7 +2,7 @@ import 'package:petitparser/petitparser.dart';
 import 'package:slang/slang.dart';
 import 'package:slang/src/compiler/ast.dart';
 import 'package:slang/src/compiler/ast_converter.dart';
-import 'package:slang/src/compiler/parser/slang_extensible_parser.dart';
+import 'package:slang/src/compiler/parser/slang_parser.dart';
 import 'package:slang/src/stdlib/package_lib.dart';
 import 'package:slang/src/util/convension.dart';
 import 'package:slang/src/vm/closure.dart';

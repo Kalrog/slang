@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:slang/src/slang_vm.dart';
+import 'package:slang/slang.dart';
 
 class SlangPackageLib {
   static Map<String, DartFunction> functions = {
@@ -25,6 +25,8 @@ class SlangPackageLib {
         vm.call(1);
         vm.run();
         if (!vm.checkNull(-1)) {
+          vm.push(1);
+          vm.getTable();
           return true;
         }
         vm.pop();
@@ -74,6 +76,15 @@ class SlangPackageLib {
         vm.load(code, origin: packageName);
         vm.call(0);
         vm.run();
+        vm.newTable();
+        vm.pushStack(-1);
+        vm.push(0);
+        vm.push(true);
+        vm.setTable();
+        vm.pushStack(-1);
+        vm.push(1);
+        vm.pushStack(-4);
+        vm.setTable();
         vm.getGlobal("__PACKAGES");
         vm.push("preloaded");
         vm.getTable();
@@ -97,7 +108,15 @@ class SlangPackageLib {
     vm.push("preloaded");
     vm.getTable();
     vm.push(moduleName);
-    vm.pushStack(-3);
+    vm.newTable();
+    vm.pushStack(-1);
+    vm.push(0);
+    vm.push(true);
+    vm.setTable();
+    vm.pushStack(-1);
+    vm.push(1);
+    vm.pushStack(-6);
+    vm.setTable();
     vm.setTable();
     vm.pop();
   }
@@ -108,7 +127,15 @@ class SlangPackageLib {
     vm.push("preloaded");
     vm.getTable();
     vm.push(moduleName);
-    vm.pushStack(-3);
+    vm.newTable();
+    vm.pushStack(-1);
+    vm.push(0);
+    vm.push(true);
+    vm.setTable();
+    vm.pushStack(-1);
+    vm.push(1);
+    vm.pushStack(-6);
+    vm.setTable();
     vm.setTable();
     vm.pop();
   }

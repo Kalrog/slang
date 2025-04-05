@@ -39,7 +39,7 @@ class SlangTable {
     _fixList();
   }
 
-  Object? remove(Object key) {
+  dynamic remove(Object key) {
     if (key is int && key < _list.length && key >= 0) {
       return _list.removeAt(key);
     } else {
@@ -68,7 +68,7 @@ class SlangTable {
     }
   }
 
-  Object? operator [](Object key) {
+  dynamic operator [](Object key) {
     if (key is String && key == "meta") {
       return metatable;
     } else if (key is int && key < _list.length && key >= 0) {

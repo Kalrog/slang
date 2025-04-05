@@ -1,7 +1,7 @@
 import 'package:petitparser/petitparser.dart';
 import 'package:slang/src/compiler/ast.dart';
 import 'package:slang/src/compiler/codegen/slang_code_generator.dart';
-import 'package:slang/src/compiler/parser/slang_extensible_parser.dart';
+import 'package:slang/src/compiler/parser/slang_parser.dart';
 import 'package:slang/src/slang_vm.dart';
 import 'package:slang/src/vm/function_prototype.dart';
 
@@ -11,7 +11,7 @@ class SlangCompiler {
 
   SlangCompiler(this.vm);
 
-  late final SlangExtensibleParser extensibleParser = SlangExtensibleParser(vm);
+  late final SlangParser extensibleParser = SlangParser(vm);
   late Parser parser = (extensibleParser.build());
 
   FunctionPrototype compileSource(String source, String origin) {

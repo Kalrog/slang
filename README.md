@@ -1,6 +1,6 @@
 # Slang
 scripting language written in dart
-heavily inspired by lua
+heavily inspired by lua and metalua
 
 ## Syntax
 ### Variables

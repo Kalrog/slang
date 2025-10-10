@@ -10,7 +10,7 @@ dart compile exe bin/slang.dart
 #   fi
 # done
 rm test/all_tests.slang
-echo "local test = require(\"test/testing\")" >> test/all_tests.slang
+echo "local test = require(\"slang/test\")" >> test/all_tests.slang
 for test in test/*_test.slang; do
   #remove the .slang extension
   test=${test%.slang}

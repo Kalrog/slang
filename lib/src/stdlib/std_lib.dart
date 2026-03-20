@@ -20,9 +20,9 @@ class SlangStdLib {
     "error": _error,
     "len": _len,
     "type": _type,
-    "setRaw": _setRaw,
-    "getRaw": _getRaw,
-    "toInt": _toInt,
+    "set_raw": _setRaw,
+    "get_raw": _getRaw,
+    "to_int": _toInt,
     "string": _string,
   };
 
@@ -173,7 +173,8 @@ func run(rfunc){
   static bool _load(SlangVm vm) {
     final code = vm.toAny(0);
     final origin = vm.getTop() > 1 ? vm.toString2(1) : "string";
-    vm.load(code, origin: origin);
+    final trace = vm.getTop() > 2 ? vm.toBool(2) : false;
+    vm.load(code, origin: origin, trace: trace);
     return true;
   }
 

@@ -18,7 +18,7 @@ t.group("parser lib"){
   }
   t.test("map"){
     local parser = p.pattern("0-9"):star():flatten():map(func(str){
-      return toInt(str)
+      return to_int(str)
     }):end()
     local result = parser:parse("12345")
     print(result,"\n")

@@ -167,7 +167,7 @@ func permute_field()=>
   ):permute(0,2):map(|results| 'PermuteField{name:results[0], number:results[1]})
 
 func number()=>
-  p.pattern("0-9"):plus():flatten():map(toInt)
+  p.pattern("0-9"):plus():flatten():map(to_int)
 
 func end_of_input()=>
   p.token("$"):map(|_| 'EndOfInput{})

@@ -28,6 +28,7 @@ func group.new(name){
 }
 
 func group.add_child(self,child){
+  print(indentStr(),"Adding child to group ",self.name," ",child.name,"\\n")
   append(self.children, child)
 }
 
@@ -62,7 +63,7 @@ func group.count(self) {
   return {succeded,failed}
 }
 
-local current= group.new("root")
+local current = group.new("root")
 local m = {
 
 }

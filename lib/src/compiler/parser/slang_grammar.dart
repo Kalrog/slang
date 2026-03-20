@@ -308,7 +308,7 @@ abstract class SlangGrammar extends GrammarDefinition {
               if (result == null) {
                 return context.success(NullLiteral(ast.token), context.position + token.length);
               }
-              final outAst = decodeAst<Statement?>(result);
+              final outAst = decodeAst<AstNode?>(result);
               return context.success(outAst, context.position + token.length);
             }
           }) &

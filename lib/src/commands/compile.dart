@@ -22,10 +22,11 @@ class CompileCommand extends Command {
 
       final source = file.readAsStringSync();
       vm.load(source, origin: path);
-      final bytes = vm.functionToBytes();
+      final bytes = vm.functionToBytes(minimal: true);
 
       /// new file name => remove .slang add .slb
-      final newFile = File('${path.substring(0, path.length - 6)}.slb');
+
+      final newFile = File('${path.substring(0, path.lastIndexOf('.'))}.slb');
       newFile.writeAsBytesSync(bytes);
     }
   }

@@ -231,7 +231,8 @@ enum TypeMarker {
 
 class PrototypeEncoder {
   static const slangHeader = [83, 76, 65, 78, 71];
-  PrototypeEncoder();
+  final bool minimal;
+  PrototypeEncoder({this.minimal = false});
   Uint8List encode(FunctionPrototype p) {
     ByteWriter wr = ByteWriter();
     wr.writeAll(Uint8List.fromList(slangHeader));
@@ -249,9 +250,14 @@ class PrototypeEncoder {
       wr.writeInt(i);
     }
 
-    wr.writeInt(p.sourceLocations.length);
-    for (var sl in p.sourceLocations) {
-      _encodeSourceLocationInfo(sl, wr);
+    if (minimal) {
+      wr.writeInt(0);
+      return;
+    } else {
+      wr.writeInt(p.sourceLocations.length);
+      for (var sl in p.sourceLocations) {
+        _encodeSourceLocationInfo(sl, wr);
+      }
     }
 
     wr.writeInt(p.constants.length);

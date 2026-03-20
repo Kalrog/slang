@@ -1,3 +1,4 @@
+import 'package:petitparser/debug.dart';
 import 'package:petitparser/petitparser.dart';
 import 'package:slang/src/compiler/ast.dart';
 import 'package:slang/src/compiler/codegen/slang_code_generator.dart';
@@ -11,11 +12,27 @@ class SlangCompiler {
 
   SlangCompiler(this.vm);
 
-  late final SlangParser extensibleParser = SlangParser(vm);
-  late Parser parser = (extensibleParser.build());
+  late SlangParser extensibleParser = SlangParser(vm);
+
+  late Parser parser = extensibleParser.build();
+  late Parser traceParser = trace(extensibleParser.build());
 
   FunctionPrototype compileSource(String source, String origin) {
     final result = parser.parse(source);
+    if (result is Success) {
+      final ast = result.value;
+      // ast.prettyPrint();
+      final func = generator.generate(ast, origin);
+      // print(func);
+      return func;
+    } else {
+      throw Exception(
+          'Failed to parse source: ${result.message}:$origin:${result.toPositionString()}');
+    }
+  }
+
+  FunctionPrototype compileTrace(String source, String origin) {
+    final result = traceParser.parse(source);
     if (result is Success) {
       final ast = result.value;
       // ast.prettyPrint();

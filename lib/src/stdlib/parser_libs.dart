@@ -1,3 +1,4 @@
+import 'package:petitparser/debug.dart';
 import 'package:petitparser/petitparser.dart';
 import 'package:slang/slang.dart';
 import 'package:slang/src/compiler/ast.dart';
@@ -85,6 +86,8 @@ class SlangParserLib {
     "add_primitive_expression_before": _addPrimitiveExpressionBefore,
     "add_expression_group_after": _addExpressionGroupAfter,
     "add_expression_group_before": _addExpressionGroupBefore,
+    "add_expression_group_at": _addExpressionGroupAt,
+    "add_expression_group": _addExpressionGroup,
     "get_primitive_expression_names": _primitiveExpressionNames,
     "get_expression_group_names": _expressionGroupNames,
     "identifier": _identifier,
@@ -96,6 +99,7 @@ class SlangParserLib {
     "uniq_id": _uniqId,
     "ast_to_string": _astToString,
     "resolve": _resolve,
+    "reset": _reset,
   };
 
   /// Parser methods
@@ -106,6 +110,7 @@ class SlangParserLib {
   /// Shared functions that can either be called through the library or as methods on the parser
   static Map<String, DartFunction> _sharedFunctions = {
     "char": _char,
+    "digit": _digit,
     "seq": _seq,
     "choice": _choice,
     "pattern": _pattern,
@@ -177,6 +182,13 @@ class SlangParserLib {
   static bool _char(SlangVm vm) {
     final str = vm.getStringArg(0, name: "str");
     vm.push(char(str));
+    _setMetatable(vm, "parser");
+    return true;
+  }
+
+  /// Creates a parser that matches a digit
+  static bool _digit(SlangVm vm) {
+    vm.push(digit());
     _setMetatable(vm, "parser");
     return true;
   }
@@ -437,7 +449,7 @@ class SlangParserLib {
     final vmparser = vmi.compiler.extensibleParser;
 
     vmparser.addPrimitiveExpression(
-        PrimitiveExpressionLevel(name, resolve(parser.map(decodeAst<Exp>))));
+        PrimitiveExpressionLevel([name], resolve(parser.map(decodeAst<Exp>))));
     return false;
   }
 
@@ -449,7 +461,7 @@ class SlangParserLib {
     final vmi = vm as SlangVmImpl;
     final vmparser = vmi.compiler.extensibleParser;
     vmparser.addPrimitiveExpressionAfter(
-        after, PrimitiveExpressionLevel(name, parser.map(decodeAst<Exp>)));
+        after, PrimitiveExpressionLevel([name], parser.map(decodeAst<Exp>)));
     return false;
   }
 
@@ -461,7 +473,7 @@ class SlangParserLib {
     final vmi = vm as SlangVmImpl;
     final vmparser = vmi.compiler.extensibleParser;
     vmparser.addPrimitiveExpressionBefore(
-        before, PrimitiveExpressionLevel(name, parser.map(decodeAst<Exp>)));
+        before, PrimitiveExpressionLevel([name], parser.map(decodeAst<Exp>)));
     return false;
   }
 
@@ -549,7 +561,7 @@ class SlangParserLib {
     final vmparser = vmi.compiler.extensibleParser;
     vmparser.addExpressionGroupAfter(
         after,
-        ExpressionGroupLevel(name, (builder) {
+        ExpressionGroupLevel([name], (builder) {
           final group = builder.group();
           vm.push(func);
           vm.push(group);
@@ -573,7 +585,7 @@ class SlangParserLib {
     final vmparser = vmi.compiler.extensibleParser;
     vmparser.addExpressionGroupBefore(
         before,
-        ExpressionGroupLevel(name, (builder) {
+        ExpressionGroupLevel([name], (builder) {
           final group = builder.group();
           vm.push(func);
           vm.push(group);
@@ -584,6 +596,47 @@ class SlangParserLib {
           vm.pop();
           return val;
         }));
+    return false;
+  }
+
+  static bool _addExpressionGroupAt(SlangVm vm) {
+    final index = vm.getIntArg(0, name: "index");
+    final name = vm.getStringArg(1, name: "name");
+    final func = vm.toAny(2) as Closure;
+    final vmi = vm as SlangVmImpl;
+    final vmparser = vmi.compiler.extensibleParser;
+    vmparser.addExpressionGroupAt(
+        index,
+        ExpressionGroupLevel([name], (builder) {
+          final group = builder.group();
+          vm.push(func);
+          vm.push(group);
+          _setMetatable(vm, "group");
+          vm.call(1);
+          vm.run();
+          final val = vm.toUserdata<ExpressionGroup>(-1);
+          vm.pop();
+          return val;
+        }));
+    return false;
+  }
+
+  static bool _addExpressionGroup(SlangVm vm) {
+    final name = vm.getStringArg(0, name: "name");
+    final func = vm.toAny(1) as Closure;
+    final vmi = vm as SlangVmImpl;
+    final vmparser = vmi.compiler.extensibleParser;
+    vmparser.addExpressionGroup(ExpressionGroupLevel([name], (builder) {
+      final group = builder.group();
+      vm.push(func);
+      vm.push(group);
+      _setMetatable(vm, "group");
+      vm.call(1);
+      vm.run();
+      final val = vm.toUserdata<ExpressionGroup>(-1);
+      vm.pop();
+      return val;
+    }));
     return false;
   }
 
@@ -686,6 +739,16 @@ class SlangParserLib {
     vm.push(resolve(parser));
     _setMetatable(vm, "parser");
     return true;
+  }
+
+  /// reset()
+  /// Resets the parser to its initial state, removing all added statements and expressions
+  static bool _reset(SlangVm vm) {
+    final vmi = vm as SlangVmImpl;
+    vmi.compiler.extensibleParser = SlangParser(vm);
+    vmi.compiler.parser = vmi.compiler.extensibleParser.build();
+    vmi.compiler.traceParser = trace(vmi.compiler.parser);
+    return false;
   }
 
   /// Registers the parser library in the given vm

@@ -365,7 +365,7 @@ class SlangVmImpl implements SlangVm {
   }
 
   @override
-  void load(dynamic code, {bool repl = false, String origin = "string"}) {
+  void load(dynamic code, {bool repl = false, bool trace = false, String origin = "string"}) {
     FunctionPrototype? prototype;
 
     // slang ast
@@ -383,8 +383,15 @@ class SlangVmImpl implements SlangVm {
     }
     if (prototype == null) {
       final codeString = code is String ? code : String.fromCharCodes(code);
-      prototype =
-          repl ? compiler.compileREPL(codeString) : compiler.compileSource(codeString, origin);
+      // prototype =
+      //     repl ? compiler.compileREPL(codeString) : compiler.compileSource(codeString, origin);
+      if (trace) {
+        prototype = compiler.compileTrace(codeString, origin);
+      } else if (repl) {
+        prototype = compiler.compileREPL(codeString);
+      } else {
+        prototype = compiler.compileSource(codeString, origin);
+      }
     }
 
     Closure closure = Closure.slang(prototype);
@@ -396,7 +403,7 @@ class SlangVmImpl implements SlangVm {
   }
 
   @override
-  Uint8List functionToBytes() {
+  Uint8List functionToBytes({bool minimal = false}) {
     final closure = _frame.pop();
     if (closure is! Closure) {
       throw Exception('Expected Closure got $closure');
@@ -404,7 +411,7 @@ class SlangVmImpl implements SlangVm {
     if (closure.prototype == null) {
       throw Exception('Closure has no prototype');
     }
-    final bytes = PrototypeEncoder().encode(closure.prototype!);
+    final bytes = PrototypeEncoder(minimal: minimal).encode(closure.prototype!);
     return bytes;
   }
 

@@ -76,9 +76,9 @@ abstract class SlangVm {
 
   void closeUpvalues(int fromIndex);
 
-  void load(dynamic code, {bool repl = false, String origin = "string"});
+  void load(dynamic code, {bool repl = false, bool trace = false, String origin = "string"});
 
-  Uint8List functionToBytes();
+  Uint8List functionToBytes({bool minimal = false});
 
   void createThread();
 

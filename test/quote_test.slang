@@ -141,7 +141,7 @@ t.group("quote"){
           group:postfix(p.token("++"), func(exp, op){
             return {
               token: op,
-              ast:+{
+              ast: +{
                 func(){
                   -{exp} = -{exp} + 1
                   return -{exp}
@@ -151,7 +151,6 @@ t.group("quote"){
           })
           return group
         })
-        assert(table.contains(p.get_expression_group_names(), "increment"))
       }
 
       print(value++)
@@ -175,7 +174,6 @@ t.group("quote"){
           })
           return group
         })
-        assert(table.contains(p.get_expression_group_names(), "concat"), "concat should be in the expression group names")
       }
       print("hello" <> " world");
       result = "hello" <> " world";

@@ -1,4 +1,5 @@
 local t = require("slang/test")
+local parser = require("slang/parser")
 
 t.group("extensions"){
   t.test("lambda shorthand"){
@@ -51,6 +52,7 @@ assert($hello() == "hello world", "$hello() should be hello world")
 $unless(2==2){
   assert(false,"1==2 should be false")
 }
+
 ""","dollar")()
 
 
@@ -90,7 +92,7 @@ assert(ran == true, "ran should be true")
     compile(
 """
 -{block:require("extensions/table_type")}
-
+-{block:assert(true,"unquote blocks should still work")}
 local table = 'Person{name: "bob", age: 20}
 assert(table.name == "bob", "table.name should be bob")
 assert(table.age == 20, "table.age should be 20")
@@ -125,6 +127,87 @@ struct car{
 }
 \"\"\"))
 ""","parser_syntax")()
+  }
+  t.test("easy operators"){
+    compile(
+""" 
+-{block:require("extensions/custom_operators")}
+-{block:require("extensions/table_type")}
+
+infix _x_ before _*_ (left,right){
+  return left*right
+}
+
+assert(3 x 3 == 9, "3 x 3 should be 9")
+
+infix _::_ right(elem,list){
+  return 'cons{elem,list}
+}
+
+local func head(list){
+  return list[0]
+}
+
+
+local func rest(list){
+  return list[1]
+}
+
+
+local func map(f, list){
+  if(list == null){
+    return null
+  }
+  return f(head(list)) :: map(f, rest(list))
+}
+
+local func add_one(x){
+  return x + 1
+}
+
+local func list_to_string(list){
+  local func list_to_string_helper(list){
+    if(list == null){
+      return ""
+    } else if (rest(list)==null){
+      return string(head(list))
+    }else{
+      return concat(string(head(list)),",",list_to_string_helper(rest(list)))
+    }
+  }
+  return concat("[",list_to_string_helper(list),"]") 
+}
+
+
+local l = 1 :: 2 :: 3 :: 4 :: 5 :: null
+print(list_to_string(l))
+local lother = map(add_one, l)
+print(list_to_string(lother))
+assert(head(lother) == 2, "head(lother) should be 2")
+
+prefix <:_ before _==_ (value){
+  return head(value)
+}
+prefix :>_ before _==_ (value){
+  return rest(value)
+}
+print("<:l = ", <:l)
+assert(<:l == 1, "<:l should be 1")
+assert(<:lother == 2, "<:lother should be 2")
+assert(:>l == rest(l), ":>l should be rest(l)")
+
+postfix _! before _unary_ (value){
+  if (value == null){
+    error("null check used on null")
+  }
+  return value
+}
+print(+{l! == l})
+""", "easy operators")()
+
+parser.reset()
+
+
   }
 }
 

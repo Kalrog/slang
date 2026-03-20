@@ -26,44 +26,52 @@ class AlwaysSettableParser<R> extends DelegateParser<R, R> {
 }
 
 class ExpressionGroupLevel {
-  final String name;
+  final List<String> names;
   final ExpressionGroup Function(ExpressionBuilder builder) add;
 
-  ExpressionGroupLevel(this.name, this.add);
+  ExpressionGroupLevel(this.names, this.add);
 }
 
 class PrimitiveExpressionLevel {
   static const _trace = [];
-  final String name;
+  final List<String> names;
   final Parser parser;
 
-  PrimitiveExpressionLevel(this.name, Parser parser)
-      : parser = _trace.contains(name) ? trace(parser) : parser;
+  PrimitiveExpressionLevel(this.names, Parser parser)
+      : parser = names.any(_trace.contains) ? trace(parser) : parser;
 }
 
 class SlangParser extends SlangGrammar {
   ExpressionBuilder expressionBuilder = ExpressionBuilder();
 
   late final List<PrimitiveExpressionLevel> _primitiveExpressionLevels = [
-    PrimitiveExpressionLevel("unquote", ref0(unquote)),
-    PrimitiveExpressionLevel("quote", ref0(quote)),
-    PrimitiveExpressionLevel("identifier", ref0(identifier)),
-    PrimitiveExpressionLevel("doubleLiteral", ref0(doubleLiteral)),
-    PrimitiveExpressionLevel("intLiteral", ref0(intLiteral)),
-    PrimitiveExpressionLevel("stringLiteral", ref0(stringLiteral)),
-    PrimitiveExpressionLevel("trueLiteral", ref0(trueLiteral)),
-    PrimitiveExpressionLevel("falseLiteral", ref0(falseLiteral)),
-    PrimitiveExpressionLevel("nullLiteral", ref0(nullLiteral)),
-    PrimitiveExpressionLevel("patternAssignmentExp", ref0(patternAssignmentExp)),
-    PrimitiveExpressionLevel("listLiteral", ref0(tableLiteral)),
-    PrimitiveExpressionLevel("functionExpression", ref0(functionExpression)),
+    PrimitiveExpressionLevel(["unquote", "-{}"], ref0(unquote)),
+    PrimitiveExpressionLevel(["quote", "+{}"], ref0(quote)),
+    PrimitiveExpressionLevel(["identifier", "id"], ref0(identifier)),
+    PrimitiveExpressionLevel(["doubleLiteral", "double", "float"], ref0(doubleLiteral)),
+    PrimitiveExpressionLevel(["intLiteral", "integer", "int"], ref0(intLiteral)),
+    PrimitiveExpressionLevel(["stringLiteral", "string", "str"], ref0(stringLiteral)),
+    PrimitiveExpressionLevel(["trueLiteral", "true"], ref0(trueLiteral)),
+    PrimitiveExpressionLevel(["falseLiteral", "false"], ref0(falseLiteral)),
+    PrimitiveExpressionLevel(["nullLiteral", "null"], ref0(nullLiteral)),
+    PrimitiveExpressionLevel(["patternAssignmentExp", "let"], ref0(patternAssignmentExp)),
+    PrimitiveExpressionLevel(["listLiteral", "list", "tableLiteral", "table"], ref0(tableLiteral)),
+    PrimitiveExpressionLevel(["functionExpression", "function"], ref0(functionExpression)),
   ];
   late final List<ExpressionGroupLevel> _expressionGroupLevels = [
-    ExpressionGroupLevel("bracket", (builder) {
-      return builder.group()
-        ..wrapper(ref1(token, '('), ref1(token, ')'), (left, value, right) => value);
-    }),
-    ExpressionGroupLevel("indexAndCall", (builder) {
+    ExpressionGroupLevel(
+      ["bracket", "()"],
+      (builder) {
+        return builder.group()
+          ..wrapper(ref1(token, '('), ref1(token, ')'), (left, value, right) => value);
+      },
+    ),
+    ExpressionGroupLevel([
+      "indexAndCall",
+      ".",
+      "[]",
+      ":()",
+    ], (builder) {
       return builder.group()
         ..postfix(ref1(token, '.') & ref0(identifier), (left, op) {
           final name = op[1] as Identifier;
@@ -80,30 +88,30 @@ class SlangParser extends SlangGrammar {
           return FunctionCall(token, left, name, args.cast<Exp>());
         });
     }),
-    ExpressionGroupLevel("power", (builder) {
+    ExpressionGroupLevel(["power", "^"], (builder) {
       return builder.group()
         ..right(ref1(token, '^'), (left, op, right) {
           return BinOp(op, left, op.value, right);
         });
     }),
-    ExpressionGroupLevel("unary", (builder) {
+    ExpressionGroupLevel(["unary"], (builder) {
       return builder.group()
         ..prefix(ref1(token, '-').seq(char('{').not()).pick(0) | ref1(token, 'not'),
             (opToken, exp) => UnOp(opToken, opToken.value, exp));
     }),
-    ExpressionGroupLevel("multiply", (builder) {
+    ExpressionGroupLevel(["multiply", "*", "/", "%"], (builder) {
       return builder.group()
         ..left(ref1(token, '*') | ref1(token, '/') | ref1(token, '%'),
             (left, op, right) => BinOp(op, left, op.value, right));
     }),
-    ExpressionGroupLevel("add", (builder) {
+    ExpressionGroupLevel(["add", "+", "-"], (builder) {
       return builder.group()
         ..left(
             (ref1(token, '-').seq(char('{').not()).pick(0) |
                 ref1(token, '+').seq(char('{').not()).pick(0)),
             (left, op, right) => BinOp(op, left, op.value, right));
     }),
-    ExpressionGroupLevel("compare", (builder) {
+    ExpressionGroupLevel(["compare", "<=", ">=", "!=", "==", ">"], (builder) {
       return builder.group()
         ..left(
             ref1(token, '<=') |
@@ -114,11 +122,11 @@ class SlangParser extends SlangGrammar {
                 ref1(token, '<'),
             (left, op, right) => BinOp(op, left, op.value, right));
     }),
-    ExpressionGroupLevel("and", (builder) {
+    ExpressionGroupLevel(["and"], (builder) {
       return builder.group()
         ..left(ref1(token, 'and'), (left, op, right) => BinOp(op, left, op.value, right));
     }),
-    ExpressionGroupLevel("or", (builder) {
+    ExpressionGroupLevel(["or"], (builder) {
       return builder.group()
         ..left(ref1(token, 'or'), (left, op, right) => BinOp(op, left, op.value, right));
     }),
@@ -140,16 +148,17 @@ class SlangParser extends SlangGrammar {
   }
 
   /// list of all expression group names
-  List<String> get expressionGroupNames => _expressionGroupLevels.map((e) => e.name).toList();
+  List<List<String>> get expressionGroupNames =>
+      _expressionGroupLevels.map((e) => e.names).toList();
 
   /// list of all primitive expression names
-  List<String> get primitiveExpressionNames =>
-      _primitiveExpressionLevels.map((e) => e.name).toList();
+  List<List<String>> get primitiveExpressionNames =>
+      _primitiveExpressionLevels.map((e) => e.names).toList();
 
   /// Adds a new expression group with lower precedence than the one with the name [name]
   void addExpressionGroupAfter(String name, ExpressionGroupLevel level) {
-    _expressionGroupLevels.removeWhere((e) => e.name == level.name);
-    final index = _expressionGroupLevels.indexWhere((element) => element.name == name);
+    _expressionGroupLevels.removeWhere((e) => e.names.every((level.names.contains)));
+    final index = _expressionGroupLevels.indexWhere((element) => element.names.contains(name));
     if (index == -1) {
       throw ArgumentError("Expression group $name not found");
     }
@@ -159,8 +168,8 @@ class SlangParser extends SlangGrammar {
 
   /// Adds a new expression group with higher precedence than the one with the name [name]
   void addExpressionGroupBefore(String name, ExpressionGroupLevel level) {
-    _expressionGroupLevels.removeWhere((e) => e.name == level.name);
-    final index = _expressionGroupLevels.indexWhere((element) => element.name == name);
+    _expressionGroupLevels.removeWhere((e) => e.names.every((level.names.contains)));
+    final index = _expressionGroupLevels.indexWhere((element) => element.names.contains(name));
     if (index == -1) {
       throw ArgumentError("Expression group $name not found");
     }
@@ -168,16 +177,30 @@ class SlangParser extends SlangGrammar {
     _rebuildExpressionParser();
   }
 
+  /// Adds a new expression group with higher precedence than the one with the name [name]
+  void addExpressionGroupAt(int i, ExpressionGroupLevel level) {
+    _expressionGroupLevels.removeWhere((e) => e.names.every((level.names.contains)));
+    _expressionGroupLevels.insert(i, level);
+    _rebuildExpressionParser();
+  }
+
+  /// Adds a new expression group with the lowest precedence
+  void addExpressionGroup(ExpressionGroupLevel level) {
+    _expressionGroupLevels.removeWhere((e) => e.names.every((level.names.contains)));
+    _expressionGroupLevels.add(level);
+    _rebuildExpressionParser();
+  }
+
   /// Adds a new primitive expression with the lowest priority
   void addPrimitiveExpression(PrimitiveExpressionLevel level) {
-    _primitiveExpressionLevels.removeWhere((e) => e.name == level.name);
+    _primitiveExpressionLevels.removeWhere((e) => e.names.every((level.names.contains)));
     _primitiveExpressionLevels.add(level);
     _rebuildExpressionParser();
   }
 
   /// Add a primitive expression with a priority less than the one with the name [name]
   void addPrimitiveExpressionAfter(String name, PrimitiveExpressionLevel level) {
-    final index = _primitiveExpressionLevels.indexWhere((element) => element.name == name);
+    final index = _primitiveExpressionLevels.indexWhere((element) => element.names.contains(name));
     if (index == -1) {
       throw ArgumentError("Primitive expression $name not found");
     }
@@ -188,7 +211,7 @@ class SlangParser extends SlangGrammar {
 
   /// Add a primitive expression with a priority greater than the one with the name [name]
   void addPrimitiveExpressionBefore(String name, PrimitiveExpressionLevel level) {
-    final index = _primitiveExpressionLevels.indexWhere((element) => element.name == name);
+    final index = _primitiveExpressionLevels.indexWhere((element) => element.names.contains(name));
     if (index == -1) {
       throw ArgumentError("Primitive expression $name not found");
     }
@@ -199,6 +222,9 @@ class SlangParser extends SlangGrammar {
   /// Adds a statement to the parser
   void addStatement(String name, Parser<Statement> statement) {
     _statements[name] = resolve(statement);
+    // if (name == "defineInfix") {
+    //   _statements[name] = trace(_statements[name]!);
+    // }
     _statementParser
         .set(ChoiceParser<Statement?>([..._statements.values, _initialStatementParser]));
   }

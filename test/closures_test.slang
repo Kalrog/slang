@@ -56,4 +56,24 @@ test.group("closure test", func(){
     dec()
     assert(i == 0, "i should be 0 while upvalue is not closed yet")
   })
+  test.test("recursive function"){
+    func factorial(n){
+      if(n == 0){
+        return 1
+      }
+      return n * factorial(n - 1)
+    }
+    assert(factorial(0) == 1)
+    assert(factorial(1) == 1)
+    assert(factorial(2) == 2)
+    assert(factorial(3) == 6)
+    assert(factorial(4) == 24)
+    assert(factorial(5) == 120)
+  }
+  test.test("immediate function" , func(){
+    local result = (func(a, b){
+      return a + b
+    })(2, 3)
+    assert(result == 5)
+  })
 })

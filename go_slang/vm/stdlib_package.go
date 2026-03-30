@@ -110,6 +110,7 @@ func RegisterStdlib(vm *VM, bootstrapPath string) {
 	pkg.Preload("slang/table", buildTableModule())
 	pkg.Preload("slang/vm", buildVMModule())
 	pkg.Preload("slang/bitwise", buildBitwiseModule())
+	pkg.Preload("slang/peg", buildPegModule(vm))
 
 	if bootstrapPath != "" {
 		if err := loadBootstrapCompiler(vm, bootstrapPath, pkg); err != nil {

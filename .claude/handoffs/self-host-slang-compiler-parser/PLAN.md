@@ -601,24 +601,24 @@ Full suite green including pre-existing `TestIntegrationVM`.
   - [x] `lib/src/vm/function_prototype.dart` audited for any independent UTF-16 paths
   - [x] `dart test` passes
 
-- [ ] **Phase 2 — Go VM plumbing**
-  - [ ] `vm.Invoke(closure, args) (Value, error)` implemented and tested
-  - [ ] `coreLoad` implemented in `stdlib_core.go`
-  - [ ] `coreCompile` calls `bootstrapCompiler` via `vm.Invoke`
-  - [ ] `go_slang/vm/stdlib_bitwise.go` created with `band`, `bor`, `bxor`, `lshift`, `rshift`
-  - [ ] `RegisterStdlib` signature updated to accept bootstrap path
-  - [ ] `pkg.Preload("slang/bitwise", ...)` added
-  - [ ] File-based `require()` implemented in `stdlib_package.go`
-  - [ ] `go test ./go_slang/vm/...` passes
+- [x] **Phase 2 — Go VM plumbing**
+  - [x] `vm.Invoke(closure, args) (Value, error)` implemented and tested
+  - [x] `coreLoad` implemented in `stdlib_core.go`
+  - [x] `coreCompile` calls `bootstrapCompiler` via `vm.Invoke`
+  - [x] `go_slang/vm/stdlib_bitwise.go` created with `band`, `bor`, `bxor`, `lshift`, `rshift`
+  - [x] `RegisterStdlib` signature updated to accept bootstrap path
+  - [x] `pkg.Preload("slang/bitwise", ...)` added
+  - [x] File-based `require()` implemented in `stdlib_package.go`
+  - [x] `go test ./go_slang/vm/...` passes
 
-- [ ] **Phase 3 — `slang/peg` module**
-  - [ ] `go_slang/vm/stdlib_peg.go` created
-  - [ ] All combinators exposed: `string`, `pattern`, `any_char`, `seq`, `choice`, `star`, `lazy_star`, `lazy_plus`, `separated_star`, `separated_plus`, `map`, `keep`, `token`, `start`, `end`, `parse`
-  - [ ] `peg.map` uses `vm.Invoke` for slang closure callbacks
-  - [ ] Value conversion `anyToSlangValue` / `slangValueToAny` implemented
-  - [ ] `pkg.Preload("slang/peg", buildPegModule(vm))` added to `RegisterStdlib`
-  - [ ] Go unit test: parse a small grammar from within the VM, assert result
-  - [ ] `go test ./go_slang/vm/...` passes
+- [x] **Phase 3 — `slang/peg` module**
+  - [x] `go_slang/vm/stdlib_peg.go` created
+  - [x] All combinators exposed: `string`, `pattern`, `any_char`, `seq`, `choice`, `star`, `lazy_star`, `lazy_plus`, `separated_star`, `separated_plus`, `map`, `keep`, `token`, `start`, `end`, `parse`
+  - [x] `peg.map` uses `vm.Invoke` for slang closure callbacks
+  - [x] Value conversion `anyToSlangValue` / `slangValueToAny` implemented
+  - [x] `pkg.Preload("slang/peg", buildPegModule(vm))` added to `RegisterStdlib`
+  - [x] Go unit test: parse a small grammar from within the VM, assert result
+  - [x] `go test ./go_slang/vm/...` passes
 
 - [ ] **Phase 4 — Slang grammar**
   - [ ] `go_slang/src/grammar.slang` created

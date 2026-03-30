@@ -332,14 +332,14 @@ func coreArgs(vm *VM) bool {
 	return true
 }
 
-// coreLoad receives a 1-indexed table of byte integers (0–255), parses it as
+// coreLoad receives a 0-indexed table of byte integers (0–255), parses it as
 // a .slb prototype, and pushes the resulting Closure onto the stack.
 func coreLoad(vm *VM) bool {
 	t := vm.GetTableArg(0)
 	n := int(t.Length())
 	buf := make([]byte, n)
 	for i := 0; i < n; i++ {
-		v := t.Get(IntVal(int64(i + 1)))
+		v := t.Get(IntVal(int64(i)))
 		buf[i] = byte(v.IVal)
 	}
 	proto, err := LoadPrototype(bytes.NewReader(buf))

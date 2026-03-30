@@ -54,7 +54,7 @@ func requireFn(vm *VM, pkg *packageRegistry) bool {
 		n := int(t.Length())
 		buf := make([]byte, n)
 		for i := 0; i < n; i++ {
-			v := t.Get(IntVal(int64(i + 1)))
+			v := t.Get(IntVal(int64(i)))
 			buf[i] = byte(v.IVal)
 		}
 		proto, loadErr := LoadPrototype(bytes.NewReader(buf))

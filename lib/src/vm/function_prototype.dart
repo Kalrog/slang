@@ -252,7 +252,6 @@ class PrototypeEncoder {
 
     if (minimal) {
       wr.writeInt(0);
-      return;
     } else {
       wr.writeInt(p.sourceLocations.length);
       for (var sl in p.sourceLocations) {

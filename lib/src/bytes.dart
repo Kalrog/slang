@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 class ByteWriter {
@@ -27,13 +28,14 @@ class ByteWriter {
   }
 
   void writeString(String string) {
-    if (string.length > 255) {
+    final encoded = utf8.encode(string);
+    if (encoded.length > 255) {
       _bytes.add(255);
-      writeInt(string.length);
+      writeInt(encoded.length);
     } else {
-      _bytes.add(string.length);
+      _bytes.add(encoded.length);
     }
-    _bytes.addAll(string.codeUnits);
+    _bytes.addAll(encoded);
   }
 
   void writeAll(Uint8List bytes) {
@@ -77,18 +79,10 @@ class ByteReader {
   }
 
   String readString() {
-    final length = readByte();
-    if (length == 255) {
-      final length = readInt();
-      final string =
-          String.fromCharCodes(_bytes.sublist(_index, _index + length));
-      _index += length;
-      return string;
-    } else {
-      final string =
-          String.fromCharCodes(_bytes.sublist(_index, _index + length));
-      _index += length;
-      return string;
-    }
+    final lengthByte = readByte();
+    final length = lengthByte == 255 ? readInt() : lengthByte;
+    final string = utf8.decode(_bytes.sublist(_index, _index + length));
+    _index += length;
+    return string;
   }
 }

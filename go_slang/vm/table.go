@@ -103,3 +103,40 @@ func (t *SlangTable) fixList() {
 func (t *SlangTable) Length() int {
 	return len(t.list)
 }
+
+// AllEntries returns all non-nil key-value pairs: array part (int keys) then hash part.
+func (t *SlangTable) AllEntries() [][2]Value {
+	entries := make([][2]Value, 0, len(t.list)+len(t.hash))
+	for i, v := range t.list {
+		if v.Type != TypeNil {
+			entries = append(entries, [2]Value{IntVal(int64(i)), v})
+		}
+	}
+	for k, v := range t.hash {
+		var kv Value
+		switch key := k.(type) {
+		case string:
+			kv = StringVal(key)
+		case int64:
+			kv = IntVal(key)
+		case float64:
+			kv = FloatVal(key)
+		case bool:
+			kv = BoolVal(key)
+		default:
+			continue
+		}
+		entries = append(entries, [2]Value{kv, v})
+	}
+	return entries
+}
+
+// Dequeue removes and returns the first array element, shifting the rest down.
+func (t *SlangTable) Dequeue() Value {
+	if len(t.list) == 0 {
+		return NilVal()
+	}
+	first := t.list[0]
+	t.list = t.list[1:]
+	return first
+}

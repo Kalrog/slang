@@ -2,11 +2,19 @@ package slang_vm
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
 )
+
+// bootstrapCompiler holds the compile closure loaded from a .slb bootstrap file.
+// Zero value (TypeNil) means no bootstrap compiler has been loaded yet.
+var bootstrapCompiler Value
+
+// SetBootstrapCompiler sets the bootstrap compiler closure called by coreCompile.
+func SetBootstrapCompiler(v Value) { bootstrapCompiler = v }
 
 // valueToString converts a Value to its string representation.
 func valueToString(v Value) string {
@@ -324,8 +332,38 @@ func coreArgs(vm *VM) bool {
 	return true
 }
 
-func coreCompileStub(vm *VM) bool {
-	panic("compile/load: not implemented; will be implemented in slang")
+// coreLoad receives a 1-indexed table of byte integers (0–255), parses it as
+// a .slb prototype, and pushes the resulting Closure onto the stack.
+func coreLoad(vm *VM) bool {
+	t := vm.GetTableArg(0)
+	n := int(t.Length())
+	buf := make([]byte, n)
+	for i := 0; i < n; i++ {
+		v := t.Get(IntVal(int64(i + 1)))
+		buf[i] = byte(v.IVal)
+	}
+	proto, err := LoadPrototype(bytes.NewReader(buf))
+	if err != nil {
+		panic(&SlangException{Message: "load: " + err.Error()})
+	}
+	cl := vm.wrapPrototype(proto)
+	vm.Push(ClosureVal(cl))
+	return true
+}
+
+// coreCompile compiles a slang source string using the bootstrap compiler and
+// pushes the resulting byte table onto the stack.
+func coreCompile(vm *VM) bool {
+	source := vm.GetStringArg(0)
+	if bootstrapCompiler.Type == TypeNil {
+		panic(&SlangException{Message: "compile: bootstrap compiler not loaded"})
+	}
+	result, err := vm.Invoke(bootstrapCompiler, []Value{StringVal(source)})
+	if err != nil {
+		panic(err)
+	}
+	vm.Push(result)
+	return true
 }
 
 func registerCoreLib(vm *VM) {
@@ -348,6 +386,6 @@ func registerCoreLib(vm *VM) {
 	vm.RegisterGoFunction("to_int", coreToInt)
 	vm.RegisterGoFunction("string", coreString)
 	vm.RegisterGoFunction("args", coreArgs)
-	vm.RegisterGoFunction("compile", coreCompileStub)
-	vm.RegisterGoFunction("load", coreCompileStub)
+	vm.RegisterGoFunction("compile", coreCompile)
+	vm.RegisterGoFunction("load", coreLoad)
 }

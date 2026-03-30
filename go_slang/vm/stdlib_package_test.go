@@ -5,7 +5,7 @@ import "testing"
 func TestPackage(t *testing.T) {
 	t.Run("require_math", func(t *testing.T) {
 		vm := NewVM()
-		RegisterStdlib(vm)
+		RegisterStdlib(vm, "")
 
 		requireFn := vm.globals.Get(StringVal("require"))
 		if requireFn.Type != TypeClosure {
@@ -32,7 +32,7 @@ func TestPackage(t *testing.T) {
 
 	t.Run("require_string", func(t *testing.T) {
 		vm := NewVM()
-		RegisterStdlib(vm)
+		RegisterStdlib(vm, "")
 
 		requireFn := vm.globals.Get(StringVal("require"))
 		f := vm.frame
@@ -54,7 +54,7 @@ func TestPackage(t *testing.T) {
 
 	t.Run("require_table_module", func(t *testing.T) {
 		vm := NewVM()
-		RegisterStdlib(vm)
+		RegisterStdlib(vm, "")
 
 		requireFn := vm.globals.Get(StringVal("require"))
 		f := vm.frame
@@ -72,7 +72,7 @@ func TestPackage(t *testing.T) {
 
 	t.Run("require_vm_module", func(t *testing.T) {
 		vm := NewVM()
-		RegisterStdlib(vm)
+		RegisterStdlib(vm, "")
 
 		requireFn := vm.globals.Get(StringVal("require"))
 		f := vm.frame
@@ -90,7 +90,7 @@ func TestPackage(t *testing.T) {
 
 	t.Run("require_file_panics", func(t *testing.T) {
 		vm := NewVM()
-		RegisterStdlib(vm)
+		RegisterStdlib(vm, "")
 
 		requireFn := vm.globals.Get(StringVal("require"))
 		f := vm.frame
@@ -108,7 +108,7 @@ func TestPackage(t *testing.T) {
 
 	t.Run("require_file_panics_pcall", func(t *testing.T) {
 		vm := NewVM()
-		RegisterStdlib(vm)
+		RegisterStdlib(vm, "")
 
 		requireFn := vm.globals.Get(StringVal("require"))
 		f := vm.frame
@@ -123,7 +123,7 @@ func TestPackage(t *testing.T) {
 
 	t.Run("core_globals_registered", func(t *testing.T) {
 		vm := NewVM()
-		RegisterStdlib(vm)
+		RegisterStdlib(vm, "")
 
 		for _, name := range []string{"print", "assert", "len", "type", "append", "keys", "values", "pcall", "error", "compile", "load"} {
 			v := vm.globals.Get(StringVal(name))

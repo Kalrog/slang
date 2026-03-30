@@ -184,3 +184,42 @@ func (vm *VM) PushString(s string) { vm.Push(StringVal(s)) }
 
 // PushTable pushes a table value.
 func (vm *VM) PushTable(t *SlangTable) { vm.Push(TableVal(t)) }
+
+// Invoke calls a slang closure with the given args re-entrantly and returns its result.
+// Safe to call while the VM is already executing (each Invoke gets its own frame).
+func (vm *VM) Invoke(closure Value, args []Value) (result Value, err error) {
+	if closure.Type != TypeClosure {
+		return NilVal(), &SlangException{Message: "Invoke: expected closure"}
+	}
+	savedTop := vm.frame.top
+	vm.Push(closure)
+	for _, a := range args {
+		vm.Push(a)
+	}
+	err = vm.PCall(len(args))
+	if err != nil {
+		vm.frame.top = savedTop
+		return NilVal(), err
+	}
+	if vm.frame.top > savedTop {
+		result = vm.frame.stack[savedTop]
+		vm.frame.top = savedTop
+	}
+	return result, nil
+}
+
+// wrapPrototype creates a Closure for proto, wiring any _ENV upvalue to vm.globals.
+func (vm *VM) wrapPrototype(proto *FunctionPrototype) *Closure {
+	cl := &Closure{
+		Prototype: proto,
+		Upvalues:  make([]*UpvalueHolder, len(proto.Upvalues)),
+	}
+	for i, uv := range proto.Upvalues {
+		if uv.Name == "_ENV" {
+			cl.Upvalues[i] = &UpvalueHolder{value: TableVal(vm.globals)}
+		} else {
+			cl.Upvalues[i] = &UpvalueHolder{}
+		}
+	}
+	return cl
+}

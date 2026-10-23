@@ -5,7 +5,7 @@ t.group("extensions"){
   t.test("lambda shorthand"){
     compile(
 """
--{block:require("extensions/lambda_shorthand")}
+extension "extensions/lambda_shorthand"
 
 local add = |x,y| x+y
 assert(add(1,2) == 3, "add(1,2) should be 3")
@@ -21,7 +21,7 @@ assert(add_curry_curry(1)(2)() == 3, "add_curry_curry(1)(2)() should be 3")
   t.test("dollar"){
     compile(
 """
--{block:require("extensions/dollar")}
+extension "extensions/dollar"
 
 macro hello (args){
   return +{"hello world"}
@@ -61,7 +61,7 @@ $unless(2==2){
   t.test("switch"){
     compile(
 """
--{block:require("extensions/switch")}
+extension "extensions/switch"
 local ran = false
 local value = 1
 switch(value){
@@ -91,7 +91,7 @@ assert(ran == true, "ran should be true")
   t.test("table type"){
     compile(
 """
--{block:require("extensions/table_type")}
+extension "extensions/table_type"
 -{block:assert(true,"unquote blocks should still work")}
 local table = 'Person{name: "bob", age: 20}
 assert(table.name == "bob", "table.name should be bob")
@@ -102,7 +102,7 @@ assert(type(table) == "Person", "table should be a Person")
   t.test("parser syntax"){
     compile(
 """
--{block:require("extensions/parser_syntax")}
+extension "extensions/parser_syntax"
 local p = require("slang/parser")
 
 local c_struct = parser{
@@ -131,8 +131,8 @@ struct car{
   t.test("easy operators"){
     compile(
 """ 
--{block:require("extensions/custom_operators")}
--{block:require("extensions/table_type")}
+extension "extensions/custom_operators"
+extension "extensions/table_type"
 
 infix _x_ before _*_ (left,right){
   return left*right

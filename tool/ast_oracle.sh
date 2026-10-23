@@ -13,6 +13,10 @@ OUT=${TMPDIR:-/tmp}/slang-ast-oracle
 mkdir -p "$OUT"
 fail=0
 for f in $FILES; do
+  if grep -qE '^[[:space:]]*extension[[:space:]]*("|\{)' "$f"; then
+    echo "skip  $f (uses extension statements, unknown to the legacy parser)"
+    continue
+  fi
   name=$(echo "$f" | tr '/' '_')
   # the Dart tool must run inside legacy/ so that its packages resolve
   (cd legacy && dart run tool/stage0.dart --ast "$ROOT/$f") > "$OUT/$name.dart" 2>&1 || true

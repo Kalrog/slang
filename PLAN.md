@@ -109,7 +109,7 @@ UTF-8 byte strings (Go and Lua convention); `len`/`substring` are byte based, wi
 - [x] GC percent 400 by default (`GOGC` in the environment still wins); `SLANG_CPUPROFILE=file` writes a pprof profile.
 - [x] Parser: Pratt-style expression walker with first-byte dispatch (same semantics as the nested combinators, verified by the AST oracle on every file), native whitespace/comment skipping, value-free fast parsing for `flatten`, native line/column lookup. Parsing the 838-line grammar source went from 165 ms to 80 ms.
 - [x] Bytecode cache for files loaded through `require` and `slang run` (`~/.cache/slang`, `SLANG_CACHE_DIR`, `SLANG_NO_CACHE=1`); only files compiled with the unextended grammar and without compile-time execution are cached, so it never changes behaviour. Test suite: 0.32 s cold, 0.14 s warm.
-- Numbers (M-series laptop): dijkstra x1000 305 ms (Dart: 2157 ms, 7x), full test suite 0.5 s (Dart: 4 s), fib(27) 33 ms, 300k method calls with allocation 370 ms.
+- Numbers (M-series laptop): dijkstra x1000 305 ms (Dart: 2157 ms, 7x), full test suite 0.5 s (Dart: 4 s), fib(27) 33 ms, 300k method calls with allocation 370 ms. `bench/compile.slang` parses a frozen 1050-line copy of the grammar source (`bench/data/sample.slang`) in about 100 ms.
 - Possible further VM work: table access (string-keyed map lookups dominate), call setup, allocation in `values()`/`keys()` iterators.
 
 ### Phase 6: Cleanup and docs `[ ]`
@@ -124,9 +124,17 @@ UTF-8 byte strings (Go and Lua convention); `len`/`substring` are byte based, wi
 - Debugger: minimal (disassembler, `--trace`); the interactive stepper is not ported.
 - Dart code is deleted at the end (git history keeps it); confirm before deleting.
 
-## First improvement after the port (decided 2026-10-23)
+## Compile-time execution model (decided and implemented 2026-10-23)
 
-**Unquotes must never execute twice.** Today an unquote block (`-{...}`) runs when the parser reaches it; if the enclosing alternative fails later and the parser backtracks, the next alternative parses the same text again and runs the block again. Agreed direction: memoize the result of an unquote per parse context and byte position, so a second visit splices the AST produced by the first run instead of re-executing (the re-parse of the surrounding text with the possibly changed grammar is fine and intended). A cut operator (no backtracking across an executed unquote) is the stricter alternative but turns some valid programs into parse errors; hoisting all unquotes before parsing does not work because unquotes depend on earlier grammar changes and on their position. Needs a test that provokes the double run through a backtracking extension.
+Problem: an unquote block could run twice when the parser backtracked across it, and a grammar change made by an unquote affected an ill-defined range of text (whatever the backtracking order happened to re-parse).
+
+Rules now in force:
+- A compilation unit is parsed one top-level statement at a time by a loop that only moves forward. Grammar changes are made by `extension "file"` / `extension { code }` statements, which exist only at that top level, run at compile time with changes allowed, and take effect from the next statement on. A statement is always parsed with one grammar, at every nesting level: the mutation functions (`add_*`, `keyword`, `reset`) are guarded by counters maintained by the loop (`parse_depth`, `statement_depth`, `extension_depth`), so neither unquotes nor parser callbacks nor nested `compile` calls can change the grammar while any statement is being parsed.
+- Ordinary unquotes and parser actions (map callbacks) are pure with respect to the grammar: unquotes are executed once, memoized per parse position, and neither may change the grammar. Extensions that need grammar-changing statements (operator declarations in `extensions/custom_operators.slang`) register them with `p.add_extension_statement(name, parser, apply)`: the statement is recognised only by the top-level loop and `apply(result)` runs between statements with changes allowed.
+- The grammar is global and changes in file compilation order (extensions loaded once stay available).
+- Files whose compilation ran code at compile time are not bytecode-cached.
+- Prior art considered: Racket phases and `#lang`, Honu, Raku's mutable lexically scoped grammar, Common Lisp `load`, Coq notations, camlp4 phrases, Template Haskell declaration groups, Rust proc-macro crate separation, metalua `-{extension}`.
+- Possible later refinement: lexical scoping of extension statements inside blocks (Raku style).
 
 ## Future (not planned now)
 

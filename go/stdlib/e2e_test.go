@@ -214,7 +214,7 @@ func TestPrintAndModules(t *testing.T) {
 func TestCompileTimeMetaprogramming(t *testing.T) {
 	v, _ := newVM(t)
 	res := mustEval(t, v, `
-		-{block:
+		extension {
 			local p = require("slang/parser")
 			p.add_statement("twice", p.seq(p.keyword("twice"), p.block()):map(func(r){
 				return {token: r[0], ast: +{stat: for(local i = 0; i < 2; i = i + 1) -{r[1]}}}

@@ -18,6 +18,10 @@ for f in $FILES; do ABS="$ABS $ROOT/$f"; done
 (cd legacy && dart run tool/stage0.dart --out "$OUT/dart" --strip "$ROOT/" $ABS) 2>/dev/null
 fail=0
 for f in $FILES; do
+  if grep -qE '^[[:space:]]*extension[[:space:]]*("|\{)' "$f"; then
+    echo "skip  $f (uses extension statements, unknown to the legacy parser)"
+    continue
+  fi
   base=$(echo "$f" | sed 's/\.slang$//')
   name=$(echo "$base" | tr '/' '_')
   bin/slang compile "$f" -o "$OUT/go/$name.slb" 2> "$OUT/go/$name.err" || true

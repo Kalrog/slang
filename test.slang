@@ -1,4 +1,4 @@
--{block:require("extensions/parser_syntax")}
+extension "extensions/parser_syntax"
 local p = require("slang/parser")
 
 local c_struct = parser{

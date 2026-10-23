@@ -1,7 +1,7 @@
 // idea for a macro system for additions of the compile that don't need full modification
 // macros start with a $ and are executed at compile time
 // we keep a list of macros in the macro registry table and 
--{block:
+extension {
   local p = require("slang/parser")
   DOLLAR = {}
   p.add_expression_group_after("indexAndCall", "macro", func(group){

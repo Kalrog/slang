@@ -79,7 +79,7 @@ t.group("quote"){
     ranUnless = false
     nRuns = 0
     local run = compile("""
-      -{block:
+      extension {
         local p = require("slang/parser")
         p.add_statement(
           "unless",
@@ -113,7 +113,7 @@ t.group("quote"){
   t.test("add primitive expression to parser"){
     value = 0
     local run = compile("""
-      -{block:
+      extension {
         local p = require("slang/parser")
         p.add_primitive_expression(
             "one",
@@ -134,7 +134,7 @@ t.group("quote"){
   t.test("add postfix ++ to parser"){
     value = 0
     local run = compile("""
-      -{block:
+      extension {
         local p = require("slang/parser")
         local table = require("slang/table")
         p.add_expression_group_after("indexAndCall", "increment", func(group){
@@ -162,7 +162,7 @@ t.group("quote"){
   t.test("add infix <> for string concatenation"){
     result = ""
     local run = compile("""
-      -{block:
+      extension {
         local p = require("slang/parser")
         local table = require("slang/table")
         p.add_expression_group_before("compare", "concat", func(group){
@@ -185,7 +185,7 @@ t.group("quote"){
     result = func(){return 0}
     resultAst = nil
     local run = compile("""
-    -{block:
+    extension {
       local p = require("slang/parser")
       p.add_primitive_expression(
         "lambda",

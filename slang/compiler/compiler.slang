@@ -18,9 +18,28 @@ local func run_block(block){
   return f()
 }
 
+// modules loaded by extension statements (forgotten on reset so they run again)
+local loaded_extensions = {}
+
+// load_extension(name) -> module: runs name.slang at compile time, like require
+func compiler.load_extension(name){
+  local m = require(name)
+  append(loaded_extensions, name)
+  return m
+}
+
+// runs an extension statement: a String node names a file, a Block node is code
+local func run_extension(node, origin){
+  if(node.type == "String"){
+    return compiler.load_extension(node.value)
+  }
+  local f = vm.load_proto(codegen.generate(node, origin))
+  return f()
+}
+
 local func new_grammar(){
   peg.reset_refs()
-  return grammar.new({run_block: run_block, optimize: optimizer.optimize})
+  return grammar.new({run_block: run_block, run_extension: run_extension, optimize: optimizer.optimize})
 }
 
 current = new_grammar()
@@ -30,6 +49,13 @@ func compiler.grammar(){
 }
 
 func compiler.reset(){
+  if(not current.changes_allowed()){
+    error("the grammar can only be reset at run time or from an extension statement")
+  }
+  for(let local name in values(loaded_extensions)){
+    __PACKAGES.preloaded[name] = null
+  }
+  loaded_extensions = {}
   current = new_grammar()
 }
 
@@ -101,12 +127,14 @@ func compiler.load_file(path, origin){
       }
     }
   }
-  current.unquotes_executed = false
+  local outer_effects = current.compile_time_effects
+  current.compile_time_effects = false
   local node = current.parse_source(source, origin)
   local f = vm.load_proto(codegen.generate(node, origin))
-  if(cache_path != null and not current.unquotes_executed and not current.extended){
+  if(cache_path != null and not current.compile_time_effects and not current.extended){
     pcall(os.write_file, cache_path, vm.to_bytes(f))
   }
+  current.compile_time_effects = outer_effects or current.compile_time_effects
   return f
 }
 
@@ -196,6 +224,13 @@ func p.add_statement(name, parser){
   current.add_statement(name, parser:map(decode_statement))
 }
 
+// add_extension_statement(name, parser, apply): a top-level-only statement
+// whose apply(result) runs at compile time with grammar changes allowed and
+// returns the statement to emit ({token, ast} or a node) or null
+func p.add_extension_statement(name, parser, apply){
+  current.add_extension_statement(name, parser, apply)
+}
+
 func p.add_primitive_expression(name, parser){
   current.add_primitive_expression({names: {name}, parser: parser:map(decode_expression)})
 }
@@ -267,6 +302,9 @@ func p.uniq_id(){
 }
 
 func p.ast_to_string(value){
+  if(value == null){
+    return "null"
+  }
   return ast.to_string(ast.decode(value))
 }
 

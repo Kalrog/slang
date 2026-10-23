@@ -31,6 +31,7 @@ func openCore(v *vm.VM) {
 		{"to_int", coreToInt},
 		{"string", coreString},
 		{"list_push", coreListPush},
+		{"raise", coreRaise},
 	}
 	for _, n := range core {
 		v.Register(n.Name, n.Fn)
@@ -201,6 +202,28 @@ func coreError(th *vm.Thread, args []vm.Value) (vm.Value, error) {
 		sb.WriteString(a.String())
 	}
 	return vm.Null, vm.NewError(sb.String())
+}
+
+// raise(err): raises an error again; err is an error table ({message,
+// location, stack}, as produced by pcall) or a string. The original location
+// and stack are kept.
+func coreRaise(th *vm.Thread, args []vm.Value) (vm.Value, error) {
+	v := vm.Arg(args, 0)
+	if t := v.AsTable(); t != nil {
+		e := &vm.Error{Message: t.GetStr("message").String()}
+		if loc := t.GetStr("location").AsTable(); loc != nil {
+			e.Loc = &vm.Location{
+				Origin: loc.GetStr("origin").String(),
+				Line:   int(loc.GetStr("line").AsInt()),
+				Column: int(loc.GetStr("column").AsInt()),
+			}
+		}
+		if st := t.GetStr("stack"); st.IsString() {
+			e.Trace = st.AsString()
+		}
+		return vm.Null, e
+	}
+	return vm.Null, vm.NewError(v.String())
 }
 
 func coreLen(th *vm.Thread, args []vm.Value) (vm.Value, error) {

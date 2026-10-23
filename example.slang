@@ -22,7 +22,7 @@ print("Hello World\n")
   return true
  }()},+{"true"},+{"false"})})
 
- -{block:
+ extension {
   local p = require("slang/parser")
   p.add_statement(
     "print_hello",

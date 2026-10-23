@@ -249,15 +249,40 @@ local stat = +{stat: local x = -{ast}}  // unquote inside a quote splices a valu
 -{block: print("runs at compile time")}  // unquote at top level runs while parsing
 compile("return 1 + 1")()        // compile source or an AST table to a function
 ```
-The parser can be extended at compile time through `require("slang/parser")`:
-`add_statement`, `add_primitive_expression`, `add_expression_group_before/after/at`
-and the combinators `seq`, `choice`, `star`, `plus`, `optional`, `map`,
-`token`, `keyword`, ... See `extensions/` for examples (switch statement,
-lambda shorthand, custom infix/prefix/postfix operators, a grammar DSL).
+An unquote runs once, when the parser first reaches it, and the code it
+returns is spliced in its place. It may compute anything, but it may not
+change the grammar.
+
+Grammar changes are made by **extension statements**, which are only allowed
+at the top level of a file (or of a `compile`d string):
+```slang
+extension "extensions/switch"     // runs the file at compile time
+extension {                       // runs the block at compile time
+  local p = require("slang/parser")
+  p.add_primitive_expression("one", p.keyword("one"):map(func(t){ return {token: t, ast: +{1}} }))
+}
+x = one                           // the change applies from the next statement on
+```
+A file is parsed one top-level statement at a time; an extension statement
+takes effect for the statements after it, and a statement is always parsed
+with a single grammar. The grammar is global: an extension loaded by one file
+stays available to files compiled later.
+
+Extensions can define their own extension statements (statements that change
+the grammar, such as operator declarations): `p.add_extension_statement(name,
+parser, apply)` registers a top-level-only statement; after it parsed,
+`apply(result)` runs with grammar changes allowed and returns the statement to
+emit, or `null`. See `extensions/custom_operators.slang`.
+
+The parser API (`require("slang/parser")`) offers `add_statement`,
+`add_primitive_expression`, `add_expression_group_before/after/at` and the
+combinators `seq`, `choice`, `star`, `plus`, `optional`, `map`, `token`,
+`keyword`, ... See `extensions/` for examples (switch statement, lambda
+shorthand, custom infix/prefix/postfix operators, a grammar DSL).
 
 ## Standard library
 Globals: `print`, `args`, `readLine`, `open` (files with `read`, `write`,
-`readBytes`, `writeBytes`, `close`), `assert`, `error`, `pcall`, `compile`,
+`readBytes`, `writeBytes`, `close`), `assert`, `error`, `raise`, `pcall`, `compile`,
 `require`, `type`, `len`, `append`, `remove`, `keys`, `values`, `entries`,
 `concat`, `set_raw`, `get_raw`, `to_int`, `string`, `module`, `run`.
 

@@ -1,12 +1,14 @@
 //special way to define operators
+// each definition is an extension statement: it is parsed at the top level and
+// its apply function registers the operator for the statements that follow
 // "infix" "_"{symbol}"_" ("left","right")? (("after" {id})|("before" {id})|("at" {number}))? "(" {params}")" "{" {body} "}"
 // creates an infix operator, that calls the function when the operator is used 
 // "prefix" {symbol}_ (("after" {id})|("before" {id})|("at" {number}))? "(" {params}")" "{" {body} "}"
 // creates a prefix operator, that calls the function when the operator is used
--{block:require("extensions/lambda_shorthand")}
+extension "extensions/lambda_shorthand"
 
 local p = require("slang/parser")
-p.add_statement(
+p.add_extension_statement(
   "defineInfix",
   p.seq(
     p.keyword("infix"),
@@ -43,7 +45,8 @@ p.add_statement(
     p.identifier():star_seperated(p.token(",")):map(|args| args.elements),
     p.token(")"),
     p.block()
-  ):map(func(result){
+  ),
+  func(result){
     local symbol = p.token(result[2])
     local id = {type:"Identifier",value:concat("infix_", result[3])}
     local direction = result[4] 
@@ -96,10 +99,10 @@ p.add_statement(
       token: result[0],
       ast: function_def
     }
-  })
+  }
 )
 
-p.add_statement(
+p.add_extension_statement(
   "definePrefix",
   p.seq(
     p.keyword("prefix"),
@@ -131,7 +134,8 @@ p.add_statement(
     p.identifier():star_seperated(p.token(",")):map(|args| args.elements),
     p.token(")"),
     p.block()
-  ):map(func(result){
+  ),
+  func(result){
     local symbol = p.token(result[1])
     local id = {type:"Identifier",value:concat("prefix_", result[1])}
     local position = result[3]
@@ -174,10 +178,10 @@ p.add_statement(
       token: result[0],
       ast: function_def
     }
-  })
+  }
 )
 
-p.add_statement(
+p.add_extension_statement(
   "definePostfix",
   p.seq(
     p.keyword("postfix"),
@@ -215,7 +219,8 @@ p.add_statement(
     p.identifier():star_seperated(p.token(",")):map(|args| args.elements),
     p.token(")"),
     p.block()
-  ):map(func(result){
+  ),
+  func(result){
     local symbol = p.token(result[2])
     local id = {type:"Identifier",value:concat("postfix_", result[2])}
     print("postfix id ", id, "\n")
@@ -259,5 +264,5 @@ p.add_statement(
       token: result[0],
       ast: function_def
     }
-  })
+  }
 )

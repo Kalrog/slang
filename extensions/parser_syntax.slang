@@ -1,8 +1,6 @@
--{block:
-require("extensions/lambda_shorthand")
-require("extensions/table_type")
-require("extensions/switch")
-}
+extension "extensions/lambda_shorthand"
+extension "extensions/table_type"
+extension "extensions/switch"
 
 local p = require("slang/parser")
 

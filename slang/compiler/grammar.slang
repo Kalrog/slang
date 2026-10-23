@@ -30,10 +30,30 @@ func grammar.new(opts){
     ["break"]: true,
   }
   g.in_quote = false
-  // set once the grammar was extended / once an unquote ran (bytecode of a
-  // file is only cached when neither happened)
+  // set once the grammar was extended / once code ran at compile time
+  // (unquote or extension statement); the bytecode of a file is only cached
+  // when neither happened while compiling it
   g.extended = false
-  g.unquotes_executed = false
+  g.compile_time_effects = false
+
+  // Grammar changes are allowed at run time (no parse in progress) and from
+  // extension statements, which the top-level loop runs between two top-level
+  // statements. They are never allowed while a statement is being parsed, at
+  // any nesting level (a nested parse started by an unquote or a parser
+  // callback runs while an outer statement is being parsed).
+  g.parse_depth = 0
+  g.statement_depth = 0
+  g.extension_depth = 0
+
+  func g.changes_allowed(){
+    return g.parse_depth == 0 or (g.extension_depth > 0 and g.statement_depth == 0)
+  }
+
+  local func check_changes(what){
+    if(not g.changes_allowed()){
+      error("the grammar can only be changed by an extension statement (extension \"file\" or extension { ... } at the top level); ", what, " was called from code running while a statement is being parsed")
+    }
+  }
 
   // ------------------------------------------------------------ lexical
 
@@ -98,8 +118,11 @@ func grammar.new(opts){
   }
 
   func g.keyword(s){
-    g.keywords[s] = true
-    g.extended = true
+    if(g.keywords[s] != true){
+      check_changes("keyword")
+      g.keywords[s] = true
+      g.extended = true
+    }
     return tok(s)
   }
 
@@ -524,9 +547,20 @@ func grammar.new(opts){
     })
   }
 
+  // An executed unquote is memoised per parse context and position: when the
+  // parser backtracks and reaches the same unquote again, the AST produced by
+  // the first execution is spliced again instead of running the code twice.
   func g.unquote(){
     local body_ref = peg.ref(g.quote_body):token()
     local body = peg.custom(func(self, ctx, pos){
+      local memo = ctx.unquote_memo
+      if(memo != null){
+        local hit = memo[pos]
+        if(hit != null){
+          ctx.value = hit.node
+          return hit.stop
+        }
+      }
       local q = body_ref:parse_on(ctx, pos)
       if(q < 0){
         return -1
@@ -548,13 +582,18 @@ func grammar.new(opts){
       if(opts.run_block == null){
         error("this grammar cannot execute unquotes")
       }
-      g.unquotes_executed = true
+      g.compile_time_effects = true
       local result = opts.run_block(node)
       if(result == null){
         ctx.value = ast.node("Null", {}, t)
       } else {
         ctx.value = ast.decode(result)
       }
+      if(memo == null){
+        memo = {}
+        ctx.unquote_memo = memo
+      }
+      memo[pos] = {node: ctx.value, stop: q}
       return q
     })
     return peg.seq(tok("-"), tok("{"), body, tok("}")):pick(2)
@@ -666,6 +705,7 @@ func grammar.new(opts){
   }
 
   func g.add_statement(name, parser){
+    check_changes("add_statement")
     g.extended = true
     peg.resolve(parser)
     if(g.statements[name] == null){
@@ -733,6 +773,7 @@ func grammar.new(opts){
   }
 
   func g.add_expression_group_after(name, level){
+    check_changes("add_expression_group_after")
     g.extended = true
     g.group_levels = remove_level(g.group_levels, level.names)
     local index = index_of_level(g.group_levels, name)
@@ -744,6 +785,7 @@ func grammar.new(opts){
   }
 
   func g.add_expression_group_before(name, level){
+    check_changes("add_expression_group_before")
     g.extended = true
     g.group_levels = remove_level(g.group_levels, level.names)
     local index = index_of_level(g.group_levels, name)
@@ -755,6 +797,7 @@ func grammar.new(opts){
   }
 
   func g.add_expression_group_at(index, level){
+    check_changes("add_expression_group_at")
     g.extended = true
     g.group_levels = remove_level(g.group_levels, level.names)
     g.group_levels = insert_at(g.group_levels, index, level)
@@ -762,6 +805,7 @@ func grammar.new(opts){
   }
 
   func g.add_expression_group(level){
+    check_changes("add_expression_group")
     g.extended = true
     g.group_levels = remove_level(g.group_levels, level.names)
     append(g.group_levels, level)
@@ -769,6 +813,7 @@ func grammar.new(opts){
   }
 
   func g.add_primitive_expression(level){
+    check_changes("add_primitive_expression")
     g.extended = true
     peg.resolve(level.parser)
     g.primitive_levels = remove_level(g.primitive_levels, level.names)
@@ -777,6 +822,7 @@ func grammar.new(opts){
   }
 
   func g.add_primitive_expression_after(name, level){
+    check_changes("add_primitive_expression_after")
     g.extended = true
     peg.resolve(level.parser)
     local index = index_of_level(g.primitive_levels, name)
@@ -788,6 +834,7 @@ func grammar.new(opts){
   }
 
   func g.add_primitive_expression_before(name, level){
+    check_changes("add_primitive_expression_before")
     g.extended = true
     peg.resolve(level.parser)
     local index = index_of_level(g.primitive_levels, name)
@@ -816,44 +863,182 @@ func grammar.new(opts){
 
   // ------------------------------------------------------------ entry points
 
-  func g.start(){
-    // trailing trim so that files containing only whitespace or comments are
-    // valid (leading whitespace is consumed by the first token; the chunk
-    // token keeps starting at position 0)
-    local p = peg.ref(g.chunk):trim(peg.epsilon(), space):end()
-    if(opts.optimize != null){
-      p = p:map(opts.optimize)
+  // ------------------------------------------------------------ top level
+  //
+  // A compilation unit is parsed one top-level statement at a time by this
+  // loop, which only ever moves forward. Between two statements the grammar
+  // may change: an extension statement
+  //     extension "file"       runs the file at compile time
+  //     extension { code }     runs the block at compile time
+  // executes with grammar changes allowed and takes effect from the next
+  // statement on. Extension statements exist only here, not in nested blocks,
+  // so no parse of a statement can ever see the grammar change.
+
+  g.keywords["extension"] = true
+
+  // the built-in extension statement yields {builtin: node}; extension
+  // statements registered by extensions yield {apply: f, result: value}
+  local builtin_extension = peg.seq(tok("extension"), peg.choice(peg.ref(g.string_literal), peg.ref(g.block))):pick(1):map(func(node){
+    return {builtin: node}
+  })
+  g.extension_statements = {}
+  g.extension_statement_order = {}
+  local extension_choice = peg.settable(builtin_extension)
+
+  // add_extension_statement(name, parser, apply): a statement that is only
+  // recognised at the top level; after it parsed, apply(result) runs between
+  // statements with grammar changes allowed and returns the statement to
+  // emit (or null)
+  func g.add_extension_statement(name, parser, apply){
+    check_changes("add_extension_statement")
+    g.extended = true
+    peg.resolve(parser)
+    if(g.extension_statements[name] == null){
+      append(g.extension_statement_order, name)
     }
-    return p
+    g.extension_statements[name] = parser:map(func(result){
+      return {apply: apply, result: result}
+    })
+    local alternatives = {builtin_extension}
+    for(let local n in values(g.extension_statement_order)){
+      append(alternatives, g.extension_statements[n])
+    }
+    extension_choice:set(peg.choice_list(alternatives))
   }
 
-  g.start_parser = peg.ref(g.start)
+  local top_parsers = null
 
-  local func fail_message(result, origin){
-    return concat("Failed to parse source: ", result.message, ":", origin, ":", result.line, ":", result.column,
-      " (farthest: ", result.far_message, " at ", result.far_line, ":", result.far_column, ")")
+  local func get_top_parsers(){
+    if(top_parsers == null){
+      top_parsers = {
+        statement: peg.seq(g.statement(), tok(";"):optional()):pick(0),
+        final: peg.seq(peg.ref(g.final_statement), tok(";"):optional()):pick(0),
+        extension_statement: peg.seq(extension_choice, tok(";"):optional()):pick(0),
+      }
+    }
+    return top_parsers
+  }
+
+  local func fail_message(ctx, origin, message, pos){
+    local lc = peg.line_col(ctx, pos)
+    local far_pos = ctx.far_pos
+    if(far_pos < 0){
+      far_pos = pos
+    }
+    local far = peg.line_col(ctx, far_pos)
+    return concat("Failed to parse source: ", message, ":", origin, ":", lc[0], ":", lc[1],
+      " (farthest: ", ctx.far_msg or message, " at ", far[0], ":", far[1], ")")
+  }
+
+  // runs compile-time code with grammar changes allowed; only valid between
+  // top-level statements
+  local func with_changes_allowed(f, a, b){
+    if(g.statement_depth > 0){
+      error("extension statements cannot run from code that executes while a statement is being parsed")
+    }
+    g.compile_time_effects = true
+    g.extension_depth = g.extension_depth + 1
+    local r = pcall(f, a, b)
+    g.extension_depth = g.extension_depth - 1
+    if(let {"err", local e} = r){
+      raise(e)
+    }
+    return r[1]
+  }
+
+  // runs a parsed extension statement; returns a statement node to emit or null
+  func g.run_extension(parsed, origin){
+    if(parsed.builtin != null){
+      if(opts.run_extension == null){
+        error("this grammar cannot run extension statements")
+      }
+      with_changes_allowed(opts.run_extension, parsed.builtin, origin)
+      return null
+    }
+    local result = with_changes_allowed(parsed.apply, parsed.result)
+    if(result == null){
+      return null
+    }
+    local node = ast.decode(result)
+    if(not ast.is_statement(node)){
+      error("an extension statement must produce a statement, got ", node.type)
+    }
+    return node
+  }
+
+  local func parse_statement(parser, ctx, pos){
+    g.statement_depth = g.statement_depth + 1
+    local r = pcall(parser.parse_on, parser, ctx, pos)
+    g.statement_depth = g.statement_depth - 1
+    if(let {"err", local e} = r){
+      raise(e)
+    }
+    return r[1]
+  }
+
+  local func parse_top_level(source, origin){
+    local parsers = get_top_parsers()
+    local ctx = peg.context(source)
+    local statements = {}
+    local pos = 0
+    for(true){
+      local q = parsers.extension_statement:parse_on(ctx, pos)
+      if(q >= 0){
+        local node = g.run_extension(ctx.value, origin)
+        if(node != null){
+          append(statements, node)
+        }
+        pos = q
+      } else {
+        q = parse_statement(parsers.statement, ctx, pos)
+        if(q >= 0){
+          if(ctx.value != null){
+            append(statements, ctx.value)
+          }
+          pos = q
+        } else {
+          q = parse_statement(parsers.final, ctx, pos)
+          if(q >= 0){
+            append(statements, ctx.value)
+            pos = q
+          }
+          break
+        }
+      }
+    }
+    local stop = str.skip_space(source, pos)
+    if(stop != len(source)){
+      error(fail_message(ctx, origin, "end of input expected", stop))
+    }
+    local block = ast.node("Block", {statements: statements}, peg.make_token(ctx, null, 0, pos))
+    if(opts.optimize != null){
+      block = opts.optimize(block)
+    }
+    return block
   }
 
   // parse_source(source, origin) -> Block node (raises on failure)
   func g.parse_source(source, origin){
-    local result = peg.run(g.start_parser, source)
-    if(not result.ok){
-      error(fail_message(result, origin))
+    g.parse_depth = g.parse_depth + 1
+    local r = pcall(parse_top_level, source, origin)
+    g.parse_depth = g.parse_depth - 1
+    if(let {"err", local e} = r){
+      raise(e)
     }
-    return result.value
+    return r[1]
   }
 
   // parse_repl(source) -> node: a chunk, or an expression wrapped in a return
   func g.parse_repl(source){
-    local result = peg.run(g.start_parser, source)
-    if(result.ok){
-      return result.value
+    local r = pcall(g.parse_source, source, "repl")
+    if(let {"ok", local block} = r){
+      return block
     }
     local exp = peg.run(g.expr():end(), source)
     if(exp.ok){
       return ast.node("Return", {value: exp.value}, exp.value.token)
     }
-    error(fail_message(result, "repl"))
+    raise(r[1])
   }
 
   // build the expression parser once everything is defined (resolution is eager)

@@ -18,7 +18,13 @@ abstract class SlangGrammar extends GrammarDefinition {
   /// flatten the result into a string stored in a token.
   Parser<Token> token(Object source, [String? message]) {
     if (source is String) {
-      return source.toParser(message: "Expected: ${message ?? source}").token().trim(ref0(space));
+      Parser parser = source.toParser(message: "Expected: ${message ?? source}");
+      if (RegExp(r'^[a-zA-Z_]*[a-zA-Z][a-zA-Z0-9_]*$').hasMatch(source)) {
+        // word-like tokens (keywords, operators such as `not`) must not be
+        // followed by an identifier character, so `notify` is an identifier
+        parser = (parser & pattern('a-zA-Z0-9_').not()).pick(0);
+      }
+      return parser.token().trim(ref0(space));
     } else if (source is Parser) {
       ArgumentError.checkNotNull(message, 'message');
       return source.flatten(message).token().trim(ref0(space));
@@ -97,7 +103,7 @@ abstract class SlangGrammar extends GrammarDefinition {
 
   Parser field() {
     return ((ref0(identifier) & ref1(token, ':')).pick(0) |
-                (ref1(token, '[') & ref0(expr) & ref1(token, ']')).pick(1))
+                (ref1(token, '[') & ref0(expr) & ref1(token, ']') & ref1(token, ':')).pick(1))
             .optional() &
         ref0(expr);
   }

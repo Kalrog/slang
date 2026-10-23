@@ -1,6 +1,44 @@
 # Slang
-scripting language written in dart
-heavily inspired by lua and metalua
+
+A scripting language inspired by Lua and metalua. The virtual machine is
+written in Go; the parser, compiler and most of the standard library are
+written in slang itself and shipped as precompiled bytecode inside the
+interpreter binary.
+
+## Building and running
+
+```sh
+make build              # builds bin/slang from the committed seed in go/boot
+bin/slang run file.slang [args...]
+bin/slang test       # runs every *test.slang file in ./test
+bin/slang repl
+bin/slang compile file.slang [-o out.slb] [--strip]
+bin/slang disasm file.slb
+```
+
+Requirements: Go 1.26 or newer. Nothing else.
+
+### Self-hosting
+
+`slang/compiler/*.slang` is the compiler, `slang/lib/*.slang` the slang part
+of the standard library. Both are compiled by the interpreter itself:
+
+```sh
+make seed       # recompiles slang/ into go/boot and rebuilds the binary
+make fixpoint   # checks that the seed reproduces itself byte for byte
+make test
+```
+
+After changing the compiler, run `make seed` twice (the first seed is compiled
+by the old compiler, the second by the new one) and then `make fixpoint`.
+
+`SLANG_CPUPROFILE=out.prof bin/slang run x.slang` writes a CPU profile for
+`go tool pprof`.
+
+Files loaded with `require` or `slang run` are cached as bytecode in
+`~/.cache/slang` (override with `SLANG_CACHE_DIR`, disable with
+`SLANG_NO_CACHE=1`). Only files that compile with the standard grammar and run
+no code at compile time are cached, so the cache never changes behaviour.
 
 ## Syntax
 ### Variables
@@ -22,20 +60,20 @@ print(d) // null
 ```
 ### Types
 ```slang
-// integers
+// integers (64 bit)
 a = 1
-// floats
+// doubles
 b = 1.0
-// strings
+// strings (UTF-8 byte strings)
 c = "hello"
 // booleans
 d = true
 // null
 e = null
 // tables
-f = {a: 1, b: 2, 3,4}
+f = {a: 1, b: 2, 3, 4}
 // functions
-g = function() {
+g = func() {
     print("hello")
 }
 ```
@@ -48,6 +86,10 @@ g = function() {
 // logical
 and or not
 ```
+`/` always produces a double (`7 / 2 == 3.5`), `%` is never negative for a
+positive divisor, `^` is exponentiation. `+` concatenates two strings and
+`"ab" * 3` repeats a string. Only `null` and `false` are falsy.
+
 ### Control Flow
 ```slang
 // if
@@ -76,6 +118,7 @@ for(i >= 0; i = i - 1){
 for([init(optional)]; [condition]; [update(optional)]){
     // body
 }
+// break leaves the innermost loop
 ```
 ### Functions
 ```slang
@@ -83,10 +126,12 @@ for([init(optional)]; [condition]; [update(optional)]){
 func add(a, b) {
     return a + b
 }
-// anonymous (normal is acutally just a shorthand for this)
+// anonymous (normal is actually just a shorthand for this)
 add = func(a, b) {
     return a + b
 }
+// expression body
+add = func(a, b) => a + b
 // varargs
 func add(a, b, ...more) {
     sum = a + b
@@ -104,6 +149,8 @@ print(a[0]) // 1
 // can be used as maps
 b = {a: 1, b: 2}
 print(b["a"]) // 1
+// keys can be computed
+c = {[concat("a", "b")]: 1}
 // can be used as structures
 c = {a: 1, b: 2}
 print(c.a) // 1
@@ -113,14 +160,19 @@ func vector.add(a, b) {
     return {x: a.x + b.x, y: a.y + b.y}
 }
 a = {x: 1, y: 2}
-a.meta = vector
+a.meta = {__index: vector}
 b = {x: 3, y: 4}
-a.add(a,b)
-// special shorthand for functions whos first argument is the table they are inside of
+a.add(a, b)
+// special shorthand for functions whose first argument is the table they are inside of
 // think of it as a method
 a:add(b)
 // this will be very familiar to lua users
 ```
+The metatable understands `__index` (table or function), `__newindex` (table
+or function) and `__type` (a string or a function, used by `type()` and by
+`'Type{...}` patterns). Assigning `null` to a key removes it. Tables compare
+structurally with `==`.
+
 ### Pattern Matching
 ```slang
 // matches a value against a pattern
@@ -128,39 +180,31 @@ patient = {name: "John", age: 30}
 print(let {name: "John"} = patient) // true
 // can assign value from the pattern to variables
 if (let {name: name, age: 30} = patient) {
-    print("the 30 year old patient is called", name) // the 30 year old patient is called John
+    print("the 30 year old patient is called", name)
 }
 // can be used in for loops
-patients = [{name: "John", age: 30}, {name: "Jane", age: 40}]
+patients = {{name: "John", age: 30}, {name: "Jane", age: 40}}
 for(let {name: local name, age: local age} in values(patients)) {
     print(name, "is", age, "years old")
 }
 // loops stop when they encounter a value that does not match the pattern
-patients = [{name: "John", age: 30}, {name: "Jane", age: 40}{name: "John", age: 45},]
-for(let {name: "John", age: local age} in values(patients)) {
-    print(name, "is", age, "years old") // Would only print once
-}
+// a type can be matched with 'Type{...}, a nullable binding with name?
 ```
 ### Passing Functions as arguments
 ```slang
-// Some functions take a function as an argument
-run(func(){
-  ... //do something  
-})
 // if the function is the last argument passed and takes no arguments there is a special syntax for this
 run{
     ... //do something
 }
-// these two ways of writing it are equivalent
-// the standard library includes some functions that use this to structure code
+// is the same as
+run(func(){
+  ... //do something
+})
 
 // module, allows you to declare global functions in a block and capture them in a table (called a module)
 calc = module{
     func add(a,b){
         return a + b
-    }
-    func sub(a,b){
-        return a - b
     }
     local func private(){
         print("this function is not visible in the calc module")
@@ -168,35 +212,75 @@ calc = module{
 }
 // run allows you to treat a block of statements as an expression
 a = run{
-    print("current a: ",a)
     return a
 } + 1
 ```
 
+### Coroutines
+```slang
+local thread = require("slang/thread")
+local co = thread.create(func(start){
+    local v = thread.yield(start * 2) // suspends; resume returns 2*start
+    return v + 1                      // the final resume returns this
+})
+print(thread.resume(co, 10)) // 20
+print(thread.resume(co, 5))  // 6
+print(thread.state(co))      // dead
+```
+`yield` works from any slang function called inside the coroutine, including
+inside `pcall`, but not from inside a function that was called by a native
+function (for example a metamethod). An error inside a coroutine is raised
+in the resumer, and the coroutine is dead afterwards.
+
+### Errors
+```slang
+local r = pcall(func(a, b){ return a / b }, 1, 0)   // {"ok", value} or {"err", e}
+if (let {"err", local e} = pcall(error, "boom")) {
+    print(e.message, e.location.origin, e.location.line, e.stack)
+}
+```
+Uncaught errors stop the program and print the message, the source position
+and a stack trace.
+
+### Metaprogramming
+```slang
+local ast = +{expr: 1 + 2}      // quote: the AST as a table ('BinOp{...})
+local stat = +{stat: local x = -{ast}}  // unquote inside a quote splices a value
+-{block: print("runs at compile time")}  // unquote at top level runs while parsing
+compile("return 1 + 1")()        // compile source or an AST table to a function
+```
+The parser can be extended at compile time through `require("slang/parser")`:
+`add_statement`, `add_primitive_expression`, `add_expression_group_before/after/at`
+and the combinators `seq`, `choice`, `star`, `plus`, `optional`, `map`,
+`token`, `keyword`, ... See `extensions/` for examples (switch statement,
+lambda shorthand, custom infix/prefix/postfix operators, a grammar DSL).
+
+## Standard library
+Globals: `print`, `args`, `readLine`, `open` (files with `read`, `write`,
+`readBytes`, `writeBytes`, `close`), `assert`, `error`, `pcall`, `compile`,
+`require`, `type`, `len`, `append`, `remove`, `keys`, `values`, `entries`,
+`concat`, `set_raw`, `get_raw`, `to_int`, `string`, `module`, `run`.
+
+Modules (`require("slang/...")`): `table` (contains, map, filter, fold,
+dequeue), `string` (join, substring, split, trim, replace, index_of,
+starts_with, ends_with, byte_at, char_at, chr, upper, lower, to_number, ...),
+`math`, `os` (exists, read_file, write_file, list_dir, getenv, cwd, exit,
+clock, time_ms), `thread` (coroutines), `vm` (upvalue access, bytecode
+loading), `parser`, `test` (group/test/setup/teardown/run), `compiler`.
+
+## Repository layout
+```
+go/        the VM (go/vm), native library functions (go/stdlib), the CLI and the embedded seed
+slang/     the compiler (slang/compiler) and library code (slang/lib) written in slang
+test/      the test suite (bin/slang test)
+bench/     benchmarks (bench/run_all.sh)
+extensions/ parser extensions written in slang
+tool/      oracle scripts comparing the self-hosted compiler with the legacy Dart one
+legacy/    the original Dart implementation (bootstrap reference, not used by the Go toolchain)
+```
 
 ## Ideas
-- [-] add run time type checks
-    - [x] check if patterns can be matched against table
-    - [ ] allow for type check as part of patterns
-- [x] add varargs 
-- [x] multitasking
-    - [x] cooperative (coroutines,yield,resume)
-    - [x] preemptive (threads,atomic,semaphores,channels)
-- [x] user data (like in lua)
+- [ ] goroutine-based isolates with channels (see PLAN.md)
 - [ ] bitwise operators
-- [-] break/continue
-- [x] metaprogramming
-    - [x] macros?
-    - [ ] reflection (for functions)
-    - [x] manipulate AST, add to grammar
-    - [x] extensions (compile time code to modify the Compiler/Parser)
-    - [ ] custom ast nodes and visitors
-    - [ ] bytecode generation (generate byte code in the language itself?)
-- [ ] add static typing
-    - [ ] struct types
-    - [ ] function types
-    - [ ] type inference
-    - [ ] interfaces
-    - [ ] generics
-- [ ] write language server
-
+- [ ] static typing
+- [ ] language server

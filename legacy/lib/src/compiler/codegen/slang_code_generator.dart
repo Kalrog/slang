@@ -246,15 +246,22 @@ class SlangCodeGenerator extends AstNodeVisitor<void, Null> {
 
   @override
   void visitIfStatement(IfStatement node, Null arg) {
+    // the outer scope holds locals bound by the condition (let patterns);
+    // each branch gets its own scope so that then-branch locals do not leak
+    // into the else branch
     _assembler.enterScope();
     visit(node.condition);
     _assembler.emitTest(false);
     int elseJump = _assembler.emitJump();
+    _assembler.enterScope();
     visit(node.thenBranch);
+    _assembler.leaveScope();
     if (node.elseBranch != null) {
       int skipElseJump = _assembler.emitJump();
       _assembler.patchJump(elseJump);
+      _assembler.enterScope();
       visit(node.elseBranch!);
+      _assembler.leaveScope();
       _assembler.patchJump(skipElseJump);
     } else {
       _assembler.patchJump(elseJump);

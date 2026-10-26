@@ -16,7 +16,7 @@ local func binop(left, op, right){
 
 // a walker with the usual arithmetic levels
 local func arithmetic(){
-  local w = peg.walker(str.skip_space)
+  local w = peg.walker(peg.skip_space)
   w:primary(number)
   w:primary(ident)
   w:level("call")
@@ -124,7 +124,7 @@ test.group("expression walker", func(){
   }
 
   test.test("a prefix operator whose operand fails falls through"){
-    local w = peg.walker(str.skip_space)
+    local w = peg.walker(peg.skip_space)
     w:level("unary")
     // `-` as a prefix operator and `-x` as a primary: the primary is reached
     // when the operator's operand does not parse
@@ -136,7 +136,7 @@ test.group("expression walker", func(){
   }
 
   test.test("operators of one binding power are an ordered choice"){
-    local w = peg.walker(str.skip_space)
+    local w = peg.walker(peg.skip_space)
     w:primary(number)
     w:level("sum")
     w:level("cmp")

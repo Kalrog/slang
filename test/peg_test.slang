@@ -126,28 +126,32 @@ t.group("peg"){
     s:set(peg.string("b"))
     ok(s:parse("b"), "b")
   }
-  t.test("expression builder"){
-    local b = peg.expression_builder()
-    b:primitive(peg.digit():plus():flatten():trim():map(to_int))
-    b:group():wrapper(peg.char("("):trim(), peg.char(")"):trim(), func(l, v, r){ return v })
-    b:group():right(peg.char("^"):trim(), func(a, op, c){
+  t.test("expression walker"){
+    local w = peg.walker()
+    w:primary(peg.digit():plus():flatten():trim():map(to_int))
+    w:level("bracket")
+    w:wrapper(peg.char("("):trim(), peg.char(")"):trim(), "bracket", func(l, v, r){ return v })
+    w:level("power")
+    w:right(peg.char("^"):trim(), "power", func(a, op, c){
       local r = 1
       for(local i = 0; i < c; i = i + 1){ r = r * a }
       return r
     })
-    b:group():prefix(peg.char("-"):trim(), func(op, v){ return -v })
-    b:group()
+    w:level("unary")
+    w:prefix(peg.char("-"):trim(), "unary", func(op, v){ return -v })
+    w:level("product")
       :left(peg.char("*"):trim(), func(a, op, c){ return a * c })
       :left(peg.char("/"):trim(), func(a, op, c){ return a / c })
-    b:group()
+    w:level("sum")
       :left(peg.char("+"):trim(), func(a, op, c){ return a + c })
       :left(peg.char("-"):trim(), func(a, op, c){ return a - c })
-    b:group():postfix(peg.char("!"):trim(), func(v, op){
+    w:level("factorial")
+    w:postfix(peg.char("!"):trim(), "factorial", func(v, op){
       local r = 1
       for(local i = 2; i <= v; i = i + 1){ r = r * i }
       return r
     })
-    local p = b:build():end()
+    local p = w:build():end()
     ok(p:parse("1 + 2 * 3"), 7)
     ok(p:parse("(1 + 2) * 3"), 9)
     ok(p:parse("-2 * 3"), -6)

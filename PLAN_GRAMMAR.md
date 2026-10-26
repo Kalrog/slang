@@ -245,12 +245,27 @@ only, evaluated once before any unit:
   of one binding power are an ordered choice whose operand is not a
   backtracking point (PEG committed choice, kept).
 
-### Phase 3: Core as extension zero `[ ]`
-- [ ] Move `grammar.slang` onto the public API as `core.slang`; `tok`
-      categories; trivia as a rule; keyword registry as a kernel service.
-- [ ] Existing extensions (`extensions/*.slang`, the dungeon DSLs) ported to
-      the new API; the old `slang/parser` API is removed.
-- [ ] Oracle and fixed point unchanged.
+### Phase 3: Core as extension zero `[x]`
+- [x] slang's syntax is registered through the public API (`define`, `token`,
+      the walker's `primary/level/...`) in `install_core`; it stays in
+      `grammar.slang` next to the kernel rather than in a separate file, since
+      the kernel/core boundary is the API, not the file. Tokens carry
+      categories (`keyword`, `punctuation`, `operator`, `identifier`,
+      `number`, `string`); trivia is a rule and the walker/dispatch skip
+      follows it; the keyword registry is a grammar service.
+- [x] The extension API is the grammar object (`require("slang/compiler").grammar()`)
+      plus `slang/peg`: `token/keyword/rule/define/modify/rules`,
+      `statement/extension_statement`, `expression()` (facade over the walker
+      with named primaries and levels, decoding `{token, ast}` results),
+      `walker()`, `error_at/origin/uniq_id`. `slang/parser` is gone; nodes are
+      no longer copied and stripped of their tokens (generated code keeps the
+      positions of what the user wrote).
+- [x] All extensions, the dungeon DSLs and the tests ported; every untouched
+      file compiles to byte-identical bytecode, fixed points unchanged.
+- Found and fixed: boot never preloaded the bootstrap modules, so the first
+  `require("slang/compiler")` created a second compiler instance with its own
+  grammar (the old API hid this by preloading itself). Both VMs now register
+  the bootstrap modules' results.
 
 ### Phase 4: Scoping, project file, dialects `[ ]`
 - [ ] Phrase loop derives/restores per unit; ambient layer from

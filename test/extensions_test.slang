@@ -1,5 +1,5 @@
 local t = require("slang/test")
-local parser = require("slang/parser")
+local compiler = require("slang/compiler")
 
 t.group("extensions"){
   t.test("lambda shorthand"){
@@ -103,7 +103,8 @@ assert(type(table) == "Person", "table should be a Person")
     compile(
 """
 extension "extensions/parser_syntax"
-local p = require("slang/parser")
+local peg = require("slang/peg")
+local g = require("slang/compiler").grammar()
 
 local c_struct = parser{
   start -> struct_def
@@ -205,7 +206,7 @@ postfix _! before _unary_ (value){
 print(+{l! == l})
 """, "easy operators")()
 
-parser.reset()
+compiler.reset()
 
 
   }

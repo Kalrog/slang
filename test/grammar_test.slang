@@ -3,7 +3,6 @@ local test = require("slang/test")
 local grammar = require("slang/grammar")
 local peg = require("slang/peg")
 local ast = require("slang/ast")
-local p = require("slang/parser")
 
 // rule references follow the grammar that was activated last (the phrase
 // loop activates the grammar of each unit; here we do it by hand)
@@ -128,17 +127,20 @@ test.group("grammar registry", func(){
   }
 
   test.test("the compiler grammar accepts modifications through the parser API"){
-    p.modify("int_literal", func(old){
+    // the grammar of the compiler, as an extension sees it (asked for now: tests
+    // before this one may have reset the compiler)
+    local cg = require("slang/compiler").grammar()
+    cg:modify("int_literal", func(old){
       return peg.seq(peg.string("#"), old):pick(1)
     })
     local f = compile("return #40 + #2", "modified")
     assert(f() == 42)
     local names = {}
-    for(let local r in values(p.rules())){
+    for(let local r in values(cg:rules())){
       if(r.name == "int_literal"){ names = r.history }
     }
     assert(names == {"runtime"})
-    p.reset()
+    require("slang/compiler").reset()
     assert(compile("return 40 + 2", "reset")() == 42)
   }
 })

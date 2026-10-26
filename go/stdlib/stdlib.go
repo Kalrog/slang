@@ -53,7 +53,9 @@ func Preload(v *vm.VM, name string, module vm.Value) {
 }
 
 // Boot runs the slang-side bootstrap modules from the embedded file system:
-// slang/package (require), slang/std (module, run) and slang/compiler (compile).
+// slang/package (require), slang/std (module, run) and slang/compiler
+// (compile). A module's result is registered as preloaded, so that
+// require("slang/compiler") is the instance that boot created.
 func Boot(v *vm.VM) error {
 	for _, name := range []string{"slang/package", "slang/std", "slang/compiler"} {
 		cl, err := v.EmbeddedModule(name)
@@ -63,8 +65,12 @@ func Boot(v *vm.VM) error {
 		if cl == nil {
 			return fmt.Errorf("embedded module %s not found", name)
 		}
-		if _, err := v.Call(vm.FunctionValue(cl)); err != nil {
+		res, err := v.Call(vm.FunctionValue(cl))
+		if err != nil {
 			return err
+		}
+		if !res.IsNull() {
+			Preload(v, name, res)
 		}
 	}
 	return nil

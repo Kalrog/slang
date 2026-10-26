@@ -1,6 +1,7 @@
 // Helpers shared by the game DSLs: AST construction, raw block parsing and
 // compile-time errors.
-local p = require("slang/parser")
+local peg = require("slang/peg")
+local g = require("slang/compiler").grammar()
 local ast = require("slang/ast")
 local str = require("slang/string")
 
@@ -119,21 +120,21 @@ func util.walk(node, f){
 
 // quoted(): a double-quoted string without escapes; yields its contents
 func util.quoted(){
-  return p.token(p.seq(p.string("\""), p.any():star_lazy(p.string("\"")), p.string("\""))):map(func(t){
+  return g:token(peg.seq(peg.string("\""), peg.any():star_lazy(peg.string("\"")), peg.string("\""))):map(func(t){
     return str.substring(t.value, 1, len(t.value) - 1)
   })
 }
 
 // number(): an integer or decimal literal; yields the number
 func util.number(){
-  return p.token(p.seq(p.digit():plus(), p.seq(p.string("."), p.digit():plus()):optional())):map(func(t){
+  return g:token(peg.seq(peg.digit():plus(), peg.seq(peg.string("."), peg.digit():plus()):optional())):map(func(t){
     return str.to_number(t.value)
   })
 }
 
 // list_of(item): "(" item, item, ... ")" (yields the list), or nothing (yields {})
 func util.args_of(item){
-  return p.seq(p.token("("), item:star_separated(p.token(",")), p.token(")")):pick(1):map(func(r){
+  return peg.seq(g:token("("), item:star_separated(g:token(",")), g:token(")")):pick(1):map(func(r){
     return r.elements
   }):optional({})
 }
@@ -143,10 +144,10 @@ func util.args_of(item){
 // raw_block(): parses "{" raw text "}" and yields {text, token}; the text is
 // everything between the braces, untouched (for ASCII art)
 func util.raw_block(){
-  return p.seq(
-    p.string("{"),
-    p.any():star_lazy(p.string("}")):flatten():token(),
-    p.token("}")
+  return peg.seq(
+    peg.string("{"),
+    peg.any():star_lazy(peg.string("}")):flatten():token(),
+    g:token("}")
   ):map(func(r){
     return {text: r[1].value, token: r[1]}
   })
@@ -197,7 +198,7 @@ func util.rows(raw){
 
 // error_at_row(rows, index, message): a compile error on the given row
 func util.error_at_row(rows, index, message){
-  p.error_at({line: rows.lines[index], column: 1}, message)
+  g:error_at({line: rows.lines[index], column: 1}, message)
 }
 
 // text(parts) -> the parts concatenated

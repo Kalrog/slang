@@ -15,7 +15,8 @@
 // only characters from its legend, exactly one Player. A level expands to
 //   require("engine/levels").define("one", {w, h, tiles, spawns})
 // where tiles[y][x] is a tile name and spawns is a list of {type, x, y}.
-local p = require("slang/parser")
+local peg = require("slang/peg")
+local g = require("slang/compiler").grammar()
 local str = require("slang/string")
 local util = require("dsl/util")
 local entity_dsl = require("dsl/entity")
@@ -25,14 +26,14 @@ local legends = {}
 local m = {tiles: tiles, legends: legends}
 
 // tile NAME { fields }
-p.add_extension_statement("tile",
-  p.seq(p.keyword("tile"), p.identifier(), p.table_literal()),
+g:extension_statement("tile",
+  peg.seq(g:keyword("tile"), g:rule("identifier"), g:rule("table_literal")),
   func(r){
     local token = r[0]
     local name = r[1].value
     for(let local field in values(r[2].fields)){
       if(field.key == null or field.key.type != "String"){
-        p.error_at(token, "tile ", name, ": every field needs a name")
+        g:error_at(token, "tile ", name, ": every field needs a name")
       }
     }
     tiles[name] = true
@@ -41,18 +42,18 @@ p.add_extension_statement("tile",
 )
 
 // legend NAME { "c": tile_or_entity, ... }
-local legend_entry = p.seq(util.quoted(), p.token(":"), p.identifier()):map(func(r){
+local legend_entry = peg.seq(util.quoted(), g:token(":"), g:rule("identifier")):map(func(r){
   return {glyph: r[0], target: r[2].value}
 })
 
-p.add_extension_statement("legend",
-  p.seq(
-    p.keyword("legend"),
-    p.identifier(),
-    p.token("{"),
-    legend_entry:star_separated(p.token(",")):map(func(r){ return r.elements }),
-    p.token(","):optional(),
-    p.token("}")
+g:extension_statement("legend",
+  peg.seq(
+    g:keyword("legend"),
+    g:rule("identifier"),
+    g:token("{"),
+    legend_entry:star_separated(g:token(",")):map(func(r){ return r.elements }),
+    g:token(","):optional(),
+    g:token("}")
   ),
   func(r){
     local token = r[0]
@@ -60,7 +61,7 @@ p.add_extension_statement("legend",
     local entries = {}
     for(let local entry in values(r[3])){
       if(len(entry.glyph) != 1){
-        p.error_at(token, "legend ", name, ": keys must be single characters, like \"#\": wall")
+        g:error_at(token, "legend ", name, ": keys must be single characters, like \"#\": wall")
       }
       local target = entry.target
       if(tiles[target]){
@@ -68,7 +69,7 @@ p.add_extension_statement("legend",
       } else if(entity_dsl.is_declared(target)){
         entries[entry.glyph] = {spawn: target}
       } else {
-        p.error_at(token, "legend ", name, ": \"", entry.glyph, "\" refers to ", target, ", which is neither a declared tile nor a declared entity")
+        g:error_at(token, "legend ", name, ": \"", entry.glyph, "\" refers to ", target, ", which is neither a declared tile nor a declared entity")
       }
     }
     legends[name] = entries
@@ -120,8 +121,8 @@ func m.build(rows, legend, fail){
 }
 
 // level NAME [LEGEND] { rows }
-p.add_extension_statement("level",
-  p.seq(p.keyword("level"), p.identifier(), p.identifier():optional(), util.raw_block()),
+g:extension_statement("level",
+  peg.seq(g:keyword("level"), g:rule("identifier"), g:rule("identifier"):optional(), util.raw_block()),
   func(r){
     local token = r[0]
     local name = r[1].value
@@ -131,7 +132,7 @@ p.add_extension_statement("level",
     }
     local legend = legends[legend_name]
     if(legend == null){
-      p.error_at(token, "level ", name, ": unknown legend \"", legend_name, "\"")
+      g:error_at(token, "level ", name, ": unknown legend \"", legend_name, "\"")
     }
     local rows = util.rows(r[3])
     local built = m.build(rows, legend, func(row, ...message){

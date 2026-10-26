@@ -550,13 +550,19 @@ func peg.flatten(child, message){
   })
 }
 
-func peg.token(child){
+// token(child, category): the consumed input as a token {value, start, stop,
+// line, column, category}; the category is what a highlighter shows
+func peg.token(child, category){
   return new_parser(func(self, ctx, pos){
     local q = child:parse_on(ctx, pos)
     if(q < 0){
       return -1
     }
-    ctx.value = peg.make_token(ctx, ctx.value, pos, q)
+    local t = peg.make_token(ctx, ctx.value, pos, q)
+    if(category != null){
+      t.category = category
+    }
+    ctx.value = t
     return q
   }, {child}, "token", func(self, ctx, pos){
     return child.fast(child, ctx, pos)
@@ -937,7 +943,14 @@ local func info_of(p, memo, visiting){
   return r
 }
 
-// a dispatch table: candidates per first byte, in the original order
+// skip_space(ctx, pos) -> pos: skips slang whitespace and comments (the skip
+// function of a walker or dispatch when the trivia rule is the default)
+func peg.skip_space(ctx, pos){
+  return str.skip_space(ctx.buffer, pos)
+}
+
+// a dispatch table: candidates per first byte, in the original order;
+// skip(ctx, pos) -> pos finds the first byte that matters
 local func make_dispatch(entries, skip, memo){
   local d = {all: entries, skip: skip}
   if(skip == null or len(entries) == 0){
@@ -987,7 +1000,7 @@ local func try_ops(d, ctx, pos){
     if(ctx.skip_from == pos){
       p = ctx.skip_to
     } else {
-      p = d.skip(ctx.buffer, pos)
+      p = d.skip(ctx, pos)
       ctx.skip_from = pos
       ctx.skip_to = p
     }
@@ -1016,8 +1029,8 @@ local func try_ops(d, ctx, pos){
 }
 
 // dispatch(parsers, skip, message): an ordered choice over parsers that only
-// tries, in order, the alternatives whose first byte (after skip, when given)
-// can match. When no alternative can match, message (if given) is recorded
+// tries, in order, the alternatives whose first byte (after skip(ctx, pos),
+// when given) can match. When no alternative can match, message (if given) is recorded
 // as the failure. The tables are built now, from the current resolution of
 // every rule reference, so a dispatch belongs to one sealed grammar.
 func peg.dispatch(parsers, skip, message){
@@ -1048,7 +1061,7 @@ local func candidates(d, ctx, pos){
   if(ctx.skip_from == pos){
     p = ctx.skip_to
   } else {
-    p = d.skip(ctx.buffer, pos)
+    p = d.skip(ctx, pos)
     ctx.skip_from = pos
     ctx.skip_to = p
   }
@@ -1064,11 +1077,14 @@ local func candidates(d, ctx, pos){
 
 // ---------------------------------------------------------------- walker
 //
-// peg.walker(skip) -> walker. Registration:
-//   w:level(name, {after: tighter, before: looser}) -> level   a named level;
-//       levels form a total order, tightest first; without a placement the
-//       level is appended (looser than everything so far)
-//   w:primary(parser)                       a primary expression
+// peg.walker(skip) -> walker; skip(ctx, pos) -> pos finds the next byte that
+// matters. Registration:
+//   w:level(name, {after: tighter, before: looser, at: index, aliases})
+//       -> level: a named level (null for an anonymous one); levels form a
+//       total order, tightest first; without a placement the level is
+//       appended (looser than everything so far). A level whose name or
+//       alias is already used replaces that level.
+//   w:primary(parser, name, {after, before, aliases})   a primary expression
 //   w:prefix(op, level, func(op, operand))  a prefix operator at a level
 //   w:postfix(op, level, func(left, op))
 //   w:left(op, level, func(left, op, right))   left-associative infix
@@ -1107,20 +1123,84 @@ func peg.walker(skip){
   return w
 }
 
-local func new_level(w, name){
-  local l = {walker: w, name: name, wrappers: {}, prefixes: {}, postfixes: {}, rights: {}, lefts: {}}
+local func new_level(w, name, aliases){
+  local l = {walker: w, name: name, aliases: aliases or {}, wrappers: {}, prefixes: {}, postfixes: {}, rights: {}, lefts: {}}
   l.meta = level_meta
   return l
 }
 
-local func level_index(w, name){
-  local n = len(w.levels)
+// whether entry (a level or a primary record) goes by name
+local func named(entry, name){
+  if(name == null){
+    return false
+  }
+  if(entry.name == name){
+    return true
+  }
+  for(let local a in values(entry.aliases)){
+    if(a == name){
+      return true
+    }
+  }
+  return false
+}
+
+local func index_of(list, name){
+  local n = len(list)
   for(local i = 0; i < n; i = i + 1){
-    if(w.levels[i].name == name){
+    if(named(list[i], name)){
       return i
     }
   }
   return -1
+}
+
+local func level_index(w, name){
+  return index_of(w.levels, name)
+}
+
+// inserts entry into list according to placement {after, before, at};
+// an entry of the same name is removed first
+local func place(list, entry, placement, what){
+  placement = placement or {}
+  local existing = index_of(list, entry.name)
+  if(existing >= 0){
+    remove(list, existing)
+  }
+  local index = len(list)
+  if(placement.at != null){
+    index = placement.at
+  } else if(placement.after != null){
+    local i = index_of(list, placement.after)
+    if(i < 0){
+      error(what, " ", placement.after, " not found")
+    }
+    index = i + 1
+  } else if(placement.before != null){
+    local i = index_of(list, placement.before)
+    if(i < 0){
+      error(what, " ", placement.before, " not found")
+    }
+    index = i
+  }
+  if(placement.after != null and placement.before != null){
+    local j = index_of(list, placement.before)
+    if(j < index){
+      error(what, " ", entry.name, " cannot be after ", placement.after, " and before ", placement.before)
+    }
+  }
+  local out = {}
+  local n = len(list)
+  for(local i = 0; i < n; i = i + 1){
+    if(i == index){
+      append(out, entry)
+    }
+    append(out, list[i])
+  }
+  if(index >= n){
+    append(out, entry)
+  }
+  return out
 }
 
 // the level object for a level or a level name
@@ -1136,48 +1216,37 @@ local func resolve_level(w, level){
 }
 
 func walker_methods.level(self, name, placement){
-  local l = new_level(self, name)
   placement = placement or {}
-  local index = len(self.levels)
-  if(placement.after != null){
-    local i = level_index(self, placement.after)
-    if(i < 0){
-      error("expression level ", placement.after, " not found")
-    }
-    index = i + 1
-  } else if(placement.before != null){
-    local i = level_index(self, placement.before)
-    if(i < 0){
-      error("expression level ", placement.before, " not found")
-    }
-    index = i
-  }
-  if(placement.after != null and placement.before != null){
-    local j = level_index(self, placement.before)
-    if(j < index){
-      error("expression level ", name, " cannot be after ", placement.after, " and before ", placement.before)
-    }
-  }
-  local out = {}
-  local n = len(self.levels)
-  for(local i = 0; i < n; i = i + 1){
-    if(i == index){
-      append(out, l)
-    }
-    append(out, self.levels[i])
-  }
-  if(index >= n){
-    append(out, l)
-  }
-  self.levels = out
+  local l = new_level(self, name, placement.aliases)
+  self.levels = place(self.levels, l, placement, "expression level")
   self.sealed = null
   return l
 }
 
-func walker_methods.primary(self, parser){
-  append(self.primaries, parser)
+func walker_methods.primary(self, parser, name, placement){
+  placement = placement or {}
+  local entry = {parser: parser, name: name, aliases: placement.aliases or {}}
+  self.primaries = place(self.primaries, entry, placement, "primary expression")
   self.sealed = null
   return self
+}
+
+// level_names() -> the level names, tightest first; primary_names() -> the
+// names of the primaries
+func walker_methods.level_names(self){
+  local out = {}
+  for(let local l in values(self.levels)){
+    append(out, l.name)
+  }
+  return out
+}
+
+func walker_methods.primary_names(self){
+  local out = {}
+  for(let local p in values(self.primaries)){
+    append(out, p.name)
+  }
+  return out
 }
 
 func walker_methods.prefix(self, operator, level, callback){
@@ -1262,7 +1331,7 @@ local func copy_entries(list){
 func walker_methods.derive(self){
   local w = peg.walker(self.skip)
   for(let local l in values(self.levels)){
-    local c = new_level(w, l.name)
+    local c = new_level(w, l.name, copy_entries(l.aliases))
     c.wrappers = copy_entries(l.wrappers)
     c.prefixes = copy_entries(l.prefixes)
     c.postfixes = copy_entries(l.postfixes)
@@ -1378,7 +1447,7 @@ local func build_tables(w){
   // nuds: loosest first (ascending binding power), primaries last
   sort_entries(nuds, "bp", false)
   for(let local p in values(w.primaries)){
-    append(nuds, {parser: p, kind: "primary", bp: 0})
+    append(nuds, {parser: p.parser, kind: "primary", bp: 0})
   }
   // leds: tightest first
   sort_entries(leds, "lbp", true)
@@ -1496,33 +1565,6 @@ func walker_methods.build(self){
   self.loopback:set(expr)
   self.parser = expr
   return expr
-}
-
-// ------------------------------------------- expression builder (compat)
-//
-// The group API of the earlier engine on top of the walker: groups are
-// anonymous levels in registration order, group 0 binds tightest.
-
-local builder_methods = {}
-local builder_meta = {__index: builder_methods, __type: "expression_builder"}
-
-func peg.expression_builder(skip){
-  local w = peg.walker(skip)
-  local b = {walker: w, loopback: w.loopback, skip: skip}
-  b.meta = builder_meta
-  return b
-}
-
-func builder_methods.primitive(self, parser){
-  self.walker:primary(parser)
-}
-
-func builder_methods.group(self){
-  return self.walker:level(null)
-}
-
-func builder_methods.build(self){
-  return self.walker:build()
 }
 
 // ---------------------------------------------------------------------- methods

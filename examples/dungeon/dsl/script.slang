@@ -10,14 +10,15 @@
 // `wait SECONDS` and `wait for EVENT_NAME` expand to calls of
 // require("engine/scheduler") that yield from the task's coroutine; the
 // scheduler resumes it when the time has passed or the event was emitted.
-local p = require("slang/parser")
+local peg = require("slang/peg")
+local g = require("slang/compiler").grammar()
 
-p.add_statement("wait",
-  p.seq(
-    p.keyword("wait"),
-    p.choice(
-      p.seq(p.token("for"), p.expr()):map(func(r){ return {event: r[1]} }),
-      p.expr():map(func(e){ return {seconds: e} })
+g:statement("wait",
+  peg.seq(
+    g:keyword("wait"),
+    peg.choice(
+      peg.seq(g:token("for"), g:rule("expr")):map(func(r){ return {event: r[1]} }),
+      g:rule("expr"):map(func(e){ return {seconds: e} })
     )
   ):map(func(r){
     local w = r[1]

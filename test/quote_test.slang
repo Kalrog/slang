@@ -80,15 +80,16 @@ t.group("quote"){
     nRuns = 0
     local run = compile("""
       extension {
-        local p = require("slang/parser")
-        p.add_statement(
+        local peg = require("slang/peg")
+        local g = require("slang/compiler").grammar()
+        g:statement(
           "unless",
-          p.seq(
-            p.keyword("unless"),
-            p.token("("),
-            p.expr(),
-            p.token(")"),
-            p.block()
+          peg.seq(
+            g:keyword("unless"),
+            g:token("("),
+            g:rule("expr"),
+            g:token(")"),
+            g:rule("block")
           ):map(func(results){
             return {
               token:results[0],
@@ -114,10 +115,11 @@ t.group("quote"){
     value = 0
     local run = compile("""
       extension {
-        local p = require("slang/parser")
-        p.add_primitive_expression(
+        local peg = require("slang/peg")
+        local g = require("slang/compiler").grammar()
+        g:expression():primary(
             "one",
-            p.keyword("one"):map(func(token){
+            g:keyword("one"):map(func(token){
             return {  
               token:token,
               ast:+{1}
@@ -135,10 +137,10 @@ t.group("quote"){
     value = 0
     local run = compile("""
       extension {
-        local p = require("slang/parser")
+        local peg = require("slang/peg")
+        local g = require("slang/compiler").grammar()
         local table = require("slang/table")
-        p.add_expression_group_after("indexAndCall", "increment", func(group){
-          group:postfix(p.token("++"), func(exp, op){
+        g:expression():level("increment", {after: "indexAndCall"}):postfix(g:token("++"), func(exp, op){
             return {
               token: op,
               ast: +{
@@ -149,8 +151,6 @@ t.group("quote"){
               }
             } 
           })
-          return group
-        })
       }
 
       print(value++)
@@ -163,17 +163,15 @@ t.group("quote"){
     result = ""
     local run = compile("""
       extension {
-        local p = require("slang/parser")
+        local peg = require("slang/peg")
+        local g = require("slang/compiler").grammar()
         local table = require("slang/table")
-        p.add_expression_group_before("compare", "concat", func(group){
-          group:left(p.token("<>"), func(left, op, right){
+        g:expression():level("concat", {before: "compare"}):left(g:token("<>"), func(left, op, right){
             return {
               token: op,
               ast: +{concat(-{left},-{right})}
             }
           })
-          return group
-        })
       }
       print("hello" <> " world");
       result = "hello" <> " world";
@@ -186,16 +184,17 @@ t.group("quote"){
     resultAst = nil
     local run = compile("""
     extension {
-      local p = require("slang/parser")
-      p.add_primitive_expression(
+      local peg = require("slang/peg")
+      local g = require("slang/compiler").grammar()
+      g:expression():primary(
         "lambda",
-        p.seq(
-          p.token("|"),
-          p.identifier():star_seperated(p.token(",")):map(func(values){
+        peg.seq(
+          g:token("|"),
+          g:rule("identifier"):star_seperated(g:token(",")):map(func(values){
             return values.elements
           }),
-          p.token("|"),
-          p.expr()
+          g:token("|"),
+          g:rule("expr")
         ):map(func(results){
           local params = results[1]
           local expression = results[3]

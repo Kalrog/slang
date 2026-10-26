@@ -7,47 +7,58 @@
 // creates a prefix operator, that calls the function when the operator is used
 extension "extensions/lambda_shorthand"
 
-local p = require("slang/parser")
-p.add_extension_statement(
+local peg = require("slang/peg")
+
+local g = require("slang/compiler").grammar()
+
+// the level placement of an operator definition: {"after", name} and so on
+local func place(position){
+  if(position == null){ return {} }
+  if(position[0] == "after"){ return {after: position[1]} }
+  if(position[0] == "before"){ return {before: position[1]} }
+  if(position[0] == "at"){ return {at: position[1]} }
+  return {}
+}
+g:extension_statement(
   "defineInfix",
-  p.seq(
-    p.keyword("infix"),
-    p.token("_"),
-    p.any():star_lazy(p.token("_")):flatten(),
-    p.token("_"),
-    p.choice(
-      p.token("left"),
-      p.token("right")
+  peg.seq(
+    g:keyword("infix"),
+    g:token("_"),
+    peg.any():star_lazy(g:token("_")):flatten(),
+    g:token("_"),
+    peg.choice(
+      g:token("left"),
+      g:token("right")
     ):optional(),
-    p.choice(
-      p.seq(
-        p.token("after"):map(|_|"after"),
-        p.seq(
-          p.token("_"),
-          p.any():star_lazy(p.string("_")):flatten(),
-          p.token("_")
+    peg.choice(
+      peg.seq(
+        g:token("after"):map(|_|"after"),
+        peg.seq(
+          g:token("_"),
+          peg.any():star_lazy(peg.string("_")):flatten(),
+          g:token("_")
         ):pick(1)
       ),
-      p.seq(
-        p.token("before"):map(|_|"before"),
-        p.seq(
-          p.token("_"),
-          p.any():star_lazy(p.string("_")):flatten(),
-          p.token("_")
+      peg.seq(
+        g:token("before"):map(|_|"before"),
+        peg.seq(
+          g:token("_"),
+          peg.any():star_lazy(peg.string("_")):flatten(),
+          g:token("_")
         ):pick(1)
       ),
-      p.seq(
-        p.token("at"):map(|_|"at"),
-        p.digit():plus():flatten():map(to_int)
+      peg.seq(
+        g:token("at"):map(|_|"at"),
+        peg.digit():plus():flatten():map(to_int)
       )
     ):optional(),
-    p.token("("),
-    p.identifier():star_seperated(p.token(",")):map(|args| args.elements),
-    p.token(")"),
-    p.block()
+    g:token("("),
+    g:rule("identifier"):star_seperated(g:token(",")):map(|args| args.elements),
+    g:token(")"),
+    g:rule("block")
   ),
   func(result){
-    local symbol = p.token(result[2])
+    local symbol = g:token(result[2])
     local id = {type:"Identifier",value:concat("infix_", result[3])}
     local direction = result[4] 
     local position = result[5]
@@ -82,19 +93,7 @@ p.add_extension_statement(
       return group
     }
 
-    if(position){
-      if(position[0] == "after"){
-        p.add_expression_group_after(position[1], id.value, define_infix) 
-      } else if(position[0] == "before"){
-        p.add_expression_group_before(position[1], id.value, define_infix) 
-      } else if(position[0] == "at"){
-        p.add_expression_group_at(position[1], id.value, define_infix) 
-      } else {
-        p.add_expression_group(id.value, define_infix) 
-      }
-    } else {
-      p.add_expression_group(id.value, define_infix) 
-    }
+    define_infix(g:expression():level(id.value, place(position)))
     return {
       token: result[0],
       ast: function_def
@@ -102,41 +101,41 @@ p.add_extension_statement(
   }
 )
 
-p.add_extension_statement(
+g:extension_statement(
   "definePrefix",
-  p.seq(
-    p.keyword("prefix"),
-    p.any():star_lazy(p.token("_")):flatten():trim(),
-    p.token("_"),
-    p.choice(
-      p.seq(
-        p.token("after"):map(|_|"after"),
-        p.seq(
-          p.token("_"),
-          p.any():star_lazy(p.string("_")):flatten(),
-          p.token("_")
+  peg.seq(
+    g:keyword("prefix"),
+    peg.any():star_lazy(g:token("_")):flatten():trim(),
+    g:token("_"),
+    peg.choice(
+      peg.seq(
+        g:token("after"):map(|_|"after"),
+        peg.seq(
+          g:token("_"),
+          peg.any():star_lazy(peg.string("_")):flatten(),
+          g:token("_")
         ):pick(1)
       ),
-      p.seq(
-        p.token("before"):map(|_|"before"),
-        p.seq(
-          p.token("_"),
-          p.any():star_lazy(p.string("_")):flatten(),
-          p.token("_")
+      peg.seq(
+        g:token("before"):map(|_|"before"),
+        peg.seq(
+          g:token("_"),
+          peg.any():star_lazy(peg.string("_")):flatten(),
+          g:token("_")
         ):pick(1)
       ),
-      p.seq(
-        p.token("at"):map(|_|"at"),
-        p.digit():plus():flatten():map(to_int)
+      peg.seq(
+        g:token("at"):map(|_|"at"),
+        peg.digit():plus():flatten():map(to_int)
       )
     ):optional(),
-    p.token("("),
-    p.identifier():star_seperated(p.token(",")):map(|args| args.elements),
-    p.token(")"),
-    p.block()
+    g:token("("),
+    g:rule("identifier"):star_seperated(g:token(",")):map(|args| args.elements),
+    g:token(")"),
+    g:rule("block")
   ),
   func(result){
-    local symbol = p.token(result[1])
+    local symbol = g:token(result[1])
     local id = {type:"Identifier",value:concat("prefix_", result[1])}
     local position = result[3]
     local params = result[5]
@@ -161,19 +160,7 @@ p.add_extension_statement(
       return group
     }
 
-    if(position){
-      if(position[0] == "after"){
-        p.add_expression_group_after(position[1], id.value, define_prefix) 
-      } else if(position[0] == "before"){
-        p.add_expression_group_before(position[1], id.value, define_prefix) 
-      } else if(position[0] == "at"){
-        p.add_expression_group_at(position[1], id.value, define_prefix) 
-      } else {
-        p.add_expression_group(id.value, define_prefix) 
-      }
-    } else {
-      p.add_expression_group(id.value, define_prefix) 
-    }
+    define_prefix(g:expression():level(id.value, place(position)))
     return {
       token: result[0],
       ast: function_def
@@ -181,47 +168,47 @@ p.add_extension_statement(
   }
 )
 
-p.add_extension_statement(
+g:extension_statement(
   "definePostfix",
-  p.seq(
-    p.keyword("postfix"),
-    p.token("_"),
-    p.any():star_lazy(
-      p.choice(
-        p.token("("),
-        p.token("after"),
-        p.token("before"),
-        p.token("at")
+  peg.seq(
+    g:keyword("postfix"),
+    g:token("_"),
+    peg.any():star_lazy(
+      peg.choice(
+        g:token("("),
+        g:token("after"),
+        g:token("before"),
+        g:token("at")
       )):flatten():trim(),
-    p.choice(
-      p.seq(
-        p.token("after"):map(|_|"after"),
-        p.seq(
-          p.token("_"),
-          p.any():star_lazy(p.string("_")):flatten(),
-          p.token("_")
+    peg.choice(
+      peg.seq(
+        g:token("after"):map(|_|"after"),
+        peg.seq(
+          g:token("_"),
+          peg.any():star_lazy(peg.string("_")):flatten(),
+          g:token("_")
         ):pick(1)
       ),
-      p.seq(
-        p.token("before"):map(|_|"before"),
-        p.seq(
-          p.token("_"),
-          p.any():star_lazy(p.string("_")):flatten(),
-          p.token("_")
+      peg.seq(
+        g:token("before"):map(|_|"before"),
+        peg.seq(
+          g:token("_"),
+          peg.any():star_lazy(peg.string("_")):flatten(),
+          g:token("_")
         ):pick(1)
       ),
-      p.seq(
-        p.token("at"):map(|_|"at"),
-        p.digit():plus():flatten():map(to_int)
+      peg.seq(
+        g:token("at"):map(|_|"at"),
+        peg.digit():plus():flatten():map(to_int)
       )
     ):optional(),
-    p.token("("),
-    p.identifier():star_seperated(p.token(",")):map(|args| args.elements),
-    p.token(")"),
-    p.block()
+    g:token("("),
+    g:rule("identifier"):star_seperated(g:token(",")):map(|args| args.elements),
+    g:token(")"),
+    g:rule("block")
   ),
   func(result){
-    local symbol = p.token(result[2])
+    local symbol = g:token(result[2])
     local id = {type:"Identifier",value:concat("postfix_", result[2])}
     print("postfix id ", id, "\n")
     local position = result[3]
@@ -247,19 +234,7 @@ p.add_extension_statement(
       return group
     }
 
-    if(position){
-      if(position[0] == "after"){
-        p.add_expression_group_after(position[1], id.value, define_postfix) 
-      } else if(position[0] == "before"){
-        p.add_expression_group_before(position[1], id.value, define_postfix) 
-      } else if(position[0] == "at"){
-        p.add_expression_group_at(position[1], id.value, define_postfix) 
-      } else {
-        p.add_expression_group(id.value, define_postfix) 
-      }
-    } else {
-      p.add_expression_group(id.value, define_postfix) 
-    }
+    define_postfix(g:expression():level(id.value, place(position)))
     return {
       token: result[0],
       ast: function_def

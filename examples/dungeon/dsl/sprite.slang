@@ -14,7 +14,8 @@
 // on the offending row. A sprite expands to
 //   require("engine/sprites").define("goblin", {w: 6, h: 2, pixels: "<bytes>"})
 // and is drawn with gfx.sprite(sprites.goblin, x, y).
-local p = require("slang/parser")
+local peg = require("slang/peg")
+local g = require("slang/compiler").grammar()
 local str = require("slang/string")
 local util = require("dsl/util")
 
@@ -22,23 +23,23 @@ local palettes = {}
 local m = {palettes: palettes}
 
 // palette NAME { key: "#hex", ... }
-p.add_extension_statement("palette",
-  p.seq(p.keyword("palette"), p.identifier(), p.table_literal()),
+g:extension_statement("palette",
+  peg.seq(g:keyword("palette"), g:rule("identifier"), g:rule("table_literal")),
   func(r){
     local token = r[0]
     local name = r[1].value
     local colors = {}
     for(let local field in values(r[2].fields)){
       if(field.key == null or field.key.type != "String" or field.value.type != "String"){
-        p.error_at(token, "palette ", name, ": entries must look like  k: \"#rrggbb\"")
+        g:error_at(token, "palette ", name, ": entries must look like  k: \"#rrggbb\"")
       }
       local key = field.key.value
       if(len(key) != 1){
-        p.error_at(token, "palette ", name, ": the key \"", key, "\" must be a single character")
+        g:error_at(token, "palette ", name, ": the key \"", key, "\" must be a single character")
       }
       local color = util.hex_color(field.value.value)
       if(color == null){
-        p.error_at(token, "palette ", name, ": \"", field.value.value, "\" is not a color (#rrggbb or #rrggbbaa)")
+        g:error_at(token, "palette ", name, ": \"", field.value.value, "\" is not a color (#rrggbb or #rrggbbaa)")
       }
       colors[key] = color
     }
@@ -77,8 +78,8 @@ func m.bake(rows, palette, fail){
 }
 
 // sprite NAME [PALETTE] { rows }
-p.add_extension_statement("sprite",
-  p.seq(p.keyword("sprite"), p.identifier(), p.identifier():optional(), util.raw_block()),
+g:extension_statement("sprite",
+  peg.seq(g:keyword("sprite"), g:rule("identifier"), g:rule("identifier"):optional(), util.raw_block()),
   func(r){
     local token = r[0]
     local name = r[1].value
@@ -88,7 +89,7 @@ p.add_extension_statement("sprite",
     }
     local palette = palettes[palette_name]
     if(palette == null){
-      p.error_at(token, "sprite ", name, ": unknown palette \"", palette_name, "\"")
+      g:error_at(token, "sprite ", name, ": unknown palette \"", palette_name, "\"")
     }
     local rows = util.rows(r[3])
     local baked = m.bake(rows, palette, func(row, ...message){

@@ -9,8 +9,9 @@ t.group("extension statements"){
   t.test("an inline extension changes the grammar for the statements after it"){
     local run = compile("""
       extension {
-        local p = require("slang/parser")
-        p.add_primitive_expression("fortytwo", p.keyword("fortytwo"):map(func(token){
+        local peg = require("slang/peg")
+        local g = require("slang/compiler").grammar()
+        g:expression():primary("fortytwo", g:keyword("fortytwo"):map(func(token){
           return {token: token, ast: +{42}}
         }))
       }
@@ -29,8 +30,9 @@ t.group("extension statements"){
   t.test("ordinary unquotes may not change the grammar"){
     local r = pcall(compile, """
       -{block:
-        local p = require("slang/parser")
-        p.add_statement("nope", p.keyword("nope"):map(func(token){
+        local peg = require("slang/peg")
+        local g = require("slang/compiler").grammar()
+        g:statement("nope", g:keyword("nope"):map(func(token){
           return {token: token, ast: +{stat: print("")}}
         }))
       }
@@ -58,10 +60,11 @@ t.group("extension statements"){
     stored = null
     local run = compile("""
       extension {
-        local p = require("slang/parser")
+        local peg = require("slang/peg")
+        local g = require("slang/compiler").grammar()
         // a statement that parses a whole expression and then needs the word `afterwards`,
         // so the plain call statement below is parsed twice
-        p.add_statement("afterwards", p.seq(p.expr(), p.keyword("afterwards")):map(func(r){
+        g:statement("afterwards", peg.seq(g:rule("expr"), g:keyword("afterwards")):map(func(r){
           return {token: r[1], ast: +{stat: print("")}}
         }))
       }
@@ -91,8 +94,9 @@ t.group("extension statements"){
   t.test("keywords stay usable as field names"){
     local run = compile("""
       extension {
-        local p = require("slang/parser")
-        p.add_statement("shout", p.seq(p.keyword("shout"), p.expr()):map(func(r){
+        local peg = require("slang/peg")
+        local g = require("slang/compiler").grammar()
+        g:statement("shout", peg.seq(g:keyword("shout"), g:rule("expr")):map(func(r){
           return {token: r[0], ast: +{stat: print(-{r[1]})}}
         }))
       }
@@ -110,12 +114,13 @@ t.group("extension statements"){
   t.test("extensions can define their own extension statements"){
     local run = compile("""
       extension {
-        local p = require("slang/parser")
+        local peg = require("slang/peg")
+        local g = require("slang/compiler").grammar()
         // `alias NEW OLD` makes NEW a primitive expression standing for the global OLD
-        p.add_extension_statement("alias", p.seq(p.keyword("alias"), p.identifier(), p.identifier()), func(r){
+        g:extension_statement("alias", peg.seq(g:keyword("alias"), g:rule("identifier"), g:rule("identifier")), func(r){
           local new_name = r[1].value
           local old = r[2]
-          p.add_primitive_expression(new_name, p.keyword(new_name):map(func(token){
+          g:expression():primary(new_name, g:keyword(new_name):map(func(token){
             return {token: token, ast: old}
           }))
           return null

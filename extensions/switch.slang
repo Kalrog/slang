@@ -1,4 +1,5 @@
-local p = require("slang/parser")
+local peg = require("slang/peg")
+local g = require("slang/compiler").grammar()
 local switch_statement = {}
 local case_block = {}
 
@@ -29,14 +30,14 @@ func switch_statement.build(self){
 }
 
 func switch_statement.parser(){
-  return p.seq(
-    p.keyword("switch"),
-    p.token("("),
-    p.expr(),
-    p.token(")"),
-    p.token("{"),
+  return peg.seq(
+    g:keyword("switch"),
+    g:token("("),
+    g:rule("expr"),
+    g:token(")"),
+    g:token("{"),
     case_block.parser():star(),
-    p.token("}")
+    g:token("}")
   ):map(func(result){
     return switch_statement.new(result[0],result[2],result[5])
   })
@@ -62,17 +63,17 @@ func case_block.build(self,value){
 }
 
 func case_block.parser(){
-  return p.seq(
-    p.keyword("case"),
-    p.slang_pattern(),
-    p.token(":"),
-    p.block(false)
+  return peg.seq(
+    g:keyword("case"),
+    g:rule("slang_pattern"),
+    g:token(":"),
+    g:rule("chunk")
   ):map(func(result){
     return case_block.new(result[0],result[1],result[3])
   })
 }
 
-p.add_statement(
+g:statement(
   "switch",
   switch_statement.parser():map(func (result){
     return result:build();

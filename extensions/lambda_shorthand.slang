@@ -1,13 +1,14 @@
-  local p = require("slang/parser")
-  p.add_primitive_expression(
+  local peg = require("slang/peg")
+  local g = require("slang/compiler").grammar()
+  g:expression():primary(
     "lambda",
-    p.seq(
-      p.token("|"),
-      p.identifier():star_seperated(p.token(",")):map(func(values){
+    peg.seq(
+      g:token("|"),
+      g:rule("identifier"):star_seperated(g:token(",")):map(func(values){
         return values.elements
       }),
-      p.token("|"),
-      p.expr()
+      g:token("|"),
+      g:rule("expr")
     ):map(func(results){
       local params = results[1]
       local expression = results[3]

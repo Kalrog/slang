@@ -2,7 +2,8 @@
 // registry that lets programs extend and modify the parser at compile time.
 //
 // A grammar is a registry of named rules plus the registries of statements,
-// primitive expressions, operator groups and extension statements. Rules are
+// extension statements and the expression walker (primaries, levels and
+// operators, see peg.walker). Rules are
 // referenced by name (g:rule(name)) and resolved late: the first parse after
 // a change seals the grammar (builds the expression walker, the dispatch
 // tables and the rule targets) once. Grammars derive from each other; the
@@ -73,6 +74,10 @@ local func new_lineage(opts){
     // set once code ran at compile time (unquote or extension statement); the
     // bytecode of a file is only cached when that did not happen
     compile_time_effects: false,
+    // token_fn(source, name, category) -> parser, set by install_core; shared
+    // so that peg.ref(lin.token_fn, text) caches one parser per text
+    token_fn: null,
+    uniq_counter: 0,
   }
 }
 
@@ -143,8 +148,7 @@ local func new_grammar(lin, parent){
     g.statement_order = {}
     g.extension_statements = {}
     g.extension_statement_order = {}
-    g.primitive_levels = {}
-    g.group_levels = {}
+    g.expression_walker = null
     g.extended = false
   } else {
     g.rule_table = {}
@@ -159,21 +163,12 @@ local func new_grammar(lin, parent){
     g.statement_order = copy_list(parent.statement_order)
     g.extension_statements = copy_table(parent.extension_statements)
     g.extension_statement_order = copy_list(parent.extension_statement_order)
-    g.primitive_levels = copy_list(parent.primitive_levels)
-    g.group_levels = copy_list(parent.group_levels)
+    g.expression_walker = parent.expression_walker:derive()
     g.extended = parent.extended
     // shared helpers of the lineage
-    g.token = parent.token
     g.initial_statement = parent.initial_statement
     g.builtin_extension = parent.builtin_extension
-    g.identifier = parent.identifier
-    g.expr = parent.expr
-    g.statement = parent.statement
-    g.chunk = parent.chunk
-    g.block = parent.block
-    g.slang_pattern = parent.slang_pattern
-    g.table_literal = parent.table_literal
-    g.final_statement = parent.final_statement
+    g.default_trivia = parent.default_trivia
   }
   return g
 }
@@ -305,19 +300,167 @@ func methods.derive(g){
   return new_grammar(g.state, g)
 }
 
-// walker() -> a fresh expression walker skipping slang trivia, for
-// extensions that define their own expression language (see peg.walker)
-func methods.walker(g){
-  return peg.walker(str.skip_space)
-}
 
+// keyword(word) -> token parser; the word is reserved (not an identifier)
 func methods.keyword(g, s){
   if(g.keywords[s] != true){
     check_changes(g, "keyword")
     g.keywords[s] = true
     touch(g)
   }
-  return peg.ref(g.token, s)
+  return peg.ref(g.state.token_fn, s)
+}
+
+// token(source, name, category) -> parser: a token trimmed by trivia. source
+// is a string (the token's text; word-like tokens may not be followed by an
+// identifier character) or a parser (name says what the error message
+// expects). category is what a highlighter shows; it defaults to "keyword"
+// for words, "punctuation" for other strings and name for parsers.
+func methods.token(g, source, name, category){
+  if(type(source) == "string"){
+    return peg.ref(g.state.token_fn, source, name, category)
+  }
+  return g.state.token_fn(source, name, category)
+}
+
+// origin() -> the name of the source being parsed (null outside a parse)
+func methods.origin(g){
+  return g.state.origin
+}
+
+// error_at(token, message...): raises a compile error located at token (a
+// token as produced by token/keyword, or any table with line and column)
+func methods.error_at(g, token, ...message){
+  local location = null
+  if(type(token) == "table" and token.line != null){
+    location = {line: token.line, column: token.column, origin: g.state.origin or "string"}
+  }
+  local text = ""
+  for(let local part in values(message)){
+    text = concat(text, part)
+  }
+  raise({message: text, location: location})
+}
+
+// uniq_id() -> an identifier node with a name no program can write
+func methods.uniq_id(g){
+  g.state.uniq_counter = g.state.uniq_counter + 1
+  return ast.node("Identifier", {value: concat("uuid-", g.state.uniq_counter)}, null)
+}
+
+local func decode_statement(value){
+  local node = ast.decode(value)
+  if(not ast.is_statement(node)){
+    error("expected a statement, got ", node)
+  }
+  return node
+}
+
+// ------------------------------------------------------------ expression API
+//
+// expression() -> the expression registry of the grammar: the walker (see
+// peg.walker) behind a facade that decodes what extension callbacks return
+// ({token, ast} or a node) and names primaries and levels.
+
+local expression_methods = {}
+local expression_meta = {__index: expression_methods, __type: "expression_registry"}
+local level_facade_methods = {}
+local level_facade_meta = {__index: level_facade_methods, __type: "expression_level"}
+
+func methods.expression(g){
+  local e = {grammar: g}
+  e.meta = expression_meta
+  return e
+}
+
+local func facade_walker(e){
+  local g = e.grammar
+  check_changes(g, "expression")
+  touch(g)
+  return g.expression_walker
+}
+
+local func level_facade(e, level){
+  local f = {registry: e, level: level}
+  f.meta = level_facade_meta
+  return f
+}
+
+// primary(name, parser, {after, before, at, aliases})
+func expression_methods.primary(self, name, parser, placement){
+  local w = facade_walker(self)
+  peg.resolve(parser)
+  w:primary(parser:map(ast.decode), name, placement)
+  return self
+}
+
+// level(name, {after, before, at, aliases}) -> level
+func expression_methods.level(self, name, placement){
+  local w = facade_walker(self)
+  return level_facade(self, w:level(name, placement))
+}
+
+func expression_methods.prefix(self, operator, level, callback){
+  local w = facade_walker(self)
+  w:prefix(operator, level, func(op, exp){ return ast.decode(callback(op, exp)) })
+  return self
+}
+
+func expression_methods.postfix(self, operator, level, callback){
+  local w = facade_walker(self)
+  w:postfix(operator, level, func(exp, op){ return ast.decode(callback(exp, op)) })
+  return self
+}
+
+func expression_methods.left(self, operator, level, callback){
+  local w = facade_walker(self)
+  w:left(operator, level, func(left, op, right){ return ast.decode(callback(left, op, right)) })
+  return self
+}
+
+func expression_methods.right(self, operator, level, callback){
+  local w = facade_walker(self)
+  w:right(operator, level, func(left, op, right){ return ast.decode(callback(left, op, right)) })
+  return self
+}
+
+func expression_methods.wrapper(self, left, right, level, callback){
+  local w = facade_walker(self)
+  w:wrapper(left, right, level, func(l, value, r){ return ast.decode(callback(l, value, r)) })
+  return self
+}
+
+func expression_methods.levels(self){
+  return self.grammar.expression_walker:level_names()
+}
+
+func expression_methods.primaries(self){
+  return self.grammar.expression_walker:primary_names()
+}
+
+func level_facade_methods.prefix(self, operator, callback){
+  self.registry:prefix(operator, self.level, callback)
+  return self
+}
+
+func level_facade_methods.postfix(self, operator, callback){
+  self.registry:postfix(operator, self.level, callback)
+  return self
+}
+
+func level_facade_methods.left(self, operator, callback){
+  self.registry:left(operator, self.level, callback)
+  return self
+}
+
+func level_facade_methods.right(self, operator, callback){
+  self.registry:right(operator, self.level, callback)
+  return self
+}
+
+func level_facade_methods.wrapper(self, left, right, callback){
+  self.registry:wrapper(left, right, self.level, callback)
+  return self
 }
 
 // ------------------------------------------------------------ sealing
@@ -378,22 +521,24 @@ func methods.activate(g){
 
 // ------------------------------------------------------------ registries
 
-func methods.add_statement(g, name, parser){
-  check_changes(g, "add_statement")
+// statement(name, parser): a statement; the parser yields a statement node
+// or {token, ast}
+func methods.statement(g, name, parser){
+  check_changes(g, "statement")
   peg.resolve(parser)
   if(g.statements[name] == null){
     append(g.statement_order, name)
   }
-  g.statements[name] = parser
+  g.statements[name] = parser:map(decode_statement)
   touch(g)
 }
 
-// add_extension_statement(name, parser, apply): a statement that is only
+// extension_statement(name, parser, apply): a statement that is only
 // recognised at the top level; after it parsed, apply(result) runs between
 // statements with grammar changes allowed and returns the statement to emit
 // (or null)
-func methods.add_extension_statement(g, name, parser, apply){
-  check_changes(g, "add_extension_statement")
+func methods.extension_statement(g, name, parser, apply){
+  check_changes(g, "extension_statement")
   peg.resolve(parser)
   if(g.extension_statements[name] == null){
     append(g.extension_statement_order, name)
@@ -404,136 +549,34 @@ func methods.add_extension_statement(g, name, parser, apply){
   touch(g)
 }
 
-local func remove_level(levels, names){
-  local kept = {}
-  for(let local level in values(levels)){
-    local all_contained = true
-    for(let local n in values(level.names)){
-      local found = false
-      for(let local m in values(names)){
-        if(m == n){
-          found = true
-        }
+// the skip function of the walker and the dispatch tables: the native
+// whitespace/comment skipper while the trivia rule is the default, the
+// trivia parser itself once an extension changed it
+local func trivia_skip(g){
+  local entry = g.rule_table.trivia
+  if(entry != null and entry.parser == g.default_trivia){
+    return peg.skip_space
+  }
+  local trivia = rule_ref(g.state, "trivia")
+  return func(ctx, pos){
+    for(true){
+      local far_pos = ctx.far_pos
+      local far_msg = ctx.far_msg
+      local q = trivia:parse_on(ctx, pos)
+      ctx.far_pos = far_pos
+      ctx.far_msg = far_msg
+      if(q < 0 or q == pos){
+        return pos
       }
-      if(not found){
-        all_contained = false
-      }
-    }
-    if(not all_contained){
-      append(kept, level)
+      pos = q
     }
   }
-  return kept
 }
 
-local func index_of_level(levels, name){
-  local i = 0
-  for(let local level in values(levels)){
-    for(let local n in values(level.names)){
-      if(n == name){
-        return i
-      }
-    }
-    i = i + 1
-  }
-  return -1
-}
-
-local func insert_at(levels, index, level){
-  local out = {}
-  local n = len(levels)
-  for(local i = 0; i < n; i = i + 1){
-    if(i == index){
-      append(out, level)
-    }
-    append(out, levels[i])
-  }
-  if(index >= n){
-    append(out, level)
-  }
-  return out
-}
-
-func methods.add_expression_group_after(g, name, level){
-  check_changes(g, "add_expression_group_after")
-  g.group_levels = remove_level(g.group_levels, level.names)
-  local index = index_of_level(g.group_levels, name)
-  if(index < 0){
-    error("Expression group ", name, " not found")
-  }
-  g.group_levels = insert_at(g.group_levels, index + 1, level)
-  touch(g)
-}
-
-func methods.add_expression_group_before(g, name, level){
-  check_changes(g, "add_expression_group_before")
-  g.group_levels = remove_level(g.group_levels, level.names)
-  local index = index_of_level(g.group_levels, name)
-  if(index < 0){
-    error("Expression group ", name, " not found")
-  }
-  g.group_levels = insert_at(g.group_levels, index, level)
-  touch(g)
-}
-
-func methods.add_expression_group_at(g, index, level){
-  check_changes(g, "add_expression_group_at")
-  g.group_levels = remove_level(g.group_levels, level.names)
-  g.group_levels = insert_at(g.group_levels, index, level)
-  touch(g)
-}
-
-func methods.add_expression_group(g, level){
-  check_changes(g, "add_expression_group")
-  g.group_levels = remove_level(g.group_levels, level.names)
-  append(g.group_levels, level)
-  touch(g)
-}
-
-func methods.add_primitive_expression(g, level){
-  check_changes(g, "add_primitive_expression")
-  peg.resolve(level.parser)
-  g.primitive_levels = remove_level(g.primitive_levels, level.names)
-  append(g.primitive_levels, level)
-  touch(g)
-}
-
-func methods.add_primitive_expression_after(g, name, level){
-  check_changes(g, "add_primitive_expression_after")
-  peg.resolve(level.parser)
-  local index = index_of_level(g.primitive_levels, name)
-  if(index < 0){
-    error("Primitive expression ", name, " not found")
-  }
-  g.primitive_levels = insert_at(g.primitive_levels, index + 1, level)
-  touch(g)
-}
-
-func methods.add_primitive_expression_before(g, name, level){
-  check_changes(g, "add_primitive_expression_before")
-  peg.resolve(level.parser)
-  local index = index_of_level(g.primitive_levels, name)
-  if(index < 0){
-    error("Primitive expression ", name, " not found")
-  }
-  g.primitive_levels = insert_at(g.primitive_levels, index, level)
-  touch(g)
-}
-
-func methods.expression_group_names(g){
-  local out = {}
-  for(let local level in values(g.group_levels)){
-    append(out, level.names)
-  }
-  return out
-}
-
-func methods.primitive_expression_names(g){
-  local out = {}
-  for(let local level in values(g.primitive_levels)){
-    append(out, level.names)
-  }
-  return out
+// walker() -> a fresh expression walker skipping slang trivia, for
+// extensions that define their own expression language (see peg.walker)
+func methods.walker(g){
+  return peg.walker(trivia_skip(g))
 }
 
 // ------------------------------------------------------------ core
@@ -569,6 +612,7 @@ local func install_core(g){
   })
   trivia.single = true
   define("trivia", trivia)
+  g.default_trivia = trivia
 
   local space = rule("trivia")
   space.single = true
@@ -591,25 +635,32 @@ local func install_core(g){
     return has_letter
   }
 
-  // token(source, message): a token parser trimmed by trivia. Word-like
-  // tokens (keywords, `not`, `and`, ...) must not be followed by an
-  // identifier character, so that `notify` or `localVar` stay identifiers.
-  g.token = func(source, message){
+  // token(source, name, category): a token parser trimmed by trivia (see
+  // methods.token). Word-like tokens (keywords, `not`, `and`, ...) must not
+  // be followed by an identifier character, so that `notify` or `localVar`
+  // stay identifiers.
+  lin.token_fn = func(source, name, category){
     if(type(source) == "string"){
-      local p = peg.string(source, concat("Expected: ", message or source))
+      local p = peg.string(source, concat("Expected: ", name or source))
       if(is_word(source)){
         p = peg.seq(p, peg.pattern("a-zA-Z0-9_"):forbid()):pick(0)
+        category = category or "keyword"
+      } else {
+        category = category or "punctuation"
       }
-      return p:token():trim(space)
+      return p:token(category):trim(space)
     }
     if(peg.is_parser(source)){
-      return source:flatten(message):token():trim(space)
+      return source:flatten(name):token(category or name):trim(space)
     }
     error("Invalid token source: ", source)
   }
 
-  local func tok(s){
-    return peg.ref(g.token, s)
+  local func tok(s, category){
+    return peg.ref(lin.token_fn, s, null, category)
+  }
+  local func token(source, name, category){
+    return lin.token_fn(source, name, category)
   }
 
   // ------------------------------------------------------------ literals
@@ -618,11 +669,11 @@ local func install_core(g){
 
   local sign = peg.choice(peg.char("-"), peg.char("+")):optional()
 
-  define("int_literal", g.token(peg.seq(sign, rule("number")), "int"):map(func(t){
+  define("int_literal", token(peg.seq(sign, rule("number")), "int", "number"):map(func(t){
     return ast.node("Int", {value: to_int(t.value)}, t)
   }))
 
-  define("double_literal", g.token(peg.seq(sign, rule("number"), peg.char("."), rule("number")), "double"):map(func(t){
+  define("double_literal", token(peg.seq(sign, rule("number"), peg.char("."), rule("number")), "double", "number"):map(func(t){
     return ast.node("Double", {value: str.to_number(t.value)}, t)
   }))
 
@@ -638,13 +689,13 @@ local func install_core(g){
     peg.char("\""),
     rule("slang_char"):star_lazy(peg.char("\"")):map(join_chars),
     peg.char("\"")
-  ):pick(1):token())
+  ):pick(1):token("string"))
 
   define("multiline_string", peg.seq(
     peg.string("\"\"\""),
     peg.choice(rule("slang_char"), peg.char("\n")):star_lazy(peg.string("\"\"\"")):map(join_chars),
     peg.string("\"\"\"")
-  ):pick(1):token())
+  ):pick(1):token("string"))
 
   define("string_literal", peg.choice(rule("multiline_string"), rule("double_quoted_string")):map(func(t){
     return ast.node("String", {value: ast.resolve_escapes(t.value)}, t)
@@ -654,7 +705,7 @@ local func install_core(g){
   define("false_literal", tok("false"):map(func(t){ return ast.node("False", {}, t) }))
   define("null_literal", tok("null"):map(func(t){ return ast.node("Null", {}, t) }))
 
-  define("identifier", g.token(
+  define("identifier", token(
     peg.seq(peg.string("..."):optional(), peg.pattern("a-zA-Z_"), peg.pattern("a-zA-Z0-9_"):star())
       :flatten("Expected: identifier")
       :where(func(name){ return lin.active.keywords[name] != true }),
@@ -666,9 +717,9 @@ local func install_core(g){
   // name: an identifier where keywords are allowed: after `.` and `:` and as
   // table keys, so that keywords added by extensions never make a field
   // unreachable
-  define("name", g.token(
+  define("name", token(
     peg.seq(peg.pattern("a-zA-Z_"), peg.pattern("a-zA-Z0-9_"):star()):flatten("Expected: name"),
-    "name"
+    "name", "identifier"
   ):map(func(t){
     return ast.node("Identifier", {value: t.value}, t)
   }))
@@ -1025,80 +1076,71 @@ local func install_core(g){
     return peg.seq(parser, peg.char("{"):forbid()):pick(0)
   }
 
-  g.primitive_levels = {
-    {names: {"unquote", "-{}"}, parser: rule("unquote")},
-    {names: {"quote", "+{}"}, parser: rule("quote")},
-    {names: {"identifier", "id"}, parser: rule("identifier")},
-    {names: {"doubleLiteral", "double", "float"}, parser: rule("double_literal")},
-    {names: {"intLiteral", "integer", "int"}, parser: rule("int_literal")},
-    {names: {"stringLiteral", "string", "str"}, parser: rule("string_literal")},
-    {names: {"trueLiteral", "true"}, parser: rule("true_literal")},
-    {names: {"falseLiteral", "false"}, parser: rule("false_literal")},
-    {names: {"nullLiteral", "null"}, parser: rule("null_literal")},
-    {names: {"patternAssignmentExp", "let"}, parser: rule("pattern_assignment_exp")},
-    {names: {"listLiteral", "list", "tableLiteral", "table"}, parser: rule("table_literal")},
-    {names: {"functionExpression", "function"}, parser: rule("function_expression")},
-  }
+  // the expression registry (see peg.walker); names and aliases are what
+  // extensions place their own primaries and levels relative to
+  local w = peg.walker(peg.skip_space)
+  g.expression_walker = w
+  w:primary(rule("unquote"), "unquote", {aliases: {"-{}"}})
+  w:primary(rule("quote"), "quote", {aliases: {"+{}"}})
+  w:primary(rule("identifier"), "identifier", {aliases: {"id"}})
+  w:primary(rule("double_literal"), "doubleLiteral", {aliases: {"double", "float"}})
+  w:primary(rule("int_literal"), "intLiteral", {aliases: {"integer", "int"}})
+  w:primary(rule("string_literal"), "stringLiteral", {aliases: {"string", "str"}})
+  w:primary(rule("true_literal"), "trueLiteral", {aliases: {"true"}})
+  w:primary(rule("false_literal"), "falseLiteral", {aliases: {"false"}})
+  w:primary(rule("null_literal"), "nullLiteral", {aliases: {"null"}})
+  w:primary(rule("pattern_assignment_exp"), "patternAssignmentExp", {aliases: {"let"}})
+  w:primary(rule("table_literal"), "listLiteral", {aliases: {"list", "tableLiteral", "table"}})
+  w:primary(rule("function_expression"), "functionExpression", {aliases: {"function"}})
 
-  g.group_levels = {
-    {names: {"bracket", "()"}, add: func(builder){
-      return builder:group():wrapper(tok("("), tok(")"), func(left, value, right){ return value })
-    }},
-    {names: {"indexAndCall", ".", "[]", ":()"}, add: func(builder){
-      local group = builder:group()
-      group:postfix(peg.seq(tok("."), rule("name")), func(left, op){
-        local name = op[1]
-        return ast.node("Index", {receiver: left, index: ast.node("String", {value: name.value}, name.token), dotStyle: true}, op[0])
-      })
-      group:postfix(peg.seq(tok("["), builder.loopback, tok("]")), func(left, op){
-        return ast.node("Index", {receiver: left, index: op[1], dotStyle: false}, op[0])
-      })
-      group:postfix(rule("name_and_args"), func(left, op){
-        local name = op[0]
-        local args = op[1]
-        local token = op[2]
-        if(name != null){
-          return ast.node("Invoke", {receiver: left, name: name, args: args}, token)
-        }
-        return ast.node("Call", {function: left, args: args}, token)
-      })
-      return group
-    }},
-    {names: {"power", "^"}, add: func(builder){
-      return builder:group():right(tok("^"), binop)
-    }},
-    {names: {"unary"}, add: func(builder){
-      return builder:group():prefix(peg.choice(not_brace(tok("-")), tok("not")), func(op, exp){
-        return ast.node("UnOp", {op: op.value, operand: exp}, op)
-      })
-    }},
-    {names: {"multiply", "*", "/", "%"}, add: func(builder){
-      return builder:group():left(peg.choice(tok("*"), tok("/"), tok("%")), binop)
-    }},
-    {names: {"add", "+", "-"}, add: func(builder){
-      return builder:group():left(peg.choice(not_brace(tok("-")), not_brace(tok("+"))), binop)
-    }},
-    {names: {"compare", "<=", ">=", "!=", "==", ">"}, add: func(builder){
-      return builder:group():left(peg.choice(tok("<="), tok(">="), tok("!="), tok("=="), tok(">"), tok("<")), binop)
-    }},
-    {names: {"and"}, add: func(builder){
-      return builder:group():left(tok("and"), binop)
-    }},
-    {names: {"or"}, add: func(builder){
-      return builder:group():left(tok("or"), binop)
-    }},
-  }
+  w:level("bracket", {aliases: {"()"}})
+  w:wrapper(tok("("), tok(")"), "bracket", func(left, value, right){ return value })
 
-  // the expression walker is built at seal time from the registries
+  w:level("indexAndCall", {aliases: {".", "[]", ":()"}})
+  w:postfix(peg.seq(tok("."), rule("name")), "indexAndCall", func(left, op){
+    local name = op[1]
+    return ast.node("Index", {receiver: left, index: ast.node("String", {value: name.value}, name.token), dotStyle: true}, op[0])
+  })
+  w:postfix(peg.seq(tok("["), w.loopback, tok("]")), "indexAndCall", func(left, op){
+    return ast.node("Index", {receiver: left, index: op[1], dotStyle: false}, op[0])
+  })
+  w:postfix(rule("name_and_args"), "indexAndCall", func(left, op){
+    local name = op[0]
+    local args = op[1]
+    local token = op[2]
+    if(name != null){
+      return ast.node("Invoke", {receiver: left, name: name, args: args}, token)
+    }
+    return ast.node("Call", {function: left, args: args}, token)
+  })
+
+  w:level("power", {aliases: {"^"}})
+  w:right(tok("^", "operator"), "power", binop)
+
+  w:level("unary")
+  w:prefix(peg.choice(not_brace(tok("-", "operator")), tok("not", "operator")), "unary", func(op, exp){
+    return ast.node("UnOp", {op: op.value, operand: exp}, op)
+  })
+
+  w:level("multiply", {aliases: {"*", "/", "%"}})
+  w:left(peg.choice(tok("*", "operator"), tok("/", "operator"), tok("%", "operator")), "multiply", binop)
+
+  w:level("add", {aliases: {"+", "-"}})
+  w:left(peg.choice(not_brace(tok("-", "operator")), not_brace(tok("+", "operator"))), "add", binop)
+
+  w:level("compare", {aliases: {"<=", ">=", "!=", "==", ">"}})
+  w:left(peg.choice(tok("<=", "operator"), tok(">=", "operator"), tok("!=", "operator"), tok("==", "operator"), tok(">", "operator"), tok("<", "operator")), "compare", binop)
+
+  w:level("and")
+  w:left(tok("and", "operator"), "and", binop)
+
+  w:level("or")
+  w:left(tok("or", "operator"), "or", binop)
+
+  // the expression walker is built at seal time
   define("expr", null, {build: func(g){
-    local builder = peg.expression_builder(str.skip_space)
-    for(let local level in values(g.primitive_levels)){
-      builder:primitive(level.parser)
-    }
-    for(let local level in values(g.group_levels)){
-      level.add(builder)
-    }
-    return peg.resolve(builder:build())
+    g.expression_walker.skip = trivia_skip(g)
+    return peg.resolve(g.expression_walker:build())
   }})
 
   // ------------------------------------------------------------ statement registry
@@ -1113,7 +1155,7 @@ local func install_core(g){
       append(alternatives, g.statements[n])
     }
     append(alternatives, g.initial_statement)
-    return peg.dispatch(alternatives, str.skip_space, "statement expected")
+    return peg.dispatch(alternatives, trivia_skip(g), "statement expected")
   }})
 
   // ------------------------------------------------------------ top level
@@ -1138,18 +1180,8 @@ local func install_core(g){
     for(let local n in values(g.extension_statement_order)){
       append(alternatives, g.extension_statements[n])
     }
-    return peg.dispatch(alternatives, str.skip_space)
+    return peg.dispatch(alternatives, trivia_skip(g))
   }})
-
-  // accessors used by the slang/parser API
-  g.identifier = func(){ return rule("identifier") }
-  g.expr = func(){ return rule("expr") }
-  g.statement = func(){ return rule("statement") }
-  g.chunk = func(){ return rule("chunk") }
-  g.block = func(){ return rule("block") }
-  g.slang_pattern = func(){ return rule("slang_pattern") }
-  g.table_literal = func(){ return rule("table_literal") }
-  g.final_statement = func(){ return rule("final_statement") }
 }
 
 // ------------------------------------------------------------ parsing
@@ -1228,7 +1260,7 @@ local func parse_statement(lin, parser, ctx, pos){
 
 local func parse_top_level(g, source, origin){
   local lin = g.state
-  local tok_semicolon = peg.ref(g.token, ";"):optional()
+  local tok_semicolon = peg.ref(lin.token_fn, ";"):optional()
   local parsers = {
     statement: peg.seq(rule_ref(lin, "statement"), tok_semicolon):pick(0),
     final: peg.seq(rule_ref(lin, "final_statement"), tok_semicolon):pick(0),

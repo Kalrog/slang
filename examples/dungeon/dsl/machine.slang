@@ -18,14 +18,15 @@
 // declare is a compile error. The machine expands to
 //   require("engine/machines").define("goblin_brain", {initial, states})
 // and is run with machines.run(machines.goblin_brain, entity, dt).
-local p = require("slang/parser")
+local peg = require("slang/peg")
+local g = require("slang/compiler").grammar()
 local util = require("dsl/util")
 
 local m = {}
 
 // goto NAME  ->  return __goto("NAME")  (rewritten by the enclosing machine)
-p.add_statement("goto",
-  p.seq(p.keyword("goto"), p.identifier()):map(func(r){
+g:statement("goto",
+  peg.seq(g:keyword("goto"), g:rule("identifier")):map(func(r){
     return {token: r[0], ast: +{stat: return __goto(-{util.string_node(r[1].value)})}}
   })
 )
@@ -35,35 +36,35 @@ local func is_goto(node){
     and node.value.function.type == "Identifier" and node.value.function.value == "__goto"
 }
 
-local hook = p.choice(
-  p.seq(p.token("enter"), p.block()):map(func(r){
+local hook = peg.choice(
+  peg.seq(g:token("enter"), g:rule("block")):map(func(r){
     return {hook: "enter", params: {util.id("self")}, body: r[1]}
   }),
-  p.seq(p.token("exit"), p.block()):map(func(r){
+  peg.seq(g:token("exit"), g:rule("block")):map(func(r){
     return {hook: "exit", params: {util.id("self")}, body: r[1]}
   }),
-  p.seq(p.token("update"), p.token("("), p.identifier(), p.token(")"), p.block()):map(func(r){
+  peg.seq(g:token("update"), g:token("("), g:rule("identifier"), g:token(")"), g:rule("block")):map(func(r){
     return {hook: "update", params: {util.id("self"), r[2]}, body: r[4]}
   })
 )
 
-local state = p.seq(p.token("state"), p.identifier(), p.token("{"), hook:star(), p.token("}")):map(func(r){
+local state = peg.seq(g:token("state"), g:rule("identifier"), g:token("{"), hook:star(), g:token("}")):map(func(r){
   return {name: r[1].value, hooks: r[3]}
 })
 
-p.add_extension_statement("machine",
-  p.seq(p.keyword("machine"), p.identifier(), p.token("{"), state:star(), p.token("}")),
+g:extension_statement("machine",
+  peg.seq(g:keyword("machine"), g:rule("identifier"), g:token("{"), state:star(), g:token("}")),
   func(r){
     local token = r[0]
     local name = r[1].value
     local states = r[3]
     if(len(states) == 0){
-      p.error_at(token, "machine ", name, ": a machine needs at least one state")
+      g:error_at(token, "machine ", name, ": a machine needs at least one state")
     }
     local names = {}
     for(let local s in values(states)){
       if(names[s.name] != null){
-        p.error_at(token, "machine ", name, ": state ", s.name, " is declared twice")
+        g:error_at(token, "machine ", name, ": state ", s.name, " is declared twice")
       }
       names[s.name] = true
     }
@@ -72,13 +73,13 @@ p.add_extension_statement("machine",
       local hooks = {}
       for(let local h in values(s.hooks)){
         if(hooks[h.hook] != null){
-          p.error_at(token, "machine ", name, ": state ", s.name, " has two ", h.hook, " hooks")
+          g:error_at(token, "machine ", name, ": state ", s.name, " has two ", h.hook, " hooks")
         }
         util.walk(h.body, func(node){
           if(is_goto(node)){
             local target = node.value.args[0].value
             if(names[target] == null){
-              p.error_at(token, "machine ", name, ": state ", s.name, " jumps to unknown state ", target)
+              g:error_at(token, "machine ", name, ": state ", s.name, " jumps to unknown state ", target)
             }
             node.value = util.string_node(target)
           }

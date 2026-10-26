@@ -59,10 +59,13 @@ pub fn preload(vm: *VM, name: []const u8, module: Value) void {
 }
 
 /// Runs the slang-side bootstrap modules from the embedded seed:
-/// slang/package (require), slang/std (module, run) and slang/compiler.
+/// slang/package (require), slang/std (module, run) and slang/compiler. A
+/// module's result is registered as preloaded, so that
+/// require("slang/compiler") is the instance that boot created.
 pub fn boot(vm: *VM) Error!void {
     for ([_][]const u8{ "slang/package", "slang/std", "slang/compiler" }) |name| {
         const cl = (try vm.embeddedModule(name)) orelse return vm.raise("embedded module {s} not found", .{name});
-        _ = try vm.call(.{ .function = cl }, &.{});
+        const res = try vm.call(.{ .function = cl }, &.{});
+        if (res != .null) preload(vm, name, res);
     }
 }

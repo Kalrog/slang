@@ -13,18 +13,19 @@
 //
 // The declared names are also kept at compile time, so that the level DSL
 // can check its legends against them.
-local p = require("slang/parser")
+local peg = require("slang/peg")
+local g = require("slang/compiler").grammar()
 local util = require("dsl/util")
 
 local declared = {}
 local m = {declared: declared}
 
-p.add_extension_statement("entity",
-  p.seq(
-    p.keyword("entity"),
-    p.identifier(),
-    p.seq(p.token("extends"), p.identifier()):pick(1):optional(),
-    p.table_literal()
+g:extension_statement("entity",
+  peg.seq(
+    g:keyword("entity"),
+    g:rule("identifier"),
+    peg.seq(g:token("extends"), g:rule("identifier")):pick(1):optional(),
+    g:rule("table_literal")
   ),
   func(r){
     local token = r[0]
@@ -33,14 +34,14 @@ p.add_extension_statement("entity",
     if(r[2] != null){
       base = r[2].value
       if(declared[base] == null){
-        p.error_at(token, "entity ", name, ": unknown base entity ", base)
+        g:error_at(token, "entity ", name, ": unknown base entity ", base)
       }
     }
     local fields = r[3]
     local names = {}
     for(let local field in values(fields.fields)){
       if(field.key == null or field.key.type != "String"){
-        p.error_at(token, "entity ", name, ": every field needs a name")
+        g:error_at(token, "entity ", name, ": every field needs a name")
       }
       append(names, field.key.value)
     }

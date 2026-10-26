@@ -11,15 +11,16 @@
 // while compiling. Arguments are ordinary expressions and are handed to the
 // item when it drops. Expands to require("engine/loot").define("goblin", {...});
 // roll with loot.roll("goblin") -> {item, args} or null.
-local p = require("slang/parser")
+local peg = require("slang/peg")
+local g = require("slang/compiler").grammar()
 local util = require("dsl/util")
 
-local entry = p.seq(util.number(), p.token("%"), p.identifier(), util.args_of(p.expr())):map(func(r){
+local entry = peg.seq(util.number(), g:token("%"), g:rule("identifier"), util.args_of(g:rule("expr"))):map(func(r){
   return {chance: r[0], item: r[2].value, args: r[3]}
 })
 
-p.add_extension_statement("loot",
-  p.seq(p.keyword("loot"), p.identifier(), p.token("{"), entry:star(), p.token("}")),
+g:extension_statement("loot",
+  peg.seq(g:keyword("loot"), g:rule("identifier"), g:token("{"), entry:star(), g:token("}")),
   func(r){
     local token = r[0]
     local name = r[1].value
@@ -27,7 +28,7 @@ p.add_extension_statement("loot",
     local nodes = {}
     for(let local e in values(r[3])){
       if(e.chance <= 0){
-        p.error_at(token, "loot ", name, ": ", e.item, " has a chance of ", e.chance, "%")
+        g:error_at(token, "loot ", name, ": ", e.item, " has a chance of ", e.chance, "%")
       }
       total = total + e.chance
       append(nodes, util.table_node({
@@ -37,7 +38,7 @@ p.add_extension_statement("loot",
       }))
     }
     if(total > 100){
-      p.error_at(token, "loot ", name, ": the chances add up to ", total, "%, more than 100%")
+      g:error_at(token, "loot ", name, ": the chances add up to ", total, "%, more than 100%")
     }
     return {token: token, ast: util.define("engine/loot", name, util.list_node(nodes))}
   }

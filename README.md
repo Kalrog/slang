@@ -288,8 +288,8 @@ at the top level of a file (or of a `compile`d string):
 ```slang
 extension "extensions/switch"     // runs the file at compile time
 extension {                       // runs the block at compile time
-  local p = require("slang/parser")
-  p.add_primitive_expression("one", p.keyword("one"):map(func(t){ return {token: t, ast: +{1}} }))
+  local g = require("slang/compiler").grammar()
+  g:expression():primary("one", g:keyword("one"):map(func(t){ return {token: t, ast: +{1}} }))
 }
 x = one                           // the change applies from the next statement on
 ```
@@ -300,29 +300,45 @@ stays available to files compiled later. Keywords introduced by extensions
 are reserved as variable names but stay usable as field names (`t.switch`,
 `t:switch()`, `{switch: 1}`).
 
-Extensions can define their own extension statements (statements that change
-the grammar, such as operator declarations): `p.add_extension_statement(name,
-parser, apply)` registers a top-level-only statement; after it parsed,
-`apply(result)` runs with grammar changes allowed and returns the statement to
-emit, or `null`. See `extensions/custom_operators.slang`.
+An extension gets the grammar it extends with `require("slang/compiler").grammar()`
+and builds parsers with the combinators of `require("slang/peg")` (`seq`,
+`choice`, `star`, `plus`, `optional`, `map`, `token`, `ref`, ...). The grammar
+object offers:
 
-The parser API (`require("slang/parser")`) offers `add_statement`,
-`add_primitive_expression`, `add_expression_group_before/after/at` and the
-combinators `seq`, `choice`, `star`, `plus`, `optional`, `map`, `token`,
-`keyword`, ... See `extensions/` for examples (switch statement, lambda
-shorthand, custom infix/prefix/postfix operators, a grammar DSL).
+- `g:token(text)` and `g:keyword(word)` (a keyword is reserved); `g:rule(name)`
+  refers to any rule of the grammar (`"expr"`, `"statement"`, `"block"`,
+  `"chunk"`, `"identifier"`, `"slang_pattern"`, `"table_literal"`, ...).
+- `g:statement(name, parser)`: a statement; the parser yields a node or
+  `{token, ast}`. `g:extension_statement(name, parser, apply)`: a statement
+  that is only recognised at the top level; after it parsed, `apply(result)`
+  runs with grammar changes allowed and returns the statement to emit, or
+  `null` (see `extensions/custom_operators.slang`).
+- `g:expression()`: the expression registry. `:primary(name, parser,
+  {after, before})` adds a primary expression, `:level(name, {after, before})`
+  a precedence level (tightest first; core has `indexAndCall`, `power`,
+  `unary`, `multiply`, `add`, `compare`, `and`, `or`), and a level takes
+  `:prefix(op, func(op, operand))`, `:postfix(op, func(left, op))`,
+  `:left(op, func(left, op, right))`, `:right(...)` and `:wrapper(open,
+  close, func(open, value, close))`. `:levels()` and `:primaries()` list the
+  names. `g:walker()` gives an extension an expression walker of its own
+  (`peg.walker`), for DSLs with their own operators.
+- `g:define(name, parser)` adds a rule, `g:modify(name, func(old){ ... })`
+  replaces one by a parser built from the current one (the rules that make
+  metaprogramming work, quote, unquote and the extension statement, are
+  protected), `g:rules()` lists every rule with the extensions that changed
+  it. Changes are sealed lazily: the first parse after a change rebuilds the
+  expression walker and the dispatch tables once. `SLANG_GRAMMAR_WARNINGS=1`
+  reports rules modified by more than one extension, modifications that can
+  never match their second alternative, and rules that stop parsing their
+  probe snippet.
+- `g:error_at(token, message...)` raises a compile error at a token,
+  `g:origin()` is the name of the source being compiled, `g:uniq_id()` an
+  identifier no program can write.
 
-The grammar is a registry of named rules (`p.rules()` lists them with the
-extensions that changed them). `p.rule(name)` refers to a rule, `p.define(name,
-parser)` adds one and `p.modify(name, func(old){ ... })` replaces a rule by a
-parser built from the current one; the rules that make metaprogramming work
-(quote, unquote, the extension statement) are protected. Changes are sealed
-lazily: the first parse after a change rebuilds the expression walker and the
-dispatch tables once. `SLANG_GRAMMAR_WARNINGS=1` reports rules modified by
-more than one extension, modifications that can never match their second
-alternative, and rules that stop parsing their probe snippet. The plan for
-the rest of this work (scoped grammars, dialects, tooling) is in
-`PLAN_GRAMMAR.md`.
+See `extensions/` for examples (switch statement, lambda shorthand, custom
+infix/prefix/postfix operators, a grammar DSL) and `examples/dungeon/dsl` for
+larger ones. The plan for the rest of this work (scoped grammars, dialects,
+tooling) is in `PLAN_GRAMMAR.md`.
 
 ## Standard library
 Globals: `print`, `args`, `readLine`, `open` (files with `read`, `write`,

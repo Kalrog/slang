@@ -356,6 +356,11 @@ func p.rules(){
   return current:rules()
 }
 
+// walker() -> a fresh expression walker (peg.walker) skipping slang trivia
+func p.walker(){
+  return current:walker()
+}
+
 func p.resolve(parser){
   return peg.resolve(parser)
 }

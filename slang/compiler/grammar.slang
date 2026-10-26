@@ -305,6 +305,12 @@ func methods.derive(g){
   return new_grammar(g.state, g)
 }
 
+// walker() -> a fresh expression walker skipping slang trivia, for
+// extensions that define their own expression language (see peg.walker)
+func methods.walker(g){
+  return peg.walker(str.skip_space)
+}
+
 func methods.keyword(g, s){
   if(g.keywords[s] != true){
     check_changes(g, "keyword")

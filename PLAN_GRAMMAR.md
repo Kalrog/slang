@@ -227,13 +227,23 @@ only, evaluated once before any unit:
   references now resolve through the sealed table during analysis.
   `SLANG_CALLPROFILE=1` (call counts per function, Go VM) found it.
 
-### Phase 2: Expression walker `[ ]`
-- [ ] Instances (`walker`, `derive`), engine API (`infix/prefix/postfix` with
-      binding powers), level API (named, partially ordered, assigned at seal),
-      callbacks that parse their own operands, walker as parser and parsers as
-      nuds.
-- [ ] Current `prefix/left/right/postfix` groups implemented on top of it.
-- [ ] Oracle and fixed point unchanged; `bench/compile.slang` not slower.
+### Phase 2: Expression walker `[x]`
+- [x] `peg.walker(skip)`: instances and `derive`; level API (`level(name,
+      {after, before})`, `primary/prefix/postfix/left/right/wrapper`); engine
+      API (`nud(op, rbp, f)`, `led(op, lbp, f)` with callbacks that parse
+      their operands through `w:parse_at`); `binding_powers()`; the walker is
+      a parser and parsers are primaries. `g:walker()` / `p.walker()`.
+- [x] The old group API is a shim over the walker; binding powers per level
+      (base + 3 postfix and prefix operand, + 2 right, + 0 left) reproduce the
+      nested-group semantics exactly.
+- [x] Every file byte-identical, fixed point unchanged; parsing 26% faster
+      (94 -> 70 ms on `bench/compile.slang`) since one nud/led loop replaces
+      nine nested level calls per primary.
+- Decided: nud alternatives are an ordered choice with fall-through (the old
+  engine failed the whole expression when a prefix operator's operand failed:
+  an accident, now fixed, affects only programs that did not parse); operators
+  of one binding power are an ordered choice whose operand is not a
+  backtracking point (PEG committed choice, kept).
 
 ### Phase 3: Core as extension zero `[ ]`
 - [ ] Move `grammar.slang` onto the public API as `core.slang`; `tok`

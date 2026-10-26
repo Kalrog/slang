@@ -804,63 +804,16 @@ func peg.run(parser, input){
   }
 }
 
-// ---------------------------------------------------------- expression builder
+// ---------------------------------------------------------- expression walker
 //
-// Groups are applied in order; group 0 binds tightest. Each group is the
-// equivalent of nesting, from the inside out: wrappers (around the whole
-// expression), prefix operators, postfix operators, right-associative and
-// left-associative infix operators, on top of the previous group. build()
-// produces a single recursive parser with exactly those semantics, but
-// without the intermediate lists of the combinator version, and with
-// operators and primitives dispatched on the first byte after whitespace
-// (when the builder has a `skip` function: skip(buffer, pos) -> pos).
-
-local group_methods = {}
-local group_meta = {__index: group_methods, __type: "expression_group"}
-local builder_methods = {}
-local builder_meta = {__index: builder_methods, __type: "expression_builder"}
-
-func peg.expression_builder(skip){
-  local b = {primitives: {}, groups: {}, loopback: peg.settable(null), skip: skip}
-  b.meta = builder_meta
-  return b
-}
-
-func builder_methods.primitive(self, parser){
-  append(self.primitives, parser)
-}
-
-func builder_methods.group(self){
-  local g = {wrappers: {}, prefixes: {}, postfixes: {}, rights: {}, lefts: {}, loopback: self.loopback}
-  g.meta = group_meta
-  append(self.groups, g)
-  return g
-}
-
-func group_methods.wrapper(self, left, right, callback){
-  append(self.wrappers, {left: left, right: right, callback: callback})
-  return self
-}
-
-func group_methods.prefix(self, operator, callback){
-  append(self.prefixes, {parser: operator, callback: callback})
-  return self
-}
-
-func group_methods.postfix(self, operator, callback){
-  append(self.postfixes, {parser: operator, callback: callback})
-  return self
-}
-
-func group_methods.right(self, operator, callback){
-  append(self.rights, {parser: operator, callback: callback})
-  return self
-}
-
-func group_methods.left(self, operator, callback){
-  append(self.lefts, {parser: operator, callback: callback})
-  return self
-}
+// A Pratt-style walker: prefix operators, wrappers and primaries are the
+// "nud" alternatives (what an expression can start with), postfix and infix
+// operators the "led" alternatives (what can follow a value). Every operator
+// carries binding powers; `parse(min_bp)` parses a value and then applies
+// the operators whose left binding power exceeds min_bp. The level API
+// derives binding powers from named, ordered levels; the engine API takes
+// them as numbers. See peg.walker below, after the first-byte analysis the
+// walker's dispatch tables are built with.
 
 // --- first-byte analysis: {first: set of bytes | null (unknown), nullable: bool}
 
@@ -1085,226 +1038,491 @@ func peg.dispatch(parsers, skip, message){
   }, parsers, "dispatch")
 }
 
-func builder_methods.build(self){
-  local skip = self.skip
-  local memo = {}
-  local children = {}
-  local prim_entries = {}
-  for(let local p in values(self.primitives)){
-    append(prim_entries, {parser: p})
-    append(children, p)
+// the candidates of d at pos (the entries whose first byte can match, in
+// their original order), or null when none can
+local func candidates(d, ctx, pos){
+  if(d.by_byte == null){
+    return d.all
   }
-  local prim_dispatch = make_dispatch(prim_entries, skip, memo)
-  local levels = {}
-  for(let local g in values(self.groups)){
-    local level = {wrappers: g.wrappers}
-    for(let local w in values(g.wrappers)){
-      append(children, w.left)
-      append(children, w.right)
+  local p
+  if(ctx.skip_from == pos){
+    p = ctx.skip_to
+  } else {
+    p = d.skip(ctx.buffer, pos)
+    ctx.skip_from = pos
+    ctx.skip_to = p
+  }
+  local b = str.byte_at(ctx.buffer, p)
+  if(b == null){
+    return d.at_end
+  }
+  if(b < 128){
+    return d.by_byte[b]
+  }
+  return d.all
+}
+
+// ---------------------------------------------------------------- walker
+//
+// peg.walker(skip) -> walker. Registration:
+//   w:level(name, {after: tighter, before: looser}) -> level   a named level;
+//       levels form a total order, tightest first; without a placement the
+//       level is appended (looser than everything so far)
+//   w:primary(parser)                       a primary expression
+//   w:prefix(op, level, func(op, operand))  a prefix operator at a level
+//   w:postfix(op, level, func(left, op))
+//   w:left(op, level, func(left, op, right))   left-associative infix
+//   w:right(op, level, func(left, op, right))  right-associative infix
+//   w:wrapper(left, right, level, func(left, value, right))
+// Engine level, with binding powers (higher binds tighter) and callbacks
+// that parse their own operands with w:parse_at(ctx, pos, min_bp):
+//   w:nud(op, rbp, func(w, ctx, pos, op) -> pos | -1)
+//   w:led(op, lbp, func(w, ctx, pos, left, op) -> pos | -1)
+// Binding powers of levels are assigned by build(): level k (0 = tightest)
+// gets base (n - k) * 10; within a level, postfix operators and the operand
+// of a prefix operator bind at base + 3, right-associative operators at
+// base + 2 (operand at base + 1) and left-associative operators at base
+// (operand at base), so that within one level prefix < postfix < right <
+// left in the order of application, as the nested-group semantics had it.
+//
+// Rules (those of PEG ordered choice): the nud alternatives are tried in
+// order, loosest level first, primaries last; an alternative that fails
+// (operator matched, operand not) falls through to the next. Operators of
+// one binding power are an ordered choice and the operand is not a
+// backtracking point: when the operand of the first matching operator fails,
+// the other operators of that binding power are not tried, looser ones are.
+//
+// build() returns the expression parser (kind "expression"); w.loopback is
+// a settable that parses a whole expression, for operators that embed one
+// (`a[expr]`). The walker is itself usable as a parser after build().
+
+local walker_methods = {}
+local walker_meta = {__index: walker_methods, __type: "walker"}
+local level_methods = {}
+local level_meta = {__index: level_methods, __type: "expression_level"}
+
+func peg.walker(skip){
+  local w = {skip: skip, levels: {}, primaries: {}, nuds: {}, leds: {}, loopback: peg.settable(null), sealed: null}
+  w.meta = walker_meta
+  return w
+}
+
+local func new_level(w, name){
+  local l = {walker: w, name: name, wrappers: {}, prefixes: {}, postfixes: {}, rights: {}, lefts: {}}
+  l.meta = level_meta
+  return l
+}
+
+local func level_index(w, name){
+  local n = len(w.levels)
+  for(local i = 0; i < n; i = i + 1){
+    if(w.levels[i].name == name){
+      return i
     }
-    for(let local kind in values({"prefixes", "postfixes", "rights", "lefts"})){
-      local ops = g[kind]
-      if(len(ops) > 0){
-        level[kind] = make_dispatch(ops, skip, memo)
-        for(let local o in values(ops)){
-          append(children, o.parser)
+  }
+  return -1
+}
+
+// the level object for a level or a level name
+local func resolve_level(w, level){
+  if(type(level) == "expression_level"){
+    return level
+  }
+  local i = level_index(w, level)
+  if(i < 0){
+    error("expression level ", level, " not found")
+  }
+  return w.levels[i]
+}
+
+func walker_methods.level(self, name, placement){
+  local l = new_level(self, name)
+  placement = placement or {}
+  local index = len(self.levels)
+  if(placement.after != null){
+    local i = level_index(self, placement.after)
+    if(i < 0){
+      error("expression level ", placement.after, " not found")
+    }
+    index = i + 1
+  } else if(placement.before != null){
+    local i = level_index(self, placement.before)
+    if(i < 0){
+      error("expression level ", placement.before, " not found")
+    }
+    index = i
+  }
+  if(placement.after != null and placement.before != null){
+    local j = level_index(self, placement.before)
+    if(j < index){
+      error("expression level ", name, " cannot be after ", placement.after, " and before ", placement.before)
+    }
+  }
+  local out = {}
+  local n = len(self.levels)
+  for(local i = 0; i < n; i = i + 1){
+    if(i == index){
+      append(out, l)
+    }
+    append(out, self.levels[i])
+  }
+  if(index >= n){
+    append(out, l)
+  }
+  self.levels = out
+  self.sealed = null
+  return l
+}
+
+func walker_methods.primary(self, parser){
+  append(self.primaries, parser)
+  self.sealed = null
+  return self
+}
+
+func walker_methods.prefix(self, operator, level, callback){
+  append(resolve_level(self, level).prefixes, {parser: operator, callback: callback})
+  self.sealed = null
+  return self
+}
+
+func walker_methods.postfix(self, operator, level, callback){
+  append(resolve_level(self, level).postfixes, {parser: operator, callback: callback})
+  self.sealed = null
+  return self
+}
+
+func walker_methods.left(self, operator, level, callback){
+  append(resolve_level(self, level).lefts, {parser: operator, callback: callback})
+  self.sealed = null
+  return self
+}
+
+func walker_methods.right(self, operator, level, callback){
+  append(resolve_level(self, level).rights, {parser: operator, callback: callback})
+  self.sealed = null
+  return self
+}
+
+func walker_methods.wrapper(self, left, right, level, callback){
+  append(resolve_level(self, level).wrappers, {left: left, right: right, callback: callback})
+  self.sealed = null
+  return self
+}
+
+// engine API: explicit binding powers, callbacks that parse their operands
+func walker_methods.nud(self, operator, rbp, f){
+  append(self.nuds, {parser: operator, kind: "nud", bp: rbp, nud: f})
+  self.sealed = null
+  return self
+}
+
+func walker_methods.led(self, operator, lbp, f){
+  append(self.leds, {parser: operator, kind: "led", lbp: lbp, led: f})
+  self.sealed = null
+  return self
+}
+
+// level objects offer the same registration without naming the level
+func level_methods.wrapper(self, left, right, callback){
+  self.walker:wrapper(left, right, self, callback)
+  return self
+}
+
+func level_methods.prefix(self, operator, callback){
+  self.walker:prefix(operator, self, callback)
+  return self
+}
+
+func level_methods.postfix(self, operator, callback){
+  self.walker:postfix(operator, self, callback)
+  return self
+}
+
+func level_methods.right(self, operator, callback){
+  self.walker:right(operator, self, callback)
+  return self
+}
+
+func level_methods.left(self, operator, callback){
+  self.walker:left(operator, self, callback)
+  return self
+}
+
+local func copy_entries(list){
+  local out = {}
+  for(let local e in values(list)){
+    append(out, e)
+  }
+  return out
+}
+
+// derive() -> a walker with the same registrations; changes to either do
+// not affect the other
+func walker_methods.derive(self){
+  local w = peg.walker(self.skip)
+  for(let local l in values(self.levels)){
+    local c = new_level(w, l.name)
+    c.wrappers = copy_entries(l.wrappers)
+    c.prefixes = copy_entries(l.prefixes)
+    c.postfixes = copy_entries(l.postfixes)
+    c.rights = copy_entries(l.rights)
+    c.lefts = copy_entries(l.lefts)
+    append(w.levels, c)
+  }
+  w.primaries = copy_entries(self.primaries)
+  w.nuds = copy_entries(self.nuds)
+  w.leds = copy_entries(self.leds)
+  return w
+}
+
+// binding_powers() -> {name: base} after build (for debugging extensions)
+func walker_methods.binding_powers(self){
+  local out = {}
+  local n = len(self.levels)
+  for(local k = 0; k < n; k = k + 1){
+    out[self.levels[k].name or concat("level ", k)] = (n - k) * 10
+  }
+  return out
+}
+
+local func sort_entries(list, key, descending){
+  // insertion sort: stable, lists are short
+  local n = len(list)
+  for(local i = 1; i < n; i = i + 1){
+    local e = list[i]
+    local j = i - 1
+    for(j >= 0 and ((descending and list[j][key] < e[key]) or (not descending and list[j][key] > e[key])); j = j - 1){
+      list[j + 1] = list[j]
+    }
+    list[j + 1] = e
+  }
+  return list
+}
+
+// the nud and led tables of a walker from its levels and engine entries
+local func build_tables(w){
+  local n = len(w.levels)
+  local nuds = {}
+  local leds = {}
+  for(local k = 0; k < n; k = k + 1){
+    local l = w.levels[k]
+    local base = (n - k) * 10
+    for(let local e in values(l.prefixes)){
+      local callback = e.callback
+      local rbp = base + 3
+      append(nuds, {parser: e.parser, kind: "prefix", bp: rbp, nud: func(w, ctx, pos, op){
+        local r = w:parse_at(ctx, pos, rbp)
+        if(r < 0){
+          return -1
         }
-      }
+        ctx.value = callback(op, ctx.value)
+        return r
+      }})
     }
-    append(levels, level)
-  }
-  local n = len(levels)
-  local loopback = self.loopback
-
-  local parse_level
-
-  local func parse_primitives(ctx, pos){
-    local cand = try_ops(prim_dispatch, ctx, pos)
-    if(cand == null){
-      if(not ctx.tried){
-        return fail(ctx, pos, "expression expected")
-      }
-      return -1
+    for(let local e in values(l.wrappers)){
+      local callback = e.callback
+      local right = e.right
+      append(nuds, {parser: e.left, kind: "wrapper", bp: base + 3, nud: func(w, ctx, pos, left){
+        local r = w:parse_at(ctx, pos, 0)
+        if(r < 0){
+          return -1
+        }
+        local value = ctx.value
+        local q = right:parse_on(ctx, r)
+        if(q < 0){
+          return -1
+        }
+        ctx.value = callback(left, value, ctx.value)
+        return q
+      }})
     }
-    return ctx.op_pos
+    for(let local e in values(l.postfixes)){
+      local callback = e.callback
+      append(leds, {parser: e.parser, kind: "led", lbp: base + 3, led: func(w, ctx, pos, left, op){
+        ctx.value = callback(left, op)
+        return pos
+      }})
+    }
+    for(let local e in values(l.rights)){
+      local callback = e.callback
+      local rbp = base + 1
+      append(leds, {parser: e.parser, kind: "led", lbp: base + 2, led: func(w, ctx, pos, left, op){
+        local r = w:parse_at(ctx, pos, rbp)
+        if(r < 0){
+          return -1
+        }
+        ctx.value = callback(left, op, ctx.value)
+        return r
+      }})
+    }
+    for(let local e in values(l.lefts)){
+      local callback = e.callback
+      local rbp = base
+      append(leds, {parser: e.parser, kind: "led", lbp: base, led: func(w, ctx, pos, left, op){
+        local r = w:parse_at(ctx, pos, rbp)
+        if(r < 0){
+          return -1
+        }
+        ctx.value = callback(left, op, ctx.value)
+        return r
+      }})
+    }
   }
+  for(let local e in values(w.nuds)){
+    append(nuds, e)
+  }
+  for(let local e in values(w.leds)){
+    append(leds, e)
+  }
+  // nuds: loosest first (ascending binding power), primaries last
+  sort_entries(nuds, "bp", false)
+  for(let local p in values(w.primaries)){
+    append(nuds, {parser: p, kind: "primary", bp: 0})
+  }
+  // leds: tightest first
+  sort_entries(leds, "lbp", true)
+  local memo = {}
+  local sealed = {
+    nuds: make_dispatch(nuds, w.skip, memo),
+    leds: make_dispatch(leds, w.skip, memo),
+  }
+  // the first set of an expression: what a nud can start with
+  local first = {}
+  for(let local e in values(nuds)){
+    first = union(first, info_of(e.parser, memo, {}).first)
+  }
+  sealed.first = first
+  return sealed
+}
 
-  local func parse_wrapper(ctx, pos, k){
-    local wrappers = levels[k].wrappers
-    local nw = len(wrappers)
-    for(local i = 0; i < nw; i = i + 1){
-      local w = wrappers[i]
-      local q = w.left:parse_on(ctx, pos)
-      if(q >= 0){
-        local left_value = ctx.value
-        q = loopback:parse_on(ctx, q)
-        if(q >= 0){
-          local value = ctx.value
-          q = w.right:parse_on(ctx, q)
-          if(q >= 0){
-            ctx.value = w.callback(left_value, value, ctx.value)
-            return q
+// parse_at(ctx, pos, min_bp) -> pos | -1: an expression whose operators
+// bind tighter than min_bp; the value is in ctx.value
+func walker_methods.parse_at(self, ctx, pos, min_bp){
+  local sealed = self.sealed
+  local cands = candidates(sealed.nuds, ctx, pos)
+  local value = null
+  local q = -1
+  local tried_primary = false
+  if(cands != null){
+    local n = len(cands)
+    for(local i = 0; i < n; i = i + 1){
+      local e = cands[i]
+      if(e.kind == "primary"){
+        tried_primary = true
+        local r = e.parser:parse_on(ctx, pos)
+        if(r >= 0){
+          value = ctx.value
+          q = r
+          break
+        }
+      } else {
+        local r = e.parser:parse_on(ctx, pos)
+        if(r >= 0){
+          r = e.nud(self, ctx, r, ctx.value)
+          if(r >= 0){
+            value = ctx.value
+            q = r
+            break
           }
         }
       }
     }
-    return parse_level(ctx, pos, k - 1)
   }
-
-  local func parse_prefix(ctx, pos, k){
-    local d = levels[k].prefixes
-    if(d == null){
-      return parse_wrapper(ctx, pos, k)
+  if(q < 0){
+    if(not tried_primary){
+      return fail(ctx, pos, "expression expected")
     }
-    local ops = null
-    for(true){
-      local cand = try_ops(d, ctx, pos)
-      if(cand == null){
+    return -1
+  }
+  for(true){
+    local lc = candidates(sealed.leds, ctx, q)
+    if(lc == null){
+      break
+    }
+    local matched = false
+    local n = len(lc)
+    local i = 0
+    for(i < n){
+      local e = lc[i]
+      if(e.lbp <= min_bp){
         break
       }
-      if(ops == null){
-        ops = {}
+      local r = e.parser:parse_on(ctx, q)
+      if(r >= 0){
+        r = e.led(self, ctx, r, value, ctx.value)
+        if(r >= 0){
+          value = ctx.value
+          q = r
+          matched = true
+          break
+        }
+        // the operand failed: the other operators of this binding power
+        // are not tried (ordered choice), looser ones are
+        local lbp = e.lbp
+        for(i < n and lc[i].lbp == lbp){
+          i = i + 1
+        }
+      } else {
+        i = i + 1
       }
-      append(ops, {op: ctx.value, callback: cand.callback})
-      pos = ctx.op_pos
     }
-    local q = parse_wrapper(ctx, pos, k)
-    if(q < 0){
-      return -1
+    if(not matched){
+      break
     }
-    if(ops != null){
-      local value = ctx.value
-      for(local i = len(ops) - 1; i >= 0; i = i - 1){
-        local o = ops[i]
-        value = o.callback(o.op, value)
-      }
-      ctx.value = value
-    }
-    return q
   }
+  ctx.value = value
+  return q
+}
 
-  local func parse_postfix(ctx, pos, k){
-    local q = parse_prefix(ctx, pos, k)
-    if(q < 0){
-      return -1
-    }
-    local d = levels[k].postfixes
-    if(d == null){
-      return q
-    }
-    local value = ctx.value
-    for(true){
-      local cand = try_ops(d, ctx, q)
-      if(cand == null){
-        break
-      }
-      value = cand.callback(value, ctx.value)
-      q = ctx.op_pos
-    }
-    ctx.value = value
-    return q
+// build() -> the expression parser
+func walker_methods.build(self){
+  self.sealed = build_tables(self)
+  local w = self
+  local children = {}
+  for(let local e in values(self.sealed.nuds.all)){
+    append(children, e.parser)
   }
-
-  local func parse_right(ctx, pos, k){
-    local q = parse_postfix(ctx, pos, k)
-    if(q < 0){
-      return -1
-    }
-    local d = levels[k].rights
-    if(d == null){
-      return q
-    }
-    local first = ctx.value
-    local elements = null
-    local ops = null
-    for(true){
-      local cand = try_ops(d, ctx, q)
-      if(cand == null){
-        break
-      }
-      local op = ctx.value
-      local r = parse_postfix(ctx, ctx.op_pos, k)
-      if(r < 0){
-        break
-      }
-      if(elements == null){
-        elements = {}
-        list_push(elements, first)
-        ops = {}
-      }
-      list_push(elements, ctx.value)
-      append(ops, {op: op, callback: cand.callback})
-      q = r
-    }
-    if(elements == null){
-      ctx.value = first
-      return q
-    }
-    local result = elements[len(elements) - 1]
-    for(local i = len(elements) - 2; i >= 0; i = i - 1){
-      local o = ops[i]
-      result = o.callback(elements[i], o.op, result)
-    }
-    ctx.value = result
-    return q
+  for(let local e in values(self.sealed.leds.all)){
+    append(children, e.parser)
   }
-
-  local func parse_left(ctx, pos, k){
-    local q = parse_right(ctx, pos, k)
-    if(q < 0){
-      return -1
-    }
-    local d = levels[k].lefts
-    if(d == null){
-      return q
-    }
-    local value = ctx.value
-    for(true){
-      local cand = try_ops(d, ctx, q)
-      if(cand == null){
-        break
-      }
-      local op = ctx.value
-      local r = parse_right(ctx, ctx.op_pos, k)
-      if(r < 0){
-        break
-      }
-      value = cand.callback(value, op, ctx.value)
-      q = r
-    }
-    ctx.value = value
-    return q
-  }
-
-  func parse_level(ctx, pos, k){
-    if(k < 0){
-      return parse_primitives(ctx, pos)
-    }
-    return parse_left(ctx, pos, k)
-  }
-
   local expr = new_parser(func(self, ctx, pos){
-    return parse_level(ctx, pos, n - 1)
+    return w:parse_at(ctx, pos, 0)
   }, children, "expression")
-  // an expression starts with a primitive, a wrapper or a prefix operator
-  local first = {}
-  for(let local p in values(self.primitives)){
-    first = union(first, info_of(p, memo, {}).first)
-  }
-  for(let local g in values(self.groups)){
-    for(let local w in values(g.wrappers)){
-      first = union(first, info_of(w.left, memo, {}).first)
-    }
-    for(let local o in values(g.prefixes)){
-      first = union(first, info_of(o.parser, memo, {}).first)
-    }
-  }
-  if(first != null){
-    expr.first = first
+  if(self.sealed.first != null){
+    expr.first = self.sealed.first
     expr.nullable = false
   }
   self.loopback:set(expr)
+  self.parser = expr
   return expr
+}
+
+// ------------------------------------------- expression builder (compat)
+//
+// The group API of the earlier engine on top of the walker: groups are
+// anonymous levels in registration order, group 0 binds tightest.
+
+local builder_methods = {}
+local builder_meta = {__index: builder_methods, __type: "expression_builder"}
+
+func peg.expression_builder(skip){
+  local w = peg.walker(skip)
+  local b = {walker: w, loopback: w.loopback, skip: skip}
+  b.meta = builder_meta
+  return b
+}
+
+func builder_methods.primitive(self, parser){
+  self.walker:primary(parser)
+}
+
+func builder_methods.group(self){
+  return self.walker:level(null)
+}
+
+func builder_methods.build(self){
+  return self.walker:build()
 }
 
 // ---------------------------------------------------------------------- methods

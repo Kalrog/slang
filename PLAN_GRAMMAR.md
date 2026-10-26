@@ -230,7 +230,8 @@ only, evaluated once before any unit:
 ### Phase 3: Core as extension zero `[ ]`
 - [ ] Move `grammar.slang` onto the public API as `core.slang`; `tok`
       categories; trivia as a rule; keyword registry as a kernel service.
-- [ ] The `slang/parser` compatibility API kept for existing extensions.
+- [ ] Existing extensions (`extensions/*.slang`, the dungeon DSLs) ported to
+      the new API; the old `slang/parser` API is removed.
 - [ ] Oracle and fixed point unchanged.
 
 ### Phase 4: Scoping, project file, dialects `[ ]`
@@ -249,12 +250,14 @@ only, evaluated once before any unit:
       `slang highlight`; restricted VM mode.
 - [ ] Editor integration (VS Code, semantic tokens).
 
+## Decisions (2026-10-26)
+
+- `slang.project` is slang: a table literal parsed under the base grammar.
+- No compatibility layer for the old `slang/parser` API. The scoping change is
+  a semantic break anyway, so existing extensions and the dungeon DSLs are
+  ported in Phase 3 and the old API is removed.
+
 ## Open points
 
-- Whether `slang.project` should be slang (a table literal under the base
-  grammar) or a neutral format; slang is proposed because the dialect table
-  needs no other tool to read it.
-- How much of the `slang/parser` compatibility API to keep once core uses the
-  new one (the dungeon DSLs are the test corpus).
 - Where extension statements that *modify* core rules should report conflicts:
   at seal (one list) or at each `modify` (immediate).

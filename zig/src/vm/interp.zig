@@ -291,7 +291,7 @@ fn traceInstruction(th: *Thread, fi: usize, base: usize, pc: usize, ins: u32) vo
     }
     w.writeByte('\n') catch {};
     var eb: [64]u8 = undefined;
-    var ew = std.Io.File.stderr().writer(th.vm.io, &eb);
+    var ew = std.Io.File.stderr().writerStreaming(th.vm.io, &eb);
     ew.interface.writeAll(w.buffered()) catch {};
     ew.interface.flush() catch {};
 }

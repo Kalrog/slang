@@ -2,6 +2,11 @@ extension "dsl/sprite"
 local t = require("slang/test")
 local str = require("slang/string")
 
+// a snippet compiled at run time is a unit of its own: it loads the DSL itself
+local func snippet(source){
+  return concat("extension \"dsl/sprite\"\n", source)
+}
+
 palette test_palette { r: "#ff0000", b: "#0000ff80" }
 
 sprite dot test_palette {
@@ -21,34 +26,34 @@ t.group("sprite DSL"){
     assert(str.byte_at(s.pixels, center + 2) == 255 and str.byte_at(s.pixels, center + 3) == 128, "blue with alpha in the middle")
   }
   t.test("ragged rows are a compile error on the offending line"){
-    local r = pcall(compile, """palette pp { x: "#000000" }
+    local r = pcall(compile, snippet("""palette pp { x: "#000000" }
 sprite bad pp {
   xx
   x
-}""", "ragged")
+}"""), "ragged")
     assert(r[0] == "err", "compile fails")
     assert(str.index_of(r[1].message, "row 2") >= 0, r[1].message)
-    assert(r[1].location.line == 4, concat("line ", r[1].location.line))
+    assert(r[1].location.line == 5, concat("line ", r[1].location.line))
     assert(r[1].location.origin == "ragged", "origin")
   }
   t.test("unknown characters are compile errors"){
-    local r = pcall(compile, """palette pp { x: "#000000" }
+    local r = pcall(compile, snippet("""palette pp { x: "#000000" }
 sprite bad pp {
   xx
   xy
-}""", "unknown char")
+}"""), "unknown char")
     assert(r[0] == "err", "compile fails")
     assert(str.index_of(r[1].message, "\"y\" is not in the palette") >= 0, r[1].message)
-    assert(r[1].location.line == 4, concat("line ", r[1].location.line))
+    assert(r[1].location.line == 5, concat("line ", r[1].location.line))
   }
   t.test("unknown palettes and bad colors are compile errors"){
-    local r = pcall(compile, "sprite bad nope {\n x\n}", "unknown palette")
+    local r = pcall(compile, snippet("sprite bad nope {\n x\n}"), "unknown palette")
     assert(r[0] == "err" and str.index_of(r[1].message, "unknown palette") >= 0, r[1].message)
-    r = pcall(compile, "palette pp { x: \"red\" }", "bad color")
+    r = pcall(compile, snippet("palette pp { x: \"red\" }"), "bad color")
     assert(r[0] == "err" and str.index_of(r[1].message, "not a color") >= 0, r[1].message)
   }
   t.test("sprite statements are top-level only"){
-    local r = pcall(compile, "func f(){ sprite x test_palette {\n r\n} }", "nested")
+    local r = pcall(compile, snippet("func f(){ sprite x test_palette {\n r\n} }"), "nested")
     assert(r[0] == "err", "compile fails")
   }
 }

@@ -267,12 +267,43 @@ only, evaluated once before any unit:
   grammar (the old API hid this by preloading itself). Both VMs now register
   the bootstrap modules' results.
 
-### Phase 4: Scoping, project file, dialects `[ ]`
-- [ ] Phrase loop derives/restores per unit; ambient layer from
-      `slang.project`; suffix dialects in `slang/package`; `--explain`.
-- [ ] Cache key with project and extension contents.
-- [ ] Examples: a `.json` dialect; the custom operators extension as an
-      ambient project extension.
+### Phase 4: Scoping, project file, dialects `[x]`
+- [x] Units are scoped: the phrase loop derives the unit's grammar from the
+      one it started with at the first extension statement (lazily, so units
+      without extension statements cost nothing) and restores the enclosing
+      grammar afterwards. Files are compiled with the root grammar (or their
+      dialect's), strings compiled from an unquote with the grammar of their
+      unit. `extension global` (main file, before other extension statements)
+      and run-time changes go to the root. The REPL is one unscoped unit.
+- [x] `slang.project`: a table literal compiled with the root grammar;
+      `extensions` (ambient layer, applied to the root with owner = name),
+      `dialects` (`{extensions}` or `{compile}`), `search_paths` (relative
+      to the file, before the defaults), `warnings` (false or per owner).
+      Found from the main file's directory upwards by `compiler.load_main`,
+      which both drivers call for `run` and `test`. `slang run --explain`.
+- [x] Cache key = origin, path, content, project key (project file and the
+      sources of its ambient extensions; a dialect adds its own). Units with
+      extension statements, or compiled under a root changed at run time,
+      are not cached.
+- [x] Examples: `extensions/json.slang` (a `compile` dialect, also runnable
+      with `slang run data.json`), `examples/project` (custom operators as an
+      ambient extension plus a `.json` module); `test/scope_test.slang`.
+- Decided: an extension file is a script that runs once per unit loading it
+  (`compiler.load_extension`), not a module: that is what makes a captured
+  `require("slang/compiler").grammar()` the right grammar in file-scoped
+  loads. For project-wide loads the `apply` callback of an extension
+  statement receives the unit grammar as its second argument, and the kernel
+  refuses changes to a grammar other than the unit's while a parse is in
+  progress (the error names the fix). Compile-time registries that must
+  outlive a unit (the dungeon's declared entities, tiles, legends, palettes)
+  live in a module the extension requires (`dsl/util.registry`).
+- Found and fixed: core parsed the inside of `a[expr]` through the walker's
+  own loopback, which a derived grammar must not share; it now uses the
+  late-bound `expr` rule. Run-time `compile` of DSL snippets in the dungeon
+  tests now has to name the DSL (a string is a unit of its own).
+- Verified: stripped bytecode of every current source file is identical
+  between the Phase 3 and the Phase 4 compiler; both fixed points; parse
+  benchmark unchanged (73 ms).
 
 ### Phase 5: Memoization placement `[ ]`
 - [ ] Shared-prefix analysis at seal; memo per statement; measured on a

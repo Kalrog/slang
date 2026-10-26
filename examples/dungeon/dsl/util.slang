@@ -7,6 +7,23 @@ local str = require("slang/string")
 
 local util = {}
 
+// ------------------------------------------------------------ registries
+//
+// An extension file runs once per unit that loads it, so compile-time
+// declarations (entity types, tiles, legends, palettes) that later units
+// must see live here, in a module that is loaded once.
+local registries = {}
+
+// registry(name) -> the table of compile-time declarations called name
+func util.registry(name){
+  local r = registries[name]
+  if(r == null){
+    r = {}
+    registries[name] = r
+  }
+  return r
+}
+
 // ------------------------------------------------------------ AST helpers
 
 func util.string_node(s){

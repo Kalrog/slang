@@ -18,20 +18,40 @@ local func embedded_loader(name){
   return {true, f()}
 }
 
-// <searchPath>/<name>.slang (compiled on the fly) or <searchPath>/<name>.slb
-local func search_path_loader(name){
+// find_source(name) -> {path, suffix} or null: the source file of a module
+// on the search paths (name.slang, then the dialect suffixes of the project)
+local func find_source(name){
   for(let local path in values(__PACKAGES.searchPaths)){
     local src = concat(path, "/", name, ".slang")
-    if(os.exists(src) and compile != null){
-      local c = __PACKAGES.preloaded["slang/compiler"]
-      local f
-      if(c != null){
-        f = c[1].load_file(src, name)
-      } else {
-        f = compile(os.read_file(src), name)
-      }
-      return {true, f()}
+    if(os.exists(src)){
+      return {path: src, suffix: ".slang"}
     }
+    for(let local suffix in values(__PACKAGES.dialect_suffixes)){
+      src = concat(path, "/", name, suffix)
+      if(os.exists(src)){
+        return {path: src, suffix: suffix}
+      }
+    }
+  }
+  return null
+}
+__PACKAGES.dialect_suffixes = {}
+__PACKAGES.find_source = find_source
+
+// a source file (compiled on the fly) or <searchPath>/<name>.slb
+local func search_path_loader(name){
+  local found = find_source(name)
+  if(found != null and compile != null){
+    local c = __PACKAGES.preloaded["slang/compiler"]
+    local f
+    if(c != null){
+      f = c[1].load_file(found.path, name)
+    } else {
+      f = compile(os.read_file(found.path), name)
+    }
+    return {true, f()}
+  }
+  for(let local path in values(__PACKAGES.searchPaths)){
     local bin = concat(path, "/", name, ".slb")
     if(os.exists(bin)){
       local f = vm.load_bytecode(bin)

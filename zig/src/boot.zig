@@ -15,7 +15,7 @@ pub const embedded_files = blk: {
 };
 
 /// Loads a .slb file directly, anything else through the compiler
-/// (compiler.load_file, which also handles the bytecode cache).
+/// (compiler.load_main: project file, dialects, `extension global`, the bytecode cache).
 pub fn loadFile(vm: *VM, path: []const u8) Error!*Closure {
     if (std.mem.endsWith(u8, path, ".slb")) {
         const data = std.Io.Dir.cwd().readFileAlloc(vm.io, path, vm.gpa, .unlimited) catch |e| {
@@ -26,7 +26,7 @@ pub fn loadFile(vm: *VM, path: []const u8) Error!*Closure {
     }
     if (vm.getGlobal("compile") == .null) return vm.raise("no compiler available", .{});
     const compiler = try vm.call(vm.getGlobal("require"), &.{vm.str("slang/compiler")});
-    const load_file = compiler.table.getName("load_file");
-    const res = try vm.call(load_file, &.{ vm.str(path), vm.str(path) });
+    const load_main = compiler.table.getName("load_main");
+    const res = try vm.call(load_main, &.{vm.str(path)});
     return res.asClosure() orelse vm.raise("compile did not return a function", .{});
 }

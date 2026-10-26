@@ -19,7 +19,7 @@ local g = require("slang/compiler").grammar()
 local str = require("slang/string")
 local util = require("dsl/util")
 
-local palettes = {}
+local palettes = util.registry("palettes")
 local m = {palettes: palettes}
 
 // palette NAME { key: "#hex", ... }

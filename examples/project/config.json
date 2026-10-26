@@ -1,0 +1,6 @@
+{
+  "name": "project example",
+  "version": 3,
+  "scale": [2, 3],
+  "nested": {"deep": "value", "flag": true, "nothing": null}
+}

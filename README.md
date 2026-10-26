@@ -10,6 +10,7 @@ interpreter binary.
 ```sh
 make build              # builds bin/slang from the committed seed in go/boot
 bin/slang run file.slang [args...]
+bin/slang run --explain file.slang   # also prints the project file, the units and their extensions
 bin/slang test       # runs every *test.slang file in ./test
 bin/slang repl
 bin/slang compile file.slang [-o out.slb] [--strip]
@@ -295,10 +296,44 @@ x = one                           // the change applies from the next statement 
 ```
 A file is parsed one top-level statement at a time; an extension statement
 takes effect for the statements after it, and a statement is always parsed
-with a single grammar. The grammar is global: an extension loaded by one file
-stays available to files compiled later. Keywords introduced by extensions
-are reserved as variable names but stay usable as field names (`t.switch`,
-`t:switch()`, `{switch: 1}`).
+with a single grammar. Grammar changes are **scoped to the unit** (a file or
+a `compile`d string): they end with it, and a file is always compiled with
+the root grammar, so a module means the same wherever it is required from.
+A string compiled from an unquote is part of its file and sees the file's
+extensions. Keywords introduced by extensions are reserved as variable names
+but stay usable as field names (`t.switch`, `t:switch()`, `{switch: 1}`).
+
+Global changes are explicit. `extension global "file"` (or `extension global
+{ ... }`) in the main file, before its other extension statements, changes
+the root grammar for every unit compiled afterwards; changes made at run
+time through `require("slang/compiler").grammar()` do the same. The usual
+place for them is the **project file**: `slang.project`, next to the main
+file or in a directory above it, a slang table literal:
+```slang
+{
+  extensions: {"extensions/custom_operators"},        // ambient: loaded into every unit
+  dialects: {
+    [".json"]: {compile: "extensions/json"},          // require("config") loads config.json
+    [".hx"]: {extensions: {"ext/html_templates"}},    // .hx files are slang plus these extensions
+  },
+  search_paths: {"src"},                               // relative to the project file
+  warnings: {["extensions/custom_operators"]: false},  // or false: grammar warnings off
+}
+```
+A dialect is either a list of extensions the file is compiled with, or a
+module exporting `compile(source, origin)` that returns a function (see
+`extensions/json.slang`); `require` tries `name.slang` and then every dialect
+suffix. `slang run --explain file` prints the project file, the ambient
+extensions and dialects, and for every unit compiled under extensions the
+extensions in effect and the rules they modified. `examples/project` is a
+small project using both.
+
+An extension file runs once per unit that loads it (it is a script, not a
+module), with `require("slang/compiler").grammar()` returning the grammar of
+that unit; an extension that depends on another loads it with
+`require("slang/compiler").load_extension(name)`. Compile-time state that
+later units must see (declared names, say) belongs in a module the extension
+requires, since modules are loaded once.
 
 An extension gets the grammar it extends with `require("slang/compiler").grammar()`
 and builds parsers with the combinators of `require("slang/peg")` (`seq`,
@@ -310,9 +345,11 @@ object offers:
   `"chunk"`, `"identifier"`, `"slang_pattern"`, `"table_literal"`, ...).
 - `g:statement(name, parser)`: a statement; the parser yields a node or
   `{token, ast}`. `g:extension_statement(name, parser, apply)`: a statement
-  that is only recognised at the top level; after it parsed, `apply(result)`
-  runs with grammar changes allowed and returns the statement to emit, or
-  `null` (see `extensions/custom_operators.slang`).
+  that is only recognised at the top level; after it parsed, `apply(result, g)`
+  runs with grammar changes allowed, with `g` the grammar of the unit being
+  parsed (not necessarily the one the extension was loaded into: a project
+  loads an extension once), and returns the statement to emit, or `null`
+  (see `extensions/custom_operators.slang`).
 - `g:expression()`: the expression registry. `:primary(name, parser,
   {after, before})` adds a primary expression, `:level(name, {after, before})`
   a precedence level (tightest first; core has `indexAndCall`, `power`,
@@ -328,17 +365,21 @@ object offers:
   protected), `g:rules()` lists every rule with the extensions that changed
   it. Changes are sealed lazily: the first parse after a change rebuilds the
   expression walker and the dispatch tables once. `SLANG_GRAMMAR_WARNINGS=1`
-  reports rules modified by more than one extension, modifications that can
-  never match their second alternative, and rules that stop parsing their
-  probe snippet.
+  (or `--explain`) reports rules modified by more than one extension,
+  modifications that can never match their second alternative, and rules
+  that stop parsing their probe snippet.
+- `g:derive()` is a copy that changes independently (the unit grammars are
+  derived from the root this way), `g:root()` the root grammar, `g:unit()`
+  the grammar of the unit being parsed, `g:extensions()` the extensions
+  loaded into the grammar.
 - `g:error_at(token, message...)` raises a compile error at a token,
   `g:origin()` is the name of the source being compiled, `g:uniq_id()` an
   identifier no program can write.
 
 See `extensions/` for examples (switch statement, lambda shorthand, custom
-infix/prefix/postfix operators, a grammar DSL) and `examples/dungeon/dsl` for
-larger ones. The plan for the rest of this work (scoped grammars, dialects,
-tooling) is in `PLAN_GRAMMAR.md`.
+infix/prefix/postfix operators, a grammar DSL, the JSON dialect) and
+`examples/dungeon/dsl` for larger ones. The plan for the rest of this work
+(memoization placement, tooling) is in `PLAN_GRAMMAR.md`.
 
 ## Standard library
 Globals: `print`, `args`, `readLine`, `open` (files with `read`, `write`,

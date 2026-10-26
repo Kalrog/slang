@@ -3,6 +3,11 @@ local t = require("slang/test")
 local str = require("slang/string")
 local machines_api = require("engine/machines")
 
+// a snippet compiled at run time is a unit of its own: it loads the DSL itself
+local func snippet(source){
+  return concat("extension \"dsl/machine\"\n", source)
+}
+
 machine test_brain {
   state idle {
     enter { self.log = concat(self.log, "+idle ") }
@@ -34,20 +39,20 @@ t.group("machine DSL"){
     assert(e.state == "chase", "stays")
   }
   t.test("goto to an unknown state is a compile error"){
-    local r = pcall(compile, """machine bad {
+    local r = pcall(compile, snippet("""machine bad {
   state a { update(dt) { goto b } }
-}""", "bad goto")
+}"""), "bad goto")
     assert(r[0] == "err" and str.index_of(r[1].message, "unknown state b") >= 0, r[1].message)
-    assert(r[1].location.line == 1, concat("line ", r[1].location.line))
+    assert(r[1].location.line == 2, concat("line ", r[1].location.line))
   }
   t.test("duplicate states and hooks are compile errors"){
-    local r = pcall(compile, "machine bad { state a { } state a { } }", "dup state")
+    local r = pcall(compile, snippet("machine bad { state a { } state a { } }"), "dup state")
     assert(r[0] == "err" and str.index_of(r[1].message, "declared twice") >= 0, r[1].message)
-    r = pcall(compile, "machine bad { state a { enter { } enter { } } }", "dup hook")
+    r = pcall(compile, snippet("machine bad { state a { enter { } enter { } } }"), "dup hook")
     assert(r[0] == "err" and str.index_of(r[1].message, "two enter hooks") >= 0, r[1].message)
   }
   t.test("goto outside a machine fails at run time"){
-    local r = pcall(compile("goto somewhere", "stray goto"))
+    local r = pcall(compile(snippet("goto somewhere"), "stray goto"))
     assert(r[0] == "err" and str.index_of(r[1].message, "inside a machine") >= 0, r[1].message)
   }
 }

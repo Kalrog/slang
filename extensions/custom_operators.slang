@@ -1,6 +1,8 @@
 //special way to define operators
 // each definition is an extension statement: it is parsed at the top level and
 // its apply function registers the operator for the statements that follow
+// (in the grammar of the unit being parsed, which apply receives: this file
+// may be loaded once for a whole project)
 // "infix" "_"{symbol}"_" ("left","right")? (("after" {id})|("before" {id})|("at" {number}))? "(" {params}")" "{" {body} "}"
 // creates an infix operator, that calls the function when the operator is used 
 // "prefix" {symbol}_ (("after" {id})|("before" {id})|("at" {number}))? "(" {params}")" "{" {body} "}"
@@ -57,7 +59,7 @@ g:extension_statement(
     g:token(")"),
     g:rule("block")
   ),
-  func(result){
+  func(result, g){
     local symbol = g:token(result[2])
     local id = {type:"Identifier",value:concat("infix_", result[3])}
     local direction = result[4] 
@@ -134,7 +136,7 @@ g:extension_statement(
     g:token(")"),
     g:rule("block")
   ),
-  func(result){
+  func(result, g){
     local symbol = g:token(result[1])
     local id = {type:"Identifier",value:concat("prefix_", result[1])}
     local position = result[3]
@@ -207,7 +209,7 @@ g:extension_statement(
     g:token(")"),
     g:rule("block")
   ),
-  func(result){
+  func(result, g){
     local symbol = g:token(result[2])
     local id = {type:"Identifier",value:concat("postfix_", result[2])}
     print("postfix id ", id, "\n")

@@ -17,6 +17,7 @@ func osModule(v *vm.VM) *vm.Table {
 		{"is_dir", osIsDir},
 		{"read_file", osReadFile},
 		{"write_file", osWriteFile},
+		{"write_stderr", osWriteStderr},
 		{"list_dir", osListDir},
 		{"getenv", osGetenv},
 		{"cwd", osCwd},
@@ -91,6 +92,17 @@ func osWriteFile(th *vm.Thread, args []vm.Value) (vm.Value, error) {
 	if werr := os.WriteFile(path, []byte(content), 0o644); werr != nil {
 		return vm.Null, vm.Errorf("cannot write %s: %v", path, werr)
 	}
+	return vm.Null, nil
+}
+
+// write_stderr(text): writes text to the standard error stream.
+func osWriteStderr(th *vm.Thread, args []vm.Value) (vm.Value, error) {
+	text, err := vm.ArgString(args, 0, "text")
+	if err != nil {
+		return vm.Null, err
+	}
+	th.VM().Flush()
+	os.Stderr.WriteString(text)
 	return vm.Null, nil
 }
 

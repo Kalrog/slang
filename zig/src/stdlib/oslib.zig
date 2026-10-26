@@ -19,6 +19,7 @@ pub fn module(vm: *VM) *Table {
         .{ .name = "is_dir", .f = osIsDir },
         .{ .name = "read_file", .f = osReadFile },
         .{ .name = "write_file", .f = osWriteFile },
+        .{ .name = "write_stderr", .f = osWriteStderr },
         .{ .name = "list_dir", .f = osListDir },
         .{ .name = "getenv", .f = osGetenv },
         .{ .name = "cwd", .f = osCwd },
@@ -79,6 +80,17 @@ fn osWriteFile(th: *Thread, args: []Value) Error!Value {
     std.Io.Dir.cwd().writeFile(th.vm.io, .{ .sub_path = path, .data = content }) catch |e| {
         return th.vm.raise("cannot write {s}: {t}", .{ path, e });
     };
+    return .null;
+}
+
+/// write_stderr(text): writes text to the standard error stream.
+fn osWriteStderr(th: *Thread, args: []Value) Error!Value {
+    const text = try api.argString(th, args, 0, "text");
+    th.vm.flush();
+    var buf: [256]u8 = undefined;
+    var w = std.Io.File.stderr().writerStreaming(th.vm.io, &buf);
+    w.interface.writeAll(text) catch {};
+    w.interface.flush() catch {};
     return .null;
 }
 

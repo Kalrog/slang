@@ -3,6 +3,11 @@ local t = require("slang/test")
 local str = require("slang/string")
 local entities_api = require("engine/entities")
 
+// a snippet compiled at run time is a unit of its own: it loads the DSL itself
+local func snippet(source){
+  return concat("extension \"dsl/entity\"\n", source)
+}
+
 entity TestMonster {
   hp: 3,
   solid: true,
@@ -32,11 +37,11 @@ t.group("entity DSL"){
     assert(not entities_api.is_a(g, "TestGoblin2"), "is_a other")
   }
   t.test("unknown base types are compile errors"){
-    local r = pcall(compile, "entity Nope extends Nothing { }", "bad base")
+    local r = pcall(compile, snippet("entity Nope extends Nothing { }"), "bad base")
     assert(r[0] == "err" and str.index_of(r[1].message, "unknown base entity Nothing") >= 0, r[1].message)
   }
   t.test("fields must be named"){
-    local r = pcall(compile, "entity Nope { 1, 2 }", "unnamed")
+    local r = pcall(compile, snippet("entity Nope { 1, 2 }"), "unnamed")
     assert(r[0] == "err" and str.index_of(r[1].message, "needs a name") >= 0, r[1].message)
   }
 }

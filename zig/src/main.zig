@@ -22,14 +22,14 @@ comptime {
 var stderr_buf: [4096]u8 = undefined;
 
 fn stderr(io: std.Io) std.Io.File.Writer {
-    return std.Io.File.stderr().writer(io, &stderr_buf);
+    return std.Io.File.stderr().writerStreaming(io, &stderr_buf);
 }
 
 fn usage(io: std.Io) noreturn {
     var w = stderr(io);
     w.interface.writeAll(
         \\usage:
-        \\  slang run <file.slang|file.slb> [args...]
+        \\  slang run [--explain] <file.slang|file.slb> [args...]
         \\  slang test [dir]            run every *test.slang file in dir (default ./test)
         \\  slang repl
         \\  slang compile <file.slang> [-o out.slb] [--origin name] [--strip]
@@ -53,8 +53,14 @@ pub fn main(init: std.process.Init) !u8 {
     const args = rest.items;
 
     if (std.mem.eql(u8, cmd, "run")) {
-        if (args.len < 1) usage(io);
-        run(init, args[0], args[1..]);
+        var run_args = args;
+        var explain = false;
+        if (run_args.len > 0 and std.mem.eql(u8, run_args[0], "--explain")) {
+            explain = true;
+            run_args = run_args[1..];
+        }
+        if (run_args.len < 1) usage(io);
+        run(init, run_args[0], run_args[1..], explain);
     } else if (std.mem.eql(u8, cmd, "test")) {
         runTests(init, if (args.len > 0) args[0] else "./test");
     } else if (std.mem.eql(u8, cmd, "repl")) {
@@ -111,9 +117,13 @@ fn loadFile(vm: *VM, path: []const u8) *Closure {
     return boot.loadFile(vm, path) catch fail(vm);
 }
 
-fn run(init: std.process.Init, path: []const u8, args: []const []const u8) void {
+fn run(init: std.process.Init, path: []const u8, args: []const []const u8, explain: bool) void {
     const vm = newVM(init, args);
     defer vm.destroy();
+    if (explain) {
+        const compiler = vm.call(vm.getGlobal("require"), &.{vm.str("slang/compiler")}) catch fail(vm);
+        compiler.table.set(vm.gpa, vm.str("explain"), .{ .bool = true });
+    }
     const cl = loadFile(vm, path);
     _ = vm.call(.{ .function = cl }, &.{}) catch fail(vm);
     vm.flush();

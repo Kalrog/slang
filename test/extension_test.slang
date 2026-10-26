@@ -105,11 +105,18 @@ t.group("extension statements"){
       if(let {shout: local v} = t){ t.shout = v + 1 }
       local u = {}
       func u.shout(self){ return 5 }
+      // the keyword is reserved in this unit (a compile from an unquote parses with the unit's grammar)
+      -{block:
+        local r = pcall(compile, "local shout = 1", "keyword identifier")
+        assert(r[0] == "err", "but not a variable name")
+        return +{stat: print("")}
+      }
       return t:loud(10) + t.shout + u:shout()
     """, "keyword fields")
     assert(run() == 19, "shout is a keyword but still a field, a method and a pattern key")
+    // and not reserved outside it
     local r = pcall(compile, "local shout = 1", "keyword identifier")
-    assert(r[0] == "err", "but not a variable name")
+    assert(r[0] == "ok", "the keyword ends with the unit that introduced it")
   }
   t.test("extensions can define their own extension statements"){
     local run = compile("""

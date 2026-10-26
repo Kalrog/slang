@@ -17,7 +17,7 @@ local peg = require("slang/peg")
 local g = require("slang/compiler").grammar()
 local util = require("dsl/util")
 
-local declared = {}
+local declared = util.registry("entities")
 local m = {declared: declared}
 
 g:extension_statement("entity",

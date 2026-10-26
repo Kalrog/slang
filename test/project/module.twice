@@ -1,0 +1,3 @@
+// a file in the .twice dialect: slang plus the project_ext extension
+local plain = require("plain")
+return {value: twice 5, plain: plain}

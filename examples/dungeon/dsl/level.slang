@@ -19,10 +19,10 @@ local peg = require("slang/peg")
 local g = require("slang/compiler").grammar()
 local str = require("slang/string")
 local util = require("dsl/util")
-local entity_dsl = require("dsl/entity")
 
-local tiles = {}
-local legends = {}
+local tiles = util.registry("tiles")
+local legends = util.registry("legends")
+local entities = util.registry("entities")
 local m = {tiles: tiles, legends: legends}
 
 // tile NAME { fields }
@@ -66,7 +66,7 @@ g:extension_statement("legend",
       local target = entry.target
       if(tiles[target]){
         entries[entry.glyph] = {tile: target}
-      } else if(entity_dsl.is_declared(target)){
+      } else if(entities[target] != null){
         entries[entry.glyph] = {spawn: target}
       } else {
         g:error_at(token, "legend ", name, ": \"", entry.glyph, "\" refers to ", target, ", which is neither a declared tile nor a declared entity")

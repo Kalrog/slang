@@ -1,0 +1,17 @@
+// The project file: a slang table literal, found next to the main file or
+// in a directory above it. Paths are relative to this file.
+{
+  // ambient extensions: loaded into every file of the project, in order
+  extensions: {"extensions/custom_operators"},
+  // file suffixes and how to load them: a compile function, or extensions
+  // the file is compiled with
+  dialects: {
+    [".json"]: {compile: "extensions/json"},
+  },
+  // module search paths, before the defaults (the repository root here, so
+  // that extensions/... resolves)
+  search_paths: {"../.."},
+  // grammar warnings (on with --explain or SLANG_GRAMMAR_WARNINGS=1) can be
+  // turned off altogether or per extension: {["extensions/x"]: false}
+  warnings: true,
+}

@@ -3,6 +3,11 @@ extension "dsl/level"
 local t = require("slang/test")
 local str = require("slang/string")
 
+// a snippet compiled at run time is a unit of its own: it loads the DSL itself
+local func snippet(source){
+  return concat("extension \"dsl/level\"\n", source)
+}
+
 entity Player { hp: 5 }
 entity LevelTestGoblin { hp: 2 }
 tile wall { solid: true }
@@ -29,28 +34,28 @@ t.group("level DSL"){
     assert(levels.order[len(levels.order) - 1] == "lt_one", "registered in order")
   }
   t.test("unknown characters are compile errors on the right line"){
-    local r = pcall(compile, """level bad lt {
+    local r = pcall(compile, snippet("""level bad lt {
   ###
   #@?
   ###
-}""", "unknown glyph")
+}"""), "unknown glyph")
     assert(r[0] == "err" and str.index_of(r[1].message, "\"?\" is not in the legend") >= 0, r[1].message)
-    assert(r[1].location.line == 3, concat("line ", r[1].location.line))
+    assert(r[1].location.line == 4, concat("line ", r[1].location.line))
   }
   t.test("a level needs exactly one player"){
-    local r = pcall(compile, "level bad lt {\n ###\n ###\n}", "no player")
+    local r = pcall(compile, snippet("level bad lt {\n ###\n ###\n}"), "no player")
     assert(r[0] == "err" and str.index_of(r[1].message, "exactly one Player") >= 0, r[1].message)
-    r = pcall(compile, "level bad lt {\n #@@\n}", "two players")
+    r = pcall(compile, snippet("level bad lt {\n #@@\n}"), "two players")
     assert(r[0] == "err" and str.index_of(r[1].message, "has 2") >= 0, r[1].message)
   }
   t.test("legends are checked against declared tiles and entities"){
-    local r = pcall(compile, "legend bad { \"x\": Dragon }", "bad legend")
+    local r = pcall(compile, snippet("legend bad { \"x\": Dragon }"), "bad legend")
     assert(r[0] == "err" and str.index_of(r[1].message, "neither a declared tile nor a declared entity") >= 0, r[1].message)
-    r = pcall(compile, "legend bad { \"xx\": wall }", "bad key")
+    r = pcall(compile, snippet("legend bad { \"xx\": wall }"), "bad key")
     assert(r[0] == "err" and str.index_of(r[1].message, "single characters") >= 0, r[1].message)
   }
   t.test("ragged maps are compile errors"){
-    local r = pcall(compile, "level bad lt {\n ###\n #@\n}", "ragged")
+    local r = pcall(compile, snippet("level bad lt {\n ###\n #@\n}"), "ragged")
     assert(r[0] == "err" and str.index_of(r[1].message, "row 2") >= 0, r[1].message)
   }
 }

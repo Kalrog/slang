@@ -1,0 +1,8 @@
+{
+  extensions: {"test/project_ext"},
+  dialects: {
+    [".json"]: {compile: "extensions/json"},
+    [".twice"]: {extensions: {"test/project_ext"}},
+  },
+  search_paths: {"../.."},
+}

@@ -16,7 +16,7 @@ import (
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage:")
-	fmt.Fprintln(os.Stderr, "  slang run <file.slang|file.slb> [args...]")
+	fmt.Fprintln(os.Stderr, "  slang run [--explain] <file.slang|file.slb> [args...]")
 	fmt.Fprintln(os.Stderr, "  slang test [dir]            run every *test.slang file in dir (default ./test)")
 	fmt.Fprintln(os.Stderr, "  slang repl")
 	fmt.Fprintln(os.Stderr, "  slang compile <file.slang> [-o out.slb] [--origin name] [--strip]")
@@ -50,10 +50,16 @@ func main() {
 	}
 	switch os.Args[1] {
 	case "run":
-		if len(os.Args) < 3 {
+		rest := os.Args[2:]
+		explain := false
+		if len(rest) > 0 && rest[0] == "--explain" {
+			explain = true
+			rest = rest[1:]
+		}
+		if len(rest) < 1 {
 			usage()
 		}
-		run(os.Args[2], os.Args[3:])
+		run(rest[0], rest[1:], explain)
 	case "test":
 		dir := "./test"
 		if len(os.Args) > 2 {
@@ -106,6 +112,8 @@ func fail(v *vm.VM, err error) {
 	os.Exit(1)
 }
 
+// loadFile loads the main file of a program: bytecode as is, source through
+// the compiler's load_main (project file, dialects, `extension global`).
 func loadFile(v *vm.VM, path string) *vm.Closure {
 	if strings.HasSuffix(path, ".slb") {
 		data, err := os.ReadFile(path)
@@ -123,7 +131,7 @@ func loadFile(v *vm.VM, path string) *vm.Closure {
 		if err != nil {
 			fail(v, err)
 		}
-		res, err := v.Call(compiler.AsTable().GetStr("load_file"), vm.String(path), vm.String(path))
+		res, err := v.Call(compiler.AsTable().GetStr("load_main"), vm.String(path))
 		if err != nil {
 			fail(v, err)
 		}
@@ -145,8 +153,15 @@ func loadFile(v *vm.VM, path string) *vm.Closure {
 	return nil
 }
 
-func run(path string, args []string) {
+func run(path string, args []string, explain bool) {
 	v, out := newVM(args)
+	if explain {
+		compiler, err := v.Call(v.GetGlobal("require"), vm.String("slang/compiler"))
+		if err != nil {
+			fail(v, err)
+		}
+		compiler.AsTable().SetStr("explain", vm.True)
+	}
 	cl := loadFile(v, path)
 	_, err := v.Call(vm.FunctionValue(cl))
 	out.Flush()

@@ -52,13 +52,23 @@ local func copy_list(t){
 //   opts.run_block(block_node) -> value   executes an unquote at parse time
 //   opts.run_extension(node, origin)      runs an extension statement
 //   opts.optimize(block_node) -> node     applied to a parsed chunk
-//   opts.warn(message)                    reports grammar warnings (development)
+//   opts.warn(message, owner)             reports grammar warnings (development)
+//   opts.explain(origin, unit)            called after a unit parsed under its own grammar
 
 local func new_lineage(opts){
   return {
     opts: opts,
     refs: {},
     active: null,
+    // the root grammar of the lineage, and the grammar of the unit being
+    // parsed (the innermost one; null at run time)
+    root: null,
+    current: null,
+    // the origin of the main file: the only unit allowed `extension global`
+    main_origin: null,
+    // set while the ambient layer (the project's extensions) is applied: those
+    // changes are part of the base grammar and do not make it `extended`
+    ambient: false,
     // the extension (or "core", "runtime") that is changing the grammar
     owner: "core",
     // Grammar changes are allowed at run time (no parse in progress) and from
@@ -150,6 +160,9 @@ local func new_grammar(lin, parent){
     g.extension_statement_order = {}
     g.expression_walker = null
     g.extended = false
+    g.loaded_extensions = {}
+    g.dialect = null
+    g.cache_key = null
   } else {
     g.rule_table = {}
     for(let local name in values(parent.rule_order)){
@@ -165,6 +178,9 @@ local func new_grammar(lin, parent){
     g.extension_statement_order = copy_list(parent.extension_statement_order)
     g.expression_walker = parent.expression_walker:derive()
     g.extended = parent.extended
+    g.loaded_extensions = copy_list(parent.loaded_extensions)
+    g.dialect = parent.dialect
+    g.cache_key = parent.cache_key
     // shared helpers of the lineage
     g.initial_statement = parent.initial_statement
     g.builtin_extension = parent.builtin_extension
@@ -182,12 +198,16 @@ local func check_changes(g, what){
   if(not g:changes_allowed()){
     error("the grammar can only be changed by an extension statement (extension \"file\" or extension { ... } at the top level); ", what, " was called from code running while a statement is being parsed")
   }
+  local lin = g.state
+  if(lin.parse_depth > 0 and lin.current != null and g != lin.current){
+    error(what, " was called on a grammar that is not the grammar of the unit being parsed (an extension loaded for another unit kept it); use the grammar passed to an apply function or require(\"slang/compiler\").grammar() at the time of the change, or extension global")
+  }
 }
 
 // every change: the grammar needs sealing again, references resolve anew
 local func touch(g){
   g.dirty = true
-  if(g.state.owner != "core"){
+  if(g.state.owner != "core" and not g.state.ambient){
     g.extended = true
   }
   invalidate(g.state)
@@ -200,7 +220,7 @@ local func warn(g, ...parts){
     for(let local part in values(parts)){
       text = concat(text, part)
     }
-    w(text)
+    w(text, g.state.owner)
   }
 }
 
@@ -298,6 +318,47 @@ func methods.rules(g){
 // do not affect the other
 func methods.derive(g){
   return new_grammar(g.state, g)
+}
+
+// root() -> the root grammar of the lineage (slang plus the ambient layer)
+func methods.root(g){
+  return g.state.root
+}
+
+// unit() -> the grammar of the unit being parsed, this one at run time
+func methods.unit(g){
+  return g.state.current or g
+}
+
+// the extensions loaded into this grammar, by name (inherited by derivation)
+func methods.has_extension(g, name){
+  for(let local n in values(g.loaded_extensions)){
+    if(n == name){
+      return true
+    }
+  }
+  return false
+}
+
+func methods.add_extension(g, name){
+  append(g.loaded_extensions, name)
+}
+
+func methods.extensions(g){
+  return copy_list(g.loaded_extensions)
+}
+
+// with_owner(owner, f) -> f(): runs f with grammar changes attributed to owner
+func methods.with_owner(g, owner, f){
+  local lin = g.state
+  local outer = lin.owner
+  lin.owner = owner
+  local r = pcall(f)
+  lin.owner = outer
+  if(let {"err", local e} = r){
+    raise(e)
+  }
+  return r[1]
 }
 
 
@@ -534,9 +595,9 @@ func methods.statement(g, name, parser){
 }
 
 // extension_statement(name, parser, apply): a statement that is only
-// recognised at the top level; after it parsed, apply(result) runs between
-// statements with grammar changes allowed and returns the statement to emit
-// (or null)
+// recognised at the top level; after it parsed, apply(result, g) runs between
+// statements with grammar changes allowed (g is the grammar of the unit being
+// parsed) and returns the statement to emit (or null)
 func methods.extension_statement(g, name, parser, apply){
   check_changes(g, "extension_statement")
   peg.resolve(parser)
@@ -1101,7 +1162,7 @@ local func install_core(g){
     local name = op[1]
     return ast.node("Index", {receiver: left, index: ast.node("String", {value: name.value}, name.token), dotStyle: true}, op[0])
   })
-  w:postfix(peg.seq(tok("["), w.loopback, tok("]")), "indexAndCall", func(left, op){
+  w:postfix(peg.seq(tok("["), rule("expr"), tok("]")), "indexAndCall", func(left, op){
     return ast.node("Index", {receiver: left, index: op[1], dotStyle: false}, op[0])
   })
   w:postfix(rule("name_and_args"), "indexAndCall", func(left, op){
@@ -1169,10 +1230,11 @@ local func install_core(g){
   // statement on. Extension statements exist only here, not in nested blocks,
   // so no parse of a statement can ever see the grammar change.
 
-  // the built-in extension statement yields {builtin: node}; extension
-  // statements registered by extensions yield {apply: f, result: value}
-  g.builtin_extension = peg.seq(tok("extension"), peg.choice(rule("string_literal"), rule("block"))):pick(1):map(func(node){
-    return {builtin: node}
+  // the built-in extension statement yields {builtin: node, global: bool};
+  // extension statements registered by extensions yield {apply: f, result: value}
+  //     extension global "file"   changes the root grammar (main file only)
+  g.builtin_extension = peg.seq(tok("extension"), tok("global"):optional(), peg.choice(rule("string_literal"), rule("block"))):map(func(r){
+    return {builtin: r[2], global: r[1] != null}
   })
 
   define("extension_statement", null, {protected: true, build: func(g){
@@ -1237,7 +1299,7 @@ func methods.run_extension(g, parsed, origin){
   if(type(token) == "table" and token.line != null){
     owner = concat(origin, ":", token.line)
   }
-  local result = with_changes_allowed(g, owner, parsed.apply, parsed.result)
+  local result = with_changes_allowed(g, owner, parsed.apply, parsed.result, g)
   if(result == null){
     return null
   }
@@ -1258,7 +1320,12 @@ local func parse_statement(lin, parser, ctx, pos){
   return r[1]
 }
 
-local func parse_top_level(g, source, origin){
+// Grammar changes made by a unit end with the unit: the first extension
+// statement derives the unit's own grammar from the one the unit started
+// with (scoped units; the REPL is not scoped). `extension global` changes the
+// root grammar instead and is only allowed in the main file, before any other
+// extension statement of it.
+local func parse_top_level(g, source, origin, scoped){
   local lin = g.state
   local tok_semicolon = peg.ref(lin.token_fn, ";"):optional()
   local parsers = {
@@ -1269,12 +1336,34 @@ local func parse_top_level(g, source, origin){
   local ctx = peg.context(source)
   local statements = {}
   local pos = 0
+  local unit = g
   lin.origin = origin
+  lin.current = unit
   for(true){
-    g:activate()
+    unit:activate()
     local q = parsers.extension_statement:parse_on(ctx, pos)
     if(q >= 0){
-      local node = g:run_extension(ctx.value, origin)
+      local parsed = ctx.value
+      local target = null
+      if(parsed.global and scoped){
+        if(lin.parse_depth != 1 or origin != lin.main_origin){
+          error(fail_message(ctx, origin, "extension global is only allowed at the top level of the main file", pos))
+        }
+        if(g != lin.root){
+          error(fail_message(ctx, origin, "extension global is not available in a file compiled under a dialect", pos))
+        }
+        if(unit != g){
+          error(fail_message(ctx, origin, "extension global must come before the other extension statements of the file", pos))
+        }
+        target = lin.root
+      } else {
+        if(scoped and unit == g){
+          unit = g:derive()
+          lin.current = unit
+        }
+        target = unit
+      }
+      local node = target:run_extension(parsed, origin)
       if(node != null){
         append(statements, node)
       }
@@ -1304,26 +1393,41 @@ local func parse_top_level(g, source, origin){
   if(lin.opts.optimize != null){
     block = lin.opts.optimize(block)
   }
+  if(lin.opts.explain != null and (unit != g or g.dialect != null)){
+    lin.opts.explain(origin, unit)
+  }
   return block
 }
 
-// parse_source(source, origin) -> Block node (raises on failure)
-func methods.parse_source(g, source, origin){
+// parse_source(source, origin, {scoped}) -> Block node (raises on failure).
+// Extension statements of a scoped unit (the default) only affect that unit.
+func methods.parse_source(g, source, origin, options){
   local lin = g.state
   local outer_origin = lin.origin
+  local outer_current = lin.current
+  local outer_active = lin.active
+  local scoped = options == null or options.scoped != false
   lin.parse_depth = lin.parse_depth + 1
-  local r = pcall(parse_top_level, g, source, origin)
+  local r = pcall(parse_top_level, g, source, origin, scoped)
   lin.parse_depth = lin.parse_depth - 1
   lin.origin = outer_origin
+  lin.current = outer_current
+  // a nested parse (from an unquote or a parser callback) must leave the
+  // rule references pointing at the grammar of the enclosing unit
+  if(lin.parse_depth > 0 and outer_active != null and lin.active != outer_active){
+    outer_active:activate()
+  }
   if(let {"err", local e} = r){
     raise(e)
   }
   return r[1]
 }
 
-// parse_repl(source) -> node: a chunk, or an expression wrapped in a return
+// parse_repl(source) -> node: a chunk, or an expression wrapped in a return.
+// The REPL is one unit spread over many lines: its extension statements are
+// not scoped.
 func methods.parse_repl(g, source){
-  local r = pcall(g.parse_source, g, source, "repl")
+  local r = pcall(g.parse_source, g, source, "repl", {scoped: false})
   if(let {"ok", local block} = r){
     return block
   }
@@ -1340,6 +1444,7 @@ func grammar.new(opts){
   local lin = new_lineage(opts or {})
   local g = new_grammar(lin, null)
   lin.active = g
+  lin.root = g
   install_core(g)
   lin.owner = "runtime"
   return g

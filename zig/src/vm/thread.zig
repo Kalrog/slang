@@ -191,6 +191,28 @@ pub const Thread = struct {
         return res;
     }
 
+    /// Calls the function at fn_idx with the nargs values above it, leaving
+    /// the result at fn_idx (top becomes fn_idx + 1). On failure the stack
+    /// is cut back to fn_idx.
+    pub fn callInPlace(th: *Thread, fn_idx: usize, nargs_: usize) Error!void {
+        const is_slang = th.precall(fn_idx, nargs_, false) catch |e| {
+            th.top = fn_idx;
+            if (e == error.Yield) {
+                th.popFrame();
+                th.vm.setError("attempt to yield across a native call boundary", .{});
+                th.fillError();
+                return error.Slang;
+            }
+            return e;
+        };
+        if (is_slang) {
+            th.run(th.frames.items.len - 1) catch |e| {
+                th.top = fn_idx;
+                return e;
+            };
+        }
+    }
+
     /// Sets up a call of the value at fn_idx with nargs arguments above it.
     /// Native functions are executed immediately and their result replaces
     /// the callee slot; for slang functions a frame is pushed and true is

@@ -220,22 +220,7 @@ fn coreError(th: *Thread, args: []Value) Error!Value {
 /// location, stack}, as produced by pcall) or a string. The original
 /// location and stack are kept.
 fn coreRaise(th: *Thread, args: []Value) Error!Value {
-    const vm = th.vm;
-    const v = api.arg(args, 0);
-    if (v.asTable()) |t| {
-        var e: vm_mod.SlangError = .{ .message = vm_mod.format.valueToOwned(vm.gpa, t.getName("message")) };
-        if (t.getName("location").asTable()) |loc| {
-            e.loc = .{
-                .origin = vm_mod.format.valueToOwned(vm.gpa, loc.getName("origin")),
-                .line = @intCast(@max(0, loc.getName("line").asInt())),
-                .column = @intCast(@max(0, loc.getName("column").asInt())),
-            };
-        }
-        if (t.getName("stack").asBytes()) |st| e.trace = vm.gpa.dupe(u8, st) catch oom();
-        vm.setErrorFull(e);
-        return error.Slang;
-    }
-    vm.setErrorOwned(vm_mod.format.valueToOwned(vm.gpa, v));
+    th.vm.setErrorFromValue(api.arg(args, 0));
     return error.Slang;
 }
 

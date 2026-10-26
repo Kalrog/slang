@@ -41,7 +41,21 @@ local func search_path_loader(name){
   return null
 }
 
-__PACKAGES.loaders = {preloaded_loader, embedded_loader, search_path_loader}
+// <nativeSearchPath>/<name>.{so,dylib,dll}: a native extension exporting
+// slang_open_<name> (see zig/include/slang.h). Only VMs with vm.load_native
+// support this.
+local func native_loader(name){
+  if(vm.load_native == null){
+    return null
+  }
+  local m = vm.load_native(name)
+  if(m == null){
+    return null
+  }
+  return {true, m}
+}
+
+__PACKAGES.loaders = {preloaded_loader, embedded_loader, search_path_loader, native_loader}
 
 func require(name){
   for(let local loader in values(__PACKAGES.loaders)){

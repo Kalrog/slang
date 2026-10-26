@@ -30,6 +30,9 @@ pub fn open(vm: *VM) void {
     const sp = vm.newTable(1, 0);
     sp.append(vm.gpa, vm.str("."));
     pkgs.set(vm.gpa, vm.str("searchPaths"), .{ .table = sp });
+    const nsp = vm.newTable(1, 0);
+    nsp.append(vm.gpa, vm.str("."));
+    pkgs.set(vm.gpa, vm.str("nativeSearchPaths"), .{ .table = nsp });
     vm.setGlobal("__PACKAGES", .{ .table = pkgs });
 
     @import("core.zig").open(vm);

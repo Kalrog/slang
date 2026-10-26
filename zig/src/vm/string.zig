@@ -23,8 +23,9 @@ pub const String = struct {
         return base[@sizeOf(String)..][0..s.len];
     }
 
+    /// The bytes are followed by a NUL so the C API can hand them out.
     pub fn allocSize(len: usize) usize {
-        return @sizeOf(String) + len;
+        return @sizeOf(String) + len + 1;
     }
 
     pub fn hash(s: *String) u64 {

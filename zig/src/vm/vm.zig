@@ -57,7 +57,13 @@ pub const VM = struct {
     stdin: std.Io.File.Reader,
     stdout_buf: []u8,
     stdin_buf: []u8,
-    env: *std.process.Environ.Map,
+    /// The environment (null when embedded through the C API: libc getenv).
+    env: ?*std.process.Environ.Map,
+    /// Free slots of the reference registry (slang_ref).
+    ref_free: std.ArrayList(i64) = .empty,
+    next_ref: i64 = 1,
+    /// Shared libraries opened for native extensions (never closed).
+    libraries: std.ArrayList(std.DynLib) = .empty,
 
     /// All heap objects, for the collector.
     objects: ?*Object = null,
@@ -80,7 +86,7 @@ pub const VM = struct {
     /// SLANG_TRACE: print every instruction to stderr.
     trace: bool = false,
 
-    pub fn create(backing: Allocator, io: std.Io, env: *std.process.Environ.Map) *VM {
+    pub fn create(backing: Allocator, io: std.Io, env: ?*std.process.Environ.Map) *VM {
         const vm = backing.create(VM) catch oom();
         const out_buf = backing.alloc(u8, 1 << 16) catch oom();
         const in_buf = backing.alloc(u8, 1 << 16) catch oom();
@@ -114,6 +120,8 @@ pub const VM = struct {
         gc.freeAll(vm);
         vm.strings.deinit(vm.gpa);
         vm.line_cache.deinit(vm.gpa);
+        vm.ref_free.deinit(vm.gpa);
+        vm.libraries.deinit(vm.gpa);
         if (vm.err) |*e| e.deinit(vm.gpa);
         vm.backing.free(vm.stdout_buf);
         vm.backing.free(vm.stdin_buf);
@@ -132,11 +140,41 @@ pub const VM = struct {
 
     /// Records a slang error; the caller returns error.Slang.
     pub fn setError(vm: *VM, comptime fmt: []const u8, args: anytype) void {
-        const msg = std.fmt.allocPrint(vm.gpa, fmt, args) catch oom();
+        const msg = std.fmt.allocPrintSentinel(vm.gpa, fmt, args, 0) catch oom();
         vm.setErrorOwned(msg);
     }
 
-    pub fn setErrorOwned(vm: *VM, msg: []u8) void {
+    pub fn dupeZ(vm: *VM, bytes: []const u8) [:0]u8 {
+        const z = vm.gpa.allocSentinel(u8, bytes.len, 0) catch oom();
+        @memcpy(z, bytes);
+        return z;
+    }
+
+    /// Makes an error value (an error table {message, location, stack} or
+    /// any other value, rendered) the pending error; raise() and
+    /// slang_raise use it.
+    pub fn setErrorFromValue(vm: *VM, v: Value) void {
+        if (v.asTable()) |t| {
+            const msg = root.format.valueToOwned(vm.gpa, t.getName("message"));
+            defer vm.gpa.free(msg);
+            var e: SlangError = .{ .message = vm.dupeZ(msg) };
+            if (t.getName("location").asTable()) |loc| {
+                e.loc = .{
+                    .origin = root.format.valueToOwned(vm.gpa, loc.getName("origin")),
+                    .line = @intCast(@max(0, loc.getName("line").asInt())),
+                    .column = @intCast(@max(0, loc.getName("column").asInt())),
+                };
+            }
+            if (t.getName("stack").asBytes()) |st| e.trace = vm.gpa.dupe(u8, st) catch oom();
+            vm.setErrorFull(e);
+            return;
+        }
+        const msg = root.format.valueToOwned(vm.gpa, v);
+        defer vm.gpa.free(msg);
+        vm.setErrorOwned(vm.dupeZ(msg));
+    }
+
+    pub fn setErrorOwned(vm: *VM, msg: [:0]u8) void {
         if (vm.err) |*e| e.deinit(vm.gpa);
         vm.err = .{ .message = msg };
     }
@@ -152,7 +190,7 @@ pub const VM = struct {
     }
 
     pub fn raiseMsg(vm: *VM, msg: []const u8) Error {
-        vm.setErrorOwned(vm.gpa.dupe(u8, msg) catch oom());
+        vm.setErrorOwned(vm.dupeZ(msg));
         return error.Slang;
     }
 
@@ -162,7 +200,7 @@ pub const VM = struct {
             vm.err = null;
             return e;
         }
-        return .{ .message = vm.gpa.dupe(u8, "unknown error") catch oom() };
+        return .{ .message = vm.dupeZ("unknown error") };
     }
 
     /// Converts the pending error into the slang error table
@@ -217,6 +255,7 @@ pub const VM = struct {
         const s: *String = @ptrCast(@alignCast(mem.ptr));
         s.* = .{ .obj = .{ .kind = .string }, .len = bytes.len, .hash_cache = 0, .interned = false };
         @memcpy(s.mutableBytes(), bytes);
+        mem[String.allocSize(bytes.len) - 1] = 0;
         vm.link(&s.obj);
         return s;
     }
@@ -226,6 +265,7 @@ pub const VM = struct {
         const mem = vm.gpa.alignedAlloc(u8, .of(String), String.allocSize(len)) catch oom();
         const s: *String = @ptrCast(@alignCast(mem.ptr));
         s.* = .{ .obj = .{ .kind = .string }, .len = len, .hash_cache = 0, .interned = false };
+        mem[String.allocSize(len) - 1] = 0;
         vm.link(&s.obj);
         return s;
     }
@@ -304,6 +344,42 @@ pub const VM = struct {
         th.* = Thread.init(vm, vm.next_thread_id, entry);
         vm.link(&th.obj);
         return th;
+    }
+
+    /// Looks up an environment variable.
+    pub fn getenv(vm: *VM, name: []const u8) ?[]const u8 {
+        if (vm.env) |env| return env.get(name);
+        var buf: [256]u8 = undefined;
+        if (name.len >= buf.len) return null;
+        @memcpy(buf[0..name.len], name);
+        buf[name.len] = 0;
+        const v = std.c.getenv(buf[0..name.len :0]) orelse return null;
+        return std.mem.span(v);
+    }
+
+    // References (slang_ref): values kept alive in the registry under
+    // integer keys.
+
+    pub fn makeRef(vm: *VM, v: Value) i64 {
+        if (v == .null) return 0;
+        const id = vm.ref_free.pop() orelse blk: {
+            const id = vm.next_ref;
+            vm.next_ref += 1;
+            break :blk id;
+        };
+        vm.registry.set(vm.gpa, .{ .int = id }, v);
+        return id;
+    }
+
+    pub fn getRef(vm: *VM, id: i64) Value {
+        if (id == 0) return .null;
+        return vm.registry.get(.{ .int = id });
+    }
+
+    pub fn unref(vm: *VM, id: i64) void {
+        if (id == 0) return;
+        if (vm.registry.remove(vm.gpa, .{ .int = id }) == .null) return;
+        vm.ref_free.append(vm.gpa, id) catch oom();
     }
 
     // Globals and loading.

@@ -102,11 +102,12 @@ Pin the latest stable release at the start in `build.zig.zon` and only upgrade d
 - [x] Mark and sweep at interpreter safe points, exact byte accounting through a counting allocator, threshold = 2x live (min 8 MB), `-Dgc-stress=true` collects every 64 KB.
 - [x] Suite and fixed point pass under stress; peak memory on the benchmarks is one half to one third of Go's.
 
-### Phase 4: `slang.h` and native extensions `[ ]`
-- [ ] Write `slang.h` and implement it in `api.zig` (stack, registry and refs, userdata with finalizers, C closures, module registration, embedding functions, version check).
-- [ ] Rewrite `slang/os`, `slang/math` and the file userdata against it.
-- [ ] Native loader in `slang/package`, `nativeSearchPaths`, export settings for Linux and macOS.
-- [ ] Example extensions in `extensions/native/` (one in C, one in Zig) and a test file that requires them, covering callbacks via refs, userdata finalizers and errors in both directions.
+### Phase 4: `slang.h` and native extensions `[x]`
+- [x] `zig/include/slang.h` implemented in `zig/src/capi.zig` (75 functions: stack, push/read, argument checks with `slang_failed`, errors without longjmp, tables with and without metamethods, `slang_next` iteration, globals, `slang_call`, userdata with finalizers, references, C closures with upvalues, modules, embedding with `slang_new/slang_dostring/slang_dofile`, version check).
+- [x] Native loader: `vm.load_native` (`zig/src/loader.zig`) and a fourth loader in `slang/lib/package.slang` (reseeded; the Go VM still passes because `vm.load_native` is absent there). Search paths in `__PACKAGES.nativeSearchPaths`, files `<name>.<ext>` or `lib<name>.<ext>`, symbols `slang_ext_version_<name>` and `slang_open_<name>`.
+- [x] Example extensions: `extensions/native/hello.c` (C, exercises every API area) and `extensions/native/vec.zig` (Zig through translate-c, userdata with operator metamethods), built as shared libraries by `zig build`; tests in `zig/test/native_test.slang` (`make zig-test`), passing in Debug, ReleaseSafe, ReleaseFast and under GC stress.
+- Decided against rewriting `slang/os` and `slang/math` through the API: the C example covers more of the API than those modules would, and the internal natives stay faster.
+- Lessons: optimised builds dead-strip unreferenced `export fn`s even with `rdynamic`; `link_gc_sections = false` keeps them (extensions then resolved `slang_*` to null and jumped to address 0). `@cImport` is gone in 0.17; Zig extensions import the header through `b.addTranslateC`. Negative stack indices must be resolved before popping (`slang_setmetatable`).
 
 ### Phase 5: CLI parity `[ ]`
 - [ ] `run`, `repl`, `test`, `compile` (`-o`, `--origin`, `--strip`), `disasm`, `--trace`.
@@ -121,6 +122,6 @@ Pin the latest stable release at the start in `build.zig.zon` and only upgrade d
 - [ ] Delete `go/` after confirmation; the dungeon example is marked as not working until it is ported.
 
 ## Open points
-- Windows support for native extensions (import library vs. `slang.dll`).
+- Windows support for native extensions (import library vs. `slang.dll`); Linux needs a test run (`-rdynamic` export, `.so` loading).
 - Whether userdata should get a slang-level `__gc`.
 - Iteration API shape (`slang_next` like Lua vs. an index-based cursor that matches insertion order).

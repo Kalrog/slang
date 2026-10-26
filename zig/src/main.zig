@@ -1,7 +1,6 @@
 //! The slang command line: run, test, repl, compile, disasm.
 
 const std = @import("std");
-const seed = @import("seed");
 const vm_mod = @import("vm.zig");
 const oom = vm_mod.oom;
 const VM = vm_mod.VM;
@@ -11,6 +10,14 @@ const Proto = vm_mod.Proto;
 const Error = vm_mod.Error;
 const stdlib = @import("stdlib/stdlib.zig");
 const oslib = @import("stdlib/oslib.zig");
+const boot = @import("boot.zig");
+
+// The C API must be compiled and exported even though nothing in the CLI
+// calls it: native extensions resolve the slang_* symbols against the
+// executable.
+comptime {
+    _ = @import("capi.zig");
+}
 
 var stderr_buf: [4096]u8 = undefined;
 
@@ -32,12 +39,6 @@ fn usage(io: std.Io) noreturn {
     w.interface.flush() catch {};
     std.process.exit(2);
 }
-
-const embedded_files = blk: {
-    var files: [seed.files.len]vm_mod.EmbeddedFile = undefined;
-    for (seed.files, 0..) |f, i| files[i] = .{ .name = f.name, .data = f.data };
-    break :blk files;
-};
 
 pub fn main(init: std.process.Init) !u8 {
     const io = init.io;
@@ -77,7 +78,7 @@ fn stripSuffix(s: []const u8, suffix: []const u8) []const u8 {
 fn newVM(init: std.process.Init, args: []const []const u8) *VM {
     const vm = VM.create(init.gpa, init.io, init.environ_map);
     vm.args = args;
-    vm.embedded = &embedded_files;
+    vm.embedded = &boot.embedded_files;
     stdlib.open(vm);
     stdlib.boot(vm) catch fail(vm);
     vm.trace = init.environ_map.get("SLANG_TRACE") != null;
@@ -107,19 +108,7 @@ fn readFile(vm: *VM, path: []const u8) []u8 {
 }
 
 fn loadFile(vm: *VM, path: []const u8) *Closure {
-    if (std.mem.endsWith(u8, path, ".slb")) {
-        const data = readFile(vm, path);
-        defer vm.gpa.free(data);
-        return vm.loadBytes(data) catch fail(vm);
-    }
-    const compile = vm.getGlobal("compile");
-    if (compile != .null) {
-        const compiler = vm.call(vm.getGlobal("require"), &.{vm.str("slang/compiler")}) catch fail(vm);
-        const load_file = compiler.table.getName("load_file");
-        const res = vm.call(load_file, &.{ vm.str(path), vm.str(path) }) catch fail(vm);
-        return res.asClosure() orelse failMsg(vm, "compile did not return a function", .{});
-    }
-    failMsg(vm, "no compiler available", .{});
+    return boot.loadFile(vm, path) catch fail(vm);
 }
 
 fn run(init: std.process.Init, path: []const u8, args: []const []const u8) void {

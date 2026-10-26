@@ -21,9 +21,38 @@ pub fn build(b: *std.Build) void {
         .name = "slang",
         .root_module = mod,
     });
-    // Native extensions resolve slang_* symbols against the executable.
+    // Native extensions resolve slang_* symbols against the executable: the
+    // exports must survive the link even though nothing in the CLI uses them.
     exe.rdynamic = true;
+    exe.link_gc_sections = false;
     b.installArtifact(exe);
+
+    // Example native extensions (extensions/native), installed into
+    // zig-out/lib where zig/test/native_test.slang finds them. Their slang_*
+    // references are resolved against the executable at load time.
+    const hello_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
+    hello_mod.addCSourceFile(.{ .file = b.path("../extensions/native/hello.c"), .flags = &.{"-std=c11"} });
+    hello_mod.addIncludePath(b.path("include"));
+    const hello = b.addLibrary(.{ .name = "hello", .linkage = .dynamic, .root_module = hello_mod });
+    hello.linker_allow_shlib_undefined = true;
+    b.installArtifact(hello);
+
+    // Zig extensions import the header through translate-c as "slang".
+    const translated = b.addTranslateC(.{
+        .root_source_file = b.path("include/slang.h"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const vec_mod = b.createModule(.{
+        .root_source_file = b.path("../extensions/native/vec.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    vec_mod.addImport("slang", translated.createModule());
+    const vec = b.addLibrary(.{ .name = "vec", .linkage = .dynamic, .root_module = vec_mod });
+    vec.linker_allow_shlib_undefined = true;
+    b.installArtifact(vec);
 
     const tests = b.addTest(.{ .root_module = mod });
     b.step("test", "run the Zig unit tests").dependOn(&b.addRunArtifact(tests).step);

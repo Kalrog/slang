@@ -23,6 +23,7 @@ pub fn module(vm: *VM) *Table {
         .{ .name = "embedded", .f = vmEmbedded },
         .{ .name = "disassemble", .f = vmDisassemble },
         .{ .name = "load_proto", .f = vmLoadProto },
+        .{ .name = "load_native", .f = @import("../loader.zig").loadNative },
     });
 }
 

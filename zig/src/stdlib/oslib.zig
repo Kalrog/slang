@@ -116,7 +116,7 @@ fn osListDir(th: *Thread, args: []Value) Error!Value {
 
 fn osGetenv(th: *Thread, args: []Value) Error!Value {
     const name = try api.argString(th, args, 0, "name");
-    const val = th.vm.env.get(name) orelse return .null;
+    const val = th.vm.getenv(name) orelse return .null;
     return th.vm.str(val);
 }
 

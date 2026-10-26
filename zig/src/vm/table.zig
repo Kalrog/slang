@@ -5,7 +5,7 @@ const String = @import("string.zig").String;
 const Object = @import("object.zig").Object;
 const oom = @import("../vm.zig").oom;
 
-const Entry = struct {
+pub const Entry = struct {
     key: Value,
     val: Value,
 };
@@ -289,6 +289,27 @@ pub const Table = struct {
 
     pub fn iterator(t: *const Table) Iterator {
         return .{ .t = t };
+    }
+
+    /// The entry following key in iteration order (null key: the first),
+    /// or null at the end or for a key that is not in the table.
+    pub fn nextEntry(t: *const Table, key: Value) ?Entry {
+        var start: usize = 0;
+        switch (key) {
+            .null => {},
+            .int => |i| if (i >= 0 and i < t.arr.items.len) {
+                start = @intCast(i + 1);
+            } else {
+                const idx = t.index.get(key) orelse return null;
+                start = t.arr.items.len + idx + 1;
+            },
+            else => {
+                const idx = t.index.get(normKey(key)) orelse return null;
+                start = t.arr.items.len + idx + 1;
+            },
+        }
+        var it: Iterator = .{ .t = t, .i = start };
+        return it.next();
     }
 
     /// Structural equality (metatables are not compared).

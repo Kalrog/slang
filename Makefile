@@ -64,6 +64,7 @@ zig:
 zig-test: zig
 	cd zig && zig build test
 	zig/zig-out/bin/slang test test
+	zig/zig-out/bin/slang test zig/test
 
 zig-fixpoint: zig
 	@rm -rf /tmp/slang-zig-fixpoint && mkdir -p /tmp/slang-zig-fixpoint

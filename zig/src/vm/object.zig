@@ -21,6 +21,9 @@ pub const ObjKind = enum(u8) { string, table, closure, upvalue, userdata, proto,
 /// through `th.arg(i)`.
 pub const NativeFn = *const fn (th: *Thread, args: []Value) Error!Value;
 
+/// A function implemented against slang.h (see capi.zig).
+pub const CFunction = *const fn (th: *Thread) callconv(.c) c_int;
+
 pub const Special = enum(u8) { none, pcall };
 
 /// A callable value: a slang function (proto + captured upvalues) or a
@@ -30,6 +33,7 @@ pub const Closure = struct {
     proto: ?*Proto = null,
     upvals: []*Upvalue = &.{},
     native: ?NativeFn = null,
+    cfunc: ?CFunction = null,
     name: ?*String = null,
     nvals: []Value = &.{},
     special: Special = .none,

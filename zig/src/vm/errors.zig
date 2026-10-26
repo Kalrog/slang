@@ -16,7 +16,7 @@ pub const Location = struct {
 /// re-raising a caught error keeps the original ones). All memory is owned
 /// by the error and freed by deinit.
 pub const SlangError = struct {
-    message: []u8,
+    message: [:0]u8,
     loc: ?Location = null,
     trace: ?[]u8 = null,
 

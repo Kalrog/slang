@@ -88,6 +88,25 @@ t.group("extension statements"){
     local f = compile("return -{block: return {type: \"Int\", value: 10}} * 2", "pure unquote expr")
     assert(f() == 20, "spliced value should be usable")
   }
+  t.test("keywords stay usable as field names"){
+    local run = compile("""
+      extension {
+        local p = require("slang/parser")
+        p.add_statement("shout", p.seq(p.keyword("shout"), p.expr()):map(func(r){
+          return {token: r[0], ast: +{stat: print(-{r[1]})}}
+        }))
+      }
+      local t = {shout: 1}
+      func t.loud(self, n){ return self.shout + n }
+      if(let {shout: local v} = t){ t.shout = v + 1 }
+      local u = {}
+      func u.shout(self){ return 5 }
+      return t:loud(10) + t.shout + u:shout()
+    """, "keyword fields")
+    assert(run() == 19, "shout is a keyword but still a field, a method and a pattern key")
+    local r = pcall(compile, "local shout = 1", "keyword identifier")
+    assert(r[0] == "err", "but not a variable name")
+  }
   t.test("extensions can define their own extension statements"){
     local run = compile("""
       extension {

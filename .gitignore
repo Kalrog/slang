@@ -3,3 +3,6 @@
 .DS_Store
 /bin/slang
 /test/*.slb
+/examples/dungeon/dungeon
+/examples/dungeon/host/host
+/examples/dungeon/host/dungeon

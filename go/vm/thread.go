@@ -211,6 +211,15 @@ func (th *Thread) Call(fn Value, args ...Value) (Value, error) {
 func (th *Thread) precall(fnIdx, nargs int, protected bool) (bool, error) {
 	fn := th.stack[fnIdx]
 	if fn.k != KFunction {
+		if m := metaOf(fn); m != nil {
+			if c := m.GetStr("__call"); c.k == KFunction {
+				// call __call(fn, args...): shift the arguments up by one slot
+				th.push(Null)
+				copy(th.stack[fnIdx+1:th.top], th.stack[fnIdx:th.top-1])
+				th.stack[fnIdx] = c
+				return th.precall(fnIdx, nargs+1, protected)
+			}
+		}
 		return false, Errorf("attempt to call a %s value", fn.TypeName())
 	}
 	cl := fn.o.(*Closure)

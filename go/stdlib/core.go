@@ -45,7 +45,11 @@ func openCore(v *vm.VM) {
 func corePrint(th *vm.Thread, args []vm.Value) (vm.Value, error) {
 	var sb strings.Builder
 	for _, a := range args {
-		sb.WriteString(a.String())
+		s, err := th.ToString(a)
+		if err != nil {
+			return vm.Null, err
+		}
+		sb.WriteString(s)
 	}
 	_, err := io.WriteString(th.VM().Stdout, sb.String())
 	return vm.Null, err
@@ -179,7 +183,11 @@ func coreConcat(th *vm.Thread, args []vm.Value) (vm.Value, error) {
 	case vm.KString:
 		var sb strings.Builder
 		for _, a := range args {
-			sb.WriteString(a.String())
+			s, err := th.ToString(a)
+			if err != nil {
+				return vm.Null, err
+			}
+			sb.WriteString(s)
 		}
 		return vm.String(sb.String()), nil
 	case vm.KTable:
@@ -199,7 +207,11 @@ func coreConcat(th *vm.Thread, args []vm.Value) (vm.Value, error) {
 func coreError(th *vm.Thread, args []vm.Value) (vm.Value, error) {
 	var sb strings.Builder
 	for _, a := range args {
-		sb.WriteString(a.String())
+		s, err := th.ToString(a)
+		if err != nil {
+			return vm.Null, err
+		}
+		sb.WriteString(s)
 	}
 	return vm.Null, vm.NewError(sb.String())
 }
@@ -227,14 +239,7 @@ func coreRaise(th *vm.Thread, args []vm.Value) (vm.Value, error) {
 }
 
 func coreLen(th *vm.Thread, args []vm.Value) (vm.Value, error) {
-	a := vm.Arg(args, 0)
-	switch a.Kind() {
-	case vm.KTable:
-		return vm.Int(int64(a.AsTable().Len())), nil
-	case vm.KString:
-		return vm.Int(int64(len(a.AsString()))), nil
-	}
-	return vm.Null, vm.Errorf("len requires a table or string")
+	return th.Len(vm.Arg(args, 0))
 }
 
 func coreType(th *vm.Thread, args []vm.Value) (vm.Value, error) {
@@ -293,7 +298,11 @@ func coreToInt(th *vm.Thread, args []vm.Value) (vm.Value, error) {
 }
 
 func coreString(th *vm.Thread, args []vm.Value) (vm.Value, error) {
-	return vm.String(vm.Arg(args, 0).String()), nil
+	s, err := th.ToString(vm.Arg(args, 0))
+	if err != nil {
+		return vm.Null, err
+	}
+	return vm.String(s), nil
 }
 
 // Files.

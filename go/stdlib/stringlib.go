@@ -21,6 +21,7 @@ func stringModule() *vm.Table {
 		{"byte_at", strByteAt},
 		{"char_at", strCharAt},
 		{"chr", strChr},
+		{"from_bytes", strFromBytes},
 		{"index_of", strIndexOf},
 		{"starts_with", strStartsWith},
 		{"ends_with", strEndsWith},
@@ -492,4 +493,22 @@ func strCompare(th *vm.Thread, args []vm.Value) (vm.Value, error) {
 		return vm.Null, err
 	}
 	return vm.Int(int64(strings.Compare(a, b))), nil
+}
+
+// from_bytes(list) -> string: a string from a table of byte values (0-255).
+func strFromBytes(th *vm.Thread, args []vm.Value) (vm.Value, error) {
+	t, err := vm.ArgTable(args, 0, "bytes")
+	if err != nil {
+		return vm.Null, err
+	}
+	n := t.Len()
+	buf := make([]byte, n)
+	for i := 0; i < n; i++ {
+		v := t.GetInt(int64(i))
+		if v.Kind() != vm.KInt || v.AsInt() < 0 || v.AsInt() > 255 {
+			return vm.Null, vm.Errorf("from_bytes: element %d is not a byte value: %s", i, v.String())
+		}
+		buf[i] = byte(v.AsInt())
+	}
+	return vm.String(string(buf)), nil
 }

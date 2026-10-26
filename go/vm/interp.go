@@ -118,7 +118,7 @@ outer:
 					th.push(Int(a.n + b.n))
 					continue
 				}
-				r, err := arith(opAdd, a, b)
+				r, err := th.arithMeta(opAdd, a, b)
 				if err != nil {
 					if e := th.handleError(err, stopDepth); e != nil {
 						return e
@@ -134,7 +134,7 @@ outer:
 					th.push(Int(a.n - b.n))
 					continue
 				}
-				r, err := arith(opSub, a, b)
+				r, err := th.arithMeta(opSub, a, b)
 				if err != nil {
 					if e := th.handleError(err, stopDepth); e != nil {
 						return e
@@ -146,7 +146,7 @@ outer:
 				b := th.stack[th.top-1]
 				a := th.stack[th.top-2]
 				th.top -= 2
-				r, err := arith(ins&0x3F, a, b)
+				r, err := th.arithMeta(ins&0x3F, a, b)
 				if err != nil {
 					if e := th.handleError(err, stopDepth); e != nil {
 						return e
@@ -162,6 +162,17 @@ outer:
 				case KFloat:
 					th.stack[th.top-1] = Float(-a.AsFloat())
 				default:
+					if f := metamethod(a, Null, "__unm"); f.k == KFunction {
+						r, err := th.Call(f, a)
+						if err != nil {
+							if e := th.handleError(err, stopDepth); e != nil {
+								return e
+							}
+							continue outer
+						}
+						th.stack[th.top-1] = r
+						continue
+					}
 					if e := th.handleError(Errorf("attempt to negate a %s value", a.TypeName()), stopDepth); e != nil {
 						return e
 					}
@@ -173,6 +184,20 @@ outer:
 				b := th.stack[th.top-1]
 				a := th.stack[th.top-2]
 				th.top--
+				if a.k == b.k && (a.k == KTable || a.k == KUserdata) {
+					if f := metamethod(a, b, "__eq"); f.k == KFunction {
+						r, err := th.Call(f, a, b)
+						if err != nil {
+							th.top--
+							if e := th.handleError(err, stopDepth); e != nil {
+								return e
+							}
+							continue outer
+						}
+						th.stack[th.top-1] = Bool(r.Truthy())
+						continue
+					}
+				}
 				th.stack[th.top-1] = Bool(Equals(a, b))
 			case opLt, opLeq:
 				b := th.stack[th.top-1]
@@ -193,9 +218,21 @@ outer:
 						r = x <= y
 					}
 				} else {
-					op := "<"
+					name, op := "__lt", "<"
 					if ins&0x3F == opLeq {
-						op = "<="
+						name, op = "__le", "<="
+					}
+					if f := metamethod(a, b, name); f.k == KFunction {
+						res, err := th.Call(f, a, b)
+						if err != nil {
+							th.top--
+							if e := th.handleError(err, stopDepth); e != nil {
+								return e
+							}
+							continue outer
+						}
+						th.stack[th.top-1] = Bool(res.Truthy())
+						continue
 					}
 					th.top--
 					if e := th.handleError(Errorf("attempt to compare %s %s %s", a.TypeName(), op, b.TypeName()), stopDepth); e != nil {

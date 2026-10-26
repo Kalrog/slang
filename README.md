@@ -173,6 +173,30 @@ or function) and `__type` (a string or a function, used by `type()` and by
 `'Type{...}` patterns). Assigning `null` to a key removes it. Tables compare
 structurally with `==`.
 
+Operators can be overloaded through the metatable as well:
+```slang
+local Vec = {}
+local vec_meta = {
+    __index: Vec,
+    __type: "Vec",
+    __add: func(a, b) => Vec.new(a.x + b.x, a.y + b.y),
+    __mul: func(a, b) => Vec.new(a.x * b, a.y * b),
+    __unm: func(a) => Vec.new(-a.x, -a.y),
+    __eq: func(a, b) => a.x == b.x and a.y == b.y,
+    __tostring: func(a) => concat("(", a.x, ", ", a.y, ")"),
+}
+func Vec.new(x, y) { return {x: x, y: y, meta: vec_meta} }
+Vec.meta = {__call: func(self, x, y) => Vec.new(x, y)}   // Vec(1, 2)
+print(Vec(1, 2) + Vec(3, 4) * 2)                         // (7, 10)
+```
+`__add`, `__sub`, `__mul`, `__div`, `__mod` and `__pow` are consulted when the
+built-in operation does not apply (the left operand's metatable first, then
+the right one's). `__unm` handles unary minus, `__lt` and `__le` the
+comparisons (`>` and `>=` are the negations of `<=` and `<`), `__eq` is used
+when both operands are tables, `__call` makes a table callable, `__tostring`
+is used by `print`, `string`, `concat` and `error`, and `__len` by `len`.
+Metamethods run as nested calls, so they cannot yield.
+
 ### Pattern Matching
 ```slang
 // matches a value against a pattern
@@ -266,7 +290,9 @@ x = one                           // the change applies from the next statement 
 A file is parsed one top-level statement at a time; an extension statement
 takes effect for the statements after it, and a statement is always parsed
 with a single grammar. The grammar is global: an extension loaded by one file
-stays available to files compiled later.
+stays available to files compiled later. Keywords introduced by extensions
+are reserved as variable names but stay usable as field names (`t.switch`,
+`t:switch()`, `{switch: 1}`).
 
 Extensions can define their own extension statements (statements that change
 the grammar, such as operator declarations): `p.add_extension_statement(name,
@@ -300,9 +326,17 @@ slang/     the compiler (slang/compiler) and library code (slang/lib) written in
 test/      the test suite (bin/slang test)
 bench/     benchmarks (bench/run_all.sh)
 extensions/ parser extensions written in slang
+examples/  example programs; examples/dungeon is a game on Ebitengine whose content is written in DSLs
 tool/      oracle scripts comparing the self-hosted compiler with the legacy Dart one
 legacy/    the original Dart implementation (bootstrap reference, not used by the Go toolchain)
 ```
+
+## Embedding
+
+The VM is a Go library: `vm.New()`, `stdlib.Open`, `stdlib.Boot`, then
+`Register`/`Preload` natives and `Call` slang functions. `examples/dungeon/host`
+is a complete host program (about 300 lines) that runs a game written in
+slang on Ebitengine; `make dungeon` starts it.
 
 ## Ideas
 - [ ] goroutine-based isolates with channels (see PLAN.md)

@@ -5,6 +5,8 @@
 #   make fixpoint     check that the seed compiles itself to identical bytecode
 #   make test         run the slang test suite
 #   make stage0-seed  generate the seed with the legacy Dart compiler (bootstrap reference only)
+#   make dungeon      run the example game (examples/dungeon) on Ebitengine
+#   make dungeon-test run the example game's DSL tests
 
 DART   ?= dart
 GO     ?= go
@@ -14,7 +16,7 @@ LIB_SRC  := $(wildcard slang/lib/*.slang)
 COMPILER_SRC := $(wildcard slang/compiler/*.slang)
 TEST_SRC := $(wildcard test/*.slang)
 
-.PHONY: all seed fixpoint test build stage0-seed clean
+.PHONY: all seed fixpoint test build stage0-seed clean dungeon dungeon-test
 
 all: build
 
@@ -46,6 +48,12 @@ test: build
 stage0-seed: $(LIB_SRC) $(COMPILER_SRC)
 	$(STAGE0) --out ../go/boot --strip ../slang/lib/ --prefix slang/ $(addprefix ../,$(LIB_SRC))
 	$(STAGE0) --out ../go/boot --strip ../slang/compiler/ --prefix slang/ $(addprefix ../,$(COMPILER_SRC))
+
+dungeon:
+	cd examples/dungeon && $(GO) run ./host .
+
+dungeon-test: build
+	cd examples/dungeon && ../../bin/slang test test
 
 clean:
 	rm -f bin/slang

@@ -41,6 +41,7 @@ func grammar.new(opts){
   // statements. They are never allowed while a statement is being parsed, at
   // any nesting level (a nested parse started by an unquote or a parser
   // callback runs while an outer statement is being parsed).
+  g.origin = null
   g.parse_depth = 0
   g.statement_depth = 0
   g.extension_depth = 0
@@ -203,13 +204,25 @@ func grammar.new(opts){
     })
   }
 
+  // name(): an identifier where keywords are allowed: after `.` and `:` and
+  // as table keys, so that keywords added by extensions never make a field
+  // unreachable
+  func g.name(){
+    return g.token(
+      peg.seq(peg.pattern("a-zA-Z_"), peg.pattern("a-zA-Z0-9_"):star()):flatten("Expected: name"),
+      "name"
+    ):map(func(t){
+      return ast.node("Identifier", {value: t.value}, t)
+    })
+  }
+
   // ------------------------------------------------------------ tables
 
   // field: name: value | [key]: value | value
   func g.field(){
     return peg.seq(
       peg.choice(
-        peg.seq(peg.ref(g.identifier), tok(":")):pick(0),
+        peg.seq(peg.ref(g.name), tok(":")):pick(0),
         peg.seq(tok("["), g.expr(), tok("]"), tok(":")):pick(1)
       ):optional(),
       g.expr()
@@ -240,7 +253,7 @@ func grammar.new(opts){
       peg.ref(g.identifier),
       peg.choice(
         peg.seq(tok("["), g.expr(), tok("]")):pick(1):map(func(e){ return {e, "bracket"} }),
-        peg.seq(tok("."), peg.ref(g.identifier):map(func(id){
+        peg.seq(tok("."), peg.ref(g.name):map(func(id){
           return ast.node("String", {value: id.value}, id.token)
         })):pick(1):map(func(e){ return {e, "dot"} })
       ):star()
@@ -255,7 +268,7 @@ func grammar.new(opts){
 
   func g.name_and_args(){
     return peg.seq(
-      peg.seq(tok(":"), peg.ref(g.identifier)):pick(1):optional(),
+      peg.seq(tok(":"), peg.ref(g.name)):pick(1):optional(),
       peg.ref(g.args)
     ):token():map(func(t){
       return list(t.value[0], t.value[1], t)
@@ -473,7 +486,7 @@ func grammar.new(opts){
   func g.field_pattern(){
     return peg.seq(
       peg.choice(
-        peg.seq(peg.ref(g.identifier), tok(":")):pick(0),
+        peg.seq(peg.ref(g.name), tok(":")):pick(0),
         peg.seq(tok("["), g.expr(), tok("]"), tok(":")):pick(1)
       ):map(func(exp){
         if(exp.type == "Identifier"){
@@ -630,7 +643,7 @@ func grammar.new(opts){
     }},
     {names: {"indexAndCall", ".", "[]", ":()"}, add: func(builder){
       local group = builder:group()
-      group:postfix(peg.seq(tok("."), peg.ref(g.identifier)), func(left, op){
+      group:postfix(peg.seq(tok("."), peg.ref(g.name)), func(left, op){
         local name = op[1]
         return ast.node("Index", {receiver: left, index: ast.node("String", {value: name.value}, name.token), dotStyle: true}, op[0])
       })
@@ -981,6 +994,7 @@ func grammar.new(opts){
     local ctx = peg.context(source)
     local statements = {}
     local pos = 0
+    g.origin = origin
     for(true){
       local q = parsers.extension_statement:parse_on(ctx, pos)
       if(q >= 0){
@@ -1019,9 +1033,11 @@ func grammar.new(opts){
 
   // parse_source(source, origin) -> Block node (raises on failure)
   func g.parse_source(source, origin){
+    local outer_origin = g.origin
     g.parse_depth = g.parse_depth + 1
     local r = pcall(parse_top_level, source, origin)
     g.parse_depth = g.parse_depth - 1
+    g.origin = outer_origin
     if(let {"err", local e} = r){
       raise(e)
     }

@@ -136,6 +136,15 @@ Rules now in force:
 - Prior art considered: Racket phases and `#lang`, Honu, Raku's mutable lexically scoped grammar, Common Lisp `load`, Coq notations, camlp4 phrases, Template Haskell declaration groups, Rust proc-macro crate separation, metalua `-{extension}`.
 - Possible later refinement: lexical scoping of extension statements inside blocks (Raku style).
 
+## Example game and language additions (2026-10-23)
+
+`examples/dungeon` is a dungeon crawler on Ebitengine: the Go host (`examples/dungeon/host`, the Go module is `examples/dungeon/go.mod` with `replace slang => ../../go`) only wraps the engine; the game, its engine modules and eight DSLs (sprite art baked at compile time, levels checked against declared tiles and entities, entity types, state machines with checked `goto`, dialogues as coroutines, loot tables with validated chances, event rules by pattern, `wait` scripts) are slang. Tests in `examples/dungeon/test`, `make dungeon`, `make dungeon-test`.
+
+Added to the language for it:
+- Operator metamethods: `__add __sub __mul __div __mod __pow __unm __eq __lt __le __call __tostring __len` (nested calls, cannot yield).
+- Keywords are allowed as field names after `.` and `:` and as table keys, so DSL keywords never make a field unreachable (`g.name` rule in the grammar).
+- `p.error_at(token, message)` and `p.origin()` in the parser API, `str.from_bytes(list)`.
+
 ## Future (not planned now)
 
 - **Isolates on goroutines.** Discussed design: a thread is a separate VM instance (own globals, module cache, parser state) on its own goroutine; nothing is shared except channels; tables and closures are deep-copied when they cross a channel or `spawn`; prototypes, natives and strings are shared because they are immutable. Open points when this is picked up: fresh environment vs. snapshot of globals at spawn (slang is globals-by-default, so this matters), `freeze` for sharing immutable tables without copying, error delivery through `join`, exit semantics when the main chunk returns. A baton/GIL model was considered and rejected because it gives no multicore and keeps shared-state semantics that a Go-style model does not want.

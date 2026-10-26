@@ -296,6 +296,25 @@ func p.table_literal(){
 
 local uniq_counter = 0
 
+// origin() -> the name of the source being parsed (null outside a parse)
+func p.origin(){
+  return current.origin
+}
+
+// error_at(token, message...): raises a compile error located at token (a
+// token as produced by p.token/p.keyword, or any table with line and column)
+func p.error_at(token, ...message){
+  local location = null
+  if(type(token) == "table" and token.line != null){
+    location = {line: token.line, column: token.column, origin: current.origin or "string"}
+  }
+  local text = ""
+  for(let local part in values(message)){
+    text = concat(text, part)
+  }
+  raise({message: text, location: location})
+}
+
 func p.uniq_id(){
   uniq_counter = uniq_counter + 1
   return {type: "Identifier", value: concat("uuid-", uniq_counter)}

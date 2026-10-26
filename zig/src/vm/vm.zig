@@ -42,7 +42,11 @@ const InternBytesCtx = struct {
 /// The state shared by all threads: globals, the package registry, the heap
 /// and the standard streams.
 pub const VM = struct {
+    /// The VM's allocator: everything it allocates goes through the
+    /// counting allocator so bytes_allocated is exact.
     gpa: Allocator,
+    backing: Allocator,
+    counting: gc.CountingAllocator,
     io: std.Io,
     globals: *Table,
     packages: *Table,
@@ -61,6 +65,7 @@ pub const VM = struct {
     bytes_allocated: usize = 0,
     next_gc: usize = gc.initial_threshold,
     gc_running: bool = false,
+    collections: usize = 0,
     /// Values kept alive by the C API (slang_ref).
     registry: *Table,
 
@@ -75,12 +80,14 @@ pub const VM = struct {
     /// SLANG_TRACE: print every instruction to stderr.
     trace: bool = false,
 
-    pub fn create(gpa: Allocator, io: std.Io, env: *std.process.Environ.Map) *VM {
-        const vm = gpa.create(VM) catch oom();
-        const out_buf = gpa.alloc(u8, 1 << 16) catch oom();
-        const in_buf = gpa.alloc(u8, 1 << 16) catch oom();
+    pub fn create(backing: Allocator, io: std.Io, env: *std.process.Environ.Map) *VM {
+        const vm = backing.create(VM) catch oom();
+        const out_buf = backing.alloc(u8, 1 << 16) catch oom();
+        const in_buf = backing.alloc(u8, 1 << 16) catch oom();
         vm.* = .{
-            .gpa = gpa,
+            .gpa = undefined,
+            .backing = backing,
+            .counting = .{ .backing = backing, .counter = &vm.bytes_allocated },
             .io = io,
             .globals = undefined,
             .packages = undefined,
@@ -92,6 +99,7 @@ pub const VM = struct {
             .stdin_buf = in_buf,
             .env = env,
         };
+        vm.gpa = vm.counting.allocator();
         vm.globals = vm.newTable(0, 64);
         vm.packages = vm.newTable(0, 4);
         vm.registry = vm.newTable(0, 0);
@@ -107,9 +115,9 @@ pub const VM = struct {
         vm.strings.deinit(vm.gpa);
         vm.line_cache.deinit(vm.gpa);
         if (vm.err) |*e| e.deinit(vm.gpa);
-        vm.gpa.free(vm.stdout_buf);
-        vm.gpa.free(vm.stdin_buf);
-        vm.gpa.destroy(vm);
+        vm.backing.free(vm.stdout_buf);
+        vm.backing.free(vm.stdin_buf);
+        vm.backing.destroy(vm);
     }
 
     pub fn out(vm: *VM) *std.Io.Writer {
@@ -178,16 +186,15 @@ pub const VM = struct {
     // Allocation. Every object is linked into vm.objects; the collector runs
     // only at interpreter safe points (see gc.zig), never inside these.
 
-    fn link(vm: *VM, o: *Object, size: usize) void {
+    fn link(vm: *VM, o: *Object) void {
         o.next = vm.objects;
         vm.objects = o;
-        vm.bytes_allocated += size;
     }
 
     pub fn newTable(vm: *VM, narr: usize, nhash: usize) *Table {
         const t = vm.gpa.create(Table) catch oom();
         t.* = Table.init(vm.gpa, narr, nhash);
-        vm.link(&t.obj, @sizeOf(Table) + (narr + nhash) * 16);
+        vm.link(&t.obj);
         return t;
     }
 
@@ -210,7 +217,7 @@ pub const VM = struct {
         const s: *String = @ptrCast(@alignCast(mem.ptr));
         s.* = .{ .obj = .{ .kind = .string }, .len = bytes.len, .hash_cache = 0, .interned = false };
         @memcpy(s.mutableBytes(), bytes);
-        vm.link(&s.obj, mem.len);
+        vm.link(&s.obj);
         return s;
     }
 
@@ -219,7 +226,7 @@ pub const VM = struct {
         const mem = vm.gpa.alignedAlloc(u8, .of(String), String.allocSize(len)) catch oom();
         const s: *String = @ptrCast(@alignCast(mem.ptr));
         s.* = .{ .obj = .{ .kind = .string }, .len = len, .hash_cache = 0, .interned = false };
-        vm.link(&s.obj, mem.len);
+        vm.link(&s.obj);
         return s;
     }
 
@@ -235,7 +242,7 @@ pub const VM = struct {
         const c = vm.gpa.create(Closure) catch oom();
         const ups = vm.gpa.alloc(*Upvalue, proto.upvals.len) catch oom();
         c.* = .{ .obj = .{ .kind = .closure }, .proto = proto, .upvals = ups };
-        vm.link(&c.obj, @sizeOf(Closure) + ups.len * @sizeOf(usize));
+        vm.link(&c.obj);
         return c;
     }
 
@@ -245,7 +252,7 @@ pub const VM = struct {
         const c = vm.gpa.create(Closure) catch oom();
         c.* = .{ .obj = .{ .kind = .closure }, .native = f, .name = vm.newString(name) };
         if (nvals.len > 0) c.nvals = vm.gpa.dupe(Value, nvals) catch oom();
-        vm.link(&c.obj, @sizeOf(Closure) + nvals.len * 16);
+        vm.link(&c.obj);
         return c;
     }
 
@@ -256,14 +263,14 @@ pub const VM = struct {
     pub fn newUpvalue(vm: *VM, v: Value) *Upvalue {
         const u = vm.gpa.create(Upvalue) catch oom();
         u.* = .{ .obj = .{ .kind = .upvalue }, .v = v };
-        vm.link(&u.obj, @sizeOf(Upvalue));
+        vm.link(&u.obj);
         return u;
     }
 
     pub fn newOpenUpvalue(vm: *VM, th: *Thread, idx: usize) *Upvalue {
         const u = vm.gpa.create(Upvalue) catch oom();
         u.* = .{ .obj = .{ .kind = .upvalue }, .th = th, .idx = idx };
-        vm.link(&u.obj, @sizeOf(Upvalue));
+        vm.link(&u.obj);
         return u;
     }
 
@@ -273,7 +280,7 @@ pub const VM = struct {
         const data = vm.gpa.alignedAlloc(u8, .@"16", size) catch oom();
         @memset(data, 0);
         u.* = .{ .obj = .{ .kind = .userdata }, .meta = meta, .tname = tname, .data = data };
-        vm.link(&u.obj, @sizeOf(Userdata) + size);
+        vm.link(&u.obj);
         return u;
     }
 
@@ -287,7 +294,7 @@ pub const VM = struct {
     pub fn newProto(vm: *VM) *Proto {
         const p = vm.gpa.create(Proto) catch oom();
         p.* = .{ .obj = .{ .kind = .proto } };
-        vm.link(&p.obj, @sizeOf(Proto));
+        vm.link(&p.obj);
         return p;
     }
 
@@ -295,7 +302,7 @@ pub const VM = struct {
         vm.next_thread_id += 1;
         const th = vm.gpa.create(Thread) catch oom();
         th.* = Thread.init(vm, vm.next_thread_id, entry);
-        vm.link(&th.obj, @sizeOf(Thread) + Thread.initial_stack * 16);
+        vm.link(&th.obj);
         return th;
     }
 

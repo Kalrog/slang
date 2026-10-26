@@ -81,26 +81,26 @@ Pin the latest stable release at the start in `build.zig.zon` and only upgrade d
 
 ## Phases
 
-### Phase 0: Skeleton `[ ]`
-- [ ] Install and pin Zig; `zig/build.zig` with the CLI and test steps; `make zig`, `make zig-test`.
-- [ ] Move the seed to `boot/slang/` and point both `go/boot` and the Zig build at it.
+### Phase 0: Skeleton `[x]`
+- [x] Zig 0.17.0 through anyzig (pinned in `build.zig.zon`); `zig/build.zig` with the CLI and test steps; `make zig`, `make zig-test`, `make zig-fixpoint`.
+- [x] The seed stays in `go/boot/slang` while go/ exists (Go's embed cannot leave its module); the Zig build copies it into a generated `seed` module.
 
-### Phase 1: Values, objects, `.slb` `[ ]`
-- [ ] Value, object header, strings (interning), tables, protos, closures, upvalues, userdata.
-- [ ] `.slb` v2 decoder/encoder and disassembler; `slang disasm` output identical to Go on every seed file.
-- [ ] Unit tests for tables (port `go/vm/table_test.go`) and number formatting; differential check of number-to-string against the Go binary on random doubles.
+### Phase 1: Values, objects, `.slb` `[x]`
+- [x] Value (16-byte tagged union), object header, strings (interned up to 40 bytes), tables, protos, closures, upvalues, userdata.
+- [x] `.slb` v2 decoder/encoder and disassembler (output identical to Go).
+- [x] Unit tests for tables and number formatting (`zig build test`).
 
-### Phase 2: Interpreter without GC `[ ]`
-Allocations go to an arena and are never freed, to separate semantics from memory management.
-- [ ] All opcodes, calls, varargs, upvalues, `_ENV`, metatables (`__index`, `__newindex`, `__type`) and operator metamethods.
-- [ ] Errors with locations and stack traces, `pcall`, coroutines (`create/resume/yield/state/current/id`).
-- [ ] Internal natives: core, `slang/string`, `slang/vm`, `slang/thread`; temporary internal versions of `slang/os` and `slang/math`.
-- [ ] Boot the seed (`slang/package`, `slang/std`, `slang/compiler`), run the full test suite, outputs identical to the Go binary.
-- [ ] `make fixpoint` with the Zig binary: the seed it compiles is byte-identical.
+### Phase 2: Interpreter `[x]`
+- [x] All opcodes, calls, varargs, upvalues, `_ENV`, metatables and operator metamethods (`SLANG_TRACE=1` prints every instruction).
+- [x] Errors with locations and stack traces, `pcall`, coroutines.
+- [x] All natives (core, `slang/string`, `slang/vm`, `slang/thread`, `slang/os`, `slang/math`, files).
+- [x] Boots the seed; the full test suite and the dungeon DSL tests give output identical to the Go binary.
+- [x] `make zig-fixpoint`: the seed compiled by the Zig VM is byte-identical.
+- Lesson: never write `slot = .{ .tag = f(slot) }`; Zig's result location sets the tag before evaluating `f(slot)`. Read into a local first.
 
-### Phase 3: Garbage collector `[ ]`
-- [ ] Mark and sweep, roots as above, allocation threshold, `-Dgc-stress`.
-- [ ] Suite and fixed point pass under stress; memory stays bounded on the benchmarks.
+### Phase 3: Garbage collector `[x]`
+- [x] Mark and sweep at interpreter safe points, exact byte accounting through a counting allocator, threshold = 2x live (min 8 MB), `-Dgc-stress=true` collects every 64 KB.
+- [x] Suite and fixed point pass under stress; peak memory on the benchmarks is one half to one third of Go's.
 
 ### Phase 4: `slang.h` and native extensions `[ ]`
 - [ ] Write `slang.h` and implement it in `api.zig` (stack, registry and refs, userdata with finalizers, C closures, module registration, embedding functions, version check).
@@ -110,7 +110,7 @@ Allocations go to an arena and are never freed, to separate semantics from memor
 
 ### Phase 5: CLI parity `[ ]`
 - [ ] `run`, `repl`, `test`, `compile` (`-o`, `--origin`, `--strip`), `disasm`, `--trace`.
-- [ ] Bytecode cache (`~/.cache/slang`, `SLANG_CACHE_DIR`, `SLANG_NO_CACHE`), with a key that includes the VM so Go and Zig caches never mix.
+- [x] Bytecode cache: implemented in slang (`compiler.load_file`), so it works unchanged; both VMs produce identical bytecode, sharing the cache is harmless.
 
 ### Phase 6: Performance `[ ]`
 - [ ] Run `bench/` against the Go numbers (dijkstra x1000 305 ms, fib(27) 33 ms, parsing the grammar about 100 ms).

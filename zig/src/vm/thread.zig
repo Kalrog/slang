@@ -84,7 +84,6 @@ pub const Thread = struct {
         const old_len = th.stack.len;
         th.stack = th.vm.gpa.realloc(th.stack, n) catch oom();
         @memset(th.stack[old_len..], .null);
-        th.vm.bytes_allocated += (n - old_len) * @sizeOf(Value);
     }
 
     /// Makes sure the stack can hold `need` values. May move the stack.

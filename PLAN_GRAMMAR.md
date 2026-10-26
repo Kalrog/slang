@@ -257,7 +257,14 @@ only, evaluated once before any unit:
   a semantic break anyway, so existing extensions and the dungeon DSLs are
   ported in Phase 3 and the old API is removed.
 
+- Conflict reporting (a `modify` of a rule another extension already
+  modified, a failed probe, the `choice(old, ...)` lint) is immediate, at the
+  `modify` call, so the warning points at the offending line. Warnings are a
+  development aid: off by default outside `slang run --explain` /
+  `SLANG_GRAMMAR_WARNINGS=1`, and `slang.project` can disable them per
+  extension (a temporarily conflicting intermediate state is legal, just not
+  something correct code needs).
+
 ## Open points
 
-- Where extension statements that *modify* core rules should report conflicts:
-  at seal (one list) or at each `modify` (immediate).
+- None at the moment.

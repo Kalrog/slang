@@ -1,0 +1,126 @@
+# Slang port plan: Zig VM + `slang.h` extension API
+
+Status legend: `[ ]` todo, `[~]` in progress, `[x]` done.
+
+## Why
+
+Native extensions (modules that wrap a system library or need native speed) cannot be loaded at runtime in a reasonable way from Go: `plugin` does not work on Windows and needs an identical toolchain and dependency set, and cgo + dlopen forbids C from holding Go pointers and adds overhead on every callback. Today the only way to add natives is to build a custom Go host binary (`examples/dungeon/host`). The goal of this port is a VM where `require "foo"` can load `foo.so`/`foo.dylib`/`foo.dll`, written in C, Zig or anything with a C ABI.
+
+## Goals
+
+1. Rewrite the VM, the native standard library and the CLI in Zig. The Go VM is the reference until the Zig VM reaches parity, then it is deleted (after confirmation).
+2. A public C API, `slang.h`, modelled on Lua's `lua.h`: a value stack per thread, index-based access, no exposed `Value` layout. It serves both native extensions and embedding the VM in a host program.
+3. `require` loads native extensions from shared libraries.
+4. Everything written in slang is unchanged: compiler, grammar, extensions, `slang/lib`. The seed bytecode in `go/boot/slang/*.slb` boots the Zig VM as is; no stage 0 is needed.
+5. The `test/*_test.slang` suite is the acceptance oracle, plus differential runs against the Go binary.
+
+Out of scope: the dungeon example (it stays on the Go VM until it is ported later, ideally as a native extension wrapping raylib or SDL instead of a custom host), changes to the language, ISA or `.slb` format, isolates/threads (see "Future" in PLAN.md).
+
+## Target layout
+
+```
+zig/
+  build.zig, build.zig.zon     pinned Zig version (minimum_zig_version), options: -Dgc-stress, -Dtrace
+  include/slang.h              the public C API (the only header extensions need)
+  src/
+    vm/                        value, object/gc, string, table, proto, slb, disasm, interp, thread, error, meta
+    api.zig                    implementation of slang.h on top of vm/
+    stdlib/                    core, string, vm, thread (internal API); os, math, file (written against slang.h)
+    loader.zig                 native extension loading (std.DynLib)
+    main.zig                   CLI: run, repl, test, compile, disasm
+boot/slang/*.slb               the seed, moved out of go/ and embedded by both VMs during the transition
+extensions/native/             example native extensions (one in C, one in Zig) used by the tests
+```
+
+## Key design decisions
+
+### Values
+A 16-byte tagged union (`tag` + 8-byte payload: bool, i64, f64 bits or object pointer). The Go `Value` is 32 bytes (kind, int64 and a 16-byte interface), so this halves stack and table traffic. NaN-boxing to 8 bytes is a later optimisation; it stays possible because `slang.h` never exposes the layout. Numeric semantics are unchanged (64-bit wrapping ints, `int / int` is a double, Euclidean `%`, Dart-compatible number printing).
+
+### Heap objects and GC
+All heap objects (string, table, closure, upvalue, proto, userdata, thread) start with a common header (`next`, `kind`, `marked`) and are linked into one list. The collector is stop-the-world, non-moving mark and sweep with a gray stack; a collection runs when allocated bytes exceed a threshold (live heap times a growth factor, the equivalent of the current `GOGC=400`). Non-moving means natives may hold object pointers for the duration of a call.
+
+Roots: globals, `__PACKAGES`, the registry (see API), every live thread (stack up to `top`, frame closures, open upvalues, the yielded value), the current error value, and the protos of loaded chunks. The Lua-style API makes native code safe by construction: everything a native touches lives on the thread's stack, which is a root.
+
+`-Dgc-stress=true` collects on every allocation. The suite and the compiler fixed point must pass under it; running the compiler is the main stress test because it allocates heavily.
+
+Userdata may have a finalizer (a C function pointer given at creation), run during sweep. This is needed for extensions that own C resources. A slang-level `__gc` metamethod and weak tables are not planned.
+
+### Strings
+Immutable heap objects holding UTF-8 bytes, length and a cached hash. Short strings (up to 40 bytes) are interned, so equality and string-keyed table lookup on them are pointer comparisons; long strings compare by content. Semantics are unchanged (byte-based `len`/`substring`).
+
+### Tables
+The same observable behaviour as the Go table: an array part for keys `0..n-1`, an insertion-ordered hash part (dense entry array plus an open-addressing index, tombstones for removed entries, compaction when they pile up), float keys with integral values normalised to ints, the `meta` key, assigning `null` removes (and shifts the array part), `append` uses `len(t)` as the key. Table and function keys hash by identity, as in Go, while `==` on tables stays structural.
+
+### Errors
+Inside the VM, a slang error is a Zig error (`error.SlangError`) with the error value (the `{message, location, stack}` table) stored on the thread. Stack overflow and internal faults become normal slang errors, so `panic`/`recover` has no counterpart. `pcall` stays special-cased in the interpreter so yields inside it keep working. Natives cannot yield (same rule as now).
+
+### The C API (`slang.h`)
+Shaped after Lua; the differences are deliberate.
+
+- `slang_State *` is a thread. Natives have the type `int (*slang_CFunction)(slang_State *S)` and see their arguments at stack indices `1..n` (negative indices count from the top). A native returns `1` (result on top of the stack), `0` (null) or `SLANG_ERROR`. Slang functions return one value, so there is no multi-result count.
+- **No longjmp.** `slang_error(S, ...)` sets the error value and returns `SLANG_ERROR`; a native does `return slang_error(S, "bad thing");`. `slang_call` returns a status, and on failure the native either handles the error or returns `SLANG_ERROR` to propagate it. This keeps Zig and C frames free of non-local jumps.
+- Functions: push/to/is for null, bool, int, double, string (with length), table, function, userdata; `slang_type`, `slang_typename`; table access `get/set`, `get_field/set_field`, `get_index/set_index`, `raw_get/raw_set`, `len`, `append`, `next` style iteration; `get_global/set_global`; `slang_call`, `slang_pcall`; metatable get/set; `check_*`/`opt_*` argument helpers that produce the same messages as today (`Expected int for x got string`).
+- **Registry and references.** `slang_ref(S)` pops a value and returns an integer handle that keeps it alive; `slang_get_ref`/`slang_unref` use and release it. This is how an extension stores a callback or a table beyond one call.
+- **Userdata.** `slang_new_userdata(S, size, type_name, finalizer)` returns memory owned by the GC; `slang_check_userdata(S, idx, type_name)` returns it or raises a type error.
+- **Closures with state.** `slang_push_cclosure(S, fn, n_upvalues)` with `slang_upvalue_index(i)`, so extensions can carry state without globals.
+- **Module registration.** `slang_new_module(S, const slang_Reg funcs[])` builds a table of natives.
+- **Embedding.** `slang_new()`, `slang_close()`, `slang_do_file()`, `slang_do_string()`, `slang_open_libs()`, so a host program (for example a later game host) uses the same header.
+- **Versioning.** `SLANG_API_VERSION` in the header; the `SLANG_EXTENSION(name)` macro defines `slang_open_<name>` and exports the version the extension was built against, which the loader checks before calling it.
+
+### Native extension loading
+A fourth loader in `slang/package` (after preloaded, embedded and search path) looks for `<path>/<name>.<so|dylib|dll>` in `__PACKAGES.nativeSearchPaths`, opens it with `std.DynLib`, checks the API version and calls `slang_open_<name>` (with `/` and `-` mapped to `_`). The value it returns becomes the module, cached like any other.
+
+Symbol resolution: extensions call `slang_*` functions that live in the `slang` executable, as with Lua. On Linux the executable is linked with `--export-dynamic`, on macOS extensions are built with `-undefined dynamic_lookup`. Windows needs an import library (or a `slang.dll` that the executable links against); that is deferred until the other two platforms work.
+
+### Internal natives vs. the public API
+`core`, `slang/string` (including the hot parser helpers `skip_space`, `class_run`, `line_col`), `slang/vm` and `slang/thread` use the internal Zig API for speed and because they reach VM internals. `slang/os`, `slang/math` and the file userdata are written against `slang.h`; they are the first test that the API is complete and comfortable.
+
+### Zig version
+Pin the latest stable release at the start in `build.zig.zon` and only upgrade deliberately, because Zig still breaks APIs between releases. Zig is not installed on the development machine yet.
+
+## Phases
+
+### Phase 0: Skeleton `[ ]`
+- [ ] Install and pin Zig; `zig/build.zig` with the CLI and test steps; `make zig`, `make zig-test`.
+- [ ] Move the seed to `boot/slang/` and point both `go/boot` and the Zig build at it.
+
+### Phase 1: Values, objects, `.slb` `[ ]`
+- [ ] Value, object header, strings (interning), tables, protos, closures, upvalues, userdata.
+- [ ] `.slb` v2 decoder/encoder and disassembler; `slang disasm` output identical to Go on every seed file.
+- [ ] Unit tests for tables (port `go/vm/table_test.go`) and number formatting; differential check of number-to-string against the Go binary on random doubles.
+
+### Phase 2: Interpreter without GC `[ ]`
+Allocations go to an arena and are never freed, to separate semantics from memory management.
+- [ ] All opcodes, calls, varargs, upvalues, `_ENV`, metatables (`__index`, `__newindex`, `__type`) and operator metamethods.
+- [ ] Errors with locations and stack traces, `pcall`, coroutines (`create/resume/yield/state/current/id`).
+- [ ] Internal natives: core, `slang/string`, `slang/vm`, `slang/thread`; temporary internal versions of `slang/os` and `slang/math`.
+- [ ] Boot the seed (`slang/package`, `slang/std`, `slang/compiler`), run the full test suite, outputs identical to the Go binary.
+- [ ] `make fixpoint` with the Zig binary: the seed it compiles is byte-identical.
+
+### Phase 3: Garbage collector `[ ]`
+- [ ] Mark and sweep, roots as above, allocation threshold, `-Dgc-stress`.
+- [ ] Suite and fixed point pass under stress; memory stays bounded on the benchmarks.
+
+### Phase 4: `slang.h` and native extensions `[ ]`
+- [ ] Write `slang.h` and implement it in `api.zig` (stack, registry and refs, userdata with finalizers, C closures, module registration, embedding functions, version check).
+- [ ] Rewrite `slang/os`, `slang/math` and the file userdata against it.
+- [ ] Native loader in `slang/package`, `nativeSearchPaths`, export settings for Linux and macOS.
+- [ ] Example extensions in `extensions/native/` (one in C, one in Zig) and a test file that requires them, covering callbacks via refs, userdata finalizers and errors in both directions.
+
+### Phase 5: CLI parity `[ ]`
+- [ ] `run`, `repl`, `test`, `compile` (`-o`, `--origin`, `--strip`), `disasm`, `--trace`.
+- [ ] Bytecode cache (`~/.cache/slang`, `SLANG_CACHE_DIR`, `SLANG_NO_CACHE`), with a key that includes the VM so Go and Zig caches never mix.
+
+### Phase 6: Performance `[ ]`
+- [ ] Run `bench/` against the Go numbers (dijkstra x1000 305 ms, fib(27) 33 ms, parsing the grammar about 100 ms).
+- [ ] Labelled-switch dispatch, call setup, table lookup, then decide on NaN-boxing.
+
+### Phase 7: Switch-over `[ ]`
+- [ ] Make Zig the default in the Makefile and README (build, extension API, embedding).
+- [ ] Delete `go/` after confirmation; the dungeon example is marked as not working until it is ported.
+
+## Open points
+- Windows support for native extensions (import library vs. `slang.dll`).
+- Whether userdata should get a slang-level `__gc`.
+- Iteration API shape (`slang_next` like Lua vs. an index-based cursor that matches insertion order).

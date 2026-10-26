@@ -1,0 +1,351 @@
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const root = @import("../vm.zig");
+const oom = root.oom;
+const Value = root.Value;
+const String = root.String;
+const Table = root.Table;
+const object = @import("object.zig");
+const Object = object.Object;
+const Closure = object.Closure;
+const Upvalue = object.Upvalue;
+const Userdata = object.Userdata;
+const Proto = object.Proto;
+const Thread = root.Thread;
+const Error = root.Error;
+const SlangError = root.SlangError;
+const gc = @import("gc.zig");
+
+pub const EmbeddedFile = struct {
+    name: []const u8,
+    data: []const u8,
+};
+
+const InternCtx = struct {
+    pub fn hash(_: InternCtx, s: *String) u64 {
+        return s.hash();
+    }
+    pub fn eql(_: InternCtx, a: *String, b: *String) bool {
+        return a == b;
+    }
+};
+
+const InternBytesCtx = struct {
+    pub fn hash(_: InternBytesCtx, b: []const u8) u64 {
+        return String.hashBytes(b);
+    }
+    pub fn eql(_: InternBytesCtx, b: []const u8, s: *String) bool {
+        return s.eqlBytes(b);
+    }
+};
+
+/// The state shared by all threads: globals, the package registry, the heap
+/// and the standard streams.
+pub const VM = struct {
+    gpa: Allocator,
+    io: std.Io,
+    globals: *Table,
+    packages: *Table,
+    main: *Thread,
+    args: []const []const u8 = &.{},
+    embedded: []const EmbeddedFile = &.{},
+    stdout: std.Io.File.Writer,
+    stdin: std.Io.File.Reader,
+    stdout_buf: []u8,
+    stdin_buf: []u8,
+    env: *std.process.Environ.Map,
+
+    /// All heap objects, for the collector.
+    objects: ?*Object = null,
+    strings: std.HashMapUnmanaged(*String, void, InternCtx, 80) = .empty,
+    bytes_allocated: usize = 0,
+    next_gc: usize = gc.initial_threshold,
+    gc_running: bool = false,
+    /// Values kept alive by the C API (slang_ref).
+    registry: *Table,
+
+    /// Line starts of the string most recently passed to str.line_col
+    /// (parsers call it once per token on the same buffer).
+    line_cache_str: ?*String = null,
+    line_cache: std.ArrayList(u32) = .empty,
+
+    /// The pending error after a function returned error.Slang.
+    err: ?SlangError = null,
+    next_thread_id: u32 = 0,
+    /// SLANG_TRACE: print every instruction to stderr.
+    trace: bool = false,
+
+    pub fn create(gpa: Allocator, io: std.Io, env: *std.process.Environ.Map) *VM {
+        const vm = gpa.create(VM) catch oom();
+        const out_buf = gpa.alloc(u8, 1 << 16) catch oom();
+        const in_buf = gpa.alloc(u8, 1 << 16) catch oom();
+        vm.* = .{
+            .gpa = gpa,
+            .io = io,
+            .globals = undefined,
+            .packages = undefined,
+            .main = undefined,
+            .registry = undefined,
+            .stdout = std.Io.File.stdout().writer(io, out_buf),
+            .stdin = std.Io.File.stdin().reader(io, in_buf),
+            .stdout_buf = out_buf,
+            .stdin_buf = in_buf,
+            .env = env,
+        };
+        vm.globals = vm.newTable(0, 64);
+        vm.packages = vm.newTable(0, 4);
+        vm.registry = vm.newTable(0, 0);
+        vm.main = vm.newThread(null);
+        vm.main.is_main = true;
+        vm.main.status = .running;
+        return vm;
+    }
+
+    pub fn destroy(vm: *VM) void {
+        vm.flush();
+        gc.freeAll(vm);
+        vm.strings.deinit(vm.gpa);
+        vm.line_cache.deinit(vm.gpa);
+        if (vm.err) |*e| e.deinit(vm.gpa);
+        vm.gpa.free(vm.stdout_buf);
+        vm.gpa.free(vm.stdin_buf);
+        vm.gpa.destroy(vm);
+    }
+
+    pub fn out(vm: *VM) *std.Io.Writer {
+        return &vm.stdout.interface;
+    }
+
+    pub fn flush(vm: *VM) void {
+        vm.stdout.interface.flush() catch {};
+    }
+
+    // Errors.
+
+    /// Records a slang error; the caller returns error.Slang.
+    pub fn setError(vm: *VM, comptime fmt: []const u8, args: anytype) void {
+        const msg = std.fmt.allocPrint(vm.gpa, fmt, args) catch oom();
+        vm.setErrorOwned(msg);
+    }
+
+    pub fn setErrorOwned(vm: *VM, msg: []u8) void {
+        if (vm.err) |*e| e.deinit(vm.gpa);
+        vm.err = .{ .message = msg };
+    }
+
+    pub fn setErrorFull(vm: *VM, e: SlangError) void {
+        if (vm.err) |*old| old.deinit(vm.gpa);
+        vm.err = e;
+    }
+
+    pub fn raise(vm: *VM, comptime fmt: []const u8, args: anytype) Error {
+        vm.setError(fmt, args);
+        return error.Slang;
+    }
+
+    pub fn raiseMsg(vm: *VM, msg: []const u8) Error {
+        vm.setErrorOwned(vm.gpa.dupe(u8, msg) catch oom());
+        return error.Slang;
+    }
+
+    /// Moves the pending error out of the VM.
+    pub fn takeError(vm: *VM) SlangError {
+        if (vm.err) |e| {
+            vm.err = null;
+            return e;
+        }
+        return .{ .message = vm.gpa.dupe(u8, "unknown error") catch oom() };
+    }
+
+    /// Converts the pending error into the slang error table
+    /// {message, location: {line, column, origin}, stack}.
+    pub fn errorToValue(vm: *VM) Value {
+        var e = vm.takeError();
+        defer e.deinit(vm.gpa);
+        const t = vm.newTable(0, 3);
+        t.set(vm.gpa, vm.str("message"), vm.strValue(e.message));
+        if (e.loc) |l| {
+            const loc = vm.newTable(0, 3);
+            loc.set(vm.gpa, vm.str("line"), .{ .int = l.line });
+            loc.set(vm.gpa, vm.str("column"), .{ .int = l.column });
+            loc.set(vm.gpa, vm.str("origin"), vm.strValue(l.origin));
+            t.set(vm.gpa, vm.str("location"), .{ .table = loc });
+        }
+        if (e.trace) |tr| t.set(vm.gpa, vm.str("stack"), vm.strValue(tr));
+        return .{ .table = t };
+    }
+
+    // Allocation. Every object is linked into vm.objects; the collector runs
+    // only at interpreter safe points (see gc.zig), never inside these.
+
+    fn link(vm: *VM, o: *Object, size: usize) void {
+        o.next = vm.objects;
+        vm.objects = o;
+        vm.bytes_allocated += size;
+    }
+
+    pub fn newTable(vm: *VM, narr: usize, nhash: usize) *Table {
+        const t = vm.gpa.create(Table) catch oom();
+        t.* = Table.init(vm.gpa, narr, nhash);
+        vm.link(&t.obj, @sizeOf(Table) + (narr + nhash) * 16);
+        return t;
+    }
+
+    /// Creates (or finds, for short strings) a string with these bytes.
+    pub fn newString(vm: *VM, bytes: []const u8) *String {
+        if (bytes.len <= String.intern_limit) {
+            const gop = vm.strings.getOrPutAdapted(vm.gpa, bytes, InternBytesCtx{}) catch oom();
+            if (gop.found_existing) return gop.key_ptr.*;
+            const s = vm.allocString(bytes);
+            s.interned = true;
+            s.hash_cache = String.hashBytes(bytes);
+            gop.key_ptr.* = s;
+            return s;
+        }
+        return vm.allocString(bytes);
+    }
+
+    fn allocString(vm: *VM, bytes: []const u8) *String {
+        const mem = vm.gpa.alignedAlloc(u8, .of(String), String.allocSize(bytes.len)) catch oom();
+        const s: *String = @ptrCast(@alignCast(mem.ptr));
+        s.* = .{ .obj = .{ .kind = .string }, .len = bytes.len, .hash_cache = 0, .interned = false };
+        @memcpy(s.mutableBytes(), bytes);
+        vm.link(&s.obj, mem.len);
+        return s;
+    }
+
+    /// Allocates an uninitialised string of the given length (never interned).
+    pub fn newStringUninit(vm: *VM, len: usize) *String {
+        const mem = vm.gpa.alignedAlloc(u8, .of(String), String.allocSize(len)) catch oom();
+        const s: *String = @ptrCast(@alignCast(mem.ptr));
+        s.* = .{ .obj = .{ .kind = .string }, .len = len, .hash_cache = 0, .interned = false };
+        vm.link(&s.obj, mem.len);
+        return s;
+    }
+
+    pub fn str(vm: *VM, bytes: []const u8) Value {
+        return .{ .string = vm.newString(bytes) };
+    }
+
+    pub fn strValue(vm: *VM, bytes: []const u8) Value {
+        return .{ .string = vm.newString(bytes) };
+    }
+
+    pub fn newClosure(vm: *VM, proto: *Proto) *Closure {
+        const c = vm.gpa.create(Closure) catch oom();
+        const ups = vm.gpa.alloc(*Upvalue, proto.upvals.len) catch oom();
+        c.* = .{ .obj = .{ .kind = .closure }, .proto = proto, .upvals = ups };
+        vm.link(&c.obj, @sizeOf(Closure) + ups.len * @sizeOf(usize));
+        return c;
+    }
+
+    /// Wraps a native function as a function value. `nvals` are copied into
+    /// the closure and reachable through `th.currentClosure().nvals`.
+    pub fn newNative(vm: *VM, name: []const u8, f: object.NativeFn, nvals: []const Value) *Closure {
+        const c = vm.gpa.create(Closure) catch oom();
+        c.* = .{ .obj = .{ .kind = .closure }, .native = f, .name = vm.newString(name) };
+        if (nvals.len > 0) c.nvals = vm.gpa.dupe(Value, nvals) catch oom();
+        vm.link(&c.obj, @sizeOf(Closure) + nvals.len * 16);
+        return c;
+    }
+
+    pub fn nativeValue(vm: *VM, name: []const u8, f: object.NativeFn) Value {
+        return .{ .function = vm.newNative(name, f, &.{}) };
+    }
+
+    pub fn newUpvalue(vm: *VM, v: Value) *Upvalue {
+        const u = vm.gpa.create(Upvalue) catch oom();
+        u.* = .{ .obj = .{ .kind = .upvalue }, .v = v };
+        vm.link(&u.obj, @sizeOf(Upvalue));
+        return u;
+    }
+
+    pub fn newOpenUpvalue(vm: *VM, th: *Thread, idx: usize) *Upvalue {
+        const u = vm.gpa.create(Upvalue) catch oom();
+        u.* = .{ .obj = .{ .kind = .upvalue }, .th = th, .idx = idx };
+        vm.link(&u.obj, @sizeOf(Upvalue));
+        return u;
+    }
+
+    /// Creates a userdata with a zeroed data block of `size` bytes.
+    pub fn newUserdata(vm: *VM, size: usize, tname: []const u8, meta: ?*Table) *Userdata {
+        const u = vm.gpa.create(Userdata) catch oom();
+        const data = vm.gpa.alignedAlloc(u8, .@"16", size) catch oom();
+        @memset(data, 0);
+        u.* = .{ .obj = .{ .kind = .userdata }, .meta = meta, .tname = tname, .data = data };
+        vm.link(&u.obj, @sizeOf(Userdata) + size);
+        return u;
+    }
+
+    /// Creates a userdata holding a value of type T.
+    pub fn newUserdataOf(vm: *VM, comptime T: type, value: T, tname: []const u8, meta: ?*Table) *Userdata {
+        const u = vm.newUserdata(@sizeOf(T), tname, meta);
+        u.as(T).* = value;
+        return u;
+    }
+
+    pub fn newProto(vm: *VM) *Proto {
+        const p = vm.gpa.create(Proto) catch oom();
+        p.* = .{ .obj = .{ .kind = .proto } };
+        vm.link(&p.obj, @sizeOf(Proto));
+        return p;
+    }
+
+    pub fn newThread(vm: *VM, entry: ?*Closure) *Thread {
+        vm.next_thread_id += 1;
+        const th = vm.gpa.create(Thread) catch oom();
+        th.* = Thread.init(vm, vm.next_thread_id, entry);
+        vm.link(&th.obj, @sizeOf(Thread) + Thread.initial_stack * 16);
+        return th;
+    }
+
+    // Globals and loading.
+
+    pub fn getGlobal(vm: *VM, name: []const u8) Value {
+        return vm.globals.getName(name);
+    }
+
+    pub fn setGlobal(vm: *VM, name: []const u8, v: Value) void {
+        vm.globals.set(vm.gpa, vm.str(name), v);
+    }
+
+    /// Installs a native function as a global.
+    pub fn register(vm: *VM, name: []const u8, f: object.NativeFn) void {
+        vm.setGlobal(name, vm.nativeValue(name, f));
+    }
+
+    /// Instantiates a top-level prototype; its _ENV upvalue is bound to the
+    /// global table.
+    pub fn load(vm: *VM, p: *Proto) *Closure {
+        const cl = vm.newClosure(p);
+        for (cl.upvals, 0..) |*u, i| {
+            if (i == 0 and p.upvals[0].name.eqlBytes("_ENV")) {
+                u.* = vm.newUpvalue(.{ .table = vm.globals });
+            } else {
+                u.* = vm.newUpvalue(.null);
+            }
+        }
+        return cl;
+    }
+
+    /// Decodes a .slb container and instantiates it.
+    pub fn loadBytes(vm: *VM, data: []const u8) Error!*Closure {
+        const p = root.slb.decode(vm, data) catch |e| {
+            return vm.raise("{s}", .{root.slb.errorMessage(e)});
+        };
+        return vm.load(p);
+    }
+
+    /// Loads "<name>.slb" from the embedded seed, or returns null.
+    pub fn embeddedModule(vm: *VM, name: []const u8) Error!?*Closure {
+        for (vm.embedded) |f| {
+            if (std.mem.eql(u8, f.name, name)) return try vm.loadBytes(f.data);
+        }
+        return null;
+    }
+
+    /// Runs fn on the main thread.
+    pub fn call(vm: *VM, f: Value, args: []const Value) Error!Value {
+        return vm.main.call(f, args);
+    }
+};

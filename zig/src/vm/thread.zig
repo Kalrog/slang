@@ -1,0 +1,436 @@
+const std = @import("std");
+const root = @import("../vm.zig");
+const oom = root.oom;
+const VM = root.VM;
+const Value = root.Value;
+const Table = root.Table;
+const String = root.String;
+const object = @import("object.zig");
+const Object = object.Object;
+const Closure = object.Closure;
+const Upvalue = object.Upvalue;
+const Proto = object.Proto;
+const Error = root.Error;
+const Location = root.Location;
+const interp = @import("interp.zig");
+
+/// Status of a coroutine.
+pub const Status = enum(u8) {
+    init,
+    running,
+    suspended,
+    dead,
+
+    pub fn name(s: Status) []const u8 {
+        return @tagName(s);
+    }
+};
+
+/// One activation record. base is the stack index of the first
+/// argument/local; the callee itself sits at base-1 and receives the result.
+pub const Frame = struct {
+    cl: *Closure,
+    pc: u32,
+    base: u32,
+    protected: bool,
+};
+
+/// An execution context (the main thread or a coroutine) with its own value
+/// stack and frame stack.
+pub const Thread = struct {
+    obj: Object,
+    vm: *VM,
+    id: u32,
+    stack: []Value,
+    top: usize = 0,
+    frames: std.ArrayList(Frame) = .empty,
+    open_upvals: std.ArrayList(*Upvalue) = .empty,
+    status: Status = .init,
+    entry: ?*Closure,
+    run_depth: u32 = 0,
+    yielded: Value = .null,
+    is_main: bool = false,
+
+    pub const initial_stack = 256;
+    pub const max_stack = 1 << 24;
+    pub const max_frames = 1 << 20;
+
+    pub fn init(vm: *VM, id: u32, entry: ?*Closure) Thread {
+        const stack = vm.gpa.alloc(Value, initial_stack) catch oom();
+        @memset(stack, .null);
+        return .{ .obj = .{ .kind = .thread }, .vm = vm, .id = id, .stack = stack, .entry = entry };
+    }
+
+    pub fn deinit(th: *Thread) void {
+        th.vm.gpa.free(th.stack);
+        th.frames.deinit(th.vm.gpa);
+        th.open_upvals.deinit(th.vm.gpa);
+    }
+
+    pub fn depth(th: *const Thread) usize {
+        return th.frames.items.len;
+    }
+
+    pub inline fn push(th: *Thread, v: Value) void {
+        if (th.top == th.stack.len) th.grow(th.top + 1) catch @panic("stack overflow");
+        th.stack[th.top] = v;
+        th.top += 1;
+    }
+
+    fn grow(th: *Thread, need: usize) Error!void {
+        var n = th.stack.len * 2;
+        while (n < need) n *= 2;
+        if (n > max_stack) return th.vm.raise("stack overflow", .{});
+        const old_len = th.stack.len;
+        th.stack = th.vm.gpa.realloc(th.stack, n) catch oom();
+        @memset(th.stack[old_len..], .null);
+        th.vm.bytes_allocated += (n - old_len) * @sizeOf(Value);
+    }
+
+    /// Makes sure the stack can hold `need` values. May move the stack.
+    pub fn ensure(th: *Thread, need: usize) Error!void {
+        if (need > th.stack.len) try th.grow(need);
+    }
+
+    /// The closure of the innermost frame (for natives reading their nvals).
+    pub fn currentClosure(th: *const Thread) *Closure {
+        return th.frames.items[th.frames.items.len - 1].cl;
+    }
+
+    /// Argument i of the running native, read from the stack (valid even
+    /// after a call back into the VM moved the stack).
+    pub fn arg(th: *const Thread, i: usize) Value {
+        const fr = th.frames.items[th.frames.items.len - 1];
+        const idx = fr.base + i;
+        if (idx >= th.top) return .null;
+        return th.stack[idx];
+    }
+
+    pub fn nargs(th: *const Thread) usize {
+        const fr = th.frames.items[th.frames.items.len - 1];
+        return th.top - fr.base;
+    }
+
+    fn pushFrame(th: *Thread, cl: *Closure, base: usize, protected: bool) Error!void {
+        if (th.frames.items.len >= max_frames) return th.vm.raise("stack overflow (too many nested calls)", .{});
+        th.frames.append(th.vm.gpa, .{ .cl = cl, .pc = 0, .base = @intCast(base), .protected = protected }) catch oom();
+    }
+
+    pub fn popFrame(th: *Thread) void {
+        const fr = th.frames.pop().?;
+        if (fr.cl.proto != null) th.closeUpvalues(fr.base);
+    }
+
+    fn findOrCreateUpvalue(th: *Thread, idx: usize) *Upvalue {
+        const ups = th.open_upvals.items;
+        var i: usize = ups.len;
+        while (i > 0) {
+            i -= 1;
+            if (ups[i].idx == idx) return ups[i];
+            if (ups[i].idx < idx) {
+                i += 1;
+                break;
+            }
+        }
+        const u = th.vm.newOpenUpvalue(th, idx);
+        th.open_upvals.insert(th.vm.gpa, i, u) catch oom();
+        return u;
+    }
+
+    pub fn closeUpvalues(th: *Thread, from: usize) void {
+        var ups = &th.open_upvals;
+        while (ups.items.len > 0 and ups.items[ups.items.len - 1].idx >= from) {
+            const u = ups.pop().?;
+            u.close();
+        }
+    }
+
+    pub fn makeClosure(th: *Thread, fr: Frame, child: *Proto) *Closure {
+        const cl = th.vm.newClosure(child);
+        for (child.upvals, 0..) |uv, i| {
+            if (uv.is_local) {
+                cl.upvals[i] = th.findOrCreateUpvalue(fr.base + uv.index);
+            } else if (uv.index < fr.cl.upvals.len) {
+                cl.upvals[i] = fr.cl.upvals[uv.index];
+            } else {
+                cl.upvals[i] = th.vm.newUpvalue(.null);
+            }
+        }
+        return cl;
+    }
+
+    /// Invokes f with args from native code and returns its result. `args`
+    /// may alias the stack; it is copied before the stack can move.
+    pub fn call(th: *Thread, f: Value, args: []const Value) Error!Value {
+        var small: [16]Value = undefined;
+        const copy: []Value = if (args.len <= small.len) small[0..args.len] else th.vm.gpa.alloc(Value, args.len) catch oom();
+        defer if (args.len > small.len) th.vm.gpa.free(copy);
+        @memcpy(copy, args);
+
+        const fn_idx = th.top;
+        try th.ensure(fn_idx + 1 + copy.len + 8);
+        th.push(f);
+        for (copy) |a| th.push(a);
+        const is_slang = th.precall(fn_idx, copy.len, false) catch |e| {
+            th.top = fn_idx;
+            if (e == error.Yield) {
+                th.popFrame();
+                th.vm.setError("attempt to yield across a native call boundary", .{});
+                th.fillError();
+                return error.Slang;
+            }
+            return e;
+        };
+        if (is_slang) {
+            th.run(th.frames.items.len - 1) catch |e| {
+                th.top = fn_idx;
+                return e;
+            };
+        }
+        const res = th.stack[fn_idx];
+        th.top = fn_idx;
+        return res;
+    }
+
+    /// Sets up a call of the value at fn_idx with nargs arguments above it.
+    /// Native functions are executed immediately and their result replaces
+    /// the callee slot; for slang functions a frame is pushed and true is
+    /// returned.
+    pub fn precall(th: *Thread, fn_idx: usize, nargs_: usize, protected: bool) Error!bool {
+        const f = th.stack[fn_idx];
+        const cl: *Closure = switch (f) {
+            .function => |c| c,
+            else => {
+                if (interp.metaOf(f)) |m| {
+                    const c = m.getName("__call");
+                    if (c == .function) {
+                        // call __call(f, args...): shift the arguments up by one slot
+                        th.push(.null);
+                        std.mem.copyBackwards(Value, th.stack[fn_idx + 1 .. th.top], th.stack[fn_idx .. th.top - 1]);
+                        th.stack[fn_idx] = c;
+                        return th.precall(fn_idx, nargs_ + 1, protected);
+                    }
+                }
+                return th.vm.raise("attempt to call a {s} value", .{f.typeName()});
+            },
+        };
+        if (cl.special == .pcall) {
+            if (nargs_ < 1) return th.vm.raise("pcall requires at least one argument", .{});
+            std.mem.copyForwards(Value, th.stack[fn_idx .. th.top - 1], th.stack[fn_idx + 1 .. th.top]);
+            th.top -= 1;
+            return th.precall(fn_idx, nargs_ - 1, true);
+        }
+        if (cl.native) |native| {
+            try th.pushFrame(cl, fn_idx + 1, protected);
+            const res = native(th, th.stack[fn_idx + 1 .. th.top]) catch |e| {
+                if (e == error.Yield) return error.Yield;
+                th.fillError();
+                th.popFrame();
+                if (protected) {
+                    th.top = fn_idx;
+                    const r = th.errResult();
+                    th.push(r);
+                    return false;
+                }
+                return error.Slang;
+            };
+            th.popFrame();
+            th.top = fn_idx;
+            if (protected) {
+                const r = th.okResult(res);
+                th.push(r);
+            } else {
+                th.push(res);
+            }
+            return false;
+        }
+        const p = cl.proto.?;
+        const base = fn_idx + 1;
+        var nparams: usize = p.nargs;
+        if (p.is_vararg) nparams -= 1;
+        try th.ensure(base + @max(nparams + 1, p.max_stack) + 8);
+        if (nargs_ > nparams) {
+            if (p.is_vararg) {
+                const extra = th.vm.newTable(nargs_ - nparams, 0);
+                extra.arr.appendSlice(th.vm.gpa, th.stack[base + nparams .. base + nargs_]) catch oom();
+                th.stack[base + nparams] = .{ .table = extra };
+                th.top = base + nparams + 1;
+            } else {
+                th.top = base + nparams;
+            }
+        } else {
+            while (th.top < base + nparams) th.push(.null);
+            if (p.is_vararg) th.push(.{ .table = th.vm.newTable(0, 0) });
+        }
+        const need = base + p.max_stack;
+        while (th.top < need) {
+            th.stack[th.top] = .null;
+            th.top += 1;
+        }
+        try th.pushFrame(cl, base, protected);
+        return true;
+    }
+
+    pub fn run(th: *Thread, stop_depth: usize) Error!void {
+        return interp.run(th, stop_depth);
+    }
+
+    // Operations with metamethod support, implemented in interp.zig.
+    pub const arithMeta = interp.ThreadOps.arithMeta;
+    pub const getTable = interp.ThreadOps.getTable;
+    pub const setTable = interp.ThreadOps.setTable;
+    pub const rawSet = interp.ThreadOps.rawSet;
+    pub const typeOf = interp.ThreadOps.typeOf;
+    pub const toString = interp.ThreadOps.toString;
+    pub const renderString = interp.ThreadOps.renderString;
+    pub const len = interp.ThreadOps.len;
+
+    fn okResult(th: *Thread, v: Value) Value {
+        const t = th.vm.newTable(2, 0);
+        t.append(th.vm.gpa, th.vm.str("ok"));
+        t.pushSlot(th.vm.gpa, v);
+        return .{ .table = t };
+    }
+
+    fn errResult(th: *Thread) Value {
+        const e = th.vm.errorToValue();
+        const t = th.vm.newTable(2, 0);
+        t.append(th.vm.gpa, th.vm.str("err"));
+        t.append(th.vm.gpa, e);
+        return .{ .table = t };
+    }
+
+    /// Completes the pending error with the current location and traceback
+    /// if the creator did not set them.
+    pub fn fillError(th: *Thread) void {
+        const vm = th.vm;
+        if (vm.err == null) vm.setError("unknown error", .{});
+        const e = &vm.err.?;
+        if (e.loc == null) e.loc = th.currentLocation();
+        if (e.trace == null) e.trace = th.traceback();
+    }
+
+    /// The source position of the innermost slang frame.
+    pub fn currentLocation(th: *const Thread) ?Location {
+        var i = th.frames.items.len;
+        while (i > 0) {
+            i -= 1;
+            const fr = th.frames.items[i];
+            const p = fr.cl.proto orelse continue;
+            const pc: usize = if (fr.pc > 0) fr.pc - 1 else 0;
+            const l = p.location(pc) orelse return null;
+            return .{
+                .origin = th.vm.gpa.dupe(u8, l.origin.bytes()) catch oom(),
+                .line = l.line,
+                .column = l.column,
+            };
+        }
+        return null;
+    }
+
+    /// Renders the frame stack, innermost first.
+    pub fn traceback(th: *const Thread) []u8 {
+        var aw: std.Io.Writer.Allocating = .init(th.vm.gpa);
+        defer aw.deinit();
+        const w = &aw.writer;
+        w.writeAll("stack traceback:") catch oom();
+        var i = th.frames.items.len;
+        while (i > 0) {
+            i -= 1;
+            const fr = th.frames.items[i];
+            w.writeAll("\n  at ") catch oom();
+            const p = fr.cl.proto orelse {
+                w.print("[native {s}]", .{fr.cl.nameBytes()}) catch oom();
+                continue;
+            };
+            const pc: usize = if (fr.pc > 0) fr.pc - 1 else 0;
+            if (p.location(pc)) |l| {
+                w.print("{s}:{d}:{d}", .{ l.origin.bytes(), l.line, l.column }) catch oom();
+            } else {
+                w.writeAll("function (no source info)") catch oom();
+            }
+        }
+        return aw.toOwnedSlice() catch oom();
+    }
+
+    /// Deals with an error raised inside run: either transfers control to the
+    /// nearest protected call of this run loop (returns normally) or unwinds
+    /// the loop's frames and returns the error to the caller.
+    pub fn handleError(th: *Thread, err: Error, stop_depth: usize) Error!void {
+        if (err == error.Yield) {
+            if (th.run_depth == 1 and !th.is_main) return error.Yield;
+            th.popFrame();
+            th.vm.setError("attempt to yield across a native call boundary", .{});
+        }
+        th.fillError();
+        var i = th.frames.items.len;
+        while (i > stop_depth) {
+            i -= 1;
+            if (th.frames.items[i].protected) {
+                const fn_idx = th.frames.items[i].base - 1;
+                while (th.frames.items.len > i) th.popFrame();
+                th.top = fn_idx;
+                const r = th.errResult();
+                th.push(r);
+                return;
+            }
+        }
+        while (th.frames.items.len > stop_depth) th.popFrame();
+        return error.Slang;
+    }
+
+    /// Runs a coroutine until it yields or finishes. The returned value is the
+    /// yielded value or the function result. Resuming a dead coroutine
+    /// returns null.
+    pub fn resumeCo(co: *Thread, args: []const Value) Error!Value {
+        switch (co.status) {
+            .dead => return .null,
+            .running => return co.vm.raise("cannot resume a running coroutine", .{}),
+            .init => {
+                co.status = .running;
+                co.top = 0;
+                try co.ensure(1 + args.len + 8);
+                co.push(.{ .function = co.entry.? });
+                for (args) |a| co.push(a);
+                const is_slang = co.precall(0, args.len, false) catch |e| return co.finish(e);
+                if (!is_slang) return co.finish(null);
+            },
+            .suspended => {
+                co.status = .running;
+                const fr = co.frames.items[co.frames.items.len - 1];
+                const fn_idx = fr.base - 1;
+                co.popFrame();
+                co.top = fn_idx;
+                co.push(if (args.len > 0) args[0] else .null);
+            },
+        }
+        co.run(0) catch |e| return co.finish(e);
+        return co.finish(null);
+    }
+
+    fn finish(co: *Thread, err: ?Error) Error!Value {
+        if (err) |e| {
+            if (e == error.Yield) {
+                co.status = .suspended;
+                const v = co.yielded;
+                co.yielded = .null;
+                return v;
+            }
+            co.status = .dead;
+            while (co.frames.items.len > 0) co.popFrame();
+            co.top = 0;
+            return e;
+        }
+        co.status = .dead;
+        const res: Value = if (co.top > 0) co.stack[co.top - 1] else .null;
+        co.top = 0;
+        return res;
+    }
+
+    /// Suspends the current coroutine with v. The native returns this error.
+    pub fn yield(th: *Thread, v: Value) Error {
+        if (th.is_main) return th.vm.raise("cannot yield from the main thread", .{});
+        th.yielded = v;
+        return error.Yield;
+    }
+};

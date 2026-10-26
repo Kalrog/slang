@@ -7,6 +7,9 @@
 #   make stage0-seed  generate the seed with the legacy Dart compiler (bootstrap reference only)
 #   make dungeon      run the example game (examples/dungeon) on Ebitengine
 #   make dungeon-test run the example game's DSL tests
+#   make zig          build the Zig VM (zig/zig-out/bin/slang), see PLAN_ZIG.md
+#   make zig-test     run the slang test suite and the Zig unit tests on the Zig VM
+#   make zig-fixpoint check that the Zig VM compiles the seed to identical bytecode
 
 DART   ?= dart
 GO     ?= go
@@ -16,7 +19,7 @@ LIB_SRC  := $(wildcard slang/lib/*.slang)
 COMPILER_SRC := $(wildcard slang/compiler/*.slang)
 TEST_SRC := $(wildcard test/*.slang)
 
-.PHONY: all seed fixpoint test build stage0-seed clean dungeon dungeon-test
+.PHONY: all seed fixpoint test build stage0-seed clean dungeon dungeon-test zig zig-test zig-fixpoint
 
 all: build
 
@@ -55,5 +58,22 @@ dungeon:
 dungeon-test: build
 	cd examples/dungeon && ../../bin/slang test test
 
+zig:
+	cd zig && zig build -Doptimize=ReleaseSafe
+
+zig-test: zig
+	cd zig && zig build test
+	zig/zig-out/bin/slang test test
+
+zig-fixpoint: zig
+	@rm -rf /tmp/slang-zig-fixpoint && mkdir -p /tmp/slang-zig-fixpoint
+	@for f in $(LIB_SRC) $(COMPILER_SRC); do \
+	  n=$$(basename $$f .slang); \
+	  zig/zig-out/bin/slang compile $$f -o /tmp/slang-zig-fixpoint/$$n.slb --origin slang/$$n || exit 1; \
+	  cmp go/boot/slang/$$n.slb /tmp/slang-zig-fixpoint/$$n.slb || { echo "zig-fixpoint: $$n differs"; exit 1; }; \
+	done
+	@echo "zig-fixpoint: ok"
+
 clean:
 	rm -f bin/slang
+	rm -rf zig/zig-out zig/.zig-cache

@@ -6,3 +6,5 @@
 /examples/dungeon/dungeon
 /examples/dungeon/host/host
 /examples/dungeon/host/dungeon
+/zig/zig-out
+/zig/.zig-cache

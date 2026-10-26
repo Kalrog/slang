@@ -106,7 +106,7 @@ local func update_paddle(dt){
 
 local func update_ball(dt){
   local b = game.ball
-  if(not b.launched){ return null }
+  if(not b.launched){ return }
   b.x = b.x + b.vx * dt
   b.y = b.y + b.vy * dt
 
@@ -155,7 +155,7 @@ local func bricks_left(){
 
 local func update(dt){
   if(rl.is_key_pressed(rl.KEY_R)){ new_game() }
-  if(game.state != "playing"){ return null }
+  if(game.state != "playing"){ return }
   update_paddle(dt)
   update_ball(dt)
   if(bricks_left() == 0){ game.state = "won" }
@@ -199,7 +199,7 @@ new_game()
 
 local frame_limit = os.getenv("BREAKOUT_FRAMES")
 local frames = 0
-for(not rl.window_should_close(); frames = frames + 1){
+for(; not rl.window_should_close(); frames = frames + 1){
   if(frame_limit != null and frames >= to_int(frame_limit)){ break }
   update(rl.get_frame_time())
   draw()

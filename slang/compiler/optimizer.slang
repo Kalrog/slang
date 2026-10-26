@@ -147,7 +147,7 @@ func visitors.Index(n){
 }
 
 func visitors.Return(n){
-  return ast.node("Return", {value: visit(n.value)}, n.token)
+  return ast.node("Return", {value: maybe(n.value)}, n.token)
 }
 
 func visitors.Table(n){

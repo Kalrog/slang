@@ -649,7 +649,11 @@ func visitors.Declaration(g, node){
 }
 
 func visitors.Return(g, node){
-  g:visit(node.value)
+  if(node.value != null){
+    g:visit(node.value)
+  } else {
+    g.asm:emit_load_constant(null)
+  }
   g.asm:emit_return()
 }
 

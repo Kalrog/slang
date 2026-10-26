@@ -115,13 +115,18 @@ local i = len(list)
 for(i >= 0; i = i - 1){
     print(list[i])
 }
-for([init(optional)]; [condition]; [update(optional)]){
-    // body
+for([init]; condition; [update]){   // init and update are optional:
+    // body                          // for(; i < 10; i = i + 1), for(i < 10)
 }
 // break leaves the innermost loop
 ```
 ### Functions
 ```slang
+// return without a value returns null
+func check(x) {
+    if (x == null) { return }
+    print(x)
+}
 // normal
 func add(a, b) {
     return a + b

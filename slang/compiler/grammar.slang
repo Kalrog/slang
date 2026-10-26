@@ -342,10 +342,12 @@ func grammar.new(opts){
 
   func g.for_loop(){
     return peg.seq(
+      // for(init; condition; update), for(condition; update), for(condition);
+      // init and update may also be left empty: for(; condition; update)
       tok("for"), tok("("),
-      peg.ref(g.expression_or_statement),
+      peg.ref(g.expression_or_statement):optional(),
       peg.seq(tok(";"), peg.ref(g.expression_or_statement)):pick(1):optional(),
-      peg.seq(tok(";"), g.statement()):pick(1):optional(),
+      peg.seq(tok(";"), g.statement():optional()):pick(1):optional(),
       peg.char(")"),
       g.statement()
     ):map(func(v){
@@ -428,7 +430,8 @@ func grammar.new(opts){
   }
 
   func g.return_statement(){
-    return peg.seq(tok("return"), g.expr()):map(func(v){
+    // the value is optional: a bare `return` returns null
+    return peg.seq(tok("return"), g.expr():optional()):map(func(v){
       return ast.node("Return", {value: v[1]}, v[0])
     })
   }

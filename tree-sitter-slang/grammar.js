@@ -56,9 +56,9 @@ module.exports = grammar({
     for_loop: $ => seq(
       "for",
       "(",
-      optional(seq($.statement, ";")),
+      optional(seq(optional($.statement), ";")),
       $.expression,
-      optional(seq(";", $.statement)),
+      optional(seq(";", optional($.statement))),
       ")",
       $.statement_or_block
     ),
@@ -92,7 +92,7 @@ module.exports = grammar({
     final_statement: $ => $.return_statement,
     return_statement: $ => seq(
       "return",
-      $.expression
+      optional($.expression)
     ),
 
     int: $ => /[+-]?\d+/,

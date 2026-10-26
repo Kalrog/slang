@@ -443,8 +443,11 @@ func writer.visit(self, node){
     self:add(")")
     self:visit(node.body)
   } else if(t == "Return"){
-    self:add("return ")
-    self:visit(node.value)
+    self:add("return")
+    if(node.value != null){
+      self:add(" ")
+      self:visit(node.value)
+    }
   } else if(t == "Assignment"){
     self:visit(node.left)
     self:add(" = ")

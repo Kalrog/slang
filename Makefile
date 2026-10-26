@@ -10,6 +10,7 @@
 #   make zig          build the Zig VM (zig/zig-out/bin/slang), see PLAN_ZIG.md
 #   make zig-test     run the slang test suite and the Zig unit tests on the Zig VM
 #   make zig-fixpoint check that the Zig VM compiles the seed to identical bytecode
+#   make breakout     run the breakout example (examples/breakout) on the Zig VM with the raylib extension
 
 DART   ?= dart
 GO     ?= go
@@ -19,7 +20,7 @@ LIB_SRC  := $(wildcard slang/lib/*.slang)
 COMPILER_SRC := $(wildcard slang/compiler/*.slang)
 TEST_SRC := $(wildcard test/*.slang)
 
-.PHONY: all seed fixpoint test build stage0-seed clean dungeon dungeon-test zig zig-test zig-fixpoint
+.PHONY: all seed fixpoint test build stage0-seed clean dungeon dungeon-test zig zig-test zig-fixpoint breakout
 
 all: build
 
@@ -74,6 +75,9 @@ zig-fixpoint: zig
 	  cmp go/boot/slang/$$n.slb /tmp/slang-zig-fixpoint/$$n.slb || { echo "zig-fixpoint: $$n differs"; exit 1; }; \
 	done
 	@echo "zig-fixpoint: ok"
+
+breakout: zig
+	SLANG_NATIVE_PATH=zig/zig-out/lib zig/zig-out/bin/slang run examples/breakout/main.slang
 
 clean:
 	rm -f bin/slang

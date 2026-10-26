@@ -54,6 +54,27 @@ pub fn build(b: *std.Build) void {
     vec.linker_allow_shlib_undefined = true;
     b.installArtifact(vec);
 
+    // The raylib extension links the system raylib (Homebrew by default);
+    // -Draylib=false skips it, -Draylib-prefix points at another install.
+    const with_raylib = b.option(bool, "raylib", "build the raylib extension (needs raylib installed)") orelse true;
+    if (with_raylib) {
+        const prefix = b.option([]const u8, "raylib-prefix", "where raylib is installed") orelse "/opt/homebrew";
+        const rl_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
+        rl_mod.addCSourceFile(.{ .file = b.path("../extensions/native/raylib.c"), .flags = &.{"-std=c11"} });
+        rl_mod.addIncludePath(b.path("include"));
+        rl_mod.addIncludePath(.{ .cwd_relative = b.fmt("{s}/include", .{prefix}) });
+        rl_mod.addLibraryPath(.{ .cwd_relative = b.fmt("{s}/lib", .{prefix}) });
+        rl_mod.linkSystemLibrary("raylib", .{});
+        const rl = b.addLibrary(.{ .name = "raylib_ext", .linkage = .dynamic, .root_module = rl_mod });
+        rl.linker_allow_shlib_undefined = true;
+        // installed as raylib.<ext> (no lib prefix, so it cannot be confused
+        // with the raylib library itself)
+        const rl_install = b.addInstallArtifact(rl, .{
+            .dest_sub_path = b.fmt("raylib{s}", .{target.result.dynamicLibSuffix()}),
+        });
+        b.getInstallStep().dependOn(&rl_install.step);
+    }
+
     const tests = b.addTest(.{ .root_module = mod });
     b.step("test", "run the Zig unit tests").dependOn(&b.addRunArtifact(tests).step);
 }

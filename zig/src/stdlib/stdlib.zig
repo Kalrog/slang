@@ -30,8 +30,15 @@ pub fn open(vm: *VM) void {
     const sp = vm.newTable(1, 0);
     sp.append(vm.gpa, vm.str("."));
     pkgs.set(vm.gpa, vm.str("searchPaths"), .{ .table = sp });
+    // native extensions: "." plus the directories in SLANG_NATIVE_PATH
     const nsp = vm.newTable(1, 0);
     nsp.append(vm.gpa, vm.str("."));
+    if (vm.getenv("SLANG_NATIVE_PATH")) |env_path| {
+        var it = std.mem.splitScalar(u8, env_path, ':');
+        while (it.next()) |dir| {
+            if (dir.len > 0) nsp.append(vm.gpa, vm.str(dir));
+        }
+    }
     pkgs.set(vm.gpa, vm.str("nativeSearchPaths"), .{ .table = nsp });
     vm.setGlobal("__PACKAGES", .{ .table = pkgs });
 

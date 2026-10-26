@@ -43,6 +43,11 @@ func main() {
 		pprof.StartCPUProfile(f)
 		defer pprof.StopCPUProfile()
 	}
+	// SLANG_CALLPROFILE=1 prints the most called slang functions at exit.
+	if os.Getenv("SLANG_CALLPROFILE") != "" {
+		vm.CallProfile = map[*vm.FunctionProto]int{}
+		defer vm.PrintCallProfile(os.Stderr, 40)
+	}
 	switch os.Args[1] {
 	case "run":
 		if len(os.Args) < 3 {

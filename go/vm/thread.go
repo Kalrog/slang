@@ -256,6 +256,9 @@ func (th *Thread) precall(fnIdx, nargs int, protected bool) (bool, error) {
 		return false, nil
 	}
 	p := cl.Proto
+	if CallProfile != nil {
+		CallProfile[p]++
+	}
 	base := fnIdx + 1
 	nparams := p.NArgs
 	if p.IsVarArg {

@@ -211,13 +211,21 @@ only, evaluated once before any unit:
 
 ## Phases
 
-### Phase 1: Rule registry with late binding `[ ]`
-- [ ] `define/rule/modify/rules`, provenance, protected set, probes, the
-      `choice(old, seq(old, ...))` lint.
-- [ ] Grammar derivation (`derive`), dirty flag, lazy sealing; `seal()`
-      rebuilds analyses, dispatch and the resolved tree once.
-- [ ] Statement registry on dispatch tables.
-- [ ] AST oracle and fixed point unchanged.
+### Phase 1: Rule registry with late binding `[x]`
+- [x] `define/rule/modify/rules`, provenance, protected set, probes, the
+      `choice(old, seq(old, ...))` lint (warnings behind `SLANG_GRAMMAR_WARNINGS`).
+- [x] Grammar derivation (`derive`), dirty flag, lazy sealing; `seal()`
+      rebuilds the walker, the dispatch tables and the rule targets once.
+      Rule references are shared by a lineage and follow the activated grammar.
+- [x] Statement and extension-statement registries on dispatch tables.
+- [x] Every slang file in the repository compiles to byte-identical bytecode;
+      fixed point unchanged; parse benchmark at parity (the expression walker
+      now exposes its first set, which also prunes statement attempts at block ends).
+- Lesson: a reference created while the grammar is being sealed (inside a
+  group's `add` function) had no target during the first-set analysis and
+  silently disabled pruning for the call postfix (+12% parse time). Rule
+  references now resolve through the sealed table during analysis.
+  `SLANG_CALLPROFILE=1` (call counts per function, Go VM) found it.
 
 ### Phase 2: Expression walker `[ ]`
 - [ ] Instances (`walker`, `derive`), engine API (`infix/prefix/postfix` with

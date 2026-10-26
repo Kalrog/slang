@@ -37,9 +37,18 @@ local func run_extension(node, origin){
   return f()
 }
 
+// grammar warnings (modified rules, failed probes) are a development aid
+local func warn(message){
+  print("grammar warning: ", message, "\n")
+}
+
 local func new_grammar(){
   peg.reset_refs()
-  return grammar.new({run_block: run_block, run_extension: run_extension, optimize: optimizer.optimize})
+  local opts = {run_block: run_block, run_extension: run_extension, optimize: optimizer.optimize}
+  if(os.getenv("SLANG_GRAMMAR_WARNINGS") != null){
+    opts.warn = warn
+  }
+  return grammar.new(opts)
 }
 
 current = new_grammar()
@@ -49,7 +58,7 @@ func compiler.grammar(){
 }
 
 func compiler.reset(){
-  if(not current.changes_allowed()){
+  if(not current:changes_allowed()){
     error("the grammar can only be reset at run time or from an extension statement")
   }
   for(let local name in values(loaded_extensions)){
@@ -61,7 +70,7 @@ func compiler.reset(){
 
 // parse(source, origin) -> AST
 func compiler.parse(source, origin){
-  return current.parse_source(source, origin or "string")
+  return current:parse_source(source, origin or "string")
 }
 
 // generate(node, origin) -> prototype table
@@ -74,7 +83,7 @@ func compiler.compile(code, origin, trace){
   origin = origin or "string"
   local node
   if(type(code) == "string"){
-    node = current.parse_source(code, origin)
+    node = current:parse_source(code, origin)
   } else {
     node = ast.decode(code)
   }
@@ -127,20 +136,21 @@ func compiler.load_file(path, origin){
       }
     }
   }
-  local outer_effects = current.compile_time_effects
-  current.compile_time_effects = false
-  local node = current.parse_source(source, origin)
+  local state = current.state
+  local outer_effects = state.compile_time_effects
+  state.compile_time_effects = false
+  local node = current:parse_source(source, origin)
   local f = vm.load_proto(codegen.generate(node, origin))
-  if(cache_path != null and not current.compile_time_effects and not current.extended){
+  if(cache_path != null and not state.compile_time_effects and not current.extended){
     pcall(os.write_file, cache_path, vm.to_bytes(f))
   }
-  current.compile_time_effects = outer_effects or current.compile_time_effects
+  state.compile_time_effects = outer_effects or state.compile_time_effects
   return f
 }
 
 // compile_repl(source) -> function returning the value of an expression or null
 func compiler.compile_repl(source){
-  local node = current.parse_repl(source)
+  local node = current:parse_repl(source)
   return vm.load_proto(codegen.generate(node, "repl"))
 }
 
@@ -217,54 +227,54 @@ func p.token(s){
 }
 
 func p.keyword(s){
-  return current.keyword(s)
+  return current:keyword(s)
 }
 
 func p.add_statement(name, parser){
-  current.add_statement(name, parser:map(decode_statement))
+  current:add_statement(name, parser:map(decode_statement))
 }
 
 // add_extension_statement(name, parser, apply): a top-level-only statement
 // whose apply(result) runs at compile time with grammar changes allowed and
 // returns the statement to emit ({token, ast} or a node) or null
 func p.add_extension_statement(name, parser, apply){
-  current.add_extension_statement(name, parser, apply)
+  current:add_extension_statement(name, parser, apply)
 }
 
 func p.add_primitive_expression(name, parser){
-  current.add_primitive_expression({names: {name}, parser: parser:map(decode_expression)})
+  current:add_primitive_expression({names: {name}, parser: parser:map(decode_expression)})
 }
 
 func p.add_primitive_expression_after(after, name, parser){
-  current.add_primitive_expression_after(after, {names: {name}, parser: parser:map(decode_expression)})
+  current:add_primitive_expression_after(after, {names: {name}, parser: parser:map(decode_expression)})
 }
 
 func p.add_primitive_expression_before(before, name, parser){
-  current.add_primitive_expression_before(before, {names: {name}, parser: parser:map(decode_expression)})
+  current:add_primitive_expression_before(before, {names: {name}, parser: parser:map(decode_expression)})
 }
 
 func p.add_expression_group_after(after, name, f){
-  current.add_expression_group_after(after, group_level(name, f))
+  current:add_expression_group_after(after, group_level(name, f))
 }
 
 func p.add_expression_group_before(before, name, f){
-  current.add_expression_group_before(before, group_level(name, f))
+  current:add_expression_group_before(before, group_level(name, f))
 }
 
 func p.add_expression_group_at(index, name, f){
-  current.add_expression_group_at(index, group_level(name, f))
+  current:add_expression_group_at(index, group_level(name, f))
 }
 
 func p.add_expression_group(name, f){
-  current.add_expression_group(group_level(name, f))
+  current:add_expression_group(group_level(name, f))
 }
 
 func p.get_primitive_expression_names(){
-  return current.primitive_expression_names()
+  return current:primitive_expression_names()
 }
 
 func p.get_expression_group_names(){
-  return current.expression_group_names()
+  return current:expression_group_names()
 }
 
 func p.identifier(){
@@ -298,7 +308,7 @@ local uniq_counter = 0
 
 // origin() -> the name of the source being parsed (null outside a parse)
 func p.origin(){
-  return current.origin
+  return current.state.origin
 }
 
 // error_at(token, message...): raises a compile error located at token (a
@@ -306,7 +316,7 @@ func p.origin(){
 func p.error_at(token, ...message){
   local location = null
   if(type(token) == "table" and token.line != null){
-    location = {line: token.line, column: token.column, origin: current.origin or "string"}
+    location = {line: token.line, column: token.column, origin: current.state.origin or "string"}
   }
   local text = ""
   for(let local part in values(message)){
@@ -325,6 +335,25 @@ func p.ast_to_string(value){
     return "null"
   }
   return ast.to_string(ast.decode(value))
+}
+
+// the rule registry: rule(name) refers to a grammar rule, define/modify
+// change it (modify's function gets the current parser and returns the new
+// one), rules() lists every rule with its provenance
+func p.rule(name){
+  return current:rule(name)
+}
+
+func p.define(name, parser, options){
+  current:define(name, parser, options)
+}
+
+func p.modify(name, f){
+  current:modify(name, f)
+}
+
+func p.rules(){
+  return current:rules()
 }
 
 func p.resolve(parser){

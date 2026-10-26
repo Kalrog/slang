@@ -9,6 +9,37 @@ import (
 	"runtime/debug"
 )
 
+// CallProfile counts calls per prototype when SLANG_CALLPROFILE is set (see
+// cmd/slang); nil otherwise.
+var CallProfile map[*FunctionProto]int
+
+// PrintCallProfile writes the most called prototypes to w.
+func PrintCallProfile(w io.Writer, n int) {
+	type entry struct {
+		p *FunctionProto
+		c int
+	}
+	var list []entry
+	for p, c := range CallProfile {
+		list = append(list, entry{p, c})
+	}
+	for i := 1; i < len(list); i++ {
+		for j := i; j > 0 && list[j].c > list[j-1].c; j-- {
+			list[j], list[j-1] = list[j-1], list[j]
+		}
+	}
+	for i, e := range list {
+		if i >= n {
+			break
+		}
+		loc := "?"
+		if l := e.p.Location(0); l != nil {
+			loc = fmt.Sprintf("%s:%d", l.Origin, l.Line)
+		}
+		fmt.Fprintf(w, "%10d  %s\n", e.c, loc)
+	}
+}
+
 // VM holds the state shared by all threads: globals, the package registry and
 // the standard streams.
 type VM struct {

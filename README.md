@@ -33,7 +33,8 @@ After changing the compiler, run `make seed` twice (the first seed is compiled
 by the old compiler, the second by the new one) and then `make fixpoint`.
 
 `SLANG_CPUPROFILE=out.prof bin/slang run x.slang` writes a CPU profile for
-`go tool pprof`.
+`go tool pprof`; `SLANG_CALLPROFILE=1` prints the most called slang functions
+at exit.
 
 Files loaded with `require` or `slang run` are cached as bytecode in
 `~/.cache/slang` (override with `SLANG_CACHE_DIR`, disable with
@@ -310,6 +311,18 @@ The parser API (`require("slang/parser")`) offers `add_statement`,
 combinators `seq`, `choice`, `star`, `plus`, `optional`, `map`, `token`,
 `keyword`, ... See `extensions/` for examples (switch statement, lambda
 shorthand, custom infix/prefix/postfix operators, a grammar DSL).
+
+The grammar is a registry of named rules (`p.rules()` lists them with the
+extensions that changed them). `p.rule(name)` refers to a rule, `p.define(name,
+parser)` adds one and `p.modify(name, func(old){ ... })` replaces a rule by a
+parser built from the current one; the rules that make metaprogramming work
+(quote, unquote, the extension statement) are protected. Changes are sealed
+lazily: the first parse after a change rebuilds the expression walker and the
+dispatch tables once. `SLANG_GRAMMAR_WARNINGS=1` reports rules modified by
+more than one extension, modifications that can never match their second
+alternative, and rules that stop parsing their probe snippet. The plan for
+the rest of this work (scoped grammars, dialects, tooling) is in
+`PLAN_GRAMMAR.md`.
 
 ## Standard library
 Globals: `print`, `args`, `readLine`, `open` (files with `read`, `write`,

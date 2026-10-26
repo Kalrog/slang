@@ -940,7 +940,7 @@ local func info_of(p, memo, visiting){
       }
     }
     r = {first: first, nullable: nullable}
-  } else if(kind == "choice"){
+  } else if(kind == "choice" or kind == "dispatch"){
     local first = {}
     local nullable = false
     for(let local c in values(children)){
@@ -962,6 +962,15 @@ local func info_of(p, memo, visiting){
     r = info_of(children[0], memo, visiting)
   } else if(kind == "settable"){
     r = info_of(p.target, memo, visiting)
+  } else if(kind == "rule"){
+    // a reference created while the grammar is being sealed has no target
+    // yet; its lookup finds the rule in the sealed table (null for rules
+    // that are not built yet, which is then correctly unknown)
+    local target = p.target
+    if(target == null and p.lookup != null){
+      target = p.lookup(p)
+    }
+    r = info_of(target, memo, visiting)
   } else if(kind == "ref"){
     if(p.target == null){
       p.target = resolve_ref(p.ref_function, p.ref_args)
@@ -1051,6 +1060,29 @@ local func try_ops(d, ctx, pos){
     }
   }
   return null
+}
+
+// dispatch(parsers, skip, message): an ordered choice over parsers that only
+// tries, in order, the alternatives whose first byte (after skip, when given)
+// can match. When no alternative can match, message (if given) is recorded
+// as the failure. The tables are built now, from the current resolution of
+// every rule reference, so a dispatch belongs to one sealed grammar.
+func peg.dispatch(parsers, skip, message){
+  local entries = {}
+  for(let local p in values(parsers)){
+    append(entries, {parser: p})
+  }
+  local d = make_dispatch(entries, skip, {})
+  return new_parser(func(self, ctx, pos){
+    local cand = try_ops(d, ctx, pos)
+    if(cand != null){
+      return ctx.op_pos
+    }
+    if(not ctx.tried and message != null){
+      return fail(ctx, ctx.skip_to, message)
+    }
+    return -1
+  }, parsers, "dispatch")
 }
 
 func builder_methods.build(self){
@@ -1254,6 +1286,23 @@ func builder_methods.build(self){
   local expr = new_parser(func(self, ctx, pos){
     return parse_level(ctx, pos, n - 1)
   }, children, "expression")
+  // an expression starts with a primitive, a wrapper or a prefix operator
+  local first = {}
+  for(let local p in values(self.primitives)){
+    first = union(first, info_of(p, memo, {}).first)
+  }
+  for(let local g in values(self.groups)){
+    for(let local w in values(g.wrappers)){
+      first = union(first, info_of(w.left, memo, {}).first)
+    }
+    for(let local o in values(g.prefixes)){
+      first = union(first, info_of(o.parser, memo, {}).first)
+    }
+  }
+  if(first != null){
+    expr.first = first
+    expr.nullable = false
+  }
   self.loopback:set(expr)
   return expr
 }

@@ -41,6 +41,7 @@ local OP_BXOR = 30
 local OP_SHL = 31
 local OP_SHR = 32
 local OP_BNOT = 33
+local OP_CALL_SPREAD = 34
 
 // instruction layout: |b:9|c:9|a:8|op:6|, bx = 18 bits, sbx = bx - 0x1FFFF, ax = 26 bits
 local SBX_OFFSET = 131071
@@ -408,6 +409,12 @@ func asm.emit_call(self, nargs){
   self:emit_abx(OP_CALL, 0, nargs)
 }
 
+// call_spread(fixed): the arguments are `fixed` values followed by one list
+// whose elements become the remaining arguments
+func asm.emit_call_spread(self, fixed){
+  self:emit_abx(OP_CALL_SPREAD, 0, fixed)
+}
+
 func asm.emit_type(self){
   self:emit(OP_TYPE)
 }
@@ -708,7 +715,79 @@ func visitors.Field(g, node){
   g.asm:emit_set_table()
 }
 
+local func has_spread(items){
+  for(let local item in values(items)){
+    if(item.type == "Spread"){
+      return true
+    }
+  }
+  return false
+}
+
+// leaves one table on the stack: the items (fields or argument nodes, some
+// of them Spread) joined with concat, consecutive plain items as one literal
+local func emit_spread_list(g, items, token){
+  local segments = {}
+  local plain = {}
+  local func flush(){
+    if(len(plain) > 0){
+      append(segments, ast.node("Table", {fields: plain}, token))
+      plain = {}
+    }
+  }
+  for(let local item in values(items)){
+    if(item.type == "Spread"){
+      flush()
+      append(segments, item.value)
+    } else if(item.type == "Field"){
+      append(plain, item)
+    } else {
+      append(plain, ast.node("Field", {value: item}, item.token))
+    }
+  }
+  flush()
+  // concat is looked up as a global whatever locals are in scope
+  g:visit(global_index(token, "concat"))
+  for(let local seg in values(segments)){
+    g:visit(seg)
+  }
+  g.asm:emit_call(len(segments))
+}
+
+// pushes the arguments and emits the call; `extra` arguments (the receiver
+// of a method call) are already on the stack
+local func emit_call_args(g, args, extra, token){
+  if(not has_spread(args)){
+    for(let local a in values(args)){
+      g:visit(a)
+    }
+    g.asm:emit_call(len(args) + extra)
+    return null
+  }
+  local fixed = 0
+  local rest = {}
+  for(let local a in values(args)){
+    if(a.type == "Spread" or len(rest) > 0){
+      append(rest, a)
+    } else {
+      g:visit(a)
+      fixed = fixed + 1
+    }
+  }
+  if(len(rest) == 1){
+    // f(a, ...t): the list itself, no copy
+    g:visit(rest[0].value)
+  } else {
+    emit_spread_list(g, rest, token)
+  }
+  g.asm:emit_call_spread(fixed + extra)
+}
+
 func visitors.Table(g, node){
+  if(has_spread(node.fields)){
+    emit_spread_list(g, node.fields, node.token)
+    return null
+  }
   local array_fields = {}
   local map_fields = {}
   for(let local f in values(node.fields)){
@@ -789,10 +868,7 @@ func visitors.Function(g, node){
 
 func visitors.Call(g, node){
   g:visit(node.function)
-  for(let local a in values(node.args)){
-    g:visit(a)
-  }
-  g.asm:emit_call(len(node.args))
+  emit_call_args(g, node.args, 0, node.token)
 }
 
 func visitors.Invoke(g, node){
@@ -801,10 +877,7 @@ func visitors.Invoke(g, node){
   g.asm:emit_load_constant(node.name.value)
   g.asm:emit_get_table()
   g.asm:emit_push(-2)
-  for(let local a in values(node.args)){
-    g:visit(a)
-  }
-  g.asm:emit_call(len(node.args) + 1)
+  emit_call_args(g, node.args, 1, node.token)
   g.asm:emit_move(-1)
 }
 

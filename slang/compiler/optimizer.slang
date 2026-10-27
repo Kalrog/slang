@@ -145,6 +145,10 @@ func visitors.Invoke(n){
   return ast.node("Invoke", {receiver: visit(n.receiver), name: n.name, args: visit_list(n.args)}, n.token)
 }
 
+func visitors.Spread(n){
+  return ast.node("Spread", {value: visit(n.value)}, n.token)
+}
+
 func visitors.Function(n){
   return ast.node("Function", {params: n.params, body: visit(n.body)}, n.token)
 }

@@ -2,14 +2,11 @@
 // being declared (function.declaration), and `$` at a use is a macro token.
 extension "extensions/dollar"
 
-macro twice(args){
-  local e = args[0]
+macro twice(e){
   return +{-{e} + -{e}}
 }
 
-macro unless(args){
-  local condition = args[0]
-  local body = args[1]
+macro unless(condition, body){
   if(let 'Function{body: local real_body} = body){
     return +{stat: if(not -{condition})-{real_body}}
   }

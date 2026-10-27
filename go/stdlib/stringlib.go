@@ -37,7 +37,7 @@ func stringModule() *vm.Table {
 		{"class_run", strClassRun},
 		{"line_col", strLineCol},
 		{"space_at", strSpaceAt},
-		{"skip_space", strSkipSpace},
+		{"skip_space", strSkipSpace}, {"utf16_len", strUtf16Len},
 		{"rune_len_at", strRuneLenAt},
 		{"compare", strCompare},
 		{"hash", strHash},
@@ -511,4 +511,23 @@ func strFromBytes(th *vm.Thread, args []vm.Value) (vm.Value, error) {
 		buf[i] = byte(v.AsInt())
 	}
 	return vm.String(string(buf)), nil
+}
+
+// utf16_len(s): the number of UTF-16 code units of a UTF-8 string.
+func strUtf16Len(th *vm.Thread, args []vm.Value) (vm.Value, error) {
+	s, err := vm.ArgString(args, 0, "str")
+	if err != nil {
+		return vm.Null, err
+	}
+	n := int64(0)
+	for i := 0; i < len(s); i++ {
+		b := s[i]
+		if b&0xC0 != 0x80 {
+			n++
+		}
+		if b >= 0xF0 {
+			n++
+		}
+	}
+	return vm.Int(n), nil
 }

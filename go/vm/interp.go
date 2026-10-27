@@ -46,6 +46,7 @@ const (
 	opShl           // a << b
 	opShr           // a >> b (arithmetic)
 	opBnot          // ~a
+	opCallSpread    // call with bx fixed args followed by a list of the rest
 	numOpcodes
 )
 
@@ -53,7 +54,7 @@ var opNames = [...]string{
 	"loadConstant", "loadBool", "loadClosure", "add", "sub", "mul", "div", "mod",
 	"neg", "not", "eq", "lt", "leq", "move", "push", "pop", "returnOp", "newTable",
 	"setTable", "getTable", "setUpvalue", "getUpvalue", "closeUpvalues", "test",
-	"jump", "call", "type", "pow", "band", "bor", "bxor", "shl", "shr", "bnot",
+	"jump", "call", "type", "pow", "band", "bor", "bxor", "shl", "shr", "bnot", "callSpread",
 }
 
 func opName(op uint32) string {
@@ -365,6 +366,32 @@ outer:
 				}
 			case opJump:
 				pc += int(ins>>14) - 0x1FFFF
+			case opCallSpread:
+				fixed := int(ins >> 14)
+				list := th.stack[th.top-1]
+				if list.k != KTable {
+					if e := th.handleError(Errorf("attempt to spread a %s value", list.TypeName()), stopDepth); e != nil {
+						return e
+					}
+					continue outer
+				}
+				items := list.o.(*Table).arr
+				th.top--
+				for _, v := range items {
+					th.push(v)
+				}
+				nargs := fixed + len(items)
+				fnIdx := th.top - nargs - 1
+				isSlang, err := th.precall(fnIdx, nargs, false)
+				if err != nil {
+					if e := th.handleError(err, stopDepth); e != nil {
+						return e
+					}
+					continue outer
+				}
+				if isSlang {
+					continue outer
+				}
 			case opCall:
 				nargs := int(ins >> 14)
 				fnIdx := th.top - nargs - 1

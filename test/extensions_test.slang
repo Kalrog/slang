@@ -23,15 +23,14 @@ assert(add_curry_curry(1)(2)() == 3, "add_curry_curry(1)(2)() should be 3")
 """
 extension "extensions/dollar"
 
-macro hello (args){
+macro hello (){
   return +{"hello world"}
 }
 
 // making use of the special syntax for calling functions with a block
-// to create a macro that can be used like an if statement
-macro unless(args){
-  local condition = args[0]
-  local body = args[1]
+// to create a macro that can be used like an if statement; the argument
+// nodes arrive as the macro's parameters
+macro unless(condition, body){
   if(let 'Function{body: local real_body} = body){
     return +{stat: if(not -{condition})-{real_body}}
   }

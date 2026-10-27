@@ -148,6 +148,18 @@ for([init]; condition; [update]){   // init and update are optional:
 }
 // break leaves the innermost loop
 ```
+### Spread
+```slang
+local func sum(...numbers){ ... }        // the rest parameter collects a list
+local args = {1, 2, 3}
+sum(...args)                             // a list spread into the arguments
+sum(0, ...args, 4)                       // anywhere in the argument list, any number of times
+obj:method(...args)
+local all = {0, ...args, last: true}     // in table literals too: the spread table's
+                                         // entries (array part and keys) are copied in
+local copy = {...args}
+```
+
 ### Functions
 ```slang
 // return without a value returns null

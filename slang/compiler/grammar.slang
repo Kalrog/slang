@@ -807,12 +807,27 @@ local func install_core(g){
   define("null_literal", tok("null"):map(func(t){ return ast.node("Null", {}, t) }))
 
   define("identifier", token(
-    peg.seq(peg.string("..."):optional(), peg.pattern("a-zA-Z_"), peg.pattern("a-zA-Z0-9_"):star())
+    peg.seq(peg.pattern("a-zA-Z_"), peg.pattern("a-zA-Z0-9_"):star())
       :flatten("Expected: identifier")
       :where(func(name){ return lin.active.keywords[name] != true }),
     "identifier"
   ):map(func(t){
     return ast.node("Identifier", {value: t.value}, t)
+  }))
+
+  // param: an identifier, or ...name for the rest parameter
+  define("param", token(
+    peg.seq(peg.string("..."):optional(), peg.pattern("a-zA-Z_"), peg.pattern("a-zA-Z0-9_"):star())
+      :flatten("Expected: parameter")
+      :where(func(name){ return lin.active.keywords[name] != true }),
+    "parameter", "parameter"
+  ):map(func(t){
+    return ast.node("Identifier", {value: t.value}, t)
+  }))
+
+  // spread: ...expr in an argument list or a table literal
+  define("spread", peg.seq(tok("...", "operator"), rule("expr")):map(func(v){
+    return ast.node("Spread", {value: v[1]}, v[0])
   }))
 
   // name: an identifier where keywords are allowed: after `.` and `:` and as
@@ -828,7 +843,7 @@ local func install_core(g){
   // ------------------------------------------------------------ tables
 
   // field: name: value | [key]: value | value
-  define("field", peg.seq(
+  define("field", peg.choice(rule("spread"), peg.seq(
     peg.choice(
       peg.seq(rule("name"), tok(":")):pick(0),
       peg.seq(tok("["), rule("expr"), tok("]"), tok(":")):pick(1)
@@ -840,7 +855,7 @@ local func install_core(g){
       key = ast.node("String", {value: key.value}, key.token)
     }
     return ast.node("Field", {key: key, value: t.value[1]}, t)
-  }))
+  })))
 
   define("table_literal", peg.seq(
     tok("{"),
@@ -878,7 +893,7 @@ local func install_core(g){
 
   define("args", peg.choice(
     peg.seq(
-      peg.seq(tok("("), rule("expr"):star_separated(tok(",")):map(elements), tok(")")):pick(1),
+      peg.seq(tok("("), peg.choice(rule("spread"), rule("expr")):star_separated(tok(",")):map(elements), tok(")")):pick(1),
       rule("block"):optional()
     ),
     rule("block")
@@ -1017,7 +1032,7 @@ local func install_core(g){
 
   // ------------------------------------------------------------ functions
 
-  define("params", rule("identifier"):star_separated(tok(",")):map(elements))
+  define("params", rule("param"):star_separated(tok(",")):map(elements))
 
   define("function_definition", peg.seq(
     tok("("), rule("params"), tok(")"),

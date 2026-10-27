@@ -20,6 +20,7 @@ local specs = {
   Null: {},
   Table: {{"fields", "list"}},
   Field: {{"key", "node?"}, {"value", "node"}},
+  Spread: {{"value", "node"}},
   Identifier: {{"value", "value"}},
   Index: {{"receiver", "node"}, {"index", "node"}, {"dotStyle", "value"}},
   BinOp: {{"left", "node"}, {"op", "value"}, {"right", "node"}},
@@ -347,6 +348,9 @@ func writer.visit(self, node){
     self.indent = self.indent - 2
     self:newline()
     self:add("}")
+  } else if(t == "Spread"){
+    self:add("...")
+    self:visit(node.value)
   } else if(t == "Field"){
     if(node.key != null){
       self:visit(node.key)

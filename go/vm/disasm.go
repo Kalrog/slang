@@ -20,7 +20,7 @@ var opModes = [...]opMode{
 	modeNone, modeNone, modeNone, modeNone, modeNone, modeAsBx, modeAsBx, modeABx,
 	modeNone, modeABC, modeNone, modeNone, modeAx, modeAx, modeAx, modeABC,
 	modeAsBx, modeABx, modeNone, modeNone, modeNone, modeNone, modeNone, modeNone,
-	modeNone, modeNone,
+	modeNone, modeNone, modeABx,
 }
 
 // InstructionString renders one instruction.

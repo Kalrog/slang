@@ -12,7 +12,7 @@ g:expression():level("macro", {after: "indexAndCall"}):prefix(g:token("$", "$", 
       if(macro){
         return {
           token: op,
-          ast: macro(args)
+          ast: macro(...args)
         }
       }
     }
@@ -22,7 +22,8 @@ g:expression():level("macro", {after: "indexAndCall"}):prefix(g:token("$", "$", 
     }
   })
 //macro {id} ( {params} ) { {body} }
-// statement to define macros
+// statement to define macros; a use $id(a, b) calls the macro with the
+// argument nodes spread into its parameters (a block argument is the last)
 // gets converted to a 
 g:statement(
   "defineMacro",
@@ -30,7 +31,7 @@ g:statement(
     g:keyword("macro"),
     g:tag(g:rule("identifier"), "function.declaration"),
     g:token("("),
-    g:rule("identifier"):star_seperated(g:token(",")):map(func(args){
+    g:rule("param"):star_seperated(g:token(",")):map(func(args){
       return args.elements
     }),
     g:token(")"),

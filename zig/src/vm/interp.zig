@@ -550,6 +550,47 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 th.frames.items[fi].pc = @intCast(pc);
                 continue :sw d.opOf(ins);
             },
+            .call_spread => {
+                th.top = top;
+                gc.safePoint(vm, th);
+                const fixed: usize = d.argBx(ins);
+                const list = stack[top - 1];
+                if (list != .table) {
+                    vm.setError("attempt to spread a {s} value", .{list.typeName()});
+                    try th.handleError(error.Slang, stop_depth);
+                    continue :outer;
+                }
+                const items = list.table.arr.items;
+                top -= 1;
+                th.top = top;
+                th.ensure(top + items.len + 8) catch |e| {
+                    try th.handleError(e, stop_depth);
+                    continue :outer;
+                };
+                stack = th.stack.ptr;
+                for (items) |v| {
+                    stack[top] = v;
+                    top += 1;
+                }
+                th.top = top;
+                const nargs = fixed + items.len;
+                const fn_idx = top - nargs - 1;
+                const is_slang = th.precall(fn_idx, nargs, false) catch |e| {
+                    try th.handleError(e, stop_depth);
+                    continue :outer;
+                };
+                if (is_slang) continue :outer;
+                top = th.top;
+                stack = th.stack.ptr;
+                ins = code[pc];
+                if (trace) {
+                    th.top = top;
+                    traceInstruction(th, fi, base, pc, ins);
+                }
+                pc += 1;
+                th.frames.items[fi].pc = @intCast(pc);
+                continue :sw d.opOf(ins);
+            },
             .call => {
                 th.top = top;
                 gc.safePoint(vm, th);

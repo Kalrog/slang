@@ -4,7 +4,7 @@
     "lambda",
     peg.seq(
       g:token("|"),
-      g:rule("identifier"):star_seperated(g:token(",")):map(func(values){
+      g:rule("param"):star_seperated(g:token(",")):map(func(values){
         return values.elements
       }),
       g:token("|"),

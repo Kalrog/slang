@@ -44,6 +44,7 @@ pub const Op = enum(u6) {
     shl, // a << b
     shr, // a >> b (arithmetic)
     bnot, // ~a
+    call_spread, // call with bx fixed args followed by a list of the rest
     _,
 
     pub fn name(op: Op) []const u8 {
@@ -82,6 +83,7 @@ pub const Op = enum(u6) {
             .shl => "shl",
             .shr => "shr",
             .bnot => "bnot",
+            .call_spread => "callSpread",
             _ => "op?",
         };
     }
@@ -108,7 +110,7 @@ const Mode = enum { abc, abx, asbx, ax, none };
 
 fn mode(op: Op) Mode {
     return switch (op) {
-        .load_constant, .pop, .call => .abx,
+        .load_constant, .pop, .call, .call_spread => .abx,
         .load_bool, .new_table, .@"test" => .abc,
         .load_closure, .set_upvalue, .get_upvalue, .close_upvalues => .ax,
         .move, .push, .jump => .asbx,

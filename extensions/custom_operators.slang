@@ -55,7 +55,7 @@ g:extension_statement(
       )
     ):optional(),
     g:token("("),
-    g:rule("identifier"):star_seperated(g:token(",")):map(|args| args.elements),
+    g:rule("param"):star_seperated(g:token(",")):map(|args| args.elements),
     g:token(")"),
     g:rule("block")
   ),
@@ -132,7 +132,7 @@ g:extension_statement(
       )
     ):optional(),
     g:token("("),
-    g:rule("identifier"):star_seperated(g:token(",")):map(|args| args.elements),
+    g:rule("param"):star_seperated(g:token(",")):map(|args| args.elements),
     g:token(")"),
     g:rule("block")
   ),
@@ -205,7 +205,7 @@ g:extension_statement(
       )
     ):optional(),
     g:token("("),
-    g:rule("identifier"):star_seperated(g:token(",")):map(|args| args.elements),
+    g:rule("param"):star_seperated(g:token(",")):map(|args| args.elements),
     g:token(")"),
     g:rule("block")
   ),

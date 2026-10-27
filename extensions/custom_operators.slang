@@ -212,7 +212,6 @@ g:extension_statement(
   func(result, g){
     local symbol = g:token(result[2], result[2], "operator")
     local id = {type:"Identifier",value:concat("postfix_", result[2])}
-    print("postfix id ", id, "\n")
     local position = result[3]
     local params = result[5]
     local body = result[7]

@@ -12,6 +12,14 @@ grammar API, and a `slang.project` that makes them ambient in this folder.
   `map(t, => inc(_ * 10))`. `=> 42` is a thunk. Outside both, `_` is an
   ordinary variable.
 
+- `def.slang`: multi-clause functions with pattern-matched parameters,
+  as in Elixir: `def fact(0){ return 1 }` and `def fact(n) when(n > 0){
+  ... }` are tried in order; parameters are patterns (`{w, h}`,
+  `'Circle{radius: r}`, `_`, constants), `...rest` collects the remaining
+  arguments, no matching clause is an error. Each clause lowers to a
+  function of the argument list with a `let` pattern check; the name
+  holds a callable dispatcher.
+
 ```
 bin/slang run examples/functional/main.slang
 ```

@@ -4,7 +4,7 @@ local str = require("slang/string")
 local compiler = require("slang/compiler")
 
 local func run(source, origin){
-  return compile(concat("extension \"examples/functional/pipe\"\nextension \"examples/functional/holes\"\n", source), origin or "functional")()
+  return compile(concat("extension \"examples/functional/pipe\"\nextension \"examples/functional/holes\"\nextension \"examples/functional/def\"\n", source), origin or "functional")()
 }
 
 t.group("pipe operator"){
@@ -91,5 +91,43 @@ t.group("holes"){
     for(let local tk in values(h.tokens)){ append(cats, tk.category) }
     assert(str.index_of(str.join(cats, " "), "operator parameter operator parameter") >= 0, str.join(cats, " "))
     assert(len(h.diagnostics) == 0)
+  }
+}
+
+t.group("def"){
+  t.test("clauses are tried in order with patterns, guards and arity"){
+    local r = run("""
+      def fact(0){ return 1 }
+      def fact(n) when(n > 0){ return n * fact(n - 1) }
+      local Circle = {meta: {__type: "Circle"}, radius: 2}
+      def area('Circle{radius: r}){ return 3 * r * r }
+      def area({w, h}){ return w * h }
+      def area(_){ return "other" }
+      def greet("en", name){ return concat("hello ", name) }
+      def greet("de", name){ return concat("hallo ", name) }
+      def pair(a, b){ return {a, b} }
+      def pair(a){ return {a} }
+      return {fact(5), area(Circle), area({4, 5}), area("x"), greet("de", "welt"), pair(1), pair(1, 2)}
+    """)
+    assert(r[0] == 120 and r[1] == 12 and r[2] == 20 and r[3] == "other", concat("results ", r))
+    assert(r[4] == "hallo welt" and r[5] == {1} and r[6] == {1, 2})
+  }
+  t.test("no matching clause is an error that names the function"){
+    local r = run("""
+      def only_small(n) when(n < 10){ return n }
+      local r = pcall(only_small, 50)
+      return r[1].message
+    """)
+    assert(str.index_of(r, "no clause of only_small matches (50)") >= 0, r)
+  }
+  t.test("rest parameters, local defs and falsy arguments"){
+    local r = run("""
+      local def total(){ return 0 }
+      local def total(first, ...rest){ return first + total(...rest) }
+      def describe(nil_or_false){ return type(nil_or_false) }
+      def describe(a, b){ return "two" }
+      return {total(1, 2, 3), total(), describe(false), describe(null), describe(1, 2), type(total)}
+    """)
+    assert(r == {6, 0, "bool", "null", "two", "def"}, concat("results ", r))
   }
 }

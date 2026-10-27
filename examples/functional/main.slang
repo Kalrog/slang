@@ -46,3 +46,25 @@ local pipeline = func(xs){
   return xs |> map(_ * 2) |> fold(0, _ + _2)
 }
 show(pipeline({1, 2, 3}), "pipeline")
+
+// multi-clause functions (def.slang): every parameter is a pattern, the
+// clauses are tried in order, `when` adds a guard, `...rest` collects
+def fact(0){ return 1 }
+def fact(n) when(n > 0){ return n * fact(n - 1) }
+show(fact(10), "fact")
+
+local Circle = {meta: {__type: "Circle"}, radius: 2}
+def area('Circle{radius: r}){ return 3 * r * r }
+def area({w, h}){ return w * h }
+def area(_){ return "not a shape" }
+show({area(Circle), area({4, 5}), area("x")}, "area")
+
+def total(){ return 0 }
+def total(first, ...rest){ return first + total(...rest) }
+show(total(1, 2, 3, 4), "total")
+
+def greet("en", name){ return concat("hello ", name) }
+def greet("de", name){ return concat("hallo ", name) }
+show(greet("de", "welt"), "greet")
+local failed = pcall(greet, "fr", "monde")
+show(failed[1].message, "no clause")

@@ -15,9 +15,49 @@ local json = require("slang/json")
 
 local lsp = {}
 
-// the semantic token legend: slang's categories in this order
-lsp.token_types = {"keyword", "variable", "number", "string", "comment", "operator", "punctuation"}
-local type_index = {keyword: 0, identifier: 1, number: 2, string: 3, comment: 4, operator: 5, punctuation: 6}
+// The semantic token legend: slang's core categories first, then every
+// standard LSP token type, so an extension can tag its tokens with any of
+// them (`g:token(parser, "name", "enumMember")`); `punctuation` is slang's
+// own type (the VS Code extension maps it to a scope). A category may carry
+// standard modifiers after dots: "enumMember.declaration.readonly".
+// Categories the legend does not know are not sent.
+lsp.token_types = {"keyword", "variable", "number", "string", "comment", "operator", "punctuation",
+  "namespace", "type", "class", "enum", "interface", "struct", "typeParameter", "parameter", "property",
+  "enumMember", "event", "function", "method", "macro", "modifier", "regexp", "decorator"}
+lsp.token_modifiers = {"declaration", "definition", "readonly", "static", "deprecated", "abstract", "async",
+  "modification", "documentation", "defaultLibrary"}
+local type_index = {identifier: 1}
+for(let local e in entries(lsp.token_types)){
+  type_index[e[1]] = e[0]
+}
+local modifier_bit = {}
+for(let local e in entries(lsp.token_modifiers)){
+  modifier_bit[e[1]] = 1 << e[0]
+}
+
+// category("enumMember.declaration") -> {type index, modifier bits} or null
+local category_cache = {}
+local func category_of(name){
+  local c = category_cache[name]
+  if(c != null){
+    return c
+  }
+  local parts = str.split(name, ".")
+  local kind = type_index[parts[0]]
+  if(kind == null){
+    return null
+  }
+  local bits = 0
+  for(local i = 1; i < len(parts); i = i + 1){
+    local b = modifier_bit[parts[i]]
+    if(b != null){
+      bits = bits | b
+    }
+  }
+  c = {kind: kind, bits: bits}
+  category_cache[name] = c
+  return c
+}
 
 // ------------------------------------------------------------ framing
 
@@ -104,8 +144,9 @@ func lsp.semantic_tokens(text, tokens, encoding){
   local prev_line = 0
   local prev_char = 0
   for(let local t in values(tokens)){
-    local kind = type_index[t.category]
-    if(kind != null){
+    local cat = category_of(t.category)
+    if(cat != null){
+      local kind = cat.kind
       local line = t.line - 1
       local pos = t.start
       for(pos < t.stop){
@@ -129,7 +170,7 @@ func lsp.semantic_tokens(text, tokens, encoding){
           append(data, delta_char)
           append(data, length)
           append(data, kind)
-          append(data, 0)
+          append(data, cat.bits)
           prev_line = line
           prev_char = char
         }
@@ -237,7 +278,7 @@ handlers["initialize"] = func(s, id, params){
     capabilities: {
       positionEncoding: s.encoding,
       textDocumentSync: 1,
-      semanticTokensProvider: {legend: {tokenTypes: json.array(lsp.token_types), tokenModifiers: json.array({})}, full: true},
+      semanticTokensProvider: {legend: {tokenTypes: json.array(lsp.token_types), tokenModifiers: json.array(lsp.token_modifiers)}, full: true},
     },
     serverInfo: {name: "slang", version: "0.1"},
   })}

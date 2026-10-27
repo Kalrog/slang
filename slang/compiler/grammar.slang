@@ -395,6 +395,12 @@ func methods.token(g, source, name, category){
   return g.state.token_fn(source, name, category)
 }
 
+// tag(parser, category) -> parser: what parser produced, recorded again
+// under category for highlighting (see peg.tag)
+func methods.tag(g, parser, category){
+  return peg.tag(parser, category)
+}
+
 // origin() -> the name of the source being parsed (null outside a parse)
 func methods.origin(g){
   return g.state.origin

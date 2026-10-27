@@ -94,6 +94,19 @@ t.group("language server"){
     local data = tokens_of(s, "file:///tmp/lsp_test/e.slang")
     assert(len(data) > 10)
   }
+  t.test("extension categories map to standard types with modifiers"){
+    local s = lsp.new()
+    local init = s:handle(request(1, "initialize", {capabilities: {}}))
+    local legend = init[0].result.capabilities.semanticTokensProvider.legend
+    assert(len(legend.tokenTypes) == 24 and legend.tokenModifiers[0] == "declaration")
+    open_doc(s, "file:///tmp/lsp_test/n.slang", "extension \"extensions/enum\"\nenum Color { Red }\n")
+    local data = tokens_of(s, "file:///tmp/lsp_test/n.slang")
+    // after the extension statement (2 tokens): enum, Color, {, Red, }
+    local color = 3
+    assert(data[color * 5 + 3] == 10 and data[color * 5 + 4] == 1, concat("Color: type ", data[color * 5 + 3], " modifiers ", data[color * 5 + 4]))
+    local red = 5
+    assert(data[red * 5 + 3] == 16 and data[red * 5 + 4] == 1, concat("Red: type ", data[red * 5 + 3], " modifiers ", data[red * 5 + 4]))
+  }
   t.test("unknown methods, shutdown and exit"){
     local s = lsp.new()
     local r = s:handle(request(5, "textDocument/hover", {}))

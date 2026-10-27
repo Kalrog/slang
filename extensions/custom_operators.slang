@@ -60,7 +60,7 @@ g:extension_statement(
     g:rule("block")
   ),
   func(result, g){
-    local symbol = g:token(result[2])
+    local symbol = g:token(result[2], result[2], "operator")
     local id = {type:"Identifier",value:concat("infix_", result[3])}
     local direction = result[4] 
     local position = result[5]
@@ -137,7 +137,7 @@ g:extension_statement(
     g:rule("block")
   ),
   func(result, g){
-    local symbol = g:token(result[1])
+    local symbol = g:token(result[1], result[1], "operator")
     local id = {type:"Identifier",value:concat("prefix_", result[1])}
     local position = result[3]
     local params = result[5]
@@ -210,7 +210,7 @@ g:extension_statement(
     g:rule("block")
   ),
   func(result, g){
-    local symbol = g:token(result[2])
+    local symbol = g:token(result[2], result[2], "operator")
     local id = {type:"Identifier",value:concat("postfix_", result[2])}
     print("postfix id ", id, "\n")
     local position = result[3]

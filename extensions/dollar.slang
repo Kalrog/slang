@@ -5,7 +5,8 @@
 local peg = require("slang/peg")
 local g = require("slang/compiler").grammar()
 registry = {}
-g:expression():level("macro", {after: "indexAndCall"}):prefix(g:token("$"), func(op, right){
+// `$` is highlighted as a macro, the name of a macro definition as a function being declared
+g:expression():level("macro", {after: "indexAndCall"}):prefix(g:token("$", "$", "macro"), func(op, right){
     if(let 'Call{function: 'Identifier{value:local name}, args:local args} = right){
       local macro = registry[name]
       if(macro){
@@ -27,7 +28,7 @@ g:statement(
   "defineMacro",
   peg.seq(
     g:keyword("macro"),
-    g:rule("identifier"),
+    g:tag(g:rule("identifier"), "function.declaration"),
     g:token("("),
     g:rule("identifier"):star_seperated(g:token(",")):map(func(args){
       return args.elements

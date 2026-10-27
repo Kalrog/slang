@@ -930,7 +930,7 @@ local func info_of(p, memo, visiting){
   } else if(kind == "separated"){
     local ci = info_of(children[0], memo, visiting)
     r = {first: ci.first, nullable: ci.nullable or not p.at_least_one}
-  } else if(kind == "plus" or kind == "pick" or kind == "permute" or kind == "map" or kind == "flatten" or kind == "token" or kind == "trim" or kind == "where"){
+  } else if(kind == "plus" or kind == "pick" or kind == "permute" or kind == "map" or kind == "flatten" or kind == "token" or kind == "trim" or kind == "where" or kind == "tag"){
     r = info_of(children[0], memo, visiting)
   } else if(kind == "settable"){
     r = info_of(p.target, memo, visiting)
@@ -954,6 +954,40 @@ local func info_of(p, memo, visiting){
   visiting[p] = null
   memo[p] = r
   return r
+}
+
+// tag(child, category): parses child and, when recording, records its span
+// again under category (a later record wins), so an extension can colour
+// what a rule produced (an identifier as a function being declared, say)
+// without changing the value
+func peg.tag(child, category){
+  return new_parser(func(self, ctx, pos){
+    local q = child:parse_on(ctx, pos)
+    if(q < 0){
+      return -1
+    }
+    if(ctx.tokens != null){
+      // the span of the value: a token, or a node's token (nodes report
+      // their own type, so anything that is not a primitive is indexable)
+      local v = ctx.value
+      local t = type(v)
+      local span = null
+      if(v != null and t != "string" and t != "int" and t != "double" and t != "bool" and t != "function" and t != "thread" and t != "userdata"){
+        span = v
+        if(v.token != null){
+          span = v.token
+        }
+      }
+      if(span != null and span.start != null and span.stop != null){
+        list_push(ctx.tokens, {category: category, start: span.start, stop: span.stop})
+      } else {
+        list_push(ctx.tokens, {category: category, start: pos, stop: q})
+      }
+    }
+    return q
+  }, {child}, "tag", func(self, ctx, pos){
+    return child.fast(child, ctx, pos)
+  })
 }
 
 // ------------------------------------------------------------- memoization
@@ -1059,7 +1093,7 @@ local func leading_set(p, cache, visiting, memo){
     }
   } else if(kind == "star" or kind == "optional" or kind == "plus" or kind == "separated" or kind == "star_lazy" or
             kind == "pick" or kind == "permute" or kind == "map" or kind == "flatten" or kind == "token" or
-            kind == "trim" or kind == "where"){
+            kind == "trim" or kind == "where" or kind == "tag"){
     add(children[0])
   } else if(kind == "settable"){
     add(p.target)
@@ -1888,6 +1922,7 @@ func walker_methods.build(self){
 
 // ---------------------------------------------------------------------- methods
 
+methods.tag = peg.tag
 methods.seq = peg.seq
 methods.choice = peg.choice
 methods.star = peg.star

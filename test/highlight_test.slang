@@ -40,8 +40,32 @@ local v = 1 <> 2
     local text = str.join(r.spelled, " ")
     assert(str.index_of(text, "keyword:extension string:\"extensions/custom_operators\"") >= 0, text)
     assert(str.index_of(text, "keyword:infix") >= 0, text)
-    assert(str.index_of(text, "number:1 punctuation:<> number:2") >= 0, text)
+    assert(str.index_of(text, "number:1 operator:<> number:2") >= 0, text)
     assert(len(r.diagnostics) == 0)
+  }
+  t.test("extensions tag their syntax with LSP token types and modifiers"){
+    local r = spell("""extension "extensions/enum"
+enum Color { Red, Green }
+local c = Color.Red
+""")
+    local text = str.join(r.spelled, " ")
+    assert(str.index_of(text, "keyword:enum enum.declaration:Color punctuation:{ enumMember.declaration:Red punctuation:, enumMember.declaration:Green punctuation:}") >= 0, text)
+    assert(len(r.diagnostics) == 0)
+    local run = compile("extension \"extensions/enum\"\nenum Color { Red, Green }\nreturn Color.Green", "enum")
+    assert(run() == "Green", "the enum works")
+    local d = spell("""extension "extensions/dollar"
+macro hello(args){ return +{1} }
+local v = $hello()
+""")
+    local dt = str.join(d.spelled, " ")
+    assert(str.index_of(dt, "keyword:macro function.declaration:hello") >= 0, dt)
+    assert(str.index_of(dt, "macro:$ identifier:hello") >= 0, dt)
+    local o = spell("""extension "extensions/custom_operators"
+infix _<>_ (a, b){ return a + b }
+local v = 1 <> 2
+""")
+    local ot = str.join(o.spelled, " ")
+    assert(str.index_of(ot, "number:1 operator:<> number:2") >= 0, ot)
   }
   t.test("a parse error gives the tokens before it and a diagnostic"){
     local r = spell("local x = 1\nlocal y = = 2\nlocal z = 3")

@@ -404,6 +404,16 @@ object offers:
   derived from the root this way), `g:root()` the root grammar, `g:unit()`
   the grammar of the unit being parsed, `g:extensions()` the extensions
   loaded into the grammar.
+- Token categories: `g:token(source, name, category)` and `peg.token(child,
+  category)` tag tokens for highlighting. Core uses `keyword`, `identifier`,
+  `number`, `string`, `comment`, `operator`, `punctuation`; an extension may
+  use any standard LSP token type (`namespace`, `type`, `class`, `enum`,
+  `interface`, `struct`, `typeParameter`, `parameter`, `property`,
+  `enumMember`, `event`, `function`, `method`, `macro`, `modifier`,
+  `regexp`, `decorator`) with modifiers after dots
+  (`enumMember.declaration`); `extensions/enum.slang` shows it.
+  `g:tag(g:rule("identifier"), "function.declaration")` recolours what a
+  rule produced without changing its value.
 - `g:error_at(token, message...)` raises a compile error at a token,
   `g:origin()` is the name of the source being compiled, `g:uniq_id()` an
   identifier no program can write.

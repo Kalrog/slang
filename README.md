@@ -495,7 +495,7 @@ slang/     the compiler (slang/compiler) and library code (slang/lib) written in
 test/      the test suite (bin/slang test)
 bench/     benchmarks (make bench)
 extensions/ parser extensions written in slang; extensions/native are native ones
-examples/  example programs: examples/breakout on raylib, examples/project (slang.project),
+examples/  example programs: examples/breakout on raylib, examples/project (slang.project), examples/functional (|> and holes),
            examples/dungeon, a game whose content is written in DSLs (its window host is the legacy Go one)
 lsp/       the language server (highlighting and diagnostics from the real parser); editors/vscode is its VS Code client
 go/        the Go VM: the reference implementation during the Zig port, kept for comparison

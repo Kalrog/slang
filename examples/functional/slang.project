@@ -1,0 +1,4 @@
+// pipelines and holes are ambient in this folder: every file here has them
+{
+  extensions: {"pipe", "holes"},
+}

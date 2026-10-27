@@ -1,4 +1,0 @@
-// the pipe operator is ambient in this project: every file here has |>
-{
-  extensions: {"pipe"},
-}

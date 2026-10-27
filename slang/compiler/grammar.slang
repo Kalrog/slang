@@ -508,6 +508,24 @@ func expression_methods.wrapper(self, left, right, level, callback){
   return self
 }
 
+// engine API: nud(operator, rbp, f) and led(operator, lbp, f), where
+// f(w, ctx, pos, op) (or f(w, ctx, pos, left, op)) parses its own operands
+// through w:parse_at(ctx, pos, bp) and leaves an AST node in ctx.value
+// (see peg.walker); for syntax that must act before its operand is parsed
+func expression_methods.nud(self, operator, rbp, f){
+  local w = facade_walker(self)
+  peg.resolve(operator)
+  w:nud(operator, rbp, f)
+  return self
+}
+
+func expression_methods.led(self, operator, lbp, f){
+  local w = facade_walker(self)
+  peg.resolve(operator)
+  w:led(operator, lbp, f)
+  return self
+}
+
 func expression_methods.levels(self){
   return self.grammar.expression_walker:level_names()
 }

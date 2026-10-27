@@ -110,13 +110,27 @@ Pin the latest stable release at the start in `build.zig.zon` and only upgrade d
 - Decided against rewriting `slang/os` and `slang/math` through the API: the C example covers more of the API than those modules would, and the internal natives stay faster.
 - Lessons: optimised builds dead-strip unreferenced `export fn`s even with `rdynamic`; `link_gc_sections = false` keeps them (extensions then resolved `slang_*` to null and jumped to address 0). `@cImport` is gone in 0.17; Zig extensions import the header through `b.addTranslateC`. Negative stack indices must be resolved before popping (`slang_setmetatable`).
 
-### Phase 5: CLI parity `[ ]`
-- [ ] `run`, `repl`, `test`, `compile` (`-o`, `--origin`, `--strip`), `disasm`, `--trace`.
+### Phase 5: CLI parity `[x]`
+- [x] `run` (with `--explain`), `repl`, `test`, `compile` (`-o`, `--origin`, `--strip`), `disasm`, `SLANG_TRACE`.
 - [x] Bytecode cache: implemented in slang (`compiler.load_file`), so it works unchanged; both VMs produce identical bytecode, sharing the cache is harmless.
+- Found: `File.writer` is positional in 0.17, so a redirected stdout/stderr was rewritten from offset 0 at every flush; the VM uses the streaming writers/readers now.
 
-### Phase 6: Performance `[ ]`
-- [ ] Run `bench/` against the Go numbers (dijkstra x1000 305 ms, fib(27) 33 ms, parsing the grammar about 100 ms).
-- [ ] Labelled-switch dispatch, call setup, table lookup, then decide on NaN-boxing.
+### Phase 6: Performance `[x]`
+- [x] `make zig` builds ReleaseFast (`make zig-safe` the checked build; `make zig-test` runs the suite on both, `-Dgc-stress=true` as before).
+- [x] Tables up to 8 hash entries have no index: a linear scan over interned keys (pointer comparison) beats hashing, and a record costs two allocations instead of four. `concat` renders scalars into stack buffers and allocates the result once (`print` writes pieces straight to stdout); results longer than the intern limit are never interned.
+- [x] The interpreter keeps the stack top and base pointer in locals, written back around calls out (natives, metamethods, collector, errors, trace), and dispatches with a labelled switch: every opcode fetches the next instruction and `continue :sw`s to its case.
+- Tried and dropped: writing the frame pc back only at call-out sites (no measurable change; the per-instruction store stays).
+- Numbers (min of 3, ms; Go VM for comparison):
+
+  | benchmark | Go | Zig ReleaseSafe before | Zig ReleaseFast after |
+  |---|---|---|---|
+  | fib(27) | 32 | 31 | 21 |
+  | dijkstra x1000 | 302 | 310 | 218 |
+  | tables | 350 | 521 | 173 |
+  | strings | 31 | 88 | 22 |
+  | parse sample.slang | 72 | 70 | 44 |
+
+- Not done: NaN-boxing (16-byte values stay). Every benchmark is 1.4 to 2x ahead of the Go VM; the next step would be a register-based bytecode, which is a compiler change.
 
 ### Phase 7: Switch-over `[ ]`
 - [ ] Make Zig the default in the Makefile and README (build, extension API, embedding).

@@ -56,13 +56,85 @@ fn renderArgs(th: *Thread, from: usize, aw: *std.Io.Writer.Allocating) Error!voi
     }
 }
 
+/// Renders one argument the way print and concat do: a string as is, a
+/// scalar into buf, anything else through toString (which may run a
+/// __tostring function; its result is pushed on the stack so that a later
+/// call cannot collect it, and the caller pops `pushed` values).
+fn renderArg(th: *Thread, v: Value, buf: []u8, pushed: *usize) Error![]const u8 {
+    switch (v) {
+        .string => |s| return s.bytes(),
+        .int, .float, .bool, .null => {
+            var w: std.Io.Writer = .fixed(buf);
+            vm_mod.format.writeValue(&w, v) catch unreachable;
+            return w.buffered();
+        },
+        else => {
+            const s = try th.toString(v);
+            try th.ensure(th.top + 1);
+            th.push(.{ .string = s });
+            pushed.* += 1;
+            return s.bytes();
+        },
+    }
+}
+
 fn corePrint(th: *Thread, args: []Value) Error!Value {
     _ = args;
-    var aw: std.Io.Writer.Allocating = .init(th.vm.gpa);
-    defer aw.deinit();
-    try renderArgs(th, 0, &aw);
-    th.vm.out().writeAll(aw.writer.buffered()) catch return th.vm.raise("write error on stdout", .{});
+    const vm = th.vm;
+    const n = th.nargs();
+    var pushed: usize = 0;
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        var buf: [48]u8 = undefined;
+        const piece = try renderArg(th, th.arg(i), &buf, &pushed);
+        vm.out().writeAll(piece) catch return vm.raise("write error on stdout", .{});
+    }
+    th.top -= pushed;
     return .null;
+}
+
+const max_pieces = 16;
+
+/// concat(strings...): one allocation for the result; short results are
+/// interned like any short string.
+fn concatStrings(th: *Thread) Error!Value {
+    const vm = th.vm;
+    const n = th.nargs();
+    if (n > max_pieces) {
+        var aw: std.Io.Writer.Allocating = .init(vm.gpa);
+        defer aw.deinit();
+        try renderArgs(th, 0, &aw);
+        return .{ .string = vm.newStringRaw(aw.writer.buffered()) };
+    }
+    var bufs: [max_pieces][48]u8 = undefined;
+    var pieces: [max_pieces][]const u8 = undefined;
+    var pushed: usize = 0;
+    var total: usize = 0;
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        pieces[i] = try renderArg(th, th.arg(i), &bufs[i], &pushed);
+        total += pieces[i].len;
+    }
+    var result: *vm_mod.String = undefined;
+    if (total <= vm_mod.String.intern_limit) {
+        var small: [vm_mod.String.intern_limit]u8 = undefined;
+        var at: usize = 0;
+        for (pieces[0..n]) |p| {
+            @memcpy(small[at .. at + p.len], p);
+            at += p.len;
+        }
+        result = vm.newString(small[0..total]);
+    } else {
+        result = vm.newStringUninit(total);
+        const out = result.mutableBytes();
+        var at: usize = 0;
+        for (pieces[0..n]) |p| {
+            @memcpy(out[at .. at + p.len], p);
+            at += p.len;
+        }
+    }
+    th.top -= pushed;
+    return .{ .string = result };
 }
 
 fn coreArgs(th: *Thread, args: []Value) Error!Value {
@@ -190,12 +262,7 @@ fn coreEntries(th: *Thread, args: []Value) Error!Value {
 fn coreConcat(th: *Thread, args: []Value) Error!Value {
     const vm = th.vm;
     switch (api.arg(args, 0)) {
-        .string => {
-            var aw: std.Io.Writer.Allocating = .init(vm.gpa);
-            defer aw.deinit();
-            try renderArgs(th, 0, &aw);
-            return vm.str(aw.writer.buffered());
-        },
+        .string => return concatStrings(th),
         .table => {
             const out = vm.newTable(0, 0);
             for (args, 0..) |a, i| {

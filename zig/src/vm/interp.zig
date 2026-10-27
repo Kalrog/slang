@@ -11,6 +11,11 @@ const d = @import("disasm.zig");
 const Op = d.Op;
 
 /// Executes frames until the frame depth drops back to stop_depth.
+///
+/// The stack top and the stack base pointer live in locals while a frame
+/// runs: `th.top` is written back, and both are reloaded (a call may grow
+/// the stack), around everything that calls out: natives, metamethods, the
+/// collector, error handling and the trace.
 pub fn run(th: *Thread, stop_depth: usize) Error!void {
     th.run_depth += 1;
     defer th.run_depth -= 1;
@@ -26,251 +31,540 @@ pub fn run(th: *Thread, stop_depth: usize) Error!void {
         const consts = proto.consts;
         const base: usize = frame.base;
         var pc: usize = frame.pc;
-        while (true) {
-            const ins = code[pc];
-            if (vm.trace) traceInstruction(th, fi, base, pc, ins);
-            pc += 1;
-            th.frames.items[fi].pc = @intCast(pc);
-            switch (d.opOf(ins)) {
-                .load_constant => th.push(consts[d.argBx(ins)]),
-                .load_bool => {
-                    th.push(.{ .bool = d.argB(ins) != 0 });
-                    if (d.argC(ins) != 0) pc += 1;
-                },
-                .load_closure => {
-                    gc.safePoint(vm, th);
-                    const cl = th.makeClosure(th.frames.items[fi], proto.children[d.argAx(ins)]);
-                    th.push(.{ .function = cl });
-                },
-                .add => {
-                    const b = th.stack[th.top - 1];
-                    const a = th.stack[th.top - 2];
-                    if (a == .int and b == .int) {
-                        th.top -= 1;
-                        th.stack[th.top - 1] = .{ .int = a.int +% b.int };
-                        continue;
+        var top: usize = th.top;
+        var stack: [*]Value = th.stack.ptr;
+        var ins = code[pc];
+        if (vm.trace) {
+            th.top = top;
+            traceInstruction(th, fi, base, pc, ins);
+        }
+        pc += 1;
+        th.frames.items[fi].pc = @intCast(pc);
+        // labelled switch: every opcode fetches the next instruction and
+        // jumps straight to its case
+        sw: switch (d.opOf(ins)) {
+            .load_constant => {
+                stack[top] = consts[d.argBx(ins)];
+                top += 1;
+                ins = code[pc];
+                if (vm.trace) {
+                    th.top = top;
+                    traceInstruction(th, fi, base, pc, ins);
+                }
+                pc += 1;
+                th.frames.items[fi].pc = @intCast(pc);
+                continue :sw d.opOf(ins);
+            },
+            .load_bool => {
+                stack[top] = .{ .bool = d.argB(ins) != 0 };
+                top += 1;
+                if (d.argC(ins) != 0) pc += 1;
+                ins = code[pc];
+                if (vm.trace) {
+                    th.top = top;
+                    traceInstruction(th, fi, base, pc, ins);
+                }
+                pc += 1;
+                th.frames.items[fi].pc = @intCast(pc);
+                continue :sw d.opOf(ins);
+            },
+            .load_closure => {
+                th.top = top;
+                gc.safePoint(vm, th);
+                const cl = th.makeClosure(th.frames.items[fi], proto.children[d.argAx(ins)]);
+                stack[top] = .{ .function = cl };
+                top += 1;
+                ins = code[pc];
+                if (vm.trace) {
+                    th.top = top;
+                    traceInstruction(th, fi, base, pc, ins);
+                }
+                pc += 1;
+                th.frames.items[fi].pc = @intCast(pc);
+                continue :sw d.opOf(ins);
+            },
+            .add => {
+                const b = stack[top - 1];
+                const a = stack[top - 2];
+                if (a == .int and b == .int) {
+                    top -= 1;
+                    stack[top - 1] = .{ .int = a.int +% b.int };
+                    ins = code[pc];
+                    if (vm.trace) {
+                        th.top = top;
+                        traceInstruction(th, fi, base, pc, ins);
                     }
-                    // operands stay on the stack during the (possibly
-                    // allocating) operation so the collector can see them
-                    const r = th.arithMeta(.add, a, b) catch |e| {
-                        th.top -= 2;
-                        try th.handleError(e, stop_depth);
-                        continue :outer;
-                    };
-                    th.top -= 1;
-                    th.stack[th.top - 1] = r;
-                },
-                .sub => {
-                    const b = th.stack[th.top - 1];
-                    const a = th.stack[th.top - 2];
-                    if (a == .int and b == .int) {
-                        th.top -= 1;
-                        th.stack[th.top - 1] = .{ .int = a.int -% b.int };
-                        continue;
+                    pc += 1;
+                    th.frames.items[fi].pc = @intCast(pc);
+                    continue :sw d.opOf(ins);
+                }
+                // operands stay on the stack during the (possibly
+                // allocating) operation so the collector can see them
+                th.top = top;
+                const r = th.arithMeta(.add, a, b) catch |e| {
+                    th.top -= 2;
+                    try th.handleError(e, stop_depth);
+                    continue :outer;
+                };
+                top = th.top - 1;
+                stack = th.stack.ptr;
+                stack[top - 1] = r;
+                ins = code[pc];
+                if (vm.trace) {
+                    th.top = top;
+                    traceInstruction(th, fi, base, pc, ins);
+                }
+                pc += 1;
+                th.frames.items[fi].pc = @intCast(pc);
+                continue :sw d.opOf(ins);
+            },
+            .sub => {
+                const b = stack[top - 1];
+                const a = stack[top - 2];
+                if (a == .int and b == .int) {
+                    top -= 1;
+                    stack[top - 1] = .{ .int = a.int -% b.int };
+                    ins = code[pc];
+                    if (vm.trace) {
+                        th.top = top;
+                        traceInstruction(th, fi, base, pc, ins);
                     }
-                    const r = th.arithMeta(.sub, a, b) catch |e| {
-                        th.top -= 2;
-                        try th.handleError(e, stop_depth);
-                        continue :outer;
-                    };
-                    th.top -= 1;
-                    th.stack[th.top - 1] = r;
-                },
-                .mul, .div, .mod, .pow => {
-                    const b = th.stack[th.top - 1];
-                    const a = th.stack[th.top - 2];
-                    const r = th.arithMeta(d.opOf(ins), a, b) catch |e| {
-                        th.top -= 2;
-                        try th.handleError(e, stop_depth);
-                        continue :outer;
-                    };
-                    th.top -= 1;
-                    th.stack[th.top - 1] = r;
-                },
-                .neg => {
-                    const a = th.stack[th.top - 1];
-                    switch (a) {
-                        .int => |i| th.stack[th.top - 1] = .{ .int = 0 -% i },
-                        .float => |f| th.stack[th.top - 1] = .{ .float = -f },
-                        else => {
-                            const f = metamethod(a, .null, "__unm");
-                            if (f == .function) {
-                                const r = th.call(f, &.{a}) catch |e| {
-                                    try th.handleError(e, stop_depth);
-                                    continue :outer;
-                                };
-                                th.stack[th.top - 1] = r;
-                                continue;
+                    pc += 1;
+                    th.frames.items[fi].pc = @intCast(pc);
+                    continue :sw d.opOf(ins);
+                }
+                th.top = top;
+                const r = th.arithMeta(.sub, a, b) catch |e| {
+                    th.top -= 2;
+                    try th.handleError(e, stop_depth);
+                    continue :outer;
+                };
+                top = th.top - 1;
+                stack = th.stack.ptr;
+                stack[top - 1] = r;
+                ins = code[pc];
+                if (vm.trace) {
+                    th.top = top;
+                    traceInstruction(th, fi, base, pc, ins);
+                }
+                pc += 1;
+                th.frames.items[fi].pc = @intCast(pc);
+                continue :sw d.opOf(ins);
+            },
+            .mul, .div, .mod, .pow => {
+                const b = stack[top - 1];
+                const a = stack[top - 2];
+                th.top = top;
+                const r = th.arithMeta(d.opOf(ins), a, b) catch |e| {
+                    th.top -= 2;
+                    try th.handleError(e, stop_depth);
+                    continue :outer;
+                };
+                top = th.top - 1;
+                stack = th.stack.ptr;
+                stack[top - 1] = r;
+                ins = code[pc];
+                if (vm.trace) {
+                    th.top = top;
+                    traceInstruction(th, fi, base, pc, ins);
+                }
+                pc += 1;
+                th.frames.items[fi].pc = @intCast(pc);
+                continue :sw d.opOf(ins);
+            },
+            .neg => {
+                const a = stack[top - 1];
+                switch (a) {
+                    .int => |i| stack[top - 1] = .{ .int = 0 -% i },
+                    .float => |f| stack[top - 1] = .{ .float = -f },
+                    else => {
+                        th.top = top;
+                        const f = metamethod(a, .null, "__unm");
+                        if (f == .function) {
+                            const r = th.call(f, &.{a}) catch |e| {
+                                try th.handleError(e, stop_depth);
+                                continue :outer;
+                            };
+                            top = th.top;
+                            stack = th.stack.ptr;
+                            stack[top - 1] = r;
+                            ins = code[pc];
+                            if (vm.trace) {
+                                th.top = top;
+                                traceInstruction(th, fi, base, pc, ins);
                             }
-                            vm.setError("attempt to negate a {s} value", .{a.typeName()});
-                            try th.handleError(error.Slang, stop_depth);
-                            continue :outer;
-                        },
-                    }
-                },
-                .not => {
-                    // Read into a local first: writing `.{ .bool = ... }` straight
-                    // into the slot sets the tag before the operand is evaluated
-                    // (Zig result-location semantics).
-                    const v = th.stack[th.top - 1];
-                    th.stack[th.top - 1] = .{ .bool = !v.truthy() };
-                },
-                .eq => {
-                    const b = th.stack[th.top - 1];
-                    const a = th.stack[th.top - 2];
-                    th.top -= 1;
-                    if (a.kind() == b.kind() and (a == .table or a == .userdata)) {
-                        const f = metamethod(a, b, "__eq");
-                        if (f == .function) {
-                            const r = th.call(f, &.{ a, b }) catch |e| {
-                                th.top -= 1;
-                                try th.handleError(e, stop_depth);
-                                continue :outer;
-                            };
-                            th.stack[th.top - 1] = .{ .bool = r.truthy() };
-                            continue;
+                            pc += 1;
+                            th.frames.items[fi].pc = @intCast(pc);
+                            continue :sw d.opOf(ins);
                         }
-                    }
-                    th.stack[th.top - 1] = .{ .bool = a.equals(b) };
-                },
-                .lt, .leq => {
-                    const b = th.stack[th.top - 1];
-                    const a = th.stack[th.top - 2];
-                    th.top -= 1;
-                    const is_lt = d.opOf(ins) == .lt;
-                    var r: bool = undefined;
-                    if (a == .int and b == .int) {
-                        r = if (is_lt) a.int < b.int else a.int <= b.int;
-                    } else if (a.isNumber() and b.isNumber()) {
-                        const x = a.asNumber();
-                        const y = b.asNumber();
-                        r = if (is_lt) x < y else x <= y;
-                    } else {
-                        const name: []const u8 = if (is_lt) "__lt" else "__le";
-                        const f = metamethod(a, b, name);
-                        if (f == .function) {
-                            const res = th.call(f, &.{ a, b }) catch |e| {
-                                th.top -= 1;
-                                try th.handleError(e, stop_depth);
-                                continue :outer;
-                            };
-                            th.stack[th.top - 1] = .{ .bool = res.truthy() };
-                            continue;
-                        }
-                        th.top -= 1;
-                        vm.setError("attempt to compare {s} {s} {s}", .{ a.typeName(), if (is_lt) "<" else "<=", b.typeName() });
+                        vm.setError("attempt to negate a {s} value", .{a.typeName()});
                         try th.handleError(error.Slang, stop_depth);
                         continue :outer;
-                    }
-                    th.stack[th.top - 1] = .{ .bool = r };
-                },
-                .move => {
-                    const v = th.stack[th.top - 1];
-                    th.top -= 1;
-                    th.stack[absIndex(th, base, d.argSBx(ins))] = v;
-                },
-                .push => th.push(th.stack[absIndex(th, base, d.argSBx(ins))]),
-                .pop => {
-                    const keep: usize = d.argA(ins);
-                    const drop: usize = d.argBx(ins);
-                    if (keep > 0) {
-                        std.mem.copyForwards(Value, th.stack[th.top - drop - keep .. th.top - drop], th.stack[th.top - keep .. th.top]);
-                    }
-                    th.top -= drop;
-                },
-                .@"return" => {
-                    var res = th.stack[th.top - 1];
-                    const fn_idx = base - 1;
-                    const prot = th.frames.items[fi].protected;
-                    th.popFrame();
-                    th.top = fn_idx;
-                    if (prot) res = okResult(th, res);
-                    th.push(res);
-                    if (th.frames.items.len == stop_depth) return;
-                    continue :outer;
-                },
-                .new_table => {
-                    gc.safePoint(vm, th);
-                    th.push(.{ .table = vm.newTable(d.argB(ins), d.argC(ins)) });
-                },
-                .set_table => {
-                    const val = th.stack[th.top - 1];
-                    const key = th.stack[th.top - 2];
-                    const obj = th.stack[th.top - 3];
-                    th.top -= 3;
-                    if (obj == .table and key == .string) {
-                        const t = obj.table;
-                        if (t.meta == null and !key.string.eqlBytes("meta")) {
-                            t.setStr(gpa, key.string, val);
-                            continue;
-                        }
-                    }
-                    th.setTable(obj, key, val) catch |e| {
-                        try th.handleError(e, stop_depth);
-                        continue :outer;
-                    };
-                },
-                .get_table => {
-                    const key = th.stack[th.top - 1];
-                    const obj = th.stack[th.top - 2];
-                    th.top -= 1;
-                    if (obj == .table) {
-                        const t = obj.table;
-                        const v = switch (key) {
-                            .string => |s| t.getStr(s),
-                            .int => |i| t.getInt(i),
-                            else => t.get(key),
+                    },
+                }
+                ins = code[pc];
+                if (vm.trace) {
+                    th.top = top;
+                    traceInstruction(th, fi, base, pc, ins);
+                }
+                pc += 1;
+                th.frames.items[fi].pc = @intCast(pc);
+                continue :sw d.opOf(ins);
+            },
+            .not => {
+                // Read into a local first: writing `.{ .bool = ... }` straight
+                // into the slot sets the tag before the operand is evaluated
+                // (Zig result-location semantics).
+                const v = stack[top - 1];
+                stack[top - 1] = .{ .bool = !v.truthy() };
+                ins = code[pc];
+                if (vm.trace) {
+                    th.top = top;
+                    traceInstruction(th, fi, base, pc, ins);
+                }
+                pc += 1;
+                th.frames.items[fi].pc = @intCast(pc);
+                continue :sw d.opOf(ins);
+            },
+            .eq => {
+                const b = stack[top - 1];
+                const a = stack[top - 2];
+                top -= 1;
+                if (a.kind() == b.kind() and (a == .table or a == .userdata)) {
+                    const f = metamethod(a, b, "__eq");
+                    if (f == .function) {
+                        th.top = top;
+                        const r = th.call(f, &.{ a, b }) catch |e| {
+                            th.top -= 1;
+                            try th.handleError(e, stop_depth);
+                            continue :outer;
                         };
-                        if (v != .null or t.meta == null) {
-                            th.stack[th.top - 1] = v;
-                            continue;
+                        top = th.top;
+                        stack = th.stack.ptr;
+                        stack[top - 1] = .{ .bool = r.truthy() };
+                        ins = code[pc];
+                        if (vm.trace) {
+                            th.top = top;
+                            traceInstruction(th, fi, base, pc, ins);
                         }
+                        pc += 1;
+                        th.frames.items[fi].pc = @intCast(pc);
+                        continue :sw d.opOf(ins);
+                    }
+                }
+                stack[top - 1] = .{ .bool = a.equals(b) };
+                ins = code[pc];
+                if (vm.trace) {
+                    th.top = top;
+                    traceInstruction(th, fi, base, pc, ins);
+                }
+                pc += 1;
+                th.frames.items[fi].pc = @intCast(pc);
+                continue :sw d.opOf(ins);
+            },
+            .lt, .leq => {
+                const b = stack[top - 1];
+                const a = stack[top - 2];
+                top -= 1;
+                const is_lt = d.opOf(ins) == .lt;
+                var r: bool = undefined;
+                if (a == .int and b == .int) {
+                    r = if (is_lt) a.int < b.int else a.int <= b.int;
+                } else if (a.isNumber() and b.isNumber()) {
+                    const x = a.asNumber();
+                    const y = b.asNumber();
+                    r = if (is_lt) x < y else x <= y;
+                } else {
+                    th.top = top;
+                    const name: []const u8 = if (is_lt) "__lt" else "__le";
+                    const f = metamethod(a, b, name);
+                    if (f == .function) {
+                        const res = th.call(f, &.{ a, b }) catch |e| {
+                            th.top -= 1;
+                            try th.handleError(e, stop_depth);
+                            continue :outer;
+                        };
+                        top = th.top;
+                        stack = th.stack.ptr;
+                        stack[top - 1] = .{ .bool = res.truthy() };
+                        ins = code[pc];
+                        if (vm.trace) {
+                            th.top = top;
+                            traceInstruction(th, fi, base, pc, ins);
+                        }
+                        pc += 1;
+                        th.frames.items[fi].pc = @intCast(pc);
+                        continue :sw d.opOf(ins);
                     }
                     th.top -= 1;
-                    const v = th.getTable(obj, key) catch |e| {
-                        try th.handleError(e, stop_depth);
-                        continue :outer;
+                    vm.setError("attempt to compare {s} {s} {s}", .{ a.typeName(), if (is_lt) "<" else "<=", b.typeName() });
+                    try th.handleError(error.Slang, stop_depth);
+                    continue :outer;
+                }
+                stack[top - 1] = .{ .bool = r };
+                ins = code[pc];
+                if (vm.trace) {
+                    th.top = top;
+                    traceInstruction(th, fi, base, pc, ins);
+                }
+                pc += 1;
+                th.frames.items[fi].pc = @intCast(pc);
+                continue :sw d.opOf(ins);
+            },
+            .move => {
+                const v = stack[top - 1];
+                top -= 1;
+                stack[absIndex(top, base, d.argSBx(ins))] = v;
+                ins = code[pc];
+                if (vm.trace) {
+                    th.top = top;
+                    traceInstruction(th, fi, base, pc, ins);
+                }
+                pc += 1;
+                th.frames.items[fi].pc = @intCast(pc);
+                continue :sw d.opOf(ins);
+            },
+            .push => {
+                stack[top] = stack[absIndex(top, base, d.argSBx(ins))];
+                top += 1;
+                ins = code[pc];
+                if (vm.trace) {
+                    th.top = top;
+                    traceInstruction(th, fi, base, pc, ins);
+                }
+                pc += 1;
+                th.frames.items[fi].pc = @intCast(pc);
+                continue :sw d.opOf(ins);
+            },
+            .pop => {
+                const keep: usize = d.argA(ins);
+                const drop: usize = d.argBx(ins);
+                if (keep > 0) {
+                    std.mem.copyForwards(Value, stack[top - drop - keep .. top - drop], stack[top - keep .. top]);
+                }
+                top -= drop;
+                ins = code[pc];
+                if (vm.trace) {
+                    th.top = top;
+                    traceInstruction(th, fi, base, pc, ins);
+                }
+                pc += 1;
+                th.frames.items[fi].pc = @intCast(pc);
+                continue :sw d.opOf(ins);
+            },
+            .@"return" => {
+                var res = stack[top - 1];
+                const fn_idx = base - 1;
+                const prot = th.frames.items[fi].protected;
+                th.top = top;
+                th.popFrame();
+                th.top = fn_idx;
+                if (prot) res = okResult(th, res);
+                th.push(res);
+                if (th.frames.items.len == stop_depth) return;
+                continue :outer;
+            },
+            .new_table => {
+                th.top = top;
+                gc.safePoint(vm, th);
+                stack[top] = .{ .table = vm.newTable(d.argB(ins), d.argC(ins)) };
+                top += 1;
+                ins = code[pc];
+                if (vm.trace) {
+                    th.top = top;
+                    traceInstruction(th, fi, base, pc, ins);
+                }
+                pc += 1;
+                th.frames.items[fi].pc = @intCast(pc);
+                continue :sw d.opOf(ins);
+            },
+            .set_table => {
+                const val = stack[top - 1];
+                const key = stack[top - 2];
+                const obj = stack[top - 3];
+                top -= 3;
+                if (obj == .table and key == .string) {
+                    const t = obj.table;
+                    if (t.meta == null and !key.string.eqlBytes("meta")) {
+                        t.setStr(gpa, key.string, val);
+                        ins = code[pc];
+                        if (vm.trace) {
+                            th.top = top;
+                            traceInstruction(th, fi, base, pc, ins);
+                        }
+                        pc += 1;
+                        th.frames.items[fi].pc = @intCast(pc);
+                        continue :sw d.opOf(ins);
+                    }
+                }
+                th.top = top;
+                th.setTable(obj, key, val) catch |e| {
+                    try th.handleError(e, stop_depth);
+                    continue :outer;
+                };
+                top = th.top;
+                stack = th.stack.ptr;
+                ins = code[pc];
+                if (vm.trace) {
+                    th.top = top;
+                    traceInstruction(th, fi, base, pc, ins);
+                }
+                pc += 1;
+                th.frames.items[fi].pc = @intCast(pc);
+                continue :sw d.opOf(ins);
+            },
+            .get_table => {
+                const key = stack[top - 1];
+                const obj = stack[top - 2];
+                top -= 1;
+                if (obj == .table) {
+                    const t = obj.table;
+                    const v = switch (key) {
+                        .string => |s| t.getStr(s),
+                        .int => |i| t.getInt(i),
+                        else => t.get(key),
                     };
-                    th.push(v);
-                },
-                .set_upvalue => {
-                    const v = th.stack[th.top - 1];
-                    th.top -= 1;
-                    th.frames.items[fi].cl.upvals[d.argAx(ins)].set(v);
-                },
-                .get_upvalue => th.push(th.frames.items[fi].cl.upvals[d.argAx(ins)].get()),
-                .close_upvalues => th.closeUpvalues(base + d.argAx(ins)),
-                .@"test" => {
-                    const v = th.stack[th.top - 1];
-                    th.top -= 1;
-                    if (v.truthy() != (d.argC(ins) != 0)) pc += 1;
-                },
-                .jump => {
-                    const off = d.argSBx(ins);
-                    if (off < 0) gc.safePoint(vm, th);
-                    pc = @intCast(@as(i64, @intCast(pc)) + off);
-                },
-                .call => {
+                    if (v != .null or t.meta == null) {
+                        stack[top - 1] = v;
+                        ins = code[pc];
+                        if (vm.trace) {
+                            th.top = top;
+                            traceInstruction(th, fi, base, pc, ins);
+                        }
+                        pc += 1;
+                        th.frames.items[fi].pc = @intCast(pc);
+                        continue :sw d.opOf(ins);
+                    }
+                }
+                top -= 1;
+                th.top = top;
+                const v = th.getTable(obj, key) catch |e| {
+                    try th.handleError(e, stop_depth);
+                    continue :outer;
+                };
+                top = th.top;
+                stack = th.stack.ptr;
+                stack[top] = v;
+                top += 1;
+                ins = code[pc];
+                if (vm.trace) {
+                    th.top = top;
+                    traceInstruction(th, fi, base, pc, ins);
+                }
+                pc += 1;
+                th.frames.items[fi].pc = @intCast(pc);
+                continue :sw d.opOf(ins);
+            },
+            .set_upvalue => {
+                const v = stack[top - 1];
+                top -= 1;
+                th.frames.items[fi].cl.upvals[d.argAx(ins)].set(v);
+                ins = code[pc];
+                if (vm.trace) {
+                    th.top = top;
+                    traceInstruction(th, fi, base, pc, ins);
+                }
+                pc += 1;
+                th.frames.items[fi].pc = @intCast(pc);
+                continue :sw d.opOf(ins);
+            },
+            .get_upvalue => {
+                stack[top] = th.frames.items[fi].cl.upvals[d.argAx(ins)].get();
+                top += 1;
+                ins = code[pc];
+                if (vm.trace) {
+                    th.top = top;
+                    traceInstruction(th, fi, base, pc, ins);
+                }
+                pc += 1;
+                th.frames.items[fi].pc = @intCast(pc);
+                continue :sw d.opOf(ins);
+            },
+            .close_upvalues => {
+                th.closeUpvalues(base + d.argAx(ins));
+                ins = code[pc];
+                if (vm.trace) {
+                    th.top = top;
+                    traceInstruction(th, fi, base, pc, ins);
+                }
+                pc += 1;
+                th.frames.items[fi].pc = @intCast(pc);
+                continue :sw d.opOf(ins);
+            },
+            .@"test" => {
+                const v = stack[top - 1];
+                top -= 1;
+                if (v.truthy() != (d.argC(ins) != 0)) pc += 1;
+                ins = code[pc];
+                if (vm.trace) {
+                    th.top = top;
+                    traceInstruction(th, fi, base, pc, ins);
+                }
+                pc += 1;
+                th.frames.items[fi].pc = @intCast(pc);
+                continue :sw d.opOf(ins);
+            },
+            .jump => {
+                const off = d.argSBx(ins);
+                if (off < 0) {
+                    th.top = top;
                     gc.safePoint(vm, th);
-                    const nargs: usize = d.argBx(ins);
-                    const fn_idx = th.top - nargs - 1;
-                    const is_slang = th.precall(fn_idx, nargs, false) catch |e| {
-                        try th.handleError(e, stop_depth);
-                        continue :outer;
-                    };
-                    if (is_slang) continue :outer;
-                },
-                .type => {
-                    const v = th.stack[th.top - 1];
-                    const r = th.typeOf(v) catch |e| {
-                        th.top -= 1;
-                        try th.handleError(e, stop_depth);
-                        continue :outer;
-                    };
-                    th.stack[th.top - 1] = r;
-                },
-                _ => return vm.raise("unknown opcode {d}", .{ins & 0x3F}),
-            }
+                }
+                pc = @intCast(@as(i64, @intCast(pc)) + off);
+                ins = code[pc];
+                if (vm.trace) {
+                    th.top = top;
+                    traceInstruction(th, fi, base, pc, ins);
+                }
+                pc += 1;
+                th.frames.items[fi].pc = @intCast(pc);
+                continue :sw d.opOf(ins);
+            },
+            .call => {
+                th.top = top;
+                gc.safePoint(vm, th);
+                const nargs: usize = d.argBx(ins);
+                const fn_idx = top - nargs - 1;
+                const is_slang = th.precall(fn_idx, nargs, false) catch |e| {
+                    try th.handleError(e, stop_depth);
+                    continue :outer;
+                };
+                if (is_slang) continue :outer;
+                top = th.top;
+                stack = th.stack.ptr;
+                ins = code[pc];
+                if (vm.trace) {
+                    th.top = top;
+                    traceInstruction(th, fi, base, pc, ins);
+                }
+                pc += 1;
+                th.frames.items[fi].pc = @intCast(pc);
+                continue :sw d.opOf(ins);
+            },
+            .type => {
+                const v = stack[top - 1];
+                th.top = top;
+                const r = th.typeOf(v) catch |e| {
+                    th.top -= 1;
+                    try th.handleError(e, stop_depth);
+                    continue :outer;
+                };
+                top = th.top;
+                stack = th.stack.ptr;
+                stack[top - 1] = r;
+                ins = code[pc];
+                if (vm.trace) {
+                    th.top = top;
+                    traceInstruction(th, fi, base, pc, ins);
+                }
+                pc += 1;
+                th.frames.items[fi].pc = @intCast(pc);
+                continue :sw d.opOf(ins);
+            },
+            _ => {
+                th.top = top;
+                return vm.raise("unknown opcode {d}", .{ins & 0x3F});
+            },
         }
     }
 }
@@ -296,8 +590,8 @@ fn traceInstruction(th: *Thread, fi: usize, base: usize, pc: usize, ins: u32) vo
     ew.interface.flush() catch {};
 }
 
-inline fn absIndex(th: *const Thread, base: usize, idx: i32) usize {
-    if (idx < 0) return @intCast(@as(i64, @intCast(th.top)) + idx);
+inline fn absIndex(top: usize, base: usize, idx: i32) usize {
+    if (idx < 0) return @intCast(@as(i64, @intCast(top)) + idx);
     return base + @as(usize, @intCast(idx));
 }
 
@@ -580,10 +874,20 @@ pub const ThreadOps = struct {
 
     /// Renders v without metamethods.
     pub fn renderString(th: *Thread, v: Value) *String {
-        if (v == .string) return v.string;
-        const bytes = root.format.valueToOwned(th.vm.gpa, v);
-        defer th.vm.gpa.free(bytes);
-        return th.vm.newString(bytes);
+        switch (v) {
+            .string => |s| return s,
+            .int, .float, .bool, .null => {
+                var buf: [48]u8 = undefined;
+                var w: std.Io.Writer = .fixed(&buf);
+                root.format.writeValue(&w, v) catch unreachable;
+                return th.vm.newString(w.buffered());
+            },
+            else => {
+                const bytes = root.format.valueToOwned(th.vm.gpa, v);
+                defer th.vm.gpa.free(bytes);
+                return th.vm.newString(bytes);
+            },
+        }
     }
 
     /// len: the length of a string or table, or __len.

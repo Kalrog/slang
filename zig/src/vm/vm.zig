@@ -99,8 +99,9 @@ pub const VM = struct {
             .packages = undefined,
             .main = undefined,
             .registry = undefined,
-            .stdout = std.Io.File.stdout().writer(io, out_buf),
-            .stdin = std.Io.File.stdin().reader(io, in_buf),
+            // streaming: a positional writer rewrites offset 0 of a redirected file
+            .stdout = std.Io.File.stdout().writerStreaming(io, out_buf),
+            .stdin = std.Io.File.stdin().readerStreaming(io, in_buf),
             .stdout_buf = out_buf,
             .stdin_buf = in_buf,
             .env = env,
@@ -258,6 +259,12 @@ pub const VM = struct {
         mem[String.allocSize(bytes.len) - 1] = 0;
         vm.link(&s.obj);
         return s;
+    }
+
+    /// A string that is never interned (results of string building, which
+    /// are rarely equal to an existing string).
+    pub fn newStringRaw(vm: *VM, bytes: []const u8) *String {
+        return vm.allocString(bytes);
     }
 
     /// Allocates an uninitialised string of the given length (never interned).

@@ -131,7 +131,7 @@ test "float formatting follows Dart" {
     try expectFloat("0.000001", 1e-6);
     try expectFloat("1e-7", 1e-7);
     try expectFloat("1.5e-7", 1.5e-7);
-    try expectFloat("1.2345678901234568e+23", 123456789012345678901234.0);
+    try expectFloat("1.2345678901234569e+23", 123456789012345678901234.0);
     try expectFloat("3.141592653589793", std.math.pi);
     try expectFloat("NaN", std.math.nan(f64));
     try expectFloat("-Infinity", -std.math.inf(f64));

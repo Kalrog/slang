@@ -19,6 +19,17 @@ bin/slang disasm file.slb
 
 Requirements: Go 1.26 or newer. Nothing else.
 
+The Zig VM (`zig/`, see `PLAN_ZIG.md`) runs the same seed and bytecode and
+loads native extensions written against `zig/include/slang.h`:
+```sh
+make zig          # zig/zig-out/bin/slang, a ReleaseFast build (Zig 0.17 via anyzig)
+make zig-safe     # the checked build in zig/zig-out-safe
+make zig-test     # Zig unit tests, the slang suite and the native extension tests on both builds
+make zig-fixpoint # the seed compiled by the Zig VM is byte-identical
+```
+It is 1.4 to 2x faster than the Go VM on `bench/` (`bench/run_all.sh` runs
+them with `bin/slang`; substitute the Zig binary to compare).
+
 ### Self-hosting
 
 `slang/compiler/*.slang` is the compiler, `slang/lib/*.slang` the slang part

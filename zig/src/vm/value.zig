@@ -232,7 +232,7 @@ test "truthiness" {
     defer t.deinit(std.testing.allocator);
     const tv: Value = .{ .table = &t };
     try std.testing.expect(tv.truthy());
-    try std.testing.expect(!(Value.null).truthy());
+    try std.testing.expect(!Value.nil.truthy());
     try std.testing.expect(!(Value{ .bool = false }).truthy());
     try std.testing.expect((Value{ .int = 0 }).truthy());
 }

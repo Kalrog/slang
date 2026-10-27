@@ -8,7 +8,7 @@
 #   make dungeon      run the example game (examples/dungeon) on Ebitengine
 #   make dungeon-test run the example game's DSL tests
 #   make zig          build the Zig VM (zig/zig-out/bin/slang), see PLAN_ZIG.md
-#   make zig-test     run the slang test suite and the Zig unit tests on the Zig VM
+#   make zig-test     run the slang test suite and the Zig unit tests on the Zig VM (fast and checked builds)
 #   make zig-fixpoint check that the Zig VM compiles the seed to identical bytecode
 #   make breakout     run the breakout example (examples/breakout) on the Zig VM with the raylib extension
 
@@ -60,12 +60,18 @@ dungeon-test: build
 	cd examples/dungeon && ../../bin/slang test test
 
 zig:
-	cd zig && zig build -Doptimize=ReleaseSafe
+	cd zig && zig build -Doptimize=ReleaseFast
 
-zig-test: zig
+# the suite under the checked build as well (zig/zig-out-safe)
+zig-safe:
+	cd zig && zig build -Doptimize=ReleaseSafe -p zig-out-safe
+
+zig-test: zig zig-safe
 	cd zig && zig build test
 	zig/zig-out/bin/slang test test
 	zig/zig-out/bin/slang test zig/test
+	SLANG_NATIVE_PATH=zig/zig-out-safe/lib zig/zig-out-safe/bin/slang test test
+	SLANG_NATIVE_PATH=zig/zig-out-safe/lib zig/zig-out-safe/bin/slang test zig/test
 
 zig-fixpoint: zig
 	@rm -rf /tmp/slang-zig-fixpoint && mkdir -p /tmp/slang-zig-fixpoint

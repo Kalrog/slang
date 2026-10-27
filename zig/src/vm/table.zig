@@ -34,6 +34,11 @@ const BytesCtx = struct {
 
 const Index = std.HashMapUnmanaged(Value, u32, KeyCtx, 80);
 
+/// Hash parts up to this many entries are searched linearly; the index is
+/// built when a table outgrows it (most tables are small records whose keys
+/// are interned strings, where a pointer comparison per entry beats hashing).
+const small_limit = 8;
+
 /// The slang table: an array part for keys 0..n-1 plus an insertion-ordered
 /// hash part. The key "meta" addresses the metatable. Storing null removes
 /// the key (and shifts the array part when the key is an array index).
@@ -42,6 +47,7 @@ pub const Table = struct {
     arr: std.ArrayList(Value) = .empty,
     ents: std.ArrayList(Entry) = .empty,
     index: Index = .empty,
+    indexed: bool = false,
     dead: u32 = 0,
     meta: ?*Table = null,
 
@@ -85,16 +91,50 @@ pub const Table = struct {
     }
 
     pub fn getStr(t: *const Table, s: *String) Value {
-        if (t.index.get(.{ .string = s })) |idx| return t.ents.items[idx].val;
+        if (t.find(.{ .string = s })) |idx| return t.ents.items[idx].val;
         if (s.eqlBytes("meta")) return Value.fromTable(t.meta);
         return .null;
     }
 
     /// Lookup of a string key given as bytes (for natives).
     pub fn getName(t: *const Table, name: []const u8) Value {
-        if (t.index.getAdapted(name, BytesCtx{})) |idx| return t.ents.items[idx].val;
+        if (t.findBytes(name)) |idx| return t.ents.items[idx].val;
         if (std.mem.eql(u8, name, "meta")) return Value.fromTable(t.meta);
         return .null;
+    }
+
+    /// The position of key in the hash part.
+    fn find(t: *const Table, key: Value) ?u32 {
+        if (t.indexed) return t.index.get(key);
+        for (t.ents.items, 0..) |e, i| {
+            if (e.key.keyEql(key)) return @intCast(i);
+        }
+        return null;
+    }
+
+    fn findBytes(t: *const Table, name: []const u8) ?u32 {
+        if (t.indexed) return t.index.getAdapted(name, BytesCtx{});
+        for (t.ents.items, 0..) |e, i| {
+            if (e.key == .string and e.key.string.eqlBytes(name)) return @intCast(i);
+        }
+        return null;
+    }
+
+    fn buildIndex(t: *Table, gpa: Allocator) void {
+        t.index.clearRetainingCapacity();
+        t.index.ensureTotalCapacity(gpa, @intCast(t.ents.items.len * 2)) catch oom();
+        for (t.ents.items, 0..) |e, i| {
+            if (e.key != .null) t.index.putAssumeCapacity(e.key, @intCast(i));
+        }
+        t.indexed = true;
+    }
+
+    /// Removes the entry at idx (found by find) and returns its value.
+    fn takeEntry(t: *Table, gpa: Allocator, idx: u32) Value {
+        const e = t.ents.items[idx];
+        if (t.indexed) _ = t.index.remove(e.key);
+        t.killEntry(gpa, idx);
+        return e.val;
     }
 
     pub fn getInt(t: *const Table, i: i64) Value {
@@ -103,7 +143,7 @@ pub const Table = struct {
     }
 
     fn anyGet(t: *const Table, key: Value) Value {
-        if (t.index.get(key)) |idx| return t.ents.items[idx].val;
+        if (t.find(key)) |idx| return t.ents.items[idx].val;
         return .null;
     }
 
@@ -150,22 +190,26 @@ pub const Table = struct {
     }
 
     fn setAny(t: *Table, gpa: Allocator, key: Value, val: Value) void {
-        const gop = t.index.getOrPut(gpa, key) catch oom();
-        if (gop.found_existing) {
-            t.ents.items[gop.value_ptr.*].val = val;
+        if (t.find(key)) |idx| {
+            t.ents.items[idx].val = val;
             return;
         }
-        gop.value_ptr.* = @intCast(t.ents.items.len);
+        const idx: u32 = @intCast(t.ents.items.len);
         t.ents.append(gpa, .{ .key = key, .val = val }) catch oom();
+        if (t.indexed) {
+            t.index.put(gpa, key, idx) catch oom();
+        } else if (t.ents.items.len > small_limit) {
+            t.buildIndex(gpa);
+        }
     }
 
     /// Migrates hash entries whose integer key continues the array part.
     fn fixList(t: *Table, gpa: Allocator) void {
+        if (t.ents.items.len == t.dead) return;
         while (true) {
             const k: Value = .{ .int = @intCast(t.arr.items.len) };
-            const kv = t.index.fetchRemove(k) orelse return;
-            const v = t.ents.items[kv.value].val;
-            t.killEntry(gpa, kv.value);
+            const idx = t.find(k) orelse return;
+            const v = t.takeEntry(gpa, idx);
             t.arr.append(gpa, v) catch oom();
         }
     }
@@ -186,9 +230,13 @@ pub const Table = struct {
         }
         t.ents.shrinkRetainingCapacity(w);
         t.dead = 0;
-        t.index.clearRetainingCapacity();
-        for (t.ents.items, 0..) |e, i| {
-            t.index.put(gpa, e.key, @intCast(i)) catch oom();
+        if (t.indexed) {
+            if (w > small_limit) {
+                t.buildIndex(gpa);
+            } else {
+                t.index.clearRetainingCapacity();
+                t.indexed = false;
+            }
         }
     }
 
@@ -202,11 +250,7 @@ pub const Table = struct {
                 return t.removeAny(gpa, key);
             },
             .string => |s| {
-                if (t.index.fetchRemove(key)) |kv| {
-                    const v = t.ents.items[kv.value].val;
-                    t.killEntry(gpa, kv.value);
-                    return v;
-                }
+                if (t.find(key)) |idx| return t.takeEntry(gpa, idx);
                 if (s.eqlBytes("meta")) {
                     const m = t.meta;
                     t.meta = null;
@@ -225,11 +269,7 @@ pub const Table = struct {
     }
 
     fn removeAny(t: *Table, gpa: Allocator, key: Value) Value {
-        if (t.index.fetchRemove(key)) |kv| {
-            const v = t.ents.items[kv.value].val;
-            t.killEntry(gpa, kv.value);
-            return v;
-        }
+        if (t.find(key)) |idx| return t.takeEntry(gpa, idx);
         return .null;
     }
 
@@ -300,11 +340,11 @@ pub const Table = struct {
             .int => |i| if (i >= 0 and i < t.arr.items.len) {
                 start = @intCast(i + 1);
             } else {
-                const idx = t.index.get(key) orelse return null;
+                const idx = t.find(key) orelse return null;
                 start = t.arr.items.len + idx + 1;
             },
             else => {
-                const idx = t.index.get(normKey(key)) orelse return null;
+                const idx = t.find(normKey(key)) orelse return null;
                 start = t.arr.items.len + idx + 1;
             },
         }

@@ -75,6 +75,25 @@ pub fn build(b: *std.Build) void {
         b.getInstallStep().dependOn(&rl_install.step);
     }
 
+    // The uv extension links the system libuv (Homebrew by default);
+    // -Dlibuv=false skips it, -Dlibuv-prefix points at another install.
+    const with_libuv = b.option(bool, "libuv", "build the uv extension (needs libuv installed)") orelse true;
+    if (with_libuv) {
+        const prefix = b.option([]const u8, "libuv-prefix", "where libuv is installed") orelse "/opt/homebrew";
+        const uv_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
+        uv_mod.addCSourceFile(.{ .file = b.path("../extensions/native/uv.c"), .flags = &.{"-std=c11"} });
+        uv_mod.addIncludePath(b.path("include"));
+        uv_mod.addIncludePath(.{ .cwd_relative = b.fmt("{s}/include", .{prefix}) });
+        uv_mod.addLibraryPath(.{ .cwd_relative = b.fmt("{s}/lib", .{prefix}) });
+        uv_mod.linkSystemLibrary("uv", .{});
+        const uv = b.addLibrary(.{ .name = "uv_ext", .linkage = .dynamic, .root_module = uv_mod });
+        uv.linker_allow_shlib_undefined = true;
+        const uv_install = b.addInstallArtifact(uv, .{
+            .dest_sub_path = b.fmt("uv{s}", .{target.result.dynamicLibSuffix()}),
+        });
+        b.getInstallStep().dependOn(&uv_install.step);
+    }
+
     const tests = b.addTest(.{ .root_module = mod });
     b.step("test", "run the Zig unit tests").dependOn(&b.addRunArtifact(tests).step);
 }
@@ -83,7 +102,7 @@ pub fn build(b: *std.Build) void {
 /// boot/slang at the repository root. It is copied into a generated module
 /// that embeds every file under its module name ("slang/compiler", ...).
 fn seedModule(b: *std.Build) *std.Build.Module {
-    const names = [_][]const u8{ "ast", "codegen", "compiler", "grammar", "optimizer", "package", "peg", "std", "table", "test" };
+    const names = [_][]const u8{ "ast", "async", "codegen", "compiler", "grammar", "http", "optimizer", "package", "peg", "std", "table", "test" };
     const wf = b.addWriteFiles();
     var src: std.ArrayList(u8) = .empty;
     src.appendSlice(b.allocator, "pub const Entry = struct { name: []const u8, data: []const u8 };\npub const files = [_]Entry{\n") catch @panic("OOM");

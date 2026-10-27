@@ -56,7 +56,8 @@ no code at compile time are cached, so the cache never changes behaviour.
 (or Zig, or anything with a C ABI): `extensions/native/hello.c` exercises
 every part of it, `extensions/native/vec.zig` defines a userdata type with
 operator metamethods, `extensions/native/raylib.c` wraps raylib for
-`examples/breakout`. `zig build` compiles them into `lib/`, and
+`examples/breakout`, `extensions/native/uv.c` wraps libuv (`brew install
+libuv`, or `-Dlibuv=false`). `zig build` compiles them into `lib/`, and
 `require("raylib")` loads `raylib.dylib` (or `.so`) from `lib/` next to the
 binary, the current directory, or the directories in `SLANG_NATIVE_PATH`.
 Natives signal errors by returning `SLANG_ERROR`, never by longjmp.
@@ -411,6 +412,31 @@ See `extensions/` for examples (switch statement, lambda shorthand, custom
 infix/prefix/postfix operators, a grammar DSL, the JSON dialect) and
 `examples/dungeon/dsl` for larger ones. The plan for the rest of this work
 (memoization placement, tooling) is in `PLAN_GRAMMAR.md`.
+
+## Async, libuv and HTTP
+
+`require("uv")` is the libuv binding in callback style (timers, TCP,
+`uv.run()`); `slang/async` builds Futures, Streams and `await` on coroutines
+on top of it; `extensions/async` adds the syntax; `slang/http` is an HTTP/1.1
+server and client. `examples/webserver` puts them together:
+
+```slang
+extension "extensions/async"
+local http = require("slang/http")
+local a = require("slang/async")
+a.main(func(){
+  local s = http.serve("127.0.0.1", 8080, async func(req){
+    await a.sleep(100)                       // does not block other requests
+    return concat("hello from ", req.path)   // or {status, headers, body}
+  })
+  await s.done
+})
+```
+
+`async func` bodies run as coroutines; `await` takes a Future (or raises its
+error); `await for(let local x in stream)` loops over a Stream. Callbacks
+stay available everywhere (`f:then(...)`, `stream:listen(...)`, the `uv`
+module itself). `PLAN_UV.md` has the design.
 
 ## Standard library
 Globals: `print`, `args`, `readLine`, `open` (files with `read`, `write`,

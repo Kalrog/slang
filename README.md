@@ -1,14 +1,14 @@
 # Slang
 
 A scripting language inspired by Lua and metalua. The virtual machine is
-written in Go; the parser, compiler and most of the standard library are
-written in slang itself and shipped as precompiled bytecode inside the
-interpreter binary.
+written in Zig and exposes a Lua-style C API for native extensions; the
+parser, compiler and most of the standard library are written in slang
+itself and shipped as precompiled bytecode inside the interpreter binary.
 
 ## Building and running
 
 ```sh
-make build              # builds bin/slang from the committed seed in go/boot
+make build              # bin/slang (ReleaseFast) and lib/ (the native extensions)
 bin/slang run file.slang [args...]
 bin/slang run --explain file.slang   # also prints the project file, the units and their extensions
 bin/slang test       # runs every *test.slang file in ./test
@@ -17,26 +17,23 @@ bin/slang compile file.slang [-o out.slb] [--strip]
 bin/slang disasm file.slb
 ```
 
-Requirements: Go 1.26 or newer. Nothing else.
+Requirements: Zig 0.17 (`brew install anyzig` picks the version pinned in
+`zig/build.zig.zon`). raylib for the breakout example (`brew install raylib`,
+or `-Draylib=false`). Nothing else.
 
-The Zig VM (`zig/`, see `PLAN_ZIG.md`) runs the same seed and bytecode and
-loads native extensions written against `zig/include/slang.h`:
-```sh
-make zig          # zig/zig-out/bin/slang, a ReleaseFast build (Zig 0.17 via anyzig)
-make zig-safe     # the checked build in zig/zig-out-safe
-make zig-test     # Zig unit tests, the slang suite and the native extension tests on both builds
-make zig-fixpoint # the seed compiled by the Zig VM is byte-identical
-```
-It is 1.4 to 2x faster than the Go VM on `bench/` (`bench/run_all.sh` runs
-them with `bin/slang`; substitute the Zig binary to compare).
+`make test` runs the slang suite, the native extension tests and the Zig
+unit tests; `make test-safe` runs the suites on the checked build and under
+GC stress (`zig/zig-out-safe`, `zig/zig-out-stress`); `make bench` runs
+`bench/`.
 
 ### Self-hosting
 
 `slang/compiler/*.slang` is the compiler, `slang/lib/*.slang` the slang part
-of the standard library. Both are compiled by the interpreter itself:
+of the standard library. Both are compiled by the interpreter itself into the
+seed bytecode in `boot/slang`, which the binary embeds:
 
 ```sh
-make seed       # recompiles slang/ into go/boot and rebuilds the binary
+make seed       # recompiles slang/ into boot/slang and rebuilds the binary
 make fixpoint   # checks that the seed reproduces itself byte for byte
 make test
 ```
@@ -44,14 +41,25 @@ make test
 After changing the compiler, run `make seed` twice (the first seed is compiled
 by the old compiler, the second by the new one) and then `make fixpoint`.
 
-`SLANG_CPUPROFILE=out.prof bin/slang run x.slang` writes a CPU profile for
-`go tool pprof`; `SLANG_CALLPROFILE=1` prints the most called slang functions
-at exit.
+`SLANG_TRACE=1` prints every instruction to stderr; `SLANG_GRAMMAR_WARNINGS=1`
+reports grammar conflicts (see Metaprogramming). On macOS,
+`sample <pid>` on a longer-running copy of a benchmark is a usable profiler.
 
 Files loaded with `require` or `slang run` are cached as bytecode in
 `~/.cache/slang` (override with `SLANG_CACHE_DIR`, disable with
 `SLANG_NO_CACHE=1`). Only files that compile with the standard grammar and run
 no code at compile time are cached, so the cache never changes behaviour.
+
+### Native extensions
+
+`zig/include/slang.h` is a Lua-style stack API for extensions written in C
+(or Zig, or anything with a C ABI): `extensions/native/hello.c` exercises
+every part of it, `extensions/native/vec.zig` defines a userdata type with
+operator metamethods, `extensions/native/raylib.c` wraps raylib for
+`examples/breakout`. `zig build` compiles them into `lib/`, and
+`require("raylib")` loads `raylib.dylib` (or `.so`) from `lib/` next to the
+binary, the current directory, or the directories in `SLANG_NATIVE_PATH`.
+Natives signal errors by returning `SLANG_ERROR`, never by longjmp.
 
 ## Syntax
 ### Variables
@@ -419,22 +427,26 @@ loading), `parser`, `test` (group/test/setup/teardown/run), `compiler`.
 
 ## Repository layout
 ```
-go/        the VM (go/vm), native library functions (go/stdlib), the CLI and the embedded seed
+zig/       the VM (zig/src/vm), native library functions (zig/src/stdlib), the CLI, slang.h
+boot/      the seed bytecode (slang/ compiled by itself), embedded by the binary
 slang/     the compiler (slang/compiler) and library code (slang/lib) written in slang
 test/      the test suite (bin/slang test)
-bench/     benchmarks (bench/run_all.sh)
-extensions/ parser extensions written in slang
-examples/  example programs; examples/dungeon is a game on Ebitengine whose content is written in DSLs
-tool/      oracle scripts comparing the self-hosted compiler with the legacy Dart one
-legacy/    the original Dart implementation (bootstrap reference, not used by the Go toolchain)
+bench/     benchmarks (make bench)
+extensions/ parser extensions written in slang; extensions/native are native ones
+examples/  example programs: examples/breakout on raylib, examples/project (slang.project),
+           examples/dungeon, a game whose content is written in DSLs (its window host is the legacy Go one)
+go/        the Go VM: the reference implementation during the Zig port, kept for comparison
+           (make go-build, go-test, go-fixpoint); it cannot load native extensions
+legacy/    the original Dart implementation and the oracle scripts in tool/, kept for history
 ```
 
 ## Embedding
 
-The VM is a Go library: `vm.New()`, `stdlib.Open`, `stdlib.Boot`, then
-`Register`/`Preload` natives and `Call` slang functions. `examples/dungeon/host`
-is a complete host program (about 300 lines) that runs a game written in
-slang on Ebitengine; `make dungeon` starts it.
+`slang.h` also embeds: `slang_new`, `slang_dostring`, `slang_dofile`,
+registering natives and calling slang functions through the same stack API
+the extensions use. `examples/dungeon/host` is a host program for the Go VM
+(Ebitengine); its port to the C API is still to do, so `make dungeon` uses
+the Go VM.
 
 ## Ideas
 - [ ] goroutine-based isolates with channels (see PLAN.md)

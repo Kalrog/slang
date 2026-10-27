@@ -80,7 +80,7 @@ pub fn build(b: *std.Build) void {
 }
 
 /// The seed bytecode (slang/lib and slang/compiler compiled to .slb) lives in
-/// go/boot/slang until go/ is removed. It is copied into a generated module
+/// boot/slang at the repository root. It is copied into a generated module
 /// that embeds every file under its module name ("slang/compiler", ...).
 fn seedModule(b: *std.Build) *std.Build.Module {
     const names = [_][]const u8{ "ast", "codegen", "compiler", "grammar", "optimizer", "package", "peg", "std", "table", "test" };
@@ -89,7 +89,7 @@ fn seedModule(b: *std.Build) *std.Build.Module {
     src.appendSlice(b.allocator, "pub const Entry = struct { name: []const u8, data: []const u8 };\npub const files = [_]Entry{\n") catch @panic("OOM");
     for (names) |n| {
         const file = b.fmt("{s}.slb", .{n});
-        _ = wf.addCopyFile(b.path(b.fmt("../go/boot/slang/{s}", .{file})), file);
+        _ = wf.addCopyFile(b.path(b.fmt("../boot/slang/{s}", .{file})), file);
         src.appendSlice(b.allocator, b.fmt("    .{{ .name = \"slang/{s}\", .data = @embedFile(\"{s}\") }},\n", .{ n, file })) catch @panic("OOM");
     }
     src.appendSlice(b.allocator, "};\n") catch @panic("OOM");

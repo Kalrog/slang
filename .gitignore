@@ -1,7 +1,10 @@
 .dart_tool/
 *.exe
 .DS_Store
-/bin/slang
+/bin/
+/lib/
+/go/boot/slang/
+/go/bin/
 /test/*.slb
 /examples/dungeon/dungeon
 /examples/dungeon/host/host

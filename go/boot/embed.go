@@ -4,5 +4,8 @@ package boot
 
 import "embed"
 
+// The seed lives in boot/slang at the repository root; `make go-build`
+// copies it here (Go's embed cannot leave the module).
+//
 //go:embed slang/*.slb
 var FS embed.FS

@@ -3,7 +3,7 @@
 A breakout game on [raylib](https://www.raylib.com), written in slang. The
 window, drawing and keyboard come from the native extension
 `extensions/native/raylib.c`, a 200-line C file against `zig/include/slang.h`
-that `zig build` compiles into `zig/zig-out/lib/raylib.dylib` (or `.so`);
+that `make build` compiles into `lib/raylib.dylib` (or `.so`);
 `require("raylib")` loads it at run time.
 
 ```

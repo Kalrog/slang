@@ -8,7 +8,7 @@ defined in `dsl/`: pixel art, levels, entity types, monster brains, dialogue,
 loot tables, event rules and multi-frame scripts.
 
 ```sh
-make dungeon                      # from the repository root, or:
+make dungeon                      # from the repository root (the host is the Go/Ebitengine one), or:
 cd examples/dungeon && go run ./host .
 make dungeon-test                 # the DSL tests (no window needed)
 ```
@@ -28,7 +28,7 @@ go.mod       the Go module of the host (it depends on ../../go through a replace
 dsl/         the languages: sprite, level, entity, machine, dialogue, loot, events, script
 engine/      their runtimes plus world, input, gfx, scheduler, events
 game/        the content: sprites, tiles, entities, brains, dialogues, loot, rules, levels, hud
-test/        tests of the DSLs (run with bin/slang test test from this directory)
+test/        tests of the DSLs (make dungeon-test, or ../../bin/slang test test from this directory)
 ```
 
 The host adds the game directory to the module search path, loads

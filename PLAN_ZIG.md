@@ -11,7 +11,7 @@ Native extensions (modules that wrap a system library or need native speed) cann
 1. Rewrite the VM, the native standard library and the CLI in Zig. The Go VM is the reference until the Zig VM reaches parity, then it is deleted (after confirmation).
 2. A public C API, `slang.h`, modelled on Lua's `lua.h`: a value stack per thread, index-based access, no exposed `Value` layout. It serves both native extensions and embedding the VM in a host program.
 3. `require` loads native extensions from shared libraries.
-4. Everything written in slang is unchanged: compiler, grammar, extensions, `slang/lib`. The seed bytecode in `go/boot/slang/*.slb` boots the Zig VM as is; no stage 0 is needed.
+4. Everything written in slang is unchanged: compiler, grammar, extensions, `slang/lib`. The seed bytecode (now `boot/slang/*.slb`) boots the Zig VM as is; no stage 0 is needed.
 5. The `test/*_test.slang` suite is the acceptance oracle, plus differential runs against the Go binary.
 
 Out of scope: the dungeon example (it stays on the Go VM until it is ported later, ideally as a native extension wrapping raylib or SDL instead of a custom host), changes to the language, ISA or `.slb` format, isolates/threads (see "Future" in PLAN.md).
@@ -133,9 +133,9 @@ Pin the latest stable release at the start in `build.zig.zon` and only upgrade d
 
 - Not done: NaN-boxing (16-byte values stay). Every benchmark is 1.4 to 2x ahead of the Go VM; the next step would be a register-based bytecode, which is a compiler change.
 
-### Phase 7: Switch-over `[ ]`
-- [ ] Make Zig the default in the Makefile and README (build, extension API, embedding).
-- [ ] Delete `go/` after confirmation; the dungeon example is marked as not working until it is ported.
+### Phase 7: Switch-over `[x]`
+- [x] 2026-10-27: the Zig VM is the implementation. `make build` installs `bin/slang` and `lib/` from `zig/`; `make test`, `seed`, `fixpoint`, `bench`, `breakout`, `dungeon-test` use it. The seed moved to `boot/slang` (the Zig build copies it into its generated module; `make go-build` copies it into `go/boot/slang`, since Go's embed cannot leave the module). `require` of a native module also looks in `lib/` next to the binary's `bin/` directory.
+- [x] Decided to keep `go/` (reference VM, `make go-build/go-test/go-fixpoint`) and `legacy/` (Dart) for history rather than deleting them; the project is not public. The dungeon window host still runs on the Go VM until it is ported to `slang.h`.
 
 ## Open points
 - Windows support for native extensions (import library vs. `slang.dll`); Linux needs a test run (`-rdynamic` export, `.so` loading).

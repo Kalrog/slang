@@ -463,22 +463,34 @@ func compiler.highlight(source, path, options){
   if(dialect != null){
     g = dialect_grammar(dialect.suffix)
   }
+  // a project file is a table literal, loaded as `return {...}`
+  local prefix = ""
+  if(str.ends_with(path, "slang.project")){
+    prefix = "return "
+  }
+  local shift = len(prefix)
+  local func position(pos){
+    if(pos < shift){
+      return 0
+    }
+    return pos - shift
+  }
   local lin = root.state
-  local r = pcall(g.parse_source, g, source, path, {record: true})
+  local r = pcall(g.parse_source, g, concat(prefix, source), path, {record: true})
   local diagnostics = {}
   if(r[0] == "err"){
     local e = r[1]
     local f = lin.last_failure
     if(f != null){
-      local lc = str.line_col(source, f.far_pos)
+      local lc = str.line_col(source, position(f.far_pos))
       append(diagnostics, {line: lc[0], column: lc[1], message: f.far_message, severity: "error"})
       if(f.far_pos != f.pos){
-        local at = str.line_col(source, f.pos)
+        local at = str.line_col(source, position(f.pos))
         append(diagnostics, {line: at[0], column: at[1], message: f.message, severity: "error"})
       }
     } else {
       // an error raised by compile-time code: reported at the statement being parsed
-      local lc = str.line_col(source, lin.phrase_pos)
+      local lc = str.line_col(source, position(lin.phrase_pos))
       local message = e
       if(type(e) == "table"){
         message = e.message
@@ -490,7 +502,19 @@ func compiler.highlight(source, path, options){
     }
     lin.last_failure = null
   }
-  return {tokens: lin.last_tokens or {}, diagnostics: diagnostics}
+  local tokens = lin.last_tokens or {}
+  if(shift > 0){
+    // drop the prefix's token, move the rest back
+    local shifted = {}
+    for(let local t in values(tokens)){
+      if(t.start >= shift){
+        local lc = str.line_col(source, t.start - shift)
+        append(shifted, {category: t.category, start: t.start - shift, stop: t.stop - shift, line: lc[0], column: lc[1], length: t.length})
+      }
+    }
+    tokens = shifted
+  }
+  return {tokens: tokens, diagnostics: diagnostics}
 }
 
 // highlight_file(path) -> the same for a file, looking up its project like

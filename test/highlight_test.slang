@@ -68,6 +68,15 @@ local v = 1 <> 2
       __PACKAGES.preloaded[name] = null
     }
   }
+  t.test("a project file is a table literal"){
+    local r = spell("// the project\n{\n  extensions: {\"a\"},\n}\n", "some/dir/slang.project")
+    assert(len(r.diagnostics) == 0, concat("diagnostics: ", len(r.diagnostics)))
+    assert(r.spelled[0] == "comment:// the project" and r.spelled[1] == "punctuation:{", str.join(r.spelled, " "))
+    local raw = compiler.highlight("// the project\n{\n  extensions: {\"a\"},\n}\n", "some/dir/slang.project")
+    assert(raw.tokens[0].line == 1 and raw.tokens[0].column == 1 and raw.tokens[1].line == 2, "positions are those of the file")
+    local bad = compiler.highlight("{ extensions: }", "x/slang.project")
+    assert(len(bad.diagnostics) >= 1 and bad.diagnostics[0].line == 1 and bad.diagnostics[0].column <= 15, "a diagnostic in the file's coordinates")
+  }
   t.test("highlight_json"){
     local text = compiler.highlight_json("test/scope_module.slang")
     local v = json.decode(text, "highlight")

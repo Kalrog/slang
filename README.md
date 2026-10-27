@@ -92,6 +92,12 @@ g = func() {
 ```
 ### Operators
 ```slang
+// arithmetic: + - * / % ^ (power), unary -
+// comparison: == != < <= > >=, logical: and or not
+// bitwise on integers: & | ~ (xor) << >> (arithmetic), unary ~ (not); they bind
+// tighter than comparison and looser than arithmetic: (a & mask) == 0 needs no
+// parentheses, a + 1 << 2 is (a + 1) << 2. Shifts by 64 or more give 0 (or -1
+// for a negative value shifted right); a float with an integral value converts.
 // arithmetic
 + - * / % ^
 // comparison

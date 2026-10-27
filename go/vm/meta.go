@@ -57,6 +57,16 @@ func arithMetaName(op uint32) string {
 		return "__mod"
 	case opPow:
 		return "__pow"
+	case opBand:
+		return "__band"
+	case opBor:
+		return "__bor"
+	case opBxor:
+		return "__bxor"
+	case opShl:
+		return "__shl"
+	case opShr:
+		return "__shr"
 	}
 	return ""
 }

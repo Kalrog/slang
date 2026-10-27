@@ -35,6 +35,12 @@ local OP_JUMP = 24
 local OP_CALL = 25
 local OP_TYPE = 26
 local OP_POW = 27
+local OP_BAND = 28
+local OP_BOR = 29
+local OP_BXOR = 30
+local OP_SHL = 31
+local OP_SHR = 32
+local OP_BNOT = 33
 
 // instruction layout: |b:9|c:9|a:8|op:6|, bx = 18 bits, sbx = bx - 0x1FFFF, ax = 26 bits
 local SBX_OFFSET = 131071
@@ -68,6 +74,11 @@ binops["<"] = OP_LT
 binops["<="] = OP_LEQ
 binops["=="] = OP_EQ
 binops["^"] = OP_POW
+binops["&"] = OP_BAND
+binops["|"] = OP_BOR
+binops["~"] = OP_BXOR
+binops["<<"] = OP_SHL
+binops[">>"] = OP_SHR
 
 // ------------------------------------------------------------ function assembler
 
@@ -290,6 +301,8 @@ func asm.emit_unop(self, op){
     self:emit(OP_NEG)
   } else if(op == "not"){
     self:emit(OP_NOT)
+  } else if(op == "~"){
+    self:emit(OP_BNOT)
   } else {
     error("Unknown operator: ", op)
   }

@@ -163,6 +163,7 @@ module.exports = grammar({
         choice(
           seq("-", $.expression),
           seq("not", $.expression),
+          seq("~", $.expression),
         ),
       ),
     ),
@@ -183,6 +184,18 @@ module.exports = grammar({
           seq($.expression, "+", $.expression),
           seq($.expression, "-", $.expression),
         )),
+      // bitwise: between arithmetic and comparison, as in Lua
+      prec.left(2.8,
+        choice(
+          seq($.expression, "<<", $.expression),
+          seq($.expression, ">>", $.expression),
+        )),
+      prec.left(2.6,
+        seq($.expression, "&", $.expression)),
+      prec.left(2.4,
+        seq($.expression, "~", $.expression)),
+      prec.left(2.2,
+        seq($.expression, "|", $.expression)),
       prec.left(2,
         choice(
           seq($.expression, "==", $.expression),

@@ -93,6 +93,21 @@ local func fold_binop(node, left, right){
     if(numbers){
       return ast.literal(token, a >= b)
     }
+  } else if(type(a) == "int" and type(b) == "int"){
+    // bitwise operators on integers (the compiler runs on the same VM, so
+    // folding gives exactly the run-time result; a negative shift amount is
+    // a run-time error and is left alone)
+    if(op == "&"){
+      return ast.literal(token, a & b)
+    } else if(op == "|"){
+      return ast.literal(token, a | b)
+    } else if(op == "~"){
+      return ast.literal(token, a ~ b)
+    } else if(op == "<<" and b >= 0){
+      return ast.literal(token, a << b)
+    } else if(op == ">>" and b >= 0){
+      return ast.literal(token, a >> b)
+    }
   }
   return ast.node("BinOp", {left: left, op: op, right: right}, token)
 }
@@ -163,6 +178,9 @@ func visitors.UnOp(n){
     }
     if(n.op == "-" and is_number(v)){
       return ast.literal(n.token, -v)
+    }
+    if(n.op == "~" and type(v) == "int"){
+      return ast.literal(n.token, ~v)
     }
   }
   return ast.node("UnOp", {op: n.op, operand: operand}, n.token)

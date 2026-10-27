@@ -158,7 +158,7 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 th.frames.items[fi].pc = @intCast(pc);
                 continue :sw d.opOf(ins);
             },
-            .mul, .div, .mod, .pow => {
+            .mul, .div, .mod, .pow, .band, .bor, .bxor, .shl, .shr => {
                 const b = stack[top - 1];
                 const a = stack[top - 2];
                 th.top = top;
@@ -208,6 +208,29 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                         try th.handleError(error.Slang, stop_depth);
                         continue :outer;
                     },
+                }
+                ins = code[pc];
+                if (trace) {
+                    th.top = top;
+                    traceInstruction(th, fi, base, pc, ins);
+                }
+                pc += 1;
+                th.frames.items[fi].pc = @intCast(pc);
+                continue :sw d.opOf(ins);
+            },
+            .bnot => {
+                const a = stack[top - 1];
+                if (a == .int) {
+                    stack[top - 1] = .{ .int = ~a.int };
+                } else {
+                    th.top = top;
+                    const r = bnotSlow(th, a) catch |e| {
+                        try th.handleError(e, stop_depth);
+                        continue :outer;
+                    };
+                    top = th.top;
+                    stack = th.stack.ptr;
+                    stack[top - 1] = r;
                 }
                 ins = code[pc];
                 if (trace) {
@@ -649,6 +672,12 @@ fn arithMetaName(op: Op) []const u8 {
         .div => "__div",
         .mod => "__mod",
         .pow => "__pow",
+        .band => "__band",
+        .bor => "__bor",
+        .bxor => "__bxor",
+        .shl => "__shl",
+        .shr => "__shr",
+        .bnot => "__bnot",
         else => "",
     };
 }
@@ -661,9 +690,64 @@ fn floatMod(x: f64, y: f64) f64 {
     return r;
 }
 
+/// An integer, or a float with an integral value, as an integer.
+fn exactInt(v: Value) ?i64 {
+    switch (v) {
+        .int => |i| return i,
+        .float => |f| {
+            if (f == @trunc(f) and f >= -9.2e18 and f <= 9.2e18) return @intFromFloat(f);
+            return null;
+        },
+        else => return null,
+    }
+}
+
+fn isBitOp(op: Op) bool {
+    return switch (op) {
+        .band, .bor, .bxor, .shl, .shr => true,
+        else => false,
+    };
+}
+
+/// & | ~ << >> on integers (floats with integral values convert). Shifts by
+/// 64 or more give 0 (or -1 for a negative value shifted right); a negative
+/// shift amount is an error, reported by arithMeta.
+fn bitop(op: Op, x: i64, y: i64) ?Value {
+    return switch (op) {
+        .band => .{ .int = x & y },
+        .bor => .{ .int = x | y },
+        .bxor => .{ .int = x ^ y },
+        .shl => blk: {
+            if (y < 0) break :blk null;
+            if (y >= 64) break :blk .{ .int = 0 };
+            break :blk .{ .int = x << @as(u6, @intCast(y)) };
+        },
+        .shr => blk: {
+            if (y < 0) break :blk null;
+            const n: u6 = if (y >= 64) 63 else @intCast(y);
+            break :blk .{ .int = x >> n };
+        },
+        else => unreachable,
+    };
+}
+
+/// ~a for anything but an int: an integral float, or __bnot.
+fn bnotSlow(th: *Thread, a: Value) Error!Value {
+    if (exactInt(a)) |x| return .{ .int = ~x };
+    const f = metamethod(a, .null, "__bnot");
+    if (f == .function) return th.call(f, &.{a});
+    if (a == .float) return th.vm.raise("number has no integer representation in bitwise operation (~)", .{});
+    return th.vm.raise("attempt to perform bitwise operation (~) on a {s} value", .{a.typeName()});
+}
+
 /// A binary arithmetic operation on built-in types. Returns null when the
 /// operands do not support it.
 fn arith(th: *Thread, op: Op, a: Value, b: Value) ?Value {
+    if (isBitOp(op)) {
+        const x = exactInt(a) orelse return null;
+        const y = exactInt(b) orelse return null;
+        return bitop(op, x, y);
+    }
     if (a == .int and b == .int) {
         const x = a.int;
         const y = b.int;
@@ -741,8 +825,16 @@ pub const ThreadOps = struct {
     pub fn arithMeta(th: *Thread, op: Op, a: Value, b: Value) Error!Value {
         if (arith(th, op, a, b)) |r| return r;
         if (op == .mod and a == .int and b == .int) return th.vm.raise("integer modulo by zero", .{});
+        if (isBitOp(op) and a.isNumber() and b.isNumber()) {
+            if (exactInt(a) != null and exactInt(b) != null) return th.vm.raise("negative shift amount", .{});
+            return th.vm.raise("number has no integer representation in bitwise operation ({s})", .{op.symbol()});
+        }
         const f = metamethod(a, b, arithMetaName(op));
         if (f == .function) return th.call(f, &.{ a, b });
+        if (isBitOp(op)) {
+            if (a.kind() == b.kind()) return th.vm.raise("attempt to perform bitwise operation ({s}) on {s} values", .{ op.symbol(), a.typeName() });
+            return th.vm.raise("attempt to perform bitwise operation ({s}) on {s} and {s}", .{ op.symbol(), a.typeName(), b.typeName() });
+        }
         return th.vm.raise("attempt to perform arithmetic ({s}) on {s} and {s}", .{ op.symbol(), a.typeName(), b.typeName() });
     }
 

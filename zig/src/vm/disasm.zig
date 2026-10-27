@@ -38,6 +38,12 @@ pub const Op = enum(u6) {
     call, // call with bx args
     type, // replace top with its type
     pow, // a ^ b
+    band, // a & b
+    bor, // a | b
+    bxor, // a ~ b
+    shl, // a << b
+    shr, // a >> b (arithmetic)
+    bnot, // ~a
     _,
 
     pub fn name(op: Op) []const u8 {
@@ -70,6 +76,12 @@ pub const Op = enum(u6) {
             .call => "call",
             .type => "type",
             .pow => "pow",
+            .band => "band",
+            .bor => "bor",
+            .bxor => "bxor",
+            .shl => "shl",
+            .shr => "shr",
+            .bnot => "bnot",
             _ => "op?",
         };
     }
@@ -82,6 +94,11 @@ pub const Op = enum(u6) {
             .div => "/",
             .mod => "%",
             .pow => "^",
+            .band => "&",
+            .bor => "|",
+            .bxor, .bnot => "~",
+            .shl => "<<",
+            .shr => ">>",
             else => op.name(),
         };
     }
@@ -100,7 +117,7 @@ fn mode(op: Op) Mode {
 }
 
 pub inline fn opOf(ins: u32) Op {
-    return @enumFromInt(@as(u6, @truncate(ins)));
+    return @fromBackingInt(@intCast(@as(u6, @truncate(ins))));
 }
 pub inline fn argA(ins: u32) u32 {
     return (ins >> 6) & 0xFF;

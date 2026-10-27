@@ -40,6 +40,12 @@ const (
 	opCall          // call with bx args
 	opType          // replace top with its type
 	opPow           // a ^ b
+	opBand          // a & b
+	opBor           // a | b
+	opBxor          // a ~ b
+	opShl           // a << b
+	opShr           // a >> b (arithmetic)
+	opBnot          // ~a
 	numOpcodes
 )
 
@@ -47,7 +53,7 @@ var opNames = [...]string{
 	"loadConstant", "loadBool", "loadClosure", "add", "sub", "mul", "div", "mod",
 	"neg", "not", "eq", "lt", "leq", "move", "push", "pop", "returnOp", "newTable",
 	"setTable", "getTable", "setUpvalue", "getUpvalue", "closeUpvalues", "test",
-	"jump", "call", "type", "pow",
+	"jump", "call", "type", "pow", "band", "bor", "bxor", "shl", "shr", "bnot",
 }
 
 func opName(op uint32) string {
@@ -142,7 +148,7 @@ outer:
 					continue outer
 				}
 				th.push(r)
-			case opMul, opDiv, opMod, opPow:
+			case opMul, opDiv, opMod, opPow, opBand, opBor, opBxor, opShl, opShr:
 				b := th.stack[th.top-1]
 				a := th.stack[th.top-2]
 				th.top -= 2
@@ -180,6 +186,31 @@ outer:
 				}
 			case opNot:
 				th.stack[th.top-1] = Bool(!th.stack[th.top-1].Truthy())
+			case opBnot:
+				a := th.stack[th.top-1]
+				if a.k == KInt {
+					th.stack[th.top-1] = Int(^a.n)
+					continue
+				}
+				if x, ok := exactInt(a); ok {
+					th.stack[th.top-1] = Int(^x)
+					continue
+				}
+				if f := metamethod(a, Null, "__bnot"); f.k == KFunction {
+					r, err := th.Call(f, a)
+					if err != nil {
+						if e := th.handleError(err, stopDepth); e != nil {
+							return e
+						}
+						continue outer
+					}
+					th.stack[th.top-1] = r
+					continue
+				}
+				if e := th.handleError(bitError(a, "~", a), stopDepth); e != nil {
+					return e
+				}
+				continue outer
 			case opEq:
 				b := th.stack[th.top-1]
 				a := th.stack[th.top-2]
@@ -365,7 +396,74 @@ outer:
 	}
 }
 
+// exactInt converts an integer, or a float with an integral value, to an int.
+func exactInt(v Value) (int64, bool) {
+	switch v.k {
+	case KInt:
+		return v.n, true
+	case KFloat:
+		f := v.AsFloat()
+		if f == math.Trunc(f) && f >= -9.2e18 && f <= 9.2e18 {
+			return int64(f), true
+		}
+	}
+	return 0, false
+}
+
+func isBitOp(op uint32) bool {
+	return op >= opBand && op <= opShr
+}
+
+func bitError(a Value, sym string, b Value) error {
+	if a.IsNumber() && b.IsNumber() {
+		return Errorf("number has no integer representation in bitwise operation (%s)", sym)
+	}
+	if a.k == b.k {
+		return Errorf("attempt to perform bitwise operation (%s) on %s values", sym, a.TypeName())
+	}
+	return Errorf("attempt to perform bitwise operation (%s) on %s and %s", sym, a.TypeName(), b.TypeName())
+}
+
+// bitop implements & | ~ << >> on integers (floats with integral values
+// convert). Shifts by 64 or more give 0 (or -1 for a negative value shifted
+// right); negative shift amounts are an error.
+func bitop(op uint32, a, b Value) (Value, error) {
+	x, okx := exactInt(a)
+	y, oky := exactInt(b)
+	if !okx || !oky {
+		return Null, bitError(a, opSymbol(op), b)
+	}
+	switch op {
+	case opBand:
+		return Int(x & y), nil
+	case opBor:
+		return Int(x | y), nil
+	case opBxor:
+		return Int(x ^ y), nil
+	case opShl:
+		if y < 0 {
+			return Null, Errorf("negative shift amount")
+		}
+		if y >= 64 {
+			return Int(0), nil
+		}
+		return Int(x << uint(y)), nil
+	case opShr:
+		if y < 0 {
+			return Null, Errorf("negative shift amount")
+		}
+		if y >= 64 {
+			y = 63
+		}
+		return Int(x >> uint(y)), nil
+	}
+	return Null, Errorf("unknown bitwise operation")
+}
+
 func arith(op uint32, a, b Value) (Value, error) {
+	if isBitOp(op) {
+		return bitop(op, a, b)
+	}
 	if a.k == KInt && b.k == KInt {
 		x, y := a.n, b.n
 		switch op {
@@ -461,6 +559,18 @@ func opSymbol(op uint32) string {
 		return "%"
 	case opPow:
 		return "^"
+	case opBand:
+		return "&"
+	case opBor:
+		return "|"
+	case opBxor:
+		return "~"
+	case opShl:
+		return "<<"
+	case opShr:
+		return ">>"
+	case opBnot:
+		return "~"
 	}
 	return opName(op)
 }

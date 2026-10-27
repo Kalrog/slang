@@ -1202,7 +1202,7 @@ local func install_core(g){
   w:right(tok("^", "operator"), "power", binop)
 
   w:level("unary")
-  w:prefix(peg.choice(not_brace(tok("-", "operator")), tok("not", "operator")), "unary", func(op, exp){
+  w:prefix(peg.choice(not_brace(tok("-", "operator")), tok("not", "operator"), tok("~", "operator")), "unary", func(op, exp){
     return ast.node("UnOp", {op: op.value, operand: exp}, op)
   })
 
@@ -1211,6 +1211,20 @@ local func install_core(g){
 
   w:level("add", {aliases: {"+", "-"}})
   w:left(peg.choice(not_brace(tok("-", "operator")), not_brace(tok("+", "operator"))), "add", binop)
+
+  // bitwise operators sit between arithmetic and comparison, as in Lua:
+  // `a & b == c` is `(a & b) == c`, `a + b << 1` is `(a + b) << 1`
+  w:level("shift", {aliases: {"<<", ">>"}})
+  w:left(peg.choice(tok("<<", "operator"), tok(">>", "operator")), "shift", binop)
+
+  w:level("bitAnd", {aliases: {"&"}})
+  w:left(tok("&", "operator"), "bitAnd", binop)
+
+  w:level("bitXor", {aliases: {"~"}})
+  w:left(tok("~", "operator"), "bitXor", binop)
+
+  w:level("bitOr", {aliases: {"|"}})
+  w:left(tok("|", "operator"), "bitOr", binop)
 
   w:level("compare", {aliases: {"<=", ">=", "!=", "==", ">"}})
   w:left(peg.choice(tok("<=", "operator"), tok(">=", "operator"), tok("!=", "operator"), tok("==", "operator"), tok(">", "operator"), tok("<", "operator")), "compare", binop)

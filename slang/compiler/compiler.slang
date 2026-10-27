@@ -114,6 +114,9 @@ local func explain_unit(origin, unit){
       explain("  rule ", r.name, ": ", r.owner, " -> ", str.join(r.history, " -> "))
     }
   }
+  for(let local m in values(unit.memos or {})){
+    explain("  memoized ", m.name, " (leads several alternatives of one choice)")
+  }
 }
 
 local func new_grammar(){
@@ -121,7 +124,7 @@ local func new_grammar(){
   // warn and explain check compiler.explain when they are called, so that
   // `slang run --explain` can turn them on after boot
   local opts = {run_block: run_block, run_extension: run_extension, optimize: optimizer.optimize,
-                warn: warn, explain: explain_unit}
+                warn: warn, explain: explain_unit, memoize: os.getenv("SLANG_NO_MEMO") == null}
   return grammar.new(opts)
 }
 

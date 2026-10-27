@@ -367,7 +367,13 @@ object offers:
   expression walker and the dispatch tables once. `SLANG_GRAMMAR_WARNINGS=1`
   (or `--explain`) reports rules modified by more than one extension,
   modifications that can never match their second alternative, and rules
-  that stop parsing their probe snippet.
+  that stop parsing their probe snippet. Sealing also places memoization: a
+  rule (or the parser it was modified from) that leads several alternatives
+  of one choice is memoized per position for the duration of a top-level
+  statement, so `choice(seq(old, tail), old)` parses `old` once; `--explain`
+  lists the placements, `SLANG_NO_MEMO=1` turns them off. A wrapper of a
+  rule built at seal time (`expr`, `statement`) runs at seal time, so create
+  the tokens it uses before calling `modify`.
 - `g:derive()` is a copy that changes independently (the unit grammars are
   derived from the root this way), `g:root()` the root grammar, `g:unit()`
   the grammar of the unit being parsed, `g:extensions()` the extensions

@@ -305,9 +305,26 @@ only, evaluated once before any unit:
   between the Phase 3 and the Phase 4 compiler; both fixed points; parse
   benchmark unchanged (73 ms).
 
-### Phase 5: Memoization placement `[ ]`
-- [ ] Shared-prefix analysis at seal; memo per statement; measured on a
-      deliberately bad extension (the wrapped-rule worst case).
+### Phase 5: Memoization placement `[x]`
+- [x] `peg.memoize(p)` (in place: results per context and position in
+      `ctx.rule_memo`, cleared by the phrase loop before every top-level
+      statement; failures are replayed) and `peg.place_memos(roots, named)`:
+      the leading set of every alternative of every choice/dispatch (first
+      elements of sequences up to the first non-nullable one, through
+      wrappers and references; the expression walker is a leaf); a named
+      rule, or a parser a rule was modified from, that leads more than one
+      alternative is memoized unless it is reached only through another
+      memoized one. Runs at seal; `SLANG_NO_MEMO=1` disables it, `--explain`
+      lists placements.
+- [x] Measured on `bench/memo.slang` (statement wrapped in
+      `choice(seq(old, afterwards), old)` over the 1050-line sample): 1800 ms
+      without placement (every nested statement is reparsed, so the cost
+      compounds with block depth), 80 ms with it; the base grammar is
+      unaffected (76 ms; its only placement is `number`, shared by the two
+      numeric literals).
+- Lesson: a wrapper of a rule built at seal time runs at seal time, when
+  grammar changes are refused; tokens it needs must be created before
+  `modify`. A memoized result is shared, so actions must not mutate inputs.
 
 ### Phase 6: Tooling `[ ]`
 - [ ] Syntax export and a VM-free highlighter; semantic tokens from codegen;

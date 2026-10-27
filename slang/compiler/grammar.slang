@@ -167,7 +167,7 @@ local func new_grammar(lin, parent){
     g.rule_table = {}
     for(let local name in values(parent.rule_order)){
       local e = parent.rule_table[name]
-      g.rule_table[name] = {name: e.name, parser: e.parser, build: e.build, wrappers: copy_list(e.wrappers),
+      g.rule_table[name] = {name: e.name, parser: e.parser, build: e.build, wrappers: copy_list(e.wrappers), bases: copy_list(e.bases),
                             owner: e.owner, protected: e.protected, probe: e.probe, history: copy_list(e.history)}
     }
     g.rule_order = copy_list(parent.rule_order)
@@ -240,6 +240,8 @@ func methods.define(g, name, parser, options){
     append(g.rule_order, name)
   }
   g.rule_table[name] = {
+    // the parsers this rule was modified from (memoization placement)
+    bases: {},
     name: name, parser: parser, build: options.build, wrappers: {},
     owner: g.state.owner, protected: options.protected == true, probe: options.probe, history: {},
   }
@@ -292,6 +294,7 @@ func methods.modify(g, name, f){
     return null
   }
   local old = entry.parser
+  append(entry.bases, old)
   local new = f(old)
   if(not peg.is_parser(new)){
     error("modify(", name, ") must return a parser")
@@ -535,6 +538,7 @@ local func install(g){
 
 local func build_rule(g, entry){
   local p = entry.build(g)
+  entry.base = p
   for(let local w in values(entry.wrappers)){
     p = w(p)
     if(not peg.is_parser(p)){
@@ -565,6 +569,25 @@ func methods.seal(g){
   for(let local e in values(built)){
     sealed[e.name] = build_rule(g, e)
     install(g)
+  }
+  // memoization placement: the rules and the parsers they were modified
+  // from are memoized where they lead several alternatives of one choice
+  g.memos = {}
+  if(g.state.opts.memoize != false){
+    local named = {}
+    local roots = {}
+    for(let local name in values(g.rule_order)){
+      local e = g.rule_table[name]
+      named[sealed[name]] = name
+      append(roots, sealed[name])
+      if(e.base != null){
+        named[e.base] = name
+      }
+      for(let local b in values(e.bases)){
+        named[b] = name
+      }
+    }
+    g.memos = peg.place_memos(roots, named)
   }
   g.dirty = false
 }
@@ -1341,6 +1364,7 @@ local func parse_top_level(g, source, origin, scoped){
   lin.current = unit
   for(true){
     unit:activate()
+    ctx.rule_memo = {}
     local q = parsers.extension_statement:parse_on(ctx, pos)
     if(q >= 0){
       local parsed = ctx.value

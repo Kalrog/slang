@@ -41,6 +41,9 @@ func peg.context(buffer){
     fail_pos: -1,
     far_pos: -1,
     memo: {},
+    // results of memoized rules (peg.memoize); the phrase loop clears it
+    // before every top-level statement
+    rule_memo: {},
   }
 }
 
@@ -941,6 +944,213 @@ local func info_of(p, memo, visiting){
   visiting[p] = null
   memo[p] = r
   return r
+}
+
+// ------------------------------------------------------------- memoization
+//
+// A parser is memoized where it can run twice at one position: as the
+// leading parser of several alternatives of one choice or dispatch. The
+// common case is the `old` of a modified rule appearing in both alternatives
+// of choice(seq(old, tail), old), which would otherwise parse every instance
+// of the rule twice. Results live in ctx.rule_memo per position; a cached
+// result is shared, so parser actions must not mutate their inputs.
+
+// memoize(p): makes p remember its results, in place (every grammar sharing
+// the parser sees it)
+func peg.memoize(p){
+  if(p.memoized){
+    return p
+  }
+  p.memoized = true
+  local id = p.id
+  local parse_on = p.parse_on
+  local fast = p.fast
+  local func table_of(ctx){
+    local t = ctx.rule_memo[id]
+    if(t == null){
+      t = {}
+      ctx.rule_memo[id] = t
+    }
+    return t
+  }
+  p.parse_on = func(self, ctx, pos){
+    local t = table_of(ctx)
+    local hit = t[pos]
+    if(hit != null and hit.has_value){
+      if(hit.stop < 0){
+        return fail(ctx, hit.fail_pos, hit.fail_msg)
+      }
+      ctx.value = hit.value
+      return hit.stop
+    }
+    local q = parse_on(self, ctx, pos)
+    if(q < 0){
+      t[pos] = {stop: -1, has_value: true, fail_pos: ctx.fail_pos, fail_msg: ctx.fail_msg}
+    } else {
+      t[pos] = {stop: q, has_value: true, value: ctx.value}
+    }
+    return q
+  }
+  p.fast = func(self, ctx, pos){
+    local t = table_of(ctx)
+    local hit = t[pos]
+    if(hit != null){
+      if(hit.stop < 0){
+        return fail(ctx, hit.fail_pos, hit.fail_msg)
+      }
+      return hit.stop
+    }
+    local q = fast(self, ctx, pos)
+    if(q < 0){
+      t[pos] = {stop: -1, has_value: true, fail_pos: ctx.fail_pos, fail_msg: ctx.fail_msg}
+    } else {
+      t[pos] = {stop: q, has_value: false}
+    }
+    return q
+  }
+  return p
+}
+
+// leading_set(p) -> the set of parsers that may run at the position p starts
+// at (p itself, the first elements of a sequence up to the first one that is
+// not nullable, every alternative of a choice, through wrappers and
+// references; an expression walker is a leaf)
+local func leading_set(p, cache, visiting, memo){
+  if(p == null){
+    return {}
+  }
+  local cached = cache[p]
+  if(cached != null){
+    return cached
+  }
+  if(visiting[p]){
+    return {}
+  }
+  visiting[p] = true
+  local out = {}
+  out[p] = true
+  local func add(child){
+    for(let local e in entries(leading_set(child, cache, visiting, memo))){
+      out[e[0]] = true
+    }
+  }
+  local kind = p.kind
+  local children = p.children
+  if(kind == "seq"){
+    for(let local c in values(children)){
+      add(c)
+      if(not info_of(c, memo, {}).nullable){
+        break
+      }
+    }
+  } else if(kind == "choice" or kind == "dispatch"){
+    for(let local c in values(children)){
+      add(c)
+    }
+  } else if(kind == "star" or kind == "optional" or kind == "plus" or kind == "separated" or kind == "star_lazy" or
+            kind == "pick" or kind == "permute" or kind == "map" or kind == "flatten" or kind == "token" or
+            kind == "trim" or kind == "where"){
+    add(children[0])
+  } else if(kind == "settable"){
+    add(p.target)
+  } else if(kind == "rule"){
+    local target = p.target
+    if(target == null and p.lookup != null){
+      target = p.lookup(p)
+    }
+    add(target)
+  } else if(kind == "ref"){
+    if(p.target == null){
+      p.target = resolve_ref(p.ref_function, p.ref_args)
+    }
+    add(p.target)
+  }
+  visiting[p] = null
+  cache[p] = out
+  return out
+}
+
+// place_memos(roots, named) -> list of {parser, name}: memoizes every parser
+// in `named` (parser -> name: the rules and the parsers they were modified
+// from) that leads more than one alternative of a choice or dispatch
+// reachable from roots
+func peg.place_memos(roots, named){
+  local placed = {}
+  local placed_set = {}
+  local seen = {}
+  local cache = {}
+  local memo = {}
+  local stack = {}
+  for(let local r in values(roots)){
+    append(stack, r)
+  }
+  for(len(stack) > 0){
+    local p = remove(stack, len(stack) - 1)
+    if(p != null and seen[p] == null){
+      seen[p] = true
+      local kind = p.kind
+      if(kind == "rule" and p.target == null and p.lookup != null){
+        append(stack, p.lookup(p))
+      } else if(kind == "ref" and p.target == null){
+        p.target = resolve_ref(p.ref_function, p.ref_args)
+      }
+      if(p.target != null){
+        append(stack, p.target)
+      }
+      for(let local c in values(p.children)){
+        append(stack, c)
+      }
+      if(kind == "choice" or kind == "dispatch"){
+        // alts[q]: the alternatives (by index) that q leads
+        local alts = {}
+        local index = 0
+        for(let local c in values(p.children)){
+          for(let local e in entries(leading_set(c, cache, {}, memo))){
+            local q = e[0]
+            if(named[q] != null){
+              local a = alts[q]
+              if(a == null){
+                a = {}
+                alts[q] = a
+              }
+              a[index] = true
+            }
+          }
+          index = index + 1
+        }
+        local shared = {}
+        for(let local e in entries(alts)){
+          if(len(e[1]) > 1){
+            shared[e[0]] = e[1]
+          }
+        }
+        // a shared parser reached only through another shared one (it is in
+        // that one's leading set, in the same alternatives) is parsed inside
+        // it and needs no memo of its own
+        for(let local e in entries(shared)){
+          local q = e[0]
+          local dominated = false
+          for(let local f in entries(shared)){
+            local o = f[0]
+            if(o != q and not dominated and leading_set(o, cache, {}, memo)[q] != null){
+              dominated = true
+              for(let local a in entries(e[1])){
+                if(f[1][a[0]] == null){
+                  dominated = false
+                }
+              }
+            }
+          }
+          if(not dominated and placed_set[q] == null){
+            placed_set[q] = true
+            peg.memoize(q)
+            append(placed, {parser: q, name: named[q]})
+          }
+        }
+      }
+    }
+  }
+  return placed
 }
 
 // skip_space(ctx, pos) -> pos: skips slang whitespace and comments (the skip

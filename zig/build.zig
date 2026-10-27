@@ -102,7 +102,7 @@ pub fn build(b: *std.Build) void {
 /// boot/slang at the repository root. It is copied into a generated module
 /// that embeds every file under its module name ("slang/compiler", ...).
 fn seedModule(b: *std.Build) *std.Build.Module {
-    const names = [_][]const u8{ "ast", "async", "codegen", "compiler", "grammar", "http", "optimizer", "package", "peg", "std", "table", "test" };
+    const names = [_][]const u8{ "ast", "async", "codegen", "compiler", "grammar", "http", "json", "optimizer", "package", "peg", "std", "table", "test" };
     const wf = b.addWriteFiles();
     var src: std.ArrayList(u8) = .empty;
     src.appendSlice(b.allocator, "pub const Entry = struct { name: []const u8, data: []const u8 };\npub const files = [_]Entry{\n") catch @panic("OOM");

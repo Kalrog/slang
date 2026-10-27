@@ -34,6 +34,7 @@ fn usage(io: std.Io) noreturn {
         \\  slang repl
         \\  slang compile <file.slang> [-o out.slb] [--origin name] [--strip]
         \\  slang disasm <file.slb|file.slang>
+        \\  slang highlight <file>       print the tokens and parse errors of a file as JSON
         \\
     ) catch {};
     w.interface.flush() catch {};
@@ -68,6 +69,9 @@ pub fn main(init: std.process.Init) !u8 {
     } else if (std.mem.eql(u8, cmd, "compile")) {
         if (args.len < 1) usage(io);
         compileFile(init, args);
+    } else if (std.mem.eql(u8, cmd, "highlight")) {
+        if (args.len < 1) usage(io);
+        highlightFile(init, args[0]);
     } else if (std.mem.eql(u8, cmd, "disasm")) {
         if (args.len < 1) usage(io);
         disasmFile(init, args[0]);
@@ -185,6 +189,18 @@ fn repl(init: std.process.Init) void {
         vm_mod.format.writeValue(out, res) catch {};
         out.writeByte('\n') catch {};
     }
+    vm.flush();
+}
+
+/// Prints the tokens and diagnostics of a file as JSON (compiler.highlight_json).
+fn highlightFile(init: std.process.Init, path: []const u8) void {
+    const vm = newVM(init, &.{});
+    defer vm.destroy();
+    const compiler = vm.call(vm.getGlobal("require"), &.{vm.str("slang/compiler")}) catch fail(vm);
+    const res = vm.call(compiler.table.getName("highlight_json"), &.{vm.str(path)}) catch fail(vm);
+    const text = res.asBytes() orelse failMsg(vm, "highlight_json did not return a string", .{});
+    vm.out().writeAll(text) catch {};
+    vm.out().writeByte('\n') catch {};
     vm.flush();
 }
 

@@ -430,6 +430,80 @@ func compiler.load_main(path){
   return compiler.load_file(path, path)
 }
 
+// ------------------------------------------------------------ highlighting
+
+// highlight(source, path) -> {tokens, diagnostics}: the tokens of source as
+// the compiler would parse the file at path (its project, its dialect),
+// with categories and 1-based line/column, and the parse errors as
+// {line, column, message, severity}. Extension code runs as it would in
+// the compiler; nothing is compiled or cached. A file of a dialect with a
+// compile function has no tokens.
+func compiler.highlight(source, path){
+  local dialect = dialect_of(path)
+  if(dialect != null and dialect.spec.compile != null){
+    return {tokens: {}, diagnostics: {}}
+  }
+  local g = root
+  if(dialect != null){
+    g = dialect_grammar(dialect.suffix)
+  }
+  local lin = root.state
+  local r = pcall(g.parse_source, g, source, path, {record: true})
+  local diagnostics = {}
+  if(r[0] == "err"){
+    local e = r[1]
+    local f = lin.last_failure
+    if(f != null){
+      local lc = str.line_col(source, f.far_pos)
+      append(diagnostics, {line: lc[0], column: lc[1], message: f.far_message, severity: "error"})
+      if(f.far_pos != f.pos){
+        local at = str.line_col(source, f.pos)
+        append(diagnostics, {line: at[0], column: at[1], message: f.message, severity: "error"})
+      }
+    } else {
+      // an error raised by compile-time code: reported at the statement being parsed
+      local lc = str.line_col(source, lin.phrase_pos)
+      local message = e
+      if(type(e) == "table"){
+        message = e.message
+        if(e.location != null){
+          message = concat(message, " (at ", e.location.origin, ":", e.location.line, ":", e.location.column, ")")
+        }
+      }
+      append(diagnostics, {line: lc[0], column: lc[1], message: message, severity: "error"})
+    }
+    lin.last_failure = null
+  }
+  return {tokens: lin.last_tokens or {}, diagnostics: diagnostics}
+}
+
+// highlight_file(path) -> the same for a file, looking up its project like
+// load_main does
+func compiler.highlight_file(path){
+  if(not project_searched){
+    project_searched = true
+    local pp = find_project(dirname(path))
+    if(pp != null){
+      compiler.load_project(pp)
+    }
+  }
+  return compiler.highlight(os.read_file(path), path)
+}
+
+// highlight_json(path) -> highlight_file(path) as JSON text (`slang highlight`)
+func compiler.highlight_json(path){
+  local json = require("slang/json")
+  local r = compiler.highlight_file(path)
+  local out = {tokens: json.array({}), diagnostics: json.array({})}
+  for(let local t in values(r.tokens)){
+    append(out.tokens, {line: t.line, column: t.column, length: t.length, start: t.start, category: t.category})
+  }
+  for(let local d in values(r.diagnostics)){
+    append(out.diagnostics, d)
+  }
+  return json.encode(out)
+}
+
 // compile_repl(source) -> function returning the value of an expression or null
 func compiler.compile_repl(source){
   local node = root:parse_repl(source)

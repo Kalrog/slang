@@ -34,12 +34,19 @@ local func fail(ctx, pos, msg){
   return -1
 }
 
-func peg.context(buffer){
+// context(buffer, {record}) -> a parse context; with record, every token
+// with a category and every comment is recorded (see peg.tokens)
+func peg.context(buffer, options){
+  local tokens = null
+  if(options != null and options.record){
+    tokens = {}
+  }
   return {
     buffer: buffer,
     len: len(buffer),
     fail_pos: -1,
     far_pos: -1,
+    tokens: tokens,
     memo: {},
     // results of memoized rules (peg.memoize); the phrase loop clears it
     // before every top-level statement
@@ -564,6 +571,9 @@ func peg.token(child, category){
     local t = peg.make_token(ctx, ctx.value, pos, q)
     if(category != null){
       t.category = category
+      if(ctx.tokens != null){
+        list_push(ctx.tokens, {category: category, start: pos, stop: q})
+      }
     }
     ctx.value = t
     return q
@@ -1156,7 +1166,106 @@ func peg.place_memos(roots, named){
 // skip_space(ctx, pos) -> pos: skips slang whitespace and comments (the skip
 // function of a walker or dispatch when the trivia rule is the default)
 func peg.skip_space(ctx, pos){
-  return str.skip_space(ctx.buffer, pos)
+  local q = str.skip_space(ctx.buffer, pos)
+  if(ctx.tokens != null and q > pos){
+    peg.record_comments(ctx, pos, q)
+  }
+  return q
+}
+
+// ------------------------------------------------------------ token recording
+//
+// A recording context collects {category, start, stop} for every token with
+// a category and for every comment inside trivia. Alternatives that lost
+// leave records too, so tokens(ctx) normalises: sorted by start, a later
+// record wins over an earlier one at the same start, overlaps are dropped.
+
+// record_comments(ctx, from, to): records the `//` comments in a trivia run
+func peg.record_comments(ctx, from, to){
+  local buffer = ctx.buffer
+  local i = from
+  for(i < to){
+    if(str.byte_at(buffer, i) == 47 and i + 1 < to and str.byte_at(buffer, i + 1) == 47){
+      local j = i
+      for(j < to and str.byte_at(buffer, j) != 10){
+        j = j + 1
+      }
+      list_push(ctx.tokens, {category: "comment", start: i, stop: j})
+      i = j
+    } else {
+      i = i + 1
+    }
+  }
+}
+
+// stable merge sort of a list by a comparison less(a, b)
+local func merge_sort(list, less){
+  local n = len(list)
+  if(n < 2){
+    return list
+  }
+  local mid = n / 2
+  mid = to_int(mid)
+  local left = {}
+  local right = {}
+  for(local i = 0; i < mid; i = i + 1){
+    list_push(left, list[i])
+  }
+  for(local i = mid; i < n; i = i + 1){
+    list_push(right, list[i])
+  }
+  left = merge_sort(left, less)
+  right = merge_sort(right, less)
+  local out = {}
+  local a = 0
+  local b = 0
+  for(a < len(left) and b < len(right)){
+    if(less(right[b], left[a])){
+      list_push(out, right[b])
+      b = b + 1
+    } else {
+      list_push(out, left[a])
+      a = a + 1
+    }
+  }
+  for(a < len(left)){
+    list_push(out, left[a])
+    a = a + 1
+  }
+  for(b < len(right)){
+    list_push(out, right[b])
+    b = b + 1
+  }
+  return out
+}
+
+// tokens(ctx) -> the recorded tokens, normalised, as
+// {category, start, stop, line, column, length}
+func peg.tokens(ctx){
+  if(ctx.tokens == null){
+    return {}
+  }
+  local indexed = {}
+  for(let local e in entries(ctx.tokens)){
+    list_push(indexed, {order: e[0], t: e[1]})
+  }
+  local sorted = merge_sort(indexed, func(x, y){
+    if(x.t.start != y.t.start){
+      return x.t.start < y.t.start
+    }
+    return x.order > y.order
+  })
+  local out = {}
+  local last_stop = -1
+  for(let local e in values(sorted)){
+    local t = e.t
+    if(t.start >= last_stop and t.stop > t.start){
+      local lc = peg.line_col(ctx, t.start)
+      list_push(out, {category: t.category, start: t.start, stop: t.stop, line: lc[0], column: lc[1], length: t.stop - t.start})
+      last_stop = t.stop
+    }
+  }
+  return out
 }
 
 // a dispatch table: candidates per first byte, in the original order;

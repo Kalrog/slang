@@ -88,6 +88,14 @@ local func new_lineage(opts){
     // so that peg.ref(lin.token_fn, text) caches one parser per text
     token_fn: null,
     uniq_counter: 0,
+    // for highlighting (parse_source with {record: true}): the recording
+    // context, the tokens it produced, the last parse failure
+    // {message, pos, far_pos, far_message} and the start of the top-level
+    // statement being parsed
+    record_ctx: null,
+    last_tokens: null,
+    last_failure: null,
+    phrase_pos: 0,
   }
 }
 
@@ -690,6 +698,9 @@ local func install_core(g){
     local q = str.skip_space(ctx.buffer, pos)
     if(q == pos){
       return peg.fail(ctx, pos, "whitespace expected")
+    }
+    if(ctx.tokens != null){
+      peg.record_comments(ctx, pos, q)
     }
     ctx.value = null
     return q
@@ -1296,6 +1307,16 @@ local func fail_message(ctx, origin, message, pos){
     " (farthest: ", ctx.far_msg or message, " at ", far[0], ":", far[1], ")")
 }
 
+// raises a parse failure, leaving its details in lin.last_failure
+local func fail_parse(lin, ctx, origin, message, pos){
+  local far_pos = ctx.far_pos
+  if(far_pos < 0){
+    far_pos = pos
+  }
+  lin.last_failure = {message: message, pos: pos, far_pos: far_pos, far_message: ctx.far_msg or message}
+  error(fail_message(ctx, origin, message, pos))
+}
+
 // runs compile-time code with grammar changes allowed; only valid between
 // top-level statements
 local func with_changes_allowed(g, owner, f, a, b){
@@ -1362,7 +1383,7 @@ local func parse_statement(lin, parser, ctx, pos){
 // with (scoped units; the REPL is not scoped). `extension global` changes the
 // root grammar instead and is only allowed in the main file, before any other
 // extension statement of it.
-local func parse_top_level(g, source, origin, scoped){
+local func parse_top_level(g, source, origin, scoped, record){
   local lin = g.state
   local tok_semicolon = peg.ref(lin.token_fn, ";"):optional()
   local parsers = {
@@ -1370,7 +1391,10 @@ local func parse_top_level(g, source, origin, scoped){
     final: peg.seq(rule_ref(lin, "final_statement"), tok_semicolon):pick(0),
     extension_statement: peg.seq(rule_ref(lin, "extension_statement"), tok_semicolon):pick(0),
   }
-  local ctx = peg.context(source)
+  local ctx = peg.context(source, {record: record})
+  if(record){
+    lin.record_ctx = ctx
+  }
   local statements = {}
   local pos = 0
   local unit = g
@@ -1379,19 +1403,20 @@ local func parse_top_level(g, source, origin, scoped){
   for(true){
     unit:activate()
     ctx.rule_memo = {}
+    lin.phrase_pos = pos
     local q = parsers.extension_statement:parse_on(ctx, pos)
     if(q >= 0){
       local parsed = ctx.value
       local target = null
       if(parsed.global and scoped){
         if(lin.parse_depth != 1 or origin != lin.main_origin){
-          error(fail_message(ctx, origin, "extension global is only allowed at the top level of the main file", pos))
+          fail_parse(lin, ctx, origin, "extension global is only allowed at the top level of the main file", pos)
         }
         if(g != lin.root){
-          error(fail_message(ctx, origin, "extension global is not available in a file compiled under a dialect", pos))
+          fail_parse(lin, ctx, origin, "extension global is not available in a file compiled under a dialect", pos)
         }
         if(unit != g){
-          error(fail_message(ctx, origin, "extension global must come before the other extension statements of the file", pos))
+          fail_parse(lin, ctx, origin, "extension global must come before the other extension statements of the file", pos)
         }
         target = lin.root
       } else {
@@ -1425,7 +1450,7 @@ local func parse_top_level(g, source, origin, scoped){
   }
   local stop = str.skip_space(source, pos)
   if(stop != len(source)){
-    error(fail_message(ctx, origin, "end of input expected", stop))
+    fail_parse(lin, ctx, origin, "end of input expected", stop)
   }
   local block = ast.node("Block", {statements: statements}, peg.make_token(ctx, null, 0, pos))
   if(lin.opts.optimize != null){
@@ -1437,17 +1462,27 @@ local func parse_top_level(g, source, origin, scoped){
   return block
 }
 
-// parse_source(source, origin, {scoped}) -> Block node (raises on failure).
-// Extension statements of a scoped unit (the default) only affect that unit.
+// parse_source(source, origin, {scoped, record}) -> Block node (raises on
+// failure). Extension statements of a scoped unit (the default) only affect
+// that unit. With record, the tokens are left in g.state.last_tokens (also
+// after a failure, whose details are in g.state.last_failure).
 func methods.parse_source(g, source, origin, options){
   local lin = g.state
   local outer_origin = lin.origin
   local outer_current = lin.current
   local outer_active = lin.active
   local scoped = options == null or options.scoped != false
+  local record = options != null and options.record == true
+  if(record){
+    lin.last_failure = null
+  }
   lin.parse_depth = lin.parse_depth + 1
-  local r = pcall(parse_top_level, g, source, origin, scoped)
+  local r = pcall(parse_top_level, g, source, origin, scoped, record)
   lin.parse_depth = lin.parse_depth - 1
+  if(record){
+    lin.last_tokens = peg.tokens(lin.record_ctx)
+    lin.record_ctx = null
+  }
   lin.origin = outer_origin
   lin.current = outer_current
   // a nested parse (from an unquote or a parser callback) must leave the

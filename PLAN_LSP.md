@@ -48,18 +48,28 @@ lower to the core AST. Needs a compile, so it runs under the same trust rule.
 
 ## Phases
 
-### Phase 1: token recording in the parser `[ ]`
-- [ ] `peg.context(buffer, {record: true})`; `peg.token` records when the
-      context records; the trivia rule (comments) records with category
-      `comment` (the native `skip_space` fast path is bypassed while
-      recording); `peg.tokens(ctx)` returns the normalised list.
-- [ ] `compiler.highlight(source, path) -> {tokens, diagnostics, grammar}`:
-      project and dialect selection as `load_main`/`load_file` do, scoped
-      unit, no bytecode generation, errors caught into diagnostics.
-- [ ] `slang highlight file` prints the tokens as JSON (the tool the
-      plan in PLAN_GRAMMAR.md names; useful for tests and other editors).
-- [ ] Tests: core categories on a sample, an extension's keyword and
-      operator, a dialect file, comments, a parse error with partial tokens.
+### Phase 1: token recording in the parser `[x]`
+- [x] `peg.context(buffer, {record: true})`; `peg.token` records tokens with
+      a category; the trivia rule and `peg.skip_space` record `//` comments;
+      `peg.tokens(ctx)` normalises (merge sort by start, later record wins,
+      overlaps dropped) and adds line, column and length.
+- [x] `parse_source(source, origin, {record: true})` leaves the tokens in
+      `g.state.last_tokens` and a failure's details (message, position,
+      farthest position and message) in `g.state.last_failure`;
+      `compiler.highlight(source, path)` picks the grammar as `load_file`
+      does and returns `{tokens, diagnostics}`; an error raised by
+      compile-time code becomes a diagnostic at the statement being parsed.
+      `compiler.highlight_file`, `compiler.highlight_json`.
+- [x] `slang highlight file` prints the tokens and diagnostics as JSON.
+- [x] `slang/json` (decode moved from `extensions/json`, plus `encode` with
+      `json.array` for empty arrays and `{indent}`), in the seed.
+- [x] Tests in `test/highlight_test.slang`: core categories, losing
+      alternatives dropped, an extension's keyword and operator, a parse
+      error with partial tokens, a compile-time error, a dialect file, the
+      JSON output, the JSON round trip.
+- Found: a `for(let local v in values(t))` loop stops at the first false
+  element (the loop ends when the iterated value is falsy); code that may
+  see false iterates by index.
 
 ### Phase 2: pieces the server needs `[ ]`
 - [ ] `uv.pipe()` with `open(fd)` for stdin/stdout (stream methods shared

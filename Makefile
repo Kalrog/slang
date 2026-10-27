@@ -3,6 +3,7 @@
 # bytecode in boot/slang.
 #
 #   make build        build bin/slang (ReleaseFast) and lib/ (native extensions)
+#   make install      copy them to $(PREFIX)/bin/slang and $(PREFIX)/lib/slang/ (PREFIX=/usr/local); make uninstall
 #   make test         run the slang test suite, the native extension tests and the Zig unit tests
 #   make test-safe    the suites on the checked build (ReleaseSafe) and under GC stress
 #   make seed         re-generate the seed with bin/slang itself (self-hosting), then rebuild
@@ -20,13 +21,14 @@
 ZIG    ?= zig
 GO     ?= go
 DART   ?= dart
+PREFIX ?= /usr/local
 STAGE0  = cd legacy && $(DART) run tool/stage0.dart
 
 LIB_SRC  := $(wildcard slang/lib/*.slang)
 COMPILER_SRC := $(wildcard slang/compiler/*.slang)
 SEED_DIR := boot/slang
 
-.PHONY: all build build-safe test test-safe unit seed fixpoint bench breakout dungeon dungeon-test clean \
+.PHONY: all build build-safe install uninstall test test-safe unit seed fixpoint bench breakout dungeon dungeon-test clean \
         vscode vscode-grammar go-build go-seed-copy go-test go-fixpoint stage0-seed
 
 all: build
@@ -38,6 +40,17 @@ build:
 build-safe:
 	cd zig && $(ZIG) build -Doptimize=ReleaseSafe -p zig-out-safe
 	cd zig && $(ZIG) build -Doptimize=ReleaseSafe -Dgc-stress=true -p zig-out-stress
+
+# the binary looks for native extensions in <prefix>/lib/slang next to its bin/
+install: build
+	install -d $(PREFIX)/bin $(PREFIX)/lib/slang
+	install -m 755 bin/slang $(PREFIX)/bin/slang
+	install -m 644 lib/* $(PREFIX)/lib/slang/
+	@echo "installed $(PREFIX)/bin/slang and $$(ls lib | wc -l | tr -d ' ') extensions in $(PREFIX)/lib/slang"
+
+uninstall:
+	rm -f $(PREFIX)/bin/slang
+	rm -rf $(PREFIX)/lib/slang
 
 unit:
 	cd zig && $(ZIG) build test

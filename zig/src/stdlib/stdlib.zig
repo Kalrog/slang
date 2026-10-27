@@ -30,9 +30,9 @@ pub fn open(vm: *VM) void {
     const sp = vm.newTable(1, 0);
     sp.append(vm.gpa, vm.str("."));
     pkgs.set(vm.gpa, vm.str("searchPaths"), .{ .table = sp });
-    // native extensions: the directories in SLANG_NATIVE_PATH, ".", and the
-    // lib directory next to the executable's bin directory (bin/slang finds
-    // lib/*.dylib, whether installed or in zig-out)
+    // native extensions: the directories in SLANG_NATIVE_PATH, ".", then
+    // lib/slang and lib next to the executable's bin directory (an installed
+    // slang finds <prefix>/lib/slang/*.dylib, a checkout its lib/)
     const nsp = vm.newTable(1, 0);
     if (vm.getenv("SLANG_NATIVE_PATH")) |env_path| {
         var it = std.mem.splitScalar(u8, env_path, ':');
@@ -44,6 +44,9 @@ pub fn open(vm: *VM) void {
     if (std.process.executablePathAlloc(vm.io, vm.gpa)) |exe| {
         defer vm.gpa.free(exe);
         const bin_dir = std.fs.path.dirname(exe) orelse ".";
+        const ext_dir = std.fs.path.join(vm.gpa, &.{ bin_dir, "..", "lib", "slang" }) catch @panic("out of memory");
+        defer vm.gpa.free(ext_dir);
+        nsp.append(vm.gpa, vm.str(ext_dir));
         const lib_dir = std.fs.path.join(vm.gpa, &.{ bin_dir, "..", "lib" }) catch @panic("out of memory");
         defer vm.gpa.free(lib_dir);
         nsp.append(vm.gpa, vm.str(lib_dir));

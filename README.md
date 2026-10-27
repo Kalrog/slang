@@ -17,6 +17,10 @@ bin/slang compile file.slang [-o out.slb] [--strip]
 bin/slang disasm file.slb
 ```
 
+`make install` copies the binary and the extensions to `/usr/local/bin/slang`
+and `/usr/local/lib/slang/` (`make install PREFIX=~/.local` for a user
+install; `make uninstall` removes them).
+
 Requirements: Zig 0.17 (`brew install anyzig` picks the version pinned in
 `zig/build.zig.zon`). raylib for the breakout example (`brew install raylib`,
 or `-Draylib=false`). Nothing else.

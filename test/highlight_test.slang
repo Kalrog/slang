@@ -76,6 +76,16 @@ local v = 1 <> 2
   }
 }
 
+t.group("utf16 positions"){
+  t.test("utf16_len counts code units"){
+    assert(str.utf16_len("abc") == 3)
+    assert(str.utf16_len("héllo") == 5)
+    assert(str.utf16_len("日本") == 2)
+    assert(str.utf16_len("a😀b") == 4, "an astral code point is two units")
+    assert(str.utf16_len("") == 0)
+  }
+}
+
 t.group("json"){
   t.test("encode and decode round trip"){
     local v = {name: "x\"y\n", list: {1, 2.5, true, false}, nested: {deep: {}}, empty: json.array({})}

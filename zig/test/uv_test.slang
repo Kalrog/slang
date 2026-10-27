@@ -115,6 +115,15 @@ t.group("uv"){
     tcp:close()
     uv.run()
   }
+  t.test("pipes share the stream methods"){
+    local p = uv.pipe()
+    assert(type(p) == "uv.pipe")
+    assert(type(p.read_start) == "function" and type(p.write) == "function")
+    local r = pcall(p.open, p, 12345)
+    assert(r[0] == "err", "opening a bad descriptor fails")
+    p:close()
+    uv.run()
+  }
   t.test("handles that are never closed are collected"){
     for(local i = 0; i < 50; i = i + 1){
       local timer = uv.timer()

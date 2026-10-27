@@ -26,6 +26,7 @@ typedef struct handle {
         uv_stream_t stream;
         uv_timer_t timer;
         uv_tcp_t tcp;
+        uv_pipe_t pipe;
     } u;
     int self_ref;    /* the userdata, while the handle is active or closing */
     int cb_ref;      /* timer, listen or read callback */
@@ -57,14 +58,17 @@ static handle *check_handle(slang_State *S, int idx, const char *tname) {
     return *box;
 }
 
+/* a tcp or pipe handle (the stream methods are shared) */
 static handle *check_stream(slang_State *S, int idx) {
     handle **box = slang_testudata(S, idx, "uv.tcp");
+    if (box == NULL) box = slang_testudata(S, idx, "uv.pipe");
     if (box == NULL) {
-        slang_argerror(S, idx, "uv.tcp expected");
+        slang_argerror(S, idx, "uv.tcp or uv.pipe expected");
         return NULL;
     }
     return *box;
 }
+
 
 /* keeps the userdata at idx alive until release() */
 static void retain(slang_State *S, handle *h, int idx) {
@@ -643,6 +647,45 @@ static int tcp_close(slang_State *S) { return l_close(S, "uv.tcp"); }
 static int tcp_is_active(slang_State *S) { return l_is_active(S, "uv.tcp"); }
 static int tcp_is_closing(slang_State *S) { return l_is_closing(S, "uv.tcp"); }
 
+/* ---- pipes (stdin/stdout and named pipes; the stream methods are shared) ---- */
+
+static int pipe_meta_ref = SLANG_REFNULL;
+
+static int l_pipe(slang_State *S) {
+    handle *h = new_handle(S, "uv.pipe", pipe_meta_ref);
+    uv_pipe_init(loop(), &h->u.pipe, 0);
+    return 1;
+}
+
+/* pipe:open(fd): takes over an existing file descriptor (0 for stdin, 1 for stdout) */
+static int pipe_open(slang_State *S) {
+    handle *h = check_handle(S, 1, "uv.pipe");
+    int64_t fd = slang_checkint(S, 2);
+    if (h == NULL || slang_failed(S)) return SLANG_ERROR;
+    int r = uv_pipe_open(&h->u.pipe, (uv_file)fd);
+    if (r < 0) {
+        push_uv_error(S, r);
+        return slang_raise(S);
+    }
+    return 0;
+}
+
+static int pipe_close(slang_State *S) { return l_close(S, "uv.pipe"); }
+static int pipe_is_active(slang_State *S) { return l_is_active(S, "uv.pipe"); }
+static int pipe_is_closing(slang_State *S) { return l_is_closing(S, "uv.pipe"); }
+
+static const slang_Reg pipe_methods[] = {
+    {"open", pipe_open},
+    {"read_start", tcp_read_start},
+    {"read_stop", tcp_read_stop},
+    {"write", tcp_write},
+    {"shutdown", tcp_shutdown},
+    {"close", pipe_close},
+    {"is_active", pipe_is_active},
+    {"is_closing", pipe_is_closing},
+    {NULL, NULL},
+};
+
 static const slang_Reg tcp_methods[] = {
     {"bind", tcp_bind},
     {"listen", tcp_listen},
@@ -673,6 +716,7 @@ static const slang_Reg funcs[] = {
     {"version", l_version},
     {"timer", l_timer},
     {"tcp", l_tcp},
+    {"pipe", l_pipe},
     {NULL, NULL},
 };
 
@@ -688,6 +732,7 @@ static int make_meta(slang_State *S, const char *type_name, const slang_Reg *met
 SLANG_EXTENSION(uv) {
     timer_meta_ref = make_meta(S, "uv.timer", timer_methods);
     tcp_meta_ref = make_meta(S, "uv.tcp", tcp_methods);
+    pipe_meta_ref = make_meta(S, "uv.pipe", pipe_methods);
     slang_newmodule(S, funcs);
     return 1;
 }

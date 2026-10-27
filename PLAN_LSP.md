@@ -71,14 +71,12 @@ lower to the core AST. Needs a compile, so it runs under the same trust rule.
   element (the loop ends when the iterated value is falsy); code that may
   see false iterates by index.
 
-### Phase 2: pieces the server needs `[ ]`
-- [ ] `uv.pipe()` with `open(fd)` for stdin/stdout (stream methods shared
-      with tcp), so the server speaks LSP over stdio; `uv.tty` is not needed.
-- [ ] `slang/json`: decode (moved from `extensions/json`, which keeps the
-      dialect wrapper) and encode; `slang/async` gains nothing new.
-- [ ] UTF-8 to UTF-16 column conversion in `slang/string` (`utf16_len`) for
-      LSP positions, and negotiation of `positionEncoding: "utf-8"` where
-      the client offers it (VS Code does).
+### Phase 2: pieces the server needs `[x]`
+- [x] `uv.pipe()` with `open(fd)`; the stream methods (read, write,
+      shutdown, close) are shared with tcp.
+- [x] `slang/json` with decode and encode (done in Phase 1).
+- [x] `str.utf16_len(s)` for LSP positions; the server offers
+      `positionEncoding: "utf-8"` and converts to UTF-16 otherwise.
 
 ### Phase 3: the language server `[ ]`
 - [ ] `lsp/` (a slang program, started as `bin/slang run lsp/main.slang`):

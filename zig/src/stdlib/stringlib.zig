@@ -38,6 +38,7 @@ pub fn module(vm: *VM) *Table {
         .{ .name = "line_col", .f = strLineCol },
         .{ .name = "space_at", .f = strSpaceAt },
         .{ .name = "skip_space", .f = strSkipSpace },
+        .{ .name = "utf16_len", .f = strUtf16Len },
         .{ .name = "rune_len_at", .f = strRuneLenAt },
         .{ .name = "compare", .f = strCompare },
         .{ .name = "hash", .f = strHash },
@@ -398,6 +399,18 @@ fn strSpaceAt(th: *Thread, args: []Value) Error!Value {
     if (s[p] < 0x80) return .{ .int = if (isAsciiSpace(s[p])) 1 else 0 };
     const r = decodeRune(s, p);
     return .{ .int = if (isUnicodeSpace(r.r)) @intCast(r.len) else 0 };
+}
+
+/// utf16_len(s): the number of UTF-16 code units of a UTF-8 string (what
+/// LSP positions count by default): one per code point, two above U+FFFF.
+fn strUtf16Len(th: *Thread, args: []Value) Error!Value {
+    const s = try api.argString(th, args, 0, "str");
+    var n: i64 = 0;
+    for (s) |b| {
+        if (b & 0xC0 != 0x80) n += 1;
+        if (b >= 0xF0) n += 1;
+    }
+    return .{ .int = n };
 }
 
 /// skip_space(s, pos): the position after any run of whitespace and line

@@ -78,26 +78,21 @@ lower to the core AST. Needs a compile, so it runs under the same trust rule.
 - [x] `str.utf16_len(s)` for LSP positions; the server offers
       `positionEncoding: "utf-8"` and converts to UTF-16 otherwise.
 
-### Phase 3: the language server `[ ]`
-- [ ] `lsp/` (a slang program, started as `bin/slang run lsp/main.slang`):
-      Content-Length framing over a uv stream, a request
-      dispatcher, a document store with full-text sync, `initialize`
-      (semantic tokens full, diagnostics, position encoding), `didOpen`/
-      `didChange`/`didClose`, `semanticTokens/full`, `publishDiagnostics`,
-      `shutdown`/`exit`.
-- [ ] Project handling: one grammar set per `slang.project`, cached, rebuilt
-      when the project file or an ambient extension changes
-      (`workspace/didChangeWatchedFiles`); a custom notification
-      `slang/project` tells the client the dialect suffixes of each project
-      so it can associate them with the slang language.
-- [ ] The server logic is a pure `handle(message) -> replies` over an
-      injectable transport, so tests drive it from slang without a process:
-      initialize, open a file with an extension, check the tokens, change the
-      file, check diagnostics, change the project, check the grammar reset.
-- [ ] Robustness: a parse that raises (an extension bug) yields a diagnostic
-      and keeps the server alive; an error outside parsing is logged to
-      stderr; a hung parse (an infinite loop in compile-time code) is the
-      client's restart to handle until a restricted/limited VM mode exists.
+### Phase 3: the language server `[x]`
+- [x] `lsp/server.slang` (`new`, `handle(message)`, framing, uri decoding,
+      semantic token encoding with tokens split per line, diagnostics) and
+      `lsp/main.slang` (stdio over `uv.pipe`, logs to stderr). Full sync;
+      `positionEncoding` utf-8 when the client offers it; `slang/project`
+      notification with the dialect suffixes; `didChangeWatchedFiles`
+      resets the grammars; errors in handlers become JSON-RPC errors and a
+      log line, never a crash.
+- [x] `test/lsp_test.slang` drives it in process (framing, encoding
+      negotiation, tokens and diagnostics, utf-16 and utf-8 columns,
+      multi-line strings, an extension in the document, shutdown/exit); a
+      framed session through the real stdio program answers as expected.
+- Limitation: the project is looked up from the first document opened
+  (the compiler holds one project at a time); multi-project workspaces
+  wait for the compiler to support several.
 
 ### Phase 4: the VS Code extension `[ ]`
 - [ ] `editors/vscode`: language `slang` (`.slang`, the file name

@@ -432,13 +432,20 @@ func compiler.load_main(path){
 
 // ------------------------------------------------------------ highlighting
 
-// highlight(source, path) -> {tokens, diagnostics}: the tokens of source as
+// highlight(source, path, {find_project}) -> {tokens, diagnostics}: the tokens of source as
 // the compiler would parse the file at path (its project, its dialect),
 // with categories and 1-based line/column, and the parse errors as
 // {line, column, message, severity}. Extension code runs as it would in
 // the compiler; nothing is compiled or cached. A file of a dialect with a
 // compile function has no tokens.
-func compiler.highlight(source, path){
+func compiler.highlight(source, path, options){
+  if(options != null and options.find_project and not project_searched){
+    project_searched = true
+    local pp = find_project(dirname(path))
+    if(pp != null){
+      compiler.load_project(pp)
+    }
+  }
   local dialect = dialect_of(path)
   if(dialect != null and dialect.spec.compile != null){
     return {tokens: {}, diagnostics: {}}

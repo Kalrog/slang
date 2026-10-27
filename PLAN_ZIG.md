@@ -119,16 +119,17 @@ Pin the latest stable release at the start in `build.zig.zon` and only upgrade d
 - [x] `make zig` builds ReleaseFast (`make zig-safe` the checked build; `make zig-test` runs the suite on both, `-Dgc-stress=true` as before).
 - [x] Tables up to 8 hash entries have no index: a linear scan over interned keys (pointer comparison) beats hashing, and a record costs two allocations instead of four. `concat` renders scalars into stack buffers and allocates the result once (`print` writes pieces straight to stdout); results longer than the intern limit are never interned.
 - [x] The interpreter keeps the stack top and base pointer in locals, written back around calls out (natives, metamethods, collector, errors, trace), and dispatches with a labelled switch: every opcode fetches the next instruction and `continue :sw`s to its case.
+- The `SLANG_TRACE` check sat in every opcode; measured at about 3% on fib when removed outright, and the loop is now instantiated twice from a comptime `trace` parameter (fib 21 -> 18.7 ms, parse 44 -> 42.5 ms: more than the removal alone, from the tighter cases).
 - Tried and dropped: writing the frame pc back only at call-out sites (no measurable change; the per-instruction store stays).
 - Numbers (min of 3, ms; Go VM for comparison):
 
   | benchmark | Go | Zig ReleaseSafe before | Zig ReleaseFast after |
   |---|---|---|---|
-  | fib(27) | 32 | 31 | 21 |
-  | dijkstra x1000 | 302 | 310 | 218 |
-  | tables | 350 | 521 | 173 |
-  | strings | 31 | 88 | 22 |
-  | parse sample.slang | 72 | 70 | 44 |
+  | fib(27) | 32 | 31 | 19 |
+  | dijkstra x1000 | 302 | 310 | 215 |
+  | tables | 350 | 521 | 167 |
+  | strings | 31 | 88 | 23 |
+  | parse sample.slang | 72 | 70 | 42 |
 
 - Not done: NaN-boxing (16-byte values stay). Every benchmark is 1.4 to 2x ahead of the Go VM; the next step would be a register-based bytecode, which is a compiler change.
 

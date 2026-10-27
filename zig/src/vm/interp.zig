@@ -17,6 +17,13 @@ const Op = d.Op;
 /// the stack), around everything that calls out: natives, metamethods, the
 /// collector, error handling and the trace.
 pub fn run(th: *Thread, stop_depth: usize) Error!void {
+    // the trace check costs about 3% on call-heavy code when it sits in
+    // every opcode, so the loop exists twice: with and without it
+    if (th.vm.trace) return runImpl(th, stop_depth, true);
+    return runImpl(th, stop_depth, false);
+}
+
+fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
     th.run_depth += 1;
     defer th.run_depth -= 1;
     const vm = th.vm;
@@ -34,7 +41,7 @@ pub fn run(th: *Thread, stop_depth: usize) Error!void {
         var top: usize = th.top;
         var stack: [*]Value = th.stack.ptr;
         var ins = code[pc];
-        if (vm.trace) {
+        if (trace) {
             th.top = top;
             traceInstruction(th, fi, base, pc, ins);
         }
@@ -47,7 +54,7 @@ pub fn run(th: *Thread, stop_depth: usize) Error!void {
                 stack[top] = consts[d.argBx(ins)];
                 top += 1;
                 ins = code[pc];
-                if (vm.trace) {
+                if (trace) {
                     th.top = top;
                     traceInstruction(th, fi, base, pc, ins);
                 }
@@ -60,7 +67,7 @@ pub fn run(th: *Thread, stop_depth: usize) Error!void {
                 top += 1;
                 if (d.argC(ins) != 0) pc += 1;
                 ins = code[pc];
-                if (vm.trace) {
+                if (trace) {
                     th.top = top;
                     traceInstruction(th, fi, base, pc, ins);
                 }
@@ -75,7 +82,7 @@ pub fn run(th: *Thread, stop_depth: usize) Error!void {
                 stack[top] = .{ .function = cl };
                 top += 1;
                 ins = code[pc];
-                if (vm.trace) {
+                if (trace) {
                     th.top = top;
                     traceInstruction(th, fi, base, pc, ins);
                 }
@@ -90,7 +97,7 @@ pub fn run(th: *Thread, stop_depth: usize) Error!void {
                     top -= 1;
                     stack[top - 1] = .{ .int = a.int +% b.int };
                     ins = code[pc];
-                    if (vm.trace) {
+                    if (trace) {
                         th.top = top;
                         traceInstruction(th, fi, base, pc, ins);
                     }
@@ -110,7 +117,7 @@ pub fn run(th: *Thread, stop_depth: usize) Error!void {
                 stack = th.stack.ptr;
                 stack[top - 1] = r;
                 ins = code[pc];
-                if (vm.trace) {
+                if (trace) {
                     th.top = top;
                     traceInstruction(th, fi, base, pc, ins);
                 }
@@ -125,7 +132,7 @@ pub fn run(th: *Thread, stop_depth: usize) Error!void {
                     top -= 1;
                     stack[top - 1] = .{ .int = a.int -% b.int };
                     ins = code[pc];
-                    if (vm.trace) {
+                    if (trace) {
                         th.top = top;
                         traceInstruction(th, fi, base, pc, ins);
                     }
@@ -143,7 +150,7 @@ pub fn run(th: *Thread, stop_depth: usize) Error!void {
                 stack = th.stack.ptr;
                 stack[top - 1] = r;
                 ins = code[pc];
-                if (vm.trace) {
+                if (trace) {
                     th.top = top;
                     traceInstruction(th, fi, base, pc, ins);
                 }
@@ -164,7 +171,7 @@ pub fn run(th: *Thread, stop_depth: usize) Error!void {
                 stack = th.stack.ptr;
                 stack[top - 1] = r;
                 ins = code[pc];
-                if (vm.trace) {
+                if (trace) {
                     th.top = top;
                     traceInstruction(th, fi, base, pc, ins);
                 }
@@ -189,7 +196,7 @@ pub fn run(th: *Thread, stop_depth: usize) Error!void {
                             stack = th.stack.ptr;
                             stack[top - 1] = r;
                             ins = code[pc];
-                            if (vm.trace) {
+                            if (trace) {
                                 th.top = top;
                                 traceInstruction(th, fi, base, pc, ins);
                             }
@@ -203,7 +210,7 @@ pub fn run(th: *Thread, stop_depth: usize) Error!void {
                     },
                 }
                 ins = code[pc];
-                if (vm.trace) {
+                if (trace) {
                     th.top = top;
                     traceInstruction(th, fi, base, pc, ins);
                 }
@@ -218,7 +225,7 @@ pub fn run(th: *Thread, stop_depth: usize) Error!void {
                 const v = stack[top - 1];
                 stack[top - 1] = .{ .bool = !v.truthy() };
                 ins = code[pc];
-                if (vm.trace) {
+                if (trace) {
                     th.top = top;
                     traceInstruction(th, fi, base, pc, ins);
                 }
@@ -243,7 +250,7 @@ pub fn run(th: *Thread, stop_depth: usize) Error!void {
                         stack = th.stack.ptr;
                         stack[top - 1] = .{ .bool = r.truthy() };
                         ins = code[pc];
-                        if (vm.trace) {
+                        if (trace) {
                             th.top = top;
                             traceInstruction(th, fi, base, pc, ins);
                         }
@@ -254,7 +261,7 @@ pub fn run(th: *Thread, stop_depth: usize) Error!void {
                 }
                 stack[top - 1] = .{ .bool = a.equals(b) };
                 ins = code[pc];
-                if (vm.trace) {
+                if (trace) {
                     th.top = top;
                     traceInstruction(th, fi, base, pc, ins);
                 }
@@ -288,7 +295,7 @@ pub fn run(th: *Thread, stop_depth: usize) Error!void {
                         stack = th.stack.ptr;
                         stack[top - 1] = .{ .bool = res.truthy() };
                         ins = code[pc];
-                        if (vm.trace) {
+                        if (trace) {
                             th.top = top;
                             traceInstruction(th, fi, base, pc, ins);
                         }
@@ -303,7 +310,7 @@ pub fn run(th: *Thread, stop_depth: usize) Error!void {
                 }
                 stack[top - 1] = .{ .bool = r };
                 ins = code[pc];
-                if (vm.trace) {
+                if (trace) {
                     th.top = top;
                     traceInstruction(th, fi, base, pc, ins);
                 }
@@ -316,7 +323,7 @@ pub fn run(th: *Thread, stop_depth: usize) Error!void {
                 top -= 1;
                 stack[absIndex(top, base, d.argSBx(ins))] = v;
                 ins = code[pc];
-                if (vm.trace) {
+                if (trace) {
                     th.top = top;
                     traceInstruction(th, fi, base, pc, ins);
                 }
@@ -328,7 +335,7 @@ pub fn run(th: *Thread, stop_depth: usize) Error!void {
                 stack[top] = stack[absIndex(top, base, d.argSBx(ins))];
                 top += 1;
                 ins = code[pc];
-                if (vm.trace) {
+                if (trace) {
                     th.top = top;
                     traceInstruction(th, fi, base, pc, ins);
                 }
@@ -344,7 +351,7 @@ pub fn run(th: *Thread, stop_depth: usize) Error!void {
                 }
                 top -= drop;
                 ins = code[pc];
-                if (vm.trace) {
+                if (trace) {
                     th.top = top;
                     traceInstruction(th, fi, base, pc, ins);
                 }
@@ -370,7 +377,7 @@ pub fn run(th: *Thread, stop_depth: usize) Error!void {
                 stack[top] = .{ .table = vm.newTable(d.argB(ins), d.argC(ins)) };
                 top += 1;
                 ins = code[pc];
-                if (vm.trace) {
+                if (trace) {
                     th.top = top;
                     traceInstruction(th, fi, base, pc, ins);
                 }
@@ -388,7 +395,7 @@ pub fn run(th: *Thread, stop_depth: usize) Error!void {
                     if (t.meta == null and !key.string.eqlBytes("meta")) {
                         t.setStr(gpa, key.string, val);
                         ins = code[pc];
-                        if (vm.trace) {
+                        if (trace) {
                             th.top = top;
                             traceInstruction(th, fi, base, pc, ins);
                         }
@@ -405,7 +412,7 @@ pub fn run(th: *Thread, stop_depth: usize) Error!void {
                 top = th.top;
                 stack = th.stack.ptr;
                 ins = code[pc];
-                if (vm.trace) {
+                if (trace) {
                     th.top = top;
                     traceInstruction(th, fi, base, pc, ins);
                 }
@@ -427,7 +434,7 @@ pub fn run(th: *Thread, stop_depth: usize) Error!void {
                     if (v != .null or t.meta == null) {
                         stack[top - 1] = v;
                         ins = code[pc];
-                        if (vm.trace) {
+                        if (trace) {
                             th.top = top;
                             traceInstruction(th, fi, base, pc, ins);
                         }
@@ -447,7 +454,7 @@ pub fn run(th: *Thread, stop_depth: usize) Error!void {
                 stack[top] = v;
                 top += 1;
                 ins = code[pc];
-                if (vm.trace) {
+                if (trace) {
                     th.top = top;
                     traceInstruction(th, fi, base, pc, ins);
                 }
@@ -460,7 +467,7 @@ pub fn run(th: *Thread, stop_depth: usize) Error!void {
                 top -= 1;
                 th.frames.items[fi].cl.upvals[d.argAx(ins)].set(v);
                 ins = code[pc];
-                if (vm.trace) {
+                if (trace) {
                     th.top = top;
                     traceInstruction(th, fi, base, pc, ins);
                 }
@@ -472,7 +479,7 @@ pub fn run(th: *Thread, stop_depth: usize) Error!void {
                 stack[top] = th.frames.items[fi].cl.upvals[d.argAx(ins)].get();
                 top += 1;
                 ins = code[pc];
-                if (vm.trace) {
+                if (trace) {
                     th.top = top;
                     traceInstruction(th, fi, base, pc, ins);
                 }
@@ -483,7 +490,7 @@ pub fn run(th: *Thread, stop_depth: usize) Error!void {
             .close_upvalues => {
                 th.closeUpvalues(base + d.argAx(ins));
                 ins = code[pc];
-                if (vm.trace) {
+                if (trace) {
                     th.top = top;
                     traceInstruction(th, fi, base, pc, ins);
                 }
@@ -496,7 +503,7 @@ pub fn run(th: *Thread, stop_depth: usize) Error!void {
                 top -= 1;
                 if (v.truthy() != (d.argC(ins) != 0)) pc += 1;
                 ins = code[pc];
-                if (vm.trace) {
+                if (trace) {
                     th.top = top;
                     traceInstruction(th, fi, base, pc, ins);
                 }
@@ -512,7 +519,7 @@ pub fn run(th: *Thread, stop_depth: usize) Error!void {
                 }
                 pc = @intCast(@as(i64, @intCast(pc)) + off);
                 ins = code[pc];
-                if (vm.trace) {
+                if (trace) {
                     th.top = top;
                     traceInstruction(th, fi, base, pc, ins);
                 }
@@ -533,7 +540,7 @@ pub fn run(th: *Thread, stop_depth: usize) Error!void {
                 top = th.top;
                 stack = th.stack.ptr;
                 ins = code[pc];
-                if (vm.trace) {
+                if (trace) {
                     th.top = top;
                     traceInstruction(th, fi, base, pc, ins);
                 }
@@ -553,7 +560,7 @@ pub fn run(th: *Thread, stop_depth: usize) Error!void {
                 stack = th.stack.ptr;
                 stack[top - 1] = r;
                 ins = code[pc];
-                if (vm.trace) {
+                if (trace) {
                     th.top = top;
                     traceInstruction(th, fi, base, pc, ins);
                 }

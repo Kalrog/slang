@@ -44,24 +44,21 @@ local OP_BNOT = 33
 
 // instruction layout: |b:9|c:9|a:8|op:6|, bx = 18 bits, sbx = bx - 0x1FFFF, ax = 26 bits
 local SBX_OFFSET = 131071
-local SHIFT_A = 64
-local SHIFT_C = 16384
-local SHIFT_B = 8388608
 
 local func enc_abc(op, a, b, c){
-  return b * SHIFT_B + c * SHIFT_C + a * SHIFT_A + op
+  return b << 23 | c << 14 | a << 6 | op
 }
 
 local func enc_abx(op, a, bx){
-  return bx * SHIFT_C + a * SHIFT_A + op
+  return bx << 14 | a << 6 | op
 }
 
 local func enc_asbx(op, a, sbx){
-  return (sbx + SBX_OFFSET) * SHIFT_C + a * SHIFT_A + op
+  return (sbx + SBX_OFFSET) << 14 | a << 6 | op
 }
 
 local func enc_ax(op, ax){
-  return ax * SHIFT_A + op
+  return ax << 6 | op
 }
 
 local binops = {}
@@ -365,7 +362,7 @@ func asm.patch_jump(self, jump, target){
   if(target == null){
     target = len(self.instructions)
   }
-  local opcode = self.instructions[jump] % 64
+  local opcode = self.instructions[jump] & 63
   self.instructions[jump] = enc_asbx(opcode, 0, target - jump - 1)
 }
 

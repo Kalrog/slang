@@ -21,8 +21,9 @@ async function start(context: vscode.ExtensionContext): Promise<void> {
     return;
   }
   const config = vscode.workspace.getConfiguration("slang");
-  const command = config.get<string>("path", "slang");
   const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
+  // ${workspaceFolder} is not expanded by VS Code in extension settings
+  const command = config.get<string>("path", "slang").replace("${workspaceFolder}", folder);
   const serverOptions: ServerOptions = {
     command,
     args: ["run", path.join(context.extensionPath, "lsp", "main.slang"), context.extensionPath],

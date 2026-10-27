@@ -49,7 +49,7 @@
         "slang.path": {
           "type": "string",
           "default": "slang",
-          "description": "The slang binary used to run the language server (bin/slang of a checkout, or slang on the PATH)."
+          "description": "The slang binary used to run the language server: slang on the PATH, or a path such as ${workspaceFolder}/bin/slang."
         },
         "slang.associateDialects": {
           "type": "boolean",

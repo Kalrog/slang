@@ -1,4 +1,5 @@
 {
-    "dart.flutterSdkPath": "/Users/jonathankohlhas/.puro/envs/stable/flutter",
-    "dart.sdkPath": "/Users/jonathankohlhas/.puro/envs/stable/flutter/bin/cache/dart-sdk"
+  "dart.flutterSdkPath": "/Users/jonathankohlhas/.puro/envs/stable/flutter",
+  "dart.sdkPath": "/Users/jonathankohlhas/.puro/envs/stable/flutter/bin/cache/dart-sdk",
+  "slang.path": "${workspaceFolder}/bin/slang"
 }

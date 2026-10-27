@@ -340,13 +340,20 @@ local func dialect_of(path){
 //
 // Files loaded through load_file (require and `slang run`) are cached as
 // bytecode in $SLANG_CACHE_DIR (default ~/.cache/slang), keyed by origin,
-// path, content hash and the project key (the project file and the sources
-// of its ambient and dialect extensions). A file is only cached when it was
+// path, content hash, the project key (the project file and the sources
+// of its ambient and dialect extensions) and the build id of the compiler. A file is only cached when it was
 // compiled with the root or a dialect grammar as the project defines them
 // and ran no code at compile time, so caching can never change what a
 // program does. SLANG_NO_CACHE=1 disables the cache.
 
 local cache_dir = null
+
+// the compiler's identity in cache keys: a hash of the embedded seed (the
+// VMs that have none get no cache invalidation across compiler changes)
+local build_id = ""
+if(vm.build_id != null){
+  build_id = vm.build_id()
+}
 
 local func get_cache_dir(){
   if(cache_dir != null){
@@ -397,7 +404,7 @@ func compiler.load_file(path, origin){
       if(key == null and project != null){
         key = project.key
       }
-      cache_path = concat(dir, "/", str.hash(concat(origin, "\n", path, "\n", key or "")), "-", str.hash(source), ".slb")
+      cache_path = concat(dir, "/", str.hash(concat(origin, "\n", path, "\n", key or "", "\n", build_id)), "-", str.hash(source), ".slb")
       if(os.exists(cache_path)){
         return vm.load_bytecode(cache_path)
       }

@@ -21,6 +21,7 @@ pub fn module(vm: *VM) *Table {
         .{ .name = "load_bytes", .f = vmLoadBytes },
         .{ .name = "to_bytes", .f = vmToBytes },
         .{ .name = "embedded", .f = vmEmbedded },
+        .{ .name = "build_id", .f = vmBuildId },
         .{ .name = "disassemble", .f = vmDisassemble },
         .{ .name = "load_proto", .f = vmLoadProto },
         .{ .name = "load_native", .f = @import("../loader.zig").loadNative },
@@ -189,4 +190,25 @@ fn vmDisassemble(th: *Thread, args: []Value) Error!Value {
     defer aw.deinit();
     vm_mod.disasm.disassemble(&aw.writer, p) catch oom();
     return th.vm.str(aw.writer.buffered());
+}
+
+/// build_id(): a hash of the embedded seed bytecode, as 16 hex digits; the
+/// bytecode cache keys on it so that a new compiler never serves entries
+/// compiled by an old one.
+var build_id_cache: ?[16]u8 = null;
+
+fn vmBuildId(th: *Thread, args: []Value) Error!Value {
+    _ = args;
+    if (build_id_cache == null) {
+        var h = std.hash.Wyhash.init(0x5eed);
+        for (th.vm.embedded) |f| {
+            h.update(f.name);
+            h.update(f.data);
+        }
+        const digest = h.final();
+        var buf: [16]u8 = undefined;
+        _ = std.fmt.bufPrint(&buf, "{x:0>16}", .{digest}) catch unreachable;
+        build_id_cache = buf;
+    }
+    return th.vm.str(&build_id_cache.?);
 }

@@ -41,6 +41,7 @@ local specs = {
   ForIn: {{"pattern", "node"}, {"itterator", "node"}, {"body", "node"}},
   VarPattern: {{"isLocal", "value"}, {"canBeNull", "value"}, {"name", "node"}},
   TablePattern: {{"type_check", "value"}, {"fields", "list"}},
+  MatcherPattern: {{"matcher", "node?"}, {"type_name", "value"}, {"sub", "node?"}},
   FieldPattern: {{"key", "node?"}, {"value", "node"}},
   ConstPattern: {{"value", "node"}},
   Quote: {{"ast_type", "value"}, {"ast", "node"}},
@@ -476,7 +477,21 @@ func writer.visit(self, node){
       self:add(":")
     }
     self:visit(node.value)
+  } else if(t == "MatcherPattern"){
+    self:add("'")
+    if(node.matcher != null){
+      self:visit(node.matcher)
+    } else {
+      self:add(node.type_name)
+    }
+    if(node.sub != null){
+      self:add(" as ")
+      self:visit(node.sub)
+    }
   } else if(t == "TablePattern"){
+    if(node.type_check != null and node.type_check != "table"){
+      self:add(concat("'", node.type_check))
+    }
     self:add("{")
     for(let local field in values(node.fields)){
       self:visit(field)

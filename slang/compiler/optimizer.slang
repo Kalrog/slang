@@ -145,6 +145,10 @@ func visitors.Invoke(n){
   return ast.node("Invoke", {receiver: visit(n.receiver), name: n.name, args: visit_list(n.args)}, n.token)
 }
 
+func visitors.MatcherPattern(n){
+  return ast.node("MatcherPattern", {matcher: maybe(n.matcher), type_name: n.type_name, sub: n.sub}, n.token)
+}
+
 func visitors.LetStat(n){
   return ast.node("LetStat", {pattern: n.pattern, right: visit(n.right)}, n.token)
 }

@@ -12,6 +12,19 @@ local peg = {}
 local methods = {}
 local parser_meta = {__index: methods, __type: "parser"}
 
+// a parser is a matcher: 'parser as PATTERN in a pattern parses the whole
+// string and matches PATTERN against the parsed value (null: no parse)
+func parser_meta.__match(self, text){
+  if(type(text) != "string"){
+    return null
+  }
+  local r = peg.run(peg.end(self), text)
+  if(not r.ok){
+    return null
+  }
+  return r.value
+}
+
 local next_id = 0
 
 // fast(self, ctx, pos) parses without producing a value (used by flatten and

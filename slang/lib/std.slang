@@ -12,6 +12,24 @@ func module(mfunc){
   return m
 }
 
+// __match(m, v): the matcher protocol behind 'm patterns: m's __match
+// metamethod decides whether v matches (null: no) and what the rest of the
+// pattern sees (anything else)
+func __match(m, v){
+  local t = type(m)
+  local f = null
+  if(t != "null" and t != "string" and t != "int" and t != "double" and t != "bool" and t != "function"){
+    local meta = m.meta
+    if(meta != null){
+      f = meta.__match
+    }
+  }
+  if(f == null){
+    error("'", t, " in a pattern: a matcher needs a __match metamethod")
+  }
+  return f(m, v)
+}
+
 // run{ ... } evaluates a block as an expression.
 func run(rfunc){
   return rfunc()

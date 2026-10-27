@@ -963,6 +963,8 @@ func visitors.Let(g, node){
   g.asm:emit_load_bool(false, false)
 }
 
+// Every pattern consumes the value on top of the stack, in the check step
+// and in the assign step.
 func visitors.ConstPattern(g, node){
   local p = g.asm:current_pattern()
   if(p.step == "check"){
@@ -970,6 +972,8 @@ func visitors.ConstPattern(g, node){
     g.asm:emit_binop("==")
     p:decrease_stack_height()
     p:test_missmatch(false)
+  } else {
+    g.asm:emit_pop()
   }
 }
 
@@ -982,13 +986,61 @@ func visitors.FieldPattern(g, node){
     p:increase_stack_height()
     g:visit(node.value)
   } else {
-    local vt = node.value.type
-    if(vt == "TablePattern" or vt == "VarPattern"){
+    g.asm:emit_push(-1)
+    g:visit(node.key)
+    g.asm:emit_get_table()
+    g:visit(node.value)
+  }
+}
+
+// 'matcher [as PATTERN]: __match(matcher, value) decides (null: no match)
+// and its result is what the sub-pattern matches. The pattern machinery
+// makes two passes, a check and a bind, each consuming a copy of the value,
+// so a matcher with a sub-pattern runs twice on a successful match: keep
+// matchers pure. 'Type as PATTERN checks the type and matches the
+// sub-pattern against the value itself.
+local func emit_match_call(g, node){
+  // stack: value -> value, result
+  g:visit(global_index(node.token, "__match"))
+  g:visit(node.matcher)
+  g.asm:emit_push(-3)
+  g.asm:emit_call(2)
+}
+
+func visitors.MatcherPattern(g, node){
+  local p = g.asm:current_pattern()
+  if(node.matcher == null){
+    if(p.step == "check"){
       g.asm:emit_push(-1)
-      g:visit(node.key)
-      g.asm:emit_get_table()
-      g:visit(node.value)
+      g.asm:emit_type()
+      g.asm:emit_load_constant(node.type_name)
+      g.asm:emit_binop("==")
+      p:test_missmatch(false)
     }
+    g:visit(node.sub)
+    return null
+  }
+  if(p.step == "check"){
+    emit_match_call(g, node)
+    // the value is consumed; the result replaces it (a negative move
+    // counts from the top after the pop)
+    g.asm:emit_move(-1)
+    g.asm:emit_push(-1)
+    g.asm:emit_load_constant(null)
+    g.asm:emit_binop("==")
+    p:test_missmatch(true)
+    if(node.sub != null){
+      g:visit(node.sub)
+    } else {
+      g.asm:emit_pop()
+      p:decrease_stack_height()
+    }
+  } else if(node.sub != null){
+    emit_match_call(g, node)
+    g.asm:emit_move(-1)
+    g:visit(node.sub)
+  } else {
+    g.asm:emit_pop()
   }
 }
 

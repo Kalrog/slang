@@ -1076,19 +1076,55 @@ local func install_core(g){
 
   // ------------------------------------------------------------ patterns
 
-  define("slang_pattern", peg.choice(rule("table_pattern"), rule("const_pattern"), rule("var_pattern")))
+  define("slang_pattern", peg.choice(rule("quoted_pattern"), rule("table_pattern"), rule("const_pattern"), rule("var_pattern")))
 
   define("table_pattern", peg.seq(
-    peg.seq(tok("'"), rule("identifier")):pick(1):optional(),
     tok("{"),
     rule("field_pattern"):star_separated(tok(",")),
     tok("}")
   ):map(func(v){
-    local type_name = "table"
-    if(v[0] != null){
-      type_name = v[0].value
+    return ast.node("TablePattern", {type_check: "table", fields: v[1].elements}, v[0])
+  }))
+
+  // 'Name{...} checks the type (and matches the fields); 'Name as PATTERN
+  // checks the type and matches PATTERN against the same value. Anything
+  // else after the quote (a call, a field, a parenthesised value) is a
+  // matcher: its __match(value) returns null for no match, or the value the
+  // rest of the pattern continues with: 'm, 'm{...}, 'm as PATTERN.
+  local matcher_expr = peg.choice(
+    peg.seq(tok("("), rule("expr"), tok(")")):pick(1):map(func(e){ return {parenthesised: e} }),
+    peg.seq(
+      rule("identifier_and_index"),
+      peg.seq(tok("("), peg.choice(rule("spread"), rule("expr")):star_separated(tok(",")):map(elements), tok(")")):pick(1):optional()
+    ):map(func(v){
+      if(v[1] == null){
+        return v[0]
+      }
+      return ast.node("Call", {function: v[0], args: v[1]}, v[0].token)
+    })
+  )
+  define("quoted_pattern", peg.seq(
+    tok("'"),
+    matcher_expr,
+    peg.choice(peg.seq(tok("as"), rule("slang_pattern")):pick(1), rule("table_pattern")):optional()
+  ):map(func(v){
+    local m = v[1]
+    local sub = v[2]
+    if(m.parenthesised != null){
+      return ast.node("MatcherPattern", {matcher: m.parenthesised, type_name: null, sub: sub}, v[0])
     }
-    return ast.node("TablePattern", {type_check: type_name, fields: v[2].elements}, v[1])
+    if(m.type == "Identifier"){
+      // a type name
+      if(sub == null){
+        return ast.node("TablePattern", {type_check: m.value, fields: {}}, v[0])
+      }
+      if(sub.type == "TablePattern" and sub.type_check == "table" and sub.token.value == "{"){
+        sub.type_check = m.value
+        return sub
+      }
+      return ast.node("MatcherPattern", {matcher: null, type_name: m.value, sub: sub}, v[0])
+    }
+    return ast.node("MatcherPattern", {matcher: m, type_name: null, sub: sub}, v[0])
   }))
 
   define("field_pattern", peg.seq(

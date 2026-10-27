@@ -52,7 +52,8 @@ reports grammar conflicts (see Metaprogramming). On macOS,
 Files loaded with `require` or `slang run` are cached as bytecode in
 `~/.cache/slang` (override with `SLANG_CACHE_DIR`, disable with
 `SLANG_NO_CACHE=1`). Only files that compile with the standard grammar and run
-no code at compile time are cached, so the cache never changes behaviour.
+no code at compile time are cached, and the key includes a hash of the
+embedded compiler, so the cache never changes behaviour.
 
 ### Native extensions
 
@@ -265,6 +266,11 @@ for(let {name: local name, age: local age} in values(patients)) {
 // as a statement, let binds or raises when the value does not match
 let {name: local name, age: local age} = patient
 let {map: local map, filter: local filter} = require("slang/table")
+// matchers: 'm calls m's __match(value) metamethod; null means no match,
+// anything else is what the rest of the pattern sees ('m{...} or 'm as PATTERN)
+let 'peg.digit():plus():flatten() as local digits = "123"   // every parser is a matcher
+let 'between(1, 10) = n                                     // a library function returning a matcher
+let 'Point as local p = value                               // a type check, then the pattern on the value
 ```
 ### Passing Functions as arguments
 ```slang

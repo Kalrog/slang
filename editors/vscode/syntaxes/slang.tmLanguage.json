@@ -1,0 +1,147 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "slang",
+  "scopeName": "source.slang",
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#quotes"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#functions"
+    },
+    {
+      "include": "#operators"
+    },
+    {
+      "include": "#punctuation"
+    },
+    {
+      "include": "#identifiers"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.slang",
+          "match": "//.*$"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.triple.slang",
+          "begin": "\"\"\"",
+          "end": "\"\"\""
+        },
+        {
+          "name": "string.quoted.double.slang",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.slang",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.slang",
+          "match": "\\b[0-9]+(\\.[0-9]+)?\\b"
+        }
+      ]
+    },
+    "quotes": {
+      "patterns": [
+        {
+          "name": "keyword.operator.quote.slang",
+          "match": "[+-]\\{"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.slang",
+          "match": "\\b(if|else|for|return|break|let|in)\\b"
+        },
+        {
+          "name": "storage.type.slang",
+          "match": "\\b(local|func|extension|global)\\b"
+        },
+        {
+          "name": "constant.language.slang",
+          "match": "\\b(true|false|null)\\b"
+        },
+        {
+          "name": "keyword.operator.logical.slang",
+          "match": "\\b(and|or|not)\\b"
+        },
+        {
+          "name": "keyword.other.slang",
+          "match": "\\b()\\b"
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "match": "\\b(func)\\s+([A-Za-z_][A-Za-z0-9_.:]*)",
+          "captures": {
+            "1": {
+              "name": "storage.type.slang"
+            },
+            "2": {
+              "name": "entity.name.function.slang"
+            }
+          }
+        },
+        {
+          "name": "entity.name.function.call.slang",
+          "match": "\\b[A-Za-z_][A-Za-z0-9_]*(?=\\s*\\()"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.slang",
+          "match": "<<|>>|<=|>=|==|!=|[-+*/%^<>&|~]"
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.slang",
+          "match": "[{}()\\[\\],;:.=]"
+        }
+      ]
+    },
+    "identifiers": {
+      "patterns": [
+        {
+          "name": "variable.other.slang",
+          "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b"
+        }
+      ]
+    }
+  }
+}

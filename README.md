@@ -438,6 +438,16 @@ error); `await for(let local x in stream)` loops over a Stream. Callbacks
 stay available everywhere (`f:then(...)`, `stream:listen(...)`, the `uv`
 module itself). `PLAN_UV.md` has the design.
 
+## Editor support
+
+`lsp/` is a language server written in slang (over the `uv` extension) that
+highlights files with the parser itself, so extensions and dialects are
+coloured as they are parsed, and reports parse errors; `slang highlight
+file` prints the same tokens as JSON. `editors/vscode` is the VS Code
+extension: a generated TextMate grammar for the core language plus the
+server's semantic tokens in trusted workspaces (`make vscode` builds the
+`.vsix`). `PLAN_LSP.md` has the design.
+
 ## Standard library
 Globals: `print`, `args`, `readLine`, `open` (files with `read`, `write`,
 `readBytes`, `writeBytes`, `close`), `assert`, `error`, `raise`, `pcall`, `compile`,
@@ -461,6 +471,7 @@ bench/     benchmarks (make bench)
 extensions/ parser extensions written in slang; extensions/native are native ones
 examples/  example programs: examples/breakout on raylib, examples/project (slang.project),
            examples/dungeon, a game whose content is written in DSLs (its window host is the legacy Go one)
+lsp/       the language server (highlighting and diagnostics from the real parser); editors/vscode is its VS Code client
 go/        the Go VM: the reference implementation during the Zig port, kept for comparison
            (make go-build, go-test, go-fixpoint); it cannot load native extensions
 legacy/    the original Dart implementation and the oracle scripts in tool/, kept for history

@@ -1,0 +1,83 @@
+{
+  "name": "slang-lang",
+  "displayName": "slang",
+  "description": "Highlighting and diagnostics for slang, from the slang language server",
+  "version": "0.1.0",
+  "publisher": "slang",
+  "license": "MIT",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Programming Languages"],
+  "main": "./out/extension.js",
+  "activationEvents": ["onLanguage:slang", "workspaceContains:**/slang.project"],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "The language server runs the project's extensions while parsing; it starts only in trusted workspaces. Basic highlighting works everywhere."
+    }
+  },
+  "contributes": {
+    "languages": [{
+      "id": "slang",
+      "aliases": ["slang"],
+      "extensions": [".slang"],
+      "filenames": ["slang.project"],
+      "configuration": "./language-configuration.json"
+    }],
+    "grammars": [{
+      "language": "slang",
+      "scopeName": "source.slang",
+      "path": "./syntaxes/slang.tmLanguage.json"
+    }],
+    "semanticTokenTypes": [
+      { "id": "punctuation", "superType": "operator", "description": "Brackets, commas, assignment" }
+    ],
+    "semanticTokenScopes": [{
+      "language": "slang",
+      "scopes": {
+        "keyword": ["keyword.control.slang"],
+        "variable": ["variable.other.slang"],
+        "number": ["constant.numeric.slang"],
+        "string": ["string.quoted.slang"],
+        "comment": ["comment.line.slang"],
+        "operator": ["keyword.operator.slang"],
+        "punctuation": ["punctuation.slang"]
+      }
+    }],
+    "configuration": {
+      "title": "slang",
+      "properties": {
+        "slang.path": {
+          "type": "string",
+          "default": "slang",
+          "description": "The slang binary used to run the language server (bin/slang of a checkout, or slang on the PATH)."
+        },
+        "slang.associateDialects": {
+          "type": "boolean",
+          "default": true,
+          "description": "Associate the dialect file suffixes of the project's slang.project with the slang language (updates files.associations in the workspace)."
+        },
+        "slang.trace.server": {
+          "type": "string",
+          "enum": ["off", "messages", "verbose"],
+          "default": "off",
+          "description": "Trace the messages between VS Code and the slang language server."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "bundle-lsp": "rm -rf lsp && mkdir lsp && cp ../../lsp/server.slang ../../lsp/main.slang lsp/",
+    "compile": "npm run bundle-lsp && esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --target=node18",
+    "package": "npm run compile && vsce package --allow-missing-repository --no-dependencies"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.2.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.4.0"
+  }
+}

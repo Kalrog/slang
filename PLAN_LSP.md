@@ -94,24 +94,22 @@ lower to the core AST. Needs a compile, so it runs under the same trust rule.
   (the compiler holds one project at a time); multi-project workspaces
   wait for the compiler to support several.
 
-### Phase 4: the VS Code extension `[ ]`
-- [ ] `editors/vscode`: language `slang` (`.slang`, the file name
-      `slang.project`), language configuration (comments, brackets,
-      auto-closing), a TextMate grammar `syntaxes/slang.tmLanguage.json`
-      for the core language (keywords, operators, strings, numbers,
-      comments, `func`, `extension`, quotes `+{`/`-{`), generated from the
-      core grammar's token registry by `slang syntax-export --textmate` so
-      the keyword list cannot drift; checked in.
-- [ ] The client (`vscode-languageclient`): starts the bundled `lsp/`
-      program with the configured `slang.path` (default: `slang` on PATH)
-      only when the workspace is trusted; semantic tokens map to standard scopes; the
-      `slang/project` notification updates `files.associations` for the
-      project's dialect suffixes when `slang.associateDialects` is on (the
-      user can also set associations by hand).
-- [ ] Build with `npm`/`esbuild`, `vsce package` into a `.vsix`; a manual
-      test checklist (core file, a file using `extensions/custom_operators`,
-      a `.json` module under `examples/project`, a parse error, server
-      restart after a crash).
+### Phase 4: the VS Code extension `[x]`
+- [x] `editors/vscode`: language `slang` (`.slang`, `slang.project`),
+      language configuration, a TextMate grammar generated from the core
+      grammar's keyword list by `gen_grammar.slang` (`make vscode-grammar`),
+      semantic token scopes (a `punctuation` type added to the standard ones).
+- [x] The client starts `slang run <extension>/lsp/main.slang <extension>`
+      with the workspace folder as working directory, only in trusted
+      workspaces (`untrustedWorkspaces: limited`); `slang.path`,
+      `slang.associateDialects` (the `slang/project` notification updates
+      `files.associations`), `slang.trace.server`; `slang.project` changes
+      are sent as watched-file events.
+- [x] `make vscode` bundles `lsp/`, compiles with esbuild and packages
+      `editors/vscode/slang-lang-0.1.0.vsix`; install with
+      `code --install-extension`.
+- [ ] Manual check in VS Code (core file, a file using
+      `extensions/custom_operators`, `examples/project`, a parse error).
 
 ### Phase 5: later `[ ]`
 - [ ] Semantic classes from codegen (locals, parameters, upvalues, globals,

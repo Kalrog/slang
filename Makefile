@@ -11,6 +11,7 @@
 #   make breakout     run the breakout example (examples/breakout) on the raylib extension
 #   make dungeon-test run the dungeon example's DSL tests
 #   make dungeon      run the dungeon example on its Go/Ebitengine host (legacy host, uses the Go VM)
+#   make vscode       package the VS Code extension (editors/vscode) with the language server
 #
 # Legacy implementations, kept for reference: the Go VM (go/, the reference
 # implementation during the port; `make go-build`, `make go-test`,
@@ -26,7 +27,7 @@ COMPILER_SRC := $(wildcard slang/compiler/*.slang)
 SEED_DIR := boot/slang
 
 .PHONY: all build build-safe test test-safe unit seed fixpoint bench breakout dungeon dungeon-test clean \
-        go-build go-seed-copy go-test go-fixpoint stage0-seed
+        vscode vscode-grammar go-build go-seed-copy go-test go-fixpoint stage0-seed
 
 all: build
 
@@ -83,8 +84,15 @@ dungeon-test: build
 dungeon: go-seed-copy
 	cd examples/dungeon && $(GO) run ./host .
 
+# the VS Code extension (editors/vscode): generated grammar, bundled lsp/, .vsix
+vscode-grammar: build
+	bin/slang run editors/vscode/gen_grammar.slang > editors/vscode/syntaxes/slang.tmLanguage.json
+
+vscode: vscode-grammar
+	cd editors/vscode && npm install --no-audit --no-fund && npm run package
+
 clean:
-	rm -rf bin lib zig/zig-out zig/zig-out-* zig/.zig-cache go/bin go/boot/slang
+	rm -rf bin lib zig/zig-out zig/zig-out-* zig/.zig-cache go/bin go/boot/slang editors/vscode/out editors/vscode/lsp editors/vscode/*.vsix
 
 # ------------------------------------------------------------ legacy: Go VM
 

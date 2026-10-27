@@ -20,6 +20,7 @@ local root = null
 // the project in effect: {path, dir, source, extensions, dialects, warnings, key}
 local project = null
 local project_searched = false
+local project_misses = {}
 local dialect_grammars = {}
 local default_search_paths = __PACKAGES.searchPaths
 
@@ -144,6 +145,7 @@ func compiler.reset(){
   root = new_grammar()
   project = null
   project_searched = false
+  project_misses = {}
   dialect_grammars = {}
   __PACKAGES.searchPaths = default_search_paths
   __PACKAGES.dialect_suffixes = {}
@@ -439,11 +441,18 @@ func compiler.load_main(path){
 // the compiler; nothing is compiled or cached. A file of a dialect with a
 // compile function has no tokens.
 func compiler.highlight(source, path, options){
-  if(options != null and options.find_project and not project_searched){
-    project_searched = true
-    local pp = find_project(dirname(path))
-    if(pp != null){
-      compiler.load_project(pp)
+  // the editor's documents look their project up while none is loaded (the
+  // main program's own lookup does not count: the server has no project);
+  // directories without one are remembered
+  if(options != null and options.find_project and project == null){
+    local dir = dirname(path)
+    if(project_misses[dir] == null){
+      local pp = find_project(dir)
+      if(pp != null){
+        compiler.load_project(pp)
+      } else {
+        project_misses[dir] = true
+      }
     }
   }
   local dialect = dialect_of(path)

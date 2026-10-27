@@ -1009,8 +1009,15 @@ local func install_core(g){
     return ast.node("Declaration", {is_local: v[0] != null, left: v[2], right: v[3]}, v[1])
   }), {probe: "func f(a, b){ return a }"})
 
+  // let PATTERN = expr as a statement: binds, or raises when the value does
+  // not match (the expression form is the condition of an if)
+  define("let_statement", peg.seq(tok("let"), rule("slang_pattern"), tok("="), rule("expr")):map(func(v){
+    return ast.node("LetStat", {pattern: v[1], right: v[3]}, v[0])
+  }), {probe: "let {name: local n} = t"})
+
   define("expression_or_statement", peg.choice(
     rule("local_declaration"),
+    rule("let_statement"),
     rule("if_statement"),
     rule("for_loop"),
     rule("for_in_loop"),

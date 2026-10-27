@@ -817,6 +817,29 @@ func visitors.Index(g, node){
 // the outer scope holds locals bound by the condition (let patterns); each
 // branch gets its own scope so that then-branch locals do not leak into the
 // else branch
+// let PATTERN = expr: the value is kept in a hidden local so that the
+// error can show it; the pattern's locals are declared in the current scope
+func visitors.LetStat(g, node){
+  local token = node.token
+  local hidden = concat("let value ", g.asm:next_instruction_index())
+  g.asm:create_local(hidden)
+  local lv = g.asm:get_local(hidden)
+  g:visit(node.right)
+  g.asm:emit_move(lv.register)
+  local value = ast.node("Identifier", {value: hidden}, token)
+  g:visit(ast.node("Let", {pattern: node.pattern, right: value}, token))
+  g.asm:emit_test(false)
+  local fail_jump = g.asm:emit_jump()
+  local done = g.asm:emit_jump()
+  g.asm:patch_jump(fail_jump)
+  g:visit(global_index(token, "error"))
+  g.asm:emit_load_constant(concat("let: the value does not match ", ast.to_string(node.pattern), ", got "))
+  g:visit(value)
+  g.asm:emit_call(2)
+  g.asm:emit_pop()
+  g.asm:patch_jump(done)
+}
+
 func visitors.If(g, node){
   g.asm:enter_scope(false)
   g:visit(node.condition)

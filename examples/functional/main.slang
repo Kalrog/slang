@@ -2,7 +2,7 @@
 // (holes.slang), both loaded by this folder's slang.project.
 //     bin/slang run examples/functional/main.slang
 local str = require("slang/string")
-local table = require("slang/table")
+let {local map,local filter,local fold} = require("slang/table")
 
 // the piped value arrives first, so the label comes second
 local func show(v, label){ print(label, ": ", v, "\n") }

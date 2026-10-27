@@ -29,6 +29,7 @@ local specs = {
   Call: {{"function", "node"}, {"args", "list"}},
   Invoke: {{"receiver", "node"}, {"name", "node"}, {"args", "list"}},
   Let: {{"pattern", "node"}, {"right", "node"}},
+  LetStat: {{"pattern", "node"}, {"right", "node"}},
   Block: {{"statements", "list"}},
   CallStat: {{"call", "node"}},
   If: {{"condition", "node"}, {"thenBranch", "node"}, {"elseBranch", "node?"}},
@@ -49,7 +50,7 @@ ast.specs = specs
 
 local statement_types = {
   Block: true, CallStat: true, If: true, Return: true, Assignment: true,
-  Declaration: true, Break: true, For: true, ForIn: true, Unquote: true,
+  Declaration: true, Break: true, For: true, ForIn: true, Unquote: true, LetStat: true,
 }
 
 local metas = {}
@@ -492,6 +493,11 @@ func writer.visit(self, node){
     if(node.canBeNull){
       self:add("?")
     }
+  } else if(t == "LetStat"){
+    self:add("let ")
+    self:visit(node.pattern)
+    self:add(" = ")
+    self:visit(node.right)
   } else if(t == "Let"){
     self:add("let ")
     self:visit(node.pattern)

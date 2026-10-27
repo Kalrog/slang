@@ -262,6 +262,9 @@ for(let {name: local name, age: local age} in values(patients)) {
 }
 // loops stop when they encounter a value that does not match the pattern
 // a type can be matched with 'Type{...}, a nullable binding with name?
+// as a statement, let binds or raises when the value does not match
+let {name: local name, age: local age} = patient
+let {map: local map, filter: local filter} = require("slang/table")
 ```
 ### Passing Functions as arguments
 ```slang

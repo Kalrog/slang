@@ -96,6 +96,10 @@ local func new_lineage(opts){
     last_tokens: null,
     last_failure: null,
     phrase_pos: 0,
+    // every parse of a unit gets a fresh id (g:unit_id()), so an extension
+    // can keep state per unit even when it was loaded once for a project
+    unit_counter: 0,
+    unit_id: 0,
   }
 }
 
@@ -399,6 +403,12 @@ func methods.token(g, source, name, category){
 // under category for highlighting (see peg.tag)
 func methods.tag(g, parser, category){
   return peg.tag(parser, category)
+}
+
+// unit_id() -> a number identifying the parse of the current unit (a new
+// one for every unit, including nested compiles), for per-unit extension state
+func methods.unit_id(g){
+  return g.state.unit_id
 }
 
 // origin() -> the name of the source being parsed (null outside a parse)
@@ -1479,6 +1489,8 @@ local func parse_top_level(g, source, origin, scoped, record){
   local unit = g
   lin.origin = origin
   lin.current = unit
+  lin.unit_counter = lin.unit_counter + 1
+  lin.unit_id = lin.unit_counter
   for(true){
     unit:activate()
     ctx.rule_memo = {}
@@ -1550,6 +1562,7 @@ func methods.parse_source(g, source, origin, options){
   local outer_origin = lin.origin
   local outer_current = lin.current
   local outer_active = lin.active
+  local outer_unit_id = lin.unit_id
   local scoped = options == null or options.scoped != false
   local record = options != null and options.record == true
   if(record){
@@ -1564,6 +1577,7 @@ func methods.parse_source(g, source, origin, options){
   }
   lin.origin = outer_origin
   lin.current = outer_current
+  lin.unit_id = outer_unit_id
   // a nested parse (from an unquote or a parser callback) must leave the
   // rule references pointing at the grammar of the enclosing unit
   if(lin.parse_depth > 0 and outer_active != null and lin.active != outer_active){

@@ -47,7 +47,7 @@ t.group("expand"){
     """
     local out = compiler.expand(src, "core.slang")
     assert(str.index_of(out, "local func f(__1, __2)") >= 0, out)
-    assert(str.index_of(out, "__def.define(area") >= 0, out)
+    assert(str.index_of(out, ".define(area, \"area\"") >= 0, out)
     assert(str.index_of(out, "'between(1, 2) as local x") >= 0, out)
     assert(bytecode(src, "c") == bytecode(out, "c"), "same bytecode")
   }

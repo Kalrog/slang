@@ -441,6 +441,23 @@ func compiler.load_main(path){
 
 // ------------------------------------------------------------ highlighting
 
+// looks the project up for a file while none is loaded (directories
+// without one are remembered)
+local func find_project_for(path){
+  if(project != null){
+    return null
+  }
+  local dir = dirname(path)
+  if(project_misses[dir] == null){
+    local pp = find_project(dir)
+    if(pp != null){
+      compiler.load_project(pp)
+    } else {
+      project_misses[dir] = true
+    }
+  }
+}
+
 // highlight(source, path, {find_project}) -> {tokens, diagnostics}: the tokens of source as
 // the compiler would parse the file at path (its project, its dialect),
 // with categories and 1-based line/column, and the parse errors as
@@ -449,18 +466,9 @@ func compiler.load_main(path){
 // compile function has no tokens.
 func compiler.highlight(source, path, options){
   // the editor's documents look their project up while none is loaded (the
-  // main program's own lookup does not count: the server has no project);
-  // directories without one are remembered
-  if(options != null and options.find_project and project == null){
-    local dir = dirname(path)
-    if(project_misses[dir] == null){
-      local pp = find_project(dir)
-      if(pp != null){
-        compiler.load_project(pp)
-      } else {
-        project_misses[dir] = true
-      }
-    }
+  // main program's own lookup does not count: the server has no project)
+  if(options != null and options.find_project){
+    find_project_for(path)
   }
   local dialect = dialect_of(path)
   if(dialect != null and dialect.spec.compile != null){
@@ -524,21 +532,32 @@ func compiler.highlight(source, path, options){
   return {tokens: tokens, diagnostics: diagnostics}
 }
 
+// compile_file(path, origin) -> function: compiles a file as `slang run`
+// would (its project, its dialect), without the bytecode cache; what
+// `slang compile` and `slang disasm` use
+func compiler.compile_file(path, origin){
+  origin = origin or path
+  find_project_for(path)
+  local source = os.read_file(path)
+  local dialect = dialect_of(path)
+  if(dialect != null and dialect.spec.compile != null){
+    return require(dialect.spec.compile).compile(source, origin)
+  }
+  local g = root
+  if(dialect != null){
+    g = dialect_grammar(dialect.suffix)
+  }
+  local node = g:parse_source(source, origin)
+  return vm.load_proto(codegen.generate(node, origin))
+}
+
 // expand(source, path) -> slang source: the file after its extensions have
 // been applied (parsed like load_file would, then printed from the core AST;
 // unquotes are executed, extension statements are gone, constants folded).
 // A file of a compile dialect is returned as is.
 func compiler.expand(source, path, options){
-  if(options != null and options.find_project and project == null){
-    local dir = dirname(path)
-    if(project_misses[dir] == null){
-      local pp = find_project(dir)
-      if(pp != null){
-        compiler.load_project(pp)
-      } else {
-        project_misses[dir] = true
-      }
-    }
+  if(options != null and options.find_project){
+    find_project_for(path)
   }
   local dialect = dialect_of(path)
   if(dialect != null and dialect.spec.compile != null){

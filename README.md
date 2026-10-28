@@ -445,7 +445,8 @@ object offers:
   (`enumMember.declaration`); `extensions/enum.slang` shows it.
   `g:tag(g:rule("identifier"), "function.declaration")` recolours what a
   rule produced without changing its value.
-- `g:error_at(token, message...)` raises a compile error at a token,
+- `g:unit_id()` identifies the parse of the current unit (per-unit state in
+  an extension loaded once for a project); `g:error_at(token, message...)` raises a compile error at a token,
   `g:origin()` is the name of the source being compiled, `g:uniq_id()` an
   identifier no program can write.
 

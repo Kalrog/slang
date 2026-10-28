@@ -20,63 +20,63 @@
 //
 // How it works: a clause lowers to NAME = __def.define(NAME, name, n,
 // has_rest, func(args){ local matched = (let {P1, P2, ...} = args)
-// if(not matched){ return __def.no_match } ... body }), and __def.define returns a callable
-// dispatcher (a table with __call) holding the clauses. A def is slower
-// than a func: each call allocates its argument list and runs the patterns.
+// if(not matched){ return __def.no_match } ... body }), and __def.define
+// returns a callable dispatcher (a table with __call) holding the clauses;
+// the first clause of a unit also defines __def (the runtime is quoted
+// code below), so compiled files stand on their own. A def is slower than
+// a func: each call allocates its argument list and runs the patterns.
 local peg = require("slang/peg")
 local ast = require("slang/ast")
 local g = require("slang/compiler").grammar()
 
 // ------------------------------------------------------------ runtime
-
-local no_match = {}
-local dispatcher_methods = {}
-local dispatcher_meta = {__index: dispatcher_methods, __type: "def"}
-
-func dispatcher_meta.__call(self, ...args){
-  local n = len(args)
-  for(let local c in values(self.clauses)){
-    if(n == c.n or (c.rest and n >= c.n)){
-      local r = c.f(args)
-      if(r != no_match){
-        return r
+//
+// The runtime (the dispatcher behind a def name) is quoted code, spliced
+// into the first clause of every unit, so that compiled bytecode of a
+// file with defs is self-contained: it does not need this extension to
+// have run in the process that executes it.
+local runtime = +{block:
+  __def = {}
+  __def.no_match = {}
+  local dispatcher_meta = {__type: "def"}
+  func dispatcher_meta.__call(self, ...args){
+    local n = len(args)
+    for(let local c in values(self.clauses)){
+      if(n == c.n or (c.rest and n >= c.n)){
+        local r = c.f(args)
+        if(r != __def.no_match){
+          return r
+        }
       }
     }
+    local shown = {}
+    for(local i = 0; i < n; i = i + 1){
+      append(shown, string(args[i]))
+    }
+    error("no clause of ", self.name, " matches (", require("slang/string").join(shown, ", "), ")")
   }
-  local shown = {}
-  for(local i = 0; i < n; i = i + 1){
-    append(shown, string(args[i]))
+  func dispatcher_meta.__tostring(self){
+    return concat("def ", self.name, " (", len(self.clauses), " clauses)")
   }
-  error("no clause of ", self.name, " matches (", require("slang/string").join(shown, ", "), ")")
-}
-
-func dispatcher_meta.__tostring(self){
-  return concat("def ", self.name, " (", len(self.clauses), " clauses)")
-}
-
-local definition = {no_match: no_match}
-
-// define(existing, name, n, has_rest, clause) -> the dispatcher for name
-func definition.define(existing, name, n, has_rest, clause){
-  local d = existing
-  if(type(d) != "def"){
-    d = {name: name, clauses: {}}
-    d.meta = dispatcher_meta
+  // define(existing, name, n, has_rest, clause) -> the dispatcher for name
+  func __def.define(existing, name, n, has_rest, clause){
+    local d = existing
+    if(type(d) != "def"){
+      d = {name: name, clauses: {}}
+      d.meta = dispatcher_meta
+    }
+    append(d.clauses, {n: n, rest: has_rest, f: clause})
+    return d
   }
-  append(d.clauses, {n: n, rest: has_rest, f: clause})
-  return d
-}
-
-// rest(args, n) -> the arguments from index n on
-func definition.rest(args, n){
-  local out = {}
-  for(local i = n; i < len(args); i = i + 1){
-    append(out, args[i])
+  // rest(args, n) -> the arguments from index n on
+  func __def.rest(args, n){
+    local out = {}
+    for(local i = n; i < len(args); i = i + 1){
+      append(out, args[i])
+    }
+    return out
   }
-  return out
 }
-
-__def = definition
 
 // ------------------------------------------------------------ syntax
 
@@ -133,7 +133,19 @@ local func clause_function(params, rest_name, guard, body, token){
   return ast.node("Function", {params: {id("args", token)}, body: ast.node("Block", {statements: statements}, token)}, token)
 }
 
-local declared = {}
+// per unit (by g:unit_id()): the names declared with `local def`, and
+// whether the runtime was inlined yet; an ambient extension runs once for
+// a whole project, so this cannot be a plain flag
+local units = {}
+local func unit_state(){
+  local id = g:unit_id()
+  local u = units[id]
+  if(u == null){
+    u = {declared: {}, initialised: false}
+    units[id] = u
+  }
+  return u
+}
 
 local param = peg.choice(
   peg.seq(g:token("...", "...", "operator"), g:rule("identifier")):map(func(v){ return {rest: v[1].value} }),
@@ -160,14 +172,21 @@ g:statement("def", peg.seq(
     }
   }
   local f = clause_function(params, rest_name, v[6], v[7], token)
+  local unit = unit_state()
   local existing = id(name, token)
   local is_local = v[0] != null
-  local first = declared[name] == null
-  declared[name] = true
+  local first = unit.declared[name] == null
+  unit.declared[name] = true
   if(is_local and first){
     existing = ast.node("Null", {}, token)
   }
-  local define = ast.node("Call", {function: field(id("__def", token), "define", token), args: {
+  local runtime_ref = id("__def", token)
+  if(not unit.initialised){
+    // (func(){ if(__def == null){ RUNTIME } return __def })()
+    unit.initialised = true
+    runtime_ref = +{(func(){ if(__def == null){ -{runtime} } return __def })()}
+  }
+  local define = ast.node("Call", {function: field(runtime_ref, "define", token), args: {
     existing, ast.node("String", {value: name}, token), ast.node("Int", {value: len(params)}, token),
     ast.node(rest_name != null and "True" or "False", {}, token), f,
   }}, token)

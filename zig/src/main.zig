@@ -219,12 +219,12 @@ fn highlightFile(init: std.process.Init, path: []const u8) void {
     vm.flush();
 }
 
-/// Compiles source text with the self-hosted compiler.
+/// Compiles a file with the self-hosted compiler, as `slang run` would (its
+/// project and dialect apply).
 fn compileSource(vm: *VM, path: []const u8, origin_opt: ?[]const u8) *Proto {
-    const src = readFile(vm, path);
-    defer vm.gpa.free(src);
     const origin = origin_opt orelse stripSuffix(path, ".slang");
-    const res = vm.call(vm.getGlobal("compile"), &.{ vm.str(src), vm.str(origin) }) catch fail(vm);
+    const compiler = vm.call(vm.getGlobal("require"), &.{vm.str("slang/compiler")}) catch fail(vm);
+    const res = vm.call(compiler.table.getName("compile_file"), &.{ vm.str(path), vm.str(origin) }) catch fail(vm);
     vm.flush();
     const cl = res.asClosure() orelse failMsg(vm, "compile did not return a slang function", .{});
     return cl.proto orelse failMsg(vm, "compile did not return a slang function", .{});

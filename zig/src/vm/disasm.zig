@@ -158,17 +158,94 @@ pub fn disassemble(w: *Writer, p: *const Proto) Writer.Error!void {
     try disasmProto(w, p, "");
 }
 
+/// What an instruction refers to, for the reader: the constant loaded, the
+/// upvalue's name, the field a getTable reads, a jump's target, a test's
+/// sense, a closure's shape.
+fn annotate(w: *Writer, p: *const Proto, pc: usize, ins: u32) Writer.Error!void {
+    switch (opOf(ins)) {
+        .load_constant => {
+            const idx = argBx(ins);
+            if (idx < p.consts.len) {
+                const c = p.consts[idx];
+                if (c == .string) {
+                    const b = c.string.bytes();
+                    if (b.len > 40) {
+                        try writeQuoted(w, b[0..40]);
+                        try w.print("... ({d} bytes)", .{b.len});
+                    } else {
+                        try writeQuoted(w, b);
+                    }
+                } else {
+                    try root.format.writeValue(w, c);
+                }
+            }
+        },
+        .load_bool => {
+            try w.writeAll(if (argB(ins) != 0) "true" else "false");
+            if (argC(ins) != 0) try w.writeAll(", skip next");
+        },
+        .load_closure => {
+            const idx = argAx(ins);
+            if (idx < p.children.len) {
+                const c = p.children[idx];
+                try w.print("function #{d} (nargs={d}{s})", .{ idx, c.nargs, if (c.is_vararg) " vararg" else "" });
+            }
+        },
+        .get_upvalue, .set_upvalue => {
+            const idx = argAx(ins);
+            if (idx < p.upvals.len) try w.writeAll(p.upvals[idx].name.bytes());
+        },
+        .get_table => {
+            // t.name: the key was loaded just before
+            if (pc > 0 and opOf(p.code[pc - 1]) == .load_constant) {
+                const idx = argBx(p.code[pc - 1]);
+                if (idx < p.consts.len and p.consts[idx] == .string) {
+                    try w.print(".{s}", .{p.consts[idx].string.bytes()});
+                }
+            }
+        },
+        .jump => try w.print("-> {d}", .{@as(i64, @intCast(pc)) + 1 + argSBx(ins)}),
+        .@"test" => try w.writeAll(if (argC(ins) != 0) "skip next when false" else "skip next when true"),
+        .push, .move => {
+            const sbx = argSBx(ins);
+            if (sbx < 0) try w.print("top{d}", .{sbx}) else try w.print("register {d}", .{sbx});
+        },
+        .pop => try w.print("keep {d}, drop {d}", .{ argA(ins), argBx(ins) }),
+        .new_table => try w.print("array {d}, hash {d}", .{ argB(ins), argC(ins) }),
+        .call => try w.print("{d} arg{s}", .{ argBx(ins), if (argBx(ins) == 1) "" else "s" }),
+        .call_spread => try w.print("{d} fixed args and a list", .{argBx(ins)}),
+        .close_upvalues => try w.print("from register {d}", .{argAx(ins)}),
+        else => {},
+    }
+}
+
 fn disasmProto(w: *Writer, p: *const Proto, indent: []const u8) Writer.Error!void {
     try w.print("{s}function (nargs={d} vararg={} maxstack={d})\n", .{ indent, p.nargs, p.is_vararg, p.max_stack });
     try w.print("{s}Instructions:\n", .{indent});
     for (p.code, 0..) |ins, i| {
-        try w.print("{s}  {d:4}: ", .{ indent, i });
-        try writeInstruction(w, ins);
-        for (p.locs) |l| {
+        // the instruction, padded, then `; annotation`, then the location
+        var ibuf: [64]u8 = undefined;
+        var iw: Writer = .fixed(&ibuf);
+        writeInstruction(&iw, ins) catch {};
+        var abuf: [128]u8 = undefined;
+        var aw: Writer = .fixed(&abuf);
+        annotate(&aw, p, i, ins) catch {};
+        var loc: ?*const @import("object.zig").LocInfo = null;
+        for (p.locs) |*l| {
             if (l.first_pc == i) {
-                try w.print("  {s}:{d}:{d}", .{ l.origin.bytes(), l.line, l.column });
+                loc = l;
                 break;
             }
+        }
+        const ann = aw.buffered();
+        if (loc) |l| {
+            try w.print("{s}  {d:4}: {s:<30}", .{ indent, i, iw.buffered() });
+            if (ann.len > 0) try w.print(" ; {s:<28}", .{ann}) else try w.print("{s:<31}", .{""});
+            try w.print("  {s}:{d}:{d}", .{ l.origin.bytes(), l.line, l.column });
+        } else if (ann.len > 0) {
+            try w.print("{s}  {d:4}: {s:<30} ; {s}", .{ indent, i, iw.buffered(), ann });
+        } else {
+            try w.print("{s}  {d:4}: {s}", .{ indent, i, iw.buffered() });
         }
         try w.writeByte('\n');
     }

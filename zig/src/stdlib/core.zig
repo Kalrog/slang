@@ -78,18 +78,23 @@ fn renderArg(th: *Thread, v: Value, buf: []u8, pushed: *usize) Error![]const u8 
     }
 }
 
+/// print(values...): line buffered, so that a server's log and a progress
+/// line show up when they are printed, not when the 64 KB buffer fills
 fn corePrint(th: *Thread, args: []Value) Error!Value {
     _ = args;
     const vm = th.vm;
     const n = th.nargs();
     var pushed: usize = 0;
+    var newline = false;
     var i: usize = 0;
     while (i < n) : (i += 1) {
         var buf: [48]u8 = undefined;
         const piece = try renderArg(th, th.arg(i), &buf, &pushed);
         vm.out().writeAll(piece) catch return vm.raise("write error on stdout", .{});
+        if (std.mem.indexOfScalar(u8, piece, '\n') != null) newline = true;
     }
     th.top -= pushed;
+    if (newline) vm.flush();
     return .null;
 }
 

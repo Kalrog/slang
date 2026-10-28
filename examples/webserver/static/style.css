@@ -1,9 +1,28 @@
 body { font: 16px/1.5 system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; color: #222; }
 nav a { margin-right: 1rem; }
 nav a.current { font-weight: bold; text-decoration: none; }
-form label { display: block; margin: 0.5rem 0; }
-form input, form textarea { display: block; width: 100%; box-sizing: border-box; }
-.entries { list-style: none; padding: 0; }
-.entry { border-top: 1px solid #ddd; padding: 0.5rem 0; }
-.empty { color: #777; }
 footer { margin-top: 2rem; color: #777; font-size: 0.9rem; }
+code { background: #f3f3f3; padding: 0 0.2rem; }
+
+/* todos */
+form { display: flex; gap: 0.5rem; margin: 1rem 0; }
+form input { flex: 1; padding: 0.3rem 0.5rem; font: inherit; }
+.filters a { margin-right: 0.75rem; }
+.filters a.current { font-weight: bold; text-decoration: none; }
+#todos { list-style: none; padding: 0; margin: 0.5rem 0; }
+#todos li { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0; border-bottom: 1px solid #eee; }
+#todos li .text { flex: 1; cursor: text; }
+#todos li.done .text { text-decoration: line-through; color: #888; }
+#todos li form { flex: 1; margin: 0; }
+#todos li .delete { border: none; background: none; color: #aaa; font-size: 1.2rem; cursor: pointer; }
+#todos li .delete:hover { color: #c33; }
+.status { color: #555; display: flex; justify-content: space-between; align-items: center; }
+
+/* request log */
+table.log { border-collapse: collapse; width: 100%; font-size: 0.9rem; font-variant-numeric: tabular-nums; }
+table.log th, table.log td { text-align: left; padding: 0.2rem 0.5rem; border-bottom: 1px solid #eee; }
+table.log tr.poll { color: #aaa; }
+
+/* htmx shows the indicator while a request is in flight */
+.htmx-indicator { opacity: 0; transition: opacity 200ms ease-in; color: #777; margin-left: 0.5rem; }
+.htmx-request .htmx-indicator, .htmx-request.htmx-indicator { opacity: 1; }

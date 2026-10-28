@@ -3,9 +3,21 @@
 An HTTP/1.1 server written in slang: `slang/http` (request parsing with the
 peg combinators, keep-alive, a small client) on `slang/async` (Futures,
 Streams, await on coroutines) on the `uv` native extension (libuv). The
-handlers in `main.slang` use the async/await syntax of `extensions/async`,
-the pages are written in the HTML templates of `extensions/html`, and
+handlers use the async/await syntax of `extensions/async`, the pages are
+written in the HTML templates of `extensions/html`, and
 [htmx](https://htmx.org) (loaded from a CDN) makes them interactive.
+`slang.project` makes both extensions ambient in the folder, so no file
+declares them.
+
+| file | what it holds |
+|---|---|
+| `main.slang` | the server, and the handler every request goes through (logging) |
+| `router.slang` | routes by method and path, with `:params` and a trailing `*` |
+| `routes.slang` | the pages, the fragments htmx asks for, the static files |
+| `views.slang` | the templates: the layout, the components, `page` and `fragment` |
+| `todos.slang` | the todo list itself |
+| `log.slang` | the request log, printed and shown on `/log` |
+| `forms.slang` | decoding of form bodies and query strings |
 
 ```
 brew install libuv
@@ -36,9 +48,9 @@ Every request is also printed on the terminal:
 [12.3 s] POST /todos/3/toggle -> 200 (0 ms)
 ```
 
-The logging sits in one place, `handle`, which dispatches the request,
-awaits the handler when it is async, records the status and duration and
-raises errors again so that `slang/http` answers with a 500.
+The logging sits in one place, `handle` in `main.slang`, which dispatches
+the request, awaits the handler when it is async, records the status and
+duration and raises errors again so that `slang/http` answers with a 500.
 
 ## Templates
 
@@ -70,6 +82,6 @@ fragment(<Todo todo={t}/>, <Count oob={true}/>)
 - Whitespace follows JSX: lines are trimmed and blank lines dropped, a line
   break inside text is one space.
 
-`slang expand examples/webserver/main.slang` shows what the templates
+`slang expand examples/webserver/views.slang` shows what the templates
 compile to (calls on `slang/html`, required once per file), and
 `test/html_test.slang` has the details.

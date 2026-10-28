@@ -1,0 +1,4 @@
+// async/await and the HTML templates are ambient in every file of the server
+{
+  extensions: {"extensions/async", "extensions/html"},
+}

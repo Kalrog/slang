@@ -24,7 +24,7 @@ local http = {}
 
 http.status_text = {
   [200]: "OK", [201]: "Created", [204]: "No Content", [301]: "Moved Permanently",
-  [302]: "Found", [304]: "Not Modified", [400]: "Bad Request", [403]: "Forbidden",
+  [302]: "Found", [303]: "See Other", [304]: "Not Modified", [307]: "Temporary Redirect", [400]: "Bad Request", [403]: "Forbidden",
   [404]: "Not Found", [405]: "Method Not Allowed", [411]: "Length Required",
   [413]: "Payload Too Large", [500]: "Internal Server Error",
 }

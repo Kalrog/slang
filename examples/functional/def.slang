@@ -21,22 +21,23 @@
 // How it works: a clause lowers to NAME = __def.define(NAME, name, n,
 // has_rest, func(args){ local matched = (let {P1, P2, ...} = args)
 // if(not matched){ return __def.no_match } ... body }), and __def.define
-// returns a callable dispatcher (a table with __call) holding the clauses;
-// the first clause of a unit also defines __def (the runtime is quoted
-// code below), so compiled files stand on their own. A def is slower than
-// a func: each call allocates its argument list and runs the patterns.
+// returns a callable dispatcher (a table with __call) holding the clauses.
+// __def is a local of the unit (g:unit_local), declared before the first
+// statement with a def and built from the quoted runtime below, so
+// compiled files stand on their own. A def is slower than a func: each
+// call allocates its argument list and runs the patterns.
 local peg = require("slang/peg")
 local ast = require("slang/ast")
 local g = require("slang/compiler").grammar()
 
 // ------------------------------------------------------------ runtime
 //
-// The runtime (the dispatcher behind a def name) is quoted code, spliced
-// into the first clause of every unit, so that compiled bytecode of a
-// file with defs is self-contained: it does not need this extension to
-// have run in the process that executes it.
-local runtime = +{block:
-  __def = {}
+// The runtime (the dispatcher behind a def name) is quoted code that
+// becomes the value of the unit's __def local, so that compiled bytecode
+// of a file with defs is self-contained: it does not need this extension
+// to have run in the process that executes it.
+local runtime_block = +{block:
+  local __def = {}
   __def.no_match = {}
   local dispatcher_meta = {__type: "def"}
   func dispatcher_meta.__call(self, ...args){
@@ -77,6 +78,14 @@ local runtime = +{block:
     return out
   }
 }
+local runtime_expr = +{(func(){ -{runtime_block} return __def })()}
+
+// the unit's __def local, declared once per unit
+local func runtime(token){
+  local node = g:unit_local("def", runtime_expr)
+  node.token = token
+  return node
+}
 
 // ------------------------------------------------------------ syntax
 
@@ -105,7 +114,7 @@ local func field(receiver, name, token){
   return ast.node("Index", {receiver: receiver, index: ast.node("String", {value: name}, token), dotStyle: true}, token)
 }
 local func no_match_return(token){
-  return ast.node("Block", {statements: {ast.node("Return", {value: field(id("__def", token), "no_match", token)}, token)}}, token)
+  return ast.node("Block", {statements: {ast.node("Return", {value: field(runtime(token), "no_match", token)}, token)}}, token)
 }
 
 // a clause is a function of the argument list: pattern check, rest, guard, body
@@ -121,7 +130,7 @@ local func clause_function(params, rest_name, guard, body, token){
   append(statements, ast.node("Declaration", {is_local: true, left: id("__def_matched", token), right: check}, token))
   append(statements, ast.node("If", {condition: ast.node("UnOp", {op: "not", operand: id("__def_matched", token)}, token), thenBranch: no_match_return(token)}, token))
   if(rest_name != null){
-    local rest_call = ast.node("Call", {function: field(id("__def", token), "rest", token), args: {id("args", token), ast.node("Int", {value: len(params)}, token)}}, token)
+    local rest_call = ast.node("Call", {function: field(runtime(token), "rest", token), args: {id("args", token), ast.node("Int", {value: len(params)}, token)}}, token)
     append(statements, ast.node("Declaration", {is_local: true, left: id(rest_name, token), right: rest_call}, token))
   }
   if(guard != null){
@@ -133,15 +142,15 @@ local func clause_function(params, rest_name, guard, body, token){
   return ast.node("Function", {params: {id("args", token)}, body: ast.node("Block", {statements: statements}, token)}, token)
 }
 
-// per unit (by g:unit_id()): the names declared with `local def`, and
-// whether the runtime was inlined yet; an ambient extension runs once for
-// a whole project, so this cannot be a plain flag
+// per unit (by g:unit_id()): the names declared with `local def`; an
+// ambient extension runs once for a whole project, so this cannot be a
+// plain table
 local units = {}
 local func unit_state(){
   local id = g:unit_id()
   local u = units[id]
   if(u == null){
-    u = {declared: {}, initialised: false}
+    u = {declared: {}}
     units[id] = u
   }
   return u
@@ -180,13 +189,7 @@ g:statement("def", peg.seq(
   if(is_local and first){
     existing = ast.node("Null", {}, token)
   }
-  local runtime_ref = id("__def", token)
-  if(not unit.initialised){
-    // (func(){ if(__def == null){ RUNTIME } return __def })()
-    unit.initialised = true
-    runtime_ref = +{(func(){ if(__def == null){ -{runtime} } return __def })()}
-  }
-  local define = ast.node("Call", {function: field(runtime_ref, "define", token), args: {
+  local define = ast.node("Call", {function: field(runtime(token), "define", token), args: {
     existing, ast.node("String", {value: name}, token), ast.node("Int", {value: len(params)}, token),
     ast.node(rest_name != null and "True" or "False", {}, token), f,
   }}, token)

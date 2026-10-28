@@ -130,4 +130,30 @@ t.group("def"){
     """)
     assert(r == {6, 0, "bool", "null", "two", "def"}, concat("results ", r))
   }
+  t.test("matchers in parameters take lists apart"){
+    local r = run("""
+      local func matcher(f){ return {meta: {__match: func(self, v){ return f(v) }}} }
+      local list = {
+        empty: matcher(=> len(_) == 0 and _ or null),
+        cons: matcher(func(l){
+          if(len(l) == 0){ return null }
+          local rest = {...l}
+          remove(rest, 0)
+          return {l[0], rest}
+        }),
+      }
+      def insert('list.empty, x){ return {x} }
+      def insert('list.cons{first, rest}, x) when(x < first){ return {x, first, ...rest} }
+      def insert('list.cons{first, rest}, x){ return {first, ...insert(rest, x)} }
+      def sum('list.empty){ return 0 }
+      def sum('list.cons{{a, b}, rest}){ return a * b + sum(rest) }
+      return {
+        {5, 1, 4, 2, 3} |> require("slang/table").fold({}, => insert(_, _2)),
+        sum({{1, 2}, {3, 4}}),
+        insert({}, 1),
+      }
+    """)
+    assert(r[0] == {1, 2, 3, 4, 5}, concat("sorted insert ", r[0]))
+    assert(r[1] == 14 and r[2] == {1}, concat("results ", r))
+  }
 }

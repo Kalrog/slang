@@ -1,5 +1,6 @@
-// Functional style in slang: the pipe operator (pipe.slang) and holes
-// (holes.slang), both loaded by this folder's slang.project.
+// Functional style in slang: the pipe operator (pipe.slang), holes
+// (holes.slang) and multi-clause functions (def.slang), all loaded by this
+// folder's slang.project. The end is Dijkstra's algorithm written with them.
 //     bin/slang run examples/functional/main.slang
 local str = require("slang/string")
 local table = require("slang/table")
@@ -70,77 +71,82 @@ show(greet("de", "welt"), "greet")
 // local failed = pcall(greet, "fr", "monde")
 // show(failed[1].message, "no clause")
 
+// ------------------------------------------------------------ dijkstra
+//
+// Shortest paths in a purely functional style: no table below is ever
+// changed after it is built; every step returns a new one, with `...`
+// copying what stays the same. The pieces: a graph as a table from node
+// to its edges, a queue kept sorted by distance, and `def` clauses that
+// take the queue apart with matchers instead of loops and indices.
+
+// a matcher is any value with a __match metamethod: it answers null for
+// no match, or the value the rest of the pattern continues with
 local func matcher(f){
-  return {meta:{__match:func(self,v){return f(v)}}}
+  return {meta: {__match: func(self, v){ return f(v) }}}
+}
+local list = {
+  // 'list.empty matches the empty list
+  empty: matcher(=> len(_) == 0 and _ or null),
+  // 'list.cons{first, rest} takes a non-empty list apart
+  cons: matcher(func(l){
+    if(len(l) == 0){ return null }
+    local rest = {...l}
+    remove(rest, 0)
+    return {l[0], rest}
+  }),
 }
 
-local head_rest = matcher(func(v){
-    if(len(list) > 0){
-      if (len(list) == 1){
-        return {list[0]}
-      }
-      local copy = {...v}
-      remove(copy,0)
-      return {list[0],copy}
-    }
-    return null
-  })
-
-
-local INFINITY = 10000000;
-
-local func make_graph(){
-  return {
-    nodes: {},
-    edges: {}
-  }
+// the graph: node -> its edges, an edge being {to, weight}; an undirected
+// edge is one in each direction
+local func with_edge(graph, from, to, weight){
+  return {...graph, [from]: {...(graph[from] or {}), {to, weight}}}
+}
+local func add_edge(graph, a, b, weight){
+  return graph |> with_edge(a, b, weight) |> with_edge(b, a, weight)
 }
 
-local func add_edge(graph,node1,node2,weight){
-  local connection = {node1,node2,weight}
-  return {
-    nodes: {
-      [node1]: {connection,...(graph[node1] or {})},
-      [node2]: {connection,...(graph[node2] or {})},
-      ...graph.nodes
-    },
-    edges:{
-      connection,
-      ...graph.edges
-    }
-  }
+// the queue: {node, distance} pairs sorted by distance; a node may sit in
+// it more than once, the later entries are stale and skipped when popped
+def enqueue('list.empty, entry){ return {entry} }
+def enqueue('list.cons{first, rest}, entry) when(entry[1] < first[1]){ return {entry, first, ...rest} }
+def enqueue('list.cons{first, rest}, entry){ return {first, ...enqueue(rest, entry)} }
+
+// relaxing an edge out of `node`: a shorter way to its end replaces the
+// end's distance and predecessor and queues it again
+local INFINITY = 1 / 0
+def relax({dist: dist, prev: prev, queue: queue}, node, {to, weight}) when(dist[node] + weight < (dist[to] or INFINITY)){
+  local through = dist[node] + weight
+  return {dist: {...dist, [to]: through}, prev: {...prev, [to]: node}, queue: enqueue(queue, {to, through})}
+}
+def relax(state, _, _){ return state }
+
+// the search settles the closest queued node, relaxes its edges and goes
+// on with the queue that produced; three clauses: done, stale, settle
+def search(graph, dist, prev, 'list.empty){ return {distance: dist, previous: prev} }
+def search(graph, dist, prev, 'list.cons{{node, d}, rest}) when(d > dist[node]){ return search(graph, dist, prev, rest) }
+def search(graph, dist, prev, 'list.cons{{node, d}, rest}){
+  local next = graph[node] |> fold({dist: dist, prev: prev, queue: rest}, => relax(_, node, _2))
+  return search(graph, next.dist, next.prev, next.queue)
 }
 
-local graph = make_graph() 
-  |> add_edge("a","b",100)
-  |> add_edge("b","c",100)
-  |> add_edge("a","c",50)
+def dijkstra(graph, start){ return search(graph, {[start]: 0}, {}, {{start, 0}}) }
 
-local distance = graph.nodes
-  |> table.keys()
-  |> fold({},=>{..._,[_2]:INFINITY})
+// the path to a node, read back through the predecessors
+def path(prev, node) when(prev[node] == null){ return {node} }
+def path(prev, node){ return {...path(prev, prev[node]), node} }
 
-print(distance)
+local graph = {}
+  |> add_edge("a", "b", 7)
+  |> add_edge("a", "c", 9)
+  |> add_edge("a", "f", 14)
+  |> add_edge("b", "c", 10)
+  |> add_edge("b", "d", 15)
+  |> add_edge("c", "d", 11)
+  |> add_edge("c", "f", 2)
+  |> add_edge("d", "e", 6)
+  |> add_edge("e", "f", 9)
 
-
-def dijkstra(graph,start){
-  local dist = graph.nodes
-    |> table.keys()
-    |> fold({},=>{..._,[_2]:INFINITY})
-  local prev = {}
-  local queue = {start}
-  for(let local node in keys(graph.nodes)){
-    dist[node] = INFINITY;
-  }
-  dist[start] = 0;
-  return dijkstra(graph,start,dist,prev,queue)
-}
-
-
-def dijkstra(graph,start,dist,prev,{}){
-  return {distance:dist,previous:prev}
-}
-
-def dijkstra(graph,start,dist,prev,'(head_rest){node, rest}){
-
-}
+let {distance: local distance, previous: local previous} = dijkstra(graph, "a")
+show(distance, "distances from a")
+path(previous, "e") |> str.join(" -> ") |> show("path a -> e")
+path(previous, "d") |> str.join(" -> ") |> show("path a -> d")

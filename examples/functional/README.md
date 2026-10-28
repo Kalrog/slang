@@ -24,6 +24,12 @@ grammar API, and a `slang.project` that makes them ambient in this folder.
 bin/slang run examples/functional/main.slang
 ```
 
-`main.slang` pipes a list through filter, map and fold with holes, and
-`test/functional_test.slang` pins the rules down (nesting in both
-directions, several holes, arrows inside arrows).
+`main.slang` pipes a list through filter, map and fold with holes, tries
+the `def` clauses, and ends with Dijkstra's algorithm in a purely
+functional style: the graph, the sorted queue and the distance table are
+never changed, every step builds new ones with `...`; two matchers,
+`'list.empty` and `'list.cons{first, rest}`, let the clauses take the
+queue apart (`def enqueue('list.empty, entry)`, `def search(graph, dist,
+prev, 'list.cons{{node, d}, rest})`). `test/functional_test.slang` pins
+the rules down (nesting in both directions, several holes, arrows inside
+arrows, matchers as parameters).

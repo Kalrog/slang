@@ -11,6 +11,7 @@ itself and shipped as precompiled bytecode inside the interpreter binary.
 make build              # bin/slang (ReleaseFast) and lib/ (the native extensions)
 bin/slang run file.slang [args...]
 bin/slang run --explain file.slang   # also prints the project file, the units and their extensions
+bin/slang expand file.slang          # the file as core slang, after its extensions were applied
 bin/slang test       # runs every *test.slang file in ./test
 bin/slang repl
 bin/slang compile file.slang [-o out.slb] [--strip]
@@ -385,6 +386,11 @@ that unit; an extension that depends on another loads it with
 `require("slang/compiler").load_extension(name)`. Compile-time state that
 later units must see (declared names, say) belongs in a module the extension
 requires, since modules are loaded once.
+
+`slang expand file` prints what a file looks like once its extensions are
+applied: the core AST printed back as slang (unquotes executed, extension
+statements gone, constants folded). Parsing that output gives the same
+bytecode as the original.
 
 An extension gets the grammar it extends with `require("slang/compiler").grammar()`
 and builds parsers with the combinators of `require("slang/peg")` (`seq`,

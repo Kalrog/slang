@@ -13,6 +13,18 @@ local peg = require("slang/peg")
 
 local g = require("slang/compiler").grammar()
 
+// the name of the function behind an operator: a valid identifier made of
+// the operator's bytes (infix_60_62 for <>), so the generated code can be
+// printed and parsed again
+local func mangle(prefix, symbol){
+  local str = require("slang/string")
+  local parts = {prefix}
+  for(local i = 0; i < len(symbol); i = i + 1){
+    append(parts, concat("_", str.byte_at(symbol, i)))
+  }
+  return concat(...parts)
+}
+
 // the level placement of an operator definition: {"after", name} and so on
 local func place(position){
   if(position == null){ return {} }
@@ -61,7 +73,7 @@ g:extension_statement(
   ),
   func(result, g){
     local symbol = g:token(result[2], result[2], "operator")
-    local id = {type:"Identifier",value:concat("infix_", result[3])}
+    local id = {type:"Identifier",value:mangle("infix", result[2])}
     local direction = result[4] 
     local position = result[5]
     local params = result[7]
@@ -138,7 +150,7 @@ g:extension_statement(
   ),
   func(result, g){
     local symbol = g:token(result[1], result[1], "operator")
-    local id = {type:"Identifier",value:concat("prefix_", result[1])}
+    local id = {type:"Identifier",value:mangle("prefix", result[1])}
     local position = result[3]
     local params = result[5]
     local body = result[7]
@@ -211,7 +223,7 @@ g:extension_statement(
   ),
   func(result, g){
     local symbol = g:token(result[2], result[2], "operator")
-    local id = {type:"Identifier",value:concat("postfix_", result[2])}
+    local id = {type:"Identifier",value:mangle("postfix", result[2])}
     local position = result[3]
     local params = result[5]
     local body = result[7]

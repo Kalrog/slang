@@ -2,7 +2,8 @@
 // (holes.slang), both loaded by this folder's slang.project.
 //     bin/slang run examples/functional/main.slang
 local str = require("slang/string")
-let {map: local map, filter: local filter, fold: local fold} = require("slang/table")
+local table = require("slang/table")
+let {map: local map, filter: local filter, fold: local fold} = table
 
 // the piped value arrives first, so the label comes second
 local func show(v, label){ print(label, ": ", v, "\n") }
@@ -66,5 +67,80 @@ show(total(1, 2, 3, 4), "total")
 def greet("en", name){ return concat("hello ", name) }
 def greet("de", name){ return concat("hallo ", name) }
 show(greet("de", "welt"), "greet")
-local failed = pcall(greet, "fr", "monde")
-show(failed[1].message, "no clause")
+// local failed = pcall(greet, "fr", "monde")
+// show(failed[1].message, "no clause")
+
+local func matcher(f){
+  return {meta:{__match:func(self,v){return f(v)}}}
+}
+
+local head_rest = matcher(func(v){
+    if(len(list) > 0){
+      if (len(list) == 1){
+        return {list[0]}
+      }
+      local copy = {...v}
+      remove(copy,0)
+      return {list[0],copy}
+    }
+    return null
+  })
+
+
+local INFINITY = 10000000;
+
+local func make_graph(){
+  return {
+    nodes: {},
+    edges: {}
+  }
+}
+
+local func add_edge(graph,node1,node2,weight){
+  local connection = {node1,node2,weight}
+  return {
+    nodes: {
+      [node1]: {connection,...(graph[node1] or {})},
+      [node2]: {connection,...(graph[node2] or {})},
+      ...graph.nodes
+    },
+    edges:{
+      connection,
+      ...graph.edges
+    }
+  }
+}
+
+local graph = make_graph() 
+  |> add_edge("a","b",100)
+  |> add_edge("b","c",100)
+  |> add_edge("a","c",50)
+
+local distance = graph.nodes
+  |> table.keys()
+  |> fold({},=>{..._,[_2]:INFINITY})
+
+print(distance)
+
+
+def dijkstra(graph,start){
+  local dist = graph.nodes
+    |> table.keys()
+    |> fold({},=>{..._,[_2]:INFINITY})
+  local prev = {}
+  local queue = {start}
+  for(let local node in keys(graph.nodes)){
+    dist[node] = INFINITY;
+  }
+  dist[start] = 0;
+  return dijkstra(graph,start,dist,prev,queue)
+}
+
+
+def dijkstra(graph,start,dist,prev,{}){
+  return {distance:dist,previous:prev}
+}
+
+def dijkstra(graph,start,dist,prev,'(head_rest){node, rest}){
+
+}

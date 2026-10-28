@@ -6,38 +6,40 @@
   "configurations": [
     {
       "name": "Slang: Run Current File",
-      "type": "go",
+      "type": "lldb-dap",
       "request": "launch",
-      "mode": "auto",
-      "program": "${workspaceFolder}/go/cmd/slang",
+      "program": "${workspaceFolder}/zig/zig-out/bin/slang",
       "cwd": "${workspaceFolder}",
-      "args": ["run", "${file}"]
+      "args": [
+        "run",
+        "${file}"
+      ]
     },
-    {
-      "name": "Slang: Tests",
-      "type": "go",
-      "request": "launch",
-      "mode": "auto",
-      "program": "${workspaceFolder}/go/cmd/slang",
-      "cwd": "${workspaceFolder}",
-      "args": ["test", "test"]
-    },
-    {
-      "name": "Slang: Disassemble Current File",
-      "type": "go",
-      "request": "launch",
-      "mode": "auto",
-      "program": "${workspaceFolder}/go/cmd/slang",
-      "cwd": "${workspaceFolder}",
-      "args": ["disasm", "${file}"]
-    },
-    {
-      "name": "Slang: Go unit tests",
-      "type": "go",
-      "request": "launch",
-      "mode": "test",
-      "program": "${workspaceFolder}/go/vm",
-      "cwd": "${workspaceFolder}/go"
-    }
+    // {
+    //   "name": "Slang: Tests",
+    //   "type": "go",
+    //   "request": "launch",
+    //   "mode": "auto",
+    //   "program": "${workspaceFolder}/go/cmd/slang",
+    //   "cwd": "${workspaceFolder}",
+    //   "args": ["test", "test"]
+    // },
+    // {
+    //   "name": "Slang: Disassemble Current File",
+    //   "type": "go",
+    //   "request": "launch",
+    //   "mode": "auto",
+    //   "program": "${workspaceFolder}/go/cmd/slang",
+    //   "cwd": "${workspaceFolder}",
+    //   "args": ["disasm", "${file}"]
+    // },
+    // {
+    //   "name": "Slang: Go unit tests",
+    //   "type": "go",
+    //   "request": "launch",
+    //   "mode": "test",
+    //   "program": "${workspaceFolder}/go/vm",
+    //   "cwd": "${workspaceFolder}/go"
+    // }
   ]
 }

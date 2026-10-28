@@ -524,6 +524,38 @@ func compiler.highlight(source, path, options){
   return {tokens: tokens, diagnostics: diagnostics}
 }
 
+// expand(source, path) -> slang source: the file after its extensions have
+// been applied (parsed like load_file would, then printed from the core AST;
+// unquotes are executed, extension statements are gone, constants folded).
+// A file of a compile dialect is returned as is.
+func compiler.expand(source, path, options){
+  if(options != null and options.find_project and project == null){
+    local dir = dirname(path)
+    if(project_misses[dir] == null){
+      local pp = find_project(dir)
+      if(pp != null){
+        compiler.load_project(pp)
+      } else {
+        project_misses[dir] = true
+      }
+    }
+  }
+  local dialect = dialect_of(path)
+  if(dialect != null and dialect.spec.compile != null){
+    return source
+  }
+  local g = root
+  if(dialect != null){
+    g = dialect_grammar(dialect.suffix)
+  }
+  return ast.to_source(g:parse_source(source, path))
+}
+
+// expand_file(path) -> expand(...) for a file, with its project
+func compiler.expand_file(path){
+  return compiler.expand(os.read_file(path), path, {find_project: true})
+}
+
 // highlight_file(path) -> the same for a file, looking up its project like
 // load_main does
 func compiler.highlight_file(path){

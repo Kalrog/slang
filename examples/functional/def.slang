@@ -54,10 +54,10 @@ func dispatcher_meta.__tostring(self){
   return concat("def ", self.name, " (", len(self.clauses), " clauses)")
 }
 
-local def = {no_match: no_match}
+local definition = {no_match: no_match}
 
 // define(existing, name, n, has_rest, clause) -> the dispatcher for name
-func def.define(existing, name, n, has_rest, clause){
+func definition.define(existing, name, n, has_rest, clause){
   local d = existing
   if(type(d) != "def"){
     d = {name: name, clauses: {}}
@@ -68,7 +68,7 @@ func def.define(existing, name, n, has_rest, clause){
 }
 
 // rest(args, n) -> the arguments from index n on
-func def.rest(args, n){
+func definition.rest(args, n){
   local out = {}
   for(local i = n; i < len(args); i = i + 1){
     append(out, args[i])
@@ -76,7 +76,7 @@ func def.rest(args, n){
   return out
 }
 
-__def = def
+__def = definition
 
 // ------------------------------------------------------------ syntax
 

@@ -863,15 +863,12 @@ local func install_core(g){
   // field: name: value | [key]: value | value
   define("field", peg.choice(rule("spread"), peg.seq(
     peg.choice(
-      peg.seq(rule("name"), tok(":")):pick(0),
+      peg.seq(rule("name"), tok(":")):pick(0):map(func(n){ return ast.node("String", {value: n.value}, n.token) }),
       peg.seq(tok("["), rule("expr"), tok("]"), tok(":")):pick(1)
     ):optional(),
     rule("expr")
   ):token():map(func(t){
     local key = t.value[0]
-    if(key != null and key.type == "Identifier"){
-      key = ast.node("String", {value: key.value}, key.token)
-    }
     return ast.node("Field", {key: key, value: t.value[1]}, t)
   })))
 

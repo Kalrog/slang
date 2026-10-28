@@ -296,6 +296,7 @@ func ast.decode(value){
 // --------------------------------------------------------------- to_string
 
 local func escape_string(s){
+  s = str.replace(s, "\\", "\\\\")
   s = str.replace(s, "\"", "\\\"")
   s = str.replace(s, "\n", "\\n")
   s = str.replace(s, "\r", "\\r")
@@ -541,6 +542,374 @@ func ast.to_string(node){
   local w = writer.new()
   w:visit(node)
   return str.join(w.parts, "")
+}
+
+// --------------------------------------------------------------- to_source
+//
+// to_source(node) -> slang source for an AST: what a file looks like once
+// its extensions have been applied (every extension lowers to the core
+// AST). Parsing the result gives the same bytecode again.
+
+// binding powers for parentheses (looser first)
+local binary_power = {
+  ["or"]: 1, ["and"]: 2,
+  ["=="]: 3, ["!="]: 3, ["<"]: 3, ["<="]: 3, [">"]: 3, [">="]: 3,
+  ["|"]: 4, ["~"]: 5, ["&"]: 6, ["<<"]: 7, [">>"]: 7,
+  ["+"]: 8, ["-"]: 8, ["*"]: 9, ["/"]: 9, ["%"]: 9,
+}
+local unary_power = 10
+local power_power = 11
+local postfix_power = 12
+
+local func is_name(s){
+  if(len(s) == 0){ return false }
+  for(local i = 0; i < len(s); i = i + 1){
+    local b = str.byte_at(s, i)
+    local ok = (b >= 97 and b <= 122) or (b >= 65 and b <= 90) or b == 95 or (i > 0 and b >= 48 and b <= 57)
+    if(not ok){ return false }
+  }
+  return true
+}
+
+local source = {}
+local source_meta = {__index: source}
+
+func source.new(){
+  local w = {parts: {}, indent: 0}
+  w.meta = source_meta
+  return w
+}
+
+func source.add(self, s){
+  append(self.parts, s)
+}
+
+func source.newline(self){
+  append(self.parts, "\n")
+  for(local i = 0; i < self.indent; i = i + 1){
+    append(self.parts, " ")
+  }
+}
+
+// the binding power of an expression node (how tightly it holds together)
+local func power_of(node){
+  local t = node.type
+  if(t == "BinOp"){
+    if(node.op == "^"){ return power_power }
+    return binary_power[node.op] or 3
+  }
+  if(t == "UnOp"){ return unary_power }
+  if(t == "Let"){ return 0 }
+  return postfix_power + 1
+}
+
+// visits an operand, in parentheses when it binds looser than min_power
+func source.operand(self, node, min_power){
+  if(power_of(node) < min_power){
+    self:add("(")
+    self:expr(node)
+    self:add(")")
+  } else {
+    self:expr(node)
+  }
+}
+
+func source.list(self, items, separator, f){
+  local first = true
+  for(let local item in values(items)){
+    if(not first){ self:add(separator) }
+    first = false
+    f(item)
+  }
+}
+
+func source.params(self, params){
+  self:add("(")
+  self:list(params, ", ", func(p){ self:add(p.value) })
+  self:add(")")
+}
+
+func source.function(self, node){
+  self:add("func")
+  self:params(node.params)
+  self:block(node.body)
+}
+
+func source.expr(self, node){
+  local t = node.type
+  if(t == "Int" or t == "Double"){
+    self:add(string(node.value))
+  } else if(t == "String"){
+    self:add(concat("\"", escape_string(node.value), "\""))
+  } else if(t == "True"){
+    self:add("true")
+  } else if(t == "False"){
+    self:add("false")
+  } else if(t == "Null"){
+    self:add("null")
+  } else if(t == "Identifier"){
+    self:add(node.value)
+  } else if(t == "Table"){
+    if(len(node.fields) == 0){
+      self:add("{}")
+      return null
+    }
+    self:add("{")
+    self:list(node.fields, ", ", func(f){ self:expr(f) })
+    self:add("}")
+  } else if(t == "Field"){
+    local key = node.key
+    if(key != null){
+      if(key.type == "String" and is_name(key.value)){
+        self:add(key.value)
+      } else {
+        self:add("[")
+        self:expr(key)
+        self:add("]")
+      }
+      self:add(": ")
+    }
+    self:expr(node.value)
+  } else if(t == "Spread"){
+    self:add("...")
+    self:operand(node.value, postfix_power)
+  } else if(t == "Index"){
+    self:operand(node.receiver, postfix_power)
+    if(node.dotStyle and node.index.type == "String" and is_name(node.index.value)){
+      self:add(concat(".", node.index.value))
+    } else {
+      self:add("[")
+      self:expr(node.index)
+      self:add("]")
+    }
+  } else if(t == "Call"){
+    self:operand(node.function, postfix_power)
+    self:args(node.args)
+  } else if(t == "Invoke"){
+    self:operand(node.receiver, postfix_power)
+    self:add(concat(":", node.name.value))
+    self:args(node.args)
+  } else if(t == "BinOp"){
+    local p = power_of(node)
+    if(node.op == "^"){
+      self:operand(node.left, p + 1)
+      self:add(" ^ ")
+      self:operand(node.right, p)
+    } else {
+      self:operand(node.left, p)
+      self:add(concat(" ", node.op, " "))
+      self:operand(node.right, p + 1)
+    }
+  } else if(t == "UnOp"){
+    self:add(node.op)
+    if(node.op == "not"){ self:add(" ") }
+    self:operand(node.operand, unary_power)
+  } else if(t == "Function"){
+    self:function(node)
+  } else if(t == "Let"){
+    self:add("let ")
+    self:pattern(node.pattern)
+    self:add(" = ")
+    self:expr(node.right)
+  } else if(t == "Quote"){
+    self:quoted("+{", node)
+  } else if(t == "Unquote"){
+    self:quoted("-{", node)
+  } else {
+    error("to_source: not an expression: ", t)
+  }
+}
+
+func source.quoted(self, open, node){
+  self:add(open)
+  if(node.ast_type == "stat" or node.ast_type == "block"){
+    self:add(concat(node.ast_type, ": "))
+    if(node.ast_type == "block"){
+      self:statements(node.ast.statements, " ")
+    } else {
+      self:statement(node.ast)
+    }
+  } else {
+    self:expr(node.ast)
+  }
+  self:add("}")
+}
+
+func source.args(self, args){
+  self:add("(")
+  self:list(args, ", ", func(a){ self:expr(a) })
+  self:add(")")
+}
+
+func source.pattern(self, node){
+  local t = node.type
+  if(t == "TablePattern"){
+    if(node.type_check != null and node.type_check != "table"){
+      self:add(concat("'", node.type_check))
+    }
+    self:add("{")
+    self:list(node.fields, ", ", func(f){ self:pattern(f) })
+    self:add("}")
+  } else if(t == "FieldPattern"){
+    local key = node.key
+    if(key != null){
+      if(key.type == "String" and is_name(key.value)){
+        self:add(key.value)
+      } else {
+        self:add("[")
+        self:expr(key)
+        self:add("]")
+      }
+      self:add(": ")
+    }
+    self:pattern(node.value)
+  } else if(t == "VarPattern"){
+    if(node.isLocal){ self:add("local ") }
+    self:add(node.name.value)
+    if(node.canBeNull){ self:add("?") }
+  } else if(t == "ConstPattern"){
+    self:expr(node.value)
+  } else if(t == "MatcherPattern"){
+    self:add("'")
+    if(node.matcher != null){
+      // only a call or a field access may follow the quote bare
+      local mt = node.matcher.type
+      if(mt == "Call" or mt == "Index"){
+        self:expr(node.matcher)
+      } else {
+        self:add("(")
+        self:expr(node.matcher)
+        self:add(")")
+      }
+    } else {
+      self:add(node.type_name)
+    }
+    if(node.sub != null){
+      self:add(" as ")
+      self:pattern(node.sub)
+    }
+  } else {
+    error("to_source: not a pattern: ", t)
+  }
+}
+
+func source.block(self, node){
+  self:add("{")
+  if(len(node.statements) > 0){
+    self.indent = self.indent + 2
+    for(let local s in values(node.statements)){
+      self:newline()
+      self:statement(s)
+    }
+    self.indent = self.indent - 2
+    self:newline()
+  }
+  self:add("}")
+}
+
+// statements separated by newlines (a chunk) or by separator
+func source.statements(self, list, separator){
+  local first = true
+  for(let local s in values(list)){
+    // an empty block says nothing (an extension statement that produced none)
+    if(not (s.type == "Block" and len(s.statements) == 0)){
+      if(not first){
+        if(separator != null){ self:add(separator) } else { self:newline() }
+      }
+      first = false
+      self:statement(s)
+    }
+  }
+}
+
+func source.statement(self, node){
+  local t = node.type
+  if(t == "Block"){
+    self:block(node)
+  } else if(t == "CallStat"){
+    self:expr(node.call)
+  } else if(t == "Return"){
+    self:add("return")
+    if(node.value != null){
+      self:add(" ")
+      self:expr(node.value)
+    }
+  } else if(t == "Break"){
+    self:add("break")
+  } else if(t == "Assignment"){
+    self:expr(node.left)
+    self:add(" = ")
+    self:expr(node.right)
+  } else if(t == "Declaration"){
+    if(node.right != null and node.right.type == "Function"){
+      if(node.is_local){ self:add("local ") }
+      self:add("func ")
+      self:expr(node.left)
+      self:params(node.right.params)
+      self:block(node.right.body)
+    } else {
+      if(node.is_local){ self:add("local ") }
+      self:expr(node.left)
+      if(node.right != null){
+        self:add(" = ")
+        self:expr(node.right)
+      }
+    }
+  } else if(t == "If"){
+    self:add("if(")
+    self:expr(node.condition)
+    self:add(")")
+    self:statement(node.thenBranch)
+    if(node.elseBranch != null){
+      self:add(" else ")
+      self:statement(node.elseBranch)
+    }
+  } else if(t == "For"){
+    self:add("for(")
+    if(node.init == null and node.update == null){
+      self:expr(node.condition)
+    } else {
+      if(node.init != null){ self:statement(node.init) }
+      self:add("; ")
+      self:expr(node.condition)
+      self:add(";")
+      if(node.update != null){
+        self:add(" ")
+        self:statement(node.update)
+      }
+    }
+    self:add(")")
+    self:statement(node.body)
+  } else if(t == "ForIn"){
+    self:add("for(let ")
+    self:pattern(node.pattern)
+    self:add(" in ")
+    self:expr(node.itterator)
+    self:add(")")
+    self:statement(node.body)
+  } else if(t == "LetStat"){
+    self:add("let ")
+    self:pattern(node.pattern)
+    self:add(" = ")
+    self:expr(node.right)
+  } else if(t == "Unquote"){
+    self:quoted("-{", node)
+  } else {
+    error("to_source: not a statement: ", t)
+  }
+}
+
+// to_source(node) -> slang source; a Block at the top is a chunk (no braces)
+func ast.to_source(node){
+  local w = source.new()
+  if(node.type == "Block"){
+    w:statements(node.statements, null)
+  } else if(ast.is_statement(node)){
+    w:statement(node)
+  } else {
+    w:expr(node)
+  }
+  return concat(str.join(w.parts, ""), "\n")
 }
 
 return ast

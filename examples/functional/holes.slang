@@ -47,8 +47,11 @@ local func collect(node, found){
     return null
   }
   if(node.hole == true){
-    found[hole_index(node.value)] = true
+    local index = hole_index(node.value)
+    found[index] = true
     node.hole = null
+    // the parameter's name is not hole syntax, so printed code parses back
+    node.value = concat("__", index)
     return null
   }
   for(let local e in entries(node)){
@@ -72,9 +75,7 @@ local func lift(node, always){
   }
   local params = {}
   for(local i = 1; i <= n; i = i + 1){
-    local name = "_"
-    if(i > 1){ name = concat("_", i) }
-    append(params, ast.node("Identifier", {value: name}, node.token))
+    append(params, ast.node("Identifier", {value: concat("__", i)}, node.token))
   }
   local body = ast.node("Block", {statements: {ast.node("Return", {value: node}, node.token)}}, node.token)
   return ast.node("Function", {params: params, body: body}, node.token)

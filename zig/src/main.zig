@@ -35,6 +35,7 @@ fn usage(io: std.Io) noreturn {
         \\  slang compile <file.slang> [-o out.slb] [--origin name] [--strip]
         \\  slang disasm <file.slb|file.slang>
         \\  slang highlight <file>       print the tokens and parse errors of a file as JSON
+        \\  slang expand <file>          print a file as slang source after its extensions were applied
         \\
     ) catch {};
     w.interface.flush() catch {};
@@ -72,6 +73,9 @@ pub fn main(init: std.process.Init) !u8 {
     } else if (std.mem.eql(u8, cmd, "highlight")) {
         if (args.len < 1) usage(io);
         highlightFile(init, args[0]);
+    } else if (std.mem.eql(u8, cmd, "expand")) {
+        if (args.len < 1) usage(io);
+        expandFile(init, args[0]);
     } else if (std.mem.eql(u8, cmd, "disasm")) {
         if (args.len < 1) usage(io);
         disasmFile(init, args[0]);
@@ -189,6 +193,17 @@ fn repl(init: std.process.Init) void {
         vm_mod.format.writeValue(out, res) catch {};
         out.writeByte('\n') catch {};
     }
+    vm.flush();
+}
+
+/// Prints a file as core slang source (compiler.expand_file).
+fn expandFile(init: std.process.Init, path: []const u8) void {
+    const vm = newVM(init, &.{});
+    defer vm.destroy();
+    const compiler = vm.call(vm.getGlobal("require"), &.{vm.str("slang/compiler")}) catch fail(vm);
+    const res = vm.call(compiler.table.getName("expand_file"), &.{vm.str(path)}) catch fail(vm);
+    const text = res.asBytes() orelse failMsg(vm, "expand_file did not return a string", .{});
+    vm.out().writeAll(text) catch {};
     vm.flush();
 }
 

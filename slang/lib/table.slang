@@ -40,4 +40,12 @@ func m.dequeue(t){
   return remove(t, 0)
 }
 
+func m.keys(t){
+  local result = {}
+  for (let local k in keys(t)){
+    append(result, k)
+  }
+  return result
+}
+
 return m

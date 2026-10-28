@@ -100,6 +100,9 @@ local func new_lineage(opts){
     // can keep state per unit even when it was loaded once for a project
     unit_counter: 0,
     unit_id: 0,
+    // the unit locals of the unit being parsed (g:unit_local): names by
+    // key, and the declarations waiting to go before the current statement
+    unit_locals: null,
   }
 }
 
@@ -414,6 +417,34 @@ func methods.unit_id(g){
 // origin() -> the name of the source being parsed (null outside a parse)
 func methods.origin(g){
   return g.state.origin
+}
+
+// unit_local(key, expr) -> Identifier: a local of the unit being parsed,
+// declared once per unit as `local <name> = expr`, placed before the
+// top-level statement that first asked for it. For the code an extension
+// generates in expression position, where it cannot declare anything: a
+// runtime module is required once per unit instead of at every use. The
+// name is `__` and key with every other character replaced by `_`.
+local name_class = str.char_class("a-zA-Z0-9_")
+func methods.unit_local(g, key, expr){
+  local locals = g.state.unit_locals
+  if(locals == null){
+    error("unit_local is only available while a unit is being parsed")
+  }
+  local name = locals.names[key]
+  local token = expr.token
+  if(name == null){
+    local parts = {"__"}
+    for(local i = 0; i < len(key); i = i + 1){
+      local c = str.substring(key, i, i + 1)
+      append(parts, str.class_match(name_class, c, 0) > 0 and c or "_")
+    }
+    name = str.join(parts, "")
+    locals.names[key] = name
+    local left = ast.node("Identifier", {value: name}, token)
+    append(locals.pending, ast.node("Declaration", {is_local: true, left: left, right: expr}, token))
+  }
+  return ast.node("Identifier", {value: name}, token)
 }
 
 // error_at(token, message...): raises a compile error located at token (a
@@ -1457,6 +1488,20 @@ func methods.run_extension(g, parsed, origin){
   return node
 }
 
+// node goes after the unit locals that were requested while parsing it
+local func emit(lin, statements, node){
+  local pending = lin.unit_locals.pending
+  if(len(pending) > 0){
+    for(local i = 0; i < len(pending); i = i + 1){
+      append(statements, pending[i])
+    }
+    lin.unit_locals.pending = {}
+  }
+  if(node != null){
+    append(statements, node)
+  }
+}
+
 local func parse_statement(lin, parser, ctx, pos){
   lin.statement_depth = lin.statement_depth + 1
   local r = pcall(parser.parse_on, parser, ctx, pos)
@@ -1491,6 +1536,7 @@ local func parse_top_level(g, source, origin, scoped, record){
   lin.current = unit
   lin.unit_counter = lin.unit_counter + 1
   lin.unit_id = lin.unit_counter
+  lin.unit_locals = {names: {}, pending: {}}
   for(true){
     unit:activate()
     ctx.rule_memo = {}
@@ -1518,21 +1564,17 @@ local func parse_top_level(g, source, origin, scoped, record){
         target = unit
       }
       local node = target:run_extension(parsed, origin)
-      if(node != null){
-        append(statements, node)
-      }
+      emit(lin, statements, node)
       pos = q
     } else {
       q = parse_statement(lin, parsers.statement, ctx, pos)
       if(q >= 0){
-        if(ctx.value != null){
-          append(statements, ctx.value)
-        }
+        emit(lin, statements, ctx.value)
         pos = q
       } else {
         q = parse_statement(lin, parsers.final, ctx, pos)
         if(q >= 0){
-          append(statements, ctx.value)
+          emit(lin, statements, ctx.value)
           pos = q
         }
         break
@@ -1563,6 +1605,7 @@ func methods.parse_source(g, source, origin, options){
   local outer_current = lin.current
   local outer_active = lin.active
   local outer_unit_id = lin.unit_id
+  local outer_unit_locals = lin.unit_locals
   local scoped = options == null or options.scoped != false
   local record = options != null and options.record == true
   if(record){
@@ -1578,6 +1621,7 @@ func methods.parse_source(g, source, origin, options){
   lin.origin = outer_origin
   lin.current = outer_current
   lin.unit_id = outer_unit_id
+  lin.unit_locals = outer_unit_locals
   // a nested parse (from an unquote or a parser callback) must leave the
   // rule references pointing at the grammar of the enclosing unit
   if(lin.parse_depth > 0 and outer_active != null and lin.active != outer_active){

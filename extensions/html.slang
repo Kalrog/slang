@@ -34,8 +34,9 @@
 //
 // Attribute values are text or `{expr}`; null and false omit the attribute,
 // true writes it bare (`<input disabled={not ok}/>`), anything else is
-// escaped. Everything lowers to require("slang/html") calls; the highlighter
-// sees tags as keywords, components as functions, attributes as properties.
+// escaped. Everything lowers to calls on slang/html, required once per
+// unit (g:unit_local); the highlighter sees tags as keywords, components
+// as functions, attributes as properties.
 local peg = require("slang/peg")
 local ast = require("slang/ast")
 local str = require("slang/string")
@@ -160,6 +161,15 @@ local func string_node(value, token){
   return ast.node("String", {value: value}, token)
 }
 
+// html.NAME, html being the unit's local for require("slang/html")
+local func runtime(name, token){
+  local module = g:unit_local("slang/html", +{require("slang/html")})
+  return ast.node("Index", {receiver: module, index: string_node(name, token), dotStyle: true}, token)
+}
+local func runtime_call(name, args, token){
+  return ast.node("Call", {function: runtime(name, token), args: args}, token)
+}
+
 // Nav, ui.Button -> the expression naming the component
 local func component_ref(name, token){
   local parts = str.split(name, ".")
@@ -201,7 +211,7 @@ local func child_fields(children, token){
         value = string_node(escape_text(s), token)
       }
     } else if(c.expr != null){
-      value = +{require("slang/html").value(-{c.expr})}
+      value = runtime_call("value", {c.expr}, token)
     } else {
       value = c.ast
     }
@@ -222,13 +232,13 @@ local func table_or_null(fields, token){
 local func build(name, attrs, children, token){
   local kids = child_fields(children, token)
   if(name == null){
-    return +{require("slang/html").fragment(-{table_or_null(kids, token)})}
+    return runtime_call("fragment", {table_or_null(kids, token)}, token)
   }
   if(is_component(name.value)){
     local fields = attr_fields(attrs, token)
     if(len(kids) > 0){
       // a trusted list (see slang/html): its text is not escaped again
-      local marked = {ast.node("Field", {key: string_node("meta", token), value: +{require("slang/html").list}}, token)}
+      local marked = {ast.node("Field", {key: string_node("meta", token), value: runtime("list", token)}, token)}
       for(local i = 0; i < len(kids); i = i + 1){
         append(marked, kids[i])
       }
@@ -239,7 +249,7 @@ local func build(name, attrs, children, token){
   }
   local tag = string_node(name.value, name)
   local attributes = table_or_null(attr_fields(attrs, token), token)
-  return +{require("slang/html").element(-{tag}, -{attributes}, -{table_or_null(kids, token)})}
+  return runtime_call("element", {tag, attributes, table_or_null(kids, token)}, token)
 }
 
 // ------------------------------------------------------------ syntax

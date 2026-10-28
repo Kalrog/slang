@@ -49,4 +49,5 @@ page.body = <Layout title="Time" path={req.path}><p>up for {seconds} s</p></Layo
   break inside text is one space.
 
 `slang expand examples/webserver/main.slang` shows what the templates
-compile to, and `test/html_test.slang` has the details.
+compile to (calls on `slang/html`, required once per file), and
+`test/html_test.slang` has the details.

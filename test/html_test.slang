@@ -112,6 +112,17 @@ t.group("html templates"){
     assert(str.index_of(joined, "punctuation keyword property punctuation string punctuation punctuation function property punctuation") >= 0, joined)
     assert(len(h.diagnostics) == 0)
     local out = compiler.expand("extension \"extensions/html\"\nlocal x = <p id={1}>a</p>\n", "e.slang")
-    assert(str.index_of(out, "require(\"slang/html\").element(\"p\", {id: 1}, {\"a\"})") >= 0, out)
+    assert(str.index_of(out, "__slang_html.element(\"p\", {id: 1}, {\"a\"})") >= 0, out)
+  }
+  t.test("the runtime is required once per unit, before the first statement that needs it"){
+    local out = compiler.expand("extension \"extensions/html\"\nlocal a = 1\nlocal func f(){ return <p>{a}</p> }\nlocal b = <br/>\n", "e.slang")
+    local lines = str.split(str.trim(out), "\n")
+    assert(lines[0] == "local a = 1", lines[0])
+    assert(lines[1] == "local __slang_html = require(\"slang/html\")", lines[1])
+    assert(str.starts_with(lines[2], "local func f()"), lines[2])
+    assert(str.index_of(out, "local b = __slang_html.element(\"br\", null, null)") >= 0, out)
+    assert(len(str.split(out, "require(\"slang/html\")")) == 2, "one require")
+    local r = run("local func f(){ return <i>{1}</i> }\nreturn concat(string(f()), string(<b/>))")
+    assert(r == "<i>1</i><b></b>", r)
   }
 }

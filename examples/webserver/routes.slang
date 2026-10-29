@@ -105,7 +105,7 @@ func m.install(r){
   })
 
   r:route("POST", "/todos/clear", func(req){
-    todos.keep(func(t){ return not t.done })
+    todos.clear_done()
     return views.fragment(<views.TodoList filter={filter_of(req)}/>, <views.Count oob={true}/>)
   })
 
@@ -121,22 +121,22 @@ func m.install(r){
     return with_todo(params, func(t){
       local text = str.trim(forms.decode(req.body).text or "")
       if(text != ""){
-        t.text = text
+        todos.rename(t.id, text)
       }
-      return views.fragment(<views.Todo todo={t}/>)
+      return views.fragment(<views.Todo todo={todos.find(t.id)}/>)
     })
   })
 
   r:route("POST", "/todos/:id/toggle", func(req, params){
     return with_todo(params, func(t){
-      t.done = not t.done
-      return views.fragment(<views.Todo todo={t}/>, <views.Count oob={true}/>)
+      todos.toggle(t.id)
+      return views.fragment(<views.Todo todo={todos.find(t.id)}/>, <views.Count oob={true}/>)
     })
   })
 
   r:route("DELETE", "/todos/:id", func(req, params){
     return with_todo(params, func(t){
-      todos.keep(func(other){ return other != t })
+      todos.remove(t.id)
       // an empty swap removes the <li>; the count still updates out of band
       return views.fragment(<views.Count oob={true}/>)
     })

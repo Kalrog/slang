@@ -44,7 +44,7 @@ func m.Layout(props){
 // ------------------------------------------------------------ todos
 
 func m.Count(props){
-  local left = len(todos.visible("active"))
+  local left = todos.active_count()
   return <span id="count" hx-swap-oob={props.oob and "true"}>
     {left} {left == 1 and "item" or "items"} left
   </span>
@@ -91,15 +91,11 @@ func m.TodoList(props){
 // ------------------------------------------------------------ log
 
 func m.LogRows(props){
-  local rows = {}
-  local entries = log.entries
-  for(local i = len(entries) - 1; i >= 0; i = i - 1){
-    local e = entries[i]
-    append(rows, <tr class={e.path == "/log/rows" and "poll"}>
-      <td>{e.at} s</td><td>{e.method}</td><td>{e.path}</td><td>{e.status}</td><td>{e.ms} ms</td>
-    </tr>)
-  }
-  return rows
+  return table.map(log.recent(40), func(e){
+    return <tr class={e.path == "/log/rows" and "poll"}>
+      <td>{e.at}</td><td>{e.method}</td><td>{e.path}</td><td>{e.status}</td><td>{e.ms} ms</td>
+    </tr>
+  })
 }
 
 // ------------------------------------------------------------ responses

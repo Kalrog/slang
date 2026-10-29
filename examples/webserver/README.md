@@ -4,10 +4,11 @@ An HTTP/1.1 server written in slang: `slang/http` (request parsing with the
 peg combinators, keep-alive, a small client) on `slang/async` (Futures,
 Streams, await on coroutines) on the `uv` native extension (libuv). The
 handlers use the async/await syntax of `extensions/async`, the pages are
-written in the HTML templates of `extensions/html`, and
-[htmx](https://htmx.org) (loaded from a CDN) makes them interactive.
-`slang.project` makes both extensions ambient in the folder, so no file
-declares them.
+written in the HTML templates of `extensions/html`,
+[htmx](https://htmx.org) (loaded from a CDN) makes them interactive, and
+the data lives in SQLite through `slang/sqlite` and the `sql{ ... }`
+literals of `extensions/sqlite`. `slang.project` makes the three extensions
+ambient in the folder, so no file declares them.
 
 | file | what it holds |
 |---|---|
@@ -15,8 +16,9 @@ declares them.
 | `router.slang` | routes by method and path, with `:params` and a trailing `*` |
 | `routes.slang` | the pages, the fragments htmx asks for, the static files |
 | `views.slang` | the templates: the layout, the components, `page` and `fragment` |
-| `todos.slang` | the todo list itself |
-| `log.slang` | the request log, printed and shown on `/log` |
+| `todos.slang` | the todo list, as queries on the `todos` table |
+| `log.slang` | the request log, printed and stored in the `requests` table |
+| `db.slang` | the SQLite database `todos.db` and its tables, created on first start |
 | `forms.slang` | decoding of form bodies and query strings |
 
 ```
@@ -36,8 +38,9 @@ curl -d 'hello' http://127.0.0.1:8080/echo
   The fragments are made by the same components as the full page, and a
   fragment can update a second place (the count, the filter tabs) with
   `hx-swap-oob`.
-- `/log`: every request with its status and duration. The table reloads
-  its rows every three seconds, so it shows its own polls, dimmed.
+- `/log`: the last forty requests with status and duration, from the
+  database, so the log survives a restart. The table reloads its rows
+  every three seconds and shows its own polls, dimmed.
 - `/slow`: a button whose request awaits a two-second timer, with an
   indicator while it runs; other requests are served meanwhile.
 - `POST /echo` echoes the body; `/static/...` serves the static folder.
@@ -51,6 +54,26 @@ Every request is also printed on the terminal:
 The logging sits in one place, `handle` in `main.slang`, which dispatches
 the request, awaits the handler when it is async, records the status and
 duration and raises errors again so that `slang/http` answers with a 500.
+
+## SQL
+
+`sql{ ... }` is an expression: SQL as written, with `{expr}` bound as a
+parameter (never pasted as text), `{...list}` expanded to one parameter
+per element, and a `{fragment}` that is itself a `sql{}` spliced in with
+its parameters. Keywords, strings and numbers are highlighted, and an
+error names the literal's line.
+
+```
+local clauses = {all: sql{}, active: sql{ where not done }, done: sql{ where done }}
+func m.visible(filter){
+  return db:all(sql{ select id, text, done from todos {clauses[filter]} order by id })
+}
+db:run(sql{ update todos set text = {text} where id = {id} })
+```
+
+`db:all`, `db:one`, `db:run`, `db:each`, `db:exec` and `db:transaction`
+take a literal, or plain text with a parameter list. Prepared statements
+are cached per database.
 
 ## Templates
 

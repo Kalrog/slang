@@ -1,7 +1,8 @@
 // A web server in slang: slang/http on slang/async on libuv, written in the
 // async/await style of extensions/async, its pages written in the HTML
 // templates of extensions/html and made interactive with htmx (the server
-// answers with fragments of HTML, htmx swaps them into the page). Both
+// answers with fragments of HTML, htmx swaps them into the page), its data
+// kept in SQLite with the sql{} literals of extensions/sqlite. The three
 // extensions are ambient here through slang.project. Run with
 //     bin/slang run examples/webserver/main.slang [port]
 // from the repository root and open http://127.0.0.1:8080/ (the port
@@ -12,8 +13,9 @@
 //   router.slang  routes by method and path, with :params and a trailing *
 //   routes.slang  the pages and the fragments htmx asks for
 //   views.slang   the templates: the layout and the components
-//   todos.slang   the todo list itself
-//   log.slang     the request log, printed and shown on /log
+//   todos.slang   the todo list, in SQLite
+//   log.slang     the request log, printed and stored in SQLite for /log
+//   db.slang      the SQLite database (todos.db) and its tables
 //   forms.slang   decoding of form bodies and query strings
 local http = require("slang/http")
 local a = require("slang/async")

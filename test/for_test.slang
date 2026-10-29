@@ -37,4 +37,16 @@ test.group("for loops",func (){
     }
     assert(i == 51, "i should be 51")
   }
+  test.test("a lone call is the condition"){
+    local calls = 0
+    local func more(){
+      calls = calls + 1
+      return calls < 3
+    }
+    local ran = 0
+    for(more()){
+      ran = ran + 1
+    }
+    assert(calls == 3 and ran == 2, concat("calls ", calls, " ran ", ran))
+  }
 })

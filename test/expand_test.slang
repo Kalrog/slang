@@ -64,12 +64,13 @@ t.group("expand"){
         checked = checked + 1
       }
     }
-    // the examples with a project file get it (and the grammars are reset after)
-    for(let local path in values({"examples/webserver/main.slang", "examples/breakout/main.slang", "slang/compiler/grammar.slang", "slang/lib/async.slang", "examples/functional/main.slang"})){
+    // the examples with a project file get it; the project (and its ambient
+    // extensions) must not leak into the next file, so the compiler is reset
+    for(let local path in values({"examples/webserver/main.slang", "examples/webserver/views.slang", "examples/breakout/main.slang", "slang/compiler/grammar.slang", "slang/lib/async.slang", "examples/functional/main.slang"})){
       round_trip(path)
+      compiler.reset()
       checked = checked + 1
     }
-    compiler.reset()
     assert(checked > 30)
   }
 }

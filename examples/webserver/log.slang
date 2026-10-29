@@ -1,11 +1,13 @@
-// The request log: every request is printed on the terminal and the last
-// forty are kept for the /log page.
+// The request log: every request is printed on the terminal and stored in
+// the requests table of db.slang, which the /log page reads.
 //
 //   log.record(req, status, ms)   one request
-//   log.entries                   {at, method, path, status, ms}, oldest first
+//   log.recent(n)                 the last n requests, newest first:
+//                                 {at, method, path, status, ms}
 //   log.uptime()                  seconds since the server started, one decimal
 local os = require("slang/os")
-local m = {entries: {}, size: 40}
+local db = require("db")
+local m = {}
 local started = os.time_ms()
 
 func m.uptime(){
@@ -13,12 +15,12 @@ func m.uptime(){
 }
 
 func m.record(req, status, ms){
-  local entry = {at: m.uptime(), method: req.method, path: req.path, status: status, ms: ms}
-  print("[", entry.at, " s] ", req.method, " ", req.path, " -> ", status, " (", ms, " ms)\n")
-  append(m.entries, entry)
-  if(len(m.entries) > m.size){
-    remove(m.entries, 0)
-  }
+  print("[", m.uptime(), " s] ", req.method, " ", req.path, " -> ", status, " (", ms, " ms)\n")
+  db:run(sql{ insert into requests(method, path, status, ms) values ({req.method}, {req.path}, {status}, {ms}) })
+}
+
+func m.recent(n){
+  return db:all(sql{ select at, method, path, status, ms from requests order by id desc limit {n} })
 }
 
 return m

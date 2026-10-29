@@ -1032,7 +1032,13 @@ local func install_core(g){
       return ast.node("For", {condition: head[0], update: head[1], body: body}, v[0])
     }
     if(n == 1){
-      return ast.node("For", {condition: head[0], body: body}, v[0])
+      // the one element is the condition; a lone call parsed as a statement
+      // (for(st:step())) is the call's value
+      local condition = head[0]
+      if(condition.type == "CallStat"){
+        condition = condition.call
+      }
+      return ast.node("For", {condition: condition, body: body}, v[0])
     }
     error("Invalid for loop")
   }), {probe: "for(local i = 0; i < 3; i = i + 1){ f(i) }"})

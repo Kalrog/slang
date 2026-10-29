@@ -12,3 +12,4 @@
 /zig/zig-out
 /zig/.zig-cache
 /zig/zig-out-*
+examples/webserver/todos.db

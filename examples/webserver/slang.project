@@ -1,4 +1,5 @@
-// async/await and the HTML templates are ambient in every file of the server
+// async/await, the HTML templates and the sql{} literals are ambient in
+// every file of the server
 {
-  extensions: {"extensions/async", "extensions/html"},
+  extensions: {"extensions/async", "extensions/html", "extensions/sqlite"},
 }

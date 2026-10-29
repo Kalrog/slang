@@ -94,6 +94,25 @@ pub fn build(b: *std.Build) void {
         b.getInstallStep().dependOn(&uv_install.step);
     }
 
+    // The sqlite extension links the system SQLite (Homebrew by default);
+    // -Dsqlite=false skips it, -Dsqlite-prefix points at another install.
+    const with_sqlite = b.option(bool, "sqlite", "build the sqlite extension (needs sqlite installed)") orelse true;
+    if (with_sqlite) {
+        const prefix = b.option([]const u8, "sqlite-prefix", "where sqlite is installed") orelse "/opt/homebrew/opt/sqlite";
+        const sq_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
+        sq_mod.addCSourceFile(.{ .file = b.path("../extensions/native/sqlite.c"), .flags = &.{"-std=c11"} });
+        sq_mod.addIncludePath(b.path("include"));
+        sq_mod.addIncludePath(.{ .cwd_relative = b.fmt("{s}/include", .{prefix}) });
+        sq_mod.addLibraryPath(.{ .cwd_relative = b.fmt("{s}/lib", .{prefix}) });
+        sq_mod.linkSystemLibrary("sqlite3", .{});
+        const sq = b.addLibrary(.{ .name = "sqlite_ext", .linkage = .dynamic, .root_module = sq_mod });
+        sq.linker_allow_shlib_undefined = true;
+        const sq_install = b.addInstallArtifact(sq, .{
+            .dest_sub_path = b.fmt("sqlite{s}", .{target.result.dynamicLibSuffix()}),
+        });
+        b.getInstallStep().dependOn(&sq_install.step);
+    }
+
     const tests = b.addTest(.{ .root_module = mod });
     b.step("test", "run the Zig unit tests").dependOn(&b.addRunArtifact(tests).step);
 }
@@ -102,7 +121,7 @@ pub fn build(b: *std.Build) void {
 /// boot/slang at the repository root. It is copied into a generated module
 /// that embeds every file under its module name ("slang/compiler", ...).
 fn seedModule(b: *std.Build) *std.Build.Module {
-    const names = [_][]const u8{ "ast", "async", "codegen", "compiler", "grammar", "html", "http", "json", "optimizer", "package", "peg", "std", "table", "test" };
+    const names = [_][]const u8{ "ast", "async", "codegen", "compiler", "grammar", "html", "http", "json", "optimizer", "package", "peg", "sqlite", "std", "table", "test" };
     const wf = b.addWriteFiles();
     var src: std.ArrayList(u8) = .empty;
     src.appendSlice(b.allocator, "pub const Entry = struct { name: []const u8, data: []const u8 };\npub const files = [_]Entry{\n") catch @panic("OOM");

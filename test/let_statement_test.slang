@@ -19,8 +19,15 @@ t.group("let statement"){
       return name
     })
     assert(r[0] == "err", "a mismatch is an error")
-    assert(str.index_of(r[1].message, "does not match") >= 0 and str.index_of(r[1].message, "\"age\":99") >= 0, r[1].message)
-    assert(str.index_of(r[1].message, "Ada") >= 0, "the value is shown")
+    local e = r[1]
+    assert(e.kind == "let" and str.index_of(e.message, "does not match") >= 0, e.message)
+    assert(str.index_of(e.pattern, "\"age\":99") >= 0, e.pattern)
+    assert(e.value.name == "Ada", "the value travels with the error")
+    assert(e.location.line > 0)
+    // and a catch can pick it out
+    local caught = null
+    try { let {age: 99} = {age: 1} } catch({kind: "let", value: {age: local a}}) { caught = a }
+    assert(caught == 1)
     r = pcall(func(){ let 'Patient{} = {name: "x"} })
     assert(r[0] == "err", "a type check that fails")
   }

@@ -991,7 +991,9 @@ func visitors.Index(g, node){
 // branch gets its own scope so that then-branch locals do not leak into the
 // else branch
 // let PATTERN = expr: the value is kept in a hidden local so that the
-// error can show it; the pattern's locals are declared in the current scope
+// error can carry it; the pattern's locals are declared in the current
+// scope. A mismatch raises {kind: "let", message, pattern, value} with the
+// throw op (no global involved); printed uncaught, it shows the value too.
 func visitors.LetStat(g, node){
   local token = node.token
   local hidden = concat("let value ", g.asm:next_instruction_index())
@@ -1005,11 +1007,17 @@ func visitors.LetStat(g, node){
   local fail_jump = g.asm:emit_jump()
   local done = g.asm:emit_jump()
   g.asm:patch_jump(fail_jump)
-  g:visit(global_index(token, "error"))
-  g.asm:emit_load_constant(concat("let: the value does not match ", ast.to_string(node.pattern), ", got "))
-  g:visit(value)
-  g.asm:emit_call(2)
-  g.asm:emit_pop()
+  local pattern_text = ast.to_string(node.pattern)
+  local func field(name, v){
+    return ast.node("Field", {key: ast.node("String", {value: name}, token), value: v}, token)
+  }
+  g:visit(ast.node("Table", {fields: {
+    field("kind", ast.node("String", {value: "let"}, token)),
+    field("message", ast.node("String", {value: concat("let: the value does not match ", pattern_text)}, token)),
+    field("pattern", ast.node("String", {value: pattern_text}, token)),
+    field("value", value),
+  }}, token))
+  g.asm:emit_throw()
   g.asm:patch_jump(done)
 }
 

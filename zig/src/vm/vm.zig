@@ -156,10 +156,21 @@ pub const VM = struct {
     /// slang_raise use it.
     pub fn setErrorFromValue(vm: *VM, v: Value) void {
         if (v.asTable()) |t| {
-            // the message for printing: the message field, or the table
+            // the message for printing: the message field, or the table;
+            // a value field (what did not fit) is shown after it
             const m = t.getName("message");
-            const msg = root.format.valueToOwned(vm.gpa, if (m == .null) v else m);
-            defer vm.gpa.free(msg);
+            const text = root.format.valueToOwned(vm.gpa, if (m == .null) v else m);
+            defer vm.gpa.free(text);
+            const carried = t.getName("value");
+            var msg: []u8 = text;
+            var joined: ?[]u8 = null;
+            defer if (joined) |j| vm.gpa.free(j);
+            if (m != .null and carried != .null) {
+                const shown = root.format.valueToOwned(vm.gpa, carried);
+                defer vm.gpa.free(shown);
+                joined = std.fmt.allocPrint(vm.gpa, "{s}, got {s}", .{ text, shown }) catch oom();
+                msg = joined.?;
+            }
             var e: SlangError = .{ .message = vm.dupeZ(msg), .value = v };
             if (t.getName("location").asTable()) |loc| {
                 e.loc = .{

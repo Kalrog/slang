@@ -244,3 +244,22 @@ t.group("async: race, timeout, pull streams"){
     })
   }
 }
+
+t.group("uncaught errors"){
+  t.test("a raised table with a value prints it after the message"){
+    async.main(func(){
+      local p = concat(scratch, "/uncaught.slang")
+      local fs = async.fs
+      await(fs.write_file(p, "let {age: 99} = {age: 36}\n"))
+      local r = await(async.exec("bin/slang", {"run", p}))
+      assert(r.status != 0)
+      local out = concat(r.stdout, r.stderr)
+      assert(str.index_of(out, "error: let: the value does not match {\"age\":99,}, got {age: 36, }") >= 0, out)
+      await(fs.write_file(p, "raise({message: \"bad input\", value: 42, kind: \"x\"})\n"))
+      local r2 = await(async.exec("bin/slang", {"run", p}))
+      local out2 = concat(r2.stdout, r2.stderr)
+      assert(str.index_of(out2, "error: bad input, got 42") >= 0, out2)
+      await(fs.remove(p))
+    })
+  }
+}

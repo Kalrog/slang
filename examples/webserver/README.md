@@ -1,7 +1,8 @@
 # Web server
 
-An HTTP/1.1 server written in slang: `slang/http` (request parsing with the
-peg combinators, keep-alive, a small client) on `slang/async` (Futures,
+A web application written in slang: a `slang/web` app (routes,
+middleware, static files, CSRF protection, WebSocket routes) on
+`slang/http` (HTTP/1.1 with llhttp and zlib) on `slang/async` (Futures,
 Streams, await on coroutines) on the `uv` native extension (libuv). The
 handlers use the async/await syntax of `extensions/async`, the pages are
 written in the HTML templates of `extensions/html`,
@@ -12,8 +13,7 @@ ambient in the folder, so no file declares them.
 
 | file | what it holds |
 |---|---|
-| `main.slang` | the server, and the handler every request goes through (logging) |
-| `router.slang` | routes by method and path, with `:params` and a trailing `*` |
+| `main.slang` | the app, its middleware (logging, the user, CSRF) and the server |
 | `routes.slang` | the pages, the fragments htmx asks for, the static files |
 | `views.slang` | the templates: the layout, the components, `page` and `fragment` |
 | `auth.slang` | accounts (scrypt password hashes) and sessions (a JWT in a cookie) |
@@ -30,7 +30,6 @@ brew install libuv sqlite openssl@3 llhttp zlib
 make build
 bin/slang run examples/webserver/main.slang 8080
 open http://127.0.0.1:8080/        # sign in as demo / demo
-curl -d 'hello' http://127.0.0.1:8080/echo
 ```
 
 ## Pages
@@ -60,12 +59,13 @@ curl -d 'hello' http://127.0.0.1:8080/echo
   with `async.fs.read_stream`, read only as fast as the client takes them;
   text files travel gzipped when the browser accepts it.
 - `/log`: the last forty requests with status and duration, from the
-  database, so the log survives a restart. The table reloads its rows
-  every three seconds and shows its own polls, dimmed.
+  database, so the log survives a restart, and then live: the page opens
+  a WebSocket (`/log/live`, htmx's ws extension) and the server pushes
+  each new request as a row that htmx puts at the top of the table.
 - `/slow`: a button whose request awaits a two-second timer, with an
   indicator while it runs; other requests are served meanwhile.
-- `POST /echo` echoes the body; `/static/...` serves the static folder,
-  read on libuv's thread pool with `async.fs.read_file`.
+- `/static/...` serves the static folder with `app:static`: ETag and
+  Last-Modified (so a reload gets 304s), ranges, types by extension.
 
 Ctrl-C or a SIGTERM stops the server cleanly: it stops accepting
 connections, closes the database and exits with status 0.
@@ -76,9 +76,12 @@ Every request is also printed on the terminal:
 [12.3 s] POST /todos/3/toggle -> 200 (0 ms)
 ```
 
-The logging sits in one place, `handle` in `main.slang`, which dispatches
-the request, awaits the handler when it is async, records the status and
-duration and raises errors again so that `slang/http` answers with a 500.
+The logging is the first middleware in `main.slang`: it calls the rest of
+the app and records the status and the time (an error in a handler
+arrives as the 500 `slang/web` made of it). The second sets `req.user`,
+the third is `web.csrf()`: every form carries a hidden `_csrf` field and
+the page's `hx-headers` give htmx requests an `X-CSRF-Token`, so another
+site cannot post on your behalf.
 
 ## SQL
 

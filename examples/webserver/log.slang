@@ -5,6 +5,8 @@
 //   log.recent(n)                 the last n requests, newest first:
 //                                 {at, method, path, status, ms}
 //   log.uptime()                  seconds since the server started, one decimal
+//   log.subscribe(f) -> stop()    f(entry) for each request recorded from now
+//                                 on (the live log); stop() ends it
 local os = require("slang/os")
 local db = require("db")
 local m = {}
@@ -14,9 +16,22 @@ func m.uptime(){
   return to_int((os.time_ms() - started) / 100) / 10
 }
 
+local listeners = {}
+
+func m.subscribe(f){
+  listeners[f] = true
+  return func(){ listeners[f] = null }
+}
+
 func m.record(req, status, ms){
   print("[", m.uptime(), " s] ", req.method, " ", req.path, " -> ", status, " (", ms, " ms)\n")
-  db:run(sql{ insert into requests(method, path, status, ms) values ({req.method}, {req.path}, {status}, {ms}) })
+  local id = db:run(sql{ insert into requests(method, path, status, ms) values ({req.method}, {req.path}, {status}, {ms}) }).last_id
+  local entry = null
+  for(let local f in keys(listeners)){
+    entry = entry or db:one(sql{ select at, method, path, status, ms from requests where id = {id} })
+    // one listener failing (a socket gone) must not stop the others
+    pcall(f, entry)
+  }
 }
 
 func m.recent(n){

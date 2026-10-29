@@ -12,6 +12,7 @@
 local html = require("slang/html")
 local table = require("slang/table")
 local str = require("slang/string")
+local json = require("slang/json")
 local todos = require("todos")
 local log = require("log")
 local files = require("files")
@@ -28,13 +29,14 @@ func m.Layout(props){
         <title>{props.title} - slang</title>
         <link rel="stylesheet" href="/static/style.css"/>
         <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
+        <script src="https://unpkg.com/htmx-ext-ws@2.0.3/ws.js"></script>
       </head>
-      <body>
+      <body hx-headers={props.csrf and json.encode({["X-CSRF-Token"]: props.csrf})}>
         <nav>
           {table.map(links, func(l){
             return <a href={l.href} class={l.href == props.path and "current"}>{l.text}</a>
           })}
-          <m.Account user={props.user}/>
+          <m.Account user={props.user} csrf={props.csrf}/>
         </nav>
         <main>
           <h1>{props.title}</h1>
@@ -53,7 +55,10 @@ func m.Account(props){
   }
   return <span class="account">
     {props.user.name}
-    <form method="post" action="/logout"><button class="link">sign out</button></form>
+    <form method="post" action="/logout">
+      <input type="hidden" name="_csrf" value={props.csrf}/>
+      <button class="link">sign out</button>
+    </form>
   </span>
 }
 
@@ -63,6 +68,7 @@ func m.AccountForm(props){
   return <>
     <form method="post" action={login and "/login" or "/register"} class="account-form">
       {props.error and <p class="error">{props.error}</p>}
+      <input type="hidden" name="_csrf" value={props.csrf}/>
       <label>name <input name="name" value={props.name} autocomplete="username" required autofocus/></label>
       <label>password
         <input name="password" type="password" required
@@ -169,12 +175,15 @@ func m.FileList(props){
 
 // ------------------------------------------------------------ log
 
+func m.LogRow(props){
+  local e = props.entry
+  return <tr class={e.status >= 400 and "failed"}>
+    <td>{e.at}</td><td>{e.method}</td><td>{e.path}</td><td>{e.status}</td><td>{e.ms} ms</td>
+  </tr>
+}
+
 func m.LogRows(props){
-  return table.map(log.recent(40), func(e){
-    return <tr class={e.path == "/log/rows" and "poll"}>
-      <td>{e.at}</td><td>{e.method}</td><td>{e.path}</td><td>{e.status}</td><td>{e.ms} ms</td>
-    </tr>
-  })
+  return table.map(log.recent(40), func(e){ return <m.LogRow entry={e}/> })
 }
 
 // ------------------------------------------------------------ responses
@@ -183,7 +192,7 @@ local headers = {["Content-Type"]: "text/html; charset=utf-8"}
 
 func m.page(req, title, content, status){
   return {status: status or 200, headers: headers,
-          body: <m.Layout title={title} path={req.path} user={req.user}>{content}</m.Layout>}
+          body: <m.Layout title={title} path={req.path} user={req.user} csrf={req.csrf_token}>{content}</m.Layout>}
 }
 
 // a fragment for htmx: the nodes, nothing around them

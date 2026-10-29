@@ -28,7 +28,8 @@
 // Set-Cookie); Date is added. Text-like bodies (text/*, JSON, JavaScript,
 // XML, SVG) of 1 KiB or more, and text-like Streams, are gzipped when the
 // client accepts gzip, unless the response sets Content-Encoding or
-// compress is false. HEAD requests get the headers alone.
+// compress: false (or the server option compress is false). HEAD requests
+// get the headers alone.
 //
 // serve(host, port, handler, options) -> {server, port, done, close()};
 // options:
@@ -151,6 +152,8 @@ func http.response(status, body, headers){
   return {status: status, body: body or "", headers: headers or {}}
 }
 
+// normalize(res) -> {status, headers, body} for what a handler returned (a
+// string, or a table with any of the three)
 local func normalize(res){
   if(type(res) == "string"){
     res = {status: 200, body: res}
@@ -158,7 +161,7 @@ local func normalize(res){
   if(type(res) != "table"){
     error("a handler must return a string or a response table")
   }
-  local out = {status: res.status or 200, body: res.body or "", headers: {}}
+  local out = {status: res.status or 200, body: res.body or "", headers: {}, compress: res.compress}
   if(type(out.body) != "string" and type(out.body) != "Stream"){
     out.body = string(out.body)
   }
@@ -203,7 +206,7 @@ local func accepts_gzip(req){
 }
 
 local func should_gzip(req, res, options){
-  if(options.compress == false or res.status < 200 or res.status == 204 or res.status == 304){
+  if(options.compress == false or res.compress == false or res.status < 200 or res.status == 204 or res.status == 304){
     return false
   }
   if(header_of(res.headers, "content-encoding") != null or not accepts_gzip(req)){
@@ -294,11 +297,15 @@ local func send(conn, req, res, keep_alive, options){
   // a Stream
   local given = header_of(res.headers, "content-length")
   local chunked = gzip or given == null
+  // the length is sent only for an unchanged stream of a known size
+  local length = null
+  if(not chunked){
+    length = given
+  }
+  async.await(async.write(conn, format_head(res, keep_alive, length, chunked)))
   if(head_only){
-    async.await(async.write(conn, format_head(res, keep_alive, chunked and null or given, chunked)))
     return
   }
-  async.await(async.write(conn, format_head(res, keep_alive, chunked and null or given, chunked)))
   local z = gzip and zlib_module().compressor("gzip")
   local func put(data){
     if(len(data) == 0){
@@ -342,6 +349,17 @@ local func respond(handler, req, options){
     return normalize({status: 500, body: concat("internal error: ", message_of(r[1]))})
   }
   return normalize(r[1])
+}
+
+http.normalize = normalize
+
+// write_response(conn, req, res, options) -> Future: sends res on a raw
+// connection (one from on_upgrade, to refuse an upgrade) and closes it
+func http.write_response(conn, req, res, options){
+  return async.run(func(){
+    send(conn, req, normalize(res), false, options or {})
+    pcall(func(){ async.await(async.close(conn)) })
+  })
 }
 
 // ------------------------------------------------------------ connections
@@ -529,6 +547,12 @@ local func handle_connection(conn, handler, options, server){
         if(upgrade_rest != null and options.on_upgrade != null){
           upgraded = true
           server.connections[state] = null
+          // the new owner reads from here on; it gets what was already read
+          conn:read_stop()
+          for(let local chunk in values(src.reader.buffer)){
+            upgrade_rest = concat(upgrade_rest, chunk)
+          }
+          src.reader.buffer = {}
           src.reader = null
           options.on_upgrade(req, conn, upgrade_rest)
           return null

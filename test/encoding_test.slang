@@ -84,6 +84,14 @@ t.group("encoding"){
     assert(e.crc32("") == 0)
     assert(e.crc32("The quick brown fox jumps over the lazy dog") == 1095738169)
   }
+  t.test("mask XORs with the repeated key, and undoes itself"){
+    local key = "\x37\xfa\x21\x3d"
+    // RFC 6455, 5.7: "Hello" masked
+    assert(e.mask("Hello", key) == "\x7f\x9f\x4d\x51\x58")
+    assert(e.mask(e.mask("any bytes \x00\xff", key), key) == "any bytes \x00\xff")
+    assert(e.mask("", key) == "")
+    assert(pcall(e.mask, "x", "")[0] == "err")
+  }
   t.test("argument errors"){
     local r = pcall(e.base64_encode, 1)
     assert(r[0] == "err")

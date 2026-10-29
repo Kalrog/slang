@@ -125,8 +125,18 @@ the window is a deployment choice.
       reads chunked and gzip responses; `http.fetch(url)` and a streaming
       multipart parser were added; `slang/async` gained race, timeout, pull
       streams and `fs.read_stream`. The example has a files page.
-- [ ] Phase 5: `slang/web` extracted from the example; `slang/ws` with the
-      live request log.
+- [x] Phase 5: `slang/web` extracted from the example; `slang/ws` with the
+      live request log. `slang/web`: apps with routes (:params, *, 405
+      with Allow, HEAD), middleware as straight-line code (next(req)
+      returns the response), handlers returning strings, HTML nodes,
+      tables or Futures, req:query_params/form/json/cookie, web.text/html/
+      json/redirect/fail, web.file and app:static (ETag, Last-Modified,
+      304, Range/206/416, If-Range), encrypted cookie sessions, CSRF
+      tokens, app:ws routes behind the middleware, and web.test, a client
+      that needs no socket. `slang/ws`: RFC 6455 server and client
+      (fragmentation, ping/pong, close codes, UTF-8 and size checks,
+      backpressure), checked against Node's WebSocket. `encoding.mask` in
+      Zig. The example runs on slang/web with CSRF and a live log.
 - [ ] Phase 6: Chrome app mode over DevTools; an `examples/desktop` todo
       app; end-to-end tests of the web server through a headless browser.
 - [ ] Phase 7: the WKWebView window.

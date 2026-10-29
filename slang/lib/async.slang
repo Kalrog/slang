@@ -689,7 +689,7 @@ func async.serve(host, port, options){
 //   fs.open(path, flags) -> fd   (flags as fopen: "r", "w", "a", "r+", ...)
 //   fs.read(fd, length, offset) -> data ("" at the end; offset null reads on)
 //   fs.write(fd, data, offset) -> bytes written   fs.close(fd)
-//   fs.read_stream(path, chunk_size) -> a Stream of the file, read on demand
+//   fs.read_stream(path, {chunk_size, start, length}) -> a Stream of the file, read on demand
 local fs = {}
 async.fs = fs
 
@@ -720,11 +720,18 @@ func fs.write(fd, data, offset){
   return async.wrap(func(cb){ loop_module().fs_write(fd, data, offset or -1, cb) })
 }
 
-// read_stream(path, chunk_size) -> a Stream of the file's contents in
-// chunks (64 KiB by default), read as they are asked for; the file is
-// closed at the end or on an error
-func fs.read_stream(path, chunk_size){
-  local size = chunk_size or 65536
+// read_stream(path, options) -> a Stream of the file's contents in chunks,
+// read as they are asked for; options (or just a chunk size): chunk_size
+// (64 KiB), start (a byte offset, 0), length (bytes from start; to the end
+// by default). The file is closed at the end or on an error.
+func fs.read_stream(path, options){
+  if(type(options) == "int"){
+    options = {chunk_size: options}
+  }
+  options = options or {}
+  local size = options.chunk_size or 65536
+  local offset = options.start or 0
+  local left = options.length
   local fd = null
   local finished = false
   return async.pull(func(){
@@ -733,10 +740,22 @@ func fs.read_stream(path, chunk_size){
     }
     return async.run(func(){
       local r = pcall(func(){
+        if(left != null and left <= 0){
+          return ""
+        }
         if(fd == null){
           fd = async.await(fs.open(path, "r"))
         }
-        return async.await(fs.read(fd, size, null))
+        local want = size
+        if(left != null and left < want){
+          want = left
+        }
+        local data = async.await(fs.read(fd, want, offset))
+        offset = offset + len(data)
+        if(left != null){
+          left = left - len(data)
+        }
+        return data
       })
       if(r[0] == "err" or r[1] == ""){
         finished = true

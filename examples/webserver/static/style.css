@@ -21,7 +21,7 @@ form input { flex: 1; padding: 0.3rem 0.5rem; font: inherit; }
 /* request log */
 table.log { border-collapse: collapse; width: 100%; font-size: 0.9rem; font-variant-numeric: tabular-nums; }
 table.log th, table.log td { text-align: left; padding: 0.2rem 0.5rem; border-bottom: 1px solid #eee; }
-table.log tr.poll { color: #aaa; }
+table.log tr.failed td { color: #b00; }
 
 /* htmx shows the indicator while a request is in flight */
 .htmx-indicator { opacity: 0; transition: opacity 200ms ease-in; color: #777; margin-left: 0.5rem; }

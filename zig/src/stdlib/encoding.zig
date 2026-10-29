@@ -7,6 +7,8 @@
 //!   form_encode(s)              form_decode(s) -> string or null
 //!   query_encode(table)         query_decode(s) -> table
 //!   utf8_valid(s) -> bool       crc32(s) -> int
+//!   mask(data, key) -> data XOR the key repeated (WebSocket masking; the
+//!     same call unmasks)
 //!
 //! Strings are byte strings, so every encoder takes any bytes. Decoders
 //! return null on malformed input (untrusted input is the normal case).
@@ -42,6 +44,7 @@ pub fn module(vm: *VM) *Table {
         .{ .name = "query_decode", .f = queryDecode },
         .{ .name = "utf8_valid", .f = utf8Valid },
         .{ .name = "crc32", .f = crc32 },
+        .{ .name = "mask", .f = mask },
     });
 }
 
@@ -310,4 +313,13 @@ fn utf8Valid(th: *Thread, args: []Value) Error!Value {
 fn crc32(th: *Thread, args: []Value) Error!Value {
     const src = try api.argString(th, args, 0, "str");
     return .{ .int = std.hash.Crc32.hash(src) };
+}
+
+fn mask(th: *Thread, args: []Value) Error!Value {
+    const src = try api.argString(th, args, 0, "data");
+    const key = try api.argString(th, args, 1, "key");
+    if (key.len == 0) return th.vm.raise("mask: the key is empty", .{});
+    const out = uninit(th.vm, src.len);
+    for (src, 0..) |b, i| out.bytes[i] = b ^ key[i % key.len];
+    return out.value;
 }

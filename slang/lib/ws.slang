@@ -1,0 +1,403 @@
+// slang/ws: WebSockets (RFC 6455) on slang/async.
+//
+//   ws.accept(req, conn, rest, options) -> socket   the server side, from
+//     slang/http's on_upgrade (slang/web's app:ws does this for you); a
+//     request that is not a WebSocket handshake gets a 400 and raises
+//   ws.is_upgrade(req) -> bool
+//   await ws.connect(host, port, path, options) -> socket   the client side
+//
+// A socket:
+//   socket.messages           a Stream of the messages received (strings,
+//                             text and binary alike), ending at the close
+//   socket:send(text)         -> Future; socket:send_binary(data) -> Future
+//   socket:ping(data)         -> Future (pongs are answered automatically)
+//   socket:close(code, reason) -> Future of the close
+//   socket.closed             Future of {code, reason} once the connection is gone
+//   socket:is_open()
+//
+// options: max_message (bytes, 16 MiB; a larger message closes the socket
+// with 1009). Text messages must be UTF-8 (else 1007); the server requires
+// masked frames and the client sends them; extensions such as compression
+// are not negotiated.
+local async = require("slang/async")
+local str = require("slang/string")
+local encoding = require("slang/encoding")
+
+local ws = {}
+
+local GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
+local func crypto(){
+  return require("crypto")
+}
+
+local func accept_key(key){
+  return encoding.base64_encode(crypto().hash("sha1", concat(key, GUID)))
+}
+
+local func header_has(value, token){
+  for(let local part in values(str.split(str.lower(value or ""), ","))){
+    if(str.trim(part) == token){
+      return true
+    }
+  }
+  return false
+}
+
+func ws.is_upgrade(req){
+  return header_has(req.headers["upgrade"], "websocket") and header_has(req.headers["connection"], "upgrade")
+}
+
+// ------------------------------------------------------------ frames
+
+local OP_CONTINUATION = 0
+local OP_TEXT = 1
+local OP_BINARY = 2
+local OP_CLOSE = 8
+local OP_PING = 9
+local OP_PONG = 10
+
+// the bytes of n as a big-endian number of size bytes
+local func be(n, size){
+  local bytes = {}
+  for(local i = size - 1; i >= 0; i = i - 1){
+    append(bytes, (n >> (8 * i)) & 255)
+  }
+  return str.from_bytes(bytes)
+}
+
+// a frame: fin set; masked with a random key when mask is true (the client)
+local func frame(opcode, payload, mask){
+  local n = len(payload)
+  local head = {128 | opcode}
+  local mask_bit = mask and 128 or 0
+  local ext = ""
+  if(n < 126){
+    append(head, mask_bit | n)
+  } else if(n < 65536){
+    append(head, mask_bit | 126)
+    ext = be(n, 2)
+  } else {
+    append(head, mask_bit | 127)
+    ext = be(n, 8)
+  }
+  if(mask){
+    local key = crypto().random_bytes(4)
+    return concat(str.from_bytes(head), ext, key, encoding.mask(payload, key))
+  }
+  return concat(str.from_bytes(head), ext, payload)
+}
+
+local func close_payload(code, reason){
+  if(code == null){
+    return ""
+  }
+  return concat(be(code, 2), reason or "")
+}
+
+// ------------------------------------------------------------ sockets
+
+local socket_methods = {}
+local socket_meta = {__index: socket_methods, __type: "WebSocket"}
+
+local func new_socket(conn, rest, client, options){
+  options = options or {}
+  local c = async.controller(null)
+  local closed = async.completer()
+  local s = {conn: conn, client: client, messages: c.stream, closed: closed.future, state: "open",
+             max_message: options.max_message or 16 * 1024 * 1024}
+  s.meta = socket_meta
+
+  local func write(data){
+    return async.write(conn, data)
+  }
+
+  // ends everything once: the stream, the closed future, the connection
+  local func finish(code, reason){
+    if(s.state == "gone"){
+      return
+    }
+    s.state = "gone"
+    c.close()
+    pcall(func(){ conn:close() })
+    closed.complete({code: code, reason: reason or ""})
+  }
+  s.finish = finish
+
+  // fails the connection: a close frame with code, then the end
+  local func fail(code, reason){
+    if(s.state == "open"){
+      s.state = "closing"
+      write(frame(OP_CLOSE, close_payload(code, reason), client)):then(func(_){ finish(code, reason) }, func(_){ finish(code, reason) })
+    } else {
+      finish(code, reason)
+    }
+  }
+
+  // backpressure: past the stream's high-water mark, reading stops
+  local paused = null
+  c.on_pause = func(){ paused = async.completer() }
+  c.on_resume = func(){
+    local p = paused
+    paused = null
+    if(p != null){ p.complete(null) }
+  }
+
+  async.run(func(){
+    local reader = async.reader(conn)
+    local buf = rest or ""
+    local at = 0
+    local parts = null
+    local part_op = 0
+    local size = 0
+    local r = pcall(func(){
+      for(s.state != "gone"){
+        // a whole frame in buf[at..]? else read more
+        local avail = len(buf) - at
+        local need = 2
+        local length = 0
+        local masked = false
+        local header = 0
+        if(avail >= 2){
+          local b1 = str.byte_at(buf, at + 1)
+          masked = (b1 & 128) != 0
+          length = b1 & 127
+          header = 2
+          if(length == 126){
+            header = 4
+          } else if(length == 127){
+            header = 10
+          }
+          if(masked){
+            header = header + 4
+          }
+          need = header
+          if(avail >= header){
+            if(length == 126){
+              length = (str.byte_at(buf, at + 2) << 8) | str.byte_at(buf, at + 3)
+            } else if(length == 127){
+              length = 0
+              for(local i = 0; i < 8; i = i + 1){
+                length = (length << 8) | str.byte_at(buf, at + 2 + i)
+              }
+              if(length < 0){
+                fail(1002, "frame too long")
+                return null
+              }
+            }
+            need = header + length
+          }
+        }
+        if(avail < need){
+          if(paused != null){
+            async.await(paused.future)
+          }
+          local e = async.await(reader:next())
+          if(e.done){
+            finish(1006, "the connection closed")
+            return null
+          }
+          if(at > 0){
+            buf = str.substring(buf, at)
+            at = 0
+          }
+          buf = concat(buf, e.value)
+          if(length > s.max_message + 16){
+            fail(1009, "message too big")
+            return null
+          }
+        } else {
+          local b0 = str.byte_at(buf, at)
+          local fin = (b0 & 128) != 0
+          local op = b0 & 15
+          if((b0 & 112) != 0){
+            fail(1002, "reserved bits set")
+            return null
+          }
+          if(masked == client){
+            fail(1002, client and "a masked frame from the server" or "an unmasked frame from the client")
+            return null
+          }
+          local payload = str.substring(buf, at + header, at + header + length)
+          if(masked){
+            payload = encoding.mask(payload, str.substring(buf, at + header - 4, at + header))
+          }
+          at = at + header + length
+          if(op >= 8){
+            if(not fin or length > 125){
+              fail(1002, "a fragmented or long control frame")
+              return null
+            }
+            if(op == OP_PING){
+              if(s.state == "open"){
+                write(frame(OP_PONG, payload, client))
+              }
+            } else if(op == OP_CLOSE){
+              local code = 1005
+              local reason = ""
+              if(len(payload) >= 2){
+                code = (str.byte_at(payload, 0) << 8) | str.byte_at(payload, 1)
+                reason = str.substring(payload, 2)
+              }
+              if(s.state == "open"){
+                // answer the close, then end
+                s.state = "closing"
+                local answer = code == 1005 and "" or close_payload(code, "")
+                local w = pcall(async.await, write(frame(OP_CLOSE, answer, client)))
+              }
+              finish(code, reason)
+              return null
+            } else if(op != OP_PONG){
+              fail(1002, "unknown control opcode")
+              return null
+            }
+          } else {
+            if(op == OP_CONTINUATION){
+              if(parts == null){
+                fail(1002, "a continuation without a start")
+                return null
+              }
+            } else if(op == OP_TEXT or op == OP_BINARY){
+              if(parts != null){
+                fail(1002, "a new message inside a fragmented one")
+                return null
+              }
+              parts = {}
+              part_op = op
+              size = 0
+            } else {
+              fail(1002, "unknown opcode")
+              return null
+            }
+            size = size + len(payload)
+            if(size > s.max_message){
+              fail(1009, "message too big")
+              return null
+            }
+            append(parts, payload)
+            if(fin){
+              local message = str.join(parts, "")
+              parts = null
+              if(part_op == OP_TEXT and not encoding.utf8_valid(message)){
+                fail(1007, "text that is not UTF-8")
+                return null
+              }
+              if(s.state == "open"){
+                c.add(message)
+              }
+            }
+          }
+        }
+      }
+    })
+    if(r[0] == "err"){
+      finish(1006, r[1].message or string(r[1]))
+    }
+  })
+  return s
+}
+
+func socket_methods.is_open(s){
+  return s.state == "open"
+}
+
+local func send_frame(s, opcode, data){
+  if(s.state != "open"){
+    return async.failed("ws: the socket is not open")
+  }
+  return async.write(s.conn, frame(opcode, data, s.client))
+}
+
+func socket_methods.send(s, text){
+  return send_frame(s, OP_TEXT, text)
+}
+
+func socket_methods.send_binary(s, data){
+  return send_frame(s, OP_BINARY, data)
+}
+
+func socket_methods.ping(s, data){
+  return send_frame(s, OP_PING, data or "")
+}
+
+// close(code, reason) -> Future of the closed result: sends a close frame
+// and waits (two seconds at most) for the other side's answer
+func socket_methods.close(s, code, reason){
+  if(s.state == "open"){
+    s.state = "closing"
+    code = code or 1000
+    async.write(s.conn, frame(OP_CLOSE, close_payload(code, reason), s.client))
+    local timer = require("uv").timer()
+    timer:start(2000, 0, func(){
+      timer:close()
+      s.finish(code, reason)
+    })
+    s.closed:then(func(_){
+      if(not timer:is_closing()){
+        timer:stop()
+        timer:close()
+      }
+    })
+  }
+  return s.closed
+}
+
+// ------------------------------------------------------------ handshakes
+
+func ws.accept(req, conn, rest, options){
+  local key = req.headers["sec-websocket-key"]
+  if(not ws.is_upgrade(req) or key == null or req.headers["sec-websocket-version"] != "13" or req.method != "GET"){
+    require("slang/http").write_response(conn, req, {status: 400, body: "a WebSocket handshake was expected\n",
+                                                     headers: {["Sec-WebSocket-Version"]: "13"}})
+    error("ws: not a WebSocket handshake")
+  }
+  async.write(conn, concat("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n",
+                           "Sec-WebSocket-Accept: ", accept_key(key), "\r\n\r\n"))
+  return new_socket(conn, rest, false, options)
+}
+
+func ws.connect(host, port, path, options){
+  return async.run(func(){
+    local conn = async.await(async.connect(host, port))
+    local key = encoding.base64_encode(crypto().random_bytes(16))
+    async.await(async.write(conn, concat("GET ", path or "/", " HTTP/1.1\r\nHost: ", host, ":", string(port),
+      "\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: ", key,
+      "\r\nSec-WebSocket-Version: 13\r\n\r\n")))
+    local p = require("llhttp").parser("response", null)
+    local reader = async.reader(conn)
+    local head = null
+    local rest = null
+    for(rest == null){
+      local e = async.await(reader:next())
+      if(e.done){
+        error("ws: the server closed the connection during the handshake")
+      }
+      for(let local ev in values(p:execute(e.value))){
+        if(ev.type == "head"){
+          head = ev
+        } else if(ev.type == "upgrade"){
+          rest = ev.rest
+        } else if(ev.type == "error"){
+          error("ws: a malformed handshake answer: ", ev.reason)
+        } else if(ev.type == "done" and head != null and head.status != 101){
+          conn:close()
+          error("ws: the server answered ", string(head.status), " instead of 101")
+        }
+      }
+    }
+    if(head.status != 101 or head.headers["sec-websocket-accept"] != accept_key(key)){
+      conn:close()
+      error("ws: the server did not accept the WebSocket handshake")
+    }
+    // the reader has done its part; frames are read by the socket, starting
+    // with whatever the reader already holds
+    conn:read_stop()
+    for(let local chunk in values(reader.buffer)){
+      rest = concat(rest, chunk)
+    }
+    reader.buffer = {}
+    return new_socket(conn, rest, true, options)
+  })
+}
+
+return ws

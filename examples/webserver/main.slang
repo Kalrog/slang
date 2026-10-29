@@ -1,64 +1,56 @@
-// A web server in slang: slang/http on slang/async on libuv, written in the
-// async/await style of extensions/async, its pages written in the HTML
-// templates of extensions/html and made interactive with htmx (the server
-// answers with fragments of HTML, htmx swaps them into the page), its data
-// kept in SQLite with the sql{} literals of extensions/sqlite. The three
+// A web server in slang: a slang/web app on slang/http on slang/async on
+// libuv, written in the async/await style of extensions/async, its pages
+// written in the HTML templates of extensions/html and made interactive
+// with htmx (the server answers with fragments of HTML, htmx swaps them
+// into the page; the log is pushed over a WebSocket), its data kept in
+// SQLite with the sql{} literals of extensions/sqlite. The three
 // extensions are ambient here through slang.project. Run with
 //     bin/slang run examples/webserver/main.slang [port]
 // from the repository root and open http://127.0.0.1:8080/ (the port
 // defaults to 8080).
 //
 // The files:
-//   main.slang    this: the server, and the handler every request goes through
-//   router.slang  routes by method and path, with :params and a trailing *
+//   main.slang    this: the app, its middleware, the server
 //   routes.slang  the pages and the fragments htmx asks for
 //   views.slang   the templates: the layout and the components
 //   auth.slang    accounts (scrypt hashes) and sessions (a JWT in a cookie)
 //   todos.slang   the todo lists, one per user, in SQLite
 //   files.slang   uploaded files, streamed to uploads/ with their SHA-256
-//   log.slang     the request log, printed and stored in SQLite for /log
+//   log.slang     the request log, printed, stored in SQLite, pushed to /log
 //   db.slang      the SQLite database (todos.db) and its tables
-local http = require("slang/http")
+local web = require("slang/web")
 local a = require("slang/async")
 local os = require("slang/os")
-local router = require("router")
 local log = require("log")
 local auth = require("auth")
 
 local port = to_int(args()[0] or "8080")
 
-local app = router.new()
+local app = web.app()
+
+// every request is logged with its status and how long it took (an error
+// in a handler arrives here as the 500 slang/web made of it)
+app:use(func(req, next){
+  local t0 = os.time_ms()
+  local res = next(req)
+  log.record(req, res.status, os.time_ms() - t0)
+  return res
+})
+
+// who is asking: req.user, from the session cookie
+app:use(func(req, next){
+  req.user = auth.user(req)
+  return next(req)
+})
+
+// forms and htmx requests must carry the CSRF token (views.slang puts it in
+// every form and in the hx-headers of the page)
+app:use(web.csrf())
+
 require("routes").install(app)
 
-// every request goes through here: dispatched, awaited when the handler is
-// async, logged with its status and duration; an error is logged as a 500
-// and raised again for slang/http to answer
-async func handle(req){
-  local t0 = os.time_ms()
-  local r = pcall(func(){
-    req.user = auth.user(req)
-    return app:dispatch(req)
-  })
-  if(r[0] == "ok" and type(r[1]) == "Future"){
-    r = pcall(a.await, r[1])
-  }
-  local status = 500
-  if(r[0] == "ok"){
-    status = type(r[1]) == "table" and (r[1].status or 200) or 200
-  }
-  log.record(req, status, os.time_ms() - t0)
-  if(r[0] == "err"){
-    raise(r[1])
-  }
-  return r[1]
-}
-
 a.main(func(){
-  local s = http.serve("127.0.0.1", port, handle, {
-    // uploads are read as they arrive, not into memory first
-    stream_body: func(req){ return req.method == "POST" and req.path == "/files" },
-    on_error: func(req, err){ print("error handling ", req.method, " ", req.path, ": ", err.message or err, "\n") },
-  })
+  local s = app:listen("127.0.0.1", port)
   print("listening on http://127.0.0.1:", s.port, "/\n")
   // Ctrl-C or a SIGTERM stops accepting connections; the program ends once
   // the server is closed

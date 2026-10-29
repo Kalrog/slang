@@ -73,7 +73,8 @@ Two routes, cheapest first:
    function. No native code beyond `uv_spawn`; needs a Chromium installed.
    The same protocol drives a headless browser for end-to-end tests of the
    web server.
-2. **A native window with the system web view** (the Wails approach):
+2. **A native window with the system web view** (the Wails approach; built
+   in phase 7, route 1 skipped):
    `extensions/native/webview.m` over WKWebView and Cocoa, later WebKitGTK
    and WebView2. The page is served either from the slang server on a
    loopback port or through a custom URL scheme handler (no socket, no
@@ -137,9 +138,24 @@ the window is a deployment choice.
       (fragmentation, ping/pong, close codes, UTF-8 and size checks,
       backpressure), checked against Node's WebSocket. `encoding.mask` in
       Zig. The example runs on slang/web with CSRF and a live log.
-- [ ] Phase 6: Chrome app mode over DevTools; an `examples/desktop` todo
-      app; end-to-end tests of the web server through a headless browser.
-- [ ] Phase 7: the WKWebView window.
+- [-] Phase 6: Chrome app mode over DevTools. Skipped (decided
+      2026-10-29): the native window is the real goal, so phase 7 came
+      next directly. Headless browser tests of the web server could still
+      come later.
+- [x] Phase 7: the WKWebView window. `extensions/native/webview.m`
+      (Cocoa + WebKit, macOS): windows with url, html or a slang/web app
+      over the app:// scheme (no socket), eval, a JS bridge
+      (window.slang: send, call -> Promise, on), Edit and Window menus,
+      Cmd-Q closing the windows. The event loops: Cocoa waits on the main
+      thread while a watcher thread select()s on libuv's backend fd and
+      has the main thread run libuv (main dispatch queue, so also during
+      resizing and menu tracking); open windows hold the loop alive
+      (uv C API v3: run, backend_fd, backend_timeout, hold). slang/async
+      gained set_driver, which slang/webview uses, so async.main keeps
+      working. `slang/webview`: window(options), bind, on_message, send,
+      closed. `examples/desktop`: a todo app whose page calls slang
+      directly, several windows kept in step. `make test-gui` runs the
+      window tests.
 - [ ] Later: TLS over OpenSSL BIO pairs on uv TCP; HTTP/2 over nghttp2 (only
       meaningful with TLS and ALPN; most deployments terminate at a proxy);
       Postgres over libpq; brotli.

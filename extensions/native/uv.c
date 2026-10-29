@@ -844,7 +844,36 @@ static int api_queue(slang_State *S, int cb_idx, int keep_idx,
     return 0;
 }
 
-static const slang_uv_api the_api = {SLANG_UV_API_VERSION, api_queue};
+static int api_run(slang_State *S, int mode) {
+    if (run_S != NULL) return 0;
+    run_S = S;
+    run_failed = 0;
+    int more = uv_run(loop(), mode == 2 ? UV_RUN_NOWAIT : mode == 1 ? UV_RUN_ONCE : UV_RUN_DEFAULT);
+    run_S = NULL;
+    if (run_failed) {
+        run_failed = 0;
+        return SLANG_ERROR;
+    }
+    return more != 0;
+}
+
+static int api_backend_fd(void) { return uv_backend_fd(loop()); }
+static int api_backend_timeout(void) { return uv_backend_timeout(loop()); }
+
+static uv_async_t hold_handle;
+static int hold_ready = 0;
+
+static void api_hold(int on) {
+    if (!hold_ready) {
+        uv_async_init(loop(), &hold_handle, NULL);
+        uv_unref((uv_handle_t *)&hold_handle);
+        hold_ready = 1;
+    }
+    if (on) uv_ref((uv_handle_t *)&hold_handle);
+    else uv_unref((uv_handle_t *)&hold_handle);
+}
+
+static const slang_uv_api the_api = {SLANG_UV_API_VERSION, api_queue, api_run, api_backend_fd, api_backend_timeout, api_hold};
 
 /* ---- file system: libuv's synchronous calls, run on the pool ---- */
 

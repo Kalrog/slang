@@ -14,3 +14,4 @@
 /zig/zig-out-*
 examples/webserver/todos.db
 examples/webserver/uploads/
+examples/desktop/todos.db

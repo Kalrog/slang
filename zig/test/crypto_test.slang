@@ -52,7 +52,9 @@ t.group("crypto binding"){
       assert(native.decrypt(cipher, key, iv, sealed, "header") == "attack at dawn", cipher)
       assert(native.decrypt(cipher, key, iv, sealed, "other") == null, "aad")
       assert(native.decrypt(cipher, key, native.random_bytes(12), sealed, "header") == null, "iv")
-      local flipped = concat(str.substring(sealed, 0, 3), "X", str.substring(sealed, 4))
+      // a different byte at 3 (a fixed "X" is the same byte one time in 256)
+      local other = str.from_bytes({(str.byte_at(sealed, 3) + 1) & 255})
+      local flipped = concat(str.substring(sealed, 0, 3), other, str.substring(sealed, 4))
       assert(native.decrypt(cipher, key, iv, flipped, "header") == null, "ciphertext")
     }
     fails_with(func(){ native.encrypt("aes-256-gcm", "short", native.random_bytes(12), "x") }, "needs a 32-byte key")

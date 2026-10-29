@@ -20,7 +20,9 @@
 
 #include "slang.h"
 
-#define SLANG_UV_API_VERSION 1
+/* 1: queue; 2: run, backend_fd, backend_timeout; 3: hold. The struct only
+ * grows, so an extension built for an older version works with a newer uv. */
+#define SLANG_UV_API_VERSION 3
 #define SLANG_UV_API_TNAME "uv.c_api"
 
 typedef struct slang_uv_api {
@@ -41,12 +43,34 @@ typedef struct slang_uv_api {
                  int (*push)(slang_State *S, void *data),
                  void (*done)(void *data),
                  void *data);
+    /*
+     * Runs the loop once like uv.run(mode) from slang: mode 0 runs until
+     * nothing is left, 1 waits for one batch of events, 2 handles what is
+     * ready without waiting. Callbacks enter slang through S. Returns 1
+     * when the loop has more to do, 0 when not, 0 at once when the loop is
+     * already running (it does not nest), and SLANG_ERROR when a callback
+     * raised (the error is pending on S).
+     */
+    int (*run)(slang_State *S, int mode);
+    /* The loop's backend descriptor (kqueue/epoll) and the milliseconds
+     * until its next timer (-1: none), for waiting on it from another
+     * event loop, as a GUI's. */
+    int (*backend_fd)(void);
+    int (*backend_timeout)(void);
+    /*
+     * hold(1) keeps the loop alive with nothing else to do, hold(0) lets it
+     * go. A GUI holds it while windows are open: a loop that is not alive
+     * polls no I/O at all, so a signal watcher that was unref'd (and what
+     * else does not keep the loop going) would never be heard.
+     */
+    void (*hold)(int on);
 } slang_uv_api;
 
-/* The API in the uv.c_api userdata at idx, or NULL. */
+/* The API in the uv.c_api userdata at idx, or NULL when it is missing or
+ * older than this header. */
 static inline const slang_uv_api *slang_uv_get(slang_State *S, int idx) {
     const slang_uv_api **box = (const slang_uv_api **)slang_testudata(S, idx, SLANG_UV_API_TNAME);
-    if (box == NULL || *box == NULL || (*box)->version != SLANG_UV_API_VERSION) return NULL;
+    if (box == NULL || *box == NULL || (*box)->version < SLANG_UV_API_VERSION) return NULL;
     return *box;
 }
 

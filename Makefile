@@ -6,6 +6,7 @@
 #   make install      copy them to $(PREFIX)/bin/slang and $(PREFIX)/lib/slang/ (PREFIX=/usr/local); make uninstall
 #   make test         run the slang test suite, the native extension tests and the Zig unit tests
 #   make test-safe    the suites on the checked build (ReleaseSafe) and under GC stress
+#   make test-gui     the webview tests (macOS; they open and close windows)
 #   make seed         re-generate the seed with bin/slang itself (self-hosting), then rebuild
 #   make fixpoint     check that the seed compiles itself to identical bytecode
 #   make bench        run bench/
@@ -28,7 +29,7 @@ LIB_SRC  := $(wildcard slang/lib/*.slang)
 COMPILER_SRC := $(wildcard slang/compiler/*.slang)
 SEED_DIR := boot/slang
 
-.PHONY: all build build-safe install uninstall test test-safe unit seed fixpoint bench breakout dungeon dungeon-test clean \
+.PHONY: all build build-safe install uninstall test test-safe test-gui unit seed fixpoint bench breakout dungeon dungeon-test clean \
         vscode vscode-grammar go-build go-seed-copy go-test go-fixpoint stage0-seed
 
 all: build
@@ -58,6 +59,9 @@ unit:
 test: build unit
 	bin/slang test test
 	bin/slang test zig/test
+
+test-gui: build
+	bin/slang test zig/test/gui
 
 test-safe: build-safe
 	zig/zig-out-safe/bin/slang test test

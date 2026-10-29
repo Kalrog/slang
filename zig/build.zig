@@ -148,6 +148,22 @@ pub fn build(b: *std.Build) void {
         addNativeExtension(b, target, optimize, "zlib", "../extensions/native/zlib.c", prefix, "z");
     }
 
+    // The webview extension (macOS: Cocoa and WebKit); -Dwebview=false skips it.
+    const with_webview = b.option(bool, "webview", "build the webview extension (macOS)") orelse (target.result.os.tag == .macos);
+    if (with_webview) {
+        const wv_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
+        wv_mod.addCSourceFile(.{ .file = b.path("../extensions/native/webview.m"), .flags = &.{ "-fno-objc-arc", "-Wno-deprecated-declarations" } });
+        wv_mod.addIncludePath(b.path("include"));
+        wv_mod.linkFramework("Cocoa", .{});
+        wv_mod.linkFramework("WebKit", .{});
+        const wv = b.addLibrary(.{ .name = "webview_ext", .linkage = .dynamic, .root_module = wv_mod });
+        wv.linker_allow_shlib_undefined = true;
+        const wv_install = b.addInstallArtifact(wv, .{
+            .dest_sub_path = b.fmt("webview{s}", .{target.result.dynamicLibSuffix()}),
+        });
+        b.getInstallStep().dependOn(&wv_install.step);
+    }
+
     const tests = b.addTest(.{ .root_module = mod });
     b.step("test", "run the Zig unit tests").dependOn(&b.addRunArtifact(tests).step);
 }
@@ -173,7 +189,7 @@ fn addNativeExtension(b: *std.Build, target: std.Build.ResolvedTarget, optimize:
 /// boot/slang at the repository root. It is copied into a generated module
 /// that embeds every file under its module name ("slang/compiler", ...).
 fn seedModule(b: *std.Build) *std.Build.Module {
-    const names = [_][]const u8{ "ast", "async", "codegen", "compiler", "crypto", "grammar", "html", "http", "json", "jwt", "optimizer", "package", "peg", "sqlite", "std", "table", "test", "web", "ws" };
+    const names = [_][]const u8{ "ast", "async", "codegen", "compiler", "crypto", "grammar", "html", "http", "json", "jwt", "optimizer", "package", "peg", "sqlite", "std", "table", "test", "web", "webview", "ws" };
     const wf = b.addWriteFiles();
     var src: std.ArrayList(u8) = .empty;
     src.appendSlice(b.allocator, "pub const Entry = struct { name: []const u8, data: []const u8 };\npub const files = [_]Entry{\n") catch @panic("OOM");

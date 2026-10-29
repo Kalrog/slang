@@ -318,13 +318,29 @@ func async.sleep(ms){
   })
 }
 
+// The driver: what async.main calls to wait for and handle one batch of
+// events, returning whether there is more to do. By default libuv's
+// run("once"); a GUI extension (slang/webview) sets its own, which waits on
+// the window system and on libuv together.
+local driver = null
+
+// set_driver(step) replaces the driver; null restores libuv's
+func async.set_driver(step){
+  driver = step
+}
+
 // main(f) -> the value of f: runs f as an async function and drives the
 // event loop until it finishes. Failed futures nobody handled are reported.
 func async.main(f){
   local uv = loop_module()
   local fut = async.run(f)
   for(fut.state == "pending"){
-    local more = uv.run("once")
+    local more = false
+    if(driver != null){
+      more = driver()
+    } else {
+      more = uv.run("once")
+    }
     if(not more and fut.state == "pending"){
       error("async.main: the loop has nothing left to do but the main function has not finished")
     }

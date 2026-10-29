@@ -1,0 +1,5 @@
+// async/await, the HTML templates and the sql{} literals are ambient in
+// every file of the app
+{
+  extensions: {"extensions/async", "extensions/html", "extensions/sqlite"},
+}

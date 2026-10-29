@@ -16,7 +16,6 @@
 //   todos.slang   the todo list, in SQLite
 //   log.slang     the request log, printed and stored in SQLite for /log
 //   db.slang      the SQLite database (todos.db) and its tables
-//   forms.slang   decoding of form bodies and query strings
 local http = require("slang/http")
 local a = require("slang/async")
 local os = require("slang/os")

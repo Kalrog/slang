@@ -7,18 +7,18 @@ local str = require("slang/string")
 local views = require("views")
 local todos = require("todos")
 local log = require("log")
-local forms = require("forms")
+local encoding = require("slang/encoding")
 local m = {}
 
 // the filter in play: ?filter= of the request, else of the page htmx is
 // on (it sends the page's URL in HX-Current-URL), else all
 local func filter_of(req){
-  local filter = forms.decode(req.query).filter
+  local filter = encoding.query_decode(req.query).filter
   if(filter == null){
     local url = req.headers["hx-current-url"] or ""
     local q = str.index_of(url, "?")
     if(q >= 0){
-      filter = forms.decode(str.substring(url, q + 1)).filter
+      filter = encoding.query_decode(str.substring(url, q + 1)).filter
     }
   }
   return filter or "all"
@@ -97,7 +97,7 @@ func m.install(r){
   })
 
   r:route("POST", "/todos", func(req){
-    local text = str.trim(forms.decode(req.body).text or "")
+    local text = str.trim(encoding.query_decode(req.body).text or "")
     if(text != ""){
       todos.add(text, false)
     }
@@ -119,7 +119,7 @@ func m.install(r){
 
   r:route("POST", "/todos/:id", func(req, params){
     return with_todo(params, func(t){
-      local text = str.trim(forms.decode(req.body).text or "")
+      local text = str.trim(encoding.query_decode(req.body).text or "")
       if(text != ""){
         todos.rename(t.id, text)
       }

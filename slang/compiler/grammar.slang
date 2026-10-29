@@ -858,7 +858,11 @@ local func install_core(g){
   ):pick(1):token("string"))
 
   define("string_literal", peg.choice(rule("multiline_string"), rule("double_quoted_string")):map(func(t){
-    return ast.node("String", {value: ast.resolve_escapes(t.value)}, t)
+    local r = pcall(ast.resolve_escapes, t.value)
+    if(r[0] == "err"){
+      g:error_at(t, r[1].message or r[1])
+    }
+    return ast.node("String", {value: r[1]}, t)
   }))
 
   define("true_literal", tok("true"):map(func(t){ return ast.node("True", {}, t) }))

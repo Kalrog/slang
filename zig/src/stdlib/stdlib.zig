@@ -1,7 +1,8 @@
 //! The Zig-implemented part of the slang standard library: core globals and
-//! the native modules slang/vm, slang/os, slang/string, slang/math and
-//! slang/thread. The rest of the library is written in slang (see
-//! slang/lib) and loaded from the embedded seed bytecode.
+//! the native modules slang/vm, slang/os, slang/string, slang/math,
+//! slang/thread, slang/encoding and slang/time. The rest of the library is
+//! written in slang (see slang/lib) and loaded from the embedded seed
+//! bytecode.
 
 const std = @import("std");
 const vm_mod = @import("../vm.zig");
@@ -60,6 +61,8 @@ pub fn open(vm: *VM) void {
     preload(vm, "slang/string", .{ .table = @import("stringlib.zig").module(vm) });
     preload(vm, "slang/math", .{ .table = @import("mathlib.zig").module(vm) });
     preload(vm, "slang/thread", .{ .table = @import("threadlib.zig").module(vm) });
+    preload(vm, "slang/encoding", .{ .table = @import("encoding.zig").module(vm) });
+    preload(vm, "slang/time", .{ .table = @import("timelib.zig").module(vm) });
 }
 
 /// Registers a module value so that require(name) finds it.

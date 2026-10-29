@@ -6,6 +6,7 @@
 // code (+{...}) and extension-generated code use exactly the same shape.
 
 local str = require("slang/string")
+local encoding = require("slang/encoding")
 
 local ast = {}
 
@@ -113,7 +114,30 @@ func ast.literal(token, value){
   error("cannot make a literal from a ", t)
 }
 
-// resolve_escapes("a\\nb") -> the string with escape sequences replaced
+// the value of the hex digits in literal[from, to), or null
+local func hex_value(literal, from, to){
+  if(to > len(literal)){
+    return null
+  }
+  local v = 0
+  for(local i = from; i < to; i = i + 1){
+    local b = str.byte_at(literal, i)
+    if(b >= 48 and b <= 57){
+      v = v * 16 + b - 48
+    } else if(b >= 97 and b <= 102){
+      v = v * 16 + b - 87
+    } else if(b >= 65 and b <= 70){
+      v = v * 16 + b - 55
+    } else {
+      return null
+    }
+  }
+  return v
+}
+
+// resolve_escapes("a\\nb") -> the string with escape sequences replaced:
+// \n \r \t \b \f \v \\ \" and \xHH (a byte), \u{H...} (a code point,
+// as UTF-8); raises on any other
 func ast.resolve_escapes(literal){
   if(str.index_of(literal, "\\") < 0){
     return literal
@@ -129,7 +153,7 @@ func ast.resolve_escapes(literal){
       }
       i = i + 1
       if(i >= n){
-        error("Invalid escape sequence in ", literal)
+        error("Invalid escape sequence at the end of the string")
       }
       local c = str.char_at(literal, i)
       if(c == "n"){
@@ -148,8 +172,28 @@ func ast.resolve_escapes(literal){
         append(pieces, "\\")
       } else if(c == "\""){
         append(pieces, "\"")
+      } else if(c == "x"){
+        // \xHH: one byte
+        local v = hex_value(literal, i + 1, i + 3)
+        if(v == null){
+          error("\\x needs two hex digits")
+        }
+        append(pieces, str.from_bytes({v}))
+        i = i + 2
+      } else if(c == "u"){
+        // \u{H...}: a code point as UTF-8
+        local close = str.index_of(literal, "}", i)
+        local v = null
+        if(str.char_at(literal, i + 1) == "{" and close > i + 2 and close <= i + 8){
+          v = hex_value(literal, i + 2, close)
+        }
+        if(v == null or v > 1114111 or (v >= 55296 and v <= 57343)){
+          error("\\u needs a code point in braces, like \\u{e9}")
+        }
+        append(pieces, str.chr(v))
+        i = close
       } else {
-        error("Invalid escape sequence in ", literal)
+        error("Invalid escape sequence \\", c)
       }
       i = i + 1
       start = i
@@ -295,6 +339,30 @@ func ast.decode(value){
 
 // --------------------------------------------------------------- to_string
 
+local hex_digits = "0123456789abcdef"
+
+// the bytes of s with the other control bytes, and the high bytes when s
+// is not UTF-8, written as \xHH
+local func escape_bytes(s){
+  local high = not encoding.utf8_valid(s)
+  local pieces = {}
+  local start = 0
+  local n = len(s)
+  for(local i = 0; i < n; i = i + 1){
+    local b = str.byte_at(s, i)
+    if(b < 32 or b == 127 or (high and b >= 128)){
+      append(pieces, str.substring(s, start, i))
+      append(pieces, concat("\\x", str.char_at(hex_digits, b >> 4), str.char_at(hex_digits, b & 15)))
+      start = i + 1
+    }
+  }
+  if(start == 0){
+    return s
+  }
+  append(pieces, str.substring(s, start, n))
+  return str.join(pieces, "")
+}
+
 local func escape_string(s){
   s = str.replace(s, "\\", "\\\\")
   s = str.replace(s, "\"", "\\\"")
@@ -303,7 +371,7 @@ local func escape_string(s){
   s = str.replace(s, "\t", "\\t")
   s = str.replace(s, "\b", "\\b")
   s = str.replace(s, "\f", "\\f")
-  return s
+  return escape_bytes(s)
 }
 
 local writer = {}

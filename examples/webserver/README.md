@@ -19,7 +19,6 @@ ambient in the folder, so no file declares them.
 | `todos.slang` | the todo list, as queries on the `todos` table |
 | `log.slang` | the request log, printed and stored in the `requests` table |
 | `db.slang` | the SQLite database `todos.db` and its tables, created on first start |
-| `forms.slang` | decoding of form bodies and query strings |
 
 ```
 brew install libuv

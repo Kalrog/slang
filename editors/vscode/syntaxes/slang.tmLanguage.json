@@ -80,7 +80,7 @@
       "patterns": [
         {
           "name": "keyword.control.slang",
-          "match": "\\b(if|else|for|return|break|let|in|try|catch|defer)\\b"
+          "match": "\\b(if|else|for|return|break|continue|let|in|try|catch|defer)\\b"
         },
         {
           "name": "storage.type.slang",

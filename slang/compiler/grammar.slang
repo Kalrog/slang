@@ -753,7 +753,7 @@ local func install_core(g){
   g.keywords = {
     ["if"]: true, ["else"]: true, ["for"]: true, ["func"]: true, ["return"]: true,
     ["local"]: true, ["true"]: true, ["false"]: true, ["null"]: true, ["let"]: true,
-    ["break"]: true, ["extension"]: true,
+    ["break"]: true, ["continue"]: true, ["extension"]: true,
   }
 
   // ------------------------------------------------------------ lexical
@@ -1154,6 +1154,21 @@ local func install_core(g){
     return ast.node("Defer", {body: body}, v[0])
   }), {probe: "defer f()"})
 
+  // :name: for(...){ ... }: a loop that break name and continue name in
+  // nested loops refer to
+  define("labeled_loop", peg.seq(
+    tok(":"), rule("identifier"), tok(":"), peg.choice(rule("for_in_loop"), rule("for_loop"))
+  ):map(func(v){
+    // a copy: parse results may be shared (memoized)
+    local loop = {}
+    for(let local e in entries(v[3])){
+      loop[e[0]] = e[1]
+    }
+    loop.meta = v[3].meta
+    loop.label = v[1].value
+    return loop
+  }), {probe: ":outer: for(true){ break outer }"})
+
   define("let_statement", peg.seq(tok("let"), rule("slang_pattern"), tok("="), rule("expr")):map(func(v){
     return ast.node("LetStat", {pattern: v[1], right: v[3]}, v[0])
   }), {probe: "let {name: local n} = t"})
@@ -1164,6 +1179,7 @@ local func install_core(g){
     rule("if_statement"),
     rule("try_statement"),
     rule("defer_statement"),
+    rule("labeled_loop"),
     rule("for_loop"),
     rule("for_in_loop"),
     rule("block"),
@@ -1191,14 +1207,20 @@ local func install_core(g){
 
   define("block", peg.seq(tok("{"), rule("chunk"), tok("}")):pick(1), {probe: "{ x = 1; f(x) }"})
 
-  define("break_statement", tok("break"):map(func(t){ return ast.node("Break", {}, t) }))
+  // break and continue, optionally with the label of an enclosing loop
+  define("break_statement", peg.seq(tok("break"), rule("identifier"):optional()):map(func(v){
+    return ast.node("Break", {label: v[1] and v[1].value}, v[0])
+  }))
+  define("continue_statement", peg.seq(tok("continue"), rule("identifier"):optional()):map(func(v){
+    return ast.node("Continue", {label: v[1] and v[1].value}, v[0])
+  }))
 
   // the value is optional: a bare `return` returns null
   define("return_statement", peg.seq(tok("return"), rule("expr"):optional()):map(func(v){
     return ast.node("Return", {value: v[1]}, v[0])
   }))
 
-  define("final_statement", peg.choice(rule("return_statement"), rule("break_statement")))
+  define("final_statement", peg.choice(rule("return_statement"), rule("break_statement"), rule("continue_statement")))
 
   // ------------------------------------------------------------ functions
 

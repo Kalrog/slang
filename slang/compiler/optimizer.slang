@@ -134,7 +134,7 @@ func visitors.Field(n){
 }
 
 func visitors.For(n){
-  return ast.node("For", {init: maybe(n.init), condition: visit(n.condition), update: maybe(n.update), body: visit(n.body)}, n.token)
+  return ast.node("For", {init: maybe(n.init), condition: visit(n.condition), update: maybe(n.update), body: visit(n.body), label: n.label}, n.token)
 }
 
 func visitors.Call(n){

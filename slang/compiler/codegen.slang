@@ -157,7 +157,7 @@ func asm.free_local(self, lv){
 
 func asm.enter_scope(self, breakable){
   self.scope = self.scope + 1
-  append(self.scopes, {breakable: breakable == true, break_jumps: {}})
+  append(self.scopes, {breakable: breakable == true, break_jumps: {}, continue_jumps: {}, label: null, break_target: null})
 }
 
 func asm.leave_scope(self){
@@ -172,10 +172,31 @@ func asm.leave_scope(self){
     self:free_local(lv)
   }
   local leaving = remove(self.scopes, len(self.scopes) - 1)
+  // a loop may say where a break lands (a for-in: on the pop of its iterator)
   for(let local jump in values(leaving.break_jumps)){
-    self:patch_jump(jump)
+    self:patch_jump(jump, leaving.break_target)
   }
   self.scope = self.scope - 1
+}
+
+// emits closeUpvalues for the lowest captured local of the scopes deeper
+// than depth: a break or continue leaves them without their block's end
+func asm.close_upvalues_below(self, depth){
+  local min_slot = self.max_registers
+  local any_captured = false
+  for(let local name in keys(self.locals)){
+    local current = self.locals[name]
+    for(current != null and current.scope > depth){
+      if(current.captured and current.register < min_slot){
+        any_captured = true
+        min_slot = current.register
+      }
+      current = current.previous
+    }
+  }
+  if(any_captured){
+    self:emit_close_upvalues(min_slot)
+  }
 }
 
 // emits closeUpvalues for the lowest captured local of the current scope
@@ -790,7 +811,7 @@ visit_statements = func(g, statements, from){
   local final = null
   if(n > from){
     local last = statements[n - 1]
-    if(last.type == "Return" or last.type == "Break"){
+    if(last.type == "Return" or last.type == "Break" or last.type == "Continue"){
       final = last
       n = n - 1
     }
@@ -1092,6 +1113,8 @@ func visitors.CallStat(g, node){
 
 func visitors.For(g, node){
   g.asm:enter_scope(true)
+  local scope = g.asm.scopes[len(g.asm.scopes) - 1]
+  scope.label = node.label
   if(node.init != null){
     g:visit(node.init)
   }
@@ -1100,6 +1123,10 @@ func visitors.For(g, node){
   g.asm:emit_test(false)
   local loop_end = g.asm:emit_jump()
   g:visit(node.body)
+  // continue goes to the update
+  for(let local jump in values(scope.continue_jumps)){
+    g.asm:patch_jump(jump)
+  }
   if(node.update != null){
     g:visit(node.update)
   }
@@ -1110,6 +1137,8 @@ func visitors.For(g, node){
 
 func visitors.ForIn(g, node){
   g.asm:enter_scope(true)
+  local scope = g.asm.scopes[len(g.asm.scopes) - 1]
+  scope.label = node.label
   g:visit(node.itterator)
   local loop_start = g.asm:next_instruction_index()
   local p = g.asm:start_pattern()
@@ -1123,8 +1152,14 @@ func visitors.ForIn(g, node){
   g:visit(node.pattern)
   g.asm:end_pattern()
   g:visit(node.body)
+  // continue fetches the next value
+  for(let local jump in values(scope.continue_jumps)){
+    g.asm:patch_jump(jump, loop_start)
+  }
   g.asm:emit_jump(loop_start)
   p:close_missmatch_jumps()
+  // a break lands here too: the iterator is still on the stack
+  scope.break_target = g.asm:next_instruction_index()
   g.asm:emit_pop()
   g.asm:leave_scope()
 }
@@ -1284,24 +1319,51 @@ func visitors.VarPattern(g, node){
   }
 }
 
-func visitors.Break(g, node){
-  // the defers and trys between here and the loop are left
+// the scope index of the loop a break or continue goes to: the innermost,
+// or the one with the label
+local func loop_target(g, node, word){
   local scopes = g.asm.scopes
-  local target = -1
   for(local i = len(scopes) - 1; i >= 0; i = i - 1){
-    if(scopes[i].breakable){
-      target = i
-      break
+    if(scopes[i].breakable and (node.label == null or scopes[i].label == node.label)){
+      return i
     }
   }
+  if(node.label != null){
+    error(concat(word, " ", node.label, ": no enclosing loop is labeled ", node.label, " "), position(node.token))
+  }
+  if(word == "break"){
+    error("Cannot break outside of a loop")
+  }
+  error(concat("continue outside of a loop "), position(node.token))
+}
+
+// a break or continue: the defers and trys between here and the loop are
+// left, upvalues of the blocks left are closed, then the jump
+local func leave_to_loop(g, node, word){
+  local target = loop_target(g, node, word)
   local floors = g.defer_floors
   if(floors != null and len(floors) > 0 and target < floors[len(floors) - 1]){
-    error("break is not allowed to leave a defer ", position(node.token))
+    error(concat(word, " is not allowed to leave a defer "), position(node.token))
   }
-  if(target >= 0){
-    emit_exits(g, target + 1)
+  emit_exits(g, target + 1)
+  // the loop's own scope too: a loop body's locals live there, and an
+  // iteration's end closes them (so each iteration's closures keep theirs)
+  g.asm:close_upvalues_below(target)
+  local jump = g.asm:emit_jump()
+  local scope = g.asm.scopes[target]
+  if(word == "break"){
+    append(scope.break_jumps, jump)
+  } else {
+    append(scope.continue_jumps, jump)
   }
-  g.asm:emit_break()
+}
+
+func visitors.Break(g, node){
+  leave_to_loop(g, node, "break")
+}
+
+func visitors.Continue(g, node){
+  leave_to_loop(g, node, "continue")
 }
 
 func visitors.Quote(g, node){

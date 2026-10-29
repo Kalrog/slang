@@ -37,9 +37,10 @@ local specs = {
   Return: {{"value", "node"}},
   Assignment: {{"left", "node"}, {"right", "node"}},
   Declaration: {{"is_local", "value"}, {"left", "node"}, {"right", "node?"}},
-  Break: {},
-  For: {{"init", "node?"}, {"condition", "node"}, {"update", "node?"}, {"body", "node"}},
-  ForIn: {{"pattern", "node"}, {"itterator", "node"}, {"body", "node"}},
+  Break: {{"label", "value"}},
+  Continue: {{"label", "value"}},
+  For: {{"init", "node?"}, {"condition", "node"}, {"update", "node?"}, {"body", "node"}, {"label", "value"}},
+  ForIn: {{"pattern", "node"}, {"itterator", "node"}, {"body", "node"}, {"label", "value"}},
   VarPattern: {{"isLocal", "value"}, {"canBeNull", "value"}, {"name", "node"}},
   TablePattern: {{"type_check", "value"}, {"fields", "list"}},
   MatcherPattern: {{"matcher", "node?"}, {"type_name", "value"}, {"sub", "node?"}},
@@ -58,7 +59,7 @@ ast.specs = specs
 local statement_types = {
   Block: true, CallStat: true, If: true, Return: true, Assignment: true,
   Declaration: true, Break: true, For: true, ForIn: true, Unquote: true, LetStat: true,
-  Try: true, Defer: true, Throw: true,
+  Try: true, Defer: true, Throw: true, Continue: true,
 }
 
 local metas = {}
@@ -593,8 +594,12 @@ func writer.visit(self, node){
     self:visit(node.pattern)
     self:add(" = ")
     self:visit(node.right)
-  } else if(t == "Break"){
-    self:add("break")
+  } else if(t == "Break" or t == "Continue"){
+    self:add(t == "Break" and "break" or "continue")
+    if(node.label != null){
+      self:add(" ")
+      self:add(node.label)
+    }
   } else if(t == "Try"){
     self:add("try ")
     self:visit(node.body)
@@ -971,8 +976,12 @@ func source.statement(self, node){
       self:add(" ")
       self:expr(node.value)
     }
-  } else if(t == "Break"){
-    self:add("break")
+  } else if(t == "Break" or t == "Continue"){
+    self:add(t == "Break" and "break" or "continue")
+    if(node.label != null){
+      self:add(" ")
+      self:add(node.label)
+    }
   } else if(t == "Assignment"){
     self:expr(node.left)
     self:add(" = ")
@@ -1002,6 +1011,9 @@ func source.statement(self, node){
       self:statement(node.elseBranch)
     }
   } else if(t == "For"){
+    if(node.label != null){
+      self:add(concat(":", node.label, ": "))
+    }
     self:add("for(")
     if(node.init == null and node.update == null){
       self:expr(node.condition)
@@ -1018,6 +1030,9 @@ func source.statement(self, node){
     self:add(")")
     self:statement(node.body)
   } else if(t == "ForIn"){
+    if(node.label != null){
+      self:add(concat(":", node.label, ": "))
+    }
     self:add("for(let ")
     self:pattern(node.pattern)
     self:add(" in ")

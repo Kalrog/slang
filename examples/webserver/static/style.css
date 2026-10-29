@@ -36,3 +36,10 @@ form.account-form { display: flex; flex-direction: column; gap: 0.6rem; max-widt
 form.account-form label { display: flex; flex-direction: column; gap: 0.2rem; }
 form.account-form button { align-self: flex-start; }
 .error { color: #b00; }
+
+/* files */
+form.upload { align-items: center; }
+form.upload progress { width: 8rem; }
+ul.files { list-style: none; padding: 0; }
+ul.files li { display: flex; align-items: baseline; gap: 0.6rem; padding: 0.4rem 0; border-bottom: 1px solid #eee; }
+ul.files li .meta { flex: 1; color: #777; font-size: 0.9rem; }

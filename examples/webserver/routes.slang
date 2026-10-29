@@ -9,6 +9,8 @@ local views = require("views")
 local todos = require("todos")
 local log = require("log")
 local auth = require("auth")
+local files = require("files")
+local http = require("slang/http")
 local encoding = require("slang/encoding")
 local m = {}
 
@@ -173,6 +175,45 @@ func m.install(r){
     await a.sleep(2000)
     return views.fragment(<p>Done after two seconds, at {log.uptime()} s.</p>)
   })
+
+  // ---------------------------------------------------------- files
+
+  r:route("GET", "/files", signed_in(func(req){
+    return views.page(req, "Files", <>
+      <p>Uploads stream to disk while their SHA-256 is computed; downloads
+        stream back from disk. Text files travel gzipped when the browser
+        allows it.</p>
+      <views.Upload/>
+      <views.FileList user={req.user}/>
+    </>)
+  }))
+
+  // the body arrives as a stream (see stream_body in main.slang)
+  r:route("POST", "/files", signed_in(async func(req){
+    local r = await files.receive(req)
+    if(r.error != null){
+      return views.fragment(<views.FileList user={req.user} error={r.error}/>)
+    }
+    return views.fragment(<views.FileList user={req.user}/>)
+  }))
+
+  r:route("GET", "/files/:id", signed_in(func(req, params){
+    local f = files.find(req.user.id, to_int(params.id))
+    if(f == null){
+      return {status: 404, body: "no such file\n"}
+    }
+    return {status: 200, body: a.fs.read_stream(files.path(f)), headers: {
+      ["Content-Type"]: f.type,
+      ["Content-Length"]: string(f.size),
+      ["Content-Disposition"]: concat("attachment; filename=\"", str.replace(f.name, "\"", ""), "\""),
+      ["X-Content-Type-Options"]: "nosniff",
+    }}
+  }))
+
+  r:route("DELETE", "/files/:id", signed_in(async func(req, params){
+    await files.remove(req.user.id, to_int(params.id))
+    return views.fragment(<views.FileList user={req.user}/>)
+  }))
 
   // ---------------------------------------------------------- accounts
 

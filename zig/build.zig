@@ -132,8 +132,41 @@ pub fn build(b: *std.Build) void {
         b.getInstallStep().dependOn(&cr_install.step);
     }
 
+    // The llhttp extension links llhttp (Homebrew by default); -Dllhttp=false
+    // skips it, -Dllhttp-prefix points at another install.
+    const with_llhttp = b.option(bool, "llhttp", "build the llhttp extension (needs llhttp installed)") orelse true;
+    if (with_llhttp) {
+        const prefix = b.option([]const u8, "llhttp-prefix", "where llhttp is installed") orelse "/opt/homebrew/opt/llhttp";
+        addNativeExtension(b, target, optimize, "llhttp", "../extensions/native/llhttp.c", prefix, "llhttp");
+    }
+
+    // The zlib extension links zlib (Homebrew by default); -Dzlib=false skips
+    // it, -Dzlib-prefix points at another install.
+    const with_zlib = b.option(bool, "zlib", "build the zlib extension (needs zlib installed)") orelse true;
+    if (with_zlib) {
+        const prefix = b.option([]const u8, "zlib-prefix", "where zlib is installed") orelse "/opt/homebrew/opt/zlib";
+        addNativeExtension(b, target, optimize, "zlib", "../extensions/native/zlib.c", prefix, "z");
+    }
+
     const tests = b.addTest(.{ .root_module = mod });
     b.step("test", "run the Zig unit tests").dependOn(&b.addRunArtifact(tests).step);
+}
+
+/// A native extension built from one C file against a library installed
+/// under prefix (include/ and lib/), installed as lib/<name>.dylib.
+fn addNativeExtension(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, name: []const u8, source: []const u8, prefix: []const u8, library: []const u8) void {
+    const m = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
+    m.addCSourceFile(.{ .file = b.path(source), .flags = &.{"-std=c11"} });
+    m.addIncludePath(b.path("include"));
+    m.addIncludePath(.{ .cwd_relative = b.fmt("{s}/include", .{prefix}) });
+    m.addLibraryPath(.{ .cwd_relative = b.fmt("{s}/lib", .{prefix}) });
+    m.linkSystemLibrary(library, .{});
+    const lib = b.addLibrary(.{ .name = b.fmt("{s}_ext", .{name}), .linkage = .dynamic, .root_module = m });
+    lib.linker_allow_shlib_undefined = true;
+    const install = b.addInstallArtifact(lib, .{
+        .dest_sub_path = b.fmt("{s}{s}", .{ name, target.result.dynamicLibSuffix() }),
+    });
+    b.getInstallStep().dependOn(&install.step);
 }
 
 /// The seed bytecode (slang/lib and slang/compiler compiled to .slb) lives in

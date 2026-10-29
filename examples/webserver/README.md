@@ -18,14 +18,15 @@ ambient in the folder, so no file declares them.
 | `views.slang` | the templates: the layout, the components, `page` and `fragment` |
 | `auth.slang` | accounts (scrypt password hashes) and sessions (a JWT in a cookie) |
 | `todos.slang` | the todo lists, one per user, as queries on the `todos` table |
+| `files.slang` | uploaded files: streamed to `uploads/` with their SHA-256, streamed back |
 | `log.slang` | the request log, printed and stored in the `requests` table |
 | `db.slang` | the SQLite database `todos.db` and its tables, created on first start |
 
-It needs the `uv`, `sqlite` and `crypto` native extensions (libuv, SQLite
-and OpenSSL 3 from Homebrew).
+It needs the `uv`, `sqlite`, `crypto`, `llhttp` and `zlib` native
+extensions (libuv, SQLite, OpenSSL 3, llhttp and zlib from Homebrew).
 
 ```
-brew install libuv sqlite openssl@3
+brew install libuv sqlite openssl@3 llhttp zlib
 make build
 bin/slang run examples/webserver/main.slang 8080
 open http://127.0.0.1:8080/        # sign in as demo / demo
@@ -51,6 +52,13 @@ curl -d 'hello' http://127.0.0.1:8080/echo
   The fragments are made by the same components as the full page, and a
   fragment can update a second place (the count, the filter tabs) with
   `hx-swap-oob`.
+- `/files`: your uploads. The form posts a multipart body that the server
+  reads as a stream (`stream_body` in `main.slang`): each file goes to a
+  temporary file while its SHA-256 is computed and is renamed into place
+  when its part ends, so a large file never sits in memory (50 MiB per
+  upload). A progress bar follows the upload. Downloads stream from disk
+  with `async.fs.read_stream`, read only as fast as the client takes them;
+  text files travel gzipped when the browser accepts it.
 - `/log`: the last forty requests with status and duration, from the
   database, so the log survives a restart. The table reloads its rows
   every three seconds and shows its own polls, dimmed.

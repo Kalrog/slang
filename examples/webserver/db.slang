@@ -1,6 +1,7 @@
-// The database: one SQLite file holding the accounts, the todos and the
-// request log, created with its tables on the first start. The sql{ ... }
-// literals are extensions/sqlite, ambient here through slang.project.
+// The database: one SQLite file holding the accounts, the todos, the
+// records of uploaded files (their bytes are in uploads/) and the request
+// log, created with its tables on the first start. The sql{ ... } literals
+// are extensions/sqlite, ambient here through slang.project.
 local sqlite = require("slang/sqlite")
 
 local db = sqlite.open("examples/webserver/todos.db")
@@ -20,6 +21,15 @@ db:exec(sql{
     text text not null,
     done boolean not null default false,
     user_id integer references users(id)
+  );
+  create table if not exists files(
+    id integer primary key,
+    user_id integer not null references users(id),
+    name text not null,
+    type text not null,
+    size integer not null,
+    sha256 text not null,
+    at text not null default (datetime('now'))
   );
   create table if not exists requests(
     id integer primary key,

@@ -216,6 +216,54 @@ func async.all(futures){
   return c.future
 }
 
+// race(futures) -> Future that settles like the first of the futures to
+// settle; the others are marked handled and their results dropped
+func async.race(futures){
+  local c = async.completer()
+  local settled = false
+  for(let local f in values(futures)){
+    on_settled(f, func(f){
+      if(settled){ return }
+      settled = true
+      if(f.state == "done"){
+        c.complete(f.value)
+      } else {
+        c.fail(f.error)
+      }
+    })
+  }
+  return c.future
+}
+
+// timeout(f, ms, message) -> Future of f's value, or failing with message
+// ("timed out after <ms> ms" by default) when f takes longer than ms
+// milliseconds (an error keeps only its message through raise, so tell a
+// timeout by the message you chose)
+func async.timeout(f, ms, message){
+  local c = async.completer()
+  local settled = false
+  local timer = loop_module().timer()
+  timer:start(ms, 0, func(){
+    timer:close()
+    if(not settled){
+      settled = true
+      c.fail(message or concat("timed out after ", string(ms), " ms"))
+    }
+  })
+  on_settled(f, func(f){
+    if(settled){ return }
+    settled = true
+    timer:stop()
+    timer:close()
+    if(f.state == "done"){
+      c.complete(f.value)
+    } else {
+      c.fail(f.error)
+    }
+  })
+  return c.future
+}
+
 // ------------------------------------------------------------ await and run
 
 // await(f) -> the value of f, or raises its error
@@ -416,6 +464,81 @@ func stream_methods.collect(s){
   return c.future
 }
 
+// pull(next_value) -> a Stream that reads only when asked: next() calls
+// next_value(), which returns the next value, null at the end, or a Future
+// of either. Nothing is read ahead, so a slow reader slows the source (a
+// file sent to a slow client is not read into memory first).
+local pull_methods = {}
+local pull_meta = {__index: pull_methods, __type: "Stream"}
+
+func async.pull(next_value){
+  return {meta: pull_meta, source: next_value, done: false, busy: false}
+}
+
+func pull_methods.next(s){
+  if(s.busy){
+    error("the stream is already being read")
+  }
+  if(s.done){
+    return async.value({done: true})
+  }
+  s.busy = true
+  local r = pcall(s.source)
+  local f = null
+  if(r[0] == "err"){
+    f = async.failed(r[1])
+  } else if(type(r[1]) == "Future"){
+    f = r[1]
+  } else {
+    f = async.value(r[1])
+  }
+  return f:then(func(v){
+    s.busy = false
+    if(v == null){
+      s.done = true
+      return {done: true}
+    }
+    return {value: v}
+  }, func(e){
+    s.busy = false
+    s.done = true
+    raise(e)
+  })
+}
+
+func pull_methods.collect(s){
+  return async.run(func(){
+    local out = {}
+    for(true){
+      local e = async.await(s:next())
+      if(e.done){
+        return out
+      }
+      append(out, e.value)
+    }
+  })
+}
+
+func pull_methods.listen(s, cb){
+  async.run(func(){
+    local r = pcall(func(){
+      for(true){
+        local e = async.await(s:next())
+        if(e.done){
+          return null
+        }
+        cb(null, e.value)
+      }
+    })
+    if(r[0] == "err"){
+      cb(r[1], null)
+    } else {
+      cb(null, null)
+    }
+  })
+  return s
+}
+
 // iterator(stream) -> a function returning the next value, or null at the
 // end (what `await for` loops over: a for-in loop calls it until the pattern
 // stops matching, so a null value ends the loop early)
@@ -566,6 +689,7 @@ func async.serve(host, port, options){
 //   fs.open(path, flags) -> fd   (flags as fopen: "r", "w", "a", "r+", ...)
 //   fs.read(fd, length, offset) -> data ("" at the end; offset null reads on)
 //   fs.write(fd, data, offset) -> bytes written   fs.close(fd)
+//   fs.read_stream(path, chunk_size) -> a Stream of the file, read on demand
 local fs = {}
 async.fs = fs
 
@@ -594,6 +718,39 @@ func fs.read(fd, length, offset){
 
 func fs.write(fd, data, offset){
   return async.wrap(func(cb){ loop_module().fs_write(fd, data, offset or -1, cb) })
+}
+
+// read_stream(path, chunk_size) -> a Stream of the file's contents in
+// chunks (64 KiB by default), read as they are asked for; the file is
+// closed at the end or on an error
+func fs.read_stream(path, chunk_size){
+  local size = chunk_size or 65536
+  local fd = null
+  local finished = false
+  return async.pull(func(){
+    if(finished){
+      return null
+    }
+    return async.run(func(){
+      local r = pcall(func(){
+        if(fd == null){
+          fd = async.await(fs.open(path, "r"))
+        }
+        return async.await(fs.read(fd, size, null))
+      })
+      if(r[0] == "err" or r[1] == ""){
+        finished = true
+        if(fd != null){
+          pcall(async.await, fs.close(fd))
+        }
+        if(r[0] == "err"){
+          raise(r[1])
+        }
+        return null
+      }
+      return r[1]
+    })
+  })
 }
 
 func fs.exists(path){

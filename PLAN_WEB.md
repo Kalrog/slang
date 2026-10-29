@@ -114,8 +114,17 @@ the window is a deployment choice.
       EdDSA with an algorithm allowlist. `slang/http` gained cookies,
       list-valued headers and a Date header. The example has accounts and
       per-user todo lists.
-- [ ] Phase 4: llhttp and zlib bindings; `slang/http` streaming, chunked,
-      compressed; file uploads in the example.
+- [x] Phase 4: llhttp and zlib bindings; `slang/http` streaming, chunked,
+      compressed; file uploads in the example. `slang/http` now parses with
+      llhttp (chunked bodies, pipelining, 431 for large heads), reads bodies
+      whole up to max_body (413) or as Streams with backpressure when
+      stream_body(req) says so, answers Expect: 100-continue, sends Stream
+      bodies chunked, gzips text when accepted, handles HEAD, has idle and
+      request timeouts (408), closes idle connections on close(), and hands
+      upgrade requests to on_upgrade (for WebSockets in phase 5). The client
+      reads chunked and gzip responses; `http.fetch(url)` and a streaming
+      multipart parser were added; `slang/async` gained race, timeout, pull
+      streams and `fs.read_stream`. The example has a files page.
 - [ ] Phase 5: `slang/web` extracted from the example; `slang/ws` with the
       live request log.
 - [ ] Phase 6: Chrome app mode over DevTools; an `examples/desktop` todo

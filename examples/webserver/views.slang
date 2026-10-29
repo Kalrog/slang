@@ -11,11 +11,13 @@
 // The todo components take the signed-in user (req.user) as `user`.
 local html = require("slang/html")
 local table = require("slang/table")
+local str = require("slang/string")
 local todos = require("todos")
 local log = require("log")
+local files = require("files")
 local m = {}
 
-local links = {{href: "/", text: "todos"}, {href: "/log", text: "log"}, {href: "/slow", text: "slow"}}
+local links = {{href: "/", text: "todos"}, {href: "/files", text: "files"}, {href: "/log", text: "log"}, {href: "/slow", text: "slow"}}
 
 func m.Layout(props){
   return <>
@@ -118,6 +120,51 @@ func m.TodoList(props){
   return <ul id="todos">
     {table.map(todos.visible(props.user.id, props.filter), func(t){ return <m.Todo todo={t}/> })}
   </ul>
+}
+
+// ------------------------------------------------------------ files
+
+// 1536 -> "1.5 KiB"
+local func human_size(n){
+  local units = {"bytes", "KiB", "MiB", "GiB"}
+  local i = 0
+  local v = n
+  for(v >= 1024 and i < 3){
+    v = v / 1024
+    i = i + 1
+  }
+  if(i == 0){
+    return concat(string(n), " bytes")
+  }
+  return concat(string(to_int(v * 10) / 10), " ", units[i])
+}
+
+func m.Upload(props){
+  return <form hx-post="/files" hx-encoding="multipart/form-data" hx-target="#files" hx-swap="outerHTML"
+               hx-on::xhr:progress="htmx.find('#progress').value = event.detail.loaded / event.detail.total * 100"
+               hx-on::after-request="this.reset(); htmx.find('#progress').value = 0" class="upload">
+    <input type="file" name="files" multiple required/>
+    <button>upload</button>
+    <progress id="progress" value="0" max="100"></progress>
+  </form>
+}
+
+func m.FileList(props){
+  local list = files.list(props.user.id)
+  return <div id="files">
+    {props.error and <p class="error">{props.error}</p>}
+    {len(list) == 0 and <p>No files yet.</p>}
+    <ul class="files">
+      {table.map(list, func(f){
+        local url = concat("/files/", string(f.id))
+        return <li>
+          <a href={url} download={f.name}>{f.name}</a>
+          <span class="meta">{human_size(f.size)}, {f.type}, sha256 <code title={f.sha256}>{str.substring(f.sha256, 0, 12)}</code></span>
+          <button class="delete" hx-delete={url} hx-target="#files" hx-swap="outerHTML" hx-confirm={concat("Delete ", f.name, "?")} aria-label="delete">&times;</button>
+        </li>
+      })}
+    </ul>
+  </div>
 }
 
 // ------------------------------------------------------------ log

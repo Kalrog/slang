@@ -15,6 +15,7 @@
 //   views.slang   the templates: the layout and the components
 //   auth.slang    accounts (scrypt hashes) and sessions (a JWT in a cookie)
 //   todos.slang   the todo lists, one per user, in SQLite
+//   files.slang   uploaded files, streamed to uploads/ with their SHA-256
 //   log.slang     the request log, printed and stored in SQLite for /log
 //   db.slang      the SQLite database (todos.db) and its tables
 local http = require("slang/http")
@@ -54,6 +55,8 @@ async func handle(req){
 
 a.main(func(){
   local s = http.serve("127.0.0.1", port, handle, {
+    // uploads are read as they arrive, not into memory first
+    stream_body: func(req){ return req.method == "POST" and req.path == "/files" },
     on_error: func(req, err){ print("error handling ", req.method, " ", req.path, ": ", err.message or err, "\n") },
   })
   print("listening on http://127.0.0.1:", s.port, "/\n")

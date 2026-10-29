@@ -210,3 +210,37 @@ t.group("async: files, names, processes, signals"){
     assert(got == {"SIGUSR2"})
   }
 }
+
+t.group("async: race, timeout, pull streams"){
+  t.test("race settles like the first; timeout fails slow futures"){
+    async.main(func(){
+      local slow = async.sleep(200):then(func(_){ return "slow" })
+      local fast = async.sleep(1):then(func(_){ return "fast" })
+      assert(await(async.race({slow, fast})) == "fast")
+      local r = pcall(await, async.timeout(async.sleep(200), 10, "too slow"))
+      assert(r[0] == "err" and r[1].message == "too slow")
+      assert(await(async.timeout(async.value(3), 10)) == 3)
+    })
+  }
+  t.test("pull streams read on demand; fs.read_stream reads a file"){
+    async.main(func(){
+      local asked = 0
+      local s = async.pull(func(){
+        asked = asked + 1
+        return asked <= 3 and asked or null
+      })
+      assert(asked == 0, "nothing is read before next()")
+      assert(await(s:next()).value == 1 and asked == 1)
+      assert(await(s:collect()) == {2, 3})
+      local p = concat(scratch, "/stream.txt")
+      local data = ""
+      for(local i = 0; i < 1000; i = i + 1){ data = concat(data, "0123456789") }
+      await(async.fs.write_file(p, data))
+      local chunks = await(async.fs.read_stream(p, 4096):collect())
+      assert(len(chunks) == 3 and str.join(chunks, "") == data)
+      local missing = pcall(await, async.fs.read_stream(concat(p, ".no")):collect())
+      assert(missing[0] == "err" and str.starts_with(missing[1].message, "ENOENT"))
+      await(async.fs.remove(p))
+    })
+  }
+}

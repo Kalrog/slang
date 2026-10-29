@@ -27,6 +27,7 @@
 // run from the loop (a zero timer), never inside the code that completed
 // the Future, so completing a Future never re-enters the completer.
 local thread = require("slang/thread")
+local str = require("slang/string")
 
 local async = {}
 
@@ -430,11 +431,63 @@ func async.iterator(s){
 
 // ------------------------------------------------------------ tcp adapters
 
-// connect(host, port) -> Future of a connected uv.tcp handle
-func async.connect(host, port){
-  local conn = loop_module().tcp()
+// is_ip(host): an IPv4 or IPv6 address rather than a name
+local func is_ip(host){
+  if(str.index_of(host, ":") >= 0){
+    return true
+  }
+  for(local i = 0; i < len(host); i = i + 1){
+    local b = str.byte_at(host, i)
+    if(b != 46 and (b < 48 or b > 57)){
+      return false
+    }
+  }
+  return true
+}
+
+// resolve(host, port, family) -> Future of the list of {ip, port, family}
+// the name resolves to; family "ipv4" or "ipv6" limits it
+func async.resolve(host, port, family){
   return async.wrap(func(cb){
-    conn:connect(host, port, func(err){ cb(err, conn) })
+    if(family != null){
+      loop_module().getaddrinfo(host, port, family, cb)
+    } else {
+      loop_module().getaddrinfo(host, port, cb)
+    }
+  })
+}
+
+// connect(host, port) -> Future of a connected uv.tcp handle; a host name
+// is resolved first and its addresses tried in order
+func async.connect(host, port){
+  local uv = loop_module()
+  return async.wrap(func(cb){
+    local func attempt(addrs, i, last_err){
+      if(i >= len(addrs)){
+        cb(last_err or concat("cannot connect to ", host, ": no addresses"), null)
+        return
+      }
+      local conn = uv.tcp()
+      conn:connect(addrs[i].ip, port, func(err){
+        if(err == null){
+          cb(null, conn)
+        } else {
+          conn:close()
+          attempt(addrs, i + 1, err)
+        }
+      })
+    }
+    if(is_ip(host)){
+      attempt({{ip: host}}, 0, null)
+    } else {
+      uv.getaddrinfo(host, port, func(err, addrs){
+        if(err != null){
+          cb(err, null)
+        } else {
+          attempt(addrs, 0, null)
+        }
+      })
+    }
   })
 }
 
@@ -498,6 +551,152 @@ func async.serve(host, port, options){
     server:close()
     c.close()
   }}
+}
+
+// ------------------------------------------------------------ files
+
+// The file system on libuv's thread pool; every function returns a Future.
+// Errors read like "ENOENT: no such file or directory, read_file 'x'".
+//
+//   fs.read_file(path) -> the contents    fs.write_file(path, data)
+//   fs.append_file(path, data)            fs.exists(path) -> bool
+//   fs.stat(path) -> {size, mode, mtime, atime, ctime, is_file, is_dir}
+//   fs.list_dir(path) -> list of {name, type}   (type "file", "dir", ...)
+//   fs.remove(path)   fs.mkdir(path)   fs.rmdir(path)   fs.rename(from, to)
+//   fs.open(path, flags) -> fd   (flags as fopen: "r", "w", "a", "r+", ...)
+//   fs.read(fd, length, offset) -> data ("" at the end; offset null reads on)
+//   fs.write(fd, data, offset) -> bytes written   fs.close(fd)
+local fs = {}
+async.fs = fs
+
+local func fs_call(name, ...arguments){
+  return async.wrap(func(cb){
+    local uv = loop_module()
+    uv[name](...arguments, cb)
+  })
+}
+
+func fs.read_file(path){ return fs_call("fs_read_file", path) }
+func fs.write_file(path, data){ return fs_call("fs_write_file", path, data, false) }
+func fs.append_file(path, data){ return fs_call("fs_write_file", path, data, true) }
+func fs.stat(path){ return fs_call("fs_stat", path) }
+func fs.list_dir(path){ return fs_call("fs_scandir", path) }
+func fs.remove(path){ return fs_call("fs_unlink", path) }
+func fs.mkdir(path){ return fs_call("fs_mkdir", path) }
+func fs.rmdir(path){ return fs_call("fs_rmdir", path) }
+func fs.rename(from, to){ return fs_call("fs_rename", from, to) }
+func fs.open(path, flags){ return fs_call("fs_open", path, flags or "r") }
+func fs.close(fd){ return fs_call("fs_close", fd) }
+
+func fs.read(fd, length, offset){
+  return async.wrap(func(cb){ loop_module().fs_read(fd, length, offset or -1, cb) })
+}
+
+func fs.write(fd, data, offset){
+  return async.wrap(func(cb){ loop_module().fs_write(fd, data, offset or -1, cb) })
+}
+
+func fs.exists(path){
+  return async.wrap(func(cb){
+    loop_module().fs_stat(path, func(err, st){ cb(null, err == null) })
+  })
+}
+
+// ------------------------------------------------------------ signals
+
+// on_signal(name, f) -> the uv.signal handle: f(name) runs each time the
+// process gets the signal ("SIGINT", "SIGTERM", ...). The handle does not
+// keep the loop running; stop() or close() it when done.
+func async.on_signal(name, f){
+  local h = loop_module().signal()
+  h:start(name, func(err, got){ f(got) })
+  h:unref()
+  return h
+}
+
+// ------------------------------------------------------------ processes
+
+// spawn(file, args, options) -> {process, pid, stdin, stdout, stderr,
+// pipes, exit, kill(sig)}: starts a program. options as for uv.spawn (cwd,
+// env, detached), except that a stdio entry "pipe" makes a pipe: the ones
+// for fds 0, 1 and 2 are stdin, stdout and stderr, all of them are in
+// pipes by fd. Without stdio the child inherits 0, 1 and 2. exit is a
+// Future of {status, signal}. Raises when the program cannot be started.
+func async.spawn(file, args, options){
+  local uv = loop_module()
+  local opts = {}
+  for(let local e in entries(options or {})){
+    opts[e[0]] = e[1]
+  }
+  local pipes = {}
+  if(opts.stdio != null){
+    local stdio = {}
+    for(local i = 0; i < len(opts.stdio); i = i + 1){
+      local entry = opts.stdio[i]
+      if(entry == "pipe"){
+        entry = uv.pipe()
+        pipes[i] = entry
+      }
+      append(stdio, entry)
+    }
+    opts.stdio = stdio
+  }
+  local exit = async.completer()
+  local process = uv.spawn(file, args or {}, opts, func(err, r){
+    if(err != null){
+      exit.fail(err)
+    } else {
+      exit.complete(r)
+    }
+  })
+  return {process: process, pid: process:pid(), pipes: pipes,
+          stdin: pipes[0], stdout: pipes[1], stderr: pipes[2], exit: exit.future,
+          kill: func(sig){ process:kill(sig) }}
+}
+
+// collect(pipe) -> Future of everything read from the pipe until it ends
+local func collect(pipe){
+  return async.wrap(func(cb){
+    local parts = {}
+    pipe:read_start(func(err, chunk){
+      if(err != null){
+        pipe:close()
+        cb(err, null)
+      } else if(chunk == null){
+        pipe:close()
+        cb(null, str.join(parts, ""))
+      } else {
+        append(parts, chunk)
+      }
+    })
+  })
+}
+
+// exec(file, args, options) -> Future of {status, signal, stdout, stderr}:
+// runs a program to the end and collects its output. options.input is
+// written to its stdin (otherwise stdin is empty); cwd and env as for spawn.
+func async.exec(file, args, options){
+  local opts = {}
+  for(let local e in entries(options or {})){
+    opts[e[0]] = e[1]
+  }
+  local input = opts.input
+  opts.input = null
+  opts.stdio = {"pipe", "pipe", "pipe"}
+  local p = null
+  local r = pcall(func(){ p = async.spawn(file, args, opts) })
+  if(r[0] == "err"){
+    return async.failed(r[1])
+  }
+  if(input != null and input != ""){
+    p.stdin:write(input)
+  }
+  p.stdin:shutdown(func(){ p.stdin:close() })
+  local out = collect(p.stdout)
+  local err = collect(p.stderr)
+  return async.all({p.exit, out, err}):then(func(all){
+    return {status: all[0].status, signal: all[0].signal, stdout: all[1], stderr: all[2]}
+  })
 }
 
 return async

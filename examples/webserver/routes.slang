@@ -2,7 +2,6 @@
 //
 //   require("routes").install(app)   registers them on a router
 local a = require("slang/async")
-local os = require("slang/os")
 local str = require("slang/string")
 local views = require("views")
 local todos = require("todos")
@@ -33,19 +32,20 @@ local func with_todo(params, f){
   return f(t)
 }
 
-local func serve_static(req, params){
+// the files under static/, read on libuv's thread pool
+async func serve_static(req, params){
   local name = params.rest
   if(str.index_of(name, "..") >= 0 or name == ""){
     return {status: 403, body: "no\n"}
   }
-  local path = concat("examples/webserver/static/", name)
-  if(not os.exists(path)){
+  local r = pcall(a.await, a.fs.read_file(concat("examples/webserver/static/", name)))
+  if(r[0] == "err"){
     return {status: 404, body: "not found\n"}
   }
   local type_name = "text/plain; charset=utf-8"
   if(str.ends_with(name, ".html")){ type_name = "text/html; charset=utf-8" }
   if(str.ends_with(name, ".css")){ type_name = "text/css; charset=utf-8" }
-  return {status: 200, headers: {["Content-Type"]: type_name}, body: os.read_file(path)}
+  return {status: 200, headers: {["Content-Type"]: type_name}, body: r[1]}
 }
 
 func m.install(r){

@@ -12,8 +12,9 @@
 //   db:all("select * from todos where id > ?", {5})          the same without the syntax
 //   db:close()
 //
-// Queries: sqlite.query(text, values, origin) holds the text with one ? per
-// value and the values; a value made with sqlite.list(items) expands to
+// Queries: sqlite.query(text, values, origin, count) holds the text with
+// one ? per value and the values (count says how many, since a null value
+// ends a list literal's length; it defaults to len(values)); a value made with sqlite.list(items) expands to
 // ?, ?, ... (an empty list to null, which matches nothing), a value that
 // is itself a query is spliced in with its parameters, so fragments
 // compose safely. Prepared statements are cached per database by text.
@@ -36,8 +37,8 @@ func sqlite.list(items){
   return {meta: list_meta, items: items}
 }
 
-local func needs_expansion(values){
-  for(local i = 0; i < len(values); i = i + 1){
+local func needs_expansion(values, count){
+  for(local i = 0; i < count; i = i + 1){
     local t = type(values[i])
     if(t == "sqlite.list" or t == "sqlite.query"){
       return true
@@ -57,42 +58,50 @@ local func placeholders(n){
   return str.join(marks, ", ")
 }
 
-func sqlite.query(text, values, origin){
+func sqlite.query(text, values, origin, count){
   values = values or {}
-  local q = {meta: query_meta, text: text, params: values, origin: origin}
-  if(len(values) == 0){
+  // a null value ends a list literal's length, not its contents, so the
+  // literals pass how many values there are
+  count = count or len(values)
+  local q = {meta: query_meta, text: text, params: values, count: count, origin: origin}
+  if(count == 0){
     return q
   }
   local pieces = str.split(text, "?")
-  if(len(pieces) != len(values) + 1){
-    error("sqlite: the query has ", len(pieces) - 1, " ? for ", len(values), " value(s); write {value} instead of ? (", origin or "sql", ")")
+  if(len(pieces) != count + 1){
+    error("sqlite: the query has ", len(pieces) - 1, " ? for ", count, " value(s); write {value} instead of ? (", origin or "sql", ")")
   }
-  if(not needs_expansion(values)){
+  if(not needs_expansion(values, count)){
     return q
   }
   local out = {pieces[0]}
   local params = {}
-  for(local i = 0; i < len(values); i = i + 1){
+  local n = 0
+  for(local i = 0; i < count; i = i + 1){
     local v = values[i]
     local t = type(v)
     if(t == "sqlite.list"){
       append(out, placeholders(len(v.items)))
       for(local j = 0; j < len(v.items); j = j + 1){
-        append(params, v.items[j])
+        params[n] = v.items[j]
+        n = n + 1
       }
     } else if(t == "sqlite.query"){
       append(out, v.text)
-      for(local j = 0; j < len(v.params); j = j + 1){
-        append(params, v.params[j])
+      for(local j = 0; j < v.count; j = j + 1){
+        params[n] = v.params[j]
+        n = n + 1
       }
     } else {
       append(out, "?")
-      append(params, v)
+      params[n] = v
+      n = n + 1
     }
     append(out, pieces[i + 1])
   }
   q.text = str.join(out, "")
   q.params = params
+  q.count = n
   return q
 }
 
@@ -136,7 +145,10 @@ local func located(q, f){
 
 local func clear_cache(db){
   for(let local e in entries(db.cache)){
-    e[1]:finalize()
+    // a statement an async query still holds is finalized when collected
+    if(not e[1]:is_busy()){
+      e[1]:finalize()
+    }
   }
   db.cache = {}
   db.cached = 0
@@ -155,7 +167,7 @@ local func statement(db, q){
   } else {
     st:reset()
   }
-  located(q, func(){ st:bind_all(q.params) })
+  located(q, func(){ st:bind_all(q.params, q.count) })
   return st
 }
 
@@ -212,6 +224,59 @@ func db_methods.each(db, q, values){
     }
     return row
   }
+}
+
+// ------------------------------------------------------------ async
+
+// The _async methods run the query on libuv's thread pool and return a
+// Future (slang/async): await db:all_async(sql{ ... }). The loop thread
+// stays free while SQLite works; worth it for queries that take a while,
+// not for the usual microsecond ones. A statement an unfinished query
+// holds is not reused: the next query of the same text gets its own.
+
+local func async_statement(db, q){
+  local st = db.cache[q.text]
+  if(st != null and st:is_busy()){
+    local fresh = located(q, func(){ return db.raw:prepare(q.text) })
+    located(q, func(){ fresh:bind_all(q.params, q.count) })
+    return fresh
+  }
+  return statement(db, q)
+}
+
+// a Future of {rows, changes, last_insert_rowid}; errors preparing or
+// binding fail it like errors running it
+local func query_async(db, q){
+  local async = require("slang/async")
+  local r = pcall(async_statement, db, q)
+  if(r[0] == "err"){
+    return async.failed(r[1])
+  }
+  local st = r[1]
+  return async.wrap(func(cb){
+    st:run_async(func(err, r){
+      if(err != null and q.origin != null){
+        err = concat(err, " (at ", q.origin, ")")
+      }
+      cb(err, r)
+    })
+  })
+}
+
+func db_methods.all_async(db, q, values){
+  return query_async(db, resolve(q, values)):then(func(r){ return r.rows })
+}
+
+// one_async(q) -> Future of the first row or null (the query runs to the
+// end: give it a limit)
+func db_methods.one_async(db, q, values){
+  return query_async(db, resolve(q, values)):then(func(r){ return r.rows[0] })
+}
+
+func db_methods.run_async(db, q, values){
+  return query_async(db, resolve(q, values)):then(func(r){
+    return {changes: r.changes, last_id: r.last_insert_rowid}
+  })
 }
 
 // exec(text or query): one or more statements, no parameters, no result

@@ -95,8 +95,15 @@ the window is a deployment choice.
       Zig; string literals gained `\xHH` and `\u{...}`, escape errors are
       located, and expand writes bytes back as escapes. The web server's
       forms.slang is replaced by `encoding.query_decode`.
-- [ ] Phase 2: `uv` additions (getaddrinfo, fs, signal, spawn, poll,
+- [x] Phase 2: `uv` additions (getaddrinfo, fs, signal, spawn, poll,
       queue_work) and their `slang/async` adapters; SQLite on the pool.
+      The pool is reachable from C only, through `uv.c_api`
+      (`extensions/native/slang_uv.h`); the fs functions use it too.
+      `slang/async` gained `resolve`, `connect` by host name, `fs.*`,
+      `on_signal`, `spawn` and `exec`; `slang/sqlite` gained `all_async`,
+      `one_async` and `run_async`. Number literals gained hex, octal,
+      binary, `_` separators and exponents along the way. The web server
+      reads static files on the pool and shuts down on SIGINT/SIGTERM.
 - [ ] Phase 3: `crypto` over OpenSSL; `slang/jwt`; signed cookies and
       sessions in the example, with a login page.
 - [ ] Phase 4: llhttp and zlib bindings; `slang/http` streaming, chunked,

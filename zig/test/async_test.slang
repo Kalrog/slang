@@ -134,3 +134,79 @@ t.group("async"){
     assert(r == "done")
   }
 }
+
+local os = require("slang/os")
+local uv = require("uv")
+local scratch = concat(os.getenv("TMPDIR") or "/tmp/", "/slang-async-test-", string(uv.getpid()))
+os.mkdir_all(scratch)
+
+t.group("async: files, names, processes, signals"){
+  t.test("fs functions are futures"){
+    local fs = async.fs
+    async.main(func(){
+      local p = concat(scratch, "/f.txt")
+      await(fs.write_file(p, "a"))
+      await(fs.append_file(p, "b"))
+      assert(await(fs.read_file(p)) == "ab")
+      assert(await(fs.exists(p)) == true and await(fs.exists(concat(p, "x"))) == false)
+      assert(await(fs.stat(p)).size == 2)
+      local fd = await(fs.open(p, "r"))
+      assert(await(fs.read(fd, 1, 1)) == "b")
+      await(fs.close(fd))
+      await(fs.mkdir(concat(scratch, "/d")))
+      local names = {}
+      for(let local e in values(await(fs.list_dir(scratch)))){
+        names[e.name] = e.type
+      }
+      assert(names["f.txt"] == "file" and names["d"] == "dir")
+      await(fs.rmdir(concat(scratch, "/d")))
+      await(fs.remove(p))
+      local r = pcall(await, fs.read_file(p))
+      assert(r[0] == "err" and str.starts_with(r[1].message, "ENOENT"))
+    })
+  }
+  t.test("connect resolves host names"){
+    async.main(func(){
+      local s = async.serve("127.0.0.1", 0)
+      local port = s.server:getsockname().port
+      s.connections:listen(func(err, conn){ if(conn != null){ conn:close() } })
+      local conn = await(async.connect("localhost", port))
+      assert(type(conn) == "uv.tcp")
+      conn:close()
+      s.close()
+      local r = pcall(await, async.connect("no-such-host.invalid", port))
+      assert(r[0] == "err" and str.starts_with(r[1].message, "EAI_"), r[1].message)
+    })
+  }
+  t.test("exec collects output and the exit status"){
+    async.main(func(){
+      local r = await(async.exec("/bin/sh", {"-c", "cat; echo oops >&2; exit 4"}, {input: "in"}))
+      assert(r.status == 4 and r.stdout == "in" and r.stderr == "oops\n")
+      local e = await(async.exec("/usr/bin/env", {}, {env: {ONLY: "this"}}))
+      assert(e.stdout == "ONLY=this\n", e.stdout)
+      local m = pcall(await, async.exec("/no/such/program", {}))
+      assert(m[0] == "err" and str.starts_with(m[1].message, "ENOENT"))
+    })
+  }
+  t.test("spawn gives pipes and an exit future"){
+    async.main(func(){
+      local p = async.spawn("/bin/cat", {}, {stdio: {"pipe", "pipe", "inherit"}})
+      p.stdin:write("echo")
+      p.stdin:shutdown(func(){ p.stdin:close() })
+      local out = await(async.reader(p.stdout):collect())
+      assert(str.join(out, "") == "echo")
+      assert(await(p.exit).status == 0)
+      p.process:close()
+    })
+  }
+  t.test("on_signal calls back and does not keep the program running"){
+    local got = {}
+    async.main(func(){
+      local h = async.on_signal("SIGUSR2", func(name){ append(got, name) })
+      uv.kill(uv.getpid(), "SIGUSR2")
+      await(async.sleep(20))
+      h:close()
+    })
+    assert(got == {"SIGUSR2"})
+  }
+}

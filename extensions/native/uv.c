@@ -14,11 +14,21 @@
  * listening or reading socket, a pending connect) keeps its userdata alive;
  * a handle that is collected before it was closed is closed by its finalizer.
  * slang/async builds Futures and Streams on top of this module.
+ *
+ * Handles: timer, tcp, pipe, signal (start(name, cb)), process (from
+ * spawn(file, args, options, on_exit); pid, kill) and poll (on a descriptor
+ * another library owns); every handle has close, is_active, is_closing,
+ * ref, unref and has_ref. getaddrinfo resolves names. The fs_* functions
+ * (read_file, write_file, stat, scandir, unlink, mkdir, rmdir, rename,
+ * open, read, write, close) run libuv's file calls on its thread pool, the
+ * same pool other extensions reach through uv.c_api (slang_uv.h).
  */
 #include <uv.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "slang.h"
+#include "slang_uv.h"
 
 typedef struct handle {
     union {
@@ -27,6 +37,9 @@ typedef struct handle {
         uv_timer_t timer;
         uv_tcp_t tcp;
         uv_pipe_t pipe;
+        uv_signal_t signal;
+        uv_process_t process;
+        uv_poll_t poll;
     } u;
     int self_ref;    /* the userdata, while the handle is active or closing */
     int cb_ref;      /* timer, listen or read callback */
@@ -174,6 +187,44 @@ static int l_is_active(slang_State *S, const char *tname) {
     return 1;
 }
 
+/* ---- methods every handle has ---- */
+
+static const char *handle_tnames[] = {"uv.timer", "uv.tcp", "uv.pipe", "uv.signal", "uv.process", "uv.poll", NULL};
+
+static handle *check_any(slang_State *S, int idx) {
+    for (int i = 0; handle_tnames[i] != NULL; i++) {
+        handle **box = slang_testudata(S, idx, handle_tnames[i]);
+        if (box != NULL) return *box;
+    }
+    slang_argerror(S, idx, "uv handle expected");
+    return NULL;
+}
+
+/* handle:unref(): the handle no longer keeps uv.run() going (a signal
+ * watcher that should not stop the program from ending); ref() undoes it */
+static int h_unref(slang_State *S) {
+    handle *h = check_any(S, 1);
+    if (h == NULL) return SLANG_ERROR;
+    if (!h->closed) uv_unref(&h->u.handle);
+    return 0;
+}
+
+static int h_ref(slang_State *S) {
+    handle *h = check_any(S, 1);
+    if (h == NULL) return SLANG_ERROR;
+    if (!h->closed) uv_ref(&h->u.handle);
+    return 0;
+}
+
+static int h_has_ref(slang_State *S) {
+    handle *h = check_any(S, 1);
+    if (h == NULL) return SLANG_ERROR;
+    slang_pushbool(S, !h->closed && uv_has_ref(&h->u.handle));
+    return 1;
+}
+
+#define HANDLE_METHODS {"ref", h_ref}, {"unref", h_unref}, {"has_ref", h_has_ref}
+
 /* ---- loop ---- */
 
 static int l_run(slang_State *S) {
@@ -293,6 +344,7 @@ static const slang_Reg timer_methods[] = {
     {"close", timer_close},
     {"is_active", timer_is_active},
     {"is_closing", timer_is_closing},
+    HANDLE_METHODS,
     {NULL, NULL},
 };
 
@@ -643,6 +695,21 @@ static int tcp_keepalive(slang_State *S) {
     return 0;
 }
 
+/* stream:fileno(): the OS file descriptor (for poll, or a library that
+ * wants it) */
+static int stream_fileno(slang_State *S) {
+    handle *h = check_stream(S, 1);
+    if (h == NULL) return SLANG_ERROR;
+    uv_os_fd_t fd;
+    int r = uv_fileno(&h->u.handle, &fd);
+    if (r < 0) {
+        push_uv_error(S, r);
+        return slang_raise(S);
+    }
+    slang_pushint(S, (int64_t)fd);
+    return 1;
+}
+
 static int tcp_close(slang_State *S) { return l_close(S, "uv.tcp"); }
 static int tcp_is_active(slang_State *S) { return l_is_active(S, "uv.tcp"); }
 static int tcp_is_closing(slang_State *S) { return l_is_closing(S, "uv.tcp"); }
@@ -683,6 +750,8 @@ static const slang_Reg pipe_methods[] = {
     {"close", pipe_close},
     {"is_active", pipe_is_active},
     {"is_closing", pipe_is_closing},
+    {"fileno", stream_fileno},
+    HANDLE_METHODS,
     {NULL, NULL},
 };
 
@@ -702,6 +771,887 @@ static const slang_Reg tcp_methods[] = {
     {"close", tcp_close},
     {"is_active", tcp_is_active},
     {"is_closing", tcp_is_closing},
+    {"fileno", stream_fileno},
+    HANDLE_METHODS,
+    {NULL, NULL},
+};
+
+/* ---- the thread pool (C work only; see slang_uv.h) ---- */
+
+typedef struct work_req {
+    uv_work_t req;
+    int cb_ref;
+    int keep_ref;
+    void (*work)(void *);
+    int (*push)(slang_State *, void *);
+    void (*done)(void *);
+    void *data;
+} work_req;
+
+static void work_run(uv_work_t *req) {
+    work_req *w = (work_req *)req;
+    w->work(w->data);
+}
+
+static void work_after(uv_work_t *req, int status) {
+    work_req *w = (work_req *)req;
+    if (begin_callback(w->cb_ref)) {
+        int n = 2;
+        if (status < 0) {
+            push_uv_error(run_S, status);
+            slang_pushnull(run_S);
+        } else {
+            n = w->push(run_S, w->data);
+        }
+        finish_callback(n);
+    }
+    w->done(w->data);
+    if (run_S != NULL) {
+        drop_ref(run_S, &w->cb_ref);
+        drop_ref(run_S, &w->keep_ref);
+    }
+    free(w);
+}
+
+static int api_queue(slang_State *S, int cb_idx, int keep_idx,
+                     void (*work)(void *), int (*push)(slang_State *, void *),
+                     void (*done)(void *), void *data) {
+    if (!slang_isfunction(S, cb_idx)) {
+        done(data);
+        return slang_argerror(S, cb_idx, "callback expected");
+    }
+    work_req *w = calloc(1, sizeof(work_req));
+    w->work = work;
+    w->push = push;
+    w->done = done;
+    w->data = data;
+    slang_pushvalue(S, cb_idx);
+    w->cb_ref = slang_ref(S);
+    w->keep_ref = SLANG_REFNULL;
+    if (keep_idx != 0) {
+        slang_pushvalue(S, keep_idx);
+        w->keep_ref = slang_ref(S);
+    }
+    int r = uv_queue_work(loop(), &w->req, work_run, work_after);
+    if (r < 0) {
+        drop_ref(S, &w->cb_ref);
+        drop_ref(S, &w->keep_ref);
+        done(data);
+        free(w);
+        push_uv_error(S, r);
+        return slang_raise(S);
+    }
+    return 0;
+}
+
+static const slang_uv_api the_api = {SLANG_UV_API_VERSION, api_queue};
+
+/* ---- file system: libuv's synchronous calls, run on the pool ---- */
+
+enum {
+    FS_READ_FILE, FS_WRITE_FILE, FS_STAT, FS_UNLINK, FS_MKDIR, FS_RMDIR,
+    FS_RENAME, FS_SCANDIR, FS_OPEN, FS_READ, FS_WRITE, FS_CLOSE
+};
+
+typedef struct fs_job {
+    int op;
+    uv_loop_t *loop;
+    char *path, *path2;
+    char *data;       /* bytes to write, or the bytes read */
+    size_t len;
+    int flags, mode;
+    int64_t fd, offset;
+    /* results */
+    int failed;
+    char err[600];
+    int64_t result;
+    uv_stat_t st;
+    char **names;
+    int *types;
+    int count;
+} fs_job;
+
+static const char *fs_op_name(int op) {
+    static const char *names[] = {"read_file", "write_file", "stat", "unlink", "mkdir", "rmdir",
+                                  "rename", "scandir", "open", "read", "write", "close"};
+    return names[op];
+}
+
+/* records a libuv error; false when r is not one */
+static int fs_failed(fs_job *j, int64_t r) {
+    if (r >= 0) return 0;
+    j->failed = 1;
+    if (j->path != NULL)
+        snprintf(j->err, sizeof j->err, "%s: %s, %s '%s'", uv_err_name((int)r), uv_strerror((int)r), fs_op_name(j->op), j->path);
+    else
+        snprintf(j->err, sizeof j->err, "%s: %s, %s", uv_err_name((int)r), uv_strerror((int)r), fs_op_name(j->op));
+    return 1;
+}
+
+static int64_t fs_open_sync(fs_job *j, const char *path, int flags, int mode) {
+    uv_fs_t r;
+    int64_t fd = uv_fs_open(j->loop, &r, path, flags, mode, NULL);
+    uv_fs_req_cleanup(&r);
+    return fd;
+}
+
+static void fs_close_sync(fs_job *j, uv_file fd) {
+    uv_fs_t r;
+    uv_fs_close(j->loop, &r, fd, NULL);
+    uv_fs_req_cleanup(&r);
+}
+
+/* reads len bytes (or to the end when len < 0) from fd at offset (-1: the
+ * current position) into j->data */
+static void fs_read_into(fs_job *j, uv_file fd, int64_t len, int64_t offset) {
+    size_t cap = len >= 0 ? (size_t)len : 64 * 1024;
+    size_t got = 0;
+    j->data = malloc(cap > 0 ? cap : 1);
+    for (;;) {
+        if (len >= 0 && got >= (size_t)len) break;
+        if (got == cap) {
+            cap *= 2;
+            j->data = realloc(j->data, cap);
+        }
+        uv_buf_t b = uv_buf_init(j->data + got, (unsigned)(cap - got));
+        uv_fs_t r;
+        int64_t n = uv_fs_read(j->loop, &r, fd, &b, 1, offset < 0 ? -1 : offset + (int64_t)got, NULL);
+        uv_fs_req_cleanup(&r);
+        if (fs_failed(j, n)) return;
+        if (n == 0) break;
+        got += (size_t)n;
+    }
+    j->len = got;
+}
+
+static void fs_write_all(fs_job *j, uv_file fd, int64_t offset) {
+    size_t done = 0;
+    while (done < j->len) {
+        uv_buf_t b = uv_buf_init(j->data + done, (unsigned)(j->len - done));
+        uv_fs_t r;
+        int64_t n = uv_fs_write(j->loop, &r, fd, &b, 1, offset < 0 ? -1 : offset + (int64_t)done, NULL);
+        uv_fs_req_cleanup(&r);
+        if (fs_failed(j, n)) return;
+        done += (size_t)n;
+    }
+    j->result = (int64_t)done;
+}
+
+static void fs_work(void *data) {
+    fs_job *j = data;
+    uv_fs_t r;
+    int64_t n;
+    switch (j->op) {
+    case FS_READ_FILE: {
+        int64_t fd = fs_open_sync(j, j->path, UV_FS_O_RDONLY, 0);
+        if (fs_failed(j, fd)) return;
+        /* to the end, not to the size stat reports (0 for /proc files) */
+        fs_read_into(j, (uv_file)fd, -1, -1);
+        fs_close_sync(j, (uv_file)fd);
+        return;
+    }
+    case FS_WRITE_FILE: {
+        int64_t fd = fs_open_sync(j, j->path, j->flags, 0644);
+        if (fs_failed(j, fd)) return;
+        fs_write_all(j, (uv_file)fd, -1);
+        fs_close_sync(j, (uv_file)fd);
+        return;
+    }
+    case FS_STAT:
+        n = uv_fs_stat(j->loop, &r, j->path, NULL);
+        if (!fs_failed(j, n)) j->st = r.statbuf;
+        break;
+    case FS_UNLINK:
+        n = uv_fs_unlink(j->loop, &r, j->path, NULL);
+        fs_failed(j, n);
+        break;
+    case FS_MKDIR:
+        n = uv_fs_mkdir(j->loop, &r, j->path, 0755, NULL);
+        fs_failed(j, n);
+        break;
+    case FS_RMDIR:
+        n = uv_fs_rmdir(j->loop, &r, j->path, NULL);
+        fs_failed(j, n);
+        break;
+    case FS_RENAME:
+        n = uv_fs_rename(j->loop, &r, j->path, j->path2, NULL);
+        fs_failed(j, n);
+        break;
+    case FS_SCANDIR: {
+        n = uv_fs_scandir(j->loop, &r, j->path, 0, NULL);
+        if (fs_failed(j, n)) break;
+        j->names = calloc((size_t)n + 1, sizeof(char *));
+        j->types = calloc((size_t)n + 1, sizeof(int));
+        uv_dirent_t ent;
+        while (uv_fs_scandir_next(&r, &ent) != UV_EOF && j->count < n) {
+            j->names[j->count] = strdup(ent.name);
+            j->types[j->count] = ent.type;
+            j->count++;
+        }
+        break;
+    }
+    case FS_OPEN:
+        j->result = fs_open_sync(j, j->path, j->flags, j->mode);
+        fs_failed(j, j->result);
+        return;
+    case FS_READ:
+        fs_read_into(j, (uv_file)j->fd, (int64_t)j->len, j->offset);
+        return;
+    case FS_WRITE:
+        fs_write_all(j, (uv_file)j->fd, j->offset);
+        return;
+    case FS_CLOSE:
+        n = uv_fs_close(j->loop, &r, (uv_file)j->fd, NULL);
+        fs_failed(j, n);
+        break;
+    }
+    uv_fs_req_cleanup(&r);
+}
+
+static double timespec_seconds(uv_timespec_t t) {
+    return (double)t.tv_sec + (double)t.tv_nsec / 1e9;
+}
+
+static const char *dirent_type(int t) {
+    switch (t) {
+    case UV_DIRENT_FILE: return "file";
+    case UV_DIRENT_DIR: return "dir";
+    case UV_DIRENT_LINK: return "link";
+    case UV_DIRENT_UNKNOWN: return "unknown";
+    default: return "other";
+    }
+}
+
+static int fs_push(slang_State *S, void *data) {
+    fs_job *j = data;
+    if (j->failed) {
+        slang_pushstring(S, j->err);
+        slang_pushnull(S);
+        return 2;
+    }
+    slang_pushnull(S);
+    switch (j->op) {
+    case FS_READ_FILE:
+    case FS_READ:
+        slang_pushlstring(S, j->data ? j->data : "", j->len);
+        break;
+    case FS_STAT:
+        slang_newtable(S);
+        slang_pushint(S, (int64_t)j->st.st_size);
+        slang_setfield(S, -2, "size");
+        slang_pushint(S, (int64_t)j->st.st_mode);
+        slang_setfield(S, -2, "mode");
+        slang_pushdouble(S, timespec_seconds(j->st.st_mtim));
+        slang_setfield(S, -2, "mtime");
+        slang_pushdouble(S, timespec_seconds(j->st.st_atim));
+        slang_setfield(S, -2, "atime");
+        slang_pushdouble(S, timespec_seconds(j->st.st_ctim));
+        slang_setfield(S, -2, "ctime");
+        slang_pushbool(S, (j->st.st_mode & S_IFMT) == S_IFREG);
+        slang_setfield(S, -2, "is_file");
+        slang_pushbool(S, (j->st.st_mode & S_IFMT) == S_IFDIR);
+        slang_setfield(S, -2, "is_dir");
+        break;
+    case FS_SCANDIR:
+        slang_newtable(S);
+        for (int i = 0; i < j->count; i++) {
+            slang_newtable(S);
+            slang_pushstring(S, j->names[i]);
+            slang_setfield(S, -2, "name");
+            slang_pushstring(S, dirent_type(j->types[i]));
+            slang_setfield(S, -2, "type");
+            slang_append(S, -2);
+        }
+        break;
+    case FS_OPEN:
+    case FS_WRITE:
+        slang_pushint(S, j->result);
+        break;
+    default:
+        slang_pushnull(S);
+        break;
+    }
+    return 2;
+}
+
+static void fs_done(void *data) {
+    fs_job *j = data;
+    free(j->path);
+    free(j->path2);
+    free(j->data);
+    for (int i = 0; i < j->count; i++) free(j->names[i]);
+    free(j->names);
+    free(j->types);
+    free(j);
+}
+
+static fs_job *new_job(int op) {
+    fs_job *j = calloc(1, sizeof(fs_job));
+    j->op = op;
+    j->loop = loop();
+    j->offset = -1;
+    return j;
+}
+
+static char *dup_arg(slang_State *S, int idx, size_t *len) {
+    size_t n = 0;
+    const char *s = slang_checklstring(S, idx, &n);
+    if (s == NULL) return NULL;
+    char *d = malloc(n + 1);
+    memcpy(d, s, n);
+    d[n] = 0;
+    if (len) *len = n;
+    return d;
+}
+
+/* queues j with the callback in the last argument */
+static int fs_queue(slang_State *S, fs_job *j) {
+    if (slang_failed(S)) {
+        fs_done(j);
+        return SLANG_ERROR;
+    }
+    return api_queue(S, slang_gettop(S), 0, fs_work, fs_push, fs_done, j);
+}
+
+/* fs_read_file(path, cb(err, data)) */
+static int l_fs_read_file(slang_State *S) {
+    fs_job *j = new_job(FS_READ_FILE);
+    j->path = dup_arg(S, 1, NULL);
+    return fs_queue(S, j);
+}
+
+/* fs_write_file(path, data, [append], cb(err)): creates or replaces the
+ * file, or appends to it */
+static int l_fs_write_file(slang_State *S) {
+    fs_job *j = new_job(FS_WRITE_FILE);
+    j->path = dup_arg(S, 1, NULL);
+    j->data = dup_arg(S, 2, &j->len);
+    int append = slang_gettop(S) > 3 && slang_tobool(S, 3);
+    j->flags = UV_FS_O_WRONLY | UV_FS_O_CREAT | (append ? UV_FS_O_APPEND : UV_FS_O_TRUNC);
+    return fs_queue(S, j);
+}
+
+/* fs_stat(path, cb(err, {size, mode, mtime, atime, ctime, is_file, is_dir})) */
+static int l_fs_stat(slang_State *S) {
+    fs_job *j = new_job(FS_STAT);
+    j->path = dup_arg(S, 1, NULL);
+    return fs_queue(S, j);
+}
+
+static int path_op(slang_State *S, int op) {
+    fs_job *j = new_job(op);
+    j->path = dup_arg(S, 1, NULL);
+    return fs_queue(S, j);
+}
+
+static int l_fs_unlink(slang_State *S) { return path_op(S, FS_UNLINK); }
+static int l_fs_mkdir(slang_State *S) { return path_op(S, FS_MKDIR); }
+static int l_fs_rmdir(slang_State *S) { return path_op(S, FS_RMDIR); }
+/* fs_scandir(path, cb(err, list of {name, type})) */
+static int l_fs_scandir(slang_State *S) { return path_op(S, FS_SCANDIR); }
+
+static int l_fs_rename(slang_State *S) {
+    fs_job *j = new_job(FS_RENAME);
+    j->path = dup_arg(S, 1, NULL);
+    j->path2 = dup_arg(S, 2, NULL);
+    return fs_queue(S, j);
+}
+
+/* fs_open(path, flags, cb(err, fd)): flags as in fopen: "r", "r+", "w",
+ * "w+", "a", "a+", and "wx"/"w+x" to fail when the file exists */
+static int l_fs_open(slang_State *S) {
+    const char *f = slang_checklstring(S, 2, NULL);
+    int flags = -1;
+    if (f != NULL) {
+        if (strcmp(f, "r") == 0) flags = UV_FS_O_RDONLY;
+        else if (strcmp(f, "r+") == 0) flags = UV_FS_O_RDWR;
+        else if (strcmp(f, "w") == 0) flags = UV_FS_O_WRONLY | UV_FS_O_CREAT | UV_FS_O_TRUNC;
+        else if (strcmp(f, "w+") == 0) flags = UV_FS_O_RDWR | UV_FS_O_CREAT | UV_FS_O_TRUNC;
+        else if (strcmp(f, "wx") == 0) flags = UV_FS_O_WRONLY | UV_FS_O_CREAT | UV_FS_O_EXCL;
+        else if (strcmp(f, "w+x") == 0) flags = UV_FS_O_RDWR | UV_FS_O_CREAT | UV_FS_O_EXCL;
+        else if (strcmp(f, "a") == 0) flags = UV_FS_O_WRONLY | UV_FS_O_CREAT | UV_FS_O_APPEND;
+        else if (strcmp(f, "a+") == 0) flags = UV_FS_O_RDWR | UV_FS_O_CREAT | UV_FS_O_APPEND;
+        else return slang_argerror(S, 2, "\"r\", \"r+\", \"w\", \"w+\", \"wx\", \"w+x\", \"a\" or \"a+\" expected");
+    }
+    fs_job *j = new_job(FS_OPEN);
+    j->path = dup_arg(S, 1, NULL);
+    j->flags = flags;
+    j->mode = 0644;
+    return fs_queue(S, j);
+}
+
+/* fs_read(fd, length, offset, cb(err, data)): offset -1 or null reads at
+ * the current position; data is shorter at the end of the file, "" past it */
+static int l_fs_read(slang_State *S) {
+    fs_job *j = new_job(FS_READ);
+    j->fd = slang_checkint(S, 1);
+    int64_t len = slang_checkint(S, 2);
+    j->len = len > 0 ? (size_t)len : 0;
+    j->offset = slang_isint(S, 3) ? slang_toint(S, 3) : -1;
+    return fs_queue(S, j);
+}
+
+/* fs_write(fd, data, offset, cb(err, written)) */
+static int l_fs_write(slang_State *S) {
+    fs_job *j = new_job(FS_WRITE);
+    j->fd = slang_checkint(S, 1);
+    j->data = dup_arg(S, 2, &j->len);
+    j->offset = slang_isint(S, 3) ? slang_toint(S, 3) : -1;
+    return fs_queue(S, j);
+}
+
+static int l_fs_close(slang_State *S) {
+    fs_job *j = new_job(FS_CLOSE);
+    j->fd = slang_checkint(S, 1);
+    return fs_queue(S, j);
+}
+
+/* ---- name resolution ---- */
+
+typedef struct {
+    uv_getaddrinfo_t req;
+    int cb_ref;
+} gai_req;
+
+static void push_sockaddr(slang_State *S, const struct sockaddr_storage *addr);
+
+static void on_getaddrinfo(uv_getaddrinfo_t *req, int status, struct addrinfo *res) {
+    gai_req *g = (gai_req *)req;
+    if (begin_callback(g->cb_ref)) {
+        if (status < 0) {
+            push_uv_error(run_S, status);
+            slang_pushnull(run_S);
+        } else {
+            slang_pushnull(run_S);
+            slang_newtable(run_S);
+            for (struct addrinfo *ai = res; ai != NULL; ai = ai->ai_next) {
+                push_sockaddr(run_S, (const struct sockaddr_storage *)ai->ai_addr);
+                slang_append(run_S, -2);
+            }
+        }
+        finish_callback(2);
+    }
+    uv_freeaddrinfo(res);
+    if (run_S != NULL) drop_ref(run_S, &g->cb_ref);
+    free(g);
+}
+
+/* getaddrinfo(host, port, [family], cb(err, list of {ip, port, family})):
+ * port is a number, a service name or null; family "ipv4" or "ipv6" limits
+ * the answers */
+static int l_getaddrinfo(slang_State *S) {
+    const char *host = slang_checklstring(S, 1, NULL);
+    int top = slang_gettop(S);
+    slang_checkfunction(S, top);
+    if (slang_failed(S)) return SLANG_ERROR;
+    char service[32];
+    const char *svc = NULL;
+    if (slang_isint(S, 2)) {
+        snprintf(service, sizeof service, "%lld", (long long)slang_toint(S, 2));
+        svc = service;
+    } else if (slang_isstring(S, 2) && top > 2) {
+        svc = slang_tolstring(S, 2, NULL);
+    }
+    struct addrinfo hints;
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    if (top > 3 && slang_isstring(S, 3)) {
+        const char *fam = slang_tolstring(S, 3, NULL);
+        if (strcmp(fam, "ipv4") == 0) hints.ai_family = AF_INET;
+        else if (strcmp(fam, "ipv6") == 0) hints.ai_family = AF_INET6;
+        else return slang_argerror(S, 3, "\"ipv4\" or \"ipv6\" expected");
+    }
+    gai_req *g = calloc(1, sizeof(gai_req));
+    slang_pushvalue(S, top);
+    g->cb_ref = slang_ref(S);
+    int r = uv_getaddrinfo(loop(), &g->req, on_getaddrinfo, host, svc, &hints);
+    if (r < 0) {
+        drop_ref(S, &g->cb_ref);
+        free(g);
+        push_uv_error(S, r);
+        return slang_raise(S);
+    }
+    return 0;
+}
+
+/* ---- signals ---- */
+
+static const struct { const char *name; int num; } signal_names[] = {
+    {"SIGINT", SIGINT}, {"SIGTERM", SIGTERM}, {"SIGHUP", SIGHUP}, {"SIGQUIT", SIGQUIT},
+    {"SIGKILL", SIGKILL}, {"SIGUSR1", SIGUSR1}, {"SIGUSR2", SIGUSR2}, {"SIGPIPE", SIGPIPE},
+    {"SIGCHLD", SIGCHLD}, {"SIGWINCH", SIGWINCH}, {"SIGALRM", SIGALRM}, {"SIGCONT", SIGCONT},
+    {"SIGSTOP", SIGSTOP}, {"SIGTSTP", SIGTSTP}, {NULL, 0},
+};
+
+static const char *signal_name(int num) {
+    for (int i = 0; signal_names[i].name != NULL; i++)
+        if (signal_names[i].num == num) return signal_names[i].name;
+    return NULL;
+}
+
+/* a signal given by number or name at idx, or -1 after an argument error */
+static int check_signal(slang_State *S, int idx, int def) {
+    if (slang_isnone(S, idx) || slang_isnull(S, idx)) {
+        if (def >= 0) return def;
+    } else if (slang_isint(S, idx)) {
+        return (int)slang_toint(S, idx);
+    } else if (slang_isstring(S, idx)) {
+        const char *s = slang_tolstring(S, idx, NULL);
+        for (int i = 0; signal_names[i].name != NULL; i++)
+            if (strcmp(signal_names[i].name, s) == 0) return signal_names[i].num;
+    }
+    slang_argerror(S, idx, "a signal number or name like \"SIGTERM\" expected");
+    return -1;
+}
+
+static int signal_meta_ref = SLANG_REFNULL;
+
+static int l_signal(slang_State *S) {
+    handle *h = new_handle(S, "uv.signal", signal_meta_ref);
+    uv_signal_init(loop(), &h->u.signal);
+    return 1;
+}
+
+static void on_signal(uv_signal_t *sig, int signum) {
+    handle *h = (handle *)sig;
+    if (!begin_callback(h->cb_ref)) return;
+    slang_pushnull(run_S);
+    const char *name = signal_name(signum);
+    if (name != NULL) slang_pushstring(run_S, name); else slang_pushint(run_S, signum);
+    finish_callback(2);
+}
+
+/* signal:start(sig, cb(err, name)): sig is a number or a name like "SIGINT" */
+static int signal_start(slang_State *S) {
+    handle *h = check_handle(S, 1, "uv.signal");
+    if (h == NULL) return SLANG_ERROR;
+    int sig = check_signal(S, 2, -1);
+    slang_checkfunction(S, 3);
+    if (sig < 0 || slang_failed(S)) return SLANG_ERROR;
+    if (h->closed) return slang_error(S, "signal handle is closed");
+    drop_ref(S, &h->cb_ref);
+    slang_pushvalue(S, 3);
+    h->cb_ref = slang_ref(S);
+    retain(S, h, 1);
+    int r = uv_signal_start(&h->u.signal, on_signal, sig);
+    if (r < 0) {
+        drop_ref(S, &h->cb_ref);
+        release(S, h);
+        push_uv_error(S, r);
+        return slang_raise(S);
+    }
+    return 0;
+}
+
+static int signal_stop(slang_State *S) {
+    handle *h = check_handle(S, 1, "uv.signal");
+    if (h == NULL) return SLANG_ERROR;
+    uv_signal_stop(&h->u.signal);
+    drop_ref(S, &h->cb_ref);
+    release(S, h);
+    return 0;
+}
+
+static int signal_close(slang_State *S) { return l_close(S, "uv.signal"); }
+static int signal_is_active(slang_State *S) { return l_is_active(S, "uv.signal"); }
+static int signal_is_closing(slang_State *S) { return l_is_closing(S, "uv.signal"); }
+
+static const slang_Reg signal_methods[] = {
+    {"start", signal_start},
+    {"stop", signal_stop},
+    {"close", signal_close},
+    {"is_active", signal_is_active},
+    {"is_closing", signal_is_closing},
+    HANDLE_METHODS,
+    {NULL, NULL},
+};
+
+/* ---- processes ---- */
+
+static int process_meta_ref = SLANG_REFNULL;
+
+static void on_exit_cb(uv_process_t *p, int64_t status, int term_signal) {
+    handle *h = (handle *)p;
+    if (begin_callback(h->cb_ref)) {
+        slang_pushnull(run_S);
+        slang_newtable(run_S);
+        slang_pushint(run_S, status);
+        slang_setfield(run_S, -2, "status");
+        if (term_signal != 0) {
+            const char *name = signal_name(term_signal);
+            if (name != NULL) slang_pushstring(run_S, name); else slang_pushint(run_S, term_signal);
+            slang_setfield(run_S, -2, "signal");
+        }
+        finish_callback(2);
+    }
+    if (run_S != NULL) {
+        /* the process is gone: the handle is only waiting to be closed */
+        drop_ref(run_S, &h->cb_ref);
+        release(run_S, h);
+    }
+}
+
+static void free_strings(char **v) {
+    if (v == NULL) return;
+    for (int i = 0; v[i] != NULL; i++) free(v[i]);
+    free(v);
+}
+
+/* spawn(file, args, options, on_exit(err, {status, signal})) -> process:
+ * args is the list of arguments after the program name; options (may be
+ * null) has cwd, env (a table of names to values, replacing the
+ * environment), detached, and stdio: a list for fds 0, 1, 2, ... whose
+ * entries are a uv.pipe (connected to the child), "inherit" (the same fd of
+ * this process), an int (that fd of this process) or "ignore". Without
+ * stdio the child inherits 0, 1 and 2. Raises when the program cannot be
+ * started. */
+static int l_spawn(slang_State *S) {
+    const char *file = slang_checklstring(S, 1, NULL);
+    slang_checkfunction(S, 4);
+    if (slang_failed(S)) return SLANG_ERROR;
+    if (!slang_isnull(S, 2) && !slang_istable(S, 2)) return slang_argerror(S, 2, "list of arguments expected");
+    if (!slang_isnull(S, 3) && !slang_istable(S, 3)) return slang_argerror(S, 3, "options table expected");
+
+    uv_process_options_t opts;
+    memset(&opts, 0, sizeof opts);
+    int nargs = slang_istable(S, 2) ? (int)slang_rawlen(S, 2) : 0;
+    char **argv = calloc((size_t)nargs + 2, sizeof(char *));
+    argv[0] = strdup(file);
+    for (int i = 0; i < nargs; i++) {
+        slang_rawgeti(S, 2, i);
+        const char *a = slang_isstring(S, -1) ? slang_tolstring(S, -1, NULL) : NULL;
+        argv[i + 1] = strdup(a ? a : "");
+        slang_pop(S, 1);
+        if (a == NULL) {
+            free_strings(argv);
+            return slang_argerror(S, 2, "arguments must be strings");
+        }
+    }
+    char **env = NULL;
+    char *cwd = NULL;
+    uv_stdio_container_t stdio[16];
+    int nstdio = 3;
+    for (int i = 0; i < 3; i++) {
+        stdio[i].flags = UV_INHERIT_FD;
+        stdio[i].data.fd = i;
+    }
+    if (slang_istable(S, 3)) {
+        slang_getfield(S, 3, "cwd");
+        if (slang_isstring(S, -1)) cwd = strdup(slang_tolstring(S, -1, NULL));
+        slang_pop(S, 1);
+        slang_getfield(S, 3, "detached");
+        if (slang_tobool(S, -1)) opts.flags |= UV_PROCESS_DETACHED;
+        slang_pop(S, 1);
+        slang_getfield(S, 3, "env");
+        if (slang_istable(S, -1)) {
+            int env_idx = slang_gettop(S);
+            size_t n = 0, cap = 16;
+            env = calloc(cap, sizeof(char *));
+            slang_pushnull(S);
+            while (slang_next(S, env_idx)) {
+                if (slang_isstring(S, -2) && slang_isstring(S, -1)) {
+                    size_t kl = 0, vl = 0;
+                    const char *k = slang_tolstring(S, -2, &kl);
+                    const char *v = slang_tolstring(S, -1, &vl);
+                    if (n + 2 > cap) {
+                        cap *= 2;
+                        env = realloc(env, cap * sizeof(char *));
+                    }
+                    env[n] = malloc(kl + vl + 2);
+                    memcpy(env[n], k, kl);
+                    env[n][kl] = '=';
+                    memcpy(env[n] + kl + 1, v, vl);
+                    env[n][kl + vl + 1] = 0;
+                    n++;
+                }
+                slang_pop(S, 1);
+            }
+            env[n] = NULL;
+        }
+        slang_pop(S, 1);
+        slang_getfield(S, 3, "stdio");
+        if (slang_istable(S, -1)) {
+            int list = slang_gettop(S);
+            nstdio = (int)slang_rawlen(S, list);
+            if (nstdio > 16) nstdio = 16;
+            for (int i = 0; i < nstdio; i++) {
+                slang_rawgeti(S, list, i);
+                handle **box = slang_testudata(S, -1, "uv.pipe");
+                if (box != NULL) {
+                    stdio[i].flags = UV_CREATE_PIPE | UV_READABLE_PIPE | UV_WRITABLE_PIPE;
+                    stdio[i].data.stream = &(*box)->u.stream;
+                } else if (slang_isint(S, -1)) {
+                    stdio[i].flags = UV_INHERIT_FD;
+                    stdio[i].data.fd = (int)slang_toint(S, -1);
+                } else if (slang_isstring(S, -1) && strcmp(slang_tolstring(S, -1, NULL), "inherit") == 0) {
+                    stdio[i].flags = UV_INHERIT_FD;
+                    stdio[i].data.fd = i;
+                } else {
+                    stdio[i].flags = UV_IGNORE;
+                }
+                slang_pop(S, 1);
+            }
+        }
+        slang_pop(S, 1);
+    }
+    opts.file = file;
+    opts.args = argv;
+    opts.env = env;
+    opts.cwd = cwd;
+    opts.stdio = stdio;
+    opts.stdio_count = nstdio;
+    opts.exit_cb = on_exit_cb;
+
+    handle *h = new_handle(S, "uv.process", process_meta_ref);
+    int proc_idx = slang_gettop(S);
+    int r = uv_spawn(loop(), &h->u.process, &opts);
+    free_strings(argv);
+    free_strings(env);
+    free(cwd);
+    if (r < 0) {
+        /* the handle is initialized even so; its finalizer closes it */
+        slang_pushfstring(S, "%s: %s, spawn '%s'", uv_err_name(r), uv_strerror(r), file);
+        return slang_raise(S);
+    }
+    slang_pushvalue(S, 4);
+    h->cb_ref = slang_ref(S);
+    retain(S, h, proc_idx);
+    return 1;
+}
+
+static int process_pid(slang_State *S) {
+    handle *h = check_handle(S, 1, "uv.process");
+    if (h == NULL) return SLANG_ERROR;
+    slang_pushint(S, h->u.process.pid);
+    return 1;
+}
+
+/* process:kill([sig]): SIGTERM by default */
+static int process_kill(slang_State *S) {
+    handle *h = check_handle(S, 1, "uv.process");
+    if (h == NULL) return SLANG_ERROR;
+    int sig = check_signal(S, 2, SIGTERM);
+    if (sig < 0) return SLANG_ERROR;
+    int r = uv_process_kill(&h->u.process, sig);
+    if (r < 0) {
+        push_uv_error(S, r);
+        return slang_raise(S);
+    }
+    return 0;
+}
+
+static int l_getpid(slang_State *S) {
+    slang_pushint(S, (int64_t)uv_os_getpid());
+    return 1;
+}
+
+/* kill(pid, [sig]) */
+static int l_kill(slang_State *S) {
+    int64_t pid = slang_checkint(S, 1);
+    int sig = check_signal(S, 2, SIGTERM);
+    if (slang_failed(S) || sig < 0) return SLANG_ERROR;
+    int r = uv_kill((int)pid, sig);
+    if (r < 0) {
+        push_uv_error(S, r);
+        return slang_raise(S);
+    }
+    return 0;
+}
+
+static int process_close(slang_State *S) { return l_close(S, "uv.process"); }
+static int process_is_active(slang_State *S) { return l_is_active(S, "uv.process"); }
+static int process_is_closing(slang_State *S) { return l_is_closing(S, "uv.process"); }
+
+static const slang_Reg process_methods[] = {
+    {"pid", process_pid},
+    {"kill", process_kill},
+    {"close", process_close},
+    {"is_active", process_is_active},
+    {"is_closing", process_is_closing},
+    HANDLE_METHODS,
+    {NULL, NULL},
+};
+
+/* ---- polling a foreign file descriptor ---- */
+
+static int poll_meta_ref = SLANG_REFNULL;
+
+/* poll(fd): watches a socket or pipe some other library owns (libpq) */
+static int l_poll(slang_State *S) {
+    int64_t fd = slang_checkint(S, 1);
+    if (slang_failed(S)) return SLANG_ERROR;
+    handle *h = new_handle(S, "uv.poll", poll_meta_ref);
+    int r = uv_poll_init(loop(), &h->u.poll, (int)fd);
+    if (r < 0) {
+        /* not initialized: nothing to close */
+        h->closed = 1;
+        h->close_done = 1;
+        push_uv_error(S, r);
+        return slang_raise(S);
+    }
+    return 1;
+}
+
+static void on_poll(uv_poll_t *p, int status, int events) {
+    handle *h = (handle *)p;
+    if (!begin_callback(h->cb_ref)) return;
+    if (status < 0) {
+        push_uv_error(run_S, status);
+        slang_pushnull(run_S);
+    } else {
+        slang_pushnull(run_S);
+        int rd = (events & UV_READABLE) != 0, wr = (events & UV_WRITABLE) != 0;
+        slang_pushstring(run_S, rd && wr ? "rw" : rd ? "r" : wr ? "w" : "");
+    }
+    finish_callback(2);
+}
+
+/* poll:start(events, cb(err, events)): events "r", "w" or "rw" */
+static int poll_start(slang_State *S) {
+    handle *h = check_handle(S, 1, "uv.poll");
+    const char *ev = slang_checklstring(S, 2, NULL);
+    slang_checkfunction(S, 3);
+    if (h == NULL || slang_failed(S)) return SLANG_ERROR;
+    int events = 0;
+    if (strchr(ev, 'r')) events |= UV_READABLE;
+    if (strchr(ev, 'w')) events |= UV_WRITABLE;
+    if (events == 0) return slang_argerror(S, 2, "\"r\", \"w\" or \"rw\" expected");
+    if (h->closed) return slang_error(S, "poll handle is closed");
+    drop_ref(S, &h->cb_ref);
+    slang_pushvalue(S, 3);
+    h->cb_ref = slang_ref(S);
+    retain(S, h, 1);
+    int r = uv_poll_start(&h->u.poll, events, on_poll);
+    if (r < 0) {
+        drop_ref(S, &h->cb_ref);
+        release(S, h);
+        push_uv_error(S, r);
+        return slang_raise(S);
+    }
+    return 0;
+}
+
+static int poll_stop(slang_State *S) {
+    handle *h = check_handle(S, 1, "uv.poll");
+    if (h == NULL) return SLANG_ERROR;
+    uv_poll_stop(&h->u.poll);
+    drop_ref(S, &h->cb_ref);
+    release(S, h);
+    return 0;
+}
+
+static int poll_close(slang_State *S) { return l_close(S, "uv.poll"); }
+static int poll_is_active(slang_State *S) { return l_is_active(S, "uv.poll"); }
+static int poll_is_closing(slang_State *S) { return l_is_closing(S, "uv.poll"); }
+
+static const slang_Reg poll_methods[] = {
+    {"start", poll_start},
+    {"stop", poll_stop},
+    {"close", poll_close},
+    {"is_active", poll_is_active},
+    {"is_closing", poll_is_closing},
+    HANDLE_METHODS,
     {NULL, NULL},
 };
 
@@ -717,6 +1667,24 @@ static const slang_Reg funcs[] = {
     {"timer", l_timer},
     {"tcp", l_tcp},
     {"pipe", l_pipe},
+    {"signal", l_signal},
+    {"spawn", l_spawn},
+    {"kill", l_kill},
+    {"getpid", l_getpid},
+    {"poll", l_poll},
+    {"getaddrinfo", l_getaddrinfo},
+    {"fs_read_file", l_fs_read_file},
+    {"fs_write_file", l_fs_write_file},
+    {"fs_stat", l_fs_stat},
+    {"fs_unlink", l_fs_unlink},
+    {"fs_mkdir", l_fs_mkdir},
+    {"fs_rmdir", l_fs_rmdir},
+    {"fs_rename", l_fs_rename},
+    {"fs_scandir", l_fs_scandir},
+    {"fs_open", l_fs_open},
+    {"fs_read", l_fs_read},
+    {"fs_write", l_fs_write},
+    {"fs_close", l_fs_close},
     {NULL, NULL},
 };
 
@@ -733,6 +1701,12 @@ SLANG_EXTENSION(uv) {
     timer_meta_ref = make_meta(S, "uv.timer", timer_methods);
     tcp_meta_ref = make_meta(S, "uv.tcp", tcp_methods);
     pipe_meta_ref = make_meta(S, "uv.pipe", pipe_methods);
+    signal_meta_ref = make_meta(S, "uv.signal", signal_methods);
+    process_meta_ref = make_meta(S, "uv.process", process_methods);
+    poll_meta_ref = make_meta(S, "uv.poll", poll_methods);
     slang_newmodule(S, funcs);
+    const slang_uv_api **api = slang_newuserdata(S, sizeof(slang_uv_api *), SLANG_UV_API_TNAME, NULL);
+    *api = &the_api;
+    slang_setfield(S, -2, "c_api");
     return 1;
 }

@@ -36,5 +36,6 @@ are safe and highlighted, and the web server example persisting its data.
 - [x] Phase 2: `slang/sqlite` in the seed, with tests in `zig/test`.
 - [x] Phase 3: the `sql{}` syntax, with highlighting and expand tests.
 - [x] Phase 4: the web server keeps todos and the log in SQLite.
-- [ ] Later: queries on libuv's thread pool (`await db:all(...)`), blobs as a
-  distinct type, `db:each` with early close.
+- [x] Queries on libuv's thread pool: `await db:all_async(...)` (done
+  2026-10-29 with PLAN_WEB.md phase 2).
+- [ ] Later: blobs as a distinct type, `db:each` with early close.

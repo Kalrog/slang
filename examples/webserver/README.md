@@ -42,7 +42,11 @@ curl -d 'hello' http://127.0.0.1:8080/echo
   every three seconds and shows its own polls, dimmed.
 - `/slow`: a button whose request awaits a two-second timer, with an
   indicator while it runs; other requests are served meanwhile.
-- `POST /echo` echoes the body; `/static/...` serves the static folder.
+- `POST /echo` echoes the body; `/static/...` serves the static folder,
+  read on libuv's thread pool with `async.fs.read_file`.
+
+Ctrl-C or a SIGTERM stops the server cleanly: it stops accepting
+connections, closes the database and exits with status 0.
 
 Every request is also printed on the terminal:
 

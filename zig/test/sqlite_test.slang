@@ -155,12 +155,99 @@ t.group("sql literals"){
     assert(lines[1] == "local __slang_sqlite = require(\"slang/sqlite\")", lines[1])
     assert(str.starts_with(lines[2], "local __sql_"), lines[2])
     assert(str.index_of(out, ".query(\"select id from t where x = 'y'\", null, \"q.slang:3\")") >= 0, out)
-    assert(str.index_of(out, ".query(\"select ?\", {a}, \"q.slang:4\")") >= 0, out)
+    assert(str.index_of(out, ".query(\"select ?\", {a}, \"q.slang:4\", 1)") >= 0, out)
     local h = compiler.highlight(src, "q.slang")
     local cats = {}
     for(let local tk in values(h.tokens)){ append(cats, tk.category) }
     local joined = str.join(cats, " ")
     assert(str.index_of(joined, "keyword punctuation keyword keyword keyword string punctuation") >= 0, joined)
     assert(len(h.diagnostics) == 0)
+  }
+}
+
+t.group("sqlite on the thread pool"){
+  local async = require("slang/async")
+  local await = async.await
+  t.test("all_async, one_async and run_async are futures"){
+    local db = fresh()
+    async.main(func(){
+      local rows = await(db:all_async(sql{ select id, text, done from todos where id > {1} order by id }))
+      assert(len(rows) == 2 and rows[0].text == "two" and rows[0].done == true)
+      assert(await(db:one_async(sql{ select text from todos where id = {3} })).text == "three")
+      assert(await(db:one_async(sql{ select text from todos where id = {99} })) == null)
+      local r = await(db:run_async(sql{ insert into todos(text) values ({"four"}) }))
+      assert(r.changes == 1 and r.last_id == 4)
+      assert(db:one(sql{ select count(*) as n from todos }).n == 4, "sync and async share the database")
+    })
+  }
+  t.test("errors fail the future and carry the location"){
+    local db = fresh()
+    async.main(func(){
+      local r = pcall(await, db:all_async(sql{ select missing from todos }))
+      assert(r[0] == "err" and str.starts_with(r[1].message, "sqlite: no such column: missing (at "), r[1].message)
+      local c = pcall(await, db:run_async(sql{ insert into todos(text) values ({null}) }))
+      assert(c[0] == "err" and str.index_of(c[1].message, "NOT NULL") >= 0, c[1].message)
+    })
+  }
+  t.test("the loop runs while a query does"){
+    local db = fresh()
+    local ticks = 0
+    async.main(func(){
+      local timer = require("uv").timer()
+      timer:start(1, 1, func(){ ticks = ticks + 1 })
+      local n = await(db:one_async(sql{
+        with recursive c(x) as (select 1 union all select x + 1 from c where x < 2000000) select count(*) as n from c
+      })).n
+      timer:close()
+      assert(n == 2000000)
+    })
+    assert(ticks > 3, concat("ticks ", string(ticks)))
+  }
+  t.test("a busy statement is not reused or touched; the database waits for it"){
+    local db = fresh()
+    async.main(func(){
+      local q = sql{ select count(*) as n from todos }
+      local f1 = db:one_async(q)
+      local f2 = db:one_async(q)
+      assert(await(f1).n == 3 and await(f2).n == 3, "the second query got its own statement")
+    })
+    local raw = native.open(":memory:")
+    local st = raw:prepare("select 1")
+    local seen = null
+    st:run_async(func(err, r){ seen = r.rows[0]["1"] })
+    assert(st:is_busy())
+    local touched = pcall(func(){ st:step() })
+    assert(touched[0] == "err" and touched[1].message == "sqlite: the statement is in use by a query that has not finished")
+    local closed = pcall(func(){ raw:close() })
+    assert(closed[0] == "err" and closed[1].message == "sqlite: cannot close the database while queries are running")
+    require("uv").run()
+    assert(seen == 1 and not st:is_busy())
+    raw:close()
+  }
+  t.test("a database collected while a query runs is closed after it"){
+    local seen = 0
+    for(local i = 0; i < 20; i = i + 1){
+      local raw = native.open(":memory:")
+      raw:prepare("select 1"):run_async(func(err, r){ seen = seen + 1 })
+    }
+    require("uv").run()
+    assert(seen == 20)
+  }
+}
+
+t.group("sql literal values"){
+  t.test("a null value binds as NULL and keeps the values after it"){
+    local db = fresh()
+    local nothing = null
+    local row = db:one(sql{ select {nothing} as a, {2} as b, {nothing} as c, {"d"} as d })
+    assert(row.a == null and row.b == 2 and row.c == null and row.d == "d")
+    db:run(sql{ create table n(x, y) })
+    db:run(sql{ insert into n(x, y) values ({nothing}, {"after"}) })
+    assert(db:one(sql{ select y from n where x is {nothing} }).y == "after")
+    local async = require("slang/async")
+    async.main(func(){
+      local r = async.await(db:one_async(sql{ select {nothing} as a, {3} as b }))
+      assert(r.a == null and r.b == 3)
+    })
   }
 }

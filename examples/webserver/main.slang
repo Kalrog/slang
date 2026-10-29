@@ -52,5 +52,14 @@ a.main(func(){
     on_error: func(req, err){ print("error handling ", req.method, " ", req.path, ": ", err.message or err, "\n") },
   })
   print("listening on http://127.0.0.1:", s.port, "/\n")
+  // Ctrl-C or a SIGTERM stops accepting connections; the program ends once
+  // the server is closed
+  for(let local name in values({"SIGINT", "SIGTERM"})){
+    a.on_signal(name, func(got){
+      print("\n", got, ": shutting down\n")
+      s.close()
+    })
+  }
   await s.done
+  require("db"):close()
 })

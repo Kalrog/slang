@@ -195,7 +195,9 @@ local func build(pieces, token){
   for(let local v in values(holes)){
     append(fields, ast.node("Field", {value: v}, token))
   }
-  return runtime_call("query", {text_node, ast.node("Table", {fields: fields}, token), origin_node}, token)
+  // the count, because a null value would end the list's length early
+  local count_node = ast.node("Int", {value: len(holes)}, token)
+  return runtime_call("query", {text_node, ast.node("Table", {fields: fields}, token), origin_node, count_node}, token)
 }
 
 // ------------------------------------------------------------ syntax

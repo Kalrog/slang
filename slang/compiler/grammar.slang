@@ -1007,12 +1007,41 @@ local func install_core(g){
     return list(t.value[0], t.value[1], t)
   }))
 
+  // same_line: matches nothing, and only when no line break separates the
+  // previous token from the next one. A call's ( and a block argument's {
+  // must be on the line where the expression they continue ends, so that
+  //     f(x)
+  //     { ... }
+  // is a call and then a block, not a call with a block argument (as in
+  // Kotlin). Tokens skip the whitespace after them, so the break may lie
+  // before or after pos.
+  local same_line = peg.custom(func(self, ctx, pos){
+    local buf = ctx.buffer
+    local i = pos - 1
+    for(i >= 0){
+      local b = str.byte_at(buf, i)
+      if(b == 10){
+        return peg.fail(ctx, pos, "on the same line")
+      }
+      if(b != 32 and b != 9 and b != 13){
+        break
+      }
+      i = i - 1
+    }
+    local q = str.skip_space(buf, pos)
+    if(q > pos and str.index_of(str.substring(buf, pos, q), "\n") >= 0){
+      return peg.fail(ctx, pos, "on the same line")
+    }
+    ctx.value = null
+    return pos
+  })
+
   define("args", peg.choice(
     peg.seq(
-      peg.seq(tok("("), peg.choice(rule("spread"), rule("expr")):star_separated(tok(",")):map(elements), tok(")")):pick(1),
-      rule("block"):optional()
+      peg.seq(same_line, tok("("), peg.choice(rule("spread"), rule("expr")):star_separated(tok(",")):map(elements), tok(")")):pick(2),
+      peg.seq(same_line, rule("block")):pick(1):optional()
     ),
-    rule("block")
+    peg.seq(same_line, rule("block")):pick(1)
   ):map(func(args){
     if(type(args) == "Block"){
       return {ast.node("Function", {params: {}, body: args}, args.token)}

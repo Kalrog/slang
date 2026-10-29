@@ -63,3 +63,32 @@ t.group("async syntax"){
     assert(o.async + o.await == 3)
   }
 }
+
+t.group("async with try and defer"){
+  t.test("a failed await is caught; defers run across awaits"){
+    local log = {}
+    local a = require("slang/async")
+    local async func step(n){
+      defer append(log, concat("cleanup ", string(n)))
+      await a.sleep(1)
+      if(n == 2){
+        raise({kind: "bad step", n: n})
+      }
+      return n
+    }
+    local async func run_steps(){
+      local total = 0
+      for(local i = 1; i <= 3; i = i + 1){
+        try {
+          total = total + await step(i)
+        } catch({kind: "bad step", n: local n}) {
+          append(log, concat("caught ", string(n)))
+        }
+      }
+      return total
+    }
+    local result = a.main(func(){ return a.await(run_steps()) })
+    assert(result == 4, concat("total ", string(result)))
+    assert(log == {"cleanup 1", "cleanup 2", "caught 2", "cleanup 3"}, concat("log ", log))
+  }
+}

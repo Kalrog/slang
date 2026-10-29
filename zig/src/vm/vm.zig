@@ -156,9 +156,11 @@ pub const VM = struct {
     /// slang_raise use it.
     pub fn setErrorFromValue(vm: *VM, v: Value) void {
         if (v.asTable()) |t| {
-            const msg = root.format.valueToOwned(vm.gpa, t.getName("message"));
+            // the message for printing: the message field, or the table
+            const m = t.getName("message");
+            const msg = root.format.valueToOwned(vm.gpa, if (m == .null) v else m);
             defer vm.gpa.free(msg);
-            var e: SlangError = .{ .message = vm.dupeZ(msg) };
+            var e: SlangError = .{ .message = vm.dupeZ(msg), .value = v };
             if (t.getName("location").asTable()) |loc| {
                 e.loc = .{
                     .origin = root.format.valueToOwned(vm.gpa, loc.getName("origin")),
@@ -209,6 +211,23 @@ pub const VM = struct {
     pub fn errorToValue(vm: *VM) Value {
         var e = vm.takeError();
         defer e.deinit(vm.gpa);
+        if (e.value.asTable()) |raised| {
+            // a raised table is the error itself; it gains where it was
+            // raised unless it already says (a re-raise keeps the original)
+            if (raised.getName("location") == .null) {
+                if (e.loc) |l| {
+                    const loc = vm.newTable(0, 3);
+                    loc.set(vm.gpa, vm.str("line"), .{ .int = l.line });
+                    loc.set(vm.gpa, vm.str("column"), .{ .int = l.column });
+                    loc.set(vm.gpa, vm.str("origin"), vm.strValue(l.origin));
+                    raised.set(vm.gpa, vm.str("location"), .{ .table = loc });
+                }
+            }
+            if (raised.getName("stack") == .null) {
+                if (e.trace) |tr| raised.set(vm.gpa, vm.str("stack"), vm.strValue(tr));
+            }
+            return e.value;
+        }
         const t = vm.newTable(0, 3);
         t.set(vm.gpa, vm.str("message"), vm.strValue(e.message));
         if (e.loc) |l| {

@@ -632,6 +632,41 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 th.frames.items[fi].pc = @intCast(pc);
                 continue :sw d.opOf(ins);
             },
+            .try_begin => {
+                const off = d.argSBx(ins);
+                th.pushHandler(.{
+                    .frame = @intCast(fi),
+                    .pc = @intCast(@as(i64, @intCast(pc)) + off),
+                    .top = @intCast(top),
+                    .close_from = @intCast(base + d.argA(ins)),
+                });
+                ins = code[pc];
+                if (trace) {
+                    th.top = top;
+                    traceInstruction(th, fi, base, pc, ins);
+                }
+                pc += 1;
+                th.frames.items[fi].pc = @intCast(pc);
+                continue :sw d.opOf(ins);
+            },
+            .try_end => {
+                _ = th.handlers.pop();
+                ins = code[pc];
+                if (trace) {
+                    th.top = top;
+                    traceInstruction(th, fi, base, pc, ins);
+                }
+                pc += 1;
+                th.frames.items[fi].pc = @intCast(pc);
+                continue :sw d.opOf(ins);
+            },
+            .throw => {
+                const v = stack[top - 1];
+                th.top = top - 1;
+                vm.setErrorFromValue(v);
+                try th.handleError(error.Slang, stop_depth);
+                continue :outer;
+            },
             _ => {
                 th.top = top;
                 return vm.raise("unknown opcode {d}", .{ins & 0x3F});

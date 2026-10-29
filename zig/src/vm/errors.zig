@@ -1,4 +1,5 @@
 const std = @import("std");
+const Value = @import("value.zig").Value;
 
 /// Errors that cross VM boundaries. `Slang` means "a slang error was raised;
 /// the details are in vm.err". `Yield` is the sentinel returned by
@@ -19,6 +20,10 @@ pub const SlangError = struct {
     message: [:0]u8,
     loc: ?Location = null,
     trace: ?[]u8 = null,
+    /// The value raised, when it was a table: pcall and catch hand it back
+    /// as it is (with location and stack added when it has none), so an
+    /// error keeps its fields. Marked by the collector while pending.
+    value: Value = .null,
 
     pub fn deinit(e: *SlangError, gpa: std.mem.Allocator) void {
         gpa.free(e.message);

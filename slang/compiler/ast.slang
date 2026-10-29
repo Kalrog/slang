@@ -47,12 +47,18 @@ local specs = {
   ConstPattern: {{"value", "node"}},
   Quote: {{"ast_type", "value"}, {"ast", "node"}},
   Unquote: {{"ast_type", "value"}, {"ast", "node"}},
+  Try: {{"body", "node"}, {"catches", "list"}},
+  Catch: {{"pattern", "node?"}, {"body", "node"}},
+  Defer: {{"body", "node"}},
+  Throw: {{"value", "node"}},
+  IfExpr: {{"condition", "node"}, {"thenValue", "node"}, {"elseValue", "node"}},
 }
 ast.specs = specs
 
 local statement_types = {
   Block: true, CallStat: true, If: true, Return: true, Assignment: true,
   Declaration: true, Break: true, For: true, ForIn: true, Unquote: true, LetStat: true,
+  Try: true, Defer: true, Throw: true,
 }
 
 local metas = {}
@@ -589,6 +595,41 @@ func writer.visit(self, node){
     self:visit(node.right)
   } else if(t == "Break"){
     self:add("break")
+  } else if(t == "Try"){
+    self:add("try ")
+    self:visit(node.body)
+    for(let local c in values(node.catches)){
+      self:visit(c)
+    }
+  } else if(t == "Catch"){
+    self:add(" catch")
+    if(node.pattern != null){
+      self:add("(")
+      self:visit(node.pattern)
+      self:add(")")
+    }
+    self:add(" ")
+    self:visit(node.body)
+  } else if(t == "Defer"){
+    self:add("defer ")
+    self:visit(node.body)
+  } else if(t == "Throw"){
+    self:add("raise(")
+    self:visit(node.value)
+    self:add(")")
+  } else if(t == "IfExpr"){
+    self:add("if (")
+    self:visit(node.condition)
+    self:add(") { ")
+    self:visit(node.thenValue)
+    self:add(" } else ")
+    if(node.elseValue.type == "IfExpr"){
+      self:visit(node.elseValue)
+    } else {
+      self:add("{ ")
+      self:visit(node.elseValue)
+      self:add(" }")
+    }
   } else if(t == "Quote"){
     self:add("quote{")
     self:add(node.ast_type)
@@ -717,6 +758,19 @@ func source.expr(self, node){
     self:add("null")
   } else if(t == "Identifier"){
     self:add(node.value)
+  } else if(t == "IfExpr"){
+    self:add("if(")
+    self:expr(node.condition)
+    self:add("){ ")
+    self:expr(node.thenValue)
+    self:add(" } else ")
+    if(node.elseValue.type == "IfExpr"){
+      self:expr(node.elseValue)
+    } else {
+      self:add("{ ")
+      self:expr(node.elseValue)
+      self:add(" }")
+    }
   } else if(t == "Table"){
     if(len(node.fields) == 0){
       self:add("{}")
@@ -861,13 +915,24 @@ func source.pattern(self, node){
   }
 }
 
+// a statement followed by a bare block needs a `;`, or the block would
+// read as a block argument of the statement's last expression
+local func before_block(list, i){
+  local next = list[i + 1]
+  return next != null and next.type == "Block" and len(next.statements) > 0
+}
+
 func source.block(self, node){
   self:add("{")
   if(len(node.statements) > 0){
     self.indent = self.indent + 2
-    for(let local s in values(node.statements)){
+    local list = node.statements
+    for(local i = 0; i < len(list); i = i + 1){
       self:newline()
-      self:statement(s)
+      self:statement(list[i])
+      if(before_block(list, i)){
+        self:add(";")
+      }
     }
     self.indent = self.indent - 2
     self:newline()
@@ -878,7 +943,8 @@ func source.block(self, node){
 // statements separated by newlines (a chunk) or by separator
 func source.statements(self, list, separator){
   local first = true
-  for(let local s in values(list)){
+  for(local i = 0; i < len(list); i = i + 1){
+    local s = list[i]
     // an empty block says nothing (an extension statement that produced none)
     if(not (s.type == "Block" and len(s.statements) == 0)){
       if(not first){
@@ -886,6 +952,9 @@ func source.statements(self, list, separator){
       }
       first = false
       self:statement(s)
+      if(separator == null and before_block(list, i)){
+        self:add(";")
+      }
     }
   }
 }
@@ -960,6 +1029,26 @@ func source.statement(self, node){
     self:pattern(node.pattern)
     self:add(" = ")
     self:expr(node.right)
+  } else if(t == "Try"){
+    self:add("try ")
+    self:block(node.body)
+    for(let local c in values(node.catches)){
+      self:add(" catch")
+      if(c.pattern != null){
+        self:add("(")
+        self:pattern(c.pattern)
+        self:add(")")
+      }
+      self:add(" ")
+      self:block(c.body)
+    }
+  } else if(t == "Defer"){
+    self:add("defer ")
+    self:block(node.body)
+  } else if(t == "Throw"){
+    self:add("raise(")
+    self:expr(node.value)
+    self:add(")")
   } else if(t == "Unquote"){
     self:quoted("-{", node)
   } else {

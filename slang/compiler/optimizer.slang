@@ -173,6 +173,22 @@ func visitors.Index(n){
   return ast.node("Index", {receiver: visit(n.receiver), index: visit(n.index), dotStyle: n.dotStyle}, n.token)
 }
 
+func visitors.Try(n){
+  local catches = {}
+  for(let local c in values(n.catches)){
+    append(catches, ast.node("Catch", {pattern: c.pattern, body: visit(c.body)}, c.token))
+  }
+  return ast.node("Try", {body: visit(n.body), catches: catches}, n.token)
+}
+
+func visitors.Defer(n){
+  return ast.node("Defer", {body: visit(n.body)}, n.token)
+}
+
+func visitors.IfExpr(n){
+  return ast.node("IfExpr", {condition: visit(n.condition), thenValue: visit(n.thenValue), elseValue: visit(n.elseValue)}, n.token)
+}
+
 func visitors.Return(n){
   return ast.node("Return", {value: maybe(n.value)}, n.token)
 }

@@ -45,6 +45,9 @@ pub const Op = enum(u6) {
     shr, // a >> b (arithmetic)
     bnot, // ~a
     call_spread, // call with bx fixed args followed by a list of the rest
+    try_begin, // push a handler: on an error, pc += sbx, close upvalues >= a
+    try_end, // pop the innermost handler
+    throw, // raise pop()
     _,
 
     pub fn name(op: Op) []const u8 {
@@ -84,6 +87,9 @@ pub const Op = enum(u6) {
             .shr => "shr",
             .bnot => "bnot",
             .call_spread => "callSpread",
+            .try_begin => "tryBegin",
+            .try_end => "tryEnd",
+            .throw => "throw",
             _ => "op?",
         };
     }
@@ -113,7 +119,7 @@ fn mode(op: Op) Mode {
         .load_constant, .pop, .call, .call_spread => .abx,
         .load_bool, .new_table, .@"test" => .abc,
         .load_closure, .set_upvalue, .get_upvalue, .close_upvalues => .ax,
-        .move, .push, .jump => .asbx,
+        .move, .push, .jump, .try_begin => .asbx,
         else => .none,
     };
 }
@@ -205,6 +211,7 @@ fn annotate(w: *Writer, p: *const Proto, pc: usize, ins: u32) Writer.Error!void 
             }
         },
         .jump => try w.print("-> {d}", .{@as(i64, @intCast(pc)) + 1 + argSBx(ins)}),
+        .try_begin => try w.print("handler -> {d}, close from register {d}", .{ @as(i64, @intCast(pc)) + 1 + argSBx(ins), argA(ins) }),
         .@"test" => try w.writeAll(if (argC(ins) != 0) "skip next when false" else "skip next when true"),
         .push, .move => {
             const sbx = argSBx(ins);

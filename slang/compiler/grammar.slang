@@ -1053,6 +1053,20 @@ local func install_core(g){
     return ast.node("Declaration", {is_local: true, left: v[1], right: right}, v[0])
   }), {probe: "local x = 1"})
 
+  // if(c){ a } else { b }: an expression; else is required, and else if
+  // chains
+  define("if_expression", peg.seq(
+    tok("if"), tok("("), rule("expr"), tok(")"),
+    tok("{"), rule("expr"), tok("}"),
+    tok("else"),
+    peg.choice(
+      rule("if_expression"),
+      peg.seq(tok("{"), rule("expr"), tok("}")):pick(1)
+    )
+  ):map(func(v){
+    return ast.node("IfExpr", {condition: v[2], thenValue: v[5], elseValue: v[8]}, v[0])
+  }))
+
   define("if_statement", peg.seq(
     tok("if"), tok("("), rule("expr"), tok(")"), rule("statement"),
     peg.seq(tok("else"), rule("statement")):optional()
@@ -1115,6 +1129,31 @@ local func install_core(g){
 
   // let PATTERN = expr as a statement: binds, or raises when the value does
   // not match (the expression form is the condition of an if)
+  // try { ... } catch(pattern) { ... } ...: the first clause whose pattern
+  // matches the raised value runs; none matching raises it again. A clause
+  // without a pattern catches everything.
+  define("catch_clause", peg.seq(
+    tok("catch"),
+    peg.seq(tok("("), rule("slang_pattern"), tok(")")):pick(1):optional(),
+    rule("block")
+  ):map(func(v){
+    return ast.node("Catch", {pattern: v[1], body: v[2]}, v[0])
+  }))
+
+  define("try_statement", peg.seq(tok("try"), rule("block"), rule("catch_clause"):plus()):map(func(v){
+    return ast.node("Try", {body: v[1], catches: v[2]}, v[0])
+  }), {probe: "try { f() } catch(local e) { g(e) }"})
+
+  // defer statement: runs when the enclosing block is left, however it is
+  // left (the end, a return, a break, an error), last in first out
+  define("defer_statement", peg.seq(tok("defer"), rule("statement")):map(func(v){
+    local body = v[1]
+    if(body.type != "Block"){
+      body = ast.node("Block", {statements: {body}}, v[0])
+    }
+    return ast.node("Defer", {body: body}, v[0])
+  }), {probe: "defer f()"})
+
   define("let_statement", peg.seq(tok("let"), rule("slang_pattern"), tok("="), rule("expr")):map(func(v){
     return ast.node("LetStat", {pattern: v[1], right: v[3]}, v[0])
   }), {probe: "let {name: local n} = t"})
@@ -1123,6 +1162,8 @@ local func install_core(g){
     rule("local_declaration"),
     rule("let_statement"),
     rule("if_statement"),
+    rule("try_statement"),
+    rule("defer_statement"),
     rule("for_loop"),
     rule("for_in_loop"),
     rule("block"),
@@ -1372,6 +1413,7 @@ local func install_core(g){
   w:primary(rule("null_literal"), "nullLiteral", {aliases: {"null"}})
   w:primary(rule("pattern_assignment_exp"), "patternAssignmentExp", {aliases: {"let"}})
   w:primary(rule("table_literal"), "listLiteral", {aliases: {"list", "tableLiteral", "table"}})
+  w:primary(rule("if_expression"), "ifExpression", {aliases: {"if"}})
   w:primary(rule("function_expression"), "functionExpression", {aliases: {"function"}})
 
   w:level("bracket", {aliases: {"()"}})

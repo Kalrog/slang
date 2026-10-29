@@ -162,6 +162,8 @@ pub fn collect(vm: *VM) void {
     m.markTable(vm.packages);
     m.markTable(vm.registry);
     m.markObject(&vm.main.obj);
+    // a pending error's raised value
+    if (vm.err) |e| m.markValue(e.value);
     m.drain();
 
     sweep(vm);

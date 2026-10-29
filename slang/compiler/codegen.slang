@@ -42,6 +42,9 @@ local OP_SHL = 31
 local OP_SHR = 32
 local OP_BNOT = 33
 local OP_CALL_SPREAD = 34
+local OP_TRY_BEGIN = 35
+local OP_TRY_END = 36
+local OP_THROW = 37
 
 // instruction layout: |b:9|c:9|a:8|op:6|, bx = 18 bits, sbx = bx - 0x1FFFF, ax = 26 bits
 local SBX_OFFSET = 131071
@@ -367,6 +370,26 @@ func asm.patch_jump(self, jump, target){
   self.instructions[jump] = enc_asbx(opcode, 0, target - jump - 1)
 }
 
+// try_begin(first) -> a handle for patch_try: an error raised before the
+// matching try_end goes to the patched address, with upvalues of registers
+// from `first` up closed
+func asm.emit_try_begin(self, first){
+  self:emit_asbx(OP_TRY_BEGIN, first, 0)
+  return {index: len(self.instructions) - 1, first: first}
+}
+
+func asm.patch_try(self, handle){
+  self.instructions[handle.index] = enc_asbx(OP_TRY_BEGIN, handle.first, len(self.instructions) - handle.index - 1)
+}
+
+func asm.emit_try_end(self){
+  self:emit_abc(OP_TRY_END, 0, 0, 0)
+}
+
+func asm.emit_throw(self){
+  self:emit_abc(OP_THROW, 0, 0, 0)
+}
+
 func asm.emit_break(self){
   local target = null
   for(local i = len(self.scopes) - 1; i >= 0; i = i - 1){
@@ -665,33 +688,183 @@ func visitors.Declaration(g, node){
   }
 }
 
+// defined with the blocks below
+local emit_exits = null
+
 func visitors.Return(g, node){
+  if(g.defer_floors != null and len(g.defer_floors) > 0){
+    error("return is not allowed inside defer ", position(node.token))
+  }
   if(node.value != null){
     g:visit(node.value)
   } else {
     g.asm:emit_load_constant(null)
   }
+  // the value waits on the stack while the defers left run
+  emit_exits(g, 0)
   g.asm:emit_return()
 }
 
-func visitors.Block(g, node){
-  local statements = node.statements
+// ------------------------------------------------------------ blocks, defer, try
+
+local RAISED = "<raised>"
+
+local func copy_map(t){
+  local out = {}
+  for(let local e in entries(t)){
+    out[e[0]] = e[1]
+  }
+  return out
+}
+
+// emits a defer's cleanup code, compiled with the names visible at the
+// defer (a return in a nested block may shadow one of them)
+local func emit_cleanup(g, cleanup){
+  local saved = g.asm.locals
+  g.asm.locals = copy_map(cleanup.locals)
+  // a return or a break may not leave the cleanup: remember where it starts
+  local floors = g.defer_floors or {}
+  g.defer_floors = floors
+  append(floors, len(g.asm.scopes))
+  g.asm:enter_scope(false)
+  g:visit(cleanup.body)
+  g.asm:leave_scope()
+  remove(floors, len(floors) - 1)
+  g.asm.locals = saved
+}
+
+// leaving scopes from the innermost up to (not including) scope index
+// `stop`: each try or defer region left pops its handler, each defer runs
+// its cleanup
+emit_exits = func(g, stop){
+  local scopes = g.asm.scopes
+  for(local i = len(scopes) - 1; i >= stop; i = i - 1){
+    local sc = scopes[i]
+    if(sc.handler){
+      g.asm:emit_try_end()
+    }
+    if(sc.cleanup != null){
+      emit_cleanup(g, sc.cleanup)
+    }
+  }
+}
+
+// the error path of a protected region: the raised value is on the stack;
+// it becomes the local RAISED for the handler's code
+local func handler_local(g){
+  local lv = g.asm:create_local(RAISED)
+  g.asm:emit_move(lv.register)
+  return lv
+}
+
+local visit_statements = null
+
+// defer: the rest of the block (from index `from`) runs as a protected
+// region; the cleanup is emitted at its normal end, in its error handler
+// (then the error goes on), and at every return and break that leaves it
+local func emit_defer(g, d, statements, from){
+  local cleanup = {body: d.body, locals: copy_map(g.asm.locals)}
+  local first = g.asm.used_registers
+  local begin = g.asm:emit_try_begin(first)
+  g.asm:enter_scope(false)
+  local sc = g.asm.scopes[len(g.asm.scopes) - 1]
+  sc.handler = true
+  sc.cleanup = cleanup
+  visit_statements(g, statements, from)
+  g.asm:leave_scope()
+  g.asm:emit_try_end()
+  emit_cleanup(g, cleanup)
+  local done = g.asm:emit_jump()
+  g.asm:patch_try(begin)
+  g.asm:enter_scope(false)
+  local lv = handler_local(g)
+  emit_cleanup(g, cleanup)
+  g.asm:emit_push(lv.register)
+  g.asm:emit_throw()
+  g.asm:leave_scope()
+  g.asm:patch_jump(done)
+}
+
+visit_statements = func(g, statements, from){
   local n = len(statements)
   local final = null
-  if(n > 0){
+  if(n > from){
     local last = statements[n - 1]
     if(last.type == "Return" or last.type == "Break"){
       final = last
       n = n - 1
     }
   }
-  for(local i = 0; i < n; i = i + 1){
-    g:visit(statements[i])
+  for(local i = from; i < n; i = i + 1){
+    local s = statements[i]
+    if(s.type == "Defer"){
+      emit_defer(g, s, statements, i + 1)
+      final = null
+      break
+    }
+    g:visit(s)
   }
   g.asm:close_open_upvalues()
   if(final != null){
     g:visit(final)
   }
+}
+
+func visitors.Block(g, node){
+  visit_statements(g, node.statements, 0)
+}
+
+// a defer that is a block's only or last statement guards nothing; one
+// reached any other way than through a block is a statement on its own
+func visitors.Defer(g, node){
+  visit_statements(g, {node}, 0)
+}
+
+// try { body } catch(p1) { b1 } catch(p2) { b2 } ...: the clauses become
+// if(let p1 = raised) b1 else if(let p2 = raised) b2 else raise(raised)
+func visitors.Try(g, node){
+  local first = g.asm.used_registers
+  local begin = g.asm:emit_try_begin(first)
+  g.asm:enter_scope(false)
+  g.asm.scopes[len(g.asm.scopes) - 1].handler = true
+  g:visit(node.body)
+  g.asm:leave_scope()
+  g.asm:emit_try_end()
+  local done = g.asm:emit_jump()
+  g.asm:patch_try(begin)
+  g.asm:enter_scope(false)
+  handler_local(g)
+  local raised = ast.node("Identifier", {value: RAISED}, node.token)
+  local chain = ast.node("Throw", {value: raised}, node.token)
+  for(local i = len(node.catches) - 1; i >= 0; i = i - 1){
+    local c = node.catches[i]
+    if(c.pattern == null){
+      chain = c.body
+    } else {
+      local test = ast.node("Let", {pattern: c.pattern, right: raised}, c.token)
+      chain = ast.node("If", {condition: test, thenBranch: c.body, elseBranch: chain}, c.token)
+    }
+  }
+  g:visit(chain)
+  g.asm:leave_scope()
+  g.asm:patch_jump(done)
+}
+
+func visitors.Throw(g, node){
+  g:visit(node.value)
+  g.asm:emit_throw()
+}
+
+// if(c){ a } else { b } as an expression: one value either way
+func visitors.IfExpr(g, node){
+  g:visit(node.condition)
+  g.asm:emit_test(false)
+  local else_jump = g.asm:emit_jump()
+  g:visit(node.thenValue)
+  local skip = g.asm:emit_jump()
+  g.asm:patch_jump(else_jump)
+  g:visit(node.elseValue)
+  g.asm:patch_jump(skip)
 }
 
 func visitors.Identifier(g, node){
@@ -1087,6 +1260,12 @@ func visitors.VarPattern(g, node){
     if(node.isLocal){
       g.asm:create_local(node.name.value)
       g.asm:emit_move(g.asm:get_local(node.name.value).register)
+    } else if(g.asm:get_local(node.name.value) != null){
+      // an existing name is assigned like `name = value`: a local first,
+      // then an upvalue, else a global
+      g.asm:emit_move(g.asm:get_local(node.name.value).register)
+    } else if(g.asm:get_upvalue(node.name.value) != null){
+      g.asm:emit_set_upvalue(g.asm:get_upvalue(node.name.value).index)
     } else {
       g:visit(ast.node("Identifier", {value: "_ENV"}, node.token))
       g.asm:emit_load_constant(node.name.value)
@@ -1098,6 +1277,22 @@ func visitors.VarPattern(g, node){
 }
 
 func visitors.Break(g, node){
+  // the defers and trys between here and the loop are left
+  local scopes = g.asm.scopes
+  local target = -1
+  for(local i = len(scopes) - 1; i >= 0; i = i - 1){
+    if(scopes[i].breakable){
+      target = i
+      break
+    }
+  }
+  local floors = g.defer_floors
+  if(floors != null and len(floors) > 0 and target < floors[len(floors) - 1]){
+    error("break is not allowed to leave a defer ", position(node.token))
+  }
+  if(target >= 0){
+    emit_exits(g, target + 1)
+  }
   g.asm:emit_break()
 }
 

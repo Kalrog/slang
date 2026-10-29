@@ -35,6 +35,16 @@ pub const Frame = struct {
     protected: bool,
 };
 
+/// A try (or a defer's protected region) in progress: an error raised while
+/// it is the innermost one goes to pc in frame `frame`, with the stack cut
+/// back to top and upvalues from close_from closed.
+pub const Handler = struct {
+    frame: u32,
+    pc: u32,
+    top: u32,
+    close_from: u32,
+};
+
 /// An execution context (the main thread or a coroutine) with its own value
 /// stack and frame stack.
 pub const Thread = struct {
@@ -44,6 +54,7 @@ pub const Thread = struct {
     stack: []Value,
     top: usize = 0,
     frames: std.ArrayList(Frame) = .empty,
+    handlers: std.ArrayList(Handler) = .empty,
     open_upvals: std.ArrayList(*Upvalue) = .empty,
     status: Status = .init,
     entry: ?*Closure,
@@ -64,6 +75,7 @@ pub const Thread = struct {
     pub fn deinit(th: *Thread) void {
         th.vm.gpa.free(th.stack);
         th.frames.deinit(th.vm.gpa);
+        th.handlers.deinit(th.vm.gpa);
         th.open_upvals.deinit(th.vm.gpa);
     }
 
@@ -118,6 +130,15 @@ pub const Thread = struct {
     pub fn popFrame(th: *Thread) void {
         const fr = th.frames.pop().?;
         if (fr.cl.proto != null) th.closeUpvalues(fr.base);
+        // the frame's handlers end with it (a return from inside a try)
+        const n = th.frames.items.len;
+        while (th.handlers.items.len > 0 and th.handlers.items[th.handlers.items.len - 1].frame >= n) {
+            _ = th.handlers.pop();
+        }
+    }
+
+    pub fn pushHandler(th: *Thread, h: Handler) void {
+        th.handlers.append(th.vm.gpa, h) catch oom();
     }
 
     fn findOrCreateUpvalue(th: *Thread, idx: usize) *Upvalue {
@@ -387,6 +408,19 @@ pub const Thread = struct {
         var i = th.frames.items.len;
         while (i > stop_depth) {
             i -= 1;
+            // a try in this frame catches before the frame's own protection
+            // (a pcall of the function) does
+            const hs = th.handlers.items;
+            if (hs.len > 0 and hs[hs.len - 1].frame == i) {
+                const h = th.handlers.pop().?;
+                while (th.frames.items.len > i + 1) th.popFrame();
+                th.closeUpvalues(h.close_from);
+                th.top = h.top;
+                th.frames.items[i].pc = h.pc;
+                const v = th.vm.errorToValue();
+                th.push(v);
+                return;
+            }
             if (th.frames.items[i].protected) {
                 const fn_idx = th.frames.items[i].base - 1;
                 while (th.frames.items.len > i) th.popFrame();

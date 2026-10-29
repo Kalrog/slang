@@ -15,10 +15,23 @@
 // (200, text/plain), a response table {status, headers, body}, or a Future
 // of either (an async function works as a handler). Requests on one
 // connection are served in order until the client closes it or asks for
-// Connection: close. Chunked request bodies are not supported.
+// Connection: close. Chunked request bodies are not supported. A header
+// value that is a list is sent once per element (several Set-Cookie
+// headers); a Date header is added unless the response has one.
+//
+// Cookies:
+//   http.cookies(req) -> {name: value} from the Cookie header
+//   http.set_cookie(res, name, value, options) adds a Set-Cookie header
+//   http.clear_cookie(res, name, options) tells the browser to drop it
+//   http.cookie(name, value, options) -> the Set-Cookie header value
+// options: path ("/"), domain, max_age (seconds), expires (seconds since
+// the epoch), http_only (true), secure, same_site ("Lax"; "Strict" or
+// "None"). Values must be cookie-safe (encode others first, for example
+// with slang/encoding's base64url_encode).
 local async = require("slang/async")
 local peg = require("slang/peg")
 local str = require("slang/string")
+local time = require("slang/time")
 
 local http = {}
 
@@ -143,8 +156,21 @@ local func normalize(res){
 // format(res, keep_alive) -> the bytes of a normalized response
 local func format(res, keep_alive){
   local parts = {"HTTP/1.1 ", string(res.status), " ", http.status_text[res.status] or "Unknown", "\r\n"}
+  local has_date = false
   for(let local e in entries(res.headers)){
-    append(parts, concat(e[0], ": ", e[1], "\r\n"))
+    if(type(e[1]) == "table"){
+      for(local i = 0; i < len(e[1]); i = i + 1){
+        append(parts, concat(e[0], ": ", string(e[1][i]), "\r\n"))
+      }
+    } else {
+      append(parts, concat(e[0], ": ", string(e[1]), "\r\n"))
+    }
+    if(str.lower(e[0]) == "date"){
+      has_date = true
+    }
+  }
+  if(not has_date){
+    append(parts, concat("Date: ", time.http_date(time.now()), "\r\n"))
   }
   append(parts, concat("Content-Length: ", len(res.body), "\r\n"))
   append(parts, concat("Connection: ", keep_alive and "keep-alive" or "close", "\r\n\r\n"))
@@ -235,6 +261,102 @@ func http.serve(host, port, handler, options){
     done: done.future,
     close: s.close,
   }
+}
+
+// ------------------------------------------------------------ cookies
+
+func http.parse_cookies(header){
+  local out = {}
+  if(type(header) != "string"){
+    return out
+  }
+  for(let local part in values(str.split(header, ";"))){
+    local eq = str.index_of(part, "=")
+    if(eq > 0){
+      local name = str.trim(str.substring(part, 0, eq))
+      local value = str.trim(str.substring(part, eq + 1))
+      if(len(value) >= 2 and str.starts_with(value, "\"") and str.ends_with(value, "\"")){
+        value = str.substring(value, 1, len(value) - 1)
+      }
+      // the first one wins: browsers send the most specific path first
+      if(name != "" and out[name] == null){
+        out[name] = value
+      }
+    }
+  }
+  return out
+}
+
+func http.cookies(req){
+  if(req.cookies == null){
+    req.cookies = http.parse_cookies(req.headers["cookie"])
+  }
+  return req.cookies
+}
+
+local func check_cookie_part(what, s){
+  for(local i = 0; i < len(s); i = i + 1){
+    local b = str.byte_at(s, i)
+    if(b <= 32 or b >= 127 or b == 34 or b == 44 or b == 59 or b == 92 or (what == "name" and b == 61)){
+      error("http: a cookie ", what, " cannot contain ", b == 32 and "a space" or concat("byte ", string(b)),
+            ": ", s, " (encode it, for example with base64url)")
+    }
+  }
+}
+
+func http.cookie(name, value, options){
+  options = options or {}
+  check_cookie_part("name", name)
+  check_cookie_part("value", value)
+  if(name == ""){
+    error("http: a cookie needs a name")
+  }
+  local parts = {concat(name, "=", value), concat("Path=", options.path or "/")}
+  if(options.domain != null){
+    append(parts, concat("Domain=", options.domain))
+  }
+  if(options.max_age != null){
+    append(parts, concat("Max-Age=", string(to_int(options.max_age))))
+  }
+  if(options.expires != null){
+    append(parts, concat("Expires=", time.http_date(options.expires)))
+  }
+  if(options.http_only != false){
+    append(parts, "HttpOnly")
+  }
+  if(options.secure or options.same_site == "None"){
+    append(parts, "Secure")
+  }
+  append(parts, concat("SameSite=", options.same_site or "Lax"))
+  return str.join(parts, "; ")
+}
+
+// adds header to the list under name in res.headers
+local func add_header(res, name, value){
+  res.headers = res.headers or {}
+  local current = res.headers[name]
+  if(current == null){
+    res.headers[name] = {value}
+  } else if(type(current) == "table"){
+    append(current, value)
+  } else {
+    res.headers[name] = {current, value}
+  }
+  return res
+}
+
+func http.set_cookie(res, name, value, options){
+  return add_header(res, "Set-Cookie", http.cookie(name, value, options))
+}
+
+func http.clear_cookie(res, name, options){
+  local o = {}
+  for(let local e in entries(options or {})){
+    o[e[0]] = e[1]
+  }
+  o.max_age = 0
+  o.expires = 0
+  return add_header(res, "Set-Cookie", http.cookie(name, "", o))
 }
 
 // ------------------------------------------------------------ client

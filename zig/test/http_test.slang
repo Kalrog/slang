@@ -81,3 +81,46 @@ t.group("http"){
     assert(r[1] < 200, concat("8 x 30 ms took ", r[1], " ms: they did not overlap"))
   }
 }
+
+t.group("http cookies"){
+  t.test("cookie headers parse; the first of a name wins"){
+    local c = http.parse_cookies("a=1; b=\"two\";  c = x=y ; a=shadowed; =nameless; flag")
+    assert(c.a == "1" and c.b == "two" and c.c == "x=y" and c.flag == null)
+    assert(http.parse_cookies(null).a == null)
+    local req = {headers: {cookie: "sid=abc"}}
+    assert(http.cookies(req).sid == "abc" and req.cookies.sid == "abc")
+  }
+  t.test("Set-Cookie values carry the options"){
+    assert(http.cookie("sid", "abc") == "sid=abc; Path=/; HttpOnly; SameSite=Lax")
+    assert(http.cookie("sid", "abc", {path: "/app", domain: "example.com", max_age: 60, secure: true, same_site: "Strict"})
+           == "sid=abc; Path=/app; Domain=example.com; Max-Age=60; HttpOnly; Secure; SameSite=Strict")
+    assert(http.cookie("t", "v", {http_only: false, same_site: "None", expires: 0})
+           == "t=v; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure; SameSite=None", "None needs Secure")
+    local r = pcall(http.cookie, "sid", "a b")
+    assert(r[0] == "err" and str.index_of(r[1].message, "cannot contain a space") >= 0, r[1].message)
+    local r2 = pcall(http.cookie, "a=b", "v")
+    assert(r2[0] == "err")
+  }
+  t.test("several cookies go out as several headers, with a Date"){
+    local raw = a.main(func(){
+      local s = http.serve("127.0.0.1", 0, func(req){
+        local res = {status: 200, body: "ok"}
+        http.set_cookie(res, "one", "1")
+        http.set_cookie(res, "two", "2", {max_age: 5})
+        http.clear_cookie(res, "old")
+        return res
+      })
+      local conn = await(a.connect("127.0.0.1", s.port))
+      await(a.write(conn, "GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"))
+      local chunks = await(a.reader(conn):collect())
+      conn:close()
+      s.close()
+      await(s.done)
+      return str.join(chunks, "")
+    })
+    assert(str.index_of(raw, "Set-Cookie: one=1; Path=/; HttpOnly; SameSite=Lax\r\n") >= 0, raw)
+    assert(str.index_of(raw, "Set-Cookie: two=2; Path=/; Max-Age=5; HttpOnly; SameSite=Lax\r\n") >= 0, raw)
+    assert(str.index_of(raw, "Set-Cookie: old=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT") >= 0, raw)
+    assert(str.index_of(raw, "\r\nDate: ") >= 0 and str.index_of(raw, " GMT\r\n") >= 0, raw)
+  }
+}

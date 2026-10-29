@@ -13,7 +13,8 @@
 //   router.slang  routes by method and path, with :params and a trailing *
 //   routes.slang  the pages and the fragments htmx asks for
 //   views.slang   the templates: the layout and the components
-//   todos.slang   the todo list, in SQLite
+//   auth.slang    accounts (scrypt hashes) and sessions (a JWT in a cookie)
+//   todos.slang   the todo lists, one per user, in SQLite
 //   log.slang     the request log, printed and stored in SQLite for /log
 //   db.slang      the SQLite database (todos.db) and its tables
 local http = require("slang/http")
@@ -21,6 +22,7 @@ local a = require("slang/async")
 local os = require("slang/os")
 local router = require("router")
 local log = require("log")
+local auth = require("auth")
 
 local port = to_int(args()[0] or "8080")
 
@@ -32,7 +34,10 @@ require("routes").install(app)
 // and raised again for slang/http to answer
 async func handle(req){
   local t0 = os.time_ms()
-  local r = pcall(app.dispatch, app, req)
+  local r = pcall(func(){
+    req.user = auth.user(req)
+    return app:dispatch(req)
+  })
   if(r[0] == "ok" and type(r[1]) == "Future"){
     r = pcall(a.await, r[1])
   }

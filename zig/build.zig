@@ -113,6 +113,25 @@ pub fn build(b: *std.Build) void {
         b.getInstallStep().dependOn(&sq_install.step);
     }
 
+    // The crypto extension links OpenSSL 3's libcrypto (Homebrew by default);
+    // -Dcrypto=false skips it, -Dopenssl-prefix points at another install.
+    const with_crypto = b.option(bool, "crypto", "build the crypto extension (needs OpenSSL 3 installed)") orelse true;
+    if (with_crypto) {
+        const prefix = b.option([]const u8, "openssl-prefix", "where OpenSSL 3 is installed") orelse "/opt/homebrew/opt/openssl@3";
+        const cr_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
+        cr_mod.addCSourceFile(.{ .file = b.path("../extensions/native/crypto.c"), .flags = &.{"-std=c11"} });
+        cr_mod.addIncludePath(b.path("include"));
+        cr_mod.addIncludePath(.{ .cwd_relative = b.fmt("{s}/include", .{prefix}) });
+        cr_mod.addLibraryPath(.{ .cwd_relative = b.fmt("{s}/lib", .{prefix}) });
+        cr_mod.linkSystemLibrary("crypto", .{});
+        const cr = b.addLibrary(.{ .name = "crypto_ext", .linkage = .dynamic, .root_module = cr_mod });
+        cr.linker_allow_shlib_undefined = true;
+        const cr_install = b.addInstallArtifact(cr, .{
+            .dest_sub_path = b.fmt("crypto{s}", .{target.result.dynamicLibSuffix()}),
+        });
+        b.getInstallStep().dependOn(&cr_install.step);
+    }
+
     const tests = b.addTest(.{ .root_module = mod });
     b.step("test", "run the Zig unit tests").dependOn(&b.addRunArtifact(tests).step);
 }
@@ -121,7 +140,7 @@ pub fn build(b: *std.Build) void {
 /// boot/slang at the repository root. It is copied into a generated module
 /// that embeds every file under its module name ("slang/compiler", ...).
 fn seedModule(b: *std.Build) *std.Build.Module {
-    const names = [_][]const u8{ "ast", "async", "codegen", "compiler", "grammar", "html", "http", "json", "optimizer", "package", "peg", "sqlite", "std", "table", "test" };
+    const names = [_][]const u8{ "ast", "async", "codegen", "compiler", "crypto", "grammar", "html", "http", "json", "jwt", "optimizer", "package", "peg", "sqlite", "std", "table", "test" };
     const wf = b.addWriteFiles();
     var src: std.ArrayList(u8) = .empty;
     src.appendSlice(b.allocator, "pub const Entry = struct { name: []const u8, data: []const u8 };\npub const files = [_]Entry{\n") catch @panic("OOM");

@@ -26,3 +26,13 @@ table.log tr.poll { color: #aaa; }
 /* htmx shows the indicator while a request is in flight */
 .htmx-indicator { opacity: 0; transition: opacity 200ms ease-in; color: #777; margin-left: 0.5rem; }
 .htmx-request .htmx-indicator, .htmx-request.htmx-indicator { opacity: 1; }
+
+/* the account corner of the nav, and the sign-in form */
+nav { display: flex; align-items: baseline; }
+nav .account { margin-left: auto; color: #555; }
+nav .account form { display: inline; margin: 0 0 0 0.4rem; }
+button.link { background: none; border: none; padding: 0; color: #06c; text-decoration: underline; cursor: pointer; font: inherit; }
+form.account-form { display: flex; flex-direction: column; gap: 0.6rem; max-width: 20rem; }
+form.account-form label { display: flex; flex-direction: column; gap: 0.2rem; }
+form.account-form button { align-self: flex-start; }
+.error { color: #b00; }

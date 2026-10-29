@@ -16,21 +16,35 @@ ambient in the folder, so no file declares them.
 | `router.slang` | routes by method and path, with `:params` and a trailing `*` |
 | `routes.slang` | the pages, the fragments htmx asks for, the static files |
 | `views.slang` | the templates: the layout, the components, `page` and `fragment` |
-| `todos.slang` | the todo list, as queries on the `todos` table |
+| `auth.slang` | accounts (scrypt password hashes) and sessions (a JWT in a cookie) |
+| `todos.slang` | the todo lists, one per user, as queries on the `todos` table |
 | `log.slang` | the request log, printed and stored in the `requests` table |
 | `db.slang` | the SQLite database `todos.db` and its tables, created on first start |
 
+It needs the `uv`, `sqlite` and `crypto` native extensions (libuv, SQLite
+and OpenSSL 3 from Homebrew).
+
 ```
-brew install libuv
+brew install libuv sqlite openssl@3
 make build
 bin/slang run examples/webserver/main.slang 8080
-open http://127.0.0.1:8080/
+open http://127.0.0.1:8080/        # sign in as demo / demo
 curl -d 'hello' http://127.0.0.1:8080/echo
 ```
 
 ## Pages
 
-- `/`: a todo list. Adding, ticking, editing (click the text), deleting
+- `/login`, `/register`, `POST /logout`: accounts. The first start makes
+  the account `demo` (password `demo`), which also takes over todos from
+  before there were accounts. Passwords are scrypt hashes, made and
+  checked on libuv's thread pool (`slang/crypto`); a wrong name takes as
+  long as a wrong password. The session is a JWT (`slang/jwt`, HS256) in
+  an HttpOnly, SameSite=Lax cookie for a week, signed with a secret made
+  on the first start and kept in the `settings` table. SameSite=Lax is
+  also what keeps other sites from posting to the todo routes with your
+  cookie.
+- `/`: your todo list (the todo routes send anyone not signed in to
+  `/login`; an htmx request is told so with `HX-Redirect`). Adding, ticking, editing (click the text), deleting
   and filtering never reload the page: each action asks the server for a
   fragment (`POST /todos`, `POST /todos/3/toggle`, `GET /todos/3/edit`,
   `DELETE /todos/3`, `GET /todos?filter=active`) and htmx swaps it in.

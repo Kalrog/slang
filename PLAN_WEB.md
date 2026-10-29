@@ -104,8 +104,16 @@ the window is a deployment choice.
       `one_async` and `run_async`. Number literals gained hex, octal,
       binary, `_` separators and exponents along the way. The web server
       reads static files on the pool and shuts down on SIGINT/SIGTERM.
-- [ ] Phase 3: `crypto` over OpenSSL; `slang/jwt`; signed cookies and
-      sessions in the example, with a login page.
+- [x] Phase 3: `crypto` over OpenSSL; `slang/jwt`; signed cookies and
+      sessions in the example, with a login page. The binding has hashes,
+      a streaming hasher, HMAC, random bytes, constant-time compare,
+      PBKDF2 and scrypt (also on the thread pool), AES-GCM and
+      ChaCha20-Poly1305, and RSA/EC/Ed25519 keys (generate, PEM, sign,
+      verify; PSS and raw ECDSA for JWT). `slang/crypto` adds password
+      hashes, tokens, signed and sealed values; `slang/jwt` HS/RS/PS/ES and
+      EdDSA with an algorithm allowlist. `slang/http` gained cookies,
+      list-valued headers and a Date header. The example has accounts and
+      per-user todo lists.
 - [ ] Phase 4: llhttp and zlib bindings; `slang/http` streaming, chunked,
       compressed; file uploads in the example.
 - [ ] Phase 5: `slang/web` extracted from the example; `slang/ws` with the

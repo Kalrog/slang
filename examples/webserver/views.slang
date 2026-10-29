@@ -7,6 +7,8 @@
 //
 //   views.page(req, title, content, status)  a full page in the layout
 //   views.fragment(nodes...)                  just the nodes, for htmx
+//
+// The todo components take the signed-in user (req.user) as `user`.
 local html = require("slang/html")
 local table = require("slang/table")
 local todos = require("todos")
@@ -30,6 +32,7 @@ func m.Layout(props){
           {table.map(links, func(l){
             return <a href={l.href} class={l.href == props.path and "current"}>{l.text}</a>
           })}
+          <m.Account user={props.user}/>
         </nav>
         <main>
           <h1>{props.title}</h1>
@@ -41,10 +44,39 @@ func m.Layout(props){
   </>
 }
 
+// who is signed in, with a way out; or a way in
+func m.Account(props){
+  if(props.user == null){
+    return <span class="account"><a href="/login">sign in</a></span>
+  }
+  return <span class="account">
+    {props.user.name}
+    <form method="post" action="/logout"><button class="link">sign out</button></form>
+  </span>
+}
+
+// the sign-in and the registration form: mode "login" or "register"
+func m.AccountForm(props){
+  local login = props.mode == "login"
+  return <>
+    <form method="post" action={login and "/login" or "/register"} class="account-form">
+      {props.error and <p class="error">{props.error}</p>}
+      <label>name <input name="name" value={props.name} autocomplete="username" required autofocus/></label>
+      <label>password
+        <input name="password" type="password" required
+               autocomplete={login and "current-password" or "new-password"}/>
+      </label>
+      <button>{login and "sign in" or "create account"}</button>
+    </form>
+    {login and <p>No account? <a href="/register">Create one</a>, or sign in as <b>demo</b> with the password <b>demo</b>.</p>
+           or <p>Already have one? <a href="/login">Sign in</a>.</p>}
+  </>
+}
+
 // ------------------------------------------------------------ todos
 
 func m.Count(props){
-  local left = todos.active_count()
+  local left = todos.active_count(props.user.id)
   return <span id="count" hx-swap-oob={props.oob and "true"}>
     {left} {left == 1 and "item" or "items"} left
   </span>
@@ -84,7 +116,7 @@ func m.Filters(props){
 
 func m.TodoList(props){
   return <ul id="todos">
-    {table.map(todos.visible(props.filter), func(t){ return <m.Todo todo={t}/> })}
+    {table.map(todos.visible(props.user.id, props.filter), func(t){ return <m.Todo todo={t}/> })}
   </ul>
 }
 
@@ -104,7 +136,7 @@ local headers = {["Content-Type"]: "text/html; charset=utf-8"}
 
 func m.page(req, title, content, status){
   return {status: status or 200, headers: headers,
-          body: <m.Layout title={title} path={req.path}>{content}</m.Layout>}
+          body: <m.Layout title={title} path={req.path} user={req.user}>{content}</m.Layout>}
 }
 
 // a fragment for htmx: the nodes, nothing around them

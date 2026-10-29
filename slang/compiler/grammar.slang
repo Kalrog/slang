@@ -825,16 +825,72 @@ local func install_core(g){
 
   // ------------------------------------------------------------ literals
 
-  define("number", peg.digit():plus())
+  // Numbers: decimal digits with single underscores between them
+  // (1_000_000); ints also in hex, octal and binary (0xff, 0o17, 0b1010,
+  // up to 64 bits, so 0xffffffffffffffff is -1); doubles with a fraction,
+  // an exponent or both (1.5, 1e9, 2.5e-3). A number must not run into an
+  // identifier character, so 1abc and 0x are errors, not two tokens.
+  local func digits_of(class){
+    local d = peg.pattern(class)
+    return peg.seq(d, peg.seq(peg.char("_"):optional(), d):star())
+  }
+  local decimal = digits_of("0-9")
+  define("number", decimal)
 
   local sign = peg.choice(peg.char("-"), peg.char("+")):optional()
+  local func radix(letters, class){
+    return peg.seq(peg.char("0"), peg.pattern(letters), digits_of(class))
+  }
+  local radix_int = peg.choice(radix("xX", "0-9a-fA-F"), radix("oO", "0-7"), radix("bB", "01"))
+  local exponent = peg.seq(peg.pattern("eE"), sign, decimal)
+  local number_end = peg.pattern("a-zA-Z0-9_"):forbid("Expected: end of number")
 
-  define("int_literal", token(peg.seq(sign, rule("number")), "int", "number"):map(func(t){
-    return ast.node("Int", {value: to_int(t.value)}, t)
+  // the value of an int literal's text, or null when it needs more than 64 bits
+  local func int_value(text){
+    local s = str.replace(text, "_", "")
+    local negative = false
+    local first = str.char_at(s, 0)
+    if(first == "-" or first == "+"){
+      negative = first == "-"
+      s = str.substring(s, 1)
+    }
+    local bits = 0
+    if(len(s) > 2){
+      local prefix = str.lower(str.substring(s, 0, 2))
+      bits = prefix == "0x" and 4 or prefix == "0o" and 3 or prefix == "0b" and 1 or 0
+    }
+    if(bits == 0){
+      local r = pcall(to_int, concat(negative and "-" or "", s))
+      return r[0] == "ok" and r[1] or null
+    }
+    local v = 0
+    for(local i = 2; i < len(s); i = i + 1){
+      if(v >> (64 - bits) != 0){
+        return null
+      }
+      v = (v << bits) | str.index_of("0123456789abcdef", str.lower(str.char_at(s, i)))
+    }
+    return negative and -v or v
+  }
+
+  define("int_literal", token(peg.seq(
+    sign, peg.choice(radix_int, decimal), peg.seq(peg.char("."), peg.digit()):forbid(), number_end
+  ), "int", "number"):map(func(t){
+    local v = int_value(t.value)
+    if(v == null){
+      g:error_at(t, "integer literal out of range: ", t.value)
+    }
+    return ast.node("Int", {value: v}, t)
   }))
 
-  define("double_literal", token(peg.seq(sign, rule("number"), peg.char("."), rule("number")), "double", "number"):map(func(t){
-    return ast.node("Double", {value: str.to_number(t.value)}, t)
+  define("double_literal", token(peg.seq(
+    sign, decimal, peg.choice(peg.seq(peg.char("."), decimal, exponent:optional()), exponent), number_end
+  ), "double", "number"):map(func(t){
+    local v = str.to_number(str.replace(t.value, "_", ""))
+    if(v - v != 0){
+      g:error_at(t, "double literal out of range: ", t.value)
+    }
+    return ast.node("Double", {value: v + 0.0}, t)
   }))
 
   define("valid_escape", peg.seq(

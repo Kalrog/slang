@@ -8,7 +8,7 @@ macro twice(e){
 
 macro unless(condition, body){
   if(let 'Function{body: local real_body} = body){
-    return +{stat: if(not -{condition})-{real_body}}
+    return +{stat: if(not-{condition}) -{real_body}}
   }
   error("unless needs a block")
 }

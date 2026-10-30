@@ -73,20 +73,8 @@ local func is_component(name){
 }
 
 // the tag name as a token, highlighted by what it names
-local tag_token = peg.custom(func(self, ctx, pos){
-  local q = tag_name:parse_on(ctx, pos)
-  if(q < 0){
-    return - 1
-  }
-  local name = ctx.value
-  if(ctx.tokens != null){
-    list_push(ctx.tokens, {
-      category: is_component(name) and "function" or "keyword", start: pos,
-      stop: q,
-    })
-  }
-  ctx.value = peg.make_token(ctx, name, pos, q)
-  return q
+local tag_token = peg.token(tag_name, func(name){
+  return is_component(name) and "function" or "keyword"
 })
 
 // text: everything up to the next tag or `{`

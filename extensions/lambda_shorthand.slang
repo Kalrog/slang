@@ -20,7 +20,7 @@ g
           ast: {
             type: "Function",
             params: params,
-            body: +{block:return -{expression}},
+            body: +{block: return -{expression}},
           },
         }
       })

@@ -2,6 +2,7 @@ local t = require("slang/test")
 local peg = require("slang/peg")
 local compiler = require("slang/compiler")
 local os = require("slang/os")
+local str = require("slang/string")
 
 // parses input with p for a tree; the tree must give input back and the
 // value must be what a parse without a tree gives
@@ -384,5 +385,73 @@ for(local i = 0; i < 3; i = i + 1){ f(i) }
         concat("statement ", i)
       )
     }
+  }
+}
+
+t.group("highlights"){
+  local word = peg.pattern("a-z"):plus():flatten()
+  local keyword = peg.token(word, func(w){
+    if(w == "if" or w == "else"){
+      return "keyword"
+    }
+    return null
+  })
+  local number = peg.token(peg.digit():plus():flatten(), "number")
+  local item = peg.choice(
+    number,
+    peg.tag(keyword, "word"):trim(peg.whitespace())
+  )
+
+  t.test("tokens, tags and category functions"){
+    local input = "if 12 x else"
+    local p = peg.choice(number, keyword):trim(peg.whitespace()):star():end()
+    local r = peg.run(p, input, {tree: true})
+    local spans = {}
+    for(let local s in values(peg.highlights(r.tree, input))){
+      append(spans, concat(
+        s.category, ":", str.substring(input, s.start, s.stop)
+      ))
+    }
+    // x has no category
+    assert(
+      spans == {"keyword:if", "number:12", "keyword:else"},
+      str.join(spans, " ")
+    )
+  }
+  t.test("a tag wins over the tokens inside it"){
+    local input = "if 3"
+    local r = peg.run(item:star():end(), input, {tree: true})
+    local spans = {}
+    for(let local s in values(peg.highlights(r.tree, input))){
+      append(spans, concat(
+        s.category, ":", str.substring(input, s.start, s.stop)
+      ))
+    }
+    assert(spans == {"word:if", "number:3"}, str.join(spans, " "))
+  }
+  t.test("a custom parser's tree holds the rules it parsed through peg.sub"){
+    local input = "a # note\nb"
+    local names = peg.token(peg.pattern("ab"), "name")
+    local rest = peg.seq(
+      peg.string(" "), peg.pattern("#a-z "):plus(), peg.string("\n")
+    ):flatten()
+    local custom = peg.custom(func(self, ctx, pos){
+      local q = peg.sub(names, ctx, pos)
+      if(q < 0){
+        return - 1
+      }
+      q = rest:parse_on(ctx, q)
+      return peg.sub(names, ctx, q)
+    })
+    local r = peg.run(custom:end(), input, {tree: true})
+    assert(r.ok, "parses")
+    assert(peg.text(r.tree, input) == input, "lossless")
+    local spans = {}
+    for(let local s in values(peg.highlights(r.tree, input))){
+      append(spans, concat(
+        s.category, ":", str.substring(input, s.start, s.stop)
+      ))
+    }
+    assert(spans == {"name:a", "name:b"}, str.join(spans, " "))
   }
 }

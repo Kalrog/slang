@@ -102,11 +102,64 @@ local func raw_leaf(p, ctx, start, stop){
   return leaf(p, start, stop)
 }
 
-// a parser without a tree path of its own: a leaf of what it consumed
+// The trees of what a parser without a tree path parses through others:
+// while it runs, ctx.collect is a list, and the parsers that can build a
+// tree on their own (rules of a grammar, the expression walker) put theirs
+// there (see peg.collect). A tree that starts before the end of the one
+// before it was parsed on a path that was backtracked over and is left out.
+local func weave(p, ctx, start, stop, trees){
+  local kids = {}
+  local at = start
+  for(local i = 0; i < len(trees); i = i + 1){
+    local t = trees[i]
+    if(t.start >= at and t.stop <= stop and t.stop > t.start){
+      if(t.start > at){
+        list_push(kids, raw_leaf(p, ctx, at, t.start))
+      }
+      list_push(kids, t)
+      at = t.stop
+    }
+  }
+  if(at < stop){
+    list_push(kids, raw_leaf(p, ctx, at, stop))
+  }
+  return kids
+}
+
+// a custom parser without a tree path of its own: a leaf of what it
+// consumed, or woven from the trees of the rules it parsed
+local func tree_custom(p, ctx, pos){
+  local saved = ctx.collect
+  local trees = {}
+  ctx.collect = trees
+  local q = p:parse_on(ctx, pos)
+  ctx.collect = saved
+  if(q >= 0){
+    if(len(trees) == 0){
+      ctx.tree = raw_leaf(p, ctx, pos, q)
+    } else {
+      local n = node(p, pos, q, weave(p, ctx, pos, q, trees))
+      n.woven = true
+      ctx.tree = n
+    }
+  }
+  return q
+}
+
+// the other parsers without a tree path (strings, patterns, flatten, ...)
+// are leaves of what they consumed
 local func tree_leaf(p, ctx, pos){
+  if(p.kind == "custom"){
+    return tree_custom(p, ctx, pos)
+  }
   local q = p:parse_on(ctx, pos)
   if(q >= 0){
-    ctx.tree = raw_leaf(p, ctx, pos, q)
+    // (what a flatten consumed may end with trivia)
+    if(p.kind == "flatten"){
+      ctx.tree = raw_leaf(p, ctx, pos, q)
+    } else {
+      ctx.tree = leaf(p, pos, q)
+    }
   }
   return q
 }
@@ -129,16 +182,36 @@ local func tparse(p, ctx, pos){
 // of parser in ctx.tree
 peg.parse_tree = tparse
 
-// context(buffer, {record, tree}) -> a parse context; with record, every
-// token with a category and every comment is recorded (see peg.tokens); tree
-// marks a context parsed with parse_tree
+// collect(ctx, pos, tree_path) -> pos | -1, for code that runs inside a
+// parser without a tree path while ctx.collect is set (see weave): parses
+// with tree_path(ctx, pos) and puts the tree in the list
+func peg.collect(ctx, pos, tree_path){
+  local list = ctx.collect
+  ctx.collect = null
+  local q = tree_path(ctx, pos)
+  ctx.collect = list
+  if(q >= 0){
+    list_push(list, ctx.tree)
+  }
+  return q
+}
+
+// sub(parser, ctx, pos) -> pos | -1: parser:parse_on(ctx, pos), for a custom
+// parser that parses others itself. When a tree is being built, their tree
+// becomes part of the custom parser's node (highlighting and formatting see
+// inside it).
+func peg.sub(parser, ctx, pos){
+  if(ctx.collect != null){
+    return peg.collect(ctx, pos, func(c, at){ return tparse(parser, c, at) })
+  }
+  return parser:parse_on(ctx, pos)
+}
+
+// context(buffer, {tree}) -> a parse context; tree marks a context parsed
+// with parse_tree
 func peg.context(buffer, options){
-  local tokens = null
   local tree_on = false
   if(options != null){
-    if(options.record){
-      tokens = {}
-    }
     tree_on = options.tree == true
   }
   return {
@@ -146,8 +219,8 @@ func peg.context(buffer, options){
     len: len(buffer),
     fail_pos: - 1,
     far_pos: - 1,
-    tokens: tokens,
     tree_on: tree_on,
+    collect: null,
     memo: {},
     // results of memoized rules (peg.memoize); the phrase loop clears it
     // before every top-level statement
@@ -736,8 +809,14 @@ func peg.flatten(child, message){
 }
 
 // token(child, category): the consumed input as a token {value, start, stop,
-// line, column, category}; the category is what a highlighter shows
+// line, column, category}; the category is what a highlighter shows (see
+// peg.highlights). It may be a function of the child's value returning the
+// category or null (a word that is a keyword only in some cases).
 func peg.token(child, category){
+  local static = null
+  if(type(category) == "string"){
+    static = category
+  }
   local p = new_parser(
     func(self, ctx, pos){
       local q = child:parse_on(ctx, pos)
@@ -745,11 +824,8 @@ func peg.token(child, category){
         return - 1
       }
       local t = peg.make_token(ctx, ctx.value, pos, q)
-      if(category != null){
-        t.category = category
-        if(ctx.tokens != null){
-          list_push(ctx.tokens, {category: category, start: pos, stop: q})
-        }
+      if(static != null){
+        t.category = static
       }
       ctx.value = t
       return q
@@ -1176,39 +1252,14 @@ local func info_of(p, memo, visiting){
   return r
 }
 
-// tag(child, category): parses child and, when recording, records its span
-// again under category (a later record wins), so an extension can colour
-// what a rule produced (an identifier as a function being declared, say)
-// without changing the value
+// tag(child, category): parses child; its span is highlighted again under
+// category (it wins over the tokens inside), so an extension can colour what
+// a rule produced (an identifier as a function being declared, say) without
+// changing the value (see peg.highlights)
 func peg.tag(child, category){
   local p = new_parser(
     func(self, ctx, pos){
-      local q = child:parse_on(ctx, pos)
-      if(q < 0){
-        return - 1
-      }
-      if(ctx.tokens != null){
-        // the span of the value: a token, or a node's token (nodes report
-        // their own type, so anything that is not a primitive is indexable)
-        local v = ctx.value
-        local t = type(v)
-        local span = null
-        if(v != null and t != "string" and t != "int" and t != "double" and
-          t != "bool" and t != "function" and t != "thread" and t != "userdata"){
-          span = v
-          if(v.token != null){
-            span = v.token
-          }
-        }
-        if(span != null and span.start != null and span.stop != null){
-          list_push(ctx.tokens, {
-            category: category, start: span.start, stop: span.stop,
-          })
-        } else {
-          list_push(ctx.tokens, {category: category, start: pos, stop: q})
-        }
-      }
-      return q
+      return child:parse_on(ctx, pos)
     },
     {child},
     "tag",
@@ -1470,37 +1521,7 @@ func peg.place_memos(roots, named){
 // skip_space(ctx, pos) -> pos: skips slang whitespace and comments (the skip
 // function of a walker or dispatch when the trivia rule is the default)
 func peg.skip_space(ctx, pos){
-  local q = str.skip_space(ctx.buffer, pos)
-  if(ctx.tokens != null and q > pos){
-    peg.record_comments(ctx, pos, q)
-  }
-  return q
-}
-
-// ------------------------------------------------------------ token recording
-//
-// A recording context collects {category, start, stop} for every token with
-// a category and for every comment inside trivia. Alternatives that lost
-// leave records too, so tokens(ctx) normalises: sorted by start, a later
-// record wins over an earlier one at the same start, overlaps are dropped.
-
-// record_comments(ctx, from, to): records the `//` comments in a trivia run
-func peg.record_comments(ctx, from, to){
-  local buffer = ctx.buffer
-  local i = from
-  for(i < to){
-    if(str.byte_at(buffer, i) == 47 and i + 1 < to and
-      str.byte_at(buffer, i + 1) == 47){
-      local j = i
-      for(j < to and str.byte_at(buffer, j) != 10){
-        j = j + 1
-      }
-      list_push(ctx.tokens, {category: "comment", start: i, stop: j})
-      i = j
-    } else {
-      i = i + 1
-    }
-  }
+  return str.skip_space(ctx.buffer, pos)
 }
 
 // stable merge sort of a list by a comparison less(a, b)
@@ -1540,38 +1561,6 @@ local func merge_sort(list, less){
   for(b < len(right)){
     list_push(out, right[b])
     b = b + 1
-  }
-  return out
-}
-
-// tokens(ctx) -> the recorded tokens, normalised, as
-// {category, start, stop, line, column, length}
-func peg.tokens(ctx){
-  if(ctx.tokens == null){
-    return {}
-  }
-  local indexed = {}
-  for(let local e in entries(ctx.tokens)){
-    list_push(indexed, {order: e[0], t: e[1]})
-  }
-  local sorted = merge_sort(indexed, func(x, y){
-    if(x.t.start != y.t.start){
-      return x.t.start < y.t.start
-    }
-    return x.order > y.order
-  })
-  local out = {}
-  local last_stop = - 1
-  for(let local e in values(sorted)){
-    local t = e.t
-    if(t.start >= last_stop and t.stop > t.start){
-      local lc = peg.line_col(ctx, t.start)
-      list_push(out, {
-        category: t.category, start: t.start, stop: t.stop, line: lc[0],
-        column: lc[1], length: t.stop - t.start,
-      })
-      last_stop = t.stop
-    }
   }
   return out
 }
@@ -2220,6 +2209,26 @@ func walker_methods.parse_at(self, ctx, pos, min_bp){
 // parse their operands themselves: their node holds the operator's node and
 // a leaf for the rest.
 
+// the walker an engine entry's callback gets while a tree is built: its
+// parse_at puts the operand's tree in ctx.collect (see weave)
+local func collecting_walker(w){
+  local c = w.collecting
+  if(c == null){
+    c = {}
+    c.meta = {__index: w}
+    c.parse_at = func(self, ctx, pos, min_bp){
+      if(ctx.collect == null){
+        return w:parse_at(ctx, pos, min_bp)
+      }
+      return peg.collect(ctx, pos, func(cx, at){
+        return w:parse_at_tree(cx, at, min_bp)
+      })
+    }
+    w.collecting = c
+  }
+  return c
+}
+
 local func nud_tree(w, e, ctx, pos, op, op_tree, start){
   local form = e.form
   if(form == "prefix"){
@@ -2250,11 +2259,19 @@ local func nud_tree(w, e, ctx, pos, op, op_tree, start){
     ctx.tree.value = ctx.value
     return q
   }
-  local r = e.nud(w, ctx, pos, op)
+  local saved = ctx.collect
+  local trees = {}
+  ctx.collect = trees
+  local r = e.nud(collecting_walker(w), ctx, pos, op)
+  ctx.collect = saved
   if(r < 0){
     return - 1
   }
-  ctx.tree = node(e, start, r, {op_tree, raw_leaf(e, ctx, op_tree.stop, r)})
+  local kids = {op_tree}
+  for(let local k in values(weave(e, ctx, op_tree.stop, r, trees))){
+    list_push(kids, k)
+  }
+  ctx.tree = node(e, start, r, kids)
   ctx.tree.value = ctx.value
   return r
 }
@@ -2279,13 +2296,19 @@ local func led_tree(w, e, ctx, pos, left, left_tree, op, op_tree){
     ctx.tree.value = ctx.value
     return r
   }
-  local r = e.led(w, ctx, pos, left, op)
+  local saved = ctx.collect
+  local trees = {}
+  ctx.collect = trees
+  local r = e.led(collecting_walker(w), ctx, pos, left, op)
+  ctx.collect = saved
   if(r < 0){
     return - 1
   }
-  ctx.tree = node(e, start, r, {
-    left_tree, op_tree, raw_leaf(e, ctx, op_tree.stop, r),
-  })
+  local kids = {left_tree, op_tree}
+  for(let local k in values(weave(e, ctx, op_tree.stop, r, trees))){
+    list_push(kids, k)
+  }
+  ctx.tree = node(e, start, r, kids)
   ctx.tree.value = ctx.value
   return r
 }
@@ -2599,12 +2622,8 @@ tree_kinds.token = func(self, ctx, pos){
   }
   local tree = ctx.tree
   local t = peg.make_token(ctx, ctx.value, pos, q)
-  local category = self.category
-  if(category != null){
-    t.category = category
-    if(ctx.tokens != null){
-      list_push(ctx.tokens, {category: category, start: pos, stop: q})
-    }
+  if(type(self.category) == "string"){
+    t.category = self.category
   }
   ctx.value = t
   ctx.tree = node(self, pos, q, {tree})
@@ -2615,25 +2634,6 @@ tree_kinds.tag = func(self, ctx, pos){
   local q = tparse(self.children[0], ctx, pos)
   if(q < 0){
     return - 1
-  }
-  if(ctx.tokens != null){
-    local v = ctx.value
-    local t = type(v)
-    local span = null
-    if(v != null and t != "string" and t != "int" and t != "double" and
-      t != "bool" and t != "function" and t != "thread" and t != "userdata"){
-      span = v
-      if(v.token != null){
-        span = v.token
-      }
-    }
-    if(span != null and span.start != null and span.stop != null){
-      list_push(ctx.tokens, {
-        category: self.category, start: span.start, stop: span.stop,
-      })
-    } else {
-      list_push(ctx.tokens, {category: self.category, start: pos, stop: q})
-    }
   }
   ctx.tree = node(self, pos, q, {ctx.tree})
   return q
@@ -2958,6 +2958,13 @@ local func at(list, index){
 // the value of a node from the values of its kids, with tags
 local func node_value(n, kids, tags, buffer){
   local p = n.p
+  if(n.woven){
+    // a parser without a tree path, with the trees of rules it parsed
+    if(tags.map){
+      return n.value
+    }
+    return kids
+  }
   if(n.raw){
     // a raw leaf and the trivia it ends with
     if(tags.map){
@@ -3137,6 +3144,126 @@ func peg.evaluate(tree, layer, buffer, options){
 
 methods.on = peg.on
 methods.mark = peg.mark
+
+// ------------------------------------------------------------- highlighting
+//
+// highlights(tree, buffer, {trivia}) -> the tokens of a tree as a
+// highlighter shows them: {category, start, stop, line, column, length},
+// sorted, not overlapping. They come from
+//   token(child, category)   its span (category may be a function of the
+//                            child's value returning a category or null)
+//   tag(child, category)     the span of the child's value (a token, or a
+//                            node's token) or of the child
+//   leaves whose parser has highlight(buffer, start, stop) -> spans
+//   trivia: options.trivia(buffer, start, stop) -> spans (comments) for the
+//            leaves of trimmers (p.trivia, whitespace, a rule named
+//            "trivia")
+// An outer span wins over the ones inside it that start where it starts;
+// the others overlapping it are dropped.
+
+local func value_span(v){
+  local t = type(v)
+  if(v == null or t == "string" or t == "int" or t == "double" or t == "bool" or
+    t == "function" or t == "thread" or t == "userdata"){
+    return null
+  }
+  // (nodes report their own type, so anything else is indexable)
+  if(v.token != null and v.token.start != null){
+    return v.token
+  }
+  if(v.start != null and v.stop != null){
+    return v
+  }
+  return null
+}
+
+func peg.highlights(tree, buffer, options){
+  options = options or {}
+  local trivia = options.trivia
+  // the spans in source order, not overlapping: the children of a node come
+  // in order, and a node's own span replaces those inside it
+  local out = {}
+  local func add(category, start, stop){
+    if(category != null and stop > start){
+      local n = len(out)
+      if(n == 0 or out[n - 1].stop <= start){
+        list_push(out, {category: category, start: start, stop: stop})
+      }
+    }
+  }
+  local func add_all(spans){
+    for(let local s in values(spans or {})){
+      add(s.category, s.start, s.stop)
+    }
+  }
+  // a span of a node over the ones its children added from index mark on:
+  // those before it stay, those overlapping it go, those after it stay
+  local func cover(mark, category, start, stop){
+    if(category == null or stop <= start){
+      return null
+    }
+    local after = {}
+    for(len(out) > mark){
+      local s = remove(out, len(out) - 1)
+      if(s.start >= stop){
+        list_push(after, s)
+      } else if(s.stop <= start){
+        list_push(out, s)
+        break
+      }
+    }
+    add(category, start, stop)
+    for(local i = len(after) - 1; i >= 0; i = i - 1){
+      add(after[i].category, after[i].start, after[i].stop)
+    }
+  }
+  local func walk(n, in_trivia){
+    local p = n.p
+    if(p.kind == "rule" and p.rule_name == "trivia"){
+      in_trivia = true
+    }
+    local kids = n.kids
+    if(kids == null){
+      if(p.highlight != null){
+        add_all(p.highlight(buffer, n.start, n.stop))
+      } else if(trivia != null and
+        (in_trivia or p.trivia or p.kind == "whitespace")){
+        add_all(trivia(buffer, n.start, n.stop))
+      }
+      return null
+    }
+    local mark = len(out)
+    for(local i = 0; i < len(kids); i = i + 1){
+      walk(kids[i], in_trivia)
+    }
+    if(p.kind == "token" and p.category != null){
+      local category = p.category
+      if(type(category) == "function"){
+        local v = n.value
+        category = category(v and v.value)
+      }
+      cover(mark, category, n.start, n.stop)
+    } else if(p.kind == "tag"){
+      local span = value_span(n.value)
+      if(span != null){
+        cover(mark, p.category, span.start, span.stop)
+      } else {
+        cover(mark, p.category, n.start, n.stop)
+      }
+    }
+  }
+  if(tree != null){
+    walk(tree, false)
+  }
+  local ctx = {buffer: buffer}
+  for(let local s in values(out)){
+    local lc = peg.line_col(ctx, s.start)
+    s.line = lc[0]
+    s.column = lc[1]
+    s.length = s.stop - s.start
+  }
+  return out
+}
 
 // ---------------------------------------------------------------------- methods
 

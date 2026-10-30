@@ -111,6 +111,53 @@ local v = 1 <> 2
     )
     assert(d.severity == "error")
   }
+  t.test("the parse goes on after a statement that fails"){
+    local r = spell(
+      "local x = 1\nlocal y = = 2\nlocal z = 3\nlocal = \"s\"\nlocal w = 4"
+    )
+    local text = str.join(r.spelled, " ")
+    // the failing lines are coloured by their words
+    assert(str.index_of(text, "keyword:local identifier:y") >= 0, text)
+    assert(
+      str.index_of(text, "keyword:local identifier:z punctuation:= number:3") >=
+        0,
+      text
+    )
+    assert(str.index_of(text, "string:\"s\"") >= 0, text)
+    assert(
+      str.index_of(text, "keyword:local identifier:w punctuation:= number:4") >=
+        0,
+      text
+    )
+    local lines = {}
+    for(let local d in values(r.diagnostics)){
+      lines[d.line] = true
+    }
+    assert(
+      lines[2] and lines[4] and not lines[3],
+      "a diagnostic per failing line"
+    )
+  }
+  t.test("code inside quotes and unquotes is highlighted"){
+    local r = spell(
+      "local q = +{expr: 1 + f(2)}\nlocal b = +{block: return -{q}}"
+    )
+    local text = str.join(r.spelled, " ")
+    assert(
+      str.index_of(
+        text,
+        "number:1 operator:+ identifier:f punctuation:( number:2"
+      ) >= 0,
+      text
+    )
+    assert(
+      str.index_of(
+        text,
+        "keyword:return punctuation:- punctuation:{ identifier:q"
+      ) >= 0,
+      text
+    )
+  }
   t.test(
     "an error raised by compile-time code is a diagnostic at its statement"
   ){

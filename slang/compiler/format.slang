@@ -677,7 +677,8 @@ local func last_element(d){
     for(local i = len(list) - 1; i >= 0; i = i - 1){
       local e = list[i]
       if(type(e) == "string"){
-        if(len(str.trim(e)) > 0 and e != ")" and e != "]" and e != ","){
+        if(len(str.trim(e)) > 0 and e != ")" and e != "]" and e != "}" and
+          e != ","){
           return null
         }
       } else if(e.t != "line" and e.t != "if_break" and e.t != "break_parent"){

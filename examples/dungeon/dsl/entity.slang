@@ -50,7 +50,9 @@ g:extension_statement(
     local base_node = util.literal(base)
     return {
       token: token,
-      ast: +{stat: require("engine/entities").define(-{util.string_node(name)}, -{base_node}, -{fields})},
+      ast: +{stat: require("engine/entities").define(
+          -{util.string_node(name)}, -{base_node}, -{fields}
+        )},
     }
   }
 )

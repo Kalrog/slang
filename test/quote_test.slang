@@ -2,14 +2,14 @@ local t = require("slang/test")
 
 t.group("quote"){
   t.test("quote expression"){
-    local exp = +{expr:2+2}
+    local exp = +{expr: 2 + 2}
     assert(exp.type == "BinOp")
     assert(exp.left.type == "Int")
     assert(exp.right.type == "Int")
     print(exp)
   }
   t.test("quote statement"){
-    local stat = +{stat:local x = 2+2}
+    local stat = +{stat: local x = 2 + 2}
     assert(stat.type == "Declaration")
     assert(stat.is_local == true)
     assert(stat.left.type == "Identifier")
@@ -21,16 +21,17 @@ t.group("quote"){
   }
   t.test("quote block"){
     local block = +{block:
-      local x = 2+2
+      local x = 2 + 2
       print(x)
-      return x * x }
+      return x * x
+    }
     assert(block.type == "Block")
     assert(block.statements[0].type == "Declaration")
     assert(block.statements[1].type == "CallStat")
     assert(block.statements[2].type == "Return")
   }
   t.test("unquote expression"){
-    local exp = +{expr:2+2}
+    local exp = +{expr: 2 + 2}
     local statement = +{stat: local x = -{exp}}
     assert(statement.type == "Declaration")
     assert(statement.is_local == true)
@@ -40,11 +41,12 @@ t.group("quote"){
     print(statement)
   }
   t.test("unquote statement"){
-    local stat = +{stat:local x = 2+2}
+    local stat = +{stat: local x = 2 + 2}
     local statement = +{block:
       -{stat}
       print(x)
-      return x * x }
+      return x * x
+    }
     assert(statement.type == "Block")
     assert(statement.statements[0].type == "Declaration")
     assert(statement.statements[1].type == "CallStat")
@@ -208,7 +210,7 @@ t.group("quote"){
     run()
     assert(result(1) == 2, "result should be 2")
     print(resultAst)
-    equivalent = +{func(x){return x+1}}
+    equivalent = +{func(x){ return x + 1 }}
     assert(
       resultAst == equivalent,
       "resultAst should be equivalent to long form"

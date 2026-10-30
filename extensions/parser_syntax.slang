@@ -170,36 +170,37 @@ func build_ast(ast){
     case 'Parser{rules: local rules}:
       local block = +{block:
         local peg = require("slang/peg")
-        local g = require("slang/compiler").grammar() }
+        local g = require("slang/compiler").grammar()
+      }
       for(let 'RuleDef{name: local name} in values(rules)){
-        append(block.statements, +{stat:
-          local -{name} })
+        append(block.statements, +{stat: local -{name}})
       }
       for(let local rule in values(rules)){
         append(block.statements, build_ast(rule))
       }
-      append(block.statements, +{stat:
-        return peg.resolve(start()) })
+      append(block.statements, +{stat: return peg.resolve(start())})
       return {
         type: "Call", function: {type: "Function", params: {}, body: block},
         args: {},
       }
     case 'RuleDef{name: local name, rule: local rule}:
-      local function_def = +{stat: 
-        func name(){ return -{build_ast(rule)}:map(func(result){
+      local function_def = +{stat:
+        func name(){
+          return -{build_ast(rule)}:map(func(result){
             if(_ENV.type(result) == "table"){
-              result.meta = {__type:-{{type:"String", value:name.value}}}
+              result.meta = {__type: -{{type: "String", value: name.value}}}
             }
             return result
-          })   
-        } }
+          })
+        }
+      }
       function_def.left = name
       return function_def
     case 'RuleOr{rules: local rules}:
       if(len(rules) == 1){
         return build_ast(rules[0])
       }
-      local choice = +{ peg.choice() }
+      local choice = +{peg.choice()}
       for(let local rule in values(rules)){
         append(choice.args, build_ast(rule))
       }
@@ -208,41 +209,50 @@ func build_ast(ast){
       if(len(rules) == 1){
         return build_ast(rules[0])
       }
-      local combine = +{ peg.seq() }
+      local combine = +{peg.seq()}
       for(let local rule in values(rules)){
         append(combine.args, build_ast(rule))
       }
       return combine
     case 'RulePostFix{value: local value, op: "*"}:
-      return +{ -{build_ast(value)}:star() }
+      return +{-{build_ast(value)}:star()}
     case 'RulePostFix{value: local value, op: "+"}:
-      return +{ -{build_ast(value)}:plus() }
+      return +{-{build_ast(value)}:plus()}
     case 'RulePostFix{value: local value, op: "?"}:
-      return +{ -{build_ast(value)}:optional() }
+      return +{-{build_ast(value)}:optional()}
     case 'RulePostFix{value: local value, op: "!"}:
-      return +{ -{build_ast(value)}:forbid() }
+      return +{-{build_ast(value)}:forbid()}
     case 'RulePostFix{value: local value, op: "_"}:
-      return +{ -{build_ast(value)}:flatten() }
+      return +{-{build_ast(value)}:flatten()}
     case 'RulePostFix{value: local value, op: 'Permute{fields: local fields}}:
-      local steps = +{block:}
+      local steps = +{block: }
       for(let local field in values(fields)){
-        append(steps.statements, +{stat:
-          out[-{{type:"String", value: field.name.value}}] = result[-{{type:"Int", value: field.number}}] })
+        append(
+          steps.statements,
+          +{stat:
+            out[-{{
+              type: "String",
+              value: field.name.value,
+            }}] = result[-{{type: "Int", value: field.number}}]
+          }
+        )
       }
-      local call = +{ -{build_ast(value)}:map(func(result){
+      local call = +{
+        -{build_ast(value)}:map(func(result){
           local out = {}
           -{steps}
           return out
-        }) }
+        })
+      }
       return call
     case 'String{value: local value}:
-      return +{ peg.string(-{{type:"String", value: value}}):trim() }
+      return +{peg.string(-{{type: "String", value: value}}):trim()}
     case 'RuleRef{name: local name}:
-      return +{ peg.ref(-{name}) }
+      return +{peg.ref(-{name})}
     case 'Pattern{value: local value}:
-      return +{ peg.pattern(-{{type:"String", value: value}}) }
+      return +{peg.pattern(-{{type: "String", value: value}})}
     case 'EndOfInput{}:
-      return +{ peg.end() }
+      return +{peg.end()}
     case local any:
       error("Unknown rule: ", any)
   }

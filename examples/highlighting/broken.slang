@@ -1,5 +1,5 @@
-// A parse error: the server underlines the place where parsing failed and
-// still colours everything before it.
+// A parse error: the server underlines the place where parsing failed,
+// colours the line by its words, and parses on from the next line.
 local fine = "this line is good"
 local broken = = 1
-local never = "coloured by the static grammar only"
+local after = "coloured like any other line"

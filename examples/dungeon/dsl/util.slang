@@ -107,7 +107,10 @@ func util.list_node(nodes){
 // define(module, name, value_node) -> statement node
 //   require(module).define(name, value)
 func util.define(module_name, name, value_node){
-  return +{stat: require(-{util.string_node(module_name)}).define(-{util.string_node(name)}, -{value_node})}
+  return +{stat: require(-{util.string_node(module_name)}).define(
+      -{util.string_node(name)},
+      -{value_node}
+    )}
 }
 
 // walk(node, f): calls f on every node of the tree (depth first)

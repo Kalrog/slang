@@ -54,7 +54,10 @@ local runtime_block = +{block:
     for(local i = 0; i < n; i = i + 1){
       append(shown, string(args[i]))
     }
-    error("no clause of ", self.name, " matches (", require("slang/string").join(shown, ", "), ")")
+    error(
+      "no clause of ", self.name, " matches (",
+      require("slang/string").join(shown, ", "), ")"
+    )
   }
   func dispatcher_meta.__tostring(self){
     return concat("def ", self.name, " (", len(self.clauses), " clauses)")
@@ -76,8 +79,14 @@ local runtime_block = +{block:
       append(out, args[i])
     }
     return out
-  } }
-local runtime_expr = +{(func(){ -{runtime_block} return __def })()}
+  }
+}
+local runtime_expr = +{
+  (func(){
+    -{runtime_block}
+    return __def
+  })()
+}
 
 // the unit's __def local, declared once per unit
 local func runtime(token){

@@ -57,8 +57,8 @@ func case_block.new(token, pattern, body){
 
 func case_block.build(self, value){
   return +{stat:
-    if(-{{type:"Let",pattern:self.pattern,right:value}})
-    -{self.body} }
+    if(-{{type: "Let", pattern: self.pattern, right: value}}) -{self.body}
+  }
 }
 
 func case_block.parser(){

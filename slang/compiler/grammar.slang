@@ -89,15 +89,15 @@ local func new_lineage(opts){
     // so that peg.ref(lin.token_fn, text) caches one parser per text
     token_fn: null,
     uniq_counter: 0,
-    // for highlighting (parse_source with {record: true}): the recording
-    // context, the tokens it produced, the last parse failure
-    // {message, pos, far_pos, far_message} and the start of the top-level
-    // statement being parsed
-    record_ctx: null,
-    last_tokens: null,
-    // the lossless tree of the last parse_source with {tree: true}
+    // the lossless tree of the last parse_source with {tree: true} (with
+    // the statements parsed so far after a failure), the last parse failure
+    // {message, pos, far_pos, far_message}, the failures a parse with
+    // {recover: true} went past, and the start of the top-level statement
+    // being parsed
     last_tree: null,
+    tree_parts: null,
     last_failure: null,
+    failures: null,
     phrase_pos: 0,
     // every parse of a unit gets a fresh id (g:unit_id()), so an extension
     // can keep state per unit even when it was loaded once for a project
@@ -885,9 +885,6 @@ local func install_core(g){
     local q = str.skip_space(ctx.buffer, pos)
     if(q == pos){
       return peg.fail(ctx, pos, "whitespace expected")
-    }
-    if(ctx.tokens != null){
-      peg.record_comments(ctx, pos, q)
     }
     ctx.value = null
     return q
@@ -1872,15 +1869,29 @@ local func install_core(g){
 
   define(
     "quote_body",
+    // laid out as +{stat: x} when it fits, else with the body on lines of
+    // its own (see the quote and unquote rules)
     peg.choice(
-      peg.seq(tok("id"), tok(":"), rule("identifier")),
-      peg.seq(tok("block"), tok(":"), rule("chunk")),
       peg.seq(
-        tok("stat"), tok(":"),
-        peg.choice(rule("statement"), rule("final_statement"))
+        tok("id"),
+        ftok(":", "none", "line"),
+        fmt.indent(rule("identifier"), "softline")
       ),
-      peg.seq(peg.seq(tok("expr"), tok(":")):optional(), rule("expr"))
-    ), {protected: true}
+      peg.seq(
+        tok("block"),
+        ftok(":", "none", "line"),
+        fmt.indent(rule("chunk"), "softline")
+      ),
+      peg.seq(tok("stat"), ftok(":", "none", "line"), fmt.indent(
+        peg.choice(rule("statement"), rule("final_statement")),
+        "softline"
+      )),
+      peg.seq(
+        peg.seq(tok("expr"), ftok(":", "none", "line")):optional(),
+        fmt.indent(rule("expr"), "softline")
+      )
+    ),
+    {protected: true}
   )
 
   local func split_quote_body(body){
@@ -1893,13 +1904,16 @@ local func install_core(g){
   local quote_body = peg.custom(func(self, ctx, pos){
     local prev = lin.in_quote
     lin.in_quote = true
-    local q = rule("quote_body"):parse_on(ctx, pos)
+    local q = peg.sub(rule("quote_body"), ctx, pos)
     lin.in_quote = prev
     return q
   })
   define(
     "quote",
-    peg.seq(tok("+"), tok("{"), quote_body, tok("}"))
+    fmt.mark(
+      peg.seq(tok("+"), ftok("{", "none"), quote_body, ftok("}", "softline")),
+      {group: true, hug: true}
+    )
       :pick(2)
       :token()
       :map(func(t){
@@ -1919,12 +1933,20 @@ local func install_core(g){
       local hit = memo[pos]
       if(hit != null){
         ctx.value = hit.node
+        if(ctx.collect != null and hit.tree != null){
+          list_push(ctx.collect, hit.tree)
+        }
         return hit.stop
       }
     }
-    local q = unquote_body_ref:parse_on(ctx, pos)
+    local q = peg.sub(unquote_body_ref, ctx, pos)
     if(q < 0){
       return - 1
+    }
+    // (the tree of the body, when one is built, for a memo hit)
+    local body_tree = null
+    if(ctx.collect != null){
+      body_tree = ctx.collect[len(ctx.collect) - 1]
     }
     local t = ctx.value
     local parts = split_quote_body(t.value)
@@ -1959,13 +1981,16 @@ local func install_core(g){
       memo = {}
       ctx.unquote_memo = memo
     }
-    memo[pos] = {node: ctx.value, stop: q}
+    memo[pos] = {node: ctx.value, stop: q, tree: body_tree}
     return q
   })
   define(
-    "unquote", peg.seq(tok("-"), tok("{"), unquote_body, tok("}")):pick(2), {
-      protected: true,
-    }
+    "unquote",
+    fmt.mark(
+      peg.seq(tok("-"), ftok("{", "none"), unquote_body, ftok("}", "softline")),
+      {group: true, hug: true}
+    ):pick(2),
+    {protected: true}
   )
 
   // ------------------------------------------------------------ expressions
@@ -2333,7 +2358,76 @@ local func trivia_start(buf, from, to){
   }
 }
 
-local func parse_top_level(g, source, origin, scoped, record, tree){
+// comments(buffer, start, stop) -> the `//` comments in a run of trivia, as
+// highlighter spans
+func grammar.comments(buffer, start, stop){
+  local out = {}
+  local i = str.index_of(buffer, "//", start)
+  for(i >= 0 and i < stop){
+    local j = str.index_of(buffer, "\n", i)
+    if(j < 0 or j > stop){
+      j = stop
+    }
+    list_push(out, {category: "comment", start: i, stop: j})
+    i = str.index_of(buffer, "//", j)
+  }
+  return out
+}
+
+local word_class = str.char_class("a-zA-Z0-9_")
+local digit_class = str.char_class("0-9")
+
+// a region a parse with {recover: true} went past: highlighted by its words
+// (keywords of the grammar, identifiers, numbers), strings and comments
+local func error_region(keywords){
+  return {
+    kind: "error", highlight: func(buffer, start, stop){
+      local out = {}
+      local i = start
+      for(i < stop){
+        local b = str.byte_at(buffer, i)
+        local j = i + 1
+        local category = null
+        if(b == 47 and str.byte_at(buffer, i + 1) == 47){
+          j = str.index_of(buffer, "\n", i)
+          if(j < 0 or j > stop){
+            j = stop
+          }
+          category = "comment"
+        } else if(b == 34){
+          for(j < stop and str.byte_at(buffer, j) != 34 and
+            str.byte_at(buffer, j) != 10){
+            if(str.byte_at(buffer, j) == 92){
+              j = j + 1
+            }
+            j = j + 1
+          }
+          if(j < stop and str.byte_at(buffer, j) == 34){
+            j = j + 1
+          }
+          category = "string"
+        } else if(str.class_match(word_class, buffer, i) > 0){
+          j = i + str.class_run(word_class, buffer, i) - i
+          local w = str.substring(buffer, i, j)
+          if(str.class_match(digit_class, buffer, i) > 0){
+            category = "number"
+          } else if(keywords[w] == true){
+            category = "keyword"
+          } else {
+            category = "identifier"
+          }
+        }
+        if(category != null){
+          list_push(out, {category: category, start: i, stop: j})
+        }
+        i = j
+      }
+      return out
+    },
+  }
+}
+
+local func parse_top_level(g, source, origin, scoped, recover, tree){
   local lin = g.state
   local tok_semicolon = fmt.drop(peg.ref(lin.token_fn, ";"):optional())
   local parsers = {
@@ -2344,16 +2438,14 @@ local func parse_top_level(g, source, origin, scoped, record, tree){
       tok_semicolon
     ):pick(0),
   }
-  local ctx = peg.context(source, {record: record, tree: tree})
+  local ctx = peg.context(source, {tree: tree})
   ctx.trivia_start = trivia_start
-  if(record){
-    lin.record_ctx = ctx
-  }
   local statements = {}
   // with a tree: the node of each top-level statement and the value its
   // parse produced (the unit's default layer)
   local trees = {}
   local tree_values = {}
+  lin.tree_parts = trees
   local pos = 0
   local unit = g
   lin.origin = origin
@@ -2361,62 +2453,60 @@ local func parse_top_level(g, source, origin, scoped, record, tree){
   lin.unit_counter = lin.unit_counter + 1
   lin.unit_id = lin.unit_counter
   lin.unit_locals = {names: {}, pending: {}}
+  // With recover, a statement that fails to parse does not end the parse:
+  // the failure is kept in lin.failures and the parse goes on at the first
+  // later line where a statement parses; the text skipped is an error region
+  // in the tree. (For highlighting: the tree, not the result, is what counts.)
+  local stop = 0
+  local region = null
   for(true){
-    unit:activate()
-    ctx.rule_memo = {}
-    lin.phrase_pos = pos
-    local q = parse_with(parsers.extension_statement, ctx, pos)
-    if(q >= 0){
-      local parsed = ctx.value
-      local target = null
-      if(parsed.global and scoped){
-        if(lin.parse_depth != 1 or origin != lin.main_origin){
-          fail_parse(
-            lin, ctx, origin,
-            "extension global is only allowed at the top level of the main file",
-            pos
-          )
-        }
-        if(g != lin.root){
-          fail_parse(
-            lin, ctx, origin,
-            "extension global is not available in a file compiled under a dialect",
-            pos
-          )
-        }
-        if(unit != g){
-          fail_parse(
-            lin, ctx, origin,
-            "extension global must come before the other extension statements of the file",
-            pos
-          )
-        }
-        target = lin.root
-      } else {
-        if(scoped and unit == g){
-          unit = g:derive()
-          lin.current = unit
-        }
-        target = unit
-      }
-      if(tree){
-        list_push(trees, ctx.tree)
-        list_push(tree_values, parsed)
-      }
-      local node = target:run_extension(parsed, origin)
-      emit(lin, statements, node)
-      pos = q
-    } else {
-      q = parse_statement(lin, parsers.statement, ctx, pos)
+    for(true){
+      unit:activate()
+      ctx.rule_memo = {}
+      lin.phrase_pos = pos
+      local q = parse_with(parsers.extension_statement, ctx, pos)
       if(q >= 0){
+        local parsed = ctx.value
+        local target = null
+        if(parsed.global and scoped){
+          if(lin.parse_depth != 1 or origin != lin.main_origin){
+            fail_parse(
+              lin, ctx, origin,
+              "extension global is only allowed at the top level of the main file",
+              pos
+            )
+          }
+          if(g != lin.root){
+            fail_parse(
+              lin, ctx, origin,
+              "extension global is not available in a file compiled under a dialect",
+              pos
+            )
+          }
+          if(unit != g){
+            fail_parse(
+              lin, ctx, origin,
+              "extension global must come before the other extension statements of the file",
+              pos
+            )
+          }
+          target = lin.root
+        } else {
+          if(scoped and unit == g){
+            unit = g:derive()
+            lin.current = unit
+          }
+          target = unit
+        }
         if(tree){
           list_push(trees, ctx.tree)
-          list_push(tree_values, ctx.value)
+          list_push(tree_values, parsed)
         }
-        emit(lin, statements, ctx.value)
+        local node = target:run_extension(parsed, origin)
+        emit(lin, statements, node)
         pos = q
       } else {
-        q = parse_statement(lin, parsers.final, ctx, pos)
+        q = parse_statement(lin, parsers.statement, ctx, pos)
         if(q >= 0){
           if(tree){
             list_push(trees, ctx.tree)
@@ -2424,12 +2514,55 @@ local func parse_top_level(g, source, origin, scoped, record, tree){
           }
           emit(lin, statements, ctx.value)
           pos = q
+        } else {
+          q = parse_statement(lin, parsers.final, ctx, pos)
+          if(q >= 0){
+            if(tree){
+              list_push(trees, ctx.tree)
+              list_push(tree_values, ctx.value)
+            }
+            emit(lin, statements, ctx.value)
+            pos = q
+          }
+          break
         }
-        break
       }
     }
+    stop = str.skip_space(source, pos)
+    if(stop == len(source) or not recover){
+      break
+    }
+    local far_pos = ctx.far_pos
+    if(far_pos < stop){
+      far_pos = stop
+    }
+    if(region == null or region.stop != pos){
+      list_push(lin.failures, {
+        message: "end of input expected",
+        pos: stop,
+        far_pos: far_pos,
+        far_message: ctx.far_msg or "end of input expected",
+      })
+      region = peg.leaf(error_region(unit.keywords), pos, pos)
+      list_push(trees, region)
+      list_push(tree_values, false)
+    }
+    // the next line after the farthest failure
+    local next = str.index_of(source, "\n", far_pos)
+    if(next < 0){
+      next = len(source)
+    } else {
+      next = next + 1
+    }
+    region.stop = next
+    pos = next
+    ctx.far_pos = - 1
+    ctx.far_msg = null
+    if(pos >= len(source)){
+      stop = pos
+      break
+    }
   }
-  local stop = str.skip_space(source, pos)
   if(stop != len(source)){
     fail_parse(lin, ctx, origin, "end of input expected", stop)
   }
@@ -2457,12 +2590,15 @@ local func parse_top_level(g, source, origin, scoped, record, tree){
   return block
 }
 
-// parse_source(source, origin, {scoped, record, tree}) -> Block node (raises
-// on failure). Extension statements of a scoped unit (the default) only
-// affect that unit. With record, the tokens are left in g.state.last_tokens
-// (also after a failure, whose details are in g.state.last_failure). With
-// tree, the lossless tree of the unit is left in g.state.last_tree (see
-// slang/peg): a node of kind "unit" whose kids are the top-level statements.
+// parse_source(source, origin, {scoped, tree, recover}) -> Block node
+// (raises on failure; the details of a parse failure are in
+// g.state.last_failure). Extension statements of a scoped unit (the default)
+// only affect that unit. With tree, the lossless tree of the unit is left in
+// g.state.last_tree (see slang/peg): a node of kind "unit" whose kids are the
+// top-level statements; after a failure, the statements parsed before it.
+// recover (with tree, for highlighting) goes past statements that fail to
+// parse: they are error regions in the tree (with highlight functions, see
+// peg.highlights) and their failures are in g.state.failures.
 func methods.parse_source(g, source, origin, options){
   local lin = g.state
   local outer_origin = lin.origin
@@ -2471,21 +2607,27 @@ func methods.parse_source(g, source, origin, options){
   local outer_unit_id = lin.unit_id
   local outer_unit_locals = lin.unit_locals
   local scoped = options == null or options.scoped != false
-  local record = options != null and options.record == true
-  local tree = options != null and options.tree == true
-  if(record){
-    lin.last_failure = null
-  }
+  local tree = options != null and
+    (options.tree == true or options.recover == true)
+  local recover = tree and options.recover == true
+  lin.last_failure = null
   if(tree){
     lin.last_tree = null
+    lin.failures = {}
   }
+  local outer_parts = lin.tree_parts
   lin.parse_depth = lin.parse_depth + 1
-  local r = pcall(parse_top_level, g, source, origin, scoped, record, tree)
+  local r = pcall(parse_top_level, g, source, origin, scoped, recover, tree)
   lin.parse_depth = lin.parse_depth - 1
-  if(record){
-    lin.last_tokens = peg.tokens(lin.record_ctx)
-    lin.record_ctx = null
+  if(tree and r[0] == "err" and lin.tree_parts != null){
+    local parts = lin.tree_parts
+    local stop = 0
+    if(len(parts) > 0){
+      stop = parts[len(parts) - 1].stop
+    }
+    lin.last_tree = peg.node(unit_parser, 0, stop, parts)
   }
+  lin.tree_parts = outer_parts
   lin.origin = outer_origin
   lin.current = outer_current
   lin.unit_id = outer_unit_id

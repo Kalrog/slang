@@ -292,11 +292,29 @@ server answers formatting requests with the same function.
 
 ## Highlighting on layers
 
-Highlighting becomes a layer on `text`: token categories are annotations,
-and `slang highlight` and the language server read them off the tree.
-`peg.token(child, category)` and `g:tag` become helpers that `mark`. The
-current recording (`ctx.tokens`, with failed alternatives leaving records
-that are sorted out afterwards) goes away.
+Highlighting reads the lossless tree (`peg.highlights(tree, buffer,
+{trivia})`), so lost alternatives leave nothing behind and there is no
+recording to clean up:
+
+- `peg.token(child, category)` gives its span the category. The category
+  may be a function of the child's value returning a category or null:
+  `html` colours a tag name as a function or a keyword, `sql` only its
+  keywords. That replaces the custom parsers that pushed into `ctx.tokens`.
+- `peg.tag(child, category)` colours the span of the child's value (a
+  token, or a node's token) and wins over the tokens inside it.
+- Trivia leaves go to `options.trivia` (`grammar.comments` finds the `//`
+  comments); a leaf whose parser has `highlight(buffer, start, stop)` gives
+  its own spans.
+- A custom parser that parses other parsers itself calls `peg.sub(parser,
+  ctx, pos)`: when a tree is built, their trees become part of the custom
+  parser's node, so highlighting and formatting see inside it (quote and
+  unquote bodies). An engine operator's callback gets a walker whose
+  `parse_at` does the same. Normal parses don't pay for this.
+
+`compiler.highlight` parses with `{recover: true}`: a statement that fails
+to parse is reported, its lines are coloured by their words (keywords,
+identifiers, numbers, strings, comments), and the parse goes on at the next
+line where a statement parses. Before, nothing after an error was coloured.
 
 ## Phases
 
@@ -346,9 +364,16 @@ that are sorted out afterwards) goes away.
 - [ ] `enum` annotated; a section for extension authors in the docs.
 
 ### Phase 5: highlighting
-- [ ] The highlight layer; `token` categories and `g:tag` as annotations.
-- [ ] `slang highlight` output unchanged for every repository file (JSON
-      compared before and after); token recording removed.
+- [x] Highlighting from the tree; `token` categories (also as functions)
+      and `g:tag`; `peg.sub` for custom parsers that parse others.
+- [x] `slang highlight` output unchanged for every repository file (JSON
+      compared before and after), but for `examples/highlighting/broken.slang`,
+      which now gets colour after its error; token recording removed.
+- [x] Quote and unquote bodies are trees now, so they are formatted; the
+      quote syntax has layout marks (`+{stat: x}` on one line when it fits).
+- [ ] Highlighting takes about 1.5x as long as with recording (0.64s
+      against 0.41s for the largest file, grammar.slang): the tree parse
+      is the cost. Worth a look if the language server feels slow.
 
 ### Phase 6: editors
 - [ ] Formatting requests in the language server; format on save in VS Code.

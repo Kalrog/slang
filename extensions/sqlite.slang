@@ -56,18 +56,12 @@ local word_chars = peg.seq(
   peg.pattern("a-zA-Z_"),
   peg.pattern("a-zA-Z0-9_"):star()
 ):flatten("word expected")
-local word = peg.custom(func(self, ctx, pos){
-  local q = word_chars:parse_on(ctx, pos)
-  if(q < 0){
-    return - 1
+local word = peg.token(word_chars, func(w){
+  if(keywords[str.lower(w)] == true){
+    return "keyword"
   }
-  local w = ctx.value
-  if(ctx.tokens != null and keywords[str.lower(w)] == true){
-    list_push(ctx.tokens, {category: "keyword", start: pos, stop: q})
-  }
-  ctx.value = {text: w}
-  return q
-})
+  return null
+}):map(func(t){ return {text: t.value} })
 
 local number = peg.token(
   peg.seq(

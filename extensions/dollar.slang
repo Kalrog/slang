@@ -38,7 +38,9 @@ g:statement(
       local id = result[1]
       local params = result[3]
       local body = result[5]
-      local ast = +{block: return -{{type:"Function", params:params, body:body}}}
+      local ast = +{block:
+        return -{{type: "Function", params: params, body: body}}
+      }
       local function = compile(ast, concat("macro_", id.value))()
       registry[id.value] = function
       return +{block: }

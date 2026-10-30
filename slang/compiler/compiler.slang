@@ -492,7 +492,9 @@ local func find_project_for(path){
 // with categories and 1-based line/column, and the parse errors as
 // {line, column, message, severity}. Extension code runs as it would in
 // the compiler; nothing is compiled or cached. A file of a dialect with a
-// compile function has no tokens.
+// compile function has no tokens. The tokens are read off the lossless tree
+// (peg.highlights); a statement that fails to parse is reported and
+// highlighted by its words, and the parse goes on after it.
 func compiler.highlight(source, path, options){
   // the editor's documents look their project up while none is loaded (the
   // main program's own lookup does not count: the server has no project)
@@ -520,24 +522,30 @@ func compiler.highlight(source, path, options){
     return pos - shift
   }
   local lin = root.state
-  local r = pcall(g.parse_source, g, concat(prefix, source), path, {
-    record: true,
-  })
+  local text = concat(prefix, source)
+  // a parse that goes past statements that fail (see parse_source)
+  local r = pcall(g.parse_source, g, text, path, {recover: true})
   local diagnostics = {}
+  local func failure(f){
+    local lc = str.line_col(source, position(f.far_pos))
+    append(diagnostics, {
+      line: lc[0], column: lc[1], message: f.far_message, severity: "error",
+    })
+    if(f.far_pos != f.pos){
+      local at = str.line_col(source, position(f.pos))
+      append(diagnostics, {
+        line: at[0], column: at[1], message: f.message, severity: "error",
+      })
+    }
+  }
+  for(let local f in values(lin.failures or {})){
+    failure(f)
+  }
   if(r[0] == "err"){
     local e = r[1]
     local f = lin.last_failure
     if(f != null){
-      local lc = str.line_col(source, position(f.far_pos))
-      append(diagnostics, {
-        line: lc[0], column: lc[1], message: f.far_message, severity: "error",
-      })
-      if(f.far_pos != f.pos){
-        local at = str.line_col(source, position(f.pos))
-        append(diagnostics, {
-          line: at[0], column: at[1], message: f.message, severity: "error",
-        })
-      }
+      failure(f)
     } else {
       // an error raised by compile-time code: reported at the statement being parsed
       local lc = str.line_col(source, position(lin.phrase_pos))
@@ -557,7 +565,9 @@ func compiler.highlight(source, path, options){
     }
     lin.last_failure = null
   }
-  local tokens = lin.last_tokens or {}
+  local tokens = peg.highlights(lin.last_tree, text, {trivia: grammar.comments})
+  lin.last_tree = null
+  lin.failures = null
   if(shift > 0){
     // drop the prefix's token, move the rest back
     local shifted = {}

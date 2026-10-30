@@ -59,24 +59,47 @@ func m.install(app){
   app:get("/", signed_in(func(req){
     local filter = filter_of(req)
     return views.page(req, "Todos", <>
-      <form hx-post="/todos" hx-target="#todos" hx-swap="outerHTML" hx-on::after-request="this.reset()">
-        <input name="text" placeholder="What needs doing?" autocomplete="off" required/>
+      <form
+        hx-post="/todos"
+        hx-target="#todos"
+        hx-swap="outerHTML"
+        hx-on::after-request="this.reset()"
+      >
+        <input
+          name="text"
+          placeholder="What needs doing?"
+          autocomplete="off"
+          required
+        />
         <button>add</button>
       </form>
       <views.Filters filter={filter}/>
       <views.TodoList user={req.user} filter={filter}/>
-      <p class="status"><views.Count user={req.user}/> <button hx-post="/todos/clear" hx-target="#todos" hx-swap="outerHTML">clear done</button></p>
+      <p class="status">
+        <views.Count user={req.user}/> <button
+          hx-post="/todos/clear"
+          hx-target="#todos"
+          hx-swap="outerHTML"
+        >
+          clear done
+        </button>
+      </p>
     </>)
   }))
 
   app:get("/log", func(req){
     return views.page(req, "Request log", <>
-      <p>Every request is printed on the server's terminal and kept here. The
-        page holds a WebSocket open (htmx's ws extension) and the server
-        pushes each new request as a row: open the todos in another tab and
-        watch.</p>
+      <p>
+        Every request is printed on the server's terminal and kept here. The
+        page holds a WebSocket open (htmx's ws extension) and the server pushes
+        each new request as a row: open the todos in another tab and watch.
+      </p>
       <table class="log" hx-ext="ws" ws-connect="/log/live">
-        <thead><tr><th>at</th><th>method</th><th>path</th><th>status</th><th>took</th></tr></thead>
+        <thead>
+          <tr>
+            <th>at</th><th>method</th><th>path</th><th>status</th><th>took</th>
+          </tr>
+        </thead>
         <tbody id="log-rows"><views.LogRows/></tbody>
       </table>
     </>)
@@ -87,9 +110,9 @@ func m.install(app){
   app:ws("/log/live", func(socket, req){
     local stop = log.subscribe(func(entry){
       if(socket:is_open()){
-        socket:send(html.render(
-          <tbody hx-swap-oob="afterbegin:#log-rows"><views.LogRow entry={entry}/></tbody>
-        ))
+        socket:send(html.render(<tbody hx-swap-oob="afterbegin:#log-rows">
+          <views.LogRow entry={entry}/>
+        </tbody>))
       }
     })
     socket.closed:then(func(_){ stop() })
@@ -97,11 +120,19 @@ func m.install(app){
 
   app:get("/slow", func(req){
     return views.page(req, "Slow", <>
-      <p>The button asks for <code>/slow/result</code>, which awaits a timer for
-        two seconds. The server keeps serving meanwhile: watch the
-        <a href="/log">log</a> in another tab.</p>
       <p>
-        <button hx-get="/slow/result" hx-target="#result" hx-indicator="#spinner">take two seconds</button>
+        The button asks for <code>/slow/result</code>, which awaits a timer for
+        two seconds. The server keeps serving meanwhile: watch the
+        <a href="/log">log</a> in another tab.
+      </p>
+      <p>
+        <button
+          hx-get="/slow/result"
+          hx-target="#result"
+          hx-indicator="#spinner"
+        >
+          take two seconds
+        </button>
         <span id="spinner" class="htmx-indicator">working...</span>
       </p>
       <div id="result"></div>
@@ -186,9 +217,10 @@ func m.install(app){
 
   app:get("/files", signed_in(func(req){
     return views.page(req, "Files", <>
-      <p>Uploads stream to disk while their SHA-256 is computed; downloads
-        stream back from disk. Text files travel gzipped when the browser
-        allows it.</p>
+      <p>
+        Uploads stream to disk while their SHA-256 is computed; downloads stream
+        back from disk. Text files travel gzipped when the browser allows it.
+      </p>
       <views.Upload/>
       <views.FileList user={req.user}/>
     </>)
@@ -238,8 +270,12 @@ func m.install(app){
     if(user == null){
       return views.page(
         req, "Sign in",
-        <views.AccountForm mode="login" name={form.name} csrf={req.csrf_token} error="Wrong name or password."/>,
-        401
+        <views.AccountForm
+          mode="login"
+          name={form.name}
+          csrf={req.csrf_token}
+          error="Wrong name or password."
+        />, 401
       )
     }
     return auth.start_session(web.redirect("/"), user)
@@ -261,8 +297,12 @@ func m.install(app){
     if(r.error != null){
       return views.page(
         req, "Create an account",
-        <views.AccountForm mode="register" name={form.name} csrf={req.csrf_token} error={r.error}/>,
-        400
+        <views.AccountForm
+          mode="register"
+          name={form.name}
+          csrf={req.csrf_token}
+          error={r.error}
+        />, 400
       )
     }
     return auth.start_session(web.redirect("/"), r.user)

@@ -33,13 +33,19 @@ func m.Layout(props){
         <meta charset="utf-8"/>
         <title>{props.title} - slang</title>
         <link rel="stylesheet" href="/static/style.css"/>
-        <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
+        <script
+          src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"
+        ></script>
         <script src="https://unpkg.com/htmx-ext-ws@2.0.3/ws.js"></script>
       </head>
-      <body hx-headers={props.csrf and json.encode({["X-CSRF-Token"]: props.csrf})}>
+      <body
+        hx-headers={props.csrf and json.encode({["X-CSRF-Token"]: props.csrf})}
+      >
         <nav>
           {table.map(links, func(l){
-            return <a href={l.href} class={l.href == props.path and "current"}>{l.text}</a>
+            return <a href={l.href} class={l.href == props.path and "current"}>
+              {l.text}
+            </a>
           })}
           <m.Account user={props.user} csrf={props.csrf}/>
         </nav>
@@ -71,17 +77,39 @@ func m.Account(props){
 func m.AccountForm(props){
   local login = props.mode == "login"
   return <>
-    <form method="post" action={login and "/login" or "/register"} class="account-form">
+    <form
+      method="post"
+      action={login and "/login" or "/register"}
+      class="account-form"
+    >
       {props.error and <p class="error">{props.error}</p>}
       <input type="hidden" name="_csrf" value={props.csrf}/>
-      <label>name <input name="name" value={props.name} autocomplete="username" required autofocus/></label>
-      <label>password
-        <input name="password" type="password" required
-               autocomplete={login and "current-password" or "new-password"}/>
+      <label>
+        name
+        <input
+          name="name"
+          value={props.name}
+          autocomplete="username"
+          required
+          autofocus
+        />
+      </label>
+      <label>
+        password
+        <input
+          name="password"
+          type="password"
+          required
+          autocomplete={login and "current-password" or "new-password"}
+        />
       </label>
       <button>{login and "sign in" or "create account"}</button>
     </form>
-    {login and <p>No account? <a href="/register">Create one</a>, or sign in as <b>demo</b> with the password <b>demo</b>.</p> or <p>Already have one? <a href="/login">Sign in</a>.</p>}
+    {login and
+      <p>
+        No account? <a href="/register">Create one</a>, or sign in as
+        <b>demo</b> with the password <b>demo</b>.
+      </p> or <p>Already have one? <a href="/login">Sign in</a>.</p>}
   </>
 }
 
@@ -98,9 +126,32 @@ func m.Todo(props){
   local t = props.todo
   local url = concat("/todos/", t.id)
   return <li class={t.done and "done"}>
-    <input type="checkbox" checked={t.done} hx-post={concat(url, "/toggle")} hx-target="closest li" hx-swap="outerHTML"/>
-    <span class="text" hx-get={concat(url, "/edit")} hx-target="closest li" hx-swap="outerHTML" title="click to edit">{t.text}</span>
-    <button class="delete" hx-delete={url} hx-target="closest li" hx-swap="outerHTML" hx-confirm="Delete this todo?" aria-label="delete">&times;</button>
+    <input
+      type="checkbox"
+      checked={t.done}
+      hx-post={concat(url, "/toggle")}
+      hx-target="closest li"
+      hx-swap="outerHTML"
+    />
+    <span
+      class="text"
+      hx-get={concat(url, "/edit")}
+      hx-target="closest li"
+      hx-swap="outerHTML"
+      title="click to edit"
+    >
+      {t.text}
+    </span>
+    <button
+      class="delete"
+      hx-delete={url}
+      hx-target="closest li"
+      hx-swap="outerHTML"
+      hx-confirm="Delete this todo?"
+      aria-label="delete"
+    >
+      &times;
+    </button>
   </li>
 }
 
@@ -111,7 +162,14 @@ func m.EditTodo(props){
     <form hx-post={url} hx-target="closest li" hx-swap="outerHTML">
       <input name="text" value={t.text} autofocus required/>
       <button>save</button>
-      <button type="button" hx-get={url} hx-target="closest li" hx-swap="outerHTML">cancel</button>
+      <button
+        type="button"
+        hx-get={url}
+        hx-target="closest li"
+        hx-swap="outerHTML"
+      >
+        cancel
+      </button>
     </form>
   </li>
 }
@@ -120,15 +178,25 @@ func m.Filters(props){
   return <nav id="filters" class="filters" hx-swap-oob={props.oob and "true"}>
     {table.map(todos.filters, func(f){
       local href = concat("/?filter=", f)
-      return <a href={href} hx-get={concat("/todos?filter=", f)} hx-target="#todos" hx-swap="outerHTML"
-                hx-push-url={href} class={f == props.filter and "current"}>{f}</a>
+      return <a
+        href={href}
+        hx-get={concat("/todos?filter=", f)}
+        hx-target="#todos"
+        hx-swap="outerHTML"
+        hx-push-url={href}
+        class={f == props.filter and "current"}
+      >
+        {f}
+      </a>
     })}
   </nav>
 }
 
 func m.TodoList(props){
   return <ul id="todos">
-    {table.map(todos.visible(props.user.id, props.filter), func(t){ return <m.Todo todo={t}/> })}
+    {table.map(todos.visible(props.user.id, props.filter), func(t){
+      return <m.Todo todo={t}/>
+    })}
   </ul>
 }
 
@@ -150,9 +218,15 @@ local func human_size(n){
 }
 
 func m.Upload(props){
-  return <form hx-post="/files" hx-encoding="multipart/form-data" hx-target="#files" hx-swap="outerHTML"
-               hx-on::xhr:progress="htmx.find('#progress').value = event.detail.loaded / event.detail.total * 100"
-               hx-on::after-request="this.reset(); htmx.find('#progress').value = 0" class="upload">
+  return <form
+    hx-post="/files"
+    hx-encoding="multipart/form-data"
+    hx-target="#files"
+    hx-swap="outerHTML"
+    hx-on::xhr:progress="htmx.find('#progress').value = event.detail.loaded / event.detail.total * 100"
+    hx-on::after-request="this.reset(); htmx.find('#progress').value = 0"
+    class="upload"
+  >
     <input type="file" name="files" multiple required/>
     <button>upload</button>
     <progress id="progress" value="0" max="100"></progress>
@@ -169,8 +243,20 @@ func m.FileList(props){
         local url = concat("/files/", string(f.id))
         return <li>
           <a href={url} download={f.name}>{f.name}</a>
-          <span class="meta">{human_size(f.size)}, {f.type}, sha256 <code title={f.sha256}>{str.substring(f.sha256, 0, 12)}</code></span>
-          <button class="delete" hx-delete={url} hx-target="#files" hx-swap="outerHTML" hx-confirm={concat("Delete ", f.name, "?")} aria-label="delete">&times;</button>
+          <span class="meta">
+            {human_size(f.size)}, {f.type}, sha256
+            <code title={f.sha256}>{str.substring(f.sha256, 0, 12)}</code>
+          </span>
+          <button
+            class="delete"
+            hx-delete={url}
+            hx-target="#files"
+            hx-swap="outerHTML"
+            hx-confirm={concat("Delete ", f.name, "?")}
+            aria-label="delete"
+          >
+            &times;
+          </button>
         </li>
       })}
     </ul>
@@ -182,7 +268,8 @@ func m.FileList(props){
 func m.LogRow(props){
   local e = props.entry
   return <tr class={e.status >= 400 and "failed"}>
-    <td>{e.at}</td><td>{e.method}</td><td>{e.path}</td><td>{e.status}</td><td>{e.ms} ms</td>
+    <td>{e.at}</td><td>{e.method}</td><td>{e.path}</td><td>{e.status}</td>
+    <td>{e.ms} ms</td>
   </tr>
 }
 
@@ -198,7 +285,14 @@ func m.page(req, title, content, status){
   return {
     status: status or 200,
     headers: headers,
-    body: <m.Layout title={title} path={req.path} user={req.user} csrf={req.csrf_token}>{content}</m.Layout>,
+    body: <m.Layout
+      title={title}
+      path={req.path}
+      user={req.user}
+      csrf={req.csrf_token}
+    >
+      {content}
+    </m.Layout>,
   }
 }
 

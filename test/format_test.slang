@@ -131,10 +131,61 @@ t.group("slang fmt"){
   t.test(
     "an extension without marks keeps its layout, core code in it is formatted"
   ){
-    // the whitespace between html tags is text: it stays as it is
     formats(
-      "extension \"extensions/html\"\nfunc f(x){\nreturn <div>\n    <b>{x   +  1}</b>\n  </div>\n}",
-      "extension \"extensions/html\"\nfunc f(x){\n  return <div>\n    <b>{x + 1}</b>\n  </div>\n}\n"
+      "extension \"extensions/lambda_shorthand\"\nlocal f = |a,  b|   a  +  b",
+      "extension \"extensions/lambda_shorthand\"\nlocal f = |a,  b|   a + b\n"
+    )
+  }
+  t.test("html templates: tags, attributes and code laid out"){
+    local h = "extension \"extensions/html\"\n"
+    formats(
+      concat(h, "local x = <p   class=\"a\" >Hello <b>{name   +   1}</b></p >"),
+      concat(h, "local x = <p class=\"a\">Hello <b>{name + 1}</b></p>\n")
+    )
+    // the structure as written stays; code in braces is formatted
+    formats(
+      concat(h, "func f(x){\nreturn <div>\n    <b>{x   +  1}</b>\n  </div>\n}"),
+      concat(h, "func f(x){\n  return <div>\n    <b>{x + 1}</b>\n  </div>\n}\n")
+    )
+    // a tag too long: one attribute per line, the > on its own line
+    formats(
+      concat(
+        h,
+        "local y = <input name=\"text\" placeholder=\"What needs doing today?\" autocomplete=\"off\" required/>"
+      ),
+      concat(
+        h,
+        "local y = <input\n  name=\"text\"\n  placeholder=\"What needs doing today?\"\n  autocomplete=\"off\"\n  required\n/>\n"
+      )
+    )
+  }
+  t.test("html templates: text flows, its meaning stays"){
+    local h = "extension \"extensions/html\"\n"
+    // words wrap at 80 columns; a line break in text is a space
+    formats(
+      concat(
+        h,
+        "local p = <p>\n  one two three four five six seven eight nine ten eleven twelve thirteen\n  fourteen\n</p>"
+      ),
+      concat(
+        h,
+        "local p = <p>\n  one two three four five six seven eight nine ten eleven twelve thirteen\n  fourteen\n</p>\n"
+      )
+    )
+    formats(
+      concat(
+        h,
+        "local p = <p>alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi</p>"
+      ),
+      concat(
+        h,
+        "local p = <p>\n  alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi\n</p>\n"
+      )
+    )
+    // spaces next to tags and between elements mean something: kept
+    formats(
+      concat(h, "local q = <b> x  y </b>\nlocal r = <i><a/> <a/></i>"),
+      concat(h, "local q = <b> x  y </b>\nlocal r = <i><a/> <a/></i>\n")
     )
   }
   t.test("a file that does not parse is an error"){

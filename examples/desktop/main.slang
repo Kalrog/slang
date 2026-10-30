@@ -26,7 +26,13 @@ app:get("/", func(req){
       </head>
       <body>
         <form id="add">
-          <input name="text" placeholder="What needs doing?" autocomplete="off" required autofocus/>
+          <input
+            name="text"
+            placeholder="What needs doing?"
+            autocomplete="off"
+            required
+            autofocus
+          />
           <button>add</button>
         </form>
         <ul id="todos"></ul>

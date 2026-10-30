@@ -40,6 +40,7 @@
 local peg = require("slang/peg")
 local ast = require("slang/ast")
 local str = require("slang/string")
+local fmt = require("slang/format")
 local g = require("slang/compiler").grammar()
 
 // ------------------------------------------------------------ lexical pieces
@@ -47,8 +48,10 @@ local g = require("slang/compiler").grammar()
 // Inside a template the slang trivia rules do not apply: whitespace is
 // significant in text, so the pieces below are raw parsers; only the
 // slang expressions inside `{...}` and the attribute strings use tokens.
+// Whitespace is parsed as such (peg.whitespace), so that the formatter may
+// change it: it is not a token of the code.
 
-local ws = peg.pattern(" \t\r\n"):star()
+local ws = peg.whitespace():star()
 
 local func punct(s){
   return peg.token(peg.string(s), "punctuation")
@@ -77,16 +80,45 @@ local tag_token = peg.token(tag_name, func(name){
   return is_component(name) and "function" or "keyword"
 })
 
-// text: everything up to the next tag or `{`
+// text: everything up to the next tag or `{`. In a tree its words and the
+// whitespace between them are leaves of their own: the words are the
+// tokens, the whitespace is the formatter's to lay out (by the rules of
+// clean_text below, see layout_element)
 local text_class = str.char_class("^<{")
-local text = peg.custom(func(self, ctx, pos){
-  local q = str.class_run(text_class, ctx.buffer, pos)
-  if(q == pos){
-    return peg.fail(ctx, pos, "text expected")
+local word_class = str.char_class("^ \t\r\n<{")
+local blank_class = str.char_class(" \t\r\n")
+local text_word = peg.custom(func(self, ctx, pos){ return - 1 })
+local text_space = peg.whitespace()
+local text = peg.custom(
+  func(self, ctx, pos){
+    local q = str.class_run(text_class, ctx.buffer, pos)
+    if(q == pos){
+      return peg.fail(ctx, pos, "text expected")
+    }
+    ctx.value = str.substring(ctx.buffer, pos, q)
+    return q
+  },
+  func(self, ctx, pos){
+    local q = self:parse_on(ctx, pos)
+    if(q < 0){
+      return q
+    }
+    local kids = {}
+    local i = pos
+    for(i < q){
+      local j = str.class_run(blank_class, ctx.buffer, i)
+      if(j > i){
+        append(kids, peg.leaf(text_space, i, j))
+      } else {
+        j = str.class_run(word_class, ctx.buffer, i)
+        append(kids, peg.leaf(text_word, i, j))
+      }
+      i = j
+    }
+    ctx.tree = peg.node(self, pos, q, kids)
+    return q
   }
-  ctx.value = str.substring(ctx.buffer, pos, q)
-  return q
-})
+)
 
 // ------------------------------------------------------------ literal text
 
@@ -296,52 +328,330 @@ local func build(name, attrs, children, token){
   )
 }
 
+// ------------------------------------------------------------ formatting
+//
+// How slang fmt lays templates out (format.layout). Whitespace in text
+// means something (see clean_text), so each gap between the parts of an
+// element is decided by the whitespace the source has there:
+//   - words flow: as many on a line as fit;
+//   - a line break the source has next to a child or a tag stays (the
+//     structure as written); one between words is a space like any other;
+//   - a text run without a line break that has a space next to a tag, or
+//     any whitespace but single spaces, is kept exactly and never broken
+//     (a break would change its meaning);
+//   - no whitespace between text and a child stays none; between two
+//     children, or at a tag, it may become a break (that means nothing).
+// Tags: the attributes go one per line when the tag does not fit, with
+// the > on a line of its own. Slang code in `{...}` is formatted as usual.
+
+local D = fmt.doc
+
+// a text run: its leading whitespace, its words with the whitespace before
+// each (but the first), and its trailing whitespace
+local func words_of(s){
+  local out = {lead: "", words: {}, gaps: {}, trail: ""}
+  local n = len(s)
+  local i = str.class_run(blank_class, s, 0)
+  out.lead = str.substring(s, 0, i)
+  for(i < n){
+    local k = str.class_run(word_class, s, i)
+    append(out.words, str.substring(s, i, k))
+    local e = str.class_run(blank_class, s, k)
+    if(e >= n){
+      out.trail = str.substring(s, k, e)
+    } else if(len(out.words) > 0){
+      append(out.gaps, str.substring(s, k, e))
+    }
+    i = e
+  }
+  return out
+}
+
+// (method calls are kept out of the table literals below: `{api:f()}`
+// would be the field api)
+local func braced_doc(api, b){
+  local parts = api:parts(b)
+  local expr = api:format(parts[0])
+  return {"{", expr, "}"}
+}
+
+local func attribute_doc(api, a){
+  local parts = api:parts(a)
+  if(api:role(parts[0]) == "spread"){
+    local expr = api:format(api:parts(parts[0])[0])
+    return {"{...", expr, "}"}
+  }
+  local name = api:text(parts[0])
+  if(len(parts) == 1){
+    return name
+  }
+  local value = parts[1]
+  if(api:role(value) == "braced"){
+    return {name, "=", braced_doc(api, value)}
+  }
+  local text = api:text(value)
+  return {name, "=", text}
+}
+
+// the doc of the gap between two parts of the children (left and right:
+// "word", "node" or "tag"): {doc, breaks} where breaks says the source has
+// a line break there that stays (not a fill separator)
+local func gap_doc(space, run, left, right){
+  local at_tag = left == "tag" or right == "tag"
+  if(space == ""){
+    if((left == "word" and right == "node") or
+      (left == "node" and right == "word")){
+      return {doc: ""}
+    }
+    if(run != null and run.fixed){
+      return {doc: ""}
+    }
+    return {doc: D.softline, breaks: at_tag}
+  }
+  if(run.fixed){
+    return {doc: space}
+  }
+  // a line break the source has next to a child or a tag stays (the
+  // structure as written); between words it is a space like any other
+  if(str.index_of(space, "\n") >= 0 and not(left == "word" and right == "word")){
+    return {doc: D.hardline, breaks: true}
+  }
+  if(at_tag or run.blank_only){
+    // a line break here means nothing
+    return {doc: D.softline}
+  }
+  return {doc: D.line}
+}
+
+// whether a text run must be kept as written: no line break in it, and a
+// space next to a tag or whitespace that is not single spaces
+local func fixed_run(w, first, last, has_newline){
+  if(has_newline){
+    return false
+  }
+  if((first and w.lead != "") or (last and w.trail != "")){
+    return true
+  }
+  if(len(w.words) == 0){
+    return true
+  }
+  for(let local s in values({w.lead, w.trail})){
+    if(s != "" and s != " "){
+      return true
+    }
+  }
+  for(let local s in values(w.gaps)){
+    if(s != " "){
+      return true
+    }
+  }
+  return false
+}
+
+// the children of an element: {lead, body, trail} docs, or null when there
+// are none
+local func children_doc(api, children){
+  local kids = api:parts(children)
+  local count = len(kids)
+  // items (words and nodes) with the gap before each; the last gap is the
+  // one before the closing tag
+  local items = {}
+  local gaps = {}
+  local pending = {space: "", run: null}
+  for(local i = 0; i < count; i = i + 1){
+    local k = kids[i]
+    if(api:role(k) == "text"){
+      local s = api:text(k)
+      local w = words_of(s)
+      local has_newline = str.index_of(s, "\n") >= 0
+      local run = {
+        fixed: fixed_run(w, i == 0, i == count - 1, has_newline),
+        blank_only: len(w.words) == 0,
+      }
+      if(len(w.words) == 0){
+        pending = {space: s, run: run}
+      } else {
+        for(local j = 0; j < len(w.words); j = j + 1){
+          if(j == 0){
+            append(gaps, {space: w.lead, run: run})
+          } else {
+            append(gaps, {space: w.gaps[j - 1], run: run})
+          }
+          append(items, {kind: "word", doc: w.words[j]})
+        }
+        pending = {space: w.trail, run: run}
+      }
+    } else {
+      append(gaps, pending)
+      local doc = null
+      if(api:role(k) == "braced"){
+        doc = braced_doc(api, k)
+      } else {
+        doc = api:format(k)
+      }
+      append(items, {kind: "node", doc: doc})
+      pending = {space: "", run: null}
+    }
+  }
+  append(gaps, pending)
+  local n = len(items)
+  if(n == 0){
+    // only whitespace: kept when it means a space
+    if(pending.run != null and pending.run.fixed){
+      return {lead: pending.space, body: "", trail: ""}
+    }
+    return null
+  }
+  local func kind_at(i){
+    if(i < 0 or i >= n){
+      return "tag"
+    }
+    return items[i].kind
+  }
+  local lead = gap_doc(gaps[0].space, gaps[0].run, "tag", kind_at(0))
+  local trail = gap_doc(gaps[n].space, gaps[n].run, kind_at(n - 1), "tag")
+  // segments: the stretches between the gaps where the element breaks;
+  // inside one, fill
+  local segments = {}
+  local breaks = {}
+  local parts = {}
+  local content = {items[0].doc}
+  for(local i = 1; i < n; i = i + 1){
+    local g = gap_doc(gaps[i].space, gaps[i].run, kind_at(i - 1), kind_at(i))
+    if(g.breaks){
+      append(parts, content)
+      append(segments, D.fill(parts))
+      append(breaks, g.doc)
+      parts = {}
+      content = {items[i].doc}
+    } else if(type(g.doc) == "string"){
+      append(content, g.doc)
+      append(content, items[i].doc)
+    } else {
+      append(parts, content)
+      append(parts, g.doc)
+      content = {items[i].doc}
+    }
+  }
+  append(parts, content)
+  append(segments, D.fill(parts))
+  local body = {segments[0]}
+  for(local i = 1; i < len(segments); i = i + 1){
+    append(body, breaks[i - 1])
+    append(body, segments[i])
+  }
+  return {lead: lead.doc, body: body, trail: trail.doc}
+}
+
+local func layout_element(api, n){
+  local parts = api:parts(n)
+  local open = null
+  local close = null
+  local children = null
+  if(api:role(parts[0]) == "fragment"){
+    open = "<>"
+    close = "</>"
+    children = parts[1]
+  } else {
+    local tag = api:text(parts[0])
+    local attrs = {}
+    local self_close = false
+    for(local i = 1; i < len(parts); i = i + 1){
+      local role = api:role(parts[i])
+      if(role == "attr"){
+        append(attrs, D.line)
+        append(attrs, attribute_doc(api, parts[i]))
+      } else if(role == "self_close"){
+        self_close = true
+      } else if(role == "children"){
+        children = parts[i]
+      }
+    }
+    local end_mark = ">"
+    if(self_close){
+      end_mark = "/>"
+    }
+    if(len(attrs) > 0){
+      open = D.group({"<", tag, D.indent(attrs), D.softline, end_mark})
+    } else {
+      open = {"<", tag, end_mark}
+    }
+    if(self_close){
+      return open
+    }
+    close = {"</", tag, ">"}
+  }
+  local c = null
+  if(children != null){
+    c = children_doc(api, children)
+  }
+  if(c == null){
+    return {open, close}
+  }
+  return D.group({open, D.indent({c.lead, c.body}), c.trail, close})
+}
+
 // ------------------------------------------------------------ syntax
 
 local element = peg.settable()
 
-local braced_expr = peg.seq(
-  punct("{"), ws, g:rule("expr"), ws, punct("}")
-):pick(2)
-
-local attribute = peg.choice(
+local braced_expr = fmt.role(
   peg.seq(
-    punct("{"), ws, peg.token(peg.string("..."), "operator"), g:rule("expr"),
-    ws, punct("}")
+    punct("{"), ws, fmt.role(g:rule("expr"), "expr"), ws, punct("}")
+  ):pick(2),
+  "braced"
+)
+
+local attribute = fmt.role(peg.choice(
+  fmt.role(
+    peg.seq(
+      punct("{"), ws, peg.token(peg.string("..."), "operator"),
+      fmt.role(g:rule("expr"), "expr"), ws, punct("}")
+    ),
+    "spread"
   )
     :map(func(v){
       return {spread: v[3]}
     }),
   peg.seq(
-    peg.token(attr_name, "property"),
-    peg.seq(
-      ws, punct("="), ws, peg.choice(g:rule("string_literal"), braced_expr)
-    )
+    fmt.role(peg.token(attr_name, "property"), "name"),
+    peg.seq(ws, punct("="), ws, peg.choice(
+      fmt.role(g:rule("string_literal"), "string"),
+      braced_expr
+    ))
       :pick(3)
       :optional()
   )
     :map(func(v){
       return {name: v[0], value: v[1]}
     })
-)
+), "attr")
 
 local child = peg.choice(
   element,
   braced_expr:map(func(e){ return {expr: e} }),
-  text:map(func(s){ return {text: s} })
+  fmt.role(text, "text"):map(func(s){ return {text: s} })
 )
 
+local tag_part = fmt.role(tag_token, "tag")
+
 // <>children</> | <name attrs/> | <name attrs>children</name>
-element:set(peg.choice(
-  peg.seq(punct("<>"), child:star(), punct("</>")):map(func(v){
-    return {token: v[0], ast: build(null, {}, v[1], v[0])}
-  }),
+element:set(fmt.layout(peg.choice(
   peg.seq(
-    punct("<"), tag_token, peg.seq(ws, attribute):pick(1):star(), ws,
+    fmt.role(punct("<>"), "fragment"),
+    fmt.role(child:star(), "children"),
+    punct("</>")
+  )
+    :map(func(v){
+      return {token: v[0], ast: build(null, {}, v[1], v[0])}
+    }),
+  peg.seq(
+    punct("<"), tag_part, peg.seq(ws, attribute):pick(1):star(), ws,
     peg.choice(
-      punct("/>"):map(func(t){ return {children: {}} }),
+      fmt.role(punct("/>"), "self_close"):map(func(t){ return {children: {}} }),
       peg.seq(
-        punct(">"), child:star(), punct("</"), ws, tag_token, ws, punct(">")
+        punct(">"), fmt.role(child:star(), "children"), punct("</"), ws,
+        tag_part, ws, punct(">")
       )
         :map(func(v){
           return {children: v[1], close: v[4]}
@@ -360,6 +670,6 @@ element:set(peg.choice(
       }
       return {token: v[0], ast: build(open, v[2], tail.children, v[0])}
     })
-))
+), func(api, n){ return layout_element(api, n) }))
 
 g:expression():primary("html", element)

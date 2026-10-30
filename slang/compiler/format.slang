@@ -42,6 +42,9 @@ local INDENT = 2
 //   trailing_comma   the node is a `,` when its group breaks, else nothing
 //   verbatim         gaps in the node are the source's (extension syntax)
 //   formatted        gaps in the node are formatted again
+//   layout           fn(api, node) -> doc: the node is laid out by an
+//                    extension's own function (see "extension layouts")
+//   role             a name the layout function finds parts by
 
 format.layer = peg.layer("format", "text")
 
@@ -92,6 +95,17 @@ func format.verbatim(parser){
 
 func format.formatted(parser){
   return format.mark(parser, {formatted: true})
+}
+
+// layout(parser, fn) -> parser whose nodes fn(api, node) lays out; the
+// result is a document (see format.doc and "extension layouts" below)
+func format.layout(parser, fn){
+  return format.mark(parser, {layout: fn})
+}
+
+// role(parser, name) -> parser whose nodes a layout function finds as name
+func format.role(parser, name){
+  return format.mark(parser, {role: name})
 }
 
 // whether parser (or a parser inside it) carries layout marks; rule
@@ -172,6 +186,24 @@ local func nest(n, doc){
 
 local func if_break(broken, flat){
   return {t: "if_break", broken: broken, flat: flat}
+}
+
+// the documents an extension's layout function builds with: strings and
+// lists of documents, and
+//   line, softline, hardline   a space / nothing / a break when the group
+//                              around them is flat, a break when it breaks
+//   group(doc)                 on one line if it fits, else broken
+//   indent(doc)                its breaks indented one more level
+//   fill(parts)                content, separator, content, ...: as many
+//                              contents on a line as fit (the separators
+//                              are lines)
+format.doc = {
+  line: LINE,
+  softline: SOFTLINE,
+  hardline: HARDLINE,
+  group: group,
+  indent: indent,
+  fill: func(parts){ return {t: "fill", parts: parts} },
 }
 
 // whether d must break: a hard line or break_parent in it (outside of an
@@ -1205,6 +1237,9 @@ func formatter_methods.build(self, n, mode){
   if(m.trailing_comma){
     return {doc: if_break(",", ""), virtual: true}
   }
+  if(m.layout != null and mode == "formatted"){
+    return self:build_layout(n, m)
+  }
   // a block marked hard_body (a catch's) breaks even with one statement
   if(m.hard_body){
     self.hard_pending = true
@@ -1386,6 +1421,98 @@ func formatter_methods.build_node(self, n, m, mode){
   // what a rule produced is one part of the layout around it
   if(p.kind == "rule"){
     out.doc = {t: "box", doc: out.doc}
+  }
+  return out
+}
+
+// ------------------------------------------------------------ extension layouts
+//
+// A parser marked with format.layout(parser, fn) is laid out by fn(api,
+// node), which returns a document (format.doc). The api:
+//   api:text(n)     the source text of a node
+//   api:role(n)     the role mark of a node's parser (format.role), or null
+//   api:parts(n)    the nodes inside n that have a role or a layout of
+//                   their own, in order (not looked into)
+//   api:format(n)   the document of n laid out by the formatter: slang code
+//                   inside the syntax, or a nested node with a layout
+// Gaps outside the node are the formatter's as usual; inside it the
+// function decides everything (whitespace leaves of the node are not
+// tokens, so changing them is not a change of the code).
+
+local layout_api = {}
+local layout_api_meta = {__index: layout_api}
+
+func layout_api.text(api, n){
+  return api.f:text(n)
+}
+
+func layout_api.role(api, n){
+  return api.f:marks(n).role
+}
+
+func layout_api.parts(api, n){
+  local out = {}
+  local func walk(node){
+    for(let local k in values(node.kids or {})){
+      local m = api.f:marks(k)
+      if(m.role != null or m.layout != null){
+        list_push(out, k)
+      } else {
+        walk(k)
+      }
+    }
+  }
+  walk(n)
+  return out
+}
+
+func layout_api.format(api, n){
+  local piece = api.f:build(n, "formatted")
+  if(piece == null){
+    return ""
+  }
+  return piece.doc
+}
+
+// the first (or last) leaf of a node that is code: not whitespace, not empty
+local func edge_leaf(n, last){
+  if(n.kids == null){
+    if(n.start == n.stop or n.p.trivia or n.p.kind == "whitespace"){
+      return null
+    }
+    return n
+  }
+  local count = len(n.kids)
+  for(local i = 0; i < count; i = i + 1){
+    local at = i
+    if(last){
+      at = count - 1 - i
+    }
+    local k = n.kids[at]
+    local found = edge_leaf(k, last)
+    if(found != null){
+      return found
+    }
+  }
+  return null
+}
+
+func formatter_methods.build_layout(self, n, m){
+  local first = edge_leaf(n, false)
+  local last = edge_leaf(n, true)
+  if(first == null){
+    return null
+  }
+  local api = {f: self}
+  api.meta = layout_api_meta
+  local doc = m.layout(api, n)
+  local out = {doc: {t: "box", doc: doc}, first: first, last: last, node: n}
+  if(m.before != null){
+    out.before = m.before
+    out.blank = m.blank
+  }
+  if(m.after != null){
+    out.after = m.after
   }
   return out
 }

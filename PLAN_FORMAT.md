@@ -361,6 +361,23 @@ line where a statement parses. Before, nothing after an error was coloured.
       formatted.
 - [x] Extensions that mark their parsers are formatted, without opting in.
 - [x] `switch` annotated as the example.
+- [x] html templates formatted (2026-10-30), with extension layouts:
+      `format.layout(parser, fn)` lets an extension lay out its own nodes
+      (fn(api, node) -> a document from `format.doc`; `format.role` names
+      the parts it finds). Needed where marks cannot say it: whitespace in
+      template text means something, so each gap is decided by the
+      whitespace the source has there. Words flow at 80 columns; a line
+      break next to a child or a tag stays; a space next to a tag, between
+      two elements, or anything but single spaces in a run without a line
+      break is kept exactly; long tags put one attribute per line. Text is
+      parsed as word and whitespace leaves (the value unchanged), tag
+      whitespace with `peg.whitespace`, so the token check sees words only;
+      the AST check confirms the meaning. The examples' templates are
+      formatted with it.
+- [ ] Known rough spots: a fixed space between two elements keeps the next
+      tag on its line even when its attributes break (`<a/> <button` then
+      the attributes); short arguments after a template are packed onto its
+      last line (`/>, 401`) by the argument fill.
 - [ ] `enum` annotated; a section for extension authors in the docs.
 
 ### Phase 5: highlighting
@@ -373,10 +390,20 @@ line where a statement parses. Before, nothing after an error was coloured.
       quote syntax has layout marks (`+{stat: x}` on one line when it fits).
 - [ ] Highlighting takes about 1.5x as long as with recording (0.64s
       against 0.41s for the largest file, grammar.slang): the tree parse
-      is the cost. Worth a look if the language server feels slow.
+      is the cost. Worth a look if the language server feels slow. Since
+      2026-10-30 the server also analyses names in the same parse (about
+      20% more).
 
 ### Phase 6: editors
-- [ ] Formatting requests in the language server; format on save in VS Code.
+- [x] Formatting requests in the language server; format on save in VS Code
+      (2026-10-30): `textDocument/formatting` answers with one edit
+      replacing the document with `format.source`'s result (none when it
+      is formatted already); a file that does not parse is left alone (its
+      diagnostics say why), a failed formatter check on one that parses is
+      logged and shown. The VS Code extension makes itself the default
+      formatter for slang with `editor.formatOnSave` on (both can be
+      overridden in the settings). Range formatting is not offered: a
+      range of slang is not a unit the formatter can lay out alone.
 
 ## Open questions
 

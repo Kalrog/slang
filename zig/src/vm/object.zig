@@ -96,6 +96,11 @@ pub const ToStringFn = *const fn (u: *Userdata, w: *std.Io.Writer) std.Io.Writer
 /// Opaque data owned by native code, with an optional metatable. The data
 /// block is allocated by the VM and freed when the object is collected (after
 /// the finalizer, if any, ran).
+/// What a userdata is to the VM: most are plain; C memory (slang/ctypes)
+/// is a pointer or a buffer, and a buffer of scalars is indexed by the VM
+/// itself, without __index.
+pub const UserKind = enum(u8) { plain, pointer, buffer };
+
 pub const Userdata = struct {
     obj: Object,
     meta: ?*Table = null,
@@ -103,6 +108,10 @@ pub const Userdata = struct {
     data: []u8,
     finalizer: ?Finalizer = null,
     to_string: ?ToStringFn = null,
+    /// a value kept alive as long as the userdata is (the memory an
+    /// ffi pointer points into)
+    owner: Value = .null,
+    kind: UserKind = .plain,
 
     pub fn as(u: *Userdata, comptime T: type) *T {
         return @ptrCast(@alignCast(u.data.ptr));

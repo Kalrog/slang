@@ -1,0 +1,4 @@
+{
+  name: "breakout",
+  dependencies: {raylib: {path: "../../packages/raylib"}},
+}

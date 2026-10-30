@@ -88,6 +88,12 @@ pub fn open(vm: *VM) void {
     preload(vm, "slang/os", .{ .table = @import("oslib.zig").module(vm) });
     preload(vm, "slang/string", .{ .table = @import("stringlib.zig").module(vm) });
     preload(vm, "slang/math", .{ .table = @import("mathlib.zig").module(vm) });
+    // C types and memory (slang/ffi's declarations, slang/buffer), always
+    preload(vm, "slang/ctypes", .{ .table = @import("ctypes.zig").module(vm) });
+    // calling C through libffi (slang/ffi); -Dffi=false builds without it
+    if (@import("build_options").ffi) {
+        preload(vm, "slang/ffi_core", .{ .table = @import("ffilib.zig").module(vm) });
+    }
     preload(vm, "slang/thread", .{ .table = @import("threadlib.zig").module(vm) });
     preload(vm, "slang/encoding", .{ .table = @import("encoding.zig").module(vm) });
     preload(vm, "slang/time", .{ .table = @import("timelib.zig").module(vm) });

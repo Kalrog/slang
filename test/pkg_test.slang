@@ -140,3 +140,59 @@ t.group("packages: get, update, run"){
     sh(concat("rm -rf '", scratch, "'"))
   }
 }
+
+t.group("packages: native modules"){
+  t.test("a prebuilt library per platform, its stubs, and other platforms"){
+    local platform = os.platform()
+    os.mkdir_all(concat(scratch, "/nat/stubs"))
+    os.mkdir_all(concat(scratch, "/napp"))
+    // the package's author builds lib/<platform>/hello.<ext>
+    write("nat/slang.project", "{name: \"nat\"}\n")
+    write("nat/init.slang", "return require(\"nat/hello\")\n")
+    write(
+      "nat/stubs/hello.slang",
+      "// hello: a greeting\nlocal m = {}\nreturn m\n"
+    )
+    write("nat/hello.c", concat(
+      "#include \"slang.h\"\n",
+      "static int greet(slang_State *S) { slang_pushstring(S, \"hi\"); return 1; }\n",
+      "static const slang_Reg funcs[] = {{\"greet\", greet}, {0, 0}};\n",
+      "SLANG_EXTENSION(nat_hello) { slang_newmodule(S, funcs); return 1; }\n"
+    ))
+    local nat = concat(scratch, "/nat")
+    local ext = ".so"
+    local flags = "-shared -fPIC"
+    if(str.starts_with(platform, "macos")){
+      ext = ".dylib"
+      flags = "-dynamiclib -undefined dynamic_lookup"
+    }
+    os.mkdir_all(concat(nat, "/lib/", platform))
+    sh(
+      concat(
+        "cc ", flags, " -I", compiler.absolute_path("zig/include"), " -o lib/",
+        platform, "/hello", ext, " hello.c"
+      ),
+      nat
+    )
+    write(
+      "napp/slang.project",
+      "{name: \"napp\", dependencies: {nat: {path: \"../nat\"}}}\n"
+    )
+    write("napp/main.slang", "print(require(\"nat\").greet(), \"\\n\")\n")
+    local napp = concat(scratch, "/napp")
+    slang_in(napp, "get")
+    assert(slang_in(napp, "run main.slang") == "hi\n")
+    // the stubs are the package's
+    write("napp/stub.slang", concat(
+      "local c = require(\"slang/compiler\")\n",
+      "print(c.stub_path(\"nat/hello\") != null, \"\\n\")\n"
+    ))
+    assert(slang_in(napp, "run stub.slang") == "true\n")
+    // built for another platform only: an error that names this one
+    sh(concat("mv lib/", platform, " lib/other-platform"), nat)
+    local r = os.exec({"sh", "-c", concat(slang, " run main.slang")}, napp)
+    assert(r.status != 0)
+    assert(str.index_of(r.stderr, concat("for ", platform)) >= 0, r.stderr)
+    sh(concat("rm -rf '", scratch, "'"))
+  }
+}

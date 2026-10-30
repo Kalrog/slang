@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>slang/ffi</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>slang/ffi</h1>
+<p>slang/ffi: calling C libraries without writing C. C declarations are read from text (a header, or a few lines) and a library is loaded with them; its functions are then called like slang functions:</p>
+<pre><code>local ffi = require(&quot;slang/ffi&quot;)
+local C = ffi.cdef(&quot;typedef struct { int quot; int rem; } div_t; div_t div(int, int); int abs(int);&quot;)
+local libc = ffi.load(null, C)       // null: the program itself (libc)
+libc.abs(-3)                         // 3
+libc.div(17, 5)                      // {quot: 3, rem: 2}</code></pre>
+<p>A header is read as C reads it: the preprocessor runs (#define, #if, function-like macros; #include is skipped), then the declarations are parsed: typedefs, structs, enums, function prototypes (function bodies, as in inline functions, are skipped). Enum values and #define constants become C.constants.</p>
+<p>How values cross (see slang/ffi_core for the details): numbers and bools for the arithmetic types; a string for <code>const char *</code>; a table for a struct (fields by name or by position), returned as a table with the fields by name; for a pointer null, a pointer, a string (its bytes), or a table: a list of elements, or one struct, which is copied back after the call when the pointer is not to const (an out parameter). Pointers index like C (p[i], p.field) and assign; ffi.new allocates memory the collector frees.</p>
+<p>A wrong declaration crashes the program as it would in C: the FFI calls what it is told is there. Callbacks (C calling slang), unions, bit fields and long double are not supported yet.</p>
+<ul class="toc">
+<li><a href="#cdef"><code>cdef</code></a></li>
+<li><a href="#type"><code>type</code></a></li>
+<li><a href="#new"><code>new</code></a></li>
+<li><a href="#sizeof"><code>sizeof</code></a></li>
+<li><a href="#cast"><code>cast</code></a></li>
+<li><a href="#string"><code>string</code></a></li>
+<li><a href="#offset"><code>offset</code></a></li>
+<li><a href="#address"><code>address</code></a></li>
+<li><a href="#value"><code>value</code></a></li>
+<li><a href="#load"><code>load</code></a></li>
+<li><a href="#bind"><code>bind</code></a></li>
+<li><a href="#available"><code>available</code></a></li>
+</ul>
+<h2>declarations</h2>
+<div class="def" id="cdef"><h3><code>ffi.cdef(text, options)</code></h3>
+<p>cdef(text, [options]) -&gt; the declarations of text: {types, functions, constants, order}. options: defines (macros for the preprocessor, like -D), field_name (a function renaming struct fields for slang), defaults (numbers for fields a table leaves out, by struct and field: {Color: {a: 255}}), and into (earlier declarations to add to, so headers can build on each other).</p>
+</div>
+<h2>types by name</h2>
+<div class="def" id="type"><h3><code>ffi.type(name, decls)</code></h3>
+<p>type(name, decls) -&gt; the ffi_core type of a C type name: &quot;int&quot;, &quot;Vector2&quot;, &quot;struct foo&quot;, &quot;Vector2 *&quot;, &quot;float[4]&quot;</p>
+</div>
+<div class="def" id="new"><h3><code>ffi.new(t, count, decls)</code></h3>
+<p>new(type, [n], [decls]) -&gt; a pointer to n (1 by default) zeroed values, memory the collector frees once nothing points into it; type is an ffi type or a C type name</p>
+</div>
+<div class="def" id="sizeof"><h3><code>ffi.sizeof(t, decls)</code></h3>
+<p>sizeof(type, [decls]) -&gt; the size of a C type in bytes</p>
+</div>
+<div class="def" id="cast"><h3><code>ffi.cast(p, t, decls)</code></h3>
+<p>cast(pointer, type, [decls]) -&gt; the address as a pointer to type</p>
+</div>
+<div class="def" id="string"><h3><code>ffi.string(p, n)</code></h3>
+<p>string(pointer, [len]) -&gt; the C string at pointer (or len bytes)</p>
+</div>
+<div class="def" id="offset"><h3><code>ffi.offset(p, n)</code></h3>
+<p>offset(pointer, n) -&gt; the pointer n elements further</p>
+</div>
+<div class="def" id="address"><h3><code>ffi.address(p)</code></h3>
+<p>address(pointer) -&gt; the address as an int (0 for null)</p>
+</div>
+<div class="def" id="value"><h3><code>ffi.value(p)</code></h3>
+<p>value(pointer) -&gt; what it points to, copied (a struct as a table)</p>
+</div>
+<h2>libraries</h2>
+<div class="def" id="load"><h3><code>ffi.load(name, decls, options)</code></h3>
+<p>load(name, decls, [options]) -&gt; the library: its functions by their C names, bound on first use. name is a path, a library name (&quot;raylib&quot;: libraylib.dylib in options.paths, slang's native search paths, /opt/homebrew/lib, /usr/local/lib, /usr/lib, then the system's search), or null for the program itself.</p>
+</div>
+<div class="def" id="bind"><h3><code>ffi.bind(lib, f, name)</code></h3>
+<p>bind(library, decl, [name]) -&gt; the function a declaration from cdef (decls.functions.Name) declares, bound to the library (lib.Name does the same); name is what errors call it</p>
+</div>
+<div class="def" id="available"><h3><code>ffi.available()</code></h3>
+<p>available() -&gt; whether this slang has the FFI</p>
+</div>
+<p class="muted">slang/lib/ffi.slang</p>
+</body>
+</html>

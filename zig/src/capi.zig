@@ -20,6 +20,7 @@ const object = @import("vm/object.zig");
 const interp = @import("vm/interp.zig");
 const stdlib = @import("stdlib/stdlib.zig");
 const boot = @import("boot.zig");
+const ctypes = @import("stdlib/ctypes.zig");
 
 pub const api_version: c_int = 1;
 
@@ -576,6 +577,71 @@ pub export fn slang_testudata(th: *Thread, idx: c_int, tname: [*:0]const u8) ?*a
     const u = get(th, idx).asUserdata() orelse return null;
     if (!std.mem.eql(u8, u.tname, std.mem.span(tname))) return null;
     return u.data.ptr;
+}
+
+// ---- buffers ----
+
+pub export fn slang_tobuffer(th: *Thread, idx: c_int, count: ?*usize, elem_size: ?*usize) ?*anyopaque {
+    const u = ctypes.asBuffer(get(th, idx)) orelse return null;
+    const p = u.as(ctypes.Ptr);
+    if (count) |c| c.* = p.count;
+    if (elem_size) |e| e.* = p.ty.?.size;
+    return @ptrFromInt(p.addr);
+}
+
+pub export fn slang_checkbuffer(th: *Thread, idx: c_int, count: ?*usize, elem_size: ?*usize) ?*anyopaque {
+    const v = get(th, idx);
+    if (ctypes.asBuffer(v) == null) {
+        argError(th, idx, "buffer", v);
+        return null;
+    }
+    return slang_tobuffer(th, idx, count, elem_size);
+}
+
+pub export fn slang_buffertype(th: *Thread, idx: c_int) ?[*:0]const u8 {
+    const u = ctypes.asBuffer(get(th, idx)) orelse return null;
+    const t = u.as(ctypes.Ptr).ty.?;
+    // the scalar names are literals (NUL terminated); structs give their name
+    // through a copy that lives as long as the type
+    if (ctypes.primitiveName(t)) |n| return n;
+    return "struct";
+}
+
+pub export fn slang_newbuffer(th: *Thread, tname: [*:0]const u8, count: usize) ?*anyopaque {
+    const name = std.mem.span(tname);
+    const t = ctypes.primitive(name) orelse {
+        th.vm.setError("slang_newbuffer: unknown element type {s}", .{name});
+        return null;
+    };
+    if (t.kind == .void or t.kind == .pointer or t.kind == .string) {
+        th.vm.setError("slang_newbuffer: {s} cannot be a buffer's element", .{name});
+        return null;
+    }
+    const u = ctypes.newBuffer(th, t, count) catch return null;
+    th.push(.{ .userdata = u });
+    return @ptrFromInt(u.as(ctypes.Ptr).addr);
+}
+
+/// The bytes of a string or of a buffer, or null.
+pub export fn slang_tobytes(th: *Thread, idx: c_int, len: ?*usize) ?[*]const u8 {
+    const v = get(th, idx);
+    if (v.asString()) |str| {
+        if (len) |l| l.* = str.len;
+        return str.bytes().ptr;
+    }
+    const u = ctypes.asBuffer(v) orelse return null;
+    const p = u.as(ctypes.Ptr);
+    if (len) |l| l.* = p.count * p.ty.?.size;
+    return @ptrFromInt(p.addr);
+}
+
+pub export fn slang_checkbytes(th: *Thread, idx: c_int, len: ?*usize) ?[*]const u8 {
+    const v = get(th, idx);
+    const b = slang_tobytes(th, idx, len) orelse {
+        argError(th, idx, "string or buffer", v);
+        return null;
+    };
+    return b;
 }
 
 // ---- references ----

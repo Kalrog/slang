@@ -28,6 +28,7 @@ pub fn module(vm: *VM) *Table {
         .{ .name = "mkdir_all", .f = osMkdirAll },
         .{ .name = "time_ms", .f = osTimeMs },
         .{ .name = "exec", .f = osExec },
+        .{ .name = "platform", .f = osPlatform },
     });
 }
 
@@ -175,6 +176,14 @@ fn osCwd(th: *Thread, args: []Value) Error!Value {
     const dir = std.process.currentPathAlloc(th.vm.io, th.vm.gpa) catch |e| return th.vm.raise("cwd: {t}", .{e});
     defer th.vm.gpa.free(dir);
     return th.vm.str(dir);
+}
+
+/// platform() -> "<os>-<arch>" of the running binary, as Zig names them
+/// ("macos-aarch64", "linux-x86_64"): where packages keep native builds.
+fn osPlatform(th: *Thread, args: []Value) Error!Value {
+    _ = args;
+    const builtin = @import("builtin");
+    return th.vm.str(@tagName(builtin.os.tag) ++ "-" ++ @tagName(builtin.cpu.arch));
 }
 
 fn osExit(th: *Thread, args: []Value) Error!Value {

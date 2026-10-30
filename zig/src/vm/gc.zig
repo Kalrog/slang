@@ -131,6 +131,7 @@ const Marker = struct {
             .userdata => {
                 const u: *Userdata = @fieldParentPtr("obj", o);
                 m.markTable(u.meta);
+                m.markValue(u.owner);
             },
             .proto => {
                 const p: *Proto = @fieldParentPtr("obj", o);

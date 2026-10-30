@@ -1478,38 +1478,51 @@ local func install_core(g){
     fmt.gaps(peg.char(")"), "none", "brace"),
     rule("statement")
   ):map(func(v){
+    // a lone call in the condition's place is parsed as a statement
+    // (for(st:step())); the condition is the call's value
+    local func value(e){
+      if(e != null and e.type == "CallStat"){
+        return e.call
+      }
+      return e
+    }
+    local body = v[6]
+    if(v[2] == null and v[3] != null){
+      // for(; condition; update): the first slot is left empty
+      return ast.node(
+        "For", {condition: value(v[3]), update: v[4], body: body}, v[0]
+      )
+    }
     local head = {}
     for(local i = 2; i <= 4; i = i + 1){
       if(v[i] != null){
         append(head, v[i])
       }
     }
-    local body = v[6]
     local n = len(head)
     if(n == 3){
       return ast.node(
-        "For", {init: head[0], condition: head[1], update: head[2], body: body},
+        "For",
+        {init: head[0], condition: value(head[1]), update: head[2], body: body},
         v[0]
       )
     }
     if(n == 2){
-      if(ast.is_statement(head[0])){
+      // for(init; condition) unless the first is a call followed by an
+      // update: for(f(x); x = x + 1)
+      local call_then_update = head[0].type == "CallStat" and
+        ast.is_statement(head[1])
+      if(ast.is_statement(head[0]) and not call_then_update){
         return ast.node(
-          "For", {init: head[0], condition: head[1], body: body}, v[0]
+          "For", {init: head[0], condition: value(head[1]), body: body}, v[0]
         )
       }
       return ast.node(
-        "For", {condition: head[0], update: head[1], body: body}, v[0]
+        "For", {condition: value(head[0]), update: head[1], body: body}, v[0]
       )
     }
     if(n == 1){
-      // the one element is the condition; a lone call parsed as a statement
-      // (for(st:step())) is the call's value
-      local condition = head[0]
-      if(condition.type == "CallStat"){
-        condition = condition.call
-      }
-      return ast.node("For", {condition: condition, body: body}, v[0])
+      return ast.node("For", {condition: value(head[0]), body: body}, v[0])
     }
     error("Invalid for loop")
   }), {probe: "for(local i = 0; i < 3; i = i + 1){ f(i) }"})

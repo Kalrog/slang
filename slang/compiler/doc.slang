@@ -300,6 +300,21 @@ local func module_name(compiler, path){
       return str.substring(abs, len(d), len(abs) - 6)
     }
   }
+  // in a package (the project's own name included): name/x, name for its
+  // init, and the stubs of its native modules (stubs/x is name/x)
+  for(let local pkg in values(compiler.packages())){
+    local d = concat(pkg.dir or "", "/")
+    if(pkg.dir != null and str.starts_with(abs, d)){
+      local rel = str.substring(abs, len(d), len(abs) - 6)
+      if(str.starts_with(rel, "stubs/")){
+        rel = str.substring(rel, 6)
+      }
+      if(rel == "init"){
+        return pkg.name
+      }
+      return concat(pkg.name, "/", rel)
+    }
+  }
   local cwd = concat(compiler.absolute_path("."), "/")
   if(str.starts_with(abs, cwd)){
     abs = str.substring(abs, len(cwd))

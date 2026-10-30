@@ -1,13 +1,13 @@
-// Breakout on raylib. The window, drawing and keyboard come from the native
-// extension extensions/native/raylib.c (loaded as raylib.dylib/.so through
-// require); everything else is slang.
+// Breakout on raylib. The window, drawing and keyboard come from the raylib
+// package (packages/raylib, a dependency in slang.project); everything else
+// is slang.
 //
-//   make breakout        (or: SLANG_NATIVE_PATH=zig/zig-out/lib slang run examples/breakout/main.slang)
+//   make breakout        (or: slang run examples/breakout/main.slang)
 //
 // Left/right or A/D move the paddle, space launches the ball, R restarts,
 // escape quits. BREAKOUT_FRAMES=n in the environment quits after n frames
 // and BREAKOUT_AUTOPLAY=1 lets the paddle play by itself (both are used to
-// smoke-test the extension without a player).
+// smoke-test the package without a player).
 local rl = require("raylib")
 local os = require("slang/os")
 local math = require("slang/math")

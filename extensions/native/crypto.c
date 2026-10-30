@@ -78,7 +78,7 @@ static EVP_MD *fetch_md(slang_State *S, int idx) {
 static int l_hash(slang_State *S) {
     EVP_MD *md = fetch_md(S, 1);
     size_t len = 0;
-    const char *data = slang_checklstring(S, 2, &len);
+    const char *data = slang_checkbytes(S, 2, &len);
     if (md == NULL || data == NULL) {
         EVP_MD_free(md);
         return SLANG_ERROR;
@@ -96,8 +96,8 @@ static int l_hash(slang_State *S) {
 static int l_hmac(slang_State *S) {
     const char *name = slang_checklstring(S, 1, NULL);
     size_t klen = 0, dlen = 0;
-    const char *key = slang_checklstring(S, 2, &klen);
-    const char *data = slang_checklstring(S, 3, &dlen);
+    const char *key = slang_checkbytes(S, 2, &klen);
+    const char *data = slang_checkbytes(S, 3, &dlen);
     if (slang_failed(S)) return SLANG_ERROR;
     unsigned char out[EVP_MAX_MD_SIZE];
     size_t n = 0;
@@ -125,8 +125,8 @@ static int l_random_bytes(slang_State *S) {
  * on their lengths (for comparing MACs and tokens) */
 static int l_equal(slang_State *S) {
     size_t alen = 0, blen = 0;
-    const char *a = slang_checklstring(S, 1, &alen);
-    const char *b = slang_checklstring(S, 2, &blen);
+    const char *a = slang_checkbytes(S, 1, &alen);
+    const char *b = slang_checkbytes(S, 2, &blen);
     if (slang_failed(S)) return SLANG_ERROR;
     slang_pushbool(S, alen == blen && CRYPTO_memcmp(a, b, alen) == 0);
     return 1;
@@ -176,7 +176,7 @@ static hasher *check_hasher(slang_State *S) {
 static int hasher_update(slang_State *S) {
     hasher *h = check_hasher(S);
     size_t len = 0;
-    const char *data = slang_checklstring(S, 2, &len);
+    const char *data = slang_checkbytes(S, 2, &len);
     if (h == NULL || data == NULL) return SLANG_ERROR;
     if (!EVP_DigestUpdate(h->ctx, data, len)) return ssl_error(S, "update");
     slang_pushvalue(S, 1);
@@ -243,7 +243,7 @@ static void kdf_free(void *data) {
 
 static char *copy_arg(slang_State *S, int idx, size_t *len) {
     size_t n = 0;
-    const char *s = slang_checklstring(S, idx, &n);
+    const char *s = slang_checkbytes(S, idx, &n);
     if (s == NULL) return NULL;
     char *d = malloc(n + 1);
     memcpy(d, s, n);
@@ -385,8 +385,8 @@ static EVP_CIPHER *fetch_cipher(slang_State *S, int idx) {
 static EVP_CIPHER_CTX *aead_init(slang_State *S, int encrypt) {
     EVP_CIPHER *c = fetch_cipher(S, 1);
     size_t klen = 0, ivlen = 0;
-    const char *key = slang_checklstring(S, 2, &klen);
-    const char *iv = slang_checklstring(S, 3, &ivlen);
+    const char *key = slang_checkbytes(S, 2, &klen);
+    const char *iv = slang_checkbytes(S, 3, &ivlen);
     if (c == NULL || slang_failed(S)) {
         EVP_CIPHER_free(c);
         return NULL;
@@ -427,7 +427,7 @@ static int add_aad(EVP_CIPHER_CTX *ctx, slang_State *S, int idx) {
 /* encrypt(cipher, key, iv, plaintext, [aad]) -> ciphertext followed by the tag */
 static int l_encrypt(slang_State *S) {
     size_t len = 0;
-    const char *plain = slang_checklstring(S, 4, &len);
+    const char *plain = slang_checkbytes(S, 4, &len);
     if (plain == NULL) return SLANG_ERROR;
     EVP_CIPHER_CTX *ctx = aead_init(S, 1);
     if (ctx == NULL) return SLANG_ERROR;
@@ -450,7 +450,7 @@ static int l_encrypt(slang_State *S) {
  * data, the aad, the key or the iv do not match */
 static int l_decrypt(slang_State *S) {
     size_t len = 0;
-    const char *sealed = slang_checklstring(S, 4, &len);
+    const char *sealed = slang_checkbytes(S, 4, &len);
     if (sealed == NULL) return SLANG_ERROR;
     if (len < TAG_LEN) {
         slang_pushnull(S);

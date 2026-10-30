@@ -102,13 +102,19 @@ before work starts.
     its slang wrapper (slang's pybind11; `extensions/native/vec.zig`
     shows the starting point);
   - a mutable byte buffer or typed-array type with a C API to borrow its
-    memory, so large data is not copied between slang and C;
+    memory, so large data is not copied between slang and C; (2026-10-31,
+    `slang/buffer`, see PLAN_BUFFERS.md: typed buffers of scalars or
+    structs, indexed by the VM, passed to the FFI and to extensions as
+    their memory);
   - prebuilt per-platform binaries in packages (phase 4), which also
     keeps slang's tools from compiling C;
   - the runtime FFI: C declarations parsed from text (a subset of C, a
     good fit for slang's peg library, perhaps a `c{ ... }` extension),
     calls through libffi, staged as scalars and opaque pointers, then
-    structs and arrays, then callbacks;
+    structs and arrays, then callbacks; (2026-10-30, `slang/ffi`) built
+    up to structs, arrays, pointers into C memory and variadic calls; the
+    declarations are real headers, preprocessed (a hand-written parser,
+    not peg: about 40 ms for raylib.h); callbacks are next;
   - later, a binding generator that reads real headers offline with
     clang or `zig translate-c`.
 
@@ -283,10 +289,18 @@ needed.
       slang.project, a `slang.lock` check in CI (`slang get --check`),
       private repositories beyond what git's own credentials give, and the
       language server's project index reaching into packages.
-- [ ] Native code in packages: a package declares its extension's static
-      archives per platform (prebuilt by its author, or built by the user
-      with the package's own build instructions); `slang build` links
-      them; slang itself compiles no C.
+- [x] Native code in packages: prebuilt by the package's author, never
+      compiled by slang. (2026-10-30) A package ships
+      `lib/<platform>/<module>.dylib` (`.so`, `.dll`; the platform as
+      `os.platform()` names it, `macos-aarch64`); `require("pkg/module")`
+      loads it with the entry point `slang_open_pkg_module`, and a package
+      with a `lib/` but no build for the running platform is an error that
+      names the platform. The stubs of its native modules are its `stubs/`
+      (language server, `slang doc`). `packages/raylib` started as the
+      example (raylib generated into C) and became an FFI binding; the
+      feature is tested in test/pkg_test.slang.
+- [ ] Static archives of a package's native modules (`lib/<platform>/*.a`)
+      for `slang build` to link (phase 3).
 - [ ] Later: a registry and package index (pub.dev style) over the same
       git repositories, with documentation from `slang doc`.
 
@@ -414,9 +428,11 @@ format.
 
 ## After 1.0
 
-- An FFI: calling C functions from slang without writing C (declared
-  signatures, libffi or generated stubs). Large, and best designed once
-  the error conventions (phase 2) and types exist.
+- The FFI beyond what exists (`slang/ffi`, 2026-10-30): callbacks (C
+  calling slang, on the VM's thread only), unions and bit fields, `long
+  double`, Windows' calling conventions, a `c{ ... }` extension for
+  declarations in slang source, and FFI bindings in single binaries
+  (`slang build` with libffi linked statically).
 - The type checker beyond hover and docs, if phase 7 stops short of it.
 - HTTP/2, Postgres, brotli (the "later" items of PLAN_WEB.md).
 - A package registry, if git-based packages prove too little.

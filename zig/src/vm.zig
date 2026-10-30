@@ -9,6 +9,7 @@ pub const Table = @import("vm/table.zig").Table;
 pub const Closure = @import("vm/object.zig").Closure;
 pub const Upvalue = @import("vm/object.zig").Upvalue;
 pub const Userdata = @import("vm/object.zig").Userdata;
+pub const UserKind = @import("vm/object.zig").UserKind;
 pub const Proto = @import("vm/object.zig").Proto;
 pub const Object = @import("vm/object.zig").Object;
 pub const NativeFn = @import("vm/object.zig").NativeFn;

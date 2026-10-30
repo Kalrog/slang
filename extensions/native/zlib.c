@@ -119,7 +119,7 @@ static stream *new_stream(slang_State *S) {
 /* deflate(data, [format], [level]) */
 static int l_deflate(slang_State *S) {
     size_t len = 0;
-    const char *data = slang_checklstring(S, 1, &len);
+    const char *data = slang_checkbytes(S, 1, &len);
     int bits = window_bits(S, 2, 1);
     int64_t level = slang_optint(S, 3, 6);
     if (data == NULL || bits == 0 || slang_failed(S)) return SLANG_ERROR;
@@ -134,7 +134,7 @@ static int l_deflate(slang_State *S) {
 /* inflate(data, [format], [max_size]) */
 static int l_inflate(slang_State *S) {
     size_t len = 0;
-    const char *data = slang_checklstring(S, 1, &len);
+    const char *data = slang_checkbytes(S, 1, &len);
     int bits = window_bits(S, 2, 0);
     int64_t max_size = slang_optint(S, 3, 0);
     if (data == NULL || bits == 0 || slang_failed(S)) return SLANG_ERROR;
@@ -184,7 +184,7 @@ static stream *check_stream(slang_State *S) {
 static int stream_push(slang_State *S) {
     stream *s = check_stream(S);
     size_t len = 0;
-    const char *data = slang_checklstring(S, 2, &len);
+    const char *data = slang_checkbytes(S, 2, &len);
     if (s == NULL || data == NULL) return SLANG_ERROR;
     if (!s->deflating && s->ended) {
         slang_pushstring(S, ""); /* bytes after the end are ignored */

@@ -275,10 +275,11 @@ local func requirements_of(manifest, dir, from, allow_path){
           ": a package fetched with git cannot depend on a path"
         )
       }
-      append(out, {
-        name: name, path: compiler.absolute_path(concat(dir, "/", spec.path)),
-        from: from,
-      })
+      local path = spec.path
+      if(not str.starts_with(path, "/")){
+        path = concat(dir, "/", path)
+      }
+      append(out, {name: name, path: compiler.absolute_path(path), from: from})
     } else if(spec.git != null){
       local v = pkg.parse_version(spec.version or "0")
       if(v == null){

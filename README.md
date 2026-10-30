@@ -23,8 +23,9 @@ and `/usr/local/lib/slang/` (`make install PREFIX=~/.local` for a user
 install; `make uninstall` removes them).
 
 Requirements: Zig 0.17 (`brew install anyzig` picks the version pinned in
-`zig/build.zig.zon`). raylib for the breakout example (`brew install raylib`,
-or `-Draylib=false`). Nothing else.
+`zig/build.zig.zon`). libffi (part of macOS; `libffi-dev` on Linux). raylib
+for the raylib package and the breakout example (`brew install raylib`).
+Nothing else.
 
 `make test` runs the slang suite, the native extension tests and the Zig
 unit tests; `make test-safe` runs the suites on the checked build and under
@@ -61,12 +62,65 @@ embedded compiler, so the cache never changes behaviour.
 `zig/include/slang.h` is a Lua-style stack API for extensions written in C
 (or Zig, or anything with a C ABI): `extensions/native/hello.c` exercises
 every part of it, `extensions/native/vec.zig` defines a userdata type with
-operator metamethods, `extensions/native/raylib.c` wraps raylib for
-`examples/breakout`, `extensions/native/uv.c` wraps libuv (`brew install
+operator metamethods, `extensions/native/uv.c` wraps libuv (`brew install
 libuv`, or `-Dlibuv=false`). `zig build` compiles them into `lib/`, and
-`require("raylib")` loads `raylib.dylib` (or `.so`) from `lib/` next to the
+`require("uv")` loads `uv.dylib` (or `.so`) from `lib/` next to the
 binary, the current directory, or the directories in `SLANG_NATIVE_PATH`.
 Natives signal errors by returning `SLANG_ERROR`, never by longjmp.
+
+### C libraries without writing C (FFI)
+
+`slang/ffi` calls C libraries directly, through libffi (linked into
+slang: the system's on macOS, `libffi-dev` on Linux, `-Dffi=false` to
+leave it out). Declarations are C, read from text or from the library's
+own header (the preprocessor runs: `#define`, `#if`, function-like macros;
+function bodies are skipped):
+
+```slang
+local ffi = require("slang/ffi")
+local C = ffi.cdef("typedef struct { int quot; int rem; } div_t; div_t div(int, int);")
+local libc = ffi.load(null, C)          // null: the program itself
+libc.div(17, 5)                         // {quot: 3, rem: 2}
+```
+
+Numbers and bools cross as the arithmetic types, strings as `const char
+*`, tables as structs (fields by name or by position; results are tables
+by name). A pointer parameter takes null, a pointer, a string, or a table:
+a list of elements or one struct, copied back after the call when the
+pointer is not to const, so out parameters are plain tables. Pointers
+index C memory like C (`p[i]`, `p.field`, assignment), `ffi.new` allocates
+memory the collector frees once nothing points into it, and variadic
+functions get C's promotions. Enum values and `#define` constants (numbers,
+strings, compound literals) are `C.constants`. A wrong declaration crashes
+as it would in C. Callbacks, unions, bit fields and `long double` are not
+supported yet. `packages/raylib` binds all of raylib this way.
+
+### Buffers
+
+`slang/buffer` is typed memory: n values of one C type, a scalar or a
+struct. slang indexes a buffer about as fast as a list (the VM reads and
+writes scalar elements itself), and C reads it without a copy: passed to
+an FFI function it is its memory, and native extensions borrow it through
+`slang_tobuffer` (or take a string's or a buffer's bytes alike with
+`slang_checkbytes`, as zlib, crypto, sqlite and uv do).
+
+```slang
+local buffer = require("slang/buffer")
+local samples = buffer.new("float", 44100)
+for(local i = 0; i < len(samples); i = i + 1){
+  samples[i] = math.sin(i * 0.05)
+}
+local points = buffer.new("Vector2", 100, rl.decls)   // structs: views
+points[3].x = 10
+rl.draw_triangle_strip(points, rl.RED)                // no conversion
+```
+
+Indexes count from 0 and are checked; `len`, `values`, `entries` and `==`
+(contents) work as on lists. Slices share memory and keep it alive;
+`fill`, `set`, `copy`, `cast`, `to_list`, `to_string`, `from_string` run
+natively. `buffer.wrap(pointer, n)` makes a buffer over memory C owns.
+Buffers and `ffi.cdef` are in every build; only calling C needs libffi.
+`PLAN_BUFFERS.md` has the design and the measurements.
 
 ## Syntax
 ### Variables
@@ -509,6 +563,23 @@ the network. `require("json5/parse")` loads a module of a package,
 in a package runs when it is fetched; compiling it runs its grammar
 extensions, as compiling any slang does.
 
+A package can have native modules, which slang loads but never builds: the
+package ships them prebuilt as `lib/<platform>/<module>.dylib` (or `.so`,
+`.dll`), built by its author against `slang.h` for each platform it
+supports (`os.platform()` names the platform: `macos-aarch64`,
+`linux-x86_64`, ...). `require("pkg/mod")` loads `lib/<platform>/mod.dylib`
+from the package pkg, whose entry point is `slang_open_pkg_mod`; a package
+with a `lib/` but no build for the running platform is an error that says
+so. A package can often do without native code: a binding through
+`slang/ffi` calls the library installed on the machine (`packages/raylib`
+does, and `examples/breakout` depends on it by path).
+
+A package's `stubs/` declare and document what tools cannot see in its
+source: its native modules (`stubs/mod.slang` for `pkg/mod`), and modules
+whose fields it makes at run time, like an FFI binding (`stubs/init.slang`
+for `pkg`). The language server and `slang doc` read a package's stub
+instead of its source.
+
 ## Editor support
 
 `lsp/` is a language server written in slang (over the `uv` extension) that
@@ -562,7 +633,8 @@ slang/     the compiler (slang/compiler) and library code (slang/lib) written in
 test/      the test suite (bin/slang test)
 bench/     benchmarks (make bench)
 extensions/ parser extensions written in slang; extensions/native are native ones
-examples/  example programs: examples/breakout on raylib, examples/project (slang.project), examples/functional (|> and holes),
+packages/  packages kept with slang: packages/raylib (raylib through slang/ffi)
+examples/  example programs: examples/breakout on the raylib package, examples/project (slang.project), examples/functional (|> and holes),
            examples/dungeon, a game whose content is written in DSLs (its window host is the legacy Go one)
 lsp/       the language server (highlighting and diagnostics from the real parser); editors/vscode is its VS Code client
 go/        the Go VM: the reference implementation during the Zig port, kept for comparison

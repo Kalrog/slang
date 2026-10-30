@@ -495,10 +495,40 @@ func compiler.absolute_path(path){
   return concat("/", str.join(parts, "/"))
 }
 
+// the stub a package has for one of its modules: <package>/stubs/a.slang
+// for "name/a", stubs/init.slang for "name"; {path} (path null when there
+// is none), or null when name is not in a package
+local func package_stub(name){
+  local slash = str.index_of(name, "/")
+  local head = name
+  local rest = "init"
+  if(slash > 0){
+    head = str.substring(name, 0, slash)
+    rest = str.substring(name, slash + 1)
+  }
+  local pkg = (__PACKAGES.packages or {})[head]
+  if(pkg == null or pkg.dir == null){
+    return null
+  }
+  local path = concat(pkg.dir, "/stubs/", rest, ".slang")
+  if(os.exists(path)){
+    return {path: compiler.absolute_path(path)}
+  }
+  return {path: null}
+}
+
 // stub_path(name) -> the stub of a module without slang source (a native
 // one, or "globals" for the global functions): a slang file that declares
-// and documents it, never run; null when there is none
+// and documents it, never run; null when there is none. A package keeps
+// the stubs of its modules in its stubs/ ("name/a" is
+// <package>/stubs/a.slang, "name" stubs/init.slang): for native modules,
+// and for modules whose fields are made at run time (a binding through
+// slang/ffi), which tools then read instead of the source.
 func compiler.stub_path(name){
+  local in_package = package_stub(name)
+  if(in_package != null){
+    return in_package.path
+  }
   for(let local dir in values(__PACKAGES.stubSources or {})){
     local path = concat(dir, "/", name, ".slang")
     if(os.exists(path)){
@@ -509,10 +539,16 @@ func compiler.stub_path(name){
 }
 
 // module_path(name) -> the absolute path of the source file require(name)
-// would load, its stub when it has no source (see stub_path), or null:
+// would load, its stub when it has no source or is a package module with a
+// stub (see stub_path), or null:
 // on the search paths (the project's first), else one of slang's own
 // library modules (slang/http is http.slang in a librarySources directory)
 func compiler.module_path(name){
+  // a package's stub declares what its source makes at run time
+  local in_package = package_stub(name)
+  if(in_package != null and in_package.path != null){
+    return in_package.path
+  }
   local found = __PACKAGES.find_source(name)
   if(found != null){
     return compiler.absolute_path(found.path)

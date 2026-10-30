@@ -58,4 +58,9 @@ func m.time_ms(){}
 // Blocking, for tools; slang/async's exec does not block.
 func m.exec(argv, cwd){}
 
+// platform() -> "<os>-<arch>" of the running slang, as Zig names them
+// ("macos-aarch64", "linux-x86_64"): where packages keep their prebuilt
+// native modules (lib/<platform>/)
+func m.platform(){}
+
 return m

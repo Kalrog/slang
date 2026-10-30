@@ -5,8 +5,12 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     const gc_stress = b.option(bool, "gc-stress", "collect garbage on every allocation") orelse false;
+    // the FFI (slang/ffi) links libffi: the system's on macOS, libffi.so
+    // (libffi-dev) on Linux; -Dffi=false leaves it out
+    const with_ffi = b.option(bool, "ffi", "build slang/ffi (links libffi)") orelse true;
     const options = b.addOptions();
     options.addOption(bool, "gc_stress", gc_stress);
+    options.addOption(bool, "ffi", with_ffi);
 
     const mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
@@ -16,6 +20,7 @@ pub fn build(b: *std.Build) void {
     });
     mod.addOptions("build_options", options);
     mod.addImport("seed", seedModule(b));
+    if (with_ffi) mod.linkSystemLibrary("ffi", .{});
 
     const exe = b.addExecutable(.{
         .name = "slang",
@@ -37,6 +42,15 @@ pub fn build(b: *std.Build) void {
     hello.linker_allow_shlib_undefined = true;
     b.installArtifact(hello);
 
+    // A plain C library for the FFI tests (zig/test/ffi_test.slang), installed
+    // as lib/libffitest.<ext> where slang/ffi's load("ffitest") finds it.
+    if (with_ffi) {
+        const ft_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
+        ft_mod.addCSourceFile(.{ .file = b.path("test/ffitest.c"), .flags = &.{"-std=c11"} });
+        const ft = b.addLibrary(.{ .name = "ffitest", .linkage = .dynamic, .root_module = ft_mod });
+        b.installArtifact(ft);
+    }
+
     // Zig extensions import the header through translate-c as "slang".
     const translated = b.addTranslateC(.{
         .root_source_file = b.path("include/slang.h"),
@@ -53,27 +67,6 @@ pub fn build(b: *std.Build) void {
     const vec = b.addLibrary(.{ .name = "vec", .linkage = .dynamic, .root_module = vec_mod });
     vec.linker_allow_shlib_undefined = true;
     b.installArtifact(vec);
-
-    // The raylib extension links the system raylib (Homebrew by default);
-    // -Draylib=false skips it, -Draylib-prefix points at another install.
-    const with_raylib = b.option(bool, "raylib", "build the raylib extension (needs raylib installed)") orelse true;
-    if (with_raylib) {
-        const prefix = b.option([]const u8, "raylib-prefix", "where raylib is installed") orelse "/opt/homebrew";
-        const rl_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
-        rl_mod.addCSourceFile(.{ .file = b.path("../extensions/native/raylib.c"), .flags = &.{"-std=c11"} });
-        rl_mod.addIncludePath(b.path("include"));
-        rl_mod.addIncludePath(.{ .cwd_relative = b.fmt("{s}/include", .{prefix}) });
-        rl_mod.addLibraryPath(.{ .cwd_relative = b.fmt("{s}/lib", .{prefix}) });
-        rl_mod.linkSystemLibrary("raylib", .{});
-        const rl = b.addLibrary(.{ .name = "raylib_ext", .linkage = .dynamic, .root_module = rl_mod });
-        rl.linker_allow_shlib_undefined = true;
-        // installed as raylib.<ext> (no lib prefix, so it cannot be confused
-        // with the raylib library itself)
-        const rl_install = b.addInstallArtifact(rl, .{
-            .dest_sub_path = b.fmt("raylib{s}", .{target.result.dynamicLibSuffix()}),
-        });
-        b.getInstallStep().dependOn(&rl_install.step);
-    }
 
     // The uv extension links the system libuv (Homebrew by default);
     // -Dlibuv=false skips it, -Dlibuv-prefix points at another install.
@@ -204,7 +197,7 @@ fn addNativeExtension(b: *std.Build, target: std.Build.ResolvedTarget, optimize:
 /// boot/slang at the repository root. It is copied into a generated module
 /// that embeds every file under its module name ("slang/compiler", ...).
 fn seedModule(b: *std.Build) *std.Build.Module {
-    const names = [_][]const u8{ "ast", "async", "codegen", "compiler", "crypto", "doc", "format", "grammar", "html", "http", "json", "jwt", "optimizer", "package", "peg", "pkg", "sqlite", "std", "symbols", "table", "test", "tls", "web", "webview", "ws" };
+    const names = [_][]const u8{ "ast", "async", "buffer", "codegen", "compiler", "crypto", "doc", "ffi", "format", "grammar", "html", "http", "json", "jwt", "optimizer", "package", "peg", "pkg", "sqlite", "std", "symbols", "table", "test", "tls", "web", "webview", "ws" };
     const wf = b.addWriteFiles();
     var src: std.ArrayList(u8) = .empty;
     src.appendSlice(b.allocator, "pub const Entry = struct { name: []const u8, data: []const u8 };\npub const files = [_]Entry{\n") catch @panic("OOM");

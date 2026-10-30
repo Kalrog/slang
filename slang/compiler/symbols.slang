@@ -472,6 +472,12 @@ func symbols.analyse(block, source, origin){
         returned = {name: "module", kind: "local", fields: {}}
         table_fields(rec, returned, st.value)
         exports = returned.fields
+      } else if(is_require(st.value)){
+        // `return require("other")`: the module is the other one
+        returned = {
+          name: "module", kind: "local", fields: {},
+          module: st.value.args[0].value,
+        }
       }
       break
     }

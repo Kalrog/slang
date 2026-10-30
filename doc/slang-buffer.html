@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>slang/buffer</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>slang/buffer</h1>
+<p>slang/buffer: typed memory. A buffer holds n values of one C type, a scalar or a struct, in memory slang indexes about as fast as a list and C reads without a copy (a buffer passed to slang/ffi is its memory).</p>
+<pre><code>local buffer = require(&quot;slang/buffer&quot;)
+local samples = buffer.new(&quot;float&quot;, 44100)
+for(local i = 0; i &lt; len(samples); i = i + 1){
+  samples[i] = math.sin(i * 0.05)
+}
+local points = buffer.new(&quot;Vector2&quot;, 100, rl.decls)
+points[3].x = 10                       // a struct element is a view</code></pre>
+<p>Indexes count from 0, like lists, and are checked. b[i] of a scalar is a number; of a struct a pointer to the element, so b[i].x = 3 writes in place; b[i] = v converts v as slang/ffi does (a table for a struct). len(b) is the number of elements, == compares type and contents, and values, keys and entries iterate a buffer like a list.</p>
+<p>Methods: b:size() (bytes), b:type(), b:slice(from, [to]) (shares the memory), b:copy(), b:fill(v), b:set(list or buffer, [at]), b:cast(type) (the same bytes as another type; a type value, from b:type() or ffi.type), b:to_list(), b:to_string() (the bytes), b:same(other) (the same memory), b:pointer().</p>
+<p>Types are C names: scalars (&quot;float&quot;, &quot;double&quot;, &quot;int&quot;, &quot;uint8_t&quot;, &quot;int32&quot;, ...) or, with declarations from ffi.cdef, structs (&quot;Vector2&quot;).</p>
+<ul class="toc">
+<li><a href="#new"><code>new</code></a></li>
+<li><a href="#from"><code>from</code></a></li>
+<li><a href="#from_string"><code>from_string</code></a></li>
+<li><a href="#wrap"><code>wrap</code></a></li>
+<li><a href="#is"><code>is</code></a></li>
+</ul>
+<div class="def" id="new"><h3><code>buffer.new(t, n, decls)</code></h3>
+<p>new(type, n, [decls]) -&gt; a buffer of n zeroed elements</p>
+</div>
+<div class="def" id="from"><h3><code>buffer.from(src, t, decls)</code></h3>
+<p>from(list or string, type, [decls]) -&gt; a buffer with the list's elements (numbers, or tables for structs), or with the bytes of a string</p>
+</div>
+<div class="def" id="from_string"><h3><code>buffer.from_string(s)</code></h3>
+<p>from_string(s) -&gt; a buffer of the bytes of s (uint8)</p>
+</div>
+<div class="def" id="wrap"><h3><code>buffer.wrap(p, n, t, decls)</code></h3>
+<p>wrap(pointer, n, [type], [decls]) -&gt; a buffer over n elements of memory C owns (mesh.vertices with vertex_count * 3 floats): the pointer's type, or type. It is valid as long as C keeps the memory.</p>
+</div>
+<div class="def" id="is"><h3><code>buffer.is(v)</code></h3>
+<p>is(v) -&gt; whether v is a buffer</p>
+</div>
+<p class="muted">slang/lib/buffer.slang</p>
+</body>
+</html>

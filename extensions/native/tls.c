@@ -353,7 +353,7 @@ static int check_result(slang_State *S, session *s, int r, const char *what) {
 static int session_feed(slang_State *S) {
     session *s = check_session(S, 1);
     size_t len = 0;
-    const char *data = slang_checklstring(S, 2, &len);
+    const char *data = slang_checkbytes(S, 2, &len);
     if (s == NULL || data == NULL) return SLANG_ERROR;
     if (len > 0 && BIO_write(s->in, data, (int)len) != (int)len) return tls_error(S, "feed");
     return 0;
@@ -413,7 +413,7 @@ static int session_read(slang_State *S) {
 static int session_write(slang_State *S) {
     session *s = check_session(S, 1);
     size_t len = 0;
-    const char *data = slang_checklstring(S, 2, &len);
+    const char *data = slang_checkbytes(S, 2, &len);
     if (s == NULL || data == NULL) return SLANG_ERROR;
     if (!s->done) return slang_error(S, "tls: write before the handshake completed");
     size_t at = 0;

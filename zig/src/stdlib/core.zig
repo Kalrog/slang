@@ -8,6 +8,7 @@ const Thread = vm_mod.Thread;
 const Error = vm_mod.Error;
 const api = vm_mod.api;
 const stdlib = @import("stdlib.zig");
+const ctypes = @import("ctypes.zig");
 const Native = stdlib.Native;
 
 pub fn open(vm: *VM) void {
@@ -237,7 +238,35 @@ fn entriesNext(th: *Thread, args: []Value) Error!Value {
     return .null;
 }
 
+/// Iterating a buffer (slang/ctypes): nvals are the buffer, the next index
+/// and what to give (0 keys, 1 values, 2 entries).
+fn bufferNext(th: *Thread, args: []Value) Error!Value {
+    _ = args;
+    const cl = th.currentClosure();
+    const u = cl.nvals[0].userdata;
+    const i: usize = @intCast(cl.nvals[1].int);
+    const v = (try ctypes.element(th, u, i)) orelse return .null;
+    cl.nvals[1] = .{ .int = @intCast(i + 1) };
+    switch (cl.nvals[2].int) {
+        0 => return .{ .int = @intCast(i) },
+        1 => return v,
+        else => {
+            const pair = th.vm.newTable(2, 0);
+            pair.pushSlot(th.vm.gpa, .{ .int = @intCast(i) });
+            pair.pushSlot(th.vm.gpa, v);
+            return .{ .table = pair };
+        },
+    }
+}
+
+/// An iterator over a buffer, or null when v is not one.
+fn bufferIterator(th: *Thread, v: Value, what: i64, name: []const u8) ?Value {
+    if (ctypes.asBuffer(v) == null) return null;
+    return .{ .function = th.vm.newNative(name, bufferNext, &.{ v, .{ .int = 0 }, .{ .int = what } }) };
+}
+
 fn coreKeys(th: *Thread, args: []Value) Error!Value {
+    if (bufferIterator(th, api.arg(args, 0), 0, "keys.next")) |it| return it;
     const t = api.arg(args, 0).asTable() orelse return .null;
     const keys = keysOf(th.vm, t);
     return .{ .function = th.vm.newNative("keys.next", keysNext, &.{ .{ .table = keys }, .{ .int = 0 }, .{ .table = t } }) };
@@ -253,12 +282,14 @@ fn iterTable(th: *Thread, args: []Value, name: []const u8) Error!*Table {
 }
 
 fn coreValues(th: *Thread, args: []Value) Error!Value {
+    if (bufferIterator(th, api.arg(args, 0), 1, "values.next")) |it| return it;
     const t = try iterTable(th, args, "values");
     const keys = keysOf(th.vm, t);
     return .{ .function = th.vm.newNative("values.next", valuesNext, &.{ .{ .table = keys }, .{ .int = 0 }, .{ .table = t } }) };
 }
 
 fn coreEntries(th: *Thread, args: []Value) Error!Value {
+    if (bufferIterator(th, api.arg(args, 0), 2, "entries.next")) |it| return it;
     const t = try iterTable(th, args, "entries");
     const keys = keysOf(th.vm, t);
     return .{ .function = th.vm.newNative("entries.next", entriesNext, &.{ .{ .table = keys }, .{ .int = 0 }, .{ .table = t } }) };

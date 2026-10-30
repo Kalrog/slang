@@ -28,6 +28,16 @@ test.group("for loops", func(){
     for(n > 0){ n = n - 1 }
     assert(n == 0)
   }
+  test.test("a call as the condition is its value"){
+    local func below(x, limit){ return x < limit }
+    local i = 0
+    for(; below(i, 3); i = i + 1){}
+    assert(i == 3)
+    for(local k = 0; below(i, 5); k = k + 1){ i = i + 1 }
+    assert(i == 5)
+    for(below(i, 7); i = i + 1){}
+    assert(i == 7)
+  }
   test.test("for loop break"){
     local i
     for(i = 0; i <= 100; i = i + 1){

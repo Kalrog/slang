@@ -230,7 +230,39 @@ static int l_reraise(slang_State *S) {
     return slang_raise(S);
 }
 
+/* ---- slang buffers (slang/buffer): memory read and written in place ---- */
+
+/* buffer_sum(buffer of float or double) -> the sum of its elements */
+static int l_buffer_sum(slang_State *S) {
+    size_t n = 0;
+    void *mem = slang_checkbuffer(S, 1, &n, NULL);
+    if (slang_failed(S)) return SLANG_ERROR;
+    const char *type = slang_buffertype(S, 1);
+    double sum = 0;
+    if (strcmp(type, "float") == 0) {
+        for (size_t i = 0; i < n; i++) sum += ((float *)mem)[i];
+    } else if (strcmp(type, "double") == 0) {
+        for (size_t i = 0; i < n; i++) sum += ((double *)mem)[i];
+    } else {
+        return slang_argerror(S, 1, "a buffer of float or double expected");
+    }
+    slang_pushdouble(S, sum);
+    return 1;
+}
+
+/* ramp(n) -> a buffer of int32: 0, 1, ..., n - 1 */
+static int l_ramp(slang_State *S) {
+    int64_t n = slang_checkint(S, 1);
+    if (slang_failed(S)) return SLANG_ERROR;
+    int32_t *mem = slang_newbuffer(S, "int32", (size_t)n);
+    if (!mem) return SLANG_ERROR;
+    for (int64_t i = 0; i < n; i++) mem[i] = (int32_t)i;
+    return 1;
+}
+
 static const slang_Reg funcs[] = {
+    {"buffer_sum", l_buffer_sum},
+    {"ramp", l_ramp},
     {"add", l_add},
     {"greet", l_greet},
     {"fail", l_fail},

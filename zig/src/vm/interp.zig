@@ -7,6 +7,7 @@ const String = root.String;
 const Thread = root.Thread;
 const Error = root.Error;
 const gc = @import("gc.zig");
+const ctypes = @import("../stdlib/ctypes.zig");
 const d = @import("disasm.zig");
 const Op = d.Op;
 
@@ -929,7 +930,13 @@ pub const ThreadOps = struct {
                     if (raw != .null) return raw;
                     meta = t.meta;
                 },
-                .userdata => |u| meta = u.meta,
+                .userdata => |u| {
+                    // buffers of scalars: the element, without __index
+                    if (u.kind == .buffer and key == .int) {
+                        if (try ctypes.fastGet(th, u, key.int)) |v| return v;
+                    }
+                    meta = u.meta;
+                },
                 .null => {
                     var buf: [256]u8 = undefined;
                     return th.vm.raise("attempt to index a null value (key {s})", .{keyDesc(&buf, key)});
@@ -969,6 +976,9 @@ pub const ThreadOps = struct {
                     }
                 },
                 .userdata => |u| {
+                    if (u.kind == .buffer and key == .int) {
+                        if (try ctypes.fastSet(th, u, key.int, val)) return;
+                    }
                     if (u.meta) |m| {
                         const ni = m.getName("__newindex");
                         switch (ni) {

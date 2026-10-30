@@ -10,7 +10,8 @@
 #   make seed         re-generate the seed with bin/slang itself (self-hosting), then rebuild
 #   make fixpoint     check that the seed compiles itself to identical bytecode
 #   make bench        run bench/
-#   make breakout     run the breakout example (examples/breakout) on the raylib extension
+#   make raylib-test  run the raylib package's tests (packages/raylib; needs raylib installed)
+#   make breakout     run the breakout example (examples/breakout) on the raylib package
 #   make dungeon-test run the dungeon example's DSL tests
 #   make dungeon      run the dungeon example on its Go/Ebitengine host (legacy host, uses the Go VM)
 #   make vscode       package the VS Code extension (editors/vscode) with the language server
@@ -30,7 +31,7 @@ LIB_SRC  := $(wildcard slang/lib/*.slang)
 COMPILER_SRC := $(wildcard slang/compiler/*.slang)
 SEED_DIR := boot/slang
 
-.PHONY: all build build-safe install uninstall test test-safe test-gui unit seed fixpoint bench breakout dungeon dungeon-test clean doc \
+.PHONY: all build build-safe install uninstall test test-safe test-gui unit seed fixpoint bench raylib-test breakout dungeon dungeon-test clean doc \
         vscode vscode-grammar go-build go-seed-copy go-test go-fixpoint stage0-seed
 
 all: build
@@ -52,11 +53,14 @@ install: build
 	install -m 644 $(LIB_SRC) $(COMPILER_SRC) $(PREFIX)/lib/slang/src/
 	install -d $(PREFIX)/lib/slang/stubs
 	cp -R slang/stubs/. $(PREFIX)/lib/slang/stubs/
+	install -d $(PREFIX)/include
+	install -m 644 zig/include/slang.h $(PREFIX)/include/slang.h
 	@echo "installed $(PREFIX)/bin/slang and $$(ls lib | wc -l | tr -d ' ') extensions in $(PREFIX)/lib/slang"
 
 uninstall:
 	rm -f $(PREFIX)/bin/slang
 	rm -rf $(PREFIX)/lib/slang
+	rm -f $(PREFIX)/include/slang.h
 
 unit:
 	cd zig && $(ZIG) build test
@@ -64,6 +68,8 @@ unit:
 test: build unit
 	bin/slang test test
 	bin/slang test zig/test
+	@if [ -n "$(RAYLIB_H)" ]; then $(MAKE) raylib-test; \
+	  else echo "raylib is not installed: packages/raylib not tested"; fi
 
 test-gui: build
 	bin/slang test zig/test/gui
@@ -96,6 +102,12 @@ fixpoint: build
 
 bench: build
 	@for b in bench/fib bench/dijkstra bench/tables bench/strings bench/compile; do bin/slang run $$b.slang; done
+
+# the raylib package calls the installed raylib through slang/ffi
+RAYLIB_H := $(firstword $(wildcard $(RAYLIB_PREFIX)/include/raylib.h /opt/homebrew/include/raylib.h /usr/local/include/raylib.h /usr/include/raylib.h))
+
+raylib-test: build
+	cd packages/raylib && ../../bin/slang test test
 
 breakout: build
 	bin/slang run examples/breakout/main.slang

@@ -206,6 +206,34 @@ SLANG_EXPORT void *slang_newuserdata(slang_State *S, size_t size, const char *tn
 /* The block of the userdata at idx if it has the given type, else NULL. */
 SLANG_EXPORT void *slang_testudata(slang_State *S, int idx, const char *tname);
 
+/* ---- buffers (slang/buffer): typed memory C reads and writes in place ----
+ *
+ * The memory of a buffer stays where it is (the collector does not move
+ * objects) and is valid while the buffer is reachable: on the stack during
+ * a call, or held with slang_ref. Element types are named as slang/ctypes
+ * names them: bool, char, int8, uint8, int16, uint16, int32, uint32, int64,
+ * uint64, float, double. */
+/* The memory of the buffer at idx and its number of elements and element
+ * size (either may be NULL), or NULL when the value is not a buffer. */
+SLANG_EXPORT void *slang_tobuffer(slang_State *S, int idx, size_t *count, size_t *elem_size);
+/* Like slang_tobuffer, recording an argument error when it is not one. */
+SLANG_EXPORT void *slang_checkbuffer(slang_State *S, int idx, size_t *count, size_t *elem_size);
+/* The element type of the buffer at idx ("float", ...; "struct" for a
+ * buffer of structs), or NULL when the value is not a buffer. */
+SLANG_EXPORT const char *slang_buffertype(slang_State *S, int idx);
+/* Pushes a new buffer of count zeroed elements of a scalar type and returns
+ * its memory for C to fill; NULL (an error recorded, nothing pushed) for an
+ * unknown type. */
+SLANG_EXPORT void *slang_newbuffer(slang_State *S, const char *type, size_t count);
+
+/* Binary data: the bytes of a string or of a buffer and their length, or
+ * NULL for other values. A string's bytes are NUL terminated, a buffer's
+ * are not. For functions that take bytes (compression, hashing, writing to
+ * a socket), so slang code can pass either. */
+SLANG_EXPORT const char *slang_tobytes(slang_State *S, int idx, size_t *len);
+/* Like slang_tobytes, recording an argument error for other values. */
+SLANG_EXPORT const char *slang_checkbytes(slang_State *S, int idx, size_t *len);
+
 /* ---- references: keep values alive across calls ---- */
 SLANG_EXPORT int slang_ref(slang_State *S); /* pops */
 SLANG_EXPORT void slang_getref(slang_State *S, int ref); /* pushes */

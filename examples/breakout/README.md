@@ -1,13 +1,12 @@
 # Breakout
 
 A breakout game on [raylib](https://www.raylib.com), written in slang. The
-window, drawing and keyboard come from the native extension
-`extensions/native/raylib.c`, a 200-line C file against `zig/include/slang.h`
-that `make build` compiles into `lib/raylib.dylib` (or `.so`);
-`require("raylib")` loads it at run time.
+window, drawing and keyboard come from the raylib package
+(`packages/raylib`), a dependency of this project by path (`slang.project`,
+`slang.lock`); `require("raylib")` loads it.
 
 ```
-brew install raylib        # or any raylib 5.x; see -Draylib-prefix in zig/build.zig
+brew install raylib        # raylib 5.x (the package calls it through slang/ffi)
 make breakout
 ```
 
@@ -15,4 +14,4 @@ Left/right or A/D move the paddle, space launches the ball, R restarts,
 escape quits.
 
 `BREAKOUT_FRAMES=600 BREAKOUT_AUTOPLAY=1 make breakout` plays by itself for
-600 frames and exits, which is how the extension is smoke-tested.
+600 frames and exits, which is how the package is smoke-tested.

@@ -244,6 +244,16 @@ static int bind_value(slang_State *S, stmt *s, int i, int idx) {
         rc = sqlite3_bind_text64(s->handle, i, text, (sqlite3_uint64)len, SQLITE_TRANSIENT, SQLITE_UTF8);
         break;
     }
+    case SLANG_TUSERDATA: {
+        /* a slang buffer is a blob */
+        size_t len = 0;
+        const char *bytes = slang_tobytes(S, idx, &len);
+        if (bytes != NULL && !slang_isstring(S, idx)) {
+            rc = sqlite3_bind_blob64(s->handle, i, bytes, (sqlite3_uint64)len, SQLITE_TRANSIENT);
+            break;
+        }
+        return slang_error(S, "sqlite: cannot bind a %s (parameter %d)", slang_typename(slang_type(S, idx)), i);
+    }
     default:
         return slang_error(S, "sqlite: cannot bind a %s (parameter %d)", slang_typename(slang_type(S, idx)), i);
     }

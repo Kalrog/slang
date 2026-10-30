@@ -41,27 +41,38 @@ local func package_source(pkg, name, rest){
   return false
 }
 
+// the package a module name starts with: {pkg, head, rest} (rest is "init"
+// for the package itself), or null
+local func package_of(name){
+  local packages = __PACKAGES.packages
+  if(packages == null){
+    return null
+  }
+  local slash = str.index_of(name, "/")
+  local head = name
+  local rest = "init"
+  if(slash >= 0){
+    head = str.substring(name, 0, slash)
+    rest = str.substring(name, slash + 1)
+  }
+  local pkg = packages[head]
+  if(pkg == null){
+    return null
+  }
+  return {pkg: pkg, head: head, rest: rest}
+}
+
 // find_source(name) -> {path, suffix} or null: the source file of a module:
 // in a package when the name starts with one, else on the search paths
 // (name.slang, then the dialect suffixes of the project)
 local func find_source(name){
-  local packages = __PACKAGES.packages
-  if(packages != null){
-    local slash = str.index_of(name, "/")
-    local head = name
-    local rest = "init"
-    if(slash >= 0){
-      head = str.substring(name, 0, slash)
-      rest = str.substring(name, slash + 1)
+  local p = package_of(name)
+  if(p != null){
+    local found = package_source(p.pkg, p.head, p.rest)
+    if(found == false){
+      return null
     }
-    local pkg = packages[head]
-    if(pkg != null){
-      local found = package_source(pkg, head, rest)
-      if(found == false){
-        return null
-      }
-      return found
-    }
+    return found
   }
   for(let local path in values(__PACKAGES.searchPaths)){
     local src = concat(path, "/", name, ".slang")
@@ -103,14 +114,56 @@ local func search_path_loader(name){
   return null
 }
 
+local func native_suffixes(platform){
+  if(str.starts_with(platform, "macos")){
+    return {".dylib", ".so"}
+  }
+  if(str.starts_with(platform, "windows")){
+    return {".dll"}
+  }
+  return {".so"}
+}
+
+// a native module of a package: prebuilt by its author into
+// <package>/lib/<platform>/<rest>.<ext> (platform as os.platform() names
+// it); null when the package has no native code, an error when it has
+// some but not for this platform
+local func package_native(p, name){
+  local platform = os.platform()
+  local lib = concat(p.pkg.dir, "/lib")
+  for(let local suffix in values(native_suffixes(platform))){
+    local file = concat(lib, "/", platform, "/", p.rest, suffix)
+    if(os.exists(file)){
+      return file
+    }
+  }
+  if(os.is_dir(lib)){
+    error(
+      "package ", p.head, " has no native build of ", name, " for ", platform,
+      " (looked in ", lib, "/", platform, ")"
+    )
+  }
+  return null
+}
+
 // <nativeSearchPath>/<name>.{so,dylib,dll}: a native extension exporting
-// slang_open_<name> (see zig/include/slang.h). Only VMs with vm.load_native
-// support this.
+// slang_open_<name> (see zig/include/slang.h); in a package, its prebuilt
+// library (see package_native). Only VMs with vm.load_native support this.
 local func native_loader(name){
   if(vm.load_native == null){
     return null
   }
-  local m = vm.load_native(name)
+  local p = package_of(name)
+  local m = null
+  if(p != null and not p.pkg.missing and p.pkg.dir != null){
+    local file = package_native(p, name)
+    if(file == null){
+      return null
+    }
+    m = vm.load_native(name, file)
+  } else {
+    m = vm.load_native(name)
+  }
   if(m == null){
     return null
   }

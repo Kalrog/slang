@@ -49,13 +49,18 @@ fn findLibrary(vm: *VM, name: []const u8) ?[]u8 {
     return null;
 }
 
-/// load_native(name): the module value of the extension, or null when no
-/// library for the name exists in the native search paths.
+/// load_native(name, [file]): the module value of the extension, or null
+/// when no library for the name exists in the native search paths. With
+/// file (a package's native build) that library is loaded instead of
+/// searching.
 pub fn loadNative(th: *Thread, args: []Value) Error!Value {
     const vm = th.vm;
     const name = try api.argString(th, args, 0, "name");
     // for "a/b" the library is <path>/a/b.<ext>, which the loop above finds
-    const file = findLibrary(vm, name) orelse return .null;
+    const file = if (args.len > 1 and args[1] != .null)
+        vm.gpa.dupe(u8, try api.argString(th, args, 1, "file")) catch oom()
+    else
+        findLibrary(vm, name) orelse return .null;
     defer vm.gpa.free(file);
 
     var lib = std.DynLib.open(file) catch |e| {

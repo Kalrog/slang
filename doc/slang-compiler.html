@@ -105,10 +105,10 @@ dd { margin-left: 1rem; color: var(--muted); }
 <p>absolute_path(path) -&gt; path from the root, without . and .. parts</p>
 </div>
 <div class="def" id="stub_path"><h3><code>compiler.stub_path(name)</code></h3>
-<p>stub_path(name) -&gt; the stub of a module without slang source (a native one, or &quot;globals&quot; for the global functions): a slang file that declares and documents it, never run; null when there is none</p>
+<p>stub_path(name) -&gt; the stub of a module without slang source (a native one, or &quot;globals&quot; for the global functions): a slang file that declares and documents it, never run; null when there is none. A package keeps the stubs of its modules in its stubs/ (&quot;name/a&quot; is &lt;package&gt;/stubs/a.slang, &quot;name&quot; stubs/init.slang): for native modules, and for modules whose fields are made at run time (a binding through slang/ffi), which tools then read instead of the source.</p>
 </div>
 <div class="def" id="module_path"><h3><code>compiler.module_path(name)</code></h3>
-<p>module_path(name) -&gt; the absolute path of the source file require(name) would load, its stub when it has no source (see stub_path), or null: on the search paths (the project's first), else one of slang's own library modules (slang/http is http.slang in a librarySources directory)</p>
+<p>module_path(name) -&gt; the absolute path of the source file require(name) would load, its stub when it has no source or is a package module with a stub (see stub_path), or null: on the search paths (the project's first), else one of slang's own library modules (slang/http is http.slang in a librarySources directory)</p>
 </div>
 <div class="def" id="project"><h3><code>compiler.project()</code></h3>
 <p>project() -&gt; the project in effect, or null</p>

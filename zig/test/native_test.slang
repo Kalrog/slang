@@ -104,6 +104,24 @@ t.group("native extension (C)", func(){
     assert(hello.finalized() > before)
   })
 
+  t.test("slang buffers: C reads and makes them in place", func(){
+    local buffer = require("slang/buffer")
+    assert(hello.buffer_sum(buffer.from({1.5, 2.5, 4}, "float")) == 8)
+    assert(hello.buffer_sum(buffer.from({1, 2}, "double")) == 3)
+    local r = hello.ramp(5)
+    assert(len(r) == 5 and r[4] == 4 and r:to_list() == {0, 1, 2, 3, 4})
+    r = pcall(hello.buffer_sum, {1, 2})
+    assert(
+      r[1].message ==
+        "bad argument #1 to 'buffer_sum' (buffer expected, got table)"
+    )
+    r = pcall(hello.buffer_sum, buffer.new("int", 2))
+    assert(
+      r[1].message ==
+        "bad argument #1 to 'buffer_sum' (a buffer of float or double expected)"
+    )
+  })
+
   t.test("references keep values alive", func(){
     hello.store(func(x){ return x + 1 })
     local junk = {}

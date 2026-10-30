@@ -560,7 +560,7 @@ static void on_write(uv_write_t *req, int status) {
 static int tcp_write(slang_State *S) {
     handle *h = check_stream(S, 1);
     size_t len = 0;
-    const char *data = slang_checklstring(S, 2, &len);
+    const char *data = slang_checkbytes(S, 2, &len);
     if (h == NULL || slang_failed(S)) return SLANG_ERROR;
     if (h->closed) return slang_error(S, "stream is closed");
     write_req *w = calloc(1, sizeof(write_req));
@@ -1124,7 +1124,7 @@ static fs_job *new_job(int op) {
 
 static char *dup_arg(slang_State *S, int idx, size_t *len) {
     size_t n = 0;
-    const char *s = slang_checklstring(S, idx, &n);
+    const char *s = slang_checkbytes(S, idx, &n);
     if (s == NULL) return NULL;
     char *d = malloc(n + 1);
     memcpy(d, s, n);

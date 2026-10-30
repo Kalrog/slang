@@ -45,7 +45,8 @@ local func header_has(value, token){
 }
 
 func ws.is_upgrade(req){
-  return header_has(req.headers["upgrade"], "websocket") and header_has(req.headers["connection"], "upgrade")
+  return header_has(req.headers["upgrade"], "websocket") and
+    header_has(req.headers["connection"], "upgrade")
 }
 
 // ------------------------------------------------------------ frames
@@ -104,8 +105,10 @@ local func new_socket(conn, rest, client, options){
   options = options or {}
   local c = async.controller(null)
   local closed = async.completer()
-  local s = {conn: conn, client: client, messages: c.stream, closed: closed.future, state: "open",
-             max_message: options.max_message or 16 * 1024 * 1024}
+  local s = {
+    conn: conn, client: client, messages: c.stream, closed: closed.future,
+    state: "open", max_message: options.max_message or 16 * 1024 * 1024,
+  }
   s.meta = socket_meta
 
   local func write(data){
@@ -128,7 +131,14 @@ local func new_socket(conn, rest, client, options){
   local func fail(code, reason){
     if(s.state == "open"){
       s.state = "closing"
-      write(frame(OP_CLOSE, close_payload(code, reason), client)):then(func(_){ finish(code, reason) }, func(_){ finish(code, reason) })
+      write(frame(OP_CLOSE, close_payload(code, reason), client)):then(
+        func(_){
+          finish(code, reason)
+        },
+        func(_){
+          finish(code, reason)
+        }
+      )
     } else {
       finish(code, reason)
     }
@@ -174,7 +184,8 @@ local func new_socket(conn, rest, client, options){
           need = header
           if(avail >= header){
             if(length == 126){
-              length = (str.byte_at(buf, at + 2) << 8) | str.byte_at(buf, at + 3)
+              length = (str.byte_at(buf, at + 2) << 8) |
+                str.byte_at(buf, at + 3)
             } else if(length == 127){
               length = 0
               for(local i = 0; i < 8; i = i + 1){
@@ -215,12 +226,19 @@ local func new_socket(conn, rest, client, options){
             return null
           }
           if(masked == client){
-            fail(1002, client and "a masked frame from the server" or "an unmasked frame from the client")
+            fail(
+              1002,
+              client and "a masked frame from the server" or
+                "an unmasked frame from the client"
+            )
             return null
           }
           local payload = str.substring(buf, at + header, at + header + length)
           if(masked){
-            payload = encoding.mask(payload, str.substring(buf, at + header - 4, at + header))
+            payload = encoding.mask(
+              payload,
+              str.substring(buf, at + header - 4, at + header)
+            )
           }
           at = at + header + length
           if(op >= 8){
@@ -243,7 +261,10 @@ local func new_socket(conn, rest, client, options){
                 // answer the close, then end
                 s.state = "closing"
                 local answer = code == 1005 and "" or close_payload(code, "")
-                local w = pcall(async.await, write(frame(OP_CLOSE, answer, client)))
+                local w = pcall(
+                  async.await,
+                  write(frame(OP_CLOSE, answer, client))
+                )
               }
               finish(code, reason)
               return null
@@ -346,13 +367,23 @@ func socket_methods.close(s, code, reason){
 
 func ws.accept(req, conn, rest, options){
   local key = req.headers["sec-websocket-key"]
-  if(not ws.is_upgrade(req) or key == null or req.headers["sec-websocket-version"] != "13" or req.method != "GET"){
-    require("slang/http").write_response(conn, req, {status: 400, body: "a WebSocket handshake was expected\n",
-                                                     headers: {["Sec-WebSocket-Version"]: "13"}})
+  if(not ws.is_upgrade(req) or key == null or
+    req.headers["sec-websocket-version"] != "13" or req.method != "GET"){
+    require(
+      "slang/http"
+    ).write_response(conn, req, {
+      status: 400,
+      body: "a WebSocket handshake was expected\n",
+      headers: {["Sec-WebSocket-Version"]: "13"},
+    })
     error("ws: not a WebSocket handshake")
   }
-  async.write(conn, concat("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n",
-                           "Sec-WebSocket-Accept: ", accept_key(key), "\r\n\r\n"))
+  async.write(conn, concat(
+    "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n",
+    "Sec-WebSocket-Accept: ",
+    accept_key(key),
+    "\r\n\r\n"
+  ))
   return new_socket(conn, rest, false, options)
 }
 
@@ -360,9 +391,11 @@ func ws.connect(host, port, path, options){
   return async.run(func(){
     local conn = async.await(async.connect(host, port))
     local key = encoding.base64_encode(crypto().random_bytes(16))
-    async.await(async.write(conn, concat("GET ", path or "/", " HTTP/1.1\r\nHost: ", host, ":", string(port),
-      "\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: ", key,
-      "\r\nSec-WebSocket-Version: 13\r\n\r\n")))
+    async.await(async.write(conn, concat(
+      "GET ", path or "/", " HTTP/1.1\r\nHost: ", host, ":", string(port),
+      "\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: ",
+      key, "\r\nSec-WebSocket-Version: 13\r\n\r\n"
+    )))
     local p = require("llhttp").parser("response", null)
     local reader = async.reader(conn)
     local head = null
@@ -381,11 +414,14 @@ func ws.connect(host, port, path, options){
           error("ws: a malformed handshake answer: ", ev.reason)
         } else if(ev.type == "done" and head != null and head.status != 101){
           conn:close()
-          error("ws: the server answered ", string(head.status), " instead of 101")
+          error(
+            "ws: the server answered ", string(head.status), " instead of 101"
+          )
         }
       }
     }
-    if(head.status != 101 or head.headers["sec-websocket-accept"] != accept_key(key)){
+    if(head.status != 101 or
+      head.headers["sec-websocket-accept"] != accept_key(key)){
       conn:close()
       error("ws: the server did not accept the WebSocket handshake")
     }

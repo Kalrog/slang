@@ -112,11 +112,15 @@ local func explain_unit(origin, unit){
   explain(line)
   for(let local r in values(unit:rules())){
     if(len(r.history) > 0){
-      explain("  rule ", r.name, ": ", r.owner, " -> ", str.join(r.history, " -> "))
+      explain(
+        "  rule ", r.name, ": ", r.owner, " -> ", str.join(r.history, " -> ")
+      )
     }
   }
   for(let local m in values(unit.memos or {})){
-    explain("  memoized ", m.name, " (leads several alternatives of one choice)")
+    explain(
+      "  memoized ", m.name, " (leads several alternatives of one choice)"
+    )
   }
 }
 
@@ -124,8 +128,14 @@ local func new_grammar(){
   peg.reset_refs()
   // warn and explain check compiler.explain when they are called, so that
   // `slang run --explain` can turn them on after boot
-  local opts = {run_block: run_block, run_extension: run_extension, optimize: optimizer.optimize,
-                warn: warn, explain: explain_unit, memoize: os.getenv("SLANG_NO_MEMO") == null}
+  local opts = {
+    run_block: run_block,
+    run_extension: run_extension,
+    optimize: optimizer.optimize,
+    warn: warn,
+    explain: explain_unit,
+    memoize: os.getenv("SLANG_NO_MEMO") == null,
+  }
   return grammar.new(opts)
 }
 
@@ -140,7 +150,9 @@ func compiler.grammar(){
 // reset(): a fresh root grammar, no project
 func compiler.reset(){
   if(not root:changes_allowed()){
-    error("the grammar can only be reset at run time or from an extension statement")
+    error(
+      "the grammar can only be reset at run time or from an extension statement"
+    )
   }
   root = new_grammar()
   project = null
@@ -271,8 +283,10 @@ func compiler.load_project(path){
     error(path, ": a project file must be a table literal")
   }
   local dir = dirname(path)
-  project = {path: path, dir: dir, source: source, extensions: p.extensions or {},
-             dialects: p.dialects or {}, warnings: p.warnings, key: ""}
+  project = {
+    path: path, dir: dir, source: source, extensions: p.extensions or {},
+    dialects: p.dialects or {}, warnings: p.warnings, key: "",
+  }
   project_searched = true
   // modules resolve relative to the project file first
   local paths = {dir}
@@ -296,10 +310,15 @@ func compiler.load_project(path){
     if(e[1].compile != null){
       explain("  dialect ", e[0], ": compile with ", e[1].compile)
     } else {
-      explain("  dialect ", e[0], ": extensions ", str.join(e[1].extensions or {}, " "))
+      explain(
+        "  dialect ", e[0], ": extensions ",
+        str.join(e[1].extensions or {}, " ")
+      )
     }
   }
-  project.key = apply_layer(root, project.extensions, concat(path, "\n", source))
+  project.key = apply_layer(
+    root, project.extensions, concat(path, "\n", source)
+  )
   return project
 }
 
@@ -317,7 +336,9 @@ local func dialect_grammar(suffix){
   local d = project.dialects[suffix]
   dg = root:derive()
   dg.dialect = suffix
-  dg.cache_key = apply_layer(dg, d.extensions or {}, concat(project.key, "\n", suffix))
+  dg.cache_key = apply_layer(
+    dg, d.extensions or {}, concat(project.key, "\n", suffix)
+  )
   dialect_grammars[suffix] = dg
   return dg
 }
@@ -388,7 +409,11 @@ func compiler.load_file(path, origin){
     local m = require(dialect.spec.compile)
     local f = m.compile(source, origin)
     if(type(f) != "function"){
-      error("the compile function of dialect ", dialect.suffix, " must return a function")
+      error(
+        "the compile function of dialect ",
+        dialect.suffix,
+        " must return a function"
+      )
     }
     return f
   }
@@ -404,7 +429,11 @@ func compiler.load_file(path, origin){
       if(key == null and project != null){
         key = project.key
       }
-      cache_path = concat(dir, "/", str.hash(concat(origin, "\n", path, "\n", key or "", "\n", build_id)), "-", str.hash(source), ".slb")
+      cache_path = concat(
+        dir, "/",
+        str.hash(concat(origin, "\n", path, "\n", key or "", "\n", build_id)),
+        "-", str.hash(source), ".slb"
+      )
       if(os.exists(cache_path)){
         return vm.load_bytecode(cache_path)
       }
@@ -491,17 +520,23 @@ func compiler.highlight(source, path, options){
     return pos - shift
   }
   local lin = root.state
-  local r = pcall(g.parse_source, g, concat(prefix, source), path, {record: true})
+  local r = pcall(g.parse_source, g, concat(prefix, source), path, {
+    record: true,
+  })
   local diagnostics = {}
   if(r[0] == "err"){
     local e = r[1]
     local f = lin.last_failure
     if(f != null){
       local lc = str.line_col(source, position(f.far_pos))
-      append(diagnostics, {line: lc[0], column: lc[1], message: f.far_message, severity: "error"})
+      append(diagnostics, {
+        line: lc[0], column: lc[1], message: f.far_message, severity: "error",
+      })
       if(f.far_pos != f.pos){
         local at = str.line_col(source, position(f.pos))
-        append(diagnostics, {line: at[0], column: at[1], message: f.message, severity: "error"})
+        append(diagnostics, {
+          line: at[0], column: at[1], message: f.message, severity: "error",
+        })
       }
     } else {
       // an error raised by compile-time code: reported at the statement being parsed
@@ -510,10 +545,15 @@ func compiler.highlight(source, path, options){
       if(type(e) == "table"){
         message = e.message
         if(e.location != null){
-          message = concat(message, " (at ", e.location.origin, ":", e.location.line, ":", e.location.column, ")")
+          message = concat(
+            message, " (at ", e.location.origin, ":", e.location.line, ":",
+            e.location.column, ")"
+          )
         }
       }
-      append(diagnostics, {line: lc[0], column: lc[1], message: message, severity: "error"})
+      append(diagnostics, {
+        line: lc[0], column: lc[1], message: message, severity: "error",
+      })
     }
     lin.last_failure = null
   }
@@ -524,7 +564,10 @@ func compiler.highlight(source, path, options){
     for(let local t in values(tokens)){
       if(t.start >= shift){
         local lc = str.line_col(source, t.start - shift)
-        append(shifted, {category: t.category, start: t.start - shift, stop: t.stop - shift, line: lc[0], column: lc[1], length: t.length})
+        append(shifted, {
+          category: t.category, start: t.start - shift, stop: t.stop - shift,
+          line: lc[0], column: lc[1], length: t.length,
+        })
       }
     }
     tokens = shifted
@@ -617,7 +660,10 @@ func compiler.highlight_json(path){
   local r = compiler.highlight_file(path)
   local out = {tokens: json.array({}), diagnostics: json.array({})}
   for(let local t in values(r.tokens)){
-    append(out.tokens, {line: t.line, column: t.column, length: t.length, start: t.start, category: t.category})
+    append(out.tokens, {
+      line: t.line, column: t.column, length: t.length, start: t.start,
+      category: t.category,
+    })
   }
   for(let local d in values(r.diagnostics)){
     append(out.diagnostics, d)

@@ -4,7 +4,13 @@ local str = require("slang/string")
 local compiler = require("slang/compiler")
 
 local func run(source, origin){
-  return compile(concat("extension \"examples/functional/pipe\"\nextension \"examples/functional/holes\"\nextension \"examples/functional/def\"\n", source), origin or "functional")()
+  return compile(
+    concat(
+      "extension \"examples/functional/pipe\"\nextension \"examples/functional/holes\"\nextension \"examples/functional/def\"\n",
+      source
+    ),
+    origin or "functional"
+  )()
 }
 
 t.group("pipe operator"){
@@ -42,7 +48,10 @@ t.group("holes"){
       }
     """)
     assert(r[0] == {6, 7, 8}, concat("map ", r[0]))
-    assert(len(r[1]) == 3 and r[1][2] == 3 and r[1][4] == 5, concat("filter keeps keys: ", r[1]))
+    assert(
+      len(r[1]) == 3 and r[1][2] == 3 and r[1][4] == 5,
+      concat("filter keeps keys: ", r[1])
+    )
     assert(r[2] == 6, "fold with two holes")
     assert(r[3] == {"a", "b"}, "field access on a hole")
     assert(r[4] == {1, 2}, "a lone hole is the identity")
@@ -86,10 +95,19 @@ t.group("holes"){
     assert(r == 7)
   }
   t.test("holes are highlighted as parameters"){
-    local h = compiler.highlight("extension \"examples/functional/holes\"\nlocal f = => _ + _2\n", "holes.slang")
+    local h = compiler.highlight(
+      "extension \"examples/functional/holes\"\nlocal f = => _ + _2\n",
+      "holes.slang"
+    )
     local cats = {}
     for(let local tk in values(h.tokens)){ append(cats, tk.category) }
-    assert(str.index_of(str.join(cats, " "), "operator parameter operator parameter") >= 0, str.join(cats, " "))
+    assert(
+      str.index_of(
+        str.join(cats, " "),
+        "operator parameter operator parameter"
+      ) >= 0,
+      str.join(cats, " ")
+    )
     assert(len(h.diagnostics) == 0)
   }
 }
@@ -109,7 +127,10 @@ t.group("def"){
       def pair(a){ return {a} }
       return {fact(5), area(Circle), area({4, 5}), area("x"), greet("de", "welt"), pair(1), pair(1, 2)}
     """)
-    assert(r[0] == 120 and r[1] == 12 and r[2] == 20 and r[3] == "other", concat("results ", r))
+    assert(
+      r[0] == 120 and r[1] == 12 and r[2] == 20 and r[3] == "other",
+      concat("results ", r)
+    )
     assert(r[4] == "hallo welt" and r[5] == {1} and r[6] == {1, 2})
   }
   t.test("no matching clause is an error that names the function"){

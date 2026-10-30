@@ -18,47 +18,78 @@ local func fresh(){
 t.group("sqlite binding"){
   t.test("statements bind, step and read rows"){
     local db = native.open(":memory:")
-    db:exec("create table t(id integer primary key, name text, score real, ok boolean, data blob)")
-    local ins = db:prepare("insert into t(name, score, ok, data) values (?, ?, ?, ?)")
+    db:exec(
+      "create table t(id integer primary key, name text, score real, ok boolean, data blob)"
+    )
+    local ins = db:prepare(
+      "insert into t(name, score, ok, data) values (?, ?, ?, ?)"
+    )
     ins:bind_all({"ada", 1.5, true, "bytes"})
     assert(ins:step() == false)
     assert(db:last_insert_rowid() == 1 and db:changes() == 1)
     ins:reset():bind(1, null):bind(2, 2):bind(3, false):bind(4, null)
     assert(ins:step() == false)
     local q = db:prepare("select * from t order by id")
-    assert(q:columns() == {"id", "name", "score", "ok", "data"}, concat("columns ", q:columns()))
+    assert(
+      q:columns() == {"id", "name", "score", "ok", "data"},
+      concat("columns ", q:columns())
+    )
     assert(q:step() == true)
-    assert(q:row() == {id: 1, name: "ada", score: 1.5, ok: true, data: "bytes"}, concat("row ", q:row()))
-    assert(q:values() == {1, "ada", 1.5, true, "bytes"}, concat("values ", q:values()))
+    assert(
+      q:row() == {id: 1, name: "ada", score: 1.5, ok: true, data: "bytes"},
+      concat("row ", q:row())
+    )
+    assert(
+      q:values() == {1, "ada", 1.5, true, "bytes"},
+      concat("values ", q:values())
+    )
     assert(q:step() == true)
     // nulls are absent from the row; an int bound to a real column comes back as a double
     assert(q:row() == {id: 2, score: 2.0, ok: false}, concat("row ", q:row()))
     assert(q:step() == false)
     assert(q:parameter_count() == 0 and ins:parameter_count() == 4)
     local bad = pcall(func(){ return ins:bind_all({1}) })
-    assert(bad[0] == "err" and str.index_of(bad[1].message or bad[1], "4 parameter(s) expected, 1 given") >= 0)
+    assert(bad[0] == "err" and str.index_of(
+        bad[1].message or bad[1],
+        "4 parameter(s) expected, 1 given"
+      ) >= 0)
     local bad2 = pcall(func(){ return ins:bind(1, {}) })
-    assert(bad2[0] == "err" and str.index_of(bad2[1].message or bad2[1], "cannot bind a table") >= 0)
+    assert(bad2[0] == "err" and str.index_of(
+        bad2[1].message or bad2[1],
+        "cannot bind a table"
+      ) >= 0)
     assert(type(db) == "sqlite.db" and type(q) == "sqlite.stmt")
   }
   t.test("errors name the problem, closing is safe in any order"){
     local db = native.open(":memory:")
     local r = pcall(func(){ return db:prepare("selec 1") })
-    assert(r[0] == "err" and str.index_of(r[1].message or r[1], "syntax error") >= 0, r[1].message or r[1])
+    assert(
+      r[0] == "err" and str.index_of(r[1].message or r[1], "syntax error") >= 0,
+      r[1].message or r[1]
+    )
     db:exec("create table t(x integer unique)")
     local ins = db:prepare("insert into t values (?)")
     ins:bind(1, 1)
     assert(ins:step() == false)
     ins:reset():bind(1, 1)
     local dup = pcall(func(){ return ins:step() })
-    assert(dup[0] == "err" and str.index_of(dup[1].message or dup[1], "UNIQUE constraint failed") >= 0)
+    assert(dup[0] == "err" and str.index_of(
+        dup[1].message or dup[1],
+        "UNIQUE constraint failed"
+      ) >= 0)
     local q = db:prepare("select x from t")
     db:close()
     assert(db:is_open() == false)
     local gone = pcall(func(){ return q:step() })
-    assert(gone[0] == "err" and str.index_of(gone[1].message or gone[1], "finalized") >= 0)
+    assert(gone[0] == "err" and str.index_of(
+        gone[1].message or gone[1],
+        "finalized"
+      ) >= 0)
     local closed = pcall(func(){ return db:exec("select 1") })
-    assert(closed[0] == "err" and str.index_of(closed[1].message or closed[1], "closed") >= 0)
+    assert(closed[0] == "err" and str.index_of(
+        closed[1].message or closed[1],
+        "closed"
+      ) >= 0)
     // a statement outlives the reference to its database
     local func orphan(){
       local db3 = native.open(":memory:")
@@ -82,51 +113,90 @@ t.group("slang/sqlite"){
     local db = fresh()
     local r = db:run(sql{ insert into todos(text) values ({"four"}) })
     assert(r == {changes: 1, last_id: 4}, concat("run ", r))
-    local rows = db:all(sql{ select id, text, done from todos where done = {false} order by id })
-    assert(len(rows) == 3 and rows[0] == {id: 1, text: "one", done: false} and rows[2].text == "four", concat("rows ", rows))
-    assert(db:one(sql{ select text from todos where id = {2} }) == {text: "two"})
+    local rows = db:all(
+      sql{ select id, text, done from todos where done = {false} order by id }
+    )
+    assert(
+      len(rows) == 3 and rows[0] == {id: 1, text: "one", done: false} and
+        rows[2].text == "four",
+      concat("rows ", rows)
+    )
+    assert(db:one(sql{ select text from todos where id = {2} }) == {
+        text: "two",
+      })
     assert(db:one(sql{ select text from todos where id = {99} }) == null)
     local seen = {}
-    for(let {id: local id, text: local text} in db:each(sql{ select id, text from todos order by id })){
+    for(let {id: local id, text: local text} in db:each(
+      sql{ select id, text from todos order by id }
+    )){
       append(seen, concat(string(id), "=", text))
     }
-    assert(str.join(seen, " ") == "1=one 2=two 3=three 4=four", str.join(seen, " "))
+    assert(
+      str.join(seen, " ") == "1=one 2=two 3=three 4=four",
+      str.join(seen, " ")
+    )
     assert(db:one(sql{ select count(*) as n from todos }).n == 4)
   }
   t.test("lists, fragments and plain text queries"){
     local db = fresh()
     local ids = {1, 3}
-    assert(db:all(sql{ select id from todos where id in ({...ids}) order by id }) == {{id: 1}, {id: 3}})
+    assert(
+      db:all(sql{ select id from todos where id in ({...ids}) order by id }) ==
+        {{id: 1}, {id: 3}}
+    )
     assert(db:all(sql{ select id from todos where id in ({...{}}) }) == {})
     local done = true
     local where = sql{ where done = {done} }
     assert(db:all(sql{ select text from todos {where} }) == {{text: "two"}})
-    assert(db:all(sql{ select text from todos {sql{}} order by id desc limit {1} }) == {{text: "three"}})
+    assert(
+      db:all(
+        sql{ select text from todos {sql{}} order by id desc limit {1} }
+      ) == {{text: "three"}}
+    )
     local nested = sql{ select text from todos where id in ({...ids}) {sql{ and done = {false} }} order by id }
-    assert(nested.text == "select text from todos where id in (?, ?) and done = ? order by id", nested.text)
+    assert(
+      nested.text ==
+        "select text from todos where id in (?, ?) and done = ? order by id",
+      nested.text
+    )
     assert(nested.params == {1, 3, false})
     assert(string(where) == "sql{ where done = ? }")
-    assert(db:all("select text from todos where id > ? order by id", {1}) == {{text: "two"}, {text: "three"}})
+    assert(db:all("select text from todos where id > ? order by id", {1}) == {
+        {text: "two"}, {text: "three"},
+      })
     assert(db:one("select 1 + 1 as two").two == 2)
   }
-  t.test("errors locate the literal, transactions roll back, the cache is bounded"){
+  t.test(
+    "errors locate the literal, transactions roll back, the cache is bounded"
+  ){
     local db = fresh()
     local r = pcall(func(){ return db:all(sql{ select missing from todos }) })
     assert(r[0] == "err")
     local msg = r[1].message or r[1]
-    assert(str.index_of(msg, "no such column: missing") >= 0 and str.index_of(msg, "(at zig/test/sqlite_test.slang:") >= 0, msg)
+    assert(
+      str.index_of(msg, "no such column: missing") >= 0 and
+        str.index_of(msg, "(at zig/test/sqlite_test.slang:") >= 0,
+      msg
+    )
     local bad = pcall(func(){ return db:all("select ? as a", {1, 2}) })
-    assert(bad[0] == "err" and str.index_of(bad[1].message or bad[1], "has 1 ? for 2 value(s)") >= 0)
+    assert(bad[0] == "err" and str.index_of(
+        bad[1].message or bad[1],
+        "has 1 ? for 2 value(s)"
+      ) >= 0)
     local tx = pcall(db.transaction, db, func(){
       db:run(sql{ insert into todos(text) values ({"temp"}) })
       error("boom")
     })
-    assert(tx[0] == "err" and db:one(sql{ select count(*) as n from todos }).n == 3)
+    assert(tx[0] == "err" and db:one(
+        sql{ select count(*) as n from todos }
+      ).n == 3)
     local ok = db:transaction(func(){
       db:run(sql{ insert into todos(text) values ({"kept"}) })
       return "done"
     })
-    assert(ok == "done" and db:one(sql{ select count(*) as n from todos }).n == 4)
+    assert(ok == "done" and db:one(
+        sql{ select count(*) as n from todos }
+      ).n == 4)
     for(local i = 0; i < 70; i = i + 1){
       db:one(concat("select ", i, " as n"))
     }
@@ -142,9 +212,16 @@ t.group("sql literals"){
       /* and another */ from t
       where a = {1} and b = {"s"}
     }
-    assert(q.text == "select 'it''s', \"x\" from t where a = ? and b = ?", q.text)
+    assert(
+      q.text == "select 'it''s', \"x\" from t where a = ? and b = ?",
+      q.text
+    )
     assert(q.params == {1, "s"})
-    assert(str.index_of(q.origin, "sqlite_test") >= 0 and to_int(str.substring(q.origin, str.index_of(q.origin, ":") + 1)) > 90, q.origin)
+    assert(
+      str.index_of(q.origin, "sqlite_test") >= 0 and
+        to_int(str.substring(q.origin, str.index_of(q.origin, ":") + 1)) > 90,
+      q.origin
+    )
     assert(type(sql{}) == "sqlite.query" and sql{}.text == "")
   }
   t.test("literals without values are unit locals, highlighted as SQL"){
@@ -152,15 +229,33 @@ t.group("sql literals"){
     local out = compiler.expand(src, "q.slang")
     local lines = str.split(str.trim(out), "\n")
     assert(lines[0] == "local a = 1", lines[0])
-    assert(lines[1] == "local __slang_sqlite = require(\"slang/sqlite\")", lines[1])
+    assert(
+      lines[1] == "local __slang_sqlite = require(\"slang/sqlite\")",
+      lines[1]
+    )
     assert(str.starts_with(lines[2], "local __sql_"), lines[2])
-    assert(str.index_of(out, ".query(\"select id from t where x = 'y'\", null, \"q.slang:3\")") >= 0, out)
-    assert(str.index_of(out, ".query(\"select ?\", {a}, \"q.slang:4\", 1)") >= 0, out)
+    assert(
+      str.index_of(
+        out,
+        ".query(\"select id from t where x = 'y'\", null, \"q.slang:3\")"
+      ) >= 0,
+      out
+    )
+    assert(
+      str.index_of(out, ".query(\"select ?\", {a}, \"q.slang:4\", 1)") >= 0,
+      out
+    )
     local h = compiler.highlight(src, "q.slang")
     local cats = {}
     for(let local tk in values(h.tokens)){ append(cats, tk.category) }
     local joined = str.join(cats, " ")
-    assert(str.index_of(joined, "keyword punctuation keyword keyword keyword string punctuation") >= 0, joined)
+    assert(
+      str.index_of(
+        joined,
+        "keyword punctuation keyword keyword keyword string punctuation"
+      ) >= 0,
+      joined
+    )
     assert(len(h.diagnostics) == 0)
   }
 }
@@ -171,22 +266,44 @@ t.group("sqlite on the thread pool"){
   t.test("all_async, one_async and run_async are futures"){
     local db = fresh()
     async.main(func(){
-      local rows = await(db:all_async(sql{ select id, text, done from todos where id > {1} order by id }))
+      local rows = await(db:all_async(
+        sql{ select id, text, done from todos where id > {1} order by id }
+      ))
       assert(len(rows) == 2 and rows[0].text == "two" and rows[0].done == true)
-      assert(await(db:one_async(sql{ select text from todos where id = {3} })).text == "three")
-      assert(await(db:one_async(sql{ select text from todos where id = {99} })) == null)
-      local r = await(db:run_async(sql{ insert into todos(text) values ({"four"}) }))
+      assert(await(
+        db:one_async(sql{ select text from todos where id = {3} })
+      ).text == "three")
+      assert(await(
+        db:one_async(sql{ select text from todos where id = {99} })
+      ) == null)
+      local r = await(db:run_async(
+        sql{ insert into todos(text) values ({"four"}) }
+      ))
       assert(r.changes == 1 and r.last_id == 4)
-      assert(db:one(sql{ select count(*) as n from todos }).n == 4, "sync and async share the database")
+      assert(
+        db:one(sql{ select count(*) as n from todos }).n == 4,
+        "sync and async share the database"
+      )
     })
   }
   t.test("errors fail the future and carry the location"){
     local db = fresh()
     async.main(func(){
       local r = pcall(await, db:all_async(sql{ select missing from todos }))
-      assert(r[0] == "err" and str.starts_with(r[1].message, "sqlite: no such column: missing (at "), r[1].message)
-      local c = pcall(await, db:run_async(sql{ insert into todos(text) values ({null}) }))
-      assert(c[0] == "err" and str.index_of(c[1].message, "NOT NULL") >= 0, c[1].message)
+      assert(
+        r[0] == "err" and str.starts_with(
+          r[1].message,
+          "sqlite: no such column: missing (at "
+        ),
+        r[1].message
+      )
+      local c = pcall(await, db:run_async(
+        sql{ insert into todos(text) values ({null}) }
+      ))
+      assert(
+        c[0] == "err" and str.index_of(c[1].message, "NOT NULL") >= 0,
+        c[1].message
+      )
     })
   }
   t.test("the loop runs while a query does"){
@@ -203,13 +320,18 @@ t.group("sqlite on the thread pool"){
     })
     assert(ticks > 3, concat("ticks ", string(ticks)))
   }
-  t.test("a busy statement is not reused or touched; the database waits for it"){
+  t.test(
+    "a busy statement is not reused or touched; the database waits for it"
+  ){
     local db = fresh()
     async.main(func(){
       local q = sql{ select count(*) as n from todos }
       local f1 = db:one_async(q)
       local f2 = db:one_async(q)
-      assert(await(f1).n == 3 and await(f2).n == 3, "the second query got its own statement")
+      assert(
+        await(f1).n == 3 and await(f2).n == 3,
+        "the second query got its own statement"
+      )
     })
     local raw = native.open(":memory:")
     local st = raw:prepare("select 1")
@@ -217,9 +339,17 @@ t.group("sqlite on the thread pool"){
     st:run_async(func(err, r){ seen = r.rows[0]["1"] })
     assert(st:is_busy())
     local touched = pcall(func(){ st:step() })
-    assert(touched[0] == "err" and touched[1].message == "sqlite: the statement is in use by a query that has not finished")
+    assert(
+      touched[0] == "err" and
+        touched[1].message ==
+          "sqlite: the statement is in use by a query that has not finished"
+    )
     local closed = pcall(func(){ raw:close() })
-    assert(closed[0] == "err" and closed[1].message == "sqlite: cannot close the database while queries are running")
+    assert(
+      closed[0] == "err" and
+        closed[1].message ==
+          "sqlite: cannot close the database while queries are running"
+    )
     require("uv").run()
     assert(seen == 1 and not st:is_busy())
     raw:close()
@@ -239,14 +369,18 @@ t.group("sql literal values"){
   t.test("a null value binds as NULL and keeps the values after it"){
     local db = fresh()
     local nothing = null
-    local row = db:one(sql{ select {nothing} as a, {2} as b, {nothing} as c, {"d"} as d })
+    local row = db:one(
+      sql{ select {nothing} as a, {2} as b, {nothing} as c, {"d"} as d }
+    )
     assert(row.a == null and row.b == 2 and row.c == null and row.d == "d")
     db:run(sql{ create table n(x, y) })
     db:run(sql{ insert into n(x, y) values ({nothing}, {"after"}) })
     assert(db:one(sql{ select y from n where x is {nothing} }).y == "after")
     local async = require("slang/async")
     async.main(func(){
-      local r = async.await(db:one_async(sql{ select {nothing} as a, {3} as b }))
+      local r = async.await(
+        db:one_async(sql{ select {nothing} as a, {3} as b })
+      )
       assert(r.a == null and r.b == 3)
     })
   }

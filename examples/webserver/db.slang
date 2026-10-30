@@ -50,7 +50,9 @@ for(let local column in values(db:all(sql{ pragma table_info(todos) }))){
   }
 }
 if(not has_owner){
-  db:exec(sql{ alter table todos add column user_id integer references users(id) })
+  db:exec(
+    sql{ alter table todos add column user_id integer references users(id) }
+  )
 }
 
 return db

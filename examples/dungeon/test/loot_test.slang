@@ -17,7 +17,10 @@ loot test_goblin {
 t.group("loot DSL"){
   t.test("one roll picks one entry by cumulative chance"){
     local r = loot_api.roll("test_goblin", 10)
-    assert(r.item == "coins" and r.args[0] == 1 and r.args[1] == 3, "coins with args")
+    assert(
+      r.item == "coins" and r.args[0] == 1 and r.args[1] == 3,
+      "coins with args"
+    )
     assert(loot_api.roll("test_goblin", 49.9).item == "coins", "edge of coins")
     assert(loot_api.roll("test_goblin", 50).item == "potion", "potion")
     assert(loot_api.roll("test_goblin", 74).item == "sword", "sword")
@@ -26,9 +29,17 @@ t.group("loot DSL"){
     assert(loot_api.roll("test_goblin") == null or true, "random roll works")
   }
   t.test("chances over 100% are compile errors"){
-    local r = pcall(compile, snippet("loot bad {\n 60% a\n 50% b\n}"), "too much")
-    assert(r[0] == "err" and str.index_of(r[1].message, "110%") >= 0, r[1].message)
+    local r = pcall(
+      compile, snippet("loot bad {\n 60% a\n 50% b\n}"), "too much"
+    )
+    assert(
+      r[0] == "err" and str.index_of(r[1].message, "110%") >= 0,
+      r[1].message
+    )
     r = pcall(compile, snippet("loot bad {\n 0% a\n}"), "zero")
-    assert(r[0] == "err" and str.index_of(r[1].message, "chance of 0%") >= 0, r[1].message)
+    assert(
+      r[0] == "err" and str.index_of(r[1].message, "chance of 0%") >= 0,
+      r[1].message
+    )
   }
 }

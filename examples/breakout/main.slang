@@ -21,7 +21,10 @@ local colors = {
   ball: {255, 210, 80},
   text: {200, 200, 210},
   dim: {120, 120, 140},
-  rows: {{232, 80, 90}, {240, 150, 60}, {240, 220, 80}, {110, 210, 120}, {90, 160, 240}, {170, 110, 230}},
+  rows: {
+    {232, 80, 90}, {240, 150, 60}, {240, 220, 80}, {110, 210, 120},
+    {90, 160, 240}, {170, 110, 230},
+  },
 }
 
 local game = {}
@@ -50,7 +53,10 @@ local func new_bricks(){
 }
 
 local func reset_ball(){
-  game.ball = {x: game.paddle.x + game.paddle.w / 2, y: game.paddle.y - 12, r: 8, vx: 0, vy: 0, launched: false}
+  game.ball = {
+    x: game.paddle.x + game.paddle.w / 2, y: game.paddle.y - 12, r: 8, vx: 0,
+    vy: 0, launched: false,
+  }
 }
 
 local func new_game(){
@@ -58,12 +64,12 @@ local func new_game(){
   game.bricks = new_bricks()
   game.score = 0
   game.lives = 3
-  game.state = "playing"   // playing, won, lost
+  game.state = "playing" // playing, won, lost
   reset_ball()
 }
 
 local func launch(){
-  local angle = math.random(-0.6, 0.6)
+  local angle = math.random(- 0.6, 0.6)
   local speed = 380
   game.ball.vx = speed * math.sin(angle)
   game.ball.vy = -speed * math.cos(angle)
@@ -92,10 +98,14 @@ local func update_paddle(dt){
   local dir = 0
   if(autoplay){
     local center = p.x + p.w / 2
-    if(game.ball.x < center - 4){ dir = -1 } else if(game.ball.x > center + 4){ dir = 1 }
+    if(game.ball.x < center - 4){
+      dir = - 1
+    } else if(game.ball.x > center + 4){ dir = 1 }
   } else {
     if(rl.is_key_down(rl.KEY_LEFT) or rl.is_key_down(rl.KEY_A)){ dir = dir - 1 }
-    if(rl.is_key_down(rl.KEY_RIGHT) or rl.is_key_down(rl.KEY_D)){ dir = dir + 1 }
+    if(rl.is_key_down(rl.KEY_RIGHT) or rl.is_key_down(rl.KEY_D)){
+      dir = dir + 1
+    }
   }
   p.x = clamp(p.x + dir * p.speed * dt, 0, width - p.w)
   if(not game.ball.launched){
@@ -111,9 +121,18 @@ local func update_ball(dt){
   b.y = b.y + b.vy * dt
 
   // walls
-  if(b.x - b.r < 0){ b.x = b.r; b.vx = -b.vx }
-  if(b.x + b.r > width){ b.x = width - b.r; b.vx = -b.vx }
-  if(b.y - b.r < 0){ b.y = b.r; b.vy = -b.vy }
+  if(b.x - b.r < 0){
+    b.x = b.r
+    b.vx = -b.vx
+  }
+  if(b.x + b.r > width){
+    b.x = width - b.r
+    b.vx = -b.vx
+  }
+  if(b.y - b.r < 0){
+    b.y = b.r
+    b.vy = -b.vy
+  }
 
   // paddle: the hit position steers the ball
   local p = game.paddle
@@ -132,16 +151,30 @@ local func update_ball(dt){
       brick.alive = false
       game.score = game.score + brick.points
       // bounce on the side that was crossed
-      local overlap_x = math.min(b.x + b.r - brick.x, brick.x + brick.w - (b.x - b.r))
-      local overlap_y = math.min(b.y + b.r - brick.y, brick.y + brick.h - (b.y - b.r))
-      if(overlap_x < overlap_y){ b.vx = -b.vx } else { b.vy = -b.vy }
+      local overlap_x = math.min(
+        b.x + b.r - brick.x,
+        brick.x + brick.w - (b.x - b.r)
+      )
+      local overlap_y = math.min(
+        b.y + b.r - brick.y,
+        brick.y + brick.h - (b.y - b.r)
+      )
+      if(overlap_x < overlap_y){
+        b.vx = -b.vx
+      } else {
+        b.vy = -b.vy
+      }
       break
     }
   }
 
   if(b.y - b.r > height){
     game.lives = game.lives - 1
-    if(game.lives <= 0){ game.state = "lost" } else { reset_ball() }
+    if(game.lives <= 0){
+      game.state = "lost"
+    } else {
+      reset_ball()
+    }
   }
 }
 
@@ -179,7 +212,9 @@ local func draw(){
 
   rl.draw_text(concat("Score ", game.score), 16, 16, 24, colors.text)
   local lives = concat("Lives ", game.lives)
-  rl.draw_text(lives, width - 16 - rl.measure_text(lives, 24), 16, 24, colors.text)
+  rl.draw_text(
+    lives, width - 16 - rl.measure_text(lives, 24), 16, 24, colors.text
+  )
 
   if(game.state == "playing" and not game.ball.launched){
     text_centered("Space to launch", height / 2 + 40, 24, colors.dim)

@@ -2,8 +2,8 @@
 local m = {}
 
 func m.contains(t, value){
-  for (let local k in values(t)){
-    if (k == value){
+  for(let local k in values(t)){
+    if(k == value){
       return true
     }
   }
@@ -12,7 +12,7 @@ func m.contains(t, value){
 
 func m.map(t, f){
   local result = {}
-  for (let local k in keys(t)){
+  for(let local k in keys(t)){
     result[k] = f(t[k])
   }
   return result
@@ -20,8 +20,8 @@ func m.map(t, f){
 
 func m.filter(t, f){
   local result = {}
-  for (let local k in keys(t)){
-    if (f(t[k])){
+  for(let local k in keys(t)){
+    if(f(t[k])){
       result[k] = t[k]
     }
   }
@@ -30,7 +30,7 @@ func m.filter(t, f){
 
 func m.fold(t, init, f){
   local result = init
-  for (let local k in keys(t)){
+  for(let local k in keys(t)){
     result = f(result, t[k])
   }
   return result
@@ -42,7 +42,7 @@ func m.dequeue(t){
 
 func m.keys(t){
   local result = {}
-  for (let local k in keys(t)){
+  for(let local k in keys(t)){
     append(result, k)
   }
   return result

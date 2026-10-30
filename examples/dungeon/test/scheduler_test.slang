@@ -34,6 +34,9 @@ t.group("script DSL and scheduler"){
     scheduler.signal("other")
     assert(len(log) == 0, "other events do not wake it")
     scheduler.signal("door_opened")
-    assert(log[0] == "guard saw the door open", "woken with its arguments intact")
+    assert(
+      log[0] == "guard saw the door open",
+      "woken with its arguments intact"
+    )
   }
 }

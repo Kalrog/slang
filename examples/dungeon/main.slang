@@ -55,14 +55,16 @@ local func first_level(){
 }
 
 local func handle_dialogue(){
-  if(input.pressed("up")){ dlg.move(-1) }
+  if(input.pressed("up")){ dlg.move(- 1) }
   if(input.pressed("down")){ dlg.move(1) }
   if(input.pressed("confirm")){ dlg.confirm() }
 }
 
 local func handle_movement(p, dt){
   p.move_cooldown = (p.move_cooldown or 0) - dt
-  local dirs = {{"left", -1, 0}, {"right", 1, 0}, {"up", 0, -1}, {"down", 0, 1}}
+  local dirs = {
+    {"left", - 1, 0}, {"right", 1, 0}, {"up", 0, - 1}, {"down", 0, 1},
+  }
   for(let local d in values(dirs)){
     if(input.pressed(d[0])){
       world.move(p, d[1], d[2])
@@ -146,6 +148,9 @@ func draw(){
   if(game.state == "dead"){
     hud.draw_end("YOU DIED", "The mines keep their secrets.")
   } else if(game.state == "won"){
-    hud.draw_end("YOU WON", concat("You escaped with ", game.stats.coins, " gold."))
+    hud.draw_end(
+      "YOU WON",
+      concat("You escaped with ", game.stats.coins, " gold.")
+    )
   }
 }

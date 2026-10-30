@@ -6,10 +6,9 @@ extension{
     return {token: token, ast: +{42}}
   }))
 
-  g:expression():left(g:keyword("plus"),"add",func(left,op,right){
-    return {token: op, ast:+{-{left} + -{right}}}
+  g:expression():left(g:keyword("plus"), "add", func(left, op, right){
+    return {token: op, ast: +{-{left} + -{right}}}
   })
 }
-
 
 print(fortytwo plus 2, "\n")

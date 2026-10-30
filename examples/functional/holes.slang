@@ -25,7 +25,11 @@ local arrows = 0
 
 // `_` or `_<digits>`, not followed by an identifier character; an
 // Identifier node marked as a hole until a function claims it
-local hole_token = g:token(peg.seq(peg.char("_"), peg.digit():star(), peg.pattern("a-zA-Z0-9_"):forbid()), "hole", "parameter")
+local hole_token = g:token(
+  peg.seq(
+    peg.char("_"), peg.digit():star(), peg.pattern("a-zA-Z0-9_"):forbid()
+  ), "hole", "parameter"
+)
 g:expression():primary("hole", hole_token:map(func(t){
   local node = ast.node("Identifier", {value: t.value}, t)
   node.hole = true
@@ -43,7 +47,8 @@ local func hole_index(name){
 // a nested function's holes are its own
 local func collect(node, found){
   local t = type(node)
-  if(node == null or t == "string" or t == "int" or t == "double" or t == "bool" or t == "function" or t == "Function"){
+  if(node == null or t == "string" or t == "int" or t == "double" or
+    t == "bool" or t == "function" or t == "Function"){
     return null
   }
   if(node.hole == true){
@@ -77,7 +82,10 @@ local func lift(node, always){
   for(local i = 1; i <= n; i = i + 1){
     append(params, ast.node("Identifier", {value: concat("__", i)}, node.token))
   }
-  local body = ast.node("Block", {statements: {ast.node("Return", {value: node}, node.token)}}, node.token)
+  local body = ast.node(
+    "Block", {statements: {ast.node("Return", {value: node}, node.token)}},
+    node.token
+  )
   return ast.node("Function", {params: params, body: body}, node.token)
 }
 
@@ -100,7 +108,7 @@ g:expression():nud(g:token("=>", "=>", "operator"), 0, func(w, ctx, pos, op){
   local r = w:parse_at(ctx, pos, 0)
   arrows = arrows - 1
   if(r < 0){
-    return -1
+    return - 1
   }
   local f = lift(ctx.value, true)
   f.token = op

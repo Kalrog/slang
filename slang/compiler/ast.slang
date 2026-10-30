@@ -39,11 +39,19 @@ local specs = {
   Declaration: {{"is_local", "value"}, {"left", "node"}, {"right", "node?"}},
   Break: {{"label", "value"}},
   Continue: {{"label", "value"}},
-  For: {{"init", "node?"}, {"condition", "node"}, {"update", "node?"}, {"body", "node"}, {"label", "value"}},
-  ForIn: {{"pattern", "node"}, {"itterator", "node"}, {"body", "node"}, {"label", "value"}},
+  For: {
+    {"init", "node?"}, {"condition", "node"}, {"update", "node?"},
+    {"body", "node"}, {"label", "value"},
+  },
+  ForIn: {
+    {"pattern", "node"}, {"itterator", "node"}, {"body", "node"},
+    {"label", "value"},
+  },
   VarPattern: {{"isLocal", "value"}, {"canBeNull", "value"}, {"name", "node"}},
   TablePattern: {{"type_check", "value"}, {"fields", "list"}},
-  MatcherPattern: {{"matcher", "node?"}, {"type_name", "value"}, {"sub", "node?"}},
+  MatcherPattern: {
+    {"matcher", "node?"}, {"type_name", "value"}, {"sub", "node?"},
+  },
   FieldPattern: {{"key", "node?"}, {"value", "node"}},
   ConstPattern: {{"value", "node"}},
   Quote: {{"ast_type", "value"}, {"ast", "node"}},
@@ -58,8 +66,8 @@ ast.specs = specs
 
 local statement_types = {
   Block: true, CallStat: true, If: true, Return: true, Assignment: true,
-  Declaration: true, Break: true, For: true, ForIn: true, Unquote: true, LetStat: true,
-  Try: true, Defer: true, Throw: true, Continue: true,
+  Declaration: true, Break: true, For: true, ForIn: true, Unquote: true,
+  LetStat: true, Try: true, Defer: true, Throw: true, Continue: true,
 }
 
 local metas = {}
@@ -81,7 +89,8 @@ func ast.node(type_name, fields, token){
 }
 
 func ast.is_node(value){
-  return type(value) != "table" and get_raw(value, "type") != null and specs[get_raw(value, "type")] != null
+  return type(value) != "table" and get_raw(value, "type") != null and
+    specs[get_raw(value, "type")] != null
 }
 
 func ast.is_statement(node){
@@ -89,12 +98,14 @@ func ast.is_statement(node){
 }
 
 func ast.is_assignable(node){
-  return node.type == "Identifier" or node.type == "Index" or node.type == "Unquote"
+  return node.type == "Identifier" or node.type == "Index" or
+    node.type == "Unquote"
 }
 
 func ast.is_literal(node){
   local t = node.type
-  return t == "Int" or t == "Double" or t == "String" or t == "True" or t == "False" or t == "Null"
+  return t == "Int" or t == "Double" or t == "String" or t == "True" or
+    t == "False" or t == "Null"
 }
 
 // literal(token, value): the node for a primitive value
@@ -191,7 +202,8 @@ func ast.resolve_escapes(literal){
         // \u{H...}: a code point as UTF-8
         local close = str.index_of(literal, "}", i)
         local v = null
-        if(str.char_at(literal, i + 1) == "{" and close > i + 2 and close <= i + 8){
+        if(str.char_at(literal, i + 1) == "{" and close > i + 2 and
+          close <= i + 8){
           v = hex_value(literal, i + 2, close)
         }
         if(v == null or v > 1114111 or (v >= 55296 and v <= 57343)){
@@ -217,7 +229,10 @@ func ast.resolve_escapes(literal){
 // ------------------------------------------------------------- quote support
 
 local func field_literal(token, name, value_node){
-  return ast.node("Field", {key: ast.node("String", {value: name}, token), value: value_node}, token)
+  return ast.node(
+    "Field", {key: ast.node("String", {value: name}, token), value: value_node},
+    token
+  )
 }
 
 local func table_node(token, fields){
@@ -359,7 +374,11 @@ local func escape_bytes(s){
     local b = str.byte_at(s, i)
     if(b < 32 or b == 127 or (high and b >= 128)){
       append(pieces, str.substring(s, start, i))
-      append(pieces, concat("\\x", str.char_at(hex_digits, b >> 4), str.char_at(hex_digits, b & 15)))
+      append(pieces, concat(
+        "\\x",
+        str.char_at(hex_digits, b >> 4),
+        str.char_at(hex_digits, b & 15)
+      ))
       start = i + 1
     }
   }
@@ -666,10 +685,9 @@ func ast.to_string(node){
 
 // binding powers for parentheses (looser first)
 local binary_power = {
-  ["or"]: 1, ["and"]: 2,
-  ["=="]: 3, ["!="]: 3, ["<"]: 3, ["<="]: 3, [">"]: 3, [">="]: 3,
-  ["|"]: 4, ["~"]: 5, ["&"]: 6, ["<<"]: 7, [">>"]: 7,
-  ["+"]: 8, ["-"]: 8, ["*"]: 9, ["/"]: 9, ["%"]: 9,
+  ["or"]: 1, ["and"]: 2, ["=="]: 3, ["!="]: 3, ["<"]: 3, ["<="]: 3, [">"]: 3,
+  [">="]: 3, ["|"]: 4, ["~"]: 5, ["&"]: 6, ["<<"]: 7, [">>"]: 7, ["+"]: 8,
+  ["-"]: 8, ["*"]: 9, ["/"]: 9, ["%"]: 9,
 }
 local unary_power = 10
 local power_power = 11
@@ -679,7 +697,8 @@ local func is_name(s){
   if(len(s) == 0){ return false }
   for(local i = 0; i < len(s); i = i + 1){
     local b = str.byte_at(s, i)
-    local ok = (b >= 97 and b <= 122) or (b >= 65 and b <= 90) or b == 95 or (i > 0 and b >= 48 and b <= 57)
+    local ok = (b >= 97 and b <= 122) or (b >= 65 and b <= 90) or b == 95 or
+      (i > 0 and b >= 48 and b <= 57)
     if(not ok){ return false }
   }
   return true
@@ -802,7 +821,8 @@ func source.expr(self, node){
     self:operand(node.value, postfix_power)
   } else if(t == "Index"){
     self:operand(node.receiver, postfix_power)
-    if(node.dotStyle and node.index.type == "String" and is_name(node.index.value)){
+    if(node.dotStyle and node.index.type == "String" and
+      is_name(node.index.value)){
       self:add(concat(".", node.index.value))
     } else {
       self:add("[")
@@ -951,9 +971,13 @@ func source.statements(self, list, separator){
   for(local i = 0; i < len(list); i = i + 1){
     local s = list[i]
     // an empty block says nothing (an extension statement that produced none)
-    if(not (s.type == "Block" and len(s.statements) == 0)){
+    if(not(s.type == "Block" and len(s.statements) == 0)){
       if(not first){
-        if(separator != null){ self:add(separator) } else { self:newline() }
+        if(separator != null){
+          self:add(separator)
+        } else {
+          self:newline()
+        }
       }
       first = false
       self:statement(s)

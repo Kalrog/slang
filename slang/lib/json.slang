@@ -28,43 +28,61 @@ local escape = peg.seq(peg.char("\\"), peg.any()):map(func(v){
   if(c == "f"){ return "\f" }
   return c
 })
-local unicode = peg.seq(peg.string("\\u"), peg.pattern("0-9a-fA-F"):plus():flatten()):map(func(v){
-  return str.chr(to_int(concat("0x", v[1])))
-})
+local unicode = peg.seq(
+  peg.string("\\u"),
+  peg.pattern("0-9a-fA-F"):plus():flatten()
+)
+  :map(func(v){
+    return str.chr(to_int(concat("0x", v[1])))
+  })
 local string_literal = peg.seq(
   peg.char("\""),
-  peg.choice(unicode, escape, peg.pattern("^\"\\")):star():map(func(parts){ return str.join(parts, "") }),
+  peg.choice(unicode, escape, peg.pattern("^\"\\")):star():map(func(parts){
+    return str.join(parts, "")
+  }),
   peg.char("\"")
-):pick(1):trim(ws)
+)
+  :pick(1)
+  :trim(ws)
 
 local number = peg.seq(
   peg.char("-"):optional(),
   peg.digit():plus(),
   peg.seq(peg.char("."), peg.digit():plus()):optional(),
-  peg.seq(peg.pattern("eE"), peg.pattern("+-"):optional(), peg.digit():plus()):optional()
-):flatten():trim(ws):map(func(text){
-  if(str.index_of(text, ".") >= 0 or str.index_of(text, "e") >= 0 or str.index_of(text, "E") >= 0){
-    return str.to_number(text)
-  }
-  return to_int(text)
-})
+  peg.seq(
+    peg.pattern("eE"), peg.pattern("+-"):optional(), peg.digit():plus()
+  ):optional()
+)
+  :flatten()
+  :trim(ws)
+  :map(func(text){
+    if(str.index_of(text, ".") >= 0 or str.index_of(text, "e") >= 0 or
+      str.index_of(text, "E") >= 0){
+      return str.to_number(text)
+    }
+    return to_int(text)
+  })
 
 local array_meta = {__json: "array"}
 
-local array = peg.seq(tok("["), value:star_separated(tok(",")), tok("]")):pick(1):map(func(s){
-  local out = s.elements
-  out.meta = array_meta
-  return out
-})
+local array = peg.seq(tok("["), value:star_separated(tok(",")), tok("]"))
+  :pick(1)
+  :map(func(s){
+    local out = s.elements
+    out.meta = array_meta
+    return out
+  })
 
 local member = peg.seq(string_literal, tok(":"), value)
-local object = peg.seq(tok("{"), member:star_separated(tok(",")), tok("}")):pick(1):map(func(s){
-  local t = {}
-  for(let local m in values(s.elements)){
-    t[m[0]] = m[2]
-  }
-  return t
-})
+local object = peg.seq(tok("{"), member:star_separated(tok(",")), tok("}"))
+  :pick(1)
+  :map(func(s){
+    local t = {}
+    for(let local m in values(s.elements)){
+      t[m[0]] = m[2]
+    }
+    return t
+  })
 
 value:set(peg.choice(
   object,
@@ -84,7 +102,10 @@ func json.decode(text, origin){
   local r = peg.run(document, text)
   if(not r.ok){
     local lc = str.line_col(text, r.position)
-    error("invalid JSON in ", origin or "string", " at ", lc[0], ":", lc[1], ": ", r.message)
+    error(
+      "invalid JSON in ", origin or "string", " at ", lc[0], ":", lc[1], ": ",
+      r.message
+    )
   }
   return r.value
 }
@@ -118,14 +139,23 @@ local func encode_string(s, out){
   for(local i = 0; i < n; i = i + 1){
     local b = str.byte_at(s, i)
     local rep = null
-    if(b == 34){ rep = "\\\"" }
-    else if(b == 92){ rep = "\\\\" }
-    else if(b == 10){ rep = "\\n" }
-    else if(b == 13){ rep = "\\r" }
-    else if(b == 9){ rep = "\\t" }
-    else if(b < 32){
+    if(b == 34){
+      rep = "\\\""
+    } else if(b == 92){
+      rep = "\\\\"
+    } else if(b == 10){
+      rep = "\\n"
+    } else if(b == 13){
+      rep = "\\r"
+    } else if(b == 9){
+      rep = "\\t"
+    } else if(b < 32){
       local hex = "0123456789abcdef"
-      rep = concat("\\u00", str.char_at(hex, to_int(b / 16)), str.char_at(hex, b % 16))
+      rep = concat(
+        "\\u00",
+        str.char_at(hex, to_int(b / 16)),
+        str.char_at(hex, b % 16)
+      )
     }
     if(rep != null){
       if(i > start){
@@ -150,7 +180,7 @@ local func encode_value(v, out, indent, depth){
   } else if(t == "int"){
     append(out, string(v))
   } else if(t == "double"){
-    if(v != v or v == 1.0 / 0.0 or v == -1.0 / 0.0){
+    if(v != v or v == 1.0 / 0.0 or v == - 1.0 / 0.0){
       error("cannot encode ", v, " as JSON")
     }
     append(out, string(v))
@@ -185,7 +215,11 @@ local func encode_value(v, out, indent, depth){
       local first = true
       for(let local e in entries(v)){
         if(type(e[0]) != "string"){
-          error("cannot encode a table with a ", type(e[0]), " key as a JSON object")
+          error(
+            "cannot encode a table with a ",
+            type(e[0]),
+            " key as a JSON object"
+          )
         }
         if(not first){ append(out, sep) }
         first = false

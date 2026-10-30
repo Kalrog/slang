@@ -4,14 +4,12 @@ local g = require("slang/compiler").grammar()
 local switch_statement = {}
 local case_block = {}
 
-func switch_statement.new(token,value, case_blocks){
+func switch_statement.new(token, value, case_blocks){
   local obj = {
     token: token,
     value: value,
     case_blocks: case_blocks,
-    meta: {
-      __index: switch_statement
-    }
+    meta: {__index: switch_statement},
   }
   return obj
 }
@@ -24,10 +22,7 @@ func switch_statement.build(self){
     current.elseBranch = ast
     current = ast
   }
-  return {
-    token: self.token,
-    ast: result.elseBranch
-  }
+  return {token: self.token, ast: result.elseBranch}
 }
 
 // the marks tell `slang fmt` the layout:
@@ -44,28 +39,26 @@ func switch_statement.parser(){
     g:token("{"),
     fmt.indent(case_block.parser():star(), "hardline"),
     fmt.gaps(g:token("}"), "hardline")
-  ):map(func(result){
-    return switch_statement.new(result[0],result[2],result[5])
-  })
+  )
+    :map(func(result){
+      return switch_statement.new(result[0], result[2], result[5])
+    })
 }
 
-func case_block.new(token,pattern,body){
+func case_block.new(token, pattern, body){
   local obj = {
     token: token,
     pattern: pattern,
     body: body,
-    meta: {
-      __index: case_block
-    }
+    meta: {__index: case_block},
   }
   return obj
 }
 
-func case_block.build(self,value){
+func case_block.build(self, value){
   return +{stat:
     if(-{{type:"Let",pattern:self.pattern,right:value}})
-    -{self.body}
-  } 
+    -{self.body} }
 }
 
 func case_block.parser(){
@@ -74,14 +67,12 @@ func case_block.parser(){
     g:rule("slang_pattern"),
     fmt.gaps(g:token(":"), "none"),
     fmt.indent(g:rule("chunk"), "hardline")
-  ):map(func(result){
-    return case_block.new(result[0],result[1],result[3])
-  })
+  )
+    :map(func(result){
+      return case_block.new(result[0], result[1], result[3])
+    })
 }
 
-g:statement(
-  "switch",
-  switch_statement.parser():map(func (result){
-    return result:build();
-  })
-)
+g:statement("switch", switch_statement.parser():map(func(result){
+  return result:build()
+}))

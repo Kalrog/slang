@@ -1,18 +1,18 @@
 local test = require("slang/test")
 
 local func blockStatement(block){
-  assert(block(),"block should return true if called")
+  assert(block(), "block should return true if called")
 }
 
 local func blockExpression(block){
   return block()
 }
 
-local func blockWithArg(value,block){
-  assert(value == block(),"block should return value")
+local func blockWithArg(value, block){
+  assert(value == block(), "block should return value")
 }
 
-test.group("block arguments",func(){
+test.group("block arguments", func(){
   test.test("can be passed alone in statement", func(){
     blockStatement(func(){
       return true
@@ -21,22 +21,22 @@ test.group("block arguments",func(){
       return true
     }
     blockStatement(){
-     return true
+      return true
     }
   })
-  test.test("can be passed alone in expression",func(){
+  test.test("can be passed alone in expression", func(){
     assert(blockExpression(func(){
       return true
-    }),"block should return true")
+    }), "block should return true")
     assert(blockExpression{
       return true
-    },"block should return true")
+    }, "block should return true")
     assert(blockExpression(){
       return true
-    },"block should return true")
+    }, "block should return true")
   })
-  test.test("can be passed with arguments",func(){
-    blockWithArg(1,func(){
+  test.test("can be passed with arguments", func(){
+    blockWithArg(1, func(){
       return 1
     })
     blockWithArg(1){
@@ -81,7 +81,7 @@ test.group("same line"){
       local x = 1
     }
     assert(seen == null)
-    f()   
+    f()
     {
       local y = 2
     }
@@ -103,9 +103,7 @@ test.group("same line"){
       return self
     }
     b.meta = {__index: m}
-    b
-      :add(1)
-      :add(2)
+    b:add(1):add(2)
     assert(b.items == {1, 2})
   }
 }

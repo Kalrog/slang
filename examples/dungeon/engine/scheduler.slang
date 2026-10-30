@@ -26,7 +26,10 @@ local func resume(task, value){
 // start(f, ...args) -> task: runs f as a task until its first wait (up to
 // four arguments are passed on)
 func m.start(f, ...args){
-  local task = {co: thread.create(func(){ return f(args[0], args[1], args[2], args[3]) }), done: false}
+  local task = {
+    co: thread.create(func(){ return f(args[0], args[1], args[2], args[3]) }),
+    done: false,
+  }
   append(tasks, task)
   resume(task, null)
   return task

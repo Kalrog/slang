@@ -3,7 +3,7 @@ local test = require("slang/test")
 test.group("protected calls", func(){
   test.test("basic protected call error", func(){
     local f = func(){
-      error("oh no");
+      error("oh no")
     }
     local r = pcall(f)
     assert(r[0] == "err", "result should be of type 'err'")
@@ -24,15 +24,17 @@ test.group("protected calls", func(){
     local func fails(){
       error("fails")
     }
-    assert(let {"ok", "works"} = pcall(works));
-    assert(let {"err", {message:"fails"}} = pcall(fails));
-    
+    assert(let {"ok", "works"} = pcall(works))
+    assert(let {"err", {message: "fails"}} = pcall(fails))
   })
   test.test("protected call with arguments", func(){
-    local func div(a,b){
+    local func div(a, b){
       return a / b
     }
-    assert(let {"ok", 5} = pcall(div,15,3),"15/3 should be 5 pcall should not fail");
-    assert(let {"err"} = pcall(div,15,null),"15/null should fail");
+    assert(
+      let {"ok", 5} = pcall(div, 15, 3),
+      "15/3 should be 5 pcall should not fail"
+    )
+    assert(let {"err"} = pcall(div, 15, null), "15/null should fail")
   })
 })

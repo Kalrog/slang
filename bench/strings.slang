@@ -13,4 +13,7 @@ for(let local s in values(back)){
   total = total + len(s)
 }
 local t1 = os.clock()
-print("strings: ", len(back), " parts, total length ", total, " in ", (t1 - t0) * 1000, " ms\n")
+print(
+  "strings: ", len(back), " parts, total length ", total, " in ",
+  (t1 - t0) * 1000, " ms\n"
+)

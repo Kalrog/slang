@@ -2,23 +2,23 @@
 extension "dsl/sprite"
 
 palette main {
-  k: "#1a1a1a",  // outline
-  w: "#f4f4f4",  // white
-  s: "#e8b796",  // skin
-  r: "#c0392b",  // red
-  g: "#3a7d44",  // green
-  G: "#2a5a30",  // dark green
-  b: "#3b6ea5",  // blue
-  B: "#24476b",  // dark blue
-  y: "#e9c46a",  // gold
-  o: "#b5651d",  // wood
-  O: "#7a4419",  // dark wood
-  d: "#5c5c6e",  // stone, dark
-  l: "#8a8a9e",  // stone, light
-  f: "#3d3d4d",  // floor
-  F: "#46465a",  // floor speck
-  p: "#9b59b6",  // purple
-  m: "#c8c8d0",  // metal
+  k: "#1a1a1a", // outline
+  w: "#f4f4f4", // white
+  s: "#e8b796", // skin
+  r: "#c0392b", // red
+  g: "#3a7d44", // green
+  G: "#2a5a30", // dark green
+  b: "#3b6ea5", // blue
+  B: "#24476b", // dark blue
+  y: "#e9c46a", // gold
+  o: "#b5651d", // wood
+  O: "#7a4419", // dark wood
+  d: "#5c5c6e", // stone, dark
+  l: "#8a8a9e", // stone, light
+  f: "#3d3d4d", // floor
+  F: "#46465a", // floor speck
+  p: "#9b59b6", // purple
+  m: "#c8c8d0", // metal
 }
 
 sprite floor main {

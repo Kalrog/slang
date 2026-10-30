@@ -48,7 +48,10 @@ local func b64(s){ return encoding.base64_encode(s) }
 local func unb64(s){ return encoding.base64_decode(s) }
 
 local func format_hash(salt, key){
-  return concat("$scrypt$ln=", string(LOG_N), ",r=", string(R), ",p=", string(P), "$", b64(salt), "$", b64(key))
+  return concat(
+    "$scrypt$ln=", string(LOG_N), ",r=", string(R), ",p=", string(P), "$",
+    b64(salt), "$", b64(key)
+  )
 }
 
 // the parts of a stored hash: {kind, params, salt, key}, or null
@@ -64,7 +67,9 @@ local func parse_hash(stored){
   for(let local kv in values(str.split(parts[2], ","))){
     local eq = str.index_of(kv, "=")
     if(eq > 0){
-      params[str.substring(kv, 0, eq)] = str.to_number(str.substring(kv, eq + 1))
+      params[str.substring(kv, 0, eq)] = str.to_number(
+        str.substring(kv, eq + 1)
+      )
     }
   }
   local salt = unb64(parts[3])
@@ -77,8 +82,9 @@ local func parse_hash(stored){
 
 // the arguments of the derivation that produced h, or null if unknown
 local func derivation(h){
-  if(h.kind == "scrypt" and type(h.params.ln) == "int" and type(h.params.r) == "int" and type(h.params.p) == "int"
-     and h.params.ln > 0 and h.params.ln < 31){
+  if(h.kind == "scrypt" and type(h.params.ln) == "int" and
+    type(h.params.r) == "int" and type(h.params.p) == "int" and
+    h.params.ln > 0 and h.params.ln < 31){
     return {scrypt: true, n: 1 << h.params.ln, r: h.params.r, p: h.params.p}
   }
   if(h.kind == "pbkdf2-sha256" and type(h.params.i) == "int" and h.params.i > 0){
@@ -89,7 +95,10 @@ local func derivation(h){
 
 func crypto.hash_password(password){
   local salt = native.random_bytes(16)
-  return format_hash(salt, native.scrypt(password, salt, 1 << LOG_N, R, P, KEY_LEN))
+  return format_hash(
+    salt,
+    native.scrypt(password, salt, 1 << LOG_N, R, P, KEY_LEN)
+  )
 }
 
 func crypto.verify_password(password, stored){
@@ -126,7 +135,9 @@ func crypto.verify_password_async(password, stored){
     if(d.scrypt){
       native.scrypt_async(password, h.salt, d.n, d.r, d.p, len(h.key), cb)
     } else {
-      native.pbkdf2_async("sha256", password, h.salt, d.iterations, len(h.key), cb)
+      native.pbkdf2_async(
+        "sha256", password, h.salt, d.iterations, len(h.key), cb
+      )
     }
   }):then(func(key){ return native.equal(key, h.key) })
 }
@@ -146,7 +157,7 @@ func crypto.unsign_value(secret, signed){
     return null
   }
   // the mac is the part after the last dot; the value may contain dots
-  local dot = -1
+  local dot = - 1
   for(local i = len(signed) - 1; i >= 0; i = i - 1){
     if(str.byte_at(signed, i) == 46){
       dot = i
@@ -165,7 +176,10 @@ func crypto.unsign_value(secret, signed){
 
 func crypto.seal(key, text, aad){
   local iv = native.random_bytes(12)
-  return encoding.base64url_encode(concat(iv, native.encrypt("aes-256-gcm", key, iv, text, aad)))
+  return encoding.base64url_encode(concat(
+    iv,
+    native.encrypt("aes-256-gcm", key, iv, text, aad)
+  ))
 }
 
 func crypto.unseal(key, sealed, aad){
@@ -173,7 +187,9 @@ func crypto.unseal(key, sealed, aad){
   if(not raw or len(raw) < 28){
     return null
   }
-  return native.decrypt("aes-256-gcm", key, str.substring(raw, 0, 12), str.substring(raw, 12), aad)
+  return native.decrypt(
+    "aes-256-gcm", key, str.substring(raw, 0, 12), str.substring(raw, 12), aad
+  )
 }
 
 return crypto

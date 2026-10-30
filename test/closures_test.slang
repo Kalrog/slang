@@ -1,6 +1,5 @@
 local test = require("slang/test")
 
-
 test.group("closure test", func(){
   test.test("simple function"){
     func add(a, b){
@@ -35,10 +34,10 @@ test.group("closure test", func(){
     assert(inc() == 4)
     assert(dec() == 2)
     assert(dec() == 0)
-    assert(dec() == -2)
+    assert(dec() == - 2)
     assert(inc() == 0)
   })
-  test.test("open upvalue",func(){
+  test.test("open upvalue", func(){
     local i = 0
     func inc(){
       i = i + 1
@@ -70,7 +69,7 @@ test.group("closure test", func(){
     assert(factorial(4) == 24)
     assert(factorial(5) == 120)
   }
-  test.test("immediate function" , func(){
+  test.test("immediate function", func(){
     local result = (func(a, b){
       return a + b
     })(2, 3)

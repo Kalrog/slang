@@ -54,9 +54,18 @@ local func punct(s){
   return peg.token(peg.string(s), "punctuation")
 }
 
-local name_chars = peg.seq(peg.pattern("a-zA-Z_"), peg.pattern("a-zA-Z0-9_:-"):star())
-local tag_name = peg.seq(name_chars, peg.seq(peg.char("."), name_chars):star()):flatten("tag name expected")
-local attr_name = peg.seq(peg.pattern("a-zA-Z_:@"), peg.pattern("a-zA-Z0-9_:.-"):star()):flatten("attribute name expected")
+local name_chars = peg.seq(
+  peg.pattern("a-zA-Z_"),
+  peg.pattern("a-zA-Z0-9_:-"):star()
+)
+local tag_name = peg.seq(
+  name_chars,
+  peg.seq(peg.char("."), name_chars):star()
+):flatten("tag name expected")
+local attr_name = peg.seq(
+  peg.pattern("a-zA-Z_:@"),
+  peg.pattern("a-zA-Z0-9_:.-"):star()
+):flatten("attribute name expected")
 
 local func is_component(name){
   local b = str.byte_at(name, 0)
@@ -67,11 +76,14 @@ local func is_component(name){
 local tag_token = peg.custom(func(self, ctx, pos){
   local q = tag_name:parse_on(ctx, pos)
   if(q < 0){
-    return -1
+    return - 1
   }
   local name = ctx.value
   if(ctx.tokens != null){
-    list_push(ctx.tokens, {category: is_component(name) and "function" or "keyword", start: pos, stop: q})
+    list_push(ctx.tokens, {
+      category: is_component(name) and "function" or "keyword", start: pos,
+      stop: q,
+    })
   }
   ctx.value = peg.make_token(ctx, name, pos, q)
   return q
@@ -164,7 +176,10 @@ local func string_node(value, token){
 // html.NAME, html being the unit's local for require("slang/html")
 local func runtime(name, token){
   local module = g:unit_local("slang/html", +{require("slang/html")})
-  return ast.node("Index", {receiver: module, index: string_node(name, token), dotStyle: true}, token)
+  return ast.node(
+    "Index",
+    {receiver: module, index: string_node(name, token), dotStyle: true}, token
+  )
 }
 local func runtime_call(name, args, token){
   return ast.node("Call", {function: runtime(name, token), args: args}, token)
@@ -175,7 +190,11 @@ local func component_ref(name, token){
   local parts = str.split(name, ".")
   local node = ast.node("Identifier", {value: parts[0]}, token)
   for(local i = 1; i < len(parts); i = i + 1){
-    node = ast.node("Index", {receiver: node, index: string_node(parts[i], token), dotStyle: true}, token)
+    node = ast.node(
+      "Index",
+      {receiver: node, index: string_node(parts[i], token), dotStyle: true},
+      token
+    )
   }
   return node
 }
@@ -192,7 +211,9 @@ local func attr_fields(attrs, token){
       if(value == null){
         value = ast.node("True", {}, a.name)
       }
-      append(fields, ast.node("Field", {key: string_node(a.name.value, a.name), value: value}, a.name))
+      append(fields, ast.node(
+        "Field", {key: string_node(a.name.value, a.name), value: value}, a.name
+      ))
     }
   }
   return fields
@@ -238,36 +259,63 @@ local func build(name, attrs, children, token){
     local fields = attr_fields(attrs, token)
     if(len(kids) > 0){
       // a trusted list (see slang/html): its text is not escaped again
-      local marked = {ast.node("Field", {key: string_node("meta", token), value: runtime("list", token)}, token)}
+      local marked = {
+        ast.node(
+          "Field",
+          {key: string_node("meta", token), value: runtime("list", token)},
+          token
+        ),
+      }
       for(local i = 0; i < len(kids); i = i + 1){
         append(marked, kids[i])
       }
-      append(fields, ast.node("Field", {key: string_node("children", token), value: ast.node("Table", {fields: marked}, token)}, token))
+      append(fields, ast.node(
+        "Field",
+        {
+          key: string_node("children", token),
+          value: ast.node("Table", {fields: marked}, token),
+        }, token
+      ))
     }
     local props = ast.node("Table", {fields: fields}, token)
-    return ast.node("Call", {function: component_ref(name.value, name), args: {props}}, token)
+    return ast.node(
+      "Call", {function: component_ref(name.value, name), args: {props}}, token
+    )
   }
   local tag = string_node(name.value, name)
   local attributes = table_or_null(attr_fields(attrs, token), token)
-  return runtime_call("element", {tag, attributes, table_or_null(kids, token)}, token)
+  return runtime_call(
+    "element", {tag, attributes, table_or_null(kids, token)}, token
+  )
 }
 
 // ------------------------------------------------------------ syntax
 
 local element = peg.settable()
 
-local braced_expr = peg.seq(punct("{"), ws, g:rule("expr"), ws, punct("}")):pick(2)
+local braced_expr = peg.seq(
+  punct("{"), ws, g:rule("expr"), ws, punct("}")
+):pick(2)
 
 local attribute = peg.choice(
-  peg.seq(punct("{"), ws, peg.token(peg.string("..."), "operator"), g:rule("expr"), ws, punct("}")):map(func(v){
-    return {spread: v[3]}
-  }),
+  peg.seq(
+    punct("{"), ws, peg.token(peg.string("..."), "operator"), g:rule("expr"),
+    ws, punct("}")
+  )
+    :map(func(v){
+      return {spread: v[3]}
+    }),
   peg.seq(
     peg.token(attr_name, "property"),
-    peg.seq(ws, punct("="), ws, peg.choice(g:rule("string_literal"), braced_expr)):pick(3):optional()
-  ):map(func(v){
-    return {name: v[0], value: v[1]}
-  })
+    peg.seq(
+      ws, punct("="), ws, peg.choice(g:rule("string_literal"), braced_expr)
+    )
+      :pick(3)
+      :optional()
+  )
+    :map(func(v){
+      return {name: v[0], value: v[1]}
+    })
 )
 
 local child = peg.choice(
@@ -282,23 +330,29 @@ element:set(peg.choice(
     return {token: v[0], ast: build(null, {}, v[1], v[0])}
   }),
   peg.seq(
-    punct("<"), tag_token,
-    peg.seq(ws, attribute):pick(1):star(),
-    ws,
+    punct("<"), tag_token, peg.seq(ws, attribute):pick(1):star(), ws,
     peg.choice(
       punct("/>"):map(func(t){ return {children: {}} }),
-      peg.seq(punct(">"), child:star(), punct("</"), ws, tag_token, ws, punct(">")):map(func(v){
-        return {children: v[1], close: v[4]}
-      })
+      peg.seq(
+        punct(">"), child:star(), punct("</"), ws, tag_token, ws, punct(">")
+      )
+        :map(func(v){
+          return {children: v[1], close: v[4]}
+        })
     )
-  ):map(func(v){
-    local open = v[1]
-    local tail = v[4]
-    if(tail.close != null and tail.close.value != open.value){
-      g:error_at(tail.close, "</", open.value, "> expected to close the <", open.value, "> opened at ", v[0].line, ":", v[0].column, ", found </", tail.close.value, ">")
-    }
-    return {token: v[0], ast: build(open, v[2], tail.children, v[0])}
-  })
+  )
+    :map(func(v){
+      local open = v[1]
+      local tail = v[4]
+      if(tail.close != null and tail.close.value != open.value){
+        g:error_at(
+          tail.close, "</", open.value, "> expected to close the <", open.value,
+          "> opened at ", v[0].line, ":", v[0].column, ", found </",
+          tail.close.value, ">"
+        )
+      }
+      return {token: v[0], ast: build(open, v[2], tail.children, v[0])}
+    })
 ))
 
 g:expression():primary("html", element)

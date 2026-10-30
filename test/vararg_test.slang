@@ -16,9 +16,9 @@ t.group("varargs"){
   }
   t.test("varargs with normal arguments"){
     local func mult_add(a, ...numbers){
-      local sum = 0 
+      local sum = 0
       for(let local v in values(numbers)){
-      sum = sum + a * v
+        sum = sum + a * v
       }
       return sum
     }
@@ -32,7 +32,7 @@ t.group("varargs"){
       local ret = args[0]
       local call = args[1]
       call()
-      return ret 
+      return ret
     }
     local called = false
     assert(call_and_return(true){

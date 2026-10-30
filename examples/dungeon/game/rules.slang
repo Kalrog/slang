@@ -6,7 +6,9 @@ local scheduler = require("engine/scheduler")
 local hud = require("game/hud")
 local math = require("slang/math")
 
-local item_types = {coins: "Coins", potion: "Potion", sword: "Sword", key: "Key"}
+local item_types = {
+  coins: "Coins", potion: "Potion", sword: "Sword", key: "Key",
+}
 
 // drop(roll, x, y): places the rolled item on or next to (x, y)
 local func drop(roll, x, y){

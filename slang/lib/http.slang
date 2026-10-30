@@ -95,17 +95,40 @@ local func zlib_module(){
 }
 
 http.status_text = {
-  [100]: "Continue", [101]: "Switching Protocols",
-  [200]: "OK", [201]: "Created", [202]: "Accepted", [204]: "No Content", [206]: "Partial Content",
-  [301]: "Moved Permanently", [302]: "Found", [303]: "See Other", [304]: "Not Modified",
-  [307]: "Temporary Redirect", [308]: "Permanent Redirect",
-  [400]: "Bad Request", [401]: "Unauthorized", [403]: "Forbidden", [404]: "Not Found",
-  [405]: "Method Not Allowed", [408]: "Request Timeout", [409]: "Conflict", [410]: "Gone",
-  [411]: "Length Required", [413]: "Payload Too Large", [414]: "URI Too Long",
-  [415]: "Unsupported Media Type", [416]: "Range Not Satisfiable", [422]: "Unprocessable Content",
-  [429]: "Too Many Requests", [431]: "Request Header Fields Too Large",
-  [500]: "Internal Server Error", [501]: "Not Implemented", [502]: "Bad Gateway",
-  [503]: "Service Unavailable", [504]: "Gateway Timeout",
+  [100]: "Continue",
+  [101]: "Switching Protocols",
+  [200]: "OK",
+  [201]: "Created",
+  [202]: "Accepted",
+  [204]: "No Content",
+  [206]: "Partial Content",
+  [301]: "Moved Permanently",
+  [302]: "Found",
+  [303]: "See Other",
+  [304]: "Not Modified",
+  [307]: "Temporary Redirect",
+  [308]: "Permanent Redirect",
+  [400]: "Bad Request",
+  [401]: "Unauthorized",
+  [403]: "Forbidden",
+  [404]: "Not Found",
+  [405]: "Method Not Allowed",
+  [408]: "Request Timeout",
+  [409]: "Conflict",
+  [410]: "Gone",
+  [411]: "Length Required",
+  [413]: "Payload Too Large",
+  [414]: "URI Too Long",
+  [415]: "Unsupported Media Type",
+  [416]: "Range Not Satisfiable",
+  [422]: "Unprocessable Content",
+  [429]: "Too Many Requests",
+  [431]: "Request Header Fields Too Large",
+  [500]: "Internal Server Error",
+  [501]: "Not Implemented",
+  [502]: "Bad Gateway",
+  [503]: "Service Unavailable",
+  [504]: "Gateway Timeout",
 }
 
 local func message_of(e){
@@ -127,8 +150,11 @@ local func request_of(head){
     path = str.substring(url, 0, q)
     query = str.substring(url, q + 1)
   }
-  return {method: head.method, path: path, query: query, url: url, version: head.version,
-          headers: head.headers, body: "", content_length: head.content_length}
+  return {
+    method: head.method, path: path, query: query, url: url,
+    version: head.version, headers: head.headers, body: "",
+    content_length: head.content_length,
+  }
 }
 
 // parse_head(text) -> the request of a complete head (body ""), or null
@@ -161,7 +187,12 @@ local func normalize(res){
   if(type(res) != "table"){
     error("a handler must return a string or a response table")
   }
-  local out = {status: res.status or 200, body: res.body or "", headers: {}, compress: res.compress}
+  local out = {
+    status: res.status or 200,
+    body: res.body or "",
+    headers: {},
+    compress: res.compress,
+  }
   if(type(out.body) != "string" and type(out.body) != "Stream"){
     out.body = string(out.body)
   }
@@ -190,15 +221,20 @@ local func header_of(headers, name){
 
 local func compressible(content_type){
   local t = str.lower(content_type or "")
-  return str.starts_with(t, "text/") or str.index_of(t, "json") >= 0 or str.index_of(t, "javascript") >= 0
-      or str.index_of(t, "xml") >= 0 or str.index_of(t, "svg") >= 0
+  return str.starts_with(t, "text/") or str.index_of(t, "json") >= 0 or
+    str.index_of(t, "javascript") >= 0 or str.index_of(t, "xml") >= 0 or
+    str.index_of(t, "svg") >= 0
 }
 
 // does the client take gzip? (a q=0 turns it down)
 local func accepts_gzip(req){
-  for(let local part in values(str.split(str.lower(req.headers["accept-encoding"] or ""), ","))){
+  for(let local part in values(str.split(
+    str.lower(req.headers["accept-encoding"] or ""),
+    ","
+  ))){
     local p = str.trim(part)
-    if(p == "gzip" or (str.starts_with(p, "gzip;") and str.index_of(p, "q=0") < 0) or p == "*"){
+    if(p == "gzip" or
+      (str.starts_with(p, "gzip;") and str.index_of(p, "q=0") < 0) or p == "*"){
       return true
     }
   }
@@ -206,7 +242,8 @@ local func accepts_gzip(req){
 }
 
 local func should_gzip(req, res, options){
-  if(options.compress == false or res.compress == false or res.status < 200 or res.status == 204 or res.status == 304){
+  if(options.compress == false or res.compress == false or res.status < 200 or
+    res.status == 204 or res.status == 304){
     return false
   }
   if(header_of(res.headers, "content-encoding") != null or not accepts_gzip(req)){
@@ -220,7 +257,10 @@ local func should_gzip(req, res, options){
 
 // the head of a response; length null means chunked
 local func format_head(res, keep_alive, length, chunked){
-  local parts = {"HTTP/1.1 ", string(res.status), " ", http.status_text[res.status] or "Unknown", "\r\n"}
+  local parts = {
+    "HTTP/1.1 ", string(res.status), " ",
+    http.status_text[res.status] or "Unknown", "\r\n",
+  }
   local has_date = false
   for(let local e in entries(res.headers)){
     local name = e[0]
@@ -228,8 +268,9 @@ local func format_head(res, keep_alive, length, chunked){
     if(lower == "date"){
       has_date = true
     }
-    if(lower == "content-length" or lower == "transfer-encoding" or lower == "connection"){
-      // the server decides these
+    if(lower == "content-length" or lower == "transfer-encoding" or
+      lower == "connection"){
+    // the server decides these
     } else if(type(e[1]) == "table"){
       for(local i = 0; i < len(e[1]); i = i + 1){
         append(parts, concat(name, ": ", string(e[1][i]), "\r\n"))
@@ -247,7 +288,9 @@ local func format_head(res, keep_alive, length, chunked){
   if(chunked){
     append(parts, "Transfer-Encoding: chunked\r\n")
   }
-  append(parts, concat("Connection: ", keep_alive and "keep-alive" or "close", "\r\n\r\n"))
+  append(parts, concat(
+    "Connection: ", keep_alive and "keep-alive" or "close", "\r\n\r\n"
+  ))
   return str.join(parts, "")
 }
 
@@ -270,7 +313,8 @@ local func hex_of(n){
 
 // sends res on conn; awaits every write (so a slow client slows the stream)
 local func send(conn, req, res, keep_alive, options){
-  local head_only = req.method == "HEAD" or res.status == 204 or res.status == 304 or res.status < 200
+  local head_only = req.method == "HEAD" or res.status == 204 or
+    res.status == 304 or res.status < 200
   local gzip = should_gzip(req, res, options)
   if(gzip){
     res.headers["Content-Encoding"] = "gzip"
@@ -291,7 +335,10 @@ local func send(conn, req, res, keep_alive, options){
     if(head_only){
       body = ""
     }
-    async.await(async.write(conn, concat(format_head(res, keep_alive, length, false), body)))
+    async.await(async.write(
+      conn,
+      concat(format_head(res, keep_alive, length, false), body)
+    ))
     return
   }
   // a Stream
@@ -312,7 +359,10 @@ local func send(conn, req, res, keep_alive, options){
       return
     }
     if(chunked){
-      async.await(async.write(conn, concat(hex_of(len(data)), "\r\n", data, "\r\n")))
+      async.await(async.write(
+        conn,
+        concat(hex_of(len(data)), "\r\n", data, "\r\n")
+      ))
     } else {
       async.await(async.write(conn, data))
     }
@@ -346,7 +396,10 @@ local func respond(handler, req, options){
     if(options.on_error != null){
       options.on_error(req, r[1])
     }
-    return normalize({status: 500, body: concat("internal error: ", message_of(r[1]))})
+    return normalize({
+      status: 500,
+      body: concat("internal error: ", message_of(r[1])),
+    })
   }
   return normalize(r[1])
 }
@@ -372,8 +425,11 @@ local TIMEOUT = "http: timed out waiting for the client"
 // case, so nothing is left running.
 local func event_source(conn, options, state){
   local uv = require("uv")
-  local src = {reader: async.reader(conn), parser: parser("request", {max_head: options.max_head or 65536}),
-               queue: {}, at: 0, eof: false}
+  local src = {
+    reader: async.reader(conn),
+    parser: parser("request", {max_head: options.max_head or 65536}), queue: {},
+    at: 0, eof: false,
+  }
   local func read(timeout){
     local c = async.completer()
     local settled = false
@@ -386,14 +442,20 @@ local func event_source(conn, options, state){
         timer:stop()
         timer:close()
       }
-      if(ok){ c.complete(v) } else { c.fail(v) }
+      if(ok){
+        c.complete(v)
+      } else {
+        c.fail(v)
+      }
     }
     if(timeout != null and timeout > 0){
       timer = uv.timer()
       timer:start(timeout, 0, func(){ finish(false, TIMEOUT) })
     }
     state.cancel = func(){ finish(false, "http: the server is closing") }
-    src.reader:next():then(func(e){ finish(true, e) }, func(e){ finish(false, e) })
+    src.reader:next():then(func(e){ finish(true, e) }, func(e){
+      finish(false, e)
+    })
     return async.await(c.future)
   }
   // next(timeout) -> the next event, null at the end of the input; raises
@@ -440,7 +502,11 @@ local func handle_connection(conn, handler, options, server){
         break
       }
       if(ev.type == "error"){
-        send(conn, {method: "GET", headers: {}}, error_response(ev.status, concat("bad request: ", ev.reason)), false, options)
+        send(
+          conn, {method: "GET", headers: {}},
+          error_response(ev.status, concat("bad request: ", ev.reason)), false,
+          options
+        )
         break
       }
       if(ev.type != "head"){
@@ -448,10 +514,15 @@ local func handle_connection(conn, handler, options, server){
       }
       local req = request_of(ev)
       local keep = ev.keep_alive
-      local continue_wanted = str.lower(req.headers["expect"] or "") == "100-continue"
+      local continue_wanted = str.lower(req.headers["expect"] or "") ==
+        "100-continue"
       local streaming = options.stream_body != null and options.stream_body(req)
-      if(not streaming and req.content_length != null and req.content_length > max_body){
-        send(conn, req, error_response(413, "the body is too large"), false, options)
+      if(not streaming and req.content_length != null and
+        req.content_length > max_body){
+        send(
+          conn, req, error_response(413, "the body is too large"), false,
+          options
+        )
         break
       }
       if(continue_wanted){
@@ -481,7 +552,9 @@ local func handle_connection(conn, handler, options, server){
             }
             local e = src.next(request_timeout)
             if(e == null){
-              if(not discard){ c.fail("the connection closed in the middle of the body") }
+              if(not discard){
+                c.fail("the connection closed in the middle of the body")
+              }
               return false
             }
             if(e.type == "body"){
@@ -528,12 +601,19 @@ local func handle_connection(conn, handler, options, server){
             keep = keep and e.keep_alive
             ended = true
           } else if(e.type == "error"){
-            send(conn, req, error_response(e.status, concat("bad request: ", e.reason)), false, options)
+            send(
+              conn, req,
+              error_response(e.status, concat("bad request: ", e.reason)),
+              false, options
+            )
             error("bad request")
           }
         }
         if(too_large){
-          send(conn, req, error_response(413, "the body is too large"), false, options)
+          send(
+            conn, req, error_response(413, "the body is too large"), false,
+            options
+          )
           break
         }
         // an upgrade event follows the done of an upgrade request
@@ -570,7 +650,12 @@ local func handle_connection(conn, handler, options, server){
     }
   })
   if(r[0] == "err" and message_of(r[1]) == TIMEOUT and not state.idle){
-    pcall(func(){ send(conn, {method: "GET", headers: {}}, error_response(408, "request timeout"), false, options) })
+    pcall(func(){
+      send(
+        conn, {method: "GET", headers: {}},
+        error_response(408, "request timeout"), false, options
+      )
+    })
   }
   server.connections[state] = null
   if(not upgraded){
@@ -624,7 +709,8 @@ func http.parse_cookies(header){
     if(eq > 0){
       local name = str.trim(str.substring(part, 0, eq))
       local value = str.trim(str.substring(part, eq + 1))
-      if(len(value) >= 2 and str.starts_with(value, "\"") and str.ends_with(value, "\"")){
+      if(len(value) >= 2 and str.starts_with(value, "\"") and
+        str.ends_with(value, "\"")){
         value = str.substring(value, 1, len(value) - 1)
       }
       // the first one wins: browsers send the most specific path first
@@ -646,9 +732,13 @@ func http.cookies(req){
 local func check_cookie_part(what, s){
   for(local i = 0; i < len(s); i = i + 1){
     local b = str.byte_at(s, i)
-    if(b <= 32 or b >= 127 or b == 34 or b == 44 or b == 59 or b == 92 or (what == "name" and b == 61)){
-      error("http: a cookie ", what, " cannot contain ", b == 32 and "a space" or concat("byte ", string(b)),
-            ": ", s, " (encode it, for example with base64url)")
+    if(b <= 32 or b >= 127 or b == 34 or b == 44 or b == 59 or b == 92 or
+      (what == "name" and b == 61)){
+      error(
+        "http: a cookie ", what, " cannot contain ",
+        b == 32 and "a space" or concat("byte ", string(b)), ": ", s,
+        " (encode it, for example with base64url)"
+      )
     }
   }
 }
@@ -718,8 +808,10 @@ local client_meta = {__index: client_methods, __type: "HttpClient"}
 // headers, body}
 func http.connect(host, port){
   return async.connect(host, port):then(func(conn){
-    local c = {conn: conn, reader: async.reader(conn), parser: parser("response", null),
-               host: host, port: port, queue: {}, at: 0, eof: false, closed: false}
+    local c = {
+      conn: conn, reader: async.reader(conn), parser: parser("response", null),
+      host: host, port: port, queue: {}, at: 0, eof: false, closed: false,
+    }
     c.meta = client_meta
     return c
   })
@@ -786,7 +878,10 @@ func client_methods.request(c, method, path, body, headers, options){
       if(e.type == "head"){
         // a 100 Continue is followed by the real response
         if(e.status >= 200 or e.status == 101){
-          res = {status: e.status, reason: e.reason, version: e.version, headers: e.headers, body: ""}
+          res = {
+            status: e.status, reason: e.reason, version: e.version,
+            headers: e.headers, body: "",
+          }
         }
       } else if(e.type == "body"){
         append(chunks, e.data)
@@ -806,8 +901,11 @@ func client_methods.request(c, method, path, body, headers, options){
     }
     res.body = str.join(chunks, "")
     local encoding = str.lower(res.headers["content-encoding"] or "")
-    if((encoding == "gzip" or encoding == "deflate") and len(res.body) > 0 and options.raw != true){
-      res.body = zlib_module().inflate(res.body, "auto", options.max_size or 256 * 1024 * 1024)
+    if((encoding == "gzip" or encoding == "deflate") and len(res.body) > 0 and
+      options.raw != true){
+      res.body = zlib_module().inflate(
+        res.body, "auto", options.max_size or 256 * 1024 * 1024
+      )
       res.compressed = encoding
     }
     return res
@@ -853,7 +951,9 @@ func http.fetch(url, options){
       headers[e[0]] = e[1]
     }
     local c = async.await(http.connect(host, port))
-    local r = pcall(async.await, c:request(options.method or "GET", path, options.body, headers, options))
+    local r = pcall(async.await, c:request(
+      options.method or "GET", path, options.body, headers, options
+    ))
     pcall(func(){ async.await(c:close()) })
     if(r[0] == "err"){
       raise(r[1])
@@ -934,8 +1034,11 @@ func http.multipart_parser(boundary){
   if(boundary == null or boundary == ""){
     error("http: a multipart body needs a boundary")
   }
-  return {meta: multipart_meta, first: concat("--", boundary), delimiter: concat("\r\n--", boundary),
-          buffer: "", state: "preamble", max_head: 16384}
+  return {
+    meta: multipart_meta, first: concat("--", boundary),
+    delimiter: concat("\r\n--", boundary), buffer: "", state: "preamble",
+    max_head: 16384,
+  }
 }
 
 // push(chunk) -> the events the chunk completes
@@ -980,15 +1083,24 @@ func multipart_methods.push(p, chunk){
         break
       }
       local headers = {}
-      for(let local line in values(str.split(str.substring(buf, 0, i), "\r\n"))){
+      for(let local line in values(
+        str.split(str.substring(buf, 0, i), "\r\n")
+      )){
         local colon = str.index_of(line, ":")
         if(colon > 0){
-          headers[str.lower(str.trim(str.substring(line, 0, colon)))] = str.trim(str.substring(line, colon + 1))
+          headers[str.lower(
+            str.trim(str.substring(line, 0, colon))
+          )] = str.trim(str.substring(line, colon + 1))
         }
       }
       local disposition = header_params(headers["content-disposition"] or "")
-      append(events, {type: "part", name: disposition.name, filename: disposition.filename,
-                      content_type: headers["content-type"] or "text/plain", headers: headers})
+      append(events, {
+        type: "part",
+        name: disposition.name,
+        filename: disposition.filename,
+        content_type: headers["content-type"] or "text/plain",
+        headers: headers,
+      })
       p.buffer = str.substring(buf, i + 4)
       p.state = "body"
     } else if(p.state == "body"){
@@ -997,7 +1109,10 @@ func multipart_methods.push(p, chunk){
         // all but a tail that could hold the start of the delimiter
         local keep = len(p.delimiter) - 1
         if(len(buf) > keep){
-          append(events, {type: "data", data: str.substring(buf, 0, len(buf) - keep)})
+          append(events, {
+            type: "data",
+            data: str.substring(buf, 0, len(buf) - keep),
+          })
           p.buffer = str.substring(buf, len(buf) - keep)
         }
         break
@@ -1045,8 +1160,13 @@ func http.multipart(req){
     } else if(e.type == "data"){
       append(data, e.data)
     } else if(e.type == "end_part"){
-      append(parts, {name: current.name, filename: current.filename, content_type: current.content_type,
-                     headers: current.headers, data: str.join(data, "")})
+      append(parts, {
+        name: current.name,
+        filename: current.filename,
+        content_type: current.content_type,
+        headers: current.headers,
+        data: str.join(data, ""),
+      })
     }
   }
   p:finish()

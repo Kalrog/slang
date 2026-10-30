@@ -15,30 +15,54 @@ t.group("threads"){
       }
     })
     local v = thread.resume(thr)
-    assert(v == 0, "thread.resume should return the value passed to thread.yield")
+    assert(
+      v == 0,
+      "thread.resume should return the value passed to thread.yield"
+    )
     v = thread.resume(thr)
-    assert(v == 1, "thread.resume should return the value passed to thread.yield")
+    assert(
+      v == 1,
+      "thread.resume should return the value passed to thread.yield"
+    )
     v = thread.resume(thr)
-    assert(v == 2, "thread.resume should return the value passed to thread.yield")
+    assert(
+      v == 2,
+      "thread.resume should return the value passed to thread.yield"
+    )
     v = thread.resume(thr)
-    assert(v == 3, "thread.resume should return the value passed to thread.yield")
+    assert(
+      v == 3,
+      "thread.resume should return the value passed to thread.yield"
+    )
     v = thread.resume(thr)
-    assert(v == 4, "thread.resume should return the value passed to thread.yield")
-  } 
+    assert(
+      v == 4,
+      "thread.resume should return the value passed to thread.yield"
+    )
+  }
   t.test("thread return"){
     local thr = thread.create(func(){
       return 1
     })
     local v = thread.resume(thr)
-    assert(v == 1, "thread.resume should return the value returned by the thread function")
-    assert(thread.state(thr) == "dead", "thread.state should return dead for a thread that has returned")
+    assert(
+      v == 1,
+      "thread.resume should return the value returned by the thread function"
+    )
+    assert(
+      thread.state(thr) == "dead",
+      "thread.state should return dead for a thread that has returned"
+    )
   }
   t.test("resume value for initialization"){
     local thr = thread.create(func(v){
       return v
     })
     local value = thread.resume(thr, 123)
-    assert(value == 123, "thread.resume should pass the value to the thread function")
+    assert(
+      value == 123,
+      "thread.resume should pass the value to the thread function"
+    )
   }
   t.test("yield should return value passed to resume"){
     local summer = thread.create(func(v){
@@ -48,18 +72,30 @@ t.group("threads"){
         sum = sum + v
       }
     })
-    assert(thread.resume(summer, 1) == 1, "thread.resume should return the value passed to thread.yield")
-    assert(thread.resume(summer, 2) == 3, "thread.resume should return the value passed to thread.yield")
-    assert(thread.resume(summer, 3) == 6, "thread.resume should return the value passed to thread.yield")
-    assert(thread.resume(summer, 4) == 10, "thread.resume should return the value passed to thread.yield")
+    assert(
+      thread.resume(summer, 1) == 1,
+      "thread.resume should return the value passed to thread.yield"
+    )
+    assert(
+      thread.resume(summer, 2) == 3,
+      "thread.resume should return the value passed to thread.yield"
+    )
+    assert(
+      thread.resume(summer, 3) == 6,
+      "thread.resume should return the value passed to thread.yield"
+    )
+    assert(
+      thread.resume(summer, 4) == 10,
+      "thread.resume should return the value passed to thread.yield"
+    )
   }
   t.test("thread complex example"){
     //elixir style state thread
     local state_thread = thread.create(func(){
       local state = {}
-      local msg 
+      local msg
       for(true){
-        if (msg == nil){
+        if(msg == nil){
           msg = thread.yield()
         } else if(msg[0] == "put"){
           state[msg[1]] = msg[2]
@@ -72,7 +108,7 @@ t.group("threads"){
         } else if(msg[0] == "clear"){
           state = {}
           msg = thread.yield()
-        }else{
+        } else {
           msg = thread.yield()
         }
       }
@@ -90,8 +126,14 @@ t.group("threads"){
       return thread.resume(state_thread, {"clear"})
     }
     thread.resume(state_thread, nil)
-    assert(store("a", 1) == 1, "store should return the value passed to thread.yield")
-    assert(store("b", 2) == 2, "store should return the value passed to thread.yield")
+    assert(
+      store("a", 1) == 1,
+      "store should return the value passed to thread.yield"
+    )
+    assert(
+      store("b", 2) == 2,
+      "store should return the value passed to thread.yield"
+    )
     assert(get("a") == 1, "get should return the value stored")
     assert(get("b") == 2, "get should return the value stored")
     assert(delete("a") == nil, "delete should return nil")
@@ -108,9 +150,15 @@ t.group("threads"){
       print("return inside worked\n")
       return 2
     })
-    assert(thread.resume(thr) == 1, "thread.resume should return the value passed to thread.yield")
+    assert(
+      thread.resume(thr) == 1,
+      "thread.resume should return the value passed to thread.yield"
+    )
     print("yield 1 worked\n")
-    assert(thread.resume(thr) == 2, "thread.resume should return the value returned by the thread function")
+    assert(
+      thread.resume(thr) == 2,
+      "thread.resume should return the value returned by the thread function"
+    )
     print("return 2 worked\n")
   }
   t.test("thread yields in deeply nested call with loops"){
@@ -128,7 +176,10 @@ t.group("threads"){
       relay()
     })
     for(local i = 0; i < 100; i = i + 1){
-      assert(thread.resume(thr) == i % 10, "thread.resume should return the value passed to thread.yield")
+      assert(
+        thread.resume(thr) == i % 10,
+        "thread.resume should return the value passed to thread.yield"
+      )
     }
   }
   t.test("yield inside pcall"){
@@ -139,9 +190,15 @@ t.group("threads"){
       })
       return r
     })
-    assert(thread.resume(thr) == "inside", "yield inside a protected call should reach resume")
+    assert(
+      thread.resume(thr) == "inside",
+      "yield inside a protected call should reach resume"
+    )
     local r = thread.resume(thr)
-    assert(r[0] == "ok" and r[1] == "done", "pcall should complete after the resume")
+    assert(
+      r[0] == "ok" and r[1] == "done",
+      "pcall should complete after the resume"
+    )
     assert(thread.state(thr) == "dead", "thread should be dead")
   }
   t.test("error inside thread propagates to resume"){

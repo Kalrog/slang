@@ -18,7 +18,12 @@ local log = require("log")
 local files = require("files")
 local m = {}
 
-local links = {{href: "/", text: "todos"}, {href: "/files", text: "files"}, {href: "/log", text: "log"}, {href: "/slow", text: "slow"}}
+local links = {
+  {href: "/", text: "todos"},
+  {href: "/files", text: "files"},
+  {href: "/log", text: "log"},
+  {href: "/slow", text: "slow"},
+}
 
 func m.Layout(props){
   return <>
@@ -76,8 +81,7 @@ func m.AccountForm(props){
       </label>
       <button>{login and "sign in" or "create account"}</button>
     </form>
-    {login and <p>No account? <a href="/register">Create one</a>, or sign in as <b>demo</b> with the password <b>demo</b>.</p>
-           or <p>Already have one? <a href="/login">Sign in</a>.</p>}
+    {login and <p>No account? <a href="/register">Create one</a>, or sign in as <b>demo</b> with the password <b>demo</b>.</p> or <p>Already have one? <a href="/login">Sign in</a>.</p>}
   </>
 }
 
@@ -191,8 +195,11 @@ func m.LogRows(props){
 local headers = {["Content-Type"]: "text/html; charset=utf-8"}
 
 func m.page(req, title, content, status){
-  return {status: status or 200, headers: headers,
-          body: <m.Layout title={title} path={req.path} user={req.user} csrf={req.csrf_token}>{content}</m.Layout>}
+  return {
+    status: status or 200,
+    headers: headers,
+    body: <m.Layout title={title} path={req.path} user={req.user} csrf={req.csrf_token}>{content}</m.Layout>,
+  }
 }
 
 // a fragment for htmx: the nodes, nothing around them

@@ -57,9 +57,12 @@ local func web_request(r){
   local slash = str.index_of(rest, "/")
   local target = slash >= 0 and str.substring(rest, slash) or "/"
   local q = str.index_of(target, "?")
-  return {method: r.method, url: target, path: q >= 0 and str.substring(target, 0, q) or target,
-          query: q >= 0 and str.substring(target, q + 1) or null, version: "1.1",
-          headers: r.headers, body: r.body}
+  return {
+    method: r.method, url: target,
+    path: q >= 0 and str.substring(target, 0, q) or target,
+    query: q >= 0 and str.substring(target, q + 1) or null, version: "1.1",
+    headers: r.headers, body: r.body,
+  }
 }
 
 local func serve(app, request, task){
@@ -73,7 +76,13 @@ local func serve(app, request, task){
       task:respond(res.status, res.headers, body)
     })
     if(r[0] == "err"){
-      pcall(func(){ task:respond(500, {["Content-Type"]: "text/plain"}, concat("internal error: ", r[1].message or string(r[1]))) })
+      pcall(func(){
+        task:respond(
+          500,
+          {["Content-Type"]: "text/plain"},
+          concat("internal error: ", r[1].message or string(r[1]))
+        )
+      })
     }
   })
 }
@@ -91,12 +100,19 @@ func webview.window(options){
     opts.url = concat("app://localhost", options.path or "/")
   }
   local closed = async.completer()
-  local w = {native: n.window(opts), closed: closed.future, binds: {}, handlers: {}}
+  local w = {
+    native: n.window(opts),
+    closed: closed.future,
+    binds: {},
+    handlers: {},
+  }
   w.meta = window_meta
   w.native:on_close(func(){ closed.complete(null) })
   w.native:on_message(func(text){ w:receive(text) })
   if(options.app != null){
-    w.native:on_request(func(request, task){ serve(options.app, request, task) })
+    w.native:on_request(func(request, task){
+      serve(options.app, request, task)
+    })
   }
   return w
 }
@@ -126,10 +142,14 @@ func window_methods.receive(w, text){
         return null
       }
       if(res[0] == "ok"){
-        w.native:eval(concat("slang._resolve(", string(m.id), ", true, ", json.encode(res[1]), ")"))
+        w.native:eval(concat(
+          "slang._resolve(", string(m.id), ", true, ", json.encode(res[1]), ")"
+        ))
       } else {
         local msg = res[1].message or string(res[1])
-        w.native:eval(concat("slang._resolve(", string(m.id), ", false, ", json.encode(msg), ")"))
+        w.native:eval(concat(
+          "slang._resolve(", string(m.id), ", false, ", json.encode(msg), ")"
+        ))
       }
     })
   } else if(m.type == "message"){

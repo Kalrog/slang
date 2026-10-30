@@ -1,4 +1,3 @@
-
-func add(a,b) {
+func add(a, b){
   return a + b
 }

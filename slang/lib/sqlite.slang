@@ -63,13 +63,18 @@ func sqlite.query(text, values, origin, count){
   // a null value ends a list literal's length, not its contents, so the
   // literals pass how many values there are
   count = count or len(values)
-  local q = {meta: query_meta, text: text, params: values, count: count, origin: origin}
+  local q = {
+    meta: query_meta, text: text, params: values, count: count, origin: origin,
+  }
   if(count == 0){
     return q
   }
   local pieces = str.split(text, "?")
   if(len(pieces) != count + 1){
-    error("sqlite: the query has ", len(pieces) - 1, " ? for ", count, " value(s); write {value} instead of ? (", origin or "sql", ")")
+    error(
+      "sqlite: the query has ", len(pieces) - 1, " ? for ", count,
+      " value(s); write {value} instead of ? (", origin or "sql", ")"
+    )
   }
   if(not needs_expansion(values, count)){
     return q
@@ -120,7 +125,9 @@ local db_meta = {__index: db_methods, __type: "sqlite.db"}
 local CACHE_SIZE = 64
 
 func sqlite.open(path){
-  return {meta: db_meta, raw: native.open(path), path: path, cache: {}, cached: 0}
+  return {
+    meta: db_meta, raw: native.open(path), path: path, cache: {}, cached: 0,
+  }
 }
 
 local func message_of(e){
@@ -203,7 +210,10 @@ func db_methods.run(db, q, values){
   located(q, func(){
     for(st:step()){}
   })
-  local result = {changes: db.raw:changes(), last_id: db.raw:last_insert_rowid()}
+  local result = {
+    changes: db.raw:changes(),
+    last_id: db.raw:last_insert_rowid(),
+  }
   st:reset()
   return result
 }

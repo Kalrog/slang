@@ -24,7 +24,9 @@ t.group("native extension (C)", func(){
   t.test("argument errors are slang errors", func(){
     local r = pcall(hello.add, "a", 2)
     assert(r[0] == "err")
-    assert(r[1].message == "bad argument #1 to 'add' (number expected, got string)")
+    assert(
+      r[1].message == "bad argument #1 to 'add' (number expected, got string)"
+    )
     assert(r[1].location != null)
   })
 
@@ -42,7 +44,7 @@ t.group("native extension (C)", func(){
     local r = pcall(hello.apply, func(x){ error("inner ", x) }, 7)
     assert(r[0] == "err")
     assert(r[1].message == "inner 7")
-    assert(r[1].location.line == 42)
+    assert(r[1].location.line == 44)
   })
 
   t.test("a native function can handle an error", func(){
@@ -91,7 +93,10 @@ t.group("native extension (C)", func(){
       assert(type(b) == "buffer")
       local r = pcall(hello.buffer().push, {}, "x")
       assert(r[0] == "err")
-      assert(r[1].message == "bad argument #1 to 'push' (hello.buffer expected, got table)")
+      assert(
+        r[1].message ==
+          "bad argument #1 to 'push' (hello.buffer expected, got table)"
+      )
     }
     // churn so the collector runs and finalizes the buffers
     local junk = {}

@@ -11,16 +11,24 @@ local peg = require("slang/peg")
 local g = require("slang/compiler").grammar()
 local util = require("dsl/util")
 
-g:statement("on",
-  peg.seq(g:keyword("on"), g:rule("slang_pattern"), g:rule("block")):map(func(r){
-    local condition = {type: "Let", pattern: r[1], right: util.id("event")}
-    local handler = {
-      type: "Function",
-      params: {util.id("event")},
-      body: {type: "Block", statements: {{type: "If", condition: condition, thenBranch: r[2]}}},
-    }
-    return {token: r[0], ast: +{stat: require("engine/events").listen(-{handler})}}
-  })
+g:statement(
+  "on",
+  peg.seq(g:keyword("on"), g:rule("slang_pattern"), g:rule("block"))
+    :map(func(r){
+      local condition = {type: "Let", pattern: r[1], right: util.id("event")}
+      local handler = {
+        type: "Function",
+        params: {util.id("event")},
+        body: {
+          type: "Block",
+          statements: {{type: "If", condition: condition, thenBranch: r[2]}},
+        },
+      }
+      return {
+        token: r[0],
+        ast: +{stat: require("engine/events").listen(-{handler})},
+      }
+    })
 )
 
 return {}

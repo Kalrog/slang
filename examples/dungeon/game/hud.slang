@@ -120,7 +120,9 @@ func m.draw_title(){
   gfx.text_centered("a scripting language example", 160, 70, 8, grey)
   gfx.draw_sprite(sprites.player, 120, 96, false, 1, 2)
   gfx.draw_sprite(sprites.goblin, 168, 96, true, 1, 2)
-  gfx.text_centered("arrows / wasd to move, bump to fight and talk", 160, 140, 8, white)
+  gfx.text_centered(
+    "arrows / wasd to move, bump to fight and talk", 160, 140, 8, white
+  )
   gfx.text_centered("press enter", 160, 160, 8, gold)
 }
 

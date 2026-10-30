@@ -30,7 +30,11 @@ t.group("matchers"){
     assert((let 'between(1, 10) = 50) == false)
     assert((let 'between(1, 10) = "5") == false)
     assert((let 'between(1, 10) as local five = 5) == true and five == 5)
-    assert((let '(pair){local a, local b} = "10-20") == true and a == "10" and b == "20", "the braces match the result")
+    assert(
+      (let '(pair){local a, local b} = "10-20") == true and a == "10" and
+        b == "20",
+      "the braces match the result"
+    )
     assert((let '(pair) as {local x, "20"} = "10-20") == true and x == "10")
     assert((let '(pair) as {local x, "21"} = "10-20") == false)
     assert((let '(pair){local a, local b} = "nodash") == false)
@@ -42,7 +46,11 @@ t.group("matchers"){
     assert((let '(number) = 123) == false, "only strings")
     let '(number) as local m = "42"
     assert(m == 42)
-    local words = peg.pattern("a-z"):plus():flatten():star_separated(peg.char(" ")):map(func(s){ return s.elements })
+    local words = peg.pattern("a-z")
+      :plus()
+      :flatten()
+      :star_separated(peg.char(" "))
+      :map(func(s){ return s.elements })
     let '(words){local first, local second} = "hello world"
     assert(first == "hello" and second == "world")
   }
@@ -55,21 +63,33 @@ t.group("matchers"){
     } else {
       assert(false, "nested matchers should match")
     }
-    assert((let {x: '(pair){'(number) as local q, local r}} = {x: "a-4"}) == false, "an inner matcher fails")
+    assert(
+      (let {x: '(pair){'(number) as local q, local r}} = {x: "a-4"}) == false,
+      "an inner matcher fails"
+    )
   }
   t.test("type names with as"){
     local p = {meta: {__type: "Point"}, x: 1}
     assert((let 'Point as {x: local x} = p) == true and x == 1)
     assert((let 'Point as local whole = p) == true and whole == p)
     assert((let 'Line as local l = p) == false)
-    assert((let 'Point{x: 1} = p) == true, "the brace form is still the type check")
-    assert((let 'Point = p) == true and (let 'Point = 3) == false, "a bare type name is a check")
+    assert(
+      (let 'Point{x: 1} = p) == true,
+      "the brace form is still the type check"
+    )
+    assert(
+      (let 'Point = p) == true and (let 'Point = 3) == false,
+      "a bare type name is a check"
+    )
   }
   t.test("matchers in statements, loops and functions"){
     let 'between(1, 10) as local v = 3
     assert(v == 3)
     local r = pcall(func(){ let 'between(1, 10) as local w = 11 })
-    assert(r[0] == "err" and str.index_of(r[1].message, "does not match") >= 0, r[1].message)
+    assert(
+      r[0] == "err" and str.index_of(r[1].message, "does not match") >= 0,
+      r[1].message
+    )
     local sum = 0
     for(let '(number) as local n in values({"1", "2", "x", "4"})){
       sum = sum + n
@@ -80,11 +100,17 @@ t.group("matchers"){
       if(let '(number) = v){ return "numeric string" }
       return "other"
     }
-    assert(classify(5) == "digit" and classify("55") == "numeric string" and classify({}) == "other")
+    assert(
+      classify(5) == "digit" and classify("55") == "numeric string" and
+        classify({}) == "other"
+    )
   }
   t.test("something that is not a matcher is an error"){
     local r = pcall(func(){ return (let '(42) = 1) })
-    assert(r[0] == "err" and str.index_of(r[1].message, "__match") >= 0, r[1].message)
+    assert(
+      r[0] == "err" and str.index_of(r[1].message, "__match") >= 0,
+      r[1].message
+    )
   }
   t.test("constant patterns at the top level leave the stack clean"){
     local x = 5

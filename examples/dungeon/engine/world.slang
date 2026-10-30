@@ -92,7 +92,7 @@ func m.blocked(x, y){
 }
 
 func m.free_neighbor(x, y){
-  local dirs = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}}
+  local dirs = {{1, 0}, {- 1, 0}, {0, 1}, {0, - 1}}
   for(let local d in values(dirs)){
     local nx = x + d[0]
     local ny = y + d[1]
@@ -130,7 +130,7 @@ func m.move(e, dx, dy){
   local nx = e.x + dx
   local ny = e.y + dy
   if(dx < 0){
-    e.facing = -1
+    e.facing = - 1
   } else if(dx > 0){
     e.facing = 1
   }
@@ -178,12 +178,12 @@ func m.step_towards(e, target){
 
 func sign(n){
   if(n > 0){ return 1 }
-  if(n < 0){ return -1 }
+  if(n < 0){ return - 1 }
   return 0
 }
 
 func m.random_step(e){
-  local dirs = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}}
+  local dirs = {{1, 0}, {- 1, 0}, {0, 1}, {0, - 1}}
   local d = dirs[to_int(math.random(0, 4))]
   return m.move(e, d[0], d[1])
 }
@@ -227,7 +227,7 @@ local func draw_entity(e){
   if(e.flash != null and e.flash > 0 and to_int(e.flash * 20) % 2 == 0){
     return null
   }
-  gfx.draw_sprite(spr, e.px, e.py, e.facing == -1)
+  gfx.draw_sprite(spr, e.px, e.py, e.facing == - 1)
 }
 
 func m.draw(){

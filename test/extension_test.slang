@@ -25,7 +25,10 @@ t.group("extension statements"){
       local add = |a, b| a + b
       return add(20, 22)
     """, "file extension")
-    assert(run() == 42, "lambda shorthand should work after the extension statement")
+    assert(
+      run() == 42,
+      "lambda shorthand should work after the extension statement"
+    )
   }
   t.test("ordinary unquotes may not change the grammar"){
     local r = pcall(compile, """
@@ -38,7 +41,10 @@ t.group("extension statements"){
       }
     """, "unquote mutation")
     assert(r[0] == "err", "compile should fail")
-    assert(str.index_of(message_of(r), "extension statement") >= 0, concat("message: ", message_of(r)))
+    assert(
+      str.index_of(message_of(r), "extension statement") >= 0,
+      concat("message: ", message_of(r))
+    )
   }
   t.test("extension statements are only allowed at the top level"){
     local r = pcall(compile, """
@@ -53,7 +59,10 @@ t.group("extension statements"){
       -{block: compile("extension { }", "nested unit")}
     """, "extension from unquote")
     assert(r[0] == "err", "compile should fail")
-    assert(str.index_of(message_of(r), "while a statement is being parsed") >= 0, concat("message: ", message_of(r)))
+    assert(
+      str.index_of(message_of(r), "while a statement is being parsed") >= 0,
+      concat("message: ", message_of(r))
+    )
   }
   t.test("an unquote runs once even when the parser backtracks across it"){
     unquote_runs = 0
@@ -73,7 +82,10 @@ t.group("extension statements"){
       }
       store(-{block: unquote_runs = unquote_runs + 1 return +{7}} + 1)
     """, "unquote memo")
-    assert(unquote_runs == 1, concat("the unquote block ran ", unquote_runs, " times"))
+    assert(
+      unquote_runs == 1,
+      concat("the unquote block ran ", unquote_runs, " times")
+    )
     run()
     assert(stored == 8, "the spliced value should be used")
   }
@@ -88,7 +100,10 @@ t.group("extension statements"){
     """, "pure unquote")
     run()
     assert(computed == 10, "the spliced statement should run")
-    local f = compile("return -{block: return {type: \"Int\", value: 10}} * 2", "pure unquote expr")
+    local f = compile(
+      "return -{block: return {type: \"Int\", value: 10}} * 2",
+      "pure unquote expr"
+    )
     assert(f() == 20, "spliced value should be usable")
   }
   t.test("keywords stay usable as field names"){
@@ -113,7 +128,10 @@ t.group("extension statements"){
       }
       return t:loud(10) + t.shout + u:shout()
     """, "keyword fields")
-    assert(run() == 19, "shout is a keyword but still a field, a method and a pattern key")
+    assert(
+      run() == 19,
+      "shout is a keyword but still a field, a method and a pattern key"
+    )
     // and not reserved outside it
     local r = pcall(compile, "local shout = 1", "keyword identifier")
     assert(r[0] == "ok", "the keyword ends with the unit that introduced it")
@@ -143,6 +161,9 @@ t.group("extension statements"){
         alias a b
       }
     """, "nested user extension statement")
-    assert(r[0] == "err", "extension statements defined by extensions are top-level only")
+    assert(
+      r[0] == "err",
+      "extension statements defined by extensions are top-level only"
+    )
   }
 }

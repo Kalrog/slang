@@ -56,10 +56,22 @@ local func open_window(){
   local w = webview.window({title: "Todos", width: 420, height: 520, app: app})
   windows[w] = true
   w:bind("list", func(){ return store.list() })
-  w:bind("add", func(text){ store.add(text) changed() })
-  w:bind("toggle", func(id){ store.toggle(id) changed() })
-  w:bind("remove", func(id){ store.remove(id) changed() })
-  w:bind("clear_done", func(){ store.clear_done() changed() })
+  w:bind("add", func(text){
+    store.add(text)
+    changed()
+  })
+  w:bind("toggle", func(id){
+    store.toggle(id)
+    changed()
+  })
+  w:bind("remove", func(id){
+    store.remove(id)
+    changed()
+  })
+  w:bind("clear_done", func(){
+    store.clear_done()
+    changed()
+  })
   w:bind("another", func(){ open_window() })
   w.closed:then(func(_){ windows[w] = null })
   return w

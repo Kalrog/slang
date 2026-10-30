@@ -15,16 +15,31 @@ local g = require("slang/compiler").grammar()
 local name = g:tag(g:rule("identifier"), "enum.declaration")
 local member = g:tag(g:rule("identifier"), "enumMember.declaration")
 
-g:statement("enum", peg.seq(
-  g:keyword("enum"), name, g:token("{"),
-  member:star_separated(g:token(",")):map(func(s){ return s.elements }),
-  g:token("}")
-):map(func(r){
-  local fields = {}
-  for(let local m in values(r[3])){
-    append(fields, ast.node("Field", {key: ast.node("String", {value: m.value}, m), value: ast.node("String", {value: m.value}, m)}, m))
-  }
-  local table = ast.node("Table", {fields: fields}, r[2])
-  local id = ast.node("Identifier", {value: r[1].value}, r[1])
-  return {token: r[0], ast: ast.node("Declaration", {is_local: true, left: id, right: table}, r[0])}
-}))
+g:statement(
+  "enum",
+  peg.seq(
+    g:keyword("enum"), name, g:token("{"),
+    member:star_separated(g:token(",")):map(func(s){ return s.elements }),
+    g:token("}")
+  )
+    :map(func(r){
+      local fields = {}
+      for(let local m in values(r[3])){
+        append(fields, ast.node(
+          "Field",
+          {
+            key: ast.node("String", {value: m.value}, m),
+            value: ast.node("String", {value: m.value}, m),
+          }, m
+        ))
+      }
+      local table = ast.node("Table", {fields: fields}, r[2])
+      local id = ast.node("Identifier", {value: r[1].value}, r[1])
+      return {
+        token: r[0],
+        ast: ast.node(
+          "Declaration", {is_local: true, left: id, right: table}, r[0]
+        ),
+      }
+    })
+)

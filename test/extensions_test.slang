@@ -3,8 +3,7 @@ local compiler = require("slang/compiler")
 
 t.group("extensions"){
   t.test("lambda shorthand"){
-    compile(
-"""
+    compile("""
 extension "extensions/lambda_shorthand"
 
 local add = |x,y| x+y
@@ -16,11 +15,10 @@ assert(add_curry(1)(2) == 3, "add_curry(1)(2) should be 3")
 local add_curry_curry = |x||y||| x+y
 assert(type(add_curry_curry(1)(2)) == "function", "add_curry_curry(1)(2) should be a function")
 assert(add_curry_curry(1)(2)() == 3, "add_curry_curry(1)(2)() should be 3")
-""","lambda_shorthand")()
+""", "lambda_shorthand")()
   }
   t.test("dollar"){
-    compile(
-"""
+    compile("""
 extension "extensions/dollar"
 
 macro hello (){
@@ -52,14 +50,10 @@ $unless(2==2){
   assert(false,"1==2 should be false")
 }
 
-""","dollar")()
-
-
-
+""", "dollar")()
   }
   t.test("switch"){
-    compile(
-"""
+    compile("""
 extension "extensions/switch"
 local ran = false
 local value = 1
@@ -85,22 +79,20 @@ switch(value){
     assert(false, "case 'Person{age: 20, name: \\"bob\\"} should not be run because it is after the matching case") 
 }
 assert(ran == true, "ran should be true")
-""","switch test")()
+""", "switch test")()
   }
   t.test("table type"){
-    compile(
-"""
+    compile("""
 extension "extensions/table_type"
 -{block:assert(true,"unquote blocks should still work")}
 local table = 'Person{name: "bob", age: 20}
 assert(table.name == "bob", "table.name should be bob")
 assert(table.age == 20, "table.age should be 20")
 assert(type(table) == "Person", "table should be a Person")
-""","table type")()
+""", "table type")()
   }
   t.test("parser syntax"){
-    compile(
-"""
+    compile("""
 extension "extensions/parser_syntax"
 local peg = require("slang/peg")
 local g = require("slang/compiler").grammar()
@@ -126,11 +118,10 @@ struct car{
   int*[5]  parts;
 }
 \"\"\"))
-""","parser_syntax")()
+""", "parser_syntax")()
   }
   t.test("easy operators"){
-    compile(
-""" 
+    compile(""" 
 extension "extensions/custom_operators"
 extension "extensions/table_type"
 
@@ -205,9 +196,6 @@ postfix _! before _unary_ (value){
 print(+{l! == l})
 """, "easy operators")()
 
-compiler.reset()
-
-
+    compiler.reset()
   }
 }
-

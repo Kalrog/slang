@@ -26,7 +26,8 @@ local entities = util.registry("entities")
 local m = {tiles: tiles, legends: legends}
 
 // tile NAME { fields }
-g:extension_statement("tile",
+g:extension_statement(
+  "tile",
   peg.seq(g:keyword("tile"), g:rule("identifier"), g:rule("table_literal")),
   func(r){
     local token = r[0]
@@ -42,11 +43,13 @@ g:extension_statement("tile",
 )
 
 // legend NAME { "c": tile_or_entity, ... }
-local legend_entry = peg.seq(util.quoted(), g:token(":"), g:rule("identifier")):map(func(r){
-  return {glyph: r[0], target: r[2].value}
-})
+local legend_entry = peg.seq(util.quoted(), g:token(":"), g:rule("identifier"))
+  :map(func(r){
+    return {glyph: r[0], target: r[2].value}
+  })
 
-g:extension_statement("legend",
+g:extension_statement(
+  "legend",
   peg.seq(
     g:keyword("legend"),
     g:rule("identifier"),
@@ -61,7 +64,10 @@ g:extension_statement("legend",
     local entries = {}
     for(let local entry in values(r[3])){
       if(len(entry.glyph) != 1){
-        g:error_at(token, "legend ", name, ": keys must be single characters, like \"#\": wall")
+        g:error_at(
+          token, "legend ", name,
+          ": keys must be single characters, like \"#\": wall"
+        )
       }
       local target = entry.target
       if(tiles[target]){
@@ -69,7 +75,10 @@ g:extension_statement("legend",
       } else if(entities[target] != null){
         entries[entry.glyph] = {spawn: target}
       } else {
-        g:error_at(token, "legend ", name, ": \"", entry.glyph, "\" refers to ", target, ", which is neither a declared tile nor a declared entity")
+        g:error_at(
+          token, "legend ", name, ": \"", entry.glyph, "\" refers to ", target,
+          ", which is neither a declared tile nor a declared entity"
+        )
       }
     }
     legends[name] = entries
@@ -90,14 +99,20 @@ func m.build(rows, legend, fail){
   for(local y = 0; y < h; y = y + 1){
     local row = rows.rows[y]
     if(len(row) != w){
-      fail(y, "row ", y + 1, " is ", len(row), " characters wide, the first row is ", w)
+      fail(
+        y, "row ", y + 1, " is ", len(row),
+        " characters wide, the first row is ", w
+      )
     }
     local line = {}
     for(local x = 0; x < w; x = x + 1){
       local ch = str.char_at(row, x)
       local entry = legend[ch]
       if(entry == null){
-        fail(y, "row ", y + 1, " column ", x + 1, ": \"", ch, "\" is not in the legend")
+        fail(
+          y, "row ", y + 1, " column ", x + 1, ": \"", ch,
+          "\" is not in the legend"
+        )
       }
       if(entry.tile != null){
         append(line, entry.tile)
@@ -121,8 +136,12 @@ func m.build(rows, legend, fail){
 }
 
 // level NAME [LEGEND] { rows }
-g:extension_statement("level",
-  peg.seq(g:keyword("level"), g:rule("identifier"), g:rule("identifier"):optional(), util.raw_block()),
+g:extension_statement(
+  "level",
+  peg.seq(
+    g:keyword("level"), g:rule("identifier"), g:rule("identifier"):optional(),
+    util.raw_block()
+  ),
   func(r){
     local token = r[0]
     local name = r[1].value
@@ -132,14 +151,21 @@ g:extension_statement("level",
     }
     local legend = legends[legend_name]
     if(legend == null){
-      g:error_at(token, "level ", name, ": unknown legend \"", legend_name, "\"")
+      g:error_at(
+        token, "level ", name, ": unknown legend \"", legend_name, "\""
+      )
     }
     local rows = util.rows(r[3])
     local built = m.build(rows, legend, func(row, ...message){
-      util.error_at_row(rows, row, concat("level ", name, ": ", util.text(message)))
+      util.error_at_row(
+        rows, row, concat("level ", name, ": ", util.text(message))
+      )
     })
     built.name = name
-    return {token: token, ast: util.define("engine/levels", name, util.literal(built))}
+    return {
+      token: token,
+      ast: util.define("engine/levels", name, util.literal(built)),
+    }
   }
 )
 

@@ -2,9 +2,14 @@ local t = require("slang/test")
 local peg = require("slang/peg")
 
 local func ok(result, expected, msg){
-  assert(result[0] == "ok", concat(msg or "", " expected ok, got ", string(result)))
+  assert(
+    result[0] == "ok",
+    concat(msg or "", " expected ok, got ", string(result))
+  )
   if(expected != null){
-    assert(result[1] == expected, concat(msg or "", " expected ", string(expected), " got ", string(result[1])))
+    assert(result[1] == expected, concat(
+      msg or "", " expected ", string(expected), " got ", string(result[1])
+    ))
   }
 }
 
@@ -33,14 +38,20 @@ t.group("peg"){
     ok(r)
     assert(r[1] == {"a", "b", "c"}, "seq collects values")
     ok(p:pick(1):parse("abc"), "b")
-    ok(p:pick(-1):parse("abc"), "c")
-    assert(p:parse("abd")[1] == "\"c\" expected at 1:3", "failure of the failing element")
+    ok(p:pick(- 1):parse("abc"), "c")
+    assert(
+      p:parse("abd")[1] == "\"c\" expected at 1:3",
+      "failure of the failing element"
+    )
   }
   t.test("choice reports last failure"){
     local p = peg.choice(peg.string("a"), peg.string("b"))
     ok(p:parse("a"), "a")
     ok(p:parse("b"), "b")
-    assert(p:parse("c")[1] == "\"b\" expected at 1:1", "last alternative failure")
+    assert(
+      p:parse("c")[1] == "\"b\" expected at 1:1",
+      "last alternative failure"
+    )
   }
   t.test("star, plus, optional"){
     local r = peg.string("a"):star():parse("aaa")
@@ -49,11 +60,17 @@ t.group("peg"){
     assert(r[0] == "ok" and len(r[1]) == 0, "star accepts empty")
     assert(peg.string("a"):plus():parse("")[0] == "error", "plus needs one")
     r = peg.seq(peg.string("a"):optional(), peg.string("b")):parse("b")
-    assert(r[1][0] == null and r[1][1] == "b", "optional yields null and keeps positions")
+    assert(
+      r[1][0] == null and r[1][1] == "b",
+      "optional yields null and keeps positions"
+    )
     assert(len(r[1]) == 2, "sequence keeps the null slot")
   }
   t.test("star_lazy"){
-    local p = peg.seq(peg.string("/*"), peg.any():star_lazy(peg.string("*/")):flatten(), peg.string("*/"))
+    local p = peg.seq(
+      peg.string("/*"), peg.any():star_lazy(peg.string("*/")):flatten(),
+      peg.string("*/")
+    )
     local r = p:parse("/* hello */")
     ok(r)
     assert(r[1][1] == " hello ", "lazy star stops at the limit")
@@ -67,7 +84,10 @@ t.group("peg"){
     assert(r[1].separators == {",", ","}, "separators")
     r = p:parse("")
     assert(r[0] == "ok" and len(r[1].elements) == 0, "empty list allowed")
-    assert(peg.digit():plus_seperated(peg.char(",")):parse("")[0] == "error", "plus separated needs one")
+    assert(
+      peg.digit():plus_seperated(peg.char(",")):parse("")[0] == "error",
+      "plus separated needs one"
+    )
     r = p:end():parse("1,2,")
     assert(r[0] == "error", "trailing separator is not consumed")
   }
@@ -76,14 +96,23 @@ t.group("peg"){
     ok(p:parse("ac"), "a")
     assert(p:parse("ab")[0] == "error", "forbid fails when child matches")
     ok(peg.char("\n"):neg():parse("x"), "x")
-    assert(peg.char("\n"):neg():parse("\n")[0] == "error", "neg rejects the char")
+    assert(
+      peg.char("\n"):neg():parse("\n")[0] == "error",
+      "neg rejects the char"
+    )
   }
   t.test("map, flatten, permute"){
     local p = peg.digit():plus():flatten():map(func(s){ return to_int(s) * 2 })
     ok(p:parse("21"), 42)
-    local q = peg.seq(peg.string("a"), peg.string("b"), peg.string("c")):permute(2, 0)
+    local q = peg.seq(
+      peg.string("a"), peg.string("b"), peg.string("c")
+    ):permute(2, 0)
     assert(q:parse("abc")[1] == {"c", "a"}, "permute")
-    assert(peg.digit():plus():flatten("number expected"):parse("x")[1] == "number expected at 1:1", "flatten message")
+    assert(
+      peg.digit():plus():flatten("number expected"):parse("x")[1] ==
+        "number expected at 1:1",
+      "flatten message"
+    )
   }
   t.test("token"){
     local p = peg.seq(peg.string("a\nb"), peg.string("cd"):token()):pick(1)
@@ -92,10 +121,17 @@ t.group("peg"){
     local tok = r[1]
     assert(tok.value == "cd", "token value")
     assert(tok.start == 3 and tok.stop == 5, "token range")
-    assert(tok.line == 2 and tok.column == 2, concat("token line/col ", tok.line, ":", tok.column))
+    assert(
+      tok.line == 2 and tok.column == 2,
+      concat("token line/col ", tok.line, ":", tok.column)
+    )
   }
   t.test("trim"){
-    local p = peg.seq(peg.string("hello"):trim(), peg.string("world"):trim(), peg.string("!"):trim()):end()
+    local p = peg.seq(
+      peg.string("hello"):trim(),
+      peg.string("world"):trim(),
+      peg.string("!"):trim()
+    ):end()
     local r = p:parse("   hello    world   !  ")
     ok(r)
     assert(r[1] == {"hello", "world", "!"}, "trimmed values")
@@ -130,7 +166,11 @@ t.group("peg"){
     local w = peg.walker()
     w:primary(peg.digit():plus():flatten():trim():map(to_int))
     w:level("bracket")
-    w:wrapper(peg.char("("):trim(), peg.char(")"):trim(), "bracket", func(l, v, r){ return v })
+    w:wrapper(
+      peg.char("("):trim(), peg.char(")"):trim(), "bracket", func(l, v, r){
+        return v
+      }
+    )
     w:level("power")
     w:right(peg.char("^"):trim(), "power", func(a, op, c){
       local r = 1
@@ -139,10 +179,12 @@ t.group("peg"){
     })
     w:level("unary")
     w:prefix(peg.char("-"):trim(), "unary", func(op, v){ return -v })
-    w:level("product")
+    w
+      :level("product")
       :left(peg.char("*"):trim(), func(a, op, c){ return a * c })
       :left(peg.char("/"):trim(), func(a, op, c){ return a / c })
-    w:level("sum")
+    w
+      :level("sum")
       :left(peg.char("+"):trim(), func(a, op, c){ return a + c })
       :left(peg.char("-"):trim(), func(a, op, c){ return a - c })
     w:level("factorial")
@@ -154,7 +196,7 @@ t.group("peg"){
     local p = w:build():end()
     ok(p:parse("1 + 2 * 3"), 7)
     ok(p:parse("(1 + 2) * 3"), 9)
-    ok(p:parse("-2 * 3"), -6)
+    ok(p:parse("-2 * 3"), - 6)
     ok(p:parse("2 ^ 3 ^ 2"), 512)
     ok(p:parse("10 - 2 - 3"), 5)
     ok(p:parse("3 + 1 !"), 24)

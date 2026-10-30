@@ -1,10 +1,10 @@
 // Core syntax: every token category the parser produces for plain slang.
 // Open this file in VS Code with the slang extension installed; the colours
 // come from the language server (the parser itself), not from a regex.
-local greeting = "hello"        // string
-local count = 42                // number
-local ratio = 2.5               // number
-local flags = true              // keyword constant
+local greeting = "hello" // string
+local count = 42 // number
+local ratio = 2.5 // number
+local flags = true // keyword constant
 
 // keywords and punctuation
 local func describe(name, n){
@@ -19,7 +19,7 @@ local func describe(name, n){
 // operators
 local total = (count + 1) * 2 - 3 / 4 % 5 ^ 2
 local masked = count & 15 | 1 << 3 ~ ~0
-local ok = total >= 0 and not (masked < 0) or false
+local ok = total >= 0 and not(masked < 0) or false
 
 // tables, patterns, loops
 local items = {greeting, ratio, flags: flags, [count]: "computed"}

@@ -2,7 +2,7 @@
 local indent = 0
 local func indentStr(){
   local str = ""
-  for (local i = 0; i < indent; i = i + 1) {
+  for(local i = 0; i < indent; i = i + 1) {
     str = concat(str, "  ")
   }
   return str
@@ -10,12 +10,7 @@ local func indentStr(){
 
 local group = {}
 func group.new(name){
-  local new = {
-    name: name,
-    children: {},
-    setups: {},
-    teardowns: {},
-  }
+  local new = {name: name, children: {}, setups: {}, teardowns: {}}
   new.meta = {__index: group}
   return new
 }
@@ -26,29 +21,29 @@ func group.add_child(self, child){
 }
 
 func group.run(self){
-  if (self.name != "root") {
+  if(self.name != "root"){
     print(indentStr(), "Group: ", self.name, "\n")
     indent = indent + 1
   }
-  for (let local child in values(self.children)) {
-    for (let local setup in values(self.setups)) {
+  for(let local child in values(self.children)){
+    for(let local setup in values(self.setups)){
       setup()
     }
     pcall(child.run, child)
 
-    for (let local teardown in values(self.teardowns)) {
+    for(let local teardown in values(self.teardowns)){
       teardown()
     }
   }
-  if (self.name != "root") {
+  if(self.name != "root"){
     indent = indent - 1
   }
 }
 
-func group.count(self) {
+func group.count(self){
   local succeded = 0
   local failed = 0
-  for (let local child in values(self.children)) {
+  for(let local child in values(self.children)){
     local count = child:count()
     succeded = succeded + count[0]
     failed = failed + count[1]
@@ -62,12 +57,7 @@ local m = {}
 local test = {}
 
 func test.new(name, f){
-  local new = {
-    name: name,
-    f: f,
-    succeded: false,
-    log: {},
-  }
+  local new = {name: name, f: f, succeded: false, log: {}}
   new.meta = {__index: test}
   return new
 }
@@ -78,25 +68,27 @@ func test.run(self){
   if(let {"ok"} = r){
     print(" Passed\n")
     self.succeded = true
-  }else if (let {"err", local e} = r){
+  } else if(let {"err", local e} = r){
     print(" Failed\n")
     print(indentStr(), "  Error: ", e.message)
     if(e.location){
-      print(" @", e.location.origin, ":", e.location.line, ":", e.location.column)
+      print(
+        " @", e.location.origin, ":", e.location.line, ":", e.location.column
+      )
     }
     print("\n")
   }
 }
 
 func test.count(self){
-  if (self.succeded) {
+  if(self.succeded){
     return {1, 0}
-  }else{
+  } else {
     return {0, 1}
   }
 }
 
-func m.group(name, f) {
+func m.group(name, f){
   local g = group.new(name)
   local parent = current
   current = g
@@ -105,7 +97,7 @@ func m.group(name, f) {
   parent:add_child(g)
 }
 
-func m.test(name, f) {
+func m.test(name, f){
   local parent = current
   parent:add_child(test.new(name, f))
 }
@@ -128,7 +120,7 @@ func m.run(){
   print("Total tests: ", total, "\n")
   if(stats[1] > 0){
     print("Some tests failed\n")
-  }else{
+  } else {
     print("All tests passed\n")
   }
 }

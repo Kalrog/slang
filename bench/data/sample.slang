@@ -25,9 +25,9 @@ func grammar.new(opts){
   opts = opts or {}
   local g = {}
   g.keywords = {
-    ["if"]: true, ["else"]: true, ["for"]: true, ["func"]: true, ["return"]: true,
-    ["local"]: true, ["true"]: true, ["false"]: true, ["null"]: true, ["let"]: true,
-    ["break"]: true,
+    ["if"]: true, ["else"]: true, ["for"]: true, ["func"]: true,
+    ["return"]: true, ["local"]: true, ["true"]: true, ["false"]: true,
+    ["null"]: true, ["let"]: true, ["break"]: true,
   }
   g.in_quote = false
   // set once the grammar was extended / once code ran at compile time
@@ -46,12 +46,17 @@ func grammar.new(opts){
   g.extension_depth = 0
 
   func g.changes_allowed(){
-    return g.parse_depth == 0 or (g.extension_depth > 0 and g.statement_depth == 0)
+    return g.parse_depth == 0 or
+      (g.extension_depth > 0 and g.statement_depth == 0)
   }
 
   local func check_changes(what){
     if(not g.changes_allowed()){
-      error("the grammar can only be changed by an extension statement (extension \"file\" or extension { ... } at the top level); ", what, " was called from code running while a statement is being parsed")
+      error(
+        "the grammar can only be changed by an extension statement (extension \"file\" or extension { ... } at the top level); ",
+        what,
+        " was called from code running while a statement is being parsed"
+      )
     }
   }
 
@@ -141,17 +146,20 @@ func grammar.new(opts){
   }
 
   func g.double_literal(){
-    return g.token(peg.seq(sign, peg.ref(g.number), peg.char("."), peg.ref(g.number)), "double"):map(func(t){
-      return ast.node("Double", {value: str.to_number(t.value)}, t)
-    })
+    return g.token(
+      peg.seq(sign, peg.ref(g.number), peg.char("."), peg.ref(g.number)),
+      "double"
+    )
+      :map(func(t){
+        return ast.node("Double", {value: str.to_number(t.value)}, t)
+      })
   }
 
   func g.valid_escape(){
-    return peg.seq(
-      peg.char("\\"),
-      peg.choice(peg.char("\""), peg.char("\\"), peg.char("n"), peg.char("r"),
-                 peg.char("t"), peg.char("b"), peg.char("f"), peg.char("v"))
-    ):flatten()
+    return peg.seq(peg.char("\\"), peg.choice(
+      peg.char("\""), peg.char("\\"), peg.char("n"), peg.char("r"),
+      peg.char("t"), peg.char("b"), peg.char("f"), peg.char("v")
+    )):flatten()
   }
 
   func g.slang_char(){
@@ -163,21 +171,31 @@ func grammar.new(opts){
       peg.char("\""),
       peg.ref(g.slang_char):star_lazy(peg.char("\"")):map(join_chars),
       peg.char("\"")
-    ):pick(1):token()
+    )
+      :pick(1)
+      :token()
   }
 
   func g.multiline_string(){
     return peg.seq(
       peg.string("\"\"\""),
-      peg.choice(peg.ref(g.slang_char), peg.char("\n")):star_lazy(peg.string("\"\"\"")):map(join_chars),
+      peg.choice(peg.ref(g.slang_char), peg.char("\n"))
+        :star_lazy(peg.string("\"\"\""))
+        :map(join_chars),
       peg.string("\"\"\"")
-    ):pick(1):token()
+    )
+      :pick(1)
+      :token()
   }
 
   func g.string_literal(){
-    return peg.choice(peg.ref(g.multiline_string), peg.ref(g.double_quoted_string)):map(func(t){
-      return ast.node("String", {value: ast.resolve_escapes(t.value)}, t)
-    })
+    return peg.choice(
+      peg.ref(g.multiline_string),
+      peg.ref(g.double_quoted_string)
+    )
+      :map(func(t){
+        return ast.node("String", {value: ast.resolve_escapes(t.value)}, t)
+      })
   }
 
   func g.true_literal(){
@@ -194,13 +212,18 @@ func grammar.new(opts){
 
   func g.identifier(){
     return g.token(
-      peg.seq(peg.string("..."):optional(), peg.pattern("a-zA-Z_"), peg.pattern("a-zA-Z0-9_"):star())
+      peg.seq(
+        peg.string("..."):optional(),
+        peg.pattern("a-zA-Z_"),
+        peg.pattern("a-zA-Z0-9_"):star()
+      )
         :flatten("Expected: identifier")
         :where(func(name){ return g.keywords[name] != true }),
       "identifier"
-    ):map(func(t){
-      return ast.node("Identifier", {value: t.value}, t)
-    })
+    )
+      :map(func(t){
+        return ast.node("Identifier", {value: t.value}, t)
+      })
   }
 
   // ------------------------------------------------------------ tables
@@ -213,13 +236,15 @@ func grammar.new(opts){
         peg.seq(tok("["), g.expr(), tok("]"), tok(":")):pick(1)
       ):optional(),
       g.expr()
-    ):token():map(func(t){
-      local key = t.value[0]
-      if(key != null and key.type == "Identifier"){
-        key = ast.node("String", {value: key.value}, key.token)
-      }
-      return ast.node("Field", {key: key, value: t.value[1]}, t)
-    })
+    )
+      :token()
+      :map(func(t){
+        local key = t.value[0]
+        if(key != null and key.type == "Identifier"){
+          key = ast.node("String", {value: key.value}, key.token)
+        }
+        return ast.node("Field", {key: key, value: t.value[1]}, t)
+      })
   }
 
   func g.table_literal(){
@@ -228,26 +253,33 @@ func grammar.new(opts){
       peg.ref(g.field):star_separated(tok(",")),
       tok(","):optional(),
       tok("}")
-    ):pick(1):map(elements):token():map(func(t){
-      return ast.node("Table", {fields: t.value}, t)
-    })
+    )
+      :pick(1)
+      :map(elements)
+      :token()
+      :map(func(t){
+        return ast.node("Table", {fields: t.value}, t)
+      })
   }
 
   // ------------------------------------------------------------ calls
 
   func g.identifier_and_index(){
-    return peg.seq(
-      peg.ref(g.identifier),
-      peg.choice(
-        peg.seq(tok("["), g.expr(), tok("]")):pick(1):map(func(e){ return {e, "bracket"} }),
-        peg.seq(tok("."), peg.ref(g.identifier):map(func(id){
-          return ast.node("String", {value: id.value}, id.token)
-        })):pick(1):map(func(e){ return {e, "dot"} })
-      ):star()
-    ):map(func(v){
+    return peg.seq(peg.ref(g.identifier), peg.choice(
+      peg.seq(tok("["), g.expr(), tok("]")):pick(1):map(func(e){
+        return {e, "bracket"}
+      }),
+      peg.seq(tok("."), peg.ref(g.identifier):map(func(id){
+        return ast.node("String", {value: id.value}, id.token)
+      })):pick(1):map(func(e){ return {e, "dot"} })
+    ):star()):map(func(v){
       local node = v[0]
       for(let local right in values(v[1])){
-        node = ast.node("Index", {receiver: node, index: right[0], dotStyle: right[1] == "dot"}, right[0].token)
+        node = ast.node(
+          "Index",
+          {receiver: node, index: right[0], dotStyle: right[1] == "dot"},
+          right[0].token
+        )
       }
       return node
     })
@@ -257,121 +289,163 @@ func grammar.new(opts){
     return peg.seq(
       peg.seq(tok(":"), peg.ref(g.identifier)):pick(1):optional(),
       peg.ref(g.args)
-    ):token():map(func(t){
-      return list(t.value[0], t.value[1], t)
-    })
+    )
+      :token()
+      :map(func(t){
+        return list(t.value[0], t.value[1], t)
+      })
   }
 
   func g.args(){
     return peg.choice(
       peg.seq(
-        peg.seq(tok("("), g.expr():star_separated(tok(",")):map(elements), tok(")")):pick(1),
+        peg.seq(
+          tok("("), g.expr():star_separated(tok(",")):map(elements), tok(")")
+        ):pick(1),
         peg.ref(g.block):optional()
       ),
       peg.ref(g.block)
-    ):map(func(args){
-      if(type(args) == "Block"){
-        return {ast.node("Function", {params: {}, body: args}, args.token)}
-      }
-      local normal = args[0]
-      local block = args[1]
-      if(block != null){
-        append(normal, ast.node("Function", {params: {}, body: block}, block.token))
-      }
-      return normal
-    })
+    )
+      :map(func(args){
+        if(type(args) == "Block"){
+          return {ast.node("Function", {params: {}, body: args}, args.token)}
+        }
+        local normal = args[0]
+        local block = args[1]
+        if(block != null){
+          append(normal, ast.node(
+            "Function", {params: {}, body: block}, block.token
+          ))
+        }
+        return normal
+      })
   }
 
   // ------------------------------------------------------------ statements
 
   func g.expr_statement(){
-    return peg.seq(g.expr(), peg.seq(tok("="), g.expr()):optional()):map(func(v){
-      local exp = v[0]
-      local assignment = v[1]
-      if(assignment != null){
-        if(not ast.is_assignable(exp)){
-          error("Invalid assignment: ", ast.to_string(exp), " is not an assignable expression")
+    return peg.seq(g.expr(), peg.seq(tok("="), g.expr()):optional())
+      :map(func(v){
+        local exp = v[0]
+        local assignment = v[1]
+        if(assignment != null){
+          if(not ast.is_assignable(exp)){
+            error(
+              "Invalid assignment: ",
+              ast.to_string(exp),
+              " is not an assignable expression"
+            )
+          }
+          return ast.node(
+            "Assignment", {left: exp, right: assignment[1]}, assignment[0]
+          )
         }
-        return ast.node("Assignment", {left: exp, right: assignment[1]}, assignment[0])
-      }
-      if(exp.type == "Call" or exp.type == "Invoke"){
-        return ast.node("CallStat", {call: exp}, exp.token)
-      }
-      if(exp.type == "Null"){
-        return null
-      }
-      return exp
-    })
+        if(exp.type == "Call" or exp.type == "Invoke"){
+          return ast.node("CallStat", {call: exp}, exp.token)
+        }
+        if(exp.type == "Null"){
+          return null
+        }
+        return exp
+      })
   }
 
   func g.local_declaration(){
-    return peg.seq(tok("local"), g.expr(), peg.seq(tok("="), g.expr()):optional()):map(func(v){
-      local right = null
-      if(v[2] != null){
-        right = v[2][1]
-      }
-      return ast.node("Declaration", {is_local: true, left: v[1], right: right}, v[0])
-    })
+    return peg.seq(
+      tok("local"), g.expr(), peg.seq(tok("="), g.expr()):optional()
+    )
+      :map(func(v){
+        local right = null
+        if(v[2] != null){
+          right = v[2][1]
+        }
+        return ast.node(
+          "Declaration", {is_local: true, left: v[1], right: right}, v[0]
+        )
+      })
   }
 
   func g.if_statement(){
     return peg.seq(
       tok("if"), tok("("), g.expr(), tok(")"), g.statement(),
       peg.seq(tok("else"), g.statement()):optional()
-    ):map(func(v){
-      local else_branch = null
-      if(v[5] != null){
-        else_branch = v[5][1]
-      }
-      return ast.node("If", {condition: v[2], thenBranch: v[4], elseBranch: else_branch}, v[0])
-    })
+    )
+      :map(func(v){
+        local else_branch = null
+        if(v[5] != null){
+          else_branch = v[5][1]
+        }
+        return ast.node(
+          "If", {condition: v[2], thenBranch: v[4], elseBranch: else_branch},
+          v[0]
+        )
+      })
   }
 
   func g.for_loop(){
     return peg.seq(
-      tok("for"), tok("("),
-      peg.ref(g.expression_or_statement),
+      tok("for"), tok("("), peg.ref(g.expression_or_statement),
       peg.seq(tok(";"), peg.ref(g.expression_or_statement)):pick(1):optional(),
-      peg.seq(tok(";"), g.statement()):pick(1):optional(),
-      peg.char(")"),
+      peg.seq(tok(";"), g.statement()):pick(1):optional(), peg.char(")"),
       g.statement()
-    ):map(func(v){
-      local head = {}
-      for(local i = 2; i <= 4; i = i + 1){
-        if(v[i] != null){
-          append(head, v[i])
+    )
+      :map(func(v){
+        local head = {}
+        for(local i = 2; i <= 4; i = i + 1){
+          if(v[i] != null){
+            append(head, v[i])
+          }
         }
-      }
-      local body = v[6]
-      local n = len(head)
-      if(n == 3){
-        return ast.node("For", {init: head[0], condition: head[1], update: head[2], body: body}, v[0])
-      }
-      if(n == 2){
-        if(ast.is_statement(head[0])){
-          return ast.node("For", {init: head[0], condition: head[1], body: body}, v[0])
+        local body = v[6]
+        local n = len(head)
+        if(n == 3){
+          return ast.node(
+            "For",
+            {init: head[0], condition: head[1], update: head[2], body: body},
+            v[0]
+          )
         }
-        return ast.node("For", {condition: head[0], update: head[1], body: body}, v[0])
-      }
-      if(n == 1){
-        return ast.node("For", {condition: head[0], body: body}, v[0])
-      }
-      error("Invalid for loop")
-    })
+        if(n == 2){
+          if(ast.is_statement(head[0])){
+            return ast.node(
+              "For", {init: head[0], condition: head[1], body: body}, v[0]
+            )
+          }
+          return ast.node(
+            "For", {condition: head[0], update: head[1], body: body}, v[0]
+          )
+        }
+        if(n == 1){
+          return ast.node("For", {condition: head[0], body: body}, v[0])
+        }
+        error("Invalid for loop")
+      })
   }
 
   func g.for_in_loop(){
     return peg.seq(
-      tok("for"), tok("("), tok("let"), peg.ref(g.slang_pattern), tok("in"), g.expr(), tok(")"), g.statement()
-    ):map(func(v){
-      return ast.node("ForIn", {pattern: v[3], itterator: v[5], body: v[7]}, v[0])
-    })
+      tok("for"), tok("("), tok("let"), peg.ref(g.slang_pattern), tok("in"),
+      g.expr(), tok(")"), g.statement()
+    )
+      :map(func(v){
+        return ast.node(
+          "ForIn", {pattern: v[3], itterator: v[5], body: v[7]}, v[0]
+        )
+      })
   }
 
   func g.function_definition_statement(){
-    return peg.seq(tok("local"):optional(), tok("func"), peg.ref(g.identifier_and_index), peg.ref(g.function_definition)):map(func(v){
-      return ast.node("Declaration", {is_local: v[0] != null, left: v[2], right: v[3]}, v[1])
-    })
+    return peg.seq(
+      tok("local"):optional(),
+      tok("func"),
+      peg.ref(g.identifier_and_index),
+      peg.ref(g.function_definition)
+    )
+      :map(func(v){
+        return ast.node(
+          "Declaration", {is_local: v[0] != null, left: v[2], right: v[3]}, v[1]
+        )
+      })
   }
 
   func g.expression_or_statement(){
@@ -389,21 +463,25 @@ func grammar.new(opts){
   func g.chunk(){
     return peg.seq(
       peg.seq(g.statement(), tok(";"):optional()):pick(0):star(),
-      peg.seq(peg.ref(g.final_statement), tok(";"):optional()):pick(0):optional()
-    ):token():map(func(t){
-      local statements = {}
-      local items = t.value[0]
-      local n = len(items)
-      for(local i = 0; i < n; i = i + 1){
-        if(items[i] != null){
-          append(statements, items[i])
+      peg.seq(peg.ref(g.final_statement), tok(";"):optional())
+        :pick(0)
+        :optional()
+    )
+      :token()
+      :map(func(t){
+        local statements = {}
+        local items = t.value[0]
+        local n = len(items)
+        for(local i = 0; i < n; i = i + 1){
+          if(items[i] != null){
+            append(statements, items[i])
+          }
         }
-      }
-      if(t.value[1] != null){
-        append(statements, t.value[1])
-      }
-      return ast.node("Block", {statements: statements}, t)
-    })
+        if(t.value[1] != null){
+          append(statements, t.value[1])
+        }
+        return ast.node("Block", {statements: statements}, t)
+      })
   }
 
   func g.block(){
@@ -434,15 +512,19 @@ func grammar.new(opts){
     return peg.seq(
       tok("("), peg.ref(g.params), tok(")"),
       peg.choice(peg.ref(g.block), peg.seq(tok("=>"), g.expr()))
-    ):token():map(func(t){
-      local v = t.value
-      local body = v[3]
-      if(type(body) == "table"){
-        local e = body[1]
-        body = ast.node("Block", {statements: {ast.node("Return", {value: e}, e.token)}}, t)
-      }
-      return ast.node("Function", {params: v[1], body: body}, t)
-    })
+    )
+      :token()
+      :map(func(t){
+        local v = t.value
+        local body = v[3]
+        if(type(body) == "table"){
+          local e = body[1]
+          body = ast.node(
+            "Block", {statements: {ast.node("Return", {value: e}, e.token)}}, t
+          )
+        }
+        return ast.node("Function", {params: v[1], body: body}, t)
+      })
   }
 
   func g.function_expression(){
@@ -452,7 +534,11 @@ func grammar.new(opts){
   // ------------------------------------------------------------ patterns
 
   func g.slang_pattern(){
-    return peg.choice(peg.ref(g.table_pattern), peg.ref(g.const_pattern), peg.ref(g.var_pattern))
+    return peg.choice(
+      peg.ref(g.table_pattern),
+      peg.ref(g.const_pattern),
+      peg.ref(g.var_pattern)
+    )
   }
 
   func g.table_pattern(){
@@ -461,13 +547,16 @@ func grammar.new(opts){
       tok("{"),
       peg.ref(g.field_pattern):star_separated(tok(",")),
       tok("}")
-    ):map(func(v){
-      local type_name = "table"
-      if(v[0] != null){
-        type_name = v[0].value
-      }
-      return ast.node("TablePattern", {type_check: type_name, fields: v[2].elements}, v[1])
-    })
+    )
+      :map(func(v){
+        local type_name = "table"
+        if(v[0] != null){
+          type_name = v[0].value
+        }
+        return ast.node(
+          "TablePattern", {type_check: type_name, fields: v[2].elements}, v[1]
+        )
+      })
   }
 
   func g.field_pattern(){
@@ -475,43 +564,61 @@ func grammar.new(opts){
       peg.choice(
         peg.seq(peg.ref(g.identifier), tok(":")):pick(0),
         peg.seq(tok("["), g.expr(), tok("]"), tok(":")):pick(1)
-      ):map(func(exp){
-        if(exp.type == "Identifier"){
-          return ast.node("String", {value: exp.value}, exp.token)
-        }
-        return exp
-      }):optional(),
+      )
+        :map(func(exp){
+          if(exp.type == "Identifier"){
+            return ast.node("String", {value: exp.value}, exp.token)
+          }
+          return exp
+        })
+        :optional(),
       peg.ref(g.slang_pattern)
-    ):map(func(v){
-      local key = v[0]
-      local value = v[1]
-      local token = value.token
-      if(key != null){
-        token = key.token
-      }
-      return ast.node("FieldPattern", {key: key, value: value}, token)
-    })
+    )
+      :map(func(v){
+        local key = v[0]
+        local value = v[1]
+        local token = value.token
+        if(key != null){
+          token = key.token
+        }
+        return ast.node("FieldPattern", {key: key, value: value}, token)
+      })
   }
 
   func g.const_pattern(){
     return peg.choice(
-      peg.ref(g.int_literal), peg.ref(g.double_literal), peg.ref(g.string_literal),
-      peg.ref(g.true_literal), peg.ref(g.false_literal), peg.ref(g.null_literal)
-    ):map(func(exp){
-      return ast.node("ConstPattern", {value: exp}, exp.token)
-    })
+      peg.ref(g.int_literal),
+      peg.ref(g.double_literal),
+      peg.ref(g.string_literal),
+      peg.ref(g.true_literal),
+      peg.ref(g.false_literal),
+      peg.ref(g.null_literal)
+    )
+      :map(func(exp){
+        return ast.node("ConstPattern", {value: exp}, exp.token)
+      })
   }
 
   func g.var_pattern(){
-    return peg.seq(tok("local"):optional(), peg.ref(g.identifier), tok("?"):optional()):map(func(v){
-      return ast.node("VarPattern", {isLocal: v[0] != null, canBeNull: v[2] != null, name: v[1]}, v[1].token)
-    })
+    return peg.seq(
+      tok("local"):optional(),
+      peg.ref(g.identifier),
+      tok("?"):optional()
+    )
+      :map(func(v){
+        return ast.node(
+          "VarPattern",
+          {isLocal: v[0] != null, canBeNull: v[2] != null, name: v[1]},
+          v[1].token
+        )
+      })
   }
 
   func g.pattern_assignment_exp(){
-    return peg.seq(tok("let"), peg.ref(g.slang_pattern), tok("="), g.expr()):map(func(v){
-      return ast.node("Let", {pattern: v[1], right: v[3]}, v[0])
-    })
+    return peg.seq(tok("let"), peg.ref(g.slang_pattern), tok("="), g.expr())
+      :map(func(v){
+        return ast.node("Let", {pattern: v[1], right: v[3]}, v[0])
+      })
   }
 
   // ------------------------------------------------------------ quoting
@@ -520,7 +627,10 @@ func grammar.new(opts){
     return peg.choice(
       peg.seq(tok("id"), tok(":"), peg.ref(g.identifier)),
       peg.seq(tok("block"), tok(":"), peg.ref(g.chunk)),
-      peg.seq(tok("stat"), tok(":"), peg.choice(g.statement(), peg.ref(g.final_statement))),
+      peg.seq(
+        tok("stat"), tok(":"),
+        peg.choice(g.statement(), peg.ref(g.final_statement))
+      ),
       peg.seq(peg.seq(tok("expr"), tok(":")):optional(), g.expr())
     )
   }
@@ -541,10 +651,13 @@ func grammar.new(opts){
       g.in_quote = prev
       return q
     })
-    return peg.seq(tok("+"), tok("{"), body, tok("}")):pick(2):token():map(func(t){
-      local parts = split_quote_body(t.value)
-      return ast.node("Quote", {ast_type: parts[0], ast: parts[1]}, t)
-    })
+    return peg.seq(tok("+"), tok("{"), body, tok("}"))
+      :pick(2)
+      :token()
+      :map(func(t){
+        local parts = split_quote_body(t.value)
+        return ast.node("Quote", {ast_type: parts[0], ast: parts[1]}, t)
+      })
   }
 
   // An executed unquote is memoised per parse context and position: when the
@@ -563,7 +676,7 @@ func grammar.new(opts){
       }
       local q = body_ref:parse_on(ctx, pos)
       if(q < 0){
-        return -1
+        return - 1
       }
       local t = ctx.value
       local parts = split_quote_body(t.value)
@@ -574,10 +687,17 @@ func grammar.new(opts){
         return q
       }
       if(type_name != "expr" and type_name != "block"){
-        return peg.fail(ctx, pos, "Unquote outside of quote can only be used with expr or block")
+        return peg.fail(
+          ctx, pos,
+          "Unquote outside of quote can only be used with expr or block"
+        )
       }
       if(type_name == "expr"){
-        node = ast.node("Block", {statements: {ast.node("Return", {value: node}, node.token)}}, node.token)
+        node = ast.node(
+          "Block",
+          {statements: {ast.node("Return", {value: node}, node.token)}},
+          node.token
+        )
       }
       if(opts.run_block == null){
         error("this grammar cannot execute unquotes")
@@ -613,64 +733,131 @@ func grammar.new(opts){
     {names: {"unquote", "-{}"}, parser: peg.ref(g.unquote)},
     {names: {"quote", "+{}"}, parser: peg.ref(g.quote)},
     {names: {"identifier", "id"}, parser: peg.ref(g.identifier)},
-    {names: {"doubleLiteral", "double", "float"}, parser: peg.ref(g.double_literal)},
+    {
+      names: {"doubleLiteral", "double", "float"},
+      parser: peg.ref(g.double_literal),
+    },
     {names: {"intLiteral", "integer", "int"}, parser: peg.ref(g.int_literal)},
-    {names: {"stringLiteral", "string", "str"}, parser: peg.ref(g.string_literal)},
+    {
+      names: {"stringLiteral", "string", "str"},
+      parser: peg.ref(g.string_literal),
+    },
     {names: {"trueLiteral", "true"}, parser: peg.ref(g.true_literal)},
     {names: {"falseLiteral", "false"}, parser: peg.ref(g.false_literal)},
     {names: {"nullLiteral", "null"}, parser: peg.ref(g.null_literal)},
-    {names: {"patternAssignmentExp", "let"}, parser: peg.ref(g.pattern_assignment_exp)},
-    {names: {"listLiteral", "list", "tableLiteral", "table"}, parser: peg.ref(g.table_literal)},
-    {names: {"functionExpression", "function"}, parser: peg.ref(g.function_expression)},
+    {
+      names: {"patternAssignmentExp", "let"},
+      parser: peg.ref(g.pattern_assignment_exp),
+    },
+    {
+      names: {"listLiteral", "list", "tableLiteral", "table"},
+      parser: peg.ref(g.table_literal),
+    },
+    {
+      names: {"functionExpression", "function"},
+      parser: peg.ref(g.function_expression),
+    },
   }
 
   g.group_levels = {
-    {names: {"bracket", "()"}, add: func(builder){
-      return builder:group():wrapper(tok("("), tok(")"), func(left, value, right){ return value })
-    }},
-    {names: {"indexAndCall", ".", "[]", ":()"}, add: func(builder){
-      local group = builder:group()
-      group:postfix(peg.seq(tok("."), peg.ref(g.identifier)), func(left, op){
-        local name = op[1]
-        return ast.node("Index", {receiver: left, index: ast.node("String", {value: name.value}, name.token), dotStyle: true}, op[0])
-      })
-      group:postfix(peg.seq(tok("["), builder.loopback, tok("]")), func(left, op){
-        return ast.node("Index", {receiver: left, index: op[1], dotStyle: false}, op[0])
-      })
-      group:postfix(peg.ref(g.name_and_args), func(left, op){
-        local name = op[0]
-        local args = op[1]
-        local token = op[2]
-        if(name != null){
-          return ast.node("Invoke", {receiver: left, name: name, args: args}, token)
-        }
-        return ast.node("Call", {function: left, args: args}, token)
-      })
-      return group
-    }},
-    {names: {"power", "^"}, add: func(builder){
-      return builder:group():right(tok("^"), binop)
-    }},
-    {names: {"unary"}, add: func(builder){
-      return builder:group():prefix(peg.choice(not_brace(tok("-")), tok("not")), func(op, exp){
-        return ast.node("UnOp", {op: op.value, operand: exp}, op)
-      })
-    }},
-    {names: {"multiply", "*", "/", "%"}, add: func(builder){
-      return builder:group():left(peg.choice(tok("*"), tok("/"), tok("%")), binop)
-    }},
-    {names: {"add", "+", "-"}, add: func(builder){
-      return builder:group():left(peg.choice(not_brace(tok("-")), not_brace(tok("+"))), binop)
-    }},
-    {names: {"compare", "<=", ">=", "!=", "==", ">"}, add: func(builder){
-      return builder:group():left(peg.choice(tok("<="), tok(">="), tok("!="), tok("=="), tok(">"), tok("<")), binop)
-    }},
-    {names: {"and"}, add: func(builder){
-      return builder:group():left(tok("and"), binop)
-    }},
-    {names: {"or"}, add: func(builder){
-      return builder:group():left(tok("or"), binop)
-    }},
+    {
+      names: {"bracket", "()"},
+      add: func(builder){
+        return builder
+          :group()
+          :wrapper(tok("("), tok(")"), func(left, value, right){ return value })
+      },
+    },
+    {
+      names: {"indexAndCall", ".", "[]", ":()"},
+      add: func(builder){
+        local group = builder:group()
+        group:postfix(peg.seq(tok("."), peg.ref(g.identifier)), func(left, op){
+          local name = op[1]
+          return ast.node(
+            "Index",
+            {
+              receiver: left,
+              index: ast.node("String", {value: name.value}, name.token),
+              dotStyle: true,
+            }, op[0]
+          )
+        })
+        group:postfix(
+          peg.seq(tok("["), builder.loopback, tok("]")),
+          func(left, op){
+            return ast.node(
+              "Index", {receiver: left, index: op[1], dotStyle: false}, op[0]
+            )
+          }
+        )
+        group:postfix(peg.ref(g.name_and_args), func(left, op){
+          local name = op[0]
+          local args = op[1]
+          local token = op[2]
+          if(name != null){
+            return ast.node(
+              "Invoke", {receiver: left, name: name, args: args}, token
+            )
+          }
+          return ast.node("Call", {function: left, args: args}, token)
+        })
+        return group
+      },
+    },
+    {
+      names: {"power", "^"},
+      add: func(builder){
+        return builder:group():right(tok("^"), binop)
+      },
+    },
+    {
+      names: {"unary"}, add: func(builder){
+        return builder
+          :group()
+          :prefix(peg.choice(not_brace(tok("-")), tok("not")), func(op, exp){
+            return ast.node("UnOp", {op: op.value, operand: exp}, op)
+          })
+      },
+    },
+    {
+      names: {"multiply", "*", "/", "%"},
+      add: func(builder){
+        return builder
+          :group()
+          :left(peg.choice(tok("*"), tok("/"), tok("%")), binop)
+      },
+    },
+    {
+      names: {"add", "+", "-"},
+      add: func(builder){
+        return builder:group():left(
+          peg.choice(not_brace(tok("-")), not_brace(tok("+"))),
+          binop
+        )
+      },
+    },
+    {
+      names: {"compare", "<=", ">=", "!=", "==", ">"},
+      add: func(builder){
+        return builder:group():left(
+          peg.choice(
+            tok("<="), tok(">="), tok("!="), tok("=="), tok(">"), tok("<")
+          ),
+          binop
+        )
+      },
+    },
+    {
+      names: {"and"}, add: func(builder){
+        return builder:group():left(tok("and"), binop)
+      },
+    },
+    {
+      names: {"or"}, add: func(builder){
+        return builder:group():left(tok("or"), binop)
+      },
+    },
   }
 
   g.expression_parser = peg.settable(null)
@@ -689,7 +876,6 @@ func grammar.new(opts){
     }
     g.expression_parser:set(peg.resolve(builder:build()))
   }
-
 
   // ------------------------------------------------------------ statement registry
 
@@ -754,7 +940,7 @@ func grammar.new(opts){
       }
       i = i + 1
     }
-    return -1
+    return - 1
   }
 
   local func insert_at(levels, index, level){
@@ -878,9 +1064,14 @@ func grammar.new(opts){
 
   // the built-in extension statement yields {builtin: node}; extension
   // statements registered by extensions yield {apply: f, result: value}
-  local builtin_extension = peg.seq(tok("extension"), peg.choice(peg.ref(g.string_literal), peg.ref(g.block))):pick(1):map(func(node){
-    return {builtin: node}
-  })
+  local builtin_extension = peg.seq(
+    tok("extension"),
+    peg.choice(peg.ref(g.string_literal), peg.ref(g.block))
+  )
+    :pick(1)
+    :map(func(node){
+      return {builtin: node}
+    })
   g.extension_statements = {}
   g.extension_statement_order = {}
   local extension_choice = peg.settable(builtin_extension)
@@ -913,7 +1104,9 @@ func grammar.new(opts){
       top_parsers = {
         statement: peg.seq(g.statement(), tok(";"):optional()):pick(0),
         final: peg.seq(peg.ref(g.final_statement), tok(";"):optional()):pick(0),
-        extension_statement: peg.seq(extension_choice, tok(";"):optional()):pick(0),
+        extension_statement: peg.seq(
+          extension_choice, tok(";"):optional()
+        ):pick(0),
       }
     }
     return top_parsers
@@ -926,15 +1119,19 @@ func grammar.new(opts){
       far_pos = pos
     }
     local far = peg.line_col(ctx, far_pos)
-    return concat("Failed to parse source: ", message, ":", origin, ":", lc[0], ":", lc[1],
-      " (farthest: ", ctx.far_msg or message, " at ", far[0], ":", far[1], ")")
+    return concat(
+      "Failed to parse source: ", message, ":", origin, ":", lc[0], ":", lc[1],
+      " (farthest: ", ctx.far_msg or message, " at ", far[0], ":", far[1], ")"
+    )
   }
 
   // runs compile-time code with grammar changes allowed; only valid between
   // top-level statements
   local func with_changes_allowed(f, a, b){
     if(g.statement_depth > 0){
-      error("extension statements cannot run from code that executes while a statement is being parsed")
+      error(
+        "extension statements cannot run from code that executes while a statement is being parsed"
+      )
     }
     g.compile_time_effects = true
     g.extension_depth = g.extension_depth + 1
@@ -1010,7 +1207,11 @@ func grammar.new(opts){
     if(stop != len(source)){
       error(fail_message(ctx, origin, "end of input expected", stop))
     }
-    local block = ast.node("Block", {statements: statements}, peg.make_token(ctx, null, 0, pos))
+    local block = ast.node(
+      "Block",
+      {statements: statements},
+      peg.make_token(ctx, null, 0, pos)
+    )
     if(opts.optimize != null){
       block = opts.optimize(block)
     }

@@ -35,7 +35,10 @@ t.group("uv"){
     assert(type(before) == "int")
     local fired = false
     local timer = uv.timer()
-    timer:start(20, 0, func(){ fired = true timer:close() })
+    timer:start(20, 0, func(){
+      fired = true
+      timer:close()
+    })
     local more = uv.run("nowait")
     assert(more == true and not fired, "nowait returns before the timer")
     uv.run()
@@ -91,7 +94,10 @@ t.group("uv"){
       client:close()
     })
     uv.run()
-    assert(type(got) == "string" and str.index_of(got, "ECONNREFUSED") == 0, concat("error: ", got))
+    assert(
+      type(got) == "string" and str.index_of(got, "ECONNREFUSED") == 0,
+      concat("error: ", got)
+    )
   }
   t.test("an error in a callback comes out of uv.run"){
     local timer = uv.timer()
@@ -137,7 +143,9 @@ t.group("uv"){
 
 // a fresh directory for the file tests
 local os = require("slang/os")
-local scratch = concat(os.getenv("TMPDIR") or "/tmp/", "/slang-uv-test-", string(uv.getpid()))
+local scratch = concat(
+  os.getenv("TMPDIR") or "/tmp/", "/slang-uv-test-", string(uv.getpid())
+)
 os.mkdir_all(scratch)
 
 t.group("uv: files, names, processes, signals, poll"){
@@ -150,10 +158,16 @@ t.group("uv: files, names, processes, signals, poll"){
         uv.fs_read_file(p, func(err, data){
           append(log, concat("read ", data))
           uv.fs_stat(p, func(err, st){
-            append(log, concat("stat ", string(st.size), " ", string(st.is_file), " ", string(st.is_dir)))
+            append(log, concat(
+              "stat ", string(st.size), " ", string(st.is_file), " ",
+              string(st.is_dir)
+            ))
             uv.fs_rename(p, concat(scratch, "/b.txt"), func(err){
               uv.fs_scandir(scratch, func(err, entries){
-                append(log, concat("list ", entries[0].name, " ", entries[0].type))
+                append(
+                  log,
+                  concat("list ", entries[0].name, " ", entries[0].type)
+                )
                 uv.fs_unlink(concat(scratch, "/b.txt"), func(err){
                   uv.fs_stat(concat(scratch, "/b.txt"), func(err, st){
                     append(log, concat("gone ", str.substring(err, 0, 6)))
@@ -166,14 +180,24 @@ t.group("uv: files, names, processes, signals, poll"){
       })
     })
     uv.run()
-    assert(log == {"write null", "read one\ntwo\n", "stat 8 true false", "list b.txt file", "gone ENOENT"},
-           concat("log ", log))
+    assert(
+      log == {
+        "write null", "read one\ntwo\n", "stat 8 true false", "list b.txt file",
+        "gone ENOENT",
+      },
+      concat("log ", log)
+    )
   }
   t.test("files: errors name the operation and the path"){
     local got = null
     uv.fs_read_file(concat(scratch, "/missing"), func(err, data){ got = err })
     uv.run()
-    assert(got == concat("ENOENT: no such file or directory, read_file '", scratch, "/missing'"), got)
+    assert(
+      got == concat(
+        "ENOENT: no such file or directory, read_file '", scratch, "/missing'"
+      ),
+      got
+    )
   }
   t.test("files: open, read and write at offsets, close"){
     local p = concat(scratch, "/c.txt")
@@ -204,7 +228,9 @@ t.group("uv: files, names, processes, signals, poll"){
     uv.getaddrinfo("localhost", 8080, "ipv4", func(err, addrs){ ok = addrs })
     uv.getaddrinfo("no-such-host.invalid", null, func(err, addrs){ bad = err })
     uv.run()
-    assert(ok[0].ip == "127.0.0.1" and ok[0].port == 8080 and ok[0].family == "ipv4")
+    assert(
+      ok[0].ip == "127.0.0.1" and ok[0].port == 8080 and ok[0].family == "ipv4"
+    )
     assert(str.starts_with(bad, "EAI_"), bad)
   }
   t.test("spawn: pipes, exit status, environment, cwd"){
@@ -212,9 +238,12 @@ t.group("uv: files, names, processes, signals, poll"){
     local input = uv.pipe()
     local result = null
     local chunks = {}
-    uv.spawn("/bin/sh", {"-c", "read x; echo \"$x $GREETING $(pwd)\"; exit 3"},
-             {stdio: {input, out, "inherit"}, env: {GREETING: "hi"}, cwd: "/"},
-             func(err, r){ result = r })
+    uv.spawn(
+      "/bin/sh",
+      {"-c", "read x; echo \"$x $GREETING $(pwd)\"; exit 3"},
+      {stdio: {input, out, "inherit"}, env: {GREETING: "hi"}, cwd: "/"},
+      func(err, r){ result = r }
+    )
     input:write("piped\n")
     input:shutdown(func(){ input:close() })
     out:read_start(func(err, chunk){
@@ -237,8 +266,12 @@ t.group("uv: files, names, processes, signals, poll"){
     assert(result.signal == "SIGTERM", concat("signal ", result.signal))
     p:close()
     local r = pcall(uv.spawn, "/no/such/program", {}, null, func(){})
-    assert(r[0] == "err" and r[1].message == "ENOENT: no such file or directory, spawn '/no/such/program'",
-           r[1].message)
+    assert(
+      r[0] == "err" and
+        r[1].message ==
+          "ENOENT: no such file or directory, spawn '/no/such/program'",
+      r[1].message
+    )
     local r2 = pcall(func(){ p:kill("SIGNOPE") })
     assert(r2[0] == "err")
   }
@@ -280,7 +313,7 @@ t.group("uv: files, names, processes, signals, poll"){
     })
     uv.run()
     assert(events == "r")
-    local r = pcall(uv.poll, -1)
+    local r = pcall(uv.poll, - 1)
     assert(r[0] == "err" and str.starts_with(r[1].message, "EBADF"))
   }
   t.test("the C API for other extensions is there"){

@@ -76,7 +76,9 @@ func util.literal(value){
     }
     for(let local k in keys(value)){
       if(type(k) != "int" or k < 0 or k >= n){
-        append(fields, {type: "Field", key: util.literal(k), value: util.literal(value[k])})
+        append(fields, {
+          type: "Field", key: util.literal(k), value: util.literal(value[k]),
+        })
       }
     }
     return {type: "Table", fields: fields}
@@ -137,23 +139,35 @@ func util.walk(node, f){
 
 // quoted(): a double-quoted string without escapes; yields its contents
 func util.quoted(){
-  return g:token(peg.seq(peg.string("\""), peg.any():star_lazy(peg.string("\"")), peg.string("\""))):map(func(t){
-    return str.substring(t.value, 1, len(t.value) - 1)
-  })
+  return g
+    :token(peg.seq(
+      peg.string("\""), peg.any():star_lazy(peg.string("\"")), peg.string("\"")
+    ))
+    :map(func(t){
+      return str.substring(t.value, 1, len(t.value) - 1)
+    })
 }
 
 // number(): an integer or decimal literal; yields the number
 func util.number(){
-  return g:token(peg.seq(peg.digit():plus(), peg.seq(peg.string("."), peg.digit():plus()):optional())):map(func(t){
-    return str.to_number(t.value)
-  })
+  return g
+    :token(peg.seq(
+      peg.digit():plus(),
+      peg.seq(peg.string("."), peg.digit():plus()):optional()
+    ))
+    :map(func(t){
+      return str.to_number(t.value)
+    })
 }
 
 // list_of(item): "(" item, item, ... ")" (yields the list), or nothing (yields {})
 func util.args_of(item){
-  return peg.seq(g:token("("), item:star_separated(g:token(",")), g:token(")")):pick(1):map(func(r){
-    return r.elements
-  }):optional({})
+  return peg.seq(g:token("("), item:star_separated(g:token(",")), g:token(")"))
+    :pick(1)
+    :map(func(r){
+      return r.elements
+    })
+    :optional({})
 }
 
 // ------------------------------------------------------------ raw blocks
@@ -165,14 +179,17 @@ func util.raw_block(){
     peg.string("{"),
     peg.any():star_lazy(peg.string("}")):flatten():token(),
     g:token("}")
-  ):map(func(r){
-    return {text: r[1].value, token: r[1]}
-  })
+  )
+    :map(func(r){
+      return {text: r[1].value, token: r[1]}
+    })
 }
 
 local func rtrim(s){
   local n = len(s)
-  for(n > 0 and (str.byte_at(s, n - 1) == 32 or str.byte_at(s, n - 1) == 13 or str.byte_at(s, n - 1) == 9)){
+  for(n > 0 and
+    (str.byte_at(s, n - 1) == 32 or str.byte_at(s, n - 1) == 13 or
+      str.byte_at(s, n - 1) == 9)){
     n = n - 1
   }
   return str.substring(s, 0, n)
@@ -193,7 +210,7 @@ func util.rows(raw){
   local lines = str.split(raw.text, "\n")
   local rows = {}
   local line_numbers = {}
-  local indent = -1
+  local indent = - 1
   local n = len(lines)
   for(local i = 0; i < n; i = i + 1){
     local line = rtrim(lines[i])

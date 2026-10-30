@@ -27,4 +27,7 @@ for(let local v in values(list)){
   sum = sum + v
 }
 local t1 = os.clock()
-print("tables: acc=", acc.x, ",", acc.y, " items=", len(list), " sum=", sum, " in ", (t1 - t0) * 1000, " ms\n")
+print(
+  "tables: acc=", acc.x, ",", acc.y, " items=", len(list), " sum=", sum, " in ",
+  (t1 - t0) * 1000, " ms\n"
+)

@@ -26,8 +26,12 @@ local jwt = {}
 
 // alg -> {kind, digest, options}
 local algorithms = {
-  HS256: {kind: "hmac", digest: "sha256"}, HS384: {kind: "hmac", digest: "sha384"}, HS512: {kind: "hmac", digest: "sha512"},
-  RS256: {kind: "rsa", digest: "sha256"}, RS384: {kind: "rsa", digest: "sha384"}, RS512: {kind: "rsa", digest: "sha512"},
+  HS256: {kind: "hmac", digest: "sha256"},
+  HS384: {kind: "hmac", digest: "sha384"},
+  HS512: {kind: "hmac", digest: "sha512"},
+  RS256: {kind: "rsa", digest: "sha256"},
+  RS384: {kind: "rsa", digest: "sha384"},
+  RS512: {kind: "rsa", digest: "sha512"},
   PS256: {kind: "rsa", digest: "sha256", options: {padding: "pss"}},
   PS384: {kind: "rsa", digest: "sha384", options: {padding: "pss"}},
   PS512: {kind: "rsa", digest: "sha512", options: {padding: "pss"}},
@@ -125,11 +129,16 @@ local func split(token){
   if(header_text == null or claims_text == null or signature == null){
     error("jwt: malformed token")
   }
-  local r = pcall(func(){ return {json.decode(header_text), json.decode(claims_text)} })
+  local r = pcall(func(){
+    return {json.decode(header_text), json.decode(claims_text)}
+  })
   if(r[0] == "err" or type(r[1][0]) != "table" or type(r[1][1]) != "table"){
     error("jwt: malformed token")
   }
-  return {header: r[1][0], claims: r[1][1], signature: signature, input: concat(parts[0], ".", parts[1])}
+  return {
+    header: r[1][0], claims: r[1][1], signature: signature,
+    input: concat(parts[0], ".", parts[1]),
+  }
 }
 
 func jwt.decode(token){
@@ -167,10 +176,12 @@ func jwt.verify(token, key, options){
   local c = t.claims
   local at = now(options)
   local leeway = options.leeway or 0
-  if(c.exp != null and (type(c.exp) != "int" and type(c.exp) != "double" or at >= c.exp + leeway)){
+  if(c.exp != null and
+    (type(c.exp) != "int" and type(c.exp) != "double" or at >= c.exp + leeway)){
     error("jwt: expired")
   }
-  if(c.nbf != null and (type(c.nbf) != "int" and type(c.nbf) != "double" or at + leeway < c.nbf)){
+  if(c.nbf != null and
+    (type(c.nbf) != "int" and type(c.nbf) != "double" or at + leeway < c.nbf)){
     error("jwt: not valid yet")
   }
   if(options.issuer != null and c.iss != options.issuer){
@@ -178,7 +189,8 @@ func jwt.verify(token, key, options){
   }
   if(options.audience != null){
     local aud = c.aud
-    if(not (aud == options.audience or (type(aud) == "table" and contains(aud, options.audience)))){
+    if(not(aud == options.audience or
+      (type(aud) == "table" and contains(aud, options.audience)))){
       error("jwt: wrong audience")
     }
   }

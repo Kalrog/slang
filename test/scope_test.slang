@@ -62,13 +62,22 @@ t.group("grammar scoping"){
       shout 4
     """, "uses scope_ext")
     run()
-    assert(shouted == 4, "what the extension registers at run time is available")
-    assert(scope_inner == 1, "the extension's own inner statement ran when it loaded")
+    assert(
+      shouted == 4,
+      "what the extension registers at run time is available"
+    )
+    assert(
+      scope_inner == 1,
+      "the extension's own inner statement ran when it loaded"
+    )
     local r = pcall(compile, """
       extension "test/scope_ext"
       inner 5
     """, "inner leaks?")
-    assert(r[0] == "err", "the inner statement does not leak out of the extension file")
+    assert(
+      r[0] == "err",
+      "the inner statement does not leak out of the extension file"
+    )
   }
   t.test("an extension runs once per unit that loads it"){
     local source = """
@@ -90,9 +99,11 @@ t.group("grammar scoping"){
   t.test("the root grammar can still be changed at run time"){
     local peg = require("slang/peg")
     local g = compiler.grammar()
-    g:statement("whisper", peg.seq(g:keyword("whisper"), g:rule("expr")):map(func(r){
-      return {token: r[0], ast: +{stat: whispered = -{r[1]}}}
-    }))
+    g:statement(
+      "whisper", peg.seq(g:keyword("whisper"), g:rule("expr")):map(func(r){
+        return {token: r[0], ast: +{stat: whispered = -{r[1]}}}
+      })
+    )
     whispered = null
     compile("whisper 7", "after runtime change")()
     assert(whispered == 7, "a run-time change is global")
@@ -108,22 +119,40 @@ t.group("project file"){
     compiler.load_project("test/project/slang.project")
     local p = compiler.project()
     assert(p.extensions == {"test/project_ext"}, "extensions")
-    assert(__PACKAGES.dialect_suffixes == {".json", ".twice"}, "dialect suffixes")
-    assert(__PACKAGES.searchPaths[0] == "test/project", "the project directory comes first")
-    assert(__PACKAGES.searchPaths[1] == "test/project/../..", "then its search paths")
+    assert(
+      __PACKAGES.dialect_suffixes == {".json", ".twice"},
+      "dialect suffixes"
+    )
+    assert(
+      __PACKAGES.searchPaths[0] == "test/project",
+      "the project directory comes first"
+    )
+    assert(
+      __PACKAGES.searchPaths[1] == "test/project/../..",
+      "then its search paths"
+    )
     for(let local name in values({"data", "module", "plain"})){
       __PACKAGES.preloaded[name] = null
     }
     local result = compiler.load_main("test/project/main.slang")()
-    assert(result.doubled == 42, "the ambient extension applies without an extension statement")
+    assert(
+      result.doubled == 42,
+      "the ambient extension applies without an extension statement"
+    )
     assert(result.name == "data", "a .json module")
     assert(result.list == {1, "two", {three: 3}}, "json arrays and objects")
     assert(result.module == 10, "a .twice module is compiled with its dialect")
-    assert(result.plain == "plain", "a plain module required from a dialect file")
+    assert(
+      result.plain == "plain",
+      "a plain module required from a dialect file"
+    )
     local data = require("data")
     assert(data.escaped == "a\"b\nA", "json escapes")
     // the ambient layer is part of the base grammar: files stay cacheable
-    assert(not compiler.grammar().extended, "root is not extended by the ambient layer")
+    assert(
+      not compiler.grammar().extended,
+      "root is not extended by the ambient layer"
+    )
     assert(len(p.key) > 0, "the project key records the extension sources")
     compiler.reset()
     assert(compiler.project() == null, "reset forgets the project")
@@ -138,7 +167,13 @@ t.group("project file"){
     local json = require("extensions/json")
     local r = pcall(json.decode, "{\"a\": }", "bad")
     assert(r[0] == "err", "malformed json fails")
-    assert(str.index_of(message_of(r), "invalid JSON in bad") >= 0, message_of(r))
-    assert(json.compile("[1, 2.5, -3, 1e2]", "numbers")() == {1, 2.5, -3, 100.0}, "numbers")
+    assert(
+      str.index_of(message_of(r), "invalid JSON in bad") >= 0,
+      message_of(r)
+    )
+    assert(
+      json.compile("[1, 2.5, -3, 1e2]", "numbers")() == {1, 2.5, - 3, 100.0},
+      "numbers"
+    )
   }
 }

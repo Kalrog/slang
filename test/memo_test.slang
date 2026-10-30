@@ -37,7 +37,9 @@ t.group("memoization"){
     local plain = expr_runs_of(false)
     local wrapped = expr_runs_of(true)
     assert(plain > 0)
-    assert(wrapped == plain, concat("expr ran ", wrapped, " times with the wrapper, ", plain, " without"))
+    assert(wrapped == plain, concat(
+      "expr ran ", wrapped, " times with the wrapper, ", plain, " without"
+    ))
   }
   t.test("placement names the memoized rule"){
     local g = compiler.grammar()
@@ -48,12 +50,18 @@ t.group("memoization"){
       return names
     }
     // core's only shared prefix: the digits of the two numeric literals
-    assert(memo_names() == {"number"}, concat("memoized in the base grammar: ", memo_names()))
+    assert(
+      memo_names() == {"number"},
+      concat("memoized in the base grammar: ", memo_names())
+    )
     local afterwards = g:keyword("afterwards")
     g:modify("statement", func(old){
       return peg.choice(peg.seq(old, afterwards):pick(0), old)
     })
-    assert(memo_names() == {"number", "statement"}, concat("memoized: ", memo_names()))
+    assert(
+      memo_names() == {"number", "statement"},
+      concat("memoized: ", memo_names())
+    )
     compiler.reset()
   }
 }

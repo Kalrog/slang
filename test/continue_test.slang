@@ -49,7 +49,9 @@ t.group("continue"){
     }
     assert(out == {"i0", "d0", "d1", "i2", "d2"}, concat("out ", out))
     for(local i = 0; i < 3; i = i + 1){
-      try { if(i < 3){ continue } } catch { }
+      try {
+        if(i < 3){ continue }
+      } catch { }
     }
     // no try is left behind to catch this
     local r = pcall(func(){ error("after the loop") })
@@ -57,7 +59,11 @@ t.group("continue"){
     local caught = false
     local r2 = pcall(func(){
       for(local i = 0; i < 2; i = i + 1){
-        try { continue } catch { caught = true }
+        try {
+          continue
+        } catch {
+          caught = true
+        }
       }
       error("outside")
     })
@@ -105,12 +111,25 @@ t.group("labels"){
     local compiler = require("slang/compiler")
     local src = ":outer: for(let local x in xs){\n  continue outer\n}"
     local printed = ast.to_source(compiler.parse(src, "p"))
-    assert(str.index_of(printed, ":outer: for(let local x in xs)") >= 0 and str.index_of(printed, "continue outer") >= 0, printed)
+    assert(
+      str.index_of(printed, ":outer: for(let local x in xs)") >= 0 and
+        str.index_of(printed, "continue outer") >= 0,
+      printed
+    )
   }
   t.test("a label must name an enclosing loop; a defer may not be left"){
-    fails_to_compile("for(true){ break nowhere }", "no enclosing loop is labeled nowhere")
-    fails_to_compile(":a: for(true){ }\nfor(true){ continue a }", "no enclosing loop is labeled a")
-    fails_to_compile(":a: for(true){ defer { break a } }", "break is not allowed to leave a defer")
+    fails_to_compile(
+      "for(true){ break nowhere }",
+      "no enclosing loop is labeled nowhere"
+    )
+    fails_to_compile(
+      ":a: for(true){ }\nfor(true){ continue a }",
+      "no enclosing loop is labeled a"
+    )
+    fails_to_compile(
+      ":a: for(true){ defer { break a } }",
+      "break is not allowed to leave a defer"
+    )
   }
 }
 
@@ -125,7 +144,8 @@ t.group("break out of a for-in"){
     local target = null
     for(let local line in values(lines)){
       // the break: a forward jump with the break's location (line 1 of f's body)
-      if(str.index_of(line, "jump") >= 0 and str.index_of(line, "continue_test.slang") >= 0 and target == null){
+      if(str.index_of(line, "jump") >= 0 and
+        str.index_of(line, "continue_test.slang") >= 0 and target == null){
         local arrow = str.index_of(line, "-> ")
         if(arrow >= 0){
           target = to_int(str.trim(str.substring(line, arrow + 3, arrow + 8)))
@@ -139,6 +159,9 @@ t.group("break out of a for-in"){
         landing = line
       }
     }
-    assert(landing != null and str.index_of(landing, "pop") >= 0, concat("lands on: ", string(landing)))
+    assert(
+      landing != null and str.index_of(landing, "pop") >= 0,
+      concat("lands on: ", string(landing))
+    )
   }
 }

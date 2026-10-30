@@ -26,7 +26,10 @@ t.group("dialogue DSL"){
     assert(dlg.current().text == "Welcome.", "first line")
     dlg.confirm()
     local c = dlg.current()
-    assert(c.options != null and len(c.options) == 2 and c.options[1] == "Bye", "options")
+    assert(
+      c.options != null and len(c.options) == 2 and c.options[1] == "Bye",
+      "options"
+    )
     dlg.move(1)
     assert(c.selected == 1, "moved")
     dlg.move(1)
@@ -34,7 +37,10 @@ t.group("dialogue DSL"){
     dlg.confirm()
     assert(dlg.current().text == "The elder.", "chosen branch")
     dlg.confirm()
-    assert(dlg.current().text == "Farewell, curious one.", "ordinary slang in between")
+    assert(
+      dlg.current().text == "Farewell, curious one.",
+      "ordinary slang in between"
+    )
     dlg.confirm()
     assert(not dlg.active(), "closed at the end")
     assert(test_flags.asked == true, "side effects happened")

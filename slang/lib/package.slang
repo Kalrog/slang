@@ -75,7 +75,9 @@ local func native_loader(name){
   return {true, m}
 }
 
-__PACKAGES.loaders = {preloaded_loader, embedded_loader, search_path_loader, native_loader}
+__PACKAGES.loaders = {
+  preloaded_loader, embedded_loader, search_path_loader, native_loader,
+}
 
 func require(name){
   for(let local loader in values(__PACKAGES.loaders)){

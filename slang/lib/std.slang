@@ -18,7 +18,8 @@ func module(mfunc){
 func __match(m, v){
   local t = type(m)
   local f = null
-  if(t != "null" and t != "string" and t != "int" and t != "double" and t != "bool" and t != "function"){
+  if(t != "null" and t != "string" and t != "int" and t != "double" and
+    t != "bool" and t != "function"){
     local meta = m.meta
     if(meta != null){
       f = meta.__match

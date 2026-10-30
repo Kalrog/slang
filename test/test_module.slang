@@ -1,26 +1,25 @@
 return module{
-
-  func add(a,b){
-    return a+b;
+  func add(a, b){
+    return a + b
   }
 
   func returnTrue(){
-    return true;
+    return true
   }
 
-  local privateVar = 10;
+  local privateVar = 10
 
-  publicVar = 20;
+  publicVar = 20
 
   func setPrivateVar(v){
-    privateVar = v;
+    privateVar = v
   }
 
   func getPrivateVar(){
-    return privateVar;
+    return privateVar
   }
 
   local func privateFunc(){
-    return "private";
+    return "private"
   }
 }

@@ -20,7 +20,8 @@ local util = require("dsl/util")
 local declared = util.registry("entities")
 local m = {declared: declared}
 
-g:extension_statement("entity",
+g:extension_statement(
+  "entity",
   peg.seq(
     g:keyword("entity"),
     g:rule("identifier"),

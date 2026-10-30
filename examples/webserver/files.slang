@@ -29,11 +29,15 @@ func m.path(file){
 }
 
 func m.list(user){
-  return db:all(sql{ select id, name, type, size, sha256, at from files where user_id = {user} order by id desc })
+  return db:all(
+    sql{ select id, name, type, size, sha256, at from files where user_id = {user} order by id desc }
+  )
 }
 
 func m.find(user, id){
-  return db:one(sql{ select id, name, type, size, sha256, at from files where id = {id} and user_id = {user} })
+  return db:one(
+    sql{ select id, name, type, size, sha256, at from files where id = {id} and user_id = {user} }
+  )
 }
 
 async func m.remove(user, id){
@@ -50,7 +54,10 @@ async func m.remove(user, id){
 async func begin(part){
   local tmp = concat(dir, "/tmp-", crypto.token(12))
   local fd = await a.fs.open(tmp, "w")
-  return {name: part.filename, type: part.content_type, tmp: tmp, fd: fd, hasher: crypto.hasher("sha256"), size: 0}
+  return {
+    name: part.filename, type: part.content_type, tmp: tmp, fd: fd,
+    hasher: crypto.hasher("sha256"), size: 0,
+  }
 }
 
 async func finish(user, f){
@@ -107,7 +114,14 @@ async func m.receive(req){
     }
     local msg = r[1].message or string(r[1])
     if(str.ends_with(msg, "too large")){
-      return {status: 413, error: concat("An upload can be at most ", string(to_int(m.max_upload / 1024 / 1024)), " MiB.")}
+      return {
+        status: 413,
+        error: concat(
+          "An upload can be at most ",
+          string(to_int(m.max_upload / 1024 / 1024)),
+          " MiB."
+        ),
+      }
     }
     return {status: 400, error: concat("The upload failed: ", msg)}
   }

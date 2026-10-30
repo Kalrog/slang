@@ -21,7 +21,11 @@ numbers
 // `str.upper(_.name)` alone would make `_.name` the function given to
 // str.upper (the hole belongs to the nearest argument); `=>` moves the
 // function out to the whole expression
-local people = {{name: "Ada", age: 36}, {name: "Grace", age: 45}, {name: "Linus", age: 55}}
+local people = {
+  {name: "Ada", age: 36},
+  {name: "Grace", age: 45},
+  {name: "Linus", age: 55},
+}
 people
   |> filter(_.age > 40)
   |> map(=> str.upper(_.name))
@@ -116,7 +120,11 @@ def enqueue('list.cons{first, rest}, entry){ return {first, ...enqueue(rest, ent
 local INFINITY = 1 / 0
 def relax({dist: dist, prev: prev, queue: queue}, node, {to, weight}) when(dist[node] + weight < (dist[to] or INFINITY)){
   local through = dist[node] + weight
-  return {dist: {...dist, [to]: through}, prev: {...prev, [to]: node}, queue: enqueue(queue, {to, through})}
+  return {
+    dist: {...dist, [to]: through},
+    prev: {...prev, [to]: node},
+    queue: enqueue(queue, {to, through}),
+  }
 }
 def relax(state, _, _){ return state }
 
@@ -125,7 +133,8 @@ def relax(state, _, _){ return state }
 def search(graph, dist, prev, 'list.empty){ return {distance: dist, previous: prev} }
 def search(graph, dist, prev, 'list.cons{{node, d}, rest}) when(d > dist[node]){ return search(graph, dist, prev, rest) }
 def search(graph, dist, prev, 'list.cons{{node, d}, rest}){
-  local next = graph[node] |> fold({dist: dist, prev: prev, queue: rest}, => relax(_, node, _2))
+  local next = graph[node]
+    |> fold({dist: dist, prev: prev, queue: rest}, => relax(_, node, _2))
   return search(graph, next.dist, next.prev, next.queue)
 }
 

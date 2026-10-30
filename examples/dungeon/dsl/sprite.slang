@@ -23,23 +23,33 @@ local palettes = util.registry("palettes")
 local m = {palettes: palettes}
 
 // palette NAME { key: "#hex", ... }
-g:extension_statement("palette",
+g:extension_statement(
+  "palette",
   peg.seq(g:keyword("palette"), g:rule("identifier"), g:rule("table_literal")),
   func(r){
     local token = r[0]
     local name = r[1].value
     local colors = {}
     for(let local field in values(r[2].fields)){
-      if(field.key == null or field.key.type != "String" or field.value.type != "String"){
-        g:error_at(token, "palette ", name, ": entries must look like  k: \"#rrggbb\"")
+      if(field.key == null or field.key.type != "String" or
+        field.value.type != "String"){
+        g:error_at(
+          token, "palette ", name, ": entries must look like  k: \"#rrggbb\""
+        )
       }
       local key = field.key.value
       if(len(key) != 1){
-        g:error_at(token, "palette ", name, ": the key \"", key, "\" must be a single character")
+        g:error_at(
+          token, "palette ", name, ": the key \"", key,
+          "\" must be a single character"
+        )
       }
       local color = util.hex_color(field.value.value)
       if(color == null){
-        g:error_at(token, "palette ", name, ": \"", field.value.value, "\" is not a color (#rrggbb or #rrggbbaa)")
+        g:error_at(
+          token, "palette ", name, ": \"", field.value.value,
+          "\" is not a color (#rrggbb or #rrggbbaa)"
+        )
       }
       colors[key] = color
     }
@@ -59,18 +69,30 @@ func m.bake(rows, palette, fail){
   for(local y = 0; y < h; y = y + 1){
     local row = rows.rows[y]
     if(len(row) != w){
-      fail(y, "row ", y + 1, " is ", len(row), " characters wide, the first row is ", w)
+      fail(
+        y, "row ", y + 1, " is ", len(row),
+        " characters wide, the first row is ", w
+      )
     }
     for(local x = 0; x < w; x = x + 1){
       local ch = str.char_at(row, x)
       if(ch == "."){
-        append(bytes, 0) append(bytes, 0) append(bytes, 0) append(bytes, 0)
+        append(bytes, 0)
+        append(bytes, 0)
+        append(bytes, 0)
+        append(bytes, 0)
       } else {
         local c = palette[ch]
         if(c == null){
-          fail(y, "row ", y + 1, " column ", x + 1, ": \"", ch, "\" is not in the palette")
+          fail(
+            y, "row ", y + 1, " column ", x + 1, ": \"", ch,
+            "\" is not in the palette"
+          )
         }
-        append(bytes, c.r) append(bytes, c.g) append(bytes, c.b) append(bytes, c.a)
+        append(bytes, c.r)
+        append(bytes, c.g)
+        append(bytes, c.b)
+        append(bytes, c.a)
       }
     }
   }
@@ -78,8 +100,12 @@ func m.bake(rows, palette, fail){
 }
 
 // sprite NAME [PALETTE] { rows }
-g:extension_statement("sprite",
-  peg.seq(g:keyword("sprite"), g:rule("identifier"), g:rule("identifier"):optional(), util.raw_block()),
+g:extension_statement(
+  "sprite",
+  peg.seq(
+    g:keyword("sprite"), g:rule("identifier"), g:rule("identifier"):optional(),
+    util.raw_block()
+  ),
   func(r){
     local token = r[0]
     local name = r[1].value
@@ -89,11 +115,15 @@ g:extension_statement("sprite",
     }
     local palette = palettes[palette_name]
     if(palette == null){
-      g:error_at(token, "sprite ", name, ": unknown palette \"", palette_name, "\"")
+      g:error_at(
+        token, "sprite ", name, ": unknown palette \"", palette_name, "\""
+      )
     }
     local rows = util.rows(r[3])
     local baked = m.bake(rows, palette, func(row, ...message){
-      util.error_at_row(rows, row, concat("sprite ", name, ": ", util.text(message)))
+      util.error_at_row(
+        rows, row, concat("sprite ", name, ": ", util.text(message))
+      )
     })
     return {
       token: token,

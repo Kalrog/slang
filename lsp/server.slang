@@ -21,11 +21,16 @@ local lsp = {}
 // own type (the VS Code extension maps it to a scope). A category may carry
 // standard modifiers after dots: "enumMember.declaration.readonly".
 // Categories the legend does not know are not sent.
-lsp.token_types = {"keyword", "variable", "number", "string", "comment", "operator", "punctuation",
-  "namespace", "type", "class", "enum", "interface", "struct", "typeParameter", "parameter", "property",
-  "enumMember", "event", "function", "method", "macro", "modifier", "regexp", "decorator"}
-lsp.token_modifiers = {"declaration", "definition", "readonly", "static", "deprecated", "abstract", "async",
-  "modification", "documentation", "defaultLibrary"}
+lsp.token_types = {
+  "keyword", "variable", "number", "string", "comment", "operator",
+  "punctuation", "namespace", "type", "class", "enum", "interface", "struct",
+  "typeParameter", "parameter", "property", "enumMember", "event", "function",
+  "method", "macro", "modifier", "regexp", "decorator",
+}
+lsp.token_modifiers = {
+  "declaration", "definition", "readonly", "static", "deprecated", "abstract",
+  "async", "modification", "documentation", "defaultLibrary",
+}
 local type_index = {identifier: 1}
 for(let local e in entries(lsp.token_types)){
   type_index[e[1]] = e[0]
@@ -71,10 +76,11 @@ func lsp.frame(buffer){
       break
     }
     local head = str.substring(buffer, 0, head_end)
-    local length = -1
+    local length = - 1
     for(let local line in values(str.split(head, "\r\n"))){
       local i = str.index_of(line, ":")
-      if(i >= 0 and str.lower(str.trim(str.substring(line, 0, i))) == "content-length"){
+      if(i >= 0 and
+        str.lower(str.trim(str.substring(line, 0, i))) == "content-length"){
         length = to_int(str.trim(str.substring(line, i + 1)))
       }
     }
@@ -85,7 +91,10 @@ func lsp.frame(buffer){
     if(len(buffer) < body_start + length){
       break
     }
-    append(messages, json.decode(str.substring(buffer, body_start, body_start + length), "message"))
+    append(messages, json.decode(
+      str.substring(buffer, body_start, body_start + length),
+      "message"
+    ))
     buffer = str.substring(buffer, body_start + length)
   }
   return {messages: messages, rest: buffer}
@@ -118,7 +127,9 @@ func lsp.uri_to_path(uri){
   local n = len(path)
   for(i < n){
     if(str.byte_at(path, i) == 37 and i + 2 < n){
-      append(out, str.chr(hex_value(str.char_at(path, i + 1)) * 16 + hex_value(str.char_at(path, i + 2))))
+      append(out, str.chr(hex_value(str.char_at(path, i + 1)) * 16 + hex_value(
+          str.char_at(path, i + 2)
+        )))
       i = i + 3
     } else {
       append(out, str.char_at(path, i))
@@ -200,7 +211,10 @@ local func lsp_diagnostics(text, list, encoding){
     if(end_char > line_end){ end_char = line_end }
     if(end_char < char){ end_char = char }
     append(out, {
-      range: {start: {line: line, character: char}, ["end"]: {line: line, character: end_char}},
+      range: {
+        start: {line: line, character: char},
+        ["end"]: {line: line, character: end_char},
+      },
       severity: 1,
       source: "slang",
       message: d.message,
@@ -217,8 +231,10 @@ local meta = {__index: methods}
 // new({log}) -> server
 func lsp.new(options){
   options = options or {}
-  local s = {documents: {}, encoding: "utf-16", initialized: false, shutdown_requested: false, exited: false,
-             log: options.log or func(text){}}
+  local s = {
+    documents: {}, encoding: "utf-16", initialized: false,
+    shutdown_requested: false, exited: false, log: options.log or func(text){},
+  }
   s.meta = meta
   return s
 }
@@ -244,12 +260,23 @@ local func analyse(s, uri){
     if(type(message) == "table"){ message = message.message }
     s.log(concat("highlight failed for ", uri, ": ", message))
     doc.tokens = {}
-    doc.diagnostics = {{line: 1, column: 1, message: concat("the language server could not analyse this file: ", message)}}
+    doc.diagnostics = {
+      {
+        line: 1, column: 1,
+        message: concat(
+          "the language server could not analyse this file: ",
+          message
+        ),
+      },
+    }
   } else {
     doc.tokens = r[1].tokens
     doc.diagnostics = r[1].diagnostics
   }
-  return notification("textDocument/publishDiagnostics", {uri: uri, version: doc.version, diagnostics: lsp_diagnostics(doc.text, doc.diagnostics, s.encoding)})
+  return notification("textDocument/publishDiagnostics", {
+    uri: uri, version: doc.version,
+    diagnostics: lsp_diagnostics(doc.text, doc.diagnostics, s.encoding),
+  })
 }
 
 local func project_notification(s){
@@ -267,21 +294,30 @@ local func project_notification(s){
 local handlers = {}
 
 handlers["initialize"] = func(s, id, params){
-  local encodings = ((params.capabilities or {}).general or {}).positionEncodings or {}
+  local encodings = ((params.capabilities or {}).general or {}).positionEncodings or
+    {}
   for(let local e in values(encodings)){
     if(e == "utf-8"){
       s.encoding = "utf-8"
     }
   }
   s.initialized = true
-  return {response(id, {
-    capabilities: {
-      positionEncoding: s.encoding,
-      textDocumentSync: 1,
-      semanticTokensProvider: {legend: {tokenTypes: json.array(lsp.token_types), tokenModifiers: json.array(lsp.token_modifiers)}, full: true},
-    },
-    serverInfo: {name: "slang", version: "0.1"},
-  })}
+  return {
+    response(id, {
+      capabilities: {
+        positionEncoding: s.encoding,
+        textDocumentSync: 1,
+        semanticTokensProvider: {
+          legend: {
+            tokenTypes: json.array(lsp.token_types),
+            tokenModifiers: json.array(lsp.token_modifiers),
+          },
+          full: true,
+        },
+      },
+      serverInfo: {name: "slang", version: "0.1"},
+    }),
+  }
 }
 
 handlers["shutdown"] = func(s, id, params){
@@ -300,7 +336,10 @@ handlers["$/setTrace"] = func(s, id, params){ return {} }
 
 handlers["textDocument/didOpen"] = func(s, id, params){
   local td = params.textDocument
-  s.documents[td.uri] = {uri: td.uri, path: lsp.uri_to_path(td.uri), text: td.text, version: td.version, tokens: {}, diagnostics: {}}
+  s.documents[td.uri] = {
+    uri: td.uri, path: lsp.uri_to_path(td.uri), text: td.text,
+    version: td.version, tokens: {}, diagnostics: {},
+  }
   local out = {analyse(s, td.uri)}
   local p = project_notification(s)
   if(p != null){ append(out, p) }
@@ -324,7 +363,12 @@ handlers["textDocument/didChange"] = func(s, id, params){
 handlers["textDocument/didClose"] = func(s, id, params){
   local uri = params.textDocument.uri
   s.documents[uri] = null
-  return {notification("textDocument/publishDiagnostics", {uri: uri, diagnostics: json.array({})})}
+  return {
+    notification("textDocument/publishDiagnostics", {
+      uri: uri,
+      diagnostics: json.array({}),
+    }),
+  }
 }
 
 handlers["textDocument/semanticTokens/full"] = func(s, id, params){
@@ -332,7 +376,9 @@ handlers["textDocument/semanticTokens/full"] = func(s, id, params){
   if(doc == null){
     return {response(id, {data: json.array({})})}
   }
-  return {response(id, {data: lsp.semantic_tokens(doc.text, doc.tokens, s.encoding)})}
+  return {
+    response(id, {data: lsp.semantic_tokens(doc.text, doc.tokens, s.encoding)}),
+  }
 }
 
 // the project file or an extension changed: forget the grammars and look again
@@ -358,7 +404,7 @@ func methods.handle(s, message){
   local h = handlers[method]
   if(h == null){
     if(id != null){
-      return {error_response(id, -32601, concat("method not found: ", method))}
+      return {error_response(id, - 32601, concat("method not found: ", method))}
     }
     return {}
   }
@@ -368,7 +414,7 @@ func methods.handle(s, message){
     if(type(msg) == "table"){ msg = msg.message }
     s.log(concat("error handling ", method, ": ", msg))
     if(id != null){
-      return {error_response(id, -32603, msg)}
+      return {error_response(id, - 32603, msg)}
     }
     return {}
   }

@@ -8,15 +8,8 @@ local func snippet(source){
   return concat("extension \"dsl/entity\"\n", source)
 }
 
-entity TestMonster {
-  hp: 3,
-  solid: true,
-  hurt: func(self, amount){ self.hp = self.hp - amount },
-}
-entity TestGoblin extends TestMonster {
-  hp: 2,
-  sprite: "goblin",
-}
+entity TestMonster {hp: 3, solid: true, hurt: func(self, amount){ self.hp = self.hp - amount }}
+entity TestGoblin extends TestMonster {hp: 2, sprite: "goblin"}
 
 t.group("entity DSL"){
   t.test("instances fall back to the declared defaults"){
@@ -37,11 +30,20 @@ t.group("entity DSL"){
     assert(not entities_api.is_a(g, "TestGoblin2"), "is_a other")
   }
   t.test("unknown base types are compile errors"){
-    local r = pcall(compile, snippet("entity Nope extends Nothing { }"), "bad base")
-    assert(r[0] == "err" and str.index_of(r[1].message, "unknown base entity Nothing") >= 0, r[1].message)
+    local r = pcall(
+      compile, snippet("entity Nope extends Nothing { }"), "bad base"
+    )
+    assert(
+      r[0] == "err" and
+        str.index_of(r[1].message, "unknown base entity Nothing") >= 0,
+      r[1].message
+    )
   }
   t.test("fields must be named"){
     local r = pcall(compile, snippet("entity Nope { 1, 2 }"), "unnamed")
-    assert(r[0] == "err" and str.index_of(r[1].message, "needs a name") >= 0, r[1].message)
+    assert(
+      r[0] == "err" and str.index_of(r[1].message, "needs a name") >= 0,
+      r[1].message
+    )
   }
 }

@@ -52,7 +52,10 @@ t.group("async syntax"){
   }
   t.test("errors raised in async functions arrive at the awaiter"){
     local r = a.main(func(){
-      local failing = async func(){ await a.sleep(1) error("async boom") }
+      local failing = async func(){
+        await a.sleep(1)
+        error("async boom")
+      }
       local caught = pcall(func(){ return await failing() })
       return caught[1].message
     })
@@ -89,6 +92,9 @@ t.group("async with try and defer"){
     }
     local result = a.main(func(){ return a.await(run_steps()) })
     assert(result == 4, concat("total ", string(result)))
-    assert(log == {"cleanup 1", "cleanup 2", "caught 2", "cleanup 3"}, concat("log ", log))
+    assert(
+      log == {"cleanup 1", "cleanup 2", "caught 2", "cleanup 3"},
+      concat("log ", log)
+    )
   }
 }

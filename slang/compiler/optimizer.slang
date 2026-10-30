@@ -134,23 +134,40 @@ func visitors.Field(n){
 }
 
 func visitors.For(n){
-  return ast.node("For", {init: maybe(n.init), condition: visit(n.condition), update: maybe(n.update), body: visit(n.body), label: n.label}, n.token)
+  return ast.node(
+    "For",
+    {
+      init: maybe(n.init), condition: visit(n.condition),
+      update: maybe(n.update), body: visit(n.body), label: n.label,
+    }, n.token
+  )
 }
 
 func visitors.Call(n){
-  return ast.node("Call", {function: visit(n.function), args: visit_list(n.args)}, n.token)
+  return ast.node(
+    "Call", {function: visit(n.function), args: visit_list(n.args)}, n.token
+  )
 }
 
 func visitors.Invoke(n){
-  return ast.node("Invoke", {receiver: visit(n.receiver), name: n.name, args: visit_list(n.args)}, n.token)
+  return ast.node(
+    "Invoke",
+    {receiver: visit(n.receiver), name: n.name, args: visit_list(n.args)},
+    n.token
+  )
 }
 
 func visitors.MatcherPattern(n){
-  return ast.node("MatcherPattern", {matcher: maybe(n.matcher), type_name: n.type_name, sub: n.sub}, n.token)
+  return ast.node(
+    "MatcherPattern",
+    {matcher: maybe(n.matcher), type_name: n.type_name, sub: n.sub}, n.token
+  )
 }
 
 func visitors.LetStat(n){
-  return ast.node("LetStat", {pattern: n.pattern, right: visit(n.right)}, n.token)
+  return ast.node(
+    "LetStat", {pattern: n.pattern, right: visit(n.right)}, n.token
+  )
 }
 
 func visitors.Spread(n){
@@ -166,17 +183,30 @@ func visitors.CallStat(n){
 }
 
 func visitors.If(n){
-  return ast.node("If", {condition: visit(n.condition), thenBranch: visit(n.thenBranch), elseBranch: maybe(n.elseBranch)}, n.token)
+  return ast.node(
+    "If",
+    {
+      condition: visit(n.condition),
+      thenBranch: visit(n.thenBranch),
+      elseBranch: maybe(n.elseBranch),
+    }, n.token
+  )
 }
 
 func visitors.Index(n){
-  return ast.node("Index", {receiver: visit(n.receiver), index: visit(n.index), dotStyle: n.dotStyle}, n.token)
+  return ast.node(
+    "Index",
+    {receiver: visit(n.receiver), index: visit(n.index), dotStyle: n.dotStyle},
+    n.token
+  )
 }
 
 func visitors.Try(n){
   local catches = {}
   for(let local c in values(n.catches)){
-    append(catches, ast.node("Catch", {pattern: c.pattern, body: visit(c.body)}, c.token))
+    append(catches, ast.node(
+      "Catch", {pattern: c.pattern, body: visit(c.body)}, c.token
+    ))
   }
   return ast.node("Try", {body: visit(n.body), catches: catches}, n.token)
 }
@@ -186,7 +216,14 @@ func visitors.Defer(n){
 }
 
 func visitors.IfExpr(n){
-  return ast.node("IfExpr", {condition: visit(n.condition), thenValue: visit(n.thenValue), elseValue: visit(n.elseValue)}, n.token)
+  return ast.node(
+    "IfExpr",
+    {
+      condition: visit(n.condition),
+      thenValue: visit(n.thenValue),
+      elseValue: visit(n.elseValue),
+    }, n.token
+  )
 }
 
 func visitors.Return(n){
@@ -215,7 +252,10 @@ func visitors.UnOp(n){
 }
 
 func visitors.Declaration(n){
-  return ast.node("Declaration", {is_local: n.is_local, left: n.left, right: maybe(n.right)}, n.token)
+  return ast.node(
+    "Declaration", {is_local: n.is_local, left: n.left, right: maybe(n.right)},
+    n.token
+  )
 }
 
 func optimizer.optimize(node){

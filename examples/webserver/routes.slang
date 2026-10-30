@@ -56,7 +56,6 @@ local func with_todo(req, params, f){
 
 func m.install(app){
   // ---------------------------------------------------------- pages
-
   app:get("/", signed_in(func(req){
     local filter = filter_of(req)
     return views.page(req, "Todos", <>
@@ -88,7 +87,9 @@ func m.install(app){
   app:ws("/log/live", func(socket, req){
     local stop = log.subscribe(func(entry){
       if(socket:is_open()){
-        socket:send(html.render(<tbody hx-swap-oob="afterbegin:#log-rows"><views.LogRow entry={entry}/></tbody>))
+        socket:send(html.render(
+          <tbody hx-swap-oob="afterbegin:#log-rows"><views.LogRow entry={entry}/></tbody>
+        ))
       }
     })
     socket.closed:then(func(_){ stop() })
@@ -111,7 +112,10 @@ func m.install(app){
 
   app:get("/todos", signed_in(func(req){
     local filter = filter_of(req)
-    return views.fragment(<views.TodoList user={req.user} filter={filter}/>, <views.Filters filter={filter} oob={true}/>)
+    return views.fragment(
+      <views.TodoList user={req.user} filter={filter}/>,
+      <views.Filters filter={filter} oob={true}/>
+    )
   }))
 
   app:post("/todos", signed_in(func(req){
@@ -119,20 +123,30 @@ func m.install(app){
     if(text != ""){
       todos.add(req.user.id, text, false)
     }
-    return views.fragment(<views.TodoList user={req.user} filter={filter_of(req)}/>, <views.Count user={req.user} oob={true}/>)
+    return views.fragment(
+      <views.TodoList user={req.user} filter={filter_of(req)}/>,
+      <views.Count user={req.user} oob={true}/>
+    )
   }))
 
   app:post("/todos/clear", signed_in(func(req){
     todos.clear_done(req.user.id)
-    return views.fragment(<views.TodoList user={req.user} filter={filter_of(req)}/>, <views.Count user={req.user} oob={true}/>)
+    return views.fragment(
+      <views.TodoList user={req.user} filter={filter_of(req)}/>,
+      <views.Count user={req.user} oob={true}/>
+    )
   }))
 
   app:get("/todos/:id", signed_in(func(req, params){
-    return with_todo(req, params, func(t){ return views.fragment(<views.Todo todo={t}/>) })
+    return with_todo(req, params, func(t){
+      return views.fragment(<views.Todo todo={t}/>)
+    })
   }))
 
   app:get("/todos/:id/edit", signed_in(func(req, params){
-    return with_todo(req, params, func(t){ return views.fragment(<views.EditTodo todo={t}/>) })
+    return with_todo(req, params, func(t){
+      return views.fragment(<views.EditTodo todo={t}/>)
+    })
   }))
 
   app:post("/todos/:id", signed_in(func(req, params){
@@ -148,7 +162,10 @@ func m.install(app){
   app:post("/todos/:id/toggle", signed_in(func(req, params){
     return with_todo(req, params, func(t){
       todos.toggle(req.user.id, t.id)
-      return views.fragment(<views.Todo todo={todos.find(req.user.id, t.id)}/>, <views.Count user={req.user} oob={true}/>)
+      return views.fragment(
+        <views.Todo todo={todos.find(req.user.id, t.id)}/>,
+        <views.Count user={req.user} oob={true}/>
+      )
     })
   }))
 
@@ -210,27 +227,43 @@ func m.install(app){
     if(req.user != null){
       return web.redirect("/")
     }
-    return views.page(req, "Sign in", <views.AccountForm mode="login" csrf={req.csrf_token}/>)
+    return views.page(
+      req, "Sign in", <views.AccountForm mode="login" csrf={req.csrf_token}/>
+    )
   })
 
   app:post("/login", async func(req){
     local form = req:form()
     local user = await auth.check(form.name or "", form.password or "")
     if(user == null){
-      return views.page(req, "Sign in", <views.AccountForm mode="login" name={form.name} csrf={req.csrf_token} error="Wrong name or password."/>, 401)
+      return views.page(
+        req, "Sign in",
+        <views.AccountForm mode="login" name={form.name} csrf={req.csrf_token} error="Wrong name or password."/>,
+        401
+      )
     }
     return auth.start_session(web.redirect("/"), user)
   })
 
   app:get("/register", func(req){
-    return views.page(req, "Create an account", <views.AccountForm mode="register" csrf={req.csrf_token}/>)
+    return views.page(
+      req, "Create an account",
+      <views.AccountForm mode="register" csrf={req.csrf_token}/>
+    )
   })
 
   app:post("/register", async func(req){
     local form = req:form()
-    local r = await auth.register(str.trim(form.name or ""), form.password or "")
+    local r = await auth.register(
+      str.trim(form.name or ""),
+      form.password or ""
+    )
     if(r.error != null){
-      return views.page(req, "Create an account", <views.AccountForm mode="register" name={form.name} csrf={req.csrf_token} error={r.error}/>, 400)
+      return views.page(
+        req, "Create an account",
+        <views.AccountForm mode="register" name={form.name} csrf={req.csrf_token} error={r.error}/>,
+        400
+      )
     }
     return auth.start_session(web.redirect("/"), r.user)
   })
@@ -244,7 +277,9 @@ func m.install(app){
   app:static("/static", "examples/webserver/static")
 
   app.fallback = func(req){
-    return views.page(req, "Not found", <p>There is no <code>{req.path}</code> here.</p>, 404)
+    return views.page(
+      req, "Not found", <p>There is no <code>{req.path}</code> here.</p>, 404
+    )
   }
 }
 

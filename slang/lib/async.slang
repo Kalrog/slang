@@ -72,7 +72,9 @@ local future_methods = {}
 local future_meta = {__index: future_methods, __type: "Future"}
 
 local func new_future(){
-  local f = {state: "pending", value: null, error: null, waiters: {}, handled: false}
+  local f = {
+    state: "pending", value: null, error: null, waiters: {}, handled: false,
+  }
   f.meta = future_meta
   return f
 }
@@ -342,7 +344,9 @@ func async.main(f){
       more = uv.run("once")
     }
     if(not more and fut.state == "pending"){
-      error("async.main: the loop has nothing left to do but the main function has not finished")
+      error(
+        "async.main: the loop has nothing left to do but the main function has not finished"
+      )
     }
   }
   if(len(unhandled) > 0){
@@ -373,8 +377,10 @@ local stream_meta = {__index: stream_methods, __type: "Stream"}
 // on_resume on the controller are called when the buffer passes high_water
 // and when a reader drains it (backpressure)
 func async.controller(options){
-  local s = {buffer: {}, done: false, error: null, pending: null, listener: null, paused: false,
-             high_water: (options or {}).high_water or 16}
+  local s = {
+    buffer: {}, done: false, error: null, pending: null, listener: null,
+    paused: false, high_water: (options or {}).high_water or 16,
+  }
   s.meta = stream_meta
   local c = {stream: s, on_pause: null, on_resume: null}
   local func deliver(){
@@ -508,18 +514,21 @@ func pull_methods.next(s){
   } else {
     f = async.value(r[1])
   }
-  return f:then(func(v){
-    s.busy = false
-    if(v == null){
+  return f:then(
+    func(v){
+      s.busy = false
+      if(v == null){
+        s.done = true
+        return {done: true}
+      }
+      return {value: v}
+    },
+    func(e){
+      s.busy = false
       s.done = true
-      return {done: true}
+      raise(e)
     }
-    return {value: v}
-  }, func(e){
-    s.busy = false
-    s.done = true
-    raise(e)
-  })
+  )
 }
 
 func pull_methods.collect(s){
@@ -603,7 +612,10 @@ func async.connect(host, port){
   return async.wrap(func(cb){
     local func attempt(addrs, i, last_err){
       if(i >= len(addrs)){
-        cb(last_err or concat("cannot connect to ", host, ": no addresses"), null)
+        cb(
+          last_err or concat("cannot connect to ", host, ": no addresses"),
+          null
+        )
         return
       }
       local conn = uv.tcp()
@@ -686,10 +698,14 @@ func async.serve(host, port, options){
     server:accept(conn)
     c.add(conn)
   })
-  return {server: server, connections: c.stream, close: func(){
-    server:close()
-    c.close()
-  }}
+  return {
+    server: server,
+    connections: c.stream,
+    close: func(){
+      server:close()
+      c.close()
+    },
+  }
 }
 
 // ------------------------------------------------------------ files
@@ -717,8 +733,12 @@ local func fs_call(name, ...arguments){
 }
 
 func fs.read_file(path){ return fs_call("fs_read_file", path) }
-func fs.write_file(path, data){ return fs_call("fs_write_file", path, data, false) }
-func fs.append_file(path, data){ return fs_call("fs_write_file", path, data, true) }
+func fs.write_file(path, data){
+  return fs_call("fs_write_file", path, data, false)
+}
+func fs.append_file(path, data){
+  return fs_call("fs_write_file", path, data, true)
+}
 func fs.stat(path){ return fs_call("fs_stat", path) }
 func fs.list_dir(path){ return fs_call("fs_scandir", path) }
 func fs.remove(path){ return fs_call("fs_unlink", path) }
@@ -729,11 +749,15 @@ func fs.open(path, flags){ return fs_call("fs_open", path, flags or "r") }
 func fs.close(fd){ return fs_call("fs_close", fd) }
 
 func fs.read(fd, length, offset){
-  return async.wrap(func(cb){ loop_module().fs_read(fd, length, offset or -1, cb) })
+  return async.wrap(func(cb){
+    loop_module().fs_read(fd, length, offset or - 1, cb)
+  })
 }
 
 func fs.write(fd, data, offset){
-  return async.wrap(func(cb){ loop_module().fs_write(fd, data, offset or -1, cb) })
+  return async.wrap(func(cb){
+    loop_module().fs_write(fd, data, offset or - 1, cb)
+  })
 }
 
 // read_stream(path, options) -> a Stream of the file's contents in chunks,
@@ -841,9 +865,11 @@ func async.spawn(file, args, options){
       exit.complete(r)
     }
   })
-  return {process: process, pid: process:pid(), pipes: pipes,
-          stdin: pipes[0], stdout: pipes[1], stderr: pipes[2], exit: exit.future,
-          kill: func(sig){ process:kill(sig) }}
+  return {
+    process: process, pid: process:pid(), pipes: pipes, stdin: pipes[0],
+    stdout: pipes[1], stderr: pipes[2], exit: exit.future,
+    kill: func(sig){ process:kill(sig) },
+  }
 }
 
 // collect(pipe) -> Future of everything read from the pipe until it ends
@@ -887,7 +913,12 @@ func async.exec(file, args, options){
   local out = collect(p.stdout)
   local err = collect(p.stderr)
   return async.all({p.exit, out, err}):then(func(all){
-    return {status: all[0].status, signal: all[0].signal, stdout: all[1], stderr: all[2]}
+    return {
+      status: all[0].status,
+      signal: all[0].signal,
+      stdout: all[1],
+      stderr: all[2],
+    }
   })
 }
 

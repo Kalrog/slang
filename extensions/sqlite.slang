@@ -24,16 +24,22 @@ local g = require("slang/compiler").grammar()
 
 // ------------------------------------------------------------ lexical pieces
 
-local keyword_list = {"select", "from", "where", "and", "or", "not", "null", "is", "in", "like", "glob", "between",
-  "order", "by", "group", "having", "limit", "offset", "asc", "desc", "distinct", "all", "as", "on", "using",
-  "join", "left", "right", "inner", "outer", "cross", "natural", "union", "except", "intersect", "with", "recursive",
-  "insert", "into", "values", "update", "set", "delete", "replace", "returning", "default", "conflict", "do", "nothing",
-  "create", "table", "if", "exists", "drop", "index", "view", "trigger", "alter", "add", "column", "rename", "to",
-  "primary", "key", "unique", "check", "references", "foreign", "constraint", "autoincrement", "without", "rowid",
-  "integer", "int", "text", "real", "blob", "boolean", "bool", "numeric", "varchar",
-  "case", "when", "then", "else", "end", "cast", "collate", "escape", "exists",
-  "begin", "commit", "rollback", "transaction", "savepoint", "release", "pragma", "explain", "vacuum", "analyze",
-  "true", "false", "current_timestamp", "current_date", "current_time"}
+local keyword_list = {
+  "select", "from", "where", "and", "or", "not", "null", "is", "in", "like",
+  "glob", "between", "order", "by", "group", "having", "limit", "offset", "asc",
+  "desc", "distinct", "all", "as", "on", "using", "join", "left", "right",
+  "inner", "outer", "cross", "natural", "union", "except", "intersect", "with",
+  "recursive", "insert", "into", "values", "update", "set", "delete", "replace",
+  "returning", "default", "conflict", "do", "nothing", "create", "table", "if",
+  "exists", "drop", "index", "view", "trigger", "alter", "add", "column",
+  "rename", "to", "primary", "key", "unique", "check", "references", "foreign",
+  "constraint", "autoincrement", "without", "rowid", "integer", "int", "text",
+  "real", "blob", "boolean", "bool", "numeric", "varchar", "case", "when",
+  "then", "else", "end", "cast", "collate", "escape", "exists", "begin",
+  "commit", "rollback", "transaction", "savepoint", "release", "pragma",
+  "explain", "vacuum", "analyze", "true", "false", "current_timestamp",
+  "current_date", "current_time",
+}
 local keywords = {}
 for(let local k in values(keyword_list)){
   keywords[k] = true
@@ -46,11 +52,14 @@ local func punct(s){
 }
 
 // a word: a keyword is highlighted, any other identifier is left alone
-local word_chars = peg.seq(peg.pattern("a-zA-Z_"), peg.pattern("a-zA-Z0-9_"):star()):flatten("word expected")
+local word_chars = peg.seq(
+  peg.pattern("a-zA-Z_"),
+  peg.pattern("a-zA-Z0-9_"):star()
+):flatten("word expected")
 local word = peg.custom(func(self, ctx, pos){
   local q = word_chars:parse_on(ctx, pos)
   if(q < 0){
-    return -1
+    return - 1
   }
   local w = ctx.value
   if(ctx.tokens != null and keywords[str.lower(w)] == true){
@@ -60,9 +69,16 @@ local word = peg.custom(func(self, ctx, pos){
   return q
 })
 
-local number = peg.token(peg.seq(peg.digit():plus(), peg.seq(peg.char("."), peg.digit():star()):optional()):flatten("number expected"), "number"):map(func(t){
-  return {text: t.value}
-})
+local number = peg.token(
+  peg.seq(
+    peg.digit():plus(),
+    peg.seq(peg.char("."), peg.digit():star()):optional()
+  ):flatten("number expected"),
+  "number"
+)
+  :map(func(t){
+    return {text: t.value}
+  })
 
 // 'text' with '' for a quote inside
 local sql_string = peg.token(peg.custom(func(self, ctx, pos){
@@ -91,9 +107,13 @@ local sql_string = peg.token(peg.custom(func(self, ctx, pos){
 })
 
 // -- to the end of the line, /* */ blocks; dropped from the text
-local line_comment = peg.token(peg.seq(peg.string("--"), peg.pattern("^\n"):star()):flatten(), "comment"):map(func(t){
-  return {text: " "}
-})
+local line_comment = peg.token(
+  peg.seq(peg.string("--"), peg.pattern("^\n"):star()):flatten(),
+  "comment"
+)
+  :map(func(t){
+    return {text: " "}
+  })
 local block_comment = peg.token(peg.custom(func(self, ctx, pos){
   local buf = ctx.buffer
   if(str.substring(buf, pos, pos + 2) != "/*"){
@@ -123,22 +143,34 @@ local other = peg.custom(func(self, ctx, pos){
 local lone = peg.pattern("/-"):map(func(c){ return {text: c} })
 
 local hole = peg.choice(
-  peg.seq(punct("{"), ws, peg.token(peg.string("..."), "operator"), g:rule("expr"), ws, punct("}")):map(func(v){
-    return {list: v[3]}
-  }),
+  peg.seq(
+    punct("{"), ws, peg.token(peg.string("..."), "operator"), g:rule("expr"),
+    ws, punct("}")
+  )
+    :map(func(v){
+      return {list: v[3]}
+    }),
   peg.seq(punct("{"), ws, g:rule("expr"), ws, punct("}")):map(func(v){
     return {value: v[2]}
   })
 )
 
-local piece = peg.choice(hole, sql_string, line_comment, block_comment, word, number, other, lone)
+local piece = peg.choice(
+  hole, sql_string, line_comment, block_comment, word, number, other, lone
+)
 
 // ------------------------------------------------------------ building
 
 // the runtime module, required once per unit
 local func runtime(name, token){
   local module = g:unit_local("slang/sqlite", +{require("slang/sqlite")})
-  return ast.node("Index", {receiver: module, index: ast.node("String", {value: name}, token), dotStyle: true}, token)
+  return ast.node(
+    "Index",
+    {
+      receiver: module, index: ast.node("String", {value: name}, token),
+      dotStyle: true,
+    }, token
+  )
 }
 local func runtime_call(name, args, token){
   return ast.node("Call", {function: runtime(name, token), args: args}, token)
@@ -187,7 +219,9 @@ local func build(pieces, token){
   local text_node = ast.node("String", {value: sql}, token)
   local origin_node = ast.node("String", {value: origin}, token)
   if(len(holes) == 0){
-    local node = g:unit_local(concat("sql_", str.hash(sql)), runtime_call("query", {text_node, ast.node("Null", {}, token), origin_node}, token))
+    local node = g:unit_local(concat("sql_", str.hash(sql)), runtime_call(
+      "query", {text_node, ast.node("Null", {}, token), origin_node}, token
+    ))
     node.token = token
     return node
   }
@@ -197,16 +231,22 @@ local func build(pieces, token){
   }
   // the count, because a null value would end the list's length early
   local count_node = ast.node("Int", {value: len(holes)}, token)
-  return runtime_call("query", {text_node, ast.node("Table", {fields: fields}, token), origin_node, count_node}, token)
+  return runtime_call(
+    "query",
+    {
+      text_node, ast.node("Table", {fields: fields}, token), origin_node,
+      count_node,
+    }, token
+  )
 }
 
 // ------------------------------------------------------------ syntax
 
-g:expression():primary("sql", peg.seq(
-  g:keyword("sql"),
-  punct("{"),
-  piece:star(),
-  punct("}")
-):map(func(v){
-  return {token: v[0], ast: build(v[2], v[0])}
-}))
+g
+  :expression()
+  :primary(
+    "sql",
+    peg.seq(g:keyword("sql"), punct("{"), piece:star(), punct("}")):map(func(v){
+      return {token: v[0], ast: build(v[2], v[0])}
+    })
+  )

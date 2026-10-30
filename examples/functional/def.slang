@@ -76,8 +76,7 @@ local runtime_block = +{block:
       append(out, args[i])
     }
     return out
-  }
-}
+  } }
 local runtime_expr = +{(func(){ -{runtime_block} return __def })()}
 
 // the unit's __def local, declared once per unit
@@ -111,35 +110,86 @@ local func id(name, token){
   return ast.node("Identifier", {value: name}, token)
 }
 local func field(receiver, name, token){
-  return ast.node("Index", {receiver: receiver, index: ast.node("String", {value: name}, token), dotStyle: true}, token)
+  return ast.node(
+    "Index",
+    {
+      receiver: receiver, index: ast.node("String", {value: name}, token),
+      dotStyle: true,
+    }, token
+  )
 }
 local func no_match_return(token){
-  return ast.node("Block", {statements: {ast.node("Return", {value: field(runtime(token), "no_match", token)}, token)}}, token)
+  return ast.node(
+    "Block",
+    {
+      statements: {
+        ast.node(
+          "Return", {value: field(runtime(token), "no_match", token)}, token
+        ),
+      },
+    }, token
+  )
 }
 
 // a clause is a function of the argument list: pattern check, rest, guard, body
 local func clause_function(params, rest_name, guard, body, token){
   local statements = {}
-  local pattern = ast.node("TablePattern", {type_check: "table", fields: {}}, token)
+  local pattern = ast.node(
+    "TablePattern", {type_check: "table", fields: {}}, token
+  )
   for(let local p in values(params)){
     append(pattern.fields, ast.node("FieldPattern", {value: p}, token))
   }
   // the let binds in the clause's scope when it is a declaration's value
   // (inside an if condition its locals would end with the if)
-  local check = ast.node("Let", {pattern: pattern, right: id("args", token)}, token)
-  append(statements, ast.node("Declaration", {is_local: true, left: id("__def_matched", token), right: check}, token))
-  append(statements, ast.node("If", {condition: ast.node("UnOp", {op: "not", operand: id("__def_matched", token)}, token), thenBranch: no_match_return(token)}, token))
+  local check = ast.node(
+    "Let", {pattern: pattern, right: id("args", token)}, token
+  )
+  append(statements, ast.node(
+    "Declaration",
+    {is_local: true, left: id("__def_matched", token), right: check}, token
+  ))
+  append(statements, ast.node(
+    "If",
+    {
+      condition: ast.node(
+        "UnOp", {op: "not", operand: id("__def_matched", token)}, token
+      ),
+      thenBranch: no_match_return(token),
+    }, token
+  ))
   if(rest_name != null){
-    local rest_call = ast.node("Call", {function: field(runtime(token), "rest", token), args: {id("args", token), ast.node("Int", {value: len(params)}, token)}}, token)
-    append(statements, ast.node("Declaration", {is_local: true, left: id(rest_name, token), right: rest_call}, token))
+    local rest_call = ast.node(
+      "Call",
+      {
+        function: field(runtime(token), "rest", token),
+        args: {id("args", token), ast.node("Int", {value: len(params)}, token)},
+      }, token
+    )
+    append(statements, ast.node(
+      "Declaration",
+      {is_local: true, left: id(rest_name, token), right: rest_call}, token
+    ))
   }
   if(guard != null){
-    append(statements, ast.node("If", {condition: ast.node("UnOp", {op: "not", operand: guard}, token), thenBranch: no_match_return(token)}, token))
+    append(statements, ast.node(
+      "If",
+      {
+        condition: ast.node("UnOp", {op: "not", operand: guard}, token),
+        thenBranch: no_match_return(token),
+      }, token
+    ))
   }
   for(let local s in values(body.statements)){
     append(statements, s)
   }
-  return ast.node("Function", {params: {id("args", token)}, body: ast.node("Block", {statements: statements}, token)}, token)
+  return ast.node(
+    "Function",
+    {
+      params: {id("args", token)},
+      body: ast.node("Block", {statements: statements}, token),
+    }, token
+  )
 }
 
 // per unit (by g:unit_id()): the names declared with `local def`; an
@@ -157,44 +207,77 @@ local func unit_state(){
 }
 
 local param = peg.choice(
-  peg.seq(g:token("...", "...", "operator"), g:rule("identifier")):map(func(v){ return {rest: v[1].value} }),
+  peg.seq(g:token("...", "...", "operator"), g:rule("identifier")):map(func(v){
+    return {rest: v[1].value}
+  }),
   g:rule("slang_pattern"):map(localize)
 )
 
-g:statement("def", peg.seq(
-  g:token("local"):optional(),
-  g:keyword("def"),
-  g:tag(g:rule("identifier"), "function.declaration"),
-  g:token("("), param:star_separated(g:token(",")):map(func(s){ return s.elements }), g:token(")"),
-  peg.seq(g:token("when", "when", "keyword"), g:token("("), g:rule("expr"), g:token(")")):pick(2):optional(),
-  g:rule("block")
-):map(func(v){
-  local token = v[1]
-  local name = v[2].value
-  local params = {}
-  local rest_name = null
-  for(let local p in values(v[4])){
-    if(p.rest != null){
-      rest_name = p.rest
-    } else {
-      append(params, p)
-    }
-  }
-  local f = clause_function(params, rest_name, v[6], v[7], token)
-  local unit = unit_state()
-  local existing = id(name, token)
-  local is_local = v[0] != null
-  local first = unit.declared[name] == null
-  unit.declared[name] = true
-  if(is_local and first){
-    existing = ast.node("Null", {}, token)
-  }
-  local define = ast.node("Call", {function: field(runtime(token), "define", token), args: {
-    existing, ast.node("String", {value: name}, token), ast.node("Int", {value: len(params)}, token),
-    ast.node(rest_name != null and "True" or "False", {}, token), f,
-  }}, token)
-  if(is_local and first){
-    return {token: token, ast: ast.node("Declaration", {is_local: true, left: id(name, token), right: define}, token)}
-  }
-  return {token: token, ast: ast.node("Assignment", {left: id(name, token), right: define}, token)}
-}))
+g:statement(
+  "def",
+  peg.seq(
+    g:token("local"):optional(),
+    g:keyword("def"),
+    g:tag(g:rule("identifier"), "function.declaration"),
+    g:token("("),
+    param:star_separated(g:token(",")):map(func(s){ return s.elements }),
+    g:token(")"),
+    peg.seq(
+      g:token("when", "when", "keyword"), g:token("("), g:rule("expr"),
+      g:token(")")
+    )
+      :pick(2)
+      :optional(),
+    g:rule("block")
+  )
+    :map(func(v){
+      local token = v[1]
+      local name = v[2].value
+      local params = {}
+      local rest_name = null
+      for(let local p in values(v[4])){
+        if(p.rest != null){
+          rest_name = p.rest
+        } else {
+          append(params, p)
+        }
+      }
+      local f = clause_function(params, rest_name, v[6], v[7], token)
+      local unit = unit_state()
+      local existing = id(name, token)
+      local is_local = v[0] != null
+      local first = unit.declared[name] == null
+      unit.declared[name] = true
+      if(is_local and first){
+        existing = ast.node("Null", {}, token)
+      }
+      local define = ast.node(
+        "Call",
+        {
+          function: field(runtime(token), "define", token),
+          args: {
+            existing,
+            ast.node("String", {value: name}, token),
+            ast.node("Int", {value: len(params)}, token),
+            ast.node(rest_name != null and "True" or "False", {}, token),
+            f,
+          },
+        }, token
+      )
+      if(is_local and first){
+        return {
+          token: token,
+          ast: ast.node(
+            "Declaration",
+            {is_local: true, left: id(name, token), right: define}, token
+          ),
+        }
+      }
+      return {
+        token: token,
+        ast: ast.node(
+          "Assignment", {left: id(name, token), right: define}, token
+        ),
+      }
+    })
+)

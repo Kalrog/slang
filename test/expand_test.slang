@@ -17,7 +17,10 @@ local func round_trip(path){
   local expanded = compiler.expand(source, path, {find_project: true})
   local again = compiler.expand(expanded, path, {find_project: true})
   assert(expanded == again, concat(path, ": printing is not idempotent"))
-  assert(bytecode(source, path) == bytecode(expanded, path), concat(path, ": the expansion compiles differently"))
+  assert(
+    bytecode(source, path) == bytecode(expanded, path),
+    concat(path, ": the expansion compiles differently")
+  )
   return expanded
 }
 
@@ -66,7 +69,14 @@ t.group("expand"){
     }
     // the examples with a project file get it; the project (and its ambient
     // extensions) must not leak into the next file, so the compiler is reset
-    for(let local path in values({"examples/webserver/main.slang", "examples/webserver/views.slang", "examples/breakout/main.slang", "slang/compiler/grammar.slang", "slang/lib/async.slang", "examples/functional/main.slang"})){
+    for(let local path in values({
+      "examples/webserver/main.slang",
+      "examples/webserver/views.slang",
+      "examples/breakout/main.slang",
+      "slang/compiler/grammar.slang",
+      "slang/lib/async.slang",
+      "examples/functional/main.slang",
+    })){
       round_trip(path)
       compiler.reset()
       checked = checked + 1

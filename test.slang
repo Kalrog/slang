@@ -13,10 +13,7 @@ local c_struct = parser{
   identifier -> ([a-zA-Z_][a-zA-Z0-9_]*)_
 }
 
-print(
-  p.ast_to_string(
- +{
-  parser{
+print(p.ast_to_string(+{ parser{
   start -> struct_def
   struct_def -> ("struct" identifier "{" field* "}") P(name:1,fields:3)
   field -> (type identifier ";") P(type:0,name:1)
@@ -26,10 +23,7 @@ print(
   pointer -> "*"
   integer -> [0-9]+_
   identifier -> ([a-zA-Z_][a-zA-Z0-9_]*)_
-}
- } 
-  )
-)
+} }))
 
 print(c_struct:parse("""
 struct car{

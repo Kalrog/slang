@@ -3,63 +3,55 @@ local t = require("slang/test")
 t.group("quote"){
   t.test("quote expression"){
     local exp = +{expr:2+2}
-    assert(exp.type == "BinOp");
-    assert(exp.left.type == "Int");
-    assert(exp.right.type == "Int");
-    print(exp);
+    assert(exp.type == "BinOp")
+    assert(exp.left.type == "Int")
+    assert(exp.right.type == "Int")
+    print(exp)
   }
   t.test("quote statement"){
     local stat = +{stat:local x = 2+2}
-    assert(stat.type == "Declaration");
-    assert(stat.is_local == true);
-    assert(stat.left.type == "Identifier");
-    assert(stat.left.value == "x");
-    assert(stat.right.type == "BinOp");
-    assert(let 'Declaration{
-      is_local:true,
-      left:'Identifier{value:"x"},
-      right:'BinOp{
-        left:'Int{value:2},
-        op:"+",
-        right:'Int{value:2}
-      }} = stat);
+    assert(stat.type == "Declaration")
+    assert(stat.is_local == true)
+    assert(stat.left.type == "Identifier")
+    assert(stat.left.value == "x")
+    assert(stat.right.type == "BinOp")
+    assert(
+      let 'Declaration{is_local: true, left: 'Identifier{value: "x"}, right: 'BinOp{left: 'Int{value: 2}, op: "+", right: 'Int{value: 2}}} = stat
+    )
   }
   t.test("quote block"){
     local block = +{block:
       local x = 2+2
       print(x)
-      return x * x
-    }
-    assert(block.type == "Block");
-    assert(block.statements[0].type == "Declaration");
-    assert(block.statements[1].type == "CallStat");
-    assert(block.statements[2].type == "Return");
-    
+      return x * x }
+    assert(block.type == "Block")
+    assert(block.statements[0].type == "Declaration")
+    assert(block.statements[1].type == "CallStat")
+    assert(block.statements[2].type == "Return")
   }
   t.test("unquote expression"){
     local exp = +{expr:2+2}
     local statement = +{stat: local x = -{exp}}
-    assert(statement.type == "Declaration");
-    assert(statement.is_local == true);
-    assert(statement.left.type == "Identifier");
-    assert(statement.left.value == "x");
-    assert(statement.right.type == "BinOp");
-    print(statement);
+    assert(statement.type == "Declaration")
+    assert(statement.is_local == true)
+    assert(statement.left.type == "Identifier")
+    assert(statement.left.value == "x")
+    assert(statement.right.type == "BinOp")
+    print(statement)
   }
   t.test("unquote statement"){
     local stat = +{stat:local x = 2+2}
     local statement = +{block:
       -{stat}
       print(x)
-      return x * x
-    }
-    assert(statement.type == "Block");
-    assert(statement.statements[0].type == "Declaration");
-    assert(statement.statements[1].type == "CallStat");
-    assert(statement.statements[2].type == "Return");
-    print(statement);
+      return x * x }
+    assert(statement.type == "Block")
+    assert(statement.statements[0].type == "Declaration")
+    assert(statement.statements[1].type == "CallStat")
+    assert(statement.statements[2].type == "Return")
+    print(statement)
   }
-  t.test("unquote compile time execution"){ 
+  t.test("unquote compile time execution"){
     compileTimeRun = false
     runTimeRun = false
     local run = compile("""
@@ -70,7 +62,7 @@ t.group("quote"){
       }
     }
     //this should run the first part at compile time and the second part at run time
-    """) 
+    """)
     assert(compileTimeRun == true, "compileTimeRun should be true")
     run()
     assert(runTimeRun == true, "runTimeRun should be true")
@@ -128,7 +120,7 @@ t.group("quote"){
         )
       }
       value = one
-    ""","add expression test")
+    """, "add expression test")
     run()
 
     assert(value == 1, "value should be 1")
@@ -155,7 +147,7 @@ t.group("quote"){
 
       print(value++)
       print(value++)
-    ""","add postfix ++ to parser")
+    """, "add postfix ++ to parser")
     run()
     assert(value == 2, "value should be 2")
   }
@@ -175,12 +167,12 @@ t.group("quote"){
       }
       print("hello" <> " world");
       result = "hello" <> " world";
-    ""","add infix <> for string concatenation")
+    """, "add infix <> for string concatenation")
     run()
     assert(result == "hello world", "result should be hello world")
   }
   t.test("add lambda shorthand |x| "){
-    result = func(){return 0}
+    result = func(){ return 0 }
     resultAst = nil
     local run = compile("""
     extension {
@@ -217,7 +209,9 @@ t.group("quote"){
     assert(result(1) == 2, "result should be 2")
     print(resultAst)
     equivalent = +{func(x){return x+1}}
-    assert(resultAst == equivalent, "resultAst should be equivalent to long form")
-    
+    assert(
+      resultAst == equivalent,
+      "resultAst should be equivalent to long form"
+    )
   }
 }

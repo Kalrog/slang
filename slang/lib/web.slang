@@ -74,7 +74,11 @@ local func message_of(e){
 // ------------------------------------------------------------ responses
 
 func web.text(s, status){
-  return {status: status or 200, headers: {["Content-Type"]: "text/plain; charset=utf-8"}, body: s}
+  return {
+    status: status or 200,
+    headers: {["Content-Type"]: "text/plain; charset=utf-8"},
+    body: s,
+  }
 }
 
 func web.html(content, status){
@@ -82,11 +86,19 @@ func web.html(content, status){
   if(type(content) != "string"){
     body = require("slang/html").render(content)
   }
-  return {status: status or 200, headers: {["Content-Type"]: "text/html; charset=utf-8"}, body: body}
+  return {
+    status: status or 200,
+    headers: {["Content-Type"]: "text/html; charset=utf-8"},
+    body: body,
+  }
 }
 
 func web.json(value, status){
-  return {status: status or 200, headers: {["Content-Type"]: "application/json"}, body: json.encode(value)}
+  return {
+    status: status or 200,
+    headers: {["Content-Type"]: "application/json"},
+    body: json.encode(value),
+  }
 }
 
 func web.redirect(url, status){
@@ -94,7 +106,10 @@ func web.redirect(url, status){
 }
 
 func web.fail(status, message){
-  error(concat("HTTP ", string(status), ": ", message or http.status_text[status] or "error"))
+  error(concat(
+    "HTTP ", string(status), ": ",
+    message or http.status_text[status] or "error"
+  ))
 }
 
 // the status and message of an error from web.fail, or null
@@ -154,7 +169,11 @@ func request_methods.form(req){
     }
     for(let local part in values(http.multipart(req))){
       if(part.filename != null){
-        out[part.name] = {filename: part.filename, content_type: part.content_type, data: part.data}
+        out[part.name] = {
+          filename: part.filename,
+          content_type: part.content_type,
+          data: part.data,
+        }
       } else {
         out[part.name] = part.data
       }
@@ -223,11 +242,16 @@ local app_methods = {}
 local app_meta = {__index: app_methods, __type: "WebApp"}
 
 func web.app(options){
-  local app = {routes: {}, ws_routes: {}, middleware: {}, fallback: null, options: options or {}}
+  local app = {
+    routes: {}, ws_routes: {}, middleware: {}, fallback: null,
+    options: options or {},
+  }
   app.meta = app_meta
   app.on_error = func(req, err){
     local os = require("slang/os")
-    os.write_stderr(concat("error handling ", req.method, " ", req.path, ": ", message_of(err), "\n"))
+    os.write_stderr(concat(
+      "error handling ", req.method, " ", req.path, ": ", message_of(err), "\n"
+    ))
   }
   return app
 }
@@ -238,18 +262,37 @@ func app_methods.use(app, middleware){
 }
 
 func app_methods.route(app, method, pattern, handler, options){
-  append(app.routes, {method: method, parts: split_pattern(pattern), handler: handler, options: options or {}})
+  append(app.routes, {
+    method: method,
+    parts: split_pattern(pattern),
+    handler: handler,
+    options: options or {},
+  })
   return app
 }
 
-func app_methods.get(app, pattern, handler, options){ return app:route("GET", pattern, handler, options) }
-func app_methods.post(app, pattern, handler, options){ return app:route("POST", pattern, handler, options) }
-func app_methods.put(app, pattern, handler, options){ return app:route("PUT", pattern, handler, options) }
-func app_methods.patch(app, pattern, handler, options){ return app:route("PATCH", pattern, handler, options) }
-func app_methods.delete(app, pattern, handler, options){ return app:route("DELETE", pattern, handler, options) }
+func app_methods.get(app, pattern, handler, options){
+  return app:route("GET", pattern, handler, options)
+}
+func app_methods.post(app, pattern, handler, options){
+  return app:route("POST", pattern, handler, options)
+}
+func app_methods.put(app, pattern, handler, options){
+  return app:route("PUT", pattern, handler, options)
+}
+func app_methods.patch(app, pattern, handler, options){
+  return app:route("PATCH", pattern, handler, options)
+}
+func app_methods.delete(app, pattern, handler, options){
+  return app:route("DELETE", pattern, handler, options)
+}
 
 func app_methods.ws(app, pattern, handler, options){
-  append(app.ws_routes, {parts: split_pattern(pattern), handler: handler, options: options or {}})
+  append(app.ws_routes, {
+    parts: split_pattern(pattern),
+    handler: handler,
+    options: options or {},
+  })
   return app
 }
 
@@ -277,7 +320,8 @@ local func find(app, req){
 // stream? (its route says stream_body: true)
 func app_methods.stream_body(app, req){
   local found = find(app, req)
-  return found != null and found.route != null and found.route.options.stream_body == true
+  return found != null and found.route != null and
+    found.route.options.stream_body == true
 }
 
 // runs a handler's result to a normalized response, awaiting a Future
@@ -359,7 +403,9 @@ func app_methods.upgrade(app, req, conn, rest){
       }
     }
     if(found == null){
-      async.await(http.write_response(conn, req, web.text("no WebSocket here\n", 404)))
+      async.await(http.write_response(
+        conn, req, web.text("no WebSocket here\n", 404)
+      ))
       return null
     }
     local r = pcall(chain, app, 0, req, func(req){
@@ -400,20 +446,22 @@ func app_methods.listen(app, host, port, options){
 // ------------------------------------------------------------ static files
 
 local types = {
-  html: "text/html; charset=utf-8", htm: "text/html; charset=utf-8", css: "text/css; charset=utf-8",
-  js: "text/javascript; charset=utf-8", mjs: "text/javascript; charset=utf-8",
-  json: "application/json", txt: "text/plain; charset=utf-8", md: "text/markdown; charset=utf-8",
+  html: "text/html; charset=utf-8", htm: "text/html; charset=utf-8",
+  css: "text/css; charset=utf-8", js: "text/javascript; charset=utf-8",
+  mjs: "text/javascript; charset=utf-8", json: "application/json",
+  txt: "text/plain; charset=utf-8", md: "text/markdown; charset=utf-8",
   csv: "text/csv; charset=utf-8", xml: "application/xml", svg: "image/svg+xml",
-  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp",
-  avif: "image/avif", ico: "image/x-icon", pdf: "application/pdf", wasm: "application/wasm",
-  woff: "font/woff", woff2: "font/woff2", ttf: "font/ttf", otf: "font/otf",
-  mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg", mp4: "video/mp4", webm: "video/webm",
+  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif",
+  webp: "image/webp", avif: "image/avif", ico: "image/x-icon",
+  pdf: "application/pdf", wasm: "application/wasm", woff: "font/woff",
+  woff2: "font/woff2", ttf: "font/ttf", otf: "font/otf", mp3: "audio/mpeg",
+  wav: "audio/wav", ogg: "audio/ogg", mp4: "video/mp4", webm: "video/webm",
   zip: "application/zip", gz: "application/gzip", tar: "application/x-tar",
 }
 
 // type_of(path) -> the media type for the file's extension
 func web.type_of(path){
-  local dot = -1
+  local dot = - 1
   for(local i = len(path) - 1; i >= 0; i = i - 1){
     local c = str.char_at(path, i)
     if(c == "."){
@@ -427,13 +475,15 @@ func web.type_of(path){
   if(dot < 0){
     return "application/octet-stream"
   }
-  return types[str.lower(str.substring(path, dot + 1))] or "application/octet-stream"
+  return types[str.lower(str.substring(path, dot + 1))] or
+    "application/octet-stream"
 }
 
 // the single range of a Range header for size bytes: {start, length},
 // "unsatisfiable", or null (no usable range: send it all)
 local func parse_range(header, size){
-  if(header == null or not str.starts_with(header, "bytes=") or str.index_of(header, ",") >= 0){
+  if(header == null or not str.starts_with(header, "bytes=") or
+    str.index_of(header, ",") >= 0){
     return null
   }
   local spec = str.trim(str.substring(header, 6))
@@ -480,16 +530,23 @@ func web.file(req, path, options){
     }
     local st = r[1]
     local mtime = to_int(st.mtime)
-    local etag = concat("\"", string(st.size), "-", string(to_int(st.mtime * 1000)), "\"")
+    local etag = concat(
+      "\"", string(st.size), "-", string(to_int(st.mtime * 1000)), "\""
+    )
     local headers = {
       ["Content-Type"]: options.type or web.type_of(path),
       ETag: etag,
       ["Last-Modified"]: time.http_date(mtime),
       ["Accept-Ranges"]: "bytes",
-      ["Cache-Control"]: options.max_age != null and concat("public, max-age=", string(options.max_age)) or "no-cache",
+      ["Cache-Control"]: options.max_age != null and
+        concat("public, max-age=", string(options.max_age)) or "no-cache",
     }
     if(options.download != null){
-      headers["Content-Disposition"] = concat("attachment; filename=\"", str.replace(options.download, "\"", ""), "\"")
+      headers["Content-Disposition"] = concat(
+        "attachment; filename=\"",
+        str.replace(options.download, "\"", ""),
+        "\""
+      )
     }
     // conditional requests
     local inm = req.headers["if-none-match"]
@@ -516,10 +573,17 @@ func web.file(req, path, options){
       return {status: 416, headers: headers, body: ""}
     }
     if(range != null){
-      headers["Content-Range"] = concat("bytes ", string(range.start), "-", string(range.start + range.length - 1), "/", string(st.size))
+      headers["Content-Range"] = concat(
+        "bytes ", string(range.start), "-",
+        string(range.start + range.length - 1), "/", string(st.size)
+      )
       headers["Content-Length"] = string(range.length)
-      return {status: 206, headers: headers, compress: false,
-              body: async.fs.read_stream(path, {start: range.start, length: range.length})}
+      return {
+        status: 206, headers: headers, compress: false,
+        body: async.fs.read_stream(path, {
+          start: range.start, length: range.length,
+        }),
+      }
     }
     headers["Content-Length"] = string(st.size)
     return {status: 200, headers: headers, body: async.fs.read_stream(path)}
@@ -529,7 +593,8 @@ func web.file(req, path, options){
 // a safe relative path below a directory, or null (no "..", no empty or
 // dot segments, no backslashes or NULs)
 local func safe_path(rest){
-  if(rest == "" or str.index_of(rest, "\\") >= 0 or str.index_of(rest, "\x00") >= 0){
+  if(rest == "" or str.index_of(rest, "\\") >= 0 or
+    str.index_of(rest, "\x00") >= 0){
     return null
   }
   for(let local seg in values(str.split(rest, "/"))){
@@ -542,7 +607,8 @@ local func safe_path(rest){
 
 func app_methods.static(app, prefix, dir, options){
   options = options or {}
-  local pattern = str.ends_with(prefix, "/") and concat(prefix, "*") or concat(prefix, "/*")
+  local pattern = str.ends_with(prefix, "/") and concat(prefix, "*") or
+    concat(prefix, "/*")
   return app:get(pattern, func(req, params){
     local rel = safe_path(params.rest)
     if(rel == null){
@@ -587,9 +653,15 @@ func web.sessions(options){
       } else {
         local value = crypto.seal(key, after, name)
         if(len(value) > 4000){
-          error("web.sessions: the session is too large for a cookie (", string(len(value)), " bytes)")
+          error(
+            "web.sessions: the session is too large for a cookie (",
+            string(len(value)), " bytes)"
+          )
         }
-        http.set_cookie(res, name, value, {max_age: max_age, secure: options.secure})
+        http.set_cookie(res, name, value, {
+          max_age: max_age,
+          secure: options.secure,
+        })
       }
     }
     return res
@@ -612,9 +684,12 @@ func web.csrf(options){
       fresh = true
     }
     req.csrf_token = token
-    if(unsafe[req.method] and not (options.skip != null and options.skip(req))){
+    if(unsafe[req.method] and not(options.skip != null and options.skip(req))){
       local sent = req.headers["x-csrf-token"]
-      if(sent == null and req.body != null and str.starts_with(str.lower(req.headers["content-type"] or ""), "application/x-www-form-urlencoded")){
+      if(sent == null and req.body != null and str.starts_with(
+        str.lower(req.headers["content-type"] or ""),
+        "application/x-www-form-urlencoded"
+      )){
         sent = req:form()._csrf
       }
       if(fresh or sent == null or not crypto.equal(sent, token)){
@@ -667,7 +742,8 @@ func client_methods.request(client, method, path, options){
     local body = options.body or ""
     if(options.form != null){
       body = encoding.query_encode(options.form)
-      headers["content-type"] = headers["content-type"] or "application/x-www-form-urlencoded"
+      headers["content-type"] = headers["content-type"] or
+        "application/x-www-form-urlencoded"
     } else if(options.json != null){
       body = json.encode(options.json)
       headers["content-type"] = headers["content-type"] or "application/json"
@@ -680,8 +756,12 @@ func client_methods.request(client, method, path, options){
       headers["cookie"] = str.join(jar, "; ")
     }
     local q = str.index_of(path, "?")
-    local req = {method: method, url: path, path: q >= 0 and str.substring(path, 0, q) or path,
-                 query: q >= 0 and str.substring(path, q + 1) or null, version: "1.1", headers: headers, body: body}
+    local req = {
+      method: method, url: path,
+      path: q >= 0 and str.substring(path, 0, q) or path,
+      query: q >= 0 and str.substring(path, q + 1) or null, version: "1.1",
+      headers: headers, body: body,
+    }
     if(client.app:stream_body(req)){
       local sent = false
       req.stream = async.pull(func(){
@@ -708,10 +788,20 @@ func client_methods.request(client, method, path, options){
   })
 }
 
-func client_methods.get(c, path, options){ return c:request("GET", path, options) }
-func client_methods.post(c, path, options){ return c:request("POST", path, options) }
-func client_methods.put(c, path, options){ return c:request("PUT", path, options) }
-func client_methods.patch(c, path, options){ return c:request("PATCH", path, options) }
-func client_methods.delete(c, path, options){ return c:request("DELETE", path, options) }
+func client_methods.get(c, path, options){
+  return c:request("GET", path, options)
+}
+func client_methods.post(c, path, options){
+  return c:request("POST", path, options)
+}
+func client_methods.put(c, path, options){
+  return c:request("PUT", path, options)
+}
+func client_methods.patch(c, path, options){
+  return c:request("PATCH", path, options)
+}
+func client_methods.delete(c, path, options){
+  return c:request("DELETE", path, options)
+}
 
 return web

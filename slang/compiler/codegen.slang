@@ -116,7 +116,10 @@ func asm.get_local(self, name){
 
 func asm.create_local(self, name){
   local register = self:allocate_register()
-  local lv = {register: register, name: name, scope: self.scope, previous: self.locals[name], captured: false}
+  local lv = {
+    register: register, name: name, scope: self.scope,
+    previous: self.locals[name], captured: false,
+  }
   self.locals[name] = lv
   return lv
 }
@@ -130,14 +133,24 @@ func asm.get_upvalue(self, name){
     local lv = self.parent:get_local(name)
     if(lv != null){
       lv.captured = true
-      local def = {name: name, index: len(self.upvalue_list), local_register: lv.register, upvalue_index: -1}
+      local def = {
+        name: name,
+        index: len(self.upvalue_list),
+        local_register: lv.register,
+        upvalue_index: - 1,
+      }
       self.upvalues[name] = def
       append(self.upvalue_list, def)
       return def
     }
     local up = self.parent:get_upvalue(name)
     if(up != null){
-      local def = {name: name, index: len(self.upvalue_list), local_register: -1, upvalue_index: up.index}
+      local def = {
+        name: name,
+        index: len(self.upvalue_list),
+        local_register: - 1,
+        upvalue_index: up.index,
+      }
       self.upvalues[name] = def
       append(self.upvalue_list, def)
       return def
@@ -157,7 +170,10 @@ func asm.free_local(self, lv){
 
 func asm.enter_scope(self, breakable){
   self.scope = self.scope + 1
-  append(self.scopes, {breakable: breakable == true, break_jumps: {}, continue_jumps: {}, label: null, break_target: null})
+  append(self.scopes, {
+    breakable: breakable == true, break_jumps: {}, continue_jumps: {},
+    label: null, break_target: null,
+  })
 }
 
 func asm.leave_scope(self){
@@ -400,7 +416,9 @@ func asm.emit_try_begin(self, first){
 }
 
 func asm.patch_try(self, handle){
-  self.instructions[handle.index] = enc_asbx(OP_TRY_BEGIN, handle.first, len(self.instructions) - handle.index - 1)
+  self.instructions[handle.index] = enc_asbx(
+    OP_TRY_BEGIN, handle.first, len(self.instructions) - handle.index - 1
+  )
 }
 
 func asm.emit_try_end(self){
@@ -508,7 +526,9 @@ local pat = {}
 local pat_meta = {__index: pat}
 
 func pattern_new(parent){
-  local p = {step: "check", missmatch_jumps: {}, stack_increase: 0, parent: parent}
+  local p = {
+    step: "check", missmatch_jumps: {}, stack_increase: 0, parent: parent,
+  }
   p.meta = pat_meta
   return p
 }
@@ -560,11 +580,14 @@ func gen.visit(self, node){
 }
 
 local func global_index(token, name){
-  return ast.node("Index", {
-    receiver: ast.node("Identifier", {value: "_ENV"}, token),
-    index: ast.node("String", {value: name}, token),
-    dotStyle: false,
-  }, token)
+  return ast.node(
+    "Index",
+    {
+      receiver: ast.node("Identifier", {value: "_ENV"}, token),
+      index: ast.node("String", {value: name}, token),
+      dotStyle: false,
+    }, token
+  )
 }
 
 local func position(token){
@@ -600,7 +623,7 @@ func visitors.Null(g, node){
 
 local func visit_logical_and(g, node){
   g:visit(node.left)
-  g.asm:emit_push(-1)
+  g.asm:emit_push(- 1)
   g.asm:emit_test(false)
   local done = g.asm:emit_jump()
   g.asm:emit_pop()
@@ -610,7 +633,7 @@ local func visit_logical_and(g, node){
 
 local func visit_logical_or(g, node){
   g:visit(node.left)
-  g.asm:emit_push(-1)
+  g.asm:emit_push(- 1)
   g.asm:emit_test(true)
   local done = g.asm:emit_jump()
   g.asm:emit_pop()
@@ -664,7 +687,11 @@ func visitors.Assignment(g, node){
       g.asm:emit_set_upvalue(up.index)
       return null
     }
-    g:visit(ast.node("Assignment", {left: global_index(left.token, left.value), right: node.right}, left.token))
+    g:visit(ast.node(
+      "Assignment",
+      {left: global_index(left.token, left.value), right: node.right},
+      left.token
+    ))
   } else if(left.type == "Index"){
     g:visit(left.receiver)
     g:visit(left.index)
@@ -698,7 +725,10 @@ func visitors.Declaration(g, node){
     if(right == null){
       right = ast.node("Null", {}, left.token)
     }
-    g:visit(ast.node("Assignment", {left: global_index(left.token, name), right: right}, left.token))
+    g:visit(ast.node(
+      "Assignment", {left: global_index(left.token, name), right: right},
+      left.token
+    ))
   } else if(left.type == "Index"){
     g:visit(left.receiver)
     g:visit(left.index)
@@ -863,7 +893,9 @@ func visitors.Try(g, node){
       chain = c.body
     } else {
       local test = ast.node("Let", {pattern: c.pattern, right: raised}, c.token)
-      chain = ast.node("If", {condition: test, thenBranch: c.body, elseBranch: chain}, c.token)
+      chain = ast.node(
+        "If", {condition: test, thenBranch: c.body, elseBranch: chain}, c.token
+      )
     }
   }
   g:visit(chain)
@@ -903,7 +935,7 @@ func visitors.Identifier(g, node){
 }
 
 func visitors.Field(g, node){
-  g.asm:emit_push(-1)
+  g.asm:emit_push(- 1)
   g:visit(node.key)
   g:visit(node.value)
   g.asm:emit_set_table()
@@ -994,7 +1026,10 @@ func visitors.Table(g, node){
   g.asm:emit_new_table(len(array_fields), len(map_fields))
   local i = 0
   for(let local f in values(array_fields)){
-    g:visit(ast.node("Field", {key: ast.node("Int", {value: i}, f.token), value: f.value}, f.token))
+    g:visit(ast.node(
+      "Field", {key: ast.node("Int", {value: i}, f.token), value: f.value},
+      f.token
+    ))
     i = i + 1
   }
   for(let local f in values(map_fields)){
@@ -1030,14 +1065,24 @@ func visitors.LetStat(g, node){
   g.asm:patch_jump(fail_jump)
   local pattern_text = ast.to_string(node.pattern)
   local func field(name, v){
-    return ast.node("Field", {key: ast.node("String", {value: name}, token), value: v}, token)
+    return ast.node(
+      "Field", {key: ast.node("String", {value: name}, token), value: v}, token
+    )
   }
-  g:visit(ast.node("Table", {fields: {
-    field("kind", ast.node("String", {value: "let"}, token)),
-    field("message", ast.node("String", {value: concat("let: the value does not match ", pattern_text)}, token)),
-    field("pattern", ast.node("String", {value: pattern_text}, token)),
-    field("value", value),
-  }}, token))
+  g:visit(ast.node(
+    "Table",
+    {
+      fields: {
+        field("kind", ast.node("String", {value: "let"}, token)),
+        field("message", ast.node(
+          "String",
+          {value: concat("let: the value does not match ", pattern_text)}, token
+        )),
+        field("pattern", ast.node("String", {value: pattern_text}, token)),
+        field("value", value),
+      },
+    }, token
+  ))
   g.asm:emit_throw()
   g.asm:patch_jump(done)
 }
@@ -1069,7 +1114,10 @@ func visitors.Function(g, node){
   local n = len(params)
   for(local i = 0; i < n - 1; i = i + 1){
     if(str.starts_with(params[i].value, "...")){
-      error("Vararg must be the last parameter but was found in ", position(node.token))
+      error(
+        "Vararg must be the last parameter but was found in ",
+        position(node.token)
+      )
     }
   }
   local is_vararg = n > 0 and str.starts_with(params[n - 1].value, "...")
@@ -1098,12 +1146,12 @@ func visitors.Call(g, node){
 
 func visitors.Invoke(g, node){
   g:visit(node.receiver)
-  g.asm:emit_push(-1)
+  g.asm:emit_push(- 1)
   g.asm:emit_load_constant(node.name.value)
   g.asm:emit_get_table()
-  g.asm:emit_push(-2)
+  g.asm:emit_push(- 2)
   emit_call_args(g, node.args, 1, node.token)
-  g.asm:emit_move(-1)
+  g.asm:emit_move(- 1)
 }
 
 func visitors.CallStat(g, node){
@@ -1142,10 +1190,10 @@ func visitors.ForIn(g, node){
   g:visit(node.itterator)
   local loop_start = g.asm:next_instruction_index()
   local p = g.asm:start_pattern()
-  g.asm:emit_push(-1)
+  g.asm:emit_push(- 1)
   g.asm:emit_call(0)
   p:increase_stack_height()
-  g.asm:emit_push(-1)
+  g.asm:emit_push(- 1)
   p:increase_stack_height()
   g:visit(node.pattern)
   p:complete_check_step()
@@ -1168,7 +1216,7 @@ func visitors.Let(g, node){
   local p = g.asm:start_pattern()
   g:visit(node.right)
   p:increase_stack_height()
-  g.asm:emit_push(-1)
+  g.asm:emit_push(- 1)
   p:increase_stack_height()
   g:visit(node.pattern)
   p:complete_check_step()
@@ -1196,13 +1244,13 @@ func visitors.ConstPattern(g, node){
 func visitors.FieldPattern(g, node){
   local p = g.asm:current_pattern()
   if(p.step == "check"){
-    g.asm:emit_push(-1)
+    g.asm:emit_push(- 1)
     g:visit(node.key)
     g.asm:emit_get_table()
     p:increase_stack_height()
     g:visit(node.value)
   } else {
-    g.asm:emit_push(-1)
+    g.asm:emit_push(- 1)
     g:visit(node.key)
     g.asm:emit_get_table()
     g:visit(node.value)
@@ -1219,7 +1267,7 @@ local func emit_match_call(g, node){
   // stack: value -> value, result
   g:visit(global_index(node.token, "__match"))
   g:visit(node.matcher)
-  g.asm:emit_push(-3)
+  g.asm:emit_push(- 3)
   g.asm:emit_call(2)
 }
 
@@ -1227,7 +1275,7 @@ func visitors.MatcherPattern(g, node){
   local p = g.asm:current_pattern()
   if(node.matcher == null){
     if(p.step == "check"){
-      g.asm:emit_push(-1)
+      g.asm:emit_push(- 1)
       g.asm:emit_type()
       g.asm:emit_load_constant(node.type_name)
       g.asm:emit_binop("==")
@@ -1240,8 +1288,8 @@ func visitors.MatcherPattern(g, node){
     emit_match_call(g, node)
     // the value is consumed; the result replaces it (a negative move
     // counts from the top after the pop)
-    g.asm:emit_move(-1)
-    g.asm:emit_push(-1)
+    g.asm:emit_move(- 1)
+    g.asm:emit_push(- 1)
     g.asm:emit_load_constant(null)
     g.asm:emit_binop("==")
     p:test_missmatch(true)
@@ -1253,7 +1301,7 @@ func visitors.MatcherPattern(g, node){
     }
   } else if(node.sub != null){
     emit_match_call(g, node)
-    g.asm:emit_move(-1)
+    g.asm:emit_move(- 1)
     g:visit(node.sub)
   } else {
     g.asm:emit_pop()
@@ -1263,11 +1311,15 @@ func visitors.MatcherPattern(g, node){
 func visitors.TablePattern(g, node){
   local p = g.asm:current_pattern()
   local fields = {}
-  local last_number = -1
+  local last_number = - 1
   for(let local f in values(node.fields)){
     if(f.key == null){
       last_number = last_number + 1
-      append(fields, ast.node("FieldPattern", {key: ast.node("Int", {value: last_number}, f.token), value: f.value}, f.token))
+      append(fields, ast.node(
+        "FieldPattern",
+        {key: ast.node("Int", {value: last_number}, f.token), value: f.value},
+        f.token
+      ))
     } else {
       if(f.key.type == "Int"){
         last_number = f.key.value
@@ -1276,7 +1328,7 @@ func visitors.TablePattern(g, node){
     }
   }
   if(p.step == "check"){
-    g.asm:emit_push(-1)
+    g.asm:emit_push(- 1)
     g.asm:emit_type()
     g.asm:emit_load_constant(node.type_check or "table")
     g.asm:emit_binop("==")
@@ -1312,7 +1364,7 @@ func visitors.VarPattern(g, node){
     } else {
       g:visit(ast.node("Identifier", {value: "_ENV"}, node.token))
       g.asm:emit_load_constant(node.name.value)
-      g.asm:emit_push(-3)
+      g.asm:emit_push(- 3)
       g.asm:emit_set_table()
       g.asm:emit_pop()
     }
@@ -1324,12 +1376,19 @@ func visitors.VarPattern(g, node){
 local func loop_target(g, node, word){
   local scopes = g.asm.scopes
   for(local i = len(scopes) - 1; i >= 0; i = i - 1){
-    if(scopes[i].breakable and (node.label == null or scopes[i].label == node.label)){
+    if(scopes[i].breakable and
+      (node.label == null or scopes[i].label == node.label)){
       return i
     }
   }
   if(node.label != null){
-    error(concat(word, " ", node.label, ": no enclosing loop is labeled ", node.label, " "), position(node.token))
+    error(
+      concat(
+        word, " ", node.label, ": no enclosing loop is labeled ", node.label,
+        " "
+      ),
+      position(node.token)
+    )
   }
   if(word == "break"){
     error("Cannot break outside of a loop")
@@ -1343,7 +1402,10 @@ local func leave_to_loop(g, node, word){
   local target = loop_target(g, node, word)
   local floors = g.defer_floors
   if(floors != null and len(floors) > 0 and target < floors[len(floors) - 1]){
-    error(concat(word, " is not allowed to leave a defer "), position(node.token))
+    error(
+      concat(word, " is not allowed to leave a defer "),
+      position(node.token)
+    )
   }
   emit_exits(g, target + 1)
   // the loop's own scope too: a loop body's locals live there, and an

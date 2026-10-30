@@ -4,7 +4,7 @@
 // (in the grammar of the unit being parsed, which apply receives: this file
 // may be loaded once for a whole project)
 // "infix" "_"{symbol}"_" ("left","right")? (("after" {id})|("before" {id})|("at" {number}))? "(" {params}")" "{" {body} "}"
-// creates an infix operator, that calls the function when the operator is used 
+// creates an infix operator, that calls the function when the operator is used
 // "prefix" {symbol}_ (("after" {id})|("before" {id})|("at" {number}))? "(" {params}")" "{" {body} "}"
 // creates a prefix operator, that calls the function when the operator is used
 extension "extensions/lambda_shorthand"
@@ -40,10 +40,7 @@ g:extension_statement(
     g:token("_"),
     peg.any():star_lazy(g:token("_")):flatten(),
     g:token("_"),
-    peg.choice(
-      g:token("left"),
-      g:token("right")
-    ):optional(),
+    peg.choice(g:token("left"), g:token("right")):optional(),
     peg.choice(
       peg.seq(
         g:token("after"):map(|_|"after"),
@@ -73,45 +70,38 @@ g:extension_statement(
   ),
   func(result, g){
     local symbol = g:token(result[2], result[2], "operator")
-    local id = {type:"Identifier",value:mangle("infix", result[2])}
-    local direction = result[4] 
+    local id = {type: "Identifier", value: mangle("infix", result[2])}
+    local direction = result[4]
     local position = result[5]
     local params = result[7]
     local body = result[9]
     local function_def = {
-      type:"Declaration",
+      type: "Declaration",
       is_local: false,
       left: id,
-      right: {
-        type:"Function",
-        params:params,
-        body:body
-      }
-    } 
+      right: {type: "Function", params: params, body: body},
+    }
     func define_infix(group){
       if(direction == "left"){
         group:left(symbol, func(left, op, right){
           return {
             token: op,
-            ast: {type:"Call",function:id, args:{left, right}}
+            ast: {type: "Call", function: id, args: {left, right}},
           }
         })
-      } else{
+      } else {
         group:right(symbol, func(left, op, right){
           return {
             token: op,
-            ast: {type:"Call",function:id, args:{left, right}}
+            ast: {type: "Call", function: id, args: {left, right}},
           }
         })
-      } 
+      }
       return group
     }
 
     define_infix(g:expression():level(id.value, place(position)))
-    return {
-      token: result[0],
-      ast: function_def
-    }
+    return {token: result[0], ast: function_def}
   }
 )
 
@@ -150,35 +140,25 @@ g:extension_statement(
   ),
   func(result, g){
     local symbol = g:token(result[1], result[1], "operator")
-    local id = {type:"Identifier",value:mangle("prefix", result[1])}
+    local id = {type: "Identifier", value: mangle("prefix", result[1])}
     local position = result[3]
     local params = result[5]
     local body = result[7]
     local function_def = {
-      type:"Declaration",
+      type: "Declaration",
       is_local: false,
       left: id,
-      right: {
-        type:"Function",
-        params:params,
-        body:body
-      }
-    } 
+      right: {type: "Function", params: params, body: body},
+    }
     func define_prefix(group){
-        group:prefix(symbol, func(op, right){
-          return {
-            token: op,
-            ast: {type:"Call",function:id, args:{right}}
-          }
-        })
+      group:prefix(symbol, func(op, right){
+        return {token: op, ast: {type: "Call", function: id, args: {right}}}
+      })
       return group
     }
 
     define_prefix(g:expression():level(id.value, place(position)))
-    return {
-      token: result[0],
-      ast: function_def
-    }
+    return {token: result[0], ast: function_def}
   }
 )
 
@@ -187,13 +167,15 @@ g:extension_statement(
   peg.seq(
     g:keyword("postfix"),
     g:token("_"),
-    peg.any():star_lazy(
-      peg.choice(
+    peg.any()
+      :star_lazy(peg.choice(
         g:token("("),
         g:token("after"),
         g:token("before"),
         g:token("at")
-      )):flatten():trim(),
+      ))
+      :flatten()
+      :trim(),
     peg.choice(
       peg.seq(
         g:token("after"):map(|_|"after"),
@@ -223,34 +205,24 @@ g:extension_statement(
   ),
   func(result, g){
     local symbol = g:token(result[2], result[2], "operator")
-    local id = {type:"Identifier",value:mangle("postfix", result[2])}
+    local id = {type: "Identifier", value: mangle("postfix", result[2])}
     local position = result[3]
     local params = result[5]
     local body = result[7]
     local function_def = {
-      type:"Declaration",
+      type: "Declaration",
       is_local: false,
       left: id,
-      right: {
-        type:"Function",
-        params:params,
-        body:body
-      }
-    } 
+      right: {type: "Function", params: params, body: body},
+    }
     func define_postfix(group){
-        group:postfix(symbol, func(left, op){
-          return {
-            token: op,
-            ast: {type:"Call",function:id, args:{left}}  
-          }
-        })
+      group:postfix(symbol, func(left, op){
+        return {token: op, ast: {type: "Call", function: id, args: {left}}}
+      })
       return group
     }
 
     define_postfix(g:expression():level(id.value, place(position)))
-    return {
-      token: result[0],
-      ast: function_def
-    }
+    return {token: result[0], ast: function_def}
   }
 )

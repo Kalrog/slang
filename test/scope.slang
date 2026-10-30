@@ -1,43 +1,43 @@
 //testing correct scoping
 
 func hello(){
-  local x;
-  x = 5;
+  local x
+  x = 5
 }
 
-hello();
-assert(x==null);
+hello()
+assert(x == null)
 
 local test = require("slang/test")
 
-test.group("scope test",func(){
-  test.test("local scope",func(){
-    local x = 5;
+test.group("scope test", func(){
+  test.test("local scope", func(){
+    local x = 5
     assert(x == 5)
   })
-  test.test("global scope",func(){
-    y = 5;
+  test.test("global scope", func(){
+    y = 5
     assert(y == 5)
     assert(x == null)
   })
-  test.test("function scope",func(){
+  test.test("function scope", func(){
     func test(){
-      local z = 5;
+      local z = 5
       assert(z == 5)
     }
-    test();
+    test()
     assert(z == null)
   })
-  test.test("nested function scope",func(){
+  test.test("nested function scope", func(){
     func test(){
-      local z = 5;
+      local z = 5
       assert(z == 5)
       func test2(){
         assert(z == 5)
       }
-      test2();
+      test2()
     }
-    test();
+    test()
     assert(z == null)
   })
 })

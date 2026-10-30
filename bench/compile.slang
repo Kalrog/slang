@@ -13,4 +13,7 @@ for(local i = 0; i < n; i = i + 1){
   compile(source, "grammar")
 }
 local t2 = os.clock()
-print("parse sample.slang: ", (t1 - t0) * 1000 / n, " ms/run, parse+codegen: ", (t2 - t1) * 1000 / n, " ms/run\n")
+print(
+  "parse sample.slang: ", (t1 - t0) * 1000 / n, " ms/run, parse+codegen: ",
+  (t2 - t1) * 1000 / n, " ms/run\n"
+)

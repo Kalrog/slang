@@ -42,17 +42,34 @@ t.group("machine DSL"){
     local r = pcall(compile, snippet("""machine bad {
   state a { update(dt) { goto b } }
 }"""), "bad goto")
-    assert(r[0] == "err" and str.index_of(r[1].message, "unknown state b") >= 0, r[1].message)
+    assert(
+      r[0] == "err" and str.index_of(r[1].message, "unknown state b") >= 0,
+      r[1].message
+    )
     assert(r[1].location.line == 2, concat("line ", r[1].location.line))
   }
   t.test("duplicate states and hooks are compile errors"){
-    local r = pcall(compile, snippet("machine bad { state a { } state a { } }"), "dup state")
-    assert(r[0] == "err" and str.index_of(r[1].message, "declared twice") >= 0, r[1].message)
-    r = pcall(compile, snippet("machine bad { state a { enter { } enter { } } }"), "dup hook")
-    assert(r[0] == "err" and str.index_of(r[1].message, "two enter hooks") >= 0, r[1].message)
+    local r = pcall(
+      compile, snippet("machine bad { state a { } state a { } }"), "dup state"
+    )
+    assert(
+      r[0] == "err" and str.index_of(r[1].message, "declared twice") >= 0,
+      r[1].message
+    )
+    r = pcall(
+      compile, snippet("machine bad { state a { enter { } enter { } } }"),
+      "dup hook"
+    )
+    assert(
+      r[0] == "err" and str.index_of(r[1].message, "two enter hooks") >= 0,
+      r[1].message
+    )
   }
   t.test("goto outside a machine fails at run time"){
     local r = pcall(compile(snippet("goto somewhere"), "stray goto"))
-    assert(r[0] == "err" and str.index_of(r[1].message, "inside a machine") >= 0, r[1].message)
+    assert(
+      r[0] == "err" and str.index_of(r[1].message, "inside a machine") >= 0,
+      r[1].message
+    )
   }
 }

@@ -11,4 +11,9 @@ infix _x_ before _*_ (a, b){
 
 local area = config.scale[0] x config.scale[1]
 print(config.name, " v", config.version, ": ", area, "\n")
-return {name: config.name, version: config.version, area: area, deep: config.nested.deep}
+return {
+  name: config.name,
+  version: config.version,
+  area: area,
+  deep: config.nested.deep,
+}

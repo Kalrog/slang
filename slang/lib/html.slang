@@ -24,7 +24,9 @@ local str = require("slang/string")
 local html = {}
 
 local safe = str.char_class("^&<>\"'")
-local replacements = {["&"]: "&amp;", ["<"]: "&lt;", [">"]: "&gt;", ["\""]: "&quot;", ["'"]: "&#39;"}
+local replacements = {
+  ["&"]: "&amp;", ["<"]: "&lt;", [">"]: "&gt;", ["\""]: "&quot;", ["'"]: "&#39;",
+}
 
 func html.escape(s){
   local n = len(s)
@@ -57,8 +59,10 @@ html.list = {__type: "HtmlList"}
 
 // the void elements; `meta` is checked apart because t.meta is a table's
 // metatable, not a field
-local void = {area: true, base: true, br: true, col: true, embed: true, hr: true, img: true, input: true,
-  link: true, param: true, source: true, track: true, wbr: true}
+local void = {
+  area: true, base: true, br: true, col: true, embed: true, hr: true, img: true,
+  input: true, link: true, param: true, source: true, track: true, wbr: true,
+}
 local func is_void(tag){
   return tag == "meta" or void[tag] == true
 }

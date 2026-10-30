@@ -12,20 +12,28 @@ local db = require("db")
 local m = {filters: {"all", "active", "done"}}
 
 func m.add(user, text, done){
-  local r = db:run(sql{ insert into todos(text, done, user_id) values ({text}, {done == true}, {user}) })
+  local r = db:run(
+    sql{ insert into todos(text, done, user_id) values ({text}, {done == true}, {user}) }
+  )
   return m.find(user, r.last_id)
 }
 
 func m.find(user, id){
-  return db:one(sql{ select id, text, done from todos where id = {id} and user_id = {user} })
+  return db:one(
+    sql{ select id, text, done from todos where id = {id} and user_id = {user} }
+  )
 }
 
 func m.rename(user, id, text){
-  db:run(sql{ update todos set text = {text} where id = {id} and user_id = {user} })
+  db:run(
+    sql{ update todos set text = {text} where id = {id} and user_id = {user} }
+  )
 }
 
 func m.toggle(user, id){
-  db:run(sql{ update todos set done = not done where id = {id} and user_id = {user} })
+  db:run(
+    sql{ update todos set done = not done where id = {id} and user_id = {user} }
+  )
 }
 
 func m.remove(user, id){
@@ -43,7 +51,9 @@ func m.keep(user, predicate){
       append(dropped, t.id)
     }
   }
-  db:run(sql{ delete from todos where user_id = {user} and id in ({...dropped}) })
+  db:run(
+    sql{ delete from todos where user_id = {user} and id in ({...dropped}) }
+  )
 }
 
 // the filter as a condition, spliced into the query below
@@ -58,7 +68,9 @@ func m.visible(user, filter){
 }
 
 func m.active_count(user){
-  return db:one(sql{ select count(*) as n from todos where user_id = {user} and not done }).n
+  return db:one(
+    sql{ select count(*) as n from todos where user_id = {user} and not done }
+  ).n
 }
 
 return m

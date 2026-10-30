@@ -24,12 +24,16 @@ local m = {}
 local WEEK = 7 * 24 * 3600
 
 local func load_secret(){
-  local row = db:one(sql{ select value from settings where key = 'session_secret' })
+  local row = db:one(
+    sql{ select value from settings where key = 'session_secret' }
+  )
   if(row != null){
     return row.value
   }
   local secret = crypto.token(32)
-  db:run(sql{ insert into settings(key, value) values ('session_secret', {secret}) })
+  db:run(
+    sql{ insert into settings(key, value) values ('session_secret', {secret}) }
+  )
   return secret
 }
 local secret = load_secret()
@@ -52,8 +56,13 @@ func m.user(req){
 }
 
 async func m.check(name, password){
-  local u = db:one(sql{ select id, name, password from users where name = {name} })
-  local ok = await crypto.verify_password_async(password, u and u.password or dummy_hash)
+  local u = db:one(
+    sql{ select id, name, password from users where name = {name} }
+  )
+  local ok = await crypto.verify_password_async(
+    password,
+    u and u.password or dummy_hash
+  )
   if(u == null or not ok){
     return null
   }
@@ -67,7 +76,8 @@ local func valid_name(name){
   for(local i = 0; i < len(name); i = i + 1){
     local b = str.byte_at(name, i)
     // a-z, A-Z, 0-9, _ and -
-    if(not (b >= 97 and b <= 122 or b >= 65 and b <= 90 or b >= 48 and b <= 57 or b == 95 or b == 45)){
+    if(not(b >= 97 and b <= 122 or b >= 65 and b <= 90 or b >= 48 and b <= 57 or
+      b == 95 or b == 45)){
       return false
     }
   }
@@ -86,7 +96,11 @@ async func m.register(name, password){
   }
   local hash = await crypto.hash_password_async(password)
   // two registrations of one name can race past the check above
-  local r = pcall(func(){ return db:run(sql{ insert into users(name, password) values ({name}, {hash}) }) })
+  local r = pcall(func(){
+    return db:run(
+      sql{ insert into users(name, password) values ({name}, {hash}) }
+    )
+  })
   if(r[0] == "err"){
     return {error: "That name is taken."}
   }
@@ -94,7 +108,9 @@ async func m.register(name, password){
 }
 
 func m.start_session(res, user){
-  local token = jwt.sign({sub: user.id, name: user.name}, secret, {expires_in: WEEK})
+  local token = jwt.sign({sub: user.id, name: user.name}, secret, {
+    expires_in: WEEK,
+  })
   return http.set_cookie(res, "session", token, {max_age: WEEK})
 }
 
@@ -106,7 +122,9 @@ func m.end_session(res){
 // existed, or a few new ones
 if(db:one(sql{ select id from users where name = 'demo' }) == null){
   local hash = crypto.hash_password("demo")
-  local demo = db:run(sql{ insert into users(name, password) values ('demo', {hash}) }).last_id
+  local demo = db:run(
+    sql{ insert into users(name, password) values ('demo', {hash}) }
+  ).last_id
   db:run(sql{ update todos set user_id = {demo} where user_id is null })
   if(todos.active_count(demo) + len(todos.visible(demo, "done")) == 0){
     todos.add(demo, "write a web server in slang", true)

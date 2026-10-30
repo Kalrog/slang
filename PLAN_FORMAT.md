@@ -235,15 +235,31 @@ operator's parser format the operator itself.
 
 - Two-space indent, 80 columns, one statement per line.
 - The house style stays: `if(x){`, `func(a, b){`, `{a: 1}`, no `;`.
-- Bodies of `if`, `for`, `try` and `func` statements always go on their own
-  lines. A function expression whose body is one statement may stay on one
-  line when it fits (`list:map(func(x){ return x * 2 })`).
-- When arguments, parameters or fields don't fit, they break all at once,
-  one per line; tables get a trailing comma when broken.
+- **The source decides where there are two valid layouts.** A list
+  (arguments, parameters, fields, an operator chain) written with every
+  element on its own line keeps that layout, unless it all fits on one line,
+  which joins it. Any other layout lets the formatter decide.
+- A block of one statement written on one line stays on one line when it
+  fits (`for(...){ f(i) }`, `func get(){ return x }`); one written over
+  several lines keeps them. Blocks next to an `else` or a `catch` always
+  break.
+- Lists that don't fit are packed as many to a line as fit when their
+  typical (median) element is at most 20 columns, with a long element on a
+  line of its own; otherwise one per line. Tables get a trailing comma when
+  broken.
 - A last argument that is a function or a table stays on the call's line
-  and breaks inside itself (`describe("x", func(){` ... `})`).
-- Method chains of three calls or more break before each `:method`. Binary
-  operators break after the operator.
+  and breaks inside itself (`describe("x", func(){` ... `})`); a call as the
+  last argument does so only when it is 60 columns or wider. With more than
+  one argument that must break, every argument gets a line.
+- Method chains of two method calls or more break before each `:method`
+  (one call that takes a function counts twice). Binary operators break
+  after the operator, packing the operands.
+- Operators can carry a style in their marks: `break_before` breaks before
+  the operator, `style: "lines"` lays the chain out on one line or one
+  operand per line. `|>` (examples/functional/pipe.slang) uses both.
+- Because some layouts depend on the source's (a block written on one line
+  that doesn't fit becomes a block written over several), `format.source`
+  formats again until nothing changes (at most five passes).
 - No break before a call's `(` or a block argument's `{`: the same-line rule
   would change the meaning.
 - Long strings are never split; literals keep their spelling (`0xff`,

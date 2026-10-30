@@ -202,12 +202,22 @@ local func propagate(d){
     }
     return d.hard
   }
-  if(t == "indent" or t == "nest" or t == "from_line" or t == "flat" or t == "box"){
+  if(t == "indent" or t == "nest" or t == "from_line" or t == "flat" or
+    t == "box"){
     return propagate(d.doc)
   }
   if(t == "if_break"){
     propagate(d.flat)
     return propagate(d.broken)
+  }
+  if(t == "fill"){
+    local hard = false
+    for(local i = 0; i < len(d.parts); i = i + 1){
+      if(propagate(d.parts[i])){
+        hard = true
+      }
+    }
+    return hard
   }
   if(t == "choice"){
     // the options are alternatives: the choice must break when its last
@@ -311,10 +321,28 @@ local func fits(next_mode, next_doc, rest_m, rest_d, rest_n, width){
         ms[n] = m
         ds[n] = d.options[0]
         n = n + 1
+      } else if(t == "fill"){
+        local parts = d.parts
+        for(local i = len(parts) - 1; i >= (d.k or 0); i = i - 1){
+          ms[n] = m
+          ds[n] = parts[i]
+          n = n + 1
+        }
+      } else if(t == "fill_sep"){
+        local parts = d.parts
+        for(local i = len(parts) - 1; i > d.k; i = i - 1){
+          ms[n] = m
+          ds[n] = parts[i]
+          n = n + 1
+        }
       }
     }
   }
 }
+
+// hugged_part(doc) -> doc with its first group that may hug made to break,
+// or null (set below, with the hugging helpers)
+local hugged_part = null
 
 local space_cache = {""}
 
@@ -336,7 +364,7 @@ func format.print(doc, width){
   // the indentation of the current line
   local line_ind = 0
   // indentation waits for the next text, so that empty lines get none
-  local pending = -1
+  local pending = - 1
   local si = {0}
   local sm = {BREAK}
   local sd = {doc}
@@ -347,7 +375,7 @@ func format.print(doc, width){
         list_push(out, spaces(pending))
       }
       col = pending
-      pending = -1
+      pending = - 1
     }
     list_push(out, s)
     local nl = str.index_of(s, "\n")
@@ -372,7 +400,8 @@ func format.print(doc, width){
   // no trailing whitespace: the pieces of nothing but spaces before a break
   // go (a token never is one)
   local func trim_end(){
-    for(len(out) > 0 and len(str.trim(out[len(out) - 1])) == 0 and str.index_of(out[len(out) - 1], "\n") < 0){
+    for(len(out) > 0 and len(str.trim(out[len(out) - 1])) == 0 and
+      str.index_of(out[len(out) - 1], "\n") < 0){
       remove(out, len(out) - 1)
     }
   }
@@ -453,21 +482,88 @@ func format.print(doc, width){
         sm[n] = m
         sd[n] = (m == BREAK and d.broken) or d.flat
         n = n + 1
+      } else if(t == "fill"){
+        // as many parts on a line as fit: the separator before a part breaks
+        // when the part doesn't fit after what is already on the line; a part
+        // that doesn't fit on a line of its own breaks inside, hugging when it
+        // can (a table, a function, a call with wide arguments)
+        local parts = d.parts
+        local k = d.k or 0
+        if(m == FLAT){
+          for(local i = len(parts) - 1; i >= k; i = i - 1){
+            si[n] = ind
+            sm[n] = FLAT
+            sd[n] = parts[i]
+            n = n + 1
+          }
+        } else {
+          local content = parts[k]
+          local content_mode = FLAT
+          if(not fits(FLAT, content, sm, sd, 0, width - col)){
+            // (only the last part hugs: a table mid-list breaks the list)
+            local hugged = k + 2 >= len(parts) and content.hug and
+              hugged_part(content)
+            if(hugged and fits(FLAT, hugged, sm, sd, 0, width - col)){
+              // indented from its line, not from the list's indent
+              content = {t: "from_line", doc: hugged}
+            } else {
+              content_mode = BREAK
+            }
+          }
+          if(k + 2 < len(parts)){
+            si[n] = ind
+            sm[n] = m
+            sd[n] = {t: "fill_sep", parts: parts, k: k}
+            n = n + 1
+          }
+          si[n] = ind
+          sm[n] = content_mode
+          sd[n] = content
+          n = n + 1
+        }
+      } else if(t == "fill_sep"){
+        // decided once the part before it is printed
+        local parts = d.parts
+        local k = d.k
+        local separator = parts[k + 1]
+        local next = parts[k + 2]
+        local separator_mode = BREAK
+        if(fits(FLAT, {separator, next}, sm, sd, 0, width - col)){
+          separator_mode = FLAT
+        } else {
+          local hugged = k + 4 >= len(parts) and next.hug and hugged_part(next)
+          if(hugged and fits(FLAT, {separator, hugged}, sm, sd, 0, width - col)){
+            separator_mode = FLAT
+          }
+        }
+        si[n] = ind
+        sm[n] = m
+        sd[n] = {t: "fill", parts: parts, k: k + 2}
+        n = n + 1
+        si[n] = ind
+        sm[n] = separator_mode
+        sd[n] = separator
+        n = n + 1
       } else if(t == "choice"){
         local options = d.options
+        // an option is laid out flat but for the groups in it that must
+        // break; it is chosen when it fits up to its first break. The last
+        // option (the plain layout) is the fallback.
         local chosen = options[len(options) - 1]
+        local chosen_mode = m
         if(m == FLAT){
           chosen = options[0]
         } else {
           for(local i = 0; i < len(options) - 1; i = i + 1){
-            if(fits(BREAK, options[i], sm, sd, n, width - col)){
+            if(fits(FLAT, options[i], sm, sd, n, width - col)){
               chosen = options[i]
+              chosen_mode = FLAT
               break
             }
           }
         }
         si[n] = ind
-        sm[n] = m
+        sm[n] = chosen_mode
         sd[n] = chosen
         n = n + 1
       }
@@ -479,35 +575,207 @@ func format.print(doc, width){
 
 // the group a hugging layout breaks: the last element of doc, when it is a
 // group marked huggable (a table); boxes are looked into, other groups not
-local func last_huggable(d){
+// the width of doc on one line, -1 when it must break
+local func flat_width(d){
+  if(type(d) == "string"){
+    if(str.index_of(d, "\n") >= 0){
+      return - 1
+    }
+    return width_of(d)
+  }
+  local t = d.t
+  local list = null
+  if(t == null){
+    list = d
+  } else if(t == "fill"){
+    list = d.parts
+  }
+  if(list != null){
+    local w = 0
+    for(local i = 0; i < len(list); i = i + 1){
+      local x = flat_width(list[i])
+      if(x < 0){
+        return - 1
+      }
+      w = w + x
+    }
+    return w
+  }
+  if(t == "line"){
+    if(d.hard){
+      return - 1
+    }
+    if(d.soft){
+      return 0
+    }
+    return 1
+  }
+  if(t == "break_parent"){
+    return - 1
+  }
+  if(t == "if_break"){
+    return flat_width(d.flat)
+  }
+  if(t == "choice"){
+    return flat_width(d.options[0])
+  }
+  if(t == "group" and d.hard){
+    return - 1
+  }
+  return flat_width(d.doc)
+}
+
+// the outermost group that may hug (a call's arguments, a table, a
+// function's body) nearest the end of d
+local func first_huggable(d){
   if(type(d) == "string"){
     return null
   }
   local t = d.t
+  local list = null
   if(t == null){
-    for(local i = len(d) - 1; i >= 0; i = i - 1){
-      local e = d[i]
-      if(type(e) == "string"){
-        if(len(str.trim(e)) > 0 and e != ")" and e != "]"){
-          return null
-        }
-      } else if(e.t != "line" and e.t != "if_break" and e.t != "break_parent"){
-        return last_huggable(e)
+    list = d
+  } else if(t == "fill"){
+    list = d.parts
+  }
+  // from the end: in a.b(x):c(y) the arguments of the last call
+  if(list != null){
+    for(local i = len(list) - 1; i >= 0; i = i - 1){
+      local h = first_huggable(list[i])
+      if(h != null){
+        return h
       }
     }
     return null
   }
-  if(t == "indent" or t == "nest" or t == "box"){
-    return last_huggable(d.doc)
+  if(t == "indent" or t == "nest" or t == "box" or t == "from_line" or
+    t == "flat"){
+    return first_huggable(d.doc)
   }
-  if(t == "group" and d.huggable){
+  // (an empty argument list has nothing to break)
+  if((t == "group" or t == "choice") and d.huggable and
+    (flat_width(d) < 0 or flat_width(d) > 2)){
     return d
   }
   return null
 }
 
+// the last element of a list (an argument: what a rule produced), looking
+// past closing brackets and breaks
+local func last_element(d){
+  if(type(d) == "string"){
+    return null
+  }
+  local t = d.t
+  local list = null
+  if(t == null){
+    list = d
+  } else if(t == "fill"){
+    list = d.parts
+  }
+  if(list != null){
+    for(local i = len(list) - 1; i >= 0; i = i - 1){
+      local e = list[i]
+      if(type(e) == "string"){
+        if(len(str.trim(e)) > 0 and e != ")" and e != "]" and e != ","){
+          return null
+        }
+      } else if(e.t != "line" and e.t != "if_break" and e.t != "break_parent"){
+        return last_element(e)
+      }
+    }
+    return null
+  }
+  if(t == "indent" or t == "nest"){
+    return last_element(d.doc)
+  }
+  return d
+}
+
+// the group a hugging layout breaks: the first one that may hug (a call's
+// arguments, a table, a function's body) in the last element of doc
+// a call hugs only when it is worth breaking: f(x, g(a, b, c)) with g(...)
+// too wide for a line of its own; f(x, tok("<")) does not break tok's
+local HUG_CALL_WIDTH = 60
+
+// the group a part (an argument, an operand) hugs with, or null: a call
+// only when the part is too wide to sit on a line of its own anyway
+local huggable_in = null
+
+// the group a hugging layout breaks: in the last element of doc
+local func last_huggable(d){
+  local e = last_element(d)
+  if(e == null){
+    return null
+  }
+  return huggable_in(e)
+}
+
+// a call whose own last argument hugs (a function, a table) passes the hug
+// on: f(x, g(y, func(){ ... })) breaks the function's body, not g's arguments
+huggable_in = func(e){
+  local h = first_huggable(e)
+  if(h != null and h.huggable == "call"){
+    local plain = h
+    if(h.t == "choice"){
+      plain = h.options[len(h.options) - 1]
+    }
+    local inner = last_huggable(plain.doc)
+    if(inner != null){
+      return inner
+    }
+    if(flat_width(e) < HUG_CALL_WIDTH){
+      return null
+    }
+  }
+  return h
+}
+
+// the group target made to break (for a choice: its plain layout)
+local func broken_copy(target){
+  local g = target
+  if(target.t == "choice"){
+    g = target.options[len(target.options) - 1]
+  }
+  return {t: "group", doc: g.doc, hard: true}
+}
+
 // doc with the group broken made to break, and nothing else changed (the
 // path to it: lists, indents, boxes)
+// whether target is inside d
+local func contains(d, target){
+  if(type(d) == "string"){
+    return false
+  }
+  if(d == target){
+    return true
+  }
+  local t = d.t
+  local list = null
+  if(t == null){
+    list = d
+  } else if(t == "fill"){
+    list = d.parts
+  } else if(t == "choice"){
+    list = d.options
+  }
+  if(list != null){
+    for(local i = 0; i < len(list); i = i + 1){
+      if(contains(list[i], target)){
+        return true
+      }
+    }
+    return false
+  }
+  if(d.doc != null){
+    return contains(d.doc, target)
+  }
+  return false
+}
+
+// set below
+local flat_shallow = null
+
 local func flat_shallow_box(d, broken){
   if(type(d) == "string"){
     return d
@@ -521,13 +789,29 @@ local func flat_shallow_box(d, broken){
     return out
   }
   if(d == broken){
-    return {t: "group", doc: d.doc, hard: true}
+    return broken_copy(d)
   }
   if(t == "indent" or t == "box" or t == "flat" or t == "from_line"){
     return {t: t, doc: flat_shallow_box(d.doc, broken)}
   }
+  if(t == "fill"){
+    local parts = {}
+    for(local i = 0; i < len(d.parts); i = i + 1){
+      list_push(parts, flat_shallow_box(d.parts[i], broken))
+    }
+    return {t: "fill", parts: parts}
+  }
   if(t == "nest"){
     return nest(d.n, flat_shallow_box(d.doc, broken))
+  }
+  // a call (or another group) holding the group broken hugs too: its own
+  // breaks flat, so that only the group broken breaks
+  if((t == "group" or t == "choice") and contains(d, broken)){
+    local plain = d
+    if(t == "choice"){
+      plain = d.options[len(d.options) - 1]
+    }
+    return flat_shallow(plain.doc, broken)
   }
   return d
 }
@@ -536,7 +820,7 @@ local func flat_shallow_box(d, broken){
 // breaks flat and its own indentation gone, the parts in boxes and nested
 // groups as they are, but for the group broken (see last_huggable), which
 // is made to break
-local func flat_shallow(d, broken){
+flat_shallow = func(d, broken){
   if(type(d) == "string"){
     return d
   }
@@ -565,13 +849,21 @@ local func flat_shallow(d, broken){
   }
   if(broken != null){
     if(d == broken){
-      return {t: "group", doc: d.doc, hard: true}
+      return broken_copy(d)
     }
-    if(t == "box"){
-      return {t: "box", doc: flat_shallow_box(d.doc, broken)}
+    if(t == "box" or t == "fill"){
+      return flat_shallow_box(d, broken)
     }
   }
   return d
+}
+
+hugged_part = func(d){
+  local h = huggable_in(d)
+  if(h == null){
+    return null
+  }
+  return flat_shallow_box(d, h)
 }
 
 // ------------------------------------------------------------ building
@@ -583,7 +875,14 @@ local func flat_shallow(d, broken){
 // two pieces is decided by the node they are children of (so by the
 // innermost node holding both tokens), in its mode.
 
-local strength = {none: 1, brace: 2, space: 2, softline: 3, line: 4, hardline: 5}
+local strength = {
+  none: 1,
+  brace: 2,
+  space: 2,
+  softline: 3,
+  line: 4,
+  hardline: 5,
+}
 
 local func stronger(a, b){
   if(a == null){
@@ -598,8 +897,13 @@ local func stronger(a, b){
   return a
 }
 
+local func is_space(b){
+  return b == 32 or b == 9 or b == 10 or b == 13
+}
+
 local func is_word_byte(b){
-  return (b >= 97 and b <= 122) or (b >= 65 and b <= 90) or (b >= 48 and b <= 57) or b == 95
+  return (b >= 97 and b <= 122) or (b >= 65 and b <= 90) or
+    (b >= 48 and b <= 57) or b == 95
 }
 
 local func is_digit_byte(b){
@@ -637,7 +941,9 @@ local func gap_comments(text){
 
 local func rstrip(s){
   local e = len(s)
-  for(e > 0 and (str.byte_at(s, e - 1) == 32 or str.byte_at(s, e - 1) == 9 or str.byte_at(s, e - 1) == 13)){
+  for(e > 0 and
+    (str.byte_at(s, e - 1) == 32 or str.byte_at(s, e - 1) == 9 or
+      str.byte_at(s, e - 1) == 13)){
     e = e - 1
   }
   return str.substring(s, 0, e)
@@ -650,7 +956,8 @@ local func line_indent(source, pos){
     i = i - 1
   }
   local j = i
-  for(j < len(source) and (str.byte_at(source, j) == 32 or str.byte_at(source, j) == 9)){
+  for(j < len(source) and
+    (str.byte_at(source, j) == 32 or str.byte_at(source, j) == 9)){
     j = j + 1
   }
   return j - i
@@ -761,9 +1068,11 @@ func formatter_methods.gap(self, a, b, kind, blank){
     if(i > 0){
       from = comments[i - 1].stop
     }
-    if(keep_blank and i > 0 and count_newlines(str.substring(text, from, c.start)) >= 2){
+    if(keep_blank and i > 0 and
+      count_newlines(str.substring(text, from, c.start)) >= 2){
       list_push(lines, HARDLINE)
-    } else if(keep_blank and i == 0 and blank and count_newlines(str.substring(text, 0, c.start)) >= 2){
+    } else if(keep_blank and i == 0 and blank and
+      count_newlines(str.substring(text, 0, c.start)) >= 2){
       list_push(lines, HARDLINE)
     }
     list_push(lines, HARDLINE)
@@ -824,7 +1133,7 @@ func formatter_methods.join_verbatim(self, pieces){
   }
   local segments = {}
   local current = {}
-  local current_nest = -1
+  local current_nest = - 1
   local func close(){
     if(current_nest < 0){
       list_push(segments, current)
@@ -848,7 +1157,10 @@ func formatter_methods.join_verbatim(self, pieces){
           if(len(str.trim(l)) == 0){
             list_push(segments, HARDLINE)
           } else {
-            list_push(segments, nest(rel(l), {HARDLINE, str.substring(l, leading_space(l))}))
+            list_push(segments, nest(rel(l), {
+              HARDLINE,
+              str.substring(l, leading_space(l)),
+            }))
           }
         }
         current = {}
@@ -892,13 +1204,13 @@ func formatter_methods.build(self, n, mode){
   if(m.trailing_comma){
     return {doc: if_break(",", ""), virtual: true}
   }
-  // the first block inside a function expression is its body
-  if(m.soft_body){
-    self.soft_pending = true
+  // a block marked hard_body (a catch's) breaks even with one statement
+  if(m.hard_body){
+    self.hard_pending = true
   }
   local piece = self:build_node(n, m, mode)
-  if(m.soft_body){
-    self.soft_pending = false
+  if(m.hard_body){
+    self.hard_pending = false
   }
   return piece
 }
@@ -916,9 +1228,12 @@ func formatter_methods.build_node(self, n, m, mode){
     piece = self:build(kids[n.at], mode)
   } else if(mode == "formatted" and p.form != null){
     piece = self:build_operator(n)
-  } else if(p.kind == "rule" and p.rule_name == "block" and self.soft_pending){
-    self.soft_pending = false
-    piece = self:build_soft_block(n)
+  } else if(p.kind == "rule" and p.rule_name == "block"){
+    local hard = self.hard_pending
+    self.hard_pending = false
+    if(not hard){
+      piece = self:build_soft_block(n)
+    }
   } else if(p.kind == "unit"){
     piece = self:build_unit(n)
   }
@@ -939,14 +1254,46 @@ func formatter_methods.build_node(self, n, m, mode){
     if(real == 0){
       return null
     }
-    if(len(pieces) == 1){
-      piece = pieces[0]
+    // the elements of a list that must break (a function written over
+    // several lines), for hugging
+    local hard_elements = null
+    if(m.fill){
+      hard_elements = 0
+      for(local j = 0; j < len(pieces); j = j + 2){
+        if(not pieces[j].virtual and propagate(pieces[j].doc)){
+          hard_elements = hard_elements + 1
+        }
+      }
     } else {
-      local doc
+      for(let local k in values(pieces)){
+        if(k.hard_elements != null){
+          hard_elements = k.hard_elements
+        }
+      }
+    }
+    if(len(pieces) == 1){
+      piece = {
+        doc: pieces[0].doc,
+        first: pieces[0].first,
+        last: pieces[0].last,
+        before: pieces[0].before,
+        after: pieces[0].after,
+        blank: pieces[0].blank,
+        indent: pieces[0].indent,
+        node: pieces[0].node,
+        hard_elements: hard_elements,
+      }
+    } else {
+      local doc = null
       if(mode == "verbatim"){
         doc = self:join_verbatim(pieces)
       } else {
-        doc = self:join(pieces)
+        if(m.fill){
+          doc = self:fill(pieces, m.fill)
+        }
+        if(doc == null){
+          doc = self:join(pieces)
+        }
       }
       local first = null
       local last = null
@@ -958,31 +1305,67 @@ func formatter_methods.build_node(self, n, m, mode){
           last = k
         }
       }
-      piece = {doc: doc, first: first.first, last: last.last, before: first.before, blank: first.blank, after: last.after}
+      piece = {
+        doc: doc,
+        first: first.first,
+        last: last.last,
+        before: first.before,
+        blank: first.blank,
+        after: last.after,
+        hard_elements: hard_elements,
+      }
     }
   }
   if(piece == null){
     return null
   }
   if(m.group){
-    if(m.hug and propagate(piece.doc)){
-      // something inside must break: the rest stays on the line if it fits
-      piece.doc = {t: "choice", options: {flat_shallow(piece.doc, null), group(piece.doc)}}
-    } else if(m.hug and last_huggable(piece.doc) != null){
-      // all on one line, or the last argument (a table) broken, or one
-      // argument per line
-      local plain = group(piece.doc)
-      local hugged = flat_shallow(piece.doc, last_huggable(piece.doc))
-      piece.doc = {t: "choice", options: {{t: "flat", doc: piece.doc}, hugged, plain}}
-    } else {
-      piece.doc = group(piece.doc)
-      if(m.huggable){
-        piece.doc.huggable = true
+    // the arguments of a call that hug: one function or table among them
+    // breaks, the rest stays on the call's line when it fits. A function
+    // written over several lines must break; one written on one line
+    // breaks when it doesn't fit, and is then laid out the same. With more
+    // than one argument that must break, every argument gets a line.
+    local target = null
+    if(m.hug and (piece.hard_elements or 0) <= 1){
+      target = last_huggable(piece.doc)
+      if(target == null){
+        local h = first_huggable(piece.doc)
+        if(h != null and h.huggable == "body"){
+          target = h
+        }
       }
     }
+    if(m.hug and (piece.hard_elements or 0) == 1 and propagate(piece.doc)){
+      piece.doc = {
+        t: "choice",
+        options: {flat_shallow(piece.doc, null), group(piece.doc)},
+      }
+    } else if(target != null and not propagate(piece.doc)){
+      // all on one line, or the target broken, or one argument per line
+      local plain = group(piece.doc)
+      local hugged = flat_shallow(piece.doc, target)
+      piece.doc = {
+        t: "choice",
+        options: {{t: "flat", doc: piece.doc}, hugged, plain},
+      }
+    } else {
+      piece.doc = group(piece.doc)
+    }
+    if(m.huggable){
+      piece.doc.huggable = m.huggable
+    }
   }
-  local out = {doc: piece.doc, first: piece.first, last: piece.last, before: piece.before, after: piece.after,
-               blank: piece.blank, indent: piece.indent}
+  local out = {
+    doc: piece.doc,
+    first: piece.first,
+    last: piece.last,
+    before: piece.before,
+    after: piece.after,
+    blank: piece.blank,
+    indent: piece.indent,
+    hard_elements: piece.hard_elements,
+    node: n,
+  }
   // a blank line may stay before a node when the mark that set the gap
   // before it says so
   if(m.before != null){
@@ -994,6 +1377,10 @@ func formatter_methods.build_node(self, n, m, mode){
   }
   if(m.indent){
     out.indent = true
+  }
+  // a block (a function's body) may hug the call it is the last argument of
+  if(p.kind == "rule" and p.rule_name == "block" and out.doc.huggable == null){
+    out.doc = {t: "group", doc: out.doc, huggable: "body"}
   }
   // what a rule produced is one part of the layout around it
   if(p.kind == "rule"){
@@ -1035,47 +1422,107 @@ func formatter_methods.build_operator(self, n){
   local form = n.p.form
   local kids = n.kids
   if(form == "left" or form == "right"){
+    // operands packed as many to a line as fit, a break after an operator
+    // only where the next operand no longer fits
+    // The operator's marks choose: break_before puts a break before the
+    // operator (|>), after it otherwise; style "lines" lays the chain out
+    // on one line or one operand per line. Without a style the operands
+    // are packed, unless the source has every one on a line of its own.
     local nodes = infix_chain(n, {})
+    local m = self:marks(nodes[1])
     local first = self:build(nodes[0], "formatted")
-    local rest = {}
+    local operands = {first}
+    local head = {first.doc}
+    local parts = {""}
+    local content = head
     local prev = first
     for(local i = 1; i < len(nodes); i = i + 2){
       local op = self:build(nodes[i], "formatted")
       local operand = self:build(nodes[i + 1], "formatted")
-      list_push(rest, self:gap(prev, op, "space"))
-      list_push(rest, op.doc)
-      list_push(rest, self:gap(op, operand, "line"))
-      list_push(rest, operand.doc)
+      list_push(operands, operand)
+      local next = {}
+      if(m.break_before){
+        list_push(parts, self:gap(prev, op, "line"))
+        list_push(next, op.doc)
+        list_push(next, self:gap(op, operand, "space"))
+      } else {
+        list_push(content, self:gap(prev, op, "space"))
+        list_push(content, op.doc)
+        list_push(parts, self:gap(op, operand, "line"))
+      }
+      list_push(next, operand.doc)
+      content = next
+      // (len counts a list's named fields: the flag goes on a box)
+      list_push(parts, {t: "box", doc: content, hug: self:may_hug(operand)})
       prev = operand
     }
-    return {doc: group({first.doc, indent(rest)}), first: first.first, last: prev.last}
+    local rest = {t: "fill", parts: parts}
+    if(m.style == "lines" or self:one_per_line(operands, 1)){
+      rest = parts
+    }
+    local doc = {head, indent(rest)}
+    if(rest == parts){
+      doc = group(doc)
+    }
+    return {doc: doc, first: first.first, last: prev.last}
   }
   if(form == "postfix"){
     local nodes = postfix_chain(n, {})
     local receiver = self:build(nodes[0], "formatted")
     local ops = {}
     local calls = 0
+    local lead_call = false
     for(local i = 1; i < len(nodes); i = i + 1){
       local op = self:build(nodes[i], "formatted")
       list_push(ops, op)
-      if(str.byte_at(self.source, op.first.start) == 58){
+      // a method call: :name(...); one that takes a function counts twice
+      // after a call, so that a.b(x):map(func(){ ... }) may break before
+      // :map (w:map(func(){ ... }) does not)
+      local b = str.byte_at(self.source, op.first.start)
+      if(b == 58){
         calls = calls + 1
+        local h = last_huggable(op.doc)
+        if(h != null and h.huggable == "body" and lead_call){
+          calls = calls + 1
+        }
+      } else if(calls == 0 and b == 40){
+        lead_call = true
       }
     }
+    // a chain of two method calls or more may break before each `:`; one that
+    // holds a function body (a break it must make) stays on its line when
+    // its first line fits
+    // (what comes before the first place it can break, a.b(x) in
+    // a.b(x):c(), is not indented)
+    local lead = {receiver.doc}
     local rest = {}
     local prev = receiver
     for(let local op in values(ops)){
-      if(calls >= 3 and str.byte_at(self.source, op.first.start) == 58){
+      if(calls >= 2 and str.byte_at(self.source, op.first.start) == 58){
         list_push(rest, self:gap(prev, op, "softline"))
+      } else if(len(rest) == 0){
+        list_push(lead, self:gap(prev, op, "none"))
+        list_push(lead, op.doc)
+        prev = op
+        continue
       } else {
         list_push(rest, self:gap(prev, op, "none"))
       }
       list_push(rest, op.doc)
       prev = op
     }
-    local doc = {receiver.doc, rest}
-    if(calls >= 3){
-      doc = group({receiver.doc, indent(rest)})
+    local doc = {lead, rest}
+    if(calls >= 2){
+      // on one line; or on one line but for the last call's arguments; or
+      // a line per call
+      local content = {lead, indent(rest)}
+      doc = group(content)
+      if(propagate(content)){
+        doc = {t: "choice", options: {flat_shallow(content, null), doc}}
+      } else if(last_huggable(content) != null){
+        local hugged = flat_shallow(content, last_huggable(content))
+        doc = {t: "choice", options: {{t: "flat", doc: content}, hugged, doc}}
+      }
     }
     return {doc: doc, first: receiver.first, last: prev.last}
   }
@@ -1085,18 +1532,141 @@ func formatter_methods.build_operator(self, n){
     // (a method call can't start an element of a table literal: {self:gap()}
     // is the field self)
     local gap = self:gap(op, operand, "none")
-    return {doc: {op.doc, gap, operand.doc}, first: op.first, last: operand.last}
+    return {
+      doc: {op.doc, gap, operand.doc},
+      first: op.first,
+      last: operand.last,
+    }
   }
   if(form == "wrapper"){
     local l = self:build(kids[0], "formatted")
     local inner = self:build(kids[1], "formatted")
     local r = self:build(kids[2], "formatted")
-    local open = self:gap(l, inner, "softline")
-    local close = self:gap(inner, r, "softline")
-    local doc = group({l.doc, indent({open, inner.doc}), close, r.doc})
-    return {doc: doc, first: l.first, last: r.last}
+    // the expression inside breaks for itself
+    local open = self:gap(l, inner, "none")
+    local close = self:gap(inner, r, "none")
+    return {
+      doc: {l.doc, open, inner.doc, close, r.doc},
+      first: l.first,
+      last: r.last,
+    }
   }
   return null
+}
+
+// whether a part of a packed list may hug (break inside when it doesn't fit
+// on a line of its own): a table, a function or a call, not an expression
+// made of several
+func formatter_methods.may_hug(self, piece){
+  local n = piece.node
+  for(n != null and n.p.kind == "rule" and n.kids != null and
+    len(n.kids) == 1 and n.p.rule_name == "expr"){
+    n = n.kids[0]
+  }
+  if(n == null){
+    return false
+  }
+  if(n.p.form == "postfix"){
+    return true
+  }
+  local name = n.p.rule_name
+  return name == "table_literal" or name == "function_expression"
+}
+
+// the width of a list's typical (median) element up to which the list is
+// packed as many to a line as fit; a list of wider elements gets a line per
+// element. One long element (a message string) doesn't decide it: it gets
+// a line of its own among the packed ones.
+local FILL_WIDTH = 20
+
+// the median of a list of numbers
+local func median(numbers){
+  local sorted = {}
+  for(let local x in values(numbers)){
+    local i = len(sorted)
+    list_push(sorted, x)
+    for(i > 0 and sorted[i - 1] > x){
+      sorted[i] = sorted[i - 1]
+      i = i - 1
+    }
+    sorted[i] = x
+  }
+  return sorted[to_int(len(sorted) / 2)]
+}
+
+// whether the source has a line break between every two of the elements,
+// which are every step-th of pieces
+func formatter_methods.one_per_line(self, pieces, step){
+  local n = len(pieces)
+  if(n <= step){
+    return false
+  }
+  for(local i = 0; i + step < n; i = i + step){
+    local a = pieces[i]
+    local b = pieces[i + step]
+    if(a.virtual or b.virtual){
+      return false
+    }
+    local between = str.substring(self.source, a.last.stop, b.first.start)
+    if(str.index_of(between, "\n") < 0){
+      return false
+    }
+  }
+  return true
+}
+
+// the elements and separators of a list (a separated node: element,
+// separator, element, ...) packed as many to a line as fit, when all the
+// elements are short and no comment is between them; null otherwise
+func formatter_methods.fill(self, pieces, kind){
+  local n = len(pieces)
+  if(n < 3){
+    return null
+  }
+  // written one per line: kept that way (unless it all fits on one line)
+  if(self:one_per_line(pieces, 2)){
+    return null
+  }
+  // (the last element may be one that must break: a function)
+  local widths = {}
+  for(local j = 0; j < n; j = j + 2){
+    local w = flat_width(pieces[j].doc)
+    if(pieces[j].virtual or (w < 0 and j + 1 < n)){
+      return null
+    }
+    if(w >= 0){
+      list_push(widths, w)
+    }
+  }
+  if(median(widths) > FILL_WIDTH){
+    return null
+  }
+  local parts = {}
+  local i = 0
+  for(i < n){
+    local e = pieces[i]
+    local content = {e.doc}
+    if(i + 1 < n){
+      local separator = pieces[i + 1]
+      local before = self:gap(e, separator)
+      if(type(before) != "string"){
+        return null
+      }
+      list_push(content, before)
+      list_push(content, separator.doc)
+      list_push(parts, {t: "box", doc: content, hug: self:may_hug(e)})
+      if(i + 2 < n){
+        if(self:gap(separator, pieces[i + 2]) != LINE){
+          return null
+        }
+        list_push(parts, LINE)
+      }
+    } else {
+      list_push(parts, {t: "box", doc: content, hug: self:may_hug(e)})
+    }
+    i = i + 2
+  }
+  return {t: "fill", parts: parts}
 }
 
 // the number of statements of a chunk: the nodes marked as statements (a
@@ -1119,8 +1689,37 @@ func formatter_methods.count_statements(self, n, top){
   return count
 }
 
-// the body of a function expression: on one line when it is one statement
-// and fits ({ return x * 2 })
+// the word before pos in the source (skipping whitespace), or ""
+func formatter_methods.word_before(self, pos){
+  local source = self.source
+  local i = pos
+  for(i > 0 and is_space(str.byte_at(source, i - 1))){
+    i = i - 1
+  }
+  local j = i
+  for(j > 0 and is_word_byte(str.byte_at(source, j - 1))){
+    j = j - 1
+  }
+  return str.substring(source, j, i)
+}
+
+// the word after pos in the source (skipping whitespace), or ""
+func formatter_methods.word_after(self, pos){
+  local source = self.source
+  local i = pos
+  for(i < len(source) and is_space(str.byte_at(source, i))){
+    i = i + 1
+  }
+  local j = i
+  for(j < len(source) and is_word_byte(str.byte_at(source, j))){
+    j = j + 1
+  }
+  return str.substring(source, i, j)
+}
+
+// a block of one statement written on one line stays on one line when it
+// fits (the source decides: a block written over several lines keeps its
+// lines); next to an else or a catch a block always breaks
 func formatter_methods.build_soft_block(self, n){
   local seq = n
   for(seq != null and seq.p.kind != "seq"){
@@ -1146,9 +1745,24 @@ func formatter_methods.build_soft_block(self, n){
   if(body == null){
     return null
   }
+  if(str.index_of(
+    str.substring(self.source, l.first.start, r.last.stop),
+    "\n"
+  ) >= 0){
+    return null
+  }
+  if(self:word_before(l.first.start) == "else"){
+    return null
+  }
+  local next = self:word_after(r.last.stop)
+  if(next == "else" or next == "catch"){
+    return null
+  }
   local open = self:gap(l, body, "line")
   local close = self:gap(body, r, "line")
   local doc = group({l.doc, indent({open, body.doc}), close, r.doc})
+  // the last argument of a call that doesn't fit breaks its body, not the call
+  doc.huggable = "body"
   return {doc: doc, first: l.first, last: r.last}
 }
 
@@ -1184,7 +1798,10 @@ func formatter_methods.build_unit(self, n){
   }
   if(len(head_comments) > 0){
     list_push(parts, HARDLINE)
-    if(count_newlines(str.substring(head, head_comments[len(head_comments) - 1].stop)) >= 2){
+    if(count_newlines(str.substring(
+      head,
+      head_comments[len(head_comments) - 1].stop
+    )) >= 2){
       list_push(parts, HARDLINE)
     }
   }
@@ -1273,7 +1890,9 @@ local func comments_of(f, toks_tree){
   local out = {}
   local at = 0
   for(let local l in values(leaves)){
-    for(let local c in values(gap_comments(str.substring(f.source, at, l.start)))){
+    for(let local c in values(
+      gap_comments(str.substring(f.source, at, l.start))
+    )){
       list_push(out, rstrip(str.substring(f.source, at + c.start, at + c.stop)))
     }
     at = l.stop
@@ -1315,7 +1934,9 @@ local func without_locations(s, path){
   for(local i = 1; i < len(parts); i = i + 1){
     local p = parts[i]
     local j = 0
-    for(j < len(p) and (is_digit_byte(str.byte_at(p, j)) or (str.byte_at(p, j) == 58 and is_digit_byte(str.byte_at(p, j + 1))))){
+    for(j < len(p) and
+      (is_digit_byte(str.byte_at(p, j)) or
+        (str.byte_at(p, j) == 58 and is_digit_byte(str.byte_at(p, j + 1))))){
       j = j + 1
     }
     append(out, concat(marker, "L", str.substring(p, j)))
@@ -1346,6 +1967,15 @@ local func first_difference(a, b){
 
 // ------------------------------------------------------------ formatting
 
+// the text of a tree laid out
+local func layout(f, tree, width){
+  local piece = f:build(tree, "formatted")
+  if(piece == null){
+    return ""
+  }
+  return concat(format.print(piece.doc, width or WIDTH), "\n")
+}
+
 // source(text, path, {find_project, width, check}) -> the formatted text, or
 // null for a file of a compile dialect. Raises when the file does not parse,
 // or when the result fails its checks (check: false skips them).
@@ -1358,31 +1988,62 @@ func format.source(text, path, options){
     return null
   }
   local f = new_formatter(text)
-  local piece = f:build(tree, "formatted")
-  local out = ""
-  if(piece != null){
-    out = concat(format.print(piece.doc, options.width or WIDTH), "\n")
+  local out = layout(f, tree, options.width)
+  // Some layouts depend on the source's: a block written on one line that
+  // doesn't fit is broken, and is then a block written over several lines.
+  // Formatting again until nothing changes makes the result stable.
+  local out_tree = compiler.tree(out, path)
+  local passes = 1
+  for(true){
+    local again = layout(new_formatter(out), out_tree, options.width)
+    if(again == out){
+      break
+    }
+    passes = passes + 1
+    if(passes > 5){
+      raise({
+        message: concat(
+          "formatting ", path, " does not settle; the file was left as it is"
+        ),
+      })
+    }
+    out = again
+    out_tree = compiler.tree(out, path)
   }
   if(options.check == false){
     return out
   }
-  local out_tree = compiler.tree(out, path)
   local g = new_formatter(out)
   local before = tokens(f, tree, {})
   local after = tokens(g, out_tree, {})
   if(not same_list(before, after)){
     local i = first_difference(before, after)
-    raise({message: concat("formatting ", path, " changed its tokens (", string(before[i]), " became ", string(after[i]),
-                           " at token ", i, "); the file was left as it is")})
+    raise({
+      message: concat(
+        "formatting ", path, " changed its tokens (", string(before[i]),
+        " became ", string(after[i]), " at token ", i,
+        "); the file was left as it is"
+      ),
+    })
   }
   local meaning = without_locations(canonical(ast.to_source(tree.ast)), path)
   if(meaning != without_locations(canonical(ast.to_source(out_tree.ast)), path)){
-    raise({message: concat("formatting ", path, " changed what the code means; the file was left as it is")})
+    raise({
+      message: concat(
+        "formatting ", path,
+        " changed what the code means; the file was left as it is"
+      ),
+    })
   }
   local c1 = comments_of(f, tree)
   local c2 = comments_of(g, out_tree)
   if(not same_list(c1, c2)){
-    raise({message: concat("formatting ", path, " lost or reordered comments; the file was left as it is")})
+    raise({
+      message: concat(
+        "formatting ", path,
+        " lost or reordered comments; the file was left as it is"
+      ),
+    })
   }
   return out
 }
@@ -1419,15 +2080,21 @@ func format.main(arguments){
     }
   }
   if(len(paths) == 0){
-    os.write_stderr("usage: slang fmt [--check] [--stdout] <file.slang|dir>...\n")
+    os.write_stderr(
+      "usage: slang fmt [--check] [--stdout] <file.slang|dir>...\n"
+    )
     return 2
   }
   local files = {}
   for(let local p in values(paths)){
     slang_files(os, p, files)
   }
+  local compiler = require("slang/compiler")
   local status = 0
   for(let local path in values(files)){
+    // every file starts from slang's own grammar and finds its own project:
+    // what one file's extensions and project changed must not reach the next
+    compiler.reset()
     local text = os.read_file(path)
     local r = pcall(format.source, text, path, {find_project: true})
     if(r[0] == "err"){

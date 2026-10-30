@@ -1,7 +1,7 @@
 {
   "name": "slang-lang",
   "displayName": "slang",
-  "description": "Highlighting and diagnostics for slang, from the slang language server",
+  "description": "Highlighting, diagnostics, navigation and formatting for slang, from the slang language server",
   "version": "0.1.0",
   "publisher": "slang",
   "license": "MIT",
@@ -16,6 +16,12 @@
     }
   },
   "contributes": {
+    "configurationDefaults": {
+      "[slang]": {
+        "editor.defaultFormatter": "slang.slang-lang",
+        "editor.formatOnSave": true
+      }
+    },
     "languages": [{
       "id": "slang",
       "aliases": ["slang"],

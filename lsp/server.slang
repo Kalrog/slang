@@ -7,7 +7,8 @@
 // the server speaks: initialize (semantic tokens, full document sync, a
 // position encoding), didOpen/didChange/didClose, semanticTokens/full,
 // publishDiagnostics, didChangeWatchedFiles (the project file changed: the
-// grammars are reset), hover, definition, references, shutdown, exit.
+// grammars are reset), hover, definition, references, formatting (slang
+// fmt's formatter), shutdown, exit.
 // Highlighting and the symbols come from one compiler.highlight, so
 // extensions and dialects are the real ones; lsp/navigate answers the
 // questions about names.
@@ -16,6 +17,7 @@ local str = require("slang/string")
 local json = require("slang/json")
 local os = require("slang/os")
 local navigate = require("lsp/navigate")
+local format = require("slang/format")
 
 local lsp = {}
 
@@ -426,6 +428,7 @@ handlers["initialize"] = func(s, id, params){
         positionEncoding: s.encoding,
         textDocumentSync: 1,
         hoverProvider: true,
+        documentFormattingProvider: true,
         definitionProvider: true,
         referencesProvider: true,
         semanticTokensProvider: {
@@ -584,6 +587,45 @@ handlers["textDocument/hover"] = func(s, id, params){
       contents: {kind: "markdown", value: h.markdown},
       range: lsp.range_of(at.text, h.start, h.stop, s.encoding),
     }),
+  }
+}
+
+// ------------------------------------------------------------ formatting
+
+// the whole document formatted as `slang fmt` would: one edit replacing it,
+// or none when it is formatted already. A file that does not parse is left
+// as it is (its diagnostics say why); a formatter whose checks fail on a
+// file that parses is a bug in the formatter, and the editor is told.
+handlers["textDocument/formatting"] = func(s, id, params){
+  local doc = s.documents[params.textDocument.uri]
+  if(doc == null){
+    return {response(id, json.array({}))}
+  }
+  local text = doc.text
+  local r = pcall(format.source, text, doc.path, {find_project: true})
+  if(r[0] == "err"){
+    local message = r[1]
+    if(type(message) == "table"){
+      message = message.message
+    }
+    s.log(concat("formatting failed for ", doc.uri, ": ", message))
+    local out = {response(id, json.array({}))}
+    if(len(doc.diagnostics) == 0){
+      append(out, notification("window/showMessage", {
+        type: 2,
+        message: concat("slang: the file was not formatted: ", message),
+      }))
+    }
+    return out
+  }
+  local formatted = r[1]
+  if(formatted == null or formatted == text){
+    return {response(id, json.array({}))}
+  }
+  return {
+    response(id, json.array({
+      {range: lsp.range_of(text, 0, len(text), s.encoding), newText: formatted},
+    })),
   }
 }
 

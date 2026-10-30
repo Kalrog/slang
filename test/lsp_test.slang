@@ -183,6 +183,33 @@ t.group("language server"){
       "Red: type ", data[red * 5 + 3], " modifiers ", data[red * 5 + 4]
     ))
   }
+  t.test("formatting replaces the document with slang fmt's result"){
+    local s = lsp.new()
+    local init = s:handle(request(1, "initialize", {capabilities: {}}))
+    assert(init[0].result.capabilities.documentFormattingProvider)
+    local func format_doc(uri, text){
+      open_doc(s, uri, text)
+      return s:handle(request(7, "textDocument/formatting", {
+        textDocument: {uri: uri},
+        options: {tabSize: 2, insertSpaces: true},
+      }))
+    }
+    local r = format_doc(
+      "file:///tmp/lsp_test/f.slang",
+      "local  x=1\nprint( x )"
+    )
+    local edits = r[0].result
+    assert(len(edits) == 1 and edits[0].newText == "local x = 1\nprint(x)\n")
+    assert(edits[0].range.start.line == 0 and edits[0].range["end"].line == 1)
+    assert(edits[0].range["end"].character == 10)
+    r = format_doc("file:///tmp/lsp_test/g.slang", "local x = 1\n")
+    assert(len(r[0].result) == 0, "formatted already: no edits")
+    r = format_doc("file:///tmp/lsp_test/h.slang", "local x = = 1\n")
+    assert(
+      len(r) == 1 and len(r[0].result) == 0,
+      "a parse error: no edits, no message"
+    )
+  }
   t.test("unknown methods, shutdown and exit"){
     local s = lsp.new()
     local r = s:handle(request(5, "textDocument/codeLens", {}))

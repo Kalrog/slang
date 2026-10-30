@@ -6,7 +6,9 @@ starts the slang language server (`lsp/` of the slang repository, bundled
 here), which parses each file with the project's real grammar, extensions
 and dialects included, and provides semantic tokens, parse errors, hover
 (signatures and doc comments), go to definition and find references,
-across modules loaded with `require`.
+across modules loaded with `require`, and formatting with `slang fmt`'s
+formatter. Format on save is on for slang files by default
+(`editor.formatOnSave` under `[slang]` turns it off).
 
 Settings: `slang.path` (the `slang` binary; default `slang` on the PATH),
 `slang.associateDialects` (map the project's dialect suffixes to the slang

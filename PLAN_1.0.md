@@ -58,7 +58,10 @@ before work starts.
     resolution, stable node identities, facts attached to nodes,
     diagnostics. The language server needs it anyway (go to definition,
     rename, find references), so it is useful with one type system or
-    none.
+    none. A first piece exists since 2026-10-30: `slang/symbols` records
+    the names codegen resolves (definitions, uses, fields) and the
+    language server follows values through them (PLAN_DOC.md); facts on
+    nodes and extension hooks are not there yet.
   - Per-extension data in `.slb` files: a map from extension name (and
     version) to bytes, written at compile time and read by the compiler
     and the language server for compiled dependencies.
@@ -133,7 +136,7 @@ before work starts.
   grammar extension can. Built in phase 1. Errors as values, Swift-style
   `throws` marking, or failure metadata in the library (so a typing
   extension could present errors as values) can come later; phase 2
-  below predates this decision and needs rewriting.
+  was rewritten for this decision (2026-10-30).
 - **Type annotations.** Their syntax (reserved in the core grammar, ignored
   at run time) and where the types live for documentation and the
   language server.
@@ -165,6 +168,8 @@ before work starts.
       expression.
 - [ ] `match` (switch) as an expression and a statement, on the existing
       pattern machinery, with exhaustiveness left to the type checker.
+      (`extensions/switch` gives a switch statement as an extension; the
+      core form is still open.)
 - [x] Same-line continuations (2026-10-29): a call's `(` and a block
       argument's `{` must be on the line where the expression they continue
       ends, so `f(x)` followed by `{ ... }` on the next line is a call and a
@@ -184,24 +189,26 @@ before work starts.
 
 ## Phase 2: error handling
 
-Errors as values. A function that can fail returns an error value (type
-`Error`: message, kind, data, cause, location, stack) instead of raising.
-`try expr` evaluates expr and, when it is an error, returns that error
-from the enclosing function (Zig's `try`, Rust's `?`); a form for
-handling it in place (`expr catch(e){ ... }` or `expr or default`) goes
-with it. `raise` becomes a panic: for bugs and broken invariants, caught
-only at boundaries (a server's request handler, a test, `pcall`, which
-stays for exactly that). Futures fail with error values, and `await`
-works with `try`.
+Rewritten 2026-10-30 after the decision above. The first version of this
+phase planned errors as values (an `Error` type, `try expr` returning it
+from the enclosing function, `raise` as a panic); that was not chosen.
+Errors are raised and caught: `try`/`catch` with patterns, `defer`, and
+raised tables that keep their data (all built in phase 1). What is left
+is making the errors the library raises consistent.
 
-- [ ] The `Error` type, `try`, the in-place handling form, in the core
-      grammar and the VM (an error value must be cheap to test for).
-- [ ] Conventions written down: when to return an error, when to panic,
-      how to wrap a cause.
-- [ ] The standard library converted module by module (os, file, json,
-      sqlite, http, web, crypto, ...), each keeping its raising API one
-      release as deprecated.
-- [ ] The examples converted, as the test of whether it reads well.
+- [~] Raised errors carry data: a raised table keeps its fields through
+      `pcall` and `catch`, with location and stack added (done); the
+      shape the library uses is not settled yet.
+- [ ] Conventions written down: the fields of a library error (`message`
+      always, `kind` for what a program can catch on, the original error
+      as `cause`), when to raise and when to return null, how to wrap.
+- [ ] The standard library brought to them module by module (os, file,
+      json, sqlite, http, web, crypto, ...), so `catch({kind: "not_found"})`
+      style handling works everywhere.
+- [ ] The examples reviewed with it, as the test of whether it reads well.
+- Errors as values, Swift-style `throws` marking, or failure metadata a
+  typing extension could present as values remain possible later, on top
+  of this (see "Errors" in the decisions).
 
 ## Phase 3: single binaries (`slang build`)
 
@@ -287,9 +294,11 @@ needed.
 
 ## Phase 6: tools
 
-- [ ] `slang fmt`: an opinionated 80-column formatter built on parser
-      layers (a lossless tree, a format layer), extension syntax included;
-      also the language server's formatting. See PLAN_FORMAT.md.
+- [x] `slang fmt`: an opinionated 80-column formatter built on parser
+      layers (a lossless tree, a format layer), extension syntax included
+      (2026-10-30; the repository is formatted with it). See PLAN_FORMAT.md.
+- [x] The language server's formatting and format on save in VS Code
+      (2026-10-30, PLAN_FORMAT.md phase 6).
 - [x] `slang doc`: API documentation from the comment conventions the
       libraries already follow, as HTML and in the language server's
       hover. (2026-10-30) With go to definition and find references in the
@@ -344,7 +353,9 @@ format.
 
 - [ ] The annotation syntax, reserved and parsed (no meaning yet).
 - [ ] Types in `slang doc` and in the language server's hover and
-      completion.
+      completion. (Hover, definitions, references and `slang doc` exist
+      without types since 2026-10-30, with a type section per `__type`;
+      completion does not exist yet.)
 - [ ] Types for the standard library.
 - [ ] Later (after 1.0 if needed): `slang check`, a gradual checker; then
       exhaustiveness for `match`.
@@ -356,8 +367,8 @@ format.
 - [ ] `slang/path`, command-line arguments (`slang/cli`), `slang/log`
       (levels, structured fields).
 - [ ] Time zones in `slang/time` (the system's zone database).
-- [ ] The libraries reviewed for consistent naming and error values
-      (with phase 2).
+- [ ] The libraries reviewed for consistent naming and errors (with
+      phase 2).
 
 ## Phase 9: platforms and concurrency
 
@@ -386,7 +397,7 @@ format.
 
 - An FFI: calling C functions from slang without writing C (declared
   signatures, libffi or generated stubs). Large, and best designed once
-  error values and types exist.
+  the error conventions (phase 2) and types exist.
 - The type checker beyond hover and docs, if phase 7 stops short of it.
 - HTTP/2, Postgres, brotli (the "later" items of PLAN_WEB.md).
 - A package registry, if git-based packages prove too little.

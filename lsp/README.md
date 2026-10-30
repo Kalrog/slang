@@ -13,7 +13,8 @@ process by `test/lsp_test.slang`; `lsp/main.slang` is the stdio transport.
 Supported: `initialize` (semantic tokens, full sync, `positionEncoding`
 utf-8 when offered), `didOpen`/`didChange`/`didClose`,
 `semanticTokens/full`, `publishDiagnostics`, `hover`, `definition`,
-`references`, `didChangeWatchedFiles` (the grammars are reset),
+`references`, `formatting` (`slang fmt`'s formatter, the whole document),
+`didChangeWatchedFiles` (the grammars are reset),
 `shutdown`/`exit`, and a `slang/project` notification with the project's
 dialect suffixes. `editors/vscode` is the VS Code client.
 

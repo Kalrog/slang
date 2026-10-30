@@ -205,7 +205,9 @@ t.group("sessions and CSRF"){
         unchanged.body == "2" and unchanged.header("set-cookie") == null,
         "not saved when unchanged"
       )
-      c.cookies.session = concat("A", str.substring(cookie, 1))
+      // (a different first character: the cookie starts with a random nonce)
+      local first = str.substring(cookie, 0, 1) == "A" and "B" or "A"
+      c.cookies.session = concat(first, str.substring(cookie, 1))
       assert(
         a.await(c:get("/look")).body == "null",
         "a changed cookie is ignored"

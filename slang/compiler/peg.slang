@@ -233,9 +233,29 @@ func peg.line_col(ctx, pos){
   return str.line_col(ctx.buffer, pos)
 }
 
+// a token's line and column are computed when first read: most tokens are
+// never asked (those of alternatives that lost, of a parse for highlighting)
+local token_meta = {
+  __index: func(t, key){
+    if(key != "line" and key != "column"){
+      return null
+    }
+    local lc = str.line_col(t.buffer, t.start)
+    t.line = lc[0]
+    t.column = lc[1]
+    return key == "line" and lc[0] or lc[1]
+  },
+}
+
+// the metatable of tokens, for parsers that make their own (a token
+// {value, start, stop, buffer} with it gets line and column on demand)
+peg.token_meta = token_meta
+
+// make_token(ctx, value, start, stop) -> {value, start, stop, line, column}
 func peg.make_token(ctx, value, start, stop){
-  local lc = peg.line_col(ctx, start)
-  return {value: value, start: start, stop: stop, line: lc[0], column: lc[1]}
+  return {
+    value: value, start: start, stop: stop, buffer: ctx.buffer, meta: token_meta,
+  }
 }
 
 func peg.is_parser(value){
@@ -252,7 +272,14 @@ func peg.string(s, message){
       ctx.value = s
       return pos + n
     }
-    return fail(ctx, pos, msg)
+    // fail(ctx, pos, msg), inlined: strings fail more than anything else
+    ctx.fail_pos = pos
+    ctx.fail_msg = msg
+    if(pos > ctx.far_pos){
+      ctx.far_pos = pos
+      ctx.far_msg = msg
+    }
+    return - 1
   }, null, "string")
   p.literal = s
   return p

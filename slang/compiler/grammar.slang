@@ -745,6 +745,11 @@ func methods.seal(g){
     }
   }
   g.sealed = sealed
+  // literal tokens skip trivia natively while it is slang's own (see
+  // literal_token in install_core)
+  local trivia_entry = g.rule_table.trivia
+  g.native_trivia = trivia_entry != null and
+    trivia_entry.parser == g.default_trivia
   g.state.active = g
   install(g)
   for(let local e in values(built)){
@@ -883,8 +888,11 @@ local func install_core(g){
   // trivia: whitespace and comments, skipped by one native call
   local trivia = peg.custom(func(self, ctx, pos){
     local q = str.skip_space(ctx.buffer, pos)
+    // (no failure recorded: trivia is optional wherever it is used, and
+    // recording one at every token boundary without space was a tenth of
+    // the parse time)
     if(q == pos){
-      return peg.fail(ctx, pos, "whitespace expected")
+      return - 1
     }
     ctx.value = null
     return q
@@ -919,16 +927,67 @@ local func install_core(g){
   // methods.token). Word-like tokens (keywords, `not`, `and`, ...) must not
   // be followed by an identifier character, so that `notify` or `localVar`
   // stay identifiers.
+  // A literal token (a keyword, punctuation): what the composed parser
+  // string:token(category):trim(trivia) does, in one parser with native
+  // calls, while the trivia is slang's own. It fails the way the composed
+  // one does (same positions and messages). A parse that builds a tree, or
+  // runs under a grammar whose trivia an extension changed, uses the
+  // composed parser.
+  local word_end = str.char_class("a-zA-Z0-9_")
+  local token_meta = peg.token_meta
+  local func literal_token(s, word, category, message, composed){
+    local n = len(s)
+    local parse = func(self, ctx, pos){
+      if(not lin.active.native_trivia){
+        return composed:parse_on(ctx, pos)
+      }
+      local buf = ctx.buffer
+      local start = str.skip_space(buf, pos)
+      if(not str.starts_with(buf, s, start)){
+        ctx.fail_pos = start
+        ctx.fail_msg = message
+        if(start > ctx.far_pos){
+          ctx.far_pos = start
+          ctx.far_msg = message
+        }
+        return - 1
+      }
+      local stop = start + n
+      if(word and str.class_match(word_end, buf, stop) > 0){
+        return peg.fail(ctx, stop, "success not expected")
+      }
+      ctx.value = {
+        value: s, start: start, stop: stop, buffer: buf, category: category,
+        meta: token_meta,
+      }
+      return str.skip_space(buf, stop)
+    }
+    local p = peg.custom(parse, func(self, ctx, pos){
+      return peg.parse_tree(composed, ctx, pos)
+    })
+    p.kind = "literal_token"
+    p.children = {composed}
+    local first = {}
+    first[str.byte_at(s, 0)] = true
+    p.first = first
+    p.nullable = false
+    return p
+  }
+
   lin.token_fn = func(source, name, category){
     if(type(source) == "string"){
-      local p = peg.string(source, concat("Expected: ", name or source))
-      if(is_word(source)){
+      local message = concat("Expected: ", name or source)
+      local p = peg.string(source, message)
+      local word = is_word(source)
+      if(word){
         p = peg.seq(p, peg.pattern("a-zA-Z0-9_"):forbid()):pick(0)
         category = category or "keyword"
       } else {
         category = category or "punctuation"
       }
-      return p:token(category):trim(space)
+      return literal_token(
+        source, word, category, message, p:token(category):trim(space)
+      )
     }
     if(peg.is_parser(source)){
       return source:flatten(name):token(category or name):trim(space)

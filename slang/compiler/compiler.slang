@@ -10,6 +10,7 @@ local peg = require("slang/peg")
 local ast = require("slang/ast")
 local grammar = require("slang/grammar")
 local codegen = require("slang/codegen")
+local symbols = require("slang/symbols")
 local optimizer = require("slang/optimizer")
 local vm = require("slang/vm")
 local os = require("slang/os")
@@ -322,6 +323,55 @@ func compiler.load_project(path){
   return project
 }
 
+// absolute_path(path) -> path from the root, without . and .. parts
+func compiler.absolute_path(path){
+  local parts = {}
+  for(let local part in values(str.split(join_path(os.cwd(), path), "/"))){
+    if(part == ".."){
+      if(len(parts) > 0){
+        remove(parts, len(parts) - 1)
+      }
+    } else if(part != "." and part != ""){
+      append(parts, part)
+    }
+  }
+  return concat("/", str.join(parts, "/"))
+}
+
+// stub_path(name) -> the stub of a module without slang source (a native
+// one, or "globals" for the global functions): a slang file that declares
+// and documents it, never run; null when there is none
+func compiler.stub_path(name){
+  for(let local dir in values(__PACKAGES.stubSources or {})){
+    local path = concat(dir, "/", name, ".slang")
+    if(os.exists(path)){
+      return compiler.absolute_path(path)
+    }
+  }
+  return null
+}
+
+// module_path(name) -> the absolute path of the source file require(name)
+// would load, its stub when it has no source (see stub_path), or null:
+// on the search paths (the project's first), else one of slang's own
+// library modules (slang/http is http.slang in a librarySources directory)
+func compiler.module_path(name){
+  local found = __PACKAGES.find_source(name)
+  if(found != null){
+    return compiler.absolute_path(found.path)
+  }
+  if(str.starts_with(name, "slang/")){
+    local base = str.substring(name, 6)
+    for(let local dir in values(__PACKAGES.librarySources or {})){
+      local path = concat(dir, "/", base, ".slang")
+      if(os.exists(path)){
+        return compiler.absolute_path(path)
+      }
+    }
+  }
+  return compiler.stub_path(name)
+}
+
 // project() -> the project in effect, or null
 func compiler.project(){
   return project
@@ -487,14 +537,17 @@ local func find_project_for(path){
   }
 }
 
-// highlight(source, path, {find_project}) -> {tokens, diagnostics}: the tokens of source as
+// highlight(source, path, {find_project, symbols}) -> {tokens, diagnostics,
+// symbols}: the tokens of source as
 // the compiler would parse the file at path (its project, its dialect),
 // with categories and 1-based line/column, and the parse errors as
 // {line, column, message, severity}. Extension code runs as it would in
 // the compiler; nothing is compiled or cached. A file of a dialect with a
 // compile function has no tokens. The tokens are read off the lossless tree
 // (peg.highlights); a statement that fails to parse is reported and
-// highlighted by its words, and the parse goes on after it.
+// highlighted by its words, and the parse goes on after it. With symbols,
+// the same parse also gives the file's definitions and uses (see
+// slang/symbols; not for a project file).
 func compiler.highlight(source, path, options){
   // the editor's documents look their project up while none is loaded (the
   // main program's own lookup does not count: the server has no project)
@@ -565,6 +618,10 @@ func compiler.highlight(source, path, options){
     }
     lin.last_failure = null
   }
+  local found = null
+  if(options != null and options.symbols and r[0] == "ok" and shift == 0){
+    found = symbols.analyse(r[1], text, path)
+  }
   local tokens = peg.highlights(lin.last_tree, text, {trivia: grammar.comments})
   lin.last_tree = null
   lin.failures = null
@@ -582,7 +639,7 @@ func compiler.highlight(source, path, options){
     }
     tokens = shifted
   }
-  return {tokens: tokens, diagnostics: diagnostics}
+  return {tokens: tokens, diagnostics: diagnostics, symbols: found}
 }
 
 // compile_file(path, origin) -> function: compiles a file as `slang run`

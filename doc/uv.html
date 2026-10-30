@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>uv</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>uv</h1>
+<p>uv: the native binding of libuv in the callback style of luv. Most code should use slang/async, which builds Futures and Streams on it.</p>
+<pre><code>local uv = require(&quot;uv&quot;)
+local t = uv.timer()
+t:start(100, 0, func(){ print(&quot;tick&quot;) t:close() })
+uv.run()</code></pre>
+<p>Handles are userdata with methods; every operation takes its callback last, and callbacks have the shape cb(err, value) with err a string like &quot;ECONNRESET: connection reset by peer&quot; or null. Callbacks run only from inside uv.run(); an error raised in one stops the loop and comes out of uv.run(). An active handle (a running timer, a listening or reading socket, a pending connect) keeps its userdata alive; a handle collected before it was closed is closed by its finalizer. Failing calls raise the same kind of error text.</p>
+<p>uv.c_api is a userdata holding the C API (slang_uv.h) through which other extensions (sqlite, crypto) run work on libuv's thread pool.</p>
+<ul class="toc">
+<li><a href="#run"><code>run</code></a></li>
+<li><a href="#stop"><code>stop</code></a></li>
+<li><a href="#now"><code>now</code></a></li>
+<li><a href="#hrtime"><code>hrtime</code></a></li>
+<li><a href="#loop_alive"><code>loop_alive</code></a></li>
+<li><a href="#version"><code>version</code></a></li>
+<li><a href="#timer"><code>timer</code></a></li>
+<li><a href="#tcp"><code>tcp</code></a></li>
+<li><a href="#pipe"><code>pipe</code></a></li>
+<li><a href="#signal"><code>signal</code></a></li>
+<li><a href="#spawn"><code>spawn</code></a></li>
+<li><a href="#kill"><code>kill</code></a></li>
+<li><a href="#getpid"><code>getpid</code></a></li>
+<li><a href="#poll"><code>poll</code></a></li>
+<li><a href="#getaddrinfo"><code>getaddrinfo</code></a></li>
+<li><a href="#fs_read_file"><code>fs_read_file</code></a></li>
+<li><a href="#fs_write_file"><code>fs_write_file</code></a></li>
+<li><a href="#fs_stat"><code>fs_stat</code></a></li>
+<li><a href="#fs_unlink"><code>fs_unlink</code></a></li>
+<li><a href="#fs_mkdir"><code>fs_mkdir</code></a></li>
+<li><a href="#fs_rmdir"><code>fs_rmdir</code></a></li>
+<li><a href="#fs_rename"><code>fs_rename</code></a></li>
+<li><a href="#fs_scandir"><code>fs_scandir</code></a></li>
+<li><a href="#fs_open"><code>fs_open</code></a></li>
+<li><a href="#fs_read"><code>fs_read</code></a></li>
+<li><a href="#fs_write"><code>fs_write</code></a></li>
+<li><a href="#fs_close"><code>fs_close</code></a></li>
+<li><a href="#uv.timer:start"><code>uv.timer:start</code></a></li>
+<li><a href="#uv.timer:stop"><code>uv.timer:stop</code></a></li>
+<li><a href="#uv.timer:again"><code>uv.timer:again</code></a></li>
+<li><a href="#uv.timer:close"><code>uv.timer:close</code></a></li>
+<li><a href="#uv.timer:is_active"><code>uv.timer:is_active</code></a></li>
+<li><a href="#uv.timer:is_closing"><code>uv.timer:is_closing</code></a></li>
+<li><a href="#uv.timer:ref"><code>uv.timer:ref</code></a></li>
+<li><a href="#uv.timer:unref"><code>uv.timer:unref</code></a></li>
+<li><a href="#uv.timer:has_ref"><code>uv.timer:has_ref</code></a></li>
+<li><a href="#uv.tcp:bind"><code>uv.tcp:bind</code></a></li>
+<li><a href="#uv.tcp:listen"><code>uv.tcp:listen</code></a></li>
+<li><a href="#uv.tcp:accept"><code>uv.tcp:accept</code></a></li>
+<li><a href="#uv.tcp:connect"><code>uv.tcp:connect</code></a></li>
+<li><a href="#uv.tcp:read_start"><code>uv.tcp:read_start</code></a></li>
+<li><a href="#uv.tcp:read_stop"><code>uv.tcp:read_stop</code></a></li>
+<li><a href="#uv.tcp:write"><code>uv.tcp:write</code></a></li>
+<li><a href="#uv.tcp:shutdown"><code>uv.tcp:shutdown</code></a></li>
+<li><a href="#uv.tcp:getsockname"><code>uv.tcp:getsockname</code></a></li>
+<li><a href="#uv.tcp:getpeername"><code>uv.tcp:getpeername</code></a></li>
+<li><a href="#uv.tcp:nodelay"><code>uv.tcp:nodelay</code></a></li>
+<li><a href="#uv.tcp:keepalive"><code>uv.tcp:keepalive</code></a></li>
+<li><a href="#uv.tcp:fileno"><code>uv.tcp:fileno</code></a></li>
+<li><a href="#uv.tcp:close"><code>uv.tcp:close</code></a></li>
+<li><a href="#uv.tcp:is_active"><code>uv.tcp:is_active</code></a></li>
+<li><a href="#uv.tcp:is_closing"><code>uv.tcp:is_closing</code></a></li>
+<li><a href="#uv.tcp:ref"><code>uv.tcp:ref</code></a></li>
+<li><a href="#uv.tcp:unref"><code>uv.tcp:unref</code></a></li>
+<li><a href="#uv.tcp:has_ref"><code>uv.tcp:has_ref</code></a></li>
+<li><a href="#uv.pipe:open"><code>uv.pipe:open</code></a></li>
+<li><a href="#uv.pipe:read_start"><code>uv.pipe:read_start</code></a></li>
+<li><a href="#uv.pipe:read_stop"><code>uv.pipe:read_stop</code></a></li>
+<li><a href="#uv.pipe:write"><code>uv.pipe:write</code></a></li>
+<li><a href="#uv.pipe:shutdown"><code>uv.pipe:shutdown</code></a></li>
+<li><a href="#uv.pipe:fileno"><code>uv.pipe:fileno</code></a></li>
+<li><a href="#uv.pipe:close"><code>uv.pipe:close</code></a></li>
+<li><a href="#uv.pipe:is_active"><code>uv.pipe:is_active</code></a></li>
+<li><a href="#uv.pipe:is_closing"><code>uv.pipe:is_closing</code></a></li>
+<li><a href="#uv.pipe:ref"><code>uv.pipe:ref</code></a></li>
+<li><a href="#uv.pipe:unref"><code>uv.pipe:unref</code></a></li>
+<li><a href="#uv.pipe:has_ref"><code>uv.pipe:has_ref</code></a></li>
+<li><a href="#uv.signal:start"><code>uv.signal:start</code></a></li>
+<li><a href="#uv.signal:stop"><code>uv.signal:stop</code></a></li>
+<li><a href="#uv.signal:close"><code>uv.signal:close</code></a></li>
+<li><a href="#uv.signal:is_active"><code>uv.signal:is_active</code></a></li>
+<li><a href="#uv.signal:is_closing"><code>uv.signal:is_closing</code></a></li>
+<li><a href="#uv.signal:ref"><code>uv.signal:ref</code></a></li>
+<li><a href="#uv.signal:unref"><code>uv.signal:unref</code></a></li>
+<li><a href="#uv.signal:has_ref"><code>uv.signal:has_ref</code></a></li>
+<li><a href="#uv.process:pid"><code>uv.process:pid</code></a></li>
+<li><a href="#uv.process:kill"><code>uv.process:kill</code></a></li>
+<li><a href="#uv.process:close"><code>uv.process:close</code></a></li>
+<li><a href="#uv.process:is_active"><code>uv.process:is_active</code></a></li>
+<li><a href="#uv.process:is_closing"><code>uv.process:is_closing</code></a></li>
+<li><a href="#uv.process:ref"><code>uv.process:ref</code></a></li>
+<li><a href="#uv.process:unref"><code>uv.process:unref</code></a></li>
+<li><a href="#uv.process:has_ref"><code>uv.process:has_ref</code></a></li>
+<li><a href="#uv.poll:start"><code>uv.poll:start</code></a></li>
+<li><a href="#uv.poll:stop"><code>uv.poll:stop</code></a></li>
+<li><a href="#uv.poll:close"><code>uv.poll:close</code></a></li>
+<li><a href="#uv.poll:is_active"><code>uv.poll:is_active</code></a></li>
+<li><a href="#uv.poll:is_closing"><code>uv.poll:is_closing</code></a></li>
+<li><a href="#uv.poll:ref"><code>uv.poll:ref</code></a></li>
+<li><a href="#uv.poll:unref"><code>uv.poll:unref</code></a></li>
+<li><a href="#uv.poll:has_ref"><code>uv.poll:has_ref</code></a></li>
+</ul>
+<h2>the loop</h2>
+<div class="def" id="run"><h3><code>m.run(mode)</code></h3>
+<p>run([mode]) -&gt; whether there is more to do; mode &quot;default&quot; (run until nothing is active), &quot;once&quot; or &quot;nowait&quot;. Raises when the loop is already running, or with the error a callback raised.</p>
+</div>
+<div class="def" id="stop"><h3><code>m.stop()</code></h3>
+<p>stop() makes the running uv.run() return soon</p>
+</div>
+<div class="def" id="now"><h3><code>m.now()</code></h3>
+<p>now() -&gt; the loop's idea of the time in milliseconds</p>
+</div>
+<div class="def" id="hrtime"><h3><code>m.hrtime()</code></h3>
+<p>hrtime() -&gt; a high-resolution time in nanoseconds, for measuring</p>
+</div>
+<div class="def" id="loop_alive"><h3><code>m.loop_alive()</code></h3>
+<p>loop_alive() -&gt; whether the loop has active, referenced handles or requests</p>
+</div>
+<div class="def" id="version"><h3><code>m.version()</code></h3>
+<p>version() -&gt; the libuv version text</p>
+</div>
+<h2>timers</h2>
+<div class="def" id="timer"><h3><code>m.timer()</code></h3>
+<p>timer() -&gt; a new uv.timer</p>
+</div>
+<h2>tcp</h2>
+<div class="def" id="tcp"><h3><code>m.tcp()</code></h3>
+<p>tcp() -&gt; a new uv.tcp socket</p>
+</div>
+<h2>pipes</h2>
+<div class="def" id="pipe"><h3><code>m.pipe()</code></h3>
+<p>pipe() -&gt; a new uv.pipe: stdin/stdout, a child's stdio, or a named pipe</p>
+</div>
+<h2>signals</h2>
+<div class="def" id="signal"><h3><code>m.signal()</code></h3>
+<p>signal() -&gt; a new uv.signal watcher</p>
+</div>
+<h2>processes</h2>
+<div class="def" id="spawn"><h3><code>m.spawn(file, args, options, cb)</code></h3>
+<p>spawn(file, args, options, cb) -&gt; a uv.process running file. args is the list of arguments after the program name (or null). options (or null): cwd; env, a table of names to values replacing the environment; detached; stdio, a list for fds 0, 1, 2, ... whose entries are a uv.pipe (connected to the child), &quot;inherit&quot;, an int (that fd of this process) or &quot;ignore&quot; (without stdio the child inherits 0, 1 and 2). cb(err, {status, signal}) when it exits; signal only when a signal ended it. Raises when the program cannot be started.</p>
+</div>
+<div class="def" id="kill"><h3><code>m.kill(pid, sig)</code></h3>
+<p>kill(pid, [sig]) sends sig (a number or a name, &quot;SIGTERM&quot; by default) to the process pid</p>
+</div>
+<div class="def" id="getpid"><h3><code>m.getpid()</code></h3>
+<p>getpid() -&gt; the id of this process</p>
+</div>
+<h2>polling</h2>
+<div class="def" id="poll"><h3><code>m.poll(fd)</code></h3>
+<p>poll(fd) -&gt; a uv.poll watching a socket or pipe that another library owns (a database client, say)</p>
+</div>
+<h2>names</h2>
+<div class="def" id="getaddrinfo"><h3><code>m.getaddrinfo(host, port, family, cb)</code></h3>
+<p>getaddrinfo(host, [port], [family], cb) resolves host; cb(err, list of {ip, port, family}). port is a number, a service name or null; family &quot;ipv4&quot; or &quot;ipv6&quot; limits the answers.</p>
+</div>
+<h2>files</h2>
+<div class="def" id="fs_read_file"><h3><code>m.fs_read_file(path, cb)</code></h3>
+<p>fs_read_file(path, cb) reads the whole file; cb(err, data)</p>
+</div>
+<div class="def" id="fs_write_file"><h3><code>m.fs_write_file(path, data, append, cb)</code></h3>
+<p>fs_write_file(path, data, [append], cb) creates or replaces the file, or appends to it when append is true; cb(err)</p>
+</div>
+<div class="def" id="fs_stat"><h3><code>m.fs_stat(path, cb)</code></h3>
+<p>fs_stat(path, cb) -&gt; cb(err, {size, mode, mtime, atime, ctime, is_file, is_dir}); the times in seconds</p>
+</div>
+<div class="def" id="fs_unlink"><h3><code>m.fs_unlink(path, cb)</code></h3>
+<p>fs_unlink(path, cb) removes a file; cb(err)</p>
+</div>
+<div class="def" id="fs_mkdir"><h3><code>m.fs_mkdir(path, cb)</code></h3>
+<p>fs_mkdir(path, cb) makes a directory; cb(err)</p>
+</div>
+<div class="def" id="fs_rmdir"><h3><code>m.fs_rmdir(path, cb)</code></h3>
+<p>fs_rmdir(path, cb) removes an empty directory; cb(err)</p>
+</div>
+<div class="def" id="fs_rename"><h3><code>m.fs_rename(from, to, cb)</code></h3>
+<p>fs_rename(from, to, cb) renames a file or directory; cb(err)</p>
+</div>
+<div class="def" id="fs_scandir"><h3><code>m.fs_scandir(path, cb)</code></h3>
+<p>fs_scandir(path, cb) lists a directory; cb(err, list of {name, type}) with type &quot;file&quot;, &quot;dir&quot;, &quot;link&quot;, &quot;unknown&quot; or &quot;other&quot;</p>
+</div>
+<div class="def" id="fs_open"><h3><code>m.fs_open(path, flags, cb)</code></h3>
+<p>fs_open(path, flags, cb) opens a file; cb(err, fd). flags as in fopen: &quot;r&quot;, &quot;r+&quot;, &quot;w&quot;, &quot;w+&quot;, &quot;a&quot;, &quot;a+&quot;, and &quot;wx&quot; or &quot;w+x&quot; to fail when the file exists.</p>
+</div>
+<div class="def" id="fs_read"><h3><code>m.fs_read(fd, length, offset, cb)</code></h3>
+<p>fs_read(fd, length, offset, cb) -&gt; cb(err, data); offset -1 or null reads at the current position. data is shorter at the end of the file, &quot;&quot; past it.</p>
+</div>
+<div class="def" id="fs_write"><h3><code>m.fs_write(fd, data, offset, cb)</code></h3>
+<p>fs_write(fd, data, offset, cb) writes all of data at offset (-1 or null: the current position); cb(err, written)</p>
+</div>
+<div class="def" id="fs_close"><h3><code>m.fs_close(fd, cb)</code></h3>
+<p>fs_close(fd, cb) closes a file descriptor; cb(err)</p>
+</div>
+<h2>type uv.timer</h2>
+<div class="def" id="uv.timer:start"><h3><code>uv.timer:start(timeout, repeat, cb)</code></h3>
+<p>timer:start(timeout, repeat, cb) calls cb() after timeout milliseconds, then every repeat milliseconds unless repeat is 0 (or null)</p>
+</div>
+<div class="def" id="uv.timer:stop"><h3><code>uv.timer:stop()</code></h3>
+<p>timer:stop() stops the timer</p>
+</div>
+<div class="def" id="uv.timer:again"><h3><code>uv.timer:again()</code></h3>
+<p>timer:again() restarts a repeating timer with its repeat interval</p>
+</div>
+<div class="def" id="uv.timer:close"><h3><code>uv.timer:close(cb)</code></h3>
+<p>timer:close([cb]) closes the handle; cb() runs once it is closed</p>
+</div>
+<div class="def" id="uv.timer:is_active"><h3><code>uv.timer:is_active()</code></h3>
+<p>timer:is_active() -&gt; whether the timer is running</p>
+</div>
+<div class="def" id="uv.timer:is_closing"><h3><code>uv.timer:is_closing()</code></h3>
+<p>timer:is_closing() -&gt; whether close() was called</p>
+</div>
+<div class="def" id="uv.timer:ref"><h3><code>uv.timer:ref()</code></h3>
+<p>timer:ref() makes the handle keep uv.run() going again (the default)</p>
+</div>
+<div class="def" id="uv.timer:unref"><h3><code>uv.timer:unref()</code></h3>
+<p>timer:unref() makes the handle no longer keep uv.run() going</p>
+</div>
+<div class="def" id="uv.timer:has_ref"><h3><code>uv.timer:has_ref()</code></h3>
+<p>timer:has_ref() -&gt; whether the handle keeps uv.run() going</p>
+</div>
+<h2>type uv.tcp</h2>
+<div class="def" id="uv.tcp:bind"><h3><code>uv.tcp:bind(ip, port)</code></h3>
+<p>tcp:bind(ip, port) binds the socket to an IPv4 or IPv6 address (not a host name)</p>
+</div>
+<div class="def" id="uv.tcp:listen"><h3><code>uv.tcp:listen(backlog, cb)</code></h3>
+<p>tcp:listen([backlog], cb) listens for connections (backlog 128, pass null for it); cb(err) runs for each one, which accept() then takes</p>
+</div>
+<div class="def" id="uv.tcp:accept"><h3><code>uv.tcp:accept(client)</code></h3>
+<p>tcp:accept(client) accepts a pending connection into client, a new uv.tcp or uv.pipe</p>
+</div>
+<div class="def" id="uv.tcp:connect"><h3><code>uv.tcp:connect(ip, port, cb)</code></h3>
+<p>tcp:connect(ip, port, cb) connects to an IPv4 or IPv6 address (not a host name); cb(err) when done</p>
+</div>
+<div class="def" id="uv.tcp:read_start"><h3><code>uv.tcp:read_start(cb)</code></h3>
+<p>tcp:read_start(cb) reads: cb(err, chunk) for each chunk, with chunk null at the end of the stream; reading stops at the end or an error</p>
+</div>
+<div class="def" id="uv.tcp:read_stop"><h3><code>uv.tcp:read_stop()</code></h3>
+<p>tcp:read_stop() stops reading</p>
+</div>
+<div class="def" id="uv.tcp:write"><h3><code>uv.tcp:write(data, cb)</code></h3>
+<p>tcp:write(data, [cb]) queues a copy of data; cb(err) once written</p>
+</div>
+<div class="def" id="uv.tcp:shutdown"><h3><code>uv.tcp:shutdown(cb)</code></h3>
+<p>tcp:shutdown([cb]) closes the write side after pending writes; cb(err)</p>
+</div>
+<div class="def" id="uv.tcp:getsockname"><h3><code>uv.tcp:getsockname()</code></h3>
+<p>tcp:getsockname() -&gt; {ip, port, family} of the local end; family &quot;ipv4&quot; or &quot;ipv6&quot;</p>
+</div>
+<div class="def" id="uv.tcp:getpeername"><h3><code>uv.tcp:getpeername()</code></h3>
+<p>tcp:getpeername() -&gt; {ip, port, family} of the remote end</p>
+</div>
+<div class="def" id="uv.tcp:nodelay"><h3><code>uv.tcp:nodelay(enable)</code></h3>
+<p>tcp:nodelay(enable) turns Nagle's algorithm off (true) or on</p>
+</div>
+<div class="def" id="uv.tcp:keepalive"><h3><code>uv.tcp:keepalive(enable, delay)</code></h3>
+<p>tcp:keepalive(enable, [delay]) turns TCP keep-alive on or off; delay is the initial delay in seconds (60)</p>
+</div>
+<div class="def" id="uv.tcp:fileno"><h3><code>uv.tcp:fileno()</code></h3>
+<p>tcp:fileno() -&gt; the OS file descriptor</p>
+</div>
+<div class="def" id="uv.tcp:close"><h3><code>uv.tcp:close(cb)</code></h3>
+<p>tcp:close([cb]) closes the handle; cb() runs once it is closed</p>
+</div>
+<div class="def" id="uv.tcp:is_active"><h3><code>uv.tcp:is_active()</code></h3>
+<p>tcp:is_active() -&gt; whether the socket is listening, reading or connecting</p>
+</div>
+<div class="def" id="uv.tcp:is_closing"><h3><code>uv.tcp:is_closing()</code></h3>
+<p>tcp:is_closing() -&gt; whether close() was called</p>
+</div>
+<div class="def" id="uv.tcp:ref"><h3><code>uv.tcp:ref()</code></h3>
+<p>tcp:ref() makes the handle keep uv.run() going again (the default)</p>
+</div>
+<div class="def" id="uv.tcp:unref"><h3><code>uv.tcp:unref()</code></h3>
+<p>tcp:unref() makes the handle no longer keep uv.run() going</p>
+</div>
+<div class="def" id="uv.tcp:has_ref"><h3><code>uv.tcp:has_ref()</code></h3>
+<p>tcp:has_ref() -&gt; whether the handle keeps uv.run() going</p>
+</div>
+<h2>type uv.pipe</h2>
+<div class="def" id="uv.pipe:open"><h3><code>uv.pipe:open(fd)</code></h3>
+<p>pipe:open(fd) takes over an existing file descriptor (0 for stdin, 1 for stdout)</p>
+</div>
+<div class="def" id="uv.pipe:read_start"><h3><code>uv.pipe:read_start(cb)</code></h3>
+<p>pipe:read_start(cb) reads: cb(err, chunk) for each chunk, with chunk null at the end of the stream</p>
+</div>
+<div class="def" id="uv.pipe:read_stop"><h3><code>uv.pipe:read_stop()</code></h3>
+<p>pipe:read_stop() stops reading</p>
+</div>
+<div class="def" id="uv.pipe:write"><h3><code>uv.pipe:write(data, cb)</code></h3>
+<p>pipe:write(data, [cb]) queues a copy of data; cb(err) once written</p>
+</div>
+<div class="def" id="uv.pipe:shutdown"><h3><code>uv.pipe:shutdown(cb)</code></h3>
+<p>pipe:shutdown([cb]) closes the write side after pending writes; cb(err)</p>
+</div>
+<div class="def" id="uv.pipe:fileno"><h3><code>uv.pipe:fileno()</code></h3>
+<p>pipe:fileno() -&gt; the OS file descriptor</p>
+</div>
+<div class="def" id="uv.pipe:close"><h3><code>uv.pipe:close(cb)</code></h3>
+<p>pipe:close([cb]) closes the handle; cb() runs once it is closed</p>
+</div>
+<div class="def" id="uv.pipe:is_active"><h3><code>uv.pipe:is_active()</code></h3>
+<p>pipe:is_active() -&gt; whether the pipe is reading or writing</p>
+</div>
+<div class="def" id="uv.pipe:is_closing"><h3><code>uv.pipe:is_closing()</code></h3>
+<p>pipe:is_closing() -&gt; whether close() was called</p>
+</div>
+<div class="def" id="uv.pipe:ref"><h3><code>uv.pipe:ref()</code></h3>
+<p>pipe:ref() makes the handle keep uv.run() going again (the default)</p>
+</div>
+<div class="def" id="uv.pipe:unref"><h3><code>uv.pipe:unref()</code></h3>
+<p>pipe:unref() makes the handle no longer keep uv.run() going</p>
+</div>
+<div class="def" id="uv.pipe:has_ref"><h3><code>uv.pipe:has_ref()</code></h3>
+<p>pipe:has_ref() -&gt; whether the handle keeps uv.run() going</p>
+</div>
+<h2>type uv.signal</h2>
+<div class="def" id="uv.signal:start"><h3><code>uv.signal:start(sig, cb)</code></h3>
+<p>signal:start(sig, cb) watches for sig, a number or a name like &quot;SIGINT&quot;; cb(err, name) for each delivery (the number when it has no name here)</p>
+</div>
+<div class="def" id="uv.signal:stop"><h3><code>uv.signal:stop()</code></h3>
+<p>signal:stop() stops watching</p>
+</div>
+<div class="def" id="uv.signal:close"><h3><code>uv.signal:close(cb)</code></h3>
+<p>signal:close([cb]) closes the handle; cb() runs once it is closed</p>
+</div>
+<div class="def" id="uv.signal:is_active"><h3><code>uv.signal:is_active()</code></h3>
+<p>signal:is_active() -&gt; whether the watcher is started</p>
+</div>
+<div class="def" id="uv.signal:is_closing"><h3><code>uv.signal:is_closing()</code></h3>
+<p>signal:is_closing() -&gt; whether close() was called</p>
+</div>
+<div class="def" id="uv.signal:ref"><h3><code>uv.signal:ref()</code></h3>
+<p>signal:ref() makes the handle keep uv.run() going again (the default)</p>
+</div>
+<div class="def" id="uv.signal:unref"><h3><code>uv.signal:unref()</code></h3>
+<p>signal:unref() makes the handle no longer keep uv.run() going (a watcher that should not stop the program from ending)</p>
+</div>
+<div class="def" id="uv.signal:has_ref"><h3><code>uv.signal:has_ref()</code></h3>
+<p>signal:has_ref() -&gt; whether the handle keeps uv.run() going</p>
+</div>
+<h2>type uv.process</h2>
+<div class="def" id="uv.process:pid"><h3><code>uv.process:pid()</code></h3>
+<p>process:pid() -&gt; the child's process id</p>
+</div>
+<div class="def" id="uv.process:kill"><h3><code>uv.process:kill(sig)</code></h3>
+<p>process:kill([sig]) sends sig (a number or a name, &quot;SIGTERM&quot; by default) to the child</p>
+</div>
+<div class="def" id="uv.process:close"><h3><code>uv.process:close(cb)</code></h3>
+<p>process:close([cb]) closes the handle; cb() runs once it is closed</p>
+</div>
+<div class="def" id="uv.process:is_active"><h3><code>uv.process:is_active()</code></h3>
+<p>process:is_active() -&gt; whether the handle is active</p>
+</div>
+<div class="def" id="uv.process:is_closing"><h3><code>uv.process:is_closing()</code></h3>
+<p>process:is_closing() -&gt; whether close() was called</p>
+</div>
+<div class="def" id="uv.process:ref"><h3><code>uv.process:ref()</code></h3>
+<p>process:ref() makes the handle keep uv.run() going again (the default)</p>
+</div>
+<div class="def" id="uv.process:unref"><h3><code>uv.process:unref()</code></h3>
+<p>process:unref() makes the handle no longer keep uv.run() going</p>
+</div>
+<div class="def" id="uv.process:has_ref"><h3><code>uv.process:has_ref()</code></h3>
+<p>process:has_ref() -&gt; whether the handle keeps uv.run() going</p>
+</div>
+<h2>type uv.poll</h2>
+<div class="def" id="uv.poll:start"><h3><code>uv.poll:start(events, cb)</code></h3>
+<p>poll:start(events, cb) watches for events &quot;r&quot;, &quot;w&quot; or &quot;rw&quot;; cb(err, events) with the events that happened</p>
+</div>
+<div class="def" id="uv.poll:stop"><h3><code>uv.poll:stop()</code></h3>
+<p>poll:stop() stops watching</p>
+</div>
+<div class="def" id="uv.poll:close"><h3><code>uv.poll:close(cb)</code></h3>
+<p>poll:close([cb]) closes the handle; cb() runs once it is closed</p>
+</div>
+<div class="def" id="uv.poll:is_active"><h3><code>uv.poll:is_active()</code></h3>
+<p>poll:is_active() -&gt; whether the watcher is started</p>
+</div>
+<div class="def" id="uv.poll:is_closing"><h3><code>uv.poll:is_closing()</code></h3>
+<p>poll:is_closing() -&gt; whether close() was called</p>
+</div>
+<div class="def" id="uv.poll:ref"><h3><code>uv.poll:ref()</code></h3>
+<p>poll:ref() makes the handle keep uv.run() going again (the default)</p>
+</div>
+<div class="def" id="uv.poll:unref"><h3><code>uv.poll:unref()</code></h3>
+<p>poll:unref() makes the handle no longer keep uv.run() going</p>
+</div>
+<div class="def" id="uv.poll:has_ref"><h3><code>uv.poll:has_ref()</code></h3>
+<p>poll:has_ref() -&gt; whether the handle keeps uv.run() going</p>
+</div>
+<p class="muted">slang/stubs/uv.slang</p>
+</body>
+</html>

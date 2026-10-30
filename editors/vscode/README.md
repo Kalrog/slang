@@ -1,10 +1,12 @@
 # slang for VS Code
 
-Highlighting and diagnostics for slang. A TextMate grammar colours the core
-language on its own; in a trusted workspace the extension starts the slang
-language server (`lsp/` of the slang repository, bundled here), which
-parses each file with the project's real grammar, extensions and dialects
-included, and provides semantic tokens and parse errors.
+Highlighting, diagnostics and navigation for slang. A TextMate grammar
+colours the core language on its own; in a trusted workspace the extension
+starts the slang language server (`lsp/` of the slang repository, bundled
+here), which parses each file with the project's real grammar, extensions
+and dialects included, and provides semantic tokens, parse errors, hover
+(signatures and doc comments), go to definition and find references,
+across modules loaded with `require`.
 
 Settings: `slang.path` (the `slang` binary; default `slang` on the PATH),
 `slang.associateDialects` (map the project's dialect suffixes to the slang

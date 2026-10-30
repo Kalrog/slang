@@ -140,6 +140,7 @@ func asm.get_upvalue(self, name){
         index: len(self.upvalue_list),
         local_register: lv.register,
         upvalue_index: - 1,
+        lv: lv,
       }
       self.upvalues[name] = def
       append(self.upvalue_list, def)
@@ -152,6 +153,7 @@ func asm.get_upvalue(self, name){
         index: len(self.upvalue_list),
         local_register: - 1,
         upvalue_index: up.index,
+        lv: up.lv,
       }
       self.upvalues[name] = def
       append(self.upvalue_list, def)
@@ -600,6 +602,36 @@ local func position(token){
   return concat("", token.line, ":", token.column)
 }
 
+// With a recorder (generate's options.record, see slang/symbols), the
+// names codegen resolves are reported: every local it declares
+// (define), every name it reads or assigns with what that resolved to
+// (use: a local's definition, or null for a global), and every field
+// written or read by name (field).
+local func record_local(g, name, token, kind, value, statement){
+  if(g.record != null){
+    local lv = g.asm:get_local(name)
+    lv.def = g.record:define(name, token, kind, value, statement)
+  }
+}
+
+local func record_use(g, name, token, write, value, statement){
+  if(g.record == null){
+    return null
+  }
+  local lv = g.asm:get_local(name)
+  if(lv == null){
+    local up = g.asm:get_upvalue(name)
+    if(up != null){
+      lv = up.lv
+    }
+  }
+  if(lv != null){
+    g.record:use(name, token, lv.def, write)
+  } else {
+    g.record:use(name, token, null, write, value, statement)
+  }
+}
+
 func visitors.Int(g, node){
   g.asm:emit_load_constant(node.value)
 }
@@ -706,6 +738,13 @@ local func name_next(g, target, value){
 func visitors.Assignment(g, node){
   local left = node.left
   name_next(g, left, node.right)
+  if(g.record != null){
+    if(left.type == "Identifier"){
+      record_use(g, left.value, left.token, true, node.right, node.token)
+    } else if(left.type == "Index"){
+      g.record:field(left, true, node.right, node.token)
+    }
+  }
   if(left.type == "Identifier"){
     local lv = g.asm:get_local(left.value)
     if(lv != null){
@@ -746,6 +785,9 @@ func visitors.Declaration(g, node){
       }
       if(existing == null){
         g.asm:create_local(name)
+        record_local(g, name, left.token, "local", node.right, node.token)
+      } else {
+        record_use(g, name, left.token, true)
       }
       local lv = g.asm:get_local(name)
       if(node.right != null){
@@ -758,11 +800,17 @@ func visitors.Declaration(g, node){
     if(right == null){
       right = ast.node("Null", {}, left.token)
     }
+    if(g.record != null){
+      g.record:use(name, left.token, null, true, node.right, node.token)
+    }
     g:visit(ast.node(
       "Assignment", {left: global_index(left.token, name), right: right},
       left.token
     ))
   } else if(left.type == "Index"){
+    if(g.record != null){
+      g.record:field(left, true, node.right, node.token)
+    }
     g:visit(left.receiver)
     g:visit(left.index)
     g:visit(node.right)
@@ -954,6 +1002,7 @@ func visitors.IfExpr(g, node){
 }
 
 func visitors.Identifier(g, node){
+  record_use(g, node.value, node.token, false)
   local lv = g.asm:get_local(node.value)
   if(lv != null){
     g.asm:emit_push(lv.register)
@@ -1074,6 +1123,9 @@ func visitors.Table(g, node){
 }
 
 func visitors.Index(g, node){
+  if(g.record != null){
+    g.record:field(node, false)
+  }
   g:visit(node.receiver)
   g:visit(node.index)
   g.asm:emit_get_table()
@@ -1173,6 +1225,7 @@ func visitors.Function(g, node){
       name = str.substring(name, 3)
     }
     g.asm:create_local(name)
+    record_local(g, name, param.token, "parameter")
   }
   g:visit(node.body)
   g.asm:leave_scope()
@@ -1188,6 +1241,9 @@ func visitors.Call(g, node){
 }
 
 func visitors.Invoke(g, node){
+  if(g.record != null){
+    g.record:field(node, false)
+  }
   g:visit(node.receiver)
   g.asm:emit_push(- 1)
   g.asm:emit_load_constant(node.name.value)
@@ -1397,14 +1453,18 @@ func visitors.VarPattern(g, node){
   } else {
     if(node.isLocal){
       g.asm:create_local(node.name.value)
+      record_local(g, node.name.value, node.name.token, "local")
       g.asm:emit_move(g.asm:get_local(node.name.value).register)
     } else if(g.asm:get_local(node.name.value) != null){
       // an existing name is assigned like `name = value`: a local first,
       // then an upvalue, else a global
+      record_use(g, node.name.value, node.name.token, true)
       g.asm:emit_move(g.asm:get_local(node.name.value).register)
     } else if(g.asm:get_upvalue(node.name.value) != null){
+      record_use(g, node.name.value, node.name.token, true)
       g.asm:emit_set_upvalue(g.asm:get_upvalue(node.name.value).index)
     } else {
+      record_use(g, node.name.value, node.name.token, true)
       g:visit(ast.node("Identifier", {value: "_ENV"}, node.token))
       g.asm:emit_load_constant(node.name.value)
       g.asm:emit_push(- 3)
@@ -1479,10 +1539,14 @@ func visitors.Unquote(g, node){
   error("Unquote was not resolved in parsing step: ", position(node.token))
 }
 
-// generate(node, origin) -> prototype table
-func codegen.generate(node, origin){
+// generate(node, origin, {record}) -> prototype table; record receives the
+// names as they are resolved (see record_local above)
+func codegen.generate(node, origin, options){
   local g = {}
   g.meta = gen_meta
+  if(options != null){
+    g.record = options.record
+  }
   local parent = asm.new(null, origin or "string")
   parent:create_local("_ENV")
   g.asm = asm.new(parent)

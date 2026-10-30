@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sqlite</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>sqlite</h1>
+<p>sqlite: the native binding of SQLite, as thin as it is useful. Most code should use slang/sqlite, which builds the friendly API on it.</p>
+<pre><code>local sqlite = require(&quot;sqlite&quot;)
+local db = sqlite.open(&quot;todos.db&quot;)  // or &quot;:memory:&quot;
+db:exec(&quot;create table t(id integer primary key, name text)&quot;)
+local st = db:prepare(&quot;insert into t(name) values (?)&quot;)
+st:bind_all({&quot;ada&quot;}) st:step() st:reset()
+local q = db:prepare(&quot;select * from t where id &gt; ?&quot;)
+q:bind(1, 0)
+for(q:step()){ print(q:row().name, &quot;\n&quot;) }</code></pre>
+<p>Values: null, bool (bound as 0/1), int, double, string (text; a blob column also comes back as a string). A column declared boolean (or bool) is read as true/false. A statement is linked to its database: closing the database finalizes its statements, and a finalized statement raises on use. Errors read &quot;sqlite: ...&quot;.</p>
+<ul class="toc">
+<li><a href="#open"><code>open</code></a></li>
+<li><a href="#version"><code>version</code></a></li>
+<li><a href="#sqlite.db:exec"><code>sqlite.db:exec</code></a></li>
+<li><a href="#sqlite.db:prepare"><code>sqlite.db:prepare</code></a></li>
+<li><a href="#sqlite.db:close"><code>sqlite.db:close</code></a></li>
+<li><a href="#sqlite.db:is_open"><code>sqlite.db:is_open</code></a></li>
+<li><a href="#sqlite.db:changes"><code>sqlite.db:changes</code></a></li>
+<li><a href="#sqlite.db:last_insert_rowid"><code>sqlite.db:last_insert_rowid</code></a></li>
+<li><a href="#sqlite.stmt:bind"><code>sqlite.stmt:bind</code></a></li>
+<li><a href="#sqlite.stmt:bind_all"><code>sqlite.stmt:bind_all</code></a></li>
+<li><a href="#sqlite.stmt:step"><code>sqlite.stmt:step</code></a></li>
+<li><a href="#sqlite.stmt:row"><code>sqlite.stmt:row</code></a></li>
+<li><a href="#sqlite.stmt:values"><code>sqlite.stmt:values</code></a></li>
+<li><a href="#sqlite.stmt:columns"><code>sqlite.stmt:columns</code></a></li>
+<li><a href="#sqlite.stmt:parameter_count"><code>sqlite.stmt:parameter_count</code></a></li>
+<li><a href="#sqlite.stmt:reset"><code>sqlite.stmt:reset</code></a></li>
+<li><a href="#sqlite.stmt:finalize"><code>sqlite.stmt:finalize</code></a></li>
+<li><a href="#sqlite.stmt:run_async"><code>sqlite.stmt:run_async</code></a></li>
+<li><a href="#sqlite.stmt:is_busy"><code>sqlite.stmt:is_busy</code></a></li>
+</ul>
+<div class="def" id="open"><h3><code>m.open(path)</code></h3>
+<p>open(path) -&gt; a sqlite.db; the file is created when missing, &quot;:memory:&quot; opens a database in memory. Raises when it cannot be opened.</p>
+</div>
+<div class="def" id="version"><h3><code>m.version()</code></h3>
+<p>version() -&gt; the version of the SQLite library</p>
+</div>
+<h2>type sqlite.db</h2>
+<div class="def" id="sqlite.db:exec"><h3><code>sqlite.db:exec(sql)</code></h3>
+<p>db:exec(sql) runs one or more statements, discarding any rows</p>
+</div>
+<div class="def" id="sqlite.db:prepare"><h3><code>sqlite.db:prepare(sql)</code></h3>
+<p>db:prepare(sql) -&gt; a sqlite.stmt for the first statement in sql; raises when the text holds no statement</p>
+</div>
+<div class="def" id="sqlite.db:close"><h3><code>sqlite.db:close()</code></h3>
+<p>db:close() finalizes the statements and closes the database; raises while queries started with run_async are running</p>
+</div>
+<div class="def" id="sqlite.db:is_open"><h3><code>sqlite.db:is_open()</code></h3>
+<p>db:is_open() -&gt; whether the database is still open</p>
+</div>
+<div class="def" id="sqlite.db:changes"><h3><code>sqlite.db:changes()</code></h3>
+<p>db:changes() -&gt; the number of rows changed by the last statement</p>
+</div>
+<div class="def" id="sqlite.db:last_insert_rowid"><h3><code>sqlite.db:last_insert_rowid()</code></h3>
+<p>db:last_insert_rowid() -&gt; the rowid of the last inserted row</p>
+</div>
+<h2>type sqlite.stmt</h2>
+<div class="def" id="sqlite.stmt:bind"><h3><code>sqlite.stmt:bind(i, value)</code></h3>
+<p>stmt:bind(i, value) -&gt; stmt; binds parameter i (from 1) to value</p>
+</div>
+<div class="def" id="sqlite.stmt:bind_all"><h3><code>sqlite.stmt:bind_all(values, count)</code></h3>
+<p>stmt:bind_all(values, [count]) -&gt; stmt; binds the parameters in order. count (default len(values)) covers values after a null, which ends a list's length; it must equal the number of parameters.</p>
+</div>
+<div class="def" id="sqlite.stmt:step"><h3><code>sqlite.stmt:step()</code></h3>
+<p>stmt:step() -&gt; true when a row is ready, false when the statement is done</p>
+</div>
+<div class="def" id="sqlite.stmt:row"><h3><code>sqlite.stmt:row()</code></h3>
+<p>stmt:row() -&gt; {name: value, ...} of the current row</p>
+</div>
+<div class="def" id="sqlite.stmt:values"><h3><code>sqlite.stmt:values()</code></h3>
+<p>stmt:values() -&gt; {value, ...} of the current row, in column order</p>
+</div>
+<div class="def" id="sqlite.stmt:columns"><h3><code>sqlite.stmt:columns()</code></h3>
+<p>stmt:columns() -&gt; the list of column names</p>
+</div>
+<div class="def" id="sqlite.stmt:parameter_count"><h3><code>sqlite.stmt:parameter_count()</code></h3>
+<p>stmt:parameter_count() -&gt; the number of parameters</p>
+</div>
+<div class="def" id="sqlite.stmt:reset"><h3><code>sqlite.stmt:reset()</code></h3>
+<p>stmt:reset() -&gt; stmt, ready to run again with its bindings cleared</p>
+</div>
+<div class="def" id="sqlite.stmt:finalize"><h3><code>sqlite.stmt:finalize()</code></h3>
+<p>stmt:finalize() frees the statement; using it afterwards raises</p>
+</div>
+<div class="def" id="sqlite.stmt:run_async"><h3><code>sqlite.stmt:run_async(cb)</code></h3>
+<p>stmt:run_async(cb) runs the bound statement to the end on libuv's thread pool and calls cb(err, {rows, changes, last_insert_rowid}) from the loop (rows: a list of {name: value} tables). Until then the statement is busy: using it raises and the database cannot be closed.</p>
+</div>
+<div class="def" id="sqlite.stmt:is_busy"><h3><code>sqlite.stmt:is_busy()</code></h3>
+<p>stmt:is_busy() -&gt; whether a run_async query is still running it</p>
+</div>
+<p class="muted">slang/stubs/sqlite.slang</p>
+</body>
+</html>

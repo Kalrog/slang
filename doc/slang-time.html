@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>slang/time</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>slang/time</h1>
+<p>slang/time: wall-clock time as seconds since the Unix epoch, in UTC, built into the VM. Months and days count from 1, weekday from 0 (Sunday), yday from 1. There are no local time zones. Functions taking a time raise an error when it is out of range (beyond the year 9999).</p>
+<ul class="toc">
+<li><a href="#now"><code>now</code></a></li>
+<li><a href="#utc"><code>utc</code></a></li>
+<li><a href="#from_utc"><code>from_utc</code></a></li>
+<li><a href="#http_date"><code>http_date</code></a></li>
+<li><a href="#parse_http_date"><code>parse_http_date</code></a></li>
+<li><a href="#iso"><code>iso</code></a></li>
+<li><a href="#parse_iso"><code>parse_iso</code></a></li>
+</ul>
+<div class="def" id="now"><h3><code>m.now()</code></h3>
+<p>now() -&gt; the current time in seconds, a double with millisecond precision</p>
+</div>
+<h2>calendar</h2>
+<div class="def" id="utc"><h3><code>m.utc(t)</code></h3>
+<p>utc(t) -&gt; the UTC fields of time t: {year, month, day, hour, minute, second, ms, weekday, yday}, all ints</p>
+</div>
+<div class="def" id="from_utc"><h3><code>m.from_utc(fields)</code></h3>
+<p>from_utc(fields) -&gt; the time of {year, month, day, hour, minute, second, ms}: an int, or a double when there is a fraction of a second. year is required; month and day default to 1, the rest to 0. Fields normalize, so {year: 2026, month: 13, day: 1} is January 2027 and adding 30 to day moves 30 days on.</p>
+</div>
+<h2>formats</h2>
+<div class="def" id="http_date"><h3><code>m.http_date(t)</code></h3>
+<p>http_date(t) -&gt; t as an HTTP date, &quot;Sun, 06 Nov 1994 08:49:37 GMT&quot;</p>
+</div>
+<div class="def" id="parse_http_date"><h3><code>m.parse_http_date(s)</code></h3>
+<p>parse_http_date(s) -&gt; the time of an HTTP date as an int, or null. Accepts the three forms RFC 9110 requires (RFC 1123, RFC 850 and asctime).</p>
+</div>
+<div class="def" id="iso"><h3><code>m.iso(t)</code></h3>
+<p>iso(t) -&gt; t as ISO 8601, &quot;1994-11-06T08:49:37Z&quot;, with &quot;.123&quot; before the Z when t has milliseconds</p>
+</div>
+<div class="def" id="parse_iso"><h3><code>m.parse_iso(s)</code></h3>
+<p>parse_iso(s) -&gt; the time of an ISO 8601 date, an int or a double when it has a fraction, or null. Accepts RFC 3339 and the common forms: a date alone, &quot;T&quot; or a space before the time, seconds and fraction optional, and &quot;Z&quot;, &quot;+hh:mm&quot;, &quot;+hhmm&quot;, &quot;+hh&quot; or nothing (UTC) for the zone.</p>
+</div>
+<p class="muted">slang/stubs/slang/time.slang</p>
+</body>
+</html>

@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tls</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>tls</h1>
+<p>tls: the native binding of OpenSSL 3's TLS (libssl) as an engine on memory buffers. It does no I/O: slang/tls moves the bytes between the engine and a libuv TCP handle, and most code should use slang/tls.</p>
+<pre><code>local tls = require(&quot;tls&quot;)
+local ctx = tls.context({alpn: {&quot;http/1.1&quot;}})
+local s = ctx:session(&quot;example.com&quot;)
+s:handshake()          // false: it waits for the server
+local out = s:take()   // bytes to send to the server</code></pre>
+<p>The system's trust store is OpenSSL's default (SSL_CERT_FILE and SSL_CERT_DIR override it), or else the first bundle found at the usual paths. Errors read &quot;tls: ...&quot;.</p>
+<ul class="toc">
+<li><a href="#context"><code>context</code></a></li>
+<li><a href="#self_signed"><code>self_signed</code></a></li>
+<li><a href="#version"><code>version</code></a></li>
+<li><a href="#tls.context:session"><code>tls.context:session</code></a></li>
+<li><a href="#tls.session:feed"><code>tls.session:feed</code></a></li>
+<li><a href="#tls.session:handshake"><code>tls.session:handshake</code></a></li>
+<li><a href="#tls.session:read"><code>tls.session:read</code></a></li>
+<li><a href="#tls.session:write"><code>tls.session:write</code></a></li>
+<li><a href="#tls.session:take"><code>tls.session:take</code></a></li>
+<li><a href="#tls.session:close"><code>tls.session:close</code></a></li>
+<li><a href="#tls.session:info"><code>tls.session:info</code></a></li>
+</ul>
+<h2>contexts</h2>
+<div class="def" id="context"><h3><code>m.context(options)</code></h3>
+<p>context([options]) -&gt; a tls.context. options: server: a server context (false by default); cert, key: PEM text of the certificate chain (leaf first) and its private key, needed by a server; ca: PEM text of the certificates to trust instead of the system's; verify: check the peer's certificate; true by default for a client (which needs it valid for the host name), a server with verify asks for a client certificate; alpn: a list of protocol names, by preference; min_version: &quot;1.2&quot; (the default) or &quot;1.3&quot;.</p>
+</div>
+<h2>certificates</h2>
+<div class="def" id="self_signed"><h3><code>m.self_signed(names, days)</code></h3>
+<p>self_signed(names, [days]) -&gt; {cert, key} as PEM text: a certificate for local development, valid for days (365), with an EC P-256 key. names are host names or IP addresses; the first is the subject.</p>
+</div>
+<div class="def" id="version"><h3><code>m.version()</code></h3>
+<p>version() -&gt; the OpenSSL version text</p>
+</div>
+<h2>type tls.context</h2>
+<div class="def" id="tls.context:session"><h3><code>tls.context:session(hostname)</code></h3>
+<p>ctx:session([hostname]) -&gt; a tls.session: a client for hostname (a host name or an IP address; needed when the context verifies), or a server for a server context</p>
+</div>
+<h2>type tls.session</h2>
+<div class="def" id="tls.session:feed"><h3><code>tls.session:feed(bytes)</code></h3>
+<p>session:feed(bytes) hands the session bytes that arrived from the network</p>
+</div>
+<div class="def" id="tls.session:handshake"><h3><code>tls.session:handshake()</code></h3>
+<p>session:handshake() -&gt; true when the handshake is done, false while it waits for the peer; raises when it fails (a certificate that does not verify, for one)</p>
+</div>
+<div class="def" id="tls.session:read"><h3><code>tls.session:read()</code></h3>
+<p>session:read() -&gt; the plaintext decrypted so far (&quot;&quot; for none), or null once the peer closed the session (close_notify)</p>
+</div>
+<div class="def" id="tls.session:write"><h3><code>tls.session:write(plaintext)</code></h3>
+<p>session:write(plaintext) encrypts plaintext for take(); only after the handshake</p>
+</div>
+<div class="def" id="tls.session:take"><h3><code>tls.session:take()</code></h3>
+<p>session:take() -&gt; the bytes to send to the network (&quot;&quot; for none); call it after every other method, which may all produce some</p>
+</div>
+<div class="def" id="tls.session:close"><h3><code>tls.session:close()</code></h3>
+<p>session:close() queues a close_notify for take(), when the handshake got that far</p>
+</div>
+<div class="def" id="tls.session:info"><h3><code>tls.session:info()</code></h3>
+<p>session:info() -&gt; {version, cipher, alpn, peer, server_name}: the protocol version, the cipher, the protocol chosen with ALPN, the subject of the peer's certificate and the host name the client asked for (the last three only when known)</p>
+</div>
+<p class="muted">slang/stubs/tls.slang</p>
+</body>
+</html>

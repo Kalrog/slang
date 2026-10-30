@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>slang/html</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>slang/html</h1>
+<p>slang/html: HTML nodes that render to a string; the runtime behind the JSX-like templates of extensions/html, and usable on its own.</p>
+<pre><code>html.element(tag, attrs, children) -&gt; node    &lt;tag attrs&gt;children&lt;/tag&gt;
+html.fragment(children) -&gt; node               children without a tag
+html.raw(s) -&gt; node                           s inserted as it is
+html.value(v) -&gt; what {v} in a template inserts: a string escaped, a
+                 number printed, a node or a list kept (lists element
+                 by element), null and booleans nothing (&quot;&quot;: a null
+                 would end the list of children it sits in)
+html.escape(s) -&gt; s with &amp; &lt; &gt; &quot; ' escaped
+html.render(v) -&gt; the string of v; string(node) renders too
+html.write(out, v)   appends the pieces of v to the list out
+html.doctype         the &lt;!DOCTYPE html&gt; node</code></pre>
+<p>The children of element and fragment, and any list with html.list as its meta, are trusted: their strings are markup (the extension escapes literal text when it compiles it, and wraps every {expr} in value), and value passes such a list through, so children handed to a component are not escaped twice. Attribute values are escaped when rendered, null and false omit the attribute, true writes it bare. Void elements (br, img, ...) have no end tag.</p>
+<ul class="toc">
+<li><a href="#escape"><code>escape</code></a></li>
+<li><a href="#list"><code>list</code></a></li>
+<li><a href="#element"><code>element</code></a></li>
+<li><a href="#fragment"><code>fragment</code></a></li>
+<li><a href="#raw"><code>raw</code></a></li>
+<li><a href="#doctype"><code>doctype</code></a></li>
+<li><a href="#is_node"><code>is_node</code></a></li>
+<li><a href="#value"><code>value</code></a></li>
+<li><a href="#write"><code>write</code></a></li>
+<li><a href="#render"><code>render</code></a></li>
+</ul>
+<div class="def" id="escape"><h3><code>html.escape(s)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="list"><h3><code>html.list</code></h3>
+<p>the meta of a trusted list of children</p>
+</div>
+<div class="def" id="element"><h3><code>html.element(tag, attrs, children)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="fragment"><h3><code>html.fragment(children)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="raw"><h3><code>html.raw(s)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="doctype"><h3><code>html.doctype</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="is_node"><h3><code>html.is_node(v)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="value"><h3><code>html.value(v)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="write"><h3><code>html.write(out, v)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="render"><h3><code>html.render(v)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<p class="muted">slang/lib/html.slang</p>
+</body>
+</html>

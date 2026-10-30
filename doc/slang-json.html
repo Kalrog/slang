@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>slang/json</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>slang/json</h1>
+<p>slang/json: encode and decode JSON.</p>
+<p>decode(text, origin) -&gt; value: objects become tables with string keys, arrays become lists, null stays null (so a null member is an absent key). encode(value, options) -&gt; text: tables whose keys are 0..n-1 (or marked with json.array) become arrays, other tables objects with string keys; {indent: &quot;  &quot;} pretty-prints. Functions and other values are errors. json.null encodes as null where a value must be present (a table member set to null is absent): {result: json.null} -&gt; {&quot;result&quot;:null}.</p>
+<ul class="toc">
+<li><a href="#decode"><code>decode</code></a></li>
+<li><a href="#null"><code>null</code></a></li>
+<li><a href="#array"><code>array</code></a></li>
+<li><a href="#encode"><code>encode</code></a></li>
+</ul>
+<h2>decoding</h2>
+<div class="def" id="decode"><h3><code>json.decode(text, origin)</code></h3>
+<p>decode(text, origin) -&gt; value (raises on malformed input)</p>
+</div>
+<h2>encoding</h2>
+<div class="def" id="null"><h3><code>json.null</code></h3>
+<p>null: a value that encodes as null, for members that must be there</p>
+</div>
+<div class="def" id="array"><h3><code>json.array(t)</code></h3>
+<p>array(t) -&gt; t, marked so that it encodes as a JSON array even when empty</p>
+</div>
+<div class="def" id="encode"><h3><code>json.encode(v, options)</code></h3>
+<p>encode(value, {indent}) -&gt; JSON text</p>
+</div>
+<p class="muted">slang/lib/json.slang</p>
+</body>
+</html>

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>slang/std</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>slang/std</h1>
+<p>slang/std: global helpers written in slang.</p>
+<ul class="toc">
+<li><a href="#module"><code>module</code></a></li>
+<li><a href="#__match"><code>__match</code></a></li>
+<li><a href="#run"><code>run</code></a></li>
+</ul>
+<div class="def" id="module"><h3><code>module(mfunc)</code></h3>
+<p>module{ ... } runs the block with a fresh environment table as its _ENV, so that every global defined inside ends up in that table.</p>
+</div>
+<div class="def" id="__match"><h3><code>__match(m, v)</code></h3>
+<p>__match(m, v): the matcher protocol behind 'm patterns: m's __match metamethod decides whether v matches (null: no) and what the rest of the pattern sees (anything else)</p>
+</div>
+<div class="def" id="run"><h3><code>run(rfunc)</code></h3>
+<p>run{ ... } evaluates a block as an expression.</p>
+</div>
+<p class="muted">slang/lib/std.slang</p>
+</body>
+</html>

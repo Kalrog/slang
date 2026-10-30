@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>slang/crypto</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>slang/crypto</h1>
+<p>slang/crypto: the crypto native extension (OpenSSL) plus what web code builds from it: password hashes, random tokens, signed and sealed values.</p>
+<pre><code>crypto.hash(digest, data), crypto.hmac(digest, key, data), crypto.equal,
+crypto.random_bytes(n), crypto.hasher(digest), crypto.pbkdf2,
+crypto.scrypt, crypto.encrypt, crypto.decrypt, crypto.private_key,
+crypto.public_key, crypto.generate_key     as in the native module
+crypto.hex(digest, data) -&gt; the hash as lowercase hex
+crypto.token(n) -&gt; n random bytes (32 by default) as base64url text
+crypto.hash_password(password) -&gt; &quot;$scrypt$ln=15,r=8,p=1$salt$hash&quot;
+crypto.verify_password(password, stored) -&gt; bool
+crypto.hash_password_async / verify_password_async -&gt; Futures, the work
+  on libuv's thread pool (an scrypt hash takes tens of milliseconds)
+crypto.sign_value(secret, value) -&gt; &quot;value.mac&quot;
+crypto.unsign_value(secret, signed) -&gt; value, or null when tampered
+crypto.seal(key, text, [aad]) -&gt; base64url of iv, ciphertext and tag
+crypto.unseal(key, sealed, [aad]) -&gt; text, or null</code></pre>
+<p>Password hashes use scrypt with n = 2^15, r = 8, p = 1 (32 MiB, the OWASP recommendation) and a 16-byte salt; verify_password also accepts &quot;$pbkdf2-sha256$i=...$salt$hash&quot;. seal uses AES-256-GCM with a random 12-byte iv and needs a 32-byte key.</p>
+<ul class="toc">
+<li><a href="#hex"><code>hex</code></a></li>
+<li><a href="#token"><code>token</code></a></li>
+<li><a href="#hash_password"><code>hash_password</code></a></li>
+<li><a href="#verify_password"><code>verify_password</code></a></li>
+<li><a href="#hash_password_async"><code>hash_password_async</code></a></li>
+<li><a href="#verify_password_async"><code>verify_password_async</code></a></li>
+<li><a href="#sign_value"><code>sign_value</code></a></li>
+<li><a href="#unsign_value"><code>unsign_value</code></a></li>
+<li><a href="#seal"><code>seal</code></a></li>
+<li><a href="#unseal"><code>unseal</code></a></li>
+</ul>
+<div class="def" id="hex"><h3><code>crypto.hex(digest, data)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="token"><h3><code>crypto.token(n)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<h2>passwords</h2>
+<div class="def" id="hash_password"><h3><code>crypto.hash_password(password)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="verify_password"><h3><code>crypto.verify_password(password, stored)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="hash_password_async"><h3><code>crypto.hash_password_async(password)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="verify_password_async"><h3><code>crypto.verify_password_async(password, stored)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<h2>signed and sealed values</h2>
+<div class="def" id="sign_value"><h3><code>crypto.sign_value(secret, value)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="unsign_value"><h3><code>crypto.unsign_value(secret, signed)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="seal"><h3><code>crypto.seal(key, text, aad)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="unseal"><h3><code>crypto.unseal(key, sealed, aad)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<p class="muted">slang/lib/crypto.slang</p>
+</body>
+</html>

@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>slang/symbols</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>slang/symbols</h1>
+<p>slang/symbols: what a file defines and uses, for the language server (hover, go to definition, references) and slang doc.</p>
+<pre><code>local index = symbols.analyse(block, source, origin)</code></pre>
+<p>block is the file's parsed (expanded) AST; codegen resolves its names as it would compile them (see codegen.generate's record option), so scoping is exactly the compiler's, extensions included. Names an extension made up have no place in the source and are left out.</p>
+<p>index:</p>
+<pre><code>defs     the definitions, in source order: {name, kind, start, stop,
+         statement, value, doc, params, owner, module, fields}
+         kind &quot;local&quot;, &quot;parameter&quot;, &quot;global&quot; or &quot;field&quot;; start and stop
+         are byte offsets of the name; doc the comment above it; params
+         the parameter names when the value is a function; owner (of a
+         field) the definition it belongs to, or {global: name}; module
+         the name given to require when the value is require(&quot;name&quot;);
+         fields (of a table) {name: field definition}
+refs     the uses: {name, start, stop, def, write, owner, invoke}; def
+         is the definition the name resolved to (null for a global or a
+         field not found in the file); owner as for fields; invoke when
+         the field is called as a method (o:name())
+globals  {name: the first definition of a global in the file}
+by_start {offset: the def or ref whose name starts there}
+exports  {name: definition}: the fields of the table the file returns
+module_doc the comment block that starts the file
+sections the section dividers: {title, start}
+
+symbols.at(index, pos) -&gt; the def or ref whose name covers pos
+symbols.signature(def) -&gt; &quot;http.fetch(url, options)&quot; and the like
+symbols.doc_above(source, pos) -&gt; the comment block just above the line
+  of pos (no blank line between), as text, or null
+symbols.doc_blocks(text) -&gt; the doc as a list of {kind, text}: &quot;text&quot;
+  (a paragraph, its lines joined) or &quot;code&quot; (lines indented by two or
+  more spaces, kept as they are, less the common indentation)</code></pre>
+<ul class="toc">
+<li><a href="#doc_above"><code>doc_above</code></a></li>
+<li><a href="#doc_blocks"><code>doc_blocks</code></a></li>
+<li><a href="#analyse"><code>analyse</code></a></li>
+<li><a href="#at"><code>at</code></a></li>
+<li><a href="#signature"><code>signature</code></a></li>
+</ul>
+<h2>doc comments</h2>
+<div class="def" id="doc_above"><h3><code>symbols.doc_above(source, pos)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="doc_blocks"><h3><code>symbols.doc_blocks(text)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<h2>analysis</h2>
+<div class="def" id="analyse"><h3><code>symbols.analyse(block, source, origin)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<h2>queries</h2>
+<div class="def" id="at"><h3><code>symbols.at(index, pos)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="signature"><h3><code>symbols.signature(def)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<p class="muted">slang/compiler/symbols.slang</p>
+</body>
+</html>

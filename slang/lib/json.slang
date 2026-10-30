@@ -5,6 +5,8 @@
 // encode(value, options) -> text: tables whose keys are 0..n-1 (or marked
 // with json.array) become arrays, other tables objects with string keys;
 // {indent: "  "} pretty-prints. Functions and other values are errors.
+// json.null encodes as null where a value must be present (a table member
+// set to null is absent): {result: json.null} -> {"result":null}.
 local peg = require("slang/peg")
 local str = require("slang/string")
 
@@ -112,6 +114,10 @@ func json.decode(text, origin){
 
 // ------------------------------------------------------------ encoding
 
+// null: a value that encodes as null, for members that must be there
+json.null = {}
+json.null.meta = {__type: "json.null"}
+
 // array(t) -> t, marked so that it encodes as a JSON array even when empty
 func json.array(t){
   t.meta = array_meta
@@ -173,7 +179,8 @@ local func encode_string(s, out){
 
 local func encode_value(v, out, indent, depth){
   local t = type(v)
-  if(v == null){
+  // json.null by its type: == compares tables by their contents
+  if(v == null or t == "json.null"){
     append(out, "null")
   } else if(t == "bool"){
     append(out, v and "true" or "false")

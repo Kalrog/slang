@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>slang/async</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>slang/async</h1>
+<p>slang/async: Futures, Streams and await on coroutines, driven by the uv event loop (the native <code>uv</code> module). Callback style and await style mix:</p>
+<pre><code>local async = require(&quot;slang/async&quot;)
+async.main(func(){
+  local conn = async.await(async.connect(&quot;127.0.0.1&quot;, 8080))
+  async.await(async.write(conn, &quot;hello\n&quot;))
+  local reader = async.reader(conn)
+  for(true){
+    local r = async.await(reader:next())
+    if(r.done){ break }
+    print(r.value)
+  }
+})</code></pre>
+<p>The extension <code>extensions/async</code> adds <code>async func</code>, <code>await</code> and <code>await for</code> on top of this module.</p>
+<p>A Future completes once, with a value or an error (any value; errors raised inside async functions are the error tables pcall produces). A Stream is a sequence of values ending with done or an error; <code>next()</code> gives the next event as a Future, <code>listen</code> consumes it with a callback.</p>
+<p>await(f) must be called from a coroutine started by async.run (an &quot;async function&quot;). It registers a waiter that reschedules the coroutine and yields; a completed Future returns immediately without yielding. Waiters run from the loop (a zero timer), never inside the code that completed the Future, so completing a Future never re-enters the completer.</p>
+<ul class="toc">
+<li><a href="#completer"><code>completer</code></a></li>
+<li><a href="#value"><code>value</code></a></li>
+<li><a href="#failed"><code>failed</code></a></li>
+<li><a href="#wrap"><code>wrap</code></a></li>
+<li><a href="#all"><code>all</code></a></li>
+<li><a href="#race"><code>race</code></a></li>
+<li><a href="#timeout"><code>timeout</code></a></li>
+<li><a href="#await"><code>await</code></a></li>
+<li><a href="#run"><code>run</code></a></li>
+<li><a href="#sleep"><code>sleep</code></a></li>
+<li><a href="#set_driver"><code>set_driver</code></a></li>
+<li><a href="#main"><code>main</code></a></li>
+<li><a href="#controller"><code>controller</code></a></li>
+<li><a href="#pull"><code>pull</code></a></li>
+<li><a href="#iterator"><code>iterator</code></a></li>
+<li><a href="#resolve"><code>resolve</code></a></li>
+<li><a href="#connect"><code>connect</code></a></li>
+<li><a href="#write"><code>write</code></a></li>
+<li><a href="#shutdown"><code>shutdown</code></a></li>
+<li><a href="#close"><code>close</code></a></li>
+<li><a href="#reader"><code>reader</code></a></li>
+<li><a href="#serve"><code>serve</code></a></li>
+<li><a href="#fs"><code>fs</code></a></li>
+<li><a href="#on_signal"><code>on_signal</code></a></li>
+<li><a href="#spawn"><code>spawn</code></a></li>
+<li><a href="#exec"><code>exec</code></a></li>
+<li><a href="#Future:is_done"><code>Future:is_done</code></a></li>
+<li><a href="#Future:then"><code>Future:then</code></a></li>
+<li><a href="#Future:catch"><code>Future:catch</code></a></li>
+<li><a href="#Stream:next"><code>Stream:next</code></a></li>
+<li><a href="#Stream:listen"><code>Stream:listen</code></a></li>
+<li><a href="#Stream:collect"><code>Stream:collect</code></a></li>
+<li><a href="#Stream:next"><code>Stream:next</code></a></li>
+<li><a href="#Stream:collect"><code>Stream:collect</code></a></li>
+<li><a href="#Stream:listen"><code>Stream:listen</code></a></li>
+</ul>
+<h2>futures</h2>
+<div class="def" id="completer"><h3><code>async.completer()</code></h3>
+<p>completer() -&gt; {future, complete(value), fail(error)}</p>
+</div>
+<div class="def" id="value"><h3><code>async.value(v)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="failed"><h3><code>async.failed(e)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="wrap"><h3><code>async.wrap(start)</code></h3>
+<p>wrap(start) -&gt; Future: start(cb) begins an operation whose callback has the uv shape cb(err, value); the future fails with err or completes with value</p>
+</div>
+<div class="def" id="all"><h3><code>async.all(futures)</code></h3>
+<p>all(futures) -&gt; Future of the list of values (fails with the first error)</p>
+</div>
+<div class="def" id="race"><h3><code>async.race(futures)</code></h3>
+<p>race(futures) -&gt; Future that settles like the first of the futures to settle; the others are marked handled and their results dropped</p>
+</div>
+<div class="def" id="timeout"><h3><code>async.timeout(f, ms, message)</code></h3>
+<p>timeout(f, ms, message) -&gt; Future of f's value, or failing with message (&quot;timed out after &lt;ms&gt; ms&quot; by default) when f takes longer than ms milliseconds (an error keeps only its message through raise, so tell a timeout by the message you chose)</p>
+</div>
+<h2>await and run</h2>
+<div class="def" id="await"><h3><code>async.await(f)</code></h3>
+<p>await(f) -&gt; the value of f, or raises its error</p>
+</div>
+<div class="def" id="run"><h3><code>async.run(f)</code></h3>
+<p>run(f) -&gt; Future: runs f in a coroutine that may await; the future completes with f's return value or fails with its error</p>
+</div>
+<div class="def" id="sleep"><h3><code>async.sleep(ms)</code></h3>
+<p>sleep(ms) -&gt; Future that completes after ms milliseconds</p>
+</div>
+<div class="def" id="set_driver"><h3><code>async.set_driver(step)</code></h3>
+<p>set_driver(step) replaces the driver; null restores libuv's</p>
+</div>
+<div class="def" id="main"><h3><code>async.main(f)</code></h3>
+<p>main(f) -&gt; the value of f: runs f as an async function and drives the event loop until it finishes. Failed futures nobody handled are reported.</p>
+</div>
+<h2>streams</h2>
+<div class="def" id="controller"><h3><code>async.controller(options)</code></h3>
+<p>controller() -&gt; {stream, add(value), close(), fail(error)}; on_pause and on_resume on the controller are called when the buffer passes high_water and when a reader drains it (backpressure)</p>
+</div>
+<div class="def" id="pull"><h3><code>async.pull(next_value)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="iterator"><h3><code>async.iterator(s)</code></h3>
+<p>iterator(stream) -&gt; a function returning the next value, or null at the end (what <code>await for</code> loops over: a for-in loop calls it until the pattern stops matching, so a null value ends the loop early)</p>
+</div>
+<h2>tcp adapters</h2>
+<div class="def" id="resolve"><h3><code>async.resolve(host, port, family)</code></h3>
+<p>resolve(host, port, family) -&gt; Future of the list of {ip, port, family} the name resolves to; family &quot;ipv4&quot; or &quot;ipv6&quot; limits it</p>
+</div>
+<div class="def" id="connect"><h3><code>async.connect(host, port)</code></h3>
+<p>connect(host, port) -&gt; Future of a connected uv.tcp handle; a host name is resolved first and its addresses tried in order</p>
+</div>
+<div class="def" id="write"><h3><code>async.write(handle, data)</code></h3>
+<p>write(handle, data) -&gt; Future</p>
+</div>
+<div class="def" id="shutdown"><h3><code>async.shutdown(handle)</code></h3>
+<p>shutdown(handle) -&gt; Future; close(handle) -&gt; Future</p>
+</div>
+<div class="def" id="close"><h3><code>async.close(handle)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="reader"><h3><code>async.reader(handle, options)</code></h3>
+<p>reader(handle) -&gt; Stream of chunks (reading pauses when the consumer falls behind and resumes when it catches up)</p>
+</div>
+<div class="def" id="serve"><h3><code>async.serve(host, port, options)</code></h3>
+<p>serve(host, port, options) -&gt; {server, connections, close()}: a listening socket and a Stream of accepted uv.tcp handles; close() stops listening and ends the stream</p>
+</div>
+<h2>files</h2>
+<div class="def" id="fs"><h3><code>async.fs</code></h3>
+<p>The file system on libuv's thread pool; every function returns a Future. Errors read like &quot;ENOENT: no such file or directory, read_file 'x'&quot;.</p>
+<pre><code>fs.read_file(path) -&gt; the contents    fs.write_file(path, data)
+fs.append_file(path, data)            fs.exists(path) -&gt; bool
+fs.stat(path) -&gt; {size, mode, mtime, atime, ctime, is_file, is_dir}
+fs.list_dir(path) -&gt; list of {name, type}   (type &quot;file&quot;, &quot;dir&quot;, ...)
+fs.remove(path)   fs.mkdir(path)   fs.rmdir(path)   fs.rename(from, to)
+fs.open(path, flags) -&gt; fd   (flags as fopen: &quot;r&quot;, &quot;w&quot;, &quot;a&quot;, &quot;r+&quot;, ...)
+fs.read(fd, length, offset) -&gt; data (&quot;&quot; at the end; offset null reads on)
+fs.write(fd, data, offset) -&gt; bytes written   fs.close(fd)
+fs.read_stream(path, {chunk_size, start, length}) -&gt; a Stream of the file, read on demand</code></pre>
+</div>
+<h2>signals</h2>
+<div class="def" id="on_signal"><h3><code>async.on_signal(name, f)</code></h3>
+<p>on_signal(name, f) -&gt; the uv.signal handle: f(name) runs each time the process gets the signal (&quot;SIGINT&quot;, &quot;SIGTERM&quot;, ...). The handle does not keep the loop running; stop() or close() it when done.</p>
+</div>
+<h2>processes</h2>
+<div class="def" id="spawn"><h3><code>async.spawn(file, args, options)</code></h3>
+<p>spawn(file, args, options) -&gt; {process, pid, stdin, stdout, stderr, pipes, exit, kill(sig)}: starts a program. options as for uv.spawn (cwd, env, detached), except that a stdio entry &quot;pipe&quot; makes a pipe: the ones for fds 0, 1 and 2 are stdin, stdout and stderr, all of them are in pipes by fd. Without stdio the child inherits 0, 1 and 2. exit is a Future of {status, signal}. Raises when the program cannot be started.</p>
+</div>
+<div class="def" id="exec"><h3><code>async.exec(file, args, options)</code></h3>
+<p>exec(file, args, options) -&gt; Future of {status, signal, stdout, stderr}: runs a program to the end and collects its output. options.input is written to its stdin (otherwise stdin is empty); cwd and env as for spawn.</p>
+</div>
+<h2>type Future</h2>
+<div class="def" id="Future:is_done"><h3><code>Future:is_done()</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="Future:then"><h3><code>Future:then(on_value, on_error)</code></h3>
+<p>then(on_value, on_error) -&gt; Future of what the handler returns; a handler may return a Future, which the result then follows. Without on_error the error propagates to the returned future.</p>
+</div>
+<div class="def" id="Future:catch"><h3><code>Future:catch(on_error)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<h2>type Stream</h2>
+<div class="def" id="Stream:next"><h3><code>Stream:next()</code></h3>
+<p>next() -&gt; Future of {value} or {done: true}; fails with the stream's error</p>
+</div>
+<div class="def" id="Stream:listen"><h3><code>Stream:listen(cb)</code></h3>
+<p>listen(cb(err, value)): callback style; value is null at the end</p>
+</div>
+<div class="def" id="Stream:collect"><h3><code>Stream:collect()</code></h3>
+<p>collect() -&gt; Future of the list of all values</p>
+</div>
+<h2>type Stream</h2>
+<div class="def" id="Stream:next"><h3><code>Stream:next()</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="Stream:collect"><h3><code>Stream:collect()</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="Stream:listen"><h3><code>Stream:listen(cb)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<p class="muted">slang/lib/async.slang</p>
+</body>
+</html>

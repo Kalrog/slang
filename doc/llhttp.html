@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>llhttp</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>llhttp</h1>
+<p>llhttp: the native binding of llhttp, the HTTP/1 parser of Node.js. slang/http parses requests and responses with it; most code should use slang/http.</p>
+<pre><code>local llhttp = require(&quot;llhttp&quot;)
+local p = llhttp.parser(&quot;request&quot;, {max_head: 65536})
+for(let local e in values(p:execute(bytes))){ ... }</code></pre>
+<p>execute(data) feeds bytes and returns the list of events they completed, in order:</p>
+<pre><code>{type: &quot;head&quot;, method, url, version, headers, keep_alive, upgrade,
+ chunked, content_length}             (requests)
+{type: &quot;head&quot;, status, reason, version, headers, ...}  (responses)
+{type: &quot;body&quot;, data}                  a piece of the body, de-chunked
+{type: &quot;done&quot;, keep_alive}            the message is complete
+{type: &quot;upgrade&quot;, rest}               the connection switches protocol
+                                      (rest: the bytes after the head)
+{type: &quot;error&quot;, code, reason, status} the input is not HTTP; status is
+                                      431 for a head over max_head,
+                                      else 400; the parser stays failed</code></pre>
+<p>Header names are lowercased. A repeated header is joined with &quot;, &quot; (cookie with &quot;; &quot;), except set-cookie, which is always a list.</p>
+<ul class="toc">
+<li><a href="#parser"><code>parser</code></a></li>
+<li><a href="#version"><code>version</code></a></li>
+<li><a href="#llhttp.parser:execute"><code>llhttp.parser:execute</code></a></li>
+<li><a href="#llhttp.parser:finish"><code>llhttp.parser:finish</code></a></li>
+<li><a href="#llhttp.parser:skip_body"><code>llhttp.parser:skip_body</code></a></li>
+<li><a href="#llhttp.parser:reset"><code>llhttp.parser:reset</code></a></li>
+</ul>
+<div class="def" id="parser"><h3><code>m.parser(kind, options)</code></h3>
+<p>parser(kind, [options]) -&gt; an llhttp.parser; kind &quot;request&quot; or &quot;response&quot;. options.max_head limits the bytes of a head (0, the default: no limit).</p>
+</div>
+<div class="def" id="version"><h3><code>m.version()</code></h3>
+<p>version() -&gt; the llhttp version as &quot;major.minor.patch&quot;</p>
+</div>
+<h2>type llhttp.parser</h2>
+<div class="def" id="llhttp.parser:execute"><h3><code>llhttp.parser:execute(data)</code></h3>
+<p>parser:execute(data) -&gt; the list of events data completed; an empty list once the parser has failed (or switched protocol)</p>
+</div>
+<div class="def" id="llhttp.parser:finish"><h3><code>llhttp.parser:finish()</code></h3>
+<p>parser:finish() -&gt; the events that ending the input gives (a response that runs to the end of the connection completes)</p>
+</div>
+<div class="def" id="llhttp.parser:skip_body"><h3><code>llhttp.parser:skip_body()</code></h3>
+<p>parser:skip_body() makes the next head have no body (the answer to a HEAD request)</p>
+</div>
+<div class="def" id="llhttp.parser:reset"><h3><code>llhttp.parser:reset()</code></h3>
+<p>parser:reset() readies the parser for a new connection</p>
+</div>
+<p class="muted">slang/stubs/llhttp.slang</p>
+</body>
+</html>

@@ -290,9 +290,11 @@ needed.
 - [ ] `slang fmt`: an opinionated 80-column formatter built on parser
       layers (a lossless tree, a format layer), extension syntax included;
       also the language server's formatting. See PLAN_FORMAT.md.
-- [ ] `slang doc`: API documentation from the comment conventions the
+- [x] `slang doc`: API documentation from the comment conventions the
       libraries already follow, as HTML and in the language server's
-      hover.
+      hover. (2026-10-30) With go to definition and find references in the
+      language server, on one analysis (`slang/symbols`, names resolved by
+      codegen). See PLAN_DOC.md.
 - [ ] A debugger: breakpoints, stepping, locals and coroutines through
       the Debug Adapter Protocol (VS Code), on hooks in the VM.
 - [x] A profiler: `slang run --profile out.folded` (or `SLANG_PROFILE=out.folded`

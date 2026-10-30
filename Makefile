@@ -14,6 +14,7 @@
 #   make dungeon-test run the dungeon example's DSL tests
 #   make dungeon      run the dungeon example on its Go/Ebitengine host (legacy host, uses the Go VM)
 #   make vscode       package the VS Code extension (editors/vscode) with the language server
+#   make doc          regenerate doc/: HTML documentation of slang's library (slang doc)
 #
 # Legacy implementations, kept for reference: the Go VM (go/, the reference
 # implementation during the port; `make go-build`, `make go-test`,
@@ -29,7 +30,7 @@ LIB_SRC  := $(wildcard slang/lib/*.slang)
 COMPILER_SRC := $(wildcard slang/compiler/*.slang)
 SEED_DIR := boot/slang
 
-.PHONY: all build build-safe install uninstall test test-safe test-gui unit seed fixpoint bench breakout dungeon dungeon-test clean \
+.PHONY: all build build-safe install uninstall test test-safe test-gui unit seed fixpoint bench breakout dungeon dungeon-test clean doc \
         vscode vscode-grammar go-build go-seed-copy go-test go-fixpoint stage0-seed
 
 all: build
@@ -47,6 +48,10 @@ install: build
 	install -d $(PREFIX)/bin $(PREFIX)/lib/slang
 	install -m 755 bin/slang $(PREFIX)/bin/slang
 	install -m 644 lib/* $(PREFIX)/lib/slang/
+	install -d $(PREFIX)/lib/slang/src
+	install -m 644 $(LIB_SRC) $(COMPILER_SRC) $(PREFIX)/lib/slang/src/
+	install -d $(PREFIX)/lib/slang/stubs
+	cp -R slang/stubs/. $(PREFIX)/lib/slang/stubs/
 	@echo "installed $(PREFIX)/bin/slang and $$(ls lib | wc -l | tr -d ' ') extensions in $(PREFIX)/lib/slang"
 
 uninstall:
@@ -104,6 +109,12 @@ dungeon: go-seed-copy
 # the VS Code extension (editors/vscode): generated grammar, bundled lsp/, .vsix
 vscode-grammar: build
 	bin/slang run editors/vscode/gen_grammar.slang > editors/vscode/syntaxes/slang.tmLanguage.json
+
+# the library's documentation, from its doc comments; doc/ is kept in the
+# repository, so regenerate it when the library changes
+doc: build
+	rm -rf doc
+	bin/slang doc -o doc
 
 vscode: vscode-grammar
 	cd editors/vscode && npm install --no-audit --no-fund && npm run package

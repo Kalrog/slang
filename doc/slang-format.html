@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>slang/format</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>slang/format</h1>
+<p>slang/format: the formatter (<code>slang fmt</code>).</p>
+<p>Formatting works on the lossless tree of a file (see slang/peg), not on its AST: extension syntax is expanded while parsing, so only the tree still shows what was written. The layout comes from marks in the format layer, set on the parsers of the grammar (format.gaps, format.indent, ...): they say what goes between two tokens, what is a group that is laid out on one line or broken, what is indented. A document printer in the style of Wadler's &quot;prettier printer&quot; then fits the result into 80 columns.</p>
+<p>Syntax that extensions add is formatted when the extension marks its parsers like the core does (format.gaps, format.indent, ...). Unmarked, it keeps its own line structure (verbatim mode): its gaps are what the source has, re-indented to where the syntax now sits. Core syntax inside it (an expression, a block) is formatted either way.</p>
+<p>format.source checks its own result before returning it: the output has the same tokens as the input (but for dropped <code>;</code> and trailing commas), the same AST, and the same comments in the same order.</p>
+<ul class="toc">
+<li><a href="#layer"><code>layer</code></a></li>
+<li><a href="#mark"><code>mark</code></a></li>
+<li><a href="#gaps"><code>gaps</code></a></li>
+<li><a href="#group"><code>group</code></a></li>
+<li><a href="#indent"><code>indent</code></a></li>
+<li><a href="#drop"><code>drop</code></a></li>
+<li><a href="#trailing_comma"><code>trailing_comma</code></a></li>
+<li><a href="#verbatim"><code>verbatim</code></a></li>
+<li><a href="#formatted"><code>formatted</code></a></li>
+<li><a href="#uses_marks"><code>uses_marks</code></a></li>
+<li><a href="#extension"><code>extension</code></a></li>
+<li><a href="#print"><code>print</code></a></li>
+<li><a href="#source"><code>source</code></a></li>
+<li><a href="#main"><code>main</code></a></li>
+</ul>
+<h2>the layer</h2>
+<div class="def" id="layer"><h3><code>format.layer</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="mark"><h3><code>format.mark(parser, data)</code></h3>
+<p>mark(parser, data) -&gt; parser with the format marks data</p>
+</div>
+<div class="def" id="gaps"><h3><code>format.gaps(parser, before, after)</code></h3>
+<p>gaps(parser, before, after) -&gt; parser with the gaps around it (null: unmarked)</p>
+</div>
+<div class="def" id="group"><h3><code>format.group(parser)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="indent"><h3><code>format.indent(parser, before, after)</code></h3>
+<p>indent(parser, before, after): indented, with the gaps around it</p>
+</div>
+<div class="def" id="drop"><h3><code>format.drop(parser)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="trailing_comma"><h3><code>format.trailing_comma(parser)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="verbatim"><h3><code>format.verbatim(parser)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="formatted"><h3><code>format.formatted(parser)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="uses_marks"><h3><code>format.uses_marks(parser)</code></h3>
+<p>whether parser (or a parser inside it) carries layout marks; rule references and parts already marked formatted or verbatim are not looked into (they have a layout of their own)</p>
+</div>
+<div class="def" id="extension"><h3><code>format.extension(parser)</code></h3>
+<p>extension(parser) -&gt; the parser an extension registered, formatted when it uses marks, else verbatim (what the grammar applies to the syntax an extension adds)</p>
+</div>
+<h2>documents</h2>
+<div class="def" id="print"><h3><code>format.print(doc, width)</code></h3>
+<p>print(doc, width) -&gt; text</p>
+</div>
+<h2>formatting</h2>
+<div class="def" id="source"><h3><code>format.source(text, path, options)</code></h3>
+<p>source(text, path, {find_project, width, check}) -&gt; the formatted text, or null for a file of a compile dialect. Raises when the file does not parse, or when the result fails its checks (check: false skips them).</p>
+</div>
+<h2>slang fmt</h2>
+<div class="def" id="main"><h3><code>format.main(arguments)</code></h3>
+<p>main(args) -&gt; exit code: <code>slang fmt [--check] [--stdout] paths...</code></p>
+</div>
+<p class="muted">slang/compiler/format.slang</p>
+</body>
+</html>

@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>slang/web</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>slang/web</h1>
+<p>slang/web: the application layer on slang/http: routes, middleware, request helpers, responses, static files, sessions, CSRF protection, WebSocket routes and a test client.</p>
+<pre><code>local web = require(&quot;slang/web&quot;)
+local app = web.app()
+app:use(func(req, next){ local res = next(req) ... return res })
+app:get(&quot;/todos/:id&quot;, func(req, params){ return web.json(find(params.id)) })
+app:post(&quot;/upload&quot;, handler, {stream_body: true})
+app:static(&quot;/static&quot;, &quot;public&quot;, {max_age: 3600})
+app:ws(&quot;/live&quot;, func(socket, req, params){ ... })
+app.fallback = func(req){ return web.text(&quot;nothing here&quot;, 404) }
+async.await(app:listen(&quot;127.0.0.1&quot;, 8080).done)</code></pre>
+<p>Handlers and middleware run inside a coroutine, so they may await. A handler gets (req, params) and returns a string (text/plain), an HTML node from slang/html (text/html), a response table {status, headers, body}, or a Future of one of those. A middleware gets (req, next): next(req) runs the rest of the chain and returns its response, normalized (a table with status, headers and body), so middleware can look at it and change it. An error in a handler becomes a 500 (and app.on_error(req, err) runs, printing by default); web.fail(status, message) raises an error that becomes that response instead. A path that matches routes of other methods only is answered 405 with Allow; HEAD runs the GET route.</p>
+<p>Requests are the tables of slang/http with methods:</p>
+<pre><code>req:query_params() -&gt; the query string decoded (req.query is the raw
+              text)                         req:cookie(name)
+req:form() -&gt; fields of a urlencoded or multipart body (a file field
+              is {filename, content_type, data})
+req:json() -&gt; the decoded JSON body (400 when it is not JSON)</code></pre>
+<p>and req.params, the route's :name and * (as rest) parts.</p>
+<p>Responses:</p>
+<pre><code>web.text(s, status)   web.html(node or s, status)   web.json(value, status)
+web.redirect(url, status)  (303 by default)
+web.file(req, path, options) -&gt; Future of a file response: ETag and
+  Last-Modified, 304 for conditional requests, a single byte Range (206,
+  416), the type from the extension; options: max_age (Cache-Control),
+  type, download (a file name: Content-Disposition attachment)
+web.fail(status, message)  raises; the app answers with status</code></pre>
+<p>Middleware:</p>
+<pre><code>web.sessions({secret, name, max_age, secure}) -&gt; req.session, a table
+  kept in an encrypted cookie (AES-GCM, so the client can read nothing
+  and change nothing); it is saved when it changed, dropped when empty
+web.csrf({skip}) -&gt; unsafe requests (POST, PUT, PATCH, DELETE) need the
+  token in req.csrf_token back, as the X-CSRF-Token header or the _csrf
+  form field; the token lives in an HttpOnly SameSite=Lax cookie</code></pre>
+<p>Testing without a socket:</p>
+<pre><code>local client = web.test(app)
+local res = await client:get(&quot;/todos&quot;, {headers})       -- also post, put,
+local res = await client:post(&quot;/login&quot;, {form: {...}})   -- patch, delete</code></pre>
+<p>options: headers, body, form (urlencoded), json; res is {status, headers, body (a string, Streams collected), header(name)}; the client keeps cookies across requests.</p>
+<ul class="toc">
+<li><a href="#text"><code>text</code></a></li>
+<li><a href="#html"><code>html</code></a></li>
+<li><a href="#json"><code>json</code></a></li>
+<li><a href="#redirect"><code>redirect</code></a></li>
+<li><a href="#fail"><code>fail</code></a></li>
+<li><a href="#app"><code>app</code></a></li>
+<li><a href="#type_of"><code>type_of</code></a></li>
+<li><a href="#file"><code>file</code></a></li>
+<li><a href="#sessions"><code>sessions</code></a></li>
+<li><a href="#csrf"><code>csrf</code></a></li>
+<li><a href="#test"><code>test</code></a></li>
+<li><a href="#Request:query_params"><code>Request:query_params</code></a></li>
+<li><a href="#Request:cookie"><code>Request:cookie</code></a></li>
+<li><a href="#Request:form"><code>Request:form</code></a></li>
+<li><a href="#Request:json"><code>Request:json</code></a></li>
+<li><a href="#WebApp:use"><code>WebApp:use</code></a></li>
+<li><a href="#WebApp:route"><code>WebApp:route</code></a></li>
+<li><a href="#WebApp:get"><code>WebApp:get</code></a></li>
+<li><a href="#WebApp:post"><code>WebApp:post</code></a></li>
+<li><a href="#WebApp:put"><code>WebApp:put</code></a></li>
+<li><a href="#WebApp:patch"><code>WebApp:patch</code></a></li>
+<li><a href="#WebApp:delete"><code>WebApp:delete</code></a></li>
+<li><a href="#WebApp:ws"><code>WebApp:ws</code></a></li>
+<li><a href="#WebApp:stream_body"><code>WebApp:stream_body</code></a></li>
+<li><a href="#WebApp:handle"><code>WebApp:handle</code></a></li>
+<li><a href="#WebApp:upgrade"><code>WebApp:upgrade</code></a></li>
+<li><a href="#WebApp:listen"><code>WebApp:listen</code></a></li>
+<li><a href="#WebApp:static"><code>WebApp:static</code></a></li>
+<li><a href="#WebTestClient:request"><code>WebTestClient:request</code></a></li>
+<li><a href="#WebTestClient:get"><code>WebTestClient:get</code></a></li>
+<li><a href="#WebTestClient:post"><code>WebTestClient:post</code></a></li>
+<li><a href="#WebTestClient:put"><code>WebTestClient:put</code></a></li>
+<li><a href="#WebTestClient:patch"><code>WebTestClient:patch</code></a></li>
+<li><a href="#WebTestClient:delete"><code>WebTestClient:delete</code></a></li>
+</ul>
+<h2>responses</h2>
+<div class="def" id="text"><h3><code>web.text(s, status)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="html"><h3><code>web.html(content, status)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="json"><h3><code>web.json(value, status)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="redirect"><h3><code>web.redirect(url, status)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="fail"><h3><code>web.fail(status, message)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<h2>routes</h2>
+<div class="def" id="app"><h3><code>web.app(options)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<h2>static files</h2>
+<div class="def" id="type_of"><h3><code>web.type_of(path)</code></h3>
+<p>type_of(path) -&gt; the media type for the file's extension</p>
+</div>
+<div class="def" id="file"><h3><code>web.file(req, path, options)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<h2>sessions</h2>
+<div class="def" id="sessions"><h3><code>web.sessions(options)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<h2>CSRF</h2>
+<div class="def" id="csrf"><h3><code>web.csrf(options)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<h2>testing</h2>
+<div class="def" id="test"><h3><code>web.test(app)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<h2>type Request</h2>
+<div class="def" id="Request:query_params"><h3><code>Request:query_params()</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="Request:cookie"><h3><code>Request:cookie(name)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="Request:form"><h3><code>Request:form()</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="Request:json"><h3><code>Request:json()</code></h3>
+<p class="muted">No description.</p>
+</div>
+<h2>type WebApp</h2>
+<div class="def" id="WebApp:use"><h3><code>WebApp:use(middleware)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="WebApp:route"><h3><code>WebApp:route(method, pattern, handler, options)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="WebApp:get"><h3><code>WebApp:get(pattern, handler, options)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="WebApp:post"><h3><code>WebApp:post(pattern, handler, options)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="WebApp:put"><h3><code>WebApp:put(pattern, handler, options)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="WebApp:patch"><h3><code>WebApp:patch(pattern, handler, options)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="WebApp:delete"><h3><code>WebApp:delete(pattern, handler, options)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="WebApp:ws"><h3><code>WebApp:ws(pattern, handler, options)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="WebApp:stream_body"><h3><code>WebApp:stream_body(req)</code></h3>
+<p>stream_body(req): should slang/http hand this request's body over as a stream? (its route says stream_body: true)</p>
+</div>
+<div class="def" id="WebApp:handle"><h3><code>WebApp:handle(req)</code></h3>
+<p>handle(req) -&gt; Future of the response: the http handler of the app</p>
+</div>
+<div class="def" id="WebApp:upgrade"><h3><code>WebApp:upgrade(req, conn, rest)</code></h3>
+<p>upgrade(req, conn, rest): a request asking for another protocol; a matching app:ws route (after the middleware) gets a WebSocket</p>
+</div>
+<div class="def" id="WebApp:listen"><h3><code>WebApp:listen(host, port, options)</code></h3>
+<p>listen(host, port, options) -&gt; the slang/http server (with done and close()); options as for http.serve</p>
+</div>
+<div class="def" id="WebApp:static"><h3><code>WebApp:static(prefix, dir, options)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<h2>type WebTestClient</h2>
+<div class="def" id="WebTestClient:request"><h3><code>WebTestClient:request(method, path, options)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="WebTestClient:get"><h3><code>WebTestClient:get(path, options)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="WebTestClient:post"><h3><code>WebTestClient:post(path, options)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="WebTestClient:put"><h3><code>WebTestClient:put(path, options)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="WebTestClient:patch"><h3><code>WebTestClient:patch(path, options)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="WebTestClient:delete"><h3><code>WebTestClient:delete(path, options)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<p class="muted">slang/lib/web.slang</p>
+</body>
+</html>

@@ -485,10 +485,32 @@ module itself). `PLAN_UV.md` has the design.
 `lsp/` is a language server written in slang (over the `uv` extension) that
 highlights files with the parser itself, so extensions and dialects are
 coloured as they are parsed, and reports parse errors; `slang highlight
-file` prints the same tokens as JSON. `editors/vscode` is the VS Code
-extension: a generated TextMate grammar for the core language plus the
-server's semantic tokens in trusted workspaces (`make vscode` builds the
-`.vsix`). `PLAN_LSP.md` has the design.
+file` prints the same tokens as JSON. It also knows the names: hover shows
+a definition's signature and doc comment, go to definition and find
+references work for locals, globals, the fields of modules loaded with
+`require` (into slang's own library too) and methods (`db:run` is found by
+following what `db` holds to its type), names resolved the way the
+compiler resolves them; native modules and the globals resolve to their
+stubs. `editors/vscode` is the VS Code extension: a
+generated TextMate grammar for the core language plus the server's
+semantic tokens in trusted workspaces (`make vscode` builds the `.vsix`).
+`PLAN_LSP.md` has the design.
+
+## Documentation
+
+`slang doc [-o dir] [file|dir...]` writes HTML documentation of modules
+(the project in the working directory, or slang's own library) from the
+comments the code already has: the comment block that starts a file
+documents the module, the comment just above a definition (no blank line
+between) documents it, `// ---- title` lines are sections, and lines
+indented by two or more spaces in a comment are code samples. Only the
+fields of the table a module returns are documented. The language
+server's hover shows the same comments. Native code (the globals, the
+VM's modules, the C extensions) is documented by stubs in `slang/stubs/`:
+slang files that declare it with empty bodies and comments, never run.
+`doc/` holds the documentation
+of slang's own library (open `doc/index.html`); `make doc` regenerates it.
+`PLAN_DOC.md` has the design.
 
 ## Standard library
 Globals: `print`, `args`, `readLine`, `open` (files with `read`, `write`,

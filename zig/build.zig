@@ -204,7 +204,7 @@ fn addNativeExtension(b: *std.Build, target: std.Build.ResolvedTarget, optimize:
 /// boot/slang at the repository root. It is copied into a generated module
 /// that embeds every file under its module name ("slang/compiler", ...).
 fn seedModule(b: *std.Build) *std.Build.Module {
-    const names = [_][]const u8{ "ast", "async", "codegen", "compiler", "crypto", "format", "grammar", "html", "http", "json", "jwt", "optimizer", "package", "peg", "sqlite", "std", "table", "test", "tls", "web", "webview", "ws" };
+    const names = [_][]const u8{ "ast", "async", "codegen", "compiler", "crypto", "doc", "format", "grammar", "html", "http", "json", "jwt", "optimizer", "package", "peg", "sqlite", "std", "symbols", "table", "test", "tls", "web", "webview", "ws" };
     const wf = b.addWriteFiles();
     var src: std.ArrayList(u8) = .empty;
     src.appendSlice(b.allocator, "pub const Entry = struct { name: []const u8, data: []const u8 };\npub const files = [_]Entry{\n") catch @panic("OOM");

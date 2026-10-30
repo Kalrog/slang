@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>slang/sqlite</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>slang/sqlite</h1>
+<p>slang/sqlite: SQLite with an API that reads well, on the native <code>sqlite</code> extension. The sql{ ... } literals of extensions/sqlite produce the query values; plain SQL text with a parameter list works as well.</p>
+<pre><code>local db = sqlite.open(&quot;todos.db&quot;)            // or &quot;:memory:&quot;
+db:exec(&quot;create table if not exists todos(id integer primary key, text text, done boolean)&quot;)
+db:run(sql{ insert into todos(text, done) values ({text}, {false}) })  -&gt; {changes, last_id}
+db:all(sql{ select * from todos where done = {done} })  -&gt; rows, tables by column name
+db:one(sql{ select * from todos where id = {id} })      -&gt; a row or null
+for(let {id: local id, text: local text} in db:each(sql{ select id, text from todos })){ ... }
+db:transaction(func(){ ... })   commits, or rolls back when the function raises
+db:all(&quot;select * from todos where id &gt; ?&quot;, {5})          the same without the syntax
+db:close()</code></pre>
+<p>Queries: sqlite.query(text, values, origin, count) holds the text with one ? per value and the values (count says how many, since a null value ends a list literal's length; it defaults to len(values)); a value made with sqlite.list(items) expands to ?, ?, ... (an empty list to null, which matches nothing), a value that is itself a query is spliced in with its parameters, so fragments compose safely. Prepared statements are cached per database by text. Errors name the literal: &quot;sqlite: no such table: todo (at views.slang:12)&quot;.</p>
+<ul class="toc">
+<li><a href="#version"><code>version</code></a></li>
+<li><a href="#list"><code>list</code></a></li>
+<li><a href="#query"><code>query</code></a></li>
+<li><a href="#open"><code>open</code></a></li>
+<li><a href="#sqlite.db:all"><code>sqlite.db:all</code></a></li>
+<li><a href="#sqlite.db:one"><code>sqlite.db:one</code></a></li>
+<li><a href="#sqlite.db:run"><code>sqlite.db:run</code></a></li>
+<li><a href="#sqlite.db:each"><code>sqlite.db:each</code></a></li>
+<li><a href="#sqlite.db:all_async"><code>sqlite.db:all_async</code></a></li>
+<li><a href="#sqlite.db:one_async"><code>sqlite.db:one_async</code></a></li>
+<li><a href="#sqlite.db:run_async"><code>sqlite.db:run_async</code></a></li>
+<li><a href="#sqlite.db:exec"><code>sqlite.db:exec</code></a></li>
+<li><a href="#sqlite.db:transaction"><code>sqlite.db:transaction</code></a></li>
+<li><a href="#sqlite.db:close"><code>sqlite.db:close</code></a></li>
+</ul>
+<div class="def" id="version"><h3><code>sqlite.version</code></h3>
+<p class="muted">No description.</p>
+</div>
+<h2>queries</h2>
+<div class="def" id="list"><h3><code>sqlite.list(items)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="query"><h3><code>sqlite.query(text, values, origin, count)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<h2>databases</h2>
+<div class="def" id="open"><h3><code>sqlite.open(path)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<h2>type sqlite.db</h2>
+<div class="def" id="sqlite.db:all"><h3><code>sqlite.db:all(q, values)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="sqlite.db:one"><h3><code>sqlite.db:one(q, values)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="sqlite.db:run"><h3><code>sqlite.db:run(q, values)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="sqlite.db:each"><h3><code>sqlite.db:each(q, values)</code></h3>
+<p>each(q) -&gt; an iterator of the rows, for <code>for(let pattern in db:each(q))</code></p>
+</div>
+<div class="def" id="sqlite.db:all_async"><h3><code>sqlite.db:all_async(q, values)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="sqlite.db:one_async"><h3><code>sqlite.db:one_async(q, values)</code></h3>
+<p>one_async(q) -&gt; Future of the first row or null (the query runs to the end: give it a limit)</p>
+</div>
+<div class="def" id="sqlite.db:run_async"><h3><code>sqlite.db:run_async(q, values)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="sqlite.db:exec"><h3><code>sqlite.db:exec(q)</code></h3>
+<p>exec(text or query): one or more statements, no parameters, no result</p>
+</div>
+<div class="def" id="sqlite.db:transaction"><h3><code>sqlite.db:transaction(f)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="sqlite.db:close"><h3><code>sqlite.db:close()</code></h3>
+<p class="muted">No description.</p>
+</div>
+<p class="muted">slang/lib/sqlite.slang</p>
+</body>
+</html>

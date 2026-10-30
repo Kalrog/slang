@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>slang/encoding</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>slang/encoding</h1>
+<p>slang/encoding: the byte encodings web code needs, built into the VM. Strings are byte strings, so every encoder takes any bytes. Decoders return null on malformed input (untrusted input is the normal case).</p>
+<ul class="toc">
+<li><a href="#base64_encode"><code>base64_encode</code></a></li>
+<li><a href="#base64_decode"><code>base64_decode</code></a></li>
+<li><a href="#base64url_encode"><code>base64url_encode</code></a></li>
+<li><a href="#base64url_decode"><code>base64url_decode</code></a></li>
+<li><a href="#hex_encode"><code>hex_encode</code></a></li>
+<li><a href="#hex_decode"><code>hex_decode</code></a></li>
+<li><a href="#url_encode"><code>url_encode</code></a></li>
+<li><a href="#url_decode"><code>url_decode</code></a></li>
+<li><a href="#form_encode"><code>form_encode</code></a></li>
+<li><a href="#form_decode"><code>form_decode</code></a></li>
+<li><a href="#query_encode"><code>query_encode</code></a></li>
+<li><a href="#query_decode"><code>query_decode</code></a></li>
+<li><a href="#utf8_valid"><code>utf8_valid</code></a></li>
+<li><a href="#crc32"><code>crc32</code></a></li>
+<li><a href="#mask"><code>mask</code></a></li>
+</ul>
+<h2>base64</h2>
+<div class="def" id="base64_encode"><h3><code>m.base64_encode(s)</code></h3>
+<p>base64_encode(s) -&gt; s in standard base64, with &quot;=&quot; padding</p>
+</div>
+<div class="def" id="base64_decode"><h3><code>m.base64_decode(s)</code></h3>
+<p>base64_decode(s) -&gt; the bytes of standard base64 text with or without padding, or null</p>
+</div>
+<div class="def" id="base64url_encode"><h3><code>m.base64url_encode(s, pad)</code></h3>
+<p>base64url_encode(s, [pad]) -&gt; s in URL-safe base64, without padding unless pad is true</p>
+</div>
+<div class="def" id="base64url_decode"><h3><code>m.base64url_decode(s)</code></h3>
+<p>base64url_decode(s) -&gt; the bytes of URL-safe base64 text with or without padding, or null</p>
+</div>
+<h2>hex</h2>
+<div class="def" id="hex_encode"><h3><code>m.hex_encode(s)</code></h3>
+<p>hex_encode(s) -&gt; s as lower-case hex digits, two per byte</p>
+</div>
+<div class="def" id="hex_decode"><h3><code>m.hex_decode(s)</code></h3>
+<p>hex_decode(s) -&gt; the bytes of hex text (either case), or null</p>
+</div>
+<h2>percent-encoding</h2>
+<div class="def" id="url_encode"><h3><code>m.url_encode(s)</code></h3>
+<p>url_encode(s) -&gt; s percent-encoded as a URI component (RFC 3986): everything but A-Z a-z 0-9 - . _ ~ is escaped</p>
+</div>
+<div class="def" id="url_decode"><h3><code>m.url_decode(s)</code></h3>
+<p>url_decode(s) -&gt; s with its %XX escapes decoded, or null when a &quot;%&quot; is not followed by two hex digits</p>
+</div>
+<div class="def" id="form_encode"><h3><code>m.form_encode(s)</code></h3>
+<p>form_encode(s) -&gt; like url_encode, but a space becomes &quot;+&quot; (application/x-www-form-urlencoded)</p>
+</div>
+<div class="def" id="form_decode"><h3><code>m.form_decode(s)</code></h3>
+<p>form_decode(s) -&gt; like url_decode, but &quot;+&quot; becomes a space</p>
+</div>
+<div class="def" id="query_encode"><h3><code>m.query_encode(t)</code></h3>
+<p>query_encode(t) -&gt; the string, number and boolean fields of t as a form query string, in key order so the result is stable. A list value repeats its key once per element; null, false and other values are left out.</p>
+<pre><code>enc.query_encode({b: &quot;x y!&quot;, a: 1})   // &quot;a=1&amp;b=x+y%21&quot;</code></pre>
+</div>
+<div class="def" id="query_decode"><h3><code>m.query_decode(s)</code></h3>
+<p>query_decode([s]) -&gt; a table of the pairs of a form query string. A leading &quot;?&quot; is skipped, a repeated key keeps its last value and a pair that does not decode is skipped; null gives {}.</p>
+<pre><code>enc.query_decode(&quot;a=1&amp;b=x+y%21&amp;flag&quot;)   // {a: &quot;1&quot;, b: &quot;x y!&quot;, flag: &quot;&quot;}</code></pre>
+</div>
+<h2>checks</h2>
+<div class="def" id="utf8_valid"><h3><code>m.utf8_valid(s)</code></h3>
+<p>utf8_valid(s) -&gt; whether s is valid UTF-8</p>
+</div>
+<div class="def" id="crc32"><h3><code>m.crc32(s)</code></h3>
+<p>crc32(s) -&gt; the CRC-32 checksum of s, as an int</p>
+</div>
+<div class="def" id="mask"><h3><code>m.mask(data, key)</code></h3>
+<p>mask(data, key) -&gt; data XOR key repeated (WebSocket masking; the same call unmasks). Raises an error for an empty key.</p>
+</div>
+<p class="muted">slang/stubs/slang/encoding.slang</p>
+</body>
+</html>

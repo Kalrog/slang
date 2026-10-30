@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>slang/math</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>slang/math</h1>
+<p>slang/math: numeric functions, built into the VM. Unless noted they take an int or a double and return a double.</p>
+<ul class="toc">
+<li><a href="#pi"><code>pi</code></a></li>
+<li><a href="#e"><code>e</code></a></li>
+<li><a href="#round"><code>round</code></a></li>
+<li><a href="#floor"><code>floor</code></a></li>
+<li><a href="#ceil"><code>ceil</code></a></li>
+<li><a href="#abs"><code>abs</code></a></li>
+<li><a href="#min"><code>min</code></a></li>
+<li><a href="#max"><code>max</code></a></li>
+<li><a href="#random"><code>random</code></a></li>
+<li><a href="#sqrt"><code>sqrt</code></a></li>
+<li><a href="#exp"><code>exp</code></a></li>
+<li><a href="#log"><code>log</code></a></li>
+<li><a href="#sin"><code>sin</code></a></li>
+<li><a href="#cos"><code>cos</code></a></li>
+<li><a href="#tan"><code>tan</code></a></li>
+<li><a href="#asin"><code>asin</code></a></li>
+<li><a href="#acos"><code>acos</code></a></li>
+<li><a href="#atan"><code>atan</code></a></li>
+<li><a href="#atan2"><code>atan2</code></a></li>
+</ul>
+<div class="def" id="pi"><h3><code>m.pi</code></h3>
+<p>pi: the constant 3.14159...</p>
+</div>
+<div class="def" id="e"><h3><code>m.e</code></h3>
+<p>e: the constant 2.71828...</p>
+</div>
+<h2>rounding</h2>
+<div class="def" id="round"><h3><code>m.round(x)</code></h3>
+<p>round(x) -&gt; x rounded to the nearest whole number, halves away from zero</p>
+</div>
+<div class="def" id="floor"><h3><code>m.floor(x)</code></h3>
+<p>floor(x) -&gt; the largest whole number not above x</p>
+</div>
+<div class="def" id="ceil"><h3><code>m.ceil(x)</code></h3>
+<p>ceil(x) -&gt; the smallest whole number not below x</p>
+</div>
+<div class="def" id="abs"><h3><code>m.abs(x)</code></h3>
+<p>abs(x) -&gt; the absolute value of x, an int for an int</p>
+</div>
+<div class="def" id="min"><h3><code>m.min(...xs)</code></h3>
+<p>min(...xs) -&gt; the smallest of the numbers, as given (an int stays an int); the double infinity without arguments. Raises an error for a non-number.</p>
+</div>
+<div class="def" id="max"><h3><code>m.max(...xs)</code></h3>
+<p>max(...xs) -&gt; the largest of the numbers, as given (an int stays an int); the double minus infinity without arguments. Raises an error for a non-number.</p>
+</div>
+<div class="def" id="random"><h3><code>m.random(lo, hi)</code></h3>
+<p>random([lo], [hi]) -&gt; a random double from lo (0 by default) up to hi (1 by default)</p>
+</div>
+<h2>functions</h2>
+<div class="def" id="sqrt"><h3><code>m.sqrt(x)</code></h3>
+<p>sqrt(x) -&gt; the square root of x</p>
+</div>
+<div class="def" id="exp"><h3><code>m.exp(x)</code></h3>
+<p>exp(x) -&gt; e to the power x</p>
+</div>
+<div class="def" id="log"><h3><code>m.log(x)</code></h3>
+<p>log(x) -&gt; the natural logarithm of x</p>
+</div>
+<div class="def" id="sin"><h3><code>m.sin(x)</code></h3>
+<p>sin(x) -&gt; the sine of x radians</p>
+</div>
+<div class="def" id="cos"><h3><code>m.cos(x)</code></h3>
+<p>cos(x) -&gt; the cosine of x radians</p>
+</div>
+<div class="def" id="tan"><h3><code>m.tan(x)</code></h3>
+<p>tan(x) -&gt; the tangent of x radians</p>
+</div>
+<div class="def" id="asin"><h3><code>m.asin(x)</code></h3>
+<p>asin(x) -&gt; the arc sine of x, in radians</p>
+</div>
+<div class="def" id="acos"><h3><code>m.acos(x)</code></h3>
+<p>acos(x) -&gt; the arc cosine of x, in radians</p>
+</div>
+<div class="def" id="atan"><h3><code>m.atan(x)</code></h3>
+<p>atan(x) -&gt; the arc tangent of x, in radians</p>
+</div>
+<div class="def" id="atan2"><h3><code>m.atan2(y, x)</code></h3>
+<p>atan2(y, x) -&gt; the angle of the point (x, y) from the x axis, in radians</p>
+</div>
+<p class="muted">slang/stubs/slang/math.slang</p>
+</body>
+</html>

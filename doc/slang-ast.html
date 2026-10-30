@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>slang/ast</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>slang/ast</h1>
+<p>slang/ast: helpers for AST nodes.</p>
+<p>A node is a table {type: &quot;Name&quot;, ...fields, token} whose metatable has __type == &quot;Name&quot;, so patterns like 'BinOp{left: local l} match it. The field layout follows the table encoding of the original implementation, so quoted code (+{...}) and extension-generated code use exactly the same shape.</p>
+<ul class="toc">
+<li><a href="#specs"><code>specs</code></a></li>
+<li><a href="#node"><code>node</code></a></li>
+<li><a href="#is_node"><code>is_node</code></a></li>
+<li><a href="#is_statement"><code>is_statement</code></a></li>
+<li><a href="#is_assignable"><code>is_assignable</code></a></li>
+<li><a href="#is_literal"><code>is_literal</code></a></li>
+<li><a href="#literal"><code>literal</code></a></li>
+<li><a href="#resolve_escapes"><code>resolve_escapes</code></a></li>
+<li><a href="#quote"><code>quote</code></a></li>
+<li><a href="#strip"><code>strip</code></a></li>
+<li><a href="#attach_token"><code>attach_token</code></a></li>
+<li><a href="#decode"><code>decode</code></a></li>
+<li><a href="#to_string"><code>to_string</code></a></li>
+<li><a href="#to_source"><code>to_source</code></a></li>
+</ul>
+<div class="def" id="specs"><h3><code>ast.specs</code></h3>
+<p>field specs per node type, in encoding order. kinds: &quot;node&quot; (child), &quot;node?&quot; (optional child), &quot;list&quot; (list of children), &quot;value&quot; (primitive)</p>
+</div>
+<div class="def" id="node"><h3><code>ast.node(type_name, fields, token)</code></h3>
+<p>node(type, fields, token): builds a node table</p>
+</div>
+<div class="def" id="is_node"><h3><code>ast.is_node(value)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="is_statement"><h3><code>ast.is_statement(node)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="is_assignable"><h3><code>ast.is_assignable(node)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="is_literal"><h3><code>ast.is_literal(node)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="literal"><h3><code>ast.literal(token, value)</code></h3>
+<p>literal(token, value): the node for a primitive value</p>
+</div>
+<div class="def" id="resolve_escapes"><h3><code>ast.resolve_escapes(literal)</code></h3>
+<p>resolve_escapes(&quot;a\\nb&quot;) -&gt; the string with escape sequences replaced: \n \r \t \b \f \v \\ \&quot; and \xHH (a byte), \u{H...} (a code point, as UTF-8); raises on any other</p>
+</div>
+<h2>quote support</h2>
+<div class="def" id="quote"><h3><code>ast.quote(node)</code></h3>
+<p>quote(node): the Table-literal expression that rebuilds this node at run time</p>
+</div>
+<div class="def" id="strip"><h3><code>ast.strip(node)</code></h3>
+<p>strip(node): a copy of the tree without tokens (what extensions see)</p>
+</div>
+<div class="def" id="attach_token"><h3><code>ast.attach_token(node, token)</code></h3>
+<p>attach_token(node, token): gives every node of the tree that has no token this one</p>
+</div>
+<div class="def" id="decode"><h3><code>ast.decode(value)</code></h3>
+<p>decode(value): the node from a parser/extension result; either a node or {token: t, ast: node}</p>
+</div>
+<h2>to_string</h2>
+<div class="def" id="to_string"><h3><code>ast.to_string(node)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<h2>to_source</h2>
+<div class="def" id="to_source"><h3><code>ast.to_source(node)</code></h3>
+<p>to_source(node) -&gt; slang source; a Block at the top is a chunk (no braces)</p>
+</div>
+<p class="muted">slang/compiler/ast.slang</p>
+</body>
+</html>

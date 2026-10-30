@@ -66,7 +66,7 @@
     }
   },
   "scripts": {
-    "bundle-lsp": "rm -rf lsp && mkdir lsp && cp ../../lsp/server.slang ../../lsp/main.slang lsp/",
+    "bundle-lsp": "rm -rf lsp && mkdir lsp && cp ../../lsp/*.slang lsp/",
     "compile": "npm run bundle-lsp && esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --target=node18",
     "package": "npm run compile && vsce package --allow-missing-repository --no-dependencies"
   },

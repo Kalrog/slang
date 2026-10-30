@@ -112,8 +112,10 @@ lower to the core AST. Needs a compile, so it runs under the same trust rule.
       `extensions/custom_operators`, `examples/project`, a parse error).
 
 ### Phase 5: later `[ ]`
-- [ ] Semantic classes from codegen (locals, parameters, upvalues, globals,
+- [~] Semantic classes from codegen (locals, parameters, upvalues, globals,
       functions, fields), hover with the resolved kind, go to definition.
+      Hover, go to definition and find references are done (2026-10-30, see
+      PLAN_DOC.md); semantic token classes from the same analysis are not.
 - [ ] Error recovery in the phrase loop (skip to the next top-level
       statement after a failure) so one typo does not uncolour the rest of
       the file.

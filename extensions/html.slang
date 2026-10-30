@@ -173,16 +173,35 @@ local func runtime_call(name, args, token){
   return ast.node("Call", {function: runtime(name, token), args: args}, token)
 }
 
+// the token of the part of a tag name at offset, as long as part: each
+// name gets its own place in the source (hover, go to definition)
+local func part_token(token, part, offset){
+  if(token.start == null){
+    return token
+  }
+  local start = token.start + offset
+  return {
+    value: part, start: start, stop: start + len(part), buffer: token.buffer,
+    meta: peg.token_meta,
+  }
+}
+
 // Nav, ui.Button -> the expression naming the component
 local func component_ref(name, token){
   local parts = str.split(name, ".")
-  local node = ast.node("Identifier", {value: parts[0]}, token)
+  local node = ast.node(
+    "Identifier",
+    {value: parts[0]},
+    part_token(token, parts[0], 0)
+  )
+  local offset = len(parts[0]) + 1
   for(local i = 1; i < len(parts); i = i + 1){
+    local at = part_token(token, parts[i], offset)
     node = ast.node(
       "Index",
-      {receiver: node, index: string_node(parts[i], token), dotStyle: true},
-      token
+      {receiver: node, index: string_node(parts[i], at), dotStyle: true}, at
     )
+    offset = offset + len(parts[i]) + 1
   }
   return node
 }

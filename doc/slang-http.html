@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>slang/http</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>slang/http</h1>
+<p>slang/http: an HTTP/1.1 server and client on slang/async, parsing with llhttp (the llhttp native extension) and compressing with zlib.</p>
+<pre><code>local http = require(&quot;slang/http&quot;)
+local async = require(&quot;slang/async&quot;)
+async.main(func(){
+  local s = http.serve(&quot;127.0.0.1&quot;, 8080, func(req){
+    return {status: 200, body: concat(&quot;you asked for &quot;, req.path)}
+  })
+  print(&quot;listening on &quot;, s.port, &quot;\n&quot;)
+  async.await(s.done)
+})</code></pre>
+<p>Requests. A handler receives {method, path, query, url, version, headers, body} (header names lowercased; a repeated header joined with &quot;, &quot;, cookie with &quot;; &quot;; query the raw text after <code>?</code>). The body is read whole first, up to max_body bytes (413 beyond). When stream_body(req) says so (it sees the request before its body), req.body is null and req.stream a Stream of the body's chunks instead, for uploads; the handler should read it to the end (what it leaves is discarded). Chunked request bodies are de-chunked either way; Expect: 100-continue is answered.</p>
+<p>Responses. A handler returns a string (200, text/plain), a response table {status, headers, body}, or a Future of either (an async function works as a handler). body is a string or a Stream of strings; a Stream is sent chunked as it comes (unless the headers give a Content-Length). A header whose value is a list is sent once per element (several Set-Cookie); Date is added. Text-like bodies (text/*, JSON, JavaScript, XML, SVG) of 1 KiB or more, and text-like Streams, are gzipped when the client accepts gzip, unless the response sets Content-Encoding or compress: false (or the server option compress is false). HEAD requests get the headers alone.</p>
+<p>serve(host, port, handler, options) -&gt; {server, port, done, close()}; options:</p>
+<pre><code>max_head (64 KiB; 431 beyond), max_body (16 MiB; 413 beyond),
+stream_body(req) -&gt; bool, compress (true),
+idle_timeout (5000 ms between requests on a kept-alive connection),
+request_timeout (30000 ms to receive a request; 408 after),
+on_error(req, err) (a handler raised; the client gets a 500),
+on_upgrade(req, conn, rest) (a request asked for another protocol,
+  like WebSocket; it gets the connection and the bytes read past the
+  head, and the server forgets the connection),
+tls (serve HTTPS: {cert, key} as PEM text, or {cert_file, key_file},
+  or a context from slang/tls; req.secure is true then).</code></pre>
+<p>close() stops accepting; idle connections close at once, busy ones after their response; done completes when the listener is closed.</p>
+<p>Client:</p>
+<pre><code>http.connect(host, port, options) -&gt; Future of a client;
+  client:request(method, path, body, headers) -&gt; Future of {status,
+  reason, headers, body}, one at a time on the connection;
+  client:close()
+http.get(host, port, path) -&gt; Future of a response
+http.fetch(url, {method, headers, body, tls}) -&gt; Future of a response
+  to an http:// or https:// URL</code></pre>
+<p>options.tls makes a client talk HTTPS: true, or the options of slang/tls's connect (ca to trust a server's own certificate, verify: false, ...); fetch uses it for https:// URLs. The client says User-Agent: slang unless told otherwise, asks for gzip and inflates it (res.compressed says it was); chunked and connection-delimited responses are read to their end.</p>
+<p>Multipart (form uploads):</p>
+<pre><code>http.multipart_boundary(content_type) -&gt; the boundary, or null
+http.multipart_parser(boundary) -&gt; p; p:push(chunk) -&gt; events
+  {type: &quot;part&quot;, name, filename, content_type, headers},
+  {type: &quot;data&quot;, data}, {type: &quot;end_part&quot;}, {type: &quot;end&quot;}; p:finish()
+  raises when the body ended early
+http.multipart(req) -&gt; list of {name, filename, content_type, headers,
+  data} of a buffered body</code></pre>
+<p>Cookies:</p>
+<pre><code>http.cookies(req) -&gt; {name: value} from the Cookie header
+http.set_cookie(res, name, value, options) adds a Set-Cookie header
+http.clear_cookie(res, name, options) tells the browser to drop it
+http.cookie(name, value, options) -&gt; the Set-Cookie header value</code></pre>
+<p>options: path (&quot;/&quot;), domain, max_age (seconds), expires (seconds since the epoch), http_only (true), secure, same_site (&quot;Lax&quot;; &quot;Strict&quot; or &quot;None&quot;). Values must be cookie-safe (encode others first, for example with slang/encoding's base64url_encode).</p>
+<ul class="toc">
+<li><a href="#status_text"><code>status_text</code></a></li>
+<li><a href="#parse_head"><code>parse_head</code></a></li>
+<li><a href="#response"><code>response</code></a></li>
+<li><a href="#normalize"><code>normalize</code></a></li>
+<li><a href="#write_response"><code>write_response</code></a></li>
+<li><a href="#serve"><code>serve</code></a></li>
+<li><a href="#parse_cookies"><code>parse_cookies</code></a></li>
+<li><a href="#cookies"><code>cookies</code></a></li>
+<li><a href="#cookie"><code>cookie</code></a></li>
+<li><a href="#set_cookie"><code>set_cookie</code></a></li>
+<li><a href="#clear_cookie"><code>clear_cookie</code></a></li>
+<li><a href="#connect"><code>connect</code></a></li>
+<li><a href="#get"><code>get</code></a></li>
+<li><a href="#fetch"><code>fetch</code></a></li>
+<li><a href="#multipart_boundary"><code>multipart_boundary</code></a></li>
+<li><a href="#multipart_parser"><code>multipart_parser</code></a></li>
+<li><a href="#multipart"><code>multipart</code></a></li>
+<li><a href="#HttpClient:request"><code>HttpClient:request</code></a></li>
+<li><a href="#HttpClient:close"><code>HttpClient:close</code></a></li>
+<li><a href="#MultipartParser:push"><code>MultipartParser:push</code></a></li>
+<li><a href="#MultipartParser:finish"><code>MultipartParser:finish</code></a></li>
+<li><a href="#MultipartParser:is_done"><code>MultipartParser:is_done</code></a></li>
+</ul>
+<div class="def" id="status_text"><h3><code>http.status_text</code></h3>
+<p class="muted">No description.</p>
+</div>
+<h2>requests</h2>
+<div class="def" id="parse_head"><h3><code>http.parse_head(text)</code></h3>
+<p>parse_head(text) -&gt; the request of a complete head (body &quot;&quot;), or null</p>
+</div>
+<h2>responses</h2>
+<div class="def" id="response"><h3><code>http.response(status, body, headers)</code></h3>
+<p>response(status, body, headers) -&gt; a response table</p>
+</div>
+<div class="def" id="normalize"><h3><code>http.normalize(res)</code></h3>
+<p>normalize(res) -&gt; {status, headers, body} for what a handler returned (a string, or a table with any of the three)</p>
+</div>
+<div class="def" id="write_response"><h3><code>http.write_response(conn, req, res, options)</code></h3>
+<p>write_response(conn, req, res, options) -&gt; Future: sends res on a raw connection (one from on_upgrade, to refuse an upgrade) and closes it</p>
+</div>
+<h2>connections</h2>
+<div class="def" id="serve"><h3><code>http.serve(host, port, handler, options)</code></h3>
+<p>serve(host, port, handler, options) -&gt; {server, port, done, close()}</p>
+</div>
+<h2>cookies</h2>
+<div class="def" id="parse_cookies"><h3><code>http.parse_cookies(header)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="cookies"><h3><code>http.cookies(req)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="cookie"><h3><code>http.cookie(name, value, options)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="set_cookie"><h3><code>http.set_cookie(res, name, value, options)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="clear_cookie"><h3><code>http.clear_cookie(res, name, options)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<h2>client</h2>
+<div class="def" id="connect"><h3><code>http.connect(host, port, options)</code></h3>
+<p>connect(host, port, options) -&gt; Future of a client; its request() sends one request at a time on the connection and resolves to {status, reason, headers, body}; options.tls for HTTPS</p>
+</div>
+<div class="def" id="get"><h3><code>http.get(host, port, path)</code></h3>
+<p>get(host, port, path) -&gt; Future of a response, on a connection of its own</p>
+</div>
+<div class="def" id="fetch"><h3><code>http.fetch(url, options)</code></h3>
+<p>fetch(url, {method, headers, body, tls}) -&gt; Future of a response: one request to an http:// or https:// URL on a connection of its own</p>
+</div>
+<h2>multipart</h2>
+<div class="def" id="multipart_boundary"><h3><code>http.multipart_boundary(content_type)</code></h3>
+<p>multipart_boundary(content_type) -&gt; the boundary of a multipart type, or null</p>
+</div>
+<div class="def" id="multipart_parser"><h3><code>http.multipart_parser(boundary)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="multipart"><h3><code>http.multipart(req)</code></h3>
+<p>multipart(req) -&gt; the parts of a buffered multipart body</p>
+</div>
+<h2>type HttpClient</h2>
+<div class="def" id="HttpClient:request"><h3><code>HttpClient:request(method, path, body, headers, options)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="HttpClient:close"><h3><code>HttpClient:close()</code></h3>
+<p class="muted">No description.</p>
+</div>
+<h2>type MultipartParser</h2>
+<div class="def" id="MultipartParser:push"><h3><code>MultipartParser:push(chunk)</code></h3>
+<p>push(chunk) -&gt; the events the chunk completes</p>
+</div>
+<div class="def" id="MultipartParser:finish"><h3><code>MultipartParser:finish()</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="MultipartParser:is_done"><h3><code>MultipartParser:is_done()</code></h3>
+<p class="muted">No description.</p>
+</div>
+<p class="muted">slang/lib/http.slang</p>
+</body>
+</html>

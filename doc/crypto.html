@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>crypto</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>crypto</h1>
+<p>crypto: the native binding of the parts of OpenSSL 3 (libcrypto) that web applications need. Most code should use slang/crypto (and slang/jwt), which build on it.</p>
+<pre><code>local crypto = require(&quot;crypto&quot;)
+crypto.hash(&quot;sha256&quot;, &quot;abc&quot;)  // 32 raw bytes
+crypto.hasher(&quot;sha256&quot;):update(&quot;a&quot;):update(&quot;bc&quot;):digest()</code></pre>
+<p>Digests are OpenSSL names (&quot;sha1&quot;, &quot;sha256&quot;, &quot;sha384&quot;, &quot;sha512&quot;, &quot;sha3-256&quot;, &quot;md5&quot;, ...). Results are raw byte strings; slang/encoding makes hex or base64 of them. Errors are raised with OpenSSL's message.</p>
+<ul class="toc">
+<li><a href="#hash"><code>hash</code></a></li>
+<li><a href="#hmac"><code>hmac</code></a></li>
+<li><a href="#random_bytes"><code>random_bytes</code></a></li>
+<li><a href="#equal"><code>equal</code></a></li>
+<li><a href="#hasher"><code>hasher</code></a></li>
+<li><a href="#pbkdf2"><code>pbkdf2</code></a></li>
+<li><a href="#scrypt"><code>scrypt</code></a></li>
+<li><a href="#pbkdf2_async"><code>pbkdf2_async</code></a></li>
+<li><a href="#scrypt_async"><code>scrypt_async</code></a></li>
+<li><a href="#encrypt"><code>encrypt</code></a></li>
+<li><a href="#decrypt"><code>decrypt</code></a></li>
+<li><a href="#private_key"><code>private_key</code></a></li>
+<li><a href="#public_key"><code>public_key</code></a></li>
+<li><a href="#generate_key"><code>generate_key</code></a></li>
+<li><a href="#version"><code>version</code></a></li>
+<li><a href="#crypto.hasher:update"><code>crypto.hasher:update</code></a></li>
+<li><a href="#crypto.hasher:digest"><code>crypto.hasher:digest</code></a></li>
+<li><a href="#crypto.key:sign"><code>crypto.key:sign</code></a></li>
+<li><a href="#crypto.key:verify"><code>crypto.key:verify</code></a></li>
+<li><a href="#crypto.key:type"><code>crypto.key:type</code></a></li>
+<li><a href="#crypto.key:bits"><code>crypto.key:bits</code></a></li>
+<li><a href="#crypto.key:is_private"><code>crypto.key:is_private</code></a></li>
+<li><a href="#crypto.key:public_pem"><code>crypto.key:public_pem</code></a></li>
+<li><a href="#crypto.key:private_pem"><code>crypto.key:private_pem</code></a></li>
+<li><a href="#crypto.key:public_key"><code>crypto.key:public_key</code></a></li>
+</ul>
+<h2>hashes and MACs</h2>
+<div class="def" id="hash"><h3><code>m.hash(digest, data)</code></h3>
+<p>hash(digest, data) -&gt; the raw digest of data</p>
+</div>
+<div class="def" id="hmac"><h3><code>m.hmac(digest, key, data)</code></h3>
+<p>hmac(digest, key, data) -&gt; the raw HMAC of data under key</p>
+</div>
+<div class="def" id="random_bytes"><h3><code>m.random_bytes(n)</code></h3>
+<p>random_bytes(n) -&gt; n cryptographically random bytes, n from 0 to 1048576</p>
+</div>
+<div class="def" id="equal"><h3><code>m.equal(a, b)</code></h3>
+<p>equal(a, b) -&gt; whether the strings are equal, in time that depends only on their lengths (for comparing MACs and tokens)</p>
+</div>
+<div class="def" id="hasher"><h3><code>m.hasher(digest)</code></h3>
+<p>hasher(digest) -&gt; a crypto.hasher: update(data) as often as needed, then digest() once</p>
+</div>
+<h2>key derivation</h2>
+<div class="def" id="pbkdf2"><h3><code>m.pbkdf2(digest, password, salt, iterations, length)</code></h3>
+<p>pbkdf2(digest, password, salt, iterations, length) -&gt; length bytes (1 to 4096) derived with PBKDF2-HMAC; at least one iteration</p>
+</div>
+<div class="def" id="scrypt"><h3><code>m.scrypt(password, salt, n, r, p, length)</code></h3>
+<p>scrypt(password, salt, n, r, p, length) -&gt; length bytes (1 to 4096) derived with scrypt; n a power of two above 1, r and p positive</p>
+</div>
+<div class="def" id="pbkdf2_async"><h3><code>m.pbkdf2_async(digest, password, salt, iterations, length, cb)</code></h3>
+<p>pbkdf2_async(digest, password, salt, iterations, length, cb) runs pbkdf2 on libuv's thread pool and calls cb(err, bytes) from the loop</p>
+</div>
+<div class="def" id="scrypt_async"><h3><code>m.scrypt_async(password, salt, n, r, p, length, cb)</code></h3>
+<p>scrypt_async(password, salt, n, r, p, length, cb) runs scrypt on libuv's thread pool and calls cb(err, bytes) from the loop</p>
+</div>
+<h2>encryption</h2>
+<div class="def" id="encrypt"><h3><code>m.encrypt(cipher, key, iv, plaintext, aad)</code></h3>
+<p>encrypt(cipher, key, iv, plaintext, [aad]) -&gt; the ciphertext followed by the 16-byte tag. cipher is an AEAD: &quot;aes-128-gcm&quot;, &quot;aes-256-gcm&quot; or &quot;chacha20-poly1305&quot;; key as long as the cipher needs, iv 8 to 64 bytes (12 is usual); aad is authenticated but not encrypted.</p>
+</div>
+<div class="def" id="decrypt"><h3><code>m.decrypt(cipher, key, iv, sealed, aad)</code></h3>
+<p>decrypt(cipher, key, iv, sealed, [aad]) -&gt; the plaintext, or null when the data, the aad, the key or the iv do not match the tag</p>
+</div>
+<h2>keys</h2>
+<div class="def" id="private_key"><h3><code>m.private_key(pem, passphrase)</code></h3>
+<p>private_key(pem, [passphrase]) -&gt; a crypto.key from a PEM private key</p>
+</div>
+<div class="def" id="public_key"><h3><code>m.public_key(pem)</code></h3>
+<p>public_key(pem) -&gt; a crypto.key from a PEM public key (&quot;BEGIN PUBLIC KEY&quot;)</p>
+</div>
+<div class="def" id="generate_key"><h3><code>m.generate_key(type, param)</code></h3>
+<p>generate_key(type, [param]) -&gt; a new private crypto.key: (&quot;rsa&quot;, [bits]) with bits 1024 to 16384 (2048), (&quot;ec&quot;, [curve]) with curve &quot;P-256&quot; by default, or (&quot;ed25519&quot;)</p>
+</div>
+<h2>version</h2>
+<div class="def" id="version"><h3><code>m.version()</code></h3>
+<p>version() -&gt; the OpenSSL version text</p>
+</div>
+<h2>type crypto.hasher</h2>
+<div class="def" id="crypto.hasher:update"><h3><code>crypto.hasher:update(data)</code></h3>
+<p>hasher:update(data) -&gt; hasher, with data added</p>
+</div>
+<div class="def" id="crypto.hasher:digest"><h3><code>crypto.hasher:digest()</code></h3>
+<p>hasher:digest() -&gt; the raw digest; the hasher raises on further use</p>
+</div>
+<h2>type crypto.key</h2>
+<div class="def" id="crypto.key:sign"><h3><code>crypto.key:sign(digest, data, options)</code></h3>
+<p>key:sign(digest, data, [options]) -&gt; the signature of data; needs a private key. options: {padding: &quot;pss&quot;} for RSA-PSS (salt as long as the digest), {encoding: &quot;raw&quot;} for ECDSA signatures as r || s (the JWT form) instead of DER. Ed25519 ignores the digest (pass null).</p>
+</div>
+<div class="def" id="crypto.key:verify"><h3><code>crypto.key:verify(digest, data, signature, options)</code></h3>
+<p>key:verify(digest, data, signature, [options]) -&gt; whether signature is a valid signature of data; options as for sign</p>
+</div>
+<div class="def" id="crypto.key:type"><h3><code>crypto.key:type()</code></h3>
+<p>key:type() -&gt; &quot;rsa&quot;, &quot;rsa-pss&quot;, &quot;ec&quot;, &quot;ed25519&quot;, &quot;ed448&quot; or &quot;other&quot;</p>
+</div>
+<div class="def" id="crypto.key:bits"><h3><code>crypto.key:bits()</code></h3>
+<p>key:bits() -&gt; the size of the key in bits</p>
+</div>
+<div class="def" id="crypto.key:is_private"><h3><code>crypto.key:is_private()</code></h3>
+<p>key:is_private() -&gt; whether the key holds the private half</p>
+</div>
+<div class="def" id="crypto.key:public_pem"><h3><code>crypto.key:public_pem()</code></h3>
+<p>key:public_pem() -&gt; the public key as PEM (&quot;BEGIN PUBLIC KEY&quot;)</p>
+</div>
+<div class="def" id="crypto.key:private_pem"><h3><code>crypto.key:private_pem()</code></h3>
+<p>key:private_pem() -&gt; the private key as unencrypted PKCS#8 PEM; raises for a public key</p>
+</div>
+<div class="def" id="crypto.key:public_key"><h3><code>crypto.key:public_key()</code></h3>
+<p>key:public_key() -&gt; the public half as a crypto.key of its own</p>
+</div>
+<p class="muted">slang/stubs/crypto.slang</p>
+</body>
+</html>

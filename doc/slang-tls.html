@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>slang/tls</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>slang/tls</h1>
+<p>slang/tls: TLS on libuv TCP, with the tls native extension (OpenSSL).</p>
+<pre><code>local tls = require(&quot;slang/tls&quot;)
+local conn = async.await(tls.connect(&quot;example.com&quot;, 443))
+
+tls.connect(host, port, options) -&gt; Future of a connection whose
+  handshake completed; options are a context's (below), or context
+  (one made before), and server_name (the name to verify, the host by
+  default)
+tls.client(tcp, server_name, context) -&gt; a connection over a connected
+  uv.tcp handle; its handshake starts at once
+tls.server(tcp, context) -&gt; a connection over an accepted uv.tcp handle;
+  the handshake runs as the client's bytes arrive
+tls.context(options) -&gt; a context for many connections: the tls
+  extension's options (server, cert, key, ca as PEM text, verify, alpn,
+  min_version), or cert_file, key_file and ca_file to read them from
+tls.self_signed(names, [days]) -&gt; {cert, key} for local development</code></pre>
+<p>A connection works like the uv.tcp handle it wraps (read_start(cb), read_stop(), write(data, cb), shutdown(cb), close(cb), getsockname(), getpeername(), ...), so slang/async's reader, write and close, and slang/http and slang/ws on top of them, use it as they are. Writes made during the handshake wait for it; a failed handshake (a certificate that does not verify, say) reaches them and the reader as the error. Also:</p>
+<pre><code>conn:handshake() -&gt; Future of the connection once the handshake is done
+conn:info() -&gt; {version, cipher, alpn, peer, server_name}</code></pre>
+<p>A client verifies the server's certificate against the system's trust store and the host name by default; verify: false turns that off.</p>
+<ul class="toc">
+<li><a href="#context"><code>context</code></a></li>
+<li><a href="#self_signed"><code>self_signed</code></a></li>
+<li><a href="#client"><code>client</code></a></li>
+<li><a href="#server"><code>server</code></a></li>
+<li><a href="#connect"><code>connect</code></a></li>
+<li><a href="#TlsConnection:handshake"><code>TlsConnection:handshake</code></a></li>
+<li><a href="#TlsConnection:info"><code>TlsConnection:info</code></a></li>
+<li><a href="#TlsConnection:read_start"><code>TlsConnection:read_start</code></a></li>
+<li><a href="#TlsConnection:read_stop"><code>TlsConnection:read_stop</code></a></li>
+<li><a href="#TlsConnection:write"><code>TlsConnection:write</code></a></li>
+<li><a href="#TlsConnection:shutdown"><code>TlsConnection:shutdown</code></a></li>
+<li><a href="#TlsConnection:close"><code>TlsConnection:close</code></a></li>
+<li><a href="#TlsConnection:name"><code>TlsConnection:name</code></a></li>
+</ul>
+<div class="def" id="context"><h3><code>tls.context(options)</code></h3>
+<p>context(options): files read into PEM text, then the extension's context</p>
+</div>
+<div class="def" id="self_signed"><h3><code>tls.self_signed(names, days)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<h2>connections</h2>
+<div class="def" id="client"><h3><code>tls.client(tcp, server_name, context)</code></h3>
+<p>client(tcp, server_name, context): the handshake starts now</p>
+</div>
+<div class="def" id="server"><h3><code>tls.server(tcp, context)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="connect"><h3><code>tls.connect(host, port, options)</code></h3>
+<p>connect(host, port, options) -&gt; Future of a connection after its handshake</p>
+</div>
+<h2>type TlsConnection</h2>
+<div class="def" id="TlsConnection:handshake"><h3><code>TlsConnection:handshake()</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="TlsConnection:info"><h3><code>TlsConnection:info()</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="TlsConnection:read_start"><h3><code>TlsConnection:read_start(cb)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="TlsConnection:read_stop"><h3><code>TlsConnection:read_stop()</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="TlsConnection:write"><h3><code>TlsConnection:write(data, cb)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="TlsConnection:shutdown"><h3><code>TlsConnection:shutdown(cb)</code></h3>
+<p>shutdown(cb): a close_notify, then the TCP write side closes</p>
+</div>
+<div class="def" id="TlsConnection:close"><h3><code>TlsConnection:close(cb)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="TlsConnection:name"><h3><code>TlsConnection:name(...arguments)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<p class="muted">slang/lib/tls.slang</p>
+</body>
+</html>

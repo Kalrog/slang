@@ -3,6 +3,8 @@ local t = require("slang/test")
 local str = require("slang/string")
 local json = require("slang/json")
 local lsp = require("lsp/server")
+local os = require("slang/os")
+local compiler = require("slang/compiler")
 
 local func request(id, method, params){
   return {jsonrpc: "2.0", id: id, method: method, params: params}
@@ -183,13 +185,131 @@ t.group("language server"){
   }
   t.test("unknown methods, shutdown and exit"){
     local s = lsp.new()
-    local r = s:handle(request(5, "textDocument/hover", {}))
+    local r = s:handle(request(5, "textDocument/codeLens", {}))
     assert(r[0].error.code == - 32601)
     assert(len(s:handle(notify("textDocument/nothing", {}))) == 0)
-    assert(s:handle(
-      request(6, "shutdown", null)
-    )[0].result == null and s.shutdown_requested)
+    local down = s:handle(request(6, "shutdown", null))[0]
+    assert(type(down.result) == "json.null" and s.shutdown_requested)
     s:handle(notify("exit", null))
     assert(s.exited)
+  }
+}
+
+t.group("language server: names"){
+  // the stubs of this checkout, whichever build runs the tests (the checked
+  // builds live in zig/zig-out-*, where no slang/stubs is next to them)
+  local stubs = compiler.absolute_path("slang/stubs")
+  local known = false
+  for(let local d in values(__PACKAGES.stubSources)){
+    known = known or compiler.absolute_path(d) == stubs
+  }
+  if(not known){
+    append(__PACKAGES.stubSources, stubs)
+  }
+  // test/navigate/main.slang requires test/navigate/util.slang
+  local dir = compiler.absolute_path("test/navigate")
+  local main_path = concat(dir, "/main.slang")
+  local text = os.read_file(main_path)
+  local s = lsp.new({root: dir})
+  local init = s:handle(request(1, "initialize", {capabilities: {}}))
+  local uri = lsp.path_to_uri(main_path)
+  open_doc(s, uri, text)
+  // the position of the nth occurrence of word in main.slang
+  local func pos(word, nth){
+    local i = - 1
+    for(local k = 0; k <= (nth or 0); k = k + 1){
+      i = str.index_of(text, word, i + 1)
+    }
+    local lc = str.line_col(text, i)
+    return {line: lc[0] - 1, character: lc[1] - 1}
+  }
+  local func ask(method, p, context){
+    return s:handle(request(9, method, {
+      textDocument: {uri: uri}, position: p, context: context,
+    }))[0].result
+  }
+  // "file:line:character" of each location
+  local func spots(locations){
+    local out = {}
+    for(let local l in values(locations)){
+      local file = str.substring(l.uri, str.index_of(l.uri, "/navigate/") + 10)
+      append(out, concat(
+        file, ":", string(l.range.start.line), ":",
+        string(l.range.start.character)
+      ))
+    }
+    return out
+  }
+  t.test("go to definition: locals, globals and a required module's field"){
+    assert(init[0].result.capabilities.definitionProvider)
+    local d = spots(ask("textDocument/definition", pos("greet(\"x")))
+    assert(d == {"main.slang:4:11"}, str.join(d, " "))
+    d = spots(ask("textDocument/definition", pos("counter", 1)))
+    assert(d == {"main.slang:7:0"}, str.join(d, " "))
+    d = spots(ask("textDocument/definition", pos("double")))
+    assert(d == {"util.slang:4:10"}, str.join(d, " "))
+    // a built-in: its stub
+    d = ask("textDocument/definition", pos("print"))
+    assert(len(d) == 1 and str.ends_with(
+        d[0].uri,
+        "/slang/stubs/globals.slang"
+      ))
+  }
+  t.test("find references: a parameter, and a module field across files"){
+    local r = spots(ask("textDocument/references", pos("name)", 1), {
+      includeDeclaration: true,
+    }))
+    assert(r == {"main.slang:4:17", "main.slang:5:23"}, str.join(r, " "))
+    r = spots(ask("textDocument/references", pos("double"), {
+      includeDeclaration: true,
+    }))
+    assert(
+      len(r) == 3 and r[0] == "main.slang:5:34" and
+        r[1] == "main.slang:8:32" and r[2] == "util.slang:4:10",
+      str.join(r, " ")
+    )
+    r = spots(ask("textDocument/references", pos("double"), {
+      includeDeclaration: false,
+    }))
+    assert(len(r) == 2, str.join(r, " "))
+  }
+  t.test("methods are found through what a value is"){
+    local h = ask("textDocument/hover", pos("bump"))
+    assert(
+      str.index_of(h.contents.value, "func Counter:bump(by)") >= 0,
+      h.contents.value
+    )
+    assert(str.index_of(h.contents.value, "the count after adding by") >= 0)
+    local d = spots(ask("textDocument/definition", pos("bump")))
+    assert(d == {"util.slang:17:21"}, str.join(d, " "))
+  }
+  t.test("native modules and built-in globals resolve to their stubs"){
+    local h = ask("textDocument/hover", pos("trim"))
+    assert(
+      str.index_of(h.contents.value, "func str.trim(") >= 0,
+      h.contents.value
+    )
+    assert(str.index_of(h.contents.value, "slang/string (native)") >= 0)
+    local d = ask("textDocument/definition", pos("trim"))
+    assert(str.ends_with(d[0].uri, "/slang/stubs/slang/string.slang"))
+    h = ask("textDocument/hover", pos("print"))
+    assert(str.index_of(h.contents.value, "func print(") >= 0, h.contents.value)
+    assert(str.index_of(h.contents.value, "globals (native)") >= 0)
+  }
+  t.test("hover: the signature and the doc comment"){
+    local h = ask("textDocument/hover", pos("greet(\"x"))
+    assert(h.contents.kind == "markdown")
+    assert(str.index_of(h.contents.value, "local func greet(name)") >= 0)
+    assert(str.index_of(h.contents.value, "greet(name) -> a greeting") >= 0)
+    h = ask("textDocument/hover", pos("double"))
+    assert(str.index_of(h.contents.value, "func util.double(x)") >= 0)
+    assert(str.index_of(h.contents.value, "double(x) -> twice x") >= 0)
+    assert(h.range.start.line == 5 and h.range.start.character == 34)
+    local none = s:handle(request(9, "textDocument/hover", {
+      textDocument: {uri: uri},
+      position: pos("// navigate"),
+    }))[0]
+    assert(type(none.result) == "json.null", "no hover is a null result")
+    assert(str.index_of(lsp.encode(none), "\"result\":null") >= 0)
   }
 }

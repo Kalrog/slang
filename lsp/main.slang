@@ -6,6 +6,7 @@
 // working directory (the VS Code extension passes its own folder).
 local uv = require("uv")
 local os = require("slang/os")
+local str = require("slang/string")
 local dir = args()[0]
 if(dir != null){
   local paths = {dir}
@@ -18,6 +19,16 @@ local lsp = require("lsp/server")
 
 local func log(text){
   os.write_stderr(concat("slang-lsp: ", text, "\n"))
+}
+
+// stdout is the protocol: what project code prints while it is analysed
+// (an extension's compile-time code) goes to the log instead
+print = func(...parts){
+  local out = {}
+  for(let local p in values(parts)){
+    append(out, string(p))
+  }
+  os.write_stderr(str.join(out, ""))
 }
 
 local server = lsp.new({log: log})

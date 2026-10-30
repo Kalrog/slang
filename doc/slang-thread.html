@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>slang/thread</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>slang/thread</h1>
+<p>slang/thread: cooperative coroutines, built into the VM. A coroutine runs only while it is resumed, until it yields or returns.</p>
+<pre><code>local co = thread.create(func(a){
+  local b = thread.yield(a + 1)
+  return b * 2
+})
+thread.resume(co, 1)    // 2
+thread.resume(co, 10)   // 20</code></pre>
+<ul class="toc">
+<li><a href="#create"><code>create</code></a></li>
+<li><a href="#resume"><code>resume</code></a></li>
+<li><a href="#yield"><code>yield</code></a></li>
+<li><a href="#state"><code>state</code></a></li>
+<li><a href="#current"><code>current</code></a></li>
+<li><a href="#id"><code>id</code></a></li>
+</ul>
+<div class="def" id="create"><h3><code>m.create(f)</code></h3>
+<p>create(f) -&gt; a new coroutine running f; it starts on the first resume</p>
+</div>
+<div class="def" id="resume"><h3><code>m.resume(co, ...values)</code></h3>
+<p>resume(co, ...values) -&gt; the value co yields or returns. On the first resume the values are the arguments of its function; later the first value is the result of the yield it is suspended in. An error in co is raised by resume and ends co. Resuming a finished coroutine returns null; resuming a running one raises an error.</p>
+</div>
+<div class="def" id="yield"><h3><code>m.yield(value)</code></h3>
+<p>yield([value]) -&gt; the first value the next resume passes: suspends the current coroutine, and resume returns value. Raises an error on the main thread.</p>
+</div>
+<div class="def" id="state"><h3><code>m.state(co)</code></h3>
+<p>state([co]) -&gt; &quot;init&quot;, &quot;running&quot;, &quot;suspended&quot; or &quot;dead&quot;: the state of co, or of the current coroutine</p>
+</div>
+<div class="def" id="current"><h3><code>m.current()</code></h3>
+<p>current() -&gt; the running coroutine (or the main thread)</p>
+</div>
+<div class="def" id="id"><h3><code>m.id()</code></h3>
+<p>id() -&gt; the id of the running coroutine, an int</p>
+</div>
+<p class="muted">slang/stubs/slang/thread.slang</p>
+</body>
+</html>

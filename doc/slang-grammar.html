@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>slang/grammar</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>slang/grammar</h1>
+<p>slang/grammar: the slang grammar, built with slang/peg on top of a rule registry that lets programs extend and modify the parser at compile time.</p>
+<p>A grammar is a registry of named rules plus the registries of statements, extension statements and the expression walker (primaries, levels and operators, see peg.walker). Rules are referenced by name (g:rule(name)) and resolved late: the first parse after a change seals the grammar (builds the expression walker, the dispatch tables and the rule targets) once. Grammars derive from each other; the rule references are shared by a whole lineage and always point at the rules of the grammar that was activated last.</p>
+<ul class="toc">
+<li><a href="#comments"><code>comments</code></a></li>
+<li><a href="#new"><code>new</code></a></li>
+<li><a href="#grammar:changes_allowed"><code>grammar:changes_allowed</code></a></li>
+<li><a href="#grammar:rule"><code>grammar:rule</code></a></li>
+<li><a href="#grammar:define"><code>grammar:define</code></a></li>
+<li><a href="#grammar:modify"><code>grammar:modify</code></a></li>
+<li><a href="#grammar:rules"><code>grammar:rules</code></a></li>
+<li><a href="#grammar:derive"><code>grammar:derive</code></a></li>
+<li><a href="#grammar:root"><code>grammar:root</code></a></li>
+<li><a href="#grammar:unit"><code>grammar:unit</code></a></li>
+<li><a href="#grammar:has_extension"><code>grammar:has_extension</code></a></li>
+<li><a href="#grammar:add_extension"><code>grammar:add_extension</code></a></li>
+<li><a href="#grammar:extensions"><code>grammar:extensions</code></a></li>
+<li><a href="#grammar:with_owner"><code>grammar:with_owner</code></a></li>
+<li><a href="#grammar:keyword"><code>grammar:keyword</code></a></li>
+<li><a href="#grammar:token"><code>grammar:token</code></a></li>
+<li><a href="#grammar:tag"><code>grammar:tag</code></a></li>
+<li><a href="#grammar:unit_id"><code>grammar:unit_id</code></a></li>
+<li><a href="#grammar:origin"><code>grammar:origin</code></a></li>
+<li><a href="#grammar:unit_local"><code>grammar:unit_local</code></a></li>
+<li><a href="#grammar:error_at"><code>grammar:error_at</code></a></li>
+<li><a href="#grammar:uniq_id"><code>grammar:uniq_id</code></a></li>
+<li><a href="#grammar:expression"><code>grammar:expression</code></a></li>
+<li><a href="#grammar:seal"><code>grammar:seal</code></a></li>
+<li><a href="#grammar:activate"><code>grammar:activate</code></a></li>
+<li><a href="#grammar:statement"><code>grammar:statement</code></a></li>
+<li><a href="#grammar:extension_statement"><code>grammar:extension_statement</code></a></li>
+<li><a href="#grammar:walker"><code>grammar:walker</code></a></li>
+<li><a href="#grammar:run_extension"><code>grammar:run_extension</code></a></li>
+<li><a href="#grammar:parse_source"><code>grammar:parse_source</code></a></li>
+<li><a href="#grammar:parse_repl"><code>grammar:parse_repl</code></a></li>
+<li><a href="#expression_registry:primary"><code>expression_registry:primary</code></a></li>
+<li><a href="#expression_registry:level"><code>expression_registry:level</code></a></li>
+<li><a href="#expression_registry:prefix"><code>expression_registry:prefix</code></a></li>
+<li><a href="#expression_registry:postfix"><code>expression_registry:postfix</code></a></li>
+<li><a href="#expression_registry:left"><code>expression_registry:left</code></a></li>
+<li><a href="#expression_registry:right"><code>expression_registry:right</code></a></li>
+<li><a href="#expression_registry:wrapper"><code>expression_registry:wrapper</code></a></li>
+<li><a href="#expression_registry:nud"><code>expression_registry:nud</code></a></li>
+<li><a href="#expression_registry:led"><code>expression_registry:led</code></a></li>
+<li><a href="#expression_registry:levels"><code>expression_registry:levels</code></a></li>
+<li><a href="#expression_registry:primaries"><code>expression_registry:primaries</code></a></li>
+<li><a href="#expression_level:prefix"><code>expression_level:prefix</code></a></li>
+<li><a href="#expression_level:postfix"><code>expression_level:postfix</code></a></li>
+<li><a href="#expression_level:left"><code>expression_level:left</code></a></li>
+<li><a href="#expression_level:right"><code>expression_level:right</code></a></li>
+<li><a href="#expression_level:wrapper"><code>expression_level:wrapper</code></a></li>
+</ul>
+<h2>parsing</h2>
+<div class="def" id="comments"><h3><code>grammar.comments(buffer, start, stop)</code></h3>
+<p>comments(buffer, start, stop) -&gt; the <code>//</code> comments in a run of trivia, as highlighter spans</p>
+</div>
+<div class="def" id="new"><h3><code>grammar.new(opts)</code></h3>
+<p>new(opts) -&gt; the root grammar of a new lineage, with slang's syntax</p>
+</div>
+<h2>type grammar</h2>
+<div class="def" id="grammar:changes_allowed"><h3><code>grammar:changes_allowed()</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="grammar:rule"><h3><code>grammar:rule(name)</code></h3>
+<p>rule(name) -&gt; a parser referring to the rule, resolved at parse time</p>
+</div>
+<div class="def" id="grammar:define"><h3><code>grammar:define(name, parser, options)</code></h3>
+<p>define(name, parser, {protected, probe}): registers a rule. A rule may also be built at seal time: define(name, null, {build: func(g) -&gt; parser}).</p>
+</div>
+<div class="def" id="grammar:modify"><h3><code>grammar:modify(name, f)</code></h3>
+<p>modify(name, func(old) -&gt; new): replaces the rule by f(old); replacing is just not using old. Rules built at seal time are wrapped after building.</p>
+</div>
+<div class="def" id="grammar:rules"><h3><code>grammar:rules()</code></h3>
+<p>rules() -&gt; {{name, owner, protected, history}}: every rule with its provenance</p>
+</div>
+<div class="def" id="grammar:derive"><h3><code>grammar:derive()</code></h3>
+<p>derive() -&gt; a grammar that starts as a copy of this one; changes to either do not affect the other</p>
+</div>
+<div class="def" id="grammar:root"><h3><code>grammar:root()</code></h3>
+<p>root() -&gt; the root grammar of the lineage (slang plus the ambient layer)</p>
+</div>
+<div class="def" id="grammar:unit"><h3><code>grammar:unit()</code></h3>
+<p>unit() -&gt; the grammar of the unit being parsed, this one at run time</p>
+</div>
+<div class="def" id="grammar:has_extension"><h3><code>grammar:has_extension(name)</code></h3>
+<p>the extensions loaded into this grammar, by name (inherited by derivation)</p>
+</div>
+<div class="def" id="grammar:add_extension"><h3><code>grammar:add_extension(name)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="grammar:extensions"><h3><code>grammar:extensions()</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="grammar:with_owner"><h3><code>grammar:with_owner(owner, f)</code></h3>
+<p>with_owner(owner, f) -&gt; f(): runs f with grammar changes attributed to owner</p>
+</div>
+<div class="def" id="grammar:keyword"><h3><code>grammar:keyword(s)</code></h3>
+<p>keyword(word) -&gt; token parser; the word is reserved (not an identifier)</p>
+</div>
+<div class="def" id="grammar:token"><h3><code>grammar:token(source, name, category)</code></h3>
+<p>token(source, name, category) -&gt; parser: a token trimmed by trivia. source is a string (the token's text; word-like tokens may not be followed by an identifier character) or a parser (name says what the error message expects). category is what a highlighter shows; it defaults to &quot;keyword&quot; for words, &quot;punctuation&quot; for other strings and name for parsers.</p>
+</div>
+<div class="def" id="grammar:tag"><h3><code>grammar:tag(parser, category)</code></h3>
+<p>tag(parser, category) -&gt; parser: what parser produced, recorded again under category for highlighting (see peg.tag)</p>
+</div>
+<div class="def" id="grammar:unit_id"><h3><code>grammar:unit_id()</code></h3>
+<p>unit_id() -&gt; a number identifying the parse of the current unit (a new one for every unit, including nested compiles), for per-unit extension state</p>
+</div>
+<div class="def" id="grammar:origin"><h3><code>grammar:origin()</code></h3>
+<p>origin() -&gt; the name of the source being parsed (null outside a parse)</p>
+</div>
+<div class="def" id="grammar:unit_local"><h3><code>grammar:unit_local(key, expr)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="grammar:error_at"><h3><code>grammar:error_at(token, ...message)</code></h3>
+<p>error_at(token, message...): raises a compile error located at token (a token as produced by token/keyword, or any table with line and column)</p>
+</div>
+<div class="def" id="grammar:uniq_id"><h3><code>grammar:uniq_id()</code></h3>
+<p>uniq_id() -&gt; an identifier node with a name no program can write</p>
+</div>
+<div class="def" id="grammar:expression"><h3><code>grammar:expression()</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="grammar:seal"><h3><code>grammar:seal()</code></h3>
+<p>seal(): builds the rule targets, the expression walker and the dispatch tables of this grammar. Rules built at seal time (expr, statement, extension_statement) are built in that order, each installed before the next is analysed, so first sets never come from a stale definition.</p>
+</div>
+<div class="def" id="grammar:activate"><h3><code>grammar:activate()</code></h3>
+<p>activate(): makes this grammar the one the rule references parse with, sealing it first when it changed</p>
+</div>
+<div class="def" id="grammar:statement"><h3><code>grammar:statement(name, parser)</code></h3>
+<p>statement(name, parser): a statement; the parser yields a statement node or {token, ast}</p>
+</div>
+<div class="def" id="grammar:extension_statement"><h3><code>grammar:extension_statement(name, parser, apply)</code></h3>
+<p>extension_statement(name, parser, apply): a statement that is only recognised at the top level; after it parsed, apply(result, g) runs between statements with grammar changes allowed (g is the grammar of the unit being parsed) and returns the statement to emit (or null)</p>
+</div>
+<div class="def" id="grammar:walker"><h3><code>grammar:walker()</code></h3>
+<p>walker() -&gt; a fresh expression walker skipping slang trivia, for extensions that define their own expression language (see peg.walker)</p>
+</div>
+<div class="def" id="grammar:run_extension"><h3><code>grammar:run_extension(parsed, origin)</code></h3>
+<p>runs a parsed extension statement; returns a statement node to emit or null</p>
+</div>
+<div class="def" id="grammar:parse_source"><h3><code>grammar:parse_source(source, origin, options)</code></h3>
+<p>parse_source(source, origin, {scoped, tree, recover}) -&gt; Block node (raises on failure; the details of a parse failure are in g.state.last_failure). Extension statements of a scoped unit (the default) only affect that unit. With tree, the lossless tree of the unit is left in g.state.last_tree (see slang/peg): a node of kind &quot;unit&quot; whose kids are the top-level statements; after a failure, the statements parsed before it. recover (with tree, for highlighting) goes past statements that fail to parse: they are error regions in the tree (with highlight functions, see peg.highlights) and their failures are in g.state.failures.</p>
+</div>
+<div class="def" id="grammar:parse_repl"><h3><code>grammar:parse_repl(source)</code></h3>
+<p>parse_repl(source) -&gt; node: a chunk, or an expression wrapped in a return. The REPL is one unit spread over many lines: its extension statements are not scoped.</p>
+</div>
+<h2>type expression_registry</h2>
+<div class="def" id="expression_registry:primary"><h3><code>expression_registry:primary(name, parser, placement)</code></h3>
+<p>primary(name, parser, {after, before, at, aliases})</p>
+</div>
+<div class="def" id="expression_registry:level"><h3><code>expression_registry:level(name, placement)</code></h3>
+<p>level(name, {after, before, at, aliases}) -&gt; level</p>
+</div>
+<div class="def" id="expression_registry:prefix"><h3><code>expression_registry:prefix(operator, level, callback)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="expression_registry:postfix"><h3><code>expression_registry:postfix(operator, level, callback)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="expression_registry:left"><h3><code>expression_registry:left(operator, level, callback)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="expression_registry:right"><h3><code>expression_registry:right(operator, level, callback)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="expression_registry:wrapper"><h3><code>expression_registry:wrapper(left, right, level, callback)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="expression_registry:nud"><h3><code>expression_registry:nud(operator, rbp, f)</code></h3>
+<p>engine API: nud(operator, rbp, f) and led(operator, lbp, f), where f(w, ctx, pos, op) (or f(w, ctx, pos, left, op)) parses its own operands through w:parse_at(ctx, pos, bp) and leaves an AST node in ctx.value (see peg.walker); for syntax that must act before its operand is parsed</p>
+</div>
+<div class="def" id="expression_registry:led"><h3><code>expression_registry:led(operator, lbp, f)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="expression_registry:levels"><h3><code>expression_registry:levels()</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="expression_registry:primaries"><h3><code>expression_registry:primaries()</code></h3>
+<p class="muted">No description.</p>
+</div>
+<h2>type expression_level</h2>
+<div class="def" id="expression_level:prefix"><h3><code>expression_level:prefix(operator, callback)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="expression_level:postfix"><h3><code>expression_level:postfix(operator, callback)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="expression_level:left"><h3><code>expression_level:left(operator, callback)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="expression_level:right"><h3><code>expression_level:right(operator, callback)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="expression_level:wrapper"><h3><code>expression_level:wrapper(left, right, callback)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<p class="muted">slang/compiler/grammar.slang</p>
+</body>
+</html>

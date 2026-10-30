@@ -38,6 +38,8 @@ fn usage(io: std.Io) noreturn {
         \\  slang expand <file>          print a file as slang source after its extensions were applied
         \\  slang fmt [--check] [--stdout] <file|dir>...
         \\                              format files in place (--check: list the ones that would change)
+        \\  slang doc [-o dir] [file|dir...]
+        \\                              HTML documentation of the modules (default: the project, or slang's library)
         \\
     ) catch {};
     w.interface.flush() catch {};
@@ -85,7 +87,9 @@ pub fn main(init: std.process.Init) !u8 {
         if (args.len < 1) usage(io);
         expandFile(init, args[0]);
     } else if (std.mem.eql(u8, cmd, "fmt")) {
-        return formatFiles(init, args);
+        return toolMain(init, "slang/format", args);
+    } else if (std.mem.eql(u8, cmd, "doc")) {
+        return toolMain(init, "slang/doc", args);
     } else if (std.mem.eql(u8, cmd, "disasm")) {
         if (args.len < 1) usage(io);
         disasmFile(init, args[0]);
@@ -226,14 +230,14 @@ fn expandFile(init: std.process.Init, path: []const u8) void {
     vm.flush();
 }
 
-/// Formats files with slang/format (format.main); returns its exit code.
-fn formatFiles(init: std.process.Init, args: []const []const u8) u8 {
+/// Runs a tool written in slang: module.main(args) returns the exit code.
+fn toolMain(init: std.process.Init, module: []const u8, args: []const []const u8) u8 {
     const vm = newVM(init, args);
     defer vm.destroy();
-    const format = vm.call(vm.getGlobal("require"), &.{vm.str("slang/format")}) catch fail(vm);
+    const tool = vm.call(vm.getGlobal("require"), &.{vm.str(module)}) catch fail(vm);
     const list = vm.newTable(args.len, 0);
     for (args) |a| list.append(vm.gpa, vm.str(a));
-    const res = vm.call(format.table.getName("main"), &.{.{ .table = list }}) catch fail(vm);
+    const res = vm.call(tool.table.getName("main"), &.{.{ .table = list }}) catch fail(vm);
     vm.flush();
     return switch (res) {
         .int => |code| @intCast(code),

@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>slang's library</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<h1>slang's library</h1>
+<dl>
+<dt><a href="crypto.html"><code>crypto</code></a></dt><dd>crypto: the native binding of the parts of OpenSSL 3 (libcrypto) that web applications need.</dd>
+<dt><a href="globals.html"><code>globals</code></a></dt><dd>globals: the functions every slang program has, built into the VM.</dd>
+<dt><a href="llhttp.html"><code>llhttp</code></a></dt><dd>llhttp: the native binding of llhttp, the HTTP/1 parser of Node.js.</dd>
+<dt><a href="slang-ast.html"><code>slang/ast</code></a></dt><dd>slang/ast: helpers for AST nodes.</dd>
+<dt><a href="slang-async.html"><code>slang/async</code></a></dt><dd>slang/async: Futures, Streams and await on coroutines, driven by the uv event loop (the native <code>uv</code> module).</dd>
+<dt><a href="slang-codegen.html"><code>slang/codegen</code></a></dt><dd>slang/codegen: compiles AST nodes into function prototypes.</dd>
+<dt><a href="slang-compiler.html"><code>slang/compiler</code></a></dt><dd>slang/compiler: the compiler driver.</dd>
+<dt><a href="slang-crypto.html"><code>slang/crypto</code></a></dt><dd>slang/crypto: the crypto native extension (OpenSSL) plus what web code builds from it: password hashes, random tokens, signed and sealed values.</dd>
+<dt><a href="slang-doc.html"><code>slang/doc</code></a></dt><dd>slang/doc: API documentation from the comments the code already has, as HTML: <code>slang doc [-o dir] [file|dir...]</code>.</dd>
+<dt><a href="slang-encoding.html"><code>slang/encoding</code></a></dt><dd>slang/encoding: the byte encodings web code needs, built into the VM.</dd>
+<dt><a href="slang-format.html"><code>slang/format</code></a></dt><dd>slang/format: the formatter (<code>slang fmt</code>).</dd>
+<dt><a href="slang-grammar.html"><code>slang/grammar</code></a></dt><dd>slang/grammar: the slang grammar, built with slang/peg on top of a rule registry that lets programs extend and modify the parser at compile time.</dd>
+<dt><a href="slang-html.html"><code>slang/html</code></a></dt><dd>slang/html: HTML nodes that render to a string; the runtime behind the JSX-like templates of extensions/html, and usable on its own.</dd>
+<dt><a href="slang-http.html"><code>slang/http</code></a></dt><dd>slang/http: an HTTP/1.1 server and client on slang/async, parsing with llhttp (the llhttp native extension) and compressing with zlib.</dd>
+<dt><a href="slang-json.html"><code>slang/json</code></a></dt><dd>slang/json: encode and decode JSON.</dd>
+<dt><a href="slang-jwt.html"><code>slang/jwt</code></a></dt><dd>slang/jwt: JSON Web Tokens (RFC 7519) over slang/crypto.</dd>
+<dt><a href="slang-math.html"><code>slang/math</code></a></dt><dd>slang/math: numeric functions, built into the VM.</dd>
+<dt><a href="slang-optimizer.html"><code>slang/optimizer</code></a></dt><dd>slang/optimizer: constant folding on the AST (applied to parsed chunks).</dd>
+<dt><a href="slang-os.html"><code>slang/os</code></a></dt><dd>slang/os: files, the process and its environment, built into the VM.</dd>
+<dt><a href="slang-peg.html"><code>slang/peg</code></a></dt><dd>slang/peg: parser combinators in the style of petitparser.</dd>
+<dt><a href="slang-sqlite.html"><code>slang/sqlite</code></a></dt><dd>slang/sqlite: SQLite with an API that reads well, on the native <code>sqlite</code> extension.</dd>
+<dt><a href="slang-std.html"><code>slang/std</code></a></dt><dd>slang/std: global helpers written in slang.</dd>
+<dt><a href="slang-string.html"><code>slang/string</code></a></dt><dd>slang/string: string functions, built into the VM.</dd>
+<dt><a href="slang-symbols.html"><code>slang/symbols</code></a></dt><dd>slang/symbols: what a file defines and uses, for the language server (hover, go to definition, references) and slang doc.</dd>
+<dt><a href="slang-table.html"><code>slang/table</code></a></dt><dd>slang/table: table helpers.</dd>
+<dt><a href="slang-test.html"><code>slang/test</code></a></dt><dd>slang/test: a small test framework.</dd>
+<dt><a href="slang-thread.html"><code>slang/thread</code></a></dt><dd>slang/thread: cooperative coroutines, built into the VM.</dd>
+<dt><a href="slang-time.html"><code>slang/time</code></a></dt><dd>slang/time: wall-clock time as seconds since the Unix epoch, in UTC, built into the VM.</dd>
+<dt><a href="slang-tls.html"><code>slang/tls</code></a></dt><dd>slang/tls: TLS on libuv TCP, with the tls native extension (OpenSSL).</dd>
+<dt><a href="slang-web.html"><code>slang/web</code></a></dt><dd>slang/web: the application layer on slang/http: routes, middleware, request helpers, responses, static files, sessions, CSRF protection, WebSocket routes and a test client.</dd>
+<dt><a href="slang-webview.html"><code>slang/webview</code></a></dt><dd>slang/webview: desktop windows whose content is a web page and whose logic is slang (macOS, WKWebView), in the style of Wails.</dd>
+<dt><a href="slang-ws.html"><code>slang/ws</code></a></dt><dd>slang/ws: WebSockets (RFC 6455) on slang/async.</dd>
+<dt><a href="sqlite.html"><code>sqlite</code></a></dt><dd>sqlite: the native binding of SQLite, as thin as it is useful.</dd>
+<dt><a href="tls.html"><code>tls</code></a></dt><dd>tls: the native binding of OpenSSL 3's TLS (libssl) as an engine on memory buffers.</dd>
+<dt><a href="uv.html"><code>uv</code></a></dt><dd>uv: the native binding of libuv in the callback style of luv.</dd>
+<dt><a href="zlib.html"><code>zlib</code></a></dt><dd>zlib: the native binding of zlib (deflate and inflate in the gzip, zlib and raw formats), at once or as a stream.</dd>
+</dl>
+</body>
+</html>

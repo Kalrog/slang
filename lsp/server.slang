@@ -7,11 +7,15 @@
 // the server speaks: initialize (semantic tokens, full document sync, a
 // position encoding), didOpen/didChange/didClose, semanticTokens/full,
 // publishDiagnostics, didChangeWatchedFiles (the project file changed: the
-// grammars are reset), shutdown, exit. Highlighting comes from
-// compiler.highlight, so extensions and dialects are the real ones.
+// grammars are reset), hover, definition, references, shutdown, exit.
+// Highlighting and the symbols come from one compiler.highlight, so
+// extensions and dialects are the real ones; lsp/navigate answers the
+// questions about names.
 local compiler = require("slang/compiler")
 local str = require("slang/string")
 local json = require("slang/json")
+local os = require("slang/os")
+local navigate = require("lsp/navigate")
 
 local lsp = {}
 
@@ -139,12 +143,92 @@ func lsp.uri_to_path(uri){
   return str.join(out, "")
 }
 
+local HEX = "0123456789ABCDEF"
+
+// path_to_uri("/a/b c.slang") -> "file:///a/b%20c.slang"
+func lsp.path_to_uri(path){
+  local out = {"file://"}
+  for(local i = 0; i < len(path); i = i + 1){
+    local b = str.byte_at(path, i)
+    local safe = (b >= 48 and b <= 57) or (b >= 65 and b <= 90) or
+      (b >= 97 and b <= 122) or b == 47 or b == 45 or b == 46 or b == 95 or
+      b == 126
+    if(safe){
+      append(out, str.char_at(path, i))
+    } else {
+      append(out, concat(
+        "%",
+        str.char_at(HEX, b >> 4),
+        str.char_at(HEX, b & 15)
+      ))
+    }
+  }
+  return str.join(out, "")
+}
+
 // the character offset of a byte position within its line, in the encoding
 local func character_at(text, line_start, pos, encoding){
   if(encoding == "utf-8"){
     return pos - line_start
   }
   return str.utf16_len(str.substring(text, line_start, pos))
+}
+
+// offset_of(text, {line, character}, encoding) -> the byte offset of an LSP
+// position (clamped to its line)
+func lsp.offset_of(text, position, encoding){
+  local starts = str.line_starts(text)
+  local line_start = starts[position.line]
+  if(line_start == null){
+    return len(text)
+  }
+  local line_end = starts[position.line + 1]
+  if(line_end == null){
+    line_end = len(text)
+  } else {
+    line_end = line_end - 1
+  }
+  local pos = line_start
+  local units = 0
+  for(pos < line_end and units < position.character){
+    local b = str.byte_at(text, pos)
+    local size = 1
+    local width = 1
+    if(b >= 240){
+      size = 4
+      width = 2
+    } else if(b >= 224){
+      size = 3
+    } else if(b >= 192){
+      size = 2
+    }
+    if(encoding == "utf-8"){
+      width = size
+    }
+    pos = pos + size
+    units = units + width
+  }
+  if(pos > line_end){
+    pos = line_end
+  }
+  return pos
+}
+
+// range_of(text, start, stop, encoding) -> an LSP range of byte offsets
+func lsp.range_of(text, start, stop, encoding){
+  local a = str.line_col(text, start)
+  local b = str.line_col(text, stop)
+  local starts = str.line_starts(text)
+  return {
+    start: {
+      line: a[0] - 1,
+      character: character_at(text, starts[a[0] - 1], start, encoding),
+    },
+    ["end"]: {
+      line: b[0] - 1,
+      character: character_at(text, starts[b[0] - 1], stop, encoding),
+    },
+  }
 }
 
 // semantic_tokens(text, tokens, encoding) -> the LSP data array: for every
@@ -234,12 +318,36 @@ func lsp.new(options){
   local s = {
     documents: {}, encoding: "utf-16", initialized: false,
     shutdown_requested: false, exited: false, log: options.log or func(text){},
+    root: options.root, nav: null,
   }
   s.meta = meta
   return s
 }
 
+// the navigator, made at first need: the project's directory is its root
+// (else the working directory)
+local func nav_of(s){
+  if(s.nav == null){
+    local root = s.root
+    local p = compiler.project()
+    if(p != null){
+      root = p.dir
+    }
+    s.nav = navigate.new({root: root or os.cwd()})
+    for(let local e in entries(s.documents)){
+      local doc = e[1]
+      s.nav:open(doc.path, doc.symbols_text or doc.text, doc.symbols)
+    }
+  }
+  return s.nav
+}
+
+// a response always has its result, null included (json.null: a member
+// set to null would be left out, and the client rejects that)
 local func response(id, result){
+  if(result == null){
+    result = json.null
+  }
   return {jsonrpc: "2.0", id: id, result: result}
 }
 
@@ -254,7 +362,9 @@ local func notification(method, params){
 // the diagnostics notification for a document, after highlighting it
 local func analyse(s, uri){
   local doc = s.documents[uri]
-  local r = pcall(compiler.highlight, doc.text, doc.path, {find_project: true})
+  local r = pcall(compiler.highlight, doc.text, doc.path, {
+    find_project: true, symbols: true,
+  })
   if(r[0] == "err"){
     local message = r[1]
     if(type(message) == "table"){ message = message.message }
@@ -272,6 +382,14 @@ local func analyse(s, uri){
   } else {
     doc.tokens = r[1].tokens
     doc.diagnostics = r[1].diagnostics
+    // while an edit does not compile, the last symbols stay
+    if(r[1].symbols != null){
+      doc.symbols = r[1].symbols
+      doc.symbols_text = doc.text
+    }
+  }
+  if(s.nav != null){
+    s.nav:open(doc.path, doc.symbols_text or doc.text, doc.symbols)
   }
   return notification("textDocument/publishDiagnostics", {
     uri: uri, version: doc.version,
@@ -307,6 +425,9 @@ handlers["initialize"] = func(s, id, params){
       capabilities: {
         positionEncoding: s.encoding,
         textDocumentSync: 1,
+        hoverProvider: true,
+        definitionProvider: true,
+        referencesProvider: true,
         semanticTokensProvider: {
           legend: {
             tokenTypes: json.array(lsp.token_types),
@@ -362,6 +483,10 @@ handlers["textDocument/didChange"] = func(s, id, params){
 
 handlers["textDocument/didClose"] = func(s, id, params){
   local uri = params.textDocument.uri
+  local doc = s.documents[uri]
+  if(doc != null and s.nav != null){
+    s.nav:close(doc.path)
+  }
   s.documents[uri] = null
   return {
     notification("textDocument/publishDiagnostics", {
@@ -384,6 +509,9 @@ handlers["textDocument/semanticTokens/full"] = func(s, id, params){
 // the project file or an extension changed: forget the grammars and look again
 handlers["workspace/didChangeWatchedFiles"] = func(s, id, params){
   compiler.reset()
+  if(s.nav != null){
+    s.nav:forget_files()
+  }
   local out = {}
   for(let local e in entries(s.documents)){
     append(out, analyse(s, e[0]))
@@ -391,6 +519,72 @@ handlers["workspace/didChangeWatchedFiles"] = func(s, id, params){
   local p = project_notification(s)
   if(p != null){ append(out, p) }
   return out
+}
+
+// ------------------------------------------------------------ names
+
+// the document and byte offset of a request's position
+local func position_of(s, params){
+  local doc = s.documents[params.textDocument.uri]
+  if(doc == null){
+    return null
+  }
+  // the symbols are of the text they were made from
+  local text = doc.symbols_text or doc.text
+  return {
+    doc: doc, text: text, pos: lsp.offset_of(text, params.position, s.encoding),
+  }
+}
+
+// LSP locations of {path, start, stop} results
+local func locations(s, list){
+  local out = json.array({})
+  local nav = nav_of(s)
+  for(let local l in values(list)){
+    local f = nav:file(l.path)
+    if(f != null){
+      append(out, {
+        uri: lsp.path_to_uri(l.path),
+        range: lsp.range_of(f.text, l.start, l.stop, s.encoding),
+      })
+    }
+  }
+  return out
+}
+
+handlers["textDocument/definition"] = func(s, id, params){
+  local at = position_of(s, params)
+  if(at == null){
+    return {response(id, json.array({}))}
+  }
+  return {response(id, locations(s, nav_of(s):definition(at.doc.path, at.pos)))}
+}
+
+handlers["textDocument/references"] = func(s, id, params){
+  local at = position_of(s, params)
+  if(at == null){
+    return {response(id, json.array({}))}
+  }
+  local with_declaration = (params.context or {}).includeDeclaration == true
+  local found = nav_of(s):references(at.doc.path, at.pos, with_declaration)
+  return {response(id, locations(s, found))}
+}
+
+handlers["textDocument/hover"] = func(s, id, params){
+  local at = position_of(s, params)
+  if(at == null){
+    return {response(id, null)}
+  }
+  local h = nav_of(s):hover(at.doc.path, at.pos)
+  if(h == null){
+    return {response(id, null)}
+  }
+  return {
+    response(id, {
+      contents: {kind: "markdown", value: h.markdown},
+      range: lsp.range_of(at.text, h.start, h.stop, s.encoding),
+    }),
+  }
 }
 
 // handle(message) -> the messages to send in reply

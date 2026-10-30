@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>slang/webview</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>slang/webview</h1>
+<p>slang/webview: desktop windows whose content is a web page and whose logic is slang (macOS, WKWebView), in the style of Wails.</p>
+<pre><code>local webview = require(&quot;slang/webview&quot;)
+async.main(func(){
+  local win = webview.window({title: &quot;Hello&quot;, html: &quot;&lt;h1&gt;hi&lt;/h1&gt;&quot;})
+  win:bind(&quot;add&quot;, func(a, b){ return a + b })    // await slang.call(&quot;add&quot;, 1, 2)
+  await win.closed
+})</code></pre>
+<p>webview.window(options) -&gt; a window; options: title, width, height, resizable (true), debug (the Web Inspector), and what to show: url, html, or app, a slang/web app served to the window over the app:// scheme with no socket at all (path: the first page, &quot;/&quot;). WebKit keeps no cookies for app://, so such an app has no cookie sessions; it is one user's anyway.</p>
+<p>A window:</p>
+<pre><code>win.closed                    Future, completes when the window closes
+win:bind(name, f)             the page's slang.call(name, ...args)
+                              returns a Promise of f(...args) (f may
+                              return a Future; an error rejects it)
+win:on_message(f)             f(value) for each slang.send(value)
+win:send(value)               the page's slang.on(f) listeners get it
+win:navigate(url)   win:set_html(html)   win:eval(js)
+win:set_title(t)    win:close()          win:is_open()</code></pre>
+<p>Values cross as JSON. Opening a window makes slang/async's main loop wait on the window system and libuv together (async.set_driver), so servers, timers and files keep working while windows are open.</p>
+<ul class="toc">
+<li><a href="#window"><code>window</code></a></li>
+<li><a href="#Window:receive"><code>Window:receive</code></a></li>
+<li><a href="#Window:bind"><code>Window:bind</code></a></li>
+<li><a href="#Window:on_message"><code>Window:on_message</code></a></li>
+<li><a href="#Window:send"><code>Window:send</code></a></li>
+<li><a href="#Window:navigate"><code>Window:navigate</code></a></li>
+<li><a href="#Window:set_html"><code>Window:set_html</code></a></li>
+<li><a href="#Window:eval"><code>Window:eval</code></a></li>
+<li><a href="#Window:set_title"><code>Window:set_title</code></a></li>
+<li><a href="#Window:close"><code>Window:close</code></a></li>
+<li><a href="#Window:is_open"><code>Window:is_open</code></a></li>
+</ul>
+<div class="def" id="window"><h3><code>webview.window(options)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<h2>type Window</h2>
+<div class="def" id="Window:receive"><h3><code>Window:receive(text)</code></h3>
+<p>a message from the page: a call to answer or a value for on_message</p>
+</div>
+<div class="def" id="Window:bind"><h3><code>Window:bind(name, f)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="Window:on_message"><h3><code>Window:on_message(f)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="Window:send"><h3><code>Window:send(value)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="Window:navigate"><h3><code>Window:navigate(url)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="Window:set_html"><h3><code>Window:set_html(html)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="Window:eval"><h3><code>Window:eval(js)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="Window:set_title"><h3><code>Window:set_title(t)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="Window:close"><h3><code>Window:close()</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="Window:is_open"><h3><code>Window:is_open()</code></h3>
+<p class="muted">No description.</p>
+</div>
+<p class="muted">slang/lib/webview.slang</p>
+</body>
+</html>

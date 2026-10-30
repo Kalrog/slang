@@ -1,0 +1,540 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>slang/peg</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>slang/peg</h1>
+<p>slang/peg: parser combinators in the style of petitparser.</p>
+<p>A parser is a table with a <code>parse_on</code> function:</p>
+<pre><code>parser:parse_on(ctx, pos) -&gt; new position, or -1 on failure</code></pre>
+<p>On success the parsed value is left in ctx.value. On failure the message and position are recorded in ctx.fail_msg / ctx.fail_pos (the last failure wins, like petitparser's choice), and the farthest failure in ctx.far_*.</p>
+<p>A parser can also build the lossless tree of what it parsed: peg.parse_tree(parser, ctx, pos) parses like parse_on and leaves the node of the parser in ctx.tree, a table {p, start, stop, kids} where p is the parser (or walker entry) and kids its children in source order. A node without kids is a leaf and stands for the text it spans. Every character a parse consumes is covered by exactly one leaf, so joining the leaves gives back the input (peg.text). Parsing for a tree is a separate path (see &quot;the lossless tree&quot; below), so a parse without one costs nothing extra; a parser that has no tree path of its own becomes a leaf.</p>
+<ul class="toc">
+<li><a href="#node"><code>node</code></a></li>
+<li><a href="#leaf"><code>leaf</code></a></li>
+<li><a href="#parse_tree"><code>parse_tree</code></a></li>
+<li><a href="#collect"><code>collect</code></a></li>
+<li><a href="#sub"><code>sub</code></a></li>
+<li><a href="#context"><code>context</code></a></li>
+<li><a href="#line_col"><code>line_col</code></a></li>
+<li><a href="#token_meta"><code>token_meta</code></a></li>
+<li><a href="#make_token"><code>make_token</code></a></li>
+<li><a href="#is_parser"><code>is_parser</code></a></li>
+<li><a href="#string"><code>string</code></a></li>
+<li><a href="#char"><code>char</code></a></li>
+<li><a href="#pattern"><code>pattern</code></a></li>
+<li><a href="#any"><code>any</code></a></li>
+<li><a href="#digit"><code>digit</code></a></li>
+<li><a href="#letter"><code>letter</code></a></li>
+<li><a href="#word"><code>word</code></a></li>
+<li><a href="#whitespace"><code>whitespace</code></a></li>
+<li><a href="#end_of_input"><code>end_of_input</code></a></li>
+<li><a href="#epsilon"><code>epsilon</code></a></li>
+<li><a href="#failure"><code>failure</code></a></li>
+<li><a href="#seq"><code>seq</code></a></li>
+<li><a href="#choice"><code>choice</code></a></li>
+<li><a href="#seq_list"><code>seq_list</code></a></li>
+<li><a href="#choice_list"><code>choice_list</code></a></li>
+<li><a href="#star"><code>star</code></a></li>
+<li><a href="#plus"><code>plus</code></a></li>
+<li><a href="#optional"><code>optional</code></a></li>
+<li><a href="#star_lazy"><code>star_lazy</code></a></li>
+<li><a href="#star_separated"><code>star_separated</code></a></li>
+<li><a href="#plus_separated"><code>plus_separated</code></a></li>
+<li><a href="#forbid"><code>forbid</code></a></li>
+<li><a href="#and"><code>and</code></a></li>
+<li><a href="#neg"><code>neg</code></a></li>
+<li><a href="#pick"><code>pick</code></a></li>
+<li><a href="#permute"><code>permute</code></a></li>
+<li><a href="#map"><code>map</code></a></li>
+<li><a href="#flatten"><code>flatten</code></a></li>
+<li><a href="#token"><code>token</code></a></li>
+<li><a href="#trim"><code>trim</code></a></li>
+<li><a href="#where"><code>where</code></a></li>
+<li><a href="#end"><code>end</code></a></li>
+<li><a href="#labeled"><code>labeled</code></a></li>
+<li><a href="#settable"><code>settable</code></a></li>
+<li><a href="#ref"><code>ref</code></a></li>
+<li><a href="#resolve"><code>resolve</code></a></li>
+<li><a href="#custom"><code>custom</code></a></li>
+<li><a href="#fail"><code>fail</code></a></li>
+<li><a href="#reset_refs"><code>reset_refs</code></a></li>
+<li><a href="#parse"><code>parse</code></a></li>
+<li><a href="#run"><code>run</code></a></li>
+<li><a href="#tag"><code>tag</code></a></li>
+<li><a href="#memoize"><code>memoize</code></a></li>
+<li><a href="#place_memos"><code>place_memos</code></a></li>
+<li><a href="#skip_space"><code>skip_space</code></a></li>
+<li><a href="#dispatch"><code>dispatch</code></a></li>
+<li><a href="#walker"><code>walker</code></a></li>
+<li><a href="#leaves"><code>leaves</code></a></li>
+<li><a href="#text"><code>text</code></a></li>
+<li><a href="#tree_gap"><code>tree_gap</code></a></li>
+<li><a href="#layer"><code>layer</code></a></li>
+<li><a href="#on"><code>on</code></a></li>
+<li><a href="#mark"><code>mark</code></a></li>
+<li><a href="#marks"><code>marks</code></a></li>
+<li><a href="#evaluate"><code>evaluate</code></a></li>
+<li><a href="#highlights"><code>highlights</code></a></li>
+<li><a href="#parser:set"><code>parser:set</code></a></li>
+<li><a href="#parser:on"><code>parser:on</code></a></li>
+<li><a href="#parser:mark"><code>parser:mark</code></a></li>
+<li><a href="#parser:tag"><code>parser:tag</code></a></li>
+<li><a href="#parser:seq"><code>parser:seq</code></a></li>
+<li><a href="#parser:choice"><code>parser:choice</code></a></li>
+<li><a href="#parser:star"><code>parser:star</code></a></li>
+<li><a href="#parser:plus"><code>parser:plus</code></a></li>
+<li><a href="#parser:optional"><code>parser:optional</code></a></li>
+<li><a href="#parser:star_lazy"><code>parser:star_lazy</code></a></li>
+<li><a href="#parser:star_separated"><code>parser:star_separated</code></a></li>
+<li><a href="#parser:star_seperated"><code>parser:star_seperated</code></a></li>
+<li><a href="#parser:plus_separated"><code>parser:plus_separated</code></a></li>
+<li><a href="#parser:plus_seperated"><code>parser:plus_seperated</code></a></li>
+<li><a href="#parser:forbid"><code>parser:forbid</code></a></li>
+<li><a href="#parser:and"><code>parser:and</code></a></li>
+<li><a href="#parser:neg"><code>parser:neg</code></a></li>
+<li><a href="#parser:pick"><code>parser:pick</code></a></li>
+<li><a href="#parser:permute"><code>parser:permute</code></a></li>
+<li><a href="#parser:map"><code>parser:map</code></a></li>
+<li><a href="#parser:flatten"><code>parser:flatten</code></a></li>
+<li><a href="#parser:token"><code>parser:token</code></a></li>
+<li><a href="#parser:trim"><code>parser:trim</code></a></li>
+<li><a href="#parser:where"><code>parser:where</code></a></li>
+<li><a href="#parser:end"><code>parser:end</code></a></li>
+<li><a href="#parser:labeled"><code>parser:labeled</code></a></li>
+<li><a href="#parser:parse"><code>parser:parse</code></a></li>
+<li><a href="#parser:run"><code>parser:run</code></a></li>
+<li><a href="#walker:level"><code>walker:level</code></a></li>
+<li><a href="#walker:primary"><code>walker:primary</code></a></li>
+<li><a href="#walker:level_names"><code>walker:level_names</code></a></li>
+<li><a href="#walker:primary_names"><code>walker:primary_names</code></a></li>
+<li><a href="#walker:prefix"><code>walker:prefix</code></a></li>
+<li><a href="#walker:postfix"><code>walker:postfix</code></a></li>
+<li><a href="#walker:left"><code>walker:left</code></a></li>
+<li><a href="#walker:right"><code>walker:right</code></a></li>
+<li><a href="#walker:wrapper"><code>walker:wrapper</code></a></li>
+<li><a href="#walker:nud"><code>walker:nud</code></a></li>
+<li><a href="#walker:led"><code>walker:led</code></a></li>
+<li><a href="#walker:derive"><code>walker:derive</code></a></li>
+<li><a href="#walker:binding_powers"><code>walker:binding_powers</code></a></li>
+<li><a href="#walker:parse_at"><code>walker:parse_at</code></a></li>
+<li><a href="#walker:parse_at_tree"><code>walker:parse_at_tree</code></a></li>
+<li><a href="#walker:build"><code>walker:build</code></a></li>
+<li><a href="#expression_level:wrapper"><code>expression_level:wrapper</code></a></li>
+<li><a href="#expression_level:prefix"><code>expression_level:prefix</code></a></li>
+<li><a href="#expression_level:postfix"><code>expression_level:postfix</code></a></li>
+<li><a href="#expression_level:right"><code>expression_level:right</code></a></li>
+<li><a href="#expression_level:left"><code>expression_level:left</code></a></li>
+<li><a href="#layer_pipeline:map"><code>layer_pipeline:map</code></a></li>
+<li><a href="#layer_pipeline:pick"><code>layer_pipeline:pick</code></a></li>
+<li><a href="#layer_pipeline:permute"><code>layer_pipeline:permute</code></a></li>
+<li><a href="#layer_pipeline:flatten"><code>layer_pipeline:flatten</code></a></li>
+<li><a href="#layer_pipeline:mark"><code>layer_pipeline:mark</code></a></li>
+</ul>
+<div class="def" id="node"><h3><code>peg.node(p, start, stop, kids)</code></h3>
+<p>node(p, start, stop, kids) / leaf(p, start, stop): tree nodes, for the tree paths of custom parsers (see peg.custom)</p>
+</div>
+<div class="def" id="leaf"><h3><code>peg.leaf(p, start, stop)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="parse_tree"><h3><code>peg.parse_tree(p, ctx, pos)</code></h3>
+<p>parse_tree(parser, ctx, pos) -&gt; pos | -1: parse_on, also leaving the node of parser in ctx.tree</p>
+</div>
+<div class="def" id="collect"><h3><code>peg.collect(ctx, pos, tree_path)</code></h3>
+<p>collect(ctx, pos, tree_path) -&gt; pos | -1, for code that runs inside a parser without a tree path while ctx.collect is set (see weave): parses with tree_path(ctx, pos) and puts the tree in the list</p>
+</div>
+<div class="def" id="sub"><h3><code>peg.sub(parser, ctx, pos)</code></h3>
+<p>sub(parser, ctx, pos) -&gt; pos | -1: parser:parse_on(ctx, pos), for a custom parser that parses others itself. When a tree is being built, their tree becomes part of the custom parser's node (highlighting and formatting see inside it).</p>
+</div>
+<div class="def" id="context"><h3><code>peg.context(buffer, options)</code></h3>
+<p>context(buffer, {tree}) -&gt; a parse context; tree marks a context parsed with parse_tree</p>
+</div>
+<div class="def" id="line_col"><h3><code>peg.line_col(ctx, pos)</code></h3>
+<p>line_col(ctx, pos) -&gt; {line, column} (1-based)</p>
+</div>
+<div class="def" id="token_meta"><h3><code>peg.token_meta</code></h3>
+<p>the metatable of tokens, for parsers that make their own (a token {value, start, stop, buffer} with it gets line and column on demand)</p>
+</div>
+<div class="def" id="make_token"><h3><code>peg.make_token(ctx, value, start, stop)</code></h3>
+<p>make_token(ctx, value, start, stop) -&gt; {value, start, stop, line, column}</p>
+</div>
+<div class="def" id="is_parser"><h3><code>peg.is_parser(value)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<h2>primitives</h2>
+<div class="def" id="string"><h3><code>peg.string(s, message)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="char"><h3><code>peg.char(c, message)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="pattern"><h3><code>peg.pattern(spec, message)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="any"><h3><code>peg.any(message)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="digit"><h3><code>peg.digit(message)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="letter"><h3><code>peg.letter(message)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="word"><h3><code>peg.word(message)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="whitespace"><h3><code>peg.whitespace(message)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="end_of_input"><h3><code>peg.end_of_input(message)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="epsilon"><h3><code>peg.epsilon(value)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="failure"><h3><code>peg.failure(message)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<h2>combinators</h2>
+<div class="def" id="seq"><h3><code>peg.seq(...parsers)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="choice"><h3><code>peg.choice(...parsers)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="seq_list"><h3><code>peg.seq_list(parsers)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="choice_list"><h3><code>peg.choice_list(parsers)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="star"><h3><code>peg.star(child)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="plus"><h3><code>peg.plus(child)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="optional"><h3><code>peg.optional(child, default_value)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="star_lazy"><h3><code>peg.star_lazy(child, limit)</code></h3>
+<p>child repeated lazily until limit matches (limit is not consumed)</p>
+</div>
+<div class="def" id="star_separated"><h3><code>peg.star_separated(child, separator)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="plus_separated"><h3><code>peg.plus_separated(child, separator)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="forbid"><h3><code>peg.forbid(child, message)</code></h3>
+<p>succeeds (with value null) only if child fails; consumes nothing</p>
+</div>
+<div class="def" id="and"><h3><code>peg.and(child)</code></h3>
+<p>lookahead: succeeds if child succeeds, consumes nothing</p>
+</div>
+<div class="def" id="neg"><h3><code>peg.neg(child, message)</code></h3>
+<p>any single character that child does not match</p>
+</div>
+<div class="def" id="pick"><h3><code>peg.pick(child, index)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="permute"><h3><code>peg.permute(child, ...indices)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="map"><h3><code>peg.map(child, f)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="flatten"><h3><code>peg.flatten(child, message)</code></h3>
+<p>replaces the value by the consumed input (the child is parsed without building values)</p>
+</div>
+<div class="def" id="token"><h3><code>peg.token(child, category)</code></h3>
+<p>token(child, category): the consumed input as a token {value, start, stop, line, column, category}; the category is what a highlighter shows (see peg.highlights). It may be a function of the child's value returning the category or null (a word that is a keyword only in some cases).</p>
+</div>
+<div class="def" id="trim"><h3><code>peg.trim(child, before, after)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="where"><h3><code>peg.where(child, predicate, message)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="end"><h3><code>peg.end(child, message)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="labeled"><h3><code>peg.labeled(child, label)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="settable"><h3><code>peg.settable(target)</code></h3>
+<p>a parser whose target can be replaced later</p>
+</div>
+<h2>references</h2>
+<div class="def" id="ref"><h3><code>peg.ref(f, ...args)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="resolve"><h3><code>peg.resolve(parser)</code></h3>
+<p>resolve(parser): eagerly resolves every reference reachable from parser (grammar functions run now, so keywords they register take effect now).</p>
+</div>
+<div class="def" id="custom"><h3><code>peg.custom(parse_on, parse_tree)</code></h3>
+<p>custom(parse_on, parse_tree): a parser from a raw parse function (self, ctx, pos) -&gt; pos | -1. In a tree it is a leaf of what it consumed, unless parse_tree (same signature) parses and leaves its node in ctx.tree.</p>
+</div>
+<div class="def" id="fail"><h3><code>peg.fail(ctx, pos, message)</code></h3>
+<p>fail(ctx, pos, message): record a failure and return -1 (for custom parsers)</p>
+</div>
+<div class="def" id="reset_refs"><h3><code>peg.reset_refs()</code></h3>
+<p class="muted">No description.</p>
+</div>
+<h2>running</h2>
+<div class="def" id="parse"><h3><code>peg.parse(parser, input)</code></h3>
+<p>parse(parser, input) -&gt; {&quot;ok&quot;, value} | {&quot;error&quot;, &quot;message at line:column&quot;}</p>
+</div>
+<div class="def" id="run"><h3><code>peg.run(parser, input, options)</code></h3>
+<p>run(parser, input, {tree}) -&gt; {ok: bool, value, position, tree, message, line, column, far_message, far_line, far_column}; tree (the lossless tree, see parse_tree) only with {tree: true}</p>
+</div>
+<h2>first-byte analysis: {first: set of bytes | null (unknown), nullable: bool}</h2>
+<div class="def" id="tag"><h3><code>peg.tag(child, category)</code></h3>
+<p>tag(child, category): parses child; its span is highlighted again under category (it wins over the tokens inside), so an extension can colour what a rule produced (an identifier as a function being declared, say) without changing the value (see peg.highlights)</p>
+</div>
+<h2>memoization</h2>
+<div class="def" id="memoize"><h3><code>peg.memoize(p)</code></h3>
+<p>memoize(p): makes p remember its results, in place (every grammar sharing the parser sees it)</p>
+</div>
+<div class="def" id="place_memos"><h3><code>peg.place_memos(roots, named)</code></h3>
+<p>place_memos(roots, named) -&gt; list of {parser, name}: memoizes every parser in <code>named</code> (parser -&gt; name: the rules and the parsers they were modified from) that leads more than one alternative of a choice or dispatch reachable from roots</p>
+</div>
+<div class="def" id="skip_space"><h3><code>peg.skip_space(ctx, pos)</code></h3>
+<p>skip_space(ctx, pos) -&gt; pos: skips slang whitespace and comments (the skip function of a walker or dispatch when the trivia rule is the default)</p>
+</div>
+<div class="def" id="dispatch"><h3><code>peg.dispatch(parsers, skip, message)</code></h3>
+<p>dispatch(parsers, skip, message): an ordered choice over parsers that only tries, in order, the alternatives whose first byte (after skip(ctx, pos), when given) can match. When no alternative can match, message (if given) is recorded as the failure. The tables are built now, from the current resolution of every rule reference, so a dispatch belongs to one sealed grammar.</p>
+</div>
+<h2>walker</h2>
+<div class="def" id="walker"><h3><code>peg.walker(skip)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<h2>the lossless tree</h2>
+<div class="def" id="leaves"><h3><code>peg.leaves(tree)</code></h3>
+<p>leaves(tree) -&gt; the leaves of tree in source order</p>
+</div>
+<div class="def" id="text"><h3><code>peg.text(tree, buffer)</code></h3>
+<p>text(tree, buffer) -&gt; the text of the leaves of tree, joined: the input the tree was parsed from (the part tree spans)</p>
+</div>
+<div class="def" id="tree_gap"><h3><code>peg.tree_gap(tree)</code></h3>
+<p>tree_gap(tree) -&gt; null when the leaves of tree cover its span exactly, in order; otherwise {at, leaf}: the position where the next leaf should have started and the leaf found there (null when the leaves end early)</p>
+</div>
+<h2>layers</h2>
+<div class="def" id="layer"><h3><code>peg.layer(name, base)</code></h3>
+<p>layer(name, base) -&gt; a custom layer starting from the built-in layer base (&quot;text&quot;, &quot;raw&quot; or &quot;default&quot;)</p>
+</div>
+<div class="def" id="on"><h3><code>peg.on(parser, layer, f)</code></h3>
+<p>on(parser, layer, f) -&gt; a parser that parses like parser and carries the operations f records for layer (f(pipeline) -&gt; pipeline). The parser itself is not changed: a shared parser (a rule reference, say) keeps no operations from one use.</p>
+</div>
+<div class="def" id="mark"><h3><code>peg.mark(parser, layer, data)</code></h3>
+<p>mark(parser, layer, data) -&gt; on(parser, layer, func(v){ return v:mark(data) })</p>
+</div>
+<div class="def" id="marks"><h3><code>peg.marks(n, layer)</code></h3>
+<p>marks(node, layer) -&gt; the data marked on node's parser for layer, in order</p>
+</div>
+<div class="def" id="evaluate"><h3><code>peg.evaluate(tree, layer, buffer, options)</code></h3>
+<p>evaluate(tree, layer, buffer, {replay}) -&gt; the value of tree in layer: a built-in layer's name or a layer made with peg.layer. buffer is the input the tree was parsed from. The default layer is the value the parse produced, kept in the tree; {replay: true} computes it from the tree instead, running the functions of map and the walker again.</p>
+</div>
+<h2>highlighting</h2>
+<div class="def" id="highlights"><h3><code>peg.highlights(tree, buffer, options)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<h2>type parser</h2>
+<div class="def" id="parser:set"><h3><code>parser:set(target)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="parser:on"><h3><code>parser.on</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="parser:mark"><h3><code>parser.mark</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="parser:tag"><h3><code>parser.tag</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="parser:seq"><h3><code>parser.seq</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="parser:choice"><h3><code>parser.choice</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="parser:star"><h3><code>parser.star</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="parser:plus"><h3><code>parser.plus</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="parser:optional"><h3><code>parser.optional</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="parser:star_lazy"><h3><code>parser.star_lazy</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="parser:star_separated"><h3><code>parser.star_separated</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="parser:star_seperated"><h3><code>parser.star_seperated</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="parser:plus_separated"><h3><code>parser.plus_separated</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="parser:plus_seperated"><h3><code>parser.plus_seperated</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="parser:forbid"><h3><code>parser.forbid</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="parser:and"><h3><code>parser.and</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="parser:neg"><h3><code>parser.neg</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="parser:pick"><h3><code>parser.pick</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="parser:permute"><h3><code>parser.permute</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="parser:map"><h3><code>parser.map</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="parser:flatten"><h3><code>parser.flatten</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="parser:token"><h3><code>parser.token</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="parser:trim"><h3><code>parser.trim</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="parser:where"><h3><code>parser.where</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="parser:end"><h3><code>parser.end</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="parser:labeled"><h3><code>parser.labeled</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="parser:parse"><h3><code>parser.parse</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="parser:run"><h3><code>parser.run</code></h3>
+<p class="muted">No description.</p>
+</div>
+<h2>type walker</h2>
+<div class="def" id="walker:level"><h3><code>walker:level(name, placement)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="walker:primary"><h3><code>walker:primary(parser, name, placement)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="walker:level_names"><h3><code>walker:level_names()</code></h3>
+<p>level_names() -&gt; the level names, tightest first; primary_names() -&gt; the names of the primaries</p>
+</div>
+<div class="def" id="walker:primary_names"><h3><code>walker:primary_names()</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="walker:prefix"><h3><code>walker:prefix(operator, level, callback)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="walker:postfix"><h3><code>walker:postfix(operator, level, callback)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="walker:left"><h3><code>walker:left(operator, level, callback)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="walker:right"><h3><code>walker:right(operator, level, callback)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="walker:wrapper"><h3><code>walker:wrapper(left, right, level, callback)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="walker:nud"><h3><code>walker:nud(operator, rbp, f)</code></h3>
+<p>engine API: explicit binding powers, callbacks that parse their operands</p>
+</div>
+<div class="def" id="walker:led"><h3><code>walker:led(operator, lbp, f)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="walker:derive"><h3><code>walker:derive()</code></h3>
+<p>derive() -&gt; a walker with the same registrations; changes to either do not affect the other</p>
+</div>
+<div class="def" id="walker:binding_powers"><h3><code>walker:binding_powers()</code></h3>
+<p>binding_powers() -&gt; {name: base} after build (for debugging extensions)</p>
+</div>
+<div class="def" id="walker:parse_at"><h3><code>walker:parse_at(ctx, pos, min_bp)</code></h3>
+<p>parse_at(ctx, pos, min_bp) -&gt; pos | -1: an expression whose operators bind tighter than min_bp; the value is in ctx.value</p>
+</div>
+<div class="def" id="walker:parse_at_tree"><h3><code>walker:parse_at_tree(ctx, pos, min_bp)</code></h3>
+<p>parse_at_tree(ctx, pos, min_bp): parse_at, leaving the node in ctx.tree</p>
+</div>
+<div class="def" id="walker:build"><h3><code>walker:build()</code></h3>
+<p>build() -&gt; the expression parser</p>
+</div>
+<h2>type expression_level</h2>
+<div class="def" id="expression_level:wrapper"><h3><code>expression_level:wrapper(left, right, callback)</code></h3>
+<p>level objects offer the same registration without naming the level</p>
+</div>
+<div class="def" id="expression_level:prefix"><h3><code>expression_level:prefix(operator, callback)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="expression_level:postfix"><h3><code>expression_level:postfix(operator, callback)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="expression_level:right"><h3><code>expression_level:right(operator, callback)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="expression_level:left"><h3><code>expression_level:left(operator, callback)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<h2>type layer_pipeline</h2>
+<div class="def" id="layer_pipeline:map"><h3><code>layer_pipeline:map(f)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="layer_pipeline:pick"><h3><code>layer_pipeline:pick(index)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="layer_pipeline:permute"><h3><code>layer_pipeline:permute(...indices)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="layer_pipeline:flatten"><h3><code>layer_pipeline:flatten()</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="layer_pipeline:mark"><h3><code>layer_pipeline:mark(data)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<p class="muted">slang/compiler/peg.slang</p>
+</body>
+</html>

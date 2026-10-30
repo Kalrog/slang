@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>zlib</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>zlib</h1>
+<p>zlib: the native binding of zlib (deflate and inflate in the gzip, zlib and raw formats), at once or as a stream. slang/http uses it for compressed responses; most code gets compression from there.</p>
+<pre><code>local zlib = require(&quot;zlib&quot;)
+local packed = zlib.deflate(&quot;hello hello hello&quot;)
+zlib.inflate(packed)  // &quot;hello hello hello&quot;</code></pre>
+<p>Formats: &quot;gzip&quot;, &quot;zlib&quot;, &quot;raw&quot;, and for inflating also &quot;auto&quot; (gzip or zlib, told apart by the header). Errors read &quot;zlib: ...&quot;.</p>
+<ul class="toc">
+<li><a href="#deflate"><code>deflate</code></a></li>
+<li><a href="#inflate"><code>inflate</code></a></li>
+<li><a href="#version"><code>version</code></a></li>
+<li><a href="#compressor"><code>compressor</code></a></li>
+<li><a href="#decompressor"><code>decompressor</code></a></li>
+<li><a href="#zlib.stream:push"><code>zlib.stream:push</code></a></li>
+<li><a href="#zlib.stream:flush"><code>zlib.stream:flush</code></a></li>
+<li><a href="#zlib.stream:finish"><code>zlib.stream:finish</code></a></li>
+<li><a href="#zlib.stream:is_done"><code>zlib.stream:is_done</code></a></li>
+</ul>
+<h2>at once</h2>
+<div class="def" id="deflate"><h3><code>m.deflate(data, format, level)</code></h3>
+<p>deflate(data, [format], [level]) -&gt; the compressed bytes; format &quot;gzip&quot; (the default), &quot;zlib&quot; or &quot;raw&quot;, level 0 to 9 (6)</p>
+</div>
+<div class="def" id="inflate"><h3><code>m.inflate(data, format, max_size)</code></h3>
+<p>inflate(data, [format], [max_size]) -&gt; the decompressed bytes; format &quot;auto&quot; (the default), &quot;gzip&quot;, &quot;zlib&quot; or &quot;raw&quot;. max_size bounds the output (0, the default, means no bound); going over raises, and so does input that is cut short.</p>
+</div>
+<div class="def" id="version"><h3><code>m.version()</code></h3>
+<p>version() -&gt; the version of the zlib library</p>
+</div>
+<h2>streams</h2>
+<div class="def" id="compressor"><h3><code>m.compressor(format, level)</code></h3>
+<p>compressor([format], [level]) -&gt; a zlib.stream that compresses; format &quot;gzip&quot; (the default), &quot;zlib&quot; or &quot;raw&quot;, level 0 to 9 (6)</p>
+</div>
+<div class="def" id="decompressor"><h3><code>m.decompressor(format, max_size)</code></h3>
+<p>decompressor([format], [max_size]) -&gt; a zlib.stream that decompresses; format &quot;auto&quot; (the default), &quot;gzip&quot;, &quot;zlib&quot; or &quot;raw&quot;; max_size bounds the total output (0: no bound), going over raises</p>
+</div>
+<h2>type zlib.stream</h2>
+<div class="def" id="zlib.stream:push"><h3><code>zlib.stream:push(chunk)</code></h3>
+<p>stream:push(chunk) -&gt; the output so far (&quot;&quot; is common). A decompressor ignores bytes after the end of the compressed stream.</p>
+</div>
+<div class="def" id="zlib.stream:flush"><h3><code>zlib.stream:flush()</code></h3>
+<p>stream:flush() -&gt; output that lets the reader decode everything pushed so far; &quot;&quot; for a decompressor</p>
+</div>
+<div class="def" id="zlib.stream:finish"><h3><code>zlib.stream:finish()</code></h3>
+<p>stream:finish() -&gt; the rest of the output; the stream is done and raises on further use. A decompressor raises when the input was cut short.</p>
+</div>
+<div class="def" id="zlib.stream:is_done"><h3><code>zlib.stream:is_done()</code></h3>
+<p>stream:is_done() -&gt; true once the end of the compressed stream was reached or finish() was called</p>
+</div>
+<p class="muted">slang/stubs/zlib.slang</p>
+</body>
+</html>

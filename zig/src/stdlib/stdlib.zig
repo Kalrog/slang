@@ -42,9 +42,35 @@ pub fn open(vm: *VM) void {
         }
     }
     nsp.append(vm.gpa, vm.str("."));
+    // where slang's own library sources are, for tools (go to definition,
+    // slang doc): a checkout's slang/lib and slang/compiler, an installed
+    // slang's <prefix>/lib/slang/src; module slang/x is <dir>/x.slang
+    const lsp_dirs = vm.newTable(3, 0);
+    // stubs: slang files that declare and document native modules and the
+    // globals (never run); module x/y is <dir>/x/y.slang
+    const stub_dirs = vm.newTable(2, 0);
     if (std.process.executablePathAlloc(vm.io, vm.gpa)) |exe| {
         defer vm.gpa.free(exe);
         const bin_dir = std.fs.path.dirname(exe) orelse ".";
+        const source_dirs = [_][]const []const u8{
+            &.{ bin_dir, "..", "slang", "lib" },
+            &.{ bin_dir, "..", "slang", "compiler" },
+            &.{ bin_dir, "..", "lib", "slang", "src" },
+        };
+        for (source_dirs) |parts| {
+            const dir = std.fs.path.join(vm.gpa, parts) catch @panic("out of memory");
+            defer vm.gpa.free(dir);
+            lsp_dirs.append(vm.gpa, vm.str(dir));
+        }
+        const stub_parts = [_][]const []const u8{
+            &.{ bin_dir, "..", "slang", "stubs" },
+            &.{ bin_dir, "..", "lib", "slang", "stubs" },
+        };
+        for (stub_parts) |parts| {
+            const dir = std.fs.path.join(vm.gpa, parts) catch @panic("out of memory");
+            defer vm.gpa.free(dir);
+            stub_dirs.append(vm.gpa, vm.str(dir));
+        }
         const ext_dir = std.fs.path.join(vm.gpa, &.{ bin_dir, "..", "lib", "slang" }) catch @panic("out of memory");
         defer vm.gpa.free(ext_dir);
         nsp.append(vm.gpa, vm.str(ext_dir));
@@ -53,6 +79,8 @@ pub fn open(vm: *VM) void {
         nsp.append(vm.gpa, vm.str(lib_dir));
     } else |_| {}
     pkgs.set(vm.gpa, vm.str("nativeSearchPaths"), .{ .table = nsp });
+    pkgs.set(vm.gpa, vm.str("librarySources"), .{ .table = lsp_dirs });
+    pkgs.set(vm.gpa, vm.str("stubSources"), .{ .table = stub_dirs });
     vm.setGlobal("__PACKAGES", .{ .table = pkgs });
 
     @import("core.zig").open(vm);

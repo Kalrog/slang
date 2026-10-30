@@ -1,6 +1,8 @@
 // Generates syntaxes/slang.tmLanguage.json: a TextMate grammar for the core
 // language, with the keyword list taken from the real grammar so it cannot
-// drift. Run from the repository root:
+// drift. try, catch and defer are not reserved words (the grammar matches
+// them only where those statements start), so they are named here. Run from
+// the repository root:
 //     bin/slang run editors/vscode/gen_grammar.slang > editors/vscode/syntaxes/slang.tmLanguage.json
 local compiler = require("slang/compiler")
 local json = require("slang/json")
@@ -9,7 +11,8 @@ local str = require("slang/string")
 local g = compiler.grammar()
 local control = {
   ["if"]: true, ["else"]: true, ["for"]: true, ["return"]: true,
-  ["break"]: true, ["let"]: true, ["in"]: true,
+  ["break"]: true, ["continue"]: true, ["let"]: true, ["in"]: true,
+  ["try"]: true, ["catch"]: true, ["defer"]: true,
 }
 local storage = {
   ["local"]: true, ["func"]: true, ["extension"]: true, ["global"]: true,
@@ -32,6 +35,15 @@ for(let local e in entries(g.keywords)){
   }
 }
 other["in"] = null
+
+// keywords the grammar reserves beyond the classes above (none today)
+local other_pattern = null
+if(len(words(other)) > 0){
+  other_pattern = {
+    name: "keyword.other.slang",
+    match: concat("\\b(", words(other), ")\\b"),
+  }
+}
 
 local grammar = {
   ["$schema"]: "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
@@ -64,14 +76,26 @@ local grammar = {
           begin: "\"",
           ["end"]: "\"",
           patterns: json.array({
-            {name: "constant.character.escape.slang", match: "\\\\."},
+            // \n, \xHH, \u{H...}
+            {
+              name: "constant.character.escape.slang",
+              match: "\\\\(x[0-9a-fA-F]{2}|u\\{[0-9a-fA-F]+\\}|.)",
+            },
           }),
         },
       }),
     },
     numbers: {
       patterns: json.array({
-        {name: "constant.numeric.slang", match: "\\b[0-9]+(\\.[0-9]+)?\\b"},
+        // 0x1F, 0o17, 0b101, 1_000, 2.5e-3
+        {
+          name: "constant.numeric.slang",
+          match: concat(
+            "\\b(0[xX][0-9a-fA-F](_?[0-9a-fA-F])*|0[oO][0-7](_?[0-7])*",
+            "|0[bB][01](_?[01])*",
+            "|[0-9](_?[0-9])*(\\.[0-9](_?[0-9])*)?([eE][+-]?[0-9](_?[0-9])*)?)\\b"
+          ),
+        },
       }),
     },
     quotes: {
@@ -94,10 +118,6 @@ local grammar = {
           match: concat("\\b(", words(constants), ")\\b"),
         },
         {name: "keyword.operator.logical.slang", match: "\\b(and|or|not)\\b"},
-        {
-          name: "keyword.other.slang",
-          match: concat("\\b(", words(other), ")\\b"),
-        },
       }),
     },
     functions: {
@@ -136,4 +156,7 @@ local grammar = {
   },
 }
 
+if(other_pattern != null){
+  append(grammar.repository.keywords.patterns, other_pattern)
+}
 print(json.encode(grammar, {indent: "  "}), "\n")

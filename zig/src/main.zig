@@ -36,6 +36,8 @@ fn usage(io: std.Io) noreturn {
         \\  slang disasm <file.slb|file.slang>
         \\  slang highlight <file>       print the tokens and parse errors of a file as JSON
         \\  slang expand <file>          print a file as slang source after its extensions were applied
+        \\  slang fmt [--check] [--stdout] <file|dir>...
+        \\                              format files in place (--check: list the ones that would change)
         \\
     ) catch {};
     w.interface.flush() catch {};
@@ -76,6 +78,8 @@ pub fn main(init: std.process.Init) !u8 {
     } else if (std.mem.eql(u8, cmd, "expand")) {
         if (args.len < 1) usage(io);
         expandFile(init, args[0]);
+    } else if (std.mem.eql(u8, cmd, "fmt")) {
+        return formatFiles(init, args);
     } else if (std.mem.eql(u8, cmd, "disasm")) {
         if (args.len < 1) usage(io);
         disasmFile(init, args[0]);
@@ -205,6 +209,21 @@ fn expandFile(init: std.process.Init, path: []const u8) void {
     const text = res.asBytes() orelse failMsg(vm, "expand_file did not return a string", .{});
     vm.out().writeAll(text) catch {};
     vm.flush();
+}
+
+/// Formats files with slang/format (format.main); returns its exit code.
+fn formatFiles(init: std.process.Init, args: []const []const u8) u8 {
+    const vm = newVM(init, args);
+    defer vm.destroy();
+    const format = vm.call(vm.getGlobal("require"), &.{vm.str("slang/format")}) catch fail(vm);
+    const list = vm.newTable(args.len, 0);
+    for (args) |a| list.append(vm.gpa, vm.str(a));
+    const res = vm.call(format.table.getName("main"), &.{.{ .table = list }}) catch fail(vm);
+    vm.flush();
+    return switch (res) {
+        .int => |code| @intCast(code),
+        else => 0,
+    };
 }
 
 /// Prints the tokens and diagnostics of a file as JSON (compiler.highlight_json).

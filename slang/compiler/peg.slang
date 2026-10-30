@@ -73,11 +73,31 @@ peg.leaf = leaf
 // the tree paths by parser kind, filled in "the lossless tree" below
 local tree_kinds = {}
 
+// the parser of the trivia a raw leaf ends with
+local trailing_trivia = {kind: "trivia", trivia: true}
+
+// a leaf of raw text: what a parser without a tree path consumed. When the
+// context knows where trivia starts (ctx.trivia_start(buffer, from, to) ->
+// position, set by a grammar), the whitespace and comments it ends with are
+// a trivia leaf of their own: a node {raw: true} with the two leaves.
+local func raw_leaf(p, ctx, start, stop){
+  local f = ctx.trivia_start
+  if(f != null and stop > start){
+    local k = f(ctx.buffer, start, stop)
+    if(k > start and k < stop){
+      local n = node(p, start, stop, {leaf(p, start, k), leaf(trailing_trivia, k, stop)})
+      n.raw = true
+      return n
+    }
+  }
+  return leaf(p, start, stop)
+}
+
 // a parser without a tree path of its own: a leaf of what it consumed
 local func tree_leaf(p, ctx, pos){
   local q = p:parse_on(ctx, pos)
   if(q >= 0){
-    ctx.tree = leaf(p, pos, q)
+    ctx.tree = raw_leaf(p, ctx, pos, q)
   }
   return q
 }
@@ -2062,7 +2082,7 @@ local func nud_tree(w, e, ctx, pos, op, op_tree, start){
   if(r < 0){
     return -1
   }
-  ctx.tree = node(e, start, r, {op_tree, leaf(e, op_tree.stop, r)})
+  ctx.tree = node(e, start, r, {op_tree, raw_leaf(e, ctx, op_tree.stop, r)})
   ctx.tree.value = ctx.value
   return r
 }
@@ -2091,7 +2111,7 @@ local func led_tree(w, e, ctx, pos, left, left_tree, op, op_tree){
   if(r < 0){
     return -1
   }
-  ctx.tree = node(e, start, r, {left_tree, op_tree, leaf(e, op_tree.stop, r)})
+  ctx.tree = node(e, start, r, {left_tree, op_tree, raw_leaf(e, ctx, op_tree.stop, r)})
   ctx.tree.value = ctx.value
   return r
 }
@@ -2749,6 +2769,16 @@ local func at(list, index){
 // the value of a node from the values of its kids, with tags
 local func node_value(n, kids, tags, buffer){
   local p = n.p
+  if(n.raw){
+    // a raw leaf and the trivia it ends with
+    if(tags.map){
+      return n.value
+    }
+    if(tags.trivia){
+      return kids[0]
+    }
+    return kids
+  }
   local form = p.form
   if(form != null){
     if(not tags.map){

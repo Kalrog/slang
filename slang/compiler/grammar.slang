@@ -12,6 +12,7 @@
 local peg = require("slang/peg")
 local ast = require("slang/ast")
 local str = require("slang/string")
+local fmt = require("slang/format")
 
 local grammar = {}
 local methods = {}
@@ -141,7 +142,13 @@ local func rule_ref(lin, name){
     }
     local q = peg.parse_tree(target, ctx, pos)
     if(q >= 0){
-      ctx.tree = peg.node(self, pos, q, {ctx.tree})
+      local n = peg.node(self, pos, q, {ctx.tree})
+      // core rules are formatted, also inside an extension's syntax
+      local entry = lin.active.rule_table[name]
+      if(entry != null){
+        n.owner = entry.owner
+      }
+      ctx.tree = n
     }
     return q
   })
@@ -267,6 +274,11 @@ func methods.define(g, name, parser, options){
   if(g.rule_table[name] == null){
     append(g.rule_order, name)
   }
+  // the syntax an extension defines is formatted by its marks, or keeps its
+  // layout without any (see format.extension)
+  if(parser != null and g.state.owner != "core"){
+    parser = fmt.extension(parser)
+  }
   g.rule_table[name] = {
     // the parsers this rule was modified from (memoization placement)
     bases: {},
@@ -316,21 +328,38 @@ func methods.modify(g, name, f){
     warn(g, "rule ", name, " was already modified by ", str.join(entry.history, ", "), "; ", owner, " modifies it again")
   }
   append(entry.history, owner)
+  // for the formatter: what the extension adds is formatted by its marks or
+  // keeps its layout (format.extension), the rule it was given is formatted
+  local by_extension = owner != "core"
   if(entry.build != null){
+    if(by_extension){
+      local given = f
+      f = func(p){
+        return fmt.extension(given(fmt.formatted(p)))
+      }
+    }
     append(entry.wrappers, f)
     touch(g)
     return null
   }
   local old = entry.parser
+  if(by_extension){
+    old = fmt.formatted(old)
+  }
   append(entry.bases, old)
   local new = f(old)
   if(not peg.is_parser(new)){
     error("modify(", name, ") must return a parser")
   }
+  if(g.state.opts.warn != null){
+    check_shape(g, name, old, new)
+  }
+  if(by_extension){
+    new = fmt.extension(new)
+  }
   entry.parser = new
   touch(g)
   if(g.state.opts.warn != null){
-    check_shape(g, name, old, new)
     check_probe(g, entry)
   }
 }
@@ -522,7 +551,7 @@ local func level_facade(e, level){
 func expression_methods.primary(self, name, parser, placement){
   local w = facade_walker(self)
   peg.resolve(parser)
-  w:primary(parser:map(ast.decode), name, placement)
+  w:primary(fmt.extension(parser:map(ast.decode)), name, placement)
   return self
 }
 
@@ -532,33 +561,40 @@ func expression_methods.level(self, name, placement){
   return level_facade(self, w:level(name, placement))
 }
 
+// the operators an extension adds are formatted by their marks or keep their
+// own layout (format.extension); the formatter places them like the core's
+local func operator_of(parser){
+  peg.resolve(parser)
+  return fmt.extension(parser)
+}
+
 func expression_methods.prefix(self, operator, level, callback){
   local w = facade_walker(self)
-  w:prefix(operator, level, func(op, exp){ return ast.decode(callback(op, exp)) })
+  w:prefix(operator_of(operator), level, func(op, exp){ return ast.decode(callback(op, exp)) })
   return self
 }
 
 func expression_methods.postfix(self, operator, level, callback){
   local w = facade_walker(self)
-  w:postfix(operator, level, func(exp, op){ return ast.decode(callback(exp, op)) })
+  w:postfix(operator_of(operator), level, func(exp, op){ return ast.decode(callback(exp, op)) })
   return self
 }
 
 func expression_methods.left(self, operator, level, callback){
   local w = facade_walker(self)
-  w:left(operator, level, func(left, op, right){ return ast.decode(callback(left, op, right)) })
+  w:left(operator_of(operator), level, func(left, op, right){ return ast.decode(callback(left, op, right)) })
   return self
 }
 
 func expression_methods.right(self, operator, level, callback){
   local w = facade_walker(self)
-  w:right(operator, level, func(left, op, right){ return ast.decode(callback(left, op, right)) })
+  w:right(operator_of(operator), level, func(left, op, right){ return ast.decode(callback(left, op, right)) })
   return self
 }
 
 func expression_methods.wrapper(self, left, right, level, callback){
   local w = facade_walker(self)
-  w:wrapper(left, right, level, func(l, value, r){ return ast.decode(callback(l, value, r)) })
+  w:wrapper(operator_of(left), operator_of(right), level, func(l, value, r){ return ast.decode(callback(l, value, r)) })
   return self
 }
 
@@ -568,15 +604,13 @@ func expression_methods.wrapper(self, left, right, level, callback){
 // (see peg.walker); for syntax that must act before its operand is parsed
 func expression_methods.nud(self, operator, rbp, f){
   local w = facade_walker(self)
-  peg.resolve(operator)
-  w:nud(operator, rbp, f)
+  w:nud(operator_of(operator), rbp, f)
   return self
 }
 
 func expression_methods.led(self, operator, lbp, f){
   local w = facade_walker(self)
-  peg.resolve(operator)
-  w:led(operator, lbp, f)
+  w:led(operator_of(operator), lbp, f)
   return self
 }
 
@@ -699,7 +733,11 @@ func methods.statement(g, name, parser){
   if(g.statements[name] == null){
     append(g.statement_order, name)
   }
-  g.statements[name] = parser:map(decode_statement)
+  local p = parser:map(decode_statement)
+  if(g.state.owner != "core"){
+    p = fmt.extension(p)
+  }
+  g.statements[name] = p
   touch(g)
 }
 
@@ -713,9 +751,9 @@ func methods.extension_statement(g, name, parser, apply){
   if(g.extension_statements[name] == null){
     append(g.extension_statement_order, name)
   }
-  g.extension_statements[name] = parser:map(func(result){
+  g.extension_statements[name] = fmt.extension(parser:map(func(result){
     return {apply: apply, result: result}
-  })
+  }))
   touch(g)
 }
 
@@ -835,6 +873,15 @@ local func install_core(g){
   }
   local func token(source, name, category){
     return lin.token_fn(source, name, category)
+  }
+
+  // ftok(s, before, after): a token with the formatter's gaps around it (see
+  // slang/format: "none", "space", "line", "softline", "hardline", "brace";
+  // null leaves a gap to the source)
+  local func ftok(s, before, after, category){
+    local p = tok(s, category)
+    peg.resolve(p)
+    return fmt.gaps(p.target, before, after)
   }
 
   // ------------------------------------------------------------ literals
@@ -959,7 +1006,7 @@ local func install_core(g){
   }))
 
   // spread: ...expr in an argument list or a table literal
-  define("spread", peg.seq(tok("...", "operator"), rule("expr")):map(func(v){
+  define("spread", peg.seq(ftok("...", null, "none", "operator"), rule("expr")):map(func(v){
     return ast.node("Spread", {value: v[1]}, v[0])
   }))
 
@@ -978,8 +1025,8 @@ local func install_core(g){
   // field: name: value | [key]: value | value
   define("field", peg.choice(rule("spread"), peg.seq(
     peg.choice(
-      peg.seq(rule("name"), tok(":")):pick(0):map(func(n){ return ast.node("String", {value: n.value}, n.token) }),
-      peg.seq(tok("["), rule("expr"), tok("]"), tok(":")):pick(1)
+      peg.seq(rule("name"), ftok(":", "none", "space")):pick(0):map(func(n){ return ast.node("String", {value: n.value}, n.token) }),
+      peg.seq(ftok("[", null, "none"), rule("expr"), ftok("]", "none", "none"), ftok(":", "none", "space")):pick(1)
     ):optional(),
     rule("expr")
   ):token():map(func(t){
@@ -987,12 +1034,13 @@ local func install_core(g){
     return ast.node("Field", {key: key, value: t.value[1]}, t)
   })))
 
-  define("table_literal", peg.seq(
+  // a table that is the last argument of a call may hug it: f(x, {
+  define("table_literal", fmt.mark(peg.seq(
     tok("{"),
-    rule("field"):star_separated(tok(",")),
-    tok(","):optional(),
-    tok("}")
-  ):pick(1):map(elements):token():map(func(t){
+    fmt.indent(rule("field"):star_separated(ftok(",", "none", "line")), "softline"),
+    fmt.trailing_comma(tok(","):optional()),
+    fmt.gaps(tok("}"), "softline")
+  ), {group: true, huggable: true}):pick(1):map(elements):token():map(func(t){
     return ast.node("Table", {fields: t.value}, t)
   }))
 
@@ -1015,7 +1063,7 @@ local func install_core(g){
   }))
 
   define("name_and_args", peg.seq(
-    peg.seq(tok(":"), rule("name")):pick(1):optional(),
+    peg.seq(ftok(":", null, "none"), rule("name")):pick(1):optional(),
     rule("args")
   ):token():map(func(t){
     return list(t.value[0], t.value[1], t)
@@ -1050,12 +1098,18 @@ local func install_core(g){
     return pos
   })
 
+  // the arguments break all at once; when one of them must break (a
+  // function), the others stay on the call's line if they fit
   define("args", peg.choice(
     peg.seq(
-      peg.seq(same_line, tok("("), peg.choice(rule("spread"), rule("expr")):star_separated(tok(",")):map(elements), tok(")")):pick(2),
-      peg.seq(same_line, rule("block")):pick(1):optional()
+      fmt.mark(peg.seq(
+        same_line, tok("("),
+        fmt.indent(peg.choice(rule("spread"), rule("expr")):star_separated(ftok(",", "none", "line")):map(elements), "softline"),
+        fmt.gaps(tok(")"), "softline")
+      ), {group: true, hug: true, before: "none"}):pick(2),
+      peg.seq(same_line, fmt.gaps(rule("block"), "none")):pick(1):optional()
     ),
-    peg.seq(same_line, rule("block")):pick(1)
+    peg.seq(same_line, fmt.gaps(rule("block"), "none")):pick(1)
   ):map(func(args){
     if(type(args) == "Block"){
       return {ast.node("Function", {params: {}, body: args}, args.token)}
@@ -1070,7 +1124,7 @@ local func install_core(g){
 
   // ------------------------------------------------------------ statements
 
-  define("expr_statement", peg.seq(rule("expr"), peg.seq(tok("="), rule("expr")):optional()):map(func(v){
+  define("expr_statement", peg.seq(rule("expr"), peg.seq(ftok("=", "space", "space"), rule("expr")):optional()):map(func(v){
     local exp = v[0]
     local assignment = v[1]
     if(assignment != null){
@@ -1088,7 +1142,7 @@ local func install_core(g){
     return exp
   }))
 
-  define("local_declaration", peg.seq(tok("local"), rule("expr"), peg.seq(tok("="), rule("expr")):optional()):map(func(v){
+  define("local_declaration", peg.seq(ftok("local", null, "space"), rule("expr"), peg.seq(ftok("=", "space", "space"), rule("expr")):optional()):map(func(v){
     local right = null
     if(v[2] != null){
       right = v[2][1]
@@ -1099,20 +1153,20 @@ local func install_core(g){
   // if(c){ a } else { b }: an expression; else is required, and else if
   // chains
   define("if_expression", peg.seq(
-    tok("if"), tok("("), rule("expr"), tok(")"),
-    tok("{"), rule("expr"), tok("}"),
-    tok("else"),
+    ftok("if", null, "none"), ftok("(", "none", "none"), rule("expr"), ftok(")", "none", "none"),
+    ftok("{", "none", "space"), rule("expr"), ftok("}", "space", "space"),
+    ftok("else", "space", "space"),
     peg.choice(
       rule("if_expression"),
-      peg.seq(tok("{"), rule("expr"), tok("}")):pick(1)
+      peg.seq(ftok("{", null, "space"), rule("expr"), ftok("}", "space")):pick(1)
     )
   ):map(func(v){
     return ast.node("IfExpr", {condition: v[2], thenValue: v[5], elseValue: v[8]}, v[0])
   }))
 
   define("if_statement", peg.seq(
-    tok("if"), tok("("), rule("expr"), tok(")"), rule("statement"),
-    peg.seq(tok("else"), rule("statement")):optional()
+    ftok("if", null, "none"), ftok("(", "none", "none"), rule("expr"), ftok(")", "none", "brace"), rule("statement"),
+    peg.seq(ftok("else", "space", "space"), rule("statement")):optional()
   ):map(func(v){
     local else_branch = null
     if(v[5] != null){
@@ -1124,11 +1178,11 @@ local func install_core(g){
   define("for_loop", peg.seq(
     // for(init; condition; update), for(condition; update), for(condition);
     // init and update may also be left empty: for(; condition; update)
-    tok("for"), tok("("),
+    ftok("for", null, "none"), ftok("(", "none", "none"),
     rule("expression_or_statement"):optional(),
-    peg.seq(tok(";"), rule("expression_or_statement")):pick(1):optional(),
-    peg.seq(tok(";"), rule("statement"):optional()):pick(1):optional(),
-    peg.char(")"),
+    peg.seq(ftok(";", "none", "space"), rule("expression_or_statement")):pick(1):optional(),
+    peg.seq(ftok(";", "none", "space"), rule("statement"):optional()):pick(1):optional(),
+    fmt.gaps(peg.char(")"), "none", "brace"),
     rule("statement")
   ):map(func(v){
     local head = {}
@@ -1161,12 +1215,13 @@ local func install_core(g){
   }), {probe: "for(local i = 0; i < 3; i = i + 1){ f(i) }"})
 
   define("for_in_loop", peg.seq(
-    tok("for"), tok("("), tok("let"), rule("slang_pattern"), tok("in"), rule("expr"), tok(")"), rule("statement")
+    ftok("for", null, "none"), ftok("(", "none", "none"), ftok("let", "none", "space"), rule("slang_pattern"),
+    ftok("in", "space", "space"), rule("expr"), ftok(")", "none", "brace"), rule("statement")
   ):map(func(v){
     return ast.node("ForIn", {pattern: v[3], itterator: v[5], body: v[7]}, v[0])
   }), {probe: "for(let local x in values(t)){ f(x) }"})
 
-  define("function_definition_statement", peg.seq(tok("local"):optional(), tok("func"), rule("identifier_and_index"), rule("function_definition")):map(func(v){
+  define("function_definition_statement", peg.seq(ftok("local", null, "space"):optional(), ftok("func", null, "space"), rule("identifier_and_index"), rule("function_definition")):map(func(v){
     return ast.node("Declaration", {is_local: v[0] != null, left: v[2], right: v[3]}, v[1])
   }), {probe: "func f(a, b){ return a }"})
 
@@ -1176,14 +1231,14 @@ local func install_core(g){
   // matches the raised value runs; none matching raises it again. A clause
   // without a pattern catches everything.
   define("catch_clause", peg.seq(
-    tok("catch"),
-    peg.seq(tok("("), rule("slang_pattern"), tok(")")):pick(1):optional(),
-    rule("block")
+    ftok("catch", "space"),
+    peg.seq(ftok("(", "none", "none"), rule("slang_pattern"), ftok(")", "none", "space")):pick(1):optional(),
+    fmt.gaps(rule("block"), "space")
   ):map(func(v){
     return ast.node("Catch", {pattern: v[1], body: v[2]}, v[0])
   }))
 
-  define("try_statement", peg.seq(tok("try"), rule("block"), rule("catch_clause"):plus()):map(func(v){
+  define("try_statement", peg.seq(ftok("try", null, "space"), rule("block"), rule("catch_clause"):plus()):map(func(v){
     return ast.node("Try", {body: v[1], catches: v[2]}, v[0])
   }), {probe: "try { f() } catch(local e) { g(e) }"})
 
@@ -1200,7 +1255,7 @@ local func install_core(g){
   // :name: for(...){ ... }: a loop that break name and continue name in
   // nested loops refer to
   define("labeled_loop", peg.seq(
-    tok(":"), rule("identifier"), tok(":"), peg.choice(rule("for_in_loop"), rule("for_loop"))
+    ftok(":", null, "none"), rule("identifier"), ftok(":", "none", "space"), peg.choice(rule("for_in_loop"), rule("for_loop"))
   ):map(func(v){
     // a copy: parse results may be shared (memoized)
     local loop = {}
@@ -1212,7 +1267,7 @@ local func install_core(g){
     return loop
   }), {probe: ":outer: for(true){ break outer }"})
 
-  define("let_statement", peg.seq(tok("let"), rule("slang_pattern"), tok("="), rule("expr")):map(func(v){
+  define("let_statement", peg.seq(ftok("let", null, "space"), rule("slang_pattern"), ftok("=", "space", "space"), rule("expr")):map(func(v){
     return ast.node("LetStat", {pattern: v[1], right: v[3]}, v[0])
   }), {probe: "let {name: local n} = t"})
 
@@ -1230,9 +1285,11 @@ local func install_core(g){
     rule("expr_statement")
   ))
 
+  // statements on lines of their own, one blank line between them kept;
+  // the formatter drops their `;`
   define("chunk", peg.seq(
-    peg.seq(rule("statement"), tok(";"):optional()):pick(0):star(),
-    peg.seq(rule("final_statement"), tok(";"):optional()):pick(0):optional()
+    fmt.mark(peg.seq(rule("statement"), fmt.drop(tok(";"):optional())):pick(0), {before: "hardline", blank: true}):star(),
+    fmt.mark(peg.seq(rule("final_statement"), fmt.drop(tok(";"):optional())):pick(0), {before: "hardline", blank: true}):optional()
   ):token():map(func(t){
     local statements = {}
     local items = t.value[0]
@@ -1248,7 +1305,7 @@ local func install_core(g){
     return ast.node("Block", {statements: statements}, t)
   }))
 
-  define("block", peg.seq(tok("{"), rule("chunk"), tok("}")):pick(1), {probe: "{ x = 1; f(x) }"})
+  define("block", peg.seq(tok("{"), fmt.indent(rule("chunk"), "hardline", "hardline"), tok("}")):pick(1), {probe: "{ x = 1; f(x) }"})
 
   // break and continue, optionally with the label of an enclosing loop
   define("break_statement", peg.seq(tok("break"), rule("identifier"):optional()):map(func(v){
@@ -1267,13 +1324,13 @@ local func install_core(g){
 
   // ------------------------------------------------------------ functions
 
-  define("params", rule("param"):star_separated(tok(",")):map(elements))
+  define("params", rule("param"):star_separated(ftok(",", "none", "line")):map(elements))
 
   define("function_definition", peg.seq(
-    tok("("), rule("params"), tok(")"),
-    peg.choice(rule("block"), peg.seq(tok("=>"), rule("expr")))
+    fmt.mark(peg.seq(tok("("), fmt.indent(rule("params"), "softline"), fmt.gaps(tok(")"), "softline")), {group: true, before: "none"}),
+    peg.choice(fmt.gaps(rule("block"), "none"), peg.seq(ftok("=>", "space", "space"), rule("expr")))
   ):token():map(func(t){
-    local v = t.value
+    local v = {t.value[0][0], t.value[0][1], t.value[0][2], t.value[1]}
     local body = v[3]
     if(type(body) == "table"){
       local e = body[1]
@@ -1282,16 +1339,17 @@ local func install_core(g){
     return ast.node("Function", {params: v[1], body: body}, t)
   }))
 
-  define("function_expression", peg.seq(tok("func"), rule("function_definition")):pick(1))
+  // a function expression's body may stay on one line (see slang/format)
+  define("function_expression", fmt.mark(peg.seq(ftok("func", null, "none"), rule("function_definition")), {soft_body: true}):pick(1))
 
   // ------------------------------------------------------------ patterns
 
   define("slang_pattern", peg.choice(rule("quoted_pattern"), rule("table_pattern"), rule("const_pattern"), rule("var_pattern")))
 
   define("table_pattern", peg.seq(
-    tok("{"),
-    rule("field_pattern"):star_separated(tok(",")),
-    tok("}")
+    ftok("{", null, "none"),
+    rule("field_pattern"):star_separated(ftok(",", "none", "space")),
+    ftok("}", "none")
   ):map(func(v){
     return ast.node("TablePattern", {type_check: "table", fields: v[1].elements}, v[0])
   }))
@@ -1314,7 +1372,7 @@ local func install_core(g){
     })
   )
   define("quoted_pattern", peg.seq(
-    tok("'"),
+    ftok("'", null, "none"),
     matcher_expr,
     peg.choice(peg.seq(tok("as"), rule("slang_pattern")):pick(1), rule("table_pattern")):optional()
   ):map(func(v){
@@ -1339,8 +1397,8 @@ local func install_core(g){
 
   define("field_pattern", peg.seq(
     peg.choice(
-      peg.seq(rule("name"), tok(":")):pick(0),
-      peg.seq(tok("["), rule("expr"), tok("]"), tok(":")):pick(1)
+      peg.seq(rule("name"), ftok(":", "none", "space")):pick(0),
+      peg.seq(ftok("[", null, "none"), rule("expr"), ftok("]", "none", "none"), ftok(":", "none", "space")):pick(1)
     ):map(func(exp){
       if(exp.type == "Identifier"){
         return ast.node("String", {value: exp.value}, exp.token)
@@ -1369,7 +1427,7 @@ local func install_core(g){
     return ast.node("VarPattern", {isLocal: v[0] != null, canBeNull: v[2] != null, name: v[1]}, v[1].token)
   }))
 
-  define("pattern_assignment_exp", peg.seq(tok("let"), rule("slang_pattern"), tok("="), rule("expr")):map(func(v){
+  define("pattern_assignment_exp", peg.seq(ftok("let", null, "space"), rule("slang_pattern"), ftok("=", "space", "space"), rule("expr")):map(func(v){
     return ast.node("Let", {pattern: v[1], right: v[3]}, v[0])
   }))
 
@@ -1485,11 +1543,11 @@ local func install_core(g){
   w:wrapper(tok("("), tok(")"), "bracket", func(left, value, right){ return value })
 
   w:level("indexAndCall", {aliases: {".", "[]", ":()"}})
-  w:postfix(peg.seq(tok("."), rule("name")), "indexAndCall", func(left, op){
+  w:postfix(peg.seq(ftok(".", "none", "none"), rule("name")), "indexAndCall", func(left, op){
     local name = op[1]
     return ast.node("Index", {receiver: left, index: ast.node("String", {value: name.value}, name.token), dotStyle: true}, op[0])
   })
-  w:postfix(peg.seq(tok("["), rule("expr"), tok("]")), "indexAndCall", func(left, op){
+  w:postfix(peg.seq(ftok("[", "none", "none"), rule("expr"), ftok("]", "none")), "indexAndCall", func(left, op){
     return ast.node("Index", {receiver: left, index: op[1], dotStyle: false}, op[0])
   })
   w:postfix(rule("name_and_args"), "indexAndCall", func(left, op){
@@ -1701,15 +1759,59 @@ local func parse_statement(lin, parser, ctx, pos){
 // the node of a whole unit in a lossless tree
 local unit_parser = {kind: "unit"}
 
+local func is_space_byte(b){
+  return b == 32 or b == 9 or b == 10 or b == 13
+}
+
+// where the slang trivia (whitespace, // comments) that buf[from, to) ends
+// with starts (see peg's raw leaves): back over whitespace, then over a
+// comment when the line has a // outside of a string before that point
+local func trivia_start(buf, from, to){
+  local k = to
+  for(true){
+    for(k > from and is_space_byte(str.byte_at(buf, k - 1))){
+      k = k - 1
+    }
+    local line = k
+    for(line > from and str.byte_at(buf, line - 1) != 10){
+      line = line - 1
+    }
+    local comment = -1
+    local in_string = false
+    local i = line
+    for(i < k - 1){
+      local b = str.byte_at(buf, i)
+      if(in_string){
+        if(b == 92){
+          i = i + 1
+        } else if(b == 34){
+          in_string = false
+        }
+      } else if(b == 34){
+        in_string = true
+      } else if(b == 47 and str.byte_at(buf, i + 1) == 47){
+        comment = i
+        break
+      }
+      i = i + 1
+    }
+    if(comment < 0){
+      return k
+    }
+    k = comment
+  }
+}
+
 local func parse_top_level(g, source, origin, scoped, record, tree){
   local lin = g.state
-  local tok_semicolon = peg.ref(lin.token_fn, ";"):optional()
+  local tok_semicolon = fmt.drop(peg.ref(lin.token_fn, ";"):optional())
   local parsers = {
     statement: peg.seq(rule_ref(lin, "statement"), tok_semicolon):pick(0),
     final: peg.seq(rule_ref(lin, "final_statement"), tok_semicolon):pick(0),
     extension_statement: peg.seq(rule_ref(lin, "extension_statement"), tok_semicolon):pick(0),
   }
   local ctx = peg.context(source, {record: record, tree: tree})
+  ctx.trivia_start = trivia_start
   if(record){
     lin.record_ctx = ctx
   }

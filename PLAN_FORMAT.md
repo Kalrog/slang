@@ -181,24 +181,41 @@ func fmt.group(parser){
 
 ### Extensions
 
+Whatever an extension registers (statements, extension statements,
+primaries, operators, rules it defines or modifies) is formatted when the
+extension marks its parsers, and verbatim when it doesn't
+(`format.extension`). Marks anywhere inside the registered parser count;
+the search stops at rule references, which have their own layout.
+
 - **Not annotated:** the syntax keeps its own line structure, re-indented to
-  where it now sits. Core syntax inside it (an `expr`, a `chunk`) is still
-  formatted, because those are nodes of core rules. The tree has them
-  whatever the extension did with them in its `map`.
-- **Annotated:** the extension marks its parsers like the core does, for
-  example `switch`:
+  where it now sits. Text the extension's syntax treats as content (the
+  whitespace between html tags, say) stays exactly as written. Core syntax
+  inside it (an `expr`, a `chunk`) is still formatted, because those are
+  nodes of core rules. The tree has them whatever the extension did with
+  them in its `map`. Core code inside verbatim code breaks only where it
+  must.
+- **Annotated:** the extension marks its parsers like the core does. This is
+  `extensions/switch.slang`:
 
 ```
-local case_block = peg.seq(
-  fmt.before("hardline", g:keyword("case")), g:rule("slang_pattern"), g:token(":"),
-  fmt.indent(fmt.before("hardline", g:rule("chunk")))
+local fmt = require("slang/format")
+
+case_block = peg.seq(
+  fmt.gaps(g:keyword("case"), "hardline", "space"),
+  g:rule("slang_pattern"),
+  fmt.gaps(g:token(":"), "none"),
+  fmt.indent(g:rule("chunk"), "hardline")
 )
 
-g:statement("switch", peg.seq(
-  g:keyword("switch"), g:token("("), g:rule("expr"), g:token(")"), g:token("{"),
-  fmt.indent(case_block:star()),
-  fmt.before("hardline", g:token("}"))
-):map(build_switch))
+switch = peg.seq(
+  fmt.gaps(g:keyword("switch"), null, "none"),
+  fmt.gaps(g:token("("), "none", "none"),
+  g:rule("expr"),
+  fmt.gaps(g:token(")"), "none", "none"),
+  g:token("{"),
+  fmt.indent(case_block:star(), "hardline"),
+  fmt.gaps(g:token("}"), "hardline")
+)
 ```
 
 ```
@@ -210,8 +227,9 @@ switch(color){
 }
 ```
 
-Operators registered through `g:expression()` take the same annotations as
-an option: `left(op, level, callback, {fmt: ...})`.
+Operators registered through `g:expression()` are placed like the core's
+(a space before an infix operator, a possible break after it); marks on the
+operator's parser format the operator itself.
 
 ### Layout decisions
 
@@ -292,19 +310,24 @@ that are sorted out afterwards) goes away.
       parse.
 
 ### Phase 3: the formatter
-- [ ] The document printer.
-- [ ] `slang/format`: the layer, the annotation helpers, comments and
+- [x] The document printer (`slang/format`, in `slang/compiler`).
+- [x] `slang/format`: the layer, the annotation helpers, comments and
       blank lines.
-- [ ] Annotations on the core grammar and the walker.
-- [ ] The three checks; idempotence over the repository.
-- [ ] `slang fmt` in the CLI.
+- [x] Annotations on the core grammar; the walker's operators are laid out
+      by the formatter (operator chains, method chains, parentheses).
+- [x] The three checks; idempotence over the repository. Every file that
+      parses on its own formats with the checks passing, and formatting the
+      result again changes nothing (174 files, 40 of them the dungeon's).
+      The checks ignore source locations an extension writes into its code
+      (`sql` puts `file:line` into queries).
+- [x] `slang fmt [--check] [--stdout]` in the CLI.
 
 ### Phase 4: extensions
-- [ ] Re-indenting unannotated extension syntax, with core syntax inside it
+- [x] Re-indenting unannotated extension syntax, with core syntax inside it
       formatted.
-- [ ] Annotation options on `g:expression()` registrations.
-- [ ] `switch` and `enum` annotated as examples; a section for extension
-      authors in the docs.
+- [x] Extensions that mark their parsers are formatted, without opting in.
+- [x] `switch` annotated as the example.
+- [ ] `enum` annotated; a section for extension authors in the docs.
 
 ### Phase 5: highlighting
 - [ ] The highlight layer; `token` categories and `g:tag` as annotations.
@@ -315,6 +338,10 @@ that are sorted out afterwards) goes away.
 - [ ] Formatting requests in the language server; format on save in VS Code.
 
 ## Open questions
+
+- Long argument lists that are mostly short strings (`error("...", x, "...")`)
+  break one argument per line, as decided. Packing them ("fill", as Prettier
+  does for text) may read better for message-building calls.
 
 - The exact annotation vocabulary, settled while annotating the core
   grammar.

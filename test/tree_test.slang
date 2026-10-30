@@ -162,3 +162,102 @@ func f(a, b){ return a ^ b }
     }
   }
 }
+
+t.group("layers"){
+  local word = peg.pattern("a-z"):plus():flatten():trim()
+  local item = peg.seq(word, peg.seq(peg.string("="), word):pick(1):optional()):map(func(v){
+    return {name: v[0], value: v[1]}
+  })
+  local list = peg.seq(peg.string("["):trim(), item:star_separated(peg.string(",")), peg.string("]")):pick(1):map(func(s){
+    return s.elements
+  }):end()
+
+  t.test("text keeps every character, raw drops whitespace and transforms"){
+    local input = "[ a = b, c ]"
+    local r = peg.run(list, input, {tree: true})
+    local text = peg.evaluate(r.tree, "text", input)
+    // nested lists of strings: the trimmed "[" with its trivia, then the items
+    assert(text[0][0] == {"[", " "}, concat("text ", string(text[0][0])))
+    local raw = peg.evaluate(r.tree, "raw", input)
+    // no whitespace, the separated list interleaved, an absent value null
+    local items = raw[0][1]
+    assert(items[0] == {"a", {"=", "b"}}, concat("raw first item ", string(items[0])))
+    assert(items[1] == ",", "the separator")
+    assert(items[2][0] == "c" and items[2][1] == null, "the absent value")
+  }
+  t.test("the default layer is the parse's value, and replays to it"){
+    local input = "[a=b,c]"
+    local r = peg.run(list, input, {tree: true})
+    assert(peg.evaluate(r.tree, "default", input) == r.value, "stored")
+    assert(peg.evaluate(r.tree, "default", input, {replay: true}) == r.value, "replayed")
+  }
+  t.test("a custom layer transforms where its operations are"){
+    local names = peg.layer("names", "raw")
+    // in the names layer an item is its name, the list the names
+    local named_item = item:on(names, func(v){ return v:pick(0) })
+    local names_list = peg.seq(peg.string("["):trim(), named_item:star_separated(peg.string(",")), peg.string("]"))
+      :on(names, func(v){ return v:pick(1):map(func(items){
+        local out = {}
+        for(local i = 0; i < len(items); i = i + 2){ append(out, items[i]) }
+        return out
+      }) }):end()
+    local input = "[a=b, c, d=e]"
+    local r = peg.run(names_list, input, {tree: true})
+    assert(peg.evaluate(r.tree, names, input)[0] == {"a", "c", "d"}, "the names")
+    // the default layer is not touched
+    assert(r.value == peg.run(peg.seq(peg.string("["):trim(), item:star_separated(peg.string(",")), peg.string("]")):end(), input).value, "default unchanged")
+  }
+  t.test("a layer on default changes only the subtrees it has operations in"){
+    local upper = peg.layer("upper", "default")
+    local shout = word:on(upper, func(v){ return v:map(func(s){ return require("slang/string").upper(s) }) })
+    local p = peg.seq(shout, peg.string(":"), word):map(func(v){ return concat(v[0], "/", v[2]) }):end()
+    local input = "ab:cd"
+    local r = peg.run(p, input, {tree: true})
+    assert(r.value == "ab/cd", "default")
+    assert(peg.evaluate(r.tree, upper, input) == "AB/cd", concat("upper ", peg.evaluate(r.tree, upper, input)))
+  }
+  t.test("marks annotate nodes; a shared parser keeps no operations"){
+    local fmt = peg.layer("fmt", "text")
+    local r_ref = peg.ref(func(){ return word })
+    local marked = r_ref:mark(fmt, {space: "after"})
+    local p = peg.seq(marked, r_ref):end()
+    local input = "a b"
+    local r = peg.run(p, input, {tree: true})
+    local first = find(r.tree, func(n){ return n.p == marked })
+    assert(peg.marks(first, fmt) == {{space: "after"}}, "the mark")
+    assert(count(r.tree, func(n){ return len(peg.marks(n, fmt)) > 0 }) == 1, "the other use is not marked")
+    assert(r_ref.layer_ops == null, "the shared parser is unchanged")
+    // marks leave values alone
+    assert(peg.evaluate(r.tree, fmt, input) == peg.evaluate(r.tree, "text", input), "same value")
+  }
+  t.test("walker nodes replay their callbacks"){
+    local w = peg.walker()
+    w:primary(peg.digit():plus():flatten():trim():map(to_int))
+    w:level("bracket")
+    w:wrapper(peg.char("("):trim(), peg.char(")"):trim(), "bracket", func(l, v, r){ return v })
+    w:level("unary")
+    w:prefix(peg.char("-"):trim(), "unary", func(op, v){ return -v })
+    w:level("sum")
+      :left(peg.char("+"):trim(), func(a, op, c){ return a + c })
+    local p = w:build():end()
+    local input = "(1 + -2) + 3"
+    local r = peg.run(p, input, {tree: true})
+    assert(peg.evaluate(r.tree, "default", input, {replay: true}) == 2, "replayed")
+    local raw = peg.evaluate(r.tree, "raw", input)
+    assert(raw[0][1] == "+", concat("raw: the operator ", string(raw[0])))
+  }
+  t.test("the default layer of a slang file replays to its AST"){
+    local ast = require("slang/ast")
+    local source = """local x = {a: 1, [2]: "b"}
+func f(n){ return n * 2 + x.a }
+for(local i = 0; i < 3; i = i + 1){ f(i) }
+"""
+    local tree = compiler.tree(source, "layers_test")
+    local stored = peg.evaluate(tree, "default", source)
+    local replayed = peg.evaluate(tree, "default", source, {replay: true})
+    assert(len(stored) == 3 and len(replayed) == 3, "three statements")
+    for(local i = 0; i < 3; i = i + 1){
+      assert(ast.to_source(stored[i]) == ast.to_source(replayed[i]), concat("statement ", i))
+    }
+  }
+}

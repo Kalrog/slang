@@ -1714,7 +1714,10 @@ local func parse_top_level(g, source, origin, scoped, record, tree){
     lin.record_ctx = ctx
   }
   local statements = {}
+  // with a tree: the node of each top-level statement and the value its
+  // parse produced (the unit's default layer)
   local trees = {}
+  local tree_values = {}
   local pos = 0
   local unit = g
   lin.origin = origin
@@ -1750,6 +1753,7 @@ local func parse_top_level(g, source, origin, scoped, record, tree){
       }
       if(tree){
         list_push(trees, ctx.tree)
+        list_push(tree_values, parsed)
       }
       local node = target:run_extension(parsed, origin)
       emit(lin, statements, node)
@@ -1759,6 +1763,7 @@ local func parse_top_level(g, source, origin, scoped, record, tree){
       if(q >= 0){
         if(tree){
           list_push(trees, ctx.tree)
+          list_push(tree_values, ctx.value)
         }
         emit(lin, statements, ctx.value)
         pos = q
@@ -1767,6 +1772,7 @@ local func parse_top_level(g, source, origin, scoped, record, tree){
         if(q >= 0){
           if(tree){
             list_push(trees, ctx.tree)
+            list_push(tree_values, ctx.value)
           }
           emit(lin, statements, ctx.value)
           pos = q
@@ -1782,9 +1788,12 @@ local func parse_top_level(g, source, origin, scoped, record, tree){
   if(tree){
     // trivia no token took (a file of nothing but comments)
     if(pos < stop){
-      list_push(trees, peg.leaf(g.default_trivia, pos, stop))
+      local rest = peg.leaf(g.default_trivia, pos, stop)
+      list_push(trees, rest)
+      list_push(tree_values, rest.value)
     }
     lin.last_tree = peg.node(unit_parser, 0, stop, trees)
+    lin.last_tree.value = tree_values
   }
   local block = ast.node("Block", {statements: statements}, peg.make_token(ctx, null, 0, pos))
   if(lin.opts.optimize != null){

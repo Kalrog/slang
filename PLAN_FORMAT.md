@@ -109,12 +109,27 @@ own. Any number of layers come out of one tree, and none of them can
 influence parsing.
 
 ```
-local r = peg.run(pair, "(1, 2)", {tree: true})
-r.value                          // the default layer, computed while parsing
-peg.text(r.tree) == "(1, 2)"     // always true
-peg.evaluate(r.tree, sizes)      // a custom layer
-peg.evaluate(r.tree, "raw")      // a built-in layer
+local input = "(1, 2)"
+local r = peg.run(pair, input, {tree: true})
+r.value                              // the default layer, computed while parsing
+peg.text(r.tree, input) == input     // always true
+peg.evaluate(r.tree, sizes, input)   // a custom layer
+peg.evaluate(r.tree, "raw", input)   // a built-in layer
+peg.marks(node, fmt)                 // the annotations on a node
 ```
+
+Every node keeps the value its parser produced, so the default layer needs
+no work, and a layer on `default` recomputes only the subtrees where it has
+operations. `peg.evaluate(tree, "default", input, {replay: true})` computes
+the default layer from the tree instead. That is for tests: it runs the
+functions of `map` and of the walker again, and some can only run during the
+parse (`g:unit_local` in an extension).
+
+`on` doesn't change the parser it is given, so marking a shared parser (a
+rule reference, say) marks only that use. Parsers whose state is all in
+their closures are copied, so marking them costs nothing when parsing.
+Rules, `ref`, `choice`, `dispatch`, settables and custom parsers get a thin
+wrapper instead.
 
 The parse itself still produces the default value. The slang grammar needs
 it while parsing: `extension` blocks change the grammar for the rest of the
@@ -267,11 +282,14 @@ that are sorted out afterwards) goes away.
 - [x] No slowdown for normal parses (measured against HEAD).
 
 ### Phase 2: layers
-- [ ] Tags on tree nodes; `text`, `raw`, `default`.
-- [ ] `peg.layer(name, base)`, `on(layer, f)`, `mark`, `peg.evaluate`.
-- [ ] Tests: the default layer evaluated from the tree equals the value
-      the parse produced (peg's tests, and slang files without
-      compile-time code).
+- [x] Tags on tree nodes; `text`, `raw`, `default`.
+- [x] `peg.layer(name, base)`, `on(layer, f)`, `mark`, `peg.marks`,
+      `peg.evaluate`.
+- [x] Tests: the default layer evaluated from the tree equals the value
+      the parse produced (`test/tree_test.slang`). Checked once over the
+      repository: 143 files replay to the same AST. The 11 others use
+      extensions that call `g:unit_local`, which only works during the
+      parse.
 
 ### Phase 3: the formatter
 - [ ] The document printer.

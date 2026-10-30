@@ -82,12 +82,18 @@ local func tree_leaf(p, ctx, pos){
   return q
 }
 
+// every node keeps the value its parser produced (node.value): the default
+// layer of the tree
 local func tparse(p, ctx, pos){
   local f = p.parse_tree
   if(f == null){
     f = tree_kinds[p.kind] or tree_leaf
   }
-  return f(p, ctx, pos)
+  local q = f(p, ctx, pos)
+  if(q >= 0){
+    ctx.tree.value = ctx.value
+  }
+  return q
 }
 
 // parse_tree(parser, ctx, pos) -> pos | -1: parse_on, also leaving the node
@@ -519,6 +525,7 @@ func peg.and(child){
     if(child.fast(child, ctx, pos) < 0){
       return -1
     }
+    ctx.value = null
     return pos
   }, {child}, "and", func(self, ctx, pos){
     if(child.fast(child, ctx, pos) < 0){
@@ -1020,7 +1027,7 @@ local func info_of(p, memo, visiting){
   } else if(kind == "separated"){
     local ci = info_of(children[0], memo, visiting)
     r = {first: ci.first, nullable: ci.nullable or not p.at_least_one}
-  } else if(kind == "plus" or kind == "pick" or kind == "permute" or kind == "map" or kind == "flatten" or kind == "token" or kind == "trim" or kind == "where" or kind == "tag"){
+  } else if(kind == "plus" or kind == "pick" or kind == "permute" or kind == "map" or kind == "flatten" or kind == "token" or kind == "trim" or kind == "where" or kind == "tag" or kind == "layer"){
     r = info_of(children[0], memo, visiting)
   } else if(kind == "settable"){
     r = info_of(p.target, memo, visiting)
@@ -1207,7 +1214,7 @@ local func leading_set(p, cache, visiting, memo){
     }
   } else if(kind == "star" or kind == "optional" or kind == "plus" or kind == "separated" or kind == "star_lazy" or
             kind == "pick" or kind == "permute" or kind == "map" or kind == "flatten" or kind == "token" or
-            kind == "trim" or kind == "where" or kind == "tag"){
+            kind == "trim" or kind == "where" or kind == "tag" or kind == "layer"){
     add(children[0])
   } else if(kind == "settable"){
     add(p.target)
@@ -2031,6 +2038,7 @@ local func nud_tree(w, e, ctx, pos, op, op_tree, start){
     local operand_tree = ctx.tree
     ctx.value = e.callback(op, ctx.value)
     ctx.tree = node(e, start, r, {op_tree, operand_tree})
+    ctx.tree.value = ctx.value
     return r
   }
   if(form == "wrapper"){
@@ -2047,6 +2055,7 @@ local func nud_tree(w, e, ctx, pos, op, op_tree, start){
     local right_tree = ctx.tree
     ctx.value = e.callback(op, value, ctx.value)
     ctx.tree = node(e, start, q, {op_tree, inner_tree, right_tree})
+    ctx.tree.value = ctx.value
     return q
   }
   local r = e.nud(w, ctx, pos, op)
@@ -2054,6 +2063,7 @@ local func nud_tree(w, e, ctx, pos, op, op_tree, start){
     return -1
   }
   ctx.tree = node(e, start, r, {op_tree, leaf(e, op_tree.stop, r)})
+  ctx.tree.value = ctx.value
   return r
 }
 
@@ -2063,6 +2073,7 @@ local func led_tree(w, e, ctx, pos, left, left_tree, op, op_tree){
   if(form == "postfix"){
     ctx.value = e.callback(left, op)
     ctx.tree = node(e, start, pos, {left_tree, op_tree})
+    ctx.tree.value = ctx.value
     return pos
   }
   if(form == "left" or form == "right"){
@@ -2073,6 +2084,7 @@ local func led_tree(w, e, ctx, pos, left, left_tree, op, op_tree){
     local right_tree = ctx.tree
     ctx.value = e.callback(left, op, ctx.value)
     ctx.tree = node(e, start, r, {left_tree, op_tree, right_tree})
+    ctx.tree.value = ctx.value
     return r
   }
   local r = e.led(w, ctx, pos, left, op)
@@ -2080,6 +2092,7 @@ local func led_tree(w, e, ctx, pos, left, left_tree, op, op_tree){
     return -1
   }
   ctx.tree = node(e, start, r, {left_tree, op_tree, leaf(e, op_tree.stop, r)})
+  ctx.tree.value = ctx.value
   return r
 }
 
@@ -2550,6 +2563,358 @@ func peg.tree_gap(tree){
   }
   return null
 }
+
+// ------------------------------------------------------------------- layers
+//
+// A layer is a value computed from a lossless tree after the parse. peg's
+// own lossy behaviour is tagged:
+//   trivia   trim drops what its trimmers consumed
+//   absent   an unmatched optional is its default value, a lookahead null
+//   select   pick and permute keep some elements, separated splits into
+//            {elements, separators}
+//   wrap     token makes a token table
+//   map      map applies its function, the walker its callbacks, a custom
+//            parser gives the value it produced
+// and the built-in layers apply some of them:
+//   "text"      none: the source as nested lists of strings
+//   "raw"       trivia and absent: the parse without whitespace, before any
+//               transform
+//   "default"   all: the values the parse produced (kept in the nodes)
+// Without a tag, pick, permute, map and token give their child's value,
+// trim the list of everything it consumed, separated the interleaved list,
+// an unmatched optional or a lookahead "", a custom parser its text, a
+// walker node the list of its operator's and operands' values.
+//
+// A custom layer starts from one built-in layer and adds operations with
+// p:on(layer, f), where f gets the layer's value pipeline (map, pick,
+// permute, flatten, mark) and nothing that consumes input:
+//   transforms (map, pick, permute, flatten) change the layer's value at
+//   that parser's node; marks (mark(data)) attach data to the node and leave
+//   the value alone (read with peg.marks). Custom layers do not build on
+//   each other: a parent's transforms would see values its child changed.
+
+local all_tags = {trivia: true, absent: true, select: true, wrap: true, map: true}
+local builtin_layers = {
+  text: {name: "text", tags: {}},
+  raw: {name: "raw", tags: {trivia: true, absent: true}},
+  default: {name: "default", tags: all_tags},
+}
+
+// layer(name, base) -> a custom layer starting from the built-in layer base
+// ("text", "raw" or "default")
+func peg.layer(name, base){
+  local b = builtin_layers[base]
+  if(b == null){
+    error("a layer starts from \"text\", \"raw\" or \"default\", not ", base)
+  }
+  return {name: name, base: base, tags: b.tags, custom: true}
+}
+
+// the value pipeline a layer's operations are recorded on
+local pipeline_methods = {}
+local pipeline_meta = {__index: pipeline_methods, __type: "layer_pipeline"}
+
+local func add_op(self, op){
+  list_push(self.ops, op)
+  return self
+}
+func pipeline_methods.map(self, f){
+  return add_op(self, {op: "map", fn: f})
+}
+func pipeline_methods.pick(self, index){
+  return add_op(self, {op: "pick", index: index})
+}
+func pipeline_methods.permute(self, ...indices){
+  return add_op(self, {op: "permute", indices: indices})
+}
+func pipeline_methods.flatten(self){
+  return add_op(self, {op: "flatten"})
+}
+func pipeline_methods.mark(self, data){
+  return add_op(self, {op: "mark", data: data})
+}
+
+// the kinds whose parse functions keep their state in upvalues and that have
+// a node of their own: on() gives such a parser a copy with the operations,
+// which parses with the same code. Any other parser gets a wrapper: rules,
+// settables and custom parsers (state in fields), and choice, dispatch and
+// ref, whose tree is their child's.
+local copyable = {}
+for(let local k in values({"string", "pattern", "any", "whitespace", "end", "epsilon", "failure",
+                           "seq", "star", "plus", "optional", "star_lazy", "separated", "forbid", "and", "neg",
+                           "pick", "permute", "map", "flatten", "token", "trim", "where", "tag", "layer"})){
+  copyable[k] = true
+}
+
+local func layer_wrapper(child){
+  local p = new_parser(func(self, ctx, pos){
+    return child:parse_on(ctx, pos)
+  }, {child}, "layer", func(self, ctx, pos){
+    return child.fast(child, ctx, pos)
+  })
+  return p
+}
+
+tree_kinds.layer = func(self, ctx, pos){
+  local q = tparse(self.children[0], ctx, pos)
+  if(q < 0){
+    return -1
+  }
+  ctx.tree = node(self, pos, q, {ctx.tree})
+  return q
+}
+
+// on(parser, layer, f) -> a parser that parses like parser and carries the
+// operations f records for layer (f(pipeline) -> pipeline). The parser
+// itself is not changed: a shared parser (a rule reference, say) keeps no
+// operations from one use.
+func peg.on(parser, layer, f){
+  if(type(layer) != "table" or not layer.custom){
+    error("on() takes a layer made with peg.layer")
+  }
+  local pipe = {ops: {}}
+  pipe.meta = pipeline_meta
+  f(pipe)
+  local p
+  if(copyable[parser.kind]){
+    p = {}
+    for(let local e in entries(parser)){
+      p[e[0]] = e[1]
+    }
+    p.meta = parser_meta
+  } else {
+    p = layer_wrapper(parser)
+  }
+  local ops = {}
+  if(parser.layer_ops != null and copyable[parser.kind]){
+    for(let local e in entries(parser.layer_ops)){
+      ops[e[0]] = e[1]
+    }
+  }
+  local list = {}
+  for(let local op in values(ops[layer] or {})){
+    list_push(list, op)
+  }
+  for(let local op in values(pipe.ops)){
+    list_push(list, op)
+  }
+  ops[layer] = list
+  p.layer_ops = ops
+  return p
+}
+
+// mark(parser, layer, data) -> on(parser, layer, func(v){ return v:mark(data) })
+func peg.mark(parser, layer, data){
+  return peg.on(parser, layer, func(v){
+    return v:mark(data)
+  })
+}
+
+// marks(node, layer) -> the data marked on node's parser for layer, in order
+func peg.marks(n, layer){
+  local out = {}
+  local ops = n.p.layer_ops
+  if(ops != null and ops[layer] != null){
+    for(let local op in values(ops[layer])){
+      if(op.op == "mark"){
+        list_push(out, op.data)
+      }
+    }
+  }
+  return out
+}
+
+local leaf_text_kinds = {string: true, pattern: true, any: true, whitespace: true, neg: true, flatten: true}
+
+local func leaf_value(n, tags, buffer){
+  if(n.start == n.stop){
+    if(tags.absent){
+      return n.value
+    }
+    return ""
+  }
+  if(tags.map and not leaf_text_kinds[n.p.kind]){
+    return n.value
+  }
+  return str.substring(buffer, n.start, n.stop)
+}
+
+local func at(list, index){
+  if(index < 0){
+    return list[len(list) + index]
+  }
+  return list[index]
+}
+
+// the value of a node from the values of its kids, with tags
+local func node_value(n, kids, tags, buffer){
+  local p = n.p
+  local form = p.form
+  if(form != null){
+    if(not tags.map){
+      return kids
+    }
+    if(form == "prefix" or form == "postfix"){
+      return p.callback(kids[0], kids[1])
+    }
+    return p.callback(kids[0], kids[1], kids[2])
+  }
+  local kind = p.kind
+  if(kind == "seq" or kind == "star" or kind == "plus" or kind == "star_lazy" or kind == "unit"){
+    return kids
+  }
+  if(kind == "optional"){
+    if(len(n.kids) == 0){
+      if(tags.absent){
+        return p.default_value
+      }
+      return ""
+    }
+    return kids[0]
+  }
+  if(kind == "separated"){
+    if(not tags.select){
+      return kids
+    }
+    local elements = {}
+    local separators = {}
+    for(local i = 0; i < len(n.kids); i = i + 1){
+      if(i % 2 == 0){
+        list_push(elements, kids[i])
+      } else {
+        list_push(separators, kids[i])
+      }
+    }
+    return {elements: elements, separators: separators}
+  }
+  if(kind == "pick"){
+    if(tags.select){
+      return at(kids[0], p.index)
+    }
+    return kids[0]
+  }
+  if(kind == "permute"){
+    if(tags.select){
+      local out = {}
+      for(let local index in values(p.indices)){
+        list_push(out, at(kids[0], index))
+      }
+      return out
+    }
+    return kids[0]
+  }
+  if(kind == "map"){
+    if(tags.map){
+      return p.fn(kids[0])
+    }
+    return kids[0]
+  }
+  if(kind == "token"){
+    if(tags.wrap){
+      local t = peg.make_token({buffer: buffer}, kids[0], n.start, n.stop)
+      if(p.category != null){
+        t.category = p.category
+      }
+      return t
+    }
+    return kids[0]
+  }
+  if(kind == "trim"){
+    if(tags.trivia){
+      return kids[n.at]
+    }
+    return kids
+  }
+  if(p.form == null and (kind == "nud" or kind == "led")){
+    // an engine entry of the walker: its callback parsed for itself
+    if(tags.map){
+      return n.value
+    }
+    return kids
+  }
+  // rule, where, tag, layer: the child's value
+  return kids[0]
+}
+
+local func apply_ops(n, v, ops, buffer){
+  for(let local op in values(ops)){
+    local o = op.op
+    if(o == "map"){
+      v = op.fn(v)
+    } else if(o == "pick"){
+      v = at(v, op.index)
+    } else if(o == "permute"){
+      local out = {}
+      for(let local index in values(op.indices)){
+        list_push(out, at(v, index))
+      }
+      v = out
+    } else if(o == "flatten"){
+      v = str.substring(buffer, n.start, n.stop)
+    }
+  }
+  return v
+}
+
+// the value of n in layer; changed (for a layer on "default") says whether
+// some operation of the layer applied in the subtree, and with it whether
+// the stored value can be used
+local func evaluate(n, layer, tags, buffer, use_stored){
+  local kids = n.kids
+  local changed = false
+  local v
+  if(kids == null){
+    v = leaf_value(n, tags, buffer)
+  } else {
+    local values = {}
+    for(local i = 0; i < len(kids); i = i + 1){
+      local r = evaluate(kids[i], layer, tags, buffer, use_stored)
+      list_push(values, r.value)
+      if(r.changed){
+        changed = true
+      }
+    }
+    if(use_stored and not changed){
+      v = n.value
+    } else {
+      v = node_value(n, values, tags, buffer)
+    }
+  }
+  local ops = n.p.layer_ops
+  if(layer != null and ops != null and ops[layer] != null){
+    local list = ops[layer]
+    for(let local op in values(list)){
+      if(op.op != "mark"){
+        changed = true
+      }
+    }
+    v = apply_ops(n, v, list, buffer)
+  }
+  return {value: v, changed: changed}
+}
+
+// evaluate(tree, layer, buffer, {replay}) -> the value of tree in layer: a
+// built-in layer's name or a layer made with peg.layer. buffer is the input
+// the tree was parsed from. The default layer is the value the parse
+// produced, kept in the tree; {replay: true} computes it from the tree
+// instead, running the functions of map and the walker again.
+func peg.evaluate(tree, layer, buffer, options){
+  local replay = options != null and options.replay
+  if(type(layer) == "string"){
+    local b = builtin_layers[layer]
+    if(b == null){
+      error("no built-in layer ", layer)
+    }
+    if(layer == "default" and not replay){
+      return tree.value
+    }
+    return evaluate(tree, null, b.tags, buffer, false).value
+  }
+  return evaluate(tree, layer, layer.tags, buffer, layer.base == "default" and not replay).value
+}
+
+methods.on = peg.on
+methods.mark = peg.mark
 
 // ---------------------------------------------------------------------- methods
 

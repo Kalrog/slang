@@ -48,6 +48,7 @@ dd { margin-left: 1rem; color: var(--muted); }
 <li><a href="#exit"><code>exit</code></a></li>
 <li><a href="#clock"><code>clock</code></a></li>
 <li><a href="#time_ms"><code>time_ms</code></a></li>
+<li><a href="#exec"><code>exec</code></a></li>
 </ul>
 <h2>files</h2>
 <div class="def" id="exists"><h3><code>m.exists(path)</code></h3>
@@ -87,6 +88,10 @@ dd { margin-left: 1rem; color: var(--muted); }
 </div>
 <div class="def" id="time_ms"><h3><code>m.time_ms()</code></h3>
 <p>time_ms() -&gt; milliseconds since the Unix epoch, as an int</p>
+</div>
+<h2>programs</h2>
+<div class="def" id="exec"><h3><code>m.exec(argv, cwd)</code></h3>
+<p>exec(argv, [cwd]) -&gt; {status, stdout, stderr}: runs a program (argv[0], looked up on the PATH) in cwd and waits for it; status is its exit code, -1 when a signal ended it. Raises when it cannot be started. Blocking, for tools; slang/async's exec does not block.</p>
 </div>
 <p class="muted">slang/stubs/slang/os.slang</p>
 </body>

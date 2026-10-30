@@ -4,6 +4,7 @@
 
 local vm = __PACKAGES.preloaded["slang/vm"][1]
 local os = __PACKAGES.preloaded["slang/os"][1]
+local str = __PACKAGES.preloaded["slang/string"][1]
 
 local func preloaded_loader(name){
   return __PACKAGES.preloaded[name]
@@ -18,9 +19,50 @@ local func embedded_loader(name){
   return {true, f()}
 }
 
-// find_source(name) -> {path, suffix} or null: the source file of a module
-// on the search paths (name.slang, then the dialect suffixes of the project)
+// a module of a package (__PACKAGES.packages, set from slang.lock by the
+// compiler): "name/a/b" is a/b in the package's directories, "name" its
+// init; {path, suffix}, or false when the package has no such module
+local func package_source(pkg, name, rest){
+  if(pkg.missing){
+    error("package ", name, " is not fetched: run `slang get` in the project")
+  }
+  for(let local dir in values(pkg.paths)){
+    local src = concat(dir, "/", rest, ".slang")
+    if(os.exists(src)){
+      return {path: src, suffix: ".slang"}
+    }
+    for(let local suffix in values(pkg.suffixes)){
+      src = concat(dir, "/", rest, suffix)
+      if(os.exists(src)){
+        return {path: src, suffix: suffix}
+      }
+    }
+  }
+  return false
+}
+
+// find_source(name) -> {path, suffix} or null: the source file of a module:
+// in a package when the name starts with one, else on the search paths
+// (name.slang, then the dialect suffixes of the project)
 local func find_source(name){
+  local packages = __PACKAGES.packages
+  if(packages != null){
+    local slash = str.index_of(name, "/")
+    local head = name
+    local rest = "init"
+    if(slash >= 0){
+      head = str.substring(name, 0, slash)
+      rest = str.substring(name, slash + 1)
+    }
+    local pkg = packages[head]
+    if(pkg != null){
+      local found = package_source(pkg, head, rest)
+      if(found == false){
+        return null
+      }
+      return found
+    }
+  }
   for(let local path in values(__PACKAGES.searchPaths)){
     local src = concat(path, "/", name, ".slang")
     if(os.exists(src)){

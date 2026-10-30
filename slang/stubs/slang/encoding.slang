@@ -65,6 +65,10 @@ func m.utf8_valid(s){}
 // crc32(s) -> the CRC-32 checksum of s, as an int
 func m.crc32(s){}
 
+// sha256(s) -> the SHA-256 digest of s: 32 raw bytes (hex_encode them for
+// text)
+func m.sha256(s){}
+
 // mask(data, key) -> data XOR key repeated (WebSocket masking; the same
 // call unmasks). Raises an error for an empty key.
 func m.mask(data, key){}

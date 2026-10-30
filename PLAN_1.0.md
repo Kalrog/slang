@@ -249,21 +249,40 @@ Built into the `slang` command, Go and Dart style, decentralized at
 first: a package is a git repository with semver tags, no registry
 needed.
 
-- [ ] The manifest is `slang.project`: `name`, `version`, `dependencies:
+- [x] The manifest is `slang.project`: `name`, `version`, `dependencies:
       {name: {git: url, version: "^1.2"}}`, next to `extensions` and
-      dialects.
-- [ ] `slang get`, `slang update`, `slang deps`: resolution by minimal
+      dialects. (2026-10-30) Also `{path: "../dir"}` for working on two
+      packages at once (not allowed in a package fetched with git). A
+      package's name is the one in its own slang.project; a dependency must
+      use it, so a name means one package everywhere in a program.
+- [x] `slang get`, `slang update`, `slang deps`: resolution by minimal
       version selection (Go's: reproducible, no solver), a lockfile
       (`slang.lock`) with exact versions and content hashes, a cache in
       `~/.slang/pkg/<name>@<version>`, offline use from the cache.
-- [ ] `require("name/module")` resolves through the dependency named
+      (2026-10-30, `slang/pkg`) Versions are git tags `vX.Y.Z`; "^1.2" is
+      a minimum within major 1 (within 0.2 below 1.0). The lock's versions
+      raise the minimums, so `get` keeps them; `update [name...]` takes
+      the newest within the major. git runs through the new `os.exec`, a
+      mirror per repository under the cache's `.mirrors`; a file in the
+      cache that differs from the lock's hash is an error. The lock is a
+      slang table literal like slang.project.
+- [x] `require("name/module")` resolves through the dependency named
       `name`; two versions of one package never mix in a program.
-- [ ] Each package compiles under its own `slang.project`: its grammar
+      (`require("name")` is its init.slang; a project with a name requires
+      itself the same way.)
+- [x] Each package compiles under its own `slang.project`: its grammar
       extensions apply to it only and never leak into its users (a
-      package may export extensions for its users to declare).
-- [ ] No install scripts. Compiling a package runs its grammar
+      package may export extensions for its users to declare). A
+      package's grammar is plain slang (snapshotted before the program's
+      ambient layer) plus its own extensions and dialects; the compiler
+      picks the project of a file by the package directory holding it.
+- [x] No install scripts. Compiling a package runs its grammar
       extensions (like Rust's procedural macros); that is stated plainly,
       and the lockfile hashes pin exactly what runs.
+- [ ] Later: `slang get name@version` adding a dependency to
+      slang.project, a `slang.lock` check in CI (`slang get --check`),
+      private repositories beyond what git's own credentials give, and the
+      language server's project index reaching into packages.
 - [ ] Native code in packages: a package declares its extension's static
       archives per platform (prebuilt by its author, or built by the user
       with the package's own build instructions); `slang build` links

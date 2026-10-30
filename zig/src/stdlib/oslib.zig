@@ -27,7 +27,45 @@ pub fn module(vm: *VM) *Table {
         .{ .name = "clock", .f = osClock },
         .{ .name = "mkdir_all", .f = osMkdirAll },
         .{ .name = "time_ms", .f = osTimeMs },
+        .{ .name = "exec", .f = osExec },
     });
+}
+
+/// exec(argv, [cwd]) -> {status, stdout, stderr}: runs a program (argv[0],
+/// looked up on the PATH) and waits for it; status is its exit code, -1 when
+/// a signal ended it. Raises when the program cannot be started. Blocking:
+/// for tools (slang get runs git with it); slang/async's exec is the
+/// asynchronous one.
+fn osExec(th: *Thread, args: []Value) Error!Value {
+    const vm = th.vm;
+    const list = try api.argTable(th, args, 0, "argv");
+    const n = list.arrayLen();
+    if (n == 0) return vm.raise("exec: argv is empty", .{});
+    var argv = vm.gpa.alloc([]const u8, n) catch oom();
+    defer vm.gpa.free(argv);
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        argv[i] = list.getInt(@intCast(i)).asBytes() orelse return vm.raise("exec: argv must hold strings", .{});
+    }
+    var cwd: std.process.Child.Cwd = .inherit;
+    if (args.len > 1) {
+        if (args[1].asBytes()) |dir| cwd = .{ .path = dir };
+    }
+    vm.flush();
+    const r = std.process.run(vm.gpa, vm.io, .{ .argv = argv, .cwd = cwd }) catch |e| {
+        return vm.raise("exec {s}: {t}", .{ argv[0], e });
+    };
+    defer vm.gpa.free(r.stdout);
+    defer vm.gpa.free(r.stderr);
+    const status: i64 = switch (r.term) {
+        .exited => |code| code,
+        else => -1,
+    };
+    const t = vm.newTable(0, 3);
+    t.set(vm.gpa, vm.str("status"), .{ .int = status });
+    t.set(vm.gpa, vm.str("stdout"), vm.str(r.stdout));
+    t.set(vm.gpa, vm.str("stderr"), vm.str(r.stderr));
+    return .{ .table = t };
 }
 
 /// mkdir_all(path): creates the directory and its parents.

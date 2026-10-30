@@ -20,6 +20,11 @@ local compiler = {}
 local root = null
 // the project in effect: {path, dir, source, extensions, dialects, warnings, key}
 local project = null
+// slang before the project's ambient layer: what packages start from
+local base = null
+// the packages of the program, from slang.lock: name -> {name, dir,
+// version, missing, self, manifest, project (made at first use)}
+local packages = {}
 local project_searched = false
 local project_misses = {}
 local dialect_grammars = {}
@@ -157,6 +162,9 @@ func compiler.reset(){
   }
   root = new_grammar()
   project = null
+  base = null
+  packages = {}
+  __PACKAGES.packages = {}
   project_searched = false
   project_misses = {}
   dialect_grammars = {}
@@ -198,7 +206,14 @@ func compiler.compile(code, origin, trace){
 //                [".hx"]: {extensions: {"ext/html"}}},
 //     search_paths: {"src"},                         // relative to the file
 //     warnings: false,                               // or {["ext/a"]: false}
+//     name: "app", version: "1.0.0",                  // as a package
+//     dependencies: {json5: {git: "https://...", version: "^1.2"},
+//                    util: {path: "../util"}},
 //   }
+// Dependencies are fetched by `slang get` (slang/pkg) into the package
+// cache and pinned in slang.lock next to the project file; a package is
+// required by its name (`require("json5/parse")`, `require("json5")` is
+// its init.slang) and compiles under its own slang.project.
 
 local func dirname(path){
   local i = len(path) - 1
@@ -272,6 +287,145 @@ local func apply_layer(g, names, key){
   return key
 }
 
+// ------------------------------------------------------------ packages
+
+// package_root() -> where fetched packages live: $SLANG_PKG_DIR, else
+// ~/.slang/pkg (a package is <root>/<name>@<version>)
+func compiler.package_root(){
+  local dir = os.getenv("SLANG_PKG_DIR")
+  if(dir == null){
+    dir = concat(os.getenv("HOME") or ".", "/.slang/pkg")
+  }
+  return dir
+}
+
+func compiler.package_dir(name, version){
+  return concat(compiler.package_root(), "/", name, "@", version)
+}
+
+// a slang table literal file (slang.project, slang.lock) as a table
+func compiler.read_table_file(path){
+  local t = compiler.compile(concat("return ", os.read_file(path)), path)()
+  if(type(t) != "table"){
+    error(path, ": a table literal expected")
+  }
+  return t
+}
+
+// what require needs of a package: its directories and dialect suffixes
+local func register_package(pkg){
+  packages[pkg.name] = pkg
+  local paths = {}
+  local suffixes = {}
+  if(pkg.dir != null){
+    append(paths, pkg.dir)
+    local m = pkg.manifest or {}
+    for(let local sp in values(m.search_paths or {})){
+      append(paths, join_path(pkg.dir, sp))
+    }
+    for(let local e in entries(m.dialects or {})){
+      append(suffixes, e[0])
+    }
+  }
+  __PACKAGES.packages[pkg.name] = {
+    dir: pkg.dir, paths: paths, suffixes: suffixes, missing: pkg.missing,
+  }
+}
+
+// the packages of a project: its slang.lock (the whole build list), the
+// dependencies it lacks (required, they explain what to run), and the
+// project itself by its name
+local func register_packages(proj, manifest){
+  __PACKAGES.packages = {}
+  local lock_path = join_path(proj.dir, "slang.lock")
+  local lock = {}
+  if(os.exists(lock_path)){
+    lock = compiler.read_table_file(lock_path)
+  }
+  for(let local e in entries(manifest.dependencies or {})){
+    if(lock[e[0]] == null){
+      register_package({name: e[0], missing: true})
+    }
+  }
+  for(let local e in entries(lock)){
+    local entry = e[1]
+    local dir = null
+    if(entry.path != null){
+      dir = compiler.absolute_path(join_path(proj.dir, entry.path))
+    } else {
+      dir = compiler.absolute_path(compiler.package_dir(e[0], entry.version))
+    }
+    local pkg = {name: e[0], dir: dir, version: entry.version}
+    local mp = join_path(dir, "slang.project")
+    if(not os.exists(dir)){
+      pkg.missing = true
+    } else if(os.exists(mp)){
+      pkg.manifest = compiler.read_table_file(mp)
+    }
+    register_package(pkg)
+  }
+  if(manifest.name != null and packages[manifest.name] == null){
+    register_package({
+      name: manifest.name, dir: compiler.absolute_path(proj.dir), self: true,
+      manifest: manifest,
+    })
+  }
+}
+
+// the project a package's files compile under: its slang.project's
+// extensions and dialects on plain slang (not the program's), made once
+local func package_project(pkg){
+  if(pkg.project != null){
+    return pkg.project
+  }
+  local m = pkg.manifest or {}
+  local path = join_path(pkg.dir, "slang.project")
+  local source = ""
+  if(os.exists(path)){
+    source = os.read_file(path)
+  }
+  local g = (base or root):derive()
+  local proj = {
+    path: path, dir: pkg.dir, source: source, extensions: m.extensions or {},
+    dialects: m.dialects or {}, warnings: m.warnings, key: "", grammar: g,
+    dialect_grammars: {}, package: pkg.name,
+  }
+  pkg.project = proj
+  explain("package ", pkg.name, " ", pkg.version or "", " at ", pkg.dir)
+  proj.key = apply_layer(g, proj.extensions, concat(path, "\n", source))
+  g.cache_key = proj.key
+  return proj
+}
+
+// the project a file compiles under: the package whose directory holds it,
+// else the program's (null without a project file)
+local func project_of(path){
+  local abs = null
+  for(let local pkg in values(packages)){
+    if(pkg.dir != null and not pkg.self and not pkg.missing){
+      abs = abs or compiler.absolute_path(path)
+      if(str.starts_with(abs, concat(pkg.dir, "/"))){
+        return package_project(pkg)
+      }
+    }
+  }
+  return project
+}
+
+// packages() -> the program's packages by name: {name, dir, version, missing}
+func compiler.packages(){
+  local out = {}
+  for(let local e in entries(packages)){
+    out[e[0]] = {
+      name: e[1].name,
+      dir: e[1].dir,
+      version: e[1].version,
+      missing: e[1].missing == true,
+    }
+  }
+  return out
+}
+
 // load_project(path): reads a project file and applies it: search paths,
 // dialects and the ambient extensions (loaded into the root grammar)
 func compiler.load_project(path){
@@ -286,9 +440,12 @@ func compiler.load_project(path){
   local dir = dirname(path)
   project = {
     path: path, dir: dir, source: source, extensions: p.extensions or {},
-    dialects: p.dialects or {}, warnings: p.warnings, key: "",
+    dialects: p.dialects or {}, warnings: p.warnings, key: "", grammar: root,
+    dialect_grammars: dialect_grammars,
   }
   project_searched = true
+  base = root:derive()
+  register_packages(project, p)
   // modules resolve relative to the project file first
   local paths = {dir}
   for(let local sp in values(p.search_paths or {})){
@@ -377,34 +534,55 @@ func compiler.project(){
   return project
 }
 
-// the grammar of a dialect: the root plus the dialect's extensions
-local func dialect_grammar(suffix){
-  local dg = dialect_grammars[suffix]
+// the grammar of a dialect: the project's grammar plus the dialect's
+// extensions
+local func dialect_grammar(proj, suffix){
+  local dg = proj.dialect_grammars[suffix]
   if(dg != null){
     return dg
   }
-  local d = project.dialects[suffix]
-  dg = root:derive()
+  local d = proj.dialects[suffix]
+  dg = proj.grammar:derive()
   dg.dialect = suffix
   dg.cache_key = apply_layer(
-    dg, d.extensions or {}, concat(project.key, "\n", suffix)
+    dg, d.extensions or {}, concat(proj.key, "\n", suffix)
   )
-  dialect_grammars[suffix] = dg
+  proj.dialect_grammars[suffix] = dg
   return dg
 }
 
-// dialect_of(path) -> {suffix, spec} of the project dialect matching the
-// file suffix, or null for plain slang
-local func dialect_of(path){
-  if(project == null){
+// dialect_of(proj, path) -> {suffix, spec} of the project dialect matching
+// the file suffix, or null for plain slang
+local func dialect_of(proj, path){
+  if(proj == null){
     return null
   }
-  for(let local e in entries(project.dialects)){
+  for(let local e in entries(proj.dialects)){
     if(str.ends_with(path, e[0])){
       return {suffix: e[0], spec: e[1]}
     }
   }
   return null
+}
+
+// grammar_for(path) -> {grammar, dialect, project}: what a file at path
+// compiles with (its project, a package's or the program's, and its
+// dialect); grammar is null for a dialect with a compile function
+local func grammar_for(path){
+  local proj = project_of(path)
+  local dialect = dialect_of(proj, path)
+  local g = root
+  if(proj != null){
+    g = proj.grammar
+  }
+  if(dialect != null){
+    if(dialect.spec.compile != null){
+      g = null
+    } else {
+      g = dialect_grammar(proj, dialect.suffix)
+    }
+  }
+  return {grammar: g, dialect: dialect, project: proj}
 }
 
 // ------------------------------------------------------------ bytecode cache
@@ -454,8 +632,9 @@ local func get_cache_dir(){
 func compiler.load_file(path, origin){
   origin = origin or path
   local source = os.read_file(path)
-  local dialect = dialect_of(path)
-  if(dialect != null and dialect.spec.compile != null){
+  local found = grammar_for(path)
+  local dialect = found.dialect
+  if(found.grammar == null){
     local m = require(dialect.spec.compile)
     local f = m.compile(source, origin)
     if(type(f) != "function"){
@@ -467,17 +646,14 @@ func compiler.load_file(path, origin){
     }
     return f
   }
-  local g = root
-  if(dialect != null){
-    g = dialect_grammar(dialect.suffix)
-  }
+  local g = found.grammar
   local cache_path = null
   if(not g.extended){
     local dir = get_cache_dir()
     if(dir != ""){
       local key = g.cache_key
-      if(key == null and project != null){
-        key = project.key
+      if(key == null and found.project != null){
+        key = found.project.key
       }
       cache_path = concat(
         dir, "/",
@@ -554,14 +730,11 @@ func compiler.highlight(source, path, options){
   if(options != null and options.find_project){
     find_project_for(path)
   }
-  local dialect = dialect_of(path)
-  if(dialect != null and dialect.spec.compile != null){
+  local target = grammar_for(path)
+  if(target.grammar == null){
     return {tokens: {}, diagnostics: {}}
   }
-  local g = root
-  if(dialect != null){
-    g = dialect_grammar(dialect.suffix)
-  }
+  local g = target.grammar
   // a project file is a table literal, loaded as `return {...}`
   local prefix = ""
   if(str.ends_with(path, "slang.project")){
@@ -649,15 +822,11 @@ func compiler.compile_file(path, origin){
   origin = origin or path
   find_project_for(path)
   local source = os.read_file(path)
-  local dialect = dialect_of(path)
-  if(dialect != null and dialect.spec.compile != null){
-    return require(dialect.spec.compile).compile(source, origin)
+  local found = grammar_for(path)
+  if(found.grammar == null){
+    return require(found.dialect.spec.compile).compile(source, origin)
   }
-  local g = root
-  if(dialect != null){
-    g = dialect_grammar(dialect.suffix)
-  }
-  local node = g:parse_source(source, origin)
+  local node = found.grammar:parse_source(source, origin)
   return vm.load_proto(codegen.generate(node, origin))
 }
 
@@ -669,15 +838,11 @@ func compiler.expand(source, path, options){
   if(options != null and options.find_project){
     find_project_for(path)
   }
-  local dialect = dialect_of(path)
-  if(dialect != null and dialect.spec.compile != null){
+  local found = grammar_for(path)
+  if(found.grammar == null){
     return source
   }
-  local g = root
-  if(dialect != null){
-    g = dialect_grammar(dialect.suffix)
-  }
-  return ast.to_source(g:parse_source(source, path))
+  return ast.to_source(found.grammar:parse_source(source, path))
 }
 
 // tree(source, path, {find_project}) -> the lossless tree of source as the
@@ -689,14 +854,11 @@ func compiler.tree(source, path, options){
   if(options != null and options.find_project){
     find_project_for(path)
   }
-  local dialect = dialect_of(path)
-  if(dialect != null and dialect.spec.compile != null){
+  local found = grammar_for(path)
+  if(found.grammar == null){
     return null
   }
-  local g = root
-  if(dialect != null){
-    g = dialect_grammar(dialect.suffix)
-  }
+  local g = found.grammar
   local block = g:parse_source(source, path, {tree: true})
   local tree = g.state.last_tree
   tree.ast = block

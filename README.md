@@ -480,6 +480,35 @@ error); `await for(let local x in stream)` loops over a Stream. Callbacks
 stay available everywhere (`f:then(...)`, `stream:listen(...)`, the `uv`
 module itself). `PLAN_UV.md` has the design.
 
+## Packages
+
+A project lists its dependencies in its `slang.project`; a package is a
+git repository whose `slang.project` gives its name and whose tags
+`vMAJOR.MINOR.PATCH` are its versions:
+
+```
+{
+  name: "app",
+  dependencies: {
+    json5: {git: "https://github.com/someone/json5", version: "^1.2"},
+    util: {path: "../util"},        // a directory, while working on both
+  },
+}
+```
+
+`slang get` fetches them (with git, into `~/.slang/pkg` or
+`$SLANG_PKG_DIR`) and writes `slang.lock`, which pins the versions, their
+commits and hashes of their files; `slang update [name...]` moves packages
+to their newest version within the same major; `slang deps` lists what
+the project uses and who asks for it. Versions are chosen as Go does
+(each package gets the highest minimum anyone asks for), one program never
+mixes two majors of a package, and with the cache complete nothing needs
+the network. `require("json5/parse")` loads a module of a package,
+`require("json5")` its `init.slang`; a package compiles under its own
+`slang.project`, so its grammar extensions never reach its users. Nothing
+in a package runs when it is fetched; compiling it runs its grammar
+extensions, as compiling any slang does.
+
 ## Editor support
 
 `lsp/` is a language server written in slang (over the `uv` extension) that

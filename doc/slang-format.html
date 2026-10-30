@@ -48,8 +48,11 @@ dd { margin-left: 1rem; color: var(--muted); }
 <li><a href="#trailing_comma"><code>trailing_comma</code></a></li>
 <li><a href="#verbatim"><code>verbatim</code></a></li>
 <li><a href="#formatted"><code>formatted</code></a></li>
+<li><a href="#layout"><code>layout</code></a></li>
+<li><a href="#role"><code>role</code></a></li>
 <li><a href="#uses_marks"><code>uses_marks</code></a></li>
 <li><a href="#extension"><code>extension</code></a></li>
+<li><a href="#doc"><code>doc</code></a></li>
 <li><a href="#print"><code>print</code></a></li>
 <li><a href="#source"><code>source</code></a></li>
 <li><a href="#main"><code>main</code></a></li>
@@ -82,6 +85,12 @@ dd { margin-left: 1rem; color: var(--muted); }
 <div class="def" id="formatted"><h3><code>format.formatted(parser)</code></h3>
 <p class="muted">No description.</p>
 </div>
+<div class="def" id="layout"><h3><code>format.layout(parser, fn)</code></h3>
+<p>layout(parser, fn) -&gt; parser whose nodes fn(api, node) lays out; the result is a document (see format.doc and &quot;extension layouts&quot; below)</p>
+</div>
+<div class="def" id="role"><h3><code>format.role(parser, name)</code></h3>
+<p>role(parser, name) -&gt; parser whose nodes a layout function finds as name</p>
+</div>
 <div class="def" id="uses_marks"><h3><code>format.uses_marks(parser)</code></h3>
 <p>whether parser (or a parser inside it) carries layout marks; rule references and parts already marked formatted or verbatim are not looked into (they have a layout of their own)</p>
 </div>
@@ -89,6 +98,16 @@ dd { margin-left: 1rem; color: var(--muted); }
 <p>extension(parser) -&gt; the parser an extension registered, formatted when it uses marks, else verbatim (what the grammar applies to the syntax an extension adds)</p>
 </div>
 <h2>documents</h2>
+<div class="def" id="doc"><h3><code>format.doc</code></h3>
+<p>the documents an extension's layout function builds with: strings and lists of documents, and</p>
+<pre><code>line, softline, hardline   a space / nothing / a break when the group
+                           around them is flat, a break when it breaks
+group(doc)                 on one line if it fits, else broken
+indent(doc)                its breaks indented one more level
+fill(parts)                content, separator, content, ...: as many
+                           contents on a line as fit (the separators
+                           are lines)</code></pre>
+</div>
 <div class="def" id="print"><h3><code>format.print(doc, width)</code></h3>
 <p>print(doc, width) -&gt; text</p>
 </div>

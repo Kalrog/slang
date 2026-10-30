@@ -7,6 +7,7 @@
 //!   form_encode(s)              form_decode(s) -> string or null
 //!   query_encode(table)         query_decode(s) -> table
 //!   utf8_valid(s) -> bool       crc32(s) -> int
+//!   sha256(s) -> the 32-byte digest (hex_encode it for text)
 //!   mask(data, key) -> data XOR the key repeated (WebSocket masking; the
 //!     same call unmasks)
 //!
@@ -44,6 +45,7 @@ pub fn module(vm: *VM) *Table {
         .{ .name = "query_decode", .f = queryDecode },
         .{ .name = "utf8_valid", .f = utf8Valid },
         .{ .name = "crc32", .f = crc32 },
+        .{ .name = "sha256", .f = sha256 },
         .{ .name = "mask", .f = mask },
     });
 }
@@ -313,6 +315,13 @@ fn utf8Valid(th: *Thread, args: []Value) Error!Value {
 fn crc32(th: *Thread, args: []Value) Error!Value {
     const src = try api.argString(th, args, 0, "str");
     return .{ .int = std.hash.Crc32.hash(src) };
+}
+
+fn sha256(th: *Thread, args: []Value) Error!Value {
+    const src = try api.argString(th, args, 0, "str");
+    var out: [32]u8 = undefined;
+    std.crypto.hash.sha2.Sha256.hash(src, &out, .{});
+    return th.vm.str(&out);
 }
 
 fn mask(th: *Thread, args: []Value) Error!Value {

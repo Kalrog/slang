@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>slang/pkg</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>slang/pkg</h1>
+<p>slang/pkg: packages: <code>slang get</code>, <code>slang update [name...]</code>, <code>slang deps</code>.</p>
+<p>A project lists what it uses in its slang.project:</p>
+<pre><code>name: &quot;app&quot;,
+dependencies: {
+  json5: {git: &quot;https://github.com/someone/json5&quot;, version: &quot;^1.2&quot;},
+  util: {path: &quot;../util&quot;},
+},</code></pre>
+<p>A package is a git repository whose slang.project gives its name (the name it is required by, the same in every project that uses it) and whose tags vMAJOR.MINOR.PATCH are its versions. <code>version: &quot;1.2&quot;</code> (or &quot;^1.2&quot;) asks for 1.2.0 or later within major 1 (within 0.2 for a 0.x version); a path dependency is a directory, for working on two packages at once. <code>require(&quot;json5/parse&quot;)</code> loads parse.slang of the package (<code>require(&quot;json5&quot;)</code> its init.slang), compiled under the package's own slang.project: its extensions never reach the project that uses it.</p>
+<p>Versions are chosen as Go does (minimal version selection): every package gets the highest of the minimums asked for it, by the project, by other packages, or by slang.lock, which pins what was chosen (the version, its commit and a hash of its files). So a build is the same until someone asks for more: <code>slang update</code> moves the named packages (or all) to their newest version within the same major. Two majors of one package, or two packages under one name, are errors: one program never mixes them.</p>
+<p>Packages are fetched with git into the package cache ($SLANG_PKG_DIR, else ~/.slang/pkg; a git mirror per repository under .mirrors), one directory per version; with the cache complete nothing needs the network. Nothing in a package runs when it is fetched: there are no install scripts. Compiling a package runs its grammar extensions, as compiling any slang does; the hashes in slang.lock pin exactly what that is.</p>
+<ul class="toc">
+<li><a href="#parse_version"><code>parse_version</code></a></li>
+<li><a href="#compare"><code>compare</code></a></li>
+<li><a href="#compatible"><code>compatible</code></a></li>
+<li><a href="#tree_hash"><code>tree_hash</code></a></li>
+<li><a href="#resolve"><code>resolve</code></a></li>
+<li><a href="#get"><code>get</code></a></li>
+<li><a href="#main"><code>main</code></a></li>
+</ul>
+<h2>versions</h2>
+<div class="def" id="parse_version"><h3><code>pkg.parse_version(s)</code></h3>
+<p>parse_version(&quot;v1.2.3&quot; | &quot;1.2&quot; | &quot;^1.2&quot;) -&gt; {major, minor, patch, text}, or null for anything else (pre-releases included)</p>
+</div>
+<div class="def" id="compare"><h3><code>pkg.compare(a, b)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="compatible"><h3><code>pkg.compatible(a, b)</code></h3>
+<p>whether b can stand in for a: the same major (and minor below 1.0)</p>
+</div>
+<h2>hashes</h2>
+<div class="def" id="tree_hash"><h3><code>pkg.tree_hash(dir)</code></h3>
+<p>tree_hash(dir) -&gt; &quot;sha256:...&quot; of the files under dir: their paths and contents, in order</p>
+</div>
+<h2>selection</h2>
+<div class="def" id="resolve"><h3><code>pkg.resolve(dir, manifest, lock, update)</code></h3>
+<p>resolve(dir, manifest, lock, update) -&gt; the build list {name: {name, git, version, path, dir, manifest, required}}, version a parsed version; update is null (keep slang.lock's versions), true (everything) or {name: true}</p>
+</div>
+<h2>commands</h2>
+<div class="def" id="get"><h3><code>pkg.get(dir, update)</code></h3>
+<p>get(dir) -&gt; the build list, installed and locked</p>
+</div>
+<div class="def" id="main"><h3><code>pkg.main(arguments)</code></h3>
+<p>main(command, args) -&gt; exit code</p>
+</div>
+<p class="muted">slang/compiler/pkg.slang</p>
+</body>
+</html>

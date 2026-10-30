@@ -50,4 +50,12 @@ func m.clock(){}
 // time_ms() -> milliseconds since the Unix epoch, as an int
 func m.time_ms(){}
 
+// ------------------------------------------------------------ programs
+
+// exec(argv, [cwd]) -> {status, stdout, stderr}: runs a program (argv[0],
+// looked up on the PATH) in cwd and waits for it; status is its exit
+// code, -1 when a signal ended it. Raises when it cannot be started.
+// Blocking, for tools; slang/async's exec does not block.
+func m.exec(argv, cwd){}
+
 return m

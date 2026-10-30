@@ -50,6 +50,7 @@ dd { margin-left: 1rem; color: var(--muted); }
 <li><a href="#query_decode"><code>query_decode</code></a></li>
 <li><a href="#utf8_valid"><code>utf8_valid</code></a></li>
 <li><a href="#crc32"><code>crc32</code></a></li>
+<li><a href="#sha256"><code>sha256</code></a></li>
 <li><a href="#mask"><code>mask</code></a></li>
 </ul>
 <h2>base64</h2>
@@ -99,6 +100,9 @@ dd { margin-left: 1rem; color: var(--muted); }
 </div>
 <div class="def" id="crc32"><h3><code>m.crc32(s)</code></h3>
 <p>crc32(s) -&gt; the CRC-32 checksum of s, as an int</p>
+</div>
+<div class="def" id="sha256"><h3><code>m.sha256(s)</code></h3>
+<p>sha256(s) -&gt; the SHA-256 digest of s: 32 raw bytes (hex_encode them for text)</p>
 </div>
 <div class="def" id="mask"><h3><code>m.mask(data, key)</code></h3>
 <p>mask(data, key) -&gt; data XOR key repeated (WebSocket masking; the same call unmasks). Raises an error for an empty key.</p>

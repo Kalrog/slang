@@ -44,6 +44,10 @@ dd { margin-left: 1rem; color: var(--muted); }
 <li><a href="#parse"><code>parse</code></a></li>
 <li><a href="#generate"><code>generate</code></a></li>
 <li><a href="#compile"><code>compile</code></a></li>
+<li><a href="#package_root"><code>package_root</code></a></li>
+<li><a href="#package_dir"><code>package_dir</code></a></li>
+<li><a href="#read_table_file"><code>read_table_file</code></a></li>
+<li><a href="#packages"><code>packages</code></a></li>
 <li><a href="#load_project"><code>load_project</code></a></li>
 <li><a href="#absolute_path"><code>absolute_path</code></a></li>
 <li><a href="#stub_path"><code>stub_path</code></a></li>
@@ -81,7 +85,19 @@ dd { margin-left: 1rem; color: var(--muted); }
 <div class="def" id="compile"><h3><code>compiler.compile(code, origin, trace)</code></h3>
 <p>compile(code, origin) -&gt; function; code is source text or an AST table. Source text is parsed with the grammar of the unit that calls compile (an unquote sees the extensions of its file).</p>
 </div>
-<h2>project file</h2>
+<h2>packages</h2>
+<div class="def" id="package_root"><h3><code>compiler.package_root()</code></h3>
+<p>package_root() -&gt; where fetched packages live: $SLANG_PKG_DIR, else ~/.slang/pkg (a package is &lt;root&gt;/&lt;name&gt;@&lt;version&gt;)</p>
+</div>
+<div class="def" id="package_dir"><h3><code>compiler.package_dir(name, version)</code></h3>
+<p class="muted">No description.</p>
+</div>
+<div class="def" id="read_table_file"><h3><code>compiler.read_table_file(path)</code></h3>
+<p>a slang table literal file (slang.project, slang.lock) as a table</p>
+</div>
+<div class="def" id="packages"><h3><code>compiler.packages()</code></h3>
+<p>packages() -&gt; the program's packages by name: {name, dir, version, missing}</p>
+</div>
 <div class="def" id="load_project"><h3><code>compiler.load_project(path)</code></h3>
 <p>load_project(path): reads a project file and applies it: search paths, dialects and the ambient extensions (loaded into the root grammar)</p>
 </div>

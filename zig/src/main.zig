@@ -38,6 +38,9 @@ fn usage(io: std.Io) noreturn {
         \\  slang expand <file>          print a file as slang source after its extensions were applied
         \\  slang fmt [--check] [--stdout] <file|dir>...
         \\                              format files in place (--check: list the ones that would change)
+        \\  slang get                   fetch the project's packages and write slang.lock
+        \\  slang update [package...]   move packages to their newest version (same major)
+        \\  slang deps                  list the packages the project uses and who asks for them
         \\  slang doc [-o dir] [file|dir...]
         \\                              HTML documentation of the modules (default: the project, or slang's library)
         \\
@@ -90,6 +93,13 @@ pub fn main(init: std.process.Init) !u8 {
         return toolMain(init, "slang/format", args);
     } else if (std.mem.eql(u8, cmd, "doc")) {
         return toolMain(init, "slang/doc", args);
+    } else if (std.mem.eql(u8, cmd, "get") or std.mem.eql(u8, cmd, "update") or std.mem.eql(u8, cmd, "deps")) {
+        // slang/pkg's main takes the command first
+        var all: std.ArrayList([]const u8) = .empty;
+        defer all.deinit(init.gpa);
+        all.append(init.gpa, cmd) catch oom();
+        all.appendSlice(init.gpa, args) catch oom();
+        return toolMain(init, "slang/pkg", all.items);
     } else if (std.mem.eql(u8, cmd, "disasm")) {
         if (args.len < 1) usage(io);
         disasmFile(init, args[0]);

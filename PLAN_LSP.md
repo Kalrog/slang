@@ -108,17 +108,20 @@ lower to the core AST. Needs a compile, so it runs under the same trust rule.
 - [x] `make vscode` bundles `lsp/`, compiles with esbuild and packages
       `editors/vscode/slang-lang-0.1.0.vsix`; install with
       `code --install-extension`.
-- [ ] Manual check in VS Code (core file, a file using
-      `extensions/custom_operators`, `examples/project`, a parse error).
+- [x] Manual check in VS Code: in use since 2026-10-30 (hover, definitions
+      and references in `examples/webserver` found two server bugs, both
+      fixed).
 
-### Phase 5: later `[ ]`
+### Phase 5: later `[~]`
 - [~] Semantic classes from codegen (locals, parameters, upvalues, globals,
       functions, fields), hover with the resolved kind, go to definition.
       Hover, go to definition and find references are done (2026-10-30, see
       PLAN_DOC.md); semantic token classes from the same analysis are not.
-- [ ] Error recovery in the phrase loop (skip to the next top-level
+- [x] Error recovery in the phrase loop (skip to the next top-level
       statement after a failure) so one typo does not uncolour the rest of
-      the file.
+      the file: `parse_source(..., {recover: true})` goes on at the next
+      line where a statement parses; the skipped text is an error region,
+      highlighted by its words (PLAN_FORMAT.md phase 5).
 - [ ] Incremental sync and a per-document parse debounce.
 - [ ] A restricted VM mode (no `slang/os`, no native extensions, an
       instruction budget) for untrusted workspaces.

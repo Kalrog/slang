@@ -38,4 +38,6 @@ are safe and highlighted, and the web server example persisting its data.
 - [x] Phase 4: the web server keeps todos and the log in SQLite.
 - [x] Queries on libuv's thread pool: `await db:all_async(...)` (done
   2026-10-29 with PLAN_WEB.md phase 2).
-- [ ] Later: blobs as a distinct type, `db:each` with early close.
+- [ ] Later: blobs as a distinct type; `db:each` exists, but a loop that
+  stops early leaves its statement unreset until the next use (an early
+  close, or a `defer`-friendly form).

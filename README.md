@@ -550,7 +550,8 @@ the extensions use. `examples/dungeon/host` is a host program for the Go VM
 the Go VM.
 
 ## Ideas
-- [ ] goroutine-based isolates with channels (see PLAN.md)
-- [ ] bitwise operators
-- [ ] static typing
-- [ ] language server
+The roadmap is PLAN_1.0.md; bitwise operators and the language server,
+once listed here, exist.
+- [ ] isolates: separate VMs on threads exchanging messages (PLAN_1.0.md
+      phase 9; coroutines stay the in-VM model)
+- [ ] static typing (PLAN_1.0.md phase 7)

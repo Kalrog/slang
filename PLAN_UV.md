@@ -62,7 +62,8 @@ async/await style, on top of libuv, while the callback style stays available.
       `examples/webserver` with routes, a timer-awaiting route, static files
       and POST echo; `zig/test/http_test.slang` (parsing, keep-alive,
       errors, 8 overlapping slow requests).
-- [ ] Load test against a Lua/luv equivalent; chunked bodies (getaddrinfo: done in PLAN_WEB.md phase 2).
+- [ ] Load test against a Lua/luv equivalent. (Chunked bodies: done in
+      slang/http, both ways; getaddrinfo: done in PLAN_WEB.md phase 2.)
 - Found while testing: closing the listening socket must also end the
   connection stream, or `await s.done` waits forever; the head passed to the
   parser must include the blank line (both sides had the same off-by-two).

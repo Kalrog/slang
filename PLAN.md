@@ -2,6 +2,11 @@
 
 Status legend: `[ ]` todo, `[~]` in progress, `[x]` done.
 
+Historical (2026-10-30): the Go VM was followed by the Zig VM (PLAN_ZIG.md),
+which is the implementation now; `go/` is kept for reference and not
+maintained. Concurrency beyond coroutines continues as isolates in
+PLAN_1.0.md phase 9.
+
 ## Goals
 
 1. Rewrite the VM in Go for speed.
@@ -88,7 +93,7 @@ UTF-8 byte strings (Go and Lua convention); `len`/`substring` are byte based, wi
 ### Phase 2: Remaining runtime pieces `[x]`
 - [x] File I/O userdata (`open` + read/write/readBytes/writeBytes/close), `args`, `readLine`, `slang/os` helpers.
 - [x] Trim `slang_thread_test.slang` to coroutine tests (plus two new coroutine tests).
-- [ ] Remove the preemptive API from the README (Phase 6).
+- [x] Remove the preemptive API from the README (Phase 6).
 
 ### Phase 3: Self-hosted compiler `[x]`
 - [x] `peg.slang` (+ `test/peg_test.slang`, 15 tests) with Go helper natives in `slang/string`.
@@ -112,8 +117,10 @@ UTF-8 byte strings (Go and Lua convention); `len`/`substring` are byte based, wi
 - Numbers (M-series laptop): dijkstra x1000 305 ms (Dart: 2157 ms, 7x), full test suite 0.5 s (Dart: 4 s), fib(27) 33 ms, 300k method calls with allocation 370 ms. `bench/compile.slang` parses a frozen 1050-line copy of the grammar source (`bench/data/sample.slang`) in about 100 ms.
 - Possible further VM work: table access (string-keyed map lookups dominate), call setup, allocation in `values()`/`keys()` iterators.
 
-### Phase 6: Cleanup and docs `[ ]`
-- [ ] Remove Dart sources and pubspec (after confirmation), update README (build, thread API, bootstrapping, string semantics), keep DESIGN.md notes.
+### Phase 6: Cleanup and docs `[x]`
+- [x] Dart sources: kept in `legacy/` for history instead of removed (the
+      stage-0 seed builder lives there); the README describes the build,
+      threads, bootstrapping and strings of the Zig implementation.
 
 ## Decisions taken (2026-10-23)
 

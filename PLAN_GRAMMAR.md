@@ -326,10 +326,15 @@ only, evaluated once before any unit:
   grammar changes are refused; tokens it needs must be created before
   `modify`. A memoized result is shared, so actions must not mutate inputs.
 
-### Phase 6: Tooling `[ ]`
-- [ ] Syntax export and a VM-free highlighter; semantic tokens from codegen;
-      `slang highlight`; restricted VM mode.
-- [ ] Editor integration (VS Code, semantic tokens).
+### Phase 6: Tooling `[~]`
+Continued in PLAN_LSP.md, PLAN_FORMAT.md and PLAN_DOC.md.
+- [x] `slang highlight` and highlighting from the real parser (the
+      lossless tree, extensions and dialects included) instead of a syntax
+      export: the editor runs the project's grammar in the language server.
+- [x] Editor integration: VS Code with semantic tokens, diagnostics, hover,
+      definitions and references.
+- [ ] Semantic tokens from codegen (token classes from slang/symbols) and a
+      restricted VM mode: open in PLAN_LSP.md phase 5.
 
 ## Decisions (2026-10-26)
 

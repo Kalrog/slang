@@ -564,9 +564,10 @@ t.group("http: streaming, compression, limits"){
         })
       )
       assert(r.status == 200 and r.body == "PUT /p?q=1 b", r.body)
-      local bad = pcall(await, http.fetch("https://example.org/"))
+      local bad = pcall(await, http.fetch("ftp://example.org/"))
       assert(bad[0] == "err" and str.index_of(
-          bad[1].message, "no TLS yet"
+          bad[1].message,
+          "http:// or https://"
         ) >= 0)
       s.close()
       await(s.done)

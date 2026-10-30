@@ -40,17 +40,25 @@
 //   on_error(req, err) (a handler raised; the client gets a 500),
 //   on_upgrade(req, conn, rest) (a request asked for another protocol,
 //     like WebSocket; it gets the connection and the bytes read past the
-//     head, and the server forgets the connection).
+//     head, and the server forgets the connection),
+//   tls (serve HTTPS: {cert, key} as PEM text, or {cert_file, key_file},
+//     or a context from slang/tls; req.secure is true then).
 // close() stops accepting; idle connections close at once, busy ones after
 // their response; done completes when the listener is closed.
 //
 // Client:
-//   http.connect(host, port) -> Future of a client; client:request(method,
-//     path, body, headers) -> Future of {status, reason, headers, body}, one
-//     at a time on the connection; client:close()
+//   http.connect(host, port, options) -> Future of a client;
+//     client:request(method, path, body, headers) -> Future of {status,
+//     reason, headers, body}, one at a time on the connection;
+//     client:close()
 //   http.get(host, port, path) -> Future of a response
-//   http.fetch(url, {method, headers, body}) -> Future of a response
-// The client asks for gzip and inflates it (res.compressed says it was);
+//   http.fetch(url, {method, headers, body, tls}) -> Future of a response
+//     to an http:// or https:// URL
+// options.tls makes a client talk HTTPS: true, or the options of
+// slang/tls's connect (ca to trust a server's own certificate, verify:
+// false, ...); fetch uses it for https:// URLs.
+// The client says User-Agent: slang unless told otherwise, asks for gzip
+// and inflates it (res.compressed says it was);
 // chunked and connection-delimited responses are read to their end.
 //
 // Multipart (form uploads):
@@ -92,6 +100,14 @@ local func zlib_module(){
     zlib = require("zlib")
   }
   return zlib
+}
+
+local tls = null
+local func tls_module(){
+  if(tls == null){
+    tls = require("slang/tls")
+  }
+  return tls
 }
 
 http.status_text = {
@@ -513,6 +529,9 @@ local func handle_connection(conn, handler, options, server){
         break
       }
       local req = request_of(ev)
+      if(options.tls != null){
+        req.secure = true
+      }
       local keep = ev.keep_alive
       local continue_wanted = str.lower(req.headers["expect"] or "") ==
         "100-continue"
@@ -666,6 +685,17 @@ local func handle_connection(conn, handler, options, server){
 // serve(host, port, handler, options) -> {server, port, done, close()}
 func http.serve(host, port, handler, options){
   options = options or {}
+  local context = null
+  if(options.tls != null){
+    context = options.tls
+    if(type(context) != "tls.context"){
+      local o = {server: true}
+      for(let local e in entries(context)){
+        o[e[0]] = e[1]
+      }
+      context = tls_module().context(o)
+    }
+  }
   local s = async.serve(host, port, options)
   local done = async.completer()
   local server = {connections: {}, closing: false}
@@ -676,6 +706,9 @@ func http.serve(host, port, handler, options){
         break
       }
       local conn = e.value
+      if(context != null){
+        conn = tls_module().server(conn, context)
+      }
       async.run(func(){ handle_connection(conn, handler, options, server) })
     }
     done.complete(null)
@@ -803,14 +836,27 @@ func http.clear_cookie(res, name, options){
 local client_methods = {}
 local client_meta = {__index: client_methods, __type: "HttpClient"}
 
-// connect(host, port) -> Future of a client; its request() sends one
-// request at a time on the connection and resolves to {status, reason,
-// headers, body}
-func http.connect(host, port){
-  return async.connect(host, port):then(func(conn){
+// connect(host, port, options) -> Future of a client; its request() sends
+// one request at a time on the connection and resolves to {status, reason,
+// headers, body}; options.tls for HTTPS
+func http.connect(host, port, options){
+  local secure = options != null and options.tls != null and
+    options.tls != false
+  local connected = null
+  if(secure){
+    local o = options.tls
+    if(o == true){
+      o = {}
+    }
+    connected = tls_module().connect(host, port, o)
+  } else {
+    connected = async.connect(host, port)
+  }
+  return connected:then(func(conn){
     local c = {
       conn: conn, reader: async.reader(conn), parser: parser("response", null),
-      host: host, port: port, queue: {}, at: 0, eof: false, closed: false,
+      host: host, port: port, secure: secure, queue: {}, at: 0, eof: false,
+      closed: false,
     }
     c.meta = client_meta
     return c
@@ -844,7 +890,7 @@ func client_methods.request(c, method, path, body, headers, options){
       error("http: the server closed this connection; connect again")
     }
     local host = c.host
-    if(c.port != null and c.port != 80){
+    if(c.port != null and c.port != (c.secure and 443 or 80)){
       host = concat(host, ":", string(c.port))
     }
     local parts = {method, " ", path, " HTTP/1.1\r\n"}
@@ -858,6 +904,9 @@ func client_methods.request(c, method, path, body, headers, options){
     }
     if(not has["accept-encoding"]){
       append(parts, "Accept-Encoding: gzip\r\n")
+    }
+    if(not has["user-agent"]){
+      append(parts, "User-Agent: slang\r\n")
     }
     if(body != null){
       append(parts, concat("Content-Length: ", len(body), "\r\n"))
@@ -927,20 +976,21 @@ func http.get(host, port, path){
   })
 }
 
-// fetch(url, {method, headers, body}) -> Future of a response: one request
-// to an http:// URL on a connection of its own (no TLS yet)
+// fetch(url, {method, headers, body, tls}) -> Future of a response: one
+// request to an http:// or https:// URL on a connection of its own
 func http.fetch(url, options){
   options = options or {}
   return async.run(func(){
-    if(not str.starts_with(url, "http://")){
-      error("http.fetch: only http:// URLs (no TLS yet): ", url)
+    local secure = str.starts_with(url, "https://")
+    if(not secure and not str.starts_with(url, "http://")){
+      error("http.fetch: an http:// or https:// URL expected: ", url)
     }
-    local rest = str.substring(url, 7)
+    local rest = str.substring(url, secure and 8 or 7)
     local slash = str.index_of(rest, "/")
     local authority = slash >= 0 and str.substring(rest, 0, slash) or rest
     local path = slash >= 0 and str.substring(rest, slash) or "/"
     local host = authority
-    local port = 80
+    local port = secure and 443 or 80
     local colon = str.index_of(authority, ":")
     if(colon >= 0){
       host = str.substring(authority, 0, colon)
@@ -950,7 +1000,9 @@ func http.fetch(url, options){
     for(let local e in entries(options.headers or {})){
       headers[e[0]] = e[1]
     }
-    local c = async.await(http.connect(host, port))
+    local c = async.await(http.connect(host, port, {
+      tls: secure and (options.tls or true) or null,
+    }))
     local r = pcall(async.await, c:request(
       options.method or "GET", path, options.body, headers, options
     ))

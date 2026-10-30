@@ -130,6 +130,21 @@ pub fn build(b: *std.Build) void {
             .dest_sub_path = b.fmt("crypto{s}", .{target.result.dynamicLibSuffix()}),
         });
         b.getInstallStep().dependOn(&cr_install.step);
+
+        // The tls extension: libssl from the same install.
+        const tls_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
+        tls_mod.addCSourceFile(.{ .file = b.path("../extensions/native/tls.c"), .flags = &.{"-std=c11"} });
+        tls_mod.addIncludePath(b.path("include"));
+        tls_mod.addIncludePath(.{ .cwd_relative = b.fmt("{s}/include", .{prefix}) });
+        tls_mod.addLibraryPath(.{ .cwd_relative = b.fmt("{s}/lib", .{prefix}) });
+        tls_mod.linkSystemLibrary("ssl", .{});
+        tls_mod.linkSystemLibrary("crypto", .{});
+        const tls = b.addLibrary(.{ .name = "tls_ext", .linkage = .dynamic, .root_module = tls_mod });
+        tls.linker_allow_shlib_undefined = true;
+        const tls_install = b.addInstallArtifact(tls, .{
+            .dest_sub_path = b.fmt("tls{s}", .{target.result.dynamicLibSuffix()}),
+        });
+        b.getInstallStep().dependOn(&tls_install.step);
     }
 
     // The llhttp extension links llhttp (Homebrew by default); -Dllhttp=false
@@ -189,7 +204,7 @@ fn addNativeExtension(b: *std.Build, target: std.Build.ResolvedTarget, optimize:
 /// boot/slang at the repository root. It is copied into a generated module
 /// that embeds every file under its module name ("slang/compiler", ...).
 fn seedModule(b: *std.Build) *std.Build.Module {
-    const names = [_][]const u8{ "ast", "async", "codegen", "compiler", "crypto", "format", "grammar", "html", "http", "json", "jwt", "optimizer", "package", "peg", "sqlite", "std", "table", "test", "web", "webview", "ws" };
+    const names = [_][]const u8{ "ast", "async", "codegen", "compiler", "crypto", "format", "grammar", "html", "http", "json", "jwt", "optimizer", "package", "peg", "sqlite", "std", "table", "test", "tls", "web", "webview", "ws" };
     const wf = b.addWriteFiles();
     var src: std.ArrayList(u8) = .empty;
     src.appendSlice(b.allocator, "pub const Entry = struct { name: []const u8, data: []const u8 };\npub const files = [_]Entry{\n") catch @panic("OOM");

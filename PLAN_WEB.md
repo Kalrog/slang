@@ -156,6 +156,7 @@ the window is a deployment choice.
       closed. `examples/desktop`: a todo app whose page calls slang
       directly, several windows kept in step. `make test-gui` runs the
       window tests.
-- [ ] Later: TLS over OpenSSL BIO pairs on uv TCP; HTTP/2 over nghttp2 (only
+- [ ] Later: ~~TLS over OpenSSL BIO pairs on uv TCP~~ (done, PLAN_1.0.md
+      phase 5); HTTP/2 over nghttp2 (only
       meaningful with TLS and ALPN; most deployments terminate at a proxy);
       Postgres over libpq; brotli.

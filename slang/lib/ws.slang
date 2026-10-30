@@ -16,7 +16,8 @@
 //   socket:is_open()
 //
 // options: max_message (bytes, 16 MiB; a larger message closes the socket
-// with 1009). Text messages must be UTF-8 (else 1007); the server requires
+// with 1009); for connect also tls (wss: true, or the options of
+// slang/tls's connect). Text messages must be UTF-8 (else 1007); the server requires
 // masked frames and the client sends them; extensions such as compression
 // are not negotiated.
 local async = require("slang/async")
@@ -389,7 +390,18 @@ func ws.accept(req, conn, rest, options){
 
 func ws.connect(host, port, path, options){
   return async.run(func(){
-    local conn = async.await(async.connect(host, port))
+    local conn = null
+    local secure = options != null and options.tls != null and
+      options.tls != false
+    if(secure){
+      local o = options.tls
+      if(o == true){
+        o = {}
+      }
+      conn = async.await(require("slang/tls").connect(host, port, o))
+    } else {
+      conn = async.await(async.connect(host, port))
+    }
     local key = encoding.base64_encode(crypto().random_bytes(16))
     async.await(async.write(conn, concat(
       "GET ", path or "/", " HTTP/1.1\r\nHost: ", host, ":", string(port),

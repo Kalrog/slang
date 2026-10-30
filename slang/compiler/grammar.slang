@@ -94,6 +94,8 @@ local func new_lineage(opts){
     // statement being parsed
     record_ctx: null,
     last_tokens: null,
+    // the lossless tree of the last parse_source with {tree: true}
+    last_tree: null,
     last_failure: null,
     phrase_pos: 0,
     // every parse of a unit gets a fresh id (g:unit_id()), so an extension
@@ -125,12 +127,23 @@ local func rule_ref(lin, name){
   if(p != null){
     return p
   }
+  // in a tree, a rule has a node of its own (p.kind "rule", p.rule_name)
   p = peg.custom(func(self, ctx, pos){
     local target = self.target
     if(target == null){
       target = resolve_rule(self)
     }
     return target:parse_on(ctx, pos)
+  }, func(self, ctx, pos){
+    local target = self.target
+    if(target == null){
+      target = resolve_rule(self)
+    }
+    local q = peg.parse_tree(target, ctx, pos)
+    if(q >= 0){
+      ctx.tree = peg.node(self, pos, q, {ctx.tree})
+    }
+    return q
   })
   p.fast = func(self, ctx, pos){
     local target = self.target
@@ -771,6 +784,7 @@ local func install_core(g){
     return q
   })
   trivia.single = true
+  trivia.trivia = true
   define("trivia", trivia)
   g.default_trivia = trivia
 
@@ -1661,9 +1675,17 @@ local func emit(lin, statements, node){
   }
 }
 
+// parses with the tree path in a context made for a tree
+local func parse_with(parser, ctx, pos){
+  if(ctx.tree_on){
+    return peg.parse_tree(parser, ctx, pos)
+  }
+  return parser:parse_on(ctx, pos)
+}
+
 local func parse_statement(lin, parser, ctx, pos){
   lin.statement_depth = lin.statement_depth + 1
-  local r = pcall(parser.parse_on, parser, ctx, pos)
+  local r = pcall(parse_with, parser, ctx, pos)
   lin.statement_depth = lin.statement_depth - 1
   if(let {"err", local e} = r){
     raise(e)
@@ -1676,7 +1698,10 @@ local func parse_statement(lin, parser, ctx, pos){
 // with (scoped units; the REPL is not scoped). `extension global` changes the
 // root grammar instead and is only allowed in the main file, before any other
 // extension statement of it.
-local func parse_top_level(g, source, origin, scoped, record){
+// the node of a whole unit in a lossless tree
+local unit_parser = {kind: "unit"}
+
+local func parse_top_level(g, source, origin, scoped, record, tree){
   local lin = g.state
   local tok_semicolon = peg.ref(lin.token_fn, ";"):optional()
   local parsers = {
@@ -1684,11 +1709,12 @@ local func parse_top_level(g, source, origin, scoped, record){
     final: peg.seq(rule_ref(lin, "final_statement"), tok_semicolon):pick(0),
     extension_statement: peg.seq(rule_ref(lin, "extension_statement"), tok_semicolon):pick(0),
   }
-  local ctx = peg.context(source, {record: record})
+  local ctx = peg.context(source, {record: record, tree: tree})
   if(record){
     lin.record_ctx = ctx
   }
   local statements = {}
+  local trees = {}
   local pos = 0
   local unit = g
   lin.origin = origin
@@ -1700,7 +1726,7 @@ local func parse_top_level(g, source, origin, scoped, record){
     unit:activate()
     ctx.rule_memo = {}
     lin.phrase_pos = pos
-    local q = parsers.extension_statement:parse_on(ctx, pos)
+    local q = parse_with(parsers.extension_statement, ctx, pos)
     if(q >= 0){
       local parsed = ctx.value
       local target = null
@@ -1722,17 +1748,26 @@ local func parse_top_level(g, source, origin, scoped, record){
         }
         target = unit
       }
+      if(tree){
+        list_push(trees, ctx.tree)
+      }
       local node = target:run_extension(parsed, origin)
       emit(lin, statements, node)
       pos = q
     } else {
       q = parse_statement(lin, parsers.statement, ctx, pos)
       if(q >= 0){
+        if(tree){
+          list_push(trees, ctx.tree)
+        }
         emit(lin, statements, ctx.value)
         pos = q
       } else {
         q = parse_statement(lin, parsers.final, ctx, pos)
         if(q >= 0){
+          if(tree){
+            list_push(trees, ctx.tree)
+          }
           emit(lin, statements, ctx.value)
           pos = q
         }
@@ -1744,6 +1779,13 @@ local func parse_top_level(g, source, origin, scoped, record){
   if(stop != len(source)){
     fail_parse(lin, ctx, origin, "end of input expected", stop)
   }
+  if(tree){
+    // trivia no token took (a file of nothing but comments)
+    if(pos < stop){
+      list_push(trees, peg.leaf(g.default_trivia, pos, stop))
+    }
+    lin.last_tree = peg.node(unit_parser, 0, stop, trees)
+  }
   local block = ast.node("Block", {statements: statements}, peg.make_token(ctx, null, 0, pos))
   if(lin.opts.optimize != null){
     block = lin.opts.optimize(block)
@@ -1754,10 +1796,12 @@ local func parse_top_level(g, source, origin, scoped, record){
   return block
 }
 
-// parse_source(source, origin, {scoped, record}) -> Block node (raises on
-// failure). Extension statements of a scoped unit (the default) only affect
-// that unit. With record, the tokens are left in g.state.last_tokens (also
-// after a failure, whose details are in g.state.last_failure).
+// parse_source(source, origin, {scoped, record, tree}) -> Block node (raises
+// on failure). Extension statements of a scoped unit (the default) only
+// affect that unit. With record, the tokens are left in g.state.last_tokens
+// (also after a failure, whose details are in g.state.last_failure). With
+// tree, the lossless tree of the unit is left in g.state.last_tree (see
+// slang/peg): a node of kind "unit" whose kids are the top-level statements.
 func methods.parse_source(g, source, origin, options){
   local lin = g.state
   local outer_origin = lin.origin
@@ -1767,11 +1811,15 @@ func methods.parse_source(g, source, origin, options){
   local outer_unit_locals = lin.unit_locals
   local scoped = options == null or options.scoped != false
   local record = options != null and options.record == true
+  local tree = options != null and options.tree == true
   if(record){
     lin.last_failure = null
   }
+  if(tree){
+    lin.last_tree = null
+  }
   lin.parse_depth = lin.parse_depth + 1
-  local r = pcall(parse_top_level, g, source, origin, scoped, record)
+  local r = pcall(parse_top_level, g, source, origin, scoped, record, tree)
   lin.parse_depth = lin.parse_depth - 1
   if(record){
     lin.last_tokens = peg.tokens(lin.record_ctx)

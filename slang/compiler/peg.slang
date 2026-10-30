@@ -5,6 +5,16 @@
 // On success the parsed value is left in ctx.value. On failure the message and
 // position are recorded in ctx.fail_msg / ctx.fail_pos (the last failure wins,
 // like petitparser's choice), and the farthest failure in ctx.far_*.
+//
+// A parser can also build the lossless tree of what it parsed:
+// peg.parse_tree(parser, ctx, pos) parses like parse_on and leaves the node
+// of the parser in ctx.tree, a table {p, start, stop, kids} where p is the
+// parser (or walker entry) and kids its children in source order. A node
+// without kids is a leaf and stands for the text it spans. Every character a
+// parse consumes is covered by exactly one leaf, so joining the leaves gives
+// back the input (peg.text). Parsing for a tree is a separate path (see "the
+// lossless tree" below), so a parse without one costs nothing extra; a
+// parser that has no tree path of its own becomes a leaf.
 
 local str = require("slang/string")
 
@@ -47,12 +57,54 @@ local func fail(ctx, pos, msg){
   return -1
 }
 
-// context(buffer, {record}) -> a parse context; with record, every token
-// with a category and every comment is recorded (see peg.tokens)
+local func node(p, start, stop, kids){
+  return {p: p, start: start, stop: stop, kids: kids}
+}
+
+local func leaf(p, start, stop){
+  return {p: p, start: start, stop: stop}
+}
+
+// node(p, start, stop, kids) / leaf(p, start, stop): tree nodes, for the tree
+// paths of custom parsers (see peg.custom)
+peg.node = node
+peg.leaf = leaf
+
+// the tree paths by parser kind, filled in "the lossless tree" below
+local tree_kinds = {}
+
+// a parser without a tree path of its own: a leaf of what it consumed
+local func tree_leaf(p, ctx, pos){
+  local q = p:parse_on(ctx, pos)
+  if(q >= 0){
+    ctx.tree = leaf(p, pos, q)
+  }
+  return q
+}
+
+local func tparse(p, ctx, pos){
+  local f = p.parse_tree
+  if(f == null){
+    f = tree_kinds[p.kind] or tree_leaf
+  }
+  return f(p, ctx, pos)
+}
+
+// parse_tree(parser, ctx, pos) -> pos | -1: parse_on, also leaving the node
+// of parser in ctx.tree
+peg.parse_tree = tparse
+
+// context(buffer, {record, tree}) -> a parse context; with record, every
+// token with a category and every comment is recorded (see peg.tokens); tree
+// marks a context parsed with parse_tree
 func peg.context(buffer, options){
   local tokens = null
-  if(options != null and options.record){
-    tokens = {}
+  local tree_on = false
+  if(options != null){
+    if(options.record){
+      tokens = {}
+    }
+    tree_on = options.tree == true
   }
   return {
     buffer: buffer,
@@ -60,6 +112,7 @@ func peg.context(buffer, options){
     fail_pos: -1,
     far_pos: -1,
     tokens: tokens,
+    tree_on: tree_on,
     memo: {},
     // results of memoized rules (peg.memoize); the phrase loop clears it
     // before every top-level statement
@@ -352,7 +405,7 @@ func peg.plus(child){
 }
 
 func peg.optional(child, default_value){
-  return new_parser(func(self, ctx, pos){
+  local p = new_parser(func(self, ctx, pos){
     local q = child:parse_on(ctx, pos)
     if(q < 0){
       ctx.value = default_value
@@ -366,6 +419,8 @@ func peg.optional(child, default_value){
     }
     return q
   })
+  p.default_value = default_value
+  return p
 }
 
 // child repeated lazily until limit matches (limit is not consumed)
@@ -499,7 +554,7 @@ func peg.neg(child, message){
 }
 
 func peg.pick(child, index){
-  return new_parser(func(self, ctx, pos){
+  local p = new_parser(func(self, ctx, pos){
     local q = child:parse_on(ctx, pos)
     if(q < 0){
       return -1
@@ -514,11 +569,13 @@ func peg.pick(child, index){
   }, {child}, "pick", func(self, ctx, pos){
     return child.fast(child, ctx, pos)
   })
+  p.index = index
+  return p
 }
 
 func peg.permute(child, ...indices){
   local n = len(indices)
-  return new_parser(func(self, ctx, pos){
+  local p = new_parser(func(self, ctx, pos){
     local q = child:parse_on(ctx, pos)
     if(q < 0){
       return -1
@@ -538,10 +595,12 @@ func peg.permute(child, ...indices){
   }, {child}, "permute", func(self, ctx, pos){
     return child.fast(child, ctx, pos)
   })
+  p.indices = indices
+  return p
 }
 
 func peg.map(child, f){
-  return new_parser(func(self, ctx, pos){
+  local p = new_parser(func(self, ctx, pos){
     local q = child:parse_on(ctx, pos)
     if(q < 0){
       return -1
@@ -549,6 +608,8 @@ func peg.map(child, f){
     ctx.value = f(ctx.value)
     return q
   }, {child}, "map")
+  p.fn = f
+  return p
 }
 
 // replaces the value by the consumed input (the child is parsed without
@@ -576,7 +637,7 @@ func peg.flatten(child, message){
 // token(child, category): the consumed input as a token {value, start, stop,
 // line, column, category}; the category is what a highlighter shows
 func peg.token(child, category){
-  return new_parser(func(self, ctx, pos){
+  local p = new_parser(func(self, ctx, pos){
     local q = child:parse_on(ctx, pos)
     if(q < 0){
       return -1
@@ -593,6 +654,8 @@ func peg.token(child, category){
   }, {child}, "token", func(self, ctx, pos){
     return child.fast(child, ctx, pos)
   })
+  p.category = category
+  return p
 }
 
 local default_trimmer = peg.whitespace()
@@ -666,7 +729,7 @@ func peg.trim(child, before, after){
 
 func peg.where(child, predicate, message){
   local msg = message or "unexpected value"
-  return new_parser(func(self, ctx, pos){
+  local p = new_parser(func(self, ctx, pos){
     local q = child:parse_on(ctx, pos)
     if(q < 0){
       return -1
@@ -676,6 +739,9 @@ func peg.where(child, predicate, message){
     }
     return q
   }, {child}, "where")
+  p.predicate = predicate
+  p.message = msg
+  return p
 }
 
 func peg.end(child, message){
@@ -788,9 +854,13 @@ func peg.resolve(parser){
   return parser
 }
 
-// custom(parse_on): a parser from a raw parse function (self, ctx, pos) -> pos | -1
-func peg.custom(parse_on){
-  return new_parser(parse_on)
+// custom(parse_on, parse_tree): a parser from a raw parse function
+// (self, ctx, pos) -> pos | -1. In a tree it is a leaf of what it consumed,
+// unless parse_tree (same signature) parses and leaves its node in ctx.tree.
+func peg.custom(parse_on, parse_tree){
+  local p = new_parser(parse_on)
+  p.parse_tree = parse_tree
+  return p
 }
 
 // fail(ctx, pos, message): record a failure and return -1 (for custom parsers)
@@ -815,12 +885,19 @@ func peg.parse(parser, input){
   return {"error", concat(ctx.fail_msg, " at ", lc[0], ":", lc[1])}
 }
 
-// run(parser, input) -> {ok: bool, value, position, message, line, column, far_message, far_line, far_column}
-func peg.run(parser, input){
-  local ctx = peg.context(input)
-  local pos = parser:parse_on(ctx, 0)
+// run(parser, input, {tree}) -> {ok: bool, value, position, tree, message,
+// line, column, far_message, far_line, far_column}; tree (the lossless tree,
+// see parse_tree) only with {tree: true}
+func peg.run(parser, input, options){
+  local ctx = peg.context(input, options)
+  local pos
+  if(ctx.tree_on){
+    pos = tparse(parser, ctx, 0)
+  } else {
+    pos = parser:parse_on(ctx, 0)
+  }
   if(pos >= 0){
-    return {ok: true, value: ctx.value, position: pos}
+    return {ok: true, value: ctx.value, position: pos, tree: ctx.tree}
   }
   local lc = peg.line_col(ctx, ctx.fail_pos)
   local far = peg.line_col(ctx, ctx.far_pos)
@@ -974,7 +1051,7 @@ local func info_of(p, memo, visiting){
 // what a rule produced (an identifier as a function being declared, say)
 // without changing the value
 func peg.tag(child, category){
-  return new_parser(func(self, ctx, pos){
+  local p = new_parser(func(self, ctx, pos){
     local q = child:parse_on(ctx, pos)
     if(q < 0){
       return -1
@@ -1001,6 +1078,8 @@ func peg.tag(child, category){
   }, {child}, "tag", func(self, ctx, pos){
     return child.fast(child, ctx, pos)
   })
+  p.category = category
+  return p
 }
 
 // ------------------------------------------------------------- memoization
@@ -1045,6 +1124,28 @@ func peg.memoize(p){
       t[pos] = {stop: -1, has_value: true, fail_pos: ctx.fail_pos, fail_msg: ctx.fail_msg}
     } else {
       t[pos] = {stop: q, has_value: true, value: ctx.value}
+    }
+    return q
+  }
+  // the tree path: a cached result is used when it has a node (a result
+  // cached by parse_on, from a custom parser's plain parse, has none)
+  local tree_path = p.parse_tree or tree_kinds[p.kind] or tree_leaf
+  p.parse_tree = func(self, ctx, pos){
+    local t = table_of(ctx)
+    local hit = t[pos]
+    if(hit != null and hit.has_value and (hit.stop < 0 or hit.tree != null)){
+      if(hit.stop < 0){
+        return fail(ctx, hit.fail_pos, hit.fail_msg)
+      }
+      ctx.value = hit.value
+      ctx.tree = hit.tree
+      return hit.stop
+    }
+    local q = tree_path(self, ctx, pos)
+    if(q < 0){
+      t[pos] = {stop: -1, has_value: true, fail_pos: ctx.fail_pos, fail_msg: ctx.fail_msg}
+    } else {
+      t[pos] = {stop: q, has_value: true, value: ctx.value, tree: ctx.tree}
     }
     return q
   }
@@ -1405,7 +1506,7 @@ func peg.dispatch(parsers, skip, message){
     append(entries, {parser: p})
   }
   local d = make_dispatch(entries, skip, {})
-  return new_parser(func(self, ctx, pos){
+  local p = new_parser(func(self, ctx, pos){
     local cand = try_ops(d, ctx, pos)
     if(cand != null){
       return ctx.op_pos
@@ -1415,6 +1516,9 @@ func peg.dispatch(parsers, skip, message){
     }
     return -1
   }, parsers, "dispatch")
+  p.dispatch = d
+  p.message = message
+  return p
 }
 
 // the candidates of d at pos (the entries whose first byte can match, in
@@ -1746,7 +1850,7 @@ local func build_tables(w){
     for(let local e in values(l.prefixes)){
       local callback = e.callback
       local rbp = base + 3
-      append(nuds, {parser: e.parser, kind: "prefix", bp: rbp, nud: func(w, ctx, pos, op){
+      append(nuds, {parser: e.parser, kind: "prefix", form: "prefix", level: l.name, callback: callback, bp: rbp, nud: func(w, ctx, pos, op){
         local r = w:parse_at(ctx, pos, rbp)
         if(r < 0){
           return -1
@@ -1758,7 +1862,7 @@ local func build_tables(w){
     for(let local e in values(l.wrappers)){
       local callback = e.callback
       local right = e.right
-      append(nuds, {parser: e.left, kind: "wrapper", bp: base + 3, nud: func(w, ctx, pos, left){
+      append(nuds, {parser: e.left, kind: "wrapper", form: "wrapper", level: l.name, callback: callback, right: right, bp: base + 3, nud: func(w, ctx, pos, left){
         local r = w:parse_at(ctx, pos, 0)
         if(r < 0){
           return -1
@@ -1774,7 +1878,7 @@ local func build_tables(w){
     }
     for(let local e in values(l.postfixes)){
       local callback = e.callback
-      append(leds, {parser: e.parser, kind: "led", lbp: base + 3, led: func(w, ctx, pos, left, op){
+      append(leds, {parser: e.parser, kind: "led", form: "postfix", level: l.name, callback: callback, lbp: base + 3, led: func(w, ctx, pos, left, op){
         ctx.value = callback(left, op)
         return pos
       }})
@@ -1782,7 +1886,7 @@ local func build_tables(w){
     for(let local e in values(l.rights)){
       local callback = e.callback
       local rbp = base + 1
-      append(leds, {parser: e.parser, kind: "led", lbp: base + 2, led: func(w, ctx, pos, left, op){
+      append(leds, {parser: e.parser, kind: "led", form: "right", level: l.name, callback: callback, rbp: rbp, lbp: base + 2, led: func(w, ctx, pos, left, op){
         local r = w:parse_at(ctx, pos, rbp)
         if(r < 0){
           return -1
@@ -1794,7 +1898,7 @@ local func build_tables(w){
     for(let local e in values(l.lefts)){
       local callback = e.callback
       local rbp = base
-      append(leds, {parser: e.parser, kind: "led", lbp: base, led: func(w, ctx, pos, left, op){
+      append(leds, {parser: e.parser, kind: "led", form: "left", level: l.name, callback: callback, rbp: rbp, lbp: base, led: func(w, ctx, pos, left, op){
         local r = w:parse_at(ctx, pos, rbp)
         if(r < 0){
           return -1
@@ -1910,6 +2014,148 @@ func walker_methods.parse_at(self, ctx, pos, min_bp){
   return q
 }
 
+// ---- the tree path of the walker: the same parse as parse_at, building a
+// node per operator application with the entry as p (entry.form "prefix",
+// "wrapper", "postfix", "right" or "left", entry.level the level's name) and
+// the operator's and operands' nodes as kids. The engine entries (nud, led)
+// parse their operands themselves: their node holds the operator's node and
+// a leaf for the rest.
+
+local func nud_tree(w, e, ctx, pos, op, op_tree, start){
+  local form = e.form
+  if(form == "prefix"){
+    local r = w:parse_at_tree(ctx, pos, e.bp)
+    if(r < 0){
+      return -1
+    }
+    local operand_tree = ctx.tree
+    ctx.value = e.callback(op, ctx.value)
+    ctx.tree = node(e, start, r, {op_tree, operand_tree})
+    return r
+  }
+  if(form == "wrapper"){
+    local r = w:parse_at_tree(ctx, pos, 0)
+    if(r < 0){
+      return -1
+    }
+    local value = ctx.value
+    local inner_tree = ctx.tree
+    local q = tparse(e.right, ctx, r)
+    if(q < 0){
+      return -1
+    }
+    local right_tree = ctx.tree
+    ctx.value = e.callback(op, value, ctx.value)
+    ctx.tree = node(e, start, q, {op_tree, inner_tree, right_tree})
+    return q
+  }
+  local r = e.nud(w, ctx, pos, op)
+  if(r < 0){
+    return -1
+  }
+  ctx.tree = node(e, start, r, {op_tree, leaf(e, op_tree.stop, r)})
+  return r
+}
+
+local func led_tree(w, e, ctx, pos, left, left_tree, op, op_tree){
+  local form = e.form
+  local start = left_tree.start
+  if(form == "postfix"){
+    ctx.value = e.callback(left, op)
+    ctx.tree = node(e, start, pos, {left_tree, op_tree})
+    return pos
+  }
+  if(form == "left" or form == "right"){
+    local r = w:parse_at_tree(ctx, pos, e.rbp)
+    if(r < 0){
+      return -1
+    }
+    local right_tree = ctx.tree
+    ctx.value = e.callback(left, op, ctx.value)
+    ctx.tree = node(e, start, r, {left_tree, op_tree, right_tree})
+    return r
+  }
+  local r = e.led(w, ctx, pos, left, op)
+  if(r < 0){
+    return -1
+  }
+  ctx.tree = node(e, start, r, {left_tree, op_tree, leaf(e, op_tree.stop, r)})
+  return r
+}
+
+// parse_at_tree(ctx, pos, min_bp): parse_at, leaving the node in ctx.tree
+func walker_methods.parse_at_tree(self, ctx, pos, min_bp){
+  local sealed = self.sealed
+  local cands = candidates(sealed.nuds, ctx, pos)
+  local value = null
+  local tree = null
+  local q = -1
+  local tried_primary = false
+  if(cands != null){
+    local n = len(cands)
+    for(local i = 0; i < n; i = i + 1){
+      local e = cands[i]
+      if(e.kind == "primary"){
+        tried_primary = true
+      }
+      local r = tparse(e.parser, ctx, pos)
+      if(r >= 0 and e.kind != "primary"){
+        r = nud_tree(self, e, ctx, r, ctx.value, ctx.tree, pos)
+      }
+      if(r >= 0){
+        value = ctx.value
+        tree = ctx.tree
+        q = r
+        break
+      }
+    }
+  }
+  if(q < 0){
+    if(not tried_primary){
+      return fail(ctx, pos, "expression expected")
+    }
+    return -1
+  }
+  for(true){
+    local lc = candidates(sealed.leds, ctx, q)
+    if(lc == null){
+      break
+    }
+    local matched = false
+    local n = len(lc)
+    local i = 0
+    for(i < n){
+      local e = lc[i]
+      if(e.lbp <= min_bp){
+        break
+      }
+      local r = tparse(e.parser, ctx, q)
+      if(r >= 0){
+        r = led_tree(self, e, ctx, r, value, tree, ctx.value, ctx.tree)
+        if(r >= 0){
+          value = ctx.value
+          tree = ctx.tree
+          q = r
+          matched = true
+          break
+        }
+        local lbp = e.lbp
+        for(i < n and lc[i].lbp == lbp){
+          i = i + 1
+        }
+      } else {
+        i = i + 1
+      }
+    }
+    if(not matched){
+      break
+    }
+  }
+  ctx.value = value
+  ctx.tree = tree
+  return q
+}
+
 // build() -> the expression parser
 func walker_methods.build(self){
   self.sealed = build_tables(self)
@@ -1924,6 +2170,9 @@ func walker_methods.build(self){
   local expr = new_parser(func(self, ctx, pos){
     return w:parse_at(ctx, pos, 0)
   }, children, "expression")
+  expr.parse_tree = func(self, ctx, pos){
+    return w:parse_at_tree(ctx, pos, 0)
+  }
   if(self.sealed.first != null){
     expr.first = self.sealed.first
     expr.nullable = false
@@ -1931,6 +2180,375 @@ func walker_methods.build(self){
   self.loopback:set(expr)
   self.parser = expr
   return expr
+}
+
+// ------------------------------------------------------------ the lossless tree
+//
+// The tree paths of the combinators (tparse picks them by kind). Each parses
+// like the combinator's parse_on, with its children's tree paths, and leaves
+// its node in ctx.tree. Kinds without an entry (the primitives, flatten,
+// lookaheads, custom parsers) are leaves.
+
+tree_kinds.choice = func(self, ctx, pos){
+  for(let local child in values(self.children)){
+    local q = tparse(child, ctx, pos)
+    if(q >= 0){
+      return q
+    }
+  }
+  return -1
+}
+
+tree_kinds.seq = func(self, ctx, pos){
+  local parsers = self.children
+  local n = len(parsers)
+  local values = {}
+  local trees = {}
+  local start = pos
+  for(local i = 0; i < n; i = i + 1){
+    pos = tparse(parsers[i], ctx, pos)
+    if(pos < 0){
+      return -1
+    }
+    list_push(values, ctx.value)
+    list_push(trees, ctx.tree)
+  }
+  ctx.value = values
+  ctx.tree = node(self, start, pos, trees)
+  return pos
+}
+
+// star and plus: plus requires (and keeps) a first match even when it is empty
+local func repeat_tree(self, ctx, pos, at_least_one){
+  local child = self.children[0]
+  local values = {}
+  local trees = {}
+  local start = pos
+  local first = at_least_one
+  for(true){
+    local q = tparse(child, ctx, pos)
+    if(q < 0 and first){
+      return -1
+    }
+    if(q < 0 or (q == pos and not first)){
+      break
+    }
+    first = false
+    list_push(values, ctx.value)
+    list_push(trees, ctx.tree)
+    pos = q
+  }
+  ctx.value = values
+  ctx.tree = node(self, start, pos, trees)
+  return pos
+}
+
+tree_kinds.star = func(self, ctx, pos){
+  return repeat_tree(self, ctx, pos, false)
+}
+
+tree_kinds.plus = func(self, ctx, pos){
+  return repeat_tree(self, ctx, pos, true)
+}
+
+tree_kinds.optional = func(self, ctx, pos){
+  local q = tparse(self.children[0], ctx, pos)
+  if(q < 0){
+    ctx.value = self.default_value
+    ctx.tree = node(self, pos, pos, {})
+    return pos
+  }
+  ctx.tree = node(self, pos, q, {ctx.tree})
+  return q
+}
+
+tree_kinds.star_lazy = func(self, ctx, pos){
+  local child = self.children[0]
+  local limit = self.children[1]
+  local values = {}
+  local trees = {}
+  local start = pos
+  for(true){
+    if(limit:parse_on(ctx, pos) >= 0){
+      ctx.value = values
+      ctx.tree = node(self, start, pos, trees)
+      return pos
+    }
+    local q = tparse(child, ctx, pos)
+    if(q < 0){
+      return -1
+    }
+    list_push(values, ctx.value)
+    list_push(trees, ctx.tree)
+    pos = q
+  }
+}
+
+// the node has the elements and separators interleaved
+tree_kinds.separated = func(self, ctx, pos){
+  local child = self.children[0]
+  local separator = self.children[1]
+  local elements = {}
+  local separators = {}
+  local trees = {}
+  local start = pos
+  local q = tparse(child, ctx, pos)
+  if(q < 0){
+    if(self.at_least_one){
+      return -1
+    }
+    ctx.value = {elements: elements, separators: separators}
+    ctx.tree = node(self, pos, pos, trees)
+    return pos
+  }
+  list_push(elements, ctx.value)
+  list_push(trees, ctx.tree)
+  pos = q
+  for(true){
+    q = tparse(separator, ctx, pos)
+    if(q < 0){
+      break
+    }
+    local sep = ctx.value
+    local sep_tree = ctx.tree
+    local r = tparse(child, ctx, q)
+    if(r < 0){
+      break
+    }
+    list_push(separators, sep)
+    list_push(elements, ctx.value)
+    list_push(trees, sep_tree)
+    list_push(trees, ctx.tree)
+    pos = r
+  }
+  ctx.value = {elements: elements, separators: separators}
+  ctx.tree = node(self, start, pos, trees)
+  return pos
+}
+
+tree_kinds.pick = func(self, ctx, pos){
+  local q = tparse(self.children[0], ctx, pos)
+  if(q < 0){
+    return -1
+  }
+  local list = ctx.value
+  local index = self.index
+  if(index < 0){
+    ctx.value = list[len(list) + index]
+  } else {
+    ctx.value = list[index]
+  }
+  ctx.tree = node(self, pos, q, {ctx.tree})
+  return q
+}
+
+tree_kinds.permute = func(self, ctx, pos){
+  local q = tparse(self.children[0], ctx, pos)
+  if(q < 0){
+    return -1
+  }
+  local list = ctx.value
+  local out = {}
+  for(let local index in values(self.indices)){
+    if(index < 0){
+      list_push(out, list[len(list) + index])
+    } else {
+      list_push(out, list[index])
+    }
+  }
+  ctx.value = out
+  ctx.tree = node(self, pos, q, {ctx.tree})
+  return q
+}
+
+tree_kinds.map = func(self, ctx, pos){
+  local q = tparse(self.children[0], ctx, pos)
+  if(q < 0){
+    return -1
+  }
+  local tree = ctx.tree
+  ctx.value = self.fn(ctx.value)
+  ctx.tree = node(self, pos, q, {tree})
+  return q
+}
+
+tree_kinds.where = func(self, ctx, pos){
+  local q = tparse(self.children[0], ctx, pos)
+  if(q < 0){
+    return -1
+  }
+  local tree = ctx.tree
+  if(not self.predicate(ctx.value)){
+    return fail(ctx, pos, self.message)
+  }
+  ctx.tree = node(self, pos, q, {tree})
+  return q
+}
+
+tree_kinds.token = func(self, ctx, pos){
+  local q = tparse(self.children[0], ctx, pos)
+  if(q < 0){
+    return -1
+  }
+  local tree = ctx.tree
+  local t = peg.make_token(ctx, ctx.value, pos, q)
+  local category = self.category
+  if(category != null){
+    t.category = category
+    if(ctx.tokens != null){
+      list_push(ctx.tokens, {category: category, start: pos, stop: q})
+    }
+  }
+  ctx.value = t
+  ctx.tree = node(self, pos, q, {tree})
+  return q
+}
+
+tree_kinds.tag = func(self, ctx, pos){
+  local q = tparse(self.children[0], ctx, pos)
+  if(q < 0){
+    return -1
+  }
+  if(ctx.tokens != null){
+    local v = ctx.value
+    local t = type(v)
+    local span = null
+    if(v != null and t != "string" and t != "int" and t != "double" and t != "bool" and t != "function" and t != "thread" and t != "userdata"){
+      span = v
+      if(v.token != null){
+        span = v.token
+      }
+    }
+    if(span != null and span.start != null and span.stop != null){
+      list_push(ctx.tokens, {category: self.category, start: span.start, stop: span.stop})
+    } else {
+      list_push(ctx.tokens, {category: self.category, start: pos, stop: q})
+    }
+  }
+  ctx.tree = node(self, pos, q, {ctx.tree})
+  return q
+}
+
+// the trimmer's nodes go to kids (no position memo, which would skip them)
+local func consume_tree(trimmer, ctx, pos, kids){
+  local far_pos = ctx.far_pos
+  local far_msg = ctx.far_msg
+  for(true){
+    local q = tparse(trimmer, ctx, pos)
+    if(q < 0 or q == pos){
+      break
+    }
+    list_push(kids, ctx.tree)
+    pos = q
+    if(trimmer.single){
+      break
+    }
+  }
+  ctx.far_pos = far_pos
+  ctx.far_msg = far_msg
+  return pos
+}
+
+// the node of a trim: what before consumed, the child (kids[node.at]), what
+// after consumed
+tree_kinds.trim = func(self, ctx, pos){
+  local child = self.children[0]
+  local start = pos
+  local kids = {}
+  pos = consume_tree(self.children[1], ctx, pos, kids)
+  local q = tparse(child, ctx, pos)
+  if(q < 0){
+    return -1
+  }
+  local v = ctx.value
+  local at = len(kids)
+  list_push(kids, ctx.tree)
+  q = consume_tree(self.children[2], ctx, q, kids)
+  ctx.value = v
+  local t = node(self, start, q, kids)
+  t.at = at
+  ctx.tree = t
+  return q
+}
+
+tree_kinds.settable = func(self, ctx, pos){
+  return tparse(self.target, ctx, pos)
+}
+
+tree_kinds.ref = func(self, ctx, pos){
+  local target = self.target
+  if(target == null){
+    target = resolve_ref(self.ref_function, self.ref_args)
+    self.target = target
+  }
+  return tparse(target, ctx, pos)
+}
+
+tree_kinds.dispatch = func(self, ctx, pos){
+  local cands = candidates(self.dispatch, ctx, pos)
+  if(cands == null){
+    if(self.message != null){
+      return fail(ctx, ctx.skip_to, self.message)
+    }
+    return -1
+  }
+  for(let local c in values(cands)){
+    local q = tparse(c.parser, ctx, pos)
+    if(q >= 0){
+      return q
+    }
+  }
+  return -1
+}
+
+// leaves(tree) -> the leaves of tree in source order
+func peg.leaves(tree){
+  local out = {}
+  if(tree == null){
+    return out
+  }
+  local stack = {tree}
+  for(len(stack) > 0){
+    local t = remove(stack, len(stack) - 1)
+    if(t != null){
+      local kids = t.kids
+      if(kids == null){
+        list_push(out, t)
+      } else {
+        for(local i = len(kids) - 1; i >= 0; i = i - 1){
+          list_push(stack, kids[i])
+        }
+      }
+    }
+  }
+  return out
+}
+
+// text(tree, buffer) -> the text of the leaves of tree, joined: the input
+// the tree was parsed from (the part tree spans)
+func peg.text(tree, buffer){
+  local parts = {}
+  for(let local l in values(peg.leaves(tree))){
+    list_push(parts, str.substring(buffer, l.start, l.stop))
+  }
+  return str.join(parts, "")
+}
+
+// tree_gap(tree) -> null when the leaves of tree cover its span exactly, in
+// order; otherwise {at, leaf}: the position where the next leaf should have
+// started and the leaf found there (null when the leaves end early)
+func peg.tree_gap(tree){
+  local at = tree.start
+  for(let local l in values(peg.leaves(tree))){
+    if(l.start != at){
+      return {at: at, leaf: l}
+    }
+    at = l.stop
+  }
+  if(at != tree.stop){
+    return {at: at}
+  }
+  return null
 }
 
 // ---------------------------------------------------------------------- methods

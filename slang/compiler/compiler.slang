@@ -570,6 +570,26 @@ func compiler.expand(source, path, options){
   return ast.to_source(g:parse_source(source, path))
 }
 
+// tree(source, path, {find_project}) -> the lossless tree of source as the
+// compiler parses the file at path (its project, its dialect; see slang/peg:
+// joining its leaves gives source back), or null for a file of a compile
+// dialect. Extension code runs as it would in the compiler.
+func compiler.tree(source, path, options){
+  if(options != null and options.find_project){
+    find_project_for(path)
+  }
+  local dialect = dialect_of(path)
+  if(dialect != null and dialect.spec.compile != null){
+    return null
+  }
+  local g = root
+  if(dialect != null){
+    g = dialect_grammar(dialect.suffix)
+  }
+  g:parse_source(source, path, {tree: true})
+  return g.state.last_tree
+}
+
 // expand_file(path) -> expand(...) for a file, with its project
 func compiler.expand_file(path){
   return compiler.expand(os.read_file(path), path, {find_project: true})

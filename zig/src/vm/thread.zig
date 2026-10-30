@@ -276,6 +276,8 @@ pub const Thread = struct {
                 }
                 return error.Slang;
             };
+            // (sampled with the native's frame on the stack: its time is its own)
+            if (th.vm.profiler) |prof| prof.check(th);
             th.popFrame();
             th.top = fn_idx;
             if (protected) {

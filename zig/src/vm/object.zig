@@ -134,6 +134,8 @@ pub const Proto = struct {
     max_stack: u32 = 0,
     nargs: u32 = 0,
     is_vararg: bool = false,
+    /// The name its definition gives the function (`f`, `m.f`), or null.
+    name: ?*String = null,
 
     /// The source position of the instruction at pc, or null.
     pub fn location(p: *const Proto, pc: usize) ?*const LocInfo {

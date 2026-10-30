@@ -1,7 +1,7 @@
-//! The .slb container, version 2:
+//! The .slb container, version 3 (version 2 has no name and is still read):
 //!
 //!   magic "SLANG", u8 version
-//!   proto := u32 maxStack, u32 nargs, u8 isVarArg,
+//!   proto := u32 maxStack, u32 nargs, u8 isVarArg, str name ("": none),
 //!            u32 nCode, u32[nCode],
 //!            u32 nLocs, {u32 firstPC, str origin, u32 line, u32 column}*,
 //!            u32 nConsts, {u8 tag, payload}*   (0 int i64, 1 double f64, 2 string, 3 bool u8, 4 null)
@@ -20,7 +20,7 @@ const Proto = root.Proto;
 const object = @import("object.zig");
 
 pub const magic = "SLANG";
-pub const version: u8 = 2;
+pub const version: u8 = 3;
 
 const Tag = enum(u8) { int = 0, double = 1, string = 2, bool = 3, null = 4 };
 
@@ -29,7 +29,7 @@ pub const DecodeError = error{ BadMagic, BadVersion, Truncated, BadCount, BadTag
 pub fn errorMessage(e: DecodeError) []const u8 {
     return switch (e) {
         error.BadMagic => "not a slang bytecode file (bad magic)",
-        error.BadVersion => "unsupported bytecode version (want 2)",
+        error.BadVersion => "unsupported bytecode version (want 2 or 3)",
         error.Truncated => "bytecode: unexpected end of data",
         error.BadCount => "bytecode: implausible count",
         error.BadTag => "bytecode: unknown constant tag",
@@ -57,6 +57,7 @@ fn encodeProto(w: *std.Io.Writer, p: *const Proto, strip_locs: bool) void {
     w.writeInt(u32, p.max_stack, .little) catch oom();
     w.writeInt(u32, p.nargs, .little) catch oom();
     w.writeByte(@intFromBool(p.is_vararg)) catch oom();
+    encodeStr(w, if (p.name) |n| n.bytes() else "");
     w.writeInt(u32, @intCast(p.code.len), .little) catch oom();
     for (p.code) |c| w.writeInt(u32, c, .little) catch oom();
     if (strip_locs) {
@@ -106,6 +107,7 @@ const Reader = struct {
     vm: *VM,
     buf: []const u8,
     pos: usize = 0,
+    version: u8 = version,
 
     fn take(r: *Reader, n: usize) DecodeError![]const u8 {
         if (r.pos + n > r.buf.len) return error.Truncated;
@@ -144,6 +146,10 @@ const Reader = struct {
         p.max_stack = try r.u32_();
         p.nargs = try r.u32_();
         p.is_vararg = (try r.u8_()) != 0;
+        if (r.version >= 3) {
+            const name = try r.str();
+            if (name.bytes().len > 0) p.name = name;
+        }
         const ncode = try r.count();
         p.code = gpa.alloc(u32, ncode) catch oom();
         for (p.code) |*c| c.* = try r.u32_();
@@ -190,6 +196,7 @@ pub fn decode(vm: *VM, data: []const u8) DecodeError!*Proto {
     var r: Reader = .{ .vm = vm, .buf = data };
     const m = try r.take(magic.len);
     if (!std.mem.eql(u8, m, magic)) return error.BadMagic;
-    if ((try r.u8_()) != version) return error.BadVersion;
+    r.version = try r.u8_();
+    if (r.version != 2 and r.version != 3) return error.BadVersion;
     return r.proto(0);
 }

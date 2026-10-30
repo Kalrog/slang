@@ -85,6 +85,8 @@ pub const VM = struct {
     next_thread_id: u32 = 0,
     /// SLANG_TRACE: print every instruction to stderr.
     trace: bool = false,
+    /// The sampling profiler, when one runs (see profile.zig).
+    profiler: ?*root.Profiler = null,
 
     pub fn create(backing: Allocator, io: std.Io, env: ?*std.process.Environ.Map) *VM {
         const vm = backing.create(VM) catch oom();
@@ -118,6 +120,10 @@ pub const VM = struct {
 
     pub fn destroy(vm: *VM) void {
         vm.flush();
+        if (vm.profiler) |p| {
+            p.finish();
+            p.destroy();
+        }
         gc.freeAll(vm);
         vm.strings.deinit(vm.gpa);
         vm.line_cache.deinit(vm.gpa);

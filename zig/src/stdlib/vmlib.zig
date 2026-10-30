@@ -32,7 +32,8 @@ pub fn module(vm: *VM) *Table {
 /// a function. Layout:
 ///
 ///   {code: {ints}, locations: {{pc, origin, line, column}}, constants: {{kind, value}},
-///    upvalues: {{name, index, is_local}}, children: {proto}, max_stack, nargs, is_vararg}
+///    upvalues: {{name, index, is_local}}, children: {proto}, max_stack, nargs, is_vararg,
+///    name}
 fn vmLoadProto(th: *Thread, args: []Value) Error!Value {
     const t = try api.argTable(th, args, 0, "proto");
     const p = try protoFromTable(th, t, 0);
@@ -47,6 +48,8 @@ fn protoFromTable(th: *Thread, t: *Table, depth: usize) Error!*Proto {
     p.max_stack = @intCast(@max(0, t.getName("max_stack").asInt()));
     p.nargs = @intCast(@max(0, t.getName("nargs").asInt()));
     p.is_vararg = t.getName("is_vararg").truthy();
+    const name = t.getName("name");
+    if (name.asBytes() != null) p.name = th.renderString(name);
     const code = t.getName("code").asTable() orelse return vm.raise("load_proto: missing code", .{});
     p.code = gpa.alloc(u32, code.len()) catch oom();
     var it = code.iterator();

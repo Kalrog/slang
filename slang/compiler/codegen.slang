@@ -89,6 +89,8 @@ local asm_meta = {__index: asm}
 func asm.new(parent, origin, nargs, is_vararg){
   local a = {
     parent: parent,
+    // the function's name, when its definition gives it one (see name_of)
+    name: null,
     origin: origin or parent.origin,
     instructions: {},
     locations: {},
@@ -517,6 +519,7 @@ func asm.assemble(self){
     max_stack: self.max_registers,
     nargs: self.nargs,
     is_vararg: self.is_vararg,
+    name: self.name,
   }
 }
 
@@ -672,8 +675,37 @@ func visitors.UnOp(g, node){
   g.asm:emit_unop(node.op)
 }
 
+// the name a definition gives a function: f, m.f, field (for profiles and
+// tracebacks); null for anything else
+local func name_of(target){
+  if(target.type == "Identifier"){
+    return target.value
+  }
+  if(target.type == "String"){
+    return target.value
+  }
+  if(target.type == "Index" and target.dotStyle and
+    target.index.type == "String"){
+    local receiver = name_of(target.receiver)
+    if(receiver == null){
+      return target.index.value
+    }
+    return concat(receiver, ".", target.index.value)
+  }
+  return null
+}
+
+// the name the next function compiled gets (set by the definition it is the
+// value of, taken by visitors.Function)
+local func name_next(g, target, value){
+  if(value != null and value.type == "Function" and g.function_name == null){
+    g.function_name = name_of(target)
+  }
+}
+
 func visitors.Assignment(g, node){
   local left = node.left
+  name_next(g, left, node.right)
   if(left.type == "Identifier"){
     local lv = g.asm:get_local(left.value)
     if(lv != null){
@@ -704,6 +736,7 @@ func visitors.Assignment(g, node){
 
 func visitors.Declaration(g, node){
   local left = node.left
+  name_next(g, left, node.right)
   if(left.type == "Identifier"){
     local name = left.value
     local existing = g.asm:get_local(name)
@@ -935,6 +968,9 @@ func visitors.Identifier(g, node){
 }
 
 func visitors.Field(g, node){
+  if(node.key != null){
+    name_next(g, node.key, node.value)
+  }
   g.asm:emit_push(- 1)
   g:visit(node.key)
   g:visit(node.value)
@@ -1122,6 +1158,13 @@ func visitors.Function(g, node){
   }
   local is_vararg = n > 0 and str.starts_with(params[n - 1].value, "...")
   g.asm = asm.new(parent, null, n, is_vararg)
+  // an anonymous function is named after the one it is defined in
+  // (seq_list/func); the line tells two of them apart
+  g.asm.name = g.function_name
+  if(g.asm.name == null and parent.name != null){
+    g.asm.name = concat(parent.name, "/func")
+  }
+  g.function_name = null
   append(parent.children, g.asm)
   g.asm:enter_scope(false)
   for(let local param in values(params)){

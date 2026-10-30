@@ -29,7 +29,7 @@ fn usage(io: std.Io) noreturn {
     var w = stderr(io);
     w.interface.writeAll(
         \\usage:
-        \\  slang run [--explain] <file.slang|file.slb> [args...]
+        \\  slang run [--explain] [--profile out.folded] <file.slang|file.slb> [args...]
         \\  slang test [dir]            run every *test.slang file in dir (default ./test)
         \\  slang repl
         \\  slang compile <file.slang> [-o out.slb] [--origin name] [--strip]
@@ -59,12 +59,18 @@ pub fn main(init: std.process.Init) !u8 {
     if (std.mem.eql(u8, cmd, "run")) {
         var run_args = args;
         var explain = false;
-        if (run_args.len > 0 and std.mem.eql(u8, run_args[0], "--explain")) {
-            explain = true;
-            run_args = run_args[1..];
+        var profile: ?[]const u8 = null;
+        while (run_args.len > 0) {
+            if (std.mem.eql(u8, run_args[0], "--explain")) {
+                explain = true;
+                run_args = run_args[1..];
+            } else if (std.mem.eql(u8, run_args[0], "--profile") and run_args.len > 1) {
+                profile = run_args[1];
+                run_args = run_args[2..];
+            } else break;
         }
         if (run_args.len < 1) usage(io);
-        run(init, run_args[0], run_args[1..], explain);
+        run(init, run_args[0], run_args[1..], explain, profile);
     } else if (std.mem.eql(u8, cmd, "test")) {
         runTests(init, if (args.len > 0) args[0] else "./test");
     } else if (std.mem.eql(u8, cmd, "repl")) {
@@ -100,12 +106,18 @@ fn newVM(init: std.process.Init, args: []const []const u8) *VM {
     stdlib.open(vm);
     stdlib.boot(vm) catch fail(vm);
     vm.trace = init.environ_map.get("SLANG_TRACE") != null;
+    // SLANG_PROFILE=out.folded profiles any command (see vm/profile.zig)
+    if (init.environ_map.get("SLANG_PROFILE")) |path| {
+        vm.profiler = vm_mod.Profiler.create(vm.backing, vm.io, path);
+    }
     return vm;
 }
 
 /// Prints the pending slang error and exits.
 fn fail(vm: *VM) noreturn {
     vm.flush();
+    // a profile of a run that failed is still a profile
+    if (vm.profiler) |p| p.finish();
     var e = vm.takeError();
     var w = stderr(vm.io);
     e.write(&w.interface) catch {};
@@ -129,9 +141,12 @@ fn loadFile(vm: *VM, path: []const u8) *Closure {
     return boot.loadFile(vm, path) catch fail(vm);
 }
 
-fn run(init: std.process.Init, path: []const u8, args: []const []const u8, explain: bool) void {
+fn run(init: std.process.Init, path: []const u8, args: []const []const u8, explain: bool, profile: ?[]const u8) void {
     const vm = newVM(init, args);
     defer vm.destroy();
+    if (profile) |p| {
+        if (vm.profiler == null) vm.profiler = vm_mod.Profiler.create(vm.backing, vm.io, p);
+    }
     if (explain) {
         const compiler = vm.call(vm.getGlobal("require"), &.{vm.str("slang/compiler")}) catch fail(vm);
         compiler.table.set(vm.gpa, vm.str("explain"), .{ .bool = true });

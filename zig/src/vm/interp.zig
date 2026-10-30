@@ -18,8 +18,9 @@ const Op = d.Op;
 /// collector, error handling and the trace.
 pub fn run(th: *Thread, stop_depth: usize) Error!void {
     // the trace check costs about 3% on call-heavy code when it sits in
-    // every opcode, so the loop exists twice: with and without it
-    if (th.vm.trace) return runImpl(th, stop_depth, true);
+    // every opcode, so the loop exists twice: with and without it (the
+    // profiler uses the same hook)
+    if (th.vm.trace or th.vm.profiler != null) return runImpl(th, stop_depth, true);
     return runImpl(th, stop_depth, false);
 }
 
@@ -676,6 +677,8 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
 }
 
 fn traceInstruction(th: *Thread, fi: usize, base: usize, pc: usize, ins: u32) void {
+    if (th.vm.profiler) |p| p.check(th);
+    if (!th.vm.trace) return;
     var buf: [512]u8 = undefined;
     var w: std.Io.Writer = .fixed(&buf);
     w.print("[{d}] base={d} top={d} pc={d}: ", .{ fi, base, th.top, pc }) catch {};

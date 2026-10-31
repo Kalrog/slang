@@ -400,6 +400,7 @@ class Workbench {
   async run() {
     if (this.running) return;
     if (usesRaylib(this.editor.value)) return this.runGraphics();
+    this.removeStage();
     this.running = true;
     this.runButton.textContent = "Stop";
     this.runButton.classList.add("stop");
@@ -503,6 +504,12 @@ class Workbench {
     } catch (e) {
       if (e !== "unwind" && !(e && e.name === "ExitStatus")) show(2)(String(e));
     }
+  }
+  // the canvas of an earlier raylib program (it shows its last frame until
+  // something else runs or another example is picked)
+  removeStage() {
+    const stage = this.root.querySelector(".stage");
+    if (stage) stage.remove();
   }
   graphicsEnded(status) {
     if (gfx && gfx.bench === this) gfx = null;
@@ -640,6 +647,7 @@ if (document.body.classList.contains("play") && benches.length) {
     if (!ex) return;
     // another example ends the one that runs
     if (bench.running) bench.stop();
+    bench.removeStage();
     bench.editor.value = ex.code;
     bench.output.classList.remove("shown");
     history.replaceState(null, "", location.pathname);

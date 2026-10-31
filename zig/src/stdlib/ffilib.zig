@@ -89,6 +89,7 @@ pub fn module(vm: *VM) *Table {
         .{ .name = "symbol", .f = ffiSymbol },
         .{ .name = "func", .f = ffiFunc },
         .{ .name = "callback", .f = ffiCallback },
+        .{ .name = "gc", .f = ffiGc },
     });
 }
 
@@ -173,6 +174,31 @@ fn ffiFunc(th: *Thread, args: []Value) Error!Value {
     holder.owner = .{ .userdata = sym };
     const cl = vm.newNative(name, callFunc, &.{.{ .userdata = holder }});
     return .{ .function = cl };
+}
+
+/// gc(pointer, func) -> pointer: the C function func (one pointer
+/// parameter, no result, as made by [func]) frees what the pointer points
+/// to once the pointer object is collected; null takes the finalizer away.
+/// The pointer object itself is changed and returned.
+fn ffiGc(th: *Thread, args: []Value) Error!Value {
+    const vm = th.vm;
+    const u = ctypes.asPointer(api.arg(args, 0)) orelse return api.argError(th, "pointer", 0, ctypes.pointer_tname, api.arg(args, 0));
+    const p = u.as(Ptr);
+    if (u.data.len > @sizeOf(Ptr)) return vm.raise("ffi.gc: the pointer's memory is slang's own (ffi.new), nothing of C's to free", .{});
+    if (api.arg(args, 1) == .null) {
+        p.free = null;
+        u.finalizer = null;
+        return args[0];
+    }
+    const cl = try api.argFunction(th, args, 1, "free");
+    const holder = if (cl.native == callFunc and cl.nvals.len == 1) cl.nvals[0].asUserdata() else null;
+    const f = if (holder) |h| h.as(*Func).* else return vm.raise("ffi.gc: free must be a C function (ffi.bind, or one of a loaded library)", .{});
+    if (f.args.len != 1 or f.args[0].kind != .pointer or f.ret.kind != .void or f.variadic) {
+        return vm.raise("ffi.gc: {s} must take one pointer and return nothing", .{f.name});
+    }
+    p.free = @ptrCast(@alignCast(f.f));
+    u.finalizer = ctypes.freePointer;
+    return args[0];
 }
 
 /// The C type a variadic argument is passed as (C's default promotions).

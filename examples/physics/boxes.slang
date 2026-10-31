@@ -26,35 +26,29 @@ local func world(p){
   return {x: (p.x - width / 2) / scale, y: (height - 20 - p.y) / scale}
 }
 
-local space = b2 .create_world({gravity: {0, -10}})
+local space = b2.world({gravity: {0, -10}})
 
 // the room: a floor and two walls on one static body
-local room = b2 .create_body(space, {})
-b2 .create_polygon_shape(
-  room, {}, b2 .make_offset_box(14, 0.5, {0, -0.5}, b2 .make_rot(0))
-)
-b2 .create_polygon_shape(
-  room, {}, b2 .make_offset_box(0.5, 10, {-13.8, 10}, b2 .make_rot(0))
-)
-b2 .create_polygon_shape(
-  room, {}, b2 .make_offset_box(0.5, 10, {13.8, 10}, b2 .make_rot(0))
-)
+local room = space:create_body({})
+room:create_polygon_shape({}, b2.make_offset_box(14, 0.5, {0, -0.5}, b2.make_rot(0)))
+room:create_polygon_shape({}, b2.make_offset_box(0.5, 10, {-13.8, 10}, b2.make_rot(0)))
+room:create_polygon_shape({}, b2.make_offset_box(0.5, 10, {13.8, 10}, b2.make_rot(0)))
 
 // what is drawn: {body, shape, kind, size, color}
 local things = {}
 
 local func add(kind, x, y, size){
-  local body = b2 .create_body(space, {
-    type: b2 .dynamic_body,
+  local body = space:create_body({
+    type: b2.dynamic_body,
     position: {x, y},
-    rotation: b2 .make_rot(0),
+    rotation: b2.make_rot(0),
   })
   local def = {density: 1, material: {friction: 0.6, restitution: 0.1}}
   local shape = null
   if(kind == "ball"){
-    shape = b2 .create_circle_shape(body, def, {center: {0, 0}, radius: size})
+    shape = body:create_circle_shape(def, {center: {0, 0}, radius: size})
   } else {
-    shape = b2 .create_polygon_shape(body, def, b2 .make_box(size, size))
+    shape = body:create_polygon_shape(def, b2.make_box(size, size))
   }
   local hue = (len(things) * 37) % 360
   append(things, {
@@ -76,7 +70,7 @@ for(local row = 0; row < rows; row = row + 1){
 
 local func thing_at(p){
   for(let local t in values(things)){
-    if(b2 .shape_test_point(t.shape, p)){
+    if(t.shape:test_point(p)){
       return t
     }
   }
@@ -109,15 +103,15 @@ for(not rl.window_should_close()){
   if(held != null){
     // pulled toward the pointer: its velocity points there, so letting go
     // throws it
-    local p = b2 .body_get_position(held.body)
-    b2 .body_set_linear_velocity(held.body, b2 .mul_sv(12, b2 .sub(mouse, p)))
-    b2 .body_set_awake(held.body, true)
+    local p = held.body:get_position()
+    held.body:set_linear_velocity(b2.mul_sv(12, b2.sub(mouse, p)))
+    held.body:set_awake(true)
   }
 
   // fixed steps of 1/60 s, however fast frames come
   pending = math.min(pending + rl.get_frame_time(), 0.1)
   for(pending >= step){
-    b2 .world_step(space, step, 4)
+    space:step(step, 4)
     pending = pending - step
   }
 
@@ -126,8 +120,8 @@ for(not rl.window_should_close()){
   local floor = screen({x: -13.3, y: 0})
   rl.draw_rectangle(floor[0], floor[1], 26.6 * scale, 20, {60, 64, 82})
   for(let local t in values(things)){
-    local p = screen(b2 .body_get_position(t.body))
-    local angle = b2 .rot_get_angle(b2 .body_get_rotation(t.body))
+    local p = screen(t.body:get_position())
+    local angle = b2.rot_get_angle(t.body:get_rotation())
     local color = t.color
     if(t == held){
       color = rl.WHITE
@@ -160,5 +154,5 @@ for(not rl.window_should_close()){
     break
   }
 }
-b2 .destroy_world(space)
+space:destroy()
 rl.close_window()

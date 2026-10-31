@@ -399,14 +399,13 @@ local func settle(ed){
   }
   w.events = {}
   w.sounds = {}
-  local jolt = require("jolt")
   for(let local e in values(w.entities)){
-    local both = jolt.body_interface_get_position_and_rotation(w.bodies, e.id)
+    local both = e.body:get_position_and_rotation()
     e.start = both.position
     e.pos = both.position
     e.q = both.rotation
     e.yaw = vec.quat_to_yaw(both.rotation)
-    jolt.body_interface_set_linear_and_angular_velocity(w.bodies, e.id, {0, 0, 0}, {0, 0, 0})
+    e.body:set_linear_and_angular_velocity({0, 0, 0}, {0, 0, 0})
     e.dirty = true
   }
   w.time = 0

@@ -1,8 +1,10 @@
 // Generates stubs/init.slang: the declarations of the jolt module for the
 // language server and `slang doc`, which cannot see functions the package
 // makes at run time. It reads joltc's header the way the package does
-// (slang/ffi) and takes its comments as docs; the functions written by
-// hand in init.slang bring their own doc comments, and so do its types.
+// (slang/ffi) and takes its comments as docs; the functions and methods
+// written by hand in init.slang bring their own doc comments, and so do
+// its types. Each class's generic methods are the joltc functions of its
+// prefixes whose first parameter is the object.
 // Run in packages/jolt after joltc or the package changes:
 //     slang run tool/gen_stubs.slang
 local str = require("slang/string")
@@ -96,9 +98,26 @@ local func has_fields(t){
     len(t.fields) > 0
 }
 
+// the class a pointer to one of Jolt's things is in slang
+local classes_of = {
+  JPH_Shape: "Shape", JPH_ConvexShape: "Shape", JPH_Body: "Body",
+  JPH_Constraint: "Constraint", JPH_TwoBodyConstraint: "Constraint",
+  JPH_MotionProperties: "MotionProperties", JPH_PhysicsMaterial: "Material",
+  JPH_VehicleEngine: "Engine", JPH_VehicleTransmission: "Transmission",
+  JPH_VehicleTrack: "Track", JPH_WheelSettings: "WheelSettings",
+  JPH_WheelSettingsWV: "WheelSettings", JPH_WheelSettingsTV: "WheelSettings",
+  JPH_LinearCurve: "LinearCurve", JPH_Skeleton: "Skeleton",
+  JPH_SkeletonPose: "SkeletonPose", JPH_SkeletalAnimation: "SkeletalAnimation",
+  JPH_RagdollSettings: "RagdollSettings", JPH_Ragdoll: "Ragdoll",
+  JPH_Wheel: "Wheel", JPH_VehicleController: "Controller",
+  JPH_CharacterVirtual: "CharacterVirtual", JPH_PhysicsSystem: "World",
+  JPH_SoftBodySharedSettings: "SoftBodySharedSettings",
+  JPH_GroupFilterTable: "GroupFilterTable", JPH_GroupFilter: "GroupFilterTable",
+}
+
 // what a C type is in slang's type notation
 local slang_type = null
-slang_type = func(t){
+slang_type = func(t, pname){
   local k = t.kind
   if(k == "prim"){
     if(t.name == "bool"){
@@ -106,6 +125,10 @@ slang_type = func(t){
     }
     if(t.name == "float" or t.name == "double"){
       return "float"
+    }
+    if(pname != null and (str.ends_with(pname, "bodyID") or str.ends_with(pname, "bodyId") or
+      str.ends_with(pname, "BodyID") or str.ends_with(pname, "BodyId"))){
+      return "Body | int"
     }
     return "int"
   }
@@ -124,8 +147,13 @@ slang_type = func(t){
     if(to.char and t.const_to){
       return "string"
     }
-    if(has_fields(to) and t.const_to){
+    if(has_fields(to)){
+      // a struct given as a table, const or not (an input Jolt writes
+      // nothing to, or a result read back)
       return type_name(to.name)
+    }
+    if(to.kind == "struct" and classes_of[to.name] != null){
+      return classes_of[to.name]
     }
     return "ffi.Pointer"
   }
@@ -201,101 +229,67 @@ local func doc_lines(doc){
   return {text: str.join(description, " "), items: items}
 }
 
-// whether a parameter is a result Jolt writes (as the package decides)
-local func is_output(t){
-  if(t.kind != "ptr" or t.const_to or t.to == null){
-    return false
+
+// ------------------------------------------------------------ init.slang
+
+// the hand-written definitions of init.slang: functions (jolt.name) and
+// methods (<table>.name), each with its doc comment lines and parameters,
+// in source order; and the comment blocks of the types it declares
+local source = str.split(os.read_file("init.slang"), "\n")
+
+local func doc_block_above(i){
+  local block = {}
+  local j = i - 1
+  for(j >= 0 and str.starts_with(source[j], "//")){
+    list_push(block, source[j])
+    j = j - 1
   }
-  return has_fields(t.to) or (t.to.kind == "prim" and not t.to.char)
+  local lines = {}
+  for(local k = len(block) - 1; k >= 0; k = k - 1){
+    append(lines, block[k])
+  }
+  return lines
 }
 
-// the hand-written functions of init.slang: name -> its doc comment lines
-// and parameters
-local function_docs = {}
-local source = str.split(os.read_file("init.slang"), "\n")
+local functions = {}
+local methods = {}
+local fields = {}
 for(local i = 0; i < len(source); i = i + 1){
   local l = source[i]
-  local name = null
-  if(str.starts_with(l, "func special.")){
-    name = str.substring(l, 13, str.index_of(l, "("))
-  } else if(str.starts_with(l, "special.") and str.index_of(l, " = ") > 0){
-    name = str.substring(l, 8, str.index_of(l, " = "))
-  }
-  if(name != null){
-    local block = {}
-    local j = i - 1
-    for(j >= 0 and str.starts_with(source[j], "//")){
-      list_push(block, source[j])
-      j = j - 1
-    }
-    local lines = {}
-    for(local k = len(block) - 1; k >= 0; k = k - 1){
-      append(lines, block[k])
-    }
-    local params = ""
-    if(str.starts_with(l, "func ")){
-      params = str.substring(l, str.index_of(l, "(") + 1, str.index_of(l, ")"))
+  if(str.starts_with(l, "func jolt.")){
+    local name = str.substring(l, 10, str.index_of(l, "("))
+    local params = str.substring(l, str.index_of(l, "(") + 1, str.index_of(l, ")"))
+    append(functions, {name: name, params: params, lines: doc_block_above(i)})
+  } else if(str.starts_with(l, "func ") and str.index_of(l, "_methods.") > 0){
+    local dot = str.index_of(l, ".")
+    local table = str.substring(l, 5, dot)
+    local name = str.substring(l, dot + 1, str.index_of(l, "("))
+    local params = str.substring(l, str.index_of(l, "(") + 1, str.index_of(l, ")"))
+    // without the object the method is called on
+    local comma = str.index_of(params, ",")
+    if(comma > 0){
+      params = str.trim(str.substring(params, comma + 1))
     } else {
-      // a function made by a helper: its parameters from the doc's
-      // signature
-      local sig = lines[0] or ""
-      local open = str.index_of(sig, "(")
-      if(open > 0){
-        local ps = {}
-        for(let local p in values(str.split(
-          str.substring(sig, open + 1, str.index_of(sig, ")")),
-          ",",
-        ))){
-          local pn = str.trim(p)
-          local colon = str.index_of(pn, ":")
-          if(colon > 0){
-            pn = str.substring(pn, 0, colon)
-          }
-          if(pn != ""){
-            append(ps, pn)
-          }
-        }
-        params = str.join(ps, ", ")
-      }
+      params = ""
     }
-    // without a comment, the header's doc (an inline helper of Box2D's)
-    if(len(lines) > 0){
-      function_docs[name] = {lines: lines, params: params}
+    if(methods[table] == null){
+      methods[table] = {}
+    }
+    append(methods[table], {name: name, params: params, lines: doc_block_above(i)})
+  } else if(str.starts_with(l, "jolt.") and str.index_of(l, " = ") > 0 and
+    str.index_of(l, "jolt.__") != 0){
+    local name = str.substring(l, 5, str.index_of(l, " = "))
+    local block = doc_block_above(i)
+    if(len(block) > 0 and name != "meta"){
+      append(fields, {name: name, lines: block})
     }
   }
 }
 
-line("// jolt: ", version, " (https://github.com/jrouwe/JoltPhysics),")
-line("// through slang/ffi.")
-line("// Generated by tool/gen_stubs.slang from the headers: the package makes")
-line("// these functions at run time, so tools read them here.")
-line("local ffi = require(\"slang/ffi\")")
-line("")
-line("local m = {}")
-line("")
-line("// the declarations, for slang/ffi: ffi.new(\"JPH_Vec3\", 4, m.decls)")
-line("m.decls = {}")
-line("")
-line("// ------------------------------------------------------------ types")
-line("")
-// the structs in the order of the headers
-local seen = {}
-for(let local e in entries(C.types)){
-  local t = e[1]
-  if(str.starts_with(e[0], "struct ") and has_fields(t) and not seen[t.name]){
-    seen[t.name] = true
-    local fields = {}
-    for(let local f in values(t.fields)){
-      append(fields, concat(snake(f.name), ": ", slang_type(f.type)))
-    }
-    comment(
-      concat("type ", type_name(t.name), " = {", str.join(fields, ", "), "}"),
-      true,
-    )
-    line("")
-  }
-}
-// the types init.slang declares (World, BodyDef): their comment blocks
+// the comment blocks that declare types: by name, with whether they are
+// bare (a class: `type Name` with the methods table below)
+local type_blocks = {}
+local type_order = {}
 for(local i = 0; i < len(source); i = i + 1){
   if(str.starts_with(source[i], "// type ")){
     local a = i
@@ -307,16 +301,230 @@ for(local i = 0; i < len(source); i = i + 1){
     for(b + 1 < len(source) and str.starts_with(source[b + 1], "//")){
       b = b + 1
     }
+    local lines = {}
     for(local k = a; k <= b; k = k + 1){
-      line(source[k])
+      append(lines, source[k])
     }
-    line("")
+    local head = str.substring(source[i], 8)
+    local space = str.index_of(head, " ")
+    local name = head
+    if(space > 0){
+      name = str.substring(head, 0, space)
+    }
+    local bare = str.index_of(head, "=") < 0
+    if(type_blocks[name] == null){
+      append(type_order, name)
+    }
+    type_blocks[name] = {name: name, lines: lines, bare: bare}
     i = b
   }
 }
-line(
-  "// ------------------------------------------------------------ constants",
-)
+
+// ------------------------------------------------------------ classes
+
+// each class, the joltc prefixes its methods come from and how many
+// leading parameters the object stands for
+local func links_of(class){
+  local out = {}
+  for(let local l in values(class.links)){
+    append(out, {prefix: l.prefix, count: l.count, suffix: l.suffix})
+  }
+  return out
+}
+
+local func union(lists){
+  local seen = {}
+  local out = {}
+  for(let local list in values(lists)){
+    for(let local p in values(list)){
+      if(not seen[p]){
+        seen[p] = true
+        append(out, {prefix: p, count: 1})
+      }
+    }
+  }
+  return out
+}
+
+local shape_prefixes = {{"Shape"}, {"ConvexShape"}}
+for(let local e in entries(jolt.__shape_chains)){
+  append(shape_prefixes, e[1])
+}
+local constraint_prefixes = {{"Constraint", "TwoBodyConstraint"}}
+for(let local e in entries(jolt.__constraint_kinds)){
+  append(constraint_prefixes, {e[1]})
+}
+local controller_prefixes = {}
+for(let local kind in values({"wheeled", "motorcycle", "tracked"})){
+  local ps = {}
+  for(let local l in values(jolt.__controller_classes[kind].links)){
+    append(ps, l.prefix)
+  }
+  append(controller_prefixes, ps)
+}
+
+local class_list = {}
+for(let local name in values({
+  "World", "Body", "Shape", "Constraint", "Vehicle", "Wheel", "Controller",
+  "Engine", "Transmission", "Track", "WheelSettings", "Character",
+  "CharacterVirtual", "NarrowPhaseQuery", "BroadPhaseQuery", "MotionProperties",
+  "Material", "LinearCurve", "GroupFilterTable", "Skeleton", "SkeletonPose",
+  "SkeletalAnimation", "SkeletonMapper", "RagdollSettings", "Ragdoll",
+  "SoftBodySharedSettings",
+})){
+  local links = null
+  if(name == "Shape"){
+    links = union(shape_prefixes)
+  } else if(name == "Constraint"){
+    links = union(constraint_prefixes)
+  } else if(name == "Controller"){
+    links = union(controller_prefixes)
+  } else if(name == "Wheel"){
+    links = union({{"Wheel", "WheelWV", "WheelTV"}})
+  } else {
+    links = links_of(jolt.__classes[name])
+  }
+  append(class_list, {name: name, links: links, table: concat(snake(name), "_methods")})
+}
+
+// whether a joltc function is a method of a link: its first parameter is
+// the object (and, for the body interface, the body's id next)
+local func method_of(f, link){
+  local ps = f.params
+  if(len(ps) < link.count){
+    return false
+  }
+  local t = ps[0].type
+  if(t.kind != "ptr" or t.to == null or t.to.name != concat("JPH_", link.prefix)){
+    return false
+  }
+  if(link.count == 2){
+    local id = ps[1]
+    local pn = id.name or ""
+    return id.type.kind == "prim" and (str.ends_with(pn, "ID") or str.ends_with(pn, "Id"))
+  }
+  return true
+}
+
+// the signature and doc lines of a generic method (or function, from 0)
+local func generic_doc(f, c_name, name, from){
+  local params = {}
+  local sig = {}
+  local cparams = {}
+  local outputs = {}
+  // the trailing results and opaque pointers (Jolt's optional filters)
+  // may be left out
+  local optional_from = len(f.params)
+  for(optional_from > from and
+    (names.is_output(f, optional_from - 1) or
+      (f.params[optional_from - 1].type.kind == "ptr" and
+        not has_fields(f.params[optional_from - 1].type.to)))){
+    optional_from = optional_from - 1
+  }
+  for(local i = 0; i < len(f.params); i = i + 1){
+    local p = f.params[i]
+    append(cparams, cparam(p.type, p.name))
+    if(i < from){
+      continue
+    }
+    local pname = snake(p.name or concat("arg", string(i)))
+    append(params, pname)
+    if(names.is_output(f, i)){
+      local tn = slang_type(p.type.to)
+      append(outputs, {name: pname, type: tn})
+    } else if(i >= optional_from or p.name == "lockBodies" or p.name == "activationMode"){
+      append(sig, concat(pname, "?: ", slang_type(p.type, p.name)))
+    } else {
+      append(sig, concat(pname, ": ", slang_type(p.type, p.name)))
+    }
+  }
+  local s = concat(name, "(", str.join(sig, ", "), ")")
+  local is_bool = f.ret.kind == "prim" and f.ret.name == "bool"
+  if(len(outputs) == 1 and (f.ret.kind == "void" or is_bool)){
+    local r = outputs[0].type
+    if(is_bool){
+      r = concat(r, "?")
+    }
+    s = concat(s, " -> ", r)
+  } else if(len(outputs) > 1){
+    local fs = {}
+    for(let local o in values(outputs)){
+      append(fs, concat(o.name, ": ", o.type))
+    }
+    if(f.ret.kind != "void"){
+      append(fs, concat("result: ", slang_type(f.ret)))
+    }
+    s = concat(s, " -> {", str.join(fs, ", "), "}")
+  } else if(f.ret.kind != "void"){
+    local r = slang_type(f.ret, c_name)
+    if(f.ret.kind == "prim" and (str.ends_with(c_name, "BodyID") or str.ends_with(c_name, "BodyId"))){
+      r = "Body"
+    }
+    s = concat(s, " -> ", r)
+  }
+  local d = doc_lines(f.doc)
+  return {
+    signature: s,
+    text: d.text,
+    items: d.items,
+    c: concat("C: `", cparam(f.ret, c_name), "(", str.join(cparams, ", "), ")`"),
+    params: params,
+  }
+}
+
+local func emit_generic(d, prefix, table_name){
+  comment(d.signature, true)
+  if(d.text != ""){
+    comment(d.text)
+  }
+  comment(d.c)
+  for(let local item in values(d.items)){
+    comment(item, true)
+  }
+  line("func ", table_name, ".", prefix, "(", str.join({"self", ...d.params}, ", "), "){}")
+  line("")
+}
+
+// ------------------------------------------------------------ output
+
+line("// jolt: ", version, " (https://github.com/jrouwe/JoltPhysics),")
+line("// through slang/ffi.")
+line("// Generated by tool/gen_stubs.slang from the headers and init.slang: the")
+line("// package makes these at run time, so tools read them here.")
+line("local ffi = require(\"slang/ffi\")")
+line("")
+line("local m = {}")
+line("")
+line("// ------------------------------------------------------------ types")
+line("")
+// the structs in the order of the headers
+local seen = {}
+for(let local e in entries(C.types)){
+  local t = e[1]
+  if(str.starts_with(e[0], "struct ") and has_fields(t) and not seen[t.name]){
+    seen[t.name] = true
+    local fs = {}
+    for(let local f in values(t.fields)){
+      append(fs, concat(snake(f.name), ": ", slang_type(f.type)))
+    }
+    comment(
+      concat("type ", type_name(t.name), " = {", str.join(fs, ", "), "}"),
+      true,
+    )
+    line("")
+  }
+}
+// the shapes init.slang declares (BodyDef, Contact, ...)
+for(let local name in values(type_order)){
+  local b = type_blocks[name]
+  if(not b.bare){
+    for(let local l in values(b.lines)){
+      line(l)
+    }
+    line("")
+  }
+}
+line("// ------------------------------------------------------------ constants")
 line("")
 for(let local e in entries(C.constants)){
   local v = e[1]
@@ -325,99 +533,84 @@ for(let local e in entries(C.constants)){
   }
 }
 line("")
-line("// The object layers create_world sets up: static bodies do not collide")
-line("// with each other, everything else does.")
+line("// The object layers a world sets up: static bodies do not collide with")
+line("// each other, everything else does.")
 line("m.layers = {non_moving: 0, moving: 1}")
 line("")
-line(
-  "// ------------------------------------------------------------ functions",
-)
+line("// the declarations, for slang/ffi (with [raw])")
+line("m.decls = {}")
 line("")
-for(let local c_name in values(C.order)){
-  local f = C.functions[c_name]
-  local name = snake(c_name)
-  local doc = function_docs[name]
-  if(doc != null){
-    for(let local l in values(doc.lines)){
+for(let local f in values(fields)){
+  if(f.name == "layers" or f.name == "decls"){
+    continue
+  }
+  for(let local l in values(f.lines)){
+    line(l)
+  }
+  line("m.", f.name, " = {}")
+  line("")
+}
+line("// ------------------------------------------------------------ functions")
+line("")
+for(let local f in values(functions)){
+  for(let local l in values(f.lines)){
+    line(l)
+  }
+  line("func m.", f.name, "(", f.params, "){}")
+  line("")
+}
+// the classes: the type's comment block, its methods table, the methods
+// written by hand, then the generic ones
+local method_count = 0
+for(let local class in values(class_list)){
+  line("// ------------------------------------------------------------ ", class.name)
+  line("")
+  local block = type_blocks[class.name]
+  if(block != null){
+    for(let local l in values(block.lines)){
       line(l)
     }
-    line("func m.", name, "(", doc.params, "){}")
-    line("")
-    function_docs[name] = null
   } else {
-    local params = {}
-    local sig = {}
-    local cparams = {}
-    local outputs = {}
-    // the trailing results and opaque pointers (Jolt's optional filters)
-    // may be left out
-    local optional_from = len(f.params)
-    for(optional_from > 0 and
-      (is_output(f.params[optional_from - 1].type) or
-        (f.params[optional_from - 1].type.kind == "ptr" and
-          not has_fields(f.params[optional_from - 1].type.to)))){
-      optional_from = optional_from - 1
+    line("// type ", class.name)
+  }
+  line("local ", class.table, " = {}")
+  line("")
+  local have = {}
+  for(let local md in values(methods[class.table] or {})){
+    have[md.name] = true
+    for(let local l in values(md.lines)){
+      line(l)
     }
-    for(local i = 0; i < len(f.params); i = i + 1){
-      local p = f.params[i]
-      local pname = snake(p.name or concat("arg", string(i)))
-      append(cparams, cparam(p.type, p.name))
-      append(params, pname)
-      if(is_output(p.type)){
-        local tn = slang_type(p.type.to)
-        append(sig, concat(pname, "?: ", tn))
-        append(outputs, {name: pname, type: tn})
-      } else if(i >= optional_from){
-        append(sig, concat(pname, "?: ", slang_type(p.type)))
-      } else {
-        append(sig, concat(pname, ": ", slang_type(p.type)))
-      }
+    local ps = "self"
+    if(md.params != ""){
+      ps = concat("self, ", md.params)
     }
-    local s = concat(name, "(", str.join(sig, ", "), ")")
-    local is_bool = f.ret.kind == "prim" and f.ret.name == "bool"
-    if(len(outputs) == 1 and (f.ret.kind == "void" or is_bool)){
-      local r = outputs[0].type
-      if(is_bool){
-        r = concat(r, "?")
-      }
-      s = concat(s, " -> ", r)
-    } else if(len(outputs) > 1){
-      local fields = {}
-      for(let local o in values(outputs)){
-        append(fields, concat(o.name, ": ", o.type))
-      }
-      if(f.ret.kind != "void"){
-        append(fields, concat("result: ", slang_type(f.ret)))
-      }
-      s = concat(s, " -> {", str.join(fields, ", "), "}")
-    } else if(f.ret.kind != "void"){
-      s = concat(s, " -> ", slang_type(f.ret))
-    }
-    comment(s, true)
-    local d = doc_lines(f.doc)
-    if(d.text != ""){
-      comment(d.text)
-    }
-    comment(concat(
-      "C: `", cparam(f.ret, c_name), "(", str.join(cparams, ", "), ")`"
-    ))
-    for(let local item in values(d.items)){
-      comment(item, true)
-    }
-    line("func m.", name, "(", str.join(params, ", "), "){}")
+    line("func ", class.table, ".", md.name, "(", ps, "){}")
     line("")
   }
-}
-// the hand-written functions Box2D does not declare
-for(let local e in entries(function_docs)){
-  if(e[1] != null){
-    for(let local l in values(e[1].lines)){
-      line(l)
+  for(let local link in values(class.links)){
+    local prefix = concat(snake(link.prefix), "_")
+    for(let local c_name in values(C.order)){
+      local f = C.functions[c_name]
+      local sname = snake(c_name)
+      if(not str.starts_with(sname, prefix) or not method_of(f, link)){
+        continue
+      }
+      local name = str.substring(sname, len(prefix))
+      if(link.suffix != null and str.ends_with(name, concat("_", link.suffix))){
+        name = str.substring(name, 0, len(name) - len(link.suffix) - 1)
+      }
+      if(have[name]){
+        continue
+      }
+      have[name] = true
+      emit_generic(generic_doc(f, c_name, name, link.count), name, class.table)
+      method_count = method_count + 1
     }
-    line("func m.", e[0], "(", e[1].params, "){}")
-    line("")
   }
 }
 line("return m")
 os.write_file("stubs/init.slang", concat(str.join(out, "\n"), "\n"))
-print("stubs/init.slang: ", string(len(C.order)), " functions\n")
+print("stubs/init.slang: ", string(len(functions)), " functions, ",
+  string(method_count), " generic methods on ", string(len(class_list)),
+  " classes\n")

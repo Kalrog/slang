@@ -4,7 +4,6 @@
 // you choose. Holding fire winds it; letting go throws. Everything is
 // drawn from the chassis' transform with the renderer's primitives.
 local math = require("slang/math")
-local ffi = require("slang/ffi")
 local jolt = require("jolt")
 local vec = require("game/vec")
 local render = require("game/render")
@@ -37,108 +36,70 @@ m.MAX_YAW = 1.1
 
 // new(w: World, spawn: {x, z, yaw}) -> Vehicle
 func m.new(w, spawn){
-  local D = jolt.decls
   local jw = w.jw
   local y = terrain.height_at(w.terrain, spawn.x, spawn.z) + 1.2
-  local shape = jolt.box_shape_create({
-    m.CHASSIS.x / 2, m.CHASSIS.y / 2, m.CHASSIS.z / 2
+  // the center of mass low: a keel under the chassis in a compound shape
+  local body = jw:create_body({
+    shape: jolt.compound({
+      {shape: jolt.box({m.CHASSIS.x / 2, m.CHASSIS.y / 2, m.CHASSIS.z / 2})},
+      {shape: jolt.box({0.5, 0.2, 1}), position: {0, -0.45, 0}},
+    }),
+    position: {spawn.x, y, spawn.z},
+    rotation: vec.quat_yaw(spawn.yaw or 0),
+    motion: "dynamic",
+    mass: MASS,
+    friction: 0.5,
+    linear_damping: 0.3,
+    angular_damping: 0.8,
   })
-  // the center of mass low: a box under the chassis in a compound shape
-  local compound = jolt.static_compound_shape_settings_create()
-  jolt.compound_shape_settings_add_shape2(compound, {0, 0, 0}, {0, 0, 0, 1},
-    shape, 0)
-  local keel = jolt.box_shape_create({0.5, 0.2, 1})
-  jolt.compound_shape_settings_add_shape2(compound, {0, -0.45, 0},
-    {0, 0, 0, 1}, keel, 0)
-  local body_shape = jolt.static_compound_shape_create(compound)
-  local settings = jolt.body_creation_settings_create3(
-    body_shape, {spawn.x, y, spawn.z}, vec.quat_yaw(spawn.yaw or 0),
-    jolt.motion_type_dynamic, jolt.layers.moving
-  )
-  jolt.body_creation_settings_set_override_mass_properties(
-    settings, jolt.override_mass_properties_calculate_inertia
-  )
-  local mp = ffi.new("JPH_MassProperties", 1, D)
-  mp.mass = MASS
-  jolt.body_creation_settings_set_mass_properties_override(settings, mp)
-  jolt.body_creation_settings_set_friction(settings, 0.5)
-  jolt.body_creation_settings_set_linear_damping(settings, 0.3)
-  jolt.body_creation_settings_set_angular_damping(settings, 0.8)
-  local body = jolt.body_interface_create_body(jw.bodies, settings)
-  local id = jolt.body_get_id(body)
-  jolt.body_interface_add_body(jw.bodies, id, jolt.activation_activate)
-  jolt.body_creation_settings_destroy(settings)
-
-  local wheels = ffi.new("JPH_WheelSettings *", 4, D)
   local wx = m.CHASSIS.x / 2 - 0.05
   local wz = m.CHASSIS.z / 2 - 0.55
   local wy = -m.CHASSIS.y / 2 + 0.1
   local positions = {
     {-wx, wy, wz}, {wx, wy, wz}, {-wx, wy, -wz}, {wx, wy, -wz}
   }
-  local spring = ffi.new("JPH_SpringSettings", 1, D)
-  spring.mode = jolt.spring_mode_frequency_and_damping
-  spring.frequency_or_stiffness = 2.2
-  spring.damping = 1.0
+  local wheels = {}
   for(local i = 0; i < 4; i = i + 1){
-    local ws = jolt.wheel_settings_wv_create()
-    jolt.wheel_settings_set_position(ws, positions[i])
-    jolt.wheel_settings_set_radius(ws, m.WHEEL_RADIUS)
-    jolt.wheel_settings_set_width(ws, m.WHEEL_WIDTH)
-    jolt.wheel_settings_set_suspension_min_length(ws, 0.2)
-    jolt.wheel_settings_set_suspension_max_length(ws, 0.45)
-    jolt.wheel_settings_set_suspension_spring(ws, spring)
+    // the front pair steers
+    local steer = 0
     if(i < 2){
-      jolt.wheel_settings_wv_set_max_steer_angle(ws, 0.6)
-    } else {
-      jolt.wheel_settings_wv_set_max_steer_angle(ws, 0)
+      steer = 0.6
     }
-    jolt.wheel_settings_wv_set_max_brake_torque(ws, 4000)
-    jolt.wheel_settings_wv_set_max_hand_brake_torque(ws, 4000)
-    wheels[i] = ws
+    append(wheels, {
+      position: positions[i],
+      radius: m.WHEEL_RADIUS,
+      width: m.WHEEL_WIDTH,
+      suspension_min_length: 0.2,
+      suspension_max_length: 0.45,
+      suspension_spring: {
+        mode: jolt.spring_mode_frequency_and_damping,
+        frequency_or_stiffness: 2.2,
+        damping: 1.0,
+      },
+      max_steer_angle: steer,
+      max_brake_torque: 4000,
+      max_hand_brake_torque: 4000,
+    })
   }
-  local ctrl = jolt.wheeled_vehicle_controller_settings_create()
-  jolt.wheeled_vehicle_controller_settings_add_differential(ctrl, 0, 1)
-  jolt.wheeled_vehicle_controller_settings_add_differential(ctrl, 2, 3)
-  local engine = ffi.new("JPH_VehicleEngineSettings", 1, D)
-  jolt.vehicle_engine_settings_init(engine)
-  engine.max_torque = 1600
-  engine.min_rpm = 800
-  engine.max_rpm = 5000
-  jolt.wheeled_vehicle_controller_settings_set_engine(ctrl, engine)
-  local vs = ffi.new("JPH_VehicleConstraintSettings", 1, D)
-  jolt.vehicle_constraint_settings_init(vs)
-  vs.wheels_count = 4
-  vs.wheels = wheels
-  vs.controller = ctrl
-  vs.up = {0, 1, 0}
-  vs.forward = {0, 0, 1}
-  vs.max_pitch_roll_angle = 1.2
-  local bars = ffi.new("JPH_VehicleAntiRollBar", 2, D)
-  for(local i = 0; i < 2; i = i + 1){
-    jolt.vehicle_anti_roll_bar_init(bars[i])
-    bars[i].left_wheel = i * 2
-    bars[i].right_wheel = i * 2 + 1
-    bars[i].stiffness = 3000
-  }
-  vs.anti_roll_bars_count = 2
-  vs.anti_roll_bars = bars
-  local constraint = jolt.vehicle_constraint_create(body, vs)
-  local tester = jolt.vehicle_collision_tester_cast_cylinder_create(
-    jolt.layers.moving, 0.05
-  )
-  jolt.vehicle_constraint_set_vehicle_collision_tester(constraint, tester)
-  jolt.physics_system_add_constraint(jw.system, constraint)
-  local listener = jolt.vehicle_constraint_as_physics_step_listener(constraint)
-  jolt.physics_system_add_step_listener(jw.system, listener)
+  local vehicle = jw:create_vehicle({
+    body: body,
+    wheels: wheels,
+    differentials: {{0, 1}, {2, 3}},
+    engine: {max_torque: 1600, min_rpm: 800, max_rpm: 5000},
+    up: {0, 1, 0},
+    forward: {0, 0, 1},
+    max_pitch_roll_angle: 1.2,
+    anti_roll_bars: {
+      {left_wheel: 0, right_wheel: 1, stiffness: 3000},
+      {left_wheel: 2, right_wheel: 3, stiffness: 3000},
+    },
+    collision_tester: {type: "cast_cylinder", convex_radius_fraction: 0.05},
+  })
   local v = {
     world: w,
-    id: id,
-    constraint: constraint,
-    listener: listener,
-    controller: jolt.vehicle_constraint_get_controller(constraint),
-    tester: tester,
-    keep: {wheels: wheels, spring: spring, engine: engine, vs: vs, bars: bars, mp: mp},
+    body: body,
+    id: body.id,
+    vehicle: vehicle,
     spawn: spawn,
     matrix: null,
     wheel_matrices: {},
@@ -157,7 +118,7 @@ func m.new(w, spawn){
     loaded: true,
     meta: vehicle_meta,
   }
-  w.vehicle_id = id
+  w.vehicle_id = body.id
   w.blast = func(pos, radius, strength){
     v:blast(pos, radius, strength)
   }
@@ -171,33 +132,27 @@ func Vehicle.blast(v, pos, radius, strength){
   if(d < radius){
     local k = 1 - d / radius
     local dir = vec.normalize(vec.add(vec.sub(v.pos, pos), {x: 0, y: 0.5, z: 0}))
-    jolt.body_interface_activate_body(v.world.bodies, v.id)
-    jolt.body_interface_add_impulse(v.world.bodies, v.id,
-      vec.scale(dir, strength * k * MASS * 0.5))
+    v.body:activate()
+    v.body:add_impulse(vec.scale(dir, strength * k * MASS * 0.5))
   }
 }
 
 // read(v): the chassis' and wheels' transforms after a step
 func Vehicle.read(v){
-  local bodies = v.world.bodies
-  local jm = jolt.body_interface_get_world_transform(bodies, v.id)
+  local jm = v.body:get_world_transform()
   v.matrix = vec.jolt_matrix(jm, {x: 1, y: 1, z: 1})
   v.pos = {x: v.matrix.m12, y: v.matrix.m13, z: v.matrix.m14}
   local forward = vec.transform_direction(v.matrix, {x: 0, y: 0, z: 1})
   v.yaw = math.atan2(forward.x, forward.z)
   v.up = vec.transform_direction(v.matrix, {x: 0, y: 1, z: 0})
-  local vel = jolt.body_interface_get_linear_velocity(bodies, v.id)
+  local vel = v.body:get_linear_velocity()
   v.speed = vec.dot(vel, forward)
   for(local i = 0; i < 4; i = i + 1){
     v.wheel_matrices[i] = vec.jolt_matrix(
-      jolt.vehicle_constraint_get_wheel_world_transform(v.constraint, i,
-        {1, 0, 0}, {0, 1, 0}),
-      {x: 1, y: 1, z: 1},
+      v.vehicle:get_wheel_world_transform(i), {x: 1, y: 1, z: 1}
     )
   }
-  v.wheel_speed = jolt.wheel_get_angular_velocity(
-    jolt.vehicle_constraint_get_wheel(v.constraint, 2)
-  )
+  v.wheel_speed = v.vehicle:get_wheel(2):get_angular_velocity()
 }
 
 // What the player does this frame.
@@ -207,12 +162,11 @@ func Vehicle.read(v){
 // update(v, input, dt) -> {pos, direction, speed}? what was fired
 func Vehicle.update(v, input, dt){
   if(input.forward != 0 or input.right != 0 or input.handbrake != 0){
-    jolt.body_interface_activate_body(v.world.bodies, v.id)
+    v.body:activate()
   }
   // a reversing catapult steers the other way, as a car does
-  jolt.wheeled_vehicle_controller_set_driver_input(
-    v.controller, input.forward, input.right, input.brake, input.handbrake
-  )
+  v.vehicle:set_driver_input(input.forward, input.right, input.brake,
+    input.handbrake)
   v.aim_yaw = vec.clamp(input.aim_yaw, -m.MAX_YAW, m.MAX_YAW)
   v.aim_pitch = vec.clamp(input.aim_pitch, m.MIN_PITCH, m.MAX_PITCH)
   // the arm follows the aim with a little lag
@@ -302,9 +256,8 @@ func Vehicle.fire(v){
     charge: v.charge,
   }
   // the throw rocks the catapult back a little
-  jolt.body_interface_activate_body(v.world.bodies, v.id)
-  jolt.body_interface_add_impulse(v.world.bodies, v.id,
-    vec.scale(v.pending.direction, -v.pending.speed * 60))
+  v.body:activate()
+  v.body:add_impulse(vec.scale(v.pending.direction, -v.pending.speed * 60))
 }
 
 // swinging(v) -> whether the arm is in a throw
@@ -326,7 +279,7 @@ func Vehicle.trajectory(v, speed, damping){
     vel = vec.scale(vel, k)
     local next = vec.add(p, vec.scale(vel, dt))
     local hit = w:ray(p, vec.sub(next, p), vec.distance(p, next))
-    if(hit != null and hit.body != v.id){
+    if(hit != null and hit.body != v.body){
       append(points, hit.point)
       return points
     }
@@ -356,9 +309,9 @@ func Vehicle.reset(v, spawn){
     yaw = spawn.yaw or 0
   }
   local y = terrain.height_at(w.terrain, x, z) + 1.3
-  jolt.body_interface_set_position_rotation_and_velocity(w.bodies, v.id,
-    {x, y, z}, vec.quat_yaw(yaw), {0, 0, 0}, {0, 0, 0})
-  jolt.body_interface_activate_body(w.bodies, v.id)
+  v.body:set_position_rotation_and_velocity({x, y, z}, vec.quat_yaw(yaw),
+    {0, 0, 0}, {0, 0, 0})
+  v.body:activate()
   v.charge = 0
   v.charging = false
   v:read()
@@ -481,12 +434,8 @@ func Vehicle.draw(v, ammo){
 }
 
 func Vehicle.destroy(v){
-  local jw = v.world.jw
-  jolt.physics_system_remove_step_listener(jw.system, v.listener)
-  jolt.physics_system_remove_constraint(jw.system, v.constraint)
-  jolt.constraint_destroy(v.constraint)
-  jolt.vehicle_collision_tester_destroy(v.tester)
-  jolt.body_interface_remove_and_destroy_body(v.world.bodies, v.id)
+  v.vehicle:destroy()
+  v.body:destroy()
   v.world.blast = null
 }
 

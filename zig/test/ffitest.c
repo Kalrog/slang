@@ -8,6 +8,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 typedef struct { float x, y; } Vec2;
@@ -120,3 +121,9 @@ int ft_threads(IntFn f, int n) {
     }
     return s;
 }
+
+/* memory C hands out, freed through ffi.gc */
+static int freed = 0;
+int *ft_alloc(int tag) { int *p = malloc(sizeof *p); *p = tag; return p; }
+void ft_free(void *p) { free(p); freed++; }
+int ft_freed(void) { return freed; }

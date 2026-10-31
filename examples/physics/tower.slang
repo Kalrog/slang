@@ -20,25 +20,24 @@ rl.set_target_fps(60)
 local cube = rl.load_model_from_mesh(rl.gen_mesh_cube(1, 1, 1))
 local sphere = rl.load_model_from_mesh(rl.gen_mesh_sphere(1, 12, 16))
 
-local world = jolt.create_world({gravity: {0, -9.81, 0}})
-local bodies = world.bodies
-jolt.create_body(world, {
-  shape: jolt.box_shape_create({30, 1, 30}),
+local world = jolt.world({gravity: {0, -9.81, 0}})
+world:create_body({
+  shape: jolt.box({30, 1, 30}),
   position: {0, -1, 0},
 })
 
-// what is drawn: {id, model, size, color}
+// what is drawn: {body, model, size, color}
 local things = {}
 local balls = {}
 
 local func add(def, model, size, color){
-  local id = jolt.create_body(world, def)
-  local thing = {id: id, model: model, size: size, color: color}
+  local body = world:create_body(def)
+  local thing = {body: body, model: model, size: size, color: color}
   append(things, thing)
   return thing
 }
 
-local box_shape = jolt.box_shape_create({0.5, 0.5, 0.5})
+local box_shape = jolt.box({0.5, 0.5, 0.5})
 local func build(){
   for(local level = 0; level < 8; level = level + 1){
     for(local i = 0; i < 3; i = i + 1){
@@ -57,15 +56,14 @@ local func build(){
 
 local func clear(){
   for(let local t in values(things)){
-    jolt.body_interface_remove_and_destroy_body(bodies, t.id)
+    t.body:destroy()
   }
   things = {}
   balls = {}
 }
 
-local ball_shape = jolt.sphere_shape_create(0.35)
 // heavy (iron, not water): a ball knocks boxes over
-jolt.convex_shape_set_density(ball_shape, 8000)
+local ball_shape = jolt.sphere(0.35, {density: 8000})
 local func throw(camera){
   local ray = rl.get_screen_to_world_ray(rl.get_mouse_position(), camera)
   local d = ray.direction
@@ -80,7 +78,7 @@ local func throw(camera){
   // the oldest balls go once there are many
   if(len(balls) > 30){
     local old = remove(balls, 0)
-    jolt.body_interface_remove_and_destroy_body(bodies, old.id)
+    old.body:destroy()
     local kept = {}
     for(let local t in values(things)){
       if(t != old){
@@ -131,7 +129,7 @@ for(not rl.window_should_close()){
   // fixed steps of 1/60 s, however fast frames come
   pending = math.min(pending + rl.get_frame_time(), 0.1)
   for(pending >= step){
-    jolt.step(world, step)
+    world:step(step)
     pending = pending - step
   }
 
@@ -141,9 +139,7 @@ for(not rl.window_should_close()){
   rl.draw_plane({0, 0, 0}, {60, 60}, {52, 56, 72})
   rl.draw_grid(30, 2)
   for(let local t in values(things)){
-    local m = jolt.mat4_to_matrix(
-      jolt.body_interface_get_world_transform(bodies, t.id),
-    )
+    local m = jolt.mat4_to_matrix(t.body:get_world_transform())
     local model = t.model
     model.transform = rl.matrix_multiply(
       rl.matrix_scale(t.size[0], t.size[1], t.size[2]),
@@ -166,7 +162,7 @@ for(not rl.window_should_close()){
     break
   }
 }
-jolt.destroy_world(world)
+world:destroy()
 rl.unload_model(cube)
 rl.unload_model(sphere)
 rl.close_window()

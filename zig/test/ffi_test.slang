@@ -61,6 +61,7 @@ local header = str.join({
   "void ft_set_handler(Handler h);",
   "int ft_fire(int x);",
   "int ft_threads(IntFn f, int n);",
+  "int *ft_alloc(int tag); void ft_free(void *p); int ft_freed(void);",
 }, "\n")
 
 local C = ffi.cdef(header)
@@ -353,6 +354,35 @@ t.group("ffi: callbacks"){
       return t[2] - 2
     }, 8)
     assert(sum == 56, sum)
+  }
+  t.test("ffi.gc: what a pointer points to is freed once it is collected"){
+    local before = lib.ft_freed()
+    local func use(){
+      local p = ffi.gc(lib.ft_alloc(7), lib.ft_free)
+      assert(p[0] == 7)
+      assert(lib.ft_freed() == before)
+    }
+    use()
+    // garbage until a collection ran
+    for(local i = 0; i < 400 and lib.ft_freed() == before; i = i + 1){
+      local junk = {}
+      for(local k = 0; k < 2000; k = k + 1){
+        append(junk, concat("x", string(i), ":", string(k)))
+      }
+    }
+    assert(lib.ft_freed() == before + 1, lib.ft_freed())
+    // null takes the finalizer away: freed by hand instead
+    local q = ffi.gc(lib.ft_alloc(1), lib.ft_free)
+    assert(ffi.gc(q, null) == q)
+    lib.ft_free(q)
+    assert(lib.ft_freed() == before + 2)
+    // slang's own memory, and functions of the wrong shape
+    local r = pcall(ffi.gc, ffi.new("int", 1, C), lib.ft_free)
+    assert(r[0] == "err" and str.index_of(r[1].message, "ffi.new") >= 0, r[1].message)
+    r = pcall(ffi.gc, lib.ft_alloc(1), lib.ft_next)
+    assert(r[0] == "err" and str.index_of(r[1].message, "one pointer") >= 0, r[1].message)
+    r = pcall(ffi.gc, lib.ft_alloc(1), func(p){})
+    assert(r[0] == "err" and str.index_of(r[1].message, "C function") >= 0, r[1].message)
   }
   // last: it uses up the program's callbacks
   t.test("a function made anew on each pass is caught, not leaked"){

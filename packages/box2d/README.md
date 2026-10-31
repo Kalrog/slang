@@ -9,16 +9,16 @@ headers when it loads, so it always matches the installed version.
 ```slang
 local b2 = require("box2d")
 
-local world = b2.create_world({gravity: {0, -10}})
-local ground = b2.create_body(world, {position: {0, -1}})
-b2.create_polygon_shape(ground, {}, b2.make_box(50, 1))
-local box = b2.create_body(world, {type: b2.dynamic_body, position: {0, 4}})
-b2.create_polygon_shape(box, {density: 1, material: {friction: 0.6}}, b2.make_box(0.5, 0.5))
+local world = b2.world({gravity: {0, -10}})
+local ground = world:create_body({position: {0, -1}})
+ground:create_polygon_shape({}, b2.make_box(50, 1))
+local box = world:create_body({type: b2.dynamic_body, position: {0, 4}})
+box:create_polygon_shape({density: 1, material: {friction: 0.6}}, b2.make_box(0.5, 0.5))
 for(local i = 0; i < 60; i = i + 1){
-  b2.world_step(world, 1 / 60, 4)
+  world:step(1 / 60, 4)
 }
-print(b2.body_get_position(box), "\n")   // {x: 0.0, y: 0.5}
-b2.destroy_world(world)
+print(box:get_position(), "\n")   // {x: 0.0, y: 0.5}
+world:destroy()
 ```
 
 Box2D draws nothing: draw the bodies with raylib (`examples/physics` in the
@@ -52,44 +52,75 @@ the same.
 
 ## How Box2D maps to slang
 
-- **Names** lose Box2D's `b2` prefix and are snake_case: `b2World_Step` is
-  `world_step`, `b2Body_GetPosition` `body_get_position`,
-  `b2DefaultShapeDef` `default_shape_def`. Struct fields too
-  (`linearVelocity` is `linear_velocity`) and enum values
-  (`b2_dynamicBody` is `dynamic_body`). Macros keep their case without the
-  prefix: `B2_DEFAULT_CATEGORY_BITS` is `DEFAULT_CATEGORY_BITS`.
+Box2D's things are slang values with methods, made from def tables laid
+over Box2D's defaults.
+
+- **Worlds:** `b2.world(def)` makes one (`{gravity: {0, -10}}`);
+  `world:step(dt, sub_steps)` advances it, `world:destroy()` frees it with
+  everything in it. Every `b2World_*` function is a method:
+  `world:set_gravity(g)`, `world:get_awake_body_count()`,
+  `world:explode(def)`.
+- **Bodies:** `world:create_body(def)` returns a `Body`; every `b2Body_*`
+  function is a method: `body:get_position()`,
+  `body:set_linear_velocity(v)`, `body:apply_force(f, point, wake)`,
+  `body:get_mass()`, `body:set_awake(true)`. `body:destroy()` takes it out
+  of the world. `body.key` is an int, the same for the same body, to key
+  tables by; `world:get_body(key)` finds it again.
+- **Shapes:** `body:create_circle_shape(def, circle)`,
+  `create_capsule_shape`, `create_polygon_shape(def, polygon)`,
+  `create_segment_shape` and `create_chain_segment_shape` make a `Shape`
+  on the body (`b2.make_box(hw, hh)`, `b2.make_polygon(hull, radius)`,
+  `b2.compute_hull(points)` and the other geometry functions are the
+  module's); `body:create_chain(def)` a `Chain`. Every `b2Shape_*`
+  function is a method: `shape:get_friction()`, `shape:test_point(p)`,
+  `shape:enable_sensor_events(true)`; `shape.body` is its body.
+- **Joints:** `world:create_revolute_joint(def)` (and `distance`, `weld`,
+  `prismatic`, `wheel`, `motor`, `mover`, `pogo`, `filter`) take the
+  joint's def with `body_a` and `body_b` as the bodies themselves and
+  Box2D's base fields (`local_frame_a`, `collide_connected`, ...) flat or
+  under `base`. Every `b2Joint_*` function is a method, and so are those
+  of the joint's kind: `joint:set_motor_speed(s)`,
+  `joint:enable_limit(true)`, `joint:get_body_a()`.
+- **Names** lose Box2D's `b2` prefix and the type's, and are snake_case:
+  `b2World_Step` is `world:step()`, `b2Body_GetPosition`
+  `body:get_position()`, `b2DefaultShapeDef` `b2.default_shape_def()`.
+  Struct fields too (`linearVelocity` is `linear_velocity`) and enum
+  values (`b2_dynamicBody` is `b2.dynamic_body`). Macros keep their case
+  without the prefix: `B2_DEFAULT_CATEGORY_BITS` is
+  `b2.DEFAULT_CATEGORY_BITS`.
 - **Structs** are tables, read by field name or by position, so `{x: 1,
   y: 2}` and `{1, 2}` are the same `b2Vec2`. Results are tables with named
-  fields. Ids (`b2BodyId`, `b2ShapeId`, ...) are small tables too.
-- **Defs** are laid over Box2D's defaults: `create_body(world, {type:
+  fields, and ids in them are the objects: a ray result's `shape`, a
+  contact's `shape_a` and `shape_b`.
+- **Defs** are laid over Box2D's defaults: `world:create_body({type:
   b2.dynamic_body})` starts from `b2DefaultBodyDef()` and changes only
   `type`. Nested tables work the same way (`{material: {friction: 0.2}}`
-  keeps the material's other defaults), and a def left out is the default.
-  So is a query filter left out: `world_cast_ray_closest(world, origin,
-  translation)`.
-- **Events** are lists: `world_get_contact_events(world).begin_events`, and
-  the same for sensor, body move and joint events. Read them after each
-  `world_step`.
-- **Arrays Box2D fills** are lists: `body_get_shapes`, `body_get_joints`,
-  `body_get_contact_data`, `shape_get_contact_data`,
-  `shape_get_sensor_data`, `chain_get_segments`.
-- **The header's helpers** (Box2D defines its vector math and id functions
-  inline, so they are not in the library) are written in slang under the
-  same names: `make_rot`, `rot_get_angle`, `rotate_vector`,
-  `transform_point`, `add`, `sub`, `mul_sv`, `length`, `normalize`,
-  `dot`, `cross`, `aabb_center`, ... Calling one that is not there names it.
-- **Ids as keys:** `store_body_id(id)` is an int, the same for the same
-  body, for tables keyed by body: `things[b2.store_body_id(id)] = thing`.
-  `is_null(id)` and `id_equals(a, b)` are Box2D's `B2_IS_NULL` and
-  `B2_ID_EQUALS`. User data pointers cannot hold slang values; key a table
-  by id instead.
-- **Callbacks** are slang functions: the callback forms of the queries
-  (`world_overlap_aabb`, `world_cast_ray` with a function that sees every
-  hit), custom filters (`world_set_custom_filter_callback`), pre-solve, and
-  debug draw, whose def is a table of functions:
+  keeps the material's other defaults), a def left out is the default, and
+  a field the def does not have is an error. So is a query filter left
+  out: `world:cast_ray_closest(origin, translation)`.
+- **Events** are lists of objects: `world:get_contact_events().begin_events`
+  (each with `shape_a` and `shape_b`), and the same for sensor
+  (`sensor_shape`, `visitor_shape`), body move (`body`) and joint
+  (`joint`) events. Read them after each `step`.
+- **Arrays Box2D fills** are lists: `body:get_shapes()`,
+  `body:get_joints()`, `body:get_contact_data()`,
+  `shape:get_contact_data()`, `shape:get_sensor_data()`,
+  `chain:get_segments()`.
+- **The header's helpers** (Box2D defines its vector math inline, so it is
+  not in the library) are the module's: `b2.make_rot`,
+  `b2.rot_get_angle`, `b2.rotate_vector`, `b2.transform_point`, `b2.add`,
+  `b2.sub`, `b2.mul_sv`, `b2.length`, `b2.normalize`, `b2.dot`,
+  `b2.cross`, `b2.aabb_center`, ... and so are the library's free
+  functions (`b2.make_box`, `b2.compute_hull`, `b2.default_body_def`,
+  `b2.is_valid_vec2`).
+- **Callbacks** are slang functions that see objects: the callback forms
+  of the queries (`world:overlap_aabb`, `world:cast_ray` with a function
+  that sees every hit's shape), custom filters
+  (`world:set_custom_filter_callback`), pre-solve, and debug draw, whose
+  def is a table of functions:
 
   ```slang
-  b2.world_draw(world, {
+  world:draw({
     draw_shapes: true,
     draw_solid_polygon_fcn: func(transform, vertices, count, radius, color, context){
       ...   // vertices[0] .. vertices[count - 1], in the body's frame
@@ -99,12 +130,22 @@ the same.
 
   Define such functions once, not inside the frame loop: each function
   given to C stays a C callback for good (slang/ffi stops at 1000).
+- **Memory:** Box2D's ids are values that only mean something while their
+  world lives, so there is nothing for the collector to free: bodies,
+  shapes and joints go with `destroy()` or with their world.
+- **Raw ids:** `b2.raw` holds every Box2D function under its snake_case
+  name, on the id structs as C has them (`b2.raw.body_get_position(
+  body.id)`), with defs laid over their defaults. `b2.body_of(id)`,
+  `b2.shape_of(id)` and `b2.joint_of(id)` turn a raw id back into the
+  object; `b2.store_body_id(id)` is its key, `b2.is_null(id)` and
+  `b2.id_equals(a, b)` are Box2D's `B2_IS_NULL` and `B2_ID_EQUALS`. User
+  data pointers cannot hold slang values; put fields on the object instead
+  (`body.thing = ...`: the same body is always the same table).
 
-`b2.decls` holds the declarations, for `slang/ffi`: `ffi.new("b2Vec2", 8,
-b2.decls)`.
+`b2.decls` holds the declarations, for `slang/ffi`.
 
 The language server and `slang doc` read `stubs/init.slang`, generated
-from the installed headers with Box2D's docs:
+from the installed headers and `init.slang`:
 
 ```
 slang run tool/gen_stubs.slang     # after Box2D or the package changes
@@ -114,7 +155,7 @@ slang test test                    # the binding, no window
 ```
 init.slang          require("box2d"): finds Box2D, reads its headers, binds
 names.slang         Box2D's names in slang
-stubs/init.slang    generated: declarations and docs for tools
+stubs/init.slang    generated: the API with its docs, for tools
 tool/gen_stubs.slang
 test/box2d_test.slang
 ```

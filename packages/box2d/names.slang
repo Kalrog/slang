@@ -23,8 +23,11 @@ local func snake_word(name){
     local c = str.byte_at(name, i)
     local prev = str.byte_at(name, i - 1)
     local next = str.byte_at(name, i + 1)
+    // an acronym's plural s stays with it: DOFs, not DO_Fs
+    local plural = next == 115 and not is_lower(str.byte_at(name, i + 2))
     if(i > 0 and is_upper(c) and
-      (is_lower(prev) or is_digit(prev) or (is_upper(prev) and is_lower(next)))){
+      (is_lower(prev) or is_digit(prev) or
+        (is_upper(prev) and is_lower(next) and not plural))){
       append(out, "_")
     }
     append(out, str.lower(str.substring(name, i, i + 1)))

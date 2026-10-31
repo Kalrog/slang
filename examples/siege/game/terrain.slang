@@ -305,10 +305,11 @@ func m.shape(t){
   for(local i = 0; i < n * n; i = i + 1){
     samples[i] = t.heights[i]
   }
-  local settings = jolt.height_field_shape_settings_create(
-    samples, {-t.half, 0, -t.half}, {t.spacing, 1, t.spacing}, n, null
-  )
-  t.shape = jolt.height_field_shape_settings_create_shape(settings)
+  t.shape = jolt.height_field(samples, {
+    size: n,
+    offset: {-t.half, 0, -t.half},
+    scale: {t.spacing, 1, t.spacing},
+  })
   return t.shape
 }
 

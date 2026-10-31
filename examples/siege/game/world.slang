@@ -5,8 +5,6 @@
 // awarded for parts knocked loose, smashed or blown up. Decorations
 // (trees, bushes, flowers) are drawn here too; trees have static trunks.
 local math = require("slang/math")
-local ffi = require("slang/ffi")
-local buffer = require("slang/buffer")
 local jolt = require("jolt")
 local vec = require("game/vec")
 local terrain = require("game/terrain")
@@ -18,8 +16,6 @@ local m = {}
 local World = {}
 local world_meta = {__index: World, __type: "World"}
 
-local D = null
-
 // how far a part must move from where it stood to count as knocked loose
 local KNOCKED = 1.2
 
@@ -27,15 +23,13 @@ local KNOCKED = 1.2
 // A world with the terrain's height field and walls around its edge.
 func m.new(t, options){
   options = options or {}
-  D = jolt.decls
-  local jw = jolt.create_world({
+  local jw = jolt.world({
     gravity: {0, -9.81, 0},
     contact_events: true,
     max_bodies: 4096,
   })
   local w = {
     jw: jw,
-    bodies: jw.bodies,
     terrain: t,
     entities: {},
     by_id: {},
@@ -51,21 +45,21 @@ func m.new(t, options){
     paused: false,
     meta: world_meta,
   }
-  w.ground = jolt.create_body(jw, {
+  w.ground = jw:create_body({
     shape: terrain.shape(t),
     position: {0, 0, 0},
     friction: 0.8,
   })
   // walls around the edge: nothing drives or rolls off the map
   local half = t.half
-  local wall = jolt.box_shape_create({half + 2, 60, 2})
+  local wall = jolt.box({half + 2, 60, 2})
   for(let local side in values({
     {x: 0, z: half + 2, yaw: 0},
     {x: 0, z: -half - 2, yaw: 0},
     {x: half + 2, z: 0, yaw: math.pi / 2},
     {x: -half - 2, z: 0, yaw: math.pi / 2},
   })){
-    jolt.create_body(jw, {
+    jw:create_body({
       shape: wall,
       position: {side.x, 30, side.z},
       rotation: vec.quat_yaw(side.yaw),
@@ -76,8 +70,8 @@ func m.new(t, options){
 
 // rebuild_ground(w): the terrain changed (the editor): a new height field
 func World.rebuild_ground(w){
-  jolt.body_interface_remove_and_destroy_body(w.bodies, w.ground)
-  w.ground = jolt.create_body(w.jw, {
+  w.ground:destroy()
+  w.ground = w.jw:create_body({
     shape: terrain.shape(w.terrain),
     position: {0, 0, 0},
     friction: 0.8,
@@ -105,14 +99,15 @@ func World.shape(w, kind, size, density){
   local s = w.shapes[key]
   if(s == null){
     if(kind == "sphere"){
-      s = jolt.sphere_shape_create(size.x)
+      s = jolt.sphere(size.x, {density: density})
     } else if(kind == "cylinder"){
-      s = jolt.cylinder_shape_create(size.y / 2, size.x)
+      s = jolt.cylinder(size.y / 2, size.x, {density: density})
     } else {
-      s = jolt.box_shape_create({size.x / 2, size.y / 2, size.z / 2},
-        math.min(jolt.DEFAULT_CONVEX_RADIUS, size.y / 4))
+      s = jolt.box({size.x / 2, size.y / 2, size.z / 2}, {
+        convex_radius: math.min(jolt.DEFAULT_CONVEX_RADIUS, size.y / 4),
+        density: density,
+      })
     }
-    jolt.convex_shape_set_density(s, density)
     w.shapes[key] = s
   }
   return s
@@ -170,9 +165,10 @@ func World.add(w, spec){
     // fast and small: swept collision so it never passes through a wall
     def.motion_quality = jolt.motion_quality_linear_cast
   }
-  local id = jolt.create_body(w.jw, def)
+  local body = w.jw:create_body(def)
   local e = {
-    id: id,
+    body: body,
+    id: body.id,
     index: w.next_entity,
     kind: kind,
     material: spec.material,
@@ -200,7 +196,7 @@ func World.add(w, spec){
   e.dirty = true
   w.next_entity = w.next_entity + 1
   append(w.entities, e)
-  w.by_id[id] = e
+  w.by_id[e.id] = e
   return e
 }
 
@@ -237,7 +233,7 @@ func World.remove(w, e){
   for(let local j in values({...e.joints})){
     w:remove_joint(j)
   }
-  jolt.body_interface_remove_and_destroy_body(w.bodies, e.id)
+  e.body:destroy()
   w.by_id[e.id] = null
   remove_from(w.entities, e)
   e.gone = true
@@ -258,9 +254,7 @@ func World.move(w, e, pos, yaw, pitch, roll){
     q = vec.quat_multiply(q, vec.quat_axis({x: 0, y: 0, z: 1}, e.roll))
   }
   e.q = q
-  jolt.body_interface_set_position_rotation_and_velocity(
-    w.bodies, e.id, pos, q, {0, 0, 0}, {0, 0, 0}
-  )
+  e.body:set_position_rotation_and_velocity(pos, q, {0, 0, 0}, {0, 0, 0})
   e.dirty = true
 }
 
@@ -270,7 +264,7 @@ func World.position(w, e){
 }
 
 func World.velocity(w, e){
-  return jolt.body_interface_get_linear_velocity(w.bodies, e.id)
+  return e.body:get_linear_velocity()
 }
 
 // ------------------------------------------------------------ joints
@@ -280,79 +274,46 @@ func World.velocity(w, e){
 // type JointSpec = {type: string, a: Entity, b: Entity, point?: Vec3,
 //   axis?: Vec3, min?: float, max?: float}
 
-// both bodies locked for writing (the lock interface is the world's own:
-// a destroyed world's would be a dangling pointer)
-local locks = null
-
-local func with_bodies(w, a, b, f){
-  if(w.lock == null){
-    w.lock = jolt.physics_system_get_body_lock_interface(w.jw.system)
-  }
-  if(locks == null){
-    locks = {ffi.new("JPH_BodyLockWrite", 1, D), ffi.new("JPH_BodyLockWrite", 1, D)}
-  }
-  local lock = w.lock
-  jolt.body_lock_interface_lock_write(lock, a.id, locks[0])
-  jolt.body_lock_interface_lock_write(lock, b.id, locks[1])
-  local r = f(locks[0].body, locks[1].body)
-  jolt.body_lock_interface_unlock_write(lock, locks[1])
-  jolt.body_lock_interface_unlock_write(lock, locks[0])
-  return r
-}
-
 func World.add_joint(w, spec){
   local a = spec.a
   local b = spec.b
   local point = spec.point or vec.lerp(a.pos, b.pos, 0.5)
-  local c = null
   local t = spec.type or "fixed"
-  with_bodies(w, a, b, func(ba, bb){
-    if(t == "hinge"){
-      local s = ffi.new("JPH_HingeConstraintSettings", 1, D)
-      jolt.hinge_constraint_settings_init(s)
-      local axis = vec.normalize(spec.axis or {x: 0, y: 1, z: 0})
-      local normal = {x: 0, y: 1, z: 0}
-      if(math.abs(axis.y) > 0.9){
-        normal = {x: 1, y: 0, z: 0}
-      }
-      normal = vec.normalize(vec.cross(axis, vec.cross(normal, axis)))
-      s.point1 = point
-      s.point2 = point
-      s.hinge_axis1 = axis
-      s.hinge_axis2 = axis
-      s.normal_axis1 = normal
-      s.normal_axis2 = normal
-      if(spec.min != null){
-        s.limits_min = spec.min
-        s.limits_max = spec.max or -spec.min
-      }
-      c = jolt.hinge_constraint_create(s, ba, bb)
-    } else if(t == "point"){
-      local s = ffi.new("JPH_PointConstraintSettings", 1, D)
-      jolt.point_constraint_settings_init(s)
-      s.point1 = point
-      s.point2 = point
-      c = jolt.point_constraint_create(s, ba, bb)
-    } else if(t == "distance"){
-      local s = ffi.new("JPH_DistanceConstraintSettings", 1, D)
-      jolt.distance_constraint_settings_init(s)
-      s.point1 = spec.point_a or a.pos
-      s.point2 = spec.point_b or b.pos
-      if(spec.min != null){
-        s.min_distance = spec.min
-      }
-      if(spec.max != null){
-        s.max_distance = spec.max
-      }
-      c = jolt.distance_constraint_create(s, ba, bb)
-    } else {
-      local s = ffi.new("JPH_FixedConstraintSettings", 1, D)
-      jolt.fixed_constraint_settings_init(s)
-      s.auto_detect_point = true
-      c = jolt.fixed_constraint_create(s, ba, bb)
+  local def = {type: t, body1: a.body, body2: b.body}
+  if(t == "hinge"){
+    local axis = vec.normalize(spec.axis or {x: 0, y: 1, z: 0})
+    local normal = {x: 0, y: 1, z: 0}
+    if(math.abs(axis.y) > 0.9){
+      normal = {x: 1, y: 0, z: 0}
     }
-  })
-  jolt.physics_system_add_constraint(w.jw.system, c)
+    normal = vec.normalize(vec.cross(axis, vec.cross(normal, axis)))
+    def.point1 = point
+    def.point2 = point
+    def.hinge_axis1 = axis
+    def.hinge_axis2 = axis
+    def.normal_axis1 = normal
+    def.normal_axis2 = normal
+    if(spec.min != null){
+      def.limits_min = spec.min
+      def.limits_max = spec.max or -spec.min
+    }
+  } else if(t == "point"){
+    def.point1 = point
+    def.point2 = point
+  } else if(t == "distance"){
+    def.point1 = spec.point_a or a.pos
+    def.point2 = spec.point_b or b.pos
+    if(spec.min != null){
+      def.min_distance = spec.min
+    }
+    if(spec.max != null){
+      def.max_distance = spec.max
+    }
+  } else {
+    def.type = "fixed"
+    def.auto_detect_point = true
+  }
+  local c = w.jw:create_constraint(def)
   local j = {
     type: t,
     a: a,
@@ -373,8 +334,7 @@ func World.remove_joint(w, j){
   if(j.constraint == null){
     return
   }
-  jolt.physics_system_remove_constraint(w.jw.system, j.constraint)
-  jolt.constraint_destroy(j.constraint)
+  j.constraint:destroy()
   j.constraint = null
   remove_from(w.joints, j)
   remove_from(j.a.joints, j)
@@ -460,8 +420,8 @@ func World.add_decor(w, spec){
         })
       }
     }
-    d.body = jolt.create_body(w.jw, {
-      shape: jolt.cylinder_shape_create(height / 2, trunk_r),
+    d.body = w.jw:create_body({
+      shape: jolt.cylinder(height / 2, trunk_r),
       position: {pos.x, pos.y + height / 2, pos.z},
       friction: 0.6,
     })
@@ -516,8 +476,8 @@ func World.add_decor(w, spec){
       color: {128, 124, 118},
       texture: "rough",
     })
-    d.body = jolt.create_body(w.jw, {
-      shape: jolt.sphere_shape_create(radius * 0.75),
+    d.body = w.jw:create_body({
+      shape: jolt.sphere(radius * 0.75),
       position: {pos.x, pos.y + size.y * 0.5, pos.z},
       rotation: q,
       friction: 0.7,
@@ -530,7 +490,7 @@ func World.add_decor(w, spec){
 
 func World.remove_decor(w, d){
   if(d.body != null){
-    jolt.body_interface_remove_and_destroy_body(w.bodies, d.body)
+    d.body:destroy()
     d.body = null
   }
   remove_from(w.decor, d)
@@ -565,7 +525,7 @@ func World.smash(w, e, at){
   }
   e.breaking = true
   local pos = e.pos
-  local v = jolt.body_interface_get_linear_velocity(w.bodies, e.id)
+  local v = e.body:get_linear_velocity()
   w:remove(e)
   particles.debris(pos, v, e.size, e.color, e.texture, e.kind)
   if(e.mat.explosive){
@@ -600,7 +560,7 @@ func World.explode(w, pos, radius, strength, source){
     }
     local p = e.pos
     if(not e.sleeping){
-      p = jolt.body_interface_get_position(w.bodies, e.id)
+      p = e.body:get_position()
     }
     local d = vec.distance(p, pos)
     if(d < radius){
@@ -610,10 +570,9 @@ func World.explode(w, pos, radius, strength, source){
         dir = {x: 0, y: 1, z: 0}
       }
       dir = vec.normalize(vec.add(dir, {x: 0, y: 0.4, z: 0}))
-      jolt.body_interface_activate_body(w.bodies, e.id)
-      jolt.body_interface_add_impulse(w.bodies, e.id, vec.scale(dir,
-        strength * k * e.mass))
-      jolt.body_interface_add_angular_impulse(w.bodies, e.id, {
+      e.body:activate()
+      e.body:add_impulse(vec.scale(dir, strength * k * e.mass))
+      e.body:add_angular_impulse({
         (vec.noise(e.index, 1, 3)) * e.mass * k * 2,
         (vec.noise(e.index, 2, 3)) * e.mass * k * 2,
         (vec.noise(e.index, 3, 3)) * e.mass * k * 2,
@@ -649,14 +608,14 @@ local func impact(w, c, e1, e2){
 }
 
 local func contacts(w){
-  local events = jolt.world_get_contact_events(w.jw)
+  local events = w.jw:get_contact_events()
   // the first moments of a level are its parts settling: nothing breaks
   if(w.time < 1){
     return
   }
   for(let local c in values(events.added)){
-    local e1 = w.by_id[c.body1]
-    local e2 = w.by_id[c.body2]
+    local e1 = w.by_id[c.body1.id]
+    local e2 = w.by_id[c.body2.id]
     if(e1 == null and e2 == null){
       continue
     }
@@ -702,26 +661,11 @@ local func contacts(w){
 
 // ------------------------------------------------------------ the step
 
-// the ids of the bodies awake after a step, from Jolt's own list: the
-// sleeping ones (most of a level, most of the time) cost nothing
-local active_ids = buffer.new("unsigned int", 4096)
-
-local func active_bodies(w){
-  local n = math.min(4096, jolt.physics_system_get_num_active_bodies(
-    w.jw.system, jolt.body_type_rigid
-  ))
-  if(n > 0){
-    jolt.physics_system_get_active_bodies(w.jw.system, jolt.body_type_rigid,
-      active_ids, n)
-  }
-  return n
-}
-
 // step(w, dt): the physics, then what the contacts did
 func World.step(w, dt){
   w.time = w.time + dt
   w.frame = (w.frame or 0) + 1
-  jolt.step(w.jw, dt)
+  w.jw:step(dt)
   contacts(w)
   local water = w.terrain.water
   // the bombs' fuses, awake or not
@@ -729,7 +673,7 @@ func World.step(w, dt){
     if(e.fuse != null and not e.gone){
       e.fuse = e.fuse - dt
       if(e.fuse <= 0){
-        local p = jolt.body_interface_get_position(w.bodies, e.id)
+        local p = e.body:get_position()
         e.pos = p
         w:remove(e)
         w:explode(p, 8, 16, e)
@@ -738,21 +682,22 @@ func World.step(w, dt){
       }
     }
   }
-  local n = active_bodies(w)
+  // only the bodies awake after the step, from Jolt's own list: the
+  // sleeping ones (most of a level, most of the time) cost nothing
   local moving = 0
-  for(local i = 0; i < n; i = i + 1){
-    local e = w.by_id[active_ids[i]]
+  for(let local b in values(w.jw:get_active_bodies())){
+    local e = w.by_id[b.id]
     if(e == null or e.gone or e.static){
       continue
     }
     e.sleeping = false
     e.stamp = w.frame
-    local p = jolt.body_interface_get_position(w.bodies, e.id)
+    local p = e.body:get_position()
     e.pos = p
     e.dirty = true
     // what visibly moves (awake bodies settle for a while before they
     // sleep): faster than a slow walk, a rolling stone faster still
-    local vel = jolt.body_interface_get_linear_velocity(w.bodies, e.id)
+    local vel = e.body:get_linear_velocity()
     local speed2 = vel.x * vel.x + vel.y * vel.y + vel.z * vel.z
     if(speed2 > 0.16 and (not e.projectile or speed2 > 1)){
       moving = moving + 1
@@ -798,18 +743,17 @@ func World.settled(w){
   return (w.calm_for or 0) > 0.7
 }
 
-// ray(w, origin, direction, max) -> {entity?, point, distance}? the first
-// thing a ray hits (the ground counts, with entity null)
+// ray(w, origin, direction, max) -> {entity?, body, point, distance}? the
+// first thing a ray hits (the ground counts, with entity null)
 func World.ray(w, origin, direction, max){
   local d = vec.normalize(direction)
-  local hit = jolt.narrow_phase_query_cast_ray(w.jw.narrow_phase, origin,
-    vec.scale(d, max))
+  local hit = w.jw:cast_ray(origin, vec.scale(d, max))
   if(hit == null){
     return null
   }
   return {
-    entity: w.by_id[hit.body_id],
-    body: hit.body_id,
+    entity: w.by_id[hit.body.id],
+    body: hit.body,
     point: vec.add(origin, vec.scale(d, hit.fraction * max)),
     distance: hit.fraction * max,
   }
@@ -845,9 +789,7 @@ func World.draw(w, options){
       }
     }
     if(e.dirty){
-      e.matrix = vec.jolt_matrix(jolt.body_interface_get_world_transform(
-        w.bodies, e.id
-      ), e.size)
+      e.matrix = vec.jolt_matrix(e.body:get_world_transform(), e.size)
       if(e.kind == "cylinder"){
         // the cylinder mesh stands on its base: half a height down its axis
         local mt = e.matrix
@@ -901,7 +843,7 @@ func World.draw(w, options){
 
 // destroy(w): frees the Jolt world
 func World.destroy(w){
-  jolt.destroy_world(w.jw)
+  w.jw:destroy()
   w.entities = {}
   w.by_id = {}
 }

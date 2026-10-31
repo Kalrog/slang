@@ -1755,6 +1755,19 @@ func ffi.callback(t, f, decls){
   return core.callback(as_type(t, decls), f)
 }
 
+// gc(p: Pointer, free: function?) -> Pointer
+// p, with what it points to freed by the C function free once nothing
+// refers to p any more: free takes one pointer and returns nothing (a
+// function of a loaded library, or [bind]'s). For memory C handed out
+// (ffi.new's is slang's own and needs none). Null takes the finalizer
+// away, for what was freed by hand; p is changed and returned.
+//
+//   local shape = ffi.gc(lib.JPH_BoxShape_Create(half, 0.05), lib.JPH_Shape_Destroy)
+func ffi.gc(p, free){
+  need_core()
+  return core.gc(p, free)
+}
+
 // available() -> bool
 // Whether this slang can call C (it was built with libffi).
 func ffi.available(){

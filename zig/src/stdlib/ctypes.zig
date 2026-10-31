@@ -151,7 +151,20 @@ var buffer_methods: ?*Table = null;
 /// Pointers and buffers: an address, what it points to (null for void *)
 /// and, for a buffer, the number of elements. Owned memory follows this
 /// header in the same userdata block.
-pub const Ptr = struct { addr: usize, ty: ?*Type, count: usize = 0 };
+pub const Ptr = struct {
+    addr: usize,
+    ty: ?*Type,
+    count: usize = 0,
+    /// a C function that frees what the pointer points to, called when the
+    /// pointer object is collected (slang/ffi's gc)
+    free: ?*const fn (?*anyopaque) callconv(.c) void = null,
+};
+
+/// The finalizer of a pointer given a free function by slang/ffi's gc.
+pub fn freePointer(data: ?*anyopaque) callconv(.c) void {
+    const p: *Ptr = @ptrCast(@alignCast(data.?));
+    if (p.free) |f| f(@ptrFromInt(p.addr));
+}
 
 pub fn module(vm: *VM) *Table {
     const m = stdlib.makeModule(vm, &.{

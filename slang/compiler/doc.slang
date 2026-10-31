@@ -622,12 +622,12 @@ local func type_html_section(m, sec){
   return str.join(out, "\n")
 }
 
-// module_html(m: ModulePage) -> string: the module's page, as HTML
-func doc.module_html(m){
-  local body = {
-    "<nav><a href=\"index.html\">index</a></nav>",
-    concat("<h1>", escape(m.name), "</h1>"),
-  }
+// module_body(m: ModulePage) -> string
+// The module's documentation as HTML, without the page around it (for a
+// site with a layout of its own): its title, doc, table of contents and
+// entries.
+func doc.module_body(m){
+  local body = {concat("<h1>", escape(m.name), "</h1>")}
   if(m.doc != null){
     append(body, blocks_html(m.doc, resolver(m, null)))
   }
@@ -661,12 +661,21 @@ func doc.module_html(m){
     }
   }
   append(body, concat("<p class=\"muted\">", escape(m.path), "</p>"))
-  return page(m.name, str.join(body, "\n"))
+  return str.join(body, "\n")
 }
 
-// index_html(modules: {ModulePage}, title: string) -> string
-// The index page: each module with the first sentence of its doc.
-func doc.index_html(modules, title){
+// module_html(m: ModulePage) -> string: the module's page, as HTML
+func doc.module_html(m){
+  return page(m.name, concat(
+    "<nav><a href=\"index.html\">index</a></nav>\n",
+    doc.module_body(m),
+  ))
+}
+
+// index_body(modules: {ModulePage}, title: string) -> string
+// The index as HTML without the page around it: each module, linked to
+// its page, with the first sentence of its doc.
+func doc.index_body(modules, title){
   local body = {concat("<h1>", escape(title), "</h1>"), "<dl>"}
   for(let local m in values(modules)){
     append(body, concat(
@@ -675,7 +684,24 @@ func doc.index_html(modules, title){
     ))
   }
   append(body, "</dl>")
-  return page(title, str.join(body, "\n"))
+  return str.join(body, "\n")
+}
+
+// index_html(modules: {ModulePage}, title: string) -> string
+// The index page: each module with the first sentence of its doc.
+func doc.index_html(modules, title){
+  return page(title, doc.index_body(modules, title))
+}
+
+// page_name(module: string) -> string
+// The file of a module's page: slang/http is slang-http.html.
+doc.page_name = page_name
+
+// blocks_html(text: string) -> string
+// Doc text as HTML: paragraphs with `code` spans, and lines indented by two
+// spaces or more as code samples.
+func doc.blocks_html(text){
+  return blocks_html(text, null)
 }
 
 // ------------------------------------------------------------ the command
@@ -799,6 +825,23 @@ func doc.main(arguments){
       title = "slang's library"
     }
   }
+  local r = doc.collect(paths)
+  local modules = r.modules
+  os.mkdir_all(out_dir)
+  for(let local m in values(modules)){
+    os.write_file(concat(out_dir, "/", page_name(m.name)), doc.module_html(m))
+  }
+  os.write_file(concat(out_dir, "/index.html"), doc.index_html(modules, title))
+  print(len(modules), " modules documented in ", out_dir, "/index.html\n")
+  return r.status
+}
+
+// collect(paths: {string}) -> {modules: {ModulePage}, status: int}
+// The modules of the .slang files in paths (files, or directories searched
+// all the way down), sorted by name. A file that does not parse is
+// reported on stderr and makes status 1.
+func doc.collect(paths){
+  local compiler = require("slang/compiler")
   local files = {}
   for(let local p in values(paths)){
     slang_files(p, files)
@@ -829,14 +872,7 @@ func doc.main(arguments){
       }
     }
   }
-  modules = by_name(modules)
-  os.mkdir_all(out_dir)
-  for(let local m in values(modules)){
-    os.write_file(concat(out_dir, "/", page_name(m.name)), doc.module_html(m))
-  }
-  os.write_file(concat(out_dir, "/index.html"), doc.index_html(modules, title))
-  print(len(modules), " modules documented in ", out_dir, "/index.html\n")
-  return status
+  return {modules: by_name(modules), status: status}
 }
 
 return doc

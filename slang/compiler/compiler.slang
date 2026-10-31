@@ -1133,12 +1133,95 @@ func compiler.highlight_file(path){
   return compiler.highlight(os.read_file(path), path)
 }
 
-// highlight_json(path: string) -> string
+// what compiles but is likely a mistake, in a file on its own: locals never
+// used, globals read that the file does not assign and slang does not have
+local func lint(source, index){
+  local out = {}
+  local func at(start, stop, message, severity){
+    local lc = str.line_col(source, start)
+    append(out, {
+      line: lc[0], column: lc[1], length: stop - start, message: message,
+      severity: severity
+    })
+  }
+  // a name an extension made up is not written where it is
+  local func written(start, stop, name){
+    return start != null and stop <= len(source) and
+      str.substring(source, start, stop) == name
+  }
+  local used = {}
+  for(let local r in values(index.refs)){
+    if(r.def != null){
+      used[r.def] = true
+    }
+  }
+  for(let local d in values(index.defs)){
+    if(d.kind == "local" and not used[d] and
+      not str.starts_with(d.name, "_") and written(d.start, d.stop, d.name)){
+      at(d.start, d.stop, concat(d.name, " is never used"), "hint")
+    }
+  }
+  local reported = {}
+  for(let local r in values(index.refs)){
+    if(r.def == null and r.owner == null and not r.write and
+      not reported[r.name] and written(r.start, r.stop, r.name) and
+      index.globals[r.name] == null and _ENV[r.name] == null and
+      not str.starts_with(r.name, "__")){
+      reported[r.name] = true
+      at(r.start, r.stop, concat(r.name, " is not defined"), "warning")
+    }
+  }
+  return out
+}
+
+// the error compiling a parsed file gives, as a diagnostic (its message
+// ends in line:column), or null
+local func compile_diagnostic(block, path){
+  local r = pcall(codegen.generate, block, path)
+  if(r[0] == "ok"){
+    return null
+  }
+  local message = type(r[1]) == "table" and r[1].message or string(r[1])
+  local line = 1
+  local column = 1
+  local space = len(message) - 1
+  for(space >= 0 and str.byte_at(message, space) != 32){
+    space = space - 1
+  }
+  if(space >= 0){
+    local parts = str.split(str.substring(message, space + 1), ":")
+    if(len(parts) == 2 and to_int(parts[0]) != null and to_int(parts[1]) != null){
+      line = to_int(parts[0])
+      column = to_int(parts[1])
+      message = str.trim(str.substring(message, 0, space))
+    }
+  }
+  return {line: line, column: column, message: message, severity: "error"}
+}
+
+// highlight_json(path: string, check?: bool) -> string
 // [highlight_file] as JSON text, {tokens, diagnostics} (`slang highlight`);
 // the tokens without stop.
-func compiler.highlight_json(path){
+// [check]: when the file parses, also compile it and lint it on its own
+// (`slang highlight --check`): compile errors, and locals never used and
+// globals not defined as hints and warnings with a length
+func compiler.highlight_json(path, check){
   local json = require("slang/json")
   local r = compiler.highlight_file(path)
+  if(check and len(r.diagnostics) == 0){
+    local source = os.read_file(path)
+    local full = compiler.highlight(source, path, {symbols: true})
+    if(full.ast != null){
+      local d = compile_diagnostic(full.ast, path)
+      if(d != null){
+        append(r.diagnostics, d)
+      } else if(full.symbols != null){
+        for(let local w in values(lint(source, full.symbols))){
+          append(r.diagnostics, w)
+        }
+      }
+    }
+  }
   local out = {tokens: json.array({}), diagnostics: json.array({})}
   for(let local t in values(r.tokens)){
     append(out.tokens, {

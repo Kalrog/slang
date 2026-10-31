@@ -216,9 +216,9 @@ f()   // 42</code></pre>
 <p><a href="#highlight"><code>highlight</code></a> for a file, without symbols, looking up its project the first time like <a href="#load_main"><code>load_main</code></a> does.</p>
 
 </div>
-<div class="def" id="highlight_json"><h3><code>compiler.highlight_json(path: string) -> string</code></h3>
-<p><a href="#highlight_file"><code>highlight_file</code></a> as JSON text, {tokens, diagnostics} (<code>slang highlight</code>); the tokens without stop.</p>
-
+<div class="def" id="highlight_json"><h3><code>compiler.highlight_json(path: string, check?: bool) -> string</code></h3>
+<p><a href="#highlight_file"><code>highlight_file</code></a> as JSON text, {tokens, diagnostics} (<code>slang highlight</code>); the tokens without stop. (<code>slang highlight --check</code>): compile errors, and locals never used and globals not defined as hints and warnings with a length</p>
+<dl class="params"><dt><code>check</code></dt><dd>when the file parses, also compile it and lint it on its own</dd></dl>
 </div>
 <div class="def" id="compile_repl"><h3><code>compiler.compile_repl(source: string) -> function</code></h3>
 <p>Compiles a line of the REPL with the root grammar: a chunk, or else an expression, whose function returns its value. Extension statements are not scoped: they stay in effect for the lines after.</p>

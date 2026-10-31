@@ -43,9 +43,14 @@ dl.params dd { margin: 0 0 0 1.5rem; }
 <p>Native modules and the globals are documented from their stubs (see compiler.stub_path). Without paths: the project in the working directory (a slang.project there), else slang's own library with the stubs. Output goes to dir (./doc by default): index.html and a page per module (slang/http is slang-http.html).</p>
 <ul class="toc">
 <li><a href="#module"><code>module</code></a></li>
+<li><a href="#module_body"><code>module_body</code></a></li>
 <li><a href="#module_html"><code>module_html</code></a></li>
+<li><a href="#index_body"><code>index_body</code></a></li>
 <li><a href="#index_html"><code>index_html</code></a></li>
+<li><a href="#page_name"><code>page_name</code></a></li>
+<li><a href="#blocks_html"><code>blocks_html</code></a></li>
 <li><a href="#main"><code>main</code></a></li>
+<li><a href="#collect"><code>collect</code></a></li>
 <li><a href="#type-ModulePage"><code>type ModulePage</code></a></li>
 <li><a href="#type-PageSection"><code>type PageSection</code></a></li>
 <li><a href="#type-Entry"><code>type Entry</code></a></li>
@@ -56,17 +61,37 @@ dl.params dd { margin: 0 0 0 1.5rem; }
 <p>A module's documentation: the fields of the table the file returns (or, in a file that returns none, its documented globals), by section, then its types; null when there is nothing to document.</p>
 <dl class="params"><dt><code>source</code></dt><dd>the file's text (not read: index has what is needed)</dd><dt><code>index</code></dt><dd>the file's names (compiler.highlight with symbols)</dd></dl>
 </div>
+<div class="def" id="module_body"><h3><code>doc.module_body(m: <a href="#type-ModulePage">ModulePage</a>) -> string</code></h3>
+<p>The module's documentation as HTML, without the page around it (for a site with a layout of its own): its title, doc, table of contents and entries.</p>
+
+</div>
 <div class="def" id="module_html"><h3><code>doc.module_html(m: <a href="#type-ModulePage">ModulePage</a>) -> string</code></h3>
 <dl class="params"><dt>returns</dt><dd>the module's page, as HTML</dd></dl>
 </div>
+<div class="def" id="index_body"><h3><code>doc.index_body(modules: {<a href="#type-ModulePage">ModulePage</a>}, title: string) -> string</code></h3>
+<p>The index as HTML without the page around it: each module, linked to its page, with the first sentence of its doc.</p>
+
+</div>
 <div class="def" id="index_html"><h3><code>doc.index_html(modules: {<a href="#type-ModulePage">ModulePage</a>}, title: string) -> string</code></h3>
 <p>The index page: each module with the first sentence of its doc.</p>
+
+</div>
+<div class="def" id="page_name"><h3><code>doc.page_name(module: string) -> string</code></h3>
+<p>The file of a module's page: slang/http is slang-http.html.</p>
+
+</div>
+<div class="def" id="blocks_html"><h3><code>doc.blocks_html(text: string) -> string</code></h3>
+<p>Doc text as HTML: paragraphs with <code>code</code> spans, and lines indented by two spaces or more as code samples.</p>
 
 </div>
 <h2>the command</h2>
 <div class="def" id="main"><h3><code>doc.main(arguments: {string}) -> int</code></h3>
 <p><code>slang doc [-o dir] [file|dir...]</code>: documents the .slang files found. A file that does not parse is reported and the exit code is 1.</p>
 <dl class="params"><dt>returns</dt><dd>the exit code</dd></dl>
+</div>
+<div class="def" id="collect"><h3><code>doc.collect(paths: {string}) -> {modules: {<a href="#type-ModulePage">ModulePage</a>}, status: int}</code></h3>
+<p>The modules of the .slang files in paths (files, or directories searched all the way down), sorted by name. A file that does not parse is reported on stderr and makes status 1.</p>
+
 </div>
 <h2 id="type-ModulePage">type ModulePage</h2>
 <pre><code>type ModulePage = {name: string, path: string, doc?: string, sections: {<a href="#type-PageSection">PageSection</a>}, links: <a href="#type-Links">Links</a>}</code></pre>

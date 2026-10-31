@@ -209,6 +209,29 @@ local v = 1 <> 2
     )
     assert(len(v.diagnostics) == 0)
   }
+  t.test("highlight_json with check: compile errors, then lint"){
+    local os = require("slang/os")
+    local dir = concat(os.getenv("TMPDIR") or "/tmp/", "/slang-check-test")
+    os.mkdir_all(dir)
+    local func check(source){
+      os.write_file(concat(dir, "/c.slang"), source)
+      return json.decode(
+        compiler.highlight_json(concat(dir, "/c.slang"), true),
+      ).diagnostics
+    }
+    local twice = check("local a = 1\nlocal a = 2\n")
+    assert(len(twice) == 1 and twice[0].line == 2 and twice[0].column == 7)
+    assert(twice[0].message == "Variable already declared: a", twice[0].message)
+    local lint = check("local used = 1\nlocal unused = 2\nprint(used, nope)\n")
+    assert(len(lint) == 2, string(lint))
+    assert(lint[0].severity == "hint" and lint[0].length == 6)
+    assert(
+      lint[1].severity == "warning" and lint[1].message == "nope is not defined",
+    )
+    // a parse error is all it reports
+    assert(len(check("local x = (1 +\n")) > 0)
+    assert(len(check("print(1)\n")) == 0)
+  }
 }
 
 t.group("utf16 positions"){

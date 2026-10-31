@@ -44,7 +44,9 @@ fn usage(io: std.Io) noreturn {
         \\  slang repl
         \\  slang compile <file.slang> [-o out.slb] [--origin name] [--strip]
         \\  slang disasm <file.slb|file.slang>
-        \\  slang highlight <file>       print the tokens and parse errors of a file as JSON
+        \\  slang highlight [--check] <file>
+        \\                              print the tokens and parse errors of a file as JSON
+        \\                              (--check: also compile errors and lint warnings)
         \\  slang expand <file>          print a file as slang source after its extensions were applied
         \\  slang fmt [--check] [--stdout] <file|dir>...
         \\                              format files in place (--check: list the ones that would change)
@@ -110,7 +112,9 @@ pub fn main(init: std.process.Init) !u8 {
         compileFile(init, args);
     } else if (std.mem.eql(u8, cmd, "highlight")) {
         if (args.len < 1) usage(io);
-        highlightFile(init, args[0]);
+        const check = std.mem.eql(u8, args[0], "--check");
+        if (check and args.len < 2) usage(io);
+        highlightFile(init, if (check) args[1] else args[0], check);
     } else if (std.mem.eql(u8, cmd, "expand")) {
         if (args.len < 1) usage(io);
         expandFile(init, args[0]);
@@ -340,11 +344,11 @@ fn toolMain(init: std.process.Init, module: []const u8, args: []const []const u8
 }
 
 /// Prints the tokens and diagnostics of a file as JSON (compiler.highlight_json).
-fn highlightFile(init: std.process.Init, path: []const u8) void {
+fn highlightFile(init: std.process.Init, path: []const u8, check: bool) void {
     const vm = newVM(init, &.{});
     defer vm.destroy();
     const compiler = vm.call(vm.getGlobal("require"), &.{vm.str("slang/compiler")}) catch fail(vm);
-    const res = vm.call(compiler.table.getName("highlight_json"), &.{vm.str(path)}) catch fail(vm);
+    const res = vm.call(compiler.table.getName("highlight_json"), &.{ vm.str(path), Value.fromBool(check) }) catch fail(vm);
     const text = res.asBytes() orelse failMsg(vm, "highlight_json did not return a string", .{});
     vm.out().writeAll(text) catch {};
     vm.out().writeByte('\n') catch {};

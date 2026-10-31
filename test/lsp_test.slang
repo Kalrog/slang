@@ -213,7 +213,7 @@ t.group("language server"){
   t.test("unknown methods, shutdown and exit"){
     local s = lsp.new()
     local r = s:handle(request(5, "textDocument/codeLens", {}))
-    assert(r[0].error.code == - 32601)
+    assert(r[0].error.code == -32601)
     assert(len(s:handle(notify("textDocument/nothing", {}))) == 0)
     local down = s:handle(request(6, "shutdown", null))[0]
     assert(type(down.result) == "json.null" and s.shutdown_requested)
@@ -243,7 +243,7 @@ t.group("language server: names"){
   open_doc(s, uri, text)
   // the position of the nth occurrence of word in main.slang
   local func pos(word, nth){
-    local i = - 1
+    local i = -1
     for(local k = 0; k <= (nth or 0); k = k + 1){
       i = str.index_of(text, word, i + 1)
     }

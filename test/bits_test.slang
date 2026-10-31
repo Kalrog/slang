@@ -16,18 +16,18 @@ t.group("bitwise operators"){
     assert(12 & 10 == 8)
     assert(12 | 10 == 14)
     assert(12 ~ 10 == 6)
-    assert(~0 == - 1)
-    assert(~5 == - 6)
+    assert(~0 == -1)
+    assert(~5 == -6)
     assert(255 & ~15 == 240)
     local a = 12
     local b = 10
-    assert(a & b == 8 and a | b == 14 and a ~ b == 6 and ~a == - 13)
+    assert(a & b == 8 and a | b == 14 and a ~ b == 6 and ~a == -13)
   }
   t.test("shifts"){
     assert(1 << 4 == 16)
     assert(256 >> 4 == 16)
-    assert(- 16 >> 2 == - 4, ">> keeps the sign")
-    assert(- 1 >> 70 == - 1 and 5 >> 70 == 0, "shifting right by 64 or more")
+    assert(-16 >> 2 == -4, ">> keeps the sign")
+    assert(-1 >> 70 == -1 and 5 >> 70 == 0, "shifting right by 64 or more")
     assert(1 << 64 == 0 and 1 << 100 == 0, "shifting left by 64 or more")
     assert(1 << 63 < 0, "bit 63 is the sign")
     local n = 3
@@ -39,13 +39,13 @@ t.group("bitwise operators"){
     assert(1 | 2 ~ 3 == 1 | (2 ~ 3), "xor binds tighter than or")
     assert(1 ~ 3 & 2 == 1 ~ (3 & 2), "and binds tighter than xor")
     assert(2 * 3 & 2 == 2, "(2 * 3) & 2")
-    assert(~1 + 1 == - 1, "unary ~ binds like unary -")
+    assert(~1 + 1 == -1, "unary ~ binds like unary -")
     assert((1 | 2) == 3 and (1 | 2 == 3) == true)
   }
   t.test("floats with integral values convert"){
     assert(6.0 & 3 == 2)
     assert(1 << 2.0 == 4)
-    assert(~1.0 == - 2)
+    assert(~1.0 == -2)
     assert(type(6.0 | 1) == "int")
   }
   t.test("other operands are errors"){

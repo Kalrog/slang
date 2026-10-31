@@ -1092,7 +1092,7 @@ local func install_core(g){
     // recording one at every token boundary without space was a tenth of
     // the parse time)
     if(q == pos){
-      return - 1
+      return -1
     }
     ctx.value = null
     return q
@@ -1150,7 +1150,7 @@ local func install_core(g){
           ctx.far_pos = start
           ctx.far_msg = message
         }
-        return - 1
+        return -1
       }
       local stop = start + n
       if(word and str.class_match(word_end, buf, stop) > 0){
@@ -2080,7 +2080,7 @@ local func install_core(g){
     }
     local q = peg.sub(unquote_body_ref, ctx, pos)
     if(q < 0){
-      return - 1
+      return -1
     }
     // (the tree of the body, when one is built, for a memo hit)
     local body_tree = null
@@ -2466,7 +2466,7 @@ local func trivia_start(buf, from, to){
     for(line > from and str.byte_at(buf, line - 1) != 10){
       line = line - 1
     }
-    local comment = - 1
+    local comment = -1
     local in_string = false
     local i = line
     for(i < k - 1){
@@ -2692,7 +2692,7 @@ local func parse_top_level(g, source, origin, scoped, recover, tree){
     }
     region.stop = next
     pos = next
-    ctx.far_pos = - 1
+    ctx.far_pos = -1
     ctx.far_msg = null
     if(pos >= len(source)){
       stop = pos

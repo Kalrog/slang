@@ -107,12 +107,12 @@ t.group("try and catch"){
         try {
           if(list[i] == wanted){ return i }
         } catch {
-          return - 2
+          return -2
         }
       }
-      return - 1
+      return -1
     }
-    assert(find({"a", "b"}, "b") == 1 and find({}, "x") == - 1)
+    assert(find({"a", "b"}, "b") == 1 and find({}, "x") == -1)
     local count = 0
     for(local i = 0; i < 10; i = i + 1){
       try {
@@ -283,7 +283,7 @@ t.group("if expressions"){
     local func sign(n){
       return if(n < 0){ "negative" } else if(n == 0){ "zero" } else { "positive" }
     }
-    assert(sign(- 3) == "negative" and sign(0) == "zero" and sign(
+    assert(sign(-3) == "negative" and sign(0) == "zero" and sign(
         7,
       ) == "positive")
     assert(if(false){ 1 } else { 2 } + 10 == 12)

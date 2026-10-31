@@ -24,5 +24,5 @@ postfix _! before _unary_ (n){
 
 print(1 <> 2 <> 3, "\n")
 print(2 ** 3 ** 2, "\n")
-print(|- - 7, "\n")
+print(|- -7, "\n")
 print(5!, "\n")

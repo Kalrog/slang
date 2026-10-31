@@ -172,7 +172,7 @@ t.group("project file"){
       message_of(r),
     )
     assert(
-      json.compile("[1, 2.5, -3, 1e2]", "numbers")() == {1, 2.5, - 3, 100.0},
+      json.compile("[1, 2.5, -3, 1e2]", "numbers")() == {1, 2.5, -3, 100.0},
       "numbers",
     )
   }

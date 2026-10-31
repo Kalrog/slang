@@ -637,7 +637,7 @@ func grammar.new(opts){
       }
       local q = body_ref:parse_on(ctx, pos)
       if(q < 0){
-        return - 1
+        return -1
       }
       local t = ctx.value
       local parts = split_quote_body(t.value)
@@ -898,7 +898,7 @@ func grammar.new(opts){
       }
       i = i + 1
     }
-    return - 1
+    return -1
   }
 
   local func insert_at(levels, index, level){

@@ -124,7 +124,7 @@ local func fail(ctx, pos, msg){
     ctx.far_pos = pos
     ctx.far_msg = msg
   }
-  return - 1
+  return -1
 }
 
 local func node(p, start, stop, kids){
@@ -290,8 +290,8 @@ func peg.context(buffer, options){
   return {
     buffer: buffer,
     len: len(buffer),
-    fail_pos: - 1,
-    far_pos: - 1,
+    fail_pos: -1,
+    far_pos: -1,
     tree_on: tree_on,
     collect: null,
     memo: {},
@@ -358,7 +358,7 @@ func peg.string(s, message){
       ctx.far_pos = pos
       ctx.far_msg = msg
     }
-    return - 1
+    return -1
   }, null, "string")
   p.literal = s
   return p
@@ -510,7 +510,7 @@ local func choice_list(parsers){
           return p
         }
       }
-      return - 1
+      return -1
     },
     parsers,
     "choice",
@@ -522,7 +522,7 @@ local func choice_list(parsers){
           return p
         }
       }
-      return - 1
+      return -1
     },
   )
 }
@@ -538,7 +538,7 @@ local func seq_list(parsers){
         local child = parsers[i]
         pos = child:parse_on(ctx, pos)
         if(pos < 0){
-          return - 1
+          return -1
         }
         if(values == null){
           values = {}
@@ -555,7 +555,7 @@ local func seq_list(parsers){
         local child = parsers[i]
         pos = child.fast(child, ctx, pos)
         if(pos < 0){
-          return - 1
+          return -1
         }
       }
       return pos
@@ -644,7 +644,7 @@ func peg.plus(child){
     fast = func(self, ctx, pos){
       local q = child.fast(child, ctx, pos)
       if(q < 0){
-        return - 1
+        return -1
       }
       pos = q
       for(true){
@@ -661,7 +661,7 @@ func peg.plus(child){
     local values = {}
     local q = child:parse_on(ctx, pos)
     if(q < 0){
-      return - 1
+      return -1
     }
     list_push(values, ctx.value)
     pos = q
@@ -721,7 +721,7 @@ func peg.star_lazy(child, limit){
         }
         local q = child:parse_on(ctx, pos)
         if(q < 0){
-          return - 1
+          return -1
         }
         list_push(values, ctx.value)
         pos = q
@@ -736,7 +736,7 @@ func peg.star_lazy(child, limit){
         }
         local q = child.fast(child, ctx, pos)
         if(q < 0){
-          return - 1
+          return -1
         }
         pos = q
       }
@@ -751,7 +751,7 @@ local func separated(child, separator, at_least_one){
     local q = child:parse_on(ctx, pos)
     if(q < 0){
       if(at_least_one){
-        return - 1
+        return -1
       }
       ctx.value = {elements: elements, separators: separators}
       return pos
@@ -830,7 +830,7 @@ func peg.and(child){
   return new_parser(
     func(self, ctx, pos){
       if(child.fast(child, ctx, pos) < 0){
-        return - 1
+        return -1
       }
       ctx.value = null
       return pos
@@ -839,7 +839,7 @@ func peg.and(child){
     "and",
     func(self, ctx, pos){
       if(child.fast(child, ctx, pos) < 0){
-        return - 1
+        return -1
       }
       return pos
     },
@@ -887,7 +887,7 @@ func peg.pick(child, index){
     func(self, ctx, pos){
       local q = child:parse_on(ctx, pos)
       if(q < 0){
-        return - 1
+        return -1
       }
       local list = ctx.value
       if(index < 0){
@@ -916,7 +916,7 @@ func peg.permute(child, ...indices){
     func(self, ctx, pos){
       local q = child:parse_on(ctx, pos)
       if(q < 0){
-        return - 1
+        return -1
       }
       local list = ctx.value
       local out = {}
@@ -950,7 +950,7 @@ func peg.map(child, f){
   local p = new_parser(func(self, ctx, pos){
     local q = child:parse_on(ctx, pos)
     if(q < 0){
-      return - 1
+      return -1
     }
     ctx.value = f(ctx.value)
     return q
@@ -971,7 +971,7 @@ func peg.flatten(child, message){
         if(message != null){
           return fail(ctx, pos, message)
         }
-        return - 1
+        return -1
       }
       ctx.value = str.substring(ctx.buffer, pos, q)
       return q
@@ -1002,7 +1002,7 @@ func peg.token(child, category){
     func(self, ctx, pos){
       local q = child:parse_on(ctx, pos)
       if(q < 0){
-        return - 1
+        return -1
       }
       local t = peg.make_token(ctx, ctx.value, pos, q)
       if(static != null){
@@ -1081,7 +1081,7 @@ func peg.trim(child, before, after){
       pos = consume(before, ctx, pos)
       local q = child:parse_on(ctx, pos)
       if(q < 0){
-        return - 1
+        return -1
       }
       local v = ctx.value
       q = consume(after, ctx, q)
@@ -1094,7 +1094,7 @@ func peg.trim(child, before, after){
       pos = consume(before, ctx, pos)
       local q = child.fast(child, ctx, pos)
       if(q < 0){
-        return - 1
+        return -1
       }
       return consume(after, ctx, q)
     },
@@ -1111,7 +1111,7 @@ func peg.where(child, predicate, message){
   local p = new_parser(func(self, ctx, pos){
     local q = child:parse_on(ctx, pos)
     if(q < 0){
-      return - 1
+      return -1
     }
     if(not predicate(ctx.value)){
       return fail(ctx, pos, msg)
@@ -1545,7 +1545,7 @@ func peg.memoize(p){
     local q = parse_on(self, ctx, pos)
     if(q < 0){
       t[pos] = {
-        stop: - 1,
+        stop: -1,
         has_value: true,
         fail_pos: ctx.fail_pos,
         fail_msg: ctx.fail_msg,
@@ -1572,7 +1572,7 @@ func peg.memoize(p){
     local q = tree_path(self, ctx, pos)
     if(q < 0){
       t[pos] = {
-        stop: - 1,
+        stop: -1,
         has_value: true,
         fail_pos: ctx.fail_pos,
         fail_msg: ctx.fail_msg,
@@ -1594,7 +1594,7 @@ func peg.memoize(p){
     local q = fast(self, ctx, pos)
     if(q < 0){
       t[pos] = {
-        stop: - 1,
+        stop: -1,
         has_value: true,
         fail_pos: ctx.fail_pos,
         fail_msg: ctx.fail_msg,
@@ -1902,7 +1902,7 @@ func peg.dispatch(parsers, skip, message){
     if(not ctx.tried and message != null){
       return fail(ctx, ctx.skip_to, message)
     }
-    return - 1
+    return -1
   }, parsers, "dispatch")
   p.dispatch = d
   p.message = message
@@ -2042,7 +2042,7 @@ local func index_of(list, name){
       return i
     }
   }
-  return - 1
+  return -1
 }
 
 local func level_index(w, name){
@@ -2336,7 +2336,7 @@ local func build_tables(w){
         callback: callback, bp: rbp, nud: func(w, ctx, pos, op){
           local r = w:parse_at(ctx, pos, rbp)
           if(r < 0){
-            return - 1
+            return -1
           }
           ctx.value = callback(op, ctx.value)
           return r
@@ -2352,12 +2352,12 @@ local func build_tables(w){
         nud: func(w, ctx, pos, left){
           local r = w:parse_at(ctx, pos, 0)
           if(r < 0){
-            return - 1
+            return -1
           }
           local value = ctx.value
           local q = right:parse_on(ctx, r)
           if(q < 0){
-            return - 1
+            return -1
           }
           ctx.value = callback(left, value, ctx.value)
           return q
@@ -2383,7 +2383,7 @@ local func build_tables(w){
         led: func(w, ctx, pos, left, op){
           local r = w:parse_at(ctx, pos, rbp)
           if(r < 0){
-            return - 1
+            return -1
           }
           ctx.value = callback(left, op, ctx.value)
           return r
@@ -2399,7 +2399,7 @@ local func build_tables(w){
         led: func(w, ctx, pos, left, op){
           local r = w:parse_at(ctx, pos, rbp)
           if(r < 0){
-            return - 1
+            return -1
           }
           ctx.value = callback(left, op, ctx.value)
           return r
@@ -2442,7 +2442,7 @@ func walker_methods.parse_at(self, ctx, pos, min_bp){
   local sealed = self.sealed
   local cands = candidates(sealed.nuds, ctx, pos)
   local value = null
-  local q = - 1
+  local q = -1
   local tried_primary = false
   if(cands != null){
     local n = len(cands)
@@ -2473,7 +2473,7 @@ func walker_methods.parse_at(self, ctx, pos, min_bp){
     if(not tried_primary){
       return fail(ctx, pos, "expression expected")
     }
-    return - 1
+    return -1
   }
   for(true){
     local lc = candidates(sealed.leds, ctx, q)
@@ -2547,7 +2547,7 @@ local func nud_tree(w, e, ctx, pos, op, op_tree, start){
   if(form == "prefix"){
     local r = w:parse_at_tree(ctx, pos, e.bp)
     if(r < 0){
-      return - 1
+      return -1
     }
     local operand_tree = ctx.tree
     ctx.value = e.callback(op, ctx.value)
@@ -2558,13 +2558,13 @@ local func nud_tree(w, e, ctx, pos, op, op_tree, start){
   if(form == "wrapper"){
     local r = w:parse_at_tree(ctx, pos, 0)
     if(r < 0){
-      return - 1
+      return -1
     }
     local value = ctx.value
     local inner_tree = ctx.tree
     local q = tparse(e.right, ctx, r)
     if(q < 0){
-      return - 1
+      return -1
     }
     local right_tree = ctx.tree
     ctx.value = e.callback(op, value, ctx.value)
@@ -2578,7 +2578,7 @@ local func nud_tree(w, e, ctx, pos, op, op_tree, start){
   local r = e.nud(collecting_walker(w), ctx, pos, op)
   ctx.collect = saved
   if(r < 0){
-    return - 1
+    return -1
   }
   local kids = {op_tree}
   for(let local k in values(weave(e, ctx, op_tree.stop, r, trees))){
@@ -2601,7 +2601,7 @@ local func led_tree(w, e, ctx, pos, left, left_tree, op, op_tree){
   if(form == "left" or form == "right"){
     local r = w:parse_at_tree(ctx, pos, e.rbp)
     if(r < 0){
-      return - 1
+      return -1
     }
     local right_tree = ctx.tree
     ctx.value = e.callback(left, op, ctx.value)
@@ -2615,7 +2615,7 @@ local func led_tree(w, e, ctx, pos, left, left_tree, op, op_tree){
   local r = e.led(collecting_walker(w), ctx, pos, left, op)
   ctx.collect = saved
   if(r < 0){
-    return - 1
+    return -1
   }
   local kids = {left_tree, op_tree}
   for(let local k in values(weave(e, ctx, op_tree.stop, r, trees))){
@@ -2633,7 +2633,7 @@ func walker_methods.parse_at_tree(self, ctx, pos, min_bp){
   local cands = candidates(sealed.nuds, ctx, pos)
   local value = null
   local tree = null
-  local q = - 1
+  local q = -1
   local tried_primary = false
   if(cands != null){
     local n = len(cands)
@@ -2658,7 +2658,7 @@ func walker_methods.parse_at_tree(self, ctx, pos, min_bp){
     if(not tried_primary){
       return fail(ctx, pos, "expression expected")
     }
-    return - 1
+    return -1
   }
   for(true){
     local lc = candidates(sealed.leds, ctx, q)
@@ -2742,7 +2742,7 @@ tree_kinds.choice = func(self, ctx, pos){
       return q
     }
   }
-  return - 1
+  return -1
 }
 
 tree_kinds.seq = func(self, ctx, pos){
@@ -2754,7 +2754,7 @@ tree_kinds.seq = func(self, ctx, pos){
   for(local i = 0; i < n; i = i + 1){
     pos = tparse(parsers[i], ctx, pos)
     if(pos < 0){
-      return - 1
+      return -1
     }
     list_push(values, ctx.value)
     list_push(trees, ctx.tree)
@@ -2774,7 +2774,7 @@ local func repeat_tree(self, ctx, pos, at_least_one){
   for(true){
     local q = tparse(child, ctx, pos)
     if(q < 0 and first){
-      return - 1
+      return -1
     }
     if(q < 0 or (q == pos and not first)){
       break
@@ -2822,7 +2822,7 @@ tree_kinds.star_lazy = func(self, ctx, pos){
     }
     local q = tparse(child, ctx, pos)
     if(q < 0){
-      return - 1
+      return -1
     }
     list_push(values, ctx.value)
     list_push(trees, ctx.tree)
@@ -2841,7 +2841,7 @@ tree_kinds.separated = func(self, ctx, pos){
   local q = tparse(child, ctx, pos)
   if(q < 0){
     if(self.at_least_one){
-      return - 1
+      return -1
     }
     ctx.value = {elements: elements, separators: separators}
     ctx.tree = node(self, pos, pos, trees)
@@ -2875,7 +2875,7 @@ tree_kinds.separated = func(self, ctx, pos){
 tree_kinds.pick = func(self, ctx, pos){
   local q = tparse(self.children[0], ctx, pos)
   if(q < 0){
-    return - 1
+    return -1
   }
   local list = ctx.value
   local index = self.index
@@ -2891,7 +2891,7 @@ tree_kinds.pick = func(self, ctx, pos){
 tree_kinds.permute = func(self, ctx, pos){
   local q = tparse(self.children[0], ctx, pos)
   if(q < 0){
-    return - 1
+    return -1
   }
   local list = ctx.value
   local out = {}
@@ -2910,7 +2910,7 @@ tree_kinds.permute = func(self, ctx, pos){
 tree_kinds.map = func(self, ctx, pos){
   local q = tparse(self.children[0], ctx, pos)
   if(q < 0){
-    return - 1
+    return -1
   }
   local tree = ctx.tree
   ctx.value = self.fn(ctx.value)
@@ -2921,7 +2921,7 @@ tree_kinds.map = func(self, ctx, pos){
 tree_kinds.where = func(self, ctx, pos){
   local q = tparse(self.children[0], ctx, pos)
   if(q < 0){
-    return - 1
+    return -1
   }
   local tree = ctx.tree
   if(not self.predicate(ctx.value)){
@@ -2934,7 +2934,7 @@ tree_kinds.where = func(self, ctx, pos){
 tree_kinds.token = func(self, ctx, pos){
   local q = tparse(self.children[0], ctx, pos)
   if(q < 0){
-    return - 1
+    return -1
   }
   local tree = ctx.tree
   local t = peg.make_token(ctx, ctx.value, pos, q)
@@ -2949,7 +2949,7 @@ tree_kinds.token = func(self, ctx, pos){
 tree_kinds.tag = func(self, ctx, pos){
   local q = tparse(self.children[0], ctx, pos)
   if(q < 0){
-    return - 1
+    return -1
   }
   ctx.tree = node(self, pos, q, {ctx.tree})
   return q
@@ -2984,7 +2984,7 @@ tree_kinds.trim = func(self, ctx, pos){
   pos = consume_tree(self.children[1], ctx, pos, kids)
   local q = tparse(child, ctx, pos)
   if(q < 0){
-    return - 1
+    return -1
   }
   local v = ctx.value
   local at = len(kids)
@@ -3016,7 +3016,7 @@ tree_kinds.dispatch = func(self, ctx, pos){
     if(self.message != null){
       return fail(ctx, ctx.skip_to, self.message)
     }
-    return - 1
+    return -1
   }
   for(let local c in values(cands)){
     local q = tparse(c.parser, ctx, pos)
@@ -3024,7 +3024,7 @@ tree_kinds.dispatch = func(self, ctx, pos){
       return q
     }
   }
-  return - 1
+  return -1
 }
 
 // leaves(tree: Tree?) -> {Tree}: the leaves of tree in source order
@@ -3197,7 +3197,7 @@ local func layer_wrapper(child){
 tree_kinds.layer = func(self, ctx, pos){
   local q = tparse(self.children[0], ctx, pos)
   if(q < 0){
-    return - 1
+    return -1
   }
   ctx.tree = node(self, pos, q, {ctx.tree})
   return q

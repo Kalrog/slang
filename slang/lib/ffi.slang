@@ -943,7 +943,7 @@ func ffi.cdef(text, options){
 
   local func parse_enum_body(){
     expect("{")
-    local value = - 1
+    local value = -1
     for(not is("}")){
       local name = tokens[pos].text
       pos = pos + 1

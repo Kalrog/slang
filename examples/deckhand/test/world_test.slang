@@ -99,7 +99,7 @@ t.group("world"){
     w.player.yaw = 0.0
     walk(w, 0.7, {forward: 1})
     assert(w.state == "playing")
-    walk(w, 0.5, {forward: - 1})
+    walk(w, 0.5, {forward: -1})
     walk(w, 0.6, {})
     walk(w, 0.6, {forward: 1})
     assert(w.state == "caught" and w.reason == "you tripped laser1")

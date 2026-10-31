@@ -339,7 +339,7 @@ func World.limited(self, o, seconds, verb){
       seconds = o.limit
     }
   }
-  return seconds or - 1
+  return seconds or -1
 }
 
 local func do_open(self, o, seconds){
@@ -541,7 +541,7 @@ local func update_objects(self, dt){
 local func update_player(self, dt, input){
   local p = self.player
   p.yaw = p.yaw + (input.turn or 0)
-  p.pitch = clamp(p.pitch + (input.look or 0), - 1.3, 1.3)
+  p.pitch = clamp(p.pitch + (input.look or 0), -1.3, 1.3)
   local f = input.forward or 0
   local s = input.strafe or 0
   local n = math.sqrt(f * f + s * s)

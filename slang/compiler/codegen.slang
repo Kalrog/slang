@@ -144,7 +144,7 @@ func asm.create_local(self, name){
     register: register, name: name, scope: self.scope,
     previous: self.locals[name], captured: false
   }
-  lv.debug = {name, register, len(self.instructions), - 1}
+  lv.debug = {name, register, len(self.instructions), -1}
   append(self.local_vars, lv.debug)
   self.locals[name] = lv
   return lv
@@ -163,7 +163,7 @@ func asm.get_upvalue(self, name){
         name: name,
         index: len(self.upvalue_list),
         local_register: lv.register,
-        upvalue_index: - 1,
+        upvalue_index: -1,
         lv: lv,
       }
       self.upvalues[name] = def
@@ -175,7 +175,7 @@ func asm.get_upvalue(self, name){
       local def = {
         name: name,
         index: len(self.upvalue_list),
-        local_register: - 1,
+        local_register: -1,
         upvalue_index: up.index,
         lv: up.lv,
       }
@@ -689,7 +689,7 @@ func visitors.Null(g, node){
 
 local func visit_logical_and(g, node){
   g:visit(node.left)
-  g.asm:emit_push(- 1)
+  g.asm:emit_push(-1)
   g.asm:emit_test(false)
   local done = g.asm:emit_jump()
   g.asm:emit_pop()
@@ -699,7 +699,7 @@ local func visit_logical_and(g, node){
 
 local func visit_logical_or(g, node){
   g:visit(node.left)
-  g.asm:emit_push(- 1)
+  g.asm:emit_push(-1)
   g.asm:emit_test(true)
   local done = g.asm:emit_jump()
   g.asm:emit_pop()
@@ -1051,7 +1051,7 @@ func visitors.Field(g, node){
   if(node.key != null){
     name_next(g, node.key, node.value)
   }
-  g.asm:emit_push(- 1)
+  g.asm:emit_push(-1)
   g:visit(node.key)
   g:visit(node.value)
   g.asm:emit_set_table()
@@ -1273,12 +1273,12 @@ func visitors.Invoke(g, node){
     g.record:field(node, false)
   }
   g:visit(node.receiver)
-  g.asm:emit_push(- 1)
+  g.asm:emit_push(-1)
   g.asm:emit_load_constant(node.name.value)
   g.asm:emit_get_table()
-  g.asm:emit_push(- 2)
+  g.asm:emit_push(-2)
   emit_call_args(g, node.args, 1, node.token)
-  g.asm:emit_move(- 1)
+  g.asm:emit_move(-1)
 }
 
 func visitors.CallStat(g, node){
@@ -1317,10 +1317,10 @@ func visitors.ForIn(g, node){
   g:visit(node.itterator)
   local loop_start = g.asm:next_instruction_index()
   local p = g.asm:start_pattern()
-  g.asm:emit_push(- 1)
+  g.asm:emit_push(-1)
   g.asm:emit_call(0)
   p:increase_stack_height()
-  g.asm:emit_push(- 1)
+  g.asm:emit_push(-1)
   p:increase_stack_height()
   g:visit(node.pattern)
   p:complete_check_step()
@@ -1343,7 +1343,7 @@ func visitors.Let(g, node){
   local p = g.asm:start_pattern()
   g:visit(node.right)
   p:increase_stack_height()
-  g.asm:emit_push(- 1)
+  g.asm:emit_push(-1)
   p:increase_stack_height()
   g:visit(node.pattern)
   p:complete_check_step()
@@ -1371,13 +1371,13 @@ func visitors.ConstPattern(g, node){
 func visitors.FieldPattern(g, node){
   local p = g.asm:current_pattern()
   if(p.step == "check"){
-    g.asm:emit_push(- 1)
+    g.asm:emit_push(-1)
     g:visit(node.key)
     g.asm:emit_get_table()
     p:increase_stack_height()
     g:visit(node.value)
   } else {
-    g.asm:emit_push(- 1)
+    g.asm:emit_push(-1)
     g:visit(node.key)
     g.asm:emit_get_table()
     g:visit(node.value)
@@ -1394,7 +1394,7 @@ local func emit_match_call(g, node){
   // stack: value -> value, result
   g:visit(global_index(node.token, "__match"))
   g:visit(node.matcher)
-  g.asm:emit_push(- 3)
+  g.asm:emit_push(-3)
   g.asm:emit_call(2)
 }
 
@@ -1402,7 +1402,7 @@ func visitors.MatcherPattern(g, node){
   local p = g.asm:current_pattern()
   if(node.matcher == null){
     if(p.step == "check"){
-      g.asm:emit_push(- 1)
+      g.asm:emit_push(-1)
       g.asm:emit_type()
       g.asm:emit_load_constant(node.type_name)
       g.asm:emit_binop("==")
@@ -1415,8 +1415,8 @@ func visitors.MatcherPattern(g, node){
     emit_match_call(g, node)
     // the value is consumed; the result replaces it (a negative move
     // counts from the top after the pop)
-    g.asm:emit_move(- 1)
-    g.asm:emit_push(- 1)
+    g.asm:emit_move(-1)
+    g.asm:emit_push(-1)
     g.asm:emit_load_constant(null)
     g.asm:emit_binop("==")
     p:test_missmatch(true)
@@ -1428,7 +1428,7 @@ func visitors.MatcherPattern(g, node){
     }
   } else if(node.sub != null){
     emit_match_call(g, node)
-    g.asm:emit_move(- 1)
+    g.asm:emit_move(-1)
     g:visit(node.sub)
   } else {
     g.asm:emit_pop()
@@ -1438,7 +1438,7 @@ func visitors.MatcherPattern(g, node){
 func visitors.TablePattern(g, node){
   local p = g.asm:current_pattern()
   local fields = {}
-  local last_number = - 1
+  local last_number = -1
   for(let local f in values(node.fields)){
     if(f.key == null){
       last_number = last_number + 1
@@ -1455,7 +1455,7 @@ func visitors.TablePattern(g, node){
     }
   }
   if(p.step == "check"){
-    g.asm:emit_push(- 1)
+    g.asm:emit_push(-1)
     g.asm:emit_type()
     g.asm:emit_load_constant(node.type_check or "table")
     g.asm:emit_binop("==")
@@ -1495,7 +1495,7 @@ func visitors.VarPattern(g, node){
       record_use(g, node.name.value, node.name.token, true)
       g:visit(ast.node("Identifier", {value: "_ENV"}, node.token))
       g.asm:emit_load_constant(node.name.value)
-      g.asm:emit_push(- 3)
+      g.asm:emit_push(-3)
       g.asm:emit_set_table()
       g.asm:emit_pop()
     }

@@ -92,12 +92,12 @@ test.group("expression walker", func(){
     // a ternary with explicit binding powers, looser than sums
     w:led(tok("?"), bps.sum - 1, func(w, ctx, pos, cond, op){
       local r = w:parse_at(ctx, pos, 0)
-      if(r < 0){ return - 1 }
+      if(r < 0){ return -1 }
       local yes = ctx.value
       local q = tok(":"):parse_on(ctx, r)
-      if(q < 0){ return - 1 }
+      if(q < 0){ return -1 }
       r = w:parse_at(ctx, q, bps.sum - 1)
-      if(r < 0){ return - 1 }
+      if(r < 0){ return -1 }
       ctx.value = {"if", cond, yes, ctx.value}
       return r
     })
@@ -105,7 +105,7 @@ test.group("expression walker", func(){
     // a prefix with an explicit power that takes a parenthesised operand
     w:nud(tok("@"), bps.call + 5, func(w, ctx, pos, op){
       local r = w:parse_at(ctx, pos, bps.call + 5)
-      if(r < 0){ return - 1 }
+      if(r < 0){ return -1 }
       ctx.value = {"at", ctx.value}
       return r
     })

@@ -424,7 +424,7 @@ t.group("highlights"){
     local custom = peg.custom(func(self, ctx, pos){
       local q = peg.sub(names, ctx, pos)
       if(q < 0){
-        return - 1
+        return -1
       }
       q = rest:parse_on(ctx, q)
       return peg.sub(names, ctx, q)

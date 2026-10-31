@@ -48,7 +48,7 @@ local func rows_of(raw){
   local lines = str.split(raw.text, "\n")
   local rows = {}
   local numbers = {}
-  local indent = - 1
+  local indent = -1
   for(local i = 0; i < len(lines); i = i + 1){
     local line = rtrim(lines[i])
     if(str.trim(line) != ""){

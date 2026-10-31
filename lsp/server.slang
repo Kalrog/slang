@@ -95,7 +95,7 @@ func lsp.frame(buffer){
       break
     }
     local head = str.substring(buffer, 0, head_end)
-    local length = - 1
+    local length = -1
     for(let local line in values(str.split(head, "\r\n"))){
       local i = str.index_of(line, ":")
       if(i >= 0 and
@@ -1204,7 +1204,7 @@ handlers["textDocument/prepareRename"] = func(s, id, params){
   }
   local t = rename_target(s, at)
   if(t.error != null){
-    return {error_response(id, - 32803, t.error)}
+    return {error_response(id, -32803, t.error)}
   }
   return {
     response(id, {
@@ -1222,13 +1222,13 @@ handlers["textDocument/rename"] = func(s, id, params){
   if(not valid_name(params.newName)){
     return {
       error_response(
-        id, - 32803, concat(string(params.newName), " is not a name")
+        id, -32803, concat(string(params.newName), " is not a name")
       ),
     }
   }
   local t = rename_target(s, at)
   if(t.error != null){
-    return {error_response(id, - 32803, t.error)}
+    return {error_response(id, -32803, t.error)}
   }
   local nav = nav_of(s)
   local changes = {}
@@ -2261,8 +2261,8 @@ handlers["textDocument/rangeFormatting"] = func(s, id, params){
   if(params.range["end"].character == 0 and last_line > first_line){
     last_line = last_line - 1
   }
-  local i = - 1
-  local j = - 1
+  local i = -1
+  local j = -1
   for(local k = 0; k < len(a); k = k + 1){
     if(a[k].line >= first_line and a[k].line <= last_line){
       if(i < 0){
@@ -2325,7 +2325,7 @@ func methods.handle(s, message){
   local h = handlers[method]
   if(h == null){
     if(id != null){
-      return {error_response(id, - 32601, concat("method not found: ", method))}
+      return {error_response(id, -32601, concat("method not found: ", method))}
     }
     return {}
   }
@@ -2335,7 +2335,7 @@ func methods.handle(s, message){
     if(type(msg) == "table"){ msg = msg.message }
     s.log(concat("error handling ", method, ": ", msg))
     if(id != null){
-      return {error_response(id, - 32603, msg)}
+      return {error_response(id, -32603, msg)}
     }
     return {}
   }

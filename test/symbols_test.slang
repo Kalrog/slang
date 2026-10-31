@@ -22,7 +22,7 @@ local func word_char(source, i){
 // the def or ref at the nth occurrence of word as a whole name (the cursor
 // on its first letter)
 local func at(source, index, word, nth){
-  local i = - 1
+  local i = -1
   local k = 0
   for(true){
     i = str.index_of(source, word, i + 1)

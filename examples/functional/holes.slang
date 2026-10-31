@@ -108,7 +108,7 @@ g:expression():nud(g:token("=>", "=>", "operator"), 0, func(w, ctx, pos, op){
   local r = w:parse_at(ctx, pos, 0)
   arrows = arrows - 1
   if(r < 0){
-    return - 1
+    return -1
   }
   local f = lift(ctx.value, true)
   f.token = op

@@ -27,8 +27,8 @@ local func test(){
   assert((v3 .x) == 4)
   assert(v3 .y == 6)
   local v4 = v1:sub(v2)
-  assert(v4 .x == - 2)
-  assert(v4 .y == - 2)
+  assert(v4 .x == -2)
+  assert(v4 .y == -2)
 }
 
 test()

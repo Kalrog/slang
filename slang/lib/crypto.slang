@@ -188,7 +188,7 @@ func crypto.unsign_value(secret, signed){
     return null
   }
   // the mac is the part after the last dot; the value may contain dots
-  local dot = - 1
+  local dot = -1
   for(local i = len(signed) - 1; i >= 0; i = i - 1){
     if(str.byte_at(signed, i) == 46){
       dot = i

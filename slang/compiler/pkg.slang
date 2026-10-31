@@ -101,7 +101,7 @@ func pkg.parse_version(s){
 func pkg.compare(a, b){
   for(let local k in values({"major", "minor", "patch"})){
     if(a[k] != b[k]){
-      return a[k] < b[k] and - 1 or 1
+      return a[k] < b[k] and -1 or 1
     }
   }
   return 0

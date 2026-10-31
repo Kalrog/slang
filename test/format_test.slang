@@ -142,7 +142,7 @@ t.group("slang fmt"){
     )
     formats(
       "local w = - 1\nlocal v = -x + not y",
-      "local w = - 1\nlocal v = -x + not y\n",
+      "local w = -1\nlocal v = -x + not y\n",
     )
   }
   t.test("an extension that marks its parsers is formatted"){

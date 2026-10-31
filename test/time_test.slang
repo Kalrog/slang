@@ -23,7 +23,7 @@ t.group("time"){
       e.year == 1970 and e.month == 1 and e.day == 1 and e.weekday == 4 and
         e.yday == 1,
     )
-    local before = time.utc(- 1)
+    local before = time.utc(-1)
     assert(
       before.year == 1969 and before.month == 12 and before.day == 31 and
         before.second == 59,
@@ -40,7 +40,7 @@ t.group("time"){
     }) == example)
     assert(time.from_utc({year: 1970}) == 0, "fields default to the start")
     assert(time.from_utc({year: 1970, ms: 500}) == 0.5)
-    for(local s = - 5000000000; s < 5000000000; s = s + 123456789){
+    for(local s = -5000000000; s < 5000000000; s = s + 123456789){
       local u = time.utc(s)
       assert(time.from_utc(u) == s, concat("round trip of ", string(s)))
     }
@@ -59,7 +59,7 @@ t.group("time"){
       year: 2026, month: 0
     })) == "2025-12-01T00:00:00Z")
     assert(time.iso(time.from_utc({
-      year: 2026, month: 1, day: 1, hour: - 1
+      year: 2026, month: 1, day: 1, hour: -1
     })) == "2025-12-31T23:00:00Z")
     local r = pcall(time.from_utc, {month: 1})
     assert(r[0] == "err" and r[1].message == "from_utc: year is required")
@@ -94,7 +94,7 @@ t.group("time"){
   t.test("iso formats RFC 3339 in UTC"){
     assert(time.iso(example) == "1994-11-06T08:49:37Z")
     assert(time.iso(example + 0.25) == "1994-11-06T08:49:37.250Z")
-    assert(time.iso(- 0.5) == "1969-12-31T23:59:59.500Z")
+    assert(time.iso(-0.5) == "1969-12-31T23:59:59.500Z")
     local r = pcall(time.iso, 99999999999999)
     assert(r[0] == "err")
   }

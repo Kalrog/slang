@@ -669,7 +669,7 @@ local func parse_result(rest){
     return {type: whole}
   }
   // the first `:` outside brackets: `{[string]: T}: text`
-  local colon = - 1
+  local colon = -1
   local depth = 0
   for(local k = 0; k < len(rest) and colon < 0; k = k + 1){
     local b = str.byte_at(rest, k)

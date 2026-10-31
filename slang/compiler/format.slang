@@ -479,7 +479,7 @@ func format.print(doc, width){
   // the indentation of the current line
   local line_ind = 0
   // indentation waits for the next text, so that empty lines get none
-  local pending = - 1
+  local pending = -1
   local si = {0}
   local sm = {BREAK}
   local sd = {doc}
@@ -490,7 +490,7 @@ func format.print(doc, width){
         list_push(out, spaces(pending))
       }
       col = pending
-      pending = - 1
+      pending = -1
     }
     list_push(out, s)
     local nl = str.index_of(s, "\n")
@@ -694,7 +694,7 @@ func format.print(doc, width){
 local func flat_width(d){
   if(type(d) == "string"){
     if(str.index_of(d, "\n") >= 0){
-      return - 1
+      return -1
     }
     return width_of(d)
   }
@@ -710,7 +710,7 @@ local func flat_width(d){
     for(local i = 0; i < len(list); i = i + 1){
       local x = flat_width(list[i])
       if(x < 0){
-        return - 1
+        return -1
       }
       w = w + x
     }
@@ -718,7 +718,7 @@ local func flat_width(d){
   }
   if(t == "line"){
     if(d.hard){
-      return - 1
+      return -1
     }
     if(d.soft){
       return 0
@@ -726,7 +726,7 @@ local func flat_width(d){
     return 1
   }
   if(t == "break_parent"){
-    return - 1
+    return -1
   }
   if(t == "if_break"){
     return flat_width(d.flat)
@@ -735,7 +735,7 @@ local func flat_width(d){
     return flat_width(d.options[0])
   }
   if(t == "group" and d.hard){
-    return - 1
+    return -1
   }
   return flat_width(d.doc)
 }
@@ -1115,8 +1115,9 @@ func formatter_methods.safe_none(self, a, b){
   if(is_word_byte(x) and is_word_byte(y)){
     return " "
   }
-  // - 1 is not -1, - -x is not --x, a / /b/ is not a //
-  if((x == 45 or x == 43) and (is_digit_byte(y) or y == x)){
+  // - -x is not --x, a / /b/ is not a // (-1 is the same as - 1: the
+  // prefix operator comes before a signed number)
+  if((x == 45 or x == 43) and y == x){
     return " "
   }
   if(x == 47 and y == 47){
@@ -1249,7 +1250,7 @@ func formatter_methods.join_verbatim(self, pieces){
   }
   local segments = {}
   local current = {}
-  local current_nest = - 1
+  local current_nest = -1
   local func close(){
     if(current_nest < 0){
       list_push(segments, current)

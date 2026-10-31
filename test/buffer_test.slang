@@ -16,13 +16,13 @@ t.group("buffers"){
     assert(string(b) == "buffer<double>[4]" and type(b) == "buffer")
     local r = pcall(func(){ return b[4] })
     assert(r[1].message == "buffer index 4 out of range (length 4)")
-    r = pcall(func(){ b[- 1] = 1 })
+    r = pcall(func(){ b[-1] = 1 })
     assert(r[0] == "err")
     r = pcall(func(){ b[0] = "x" })
     assert(str.index_of(r[1].message, "double expected, got string") >= 0)
   }
   t.test("types by C name or slang/ctypes name; values wrap to the type"){
-    local bytes = buffer.from({255, 256, - 1}, "unsigned char")
+    local bytes = buffer.from({255, 256, -1}, "unsigned char")
     assert(bytes:to_list() == {255, 0, 255})
     assert(buffer.from({70000}, "int16")[0] == 4464)
     assert(buffer.new("int", 1):size() == 4)

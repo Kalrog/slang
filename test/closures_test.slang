@@ -34,7 +34,7 @@ test.group("closure test", func(){
     assert(inc() == 4)
     assert(dec() == 2)
     assert(dec() == 0)
-    assert(dec() == - 2)
+    assert(dec() == -2)
     assert(inc() == 0)
   })
   test.test("open upvalue", func(){

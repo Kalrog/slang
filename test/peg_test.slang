@@ -38,7 +38,7 @@ t.group("peg"){
     ok(r)
     assert(r[1] == {"a", "b", "c"}, "seq collects values")
     ok(p:pick(1):parse("abc"), "b")
-    ok(p:pick(- 1):parse("abc"), "c")
+    ok(p:pick(-1):parse("abc"), "c")
     assert(
       p:parse("abd")[1] == "\"c\" expected at 1:3",
       "failure of the failing element",
@@ -196,7 +196,7 @@ t.group("peg"){
     local p = w:build():end()
     ok(p:parse("1 + 2 * 3"), 7)
     ok(p:parse("(1 + 2) * 3"), 9)
-    ok(p:parse("-2 * 3"), - 6)
+    ok(p:parse("-2 * 3"), -6)
     ok(p:parse("2 ^ 3 ^ 2"), 512)
     ok(p:parse("10 - 2 - 3"), 5)
     ok(p:parse("3 + 1 !"), 24)

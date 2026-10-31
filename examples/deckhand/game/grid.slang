@@ -17,10 +17,10 @@ local grid = {}
 
 // the four directions: facing vectors and yaw (forward = cos yaw, sin yaw)
 grid.dirs = {
-  north: {dx: 0, dz: - 1, yaw: - 1.5707963267948966},
+  north: {dx: 0, dz: -1, yaw: -1.5707963267948966},
   east: {dx: 1, dz: 0, yaw: 0.0},
   south: {dx: 0, dz: 1, yaw: 1.5707963267948966},
-  west: {dx: - 1, dz: 0, yaw: 3.141592653589793},
+  west: {dx: -1, dz: 0, yaw: 3.141592653589793},
 }
 grid.dir_order = {"north", "east", "south", "west"}
 
@@ -130,7 +130,7 @@ func grid.parse(rows, fail){
     }
   }
   // the start looks down the longest open line
-  local best = - 1
+  local best = -1
   for(let local name in values(grid.dir_order)){
     local d = grid.dirs[name]
     local run = 0

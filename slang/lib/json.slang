@@ -198,7 +198,7 @@ local func encode_value(v, out, indent, depth){
   } else if(t == "int"){
     append(out, string(v))
   } else if(t == "double"){
-    if(v != v or v == 1.0 / 0.0 or v == - 1.0 / 0.0){
+    if(v != v or v == 1.0 / 0.0 or v == -1.0 / 0.0){
       error("cannot encode ", v, " as JSON")
     }
     append(out, string(v))

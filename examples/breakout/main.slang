@@ -69,7 +69,7 @@ local func new_game(){
 }
 
 local func launch(){
-  local angle = math.random(- 0.6, 0.6)
+  local angle = math.random(-0.6, 0.6)
   local speed = 380
   game.ball.vx = speed * math.sin(angle)
   game.ball.vy = -speed * math.cos(angle)
@@ -99,7 +99,7 @@ local func update_paddle(dt){
   if(autoplay){
     local center = p.x + p.w / 2
     if(game.ball.x < center - 4){
-      dir = - 1
+      dir = -1
     } else if(game.ball.x > center + 4){ dir = 1 }
   } else {
     if(rl.is_key_down(rl.KEY_LEFT) or rl.is_key_down(rl.KEY_A)){ dir = dir - 1 }

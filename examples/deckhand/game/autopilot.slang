@@ -39,7 +39,7 @@ func autopilot.path(w, from, to){
   local came = {[key(from.x, from.z)]: from}
   local queue = {from}
   local head = 0
-  local dirs = {{1, 0}, {- 1, 0}, {0, 1}, {0, - 1}}
+  local dirs = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}}
   for(head < len(queue)){
     local c = queue[head]
     head = head + 1

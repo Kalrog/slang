@@ -221,7 +221,7 @@ local func draw_laser(w, o){
     ax = 0.0
     az = 1.0
   }
-  for(let local s in values({- 1, 1})){
+  for(let local s in values({-1, 1})){
     // the emitters on both walls
     rl.draw_cube(
       {o.x + ax * s * 0.47, H * 0.45, o.z + az * s * 0.47}, 0.06 + az * 0.1,

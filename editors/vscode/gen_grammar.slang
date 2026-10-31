@@ -10,12 +10,23 @@ local str = require("slang/string")
 
 local g = compiler.grammar()
 local control = {
-  ["if"]: true, ["else"]: true, ["for"]: true, ["return"]: true,
-  ["break"]: true, ["continue"]: true, ["let"]: true, ["in"]: true,
-  ["try"]: true, ["catch"]: true, ["defer"]: true,
+  ["if"]: true,
+  ["else"]: true,
+  ["for"]: true,
+  ["return"]: true,
+  ["break"]: true,
+  ["continue"]: true,
+  ["let"]: true,
+  ["in"]: true,
+  ["try"]: true,
+  ["catch"]: true,
+  ["defer"]: true,
 }
 local storage = {
-  ["local"]: true, ["func"]: true, ["extension"]: true, ["global"]: true,
+  ["local"]: true,
+  ["func"]: true,
+  ["extension"]: true,
+  ["global"]: true,
 }
 local constants = {["true"]: true, ["false"]: true, ["null"]: true}
 
@@ -69,7 +80,9 @@ local grammar = {
     strings: {
       patterns: json.array({
         {
-          name: "string.quoted.triple.slang", begin: "\"\"\"", ["end"]: "\"\"\"",
+          name: "string.quoted.triple.slang",
+          begin: "\"\"\"",
+          ["end"]: "\"\"\"",
         },
         {
           name: "string.quoted.double.slang",
@@ -93,7 +106,7 @@ local grammar = {
           match: concat(
             "\\b(0[xX][0-9a-fA-F](_?[0-9a-fA-F])*|0[oO][0-7](_?[0-7])*",
             "|0[bB][01](_?[01])*",
-            "|[0-9](_?[0-9])*(\\.[0-9](_?[0-9])*)?([eE][+-]?[0-9](_?[0-9])*)?)\\b"
+            "|[0-9](_?[0-9])*(\\.[0-9](_?[0-9])*)?([eE][+-]?[0-9](_?[0-9])*)?)\\b",
           ),
         },
       }),

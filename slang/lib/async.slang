@@ -974,7 +974,7 @@ func fs.close(fd){ return fs_call("fs_close", fd) }
 // [offset]: where to read; null reads on from the current position
 func fs.read(fd, length, offset){
   return async.wrap(func(cb){
-    loop_module().fs_read(fd, length, offset or - 1, cb)
+    loop_module().fs_read(fd, length, offset or -1, cb)
   })
 }
 
@@ -983,7 +983,7 @@ func fs.read(fd, length, offset){
 // [offset]: where to write; null writes on from the current position
 func fs.write(fd, data, offset){
   return async.wrap(func(cb){
-    loop_module().fs_write(fd, data, offset or - 1, cb)
+    loop_module().fs_write(fd, data, offset or -1, cb)
   })
 }
 

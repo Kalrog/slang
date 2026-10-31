@@ -152,7 +152,7 @@ t.group("operator metamethods"){
     assert((b / 2).x == 5.0, "__div")
     assert((b % 3).x == 1, "__mod")
     assert((a ^ 2).y == 4, "__pow")
-    assert((-a).x == - 1 and (-a).y == - 2, "__unm")
+    assert((-a).x == -1 and (-a).y == -2, "__unm")
     assert((a + b + a).x == 12, "chained")
   }
   t.test("__eq replaces structural equality"){

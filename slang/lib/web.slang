@@ -531,7 +531,7 @@ local types = {
 // The media type for the file's extension, like "text/css; charset=utf-8";
 // application/octet-stream when it is not known.
 func web.type_of(path){
-  local dot = - 1
+  local dot = -1
   for(local i = len(path) - 1; i >= 0; i = i - 1){
     local c = str.char_at(path, i)
     if(c == "."){

@@ -87,7 +87,7 @@ local tag_token = peg.token(tag_name, func(name){
 local text_class = str.char_class("^<{")
 local word_class = str.char_class("^ \t\r\n<{")
 local blank_class = str.char_class(" \t\r\n")
-local text_word = peg.custom(func(self, ctx, pos){ return - 1 })
+local text_word = peg.custom(func(self, ctx, pos){ return -1 })
 local text_space = peg.whitespace()
 local text = peg.custom(
   func(self, ctx, pos){

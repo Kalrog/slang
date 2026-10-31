@@ -399,6 +399,7 @@ class Workbench {
   }
   async run() {
     if (this.running) return;
+    if (usesRaylib(this.editor.value)) return this.runGraphics();
     this.running = true;
     this.runButton.textContent = "Stop";
     this.runButton.classList.add("stop");
@@ -433,7 +434,81 @@ class Workbench {
     const ms = Math.round(r.ms);
     this.say(r.code === 0 ? `done in ${ms} ms` : `exit code ${r.code}`);
   }
+  // a raylib program: the graphics VM, a canvas above the output
+  async runGraphics() {
+    stopGraphics();
+    this.running = true;
+    this.runButton.textContent = "Stop";
+    this.runButton.classList.add("stop");
+    this.output.classList.add("shown");
+    this.output.innerHTML = "";
+    this.say("loading raylib…");
+    guardKeys();
+    let stage = this.root.querySelector(".stage");
+    if (!stage) {
+      stage = document.createElement("div");
+      stage.className = "stage";
+      this.output.before(stage);
+    }
+    // a fresh canvas for every run: a WebGL context does not start over
+    stage.innerHTML = '<canvas tabindex="0" aria-label="The program\'s window"></canvas>' +
+      '<p class="hint">Click the window to give it the keyboard.</p>';
+    const canvas = stage.querySelector("canvas");
+    const shift = this.editor.prefixLines;
+    const show = (fd) => (text) => {
+      this.output.insertAdjacentHTML("beforeend", outputHtml(text + "\n", fd, shift));
+      this.output.scrollTop = this.output.scrollHeight;
+    };
+    let createSlang;
+    try {
+      ({ default: createSlang } = await import(new URL("slang-gfx.js", import.meta.url)));
+    } catch {
+      show(2)("The graphics VM is not built here (make wasm-gfx).");
+      return this.graphicsEnded("unavailable");
+    }
+    let module = null;
+    module = await createSlang({
+      canvas,
+      print: show(1),
+      printErr: show(2),
+      // (a run that was stopped ends here too: its status stays)
+      onExit: (code) => {
+        if (gfx && gfx.module === module) this.graphicsEnded(code === 0 ? "done" : `exit code ${code}`);
+      },
+    });
+    gfx = { module, canvas, bench: this };
+    module.FS.mkdir("/work");
+    for (const [path, text] of Object.entries(this.files || {})) {
+      const parts = path.split("/");
+      for (let i = 1; i < parts.length; i++) {
+        try { module.FS.mkdir("/work/" + parts.slice(0, i).join("/")); } catch {}
+      }
+      module.FS.writeFile("/work/" + path, text);
+    }
+    module.FS.writeFile("/work/main.slang", this.prefix + this.editor.value);
+    module.FS.writeFile("/work/slang.project", '{name: "playground", dependencies: {raylib: {path: "/raylib"}}}');
+    module.FS.writeFile("/work/slang.lock", '{["raylib"]: {path: "/raylib"}}');
+    this.say("running");
+    canvas.focus();
+    try {
+      module.callMain(["run", "/work/main.slang"]);
+    } catch (e) {
+      if (e !== "unwind" && !(e && e.name === "ExitStatus")) show(2)(String(e));
+    }
+  }
+  graphicsEnded(status) {
+    if (gfx && gfx.bench === this) gfx = null;
+    this.running = false;
+    this.runButton.textContent = "Run";
+    this.runButton.classList.remove("stop");
+    if (!this.output.textContent) this.output.innerHTML = '<span class="dim">(no output)</span>';
+    this.say(status);
+  }
   stop(limit) {
+    if (gfx && gfx.bench === this) {
+      stopGraphics();
+      return this.graphicsEnded("stopped");
+    }
     if (!this.running || !runner) return;
     this.stopped = limit ? "limit" : "user";
     runner.kill();
@@ -450,6 +525,44 @@ class Workbench {
     if (formatted !== this.editor.value) this.editor.value = formatted;
     this.say("formatted");
   }
+}
+
+// ---------------------------------------------------------------- graphics
+
+// A program that uses raylib runs on the graphics VM (slang built with
+// Emscripten and raylib's web platform, website/web/build.sh) on the page
+// itself, drawing into a canvas: it hands the browser control at the end of
+// each frame, so the page stays responsive. One runs at a time.
+const usesRaylib = (code) => /require\(\s*"raylib"\s*\)/.test(code);
+let gfx = null; // {module, canvas, bench}
+
+// keys reach the game only while its canvas has focus (raylib listens on
+// the whole window); arrows and space do not scroll the page meanwhile.
+// Registered before raylib's own listeners, so it sees the keys first.
+let keyGuard = false;
+function guardKeys() {
+  if (keyGuard) return;
+  keyGuard = true;
+  for (const type of ["keydown", "keyup", "keypress"]) {
+    window.addEventListener(type, (e) => {
+      if (!gfx) return;
+      if (document.activeElement !== gfx.canvas) {
+        e.stopImmediatePropagation();
+      } else if ([" ", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
+        e.preventDefault();
+      }
+    }, true);
+  }
+}
+
+function stopGraphics() {
+  if (!gfx) return;
+  const { module } = gfx;
+  gfx = null;
+  try {
+    module._emscripten_cancel_main_loop();
+    module._CloseWindow();
+  } catch {}
 }
 
 // ---------------------------------------------------------------- sharing

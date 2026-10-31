@@ -44,6 +44,12 @@ dependencies: {box2d: {git: "<repository>", version: "^1.0"}}
 Inside the slang repository, use `{path: "../packages/box2d"}` instead, as
 `examples/physics` does. Then run `slang get`.
 
+## In the browser
+
+The website's playground runs programs that use this package on a slang
+built with Emscripten with Box2D linked in (`make wasm-gfx`); the package is
+the same.
+
 ## How Box2D maps to slang
 
 - **Names** lose Box2D's `b2` prefix and are snake_case: `b2World_Step` is

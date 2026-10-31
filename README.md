@@ -699,11 +699,12 @@ of slang's own library (open `doc/index.html`); `make doc` regenerates it.
 as WebAssembly for the playground, `make website` writes the static site
 to `website/out` (the home page, the tour from `website/tour/*.slang`, the
 playground and the API docs). `make wasm-gfx` builds a second VM for
-the playground with Emscripten (`brew install emscripten`), with raylib's
-web platform and libffi's Emscripten port linked in, so that programs using
-the raylib package (examples/breakout) run in the browser unchanged:
-`website/web/build.sh` fetches pinned raylib and libffi sources, and the
-package finds raylib through slang/ffi as it does on a desktop. In the
+the playground with Emscripten (`brew install emscripten`, cmake, ninja),
+with raylib's web platform, Box2D, Jolt Physics and libffi's Emscripten port
+linked in, so that programs using the raylib, box2d and jolt packages
+(examples/breakout, examples/physics) run in the browser unchanged:
+`website/web/build.sh` fetches pinned sources, and the packages find their
+libraries through slang/ffi as they do on a desktop. In the
 browser a program runs as a coroutine that hands the page control at every
 `end_drawing` (slang/web's `frame()`), so no ASYNCIFY is needed.
 `make serve` builds it and serves it at

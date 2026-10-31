@@ -360,6 +360,8 @@ local RAYLIB_EXAMPLES = {
     title: "3D terrain (raylib)",
     path: "packages/raylib/examples/terrain.slang",
   },
+  {title: "Boxes: 2D physics (Box2D)", path: "examples/physics/boxes.slang"},
+  {title: "Tower: 3D physics (Jolt)", path: "examples/physics/tower.slang"},
 }
 
 local func build_playground(pages){

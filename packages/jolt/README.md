@@ -46,6 +46,13 @@ macos-x86_64, linux-x86_64 and linux-aarch64 (glibc 2.28 or newer), about
 names another build (a directory with `include/joltc.h` and
 `lib/libjoltc.*`).
 
+## In the browser
+
+The website's playground runs programs that use this package on a slang
+built with Emscripten with Jolt and joltc linked in (`make wasm-gfx`); the
+package is the same. A page has no threads, so there Jolt runs its jobs on
+the program's thread.
+
 ## How Jolt maps to slang
 
 - **Worlds:** `create_world(options)` makes a physics system with what it

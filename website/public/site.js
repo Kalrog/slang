@@ -493,8 +493,9 @@ class Workbench {
       module.FS.writeFile("/work/" + path, text);
     }
     module.FS.writeFile("/work/main.slang", this.prefix + this.editor.value);
-    module.FS.writeFile("/work/slang.project", '{name: "playground", dependencies: {raylib: {path: "/raylib"}}}');
-    module.FS.writeFile("/work/slang.lock", '{["raylib"]: {path: "/raylib"}}');
+    // the packages the graphics VM carries (website/web/build.sh)
+    module.FS.writeFile("/work/slang.project", '{name: "playground", dependencies: {raylib: {path: "/raylib"}, box2d: {path: "/box2d"}, jolt: {path: "/jolt"}}}');
+    module.FS.writeFile("/work/slang.lock", '{["raylib"]: {path: "/raylib"}, ["box2d"]: {path: "/box2d"}, ["jolt"]: {path: "/jolt"}}');
     this.say("running");
     canvas.focus();
     try {

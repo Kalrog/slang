@@ -279,7 +279,10 @@ func Vehicle.arm_angle(v){
 // launch_point(v) -> where a thrown thing leaves: the bucket as the arm
 // hits its stop (at the aim's pitch)
 func Vehicle.launch_point(v){
-  local p = vec.add(PIVOT, vec.scale(vec.direction(v.arm_yaw, v.arm_pitch), ARM))
+  local q = vec.quat_multiply(vec.quat_yaw(v.arm_yaw),
+    vec.quat_axis({x: 1, y: 0, z: 0}, -v.arm_pitch))
+  local p = vec.add(PIVOT, vec.add(vec.scale(vec.direction(v.arm_yaw, v.arm_pitch), ARM),
+    vec.rotate(q, {x: 0, y: -0.38, z: 0})))
   return vec.transform(v.matrix, p)
 }
 
@@ -439,17 +442,19 @@ func Vehicle.draw(v, ammo){
   // the counterweight at the tail, an iron block
   local tail = vec.add(PIVOT, vec.scale(arm_dir, -TAIL - 0.15))
   part(v, "cube", tail, q, {x: 0.5, y: 0.45, z: 0.45}, iron, "rough")
-  // the bucket at the top, with the stone in it when loaded
+  // the bucket at the top, on the side of the arm that faces the target
+  // (the arm's local -y: up and forward while it leans back), with the
+  // stone in it when loaded
   local tip = vec.add(PIVOT, vec.scale(arm_dir, ARM))
   part(v, "cube", tip, q, {x: 0.56, y: 0.16, z: 0.56}, dark_wood, "planks")
   for(local side = -1; side <= 1; side = side + 2){
-    local lp = vec.rotate(q, {x: side * 0.25, y: 0.12, z: 0})
+    local lp = vec.rotate(q, {x: side * 0.25, y: -0.2, z: 0})
     part(v, "cube", vec.add(tip, lp), q, {x: 0.06, y: 0.3, z: 0.56}, dark_wood, "planks")
-    local bp = vec.rotate(q, {x: 0, y: 0.12, z: side * 0.25})
+    local bp = vec.rotate(q, {x: 0, y: -0.2, z: side * 0.25})
     part(v, "cube", vec.add(tip, bp), q, {x: 0.56, y: 0.3, z: 0.06}, dark_wood, "planks")
   }
   if(ammo != null and v.loaded and v.pending == null){
-    local lp = vec.rotate(q, {x: 0, y: 0.3, z: 0})
+    local lp = vec.rotate(q, {x: 0, y: -0.38, z: 0})
     local r = ammo.radius or 0.4
     render.draw("sphere", vec.matrix_multiply(v.matrix, vec.matrix(vec.add(tip, lp), identity, {
       x: r, y: r, z: r

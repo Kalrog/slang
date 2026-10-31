@@ -257,7 +257,9 @@ func m.backdrop(camera, time){
   local dyaw = sun_yaw - yaw
   for(dyaw > math.pi){ dyaw = dyaw - 2 * math.pi }
   for(dyaw < -math.pi){ dyaw = dyaw + 2 * math.pi }
-  local px = w / 2 + dyaw * w / 1.6
+  // (turning toward +x is turning left: what is at +x of the view moves
+  // right on the screen)
+  local px = w / 2 - dyaw * w / 1.6
   local py = horizon * 0.5 - (math.asin(light.y) - pitch) * h / 1.4
   local cloud = textures.get("cloud")
   local spark = textures.get("spark")
@@ -273,13 +275,13 @@ func m.backdrop(camera, time){
     local d = a - yaw
     for(d > math.pi){ d = d - 2 * math.pi }
     for(d < -math.pi){ d = d + 2 * math.pi }
-    local cx = w / 2 + d * w / 1.6
+    local cx = w / 2 - d * w / 1.6
     local cy = horizon * (0.32 + 0.3 * ((i * 7) % 5) / 5) + pitch * h / 1.4
     local size = 220 + ((i * 13) % 7) * 40
     if(cx > -size and cx < w + size){
       rl.draw_texture_pro(cloud, {0, 0, 256, 256},
         {cx - size / 2, cy - size * 0.25, size, size * 0.5}, {0, 0}, 0,
-        {255, 255, 255, 200})
+        {255, 255, 255, 170})
     }
   }
 }

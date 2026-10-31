@@ -163,8 +163,9 @@ local func cloud(size){
     local dx = x - 0.5
     local dy = (y - 0.5) * 1.8
     local d = math.sqrt(dx * dx + dy * dy) * 2
-    local a = vec.clamp((1 - d) * 1.6 - 0.2 + (n[i] * 0.5 + 0.5) * 0.7, 0, 1)
-    return {255, 255, 255, a * a * 255}
+    local a = vec.clamp((1 - d) * 1.3 - 0.35 + (n[i] * 0.5 + 0.5) * 0.9, 0, 1)
+    a = a * a * (3 - 2 * a)
+    return {255, 255, 255, a * 230}
   }
 }
 

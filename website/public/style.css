@@ -445,6 +445,31 @@ section.install pre.code { border: 2px solid var(--ink); box-shadow: 6px 6px 0 v
 .workbench.big pre.output { max-height: 30rem; }
 .note { color: var(--muted); font-size: 0.9rem; }
 
+/* ---------------------------------------------------------------- siege */
+
+.siege-main {
+  max-width: 80rem;
+  width: 100%;
+  margin: 0 auto;
+  padding: 1.5rem clamp(16px, 3vw, 32px) 2.5rem;
+}
+.siege-hero { max-width: 44rem; margin-bottom: 1.2rem; }
+.siege-hero h1 { font-size: clamp(2.6rem, 6vw, 4.4rem); margin: 0.2rem 0 0.6rem; }
+.siege-hero .lede { font-size: 1.15rem; color: var(--muted); }
+.game { margin: 0 0 2.5rem; }
+.game-bar { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.game-bar .status { color: var(--muted); font-size: 0.95rem; }
+.game .stage:empty { display: none; }
+.game pre.output { margin-top: 0.8rem; max-height: 24rem; }
+.game pre.output:not(.shown) { display: none; }
+.siege-text { max-width: 60rem; }
+.siege-text h2 { font-size: 1.8rem; margin: 2rem 0 0.8rem; }
+.siege-text ul { padding-left: 1.2rem; }
+.siege-text li { margin: 0.4rem 0; }
+details.source { margin: 0.5rem 0; }
+details.source summary { cursor: pointer; font: 600 0.95rem var(--mono); padding: 0.4rem 0; }
+details.source pre.code { max-height: 36rem; overflow: auto; }
+
 /* ---------------------------------------------------------------- docs */
 
 .doc-main {

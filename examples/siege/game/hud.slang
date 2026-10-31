@@ -200,13 +200,10 @@ func m.play(state){
     ui.bar(cx, cy, cw, 16, c, color)
     ui.shadowed_centered(w / 2, cy - 24, concat("power ", string(to_int(c * 100)), "%"), 18, {255, 255, 255})
   }
-  // the pointer: a ring where the aim is
-  if(state.aim != null){
-    rl.draw_ring(state.aim, 8, 11, 0, 360, 24, {255, 255, 255, 200})
-    rl.draw_circle_v(state.aim, 2, {255, 255, 255, 230})
-  }
-  // the level's name, top right, and a hint
+  // the level's name, top right, a hint, and the frame rate
   ui.shadowed(w - 24 - ui.measure(state.level.name, 22), 14, state.level.name, 22, {230, 230, 240})
+  local fps = concat(string(rl.get_fps()), " fps")
+  ui.shadowed(w - 24 - ui.measure(fps, 14), h - 26, fps, 14, {200, 204, 216, 160})
   if(state.hint != null){
     ui.shadowed(w - 24 - ui.measure(state.hint, 16), 42, state.hint, 16, {200, 204, 216})
   }

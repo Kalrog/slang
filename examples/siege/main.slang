@@ -71,6 +71,7 @@ local game = {
   ammo_index: 0,
   camera: null,
   cam: {yaw_offset: 0, pitch: 0.42, distance: 12, position: null},
+  aim: {yaw: 0, pitch: 0.7},
   pending: 0,
   help: false,
   cleared: false,
@@ -140,7 +141,8 @@ local func start(level, options){
   if(not options.test){
     hud.message(level.name, 2.5)
   }
-  rl.hide_cursor()
+  game.aim = {yaw: 0, pitch: 0.7}
+  rl.disable_cursor()
 }
 
 local func to_title(){
@@ -148,7 +150,7 @@ local func to_title(){
   game.editing = null
   game.screen = "title"
   game.levels = levels.all()
-  rl.show_cursor()
+  rl.enable_cursor()
   sound.stop_engine()
 }
 
@@ -249,8 +251,17 @@ local func player_input(dt){
     brake = 1
     forward = 0
   }
-  local mx = vec.clamp(mouse.x / w, 0, 1)
-  local my = vec.clamp(mouse.y / h, 0, 1)
+  // no throttle: the brakes come on, so it stops when the key is let go
+  if(forward == 0){
+    brake = math.max(brake, 0.6)
+  }
+  // the mouse (captured) turns and lifts the arm: moving it right turns
+  // right (a negative yaw here: +x is to the left of +z), up lifts
+  local delta = rl.get_mouse_delta()
+  if(not rl.is_mouse_button_down(rl.MOUSE_BUTTON_RIGHT)){
+    game.aim.yaw = vec.clamp(game.aim.yaw - delta.x * 0.0022, -vehicle.MAX_YAW, vehicle.MAX_YAW)
+    game.aim.pitch = vec.clamp(game.aim.pitch - delta.y * 0.0018, vehicle.MIN_PITCH, vehicle.MAX_PITCH)
+  }
   local charging = rl.is_mouse_button_down(rl.MOUSE_BUTTON_LEFT) and not ui.over_ui() and
     not rl.is_mouse_button_down(rl.MOUSE_BUTTON_RIGHT)
   return {
@@ -258,8 +269,8 @@ local func player_input(dt){
     right: right,
     brake: brake,
     handbrake: handbrake,
-    aim_yaw: (mx - 0.5) * 2 * vehicle.MAX_YAW,
-    aim_pitch: vehicle.MIN_PITCH + (1 - my) * (vehicle.MAX_PITCH - vehicle.MIN_PITCH),
+    aim_yaw: game.aim.yaw,
+    aim_pitch: game.aim.pitch,
     charging: charging,
   }
 }
@@ -335,7 +346,7 @@ local func update_play(dt){
   game.time = game.time + dt
   if(rl.is_key_pressed(rl.KEY_ESCAPE)){
     game.screen = "paused"
-    rl.show_cursor()
+    rl.enable_cursor()
     sound.stop_engine()
     return
   }
@@ -411,10 +422,10 @@ local func update_play(dt){
       game.best[key] = w.score
     }
     game.screen = "cleared"
-    rl.show_cursor()
+    rl.enable_cursor()
     sound.stop_engine()
   }
-  if(not game.cleared and ammo_left() == 0 and v.swing == 0){
+  if(not game.cleared and ammo_left() == 0 and not v:swinging()){
     if(w:settled()){
       game.settled_for = game.settled_for + dt
     } else {
@@ -423,7 +434,7 @@ local func update_play(dt){
     if(game.settled_for > 2.5 or (ammo_left() == 0 and game.time - (game.last_shot or 0) > 12)){
       game.screen = "failed"
       sound.play("lost")
-      rl.show_cursor()
+      rl.enable_cursor()
       sound.stop_engine()
     }
   }
@@ -459,7 +470,7 @@ local func draw_play(){
   local v = b.v
   draw_world(game.camera, {
     after: func(){
-      if(v.loaded and v.swing == 0 and game.screen == "play"){
+      if(v.loaded and not v:swinging() and game.screen == "play"){
         local speed = vehicle.speed_of(v.charge)
         if(not v.charging){
           speed = vehicle.speed_of(0.5)
@@ -472,10 +483,6 @@ local func draw_play(){
       }
     },
   })
-  local aim = null
-  if(not autoplay and game.screen == "play"){
-    aim = rl.get_mouse_position()
-  }
   local hint = null
   if(game.editor_test){
     hint = "Esc: back to the editor"
@@ -489,7 +496,6 @@ local func draw_play(){
     charging: v.charging,
     level: game.level,
     cleared: game.cleared,
-    aim: aim,
     hint: hint,
   })
   if(game.help){
@@ -565,7 +571,7 @@ local func open_editor(level){
     here: here,
   })
   game.screen = "editor"
-  rl.show_cursor()
+  rl.enable_cursor()
 }
 
 local func update_title(){
@@ -604,7 +610,7 @@ local func update_screens(){
     local r = hud.paused(game.editor_test)
     if(r.resume or rl.is_key_pressed(rl.KEY_ESCAPE)){
       game.screen = "play"
-      rl.hide_cursor()
+      rl.disable_cursor()
     } else if(r.restart){
       start(game.level, {test: game.editor_test})
     } else if(r.edit){
@@ -625,7 +631,7 @@ local func update_screens(){
       start(game.levels[game.index])
     } else if(r.keep){
       game.screen = "play"
-      rl.hide_cursor()
+      rl.disable_cursor()
     } else if(r.replay){
       start(game.level, {test: game.editor_test})
     } else if(r.levels){

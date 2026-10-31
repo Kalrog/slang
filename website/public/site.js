@@ -444,66 +444,30 @@ class Workbench {
     this.output.classList.add("shown");
     this.output.innerHTML = "";
     this.say("loading raylib…");
-    guardKeys();
     let stage = this.root.querySelector(".stage");
     if (!stage) {
       stage = document.createElement("div");
       stage.className = "stage";
       this.output.before(stage);
     }
-    // a fresh canvas for every run: a WebGL context does not start over
-    stage.innerHTML = '<canvas tabindex="0" aria-label="The program\'s window"></canvas>' +
-      '<p class="hint">Click the window to give it the keyboard. ' +
-      '<button class="btn ghost small" data-fullscreen>Fullscreen</button></p>';
-    const canvas = stage.querySelector("canvas");
-    // the right button is the game's, not the browser's menu
-    canvas.addEventListener("contextmenu", (e) => e.preventDefault());
-    stage.querySelector("[data-fullscreen]").addEventListener("click", () => {
-      (stage.requestFullscreen || stage.webkitRequestFullscreen).call(stage);
-      canvas.focus();
-    });
+    const canvas = makeStage(stage);
     const shift = this.editor.prefixLines;
     const show = (fd) => (text) => {
       this.output.insertAdjacentHTML("beforeend", outputHtml(text + "\n", fd, shift));
       this.output.scrollTop = this.output.scrollHeight;
     };
-    let createSlang;
-    try {
-      ({ default: createSlang } = await import(new URL("slang-gfx.js", import.meta.url)));
-    } catch {
-      show(2)("The graphics VM is not built here (make wasm-gfx).");
-      return this.graphicsEnded("unavailable");
-    }
-    let module = null;
-    module = await createSlang({
-      canvas,
-      print: show(1),
-      printErr: show(2),
-      // (a run that was stopped ends here too: its status stays)
-      onExit: (code) => {
-        if (gfx && gfx.module === module) this.graphicsEnded(code === 0 ? "done" : `exit code ${code}`);
-      },
-    });
-    gfx = { module, canvas, bench: this };
-    module.FS.mkdir("/work");
-    for (const [path, text] of Object.entries(this.files || {})) {
-      const parts = path.split("/");
-      for (let i = 1; i < parts.length; i++) {
-        try { module.FS.mkdir("/work/" + parts.slice(0, i).join("/")); } catch {}
-      }
-      module.FS.writeFile("/work/" + path, text);
-    }
-    module.FS.writeFile("/work/main.slang", this.prefix + this.editor.value);
     // the packages the graphics VM carries (website/web/build.sh)
-    module.FS.writeFile("/work/slang.project", '{name: "playground", dependencies: {raylib: {path: "/raylib"}, box2d: {path: "/box2d"}, jolt: {path: "/jolt"}}}');
-    module.FS.writeFile("/work/slang.lock", '{["raylib"]: {path: "/raylib"}, ["box2d"]: {path: "/box2d"}, ["jolt"]: {path: "/jolt"}}');
-    this.say("running");
-    canvas.focus();
-    try {
-      module.callMain(["run", "/work/main.slang"]);
-    } catch (e) {
-      if (e !== "unwind" && !(e && e.name === "ExitStatus")) show(2)(String(e));
-    }
+    const files = {
+      ...(this.files || {}),
+      "main.slang": this.prefix + this.editor.value,
+      "slang.project": '{name: "playground", dependencies: {raylib: {path: "/raylib"}, box2d: {path: "/box2d"}, jolt: {path: "/jolt"}}}',
+      "slang.lock": '{["raylib"]: {path: "/raylib"}, ["box2d"]: {path: "/box2d"}, ["jolt"]: {path: "/jolt"}}',
+    };
+    const module = await launchGraphics({
+      canvas, files, main: "main.slang", show, owner: this,
+      onEnd: (status) => this.graphicsEnded(status),
+    });
+    if (module) this.say("running");
   }
   // the canvas of an earlier raylib program (it shows its last frame until
   // something else runs or another example is picked)
@@ -512,7 +476,7 @@ class Workbench {
     if (stage) stage.remove();
   }
   graphicsEnded(status) {
-    if (gfx && gfx.bench === this) gfx = null;
+    if (gfx && gfx.owner === this) gfx = null;
     this.running = false;
     this.runButton.textContent = "Run";
     this.runButton.classList.remove("stop");
@@ -520,7 +484,7 @@ class Workbench {
     this.say(status);
   }
   stop(limit) {
-    if (gfx && gfx.bench === this) {
+    if (gfx && gfx.owner === this) {
       stopGraphics();
       return this.graphicsEnded("stopped");
     }
@@ -542,6 +506,20 @@ class Workbench {
   }
 }
 
+// ---------------------------------------------------------------- sharing
+
+const b64 = (bytes) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+const unb64 = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+
+async function pack(text) {
+  const stream = new Blob([text]).stream().pipeThrough(new CompressionStream("deflate-raw"));
+  return b64(new Uint8Array(await new Response(stream).arrayBuffer()));
+}
+async function unpack(s) {
+  const stream = new Blob([unb64(s)]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+  return await new Response(stream).text();
+}
+
 // ---------------------------------------------------------------- graphics
 
 // A program that uses raylib runs on the graphics VM (slang built with
@@ -549,7 +527,66 @@ class Workbench {
 // itself, drawing into a canvas: it hands the browser control at the end of
 // each frame, so the page stays responsive. One runs at a time.
 const usesRaylib = (code) => /require\(\s*"raylib"\s*\)/.test(code);
-let gfx = null; // {module, canvas, bench}
+let gfx = null; // {module, canvas, owner}
+
+// a fresh canvas in a stage for every run (a WebGL context does not start
+// over), with the fullscreen button; the right button is the program's
+function makeStage(stage) {
+  // (raylib's web platform finds the canvas by the id "canvas": to hide
+  // the cursor, to lock the pointer)
+  stage.innerHTML = '<canvas id="canvas" tabindex="0" aria-label="The program\'s window"></canvas>' +
+    '<p class="hint">Click the window to give it the keyboard. ' +
+    '<button class="btn ghost small" data-fullscreen>Fullscreen</button></p>';
+  const canvas = stage.querySelector("canvas");
+  canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+  stage.querySelector("[data-fullscreen]").addEventListener("click", () => {
+    (stage.requestFullscreen || stage.webkitRequestFullscreen).call(stage);
+    canvas.focus();
+  });
+  guardKeys();
+  return canvas;
+}
+
+// starts a program on the graphics VM: its files go into /work (a string,
+// or bytes as a Uint8Array), main names the one to run. show(fd) gives a
+// printer for its output; onEnd(status) is told when it ends. Returns the
+// module, or null when the VM is not built.
+async function launchGraphics({ canvas, files, main, show, owner, onEnd }) {
+  let createSlang;
+  try {
+    ({ default: createSlang } = await import(new URL("slang-gfx.js", import.meta.url)));
+  } catch {
+    show(2)("The graphics VM is not built here (make wasm-gfx).");
+    onEnd("unavailable");
+    return null;
+  }
+  let module = null;
+  module = await createSlang({
+    canvas,
+    print: show(1),
+    printErr: show(2),
+    // (a run that was stopped ends here too: its status stays)
+    onExit: (code) => {
+      if (gfx && gfx.module === module) onEnd(code === 0 ? "done" : `exit code ${code}`);
+    },
+  });
+  gfx = { module, canvas, owner };
+  module.FS.mkdir("/work");
+  for (const [path, content] of Object.entries(files)) {
+    const parts = path.split("/");
+    for (let i = 1; i < parts.length; i++) {
+      try { module.FS.mkdir("/work/" + parts.slice(0, i).join("/")); } catch {}
+    }
+    module.FS.writeFile("/work/" + path, content);
+  }
+  canvas.focus();
+  try {
+    module.callMain(["run", "/work/" + main]);
+  } catch (e) {
+    if (e !== "unwind" && !(e && e.name === "ExitStatus")) show(2)(String(e));
+  }
+  return module;
+}
 
 // keys reach the game only while its canvas has focus (raylib listens on
 // the whole window); arrows and space do not scroll the page meanwhile.
@@ -605,19 +642,85 @@ window.addEventListener("error", (e) => {
   if (/miniaudio is not defined/.test(e.message)) e.preventDefault();
 });
 
-// ---------------------------------------------------------------- sharing
+// ---------------------------------------------------------------- a game page
 
-const b64 = (bytes) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-const unb64 = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+// A page that runs one program of several files on the graphics VM (the
+// files in a JSON script, binary ones as {b64}): a Play button, the
+// window, and what it prints under it.
+class Game {
+  constructor(root) {
+    this.root = root;
+    this.files = JSON.parse(document.getElementById("game-files").textContent);
+    this.main = root.dataset.main;
+    this.stage = root.querySelector(".stage");
+    this.output = root.querySelector("[data-output]");
+    this.button = root.querySelector("[data-play]");
+    this.status = root.querySelector("[data-status]");
+    this.running = false;
+    this.button.addEventListener("click", () => (this.running ? this.stop() : this.play()));
+    // the sources, shown (and highlighted by the checker) when opened
+    for (const details of root.parentElement.querySelectorAll("details[data-file]")) {
+      details.addEventListener("toggle", () => this.showSource(details), { once: true });
+    }
+  }
+  async showSource(details) {
+    const text = this.files[details.dataset.file];
+    const code = details.querySelector("code");
+    if (typeof text !== "string") return;
+    code.textContent = text;
+    const r = await check("check", text);
+    try {
+      const map = byteMap(text);
+      const tokens = JSON.parse(r.stdout).tokens.map((t) => ({
+        from: toIndex(map, t.start),
+        to: toIndex(map, t.start + t.length),
+        kind: t.category.split(".")[0],
+      }));
+      code.innerHTML = render(text, tokens, []);
+    } catch {}
+  }
+  say(text) {
+    this.status.textContent = text;
+  }
+  async play() {
+    stopGraphics();
+    this.running = true;
+    this.button.textContent = "Stop";
+    this.root.classList.add("playing");
+    this.output.innerHTML = "";
+    this.output.classList.remove("shown");
+    this.say("loading…");
+    const canvas = makeStage(this.stage);
+    const files = {};
+    for (const [path, content] of Object.entries(this.files)) {
+      files[path] = content && content.b64 ? unb64(content.b64) : content;
+    }
+    const show = (fd) => (text) => {
+      this.output.classList.add("shown");
+      this.output.insertAdjacentHTML("beforeend", outputHtml(text + "\n", fd));
+      this.output.scrollTop = this.output.scrollHeight;
+    };
+    const module = await launchGraphics({
+      canvas, files, main: this.main, show, owner: this,
+      onEnd: (status) => this.ended(status),
+    });
+    if (module) this.say("running: click the window to give it the mouse and keys");
+  }
+  ended(status) {
+    if (gfx && gfx.owner === this) gfx = null;
+    this.running = false;
+    this.button.textContent = "Play";
+    this.say(status);
+  }
+  stop() {
+    if (gfx && gfx.owner === this) {
+      stopGraphics();
+      this.ended("stopped");
+    }
+  }
+}
 
-async function pack(text) {
-  const stream = new Blob([text]).stream().pipeThrough(new CompressionStream("deflate-raw"));
-  return b64(new Uint8Array(await new Response(stream).arrayBuffer()));
-}
-async function unpack(s) {
-  const stream = new Blob([unb64(s)]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
-  return await new Response(stream).text();
-}
+for (const el of document.querySelectorAll("[data-game]")) new Game(el);
 
 // ---------------------------------------------------------------- pages
 

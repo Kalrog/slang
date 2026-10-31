@@ -183,9 +183,9 @@ local func ground_color(t, ix, iz, h, slope){
   local r = 0
   local g = 0
   local b = 0
-  if(over < 0.6){
+  if(over < 0.35){
     // sand
-    local k = vec.clamp((over + 0.6) / 1.2, 0, 1)
+    local k = vec.clamp((over + 0.6) / 0.95, 0, 1)
     r = vec.mix(206, 214, v)
     g = vec.mix(186, 196, v)
     b = vec.mix(130, 142, v)
@@ -193,8 +193,8 @@ local func ground_color(t, ix, iz, h, slope){
     r = r * (0.75 + 0.25 * k)
     g = g * (0.75 + 0.25 * k)
     b = b * (0.75 + 0.25 * k)
-  } else if(over < 1.3){
-    local k = (over - 0.6) / 0.7
+  } else if(over < 0.9){
+    local k = (over - 0.35) / 0.55
     r = vec.mix(206, vec.mix(96, 118, v), k)
     g = vec.mix(186, vec.mix(168, 184, v), k)
     b = vec.mix(130, vec.mix(70, 80, v), k)

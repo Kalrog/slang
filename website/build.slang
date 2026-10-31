@@ -11,6 +11,7 @@
 local os = require("slang/os")
 local str = require("slang/string")
 local json = require("slang/json")
+local encoding = require("slang/encoding")
 local compiler = require("slang/compiler")
 local doc = require("slang/doc")
 
@@ -133,6 +134,7 @@ local func editor(code, options){
 local NAV = {
   {key: "tour", href: "tour/", label: "Tour"},
   {key: "play", href: "play/", label: "Playground"},
+  {key: "siege", href: "siege/", label: "Siege"},
   {key: "docs", href: "docs/", label: "Docs"},
 }
 
@@ -414,6 +416,112 @@ local func build_playground(pages){
     root: "../",
     section: "play",
     kind: "play",
+  }))
+}
+
+// ------------------------------------------------------------ siege
+
+// The game page: Siege (examples/siege) runs on the graphics VM as it
+// is, its files carried by the page (the font as base64); the sources
+// are shown under it, highlighted.
+local func build_siege(){
+  local dir = "examples/siege"
+  local files = {}
+  local sources = {}
+  local func add(rel){
+    files[rel] = os.read_file(concat(dir, "/", rel))
+    append(sources, rel)
+  }
+  add("main.slang")
+  for(let local f in values(sorted(os.list_dir(concat(dir, "/game"))))){
+    if(str.ends_with(f, ".slang")){
+      add(concat("game/", f))
+    }
+  }
+  for(let local f in values(sorted(os.list_dir(concat(dir, "/levels"))))){
+    if(str.ends_with(f, ".slang")){
+      add(concat("levels/", f))
+    }
+  }
+  // the packages the graphics VM carries live at /raylib and /jolt there
+  files["slang.project"] = concat(
+    "{name: \"siege\", dependencies: {raylib: {path: \"/raylib\"}, ",
+    "jolt: {path: \"/jolt\"}}, search_paths: {\".\"}}",
+  )
+  files["slang.lock"] = "{[\"jolt\"]: {path: \"/jolt\"}, [\"raylib\"]: {path: \"/raylib\"}}"
+  files["assets/Fredoka.ttf"] = {
+    b64: encoding.base64_encode(os.read_file(concat(dir, "/assets/Fredoka.ttf"))),
+  }
+  // the sources are shown from the page's own copy, highlighted when
+  // opened (the page carries each file once)
+  local listing = {}
+  for(let local rel in values(sources)){
+    append(listing, concat(
+      "<details class=\"source\" data-file=\"",
+      escape(rel),
+      "\"><summary>",
+      escape(rel),
+      "</summary><pre class=\"code\"><code></code></pre></details>",
+    ))
+  }
+  local body = concat(
+    "<main class=\"siege-main\">",
+    "<section class=\"siege-hero\">",
+    "<p class=\"sticker\">a whole game, in slang</p>",
+    "<h1>Siege</h1>",
+    "<p class=\"lede\">Drive a catapult, wind it up and wreck the place: ",
+    "stone, wood, glass, barrels that explode, and the furniture inside. ",
+    "A 3D physics game written in slang on the raylib and Jolt packages, ",
+    "running here in your browser as WebAssembly.</p>",
+    "</section>",
+    "<div class=\"game\" data-game data-main=\"main.slang\">",
+    "<div class=\"game-bar\"><button class=\"btn big run\" data-play>Play</button>",
+    "<span class=\"status\" data-status>about 20 MB to load the first time</span></div>",
+    "<div class=\"stage\"></div>",
+    "<pre class=\"output\" data-output></pre>",
+    "</div>",
+    "<section class=\"siege-text\">",
+    "<h2>How to play</h2>",
+    "<ul>",
+    "<li><b>W A S D</b> or the arrows drive, <b>space</b> is the handbrake, ",
+    "<b>R</b> puts the catapult back on its wheels.</li>",
+    "<li>The <b>mouse</b> aims: left and right turn the arm, up and down lift it. ",
+    "<b>Hold the left button</b> to wind, let go to throw. The dotted line shows ",
+    "where the shot lands.</li>",
+    "<li><b>1 2 3 4</b> choose the ammo: a rock, a triple shot, a bomb, a chain shot.</li>",
+    "<li>Points for every part knocked loose, smashed or blown up; the furniture ",
+    "inside the buildings is worth the most. Reach the level's target before ",
+    "the ammo runs out.</li>",
+    "<li>Right drag looks around, the wheel zooms, <b>Esc</b> pauses, <b>F1</b> ",
+    "shows the help. The level editor is on the title screen; a level you save ",
+    "there is printed under the game as JSON.</li>",
+    "</ul>",
+    "<h2>How it is built</h2>",
+    "<p>Everything is slang: the physics world and what breaks in it, the ",
+    "catapult (a Jolt wheeled vehicle with ray-cast suspension), the terrain ",
+    "mesh and its height field, the procedural buildings, the level builder and ",
+    "editor, the lighting shader, and every texture and sound, generated at ",
+    "start from noise and numbers. raylib draws and Jolt simulates, both through ",
+    "<code>slang/ffi</code> from their C headers; Jolt's contact callbacks run ",
+    "as slang functions. The same files run on the desktop with ",
+    "<code>make siege</code>.</p>",
+    "<h2>The source</h2>",
+    "<p>", string(len(sources)), " files, as they are in ",
+    "<a href=\"", REPO, "/tree/main/examples/siege\">examples/siege</a>.</p>",
+    str.join(listing, ""),
+    "</section>",
+    "<script type=\"application/json\" id=\"game-files\">",
+    str.replace(json.encode(files), "</", "<\\/"),
+    "</script>",
+    "</main>",
+  )
+  write("siege/index.html", page({
+    title: "Siege · a game in slang",
+    description: "Siege: a 3D catapult game written in slang on raylib and Jolt, running in the browser.",
+    body: body,
+    root: "../",
+    section: "siege",
+    kind: "siege",
   }))
 }
 
@@ -712,6 +820,7 @@ copy_assets()
 build_home()
 build_tour(pages)
 build_playground(pages)
+build_siege()
 local status = build_docs()
 print("website: ", out, "/index.html\n")
 os.exit(status)

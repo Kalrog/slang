@@ -28,16 +28,24 @@ local func escape(s){
 // ------------------------------------------------------------ highlighting
 
 // code as HTML with a span per token, classed by its category (t-keyword,
-// t-string, ...; a category's modifiers are dropped)
-local func highlight(code){
+// t-string, ...; a category's modifiers are dropped). With a prefix (an
+// extension statement) the code is parsed after it, and shown without it.
+local func highlight(code, prefix){
+  prefix = prefix or ""
   compiler.reset()
-  local r = pcall(compiler.highlight, code, "example.slang")
+  local r = pcall(compiler.highlight, concat(prefix, code), "example.slang")
   if(r[0] == "err"){
     return escape(code)
   }
   local parts = {}
+  local shift = len(prefix)
   local pos = 0
-  for(let local t in values(r[1].tokens)){
+  for(let local tk in values(r[1].tokens)){
+    local t = {
+      category: tk.category,
+      start: tk.start - shift,
+      stop: tk.stop - shift,
+    }
     if(t.start >= pos){
       append(parts, escape(str.substring(code, pos, t.start)))
       local kind = str.split(t.category, ".")[0]
@@ -61,7 +69,10 @@ local func code_block(code){
 }
 
 // an editor with code in it, highlighted already; what the page's script
-// makes live (data-editor), with a Run button and an output pane
+// makes live (data-editor), with a Run button and an output pane. Options:
+// format, reset and open (buttons); class; prefix, a line the code runs
+// after unseen (an extension statement); expanded, the code's expansion,
+// for an Example / Expanded toggle.
 local func editor(code, options){
   options = options or {}
   local tools = {
@@ -80,12 +91,27 @@ local func editor(code, options){
       "\">Open in playground</a>",
     ))
   }
+  local tabs = ""
+  if(options.expanded != null){
+    tabs = concat(
+      "<div class=\"tabs\" role=\"tablist\">",
+      "<button role=\"tab\" aria-selected=\"true\" data-tab=\"code\">Example</button>",
+      "<button role=\"tab\" aria-selected=\"false\" data-tab=\"expanded\">Expanded</button>",
+      "</div><pre class=\"code expanded-view\" data-expanded hidden><code>",
+      highlight(options.expanded),
+      "</code></pre>",
+    )
+  }
   return concat(
     "<div class=\"workbench",
     options.class and concat(" ", options.class) or "",
-    "\" data-workbench>",
+    "\" data-workbench",
+    options.prefix and concat(" data-prefix=\"", escape(options.prefix), "\"") or
+      "",
+    ">",
+    tabs,
     "<div class=\"editor\" data-editor><pre class=\"ed-hl\" aria-hidden=\"true\"><code>",
-    highlight(code),
+    highlight(code, options.prefix),
     "\n</code></pre><textarea class=\"ed-input\" spellcheck=\"false\" ",
     "wrap=\"off\" rows=\"",
     string(len(str.split(code, "\n"))),
@@ -433,6 +459,7 @@ local GROUPS = {
       "slang/build",
     },
   },
+  {title: "Extensions", prefix: "extensions/", modules: {}},
   {title: "Native modules", modules: {}},
 }
 
@@ -451,8 +478,15 @@ local func sidebar(modules, current){
         append(items, name)
       }
     }
-    // the rest: the natives' stubs (uv, zlib, ...)
-    if(len(g.modules) == 0){
+    if(g.prefix != null){
+      for(let local m in values(modules)){
+        if(str.starts_with(m.name, g.prefix)){
+          placed[m.name] = true
+          append(items, m.name)
+        }
+      }
+    } else if(len(g.modules) == 0){
+      // the rest: the natives' stubs (uv, zlib, ...)
       for(let local m in values(modules)){
         if(not placed[m.name]){
           append(items, m.name)
@@ -515,6 +549,34 @@ local func highlight_samples(html){
   return str.join(outp, "")
 }
 
+// an extension's page: its examples live (run, edit, and toggle to their
+// expansion in the browser), with the extension's source (and the sources
+// of the extensions it loads) in the page for the playground's VM
+local func extension_content(m){
+  local prefix = concat("extension \"", m.name, "\"\n")
+  local body = doc.extension_body(m, func(ex){
+    return editor(ex.code, {
+      prefix: prefix,
+      expanded: ex.expanded,
+      reset: true,
+      class: "example-bench",
+    })
+  })
+  local files = {}
+  for(let local name in values({m.name, ...m.uses})){
+    local path = concat(name, ".slang")
+    if(os.exists(path)){
+      files[path] = os.read_file(path)
+    }
+  }
+  return concat(
+    body,
+    "<script type=\"application/json\" id=\"ext-files\">",
+    str.replace(json.encode(files), "</", "<\\/"),
+    "</script>",
+  )
+}
+
 local func doc_page(modules, current, title, content){
   return page({
     title: title,
@@ -544,14 +606,22 @@ local func build_docs(){
       break
     }
   }
+  // the extensions that come with slang
+  append(paths, "extensions")
   local r = doc.collect(paths)
   local modules = r.modules
   for(let local m in values(modules)){
+    local content = null
+    if(m.kind == "extension"){
+      content = extension_content(m)
+    } else {
+      content = highlight_samples(doc.module_body(m))
+    }
     write(concat("docs/", doc.page_name(m.name)), doc_page(
       modules,
       m.name,
       concat(m.name, " · slang docs"),
-      highlight_samples(doc.module_body(m)),
+      content,
     ))
   }
   local intro = os.read_file(concat(here, "/pages/docs-intro.html"))

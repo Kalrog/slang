@@ -1,5 +1,6 @@
-// Runs slang.wasm for the page: {id, cmd: "run" | "fmt" | "check", code}
-// in, {id, stream, text} while a program prints and {id, done, code,
+// Runs slang.wasm for the page: {id, cmd: "run" | "fmt" | "check" |
+// "expand", code, files} in (files: more files next to main.slang, such as
+// an extension the code loads), {id, stream, text} while a program prints and {id, done, code,
 // stdout, stderr, ms} at the end out.
 import { run } from "./wasi.js";
 
@@ -14,10 +15,11 @@ const ARGS = {
   run: ["slang", "run", "/work/main.slang"],
   fmt: ["slang", "fmt", "--stdout", "/work/main.slang"],
   check: ["slang", "highlight", "--check", "/work/main.slang"],
+  expand: ["slang", "expand", "/work/main.slang"],
 };
 
 self.onmessage = async (e) => {
-  const { id, cmd, code } = e.data;
+  const { id, cmd, code, files } = e.data;
   // a program's output goes out in batches while it runs
   let pending = "", last = performance.now();
   const decoders = { 1: new TextDecoder(), 2: new TextDecoder() };
@@ -36,7 +38,7 @@ self.onmessage = async (e) => {
   try {
     const m = await module;
     const t0 = performance.now();
-    const r = await run(m, ARGS[cmd], { "main.slang": code }, { env: { SLANG_NO_CACHE: "1" }, onOutput });
+    const r = await run(m, ARGS[cmd], { ...(files || {}), "main.slang": code }, { env: { SLANG_NO_CACHE: "1" }, onOutput });
     flush(pendingFd);
     self.postMessage({ id, done: true, code: r.code, stdout: r.stdout, stderr: r.stderr, ms: performance.now() - t0 });
   } catch (err) {

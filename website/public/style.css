@@ -155,12 +155,8 @@ pre.code, .editor, pre.output {
   font: 14.5px/1.6 var(--mono);
   tab-size: 2;
 }
-/* no ligatures (|> is not a triangle); important, since every font
-   shorthand resets them */
-code, pre, textarea, pre * {
-  font-variant-ligatures: none !important;
-  font-feature-settings: "liga" 0, "calt" 0 !important;
-}
+/* ligatures on: |> and => read as arrows; each keeps one cell per
+   character, so the editor's caret stays on the highlighted text */
 pre.code {
   margin: 0;
   background: var(--code-bg);
@@ -526,6 +522,41 @@ section.install pre.code { border: 2px solid var(--ink); box-shadow: 6px 6px 0 v
 .doc dl.params dt { margin-top: 0.3rem; }
 .doc .muted { color: var(--muted); font-size: 0.9rem; }
 .doc > dl > dt a code { font-size: 0.95rem; }
+
+/* ---------------------------------------------------------------- extensions */
+
+.doc .summary { font-size: 1.1rem; }
+.doc .use { color: var(--muted); }
+.doc dl.syntax { margin: 0.5rem 0 1rem; }
+.doc dl.syntax dt { margin: 0.8rem 0 0.2rem; font-weight: normal; }
+.doc dl.syntax dd { margin: 0 0 0 0.2rem; font-size: 0.9rem; }
+pre.ebnf {
+  margin: 0;
+  padding: 0.6rem 0.9rem;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--grape);
+  border-radius: 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 13.5px/1.55 var(--mono);
+}
+.doc .example-bench { margin: 1rem 0 1.4rem; }
+.tabs { display: flex; gap: 0.3rem; }
+.tabs button {
+  font: 600 0.85rem/1 var(--body);
+  color: var(--ink);
+  background: var(--card);
+  border: 2px solid var(--line);
+  border-radius: 999px;
+  padding: 0.4rem 0.8rem;
+  cursor: pointer;
+}
+.tabs button[aria-selected="true"] { background: var(--grape); border-color: var(--ink); color: #fff; }
+pre.expanded-view { border: 2px solid var(--ink); max-height: 32rem; overflow: auto; }
+pre.expanded-view[hidden], .editor[hidden] { display: none; }
+figure.example { margin: 1rem 0; }
+figure.example details summary { cursor: pointer; color: var(--muted); font-size: 0.9rem; }
 
 /* ---------------------------------------------------------------- narrow */
 

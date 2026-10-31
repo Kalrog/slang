@@ -15,11 +15,11 @@ class Worker2 {
     this.pending = new Map();
     this.next = 0;
   }
-  request(cmd, code, onStream) {
+  request(cmd, code, onStream, files) {
     const id = ++this.next;
     return new Promise((resolve) => {
       this.pending.set(id, { resolve, onStream });
-      this.worker.postMessage({ id, cmd, code });
+      this.worker.postMessage({ id, cmd, code, files });
     });
   }
   receive(m) {
@@ -44,7 +44,15 @@ class Worker2 {
 // one for checking and formatting, one for running (so a long run can be
 // stopped without losing the checker); made when first needed
 let checker = null, runner = null;
-const check = (cmd, code) => (checker ||= new Worker2()).request(cmd, code);
+const check = (cmd, code, files) => (checker ||= new Worker2()).request(cmd, code, null, files);
+
+// the files an extension's page carries for its examples (the extension's
+// source), by path
+const pageFiles = (() => {
+  const el = document.getElementById("ext-files");
+  return el ? JSON.parse(el.textContent) : null;
+})();
+const utf8Length = (s) => new TextEncoder().encode(s).length;
 
 // ---------------------------------------------------------------- text
 
@@ -100,8 +108,13 @@ function render(text, tokens, problems) {
 // ---------------------------------------------------------------- editor
 
 class Editor {
-  constructor(root) {
+  // prefix: a line the code is checked after, unseen (an extension statement)
+  constructor(root, prefix = "", files = null) {
     this.root = root;
+    this.prefix = prefix;
+    this.files = files;
+    this.prefixLines = prefix ? prefix.split("\n").length - 1 : 0;
+    this.prefixBytes = utf8Length(prefix);
     this.input = root.querySelector(".ed-input");
     this.code = root.querySelector(".ed-hl code");
     this.original = this.input.value;
@@ -171,7 +184,7 @@ class Editor {
   async check() {
     const v = ++this.version;
     const text = this.input.value;
-    const r = await check("check", text);
+    const r = await check("check", this.prefix + text, this.files);
     if (v !== this.version || r.killed) return;
     let data;
     try {
@@ -181,12 +194,16 @@ class Editor {
     }
     const map = byteMap(text);
     const starts = lineStarts(text);
-    this.tokens = data.tokens.map((t) => ({
-      from: toIndex(map, t.start),
-      to: toIndex(map, t.start + t.length),
+    // positions come for prefix + text: the prefix's part is dropped
+    const pb = this.prefixBytes, pl = this.prefixLines;
+    this.tokens = data.tokens.filter((t) => t.start >= pb).map((t) => ({
+      from: toIndex(map, t.start - pb),
+      to: toIndex(map, t.start - pb + t.length),
       kind: t.category.split(".")[0],
     }));
-    this.problems = data.diagnostics.map((d) => {
+    const diagnostics = data.diagnostics
+      .map((d) => ({ ...d, line: Math.max(1, d.line - pl) }));
+    this.problems = diagnostics.map((d) => {
       // columns count bytes from the line's start
       const lineStart = starts[Math.min(d.line - 1, starts.length - 1)] || 0;
       const lineBytes = map ? new TextEncoder().encode(text.slice(0, lineStart)).length : lineStart;
@@ -277,13 +294,16 @@ class Editor {
 // ---------------------------------------------------------------- output
 
 // a program's output, with main.slang:line:col made into links
-function outputHtml(text, kind) {
+function outputHtml(text, kind, shift = 0) {
   return text.split(/(\n)/).map((line) => {
     if (line === "\n") return line;
     let cls = kind === 2 ? "err" : "";
     if (kind === 2 && /^\s+at (slang\/|\[native)/.test(line)) cls += " trace";
     const html = escapeHtml(line.replace(/\/work\/main\.slang/g, "main.slang"))
-      .replace(/main\.slang:(\d+):(\d+)/g, '<a href="#" data-line="$1" data-col="$2">main.slang:$1:$2</a>');
+      .replace(/main\.slang:(\d+):(\d+)/g, (_, l, c) => {
+        const line = Math.max(1, +l - shift);
+        return `<a href="#" data-line="${line}" data-col="${c}">main.slang:${line}:${c}</a>`;
+      });
     return cls ? `<span class="${cls}">${html}</span>` : html;
   }).join("");
 }
@@ -293,7 +313,14 @@ const LIMIT = 200000;
 class Workbench {
   constructor(root) {
     this.root = root;
-    this.editor = new Editor(root.querySelector("[data-editor]"));
+    this.prefix = root.dataset.prefix || "";
+    this.files = this.prefix ? pageFiles : null;
+    this.editor = new Editor(root.querySelector("[data-editor]"), this.prefix, this.files);
+    this.expanded = root.querySelector("[data-expanded]");
+    this.expandedFor = this.editor.value;
+    for (const tab of root.querySelectorAll("[data-tab]")) {
+      tab.addEventListener("click", () => this.show(tab.dataset.tab));
+    }
     this.output = root.querySelector("[data-output]");
     this.status = root.querySelector("[data-status]");
     this.problems = root.querySelector("[data-problems]");
@@ -303,6 +330,7 @@ class Workbench {
     root.addEventListener("run", () => this.run());
     root.querySelector("[data-format]")?.addEventListener("click", () => this.format());
     root.querySelector("[data-reset]")?.addEventListener("click", () => {
+      this.show("code");
       this.editor.value = this.editor.original;
       this.output.textContent = "";
       this.output.classList.remove("shown");
@@ -326,6 +354,39 @@ class Workbench {
       if (what === "checked") this.showProblems();
     });
   }
+  // the Example / Expanded toggle: the expansion of the code as it is now
+  async show(which) {
+    if (!this.expanded) return;
+    for (const tab of this.root.querySelectorAll("[data-tab]")) {
+      tab.setAttribute("aria-selected", String(tab.dataset.tab === which));
+    }
+    const editorBox = this.root.querySelector("[data-editor]");
+    editorBox.hidden = which !== "code";
+    this.expanded.hidden = which === "code";
+    if (which === "code" || this.expandedFor === this.editor.value) return;
+    const code = this.editor.value;
+    this.say("expanding…");
+    const r = await check("expand", this.prefix + code, this.files);
+    if (r.code !== 0) {
+      this.expanded.querySelector("code").textContent = "(the example does not parse: fix it first)";
+      this.say("");
+      return;
+    }
+    const text = r.stdout.replace(/\n+$/, "");
+    const hl = await check("check", text);
+    let tokens = [];
+    try {
+      const map = byteMap(text);
+      tokens = JSON.parse(hl.stdout).tokens.map((t) => ({
+        from: toIndex(map, t.start),
+        to: toIndex(map, t.start + t.length),
+        kind: t.category.split(".")[0],
+      }));
+    } catch {}
+    this.expanded.querySelector("code").innerHTML = render(text, tokens, []);
+    this.expandedFor = code;
+    this.say("");
+  }
   showProblems() {
     const list = this.editor.problems;
     this.problems.innerHTML = list.map((p) =>
@@ -348,7 +409,7 @@ class Workbench {
     const append = (fd, text) => {
       if (shown > LIMIT) return;
       shown += text.length;
-      this.output.insertAdjacentHTML("beforeend", outputHtml(text, fd));
+      this.output.insertAdjacentHTML("beforeend", outputHtml(text, fd, this.editor.prefixLines));
       if (shown > LIMIT) {
         this.output.insertAdjacentHTML("beforeend", '<span class="err">\n… output limit reached, stopped\n</span>');
         this.stop(true);
@@ -357,7 +418,7 @@ class Workbench {
     runner ||= new Worker2();
     const started = performance.now();
     this.timer = setTimeout(() => this.stop(), 20000);
-    const r = await runner.request("run", this.editor.value, append);
+    const r = await runner.request("run", this.prefix + this.editor.value, append, this.files);
     clearTimeout(this.timer);
     this.running = false;
     this.runButton.textContent = "Run";
@@ -379,12 +440,14 @@ class Workbench {
   }
   async format() {
     this.say("formatting…");
-    const r = await check("fmt", this.editor.value);
+    const r = await check("fmt", this.prefix + this.editor.value, this.files);
     if (r.code !== 0) {
       this.say("fix the errors first");
       return;
     }
-    if (r.stdout !== this.editor.value) this.editor.value = r.stdout;
+    // without the prefix's lines
+    const formatted = r.stdout.split("\n").slice(this.editor.prefixLines).join("\n");
+    if (formatted !== this.editor.value) this.editor.value = formatted;
     this.say("formatted");
   }
 }

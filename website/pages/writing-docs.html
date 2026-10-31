@@ -69,6 +69,36 @@ the file binds the module to: <code>async.Future</code>.</li>
 <code>{a: T, b?: U}</code> (fields), <code>func(a: T): R</code>.</li>
 </ul>
 
+<h2>Extensions</h2>
+<p>A file that changes the grammar (it gets
+<code>require("slang/compiler").grammar()</code> and returns no module) is
+documented as an extension. <code>slang doc</code> loads it into a fresh
+grammar and works out what it adds: the syntax as EBNF (new statements,
+rules, operators with their precedence, new kinds of expressions), the
+words it reserves and the extensions it loads. The doc comment says the
+rest:</p>
+<ul>
+<li>The first paragraph is the summary: what the extension adds.</li>
+<li>The rest explains what the syntax means: what it expands to, scoping,
+errors, edge cases.</li>
+<li>Code samples are examples. Each must compile with the extension loaded
+(leave out the <code>extension "..."</code> line); its page shows what it
+expands to, and on this site examples run in the browser.</li>
+<li>When the generated EBNF says too little (a custom parser shows as
+<code>⟨custom⟩</code>), a paragraph that is just <code>Syntax:</code>
+followed by an indented EBNF block replaces it.</li>
+</ul>
+<pre><code>// enum NAME { Member, ... } declares a table whose members map to their
+// own names, for use as symbolic values.
+//
+// Syntax:
+//   statement ::= "enum" identifier "{" (identifier ("," identifier)*)? "}"
+//
+// The table is a local of the block the statement is in.
+//
+//   enum Color { Red, Green, Blue }
+//   print(Color.Red, "\n")   // Red</code></pre>
+
 <h2>Native modules</h2>
 <p>Modules written in Zig or C are documented by stubs: slang files that
 declare the module's functions with empty bodies and the same doc

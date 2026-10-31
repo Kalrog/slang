@@ -455,6 +455,8 @@ class Workbench {
       '<p class="hint">Click the window to give it the keyboard. ' +
       '<button class="btn ghost small" data-fullscreen>Fullscreen</button></p>';
     const canvas = stage.querySelector("canvas");
+    // the right button is the game's, not the browser's menu
+    canvas.addEventListener("contextmenu", (e) => e.preventDefault());
     stage.querySelector("[data-fullscreen]").addEventListener("click", () => {
       (stage.requestFullscreen || stage.webkitRequestFullscreen).call(stage);
       canvas.focus();

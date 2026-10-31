@@ -12,6 +12,9 @@
 #   make fixpoint     check that the seed compiles itself to identical bytecode
 #   make bench        run bench/
 #   make raylib-test  run the raylib package's tests (packages/raylib; needs raylib installed)
+#   make box2d-test   run the box2d package's tests (packages/box2d; needs Box2D 3 installed)
+#   make jolt-test    run the jolt package's tests (packages/jolt; ships its own Jolt)
+#   make physics      run the physics examples (examples/physics: Box2D and Jolt, drawn with raylib)
 #   make breakout     run the breakout example (examples/breakout) on the raylib package
 #   make deckhand     run the deckhand heist game (examples/deckhand) on the raylib package
 #   make deckhand-test run deckhand's tests (no window: the deck, maps, world, every mission's solution)
@@ -28,7 +31,7 @@ LIB_SRC  := $(wildcard slang/lib/*.slang)
 COMPILER_SRC := $(wildcard slang/compiler/*.slang)
 SEED_DIR := boot/slang
 
-.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed fixpoint bench raylib-test breakout deckhand deckhand-test clean doc \
+.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed fixpoint bench raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test clean doc \
         vscode vscode-grammar
 
 all: build
@@ -88,6 +91,10 @@ test: build unit
 	bin/slang test zig/test
 	@if [ -n "$(RAYLIB_H)" ]; then $(MAKE) raylib-test; \
 	  else echo "raylib is not installed: packages/raylib not tested"; fi
+	@if [ -n "$(BOX2D_H)" ]; then $(MAKE) box2d-test; \
+	  else echo "Box2D is not installed: packages/box2d not tested"; fi
+	@if [ -d "packages/jolt/lib/$(SLANG_PLATFORM)" ]; then $(MAKE) jolt-test; \
+	  else echo "no joltc for $(SLANG_PLATFORM): packages/jolt not tested"; fi
 
 test-gui: build
 	bin/slang test zig/test/gui
@@ -126,6 +133,19 @@ RAYLIB_H := $(firstword $(wildcard $(RAYLIB_PREFIX)/include/raylib.h /opt/homebr
 
 raylib-test: build
 	cd packages/raylib && ../../bin/slang test test
+
+# the box2d package calls the installed Box2D; jolt ships joltc per platform
+BOX2D_H := $(firstword $(wildcard $(BOX2D_PREFIX)/include/box2d/box2d.h /opt/homebrew/include/box2d/box2d.h /opt/homebrew/opt/box2d/include/box2d/box2d.h /usr/local/include/box2d/box2d.h /usr/include/box2d/box2d.h))
+SLANG_PLATFORM := $(shell uname -s | sed 's/Darwin/macos/;s/Linux/linux/')-$(shell uname -m | sed 's/arm64/aarch64/')
+
+box2d-test: build
+	cd packages/box2d && ../../bin/slang test test
+
+jolt-test: build
+	cd packages/jolt && ../../bin/slang test test
+
+physics: build
+	cd examples/physics && ../../bin/slang run boxes.slang && ../../bin/slang run tower.slang
 
 breakout: build
 	bin/slang run examples/breakout/main.slang

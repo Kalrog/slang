@@ -24,8 +24,8 @@ install; `make uninstall` removes them).
 
 Requirements: Zig 0.17 (`brew install anyzig` picks the version pinned in
 `zig/build.zig.zon`). libffi (part of macOS; `libffi-dev` on Linux). raylib
-for the raylib package and the breakout example (`brew install raylib`).
-Nothing else.
+for the raylib package and the breakout example (`brew install raylib`), and
+Box2D for the box2d package (`brew install box2d`). Nothing else.
 
 `make test` runs the slang suite, the native extension tests and the Zig
 unit tests; `make test-safe` runs the suites on the checked build and under
@@ -93,7 +93,10 @@ memory the collector frees once nothing points into it, and variadic
 functions get C's promotions. Enum values and `#define` constants (numbers,
 strings, compound literals) are `C.constants`. A wrong declaration crashes
 as it would in C. Callbacks, unions, bit fields and `long double` are not
-supported yet. `packages/raylib` binds all of raylib this way.
+supported yet. `packages/raylib` binds all of raylib this way,
+`packages/box2d` Box2D (2D physics) and `packages/jolt` Jolt Physics (3D,
+through joltc, which the package ships built per platform: the library
+need not be installed).
 
 ### Buffers
 
@@ -730,8 +733,8 @@ slang/     the compiler (slang/compiler) and library code (slang/lib) written in
 test/      the test suite (bin/slang test)
 bench/     benchmarks (make bench)
 extensions/ parser extensions written in slang; extensions/native are native ones
-packages/  packages kept with slang: packages/raylib (raylib through slang/ffi)
-examples/  example programs: examples/breakout on the raylib package, examples/project (slang.project), examples/functional (|> and holes),
+packages/  packages kept with slang: packages/raylib (raylib through slang/ffi), packages/box2d (2D physics), packages/jolt (3D physics)
+examples/  example programs: examples/breakout on the raylib package, examples/physics (Box2D and Jolt drawn with raylib), examples/project (slang.project), examples/functional (|> and holes),
            examples/deckhand, a heist game on raylib whose maps are written in a DSL, examples/webserver and examples/desktop
 lsp/       the language server (highlighting and diagnostics from the real parser); editors/vscode is its VS Code client
 ```

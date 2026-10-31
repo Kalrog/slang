@@ -1,0 +1,8 @@
+{
+  name: "physics",
+  dependencies: {
+    raylib: {path: "../../packages/raylib"},
+    box2d: {path: "../../packages/box2d"},
+    jolt: {path: "../../packages/jolt"},
+  },
+}

@@ -1,13 +1,61 @@
-// async/await syntax on top of slang/async:
+// `async func`, `await` and `await for`: asynchronous code written as
+// straight-line code, on top of slang/async's Futures and Streams.
 //
-//   async func fetch(conn){ ... }        // a function returning a Future;
-//   local f = async func(x){ ... }       // its body runs as a coroutine
-//   local v = await expr                 // the value of a Future (or raises)
-//   await for(let local chunk in stream){ ... }   // one iteration per stream value
+// An async function returns a Future at once and runs its body as a
+// coroutine with `async.run`: `async func f(a){ body }` is
+// `func f(a){ return require("slang/async").run(func(){ body }) }`. The
+// Future completes with what the body returns, or fails with what it
+// raises. `async func name(...)` declares like `func`, `local async func`
+// like `local func`, and `async func(...){ ... }` is an expression.
 //
-// `async` and `await` become keywords in the files that load this extension
-// (they stay usable as field names). The generated code calls
-// require("slang/async") directly, so no local name is needed.
+// `await e` is `require("slang/async").await(e)`: it suspends the async
+// function until the Future e completes, then gives its value or raises
+// its error (catch it with try/catch). It raises when e is not a Future
+// or when the code is not running in an async function: start one with
+// `async.main`, the program's entry point, which also drives the event
+// loop. `await` binds looser than calls and indexing, so `await db.get(k)`
+// awaits the call's Future, and tighter than every binary operator.
+//
+//   local lib = require("slang/async")
+//
+//   async func add_later(a, b){
+//     await lib.sleep(10)
+//     return a + b
+//   }
+//   local twice = async func(x){ return 2 * x }
+//
+//   lib.main(func(){
+//     print(await add_later(1, 2) + await twice(20), "\n")   // 43
+//     try {
+//       await lib.failed("no luck")
+//     } catch(local e) {
+//       print("caught: ", e.message, "\n")
+//     }
+//   })
+//
+// `await for(let pattern in stream) statement` runs the statement once per
+// value of an `async.Stream`, awaiting each one: it is a for-in loop over
+// `async.iterator(stream)`. Like any for-in loop it stops at the end of
+// the stream, at a null value, or at the first value that does not match
+// the pattern. A stream's error is raised from the loop.
+//
+//   local lib = require("slang/async")
+//   lib.main(func(){
+//     local n = 0
+//     local numbers = lib.pull(func(){
+//       n = n + 1
+//       return n <= 3 and n or null
+//     })
+//     await for(let local v in numbers){
+//       print("got ", v, "\n")
+//     }
+//   })
+//
+// `async` and `await` become reserved words: they can no longer name
+// variables (`local async = require("slang/async")` is a syntax error, so
+// bind the module to another name), only fields. The expansion requires
+// slang/async itself wherever it needs it. slang/async runs on the native
+// event loop (uv), so these examples do not run in the browser.
 local peg = require("slang/peg")
 local ast = require("slang/ast")
 local g = require("slang/compiler").grammar()

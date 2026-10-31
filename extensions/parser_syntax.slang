@@ -1,3 +1,58 @@
+// `parser { rule -> ... }`: a PEG grammar written as a grammar, which
+// evaluates to a slang/peg parser.
+//
+// Syntax:
+//   expr ::= "parser" "{" rule+ "}"
+//   rule ::= identifier "->" choice ";"?
+//   choice ::= sequence ("|" sequence)*
+//   sequence ::= item+
+//   item ::= atom ("*" | "+" | "?" | "!" | "_" | fields)*
+//   atom ::= string | identifier | "[" ⟨character class⟩ "]" | "$"
+//          | "(" choice ")"
+//   string ::= "\"" ⟨any characters but ", no escapes⟩ "\""
+//   fields ::= "P" "(" (field ("," field)*)? ")"
+//   field ::= identifier ":" [0-9]+
+//
+// The rules are separated by newlines (or `;`); the one named `start` is
+// the parser the expression gives, the others are reachable from it by
+// name, in any order, recursion included.
+//
+// In a rule, `"text"` matches the text and skips whitespace around it.
+// `[a-z0-9_]` matches one character of a class, as [peg.pattern] does,
+// and skips no whitespace. A rule's name matches that rule, `$` the end
+// of the input. Parts written one after the other form a sequence, whose
+// value is the list of their values; `|` is an ordered choice, the first
+// alternative that matches wins.
+//
+// The suffixes: `*` zero or more and `+` one or more (a list), `?`
+// optional (null when absent), `!` fails where the part matches and
+// consumes nothing, `_` gives the matched text as one string, and
+// `P(name: i, ...)` turns a sequence's list into a table whose field
+// `name` is the list's element `i`.
+//
+// Each rule's value, when it is a table, gets the rule's name as its type
+// (`meta.__type`), so `'name{...}` patterns can take results apart.
+// Parse with [peg.parse], which gives `{"ok", value}` or `{"error",
+// message}`.
+//
+//   local peg = require("slang/peg")
+//   local assignment = parser {
+//     start -> (name "=" number) P(name: 0, value: 2)
+//     name -> ([a-z]+)_
+//     number -> ([0-9]+)_
+//   }
+//   local r = peg.parse(assignment, "answer = 42")
+//   if(let {"ok", 'start{name: local n, value: local v}} = r){
+//     print(n, " is ", v, "\n")             // answer is 42
+//   }
+//   print(peg.parse(assignment, "42"), "\n") // the error: [a-z] expected
+//
+// The expression expands to a function call that declares one local
+// function per rule (built from slang/peg's combinators) and returns the
+// resolved `start` parser; the grammar is built each time the expression
+// is evaluated, so keep the parser in a variable. Rule names must be
+// identifiers that are not keywords; `P` followed by `(` is read as a
+// fields suffix, not as a rule.
 extension "extensions/lambda_shorthand"
 extension "extensions/table_type"
 extension "extensions/switch"
@@ -5,19 +60,6 @@ extension "extensions/switch"
 local peg = require("slang/peg")
 
 local g = require("slang/compiler").grammar()
-
-//Grammar (ebnf inspired):
-// parser_def -> "parser" "{" rule_def "}"
-// rule_def -> id -> rule_exp* ";"
-// rule_exp -> string | rule_combine | rule_ref | rule_or | rule_star | rule_plus | rule_opt | rule_bracket
-// string -> `string`
-// rule_ref -> id
-// rule_combine -> rule_exp rule_exp
-// rule_or -> rule_exp "|" rule_exp
-// rule_star -> rule_exp "*"
-// rule_plus -> rule_exp "+"
-// rule_opt -> rule_exp "?"
-// rule_bracket -> "(" rule_exp ")"
 
 local func foldLeft(list, initial, f){
   local i = 0
@@ -228,7 +270,7 @@ func build_ast(ast){
     case 'Pattern{value: local value}:
       return +{peg.pattern(-{{type: "String", value: value}})}
     case 'EndOfInput{}:
-      return +{peg.end()}
+      return +{peg.end_of_input()}
     case local any:
       error("Unknown rule: ", any)
   }

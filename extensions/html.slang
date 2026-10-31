@@ -1,42 +1,74 @@
-// HTML templates that read like HTML, as JSX does: an expression starting
-// with `<` builds slang/html nodes, and components compose them.
+// HTML templates that read like HTML, as JSX does: an expression that
+// starts with `<` builds slang/html nodes, and components compose them.
 //
+// Syntax:
+//   expr ::= element
+//   element ::= "<>" child* "</>"
+//             | "<" tag attribute* "/>"
+//             | "<" tag attribute* ">" child* "</" tag ">"
+//   attribute ::= name ("=" (string_literal | "{" expr "}"))?
+//               | "{" "..." expr "}"
+//   child ::= element | "{" expr "}" | ⟨text: anything but < and {⟩
+//   tag ::= [a-zA-Z_] [a-zA-Z0-9_:-]* ("." [a-zA-Z_] [a-zA-Z0-9_:-]*)*
+//   name ::= [a-zA-Z_:@] [a-zA-Z0-9_:.-]*
+//
+// `<tag attrs>children</tag>` is an element, `<tag attrs/>` one without
+// children, `<>...</>` a fragment (children without a tag). The closing
+// tag must name the opening one. A tag name that starts with a capital
+// letter or contains a dot names a component: a function that is called
+// with one table, the attributes plus the children under `children`;
+// `<Nav links={x}>a</Nav>` is `Nav({links: x, children: {"a"}})`. A
+// component is a local like any other, so define it before the templates
+// that use it.
+//
+//   local tbl = require("slang/table")
+//   local func Nav(props){
+//     return <ul class="nav">
+//       {tbl.map(props.links, func(l){
+//         return <li><a href={l.href}>{l.text}</a></li>
+//       })}
+//     </ul>
+//   }
 //   local func Page(props){
 //     return <html>
 //       <head><title>{props.title}</title></head>
-//       <body class="page" data-user={props.user.id}>
+//       <body class="page" data-user={props.user}>
 //         <Nav links={props.links}/>
 //         {props.children}
 //       </body>
 //     </html>
 //   }
-//   local func Nav(props){
-//     return <ul class="nav">
-//       {map(props.links, func(l){ return <li><a href={l.href}>{l.text}</a></li> })}
-//     </ul>
-//   }
-//   string(<Page title="Hello" user={user} links={links}><p>welcome</p></Page>)
-//
-// Elements: `<tag attr="text" attr={expr} flag {...table}>children</tag>`
-// or `<tag .../>`; `<>...</>` is a fragment. A tag name that starts with a
-// capital letter or contains a dot names a component: a function that is
-// called with one table, the attributes plus the children under
-// `children`; `<Nav links={x}>a</Nav>` is `Nav({links: x, children: {"a"}})`.
+//   local links = {{href: "/", text: "Home"}, {href: "/faq", text: "Q & A"}}
+//   print(string(<Page title="Hi" user="ada" links={links}>
+//     <p>welcome</p>
+//   </Page>), "\n")
 //
 // Children are text, elements and `{expr}`: a string is escaped, a number
 // printed, a node or a list inserted (lists element by element), null and
 // booleans dropped, which makes `{cond and <b>x</b>}` a conditional;
-// html.raw(s) inserts trusted markup. Literal text is escaped when it is
+// `html.raw(s)` inserts trusted markup. Literal text is escaped when it is
 // compiled, except for entities (`&amp;`, `&#169;`), which are kept; its
 // whitespace follows JSX, with a twist: lines are trimmed, blank lines
 // dropped, a line break inside text becomes one space, and a space between
 // text and a `{value}` is kept (`Hello {name}` stays two words).
 //
-// Attribute values are text or `{expr}`; null and false omit the attribute,
-// true writes it bare (`<input disabled={not ok}/>`), anything else is
-// escaped. Everything lowers to calls on slang/html, required once per
-// unit (g:unit_local); the highlighter sees tags as keywords, components
-// as functions, attributes as properties.
+// Attribute values are text or `{expr}`; null and false omit the
+// attribute, true writes it bare, anything else is escaped. An attribute
+// without a value is true; `{...table}` adds a table's entries as
+// attributes.
+//
+//   local name = "<Ada>"
+//   local ok = false
+//   local extra = {id: "who", hidden: true}
+//   print(string(<>
+//     <input type="text" required disabled={not ok} {...extra}/>
+//     <p>Hello {name}, &copy; 2026 {ok and <b>(ok)</b>}</p>
+//   </>), "\n")
+//
+// Everything lowers to calls on slang/html (`html.element`, `html.value`),
+// required once per unit; string() of a node renders it. The highlighter
+// sees tags as keywords, components as functions, attributes as
+// properties.
 local peg = require("slang/peg")
 local ast = require("slang/ast")
 local str = require("slang/string")

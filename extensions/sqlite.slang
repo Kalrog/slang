@@ -1,22 +1,54 @@
-// sql{ ... } literals: SQL that reads as SQL, with slang values bound
-// safely, for slang/sqlite.
+// `sql{ ... }` literals: SQL written as SQL inside slang, with slang
+// values bound as parameters, never pasted into the text; for
+// slang/sqlite.
 //
-//   local rows = db:all(sql{
-//     select id, text, done from todos
-//     where done = {done} and id in ({...ids})
-//     order by id
+// Syntax:
+//   expr ::= "sql" "{" (hole | sql_text)* "}"
+//   hole ::= "{" expr "}" | "{" "..." expr "}"
+//   sql_text ::= ⟨SQL: words, numbers, 'strings', comments, punctuation⟩
+//
+// A literal is a `sqlite.Query` value: the text with one `?` per hole and
+// the holes' values, which the database methods (`db:all`, `db:one`,
+// `db:run`, `db:each`, `db:exec`) take. `{expr}` binds the expression's
+// value; `{...list}` binds one parameter per element of a list (an empty
+// list binds one null, which matches nothing), for `in (...)`; a hole
+// whose value is itself a query splices that query's text and parameters
+// in, so fragments compose safely. The holes are evaluated in order when
+// the literal is.
+//
+//   local sqlite = require("slang/sqlite")
+//   local db = sqlite.open(":memory:")
+//   db:exec(sql{
+//     create table todos(id integer primary key, text text, done boolean)
 //   })
-//   local where = done == null and sql{} or sql{ where done = {done} }
-//   db:all(sql{ select * from todos {where} })
+//   for(let local text in values({"write docs", "test them", "ship"})){
+//     db:run(sql{ insert into todos(text, done) values ({text}, {false}) })
+//   }
+//   local ids = {1, 3}
+//   db:run(sql{ update todos set done = {true} where id in ({...ids}) })
 //
-// `{expr}` is a bound parameter, never text; `{...list}` expands to one
-// parameter per element (an empty list to null); a `{fragment}` whose
-// value is itself a sql{} literal is spliced in with its own parameters.
-// Comments (-- and /* */) are dropped and whitespace collapsed, so the
-// text is one line in error messages and as a cache key. SQL keywords,
-// strings and numbers are tagged for the highlighter. A literal lowers to
-// sqlite.query(text, {values}, "file:line"); one without values is made
-// once per unit.
+//   local func todos(done){
+//     local where = done == null and sql{} or sql{ where done = {done} }
+//     return db:all(sql{
+//       select id, text from todos {where} -- every row without a filter
+//       order by id
+//     })
+//   }
+//   print(todos(true), "\n")     // the rows 1 and 3, as tables
+//   print(len(todos(null)), "\n") // 3
+//
+// The text between the holes is SQL as SQLite reads it: braces may appear
+// only inside 'strings' (with '' for a quote); a brace outside one starts
+// a hole or ends the literal. Comments (`--` to the end of the line,
+// `/* */`) are dropped and whitespace is collapsed, so the text is one
+// line in error messages and as the statement cache's key. Errors name
+// the literal's file and line.
+//
+// The literal lowers to `sqlite.query(text, {values}, "file:line",
+// count)`, with slang/sqlite required once per unit; a literal without
+// holes is built once per unit and shared. SQL keywords, strings, numbers
+// and comments are tagged for the highlighter. slang/sqlite is native, so
+// these examples do not run in the browser.
 local peg = require("slang/peg")
 local ast = require("slang/ast")
 local str = require("slang/string")

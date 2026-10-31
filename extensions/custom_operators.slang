@@ -1,12 +1,46 @@
-//special way to define operators
-// each definition is an extension statement: it is parsed at the top level and
-// its apply function registers the operator for the statements that follow
-// (in the grammar of the unit being parsed, which apply receives: this file
-// may be loaded once for a whole project)
-// "infix" "_"{symbol}"_" ("left","right")? (("after" {id})|("before" {id})|("at" {number}))? "(" {params}")" "{" {body} "}"
-// creates an infix operator, that calls the function when the operator is used
-// "prefix" {symbol}_ (("after" {id})|("before" {id})|("at" {number}))? "(" {params}")" "{" {body} "}"
-// creates a prefix operator, that calls the function when the operator is used
+// Operators defined in the program: `infix`, `prefix` and `postfix`
+// declare a function and an operator that calls it, usable in the
+// statements that follow.
+//
+// Syntax:
+//   statement ::= infix | prefix | postfix
+//   infix ::= "infix" "_" symbol "_" ("left" | "right")? place? params block
+//   prefix ::= "prefix" symbol "_" place? params block
+//   postfix ::= "postfix" "_" symbol place? params block
+//   place ::= ("after" | "before") "_" level "_" | "at" [0-9]+
+//   params ::= "(" (param ("," param)*)? ")"
+//   symbol ::= ⟨one or more characters, no "_"⟩
+//   level ::= ⟨a level's name or alias: power, *, +, compare, or, ...⟩
+//
+// The underscores mark where the operands go: `infix _<>_`, `prefix √_`,
+// `postfix _!`. The definition declares a global function named after
+// the operator's bytes (`infix_60_62` for `<>`) and a precedence level of
+// its own for the operator; each use becomes a call of that function, so
+// `a <> b` is `infix_60_62(a, b)`.
+//
+// Without a place the level is looser than every other, `or` included.
+// `after _l_` puts it right after level l (just looser), `before _l_`
+// right before it (just tighter); `at n` at position n of the levels,
+// tightest first. An infix operator is right-associative unless `left`
+// says otherwise.
+//
+//   infix _<>_ (a, b){ return concat(a, " ", b) }
+//   infix _**_ before _*_ (a, b){ return a ^ b }
+//   prefix √_ (x){ return x ^ 0.5 }
+//   postfix _! (n){
+//     local r = 1
+//     for(local i = 2; i <= n; i = i + 1){ r = r * i }
+//     return r
+//   }
+//   print("hello" <> "world", "\n")      // hello world
+//   print(2 * 2 ** 3 ** 2, "\n")         // 1024
+//   print(√16, " ", 5!, "\n")            // 4.0 120
+//
+// A definition is a top-level statement only. It changes the grammar of
+// the file from the next statement on, between statements (the
+// definitions are applied to the grammar of the unit being parsed, so an
+// extension loaded once for a whole project still works per file).
+// Defining an operator again replaces its level.
 extension "extensions/lambda_shorthand"
 
 local peg = require("slang/peg")
@@ -65,7 +99,8 @@ g:extension_statement(
   func(result, g){
     local symbol = g:token(result[2], result[2], "operator")
     local id = {type: "Identifier", value: mangle("infix", result[2])}
-    local direction = result[4]
+    // the token's text: "left", "right", or null
+    local direction = result[4] and result[4].value
     local position = result[5]
     local params = result[7]
     local body = result[9]

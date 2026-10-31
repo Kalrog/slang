@@ -13,7 +13,19 @@ process by `test/lsp_test.slang`; `lsp/main.slang` is the stdio transport.
 Supported: `initialize` (semantic tokens, full sync, `positionEncoding`
 utf-8 when offered), `didOpen`/`didChange`/`didClose`,
 `semanticTokens/full`, `publishDiagnostics`, `hover`, `definition`,
-`references`, `formatting` (`slang fmt`'s formatter, the whole document),
+`references`, `documentSymbol` (the outline, grouped by `// ----`
+sections), `documentHighlight`, `prepareRename`/`rename` (across the
+project; refused for names defined outside it, and for a field when some
+of its uses cannot be resolved), `workspace/symbol`, `inlayHint`
+(parameter names before literal arguments, or all, per
+`initializationOptions.parameterHints`), `completion` (the members of
+what `a.b.` holds and the methods after `a:`, the names in scope, the
+grammar's keywords, module names in `require("...")`), `signatureHelp`,
+lint warnings with the parse errors (unused locals, globals no project
+file defines, requires of missing modules, computed requires;
+`initializationOptions.lint: false` turns them off), `formatting` and
+`rangeFormatting` (`slang fmt`'s formatter; a range formats the lines it
+touches),
 `didChangeWatchedFiles` (the grammars are reset),
 `shutdown`/`exit`, and a `slang/project` notification with the project's
 dialect suffixes. `editors/vscode` is the VS Code client.

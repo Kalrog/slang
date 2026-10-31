@@ -323,6 +323,169 @@ t.group("language server: names"){
     assert(str.index_of(h.contents.value, "func print(") >= 0, h.contents.value)
     assert(str.index_of(h.contents.value, "globals (native)") >= 0)
   }
+  t.test("outline: the top-level names with their kinds"){
+    local syms = s:handle(request(9, "textDocument/documentSymbol", {
+      textDocument: {uri: uri},
+    }))[0].result
+    local got = {}
+    for(let local sym in values(syms)){
+      append(got, concat(sym.name, "/", string(sym.kind)))
+    }
+    // modules 2, functions 12, variables 13
+    assert(
+      got == {"util/2", "greet/12", "counter/13", "c/13", "str/2"},
+      str.join(got, " "),
+    )
+  }
+  t.test("highlights: the definition is a write, the uses reads"){
+    local h = ask("textDocument/documentHighlight", pos("name)", 1))
+    assert(len(h) == 2 and h[0].kind == 3 and h[1].kind == 2)
+  }
+  t.test("rename: across files, refused outside the project"){
+    local p = ask("textDocument/prepareRename", pos("double"))
+    assert(p.placeholder == "double")
+    local r = s:handle(request(9, "textDocument/rename", {
+      textDocument: {uri: uri},
+      position: pos("double"),
+      newName: "twice",
+    }))[0].result
+    local counts = {}
+    for(let local e in entries(r.changes)){
+      local file = str.substring(e[0], str.index_of(e[0], "/navigate/") + 10)
+      counts[file] = len(e[1])
+      assert(e[1][0].newText == "twice")
+    }
+    assert(counts == {["main.slang"]: 2, ["util.slang"]: 1}, string(counts))
+    local refused = s:handle(request(9, "textDocument/prepareRename", {
+      textDocument: {uri: uri},
+      position: pos("print"),
+    }))[0]
+    assert(str.index_of(refused.error.message, "outside the project") >= 0)
+    local keyword = s:handle(request(9, "textDocument/rename", {
+      textDocument: {uri: uri},
+      position: pos("double"),
+      newName: "local",
+    }))[0]
+    assert(keyword.error != null)
+  }
+  t.test("inlay hints: parameter names before literal arguments"){
+    local hints = s:handle(request(9, "textDocument/inlayHint", {
+      textDocument: {uri: uri},
+      range: {
+        start: {line: 0, character: 0},
+        ["end"]: {line: 20, character: 0},
+      },
+    }))[0].result
+    local got = {}
+    for(let local h in values(hints)){
+      append(got, concat(h.label, string(h.position.line)))
+    }
+    // c:bump(2) names `by`: the receiver is the first parameter
+    assert(
+      got == {"x:5", "name:8", "x:8", "by:10", "s:12"},
+      str.join(got, " "),
+    )
+  }
+  t.test("workspace symbols: the project's names by a fuzzy query"){
+    local r = s:handle(request(9, "workspace/symbol", {query: "dbl"}))[0].result
+    assert(len(r) == 1 and r[0].name == "double", string(len(r)))
+    assert(str.ends_with(r[0].location.uri, "/navigate/util.slang"))
+  }
+  // the document with extra appended (it need not parse), the result of
+  // method at its end; the document is put back after
+  local func at_end(extra, method){
+    local t = concat(text, extra)
+    s:handle(notify("textDocument/didChange", {
+      textDocument: {uri: uri, version: 2},
+      contentChanges: {{text: t}},
+    }))
+    local lc = str.line_col(t, len(t))
+    local result = s:handle(request(9, method, {
+      textDocument: {uri: uri},
+      position: {line: lc[0] - 1, character: lc[1] - 1},
+    }))[0].result
+    s:handle(notify("textDocument/didChange", {
+      textDocument: {uri: uri, version: 3},
+      contentChanges: {{text: text}},
+    }))
+    return result
+  }
+  local func labels(items){
+    local out = {}
+    for(let local i in values(items)){
+      append(out, i.label)
+    }
+    return out
+  }
+  t.test("completion: members, methods, names in scope, modules"){
+    local members = {}
+    for(let local name in values(
+      labels(at_end("util.", "textDocument/completion")),
+    )){
+      members[name] = true
+    }
+    assert(members == {double: true, counter: true}, string(members))
+    assert(labels(at_end("c:", "textDocument/completion")) == {"bump"})
+    local plain = at_end("gr", "textDocument/completion")
+    local has = {}
+    for(let local i in values(plain)){
+      has[i.label] = i
+    }
+    assert(has.greet != null and has.greet.detail == "greet(name)")
+    assert(has.print != null and has["local"] != null)
+    // locals come before globals and keywords
+    assert(str.compare(has.greet.sortText, has.print.sortText) < 0)
+    local mods = labels(at_end(
+      "local x = require(\"test/navigate/",
+      "textDocument/completion",
+    ))
+    assert(mods == {"test/navigate/main", "test/navigate/util"}, str.join(
+      mods,
+      " ",
+    ))
+    assert(len(at_end("// util.", "textDocument/completion")) == 0)
+  }
+  t.test("signature help: parameters, the current one, methods"){
+    local sig = at_end("util.double(", "textDocument/signatureHelp")
+    assert(sig.signatures[0].label == "double(x)" and sig.activeParameter == 0)
+    assert(str.index_of(sig.signatures[0].documentation.value, "twice x") >= 0)
+    sig = at_end("c:bump(", "textDocument/signatureHelp")
+    assert(sig.signatures[0].label == "bump(by)")
+    sig = at_end("greet(f(1, 2), ", "textDocument/signatureHelp")
+    assert(
+      sig.signatures[0].label == "greet(name)" and sig.activeParameter == 1,
+    )
+  }
+  t.test("lint: unused locals, undefined globals, missing modules"){
+    local ls = lsp.new({root: dir})
+    ls:handle(request(1, "initialize", {capabilities: {}}))
+    local r = open_doc(
+      ls,
+      lsp.path_to_uri(concat(dir, "/lint.slang")),
+      "local unused = 1\nlocal _fine = 2\nprint(nowhere, counter)\nlocal m = require(\"no/such\")\nm.f()\n",
+    )
+    local got = {}
+    for(let local d in values(r[0].params.diagnostics)){
+      append(got, concat(string(d.severity), ":", d.message))
+    }
+    assert(got == {
+        "4:unused is never used",
+        "2:nowhere is not defined (a global no file of the project assigns)",
+        "2:module no/such not found",
+      }, str.join(got, " | "))
+  }
+  t.test("range formatting: only the lines of the selection change"){
+    local rs = lsp.new({root: dir})
+    rs:handle(request(1, "initialize", {capabilities: {}}))
+    local ruri = lsp.path_to_uri(concat(dir, "/range.slang"))
+    open_doc(rs, ruri, "local   a=1\nif(a){ print( 1 ) }\nlocal   c=3\n")
+    local edits = rs:handle(request(9, "textDocument/rangeFormatting", {
+      textDocument: {uri: ruri},
+      range: {start: {line: 1, character: 0}, ["end"]: {line: 1, character: 2}},
+    }))[0].result
+    assert(len(edits) == 1 and edits[0].range.start.line == 1)
+    assert(edits[0].newText == "if(a){ print(1) }", edits[0].newText)
+  }
   t.test("hover: the signature and the doc comment"){
     local h = ask("textDocument/hover", pos("greet(\"x"))
     assert(h.contents.kind == "markdown")

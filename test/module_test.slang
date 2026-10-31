@@ -14,7 +14,7 @@ t.group("modules"){
   }
 
   t.test("will hide private variables"){
-    assert(mod.privateVar == nil, "privateVar should be nil")
+    assert(mod.privateVar == null, "privateVar should be null")
   }
 
   t.test("will hide private functions"){

@@ -649,6 +649,23 @@ local func grammar_for(path){
   return {grammar: g, dialect: dialect, project: proj}
 }
 
+// keywords(path) -> the words the grammar of a file at path reserves (its
+// project's and dialect's extensions included), sorted
+func compiler.keywords(path){
+  local g = grammar_for(path).grammar or root
+  local out = {}
+  for(let local word in keys(g.keywords or {})){
+    local i = len(out)
+    append(out, word)
+    for(i > 0 and str.compare(out[i - 1], word) > 0){
+      out[i] = out[i - 1]
+      i = i - 1
+    }
+    out[i] = word
+  }
+  return out
+}
+
 // ------------------------------------------------------------ bytecode cache
 //
 // Files loaded through load_file (require and `slang run`) are cached as
@@ -788,7 +805,7 @@ local func find_project_for(path){
 }
 
 // highlight(source, path, {find_project, symbols}) -> {tokens, diagnostics,
-// symbols}: the tokens of source as
+// symbols, ast}: the tokens of source as
 // the compiler would parse the file at path (its project, its dialect),
 // with categories and 1-based line/column, and the parse errors as
 // {line, column, message, severity}. Extension code runs as it would in
@@ -797,7 +814,7 @@ local func find_project_for(path){
 // (peg.highlights); a statement that fails to parse is reported and
 // highlighted by its words, and the parse goes on after it. With symbols,
 // the same parse also gives the file's definitions and uses (see
-// slang/symbols; not for a project file).
+// slang/symbols; not for a project file), and ast its (expanded) tree.
 func compiler.highlight(source, path, options){
   // the editor's documents look their project up while none is loaded (the
   // main program's own lookup does not count: the server has no project)
@@ -866,8 +883,10 @@ func compiler.highlight(source, path, options){
     lin.last_failure = null
   }
   local found = null
+  local tree = null
   if(options != null and options.symbols and r[0] == "ok" and shift == 0){
     found = symbols.analyse(r[1], text, path)
+    tree = r[1]
   }
   local tokens = peg.highlights(lin.last_tree, text, {trivia: grammar.comments})
   lin.last_tree = null
@@ -886,7 +905,7 @@ func compiler.highlight(source, path, options){
     }
     tokens = shifted
   }
-  return {tokens: tokens, diagnostics: diagnostics, symbols: found}
+  return {tokens: tokens, diagnostics: diagnostics, symbols: found, ast: tree}
 }
 
 // compile_file(path, origin) -> function: compiles a file as `slang run`

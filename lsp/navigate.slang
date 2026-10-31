@@ -8,6 +8,10 @@
 //   w:definition(path, pos) -> list of {path, start, stop}
 //   w:references(path, pos, with_declaration) -> list of {path, start, stop}
 //   w:hover(path, pos) -> {markdown, start, stop} or null
+//   w:callable(path, pos, cache) -> {name, params, doc} of the function the
+//                                  name at pos stands for, or null
+//   w:unresolved_fields(name) -> the uses of a field name whose owner
+//                                  cannot be told
 //
 // Positions are byte offsets. A name resolves the way the compiler resolves
 // it (slang/symbols); a field of a local bound to require("name") resolves
@@ -365,6 +369,18 @@ local func type_name_of(w, value){
   return t.def.value.value
 }
 
+// the parameter names of a Function node, or null
+local func function_params(node){
+  if(node == null or node.type != "Function"){
+    return null
+  }
+  local out = {}
+  for(let local p in values(node.params)){
+    append(out, p.value)
+  }
+  return out
+}
+
 // the Function node a value is, or null
 local func function_of(value){
   if(value == null){
@@ -572,7 +588,9 @@ local func key_at(w, path, pos){
   if(f == null){
     return null
   }
-  local found = symbols.at(f.index, pos)
+  // a name's own start is found at once (callers that walk the tree ask
+  // for many)
+  local found = f.index.by_start[pos] or symbols.at(f.index, pos)
   if(found == null){
     return null
   }
@@ -799,6 +817,177 @@ func methods.references(w, path, pos, with_declaration){
       local f = w:file(outside)
       if(f != null){
         matches_in(w, key, outside, f.index, out, with_declaration)
+      }
+    }
+  }
+  return out
+}
+
+// ------------------------------------------------------------ by name
+//
+// While a document is edited it often does not parse: its index is of an
+// older text, whose positions are not the editor's. Completion and
+// signature help find names by name instead, as the compiler would at a
+// position: the innermost local in scope, else a global.
+
+// whether a local or parameter is in scope at pos
+local func in_scope(def, pos){
+  return def.scope == null or (def.scope.start <= pos and pos <= def.scope.stop)
+}
+
+// the definition name has at pos in path: {path, def}, or null
+func methods.lookup(w, path, name, pos){
+  local f = w:file(path)
+  if(f == null){
+    return null
+  }
+  local best = null
+  for(let local d in values(f.index.defs)){
+    if(d.name == name and (d.kind == "local" or d.kind == "parameter") and
+      d.start <= pos and in_scope(d, pos)){
+      best = d
+    }
+  }
+  if(best != null){
+    return {path: path, def: best}
+  }
+  return definition_of(w, {kind: "global", name: name}, path)
+}
+
+// the locals and parameters in scope at pos: {name: def}
+func methods.locals_at(w, path, pos){
+  local f = w:file(path)
+  local out = {}
+  if(f == null){
+    return out
+  }
+  for(let local d in values(f.index.defs)){
+    if((d.kind == "local" or d.kind == "parameter") and d.start < pos and
+      in_scope(d, pos)){
+      out[d.name] = d
+    }
+  }
+  return out
+}
+
+// the member name of a target ({path, def}), or null
+func methods.member(w, target, name){
+  if(target == null){
+    return null
+  }
+  return field_of(w, value_of_def(w, target.path, target.def, 0), name, 0)
+}
+
+// the members of a target: {name: {path, def}}: its fields, a module's
+// exports, and the methods its meta's __index holds
+func methods.members(w, target){
+  local out = {}
+  if(target == null){
+    return out
+  }
+  local func add_fields(value, depth){
+    if(value == null or depth > 4){
+      return null
+    }
+    // (a key named meta would set out's metatable: it is the meta)
+    if(value.def != null){
+      for(let local e in entries(value.def.fields or {})){
+        if(e[0] != "meta" and out[e[0]] == null){
+          out[e[0]] = {path: value.path, def: e[1]}
+        }
+      }
+    }
+    if(value.node != null and value.node.type == "Table"){
+      for(let local fld in values(value.node.fields)){
+        if(fld.type == "Field" and fld.key != null and
+          fld.key.type == "String" and fld.key.value != "meta" and
+          out[fld.key.value] == null){
+          local key = fld.key.token
+          out[fld.key.value] = {
+            path: value.path,
+            def: {
+              name: fld.key.value, kind: "field", start: key.start,
+              stop: key.stop, value: fld.value, fields: {},
+              params: function_params(fld.value)
+            },
+          }
+        }
+      }
+    }
+    // the methods: the fields of meta.__index
+    local meta = field_of(w, value, "meta", 0)
+    if(meta != null){
+      local index = field_of(
+        w, value_of_def(w, meta.path, meta.def, 0), "__index", 0
+      )
+      if(index != null){
+        add_fields(value_of_def(w, index.path, index.def, 0), depth + 1)
+      }
+    }
+  }
+  add_fields(value_of_def(w, target.path, target.def, 0), 0)
+  return out
+}
+
+// the parameter names of a target's function, or null: its own, or those
+// of the function its value is (a module that returns one, a call that does)
+func methods.params(w, target){
+  if(target == null){
+    return null
+  }
+  if(target.def.params != null){
+    return target.def.params
+  }
+  return function_params(
+    function_of(value_of_def(w, target.path, target.def, 0)),
+  )
+}
+
+// The function a name at pos stands for: {name, params, doc}, or null when
+// it is not one that can be told. cache (a table, optional) keeps the
+// globals found across calls, which are looked up in the project.
+func methods.callable(w, path, pos, cache){
+  local key = key_at(w, path, pos)
+  if(key == null){
+    return null
+  }
+  local cache_key = null
+  if(key.kind == "global" and cache != null){
+    cache_key = concat(key.owner or "", ".", key.name)
+    local hit = cache[cache_key]
+    if(hit != null){
+      return hit or null
+    }
+  }
+  local d = definition_of(w, key, path)
+  local out = false
+  if(d != null){
+    local params = w:params(d)
+    if(params != null){
+      out = {name: d.def.name, params: params, doc: d.def.doc, def: d.def}
+    }
+  }
+  if(cache_key != null){
+    cache[cache_key] = out
+  }
+  return out or null
+}
+
+// The uses of a field or method name whose owner cannot be told (w:file()
+// with w a parameter): they may or may not be the field at hand, so a
+// rename cannot be sure of them. {path, start, stop}
+func methods.unresolved_fields(w, name){
+  local out = {}
+  for(let local p in values(w:files_with(name))){
+    local f = w:file(p)
+    if(f != null){
+      for(let local r in values(f.index.refs)){
+        local owner = r.owner
+        if(r.name == name and owner != null and r.def == null and
+          owner.module == null and owner.global == null and
+          owner != f.index.returned and member_of(w, p, r) == null){
+          append(out, location(p, r))
+        }
       }
     }
   }

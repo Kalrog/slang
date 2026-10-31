@@ -35,6 +35,10 @@ async function start(context: vscode.ExtensionContext): Promise<void> {
       fileEvents: vscode.workspace.createFileSystemWatcher("**/slang.project"),
     },
     outputChannelName: "slang",
+    initializationOptions: {
+      parameterHints: config.get<string>("parameterHints", "literals"),
+      lint: config.get<boolean>("lint", true),
+    },
   };
   client = new LanguageClient("slang", "slang language server", serverOptions, clientOptions);
   client.onNotification("slang/project", (params: { path: string; dialects: string[] }) => {

@@ -29,6 +29,7 @@
       "filenames": ["slang.project"],
       "configuration": "./language-configuration.json"
     }],
+    "snippets": [{ "language": "slang", "path": "./snippets/slang.json" }],
     "grammars": [{
       "language": "slang",
       "scopeName": "source.slang",
@@ -67,6 +68,17 @@
           "enum": ["off", "messages", "verbose"],
           "default": "off",
           "description": "Trace the messages between VS Code and the slang language server."
+        },
+        "slang.parameterHints": {
+          "type": "string",
+          "enum": ["literals", "all", "none"],
+          "default": "literals",
+          "description": "Which call arguments get their parameter's name as an inlay hint: literal arguments (numbers, strings, true, false, null), all arguments, or none. Takes effect when the language server restarts."
+        },
+        "slang.lint": {
+          "type": "boolean",
+          "default": true,
+          "description": "Report locals that are never used, globals no file of the project defines, and requires of modules that do not exist. Takes effect when the language server restarts."
         }
       }
     }

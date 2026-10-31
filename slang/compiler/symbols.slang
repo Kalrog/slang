@@ -16,7 +16,9 @@
 //            the parameter names when the value is a function; owner (of a
 //            field) the definition it belongs to, or {global: name}; module
 //            the name given to require when the value is require("name");
-//            fields (of a table) {name: field definition}
+//            fields (of a table) {name: field definition}; scope (of a local
+//            or parameter) {start, stop} of the block, function or loop it
+//            lives in, null at the top level of the file
 //   refs     the uses: {name, start, stop, def, write, owner, invoke}; def
 //            is the definition the name resolved to (null for a global or a
 //            field not found in the file); owner as for fields; invoke when
@@ -36,6 +38,7 @@
 //     more spaces, kept as they are, less the common indentation)
 local str = require("slang/string")
 local codegen = require("slang/codegen")
+local ast = require("slang/ast")
 
 local symbols = {}
 
@@ -352,6 +355,43 @@ local func table_fields(rec, owner, value){
   }
 }
 
+// the nodes that make a scope for the names declared in them
+local scope_types = {
+  Block: true, Function: true, For: true, ForIn: true, Catch: true
+}
+
+// gives each local and parameter the range of its innermost scope (a name's
+// declaration is an identifier at the definition's start)
+local func assign_scopes(node, source, by_start, scope, top){
+  if(node == null or ast.specs[node.type] == null or node.type == "Quote"){
+    return
+  }
+  local token = node.token
+  local here = token != null and token.buffer == source and token.start != null
+  if(scope_types[node.type] and here and not top){
+    scope = {start: token.start, stop: token.stop}
+  }
+  if(node.type == "Identifier" and here){
+    local d = by_start[token.start]
+    if(d != null and (d.kind == "local" or d.kind == "parameter") and
+      d.scope == null){
+      d.scope = scope
+    }
+  }
+  for(let local field in values(ast.specs[node.type])){
+    local child = node[field[0]]
+    if(child != null){
+      if(field[1] == "list"){
+        for(let local c in values(child)){
+          assign_scopes(c, source, by_start, scope, false)
+        }
+      } else if(field[1] != "value"){
+        assign_scopes(child, source, by_start, scope, false)
+      }
+    }
+  }
+}
+
 // a list sorted by start (stable)
 local func sorted(list){
   local n = len(list)
@@ -472,6 +512,12 @@ func symbols.analyse(block, source, origin){
         returned = {name: "module", kind: "local", fields: {}}
         table_fields(rec, returned, st.value)
         exports = returned.fields
+      } else if(st.value.type == "Function"){
+        // a module that is a function
+        returned = {
+          name: "module", kind: "local", fields: {}, value: st.value,
+          params: params_of(st.value)
+        }
       } else if(is_require(st.value)){
         // `return require("other")`: the module is the other one
         returned = {
@@ -490,6 +536,7 @@ func symbols.analyse(block, source, origin){
   for(let local d in values(rec.defs)){
     by_start[d.start] = d
   }
+  assign_scopes(block, source, by_start, null, true)
   return {
     origin: origin,
     defs: sorted(rec.defs),

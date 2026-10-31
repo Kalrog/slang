@@ -7,8 +7,15 @@
 // the server speaks: initialize (semantic tokens, full document sync, a
 // position encoding), didOpen/didChange/didClose, semanticTokens/full,
 // publishDiagnostics, didChangeWatchedFiles (the project file changed: the
-// grammars are reset), hover, definition, references, formatting (slang
-// fmt's formatter), shutdown, exit.
+// grammars are reset), hover, definition, references, documentSymbol (the
+// outline, under the `// ----` sections), documentHighlight,
+// prepareRename/rename (refused for names outside the project and for
+// fields with uses that cannot be told apart), workspace/symbol,
+// inlayHint (parameter names; initializationOptions.parameterHints:
+// "literals", "all" or "none"), completion (members, names in scope,
+// keywords, module names), signatureHelp, lint diagnostics (unused locals,
+// undefined globals, missing modules; initializationOptions.lint),
+// formatting and rangeFormatting (slang fmt's formatter), shutdown, exit.
 // Highlighting and the symbols come from one compiler.highlight, so
 // extensions and dialects are the real ones; lsp/navigate answers the
 // questions about names.
@@ -18,6 +25,9 @@ local json = require("slang/json")
 local os = require("slang/os")
 local navigate = require("lsp/navigate")
 local format = require("slang/format")
+local symbols = require("slang/symbols")
+local ast = require("slang/ast")
+local vm = require("slang/vm")
 
 local lsp = {}
 
@@ -320,7 +330,8 @@ func lsp.new(options){
   local s = {
     documents: {}, encoding: "utf-16", initialized: false,
     shutdown_requested: false, exited: false, log: options.log or func(text){},
-    root: options.root, nav: null
+    root: options.root, nav: null, parameter_hints: "literals", lint: true,
+    lint_globals: {}, lint_modules: {}
   }
   s.meta = meta
   return s
@@ -361,6 +372,140 @@ local func notification(method, params){
   return {jsonrpc: "2.0", method: method, params: params}
 }
 
+local lint = null
+
+// ------------------------------------------------------------ lint
+//
+// What compiles but is likely a mistake, for a document whose text parses:
+// a local never used, a global read but defined nowhere (not in the file,
+// not built in, not in the project), a require of a module that does not
+// exist, and a require of a computed name. Whether a global or a module
+// exists is cached by name; the cache is cleared when a document's globals
+// change or the project does.
+
+local SEVERITY = {warning: 2, information: 3, hint: 4}
+
+local func lint_diagnostic(doc, start, stop, message, severity, tags){
+  local d = {
+    range: lsp.range_of(doc.text, start, stop, doc.encoding),
+    severity: severity,
+    source: "slang",
+    message: message,
+  }
+  if(tags != null){
+    d.tags = json.array(tags)
+  }
+  return d
+}
+
+// a name an extension made up is not written where it is
+local func written_at(text, start, stop, name){
+  return start != null and str.substring(text, start, stop) == name
+}
+
+// whether a global is defined somewhere: the file, a built-in, the project
+local func global_known(s, doc, name){
+  // the globals of this VM (require, module, ...) are every slang's
+  if(doc.symbols.globals[name] != null or str.starts_with(name, "__") or
+    _ENV[name] != null){
+    return true
+  }
+  local hit = s.lint_globals[name]
+  if(hit == null){
+    hit = nav_of(s):lookup(doc.path, name, 0) != null
+    s.lint_globals[name] = hit
+  }
+  return hit
+}
+
+// whether require(name) finds a module
+local func module_known(s, name){
+  local hit = s.lint_modules[name]
+  if(hit == null){
+    hit = __PACKAGES.preloaded[name] != null or vm.embedded(name) != null or
+      compiler.module_path(name) != null or
+      (pcall(__PACKAGES.native_file, name)[1] != null)
+    s.lint_modules[name] = hit
+  }
+  return hit
+}
+
+lint = func(s, doc){
+  local out = {}
+  local index = doc.symbols
+  local text = doc.text
+  doc.encoding = s.encoding
+  // the globals this document defines: a change clears the caches
+  local names = {}
+  for(let local k in keys(index.globals)){
+    append(names, k)
+  }
+  local signature = str.join(names, ",")
+  if(doc.globals_signature != null and doc.globals_signature != signature){
+    s.lint_globals = {}
+  }
+  doc.globals_signature = signature
+  local used = {}
+  for(let local r in values(index.refs)){
+    if(r.def != null){
+      used[r.def] = true
+    }
+  }
+  for(let local d in values(index.defs)){
+    if(d.kind == "local" and not used[d] and
+      not str.starts_with(d.name, "_") and
+      written_at(text, d.start, d.stop, d.name)){
+      append(out, lint_diagnostic(
+        doc,
+        d.start,
+        d.stop,
+        concat(d.name, " is never used"),
+        SEVERITY.hint,
+        {1},
+      ))
+    }
+  }
+  local reported = {}
+  for(let local r in values(index.refs)){
+    if(r.def == null and r.owner == null and not r.write and
+      not reported[r.name] and written_at(text, r.start, r.stop, r.name) and
+      not global_known(s, doc, r.name)){
+      reported[r.name] = true
+      append(out, lint_diagnostic(doc, r.start, r.stop, concat(
+        r.name,
+        " is not defined (a global no file of the project assigns)",
+      ), SEVERITY.warning))
+    }
+  }
+  if(doc.ast != null){
+    local found = ast.requires(doc.ast)
+    for(let local q in values(found.names)){
+      local stop = q.pos + 7
+      if(q.pos >= 0 and q.pos < len(text) and not module_known(s, q.name)){
+        append(out, lint_diagnostic(
+          doc,
+          q.pos,
+          stop,
+          concat("module ", q.name, " not found"),
+          SEVERITY.warning,
+        ))
+      }
+    }
+    for(let local pos in values(found.computed)){
+      if(pos >= 0 and pos < len(text)){
+        append(out, lint_diagnostic(
+          doc,
+          pos,
+          pos + 7,
+          "require of a computed name: slang build cannot tell which module it loads",
+          SEVERITY.hint,
+        ))
+      }
+    }
+  }
+  return out
+}
+
 // the diagnostics notification for a document, after highlighting it
 local func analyse(s, uri){
   local doc = s.documents[uri]
@@ -387,14 +532,28 @@ local func analyse(s, uri){
     if(r[1].symbols != null){
       doc.symbols = r[1].symbols
       doc.symbols_text = doc.text
+      doc.ast = r[1].ast
     }
   }
   if(s.nav != null){
     s.nav:open(doc.path, doc.symbols_text or doc.text, doc.symbols)
   }
+  local diagnostics = lsp_diagnostics(doc.text, doc.diagnostics, s.encoding)
+  // the lint needs the index of this very text
+  if(s.lint and len(doc.diagnostics) == 0 and doc.symbols_text == doc.text){
+    local pr = pcall(lint, s, doc)
+    if(pr[0] == "ok"){
+      for(let local d in values(pr[1])){
+        append(diagnostics, d)
+      }
+    } else {
+      local message = pr[1]
+      if(type(message) == "table"){ message = message.message }
+      s.log(concat("lint failed for ", uri, ": ", message))
+    }
+  }
   return notification("textDocument/publishDiagnostics", {
-    uri: uri, version: doc.version,
-    diagnostics: lsp_diagnostics(doc.text, doc.diagnostics, s.encoding)
+    uri: uri, version: doc.version, diagnostics: diagnostics
   })
 }
 
@@ -421,6 +580,15 @@ handlers["initialize"] = func(s, id, params){
     }
   }
   s.initialized = true
+  // which arguments get their parameter's name: "literals", "all" or "none"
+  local init = params.initializationOptions or {}
+  local hints = init.parameterHints
+  if(hints == "all" or hints == "none" or hints == "literals"){
+    s.parameter_hints = hints
+  }
+  if(init.lint == false){
+    s.lint = false
+  }
   return {
     response(id, {
       capabilities: {
@@ -428,8 +596,19 @@ handlers["initialize"] = func(s, id, params){
         textDocumentSync: 1,
         hoverProvider: true,
         documentFormattingProvider: true,
+        documentRangeFormattingProvider: true,
         definitionProvider: true,
         referencesProvider: true,
+        documentSymbolProvider: true,
+        documentHighlightProvider: true,
+        renameProvider: {prepareProvider: true},
+        workspaceSymbolProvider: true,
+        inlayHintProvider: true,
+        completionProvider: {triggerCharacters: {".", ":", "\"", "/"}},
+        signatureHelpProvider: {
+          triggerCharacters: {"(", ","},
+          retriggerCharacters: {")"},
+        },
         semanticTokensProvider: {
           legend: {
             tokenTypes: json.array(lsp.token_types),
@@ -511,6 +690,8 @@ handlers["textDocument/semanticTokens/full"] = func(s, id, params){
 // the project file or an extension changed: forget the grammars and look again
 handlers["workspace/didChangeWatchedFiles"] = func(s, id, params){
   compiler.reset()
+  s.lint_globals = {}
+  s.lint_modules = {}
   if(s.nav != null){
     s.nav:forget_files()
   }
@@ -589,6 +770,879 @@ handlers["textDocument/hover"] = func(s, id, params){
   }
 }
 
+// ------------------------------------------------------------ outline
+
+// LSP symbol kinds
+local SYMBOL = {
+  module: 2, namespace: 3, method: 6, field: 8, fn: 12, variable: 13
+}
+
+local func symbol_kind(def){
+  if(def.module != null){
+    return SYMBOL.module
+  }
+  if(def.params != null){
+    return def.kind == "field" and SYMBOL.method or SYMBOL.fn
+  }
+  if(def.kind == "field"){
+    return SYMBOL.field
+  }
+  return SYMBOL.variable
+}
+
+// where a definition's statement ends: its value's end when the value is
+// in this text, else its name's
+local func def_end(def, text){
+  local v = def.value
+  if(v != null and v.token != null and v.token.buffer == text and
+    v.token.stop != null and v.token.stop > def.stop){
+    return v.token.stop
+  }
+  return def.stop
+}
+
+// whether a definition's name is written where it is (not one an extension
+// made up, like sql{}'s statement caches)
+local func written(def, text){
+  return def.start != null and
+    str.substring(text, def.start, def.stop) == def.name
+}
+
+// the outline of a document: its top-level definitions with the fields
+// they hold, under the `// ---- title` sections they are in
+local func outline(doc, encoding){
+  local index = doc.symbols
+  local text = doc.symbols_text
+  local made = {}
+  local top = {}
+  local func symbol_of(def){
+    local start = def.statement or def.start
+    if(start > def.start){
+      start = def.start
+    }
+    local detail = null
+    if(def.params != null){
+      detail = concat("(", str.join(def.params, ", "), ")")
+    } else if(def.module != null){
+      detail = concat("require(\"", def.module, "\")")
+    }
+    local sym = {
+      name: def.name,
+      kind: symbol_kind(def),
+      detail: detail,
+      range: lsp.range_of(text, start, def_end(def, text), encoding),
+      selectionRange: lsp.range_of(text, def.start, def.stop, encoding),
+      children: json.array({}),
+      start: start,
+    }
+    made[def] = sym
+    return sym
+  }
+  for(let local def in values(index.defs)){
+    local top_level = written(def, text) and
+      ((def.kind == "local" and def.scope == null) or def.kind == "global")
+    if(top_level){
+      append(top, symbol_of(def))
+    } else if(def.kind == "field" and def.owner != null and written(def, text)){
+      local owner = made[def.owner]
+      if(owner != null){
+        append(owner.children, symbol_of(def))
+      } else if(def.owner.global != null or def.owner == index.returned){
+        // a field of a global or of the returned table no name holds
+        local sym = symbol_of(def)
+        if(def.owner.global != null){
+          sym.name = concat(def.owner.name, ".", def.name)
+        }
+        append(top, sym)
+      }
+    }
+  }
+  local sections = index.sections or {}
+  if(len(sections) == 0){
+    return top
+  }
+  // the symbols before the first section stay at the top
+  local out = {}
+  local i = 0
+  for(i < len(top) and top[i].start < sections[0].start){
+    append(out, top[i])
+    i = i + 1
+  }
+  for(local k = 0; k < len(sections); k = k + 1){
+    local sec = sections[k]
+    local stop = len(text)
+    if(k + 1 < len(sections)){
+      stop = sections[k + 1].start
+    }
+    local children = json.array({})
+    for(i < len(top) and top[i].start < stop){
+      append(children, top[i])
+      i = i + 1
+    }
+    local name_stop = sec.start
+    for(name_stop < len(text) and str.char_at(text, name_stop) != "\n"){
+      name_stop = name_stop + 1
+    }
+    append(out, {
+      name: sec.title,
+      kind: SYMBOL.namespace,
+      range: lsp.range_of(text, sec.start, stop, encoding),
+      selectionRange: lsp.range_of(text, sec.start, name_stop, encoding),
+      children: children,
+    })
+  }
+  return out
+}
+
+// start is the server's own: LSP has no such member
+local func strip_starts(list){
+  for(let local sym in values(list)){
+    sym.start = null
+    if(sym.children != null){
+      strip_starts(sym.children)
+    }
+  }
+  return list
+}
+
+handlers["textDocument/documentSymbol"] = func(s, id, params){
+  local doc = s.documents[params.textDocument.uri]
+  if(doc == null or doc.symbols == null){
+    return {response(id, json.array({}))}
+  }
+  return {response(id, json.array(strip_starts(outline(doc, s.encoding))))}
+}
+
+// ------------------------------------------------------------ highlights
+
+handlers["textDocument/documentHighlight"] = func(s, id, params){
+  local at = position_of(s, params)
+  if(at == null or at.doc.symbols == null){
+    return {response(id, json.array({}))}
+  }
+  local index = at.doc.symbols
+  local out = json.array({})
+  for(let local l in values(nav_of(s):references(at.doc.path, at.pos, true))){
+    if(l.path == at.doc.path){
+      local found = index.by_start[l.start]
+      local write = found != null and (found.kind != null or found.write)
+      append(out, {
+        range: lsp.range_of(at.text, l.start, l.stop, s.encoding),
+        kind: write and 3 or 2,
+      })
+    }
+  }
+  return {response(id, out)}
+}
+
+// ------------------------------------------------------------ rename
+
+// whether name can be a slang name (and is not a keyword of the grammar)
+local func valid_name(name){
+  if(type(name) != "string" or len(name) == 0){
+    return false
+  }
+  local r = pcall(compiler.parse, concat("local ", name, " = 1"), "rename")
+  if(r[0] == "err"){
+    return false
+  }
+  local st = r[1].statements
+  return len(st) == 1 and st[0].type == "Declaration" and
+    st[0].left.type == "Identifier" and st[0].left.value == name
+}
+
+// the definition a rename at a position changes, as a location, or an
+// error message
+local func rename_target(s, at){
+  if(at.doc.text != at.doc.symbols_text){
+    return {error: "the file does not compile: fix it before renaming"}
+  }
+  local found = symbols.at(at.doc.symbols, at.pos)
+  if(found == null){
+    return {error: "there is no name here"}
+  }
+  local nav = nav_of(s)
+  local defs = nav:definition(at.doc.path, at.pos)
+  if(len(defs) == 0){
+    return {error: concat(found.name, " is not defined in the project")}
+  }
+  local d = defs[0]
+  if(nav.root == null or not str.starts_with(d.path, concat(nav.root, "/"))){
+    return {
+      error: concat(
+        found.name, " is defined outside the project (", nav:shown(d.path), ")"
+      ),
+    }
+  }
+  // a field: uses whose owner cannot be told might be it, and would be missed
+  if(found.kind == "field" or (found.kind == null and found.owner != null)){
+    local known = {}
+    for(let local l in values(nav:references(at.doc.path, at.pos, true))){
+      known[concat(l.path, ":", string(l.start))] = true
+    }
+    local unsure = 0
+    local example = null
+    for(let local l in values(nav:unresolved_fields(found.name))){
+      if(not known[concat(l.path, ":", string(l.start))]){
+        unsure = unsure + 1
+        example = example or l
+      }
+    }
+    if(unsure > 0){
+      local f = nav:file(example.path)
+      local line = str.line_col(f.text, example.start)[0]
+      return {
+        error: concat(
+          "not renamed: ",
+          string(unsure),
+          " use(s) of ",
+          found.name,
+          " cannot be told apart (the first in ",
+          nav:shown(example.path),
+          ":",
+          string(line),
+          ")",
+        ),
+      }
+    }
+  }
+  return {found: found}
+}
+
+handlers["textDocument/prepareRename"] = func(s, id, params){
+  local at = position_of(s, params)
+  if(at == null or at.doc.symbols == null){
+    return {response(id, null)}
+  }
+  local t = rename_target(s, at)
+  if(t.error != null){
+    return {error_response(id, - 32803, t.error)}
+  }
+  return {
+    response(id, {
+      range: lsp.range_of(at.text, t.found.start, t.found.stop, s.encoding),
+      placeholder: t.found.name,
+    }),
+  }
+}
+
+handlers["textDocument/rename"] = func(s, id, params){
+  local at = position_of(s, params)
+  if(at == null or at.doc.symbols == null){
+    return {response(id, null)}
+  }
+  if(not valid_name(params.newName)){
+    return {
+      error_response(
+        id, - 32803, concat(string(params.newName), " is not a name")
+      ),
+    }
+  }
+  local t = rename_target(s, at)
+  if(t.error != null){
+    return {error_response(id, - 32803, t.error)}
+  }
+  local nav = nav_of(s)
+  local changes = {}
+  local seen = {}
+  for(let local l in values(nav:references(at.doc.path, at.pos, true))){
+    local key = concat(l.path, ":", string(l.start))
+    if(not seen[key]){
+      seen[key] = true
+      local f = nav:file(l.path)
+      local uri = lsp.path_to_uri(l.path)
+      if(changes[uri] == null){
+        changes[uri] = json.array({})
+      }
+      append(changes[uri], {
+        range: lsp.range_of(f.text, l.start, l.stop, s.encoding),
+        newText: params.newName,
+      })
+    }
+  }
+  return {response(id, {changes: changes})}
+}
+
+// ------------------------------------------------------------ workspace symbols
+
+// whether the letters of query appear in name in order (any case)
+local func fuzzy(query, name){
+  local q = str.lower(query)
+  local n = str.lower(name)
+  local i = 0
+  for(local j = 0; j < len(n) and i < len(q); j = j + 1){
+    if(str.char_at(n, j) == str.char_at(q, i)){
+      i = i + 1
+    }
+  }
+  return i == len(q)
+}
+
+local MAX_WORKSPACE_SYMBOLS = 300
+
+handlers["workspace/symbol"] = func(s, id, params){
+  local query = params.query or ""
+  local nav = nav_of(s)
+  local out = json.array({})
+  for(let local path in values(nav:project_files())){
+    local f = nav:file(path)
+    if(f != null){
+      local container = nav:shown(path)
+      for(let local def in values(f.index.defs)){
+        local wanted = def.kind == "global" or
+          (def.kind == "field" and def.owner == f.index.returned) or
+          (def.kind == "local" and def.scope == null and def.params != null)
+        if(wanted and len(out) < MAX_WORKSPACE_SYMBOLS and
+          written(def, f.text) and fuzzy(query, def.name)){
+          append(out, {
+            name: def.name,
+            kind: symbol_kind(def),
+            containerName: container,
+            location: {
+              uri: lsp.path_to_uri(path),
+              range: lsp.range_of(f.text, def.start, def.stop, s.encoding),
+            },
+          })
+        }
+      }
+    }
+  }
+  return {response(id, out)}
+}
+
+// ------------------------------------------------------------ inlay hints
+
+local literal_types = {
+  Int: true, Double: true, String: true, True: true, False: true, Null: true
+}
+
+// the calls in a tree whose start lies in [from, to): {node, name_start,
+// invoke}
+local func calls_in(node, text, from, to, out){
+  if(node == null or ast.specs[node.type] == null or node.type == "Quote"){
+    return out
+  }
+  local token = node.token
+  local here = token != null and token.buffer == text and token.start != null
+  if(here and (token.stop < from or token.start >= to)){
+    return out
+  }
+  if(here and (node.type == "Call" or node.type == "Invoke")){
+    local name = null
+    if(node.type == "Invoke"){
+      name = node.name.token
+    } else if(node.function.type == "Identifier"){
+      name = node.function.token
+    } else if(node.function.type == "Index" and
+      node.function.index.type == "String"){
+      name = node.function.index.token
+    }
+    if(name != null and name.buffer == text){
+      append(out, {
+        node: node,
+        name_start: name.start,
+        invoke: node.type == "Invoke",
+      })
+    }
+  }
+  for(let local field in values(ast.specs[node.type])){
+    local child = node[field[0]]
+    if(child != null){
+      if(field[1] == "list"){
+        for(let local c in values(child)){
+          calls_in(c, text, from, to, out)
+        }
+      } else if(field[1] != "value"){
+        calls_in(child, text, from, to, out)
+      }
+    }
+  }
+  return out
+}
+
+handlers["textDocument/inlayHint"] = func(s, id, params){
+  local doc = s.documents[params.textDocument.uri]
+  if(doc == null or doc.ast == null or s.parameter_hints == "none"){
+    return {response(id, json.array({}))}
+  }
+  local text = doc.symbols_text
+  local from = lsp.offset_of(text, params.range.start, s.encoding)
+  local to = lsp.offset_of(text, params.range["end"], s.encoding)
+  local nav = nav_of(s)
+  local cache = {}
+  local out = json.array({})
+  for(let local c in values(calls_in(doc.ast, text, from, to, {}))){
+    local f = nav:callable(doc.path, c.name_start, cache)
+    if(f != null){
+      local params_list = f.params
+      local first = 0
+      if(c.invoke){
+        // o:m(...) passes o as the first parameter
+        first = 1
+      }
+      local args = c.node.args
+      for(local i = 0; i < len(args) and first + i < len(params_list); i = i + 1){
+        local arg = args[i]
+        local name = params_list[first + i]
+        if(arg.type == "Spread" or str.starts_with(name, "...")){
+          break
+        }
+        local show = s.parameter_hints == "all" or
+          literal_types[arg.type] == true
+        if(arg.type == "Identifier" and arg.value == name){
+          show = false
+        }
+        if(show and arg.token != null and arg.token.buffer == text){
+          append(out, {
+            position: lsp.range_of(
+              text, arg.token.start, arg.token.start, s.encoding
+            ).start,
+            label: concat(name, ":"),
+            kind: 2,
+            paddingRight: true,
+          })
+        }
+      }
+    }
+  }
+  return {response(id, out)}
+}
+
+// ------------------------------------------------------------ the text at the cursor
+//
+// Completion and signature help work on the editor's text, which often does
+// not parse while it is typed; names are looked up by name (navigate's
+// lookup) at the position the index of the last text that parsed has.
+
+local func is_word_byte(b){
+  return (b >= 48 and b <= 57) or (b >= 65 and b <= 90) or
+    (b >= 97 and b <= 122) or b == 95
+}
+
+// the start of the word that ends at pos
+local func word_start(text, pos){
+  local i = pos
+  for(i > 0 and is_word_byte(str.byte_at(text, i - 1))){
+    i = i - 1
+  }
+  return i
+}
+
+// pos in the editor's text, moved to the text the index was made from (the
+// same up to where they first differ, shifted by the difference after it)
+local func index_pos(doc, pos){
+  local a = doc.text
+  local b = doc.symbols_text or a
+  if(a == b){
+    return pos
+  }
+  local n = len(a)
+  if(len(b) < n){
+    n = len(b)
+  }
+  local common = 0
+  for(common < n and str.byte_at(a, common) == str.byte_at(b, common)){
+    common = common + 1
+  }
+  if(pos <= common){
+    return pos
+  }
+  local moved = pos - (len(a) - len(b))
+  if(moved < common){
+    moved = common
+  }
+  return moved
+}
+
+// whether pos is in a comment or a string of its line
+local func in_comment_or_string(text, pos){
+  local i = pos
+  for(i > 0 and str.byte_at(text, i - 1) != 10){
+    i = i - 1
+  }
+  local quoted = false
+  for(i < pos){
+    local b = str.byte_at(text, i)
+    if(quoted){
+      if(b == 92){
+        i = i + 1
+      } else if(b == 34){
+        quoted = false
+      }
+    } else if(b == 34){
+      quoted = true
+    } else if(b == 47 and str.byte_at(text, i + 1) == 47){
+      return true
+    }
+    i = i + 1
+  }
+  return quoted
+}
+
+// the names of a chain like a.b:c ending at pos (the part being typed not
+// included), with the separator before the part: {names, separator}, or
+// null when what is before is not a chain of names
+local func chain_before(text, start){
+  local sep_pos = start - 1
+  if(sep_pos < 0){
+    return null
+  }
+  local sep = str.char_at(text, sep_pos)
+  if(sep != "." and sep != ":"){
+    return null
+  }
+  local names = {}
+  local p = sep_pos
+  for(true){
+    local ws = word_start(text, p)
+    if(ws == p){
+      return null
+    }
+    local name = str.substring(text, ws, p)
+    local b = str.byte_at(name, 0)
+    if(b >= 48 and b <= 57){
+      return null
+    }
+    local rest = names
+    names = {name}
+    for(let local n in values(rest)){
+      append(names, n)
+    }
+    if(ws == 0){
+      break
+    }
+    local c = str.char_at(text, ws - 1)
+    if(c != "."){
+      break
+    }
+    p = ws - 1
+  }
+  return {names: names, separator: sep, start: word_start(text, sep_pos)}
+}
+
+// what a chain of names stands for at pos: {path, def}, or null
+local func resolve_chain(nav, path, names, pos){
+  local target = nav:lookup(path, names[0], pos)
+  for(local i = 1; i < len(names) and target != null; i = i + 1){
+    target = nav:member(target, names[i])
+  }
+  return target
+}
+
+// ------------------------------------------------------------ completion
+
+// LSP completion item kinds
+local ITEM = {method: 2, fn: 3, field: 5, variable: 6, module: 9, keyword: 14}
+
+local func item_of(name, def, rank, method){
+  local kind = ITEM.variable
+  local detail = null
+  if(def.params != null){
+    kind = method and ITEM.method or ITEM.fn
+    local params = def.params
+    if(method and len(params) > 0){
+      local rest = {}
+      for(local i = 1; i < len(params); i = i + 1){
+        append(rest, params[i])
+      }
+      params = rest
+    }
+    detail = concat(name, "(", str.join(params, ", "), ")")
+  } else if(def.module != null){
+    kind = ITEM.module
+    detail = concat("require(\"", def.module, "\")")
+  } else if(def.kind == "field"){
+    kind = ITEM.field
+  }
+  local item = {
+    label: name, kind: kind, sortText: concat(rank, name), detail: detail
+  }
+  if(def.doc != null){
+    item.documentation = {kind: "markdown", value: navigate.markdown(def.doc)}
+  }
+  return item
+}
+
+// the .slang files under dir as module names (prefix/a/b), at most depth deep
+local func modules_in(dir, prefix, depth, out){
+  local r = pcall(os.list_dir, dir)
+  if(r[0] == "err" or depth < 0){
+    return out
+  }
+  for(let local name in values(r[1])){
+    if(not str.starts_with(name, ".") and name != "node_modules" and
+      name != "zig-out"){
+      local path = concat(dir, "/", name)
+      if(str.ends_with(name, ".slang")){
+        append(out, concat(prefix, str.substring(name, 0, len(name) - 6)))
+      } else if(depth > 0 and os.is_dir(path)){
+        modules_in(path, concat(prefix, name, "/"), depth - 1, out)
+      }
+    }
+  }
+  return out
+}
+
+// the module names require may be given: the project's, its packages',
+// slang's library and native modules
+local func module_names(s){
+  local nav = nav_of(s)
+  local names = {}
+  // a project file is required by its path from a search path
+  local roots = {}
+  for(let local dir in values(__PACKAGES.searchPaths or {})){
+    append(roots, concat(compiler.absolute_path(dir), "/"))
+  }
+  if(nav.root != null){
+    append(roots, concat(nav.root, "/"))
+  }
+  for(let local p in values(nav:project_files())){
+    for(let local root in values(roots)){
+      if(str.starts_with(p, root)){
+        local rel = str.substring(p, len(root))
+        append(names, str.substring(rel, 0, len(rel) - 6))
+      }
+    }
+  }
+  for(let local e in entries(__PACKAGES.packages or {})){
+    local pkg = e[1]
+    if(pkg.dir != null and not pkg.missing){
+      append(names, e[0])
+      for(let local m in values(modules_in(pkg.dir, concat(e[0], "/"), 2, {}))){
+        if(not str.ends_with(m, "/init")){
+          append(names, m)
+        }
+      }
+    }
+  }
+  for(let local dir in values(__PACKAGES.librarySources or {})){
+    modules_in(dir, "slang/", 0, names)
+  }
+  for(let local dir in values(__PACKAGES.stubSources or {})){
+    modules_in(dir, "", 1, names)
+  }
+  return names
+}
+
+local func require_completion(s, text, pos){
+  local i = pos
+  for(i > 0 and str.char_at(text, i - 1) != "\"" and
+    str.char_at(text, i - 1) != "\n"){
+    i = i - 1
+  }
+  if(i < 9 or str.substring(text, i - 9, i) != "require(\""){
+    return null
+  }
+  local typed = str.substring(text, i, pos)
+  local range = lsp.range_of(text, i, pos, s.encoding)
+  local items = json.array({})
+  local seen = {}
+  for(let local name in values(module_names(s))){
+    if(not seen[name] and str.starts_with(name, typed) and name != "globals"){
+      seen[name] = true
+      append(items, {
+        label: name,
+        kind: ITEM.module,
+        textEdit: {range: range, newText: name},
+      })
+    }
+  }
+  return items
+}
+
+handlers["textDocument/completion"] = func(s, id, params){
+  local doc = s.documents[params.textDocument.uri]
+  if(doc == null){
+    return {response(id, json.array({}))}
+  }
+  local text = doc.text
+  local pos = lsp.offset_of(text, params.position, s.encoding)
+  local modules = require_completion(s, text, pos)
+  if(modules != null){
+    return {response(id, modules)}
+  }
+  if(in_comment_or_string(text, pos) or doc.symbols == null){
+    return {response(id, json.array({}))}
+  }
+  local nav = nav_of(s)
+  local at = index_pos(doc, pos)
+  local start = word_start(text, pos)
+  local items = json.array({})
+  local chain = chain_before(text, start)
+  if(chain != null){
+    // a member: what the chain before the dot or colon holds has it
+    local target = resolve_chain(
+      nav, doc.path, chain.names, index_pos(doc, chain.start)
+    )
+    local method = chain.separator == ":"
+    for(let local e in entries(nav:members(target))){
+      local def = e[1].def
+      if(not method or def.params != null){
+        append(items, item_of(e[0], def, "1", method))
+      }
+    }
+    return {response(id, items)}
+  }
+  local seen = {}
+  local func add(name, def, rank){
+    if(not seen[name] and def != null){
+      seen[name] = true
+      append(items, item_of(name, def, rank, false))
+    }
+  }
+  for(let local e in entries(nav:locals_at(doc.path, at))){
+    add(e[0], e[1], "0")
+  }
+  for(let local e in entries(doc.symbols.globals)){
+    add(e[0], e[1], "1")
+  }
+  local stub = compiler.stub_path("globals")
+  if(stub != null){
+    local f = nav:file(stub)
+    if(f != null){
+      for(let local e in entries(f.index.globals)){
+        add(e[0], e[1], "2")
+      }
+    }
+  }
+  for(let local word in values(compiler.keywords(doc.path))){
+    if(not seen[word]){
+      seen[word] = true
+      append(items, {
+        label: word, kind: ITEM.keyword, sortText: concat("3", word)
+      })
+    }
+  }
+  return {response(id, items)}
+}
+
+// ------------------------------------------------------------ signature help
+
+// the call the cursor is in the arguments of: {open, commas} (the offset of
+// its "(" and the commas before the cursor), or null. Strings, comments and
+// the insides of tables and inner calls are skipped.
+local func open_call(text, pos){
+  local from = 0
+  if(pos > 8000){
+    from = pos - 8000
+  }
+  local stack = {}
+  local i = from
+  for(i < pos){
+    local b = str.byte_at(text, i)
+    if(b == 34){
+      i = i + 1
+      for(i < pos and str.byte_at(text, i) != 34){
+        if(str.byte_at(text, i) == 92){
+          i = i + 1
+        }
+        i = i + 1
+      }
+    } else if(b == 47 and str.byte_at(text, i + 1) == 47){
+      for(i < pos and str.byte_at(text, i) != 10){
+        i = i + 1
+      }
+    } else if(b == 40 or b == 123 or b == 91){
+      append(stack, {at: i, paren: b == 40, commas: 0})
+    } else if(b == 41 or b == 125 or b == 93){
+      if(len(stack) > 0){
+        remove(stack, len(stack) - 1)
+      }
+    } else if(b == 44 and len(stack) > 0){
+      local top = stack[len(stack) - 1]
+      top.commas = top.commas + 1
+    }
+    i = i + 1
+  }
+  if(len(stack) == 0 or not stack[len(stack) - 1].paren){
+    return null
+  }
+  local top = stack[len(stack) - 1]
+  return {open: top.at, commas: top.commas}
+}
+
+handlers["textDocument/signatureHelp"] = func(s, id, params){
+  local doc = s.documents[params.textDocument.uri]
+  if(doc == null or doc.symbols == null){
+    return {response(id, null)}
+  }
+  local text = doc.text
+  local pos = lsp.offset_of(text, params.position, s.encoding)
+  local call = open_call(text, pos)
+  if(call == null){
+    return {response(id, null)}
+  }
+  // the name called: the chain right before the (
+  local p = call.open
+  for(p > 0 and str.char_at(text, p - 1) == " "){
+    p = p - 1
+  }
+  local name_start = word_start(text, p)
+  if(name_start == p){
+    return {response(id, null)}
+  }
+  local last = str.substring(text, name_start, p)
+  // func name(...) is a definition, not a call
+  local before = str.trim(str.substring(
+    text, word_start(text, name_start - 1), name_start
+  ))
+  if(before == "func"){
+    return {response(id, null)}
+  }
+  local names = {last}
+  local method = false
+  local chain = chain_before(text, name_start)
+  if(chain != null){
+    names = chain.names
+    append(names, last)
+    method = chain.separator == ":"
+  }
+  local nav = nav_of(s)
+  local target = resolve_chain(nav, doc.path, names, index_pos(doc, name_start))
+  local plist = nav:params(target)
+  if(plist == null){
+    return {response(id, null)}
+  }
+  if(method and len(plist) > 0){
+    local rest = {}
+    for(local i = 1; i < len(plist); i = i + 1){
+      append(rest, plist[i])
+    }
+    plist = rest
+  }
+  local label = concat(last, "(")
+  local parameters = json.array({})
+  for(let local e in entries(plist)){
+    if(e[0] > 0){
+      label = concat(label, ", ")
+    }
+    local a = str.utf16_len(label)
+    label = concat(label, e[1])
+    append(parameters, {label: json.array({a, str.utf16_len(label)})})
+  }
+  label = concat(label, ")")
+  local active = call.commas
+  // a rest parameter takes every argument from its place on
+  if(len(plist) > 0 and active >= len(plist) and
+    str.starts_with(plist[len(plist) - 1], "...")){
+    active = len(plist) - 1
+  }
+  local sig = {label: label, parameters: parameters}
+  if(target.def.doc != null){
+    sig.documentation = {
+      kind: "markdown",
+      value: navigate.markdown(target.def.doc),
+    }
+  }
+  return {
+    response(id, {
+      signatures: json.array({sig}),
+      activeSignature: 0,
+      activeParameter: active,
+    }),
+  }
+}
+
 // ------------------------------------------------------------ formatting
 
 // the whole document formatted as `slang fmt` would: one edit replacing it,
@@ -624,6 +1678,101 @@ handlers["textDocument/formatting"] = func(s, id, params){
   return {
     response(id, json.array({
       {range: lsp.range_of(text, 0, len(text), s.encoding), newText: formatted},
+    })),
+  }
+}
+
+// The lines a range touches, formatted. The whole document is formatted;
+// both texts have the same tokens (but trailing commas and `;`), so the
+// tokens on the selected lines are found in the result, the regions grow
+// to whole lines on both sides until they hold the same tokens (the
+// formatter joins and splits lines), and those lines of the result replace
+// the document's.
+local func line_tokens(text, path){
+  local h = pcall(compiler.highlight, text, path, {})
+  if(h[0] == "err" or len(h[1].diagnostics) > 0){
+    return null
+  }
+  local out = {}
+  for(let local t in values(h[1].tokens)){
+    local word = str.substring(text, t.start, t.stop)
+    if(word != "," and word != ";"){
+      append(out, {start: t.start, stop: t.stop, line: t.line - 1, text: word})
+    }
+  }
+  return out
+}
+
+handlers["textDocument/rangeFormatting"] = func(s, id, params){
+  local doc = s.documents[params.textDocument.uri]
+  if(doc == null){
+    return {response(id, json.array({}))}
+  }
+  local text = doc.text
+  local r = pcall(format.source, text, doc.path, {find_project: true})
+  if(r[0] == "err" or r[1] == null or r[1] == text){
+    return {response(id, json.array({}))}
+  }
+  local formatted = r[1]
+  local a = line_tokens(text, doc.path)
+  local b = line_tokens(formatted, doc.path)
+  if(a == null or b == null or len(a) != len(b) or len(a) == 0){
+    return {response(id, json.array({}))}
+  }
+  local first_line = params.range.start.line
+  local last_line = params.range["end"].line
+  if(params.range["end"].character == 0 and last_line > first_line){
+    last_line = last_line - 1
+  }
+  local i = - 1
+  local j = - 1
+  for(local k = 0; k < len(a); k = k + 1){
+    if(a[k].line >= first_line and a[k].line <= last_line){
+      if(i < 0){
+        i = k
+      }
+      j = k
+    }
+  }
+  if(i < 0){
+    return {response(id, json.array({}))}
+  }
+  // grow until no token outside [i, j] shares a line with one inside
+  local changed = true
+  for(changed){
+    changed = false
+    for(let local list in values({a, b})){
+      for(i > 0 and list[i - 1].line == list[i].line){
+        i = i - 1
+        changed = true
+      }
+      for(j + 1 < len(list) and list[j + 1].line == list[j].line){
+        j = j + 1
+        changed = true
+      }
+    }
+  }
+  local starts_a = str.line_starts(text)
+  local starts_b = str.line_starts(formatted)
+  local func line_end(t, starts, line){
+    local next = starts[line + 1]
+    if(next == null){
+      return len(t)
+    }
+    return next - 1
+  }
+  local from_a = starts_a[a[i].line]
+  local to_a = line_end(text, starts_a, a[j].line)
+  local from_b = starts_b[b[i].line]
+  local to_b = line_end(formatted, starts_b, b[j].line)
+  local old = str.substring(text, from_a, to_a)
+  local new = str.substring(formatted, from_b, to_b)
+  if(old == new){
+    return {response(id, json.array({}))}
+  }
+  return {
+    response(id, json.array({
+      {range: lsp.range_of(text, from_a, to_a, s.encoding), newText: new},
     })),
   }
 }

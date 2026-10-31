@@ -1,0 +1,74 @@
+{
+  "local function": {
+    "prefix": "lfunc",
+    "body": ["local func ${1:name}(${2}){", "\t$0", "}"],
+    "description": "A local function"
+  },
+  "function": {
+    "prefix": "func",
+    "body": ["func ${1:name}(${2}){", "\t$0", "}"],
+    "description": "A function (a global, or a field: func m.name)"
+  },
+  "if": {
+    "prefix": "if",
+    "body": ["if(${1:condition}){", "\t$0", "}"]
+  },
+  "if else": {
+    "prefix": "ifelse",
+    "body": ["if(${1:condition}){", "\t$2", "} else {", "\t$0", "}"]
+  },
+  "for": {
+    "prefix": "for",
+    "body": ["for(local ${1:i} = 0; $1 < ${2:n}; $1 = $1 + 1){", "\t$0", "}"],
+    "description": "A counting loop"
+  },
+  "for in values": {
+    "prefix": "forv",
+    "body": ["for(let local ${1:v} in values(${2:list})){", "\t$0", "}"]
+  },
+  "for in entries": {
+    "prefix": "fore",
+    "body": ["for(let local ${1:e} in entries(${2:table})){", "\t$0", "}"],
+    "description": "e[0] is the key, e[1] the value"
+  },
+  "while": {
+    "prefix": "while",
+    "body": ["for(${1:condition}){", "\t$0", "}"],
+    "description": "slang's while: a for with a condition only"
+  },
+  "require": {
+    "prefix": "req",
+    "body": ["local ${1:name} = require(\"${2:slang/$1}\")"]
+  },
+  "module": {
+    "prefix": "module",
+    "body": ["// ${1:name}: ${2:what it is}", "local ${3:m} = {}", "", "$0", "", "return $3"],
+    "description": "A module: a table of functions it returns"
+  },
+  "try catch": {
+    "prefix": "try",
+    "body": ["try {", "\t$1", "} catch(local ${2:e}) {", "\t$0", "}"]
+  },
+  "pcall": {
+    "prefix": "pcall",
+    "body": ["local ${1:r} = pcall(func(){", "\t$0", "})", "if(let {\"err\", local ${2:e}} = $1){", "\t", "}"]
+  },
+  "test group": {
+    "prefix": "tgroup",
+    "body": ["t.group(\"${1:what}\"){", "\tt.test(\"${2:does something}\"){", "\t\t$0", "\t}", "}"],
+    "description": "A group of tests (slang/test)"
+  },
+  "test": {
+    "prefix": "test",
+    "body": ["t.test(\"${1:does something}\"){", "\t$0", "}"]
+  },
+  "test file": {
+    "prefix": "testfile",
+    "body": ["// ${1:what is tested}", "local t = require(\"slang/test\")", "", "t.group(\"${2:group}\"){", "\tt.test(\"${3:test}\"){", "\t\t$0", "\t}", "}"]
+  },
+  "extension statement": {
+    "prefix": "extension",
+    "body": ["extension \"${1:extensions/name}\""],
+    "description": "Use a grammar extension in this file"
+  }
+}

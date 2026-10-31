@@ -77,6 +77,20 @@ fn protoFromTable(th: *Thread, t: *Table, depth: usize) Error!*Proto {
         }
         p.locs = list.toOwnedSlice(gpa) catch oom();
     }
+    if (t.getName("locals").asTable()) |locals| {
+        var list: std.ArrayList(object.LocalVar) = .empty;
+        var lit = locals.iterator();
+        while (lit.next()) |e| {
+            const lt = e.val.asTable() orelse continue;
+            list.append(gpa, .{
+                .name = th.renderString(lt.getInt(0)),
+                .reg = @intCast(@max(0, lt.getInt(1).asInt())),
+                .start_pc = @intCast(@max(0, lt.getInt(2).asInt())),
+                .end_pc = @intCast(@max(0, lt.getInt(3).asInt())),
+            }) catch oom();
+        }
+        p.locals = list.toOwnedSlice(gpa) catch oom();
+    }
     if (t.getName("constants").asTable()) |consts| {
         var list: std.ArrayList(Value) = .empty;
         var cit = consts.iterator();

@@ -24,8 +24,13 @@ Besides: the tests of `*test.slang` files in the test explorer (run with
 Expanded Code" (the file after its extensions ran, beside it), "slang:
 Run File", a REPL ("slang: Open REPL", shift+enter sends the selection),
 `slang get`, `slang update`, `slang build` (and `--dir`) as commands, a
-`slang` task type with problem matchers (`$slang`, `$slang-test`), and
-snippets.
+`slang` task type with problem matchers (`$slang`, `$slang-test`),
+snippets, and a debugger: F5 or "slang: Debug File" (a `slang` launch
+configuration: `program`, `args`, `cwd`, `stopOnEntry`, and `command:
+"test"` to debug a file's tests; the test explorer's Debug does that for a
+test). Breakpoints (with conditions), stepping, pausing, stopping on
+errors nothing catches, the call stack, locals, upvalues and globals, and
+any expression in the debug console, watches and hovers.
 
 Settings: `slang.path` (the `slang` binary; default `slang` on the PATH),
 `slang.associateDialects` (map the project's dialect suffixes to the slang

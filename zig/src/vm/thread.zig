@@ -407,6 +407,8 @@ pub const Thread = struct {
             th.vm.setError("attempt to yield across a native call boundary", .{});
         }
         th.fillError();
+        // an error nothing will catch stops the debugger before the unwinding
+        if (th.vm.debugger) |dbg| dbg.raised(th);
         var i = th.frames.items.len;
         while (i > stop_depth) {
             i -= 1;

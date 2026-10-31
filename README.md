@@ -666,6 +666,15 @@ REPL, fetch packages and build (`make vscode` builds the `.vsix`).
 `slang test --json` and `--only "group / test"` are what the test explorer
 runs.
 
+`slang run --debug PORT file` (or `SLANG_DEBUG=PORT` for any command)
+waits for a debugger on 127.0.0.1:PORT and speaks the Debug Adapter
+Protocol itself: breakpoints (conditions too), stepping, pause, a stop at
+errors no try or pcall catches (before the stack unwinds), the call stack,
+locals, upvalues and globals, and evaluating any expression in the paused
+frame. It runs on the interpreter's hooked loop, so a program without a
+debugger pays nothing. The bytecode keeps the names of the locals for it
+(`.slb` version 4; `--strip` leaves them out with the line information).
+
 ## Documentation
 
 `slang doc [-o dir] [file|dir...]` writes HTML documentation of modules

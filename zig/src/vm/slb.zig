@@ -1,9 +1,11 @@
-//! The .slb container, version 3 (version 2 has no name and is still read):
+//! The .slb container, version 4 (versions 2 and 3, without the locals and
+//! version 2 without the name, are still read):
 //!
 //!   magic "SLANG", u8 version
 //!   proto := u32 maxStack, u32 nargs, u8 isVarArg, str name ("": none),
 //!            u32 nCode, u32[nCode],
 //!            u32 nLocs, {u32 firstPC, str origin, u32 line, u32 column}*,
+//!            u32 nLocals, {str name, u32 register, u32 startPC, u32 endPC}*,
 //!            u32 nConsts, {u8 tag, payload}*   (0 int i64, 1 double f64, 2 string, 3 bool u8, 4 null)
 //!            u32 nUpvals, {str name, u32 index, u8 isLocal}*,
 //!            u32 nChildren, proto*
@@ -20,7 +22,7 @@ const Proto = root.Proto;
 const object = @import("object.zig");
 
 pub const magic = "SLANG";
-pub const version: u8 = 3;
+pub const version: u8 = 4;
 
 const Tag = enum(u8) { int = 0, double = 1, string = 2, bool = 3, null = 4 };
 
@@ -29,7 +31,7 @@ pub const DecodeError = error{ BadMagic, BadVersion, Truncated, BadCount, BadTag
 pub fn errorMessage(e: DecodeError) []const u8 {
     return switch (e) {
         error.BadMagic => "not a slang bytecode file (bad magic)",
-        error.BadVersion => "unsupported bytecode version (want 2 or 3)",
+        error.BadVersion => "unsupported bytecode version (want 2 to 4)",
         error.Truncated => "bytecode: unexpected end of data",
         error.BadCount => "bytecode: implausible count",
         error.BadTag => "bytecode: unknown constant tag",
@@ -37,7 +39,8 @@ pub fn errorMessage(e: DecodeError) []const u8 {
     };
 }
 
-/// Serialises a prototype. With strip_locs the source locations are omitted.
+/// Serialises a prototype. With strip_locs the source locations and the
+/// names of the locals are omitted.
 pub fn encode(gpa: std.mem.Allocator, p: *const Proto, strip_locs: bool) []u8 {
     var w: std.Io.Writer.Allocating = .init(gpa);
     defer w.deinit();
@@ -69,6 +72,17 @@ fn encodeProto(w: *std.Io.Writer, p: *const Proto, strip_locs: bool) void {
             encodeStr(w, l.origin.bytes());
             w.writeInt(u32, l.line, .little) catch oom();
             w.writeInt(u32, l.column, .little) catch oom();
+        }
+    }
+    if (strip_locs) {
+        w.writeInt(u32, 0, .little) catch oom();
+    } else {
+        w.writeInt(u32, @intCast(p.locals.len), .little) catch oom();
+        for (p.locals) |l| {
+            encodeStr(w, l.name.bytes());
+            w.writeInt(u32, l.reg, .little) catch oom();
+            w.writeInt(u32, l.start_pc, .little) catch oom();
+            w.writeInt(u32, l.end_pc, .little) catch oom();
         }
     }
     w.writeInt(u32, @intCast(p.consts.len), .little) catch oom();
@@ -161,6 +175,16 @@ const Reader = struct {
             l.line = try r.u32_();
             l.column = try r.u32_();
         }
+        if (r.version >= 4) {
+            const nlocals = try r.count();
+            p.locals = gpa.alloc(object.LocalVar, nlocals) catch oom();
+            for (p.locals) |*l| {
+                l.name = try r.str();
+                l.reg = try r.u32_();
+                l.start_pc = try r.u32_();
+                l.end_pc = try r.u32_();
+            }
+        }
         const nconsts = try r.count();
         p.consts = gpa.alloc(Value, nconsts) catch oom();
         for (p.consts) |*c| {
@@ -197,6 +221,6 @@ pub fn decode(vm: *VM, data: []const u8) DecodeError!*Proto {
     const m = try r.take(magic.len);
     if (!std.mem.eql(u8, m, magic)) return error.BadMagic;
     r.version = try r.u8_();
-    if (r.version != 2 and r.version != 3) return error.BadVersion;
+    if (r.version < 2 or r.version > 4) return error.BadVersion;
     return r.proto(0);
 }

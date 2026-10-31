@@ -256,6 +256,12 @@ fn disasmProto(w: *Writer, p: *const Proto, indent: []const u8) Writer.Error!voi
         }
         try w.writeByte('\n');
     }
+    if (p.locals.len > 0) {
+        try w.print("{s}Locals:\n", .{indent});
+        for (p.locals) |l| {
+            try w.print("{s}  r{d} {s} pc {d}..{d}\n", .{ indent, l.reg, l.name.bytes(), l.start_pc, l.end_pc });
+        }
+    }
     if (p.consts.len > 0) {
         try w.print("{s}Constants:\n", .{indent});
         for (p.consts, 0..) |c, i| {

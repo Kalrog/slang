@@ -138,6 +138,7 @@ const Marker = struct {
                 for (p.consts) |v| m.markValue(v);
                 for (p.upvals) |u| m.markObject(&u.name.obj);
                 for (p.locs) |l| m.markObject(&l.origin.obj);
+                for (p.locals) |l| m.markObject(&l.name.obj);
                 if (p.name) |n| m.markObject(&n.obj);
                 for (p.children) |c| m.markObject(&c.obj);
             },

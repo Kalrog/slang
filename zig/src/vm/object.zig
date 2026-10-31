@@ -131,6 +131,15 @@ pub const LocInfo = struct {
     column: u32,
 };
 
+/// A local variable for debuggers: the register that holds it from
+/// start_pc up to (not including) end_pc.
+pub const LocalVar = struct {
+    name: *String,
+    reg: u32,
+    start_pc: u32,
+    end_pc: u32,
+};
+
 /// A compiled function: bytecode plus everything needed to instantiate
 /// closures from it. All slices are owned by the proto (freed on sweep).
 pub const Proto = struct {
@@ -140,6 +149,7 @@ pub const Proto = struct {
     upvals: []UpvalDesc = &.{},
     children: []*Proto = &.{},
     locs: []LocInfo = &.{},
+    locals: []LocalVar = &.{},
     max_stack: u32 = 0,
     nargs: u32 = 0,
     is_vararg: bool = false,
@@ -166,5 +176,6 @@ pub const Proto = struct {
         gpa.free(p.upvals);
         gpa.free(p.children);
         gpa.free(p.locs);
+        gpa.free(p.locals);
     }
 };

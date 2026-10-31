@@ -251,5 +251,6 @@ fn osPlatform(th: *Thread, args: []Value) Error!Value {
 fn osExit(th: *Thread, args: []Value) Error!Value {
     th.vm.flush();
     const code = api.argIntOr(args, 0, 0);
+    if (th.vm.debugger) |d| d.finish(@truncate(@as(u64, @bitCast(code))));
     std.process.exit(@truncate(@as(u64, @bitCast(code))));
 }

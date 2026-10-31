@@ -87,6 +87,8 @@ pub const VM = struct {
     trace: bool = false,
     /// The sampling profiler, when one runs (see profile.zig).
     profiler: ?*root.Profiler = null,
+    /// The debugger, when an editor debugs the program (see debug.zig).
+    debugger: ?*root.Debugger = null,
 
     pub fn create(backing: Allocator, io: std.Io, env: ?*std.process.Environ.Map) *VM {
         const vm = backing.create(VM) catch oom();

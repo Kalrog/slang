@@ -1,6 +1,7 @@
 // slang/codegen: compiles AST nodes into function prototypes. A prototype is a
 // table that slang/vm's load_proto turns into a function:
-//   {code, locations, constants, upvalues, children, max_stack, nargs, is_vararg}
+//   {code, locations, constants, upvalues, children, max_stack, nargs, is_vararg,
+//    locals}   (locals: {name, register, start pc, end pc}, for debuggers)
 local ast = require("slang/ast")
 local str = require("slang/string")
 
@@ -98,6 +99,8 @@ func asm.new(parent, origin, nargs, is_vararg){
     constants: {},
     constant_index: {},
     locals: {},
+    // every local's {name, register, first pc, end pc} (for debuggers)
+    local_vars: {},
     upvalues: {},
     upvalue_list: {},
     children: {},
@@ -122,6 +125,8 @@ func asm.create_local(self, name){
     register: register, name: name, scope: self.scope,
     previous: self.locals[name], captured: false
   }
+  lv.debug = {name, register, len(self.instructions), - 1}
+  append(self.local_vars, lv.debug)
   self.locals[name] = lv
   return lv
 }
@@ -164,6 +169,9 @@ func asm.get_upvalue(self, name){
 }
 
 func asm.free_local(self, lv){
+  if(lv.debug != null and lv.debug[3] < 0){
+    lv.debug[3] = len(self.instructions)
+  }
   if(lv.previous != null){
     self.locals[lv.name] = lv.previous
   } else {
@@ -512,6 +520,12 @@ func asm.assemble(self){
     }
     append(upvalues, {u.name, index, u.local_register >= 0})
   }
+  // locals still alive at the end live to it
+  for(let local v in values(self.local_vars)){
+    if(v[3] < 0){
+      v[3] = len(self.instructions)
+    }
+  }
   return {
     code: self.instructions,
     locations: self.locations,
@@ -522,6 +536,7 @@ func asm.assemble(self){
     nargs: self.nargs,
     is_vararg: self.is_vararg,
     name: self.name,
+    locals: self.local_vars,
   }
 }
 

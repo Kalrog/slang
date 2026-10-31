@@ -38,7 +38,7 @@ fn usage(io: std.Io) noreturn {
     var w = stderr(io);
     w.interface.writeAll(
         \\usage:
-        \\  slang run [--explain] [--profile out.folded] <file.slang|file.slb> [args...]
+        \\  slang run [--explain] [--profile out.folded] [--debug port] <file.slang|file.slb> [args...]
         \\  slang test [--json] [--only "group / test"] [dir|file]
         \\                              run every *test.slang file in dir (default ./test), or one file
         \\  slang repl
@@ -91,6 +91,9 @@ pub fn main(init: std.process.Init) !u8 {
                 run_args = run_args[1..];
             } else if (std.mem.eql(u8, run_args[0], "--profile") and run_args.len > 1) {
                 profile = run_args[1];
+                run_args = run_args[2..];
+            } else if (std.mem.eql(u8, run_args[0], "--debug") and run_args.len > 1) {
+                debug_port = run_args[1];
                 run_args = run_args[2..];
             } else break;
         }
@@ -146,7 +149,21 @@ fn newVM(init: std.process.Init, args: []const []const u8) *VM {
     if (init.environ_map.get("SLANG_PROFILE")) |path| {
         vm.profiler = vm_mod.Profiler.create(vm.backing, vm.io, path);
     }
+    // SLANG_DEBUG=port (or run --debug port): an editor debugs the program
+    const port_text = debug_port orelse init.environ_map.get("SLANG_DEBUG");
+    if (port_text) |text| {
+        const port = std.fmt.parseInt(u16, text, 10) catch failMsg(vm, "the debug port must be a number, not {s}", .{text});
+        vm.debugger = vm_mod.Debugger.start(vm, port) catch |e| failMsg(vm, "cannot debug on port {d}: {t}", .{ port, e });
+    }
     return vm;
+}
+
+/// `slang run --debug port`
+var debug_port: ?[]const u8 = null;
+
+/// The program ended: a debugger is told how.
+fn ended(vm: *VM, code: u8) void {
+    if (vm.debugger) |d| d.finish(code);
 }
 
 /// Prints the pending slang error and exits.
@@ -154,6 +171,7 @@ fn fail(vm: *VM) noreturn {
     vm.flush();
     // a profile of a run that failed is still a profile
     if (vm.profiler) |p| p.finish();
+    ended(vm, 1);
     var e = vm.takeError();
     var w = stderr(vm.io);
     e.write(&w.interface) catch {};
@@ -190,6 +208,7 @@ fn run(init: std.process.Init, path: []const u8, args: []const []const u8, expla
     const cl = loadFile(vm, path);
     _ = vm.call(.{ .function = cl }, &.{}) catch fail(vm);
     vm.flush();
+    ended(vm, 0);
 }
 
 /// Runs the program bundled into this executable (slang build): its entry
@@ -244,7 +263,9 @@ fn runTests(init: std.process.Init, args: []const []const u8) u8 {
     }) catch fail(vm);
     const failed = vm.call(runner, &.{}) catch fail(vm);
     vm.flush();
-    return if (failed.truthy()) 1 else 0;
+    const code: u8 = if (failed.truthy()) 1 else 0;
+    ended(vm, code);
+    return code;
 }
 
 fn printError(vm: *VM) void {
@@ -304,10 +325,12 @@ fn toolMain(init: std.process.Init, module: []const u8, args: []const []const u8
     for (args) |a| list.append(vm.gpa, vm.str(a));
     const res = vm.call(tool.table.getName("main"), &.{.{ .table = list }}) catch fail(vm);
     vm.flush();
-    return switch (res) {
-        .int => |code| @intCast(code),
+    const code: u8 = switch (res) {
+        .int => |c| @intCast(c),
         else => 0,
     };
+    ended(vm, code);
+    return code;
 }
 
 /// Prints the tokens and diagnostics of a file as JSON (compiler.highlight_json).

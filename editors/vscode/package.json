@@ -8,7 +8,7 @@
   "engines": { "vscode": "^1.85.0" },
   "categories": ["Programming Languages"],
   "main": "./out/extension.js",
-  "activationEvents": ["onLanguage:slang", "workspaceContains:**/slang.project"],
+  "activationEvents": ["onLanguage:slang", "workspaceContains:**/slang.project", "onDebugResolve:slang", "onDebugDynamicConfigurations:slang"],
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": "limited",
@@ -32,6 +32,7 @@
     "snippets": [{ "language": "slang", "path": "./snippets/slang.json" }],
     "commands": [
       { "command": "slang.runFile", "title": "Run File", "category": "slang", "icon": "$(play)" },
+      { "command": "slang.debugFile", "title": "Debug File", "category": "slang", "icon": "$(debug-alt)" },
       { "command": "slang.repl", "title": "Open REPL", "category": "slang" },
       { "command": "slang.sendToRepl", "title": "Send Selection to REPL", "category": "slang" },
       { "command": "slang.showExpanded", "title": "Show Expanded Code", "category": "slang", "icon": "$(open-preview)" },
@@ -43,6 +44,7 @@
     "menus": {
       "editor/title": [
         { "command": "slang.runFile", "when": "editorLangId == slang", "group": "navigation" },
+        { "command": "slang.debugFile", "when": "editorLangId == slang", "group": "navigation" },
         { "command": "slang.showExpanded", "when": "editorLangId == slang", "group": "navigation" }
       ],
       "editor/context": [
@@ -51,12 +53,46 @@
       ],
       "commandPalette": [
         { "command": "slang.runFile", "when": "editorLangId == slang" },
+        { "command": "slang.debugFile", "when": "editorLangId == slang" },
         { "command": "slang.sendToRepl", "when": "editorLangId == slang" },
         { "command": "slang.showExpanded", "when": "editorLangId == slang" }
       ]
     },
     "keybindings": [
       { "command": "slang.sendToRepl", "key": "shift+enter", "when": "editorTextFocus && editorLangId == slang" }
+    ],
+    "breakpoints": [{ "language": "slang" }],
+    "debuggers": [
+      {
+        "type": "slang",
+        "label": "slang",
+        "languages": ["slang"],
+        "configurationAttributes": {
+          "launch": {
+            "required": ["program"],
+            "properties": {
+              "program": { "type": "string", "description": "The file to run (or test)", "default": "${file}" },
+              "args": { "type": "array", "items": { "type": "string" }, "description": "Arguments: the program's, or those of the command", "default": [] },
+              "command": { "type": "string", "enum": ["run", "test"], "description": "run the program, or its tests with slang test", "default": "run" },
+              "cwd": { "type": "string", "description": "The working directory", "default": "${workspaceFolder}" },
+              "stopOnEntry": { "type": "boolean", "description": "Stop at the first line", "default": false }
+            }
+          }
+        },
+        "initialConfigurations": [
+          { "type": "slang", "request": "launch", "name": "Debug the current file", "program": "${file}" }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "slang: Debug a file",
+            "body": { "type": "slang", "request": "launch", "name": "Debug ${1:main}", "program": "^\"\\${workspaceFolder}/${1:main}.slang\"" }
+          },
+          {
+            "label": "slang: Debug the tests of a file",
+            "body": { "type": "slang", "request": "launch", "name": "Debug the tests", "command": "test", "program": "^\"\\${file}\"" }
+          }
+        ]
+      }
     ],
     "taskDefinitions": [
       {

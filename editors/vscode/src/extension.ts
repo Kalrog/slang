@@ -4,8 +4,11 @@
 // project's dialect suffixes with the slang language. Besides the server's
 // features: the tests in the test explorer (found by the server, run with
 // `slang test --json`), a view of a file's expanded code, commands to run a
-// file, use a REPL, fetch packages and build, and a `slang` task type.
+// file, use a REPL, fetch packages and build, a `slang` task type, and the
+// debugger (the VM speaks the Debug Adapter Protocol on a local port: see
+// `slang run --debug`).
 import { spawn } from "child_process";
+import * as net from "net";
 import * as path from "path";
 import * as vscode from "vscode";
 import { LanguageClient, LanguageClientOptions, ServerOptions } from "vscode-languageclient/node";
@@ -77,6 +80,19 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
     await doc.save();
     runInTerminal(["run", doc.uri.fsPath]);
+  });
+  reg("slang.debugFile", async () => {
+    const doc = vscode.window.activeTextEditor?.document;
+    if (!doc) {
+      return;
+    }
+    await doc.save();
+    await vscode.debug.startDebugging(vscode.workspace.getWorkspaceFolder(doc.uri), {
+      type: "slang",
+      request: "launch",
+      name: `Debug ${path.basename(doc.uri.fsPath)}`,
+      program: doc.uri.fsPath,
+    });
   });
   reg("slang.repl", () => {
     const { command, folder } = slangCommand();
@@ -340,6 +356,23 @@ function startTests(context: vscode.ExtensionContext): void {
   };
   controller.createRunProfile("Run", vscode.TestRunProfileKind.Run, (request, token) =>
     runTests(controller, request, token), true);
+  // debugging a test runs its file's tests under the debugger, --only it
+  controller.createRunProfile("Debug", vscode.TestRunProfileKind.Debug, async (request) => {
+    const item = request.include?.[0];
+    if (!item) {
+      return;
+    }
+    const file = fileOf(item);
+    const only = testPath(item).join(" / ");
+    await vscode.debug.startDebugging(undefined, {
+      type: "slang",
+      request: "launch",
+      name: `Debug ${only || file.label}`,
+      command: "test",
+      program: file.uri!.fsPath,
+      args: only ? ["--only", only] : [],
+    });
+  });
   const refresh = (doc: vscode.TextDocument) => {
     if (isTestFile(doc.uri)) {
       loadTests(controller, testFile(controller, doc.uri));
@@ -350,6 +383,79 @@ function startTests(context: vscode.ExtensionContext): void {
     vscode.workspace.onDidSaveTextDocument(refresh)
   );
   vscode.workspace.textDocuments.forEach(refresh);
+}
+
+// ------------------------------------------------------------ debugging
+
+// a port no one listens on
+function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.on("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const port = (server.address() as net.AddressInfo).port;
+      server.close(() => resolve(port));
+    });
+  });
+}
+
+// starts the program with --debug (SLANG_DEBUG for `slang test`), its output
+// in the debug console, and connects once it listens
+class DebugAdapterFactory implements vscode.DebugAdapterDescriptorFactory {
+  async createDebugAdapterDescriptor(session: vscode.DebugSession): Promise<vscode.DebugAdapterDescriptor> {
+    const config = session.configuration;
+    const { command, folder } = slangCommand();
+    const port = await freePort();
+    const verb: string = config.command ?? "run";
+    const args = verb === "run"
+      ? ["run", "--debug", String(port), config.program, ...(config.args ?? [])]
+      : [verb, ...(config.args ?? []), config.program];
+    const child = spawn(command, args, {
+      cwd: config.cwd ?? folder,
+      env: verb === "run" ? process.env : { ...process.env, SLANG_DEBUG: String(port) },
+    });
+    const console = vscode.debug.activeDebugConsole;
+    await new Promise<void>((resolve, reject) => {
+      let listening = false;
+      child.stdout.on("data", (chunk: Buffer) => vscode.debug.activeDebugConsole.append(chunk.toString()));
+      child.stderr.on("data", (chunk: Buffer) => {
+        const text = chunk.toString();
+        if (!listening && text.includes("waiting for a debugger")) {
+          listening = true;
+          resolve();
+          return;
+        }
+        vscode.debug.activeDebugConsole.append(text);
+      });
+      child.on("error", (err) => reject(new Error(`cannot start ${command}: ${err.message}`)));
+      child.on("exit", (code) => {
+        if (!listening) {
+          reject(new Error(`slang ended (code ${code}) before the debugger could connect`));
+        }
+      });
+    });
+    console.appendLine("");
+    return new vscode.DebugAdapterServer(port, "127.0.0.1");
+  }
+}
+
+function startDebugging(context: vscode.ExtensionContext): void {
+  context.subscriptions.push(
+    vscode.debug.registerDebugAdapterDescriptorFactory("slang", new DebugAdapterFactory()),
+    vscode.debug.registerDebugConfigurationProvider("slang", {
+      // F5 without a launch.json: the current file
+      resolveDebugConfiguration(_folder, config) {
+        if (!config.type && !config.request) {
+          const doc = vscode.window.activeTextEditor?.document;
+          if (doc?.languageId !== "slang") {
+            return undefined;
+          }
+          return { type: "slang", request: "launch", name: "Debug the current file", program: doc.uri.fsPath };
+        }
+        return config;
+      },
+    })
+  );
 }
 
 // ------------------------------------------------------------ tasks
@@ -423,6 +529,7 @@ async function start(context: vscode.ExtensionContext): Promise<void> {
   client = new LanguageClient("slang", "slang language server", serverOptions, clientOptions);
   registerCommands(context);
   startTasks(context);
+  startDebugging(context);
   // the expanded view follows the file it shows
   const expanded = new ExpandedProvider();
   context.subscriptions.push(

@@ -39,7 +39,8 @@ fn usage(io: std.Io) noreturn {
     w.interface.writeAll(
         \\usage:
         \\  slang run [--explain] [--profile out.folded] <file.slang|file.slb> [args...]
-        \\  slang test [dir]            run every *test.slang file in dir (default ./test)
+        \\  slang test [--json] [--only "group / test"] [dir|file]
+        \\                              run every *test.slang file in dir (default ./test), or one file
         \\  slang repl
         \\  slang compile <file.slang> [-o out.slb] [--origin name] [--strip]
         \\  slang disasm <file.slb|file.slang>
@@ -96,7 +97,7 @@ pub fn main(init: std.process.Init) !u8 {
         if (run_args.len < 1) usage(io);
         run(init, run_args[0], run_args[1..], explain, profile);
     } else if (std.mem.eql(u8, cmd, "test")) {
-        runTests(init, if (args.len > 0) args[0] else "./test");
+        return runTests(init, args);
     } else if (std.mem.eql(u8, cmd, "repl")) {
         repl(init);
     } else if (std.mem.eql(u8, cmd, "compile")) {
@@ -208,26 +209,42 @@ fn runBundled(init: std.process.Init, b: *const bundle.Bundle) u8 {
     return 0;
 }
 
-/// Compiles and runs every *test.slang file in dir, then runs the collected
-/// tests with slang/test.
-fn runTests(init: std.process.Init, dir: []const u8) void {
-    const vm = newVM(init, &.{});
+/// Compiles and runs every *test.slang file in dir (or the one file given),
+/// then runs the collected tests with slang/test, which reads the options
+/// (--json, --only) from the arguments; the exit code is 1 when a test failed.
+fn runTests(init: std.process.Init, args: []const []const u8) u8 {
+    var target: []const u8 = "./test";
+    var i: usize = 0;
+    while (i < args.len) : (i += 1) {
+        if (std.mem.eql(u8, args[i], "--only")) {
+            i += 1;
+        } else if (!std.mem.startsWith(u8, args[i], "--")) {
+            target = args[i];
+        }
+    }
+    const vm = newVM(init, args);
     defer vm.destroy();
-    const names = oslib.listDir(vm, dir) catch |e| failMsg(vm, "cannot list {s}: {t}", .{ dir, e });
-    defer oslib.freeNames(vm, names);
-    for (names) |name| {
-        if (!std.mem.endsWith(u8, name, "test.slang")) continue;
-        const path = std.fmt.allocPrint(vm.gpa, "{s}/{s}", .{ dir, name }) catch oom();
-        defer vm.gpa.free(path);
-        const cl = loadFile(vm, path);
+    if (std.mem.endsWith(u8, target, ".slang")) {
+        const cl = loadFile(vm, target);
         _ = vm.call(.{ .function = cl }, &.{}) catch fail(vm);
+    } else {
+        const names = oslib.listDir(vm, target) catch |e| failMsg(vm, "cannot list {s}: {t}", .{ target, e });
+        defer oslib.freeNames(vm, names);
+        for (names) |name| {
+            if (!std.mem.endsWith(u8, name, "test.slang")) continue;
+            const path = std.fmt.allocPrint(vm.gpa, "{s}/{s}", .{ target, name }) catch oom();
+            defer vm.gpa.free(path);
+            const cl = loadFile(vm, path);
+            _ = vm.call(.{ .function = cl }, &.{}) catch fail(vm);
+        }
     }
     const runner = vm.call(vm.getGlobal("compile"), &.{
-        vm.str("\n\t\tlocal test = require(\"slang/test\")\n\t\ttest.run()\n\t"),
+        vm.str("\n\t\treturn require(\"slang/test\").run_cli(args())\n\t"),
         vm.str("test runner"),
     }) catch fail(vm);
-    _ = vm.call(runner, &.{}) catch fail(vm);
+    const failed = vm.call(runner, &.{}) catch fail(vm);
     vm.flush();
+    return if (failed.truthy()) 1 else 0;
 }
 
 fn printError(vm: *VM) void {

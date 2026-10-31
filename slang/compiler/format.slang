@@ -145,14 +145,44 @@ func format.uses_marks(parser){
   return false
 }
 
-// extension(parser) -> the parser an extension registered, formatted when
-// it uses marks, else verbatim (what the grammar applies to the syntax an
-// extension adds)
-func format.extension(parser){
+// extension(parser, owner) -> the parser an extension registered, formatted
+// when it uses marks, else verbatim (what the grammar applies to the syntax
+// an extension adds); owner, the extension's name, is kept in the mark (see
+// owner_at)
+func format.extension(parser, owner){
   if(format.uses_marks(parser)){
-    return format.formatted(parser)
+    return format.mark(parser, {formatted: true, owner: owner})
   }
-  return format.verbatim(parser)
+  return format.mark(parser, {verbatim: true, owner: owner})
+}
+
+// owner_at(tree, pos) -> the name of the extension whose syntax the lossless
+// tree has at pos, or null for core syntax. Down from the root, an
+// extension's mark names its owner; a formatted mark without one is core
+// syntax again (what the extension was given, or an expression inside it).
+func format.owner_at(tree, pos){
+  local owner = null
+  local n = tree
+  for(n != null){
+    for(let local data in values(peg.marks(n, format.layer))){
+      if(data.owner != null){
+        owner = data.owner
+      } else if(data.formatted){
+        owner = null
+      }
+    }
+    local next = null
+    for(let local k in values(n.kids or {})){
+      if(k.start <= pos and pos < k.stop and k.kids != null){
+        next = k
+      }
+    }
+    n = next
+  }
+  if(owner == "core"){
+    return null
+  }
+  return owner
 }
 
 // ------------------------------------------------------------ documents

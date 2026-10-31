@@ -1,18 +1,36 @@
 # slang for VS Code
 
-Highlighting, diagnostics and navigation for slang. A TextMate grammar
-colours the core language on its own; in a trusted workspace the extension
-starts the slang language server (`lsp/` of the slang repository, bundled
-here), which parses each file with the project's real grammar, extensions
-and dialects included, and provides semantic tokens, parse errors, hover
-(signatures and doc comments), go to definition and find references,
-across modules loaded with `require`, and formatting with `slang fmt`'s
-formatter. Format on save is on for slang files by default
-(`editor.formatOnSave` under `[slang]` turns it off).
+Highlighting, diagnostics, navigation, completion, tests and running for
+slang. A TextMate grammar colours the core language on its own; in a
+trusted workspace the extension starts the slang language server (`lsp/`
+of the slang repository, bundled here), which parses each file with the
+project's real grammar, extensions and dialects included. It provides:
+
+- semantic tokens, parse errors and lint warnings (unused locals, globals
+  no project file defines, requires of missing modules);
+- hover (signatures and doc comments; on extension syntax, the extension
+  that made it), go to definition (into the extension for its syntax),
+  find references, highlights of a name's uses, rename across the project;
+- the outline and breadcrumbs, workspace symbols, parameter-name hints;
+- completion (members after `a.` and `a:`, names in scope, keywords,
+  module names in `require("...")`) and signature help;
+- formatting of the file or a selection with `slang fmt`'s formatter
+  (format on save is on for slang files: `editor.formatOnSave` under
+  `[slang]` turns it off);
+- slang.project: its keys completed, explained and checked.
+
+Besides: the tests of `*test.slang` files in the test explorer (run with
+`slang test --json`, failures shown where they happened), "slang: Show
+Expanded Code" (the file after its extensions ran, beside it), "slang:
+Run File", a REPL ("slang: Open REPL", shift+enter sends the selection),
+`slang get`, `slang update`, `slang build` (and `--dir`) as commands, a
+`slang` task type with problem matchers (`$slang`, `$slang-test`), and
+snippets.
 
 Settings: `slang.path` (the `slang` binary; default `slang` on the PATH),
 `slang.associateDialects` (map the project's dialect suffixes to the slang
-language in `files.associations`), `slang.trace.server`.
+language in `files.associations`), `slang.parameterHints` (`literals`,
+`all` or `none`), `slang.lint`, `slang.trace.server`.
 
 Building, from the repository root:
 

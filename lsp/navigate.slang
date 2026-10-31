@@ -579,6 +579,12 @@ local func member_of(w, path, ref){
   return found
 }
 
+// whether a name is written where the index has it (an extension may make
+// names up and give them a place, sql{}'s statement caches)
+local func written(f, found){
+  return str.substring(f.text, found.start, found.stop) == found.name
+}
+
 // the key of the symbol at pos: what definition and references look for
 //   {kind: "local", path, def}        a local, parameter or local field
 //   {kind: "global", name}
@@ -591,7 +597,7 @@ local func key_at(w, path, pos){
   // a name's own start is found at once (callers that walk the tree ask
   // for many)
   local found = f.index.by_start[pos] or symbols.at(f.index, pos)
-  if(found == null){
+  if(found == null or not written(f, found)){
     return null
   }
   local def = found
@@ -1019,7 +1025,7 @@ func methods.hover(w, path, pos){
     return null
   }
   local found = symbols.at(f.index, pos)
-  if(found == null){
+  if(found == null or not written(f, found)){
     return null
   }
   local key = key_at(w, path, pos)

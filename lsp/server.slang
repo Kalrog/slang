@@ -15,7 +15,10 @@
 // "literals", "all" or "none"), completion (members, names in scope,
 // keywords, module names), signatureHelp, lint diagnostics (unused locals,
 // undefined globals, missing modules; initializationOptions.lint),
-// formatting and rangeFormatting (slang fmt's formatter), shutdown, exit.
+// formatting and rangeFormatting (slang fmt's formatter), hover and
+// definition on extension syntax, slang.project keys (completion, hover,
+// checks), slang/expand (the expanded file), slang/tests (a test file's
+// groups and tests), shutdown, exit.
 // Highlighting and the symbols come from one compiler.highlight, so
 // extensions and dialects are the real ones; lsp/navigate answers the
 // questions about names.
@@ -373,6 +376,13 @@ local func notification(method, params){
 }
 
 local lint = null
+local project_lint = null
+local project_completion = null
+local project_hover = null
+
+local func is_project_file(path){
+  return str.ends_with(path, "slang.project")
+}
 
 // ------------------------------------------------------------ lint
 //
@@ -539,8 +549,14 @@ local func analyse(s, uri){
     s.nav:open(doc.path, doc.symbols_text or doc.text, doc.symbols)
   }
   local diagnostics = lsp_diagnostics(doc.text, doc.diagnostics, s.encoding)
+  if(is_project_file(doc.path) and len(doc.diagnostics) == 0){
+    for(let local d in values(project_lint(s, doc))){
+      append(diagnostics, d)
+    }
+  }
   // the lint needs the index of this very text
-  if(s.lint and len(doc.diagnostics) == 0 and doc.symbols_text == doc.text){
+  if(s.lint and len(doc.diagnostics) == 0 and doc.symbols_text == doc.text and
+    not is_project_file(doc.path)){
     local pr = pcall(lint, s, doc)
     if(pr[0] == "ok"){
       for(let local d in values(pr[1])){
@@ -735,12 +751,40 @@ local func locations(s, list){
   return out
 }
 
+// the extension whose syntax is at pos (not core syntax): {name, path},
+// path its source (null when require cannot find it)
+local func extension_at(at){
+  local r = pcall(compiler.tree, at.text, at.doc.path, {find_project: true})
+  if(r[0] == "err" or r[1] == null){
+    return null
+  }
+  local owner = format.owner_at(r[1], at.pos)
+  if(owner == null){
+    return null
+  }
+  return {name: owner, path: compiler.module_path(owner)}
+}
+
 handlers["textDocument/definition"] = func(s, id, params){
   local at = position_of(s, params)
   if(at == null){
     return {response(id, json.array({}))}
   }
-  return {response(id, locations(s, nav_of(s):definition(at.doc.path, at.pos)))}
+  local found = locations(s, nav_of(s):definition(at.doc.path, at.pos))
+  if(len(found) == 0){
+    // extension syntax: the extension's source
+    local ext = extension_at(at)
+    if(ext != null and ext.path != null){
+      append(found, {
+        uri: lsp.path_to_uri(ext.path),
+        range: {
+          start: {line: 0, character: 0},
+          ["end"]: {line: 0, character: 0},
+        },
+      })
+    }
+  }
+  return {response(id, found)}
 }
 
 handlers["textDocument/references"] = func(s, id, params){
@@ -758,9 +802,30 @@ handlers["textDocument/hover"] = func(s, id, params){
   if(at == null){
     return {response(id, null)}
   }
+  if(is_project_file(at.doc.path)){
+    at.pos = lsp.offset_of(at.doc.text, params.position, s.encoding)
+    return {response(id, project_hover(s, at))}
+  }
   local h = nav_of(s):hover(at.doc.path, at.pos)
   if(h == null){
-    return {response(id, null)}
+    // extension syntax: which extension, and what its file says it is
+    local ext = extension_at(at)
+    if(ext == null){
+      return {response(id, null)}
+    }
+    local lines = {concat("```slang\nextension \"", ext.name, "\"\n```")}
+    if(ext.path != null){
+      local f = nav_of(s):file(ext.path)
+      if(f != null and f.index.module_doc != null){
+        append(lines, navigate.markdown(f.index.module_doc))
+      }
+      append(lines, concat("*", nav_of(s):shown(ext.path), "*"))
+    }
+    return {
+      response(id, {
+        contents: {kind: "markdown", value: str.join(lines, "\n\n")},
+      }),
+    }
   }
   return {
     response(id, {
@@ -1329,6 +1394,198 @@ local func resolve_chain(nav, path, names, pos){
   return target
 }
 
+// ------------------------------------------------------------ slang.project
+//
+// A project file is a table literal (read as `return {...}`): its keys are
+// completed, explained on hover and checked (unknown keys, extensions that
+// do not exist, path dependencies whose directory is missing).
+
+local PROJECT_KEYS = {
+  name: "the project's name, as a package: what `require` names it by",
+  version: "the project's version, as a package (\"1.2.3\")",
+  extensions: "grammar extensions every file of the project uses, in order: `{\"extensions/async\"}`",
+  dialects: "file suffixes compiled differently: `{[\".json\"]: {compile: \"extensions/json\"}}` or `{[\".hx\"]: {extensions: {...}}}`",
+  search_paths: "directories (relative to the project) where `require` looks for modules",
+  warnings: "`false` silences the extensions' warnings, or `{[\"ext/a\"]: false}` some of them",
+  dependencies: "packages: `{json5: {git: \"https://...\", version: \"^1.2\"}, util: {path: \"../util\"}}` (`slang get` fetches them)",
+  build: "what `slang build` makes of the project: main, name, output, modules, assets, compress, strip, codesign, linker",
+}
+
+local BUILD_KEYS = {
+  main: "the file `slang build` alone builds (default: main.slang)",
+  name: "the executable's name (default: the project's name, else the main file's)",
+  output: "where the executable goes, relative to the project (`-o` wins)",
+  modules: "modules to bundle that are required by a computed name",
+  assets: "files or directories bundled with the program: `{\"static\", \"data/words.txt\"}`",
+  compress: "gzip the assets where it saves 10%: `true` (all but images, video, archives...) or a list of paths",
+  strip: "`true` drops the line information from the bytecode",
+  codesign: "macOS: sign with codesign and this identity (\"-\" is ad hoc) instead of slang's own ad hoc signature",
+  linker: "the command that links native extensions in: \"zig cc\", or a list (default: cc, else zig cc)",
+}
+
+local PROJECT_PREFIX = "return "
+
+// the project file's table: {table, shift} (shift: the prefix's length), or
+// null when it does not parse
+local func project_table(text){
+  local r = pcall(compiler.parse, concat(PROJECT_PREFIX, text), "slang.project")
+  if(r[0] == "err"){
+    return null
+  }
+  local st = r[1].statements or {}
+  if(len(st) != 1 or st[0].type != "Return" or st[0].value.type != "Table"){
+    return null
+  }
+  return {table: st[0].value, shift: len(PROJECT_PREFIX)}
+}
+
+// the fields of a table node with a name key: {name, node, value}
+local func named_fields(table){
+  local out = {}
+  for(let local f in values(table.fields or {})){
+    if(f.type == "Field" and f.key != null and f.key.type == "String" and
+      f.key.token != null){
+      append(out, {name: f.key.value, node: f.key, value: f.value})
+    }
+  }
+  return out
+}
+
+project_lint = func(s, doc){
+  local out = {}
+  local found = project_table(doc.text)
+  if(found == null){
+    return out
+  }
+  local shift = found.shift
+  local func warn(node, message){
+    local t = node.token
+    append(out, {
+      range: lsp.range_of(
+        doc.text, t.start - shift, t.stop - shift, s.encoding
+      ),
+      severity: 2,
+      source: "slang",
+      message: message,
+    })
+  }
+  local dir = compiler.dirname(doc.path)
+  for(let local f in values(named_fields(found.table))){
+    if(PROJECT_KEYS[f.name] == null){
+      warn(f.node, concat("slang.project has no key ", f.name))
+    } else if(f.name == "build" and f.value.type == "Table"){
+      for(let local b in values(named_fields(f.value))){
+        if(BUILD_KEYS[b.name] == null){
+          warn(b.node, concat("build has no key ", b.name))
+        }
+      }
+    } else if(f.name == "extensions" and f.value.type == "Table"){
+      for(let local e in values(f.value.fields)){
+        local v = e.value
+        if(v != null and v.type == "String" and v.token != null and
+          compiler.module_path(v.value) == null){
+          warn(v, concat("extension ", v.value, " not found"))
+        }
+      }
+    } else if(f.name == "dependencies" and f.value.type == "Table"){
+      for(let local d in values(named_fields(f.value))){
+        if(d.value.type == "Table"){
+          for(let local p in values(named_fields(d.value))){
+            if(p.name == "path" and p.value.type == "String" and
+              not os.is_dir(compiler.join_path(dir, p.value.value))){
+              warn(p.value, concat("no directory ", p.value.value))
+            }
+          }
+        }
+      }
+    }
+  }
+  return out
+}
+
+// the keys the table around pos takes: PROJECT_KEYS at the top, BUILD_KEYS
+// in build: {...}, else null
+local func project_keys_at(text, pos){
+  local stack = {}
+  local i = 0
+  local quoted = false
+  for(i < pos){
+    local c = str.char_at(text, i)
+    if(quoted){
+      if(c == "\\"){
+        i = i + 1
+      } else if(c == "\""){
+        quoted = false
+      }
+    } else if(c == "\""){
+      quoted = true
+    } else if(c == "/" and str.char_at(text, i + 1) == "/"){
+      for(i < pos and str.char_at(text, i) != "\n"){
+        i = i + 1
+      }
+    } else if(c == "{"){
+      // the key this table is the value of
+      local k = i - 1
+      for(k > 0 and (str.char_at(text, k) == " " or str.char_at(text, k) == ":")){
+        k = k - 1
+      }
+      append(stack, str.substring(text, word_start(text, k + 1), k + 1))
+    } else if(c == "}" and len(stack) > 0){
+      remove(stack, len(stack) - 1)
+    }
+    i = i + 1
+  }
+  if(quoted){
+    return null
+  }
+  if(len(stack) == 1){
+    return PROJECT_KEYS
+  }
+  if(len(stack) == 2 and stack[1] == "build"){
+    return BUILD_KEYS
+  }
+  return null
+}
+
+project_completion = func(s, doc, pos){
+  local keys_here = project_keys_at(doc.text, pos)
+  local items = json.array({})
+  if(keys_here == null){
+    return items
+  }
+  for(let local e in entries(keys_here)){
+    append(items, {
+      label: e[0],
+      kind: 10,
+      detail: "slang.project",
+      documentation: {kind: "markdown", value: e[1]},
+      insertText: concat(e[0], ": "),
+    })
+  }
+  return items
+}
+
+project_hover = func(s, at){
+  local text = at.doc.text
+  local start = word_start(text, at.pos)
+  local stop = at.pos
+  for(stop < len(text) and is_word_byte(str.byte_at(text, stop))){
+    stop = stop + 1
+  }
+  local word = str.substring(text, start, stop)
+  local keys_here = project_keys_at(text, start)
+  if(keys_here == null or keys_here[word] == null){
+    return null
+  }
+  return {
+    contents: {
+      kind: "markdown",
+      value: concat("**", word, "**: ", keys_here[word]),
+    },
+    range: lsp.range_of(text, start, stop, s.encoding),
+  }
+}
+
 // ------------------------------------------------------------ completion
 
 // LSP completion item kinds
@@ -1457,6 +1714,9 @@ handlers["textDocument/completion"] = func(s, id, params){
   }
   local text = doc.text
   local pos = lsp.offset_of(text, params.position, s.encoding)
+  if(is_project_file(doc.path)){
+    return {response(id, project_completion(s, doc, pos))}
+  }
   local modules = require_completion(s, text, pos)
   if(modules != null){
     return {response(id, modules)}
@@ -1641,6 +1901,134 @@ handlers["textDocument/signatureHelp"] = func(s, id, params){
       activeParameter: active,
     }),
   }
+}
+
+// ------------------------------------------------------------ tests
+
+// the end of a node: the furthest end of the tokens in it (a node's own
+// token may be only its first word)
+local func node_stop(node, source, stop){
+  if(node == null or ast.specs[node.type] == null){
+    return stop
+  }
+  local t = node.token
+  if(t != null and t.buffer == source and t.stop != null and t.stop > stop){
+    stop = t.stop
+  }
+  for(let local field in values(ast.specs[node.type])){
+    local child = node[field[0]]
+    if(child != null){
+      if(field[1] == "list"){
+        for(let local c in values(child)){
+          stop = node_stop(c, source, stop)
+        }
+      } else if(field[1] != "value"){
+        stop = node_stop(child, source, stop)
+      }
+    }
+  }
+  return stop
+}
+
+// the t.group("name"){ ... } and t.test("name"){ ... } calls in a tree, nested:
+// {kind, name, start, stop, children}
+local func tests_in(node, source, out){
+  if(node == null or ast.specs[node.type] == null or node.type == "Quote"){
+    return out
+  }
+  if(node.type == "Call" and node.function.type == "Index" and
+    node.function.index.type == "String"){
+    local kind = node.function.index.value
+    local args = node.args
+    if((kind == "group" or kind == "test") and len(args) >= 1 and
+      args[0].type == "String" and node.function.receiver.token != null and
+      node.function.receiver.token.buffer == source){
+      local start = node.function.receiver.token.start
+      local item = {
+        kind: kind,
+        name: args[0].value,
+        start: start,
+        stop: node_stop(node, source, start),
+        children: {},
+      }
+      append(out, item)
+      for(let local a in values(args)){
+        tests_in(a, source, item.children)
+      }
+      return out
+    }
+  }
+  for(let local field in values(ast.specs[node.type])){
+    local child = node[field[0]]
+    if(child != null){
+      if(field[1] == "list"){
+        for(let local c in values(child)){
+          tests_in(c, source, out)
+        }
+      } else if(field[1] != "value"){
+        tests_in(child, source, out)
+      }
+    }
+  }
+  return out
+}
+
+// slang/tests {uri} -> {tests}: the groups and tests a test file defines,
+// {kind: "group"|"test", name, range, children}; the document's text when
+// it is open, else the file's
+handlers["slang/tests"] = func(s, id, params){
+  local doc = s.documents[params.uri]
+  local text = null
+  local tree = null
+  local path = lsp.uri_to_path(params.uri)
+  if(doc != null and doc.ast != null){
+    text = doc.symbols_text
+    tree = doc.ast
+  } else {
+    local r = pcall(os.read_file, path)
+    if(r[0] == "err"){
+      return {response(id, {tests: json.array({})})}
+    }
+    local h = pcall(compiler.highlight, r[1], path, {symbols: true})
+    if(h[0] == "err" or h[1].ast == null){
+      return {response(id, {tests: json.array({})})}
+    }
+    text = r[1]
+    tree = h[1].ast
+  }
+  local func convert(list){
+    local out = json.array({})
+    for(let local item in values(list)){
+      append(out, {
+        kind: item.kind,
+        name: item.name,
+        range: lsp.range_of(text, item.start, item.stop, s.encoding),
+        children: convert(item.children),
+      })
+    }
+    return out
+  }
+  return {response(id, {tests: convert(tests_in(tree, text, {}))})}
+}
+
+// ------------------------------------------------------------ expansion
+
+// slang/expand {uri} -> {text}: the document as core slang, after its
+// extensions ran (what `slang expand` prints), or {error}
+handlers["slang/expand"] = func(s, id, params){
+  local doc = s.documents[params.uri]
+  if(doc == null){
+    return {response(id, {error: "the document is not open"})}
+  }
+  local r = pcall(compiler.expand, doc.text, doc.path, {find_project: true})
+  if(r[0] == "err"){
+    local message = r[1]
+    if(type(message) == "table"){
+      message = message.message
+    }
+    return {response(id, {error: message})}
+  }
+  return {response(id, {text: r[1]})}
 }
 
 // ------------------------------------------------------------ formatting

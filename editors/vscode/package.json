@@ -30,6 +30,61 @@
       "configuration": "./language-configuration.json"
     }],
     "snippets": [{ "language": "slang", "path": "./snippets/slang.json" }],
+    "commands": [
+      { "command": "slang.runFile", "title": "Run File", "category": "slang", "icon": "$(play)" },
+      { "command": "slang.repl", "title": "Open REPL", "category": "slang" },
+      { "command": "slang.sendToRepl", "title": "Send Selection to REPL", "category": "slang" },
+      { "command": "slang.showExpanded", "title": "Show Expanded Code", "category": "slang", "icon": "$(open-preview)" },
+      { "command": "slang.get", "title": "Fetch Packages (slang get)", "category": "slang" },
+      { "command": "slang.update", "title": "Update Packages (slang update)", "category": "slang" },
+      { "command": "slang.build", "title": "Build Executable (slang build)", "category": "slang" },
+      { "command": "slang.buildDir", "title": "Build Executable Directory (slang build --dir)", "category": "slang" }
+    ],
+    "menus": {
+      "editor/title": [
+        { "command": "slang.runFile", "when": "editorLangId == slang", "group": "navigation" },
+        { "command": "slang.showExpanded", "when": "editorLangId == slang", "group": "navigation" }
+      ],
+      "editor/context": [
+        { "command": "slang.sendToRepl", "when": "editorLangId == slang", "group": "slang" },
+        { "command": "slang.showExpanded", "when": "editorLangId == slang", "group": "slang" }
+      ],
+      "commandPalette": [
+        { "command": "slang.runFile", "when": "editorLangId == slang" },
+        { "command": "slang.sendToRepl", "when": "editorLangId == slang" },
+        { "command": "slang.showExpanded", "when": "editorLangId == slang" }
+      ]
+    },
+    "keybindings": [
+      { "command": "slang.sendToRepl", "key": "shift+enter", "when": "editorTextFocus && editorLangId == slang" }
+    ],
+    "taskDefinitions": [
+      {
+        "type": "slang",
+        "required": ["command"],
+        "properties": {
+          "command": { "type": "string", "description": "The slang command: test, build, run, ..." },
+          "args": { "type": "array", "items": { "type": "string" }, "description": "Its arguments" }
+        }
+      }
+    ],
+    "problemMatchers": [
+      {
+        "name": "slang",
+        "owner": "slang",
+        "fileLocation": ["autoDetect", "${workspaceFolder}"],
+        "pattern": [
+          { "regexp": "^error: (.*)$", "message": 1 },
+          { "regexp": "^\\s+at ([^:\\s\\[]+\\.slang):(\\d+):(\\d+)$", "file": 1, "line": 2, "column": 3 }
+        ]
+      },
+      {
+        "name": "slang-test",
+        "owner": "slang",
+        "fileLocation": ["autoDetect", "${workspaceFolder}"],
+        "pattern": { "regexp": "^\\s+Error: (.*) @(.+\\.slang):(\\d+):(\\d+)$", "message": 1, "file": 2, "line": 3, "column": 4 }
+      }
+    ],
     "grammars": [{
       "language": "slang",
       "scopeName": "source.slang",

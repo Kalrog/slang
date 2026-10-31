@@ -486,6 +486,66 @@ t.group("language server: names"){
     assert(len(edits) == 1 and edits[0].range.start.line == 1)
     assert(edits[0].newText == "if(a){ print(1) }", edits[0].newText)
   }
+  t.test("extension syntax: hover and definition name the extension"){
+    local es = lsp.new({root: dir})
+    es:handle(request(1, "initialize", {capabilities: {}}))
+    local euri = lsp.path_to_uri(concat(dir, "/ext.slang"))
+    open_doc(
+      es, euri,
+      "extension \"extensions/switch\"\nswitch(1){\n  case 1:\n    print(1)\n}\n"
+    )
+    local at = {textDocument: {uri: euri}, position: {line: 1, character: 2}}
+    local h = es:handle(request(9, "textDocument/hover", at))[0].result
+    assert(
+      str.index_of(h.contents.value, "extension \"extensions/switch\"") >= 0,
+      h.contents.value,
+    )
+    local d = es:handle(request(9, "textDocument/definition", at))[0].result
+    assert(len(d) == 1 and str.ends_with(d[0].uri, "/extensions/switch.slang"))
+    local e = es:handle(request(9, "slang/expand", {uri: euri}))[0].result
+    assert(
+      str.index_of(e.text, "switch") < 0 and
+        str.index_of(e.text, "print(1)") >= 0,
+      e.text,
+    )
+  }
+  t.test("tests: the groups and tests of a test file"){
+    local r = s:handle(request(9, "slang/tests", {
+      uri: lsp.path_to_uri(compiler.absolute_path("test/build_test.slang")),
+    }))[0].result
+    assert(r.tests[0].kind == "group" and r.tests[0].name == "build: requires")
+    local first = r.tests[0].children[0]
+    assert(first.kind == "test" and str.starts_with(
+        first.name, "literal requires"
+      ))
+    assert(first.range.start.line > r.tests[0].range.start.line)
+  }
+  t.test("slang.project: keys completed, explained and checked"){
+    local ps = lsp.new({root: dir})
+    ps:handle(request(1, "initialize", {capabilities: {}}))
+    local puri = lsp.path_to_uri(concat(dir, "/sub/slang.project"))
+    local r = open_doc(
+      ps, puri, "{\n  colour: 1,\n  build: {compres: true},\n  \n}\n"
+    )
+    local got = {}
+    for(let local d in values(r[0].params.diagnostics)){
+      append(got, d.message)
+    }
+    assert(
+      got == {"slang.project has no key colour", "build has no key compres"},
+      str.join(got, " | "),
+    )
+    local keys_here = ps:handle(request(9, "textDocument/completion", {
+      textDocument: {uri: puri},
+      position: {line: 3, character: 2},
+    }))[0].result
+    assert(len(keys_here) == 8)
+    local h = ps:handle(request(9, "textDocument/hover", {
+      textDocument: {uri: puri},
+      position: {line: 2, character: 4},
+    }))[0].result
+    assert(str.starts_with(h.contents.value, "**build**"))
+  }
   t.test("hover: the signature and the doc comment"){
     local h = ask("textDocument/hover", pos("greet(\"x"))
     assert(h.contents.kind == "markdown")

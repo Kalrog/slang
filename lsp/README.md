@@ -25,7 +25,11 @@ lint warnings with the parse errors (unused locals, globals no project
 file defines, requires of missing modules, computed requires;
 `initializationOptions.lint: false` turns them off), `formatting` and
 `rangeFormatting` (`slang fmt`'s formatter; a range formats the lines it
-touches),
+touches), hover and definition on extension syntax (the extension that
+made it: `format.owner_at` on the lossless tree), `slang.project` support
+(keys completed, explained and checked), and two requests of its own:
+`slang/expand {uri}` (the file after its extensions ran) and `slang/tests
+{uri}` (the `t.group`/`t.test` calls of a test file, nested, with ranges),
 `didChangeWatchedFiles` (the grammars are reset),
 `shutdown`/`exit`, and a `slang/project` notification with the project's
 dialect suffixes. `editors/vscode` is the VS Code client.

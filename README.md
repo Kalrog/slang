@@ -653,9 +653,18 @@ references work for locals, globals, the fields of modules loaded with
 `require` (into slang's own library too) and methods (`db:run` is found by
 following what `db` holds to its type), names resolved the way the
 compiler resolves them; native modules and the globals resolve to their
-stubs. `editors/vscode` is the VS Code extension: a
-generated TextMate grammar for the core language plus the server's
-semantic tokens in trusted workspaces (`make vscode` builds the `.vsix`).
+stubs. On the same analysis: rename across the project, the outline,
+workspace symbols, highlights of a name's uses, parameter-name hints,
+completion (members, names in scope, keywords, module names) and signature
+help, lint warnings (unused locals, undefined globals, missing modules),
+formatting of a file or a selection, and hover and go to definition on
+extension syntax (the extension that made it). `editors/vscode` is the VS
+Code extension: a generated TextMate grammar for the core language plus
+the server's features in trusted workspaces, the tests in the test
+explorer, a view of a file's expanded code, commands to run a file, use a
+REPL, fetch packages and build (`make vscode` builds the `.vsix`).
+`slang test --json` and `--only "group / test"` are what the test explorer
+runs.
 
 ## Documentation
 

@@ -297,7 +297,7 @@ func methods.define(g, name, parser, options){
   // the syntax an extension defines is formatted by its marks, or keeps its
   // layout without any (see format.extension)
   if(parser != null and g.state.owner != "core"){
-    parser = fmt.extension(parser)
+    parser = fmt.extension(parser, g.state.owner)
   }
   g.rule_table[name] = {
     // the parsers this rule was modified from (memoization placement)
@@ -369,7 +369,7 @@ func methods.modify(g, name, f){
   if(entry.build != null){
     if(by_extension){
       local given = f
-      f = func(p){ return fmt.extension(given(fmt.formatted(p))) }
+      f = func(p){ return fmt.extension(given(fmt.formatted(p)), owner) }
     }
     append(entry.wrappers, f)
     touch(g)
@@ -388,7 +388,7 @@ func methods.modify(g, name, f){
     check_shape(g, name, old, new)
   }
   if(by_extension){
-    new = fmt.extension(new)
+    new = fmt.extension(new, owner)
   }
   entry.parser = new
   touch(g)
@@ -602,7 +602,10 @@ local func level_facade(e, level){
 func expression_methods.primary(self, name, parser, placement){
   local w = facade_walker(self)
   peg.resolve(parser)
-  w:primary(fmt.extension(parser:map(ast.decode)), name, placement)
+  w:primary(
+    fmt.extension(parser:map(ast.decode), self.grammar.state.owner), name,
+    placement
+  )
   return self
 }
 
@@ -614,14 +617,14 @@ func expression_methods.level(self, name, placement){
 
 // the operators an extension adds are formatted by their marks or keep their
 // own layout (format.extension); the formatter places them like the core's
-local func operator_of(parser){
+local func operator_of(e, parser){
   peg.resolve(parser)
-  return fmt.extension(parser)
+  return fmt.extension(parser, e.grammar.state.owner)
 }
 
 func expression_methods.prefix(self, operator, level, callback){
   local w = facade_walker(self)
-  w:prefix(operator_of(operator), level, func(op, exp){
+  w:prefix(operator_of(self, operator), level, func(op, exp){
     return ast.decode(callback(op, exp))
   })
   return self
@@ -629,7 +632,7 @@ func expression_methods.prefix(self, operator, level, callback){
 
 func expression_methods.postfix(self, operator, level, callback){
   local w = facade_walker(self)
-  w:postfix(operator_of(operator), level, func(exp, op){
+  w:postfix(operator_of(self, operator), level, func(exp, op){
     return ast.decode(callback(exp, op))
   })
   return self
@@ -637,7 +640,7 @@ func expression_methods.postfix(self, operator, level, callback){
 
 func expression_methods.left(self, operator, level, callback){
   local w = facade_walker(self)
-  w:left(operator_of(operator), level, func(left, op, right){
+  w:left(operator_of(self, operator), level, func(left, op, right){
     return ast.decode(callback(left, op, right))
   })
   return self
@@ -645,7 +648,7 @@ func expression_methods.left(self, operator, level, callback){
 
 func expression_methods.right(self, operator, level, callback){
   local w = facade_walker(self)
-  w:right(operator_of(operator), level, func(left, op, right){
+  w:right(operator_of(self, operator), level, func(left, op, right){
     return ast.decode(callback(left, op, right))
   })
   return self
@@ -653,7 +656,7 @@ func expression_methods.right(self, operator, level, callback){
 
 func expression_methods.wrapper(self, left, right, level, callback){
   local w = facade_walker(self)
-  w:wrapper(operator_of(left), operator_of(right), level, func(l, value, r){
+  w:wrapper(operator_of(self, left), operator_of(self, right), level, func(l, value, r){
     return ast.decode(callback(l, value, r))
   })
   return self
@@ -665,13 +668,13 @@ func expression_methods.wrapper(self, left, right, level, callback){
 // (see peg.walker); for syntax that must act before its operand is parsed
 func expression_methods.nud(self, operator, rbp, f){
   local w = facade_walker(self)
-  w:nud(operator_of(operator), rbp, f)
+  w:nud(operator_of(self, operator), rbp, f)
   return self
 }
 
 func expression_methods.led(self, operator, lbp, f){
   local w = facade_walker(self)
-  w:led(operator_of(operator), lbp, f)
+  w:led(operator_of(self, operator), lbp, f)
   return self
 }
 
@@ -801,7 +804,7 @@ func methods.statement(g, name, parser){
   }
   local p = parser:map(decode_statement)
   if(g.state.owner != "core"){
-    p = fmt.extension(p)
+    p = fmt.extension(p, g.state.owner)
   }
   g.statements[name] = p
   touch(g)
@@ -817,9 +820,10 @@ func methods.extension_statement(g, name, parser, apply){
   if(g.extension_statements[name] == null){
     append(g.extension_statement_order, name)
   }
-  g.extension_statements[name] = fmt.extension(parser:map(func(result){
-    return {apply: apply, result: result}
-  }))
+  g.extension_statements[name] = fmt.extension(
+    parser:map(func(result){ return {apply: apply, result: result} }),
+    g.state.owner,
+  )
   touch(g)
 }
 

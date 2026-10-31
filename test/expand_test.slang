@@ -19,7 +19,7 @@ local func round_trip(path){
   assert(expanded == again, concat(path, ": printing is not idempotent"))
   assert(
     bytecode(source, path) == bytecode(expanded, path),
-    concat(path, ": the expansion compiles differently")
+    concat(path, ": the expansion compiles differently"),
   )
   return expanded
 }

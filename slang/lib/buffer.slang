@@ -33,7 +33,7 @@ local buffer = {}
 local short_names = {
   bool: true, char: true, int8: true, uint8: true, int16: true, uint16: true,
   int32: true, uint32: true, int64: true, uint64: true, float: true,
-  double: true,
+  double: true
 }
 
 // the types of names without declarations, made once

@@ -64,7 +64,7 @@ time("list copy", func(){
 if(ffi.available() and os.exists("lib/libffitest.dylib") or
   os.exists("lib/libffitest.so")){
   local C = ffi.cdef(
-    "typedef struct { float x, y; } Vec2; float ft_sum_vecs(const Vec2 *vs, int count);"
+    "typedef struct { float x, y; } Vec2; float ft_sum_vecs(const Vec2 *vs, int count);",
   )
   local lib = ffi.load("ffitest", C)
   local m = 10000

@@ -19,7 +19,7 @@ t.group("std lib"){
     assert(type(0.1) == "double", "type(0.1) == double")
     assert(
       type(thread.create(func(){ return 1 })) == "thread",
-      "type(thread.create(func(){return 1})) == thread"
+      "type(thread.create(func(){return 1})) == thread",
     )
   }
 }

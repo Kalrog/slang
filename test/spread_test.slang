@@ -18,7 +18,7 @@ t.group("spread"){
     assert(collect(...args, 4) == {1, 2, 3, 4}, "before another argument")
     assert(
       collect(0, ...args, 4, ...{5, 6}) == {0, 1, 2, 3, 4, 5, 6},
-      "several spreads"
+      "several spreads",
     )
     assert(collect(...{}) == {}, "an empty list")
     assert(len(collect(...args, ...args)) == 6)
@@ -52,7 +52,7 @@ t.group("spread"){
     assert(
       with_keys.name == "x" and with_keys.a == 1 and with_keys.last == true and
         with_keys[0] == 2 and with_keys[1] == 3,
-      concat("keys ", with_keys)
+      concat("keys ", with_keys),
     )
   }
   t.test("a local named concat does not interfere"){
@@ -65,7 +65,7 @@ t.group("spread"){
     local r = pcall(func(){ return collect(...5) })
     assert(
       r[0] == "err" and str.index_of(r[1].message, "spread") >= 0,
-      r[1].message
+      r[1].message,
     )
   }
   t.test("...name is no longer an identifier outside parameters"){
@@ -73,7 +73,7 @@ t.group("spread"){
     assert(r[0] == "err", "a spread outside an argument list does not parse")
     local f = compile(
       "local func f(a, ...rest){ return rest } return f(1, 2, 3)",
-      "params"
+      "params",
     )
     assert(f() == {2, 3}, "the rest parameter still works")
   }

@@ -157,7 +157,7 @@ func compiler.grammar(){
 func compiler.reset(){
   if(not root:changes_allowed()){
     error(
-      "the grammar can only be reset at run time or from an extension statement"
+      "the grammar can only be reset at run time or from an extension statement",
     )
   }
   root = new_grammar()
@@ -177,21 +177,46 @@ func compiler.parse(source, origin){
   return unit_grammar():parse_source(source, origin or "string")
 }
 
+// parse_plain(source, origin) -> AST of source as plain slang: without the
+// project's extensions (what slang's own library modules are written in)
+func compiler.parse_plain(source, origin){
+  return (base or root):parse_source(source, origin or "string")
+}
+
 // generate(node, origin) -> prototype table
 func compiler.generate(node, origin){
   return codegen.generate(node, origin or "string")
 }
 
-// compile(code, origin) -> function; code is source text or an AST table.
-// Source text is parsed with the grammar of the unit that calls compile (an
-// unquote sees the extensions of its file).
-func compiler.compile(code, origin, trace){
+// compile(code, origin, [env]) -> function; code is source text or an AST
+// table. Source text is parsed with the grammar of the unit that calls
+// compile (an unquote sees the extensions of its file).
+//
+// With env (a table) the function's globals are env, not the program's: a
+// sandbox sees only what env holds, and its global assignments stay in
+// env (env.meta = {__index: ...} reads through to other globals). The
+// source then may not run code while it is compiled: unquotes and
+// extension statements are errors, since they would run with the
+// compiler's globals. There are no CPU or memory limits.
+//   local f = compile("return x * 2", "calc", {x: 21})
+//   f()   // 42
+func compiler.compile(code, origin, env){
   origin = origin or "string"
+  if(env != null and type(env) != "table"){
+    error("compile: env must be a table, got ", type(env))
+  }
   local node
   if(type(code) == "string"){
-    node = unit_grammar():parse_source(code, origin)
+    if(env != null){
+      node = unit_grammar():parse_source(code, origin, {sandbox: true})
+    } else {
+      node = unit_grammar():parse_source(code, origin)
+    }
   } else {
     node = ast.decode(code)
+  }
+  if(env != null){
+    return vm.load_proto(codegen.generate(node, origin), env)
   }
   return vm.load_proto(codegen.generate(node, origin))
 }
@@ -255,6 +280,9 @@ local func find_project(dir){
     dir = dirname(dir)
   }
 }
+compiler.find_project = find_project
+compiler.dirname = dirname
+compiler.join_path = join_path
 
 local func source_of(name){
   local found = __PACKAGES.find_source(name)
@@ -328,7 +356,7 @@ local func register_package(pkg){
     }
   }
   __PACKAGES.packages[pkg.name] = {
-    dir: pkg.dir, paths: paths, suffixes: suffixes, missing: pkg.missing,
+    dir: pkg.dir, paths: paths, suffixes: suffixes, missing: pkg.missing
   }
 }
 
@@ -367,7 +395,7 @@ local func register_packages(proj, manifest){
   if(manifest.name != null and packages[manifest.name] == null){
     register_package({
       name: manifest.name, dir: compiler.absolute_path(proj.dir), self: true,
-      manifest: manifest,
+      manifest: manifest
     })
   }
 }
@@ -388,7 +416,7 @@ local func package_project(pkg){
   local proj = {
     path: path, dir: pkg.dir, source: source, extensions: m.extensions or {},
     dialects: m.dialects or {}, warnings: m.warnings, key: "", grammar: g,
-    dialect_grammars: {}, package: pkg.name,
+    dialect_grammars: {}, package: pkg.name
   }
   pkg.project = proj
   explain("package ", pkg.name, " ", pkg.version or "", " at ", pkg.dir)
@@ -441,7 +469,7 @@ func compiler.load_project(path){
   project = {
     path: path, dir: dir, source: source, extensions: p.extensions or {},
     dialects: p.dialects or {}, warnings: p.warnings, key: "", grammar: root,
-    dialect_grammars: dialect_grammars,
+    dialect_grammars: dialect_grammars
   }
   project_searched = true
   base = root:derive()
@@ -640,6 +668,20 @@ if(vm.build_id != null){
   build_id = vm.build_id()
 }
 
+// cache_root() -> where slang caches what it builds: $SLANG_CACHE_DIR, else
+// ~/.cache/slang; null without either
+func compiler.cache_root(){
+  local dir = os.getenv("SLANG_CACHE_DIR")
+  if(dir == null){
+    local home = os.getenv("HOME")
+    if(home == null){
+      return null
+    }
+    dir = concat(home, "/.cache/slang")
+  }
+  return dir
+}
+
 local func get_cache_dir(){
   if(cache_dir != null){
     return cache_dir
@@ -648,13 +690,9 @@ local func get_cache_dir(){
   if(os.getenv("SLANG_NO_CACHE") != null){
     return ""
   }
-  local dir = os.getenv("SLANG_CACHE_DIR")
+  local dir = compiler.cache_root()
   if(dir == null){
-    local home = os.getenv("HOME")
-    if(home == null){
-      return ""
-    }
-    dir = concat(home, "/.cache/slang")
+    return ""
   }
   if(let {"ok"} = pcall(os.mkdir_all, dir)){
     cache_dir = dir
@@ -677,7 +715,7 @@ func compiler.load_file(path, origin){
       error(
         "the compile function of dialect ",
         dialect.suffix,
-        " must return a function"
+        " must return a function",
       )
     }
     return f
@@ -791,12 +829,12 @@ func compiler.highlight(source, path, options){
   local func failure(f){
     local lc = str.line_col(source, position(f.far_pos))
     append(diagnostics, {
-      line: lc[0], column: lc[1], message: f.far_message, severity: "error",
+      line: lc[0], column: lc[1], message: f.far_message, severity: "error"
     })
     if(f.far_pos != f.pos){
       local at = str.line_col(source, position(f.pos))
       append(diagnostics, {
-        line: at[0], column: at[1], message: f.message, severity: "error",
+        line: at[0], column: at[1], message: f.message, severity: "error"
       })
     }
   }
@@ -822,7 +860,7 @@ func compiler.highlight(source, path, options){
         }
       }
       append(diagnostics, {
-        line: lc[0], column: lc[1], message: message, severity: "error",
+        line: lc[0], column: lc[1], message: message, severity: "error"
       })
     }
     lin.last_failure = null
@@ -842,7 +880,7 @@ func compiler.highlight(source, path, options){
         local lc = str.line_col(source, t.start - shift)
         append(shifted, {
           category: t.category, start: t.start - shift, stop: t.stop - shift,
-          line: lc[0], column: lc[1], length: t.length,
+          line: lc[0], column: lc[1], length: t.length
         })
       }
     }
@@ -855,15 +893,49 @@ func compiler.highlight(source, path, options){
 // would (its project, its dialect), without the bytecode cache; what
 // `slang compile` and `slang disasm` use
 func compiler.compile_file(path, origin){
+  return compiler.analyze_file(path, origin).function
+}
+
+// analyze_file(path, origin, [main]) -> {function, requires, computed}:
+// compiles a file like compile_file and tells the modules it requires by
+// name ({name, line}) and the lines of requires with a computed name, as
+// the code is after its extensions ran. requires is null for a file of a
+// dialect with a compile function (it cannot be looked into). main: the
+// file is a program's main file (it may use `extension global`). What
+// `slang build` follows.
+func compiler.analyze_file(path, origin, main){
   origin = origin or path
   find_project_for(path)
+  if(main){
+    root.state.main_origin = origin
+  }
   local source = os.read_file(path)
   local found = grammar_for(path)
   if(found.grammar == null){
-    return require(found.dialect.spec.compile).compile(source, origin)
+    local f = require(found.dialect.spec.compile).compile(source, origin)
+    return {function: f, requires: null, computed: {}}
   }
   local node = found.grammar:parse_source(source, origin)
-  return vm.load_proto(codegen.generate(node, origin))
+  local r = ast.requires(node)
+  local func line_of(pos){
+    if(pos < 0 or pos > len(source)){
+      return 0
+    }
+    return str.line_col(source, pos)[0]
+  }
+  local requires = {}
+  for(let local q in values(r.names)){
+    append(requires, {name: q.name, line: line_of(q.pos)})
+  }
+  local computed = {}
+  for(let local pos in values(r.computed)){
+    append(computed, line_of(pos))
+  }
+  return {
+    function: vm.load_proto(codegen.generate(node, origin)),
+    requires: requires,
+    computed: computed,
+  }
 }
 
 // expand(source, path) -> slang source: the file after its extensions have
@@ -927,7 +999,7 @@ func compiler.highlight_json(path){
   for(let local t in values(r.tokens)){
     append(out.tokens, {
       line: t.line, column: t.column, length: t.length, start: t.start,
-      category: t.category,
+      category: t.category
     })
   }
   for(let local d in values(r.diagnostics)){

@@ -41,16 +41,16 @@ local specs = {
   Continue: {{"label", "value"}},
   For: {
     {"init", "node?"}, {"condition", "node"}, {"update", "node?"},
-    {"body", "node"}, {"label", "value"},
+    {"body", "node"}, {"label", "value"}
   },
   ForIn: {
     {"pattern", "node"}, {"itterator", "node"}, {"body", "node"},
-    {"label", "value"},
+    {"label", "value"}
   },
   VarPattern: {{"isLocal", "value"}, {"canBeNull", "value"}, {"name", "node"}},
   TablePattern: {{"type_check", "value"}, {"fields", "list"}},
   MatcherPattern: {
-    {"matcher", "node?"}, {"type_name", "value"}, {"sub", "node?"},
+    {"matcher", "node?"}, {"type_name", "value"}, {"sub", "node?"}
   },
   FieldPattern: {{"key", "node?"}, {"value", "node"}},
   ConstPattern: {{"value", "node"}},
@@ -67,7 +67,7 @@ ast.specs = specs
 local statement_types = {
   Block: true, CallStat: true, If: true, Return: true, Assignment: true,
   Declaration: true, Break: true, For: true, ForIn: true, Unquote: true,
-  LetStat: true, Try: true, Defer: true, Throw: true, Continue: true,
+  LetStat: true, Try: true, Defer: true, Throw: true, Continue: true
 }
 
 local metas = {}
@@ -106,6 +106,44 @@ func ast.is_literal(node){
   local t = node.type
   return t == "Int" or t == "Double" or t == "String" or t == "True" or
     t == "False" or t == "Null"
+}
+
+// requires(node) -> {names, computed}: the modules the code requires by
+// name (`require("a/b")`, each {name, pos}) and the source positions of the
+// requires whose name is computed. Quoted code is not looked into.
+func ast.requires(node){
+  local found = {names: {}, computed: {}}
+  local func walk(n){
+    if(n.type == "Quote"){
+      return
+    }
+    if(n.type == "Call" and n.function.type == "Identifier" and
+      n.function.value == "require"){
+      local pos = 0
+      if(n.token != null){
+        pos = n.token.start
+      }
+      if(len(n.args) == 1 and n.args[0].type == "String"){
+        append(found.names, {name: n.args[0].value, pos: pos})
+      } else {
+        append(found.computed, pos)
+      }
+    }
+    for(let local spec in values(specs[n.type] or {})){
+      local child = n[spec[0]]
+      if(child != null){
+        if(spec[1] == "list"){
+          for(let local c in values(child)){
+            walk(c)
+          }
+        } else if(spec[1] != "value"){
+          walk(child)
+        }
+      }
+    }
+  }
+  walk(node)
+  return found
 }
 
 // literal(token, value): the node for a primitive value
@@ -377,7 +415,7 @@ local func escape_bytes(s){
       append(pieces, concat(
         "\\x",
         str.char_at(hex_digits, b >> 4),
-        str.char_at(hex_digits, b & 15)
+        str.char_at(hex_digits, b & 15),
       ))
       start = i + 1
     }
@@ -687,7 +725,7 @@ func ast.to_string(node){
 local binary_power = {
   ["or"]: 1, ["and"]: 2, ["=="]: 3, ["!="]: 3, ["<"]: 3, ["<="]: 3, [">"]: 3,
   [">="]: 3, ["|"]: 4, ["~"]: 5, ["&"]: 6, ["<<"]: 7, [">>"]: 7, ["+"]: 8,
-  ["-"]: 8, ["*"]: 9, ["/"]: 9, ["%"]: 9,
+  ["-"]: 8, ["*"]: 9, ["/"]: 9, ["%"]: 9
 }
 local unary_power = 10
 local power_power = 11

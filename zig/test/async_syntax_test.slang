@@ -94,7 +94,7 @@ t.group("async with try and defer"){
     assert(result == 4, concat("total ", string(result)))
     assert(
       log == {"cleanup 1", "cleanup 2", "caught 2", "cleanup 3"},
-      concat("log ", log)
+      concat("log ", log),
     )
   }
 }

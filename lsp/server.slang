@@ -31,11 +31,11 @@ lsp.token_types = {
   "keyword", "variable", "number", "string", "comment", "operator",
   "punctuation", "namespace", "type", "class", "enum", "interface", "struct",
   "typeParameter", "parameter", "property", "enumMember", "event", "function",
-  "method", "macro", "modifier", "regexp", "decorator",
+  "method", "macro", "modifier", "regexp", "decorator"
 }
 lsp.token_modifiers = {
   "declaration", "definition", "readonly", "static", "deprecated", "abstract",
-  "async", "modification", "documentation", "defaultLibrary",
+  "async", "modification", "documentation", "defaultLibrary"
 }
 local type_index = {identifier: 1}
 for(let local e in entries(lsp.token_types)){
@@ -99,7 +99,7 @@ func lsp.frame(buffer){
     }
     append(messages, json.decode(
       str.substring(buffer, body_start, body_start + length),
-      "message"
+      "message",
     ))
     buffer = str.substring(buffer, body_start + length)
   }
@@ -134,7 +134,7 @@ func lsp.uri_to_path(uri){
   for(i < n){
     if(str.byte_at(path, i) == 37 and i + 2 < n){
       append(out, str.chr(hex_value(str.char_at(path, i + 1)) * 16 + hex_value(
-          str.char_at(path, i + 2)
+          str.char_at(path, i + 2),
         )))
       i = i + 3
     } else {
@@ -161,7 +161,7 @@ func lsp.path_to_uri(path){
       append(out, concat(
         "%",
         str.char_at(HEX, b >> 4),
-        str.char_at(HEX, b & 15)
+        str.char_at(HEX, b & 15),
       ))
     }
   }
@@ -320,7 +320,7 @@ func lsp.new(options){
   local s = {
     documents: {}, encoding: "utf-16", initialized: false,
     shutdown_requested: false, exited: false, log: options.log or func(text){},
-    root: options.root, nav: null,
+    root: options.root, nav: null
   }
   s.meta = meta
   return s
@@ -365,7 +365,7 @@ local func notification(method, params){
 local func analyse(s, uri){
   local doc = s.documents[uri]
   local r = pcall(compiler.highlight, doc.text, doc.path, {
-    find_project: true, symbols: true,
+    find_project: true, symbols: true
   })
   if(r[0] == "err"){
     local message = r[1]
@@ -374,11 +374,10 @@ local func analyse(s, uri){
     doc.tokens = {}
     doc.diagnostics = {
       {
-        line: 1, column: 1,
-        message: concat(
+        line: 1, column: 1, message: concat(
           "the language server could not analyse this file: ",
-          message
-        ),
+          message,
+        )
       },
     }
   } else {
@@ -395,7 +394,7 @@ local func analyse(s, uri){
   }
   return notification("textDocument/publishDiagnostics", {
     uri: uri, version: doc.version,
-    diagnostics: lsp_diagnostics(doc.text, doc.diagnostics, s.encoding),
+    diagnostics: lsp_diagnostics(doc.text, doc.diagnostics, s.encoding)
   })
 }
 
@@ -462,7 +461,7 @@ handlers["textDocument/didOpen"] = func(s, id, params){
   local td = params.textDocument
   s.documents[td.uri] = {
     uri: td.uri, path: lsp.uri_to_path(td.uri), text: td.text,
-    version: td.version, tokens: {}, diagnostics: {},
+    version: td.version, tokens: {}, diagnostics: {}
   }
   local out = {analyse(s, td.uri)}
   local p = project_notification(s)
@@ -535,7 +534,7 @@ local func position_of(s, params){
   // the symbols are of the text they were made from
   local text = doc.symbols_text or doc.text
   return {
-    doc: doc, text: text, pos: lsp.offset_of(text, params.position, s.encoding),
+    doc: doc, text: text, pos: lsp.offset_of(text, params.position, s.encoding)
   }
 }
 

@@ -77,7 +77,7 @@ t.group("buffers"){
     vs[1].x = 5
     assert(vs[1].x == 5 and vs[0].y == 2)
     assert(vs:to_list() == {
-        {x: 1.0, y: 2.0}, {x: 5.0, y: 0.0}, {x: 0.0, y: 0.0},
+        {x: 1.0, y: 2.0}, {x: 5.0, y: 0.0}, {x: 0.0, y: 0.0}
       })
     local from = buffer.from({{x: 1, y: 1}, {2, 2}}, "Vec2", C)
     assert(from[1].y == 2)

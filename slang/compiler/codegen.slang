@@ -120,7 +120,7 @@ func asm.create_local(self, name){
   local register = self:allocate_register()
   local lv = {
     register: register, name: name, scope: self.scope,
-    previous: self.locals[name], captured: false,
+    previous: self.locals[name], captured: false
   }
   self.locals[name] = lv
   return lv
@@ -176,7 +176,7 @@ func asm.enter_scope(self, breakable){
   self.scope = self.scope + 1
   append(self.scopes, {
     breakable: breakable == true, break_jumps: {}, continue_jumps: {},
-    label: null, break_target: null,
+    label: null, break_target: null
   })
 }
 
@@ -532,7 +532,7 @@ local pat_meta = {__index: pat}
 
 func pattern_new(parent){
   local p = {
-    step: "check", missmatch_jumps: {}, stack_increase: 0, parent: parent,
+    step: "check", missmatch_jumps: {}, stack_increase: 0, parent: parent
   }
   p.meta = pat_meta
   return p
@@ -585,14 +585,11 @@ func gen.visit(self, node){
 }
 
 local func global_index(token, name){
-  return ast.node(
-    "Index",
-    {
-      receiver: ast.node("Identifier", {value: "_ENV"}, token),
-      index: ast.node("String", {value: name}, token),
-      dotStyle: false,
-    }, token
-  )
+  return ast.node("Index", {
+    receiver: ast.node("Identifier", {value: "_ENV"}, token),
+    index: ast.node("String", {value: name}, token),
+    dotStyle: false,
+  }, token)
 }
 
 local func position(token){
@@ -761,7 +758,7 @@ func visitors.Assignment(g, node){
     g:visit(ast.node(
       "Assignment",
       {left: global_index(left.token, left.value), right: node.right},
-      left.token
+      left.token,
     ))
   } else if(left.type == "Index"){
     g:visit(left.receiver)
@@ -1157,20 +1154,17 @@ func visitors.LetStat(g, node){
       "Field", {key: ast.node("String", {value: name}, token), value: v}, token
     )
   }
-  g:visit(ast.node(
-    "Table",
-    {
-      fields: {
-        field("kind", ast.node("String", {value: "let"}, token)),
-        field("message", ast.node(
-          "String",
-          {value: concat("let: the value does not match ", pattern_text)}, token
-        )),
-        field("pattern", ast.node("String", {value: pattern_text}, token)),
-        field("value", value),
-      },
-    }, token
-  ))
+  g:visit(ast.node("Table", {
+    fields: {
+      field("kind", ast.node("String", {value: "let"}, token)),
+      field("message", ast.node(
+        "String",
+        {value: concat("let: the value does not match ", pattern_text)}, token
+      )),
+      field("pattern", ast.node("String", {value: pattern_text}, token)),
+      field("value", value),
+    },
+  }, token))
   g.asm:emit_throw()
   g.asm:patch_jump(done)
 }
@@ -1204,7 +1198,7 @@ func visitors.Function(g, node){
     if(str.starts_with(params[i].value, "...")){
       error(
         "Vararg must be the last parameter but was found in ",
-        position(node.token)
+        position(node.token),
       )
     }
   }
@@ -1417,7 +1411,7 @@ func visitors.TablePattern(g, node){
       append(fields, ast.node(
         "FieldPattern",
         {key: ast.node("Int", {value: last_number}, f.token), value: f.value},
-        f.token
+        f.token,
       ))
     } else {
       if(f.key.type == "Int"){
@@ -1490,7 +1484,7 @@ local func loop_target(g, node, word){
         word, " ", node.label, ": no enclosing loop is labeled ", node.label,
         " "
       ),
-      position(node.token)
+      position(node.token),
     )
   }
   if(word == "break"){
@@ -1507,7 +1501,7 @@ local func leave_to_loop(g, node, word){
   if(floors != null and len(floors) > 0 and target < floors[len(floors) - 1]){
     error(
       concat(word, " is not allowed to leave a defer "),
-      position(node.token)
+      position(node.token),
     )
   }
   emit_exits(g, target + 1)

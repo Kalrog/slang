@@ -64,11 +64,11 @@ t.group("grammar scoping"){
     run()
     assert(
       shouted == 4,
-      "what the extension registers at run time is available"
+      "what the extension registers at run time is available",
     )
     assert(
       scope_inner == 1,
-      "the extension's own inner statement ran when it loaded"
+      "the extension's own inner statement ran when it loaded",
     )
     local r = pcall(compile, """
       extension "test/scope_ext"
@@ -76,7 +76,7 @@ t.group("grammar scoping"){
     """, "inner leaks?")
     assert(
       r[0] == "err",
-      "the inner statement does not leak out of the extension file"
+      "the inner statement does not leak out of the extension file",
     )
   }
   t.test("an extension runs once per unit that loads it"){
@@ -121,15 +121,15 @@ t.group("project file"){
     assert(p.extensions == {"test/project_ext"}, "extensions")
     assert(
       __PACKAGES.dialect_suffixes == {".json", ".twice"},
-      "dialect suffixes"
+      "dialect suffixes",
     )
     assert(
       __PACKAGES.searchPaths[0] == "test/project",
-      "the project directory comes first"
+      "the project directory comes first",
     )
     assert(
       __PACKAGES.searchPaths[1] == "test/project/../..",
-      "then its search paths"
+      "then its search paths",
     )
     for(let local name in values({"data", "module", "plain"})){
       __PACKAGES.preloaded[name] = null
@@ -137,21 +137,21 @@ t.group("project file"){
     local result = compiler.load_main("test/project/main.slang")()
     assert(
       result.doubled == 42,
-      "the ambient extension applies without an extension statement"
+      "the ambient extension applies without an extension statement",
     )
     assert(result.name == "data", "a .json module")
     assert(result.list == {1, "two", {three: 3}}, "json arrays and objects")
     assert(result.module == 10, "a .twice module is compiled with its dialect")
     assert(
       result.plain == "plain",
-      "a plain module required from a dialect file"
+      "a plain module required from a dialect file",
     )
     local data = require("data")
     assert(data.escaped == "a\"b\nA", "json escapes")
     // the ambient layer is part of the base grammar: files stay cacheable
     assert(
       not compiler.grammar().extended,
-      "root is not extended by the ambient layer"
+      "root is not extended by the ambient layer",
     )
     assert(len(p.key) > 0, "the project key records the extension sources")
     compiler.reset()
@@ -169,11 +169,11 @@ t.group("project file"){
     assert(r[0] == "err", "malformed json fails")
     assert(
       str.index_of(message_of(r), "invalid JSON in bad") >= 0,
-      message_of(r)
+      message_of(r),
     )
     assert(
       json.compile("[1, 2.5, -3, 1e2]", "numbers")() == {1, 2.5, - 3, 100.0},
-      "numbers"
+      "numbers",
     )
   }
 }

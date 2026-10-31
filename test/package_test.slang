@@ -18,7 +18,7 @@ test.group("package test", func(){
     mathhelper1 .value = 5
     assert(
       mathhelper2 .value == 5,
-      "packages should refer to the same object, even if imported multiple times"
+      "packages should refer to the same object, even if imported multiple times",
     )
   })
 })

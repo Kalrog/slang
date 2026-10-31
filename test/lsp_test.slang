@@ -34,7 +34,7 @@ t.group("language server"){
     assert(r.rest == half)
     r = lsp.frame(concat(r.rest, str.substring(b, 20)))
     assert(len(
-      r.messages
+      r.messages,
     ) == 1 and r.messages[0].method == "y" and r.rest == "")
   }
   t.test("uris decode"){
@@ -58,28 +58,28 @@ t.group("language server"){
     local replies = open_doc(
       s,
       "file:///tmp/lsp_test/a.slang",
-      "local x = 1\n// note\nprint(x)\n"
+      "local x = 1\n// note\nprint(x)\n",
     )
     assert(replies[0].method == "textDocument/publishDiagnostics" and len(
-        replies[0].params.diagnostics
+        replies[0].params.diagnostics,
       ) == 0)
     local data = tokens_of(s, "file:///tmp/lsp_test/a.slang")
     // local(keyword) x(variable) =(punct) 1(number) // note(comment) print(variable) ( x )
     assert(
       data[0] == 0 and data[1] == 0 and data[2] == 5 and data[3] == 0,
-      "first token: local at 0:0, length 5, keyword"
+      "first token: local at 0:0, length 5, keyword",
     )
     assert(
       data[5] == 0 and data[6] == 6 and data[7] == 1 and data[8] == 1,
-      "then x at +6, a variable"
+      "then x at +6, a variable",
     )
     assert(
       data[20] == 1 and data[21] == 0 and data[22] == 7 and data[23] == 4,
-      "the comment on the next line"
+      "the comment on the next line",
     )
     assert(
       data[25] == 1 and data[26] == 0 and data[27] == 5 and data[28] == 1,
-      "print on line 3"
+      "print on line 3",
     )
     // a change that breaks the file
     local changed = s:handle(notify("textDocument/didChange", {
@@ -89,11 +89,11 @@ t.group("language server"){
     local diags = changed[0].params.diagnostics
     assert(
       len(diags) >= 1 and diags[0].severity == 1 and diags[0].source == "slang",
-      "a diagnostic"
+      "a diagnostic",
     )
     assert(
       diags[0].range.start.line == 1,
-      concat("at line ", diags[0].range.start.line)
+      concat("at line ", diags[0].range.start.line),
     )
     local closed = s:handle(notify("textDocument/didClose", {
       textDocument: {uri: "file:///tmp/lsp_test/a.slang"},
@@ -115,15 +115,15 @@ t.group("language server"){
     // the string: 9 units, 14 bytes; the comment starts 10/15 after it and is 4 units / 5 bytes
     assert(
       d16[17] == 9 and d8[17] == 14,
-      concat("string length ", d16[17], " ", d8[17])
+      concat("string length ", d16[17], " ", d8[17]),
     )
     assert(
       d16[21] == 10 and d8[21] == 15,
-      concat("comment start ", d16[21], " ", d8[21])
+      concat("comment start ", d16[21], " ", d8[21]),
     )
     assert(
       d16[22] == 4 and d8[22] == 5,
-      concat("comment length ", d16[22], " ", d8[22])
+      concat("comment length ", d16[22], " ", d8[22]),
     )
   }
   t.test("multi-line strings are split per line"){
@@ -132,21 +132,21 @@ t.group("language server"){
     open_doc(
       s,
       "file:///tmp/lsp_test/m.slang",
-      "x = \"\"\"ab\ncd\"\"\"\ny = 1\n"
+      "x = \"\"\"ab\ncd\"\"\"\ny = 1\n",
     )
     local data = tokens_of(s, "file:///tmp/lsp_test/m.slang")
     // x = then the string piece on line 0 (5 chars: """ab), the piece on line 1 (5 chars: cd"""), then y
     assert(
       data[10] == 0 and data[11] == 2 and data[12] == 5 and data[13] == 3,
-      "first string piece"
+      "first string piece",
     )
     assert(
       data[15] == 1 and data[16] == 0 and data[17] == 5 and data[18] == 3,
-      "second string piece on the next line"
+      "second string piece on the next line",
     )
     assert(
       data[20] == 1 and data[21] == 0 and data[22] == 1 and data[23] == 1,
-      "y after it"
+      "y after it",
     )
   }
   t.test("an extension in the document is highlighted"){
@@ -155,7 +155,7 @@ t.group("language server"){
     open_doc(
       s,
       "file:///tmp/lsp_test/e.slang",
-      "extension \"extensions/lambda_shorthand\"\nlocal f = |x| x + 1\n"
+      "extension \"extensions/lambda_shorthand\"\nlocal f = |x| x + 1\n",
     )
     local data = tokens_of(s, "file:///tmp/lsp_test/e.slang")
     assert(len(data) > 10)
@@ -165,12 +165,12 @@ t.group("language server"){
     local init = s:handle(request(1, "initialize", {capabilities: {}}))
     local legend = init[0].result.capabilities.semanticTokensProvider.legend
     assert(len(
-      legend.tokenTypes
+      legend.tokenTypes,
     ) == 24 and legend.tokenModifiers[0] == "declaration")
     open_doc(
       s,
       "file:///tmp/lsp_test/n.slang",
-      "extension \"extensions/enum\"\nenum Color { Red }\n"
+      "extension \"extensions/enum\"\nenum Color { Red }\n",
     )
     local data = tokens_of(s, "file:///tmp/lsp_test/n.slang")
     // after the extension statement (2 tokens): enum, Color, {, Red, }
@@ -196,7 +196,7 @@ t.group("language server"){
     }
     local r = format_doc(
       "file:///tmp/lsp_test/f.slang",
-      "local  x=1\nprint( x )"
+      "local  x=1\nprint( x )",
     )
     local edits = r[0].result
     assert(len(edits) == 1 and edits[0].newText == "local x = 1\nprint(x)\n")
@@ -207,7 +207,7 @@ t.group("language server"){
     r = format_doc("file:///tmp/lsp_test/h.slang", "local x = = 1\n")
     assert(
       len(r) == 1 and len(r[0].result) == 0,
-      "a parse error: no edits, no message"
+      "a parse error: no edits, no message",
     )
   }
   t.test("unknown methods, shutdown and exit"){
@@ -252,7 +252,7 @@ t.group("language server: names"){
   }
   local func ask(method, p, context){
     return s:handle(request(9, method, {
-      textDocument: {uri: uri}, position: p, context: context,
+      textDocument: {uri: uri}, position: p, context: context
     }))[0].result
   }
   // "file:line:character" of each location
@@ -279,7 +279,7 @@ t.group("language server: names"){
     d = ask("textDocument/definition", pos("print"))
     assert(len(d) == 1 and str.ends_with(
         d[0].uri,
-        "/slang/stubs/globals.slang"
+        "/slang/stubs/globals.slang",
       ))
   }
   t.test("find references: a parameter, and a module field across files"){
@@ -293,7 +293,7 @@ t.group("language server: names"){
     assert(
       len(r) == 3 and r[0] == "main.slang:5:34" and
         r[1] == "main.slang:8:32" and r[2] == "util.slang:4:10",
-      str.join(r, " ")
+      str.join(r, " "),
     )
     r = spots(ask("textDocument/references", pos("double"), {
       includeDeclaration: false,
@@ -304,7 +304,7 @@ t.group("language server: names"){
     local h = ask("textDocument/hover", pos("bump"))
     assert(
       str.index_of(h.contents.value, "func Counter:bump(by)") >= 0,
-      h.contents.value
+      h.contents.value,
     )
     assert(str.index_of(h.contents.value, "the count after adding by") >= 0)
     local d = spots(ask("textDocument/definition", pos("bump")))
@@ -314,7 +314,7 @@ t.group("language server: names"){
     local h = ask("textDocument/hover", pos("trim"))
     assert(
       str.index_of(h.contents.value, "func str.trim(") >= 0,
-      h.contents.value
+      h.contents.value,
     )
     assert(str.index_of(h.contents.value, "slang/string (native)") >= 0)
     local d = ask("textDocument/definition", pos("trim"))

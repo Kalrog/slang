@@ -11,7 +11,7 @@ local func round_trip(p, input){
   assert(r.ok, concat("parses: ", input))
   assert(
     peg.text(r.tree, input) == input,
-    concat("text of the tree: ", peg.text(r.tree, input))
+    concat("text of the tree: ", peg.text(r.tree, input)),
   )
   assert(peg.tree_gap(r.tree) == null, concat("no gaps: ", input))
   local plain = peg.run(p, input)
@@ -52,14 +52,14 @@ t.group("lossless tree"){
     local word = peg.pattern("a-z"):plus():flatten():trim()
     round_trip(
       peg.seq(word, peg.string(","), word):pick(2):end(),
-      "  ab ,  cd  "
+      "  ab ,  cd  ",
     )
     round_trip(
       word
         :star_separated(peg.string(","))
         :map(func(s){ return s.elements })
         :end(),
-      "a, b ,c"
+      "a, b ,c",
     )
     round_trip(peg.seq(peg.string("x"):optional(), peg.string("y")):end(), "y")
     round_trip(
@@ -69,22 +69,19 @@ t.group("lossless tree"){
       )
         :flatten()
         :end(),
-      "\"q w\""
+      "\"q w\"",
     )
-    round_trip(
-      peg.seq(
-        peg.string("a"):and(),
-        peg.choice(peg.string("b"), peg.string("a")),
-        peg.string("c"):forbid()
-      ):end(),
-      "a"
-    )
+    round_trip(peg.seq(
+      peg.string("a"):and(),
+      peg.choice(peg.string("b"), peg.string("a")),
+      peg.string("c"):forbid(),
+    ):end(), "a")
     round_trip(
       peg.seq(peg.digit():plus(), peg.string("."))
         :permute(1, 0)
         :token("num")
         :end(),
-      "42."
+      "42.",
     )
   }
   t.test("the tree records each parser and its span"){
@@ -118,7 +115,7 @@ t.group("lossless tree"){
       func(self, ctx, pos){
         ctx.tree = peg.node(self, pos, pos + 1, {peg.leaf(self, pos, pos + 1)})
         return pos + 1
-      }
+      },
     )
     local b = peg.run(built, "x", {tree: true})
     assert(len(b.tree.kids) == 1, "its own node")
@@ -126,9 +123,9 @@ t.group("lossless tree"){
   t.test("memoized parsers cache their node"){
     local p = peg.memoize(peg.seq(peg.string("a"), peg.string("b")))
     round_trip(
-      peg.choice(peg.seq(p, peg.string("x")), peg.seq(p, peg.string("y"))):end(
+      peg.choice(peg.seq(p, peg.string("x")), peg.seq(p, peg.string("y"))):end(,
       ),
-      "aby"
+      "aby",
     )
   }
   t.test("expression walker"){
@@ -163,13 +160,13 @@ t.group("lossless tree"){
     for(let local form in values({"wrapper", "prefix", "left", "postfix"})){
       assert(
         find(r.tree, func(n){ return n.p.form == form }) != null,
-        concat("a ", form, " node")
+        concat("a ", form, " node"),
       )
     }
     local sum = find(r.tree, func(n){ return n.p.form == "left" })
     assert(
       sum.p.level == "sum" and len(sum.kids) == 3,
-      "left operand, operator, right operand"
+      "left operand, operator, right operand",
     )
   }
 }
@@ -195,27 +192,27 @@ func f(a, b){ return a ^ b }
     assert(peg.tree_gap(tree) == null, "no gaps")
     assert(
       tree.p.kind == "unit" and tree.start == 0 and tree.stop == len(source),
-      "the unit"
+      "the unit",
     )
     assert(
       len(tree.kids) == 5,
-      concat("top-level statements: ", len(tree.kids))
+      concat("top-level statements: ", len(tree.kids)),
     )
     local func rule(name){
       return func(n){ return n.p.kind == "rule" and n.p.rule_name == name }
     }
     assert(
       count(tree, rule("block")) == 3,
-      "the extension block and the two function bodies"
+      "the extension block and the two function bodies",
     )
     assert(
       find(tree, func(n){ return n.p.form == "wrapper" }) != null,
-      "parentheses"
+      "parentheses",
     )
     local shout = find(tree, rule("expr"))
     assert(
       shout != null,
-      "expressions inside the extension's syntax are rule nodes"
+      "expressions inside the extension's syntax are rule nodes",
     )
   }
   // (the whole repository is checked by hand when the parser changes; these
@@ -242,13 +239,10 @@ t.group("layers"){
   local list = peg.seq(
     peg.string("["):trim(),
     item:star_separated(peg.string(",")),
-    peg.string("]")
-  )
-    :pick(1)
-    :map(func(s){
-      return s.elements
-    })
-    :end()
+    peg.string("]"),
+  ):pick(1):map(func(s){
+    return s.elements
+  }):end()
 
   t.test("text keeps every character, raw drops whitespace and transforms"){
     local input = "[ a = b, c ]"
@@ -261,7 +255,7 @@ t.group("layers"){
     local items = raw[0][1]
     assert(
       items[0] == {"a", {"=", "b"}},
-      concat("raw first item ", string(items[0]))
+      concat("raw first item ", string(items[0])),
     )
     assert(items[1] == ",", "the separator")
     assert(items[2][0] == "c" and items[2][1] == null, "the absent value")
@@ -272,7 +266,7 @@ t.group("layers"){
     assert(peg.evaluate(r.tree, "default", input) == r.value, "stored")
     assert(
       peg.evaluate(r.tree, "default", input, {replay: true}) == r.value,
-      "replayed"
+      "replayed",
     )
   }
   t.test("a custom layer transforms where its operations are"){
@@ -282,34 +276,26 @@ t.group("layers"){
     local names_list = peg.seq(
       peg.string("["):trim(),
       named_item:star_separated(peg.string(",")),
-      peg.string("]")
-    )
-      :on(names, func(v){
-        return v:pick(1):map(func(items){
-          local out = {}
-          for(local i = 0; i < len(items); i = i + 2){ append(out, items[i]) }
-          return out
-        })
+      peg.string("]"),
+    ):on(names, func(v){
+      return v:pick(1):map(func(items){
+        local out = {}
+        for(local i = 0; i < len(items); i = i + 2){ append(out, items[i]) }
+        return out
       })
-      :end()
+    }):end()
     local input = "[a=b, c, d=e]"
     local r = peg.run(names_list, input, {tree: true})
     assert(
       peg.evaluate(r.tree, names, input)[0] == {"a", "c", "d"},
-      "the names"
+      "the names",
     )
     // the default layer is not touched
-    assert(
-      r.value == peg.run(
-        peg.seq(
-          peg.string("["):trim(),
-          item:star_separated(peg.string(",")),
-          peg.string("]")
-        ):end(),
-        input
-      ).value,
-      "default unchanged"
-    )
+    assert(r.value == peg.run(peg.seq(
+        peg.string("["):trim(),
+        item:star_separated(peg.string(",")),
+        peg.string("]"),
+      ):end(), input).value, "default unchanged")
   }
   t.test("a layer on default changes only the subtrees it has operations in"){
     local upper = peg.layer("upper", "default")
@@ -324,7 +310,7 @@ t.group("layers"){
     assert(r.value == "ab/cd", "default")
     assert(
       peg.evaluate(r.tree, upper, input) == "AB/cd",
-      concat("upper ", peg.evaluate(r.tree, upper, input))
+      concat("upper ", peg.evaluate(r.tree, upper, input)),
     )
   }
   t.test("marks annotate nodes; a shared parser keeps no operations"){
@@ -338,13 +324,13 @@ t.group("layers"){
     assert(peg.marks(first, fmt) == {{space: "after"}}, "the mark")
     assert(
       count(r.tree, func(n){ return len(peg.marks(n, fmt)) > 0 }) == 1,
-      "the other use is not marked"
+      "the other use is not marked",
     )
     assert(r_ref.layer_ops == null, "the shared parser is unchanged")
     // marks leave values alone
     assert(
       peg.evaluate(r.tree, fmt, input) == peg.evaluate(r.tree, "text", input),
-      "same value"
+      "same value",
     )
   }
   t.test("walker nodes replay their callbacks"){
@@ -364,7 +350,7 @@ t.group("layers"){
     local r = peg.run(p, input, {tree: true})
     assert(
       peg.evaluate(r.tree, "default", input, {replay: true}) == 2,
-      "replayed"
+      "replayed",
     )
     local raw = peg.evaluate(r.tree, "raw", input)
     assert(raw[0][1] == "+", concat("raw: the operator ", string(raw[0])))
@@ -382,7 +368,7 @@ for(local i = 0; i < 3; i = i + 1){ f(i) }
     for(local i = 0; i < 3; i = i + 1){
       assert(
         ast.to_source(stored[i]) == ast.to_source(replayed[i]),
-        concat("statement ", i)
+        concat("statement ", i),
       )
     }
   }
@@ -399,7 +385,7 @@ t.group("highlights"){
   local number = peg.token(peg.digit():plus():flatten(), "number")
   local item = peg.choice(
     number,
-    peg.tag(keyword, "word"):trim(peg.whitespace())
+    peg.tag(keyword, "word"):trim(peg.whitespace()),
   )
 
   t.test("tokens, tags and category functions"){
@@ -415,7 +401,7 @@ t.group("highlights"){
     // x has no category
     assert(
       spans == {"keyword:if", "number:12", "keyword:else"},
-      str.join(spans, " ")
+      str.join(spans, " "),
     )
   }
   t.test("a tag wins over the tokens inside it"){

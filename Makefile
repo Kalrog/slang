@@ -2,7 +2,8 @@
 # compiler and libraries are written in slang and boot from the seed
 # bytecode in boot/slang.
 #
-#   make build        build bin/slang (ReleaseFast) and lib/ (native extensions)
+#   make build        build bin/slang (ReleaseFast), lib/ (native extensions) and
+#                     lib/static (the runtime and extensions as archives, for slang build)
 #   make install      copy them to $(PREFIX)/bin/slang and $(PREFIX)/lib/slang/ (PREFIX=/usr/local); make uninstall
 #   make test         run the slang test suite, the native extension tests and the Zig unit tests
 #   make test-safe    the suites on the checked build (ReleaseSafe) and under GC stress
@@ -12,6 +13,8 @@
 #   make bench        run bench/
 #   make raylib-test  run the raylib package's tests (packages/raylib; needs raylib installed)
 #   make breakout     run the breakout example (examples/breakout) on the raylib package
+#   make deckhand     run the deckhand heist game (examples/deckhand) on the raylib package
+#   make deckhand-test run deckhand's tests (no window: the deck, maps, world, every mission's solution)
 #   make dungeon-test run the dungeon example's DSL tests
 #   make dungeon      run the dungeon example on its Go/Ebitengine host (legacy host, uses the Go VM)
 #   make vscode       package the VS Code extension (editors/vscode) with the language server
@@ -31,7 +34,7 @@ LIB_SRC  := $(wildcard slang/lib/*.slang)
 COMPILER_SRC := $(wildcard slang/compiler/*.slang)
 SEED_DIR := boot/slang
 
-.PHONY: all build build-safe install uninstall test test-safe test-gui unit seed fixpoint bench raylib-test breakout dungeon dungeon-test clean doc \
+.PHONY: all build build-safe install uninstall test test-safe test-gui unit seed fixpoint bench raylib-test breakout deckhand deckhand-test dungeon dungeon-test clean doc \
         vscode vscode-grammar go-build go-seed-copy go-test go-fixpoint stage0-seed
 
 all: build
@@ -48,14 +51,16 @@ build-safe:
 install: build
 	install -d $(PREFIX)/bin $(PREFIX)/lib/slang
 	install -m 755 bin/slang $(PREFIX)/bin/slang
-	install -m 644 lib/* $(PREFIX)/lib/slang/
+	install -m 644 $$(find lib -maxdepth 1 -type f) $(PREFIX)/lib/slang/
+	install -d $(PREFIX)/lib/slang/static
+	install -m 644 lib/static/* $(PREFIX)/lib/slang/static/
 	install -d $(PREFIX)/lib/slang/src
 	install -m 644 $(LIB_SRC) $(COMPILER_SRC) $(PREFIX)/lib/slang/src/
 	install -d $(PREFIX)/lib/slang/stubs
 	cp -R slang/stubs/. $(PREFIX)/lib/slang/stubs/
 	install -d $(PREFIX)/include
 	install -m 644 zig/include/slang.h $(PREFIX)/include/slang.h
-	@echo "installed $(PREFIX)/bin/slang and $$(ls lib | wc -l | tr -d ' ') extensions in $(PREFIX)/lib/slang"
+	@echo "installed $(PREFIX)/bin/slang and $$(find lib -maxdepth 1 -type f | wc -l | tr -d ' ') extensions in $(PREFIX)/lib/slang"
 
 uninstall:
 	rm -f $(PREFIX)/bin/slang
@@ -111,6 +116,12 @@ raylib-test: build
 
 breakout: build
 	bin/slang run examples/breakout/main.slang
+
+deckhand: build
+	bin/slang run examples/deckhand/main.slang
+
+deckhand-test: build
+	cd examples/deckhand && ../../bin/slang test test
 
 dungeon-test: build
 	cd examples/dungeon && ../../bin/slang test test

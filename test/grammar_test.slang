@@ -70,7 +70,7 @@ test.group("grammar registry", func(){
     local r = pcall(g.modify, g, "quote", func(old){ return old })
     assert(r[0] == "err")
     assert(
-      r[1].message == "grammar rule quote is protected and cannot be modified"
+      r[1].message == "grammar rule quote is protected and cannot be modified",
     )
   }
 
@@ -82,7 +82,7 @@ test.group("grammar registry", func(){
         :pick(0)
         :map(func(id){
           return ast.node("String", {value: concat(id.value, "!")}, id.token)
-        })
+        }),
     )
     g:modify("expr", func(old){ return peg.choice(g:rule("shout"), old) })
     local e = parse(g, "expr", "hey!")
@@ -126,24 +126,24 @@ test.group("grammar registry", func(){
     assert(len(messages) == 1)
     assert(
       messages[0] ==
-        "rule int_literal was already modified by runtime; runtime modifies it again"
+        "rule int_literal was already modified by runtime; runtime modifies it again",
     )
     g:modify("if_statement", func(old){
       return peg.choice(old, peg.seq(old, peg.string("!")))
     })
     assert(
       messages[1] ==
-        "rule if_statement: choice(old, seq(old, ...)) never reaches its second alternative; use seq(old, tail:optional())"
+        "rule if_statement: choice(old, seq(old, ...)) never reaches its second alternative; use seq(old, tail:optional())",
     )
     g:modify("block", func(old){ return peg.string("nope") })
     assert(str_starts(
       messages[2],
-      "rule block no longer parses its probe after runtime"
+      "rule block no longer parses its probe after runtime",
     ))
   }
 
   test.test(
-    "the compiler grammar accepts modifications through the parser API"
+    "the compiler grammar accepts modifications through the parser API",
   ){
     // the grammar of the compiler, as an extension sees it (asked for now: tests
     // before this one may have reset the compiler)

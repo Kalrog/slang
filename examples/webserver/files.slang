@@ -16,9 +16,10 @@ local encoding = require("slang/encoding")
 local os = require("slang/os")
 local str = require("slang/string")
 local db = require("db")
+local place = require("place")
 local m = {}
 
-local dir = "examples/webserver/uploads"
+local dir = place("uploads")
 os.mkdir_all(dir)
 
 // the limit for one request's files together
@@ -30,13 +31,13 @@ func m.path(file){
 
 func m.list(user){
   return db:all(
-    sql{ select id, name, type, size, sha256, at from files where user_id = {user} order by id desc }
+    sql{ select id, name, type, size, sha256, at from files where user_id = {user} order by id desc },
   )
 }
 
 func m.find(user, id){
   return db:one(
-    sql{ select id, name, type, size, sha256, at from files where id = {id} and user_id = {user} }
+    sql{ select id, name, type, size, sha256, at from files where id = {id} and user_id = {user} },
   )
 }
 
@@ -56,7 +57,7 @@ async func begin(part){
   local fd = await a.fs.open(tmp, "w")
   return {
     name: part.filename, type: part.content_type, tmp: tmp, fd: fd,
-    hasher: crypto.hasher("sha256"), size: 0,
+    hasher: crypto.hasher("sha256"), size: 0
   }
 }
 
@@ -119,7 +120,7 @@ async func m.receive(req){
         error: concat(
           "An upload can be at most ",
           string(to_int(m.max_upload / 1024 / 1024)),
-          " MiB."
+          " MiB.",
         ),
       }
     }

@@ -32,17 +32,16 @@ local escape = peg.seq(peg.char("\\"), peg.any()):map(func(v){
 })
 local unicode = peg.seq(
   peg.string("\\u"),
-  peg.pattern("0-9a-fA-F"):plus():flatten()
-)
-  :map(func(v){
-    return str.chr(to_int(concat("0x", v[1])))
-  })
+  peg.pattern("0-9a-fA-F"):plus():flatten(),
+):map(func(v){
+  return str.chr(to_int(concat("0x", v[1])))
+})
 local string_literal = peg.seq(
   peg.char("\""),
   peg.choice(unicode, escape, peg.pattern("^\"\\")):star():map(func(parts){
     return str.join(parts, "")
   }),
-  peg.char("\"")
+  peg.char("\""),
 )
   :pick(1)
   :trim(ws)
@@ -53,17 +52,14 @@ local number = peg.seq(
   peg.seq(peg.char("."), peg.digit():plus()):optional(),
   peg.seq(
     peg.pattern("eE"), peg.pattern("+-"):optional(), peg.digit():plus()
-  ):optional()
-)
-  :flatten()
-  :trim(ws)
-  :map(func(text){
-    if(str.index_of(text, ".") >= 0 or str.index_of(text, "e") >= 0 or
-      str.index_of(text, "E") >= 0){
-      return str.to_number(text)
-    }
-    return to_int(text)
-  })
+  ):optional(),
+):flatten():trim(ws):map(func(text){
+  if(str.index_of(text, ".") >= 0 or str.index_of(text, "e") >= 0 or
+    str.index_of(text, "E") >= 0){
+    return str.to_number(text)
+  }
+  return to_int(text)
+})
 
 local array_meta = {__json: "array"}
 
@@ -94,7 +90,7 @@ value:set(peg.choice(
   tok("true"):map(func(_){ return true }),
   tok("false"):map(func(_){ return false }),
   tok("null"):map(func(_){ return null }),
-  peg.failure("JSON value expected")
+  peg.failure("JSON value expected"),
 ))
 
 local document = peg.seq(ws, value, ws, peg.end_of_input()):pick(1)
@@ -160,7 +156,7 @@ local func encode_string(s, out){
       rep = concat(
         "\\u00",
         str.char_at(hex, to_int(b / 16)),
-        str.char_at(hex, b % 16)
+        str.char_at(hex, b % 16),
       )
     }
     if(rep != null){
@@ -225,7 +221,7 @@ local func encode_value(v, out, indent, depth){
           error(
             "cannot encode a table with a ",
             type(e[0]),
-            " key as a JSON object"
+            " key as a JSON object",
           )
         }
         if(not first){ append(out, sep) }

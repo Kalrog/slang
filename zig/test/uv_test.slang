@@ -96,7 +96,7 @@ t.group("uv"){
     uv.run()
     assert(
       type(got) == "string" and str.index_of(got, "ECONNREFUSED") == 0,
-      concat("error: ", got)
+      concat("error: ", got),
     )
   }
   t.test("an error in a callback comes out of uv.run"){
@@ -166,7 +166,7 @@ t.group("uv: files, names, processes, signals, poll"){
               uv.fs_scandir(scratch, func(err, entries){
                 append(
                   log,
-                  concat("list ", entries[0].name, " ", entries[0].type)
+                  concat("list ", entries[0].name, " ", entries[0].type),
                 )
                 uv.fs_unlink(concat(scratch, "/b.txt"), func(err){
                   uv.fs_stat(concat(scratch, "/b.txt"), func(err, st){
@@ -183,9 +183,9 @@ t.group("uv: files, names, processes, signals, poll"){
     assert(
       log == {
         "write null", "read one\ntwo\n", "stat 8 true false", "list b.txt file",
-        "gone ENOENT",
+        "gone ENOENT"
       },
-      concat("log ", log)
+      concat("log ", log),
     )
   }
   t.test("files: errors name the operation and the path"){
@@ -196,7 +196,7 @@ t.group("uv: files, names, processes, signals, poll"){
       got == concat(
         "ENOENT: no such file or directory, read_file '", scratch, "/missing'"
       ),
-      got
+      got,
     )
   }
   t.test("files: open, read and write at offsets, close"){
@@ -229,7 +229,7 @@ t.group("uv: files, names, processes, signals, poll"){
     uv.getaddrinfo("no-such-host.invalid", null, func(err, addrs){ bad = err })
     uv.run()
     assert(
-      ok[0].ip == "127.0.0.1" and ok[0].port == 8080 and ok[0].family == "ipv4"
+      ok[0].ip == "127.0.0.1" and ok[0].port == 8080 and ok[0].family == "ipv4",
     )
     assert(str.starts_with(bad, "EAI_"), bad)
   }
@@ -242,7 +242,7 @@ t.group("uv: files, names, processes, signals, poll"){
       "/bin/sh",
       {"-c", "read x; echo \"$x $GREETING $(pwd)\"; exit 3"},
       {stdio: {input, out, "inherit"}, env: {GREETING: "hi"}, cwd: "/"},
-      func(err, r){ result = r }
+      func(err, r){ result = r },
     )
     input:write("piped\n")
     input:shutdown(func(){ input:close() })
@@ -270,7 +270,7 @@ t.group("uv: files, names, processes, signals, poll"){
       r[0] == "err" and
         r[1].message ==
           "ENOENT: no such file or directory, spawn '/no/such/program'",
-      r[1].message
+      r[1].message,
     )
     local r2 = pcall(func(){ p:kill("SIGNOPE") })
     assert(r2[0] == "err")

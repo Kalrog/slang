@@ -254,7 +254,7 @@ peg.token_meta = token_meta
 // make_token(ctx, value, start, stop) -> {value, start, stop, line, column}
 func peg.make_token(ctx, value, start, stop){
   return {
-    value: value, start: start, stop: stop, buffer: ctx.buffer, meta: token_meta,
+    value: value, start: start, stop: stop, buffer: ctx.buffer, meta: token_meta
   }
 }
 
@@ -309,7 +309,7 @@ func peg.pattern(spec, message){
         return pos + n
       }
       return fail(ctx, pos, msg)
-    }
+    },
   )
   p.class = cls
   p.spec = spec
@@ -335,7 +335,7 @@ func peg.any(message){
         return pos + n
       }
       return fail(ctx, pos, msg)
-    }
+    },
   )
 }
 
@@ -370,7 +370,7 @@ func peg.whitespace(message){
         return pos + n
       }
       return fail(ctx, pos, msg)
-    }
+    },
   )
 }
 
@@ -424,7 +424,7 @@ local func choice_list(parsers){
         }
       }
       return - 1
-    }
+    },
   )
 }
 
@@ -460,7 +460,7 @@ local func seq_list(parsers){
         }
       }
       return pos
-    }
+    },
   )
 }
 
@@ -582,7 +582,7 @@ func peg.optional(child, default_value){
         return pos
       }
       return q
-    }
+    },
   )
   p.default_value = default_value
   return p
@@ -619,7 +619,7 @@ func peg.star_lazy(child, limit){
         }
         pos = q
       }
-    }
+    },
   )
 }
 
@@ -684,7 +684,7 @@ func peg.forbid(child, message){
         return fail(ctx, pos, msg)
       }
       return pos
-    }
+    },
   )
 }
 
@@ -705,7 +705,7 @@ func peg.and(child){
         return - 1
       }
       return pos
-    }
+    },
   )
 }
 
@@ -735,7 +735,7 @@ func peg.neg(child, message){
         return pos + n
       }
       return fail(ctx, pos, "input expected")
-    }
+    },
   )
 }
 
@@ -758,7 +758,7 @@ func peg.pick(child, index){
     "pick",
     func(self, ctx, pos){
       return child.fast(child, ctx, pos)
-    }
+    },
   )
   p.index = index
   return p
@@ -789,7 +789,7 @@ func peg.permute(child, ...indices){
     "permute",
     func(self, ctx, pos){
       return child.fast(child, ctx, pos)
-    }
+    },
   )
   p.indices = indices
   return p
@@ -831,7 +831,7 @@ func peg.flatten(child, message){
         return fail(ctx, pos, message)
       }
       return q
-    }
+    },
   )
 }
 
@@ -861,7 +861,7 @@ func peg.token(child, category){
     "token",
     func(self, ctx, pos){
       return child.fast(child, ctx, pos)
-    }
+    },
   )
   p.category = category
   return p
@@ -937,7 +937,7 @@ func peg.trim(child, before, after){
         return - 1
       }
       return consume(after, ctx, q)
-    }
+    },
   )
 }
 
@@ -978,7 +978,7 @@ func peg.settable(target){
     func(self, ctx, pos){
       local target = self.target
       return target.fast(target, ctx, pos)
-    }
+    },
   )
   p.target = target
   return p
@@ -1048,7 +1048,7 @@ func peg.ref(f, ...args){
         self.target = target
       }
       return target.fast(target, ctx, pos)
-    }
+    },
   )
   p.ref_function = f
   p.ref_args = args
@@ -1244,7 +1244,7 @@ local func info_of(p, memo, visiting){
     r = {
       first: union(
         info_of(children[0], memo, visiting).first,
-        info_of(children[1], memo, visiting).first
+        info_of(children[1], memo, visiting).first,
       ),
       nullable: true,
     }
@@ -1292,7 +1292,7 @@ func peg.tag(child, category){
     "tag",
     func(self, ctx, pos){
       return child.fast(child, ctx, pos)
-    }
+    },
   )
   p.category = category
   return p
@@ -1766,7 +1766,7 @@ local level_meta = {__index: level_methods, __type: "expression_level"}
 func peg.walker(skip){
   local w = {
     skip: skip, levels: {}, primaries: {}, nuds: {}, leds: {},
-    loopback: peg.settable(null), sealed: null,
+    loopback: peg.settable(null), sealed: null
   }
   w.meta = walker_meta
   return w
@@ -1775,7 +1775,7 @@ func peg.walker(skip){
 local func new_level(w, name, aliases){
   local l = {
     walker: w, name: name, aliases: aliases or {}, wrappers: {}, prefixes: {},
-    postfixes: {}, rights: {}, lefts: {},
+    postfixes: {}, rights: {}, lefts: {}
   }
   l.meta = level_meta
   return l
@@ -1906,7 +1906,7 @@ func walker_methods.primary_names(self){
 
 func walker_methods.prefix(self, operator, level, callback){
   append(resolve_level(self, level).prefixes, {
-    parser: operator, callback: callback,
+    parser: operator, callback: callback
   })
   self.sealed = null
   return self
@@ -1914,7 +1914,7 @@ func walker_methods.prefix(self, operator, level, callback){
 
 func walker_methods.postfix(self, operator, level, callback){
   append(resolve_level(self, level).postfixes, {
-    parser: operator, callback: callback,
+    parser: operator, callback: callback
   })
   self.sealed = null
   return self
@@ -1922,7 +1922,7 @@ func walker_methods.postfix(self, operator, level, callback){
 
 func walker_methods.left(self, operator, level, callback){
   append(resolve_level(self, level).lefts, {
-    parser: operator, callback: callback,
+    parser: operator, callback: callback
   })
   self.sealed = null
   return self
@@ -1930,7 +1930,7 @@ func walker_methods.left(self, operator, level, callback){
 
 func walker_methods.right(self, operator, level, callback){
   append(resolve_level(self, level).rights, {
-    parser: operator, callback: callback,
+    parser: operator, callback: callback
   })
   self.sealed = null
   return self
@@ -1938,7 +1938,7 @@ func walker_methods.right(self, operator, level, callback){
 
 func walker_methods.wrapper(self, left, right, level, callback){
   append(resolve_level(self, level).wrappers, {
-    left: left, right: right, callback: callback,
+    left: left, right: right, callback: callback
   })
   self.sealed = null
   return self
@@ -2056,7 +2056,7 @@ local func build_tables(w){
           }
           ctx.value = callback(op, ctx.value)
           return r
-        },
+        }
       })
     }
     for(let local e in values(l.wrappers)){
@@ -2077,7 +2077,7 @@ local func build_tables(w){
           }
           ctx.value = callback(left, value, ctx.value)
           return q
-        },
+        }
       })
     }
     for(let local e in values(l.postfixes)){
@@ -2087,7 +2087,7 @@ local func build_tables(w){
         callback: callback, lbp: base + 3, led: func(w, ctx, pos, left, op){
           ctx.value = callback(left, op)
           return pos
-        },
+        }
       })
     }
     for(let local e in values(l.rights)){
@@ -2103,7 +2103,7 @@ local func build_tables(w){
           }
           ctx.value = callback(left, op, ctx.value)
           return r
-        },
+        }
       })
     }
     for(let local e in values(l.lefts)){
@@ -2119,7 +2119,7 @@ local func build_tables(w){
           }
           ctx.value = callback(left, op, ctx.value)
           return r
-        },
+        }
       })
     }
   }
@@ -2818,7 +2818,7 @@ func peg.tree_gap(tree){
 //   each other: a parent's transforms would see values its child changed.
 
 local all_tags = {
-  trivia: true, absent: true, select: true, wrap: true, map: true,
+  trivia: true, absent: true, select: true, wrap: true, map: true
 }
 local builtin_layers = {
   text: {name: "text", tags: {}},
@@ -2869,7 +2869,7 @@ local copyable = {}
 for(let local k in values({
   "string", "pattern", "any", "whitespace", "end", "epsilon", "failure", "seq",
   "star", "plus", "optional", "star_lazy", "separated", "forbid", "and", "neg",
-  "pick", "permute", "map", "flatten", "token", "trim", "where", "tag", "layer",
+  "pick", "permute", "map", "flatten", "token", "trim", "where", "tag", "layer"
 })){
   copyable[k] = true
 }
@@ -2883,7 +2883,7 @@ local func layer_wrapper(child){
     "layer",
     func(self, ctx, pos){
       return child.fast(child, ctx, pos)
-    }
+    },
   )
   return p
 }
@@ -2959,7 +2959,7 @@ func peg.marks(n, layer){
 
 local leaf_text_kinds = {
   string: true, pattern: true, any: true, whitespace: true, neg: true,
-  flatten: true,
+  flatten: true
 }
 
 local func leaf_value(n, tags, buffer){

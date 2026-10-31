@@ -16,13 +16,13 @@ local func fails_with(f, text){
 t.group("crypto binding"){
   t.test("hashes and HMAC match the published vectors"){
     assert(hex(
-      native.hash("sha256", "abc")
+      native.hash("sha256", "abc"),
     ) == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
     assert(hex(
-      native.hash("sha1", "abc")
+      native.hash("sha1", "abc"),
     ) == "a9993e364706816aba3e25717850c26c9cd0d89d")
     assert(hex(
-      native.hash("sha512", "")
+      native.hash("sha512", ""),
     ) == "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e")
     assert(hex(native.hash("md5", "")) == "d41d8cd98f00b204e9800998ecf8427e")
     // RFC 4231 test case 2
@@ -31,7 +31,7 @@ t.group("crypto binding"){
     )) == "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843")
     assert(
       hex(native.hasher("sha256"):update("a"):update("bc"):digest()) ==
-        hex(native.hash("sha256", "abc"))
+        hex(native.hash("sha256", "abc")),
     )
     fails_with(func(){
       native.hash("sha999", "x")
@@ -42,7 +42,7 @@ t.group("crypto binding"){
   }
   t.test("key derivation matches the RFC vectors, also on the pool"){
     assert(hex(
-      native.pbkdf2("sha256", "password", "salt", 1, 32)
+      native.pbkdf2("sha256", "password", "salt", 1, 32),
     ) == "120fb6cffcf8b32c43e7225256c4f837a86548c92ccc35480805987cb70be17b")
     // RFC 7914, section 12
     local want = "fdbabe1c9d3472007856e7190d01e9fe7c6ad7cbc8237830e77376634b3731622eaf30d92e22a3886ff109279d9830dac727afb94a83ee6d8360cbdfa2cc0640"
@@ -59,17 +59,17 @@ t.group("crypto binding"){
   }
   t.test("random bytes and constant-time comparison"){
     assert(len(native.random_bytes(0)) == 0 and len(
-        native.random_bytes(33)
+        native.random_bytes(33),
       ) == 33)
     assert(native.random_bytes(16) != native.random_bytes(16))
     assert(
       native.equal("abc", "abc") and not native.equal("abc", "abd") and
-        not native.equal("ab", "abc")
+        not native.equal("ab", "abc"),
     )
   }
   t.test("authenticated encryption rejects anything changed"){
     for(let local cipher in values({
-      "aes-128-gcm", "aes-256-gcm", "chacha20-poly1305",
+      "aes-128-gcm", "aes-256-gcm", "chacha20-poly1305"
     })){
       local key = native.random_bytes(cipher == "aes-128-gcm" and 16 or 32)
       local iv = native.random_bytes(12)
@@ -77,25 +77,25 @@ t.group("crypto binding"){
       assert(len(sealed) == 14 + 16)
       assert(
         native.decrypt(cipher, key, iv, sealed, "header") == "attack at dawn",
-        cipher
+        cipher,
       )
       assert(native.decrypt(cipher, key, iv, sealed, "other") == null, "aad")
       assert(
         native.decrypt(
           cipher, key, native.random_bytes(12), sealed, "header"
         ) == null,
-        "iv"
+        "iv",
       )
       // a different byte at 3 (a fixed "X" is the same byte one time in 256)
       local other = str.from_bytes({(str.byte_at(sealed, 3) + 1) & 255})
       local flipped = concat(
         str.substring(sealed, 0, 3),
         other,
-        str.substring(sealed, 4)
+        str.substring(sealed, 4),
       )
       assert(
         native.decrypt(cipher, key, iv, flipped, "header") == null,
-        "ciphertext"
+        "ciphertext",
       )
     }
     fails_with(func(){
@@ -120,12 +120,12 @@ t.group("crypto binding"){
       assert(pub:verify(s[2], "message", sig, s[3]), concat(s[0], " verifies"))
       assert(
         not pub:verify(s[2], "massage", sig, s[3]),
-        concat(s[0], " rejects other data")
+        concat(s[0], " rejects other data"),
       )
       local again = native.private_key(k:private_pem())
       assert(
         pub:verify(s[2], "x", again:sign(s[2], "x", s[3]), s[3]),
-        concat(s[0], " from PEM")
+        concat(s[0], " from PEM"),
       )
     }
     local ec = native.generate_key("ec")
@@ -149,11 +149,11 @@ t.group("slang/crypto"){
     assert(crypto.hash_password("hunter2") != h, "salted")
     assert(
       not crypto.verify_password("x", "junk") and
-        not crypto.verify_password("x", null)
+        not crypto.verify_password("x", null),
     )
     assert(
       not crypto.verify_password("x", "$scrypt$ln=99,r=8,p=1$AAAA$AAAA"),
-      "absurd parameters"
+      "absurd parameters",
     )
     // a PBKDF2 hash from elsewhere
     local salt = "saltsaltsaltsalt"
@@ -161,7 +161,7 @@ t.group("slang/crypto"){
       "$pbkdf2-sha256$i=1000$",
       e.base64_encode(salt),
       "$",
-      e.base64_encode(native.pbkdf2("sha256", "pw", salt, 1000, 32))
+      e.base64_encode(native.pbkdf2("sha256", "pw", salt, 1000, 32)),
     )
     assert(crypto.verify_password("pw", stored) and not crypto.verify_password(
         "pv", stored
@@ -182,7 +182,7 @@ t.group("slang/crypto"){
     assert(crypto.unsign_value("other", signed) == null)
     assert(crypto.unsign_value(
       "key",
-      concat("user.43", str.substring(signed, 7))
+      concat("user.43", str.substring(signed, 7)),
     ) == null)
     assert(crypto.unsign_value("key", "nodot") == null and crypto.unsign_value(
         "key", null
@@ -203,7 +203,7 @@ t.group("slang/crypto"){
 t.group("slang/jwt"){
   // RFC 7515, appendix A.1
   local rfc_key = e.base64url_decode(
-    "AyM1SysPpbyDfgZld3umj1qzKObwVMkoqQ-EstJQLr_T-1qS0gZH75aKtMN3Yj0iPS4hcgUuTwjAzZr1Z9CAow"
+    "AyM1SysPpbyDfgZld3umj1qzKObwVMkoqQ-EstJQLr_T-1qS0gZH75aKtMN3Yj0iPS4hcgUuTwjAzZr1Z9CAow",
   )
   local rfc_token = "eyJ0eXAiOiJKV1QiLA0KICJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGFtcGxlLmNvbS9pc19yb290Ijp0cnVlfQ.dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
   t.test("the RFC 7515 example verifies, and expires on time"){
@@ -213,7 +213,7 @@ t.group("slang/jwt"){
       jwt.verify(rfc_token, rfc_key, {now: 1300819380})
     }, "jwt: expired")
     assert(jwt.verify(rfc_token, rfc_key, {
-      now: 1300819385, leeway: 10,
+      now: 1300819385, leeway: 10
     }).iss == "joe")
     assert(jwt.decode(rfc_token).header.alg == "HS256")
   }
@@ -228,13 +228,13 @@ t.group("slang/jwt"){
     }
     for(let local k in values(keys)){
       local token = jwt.sign({sub: "ada", n: 1}, k[0], {
-        expires_in: 60, issuer: "me",
+        expires_in: 60, issuer: "me"
       })
       assert(jwt.decode(token).header.alg == k[1], k[1])
       local verify_key = type(k[0]) == "string" and k[0] or k[0]:public_key()
       local c = jwt.verify(token, verify_key, {issuer: "me"})
       assert(c.sub == "ada" and c.n == 1 and c.iss == "me" and type(
-          c.iat
+          c.iat,
         ) == "int" and c.exp == c.iat + 60)
     }
     local rsa = native.generate_key("rsa")

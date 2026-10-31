@@ -43,7 +43,7 @@ t.group("metatables"){
     assert(foo.newField == 42, "metatable set table value correctly")
     assert(
       bar.newField == null,
-      "metatable set table only on meta table not on the table itself"
+      "metatable set table only on meta table not on the table itself",
     )
   }
 
@@ -57,7 +57,7 @@ t.group("metatables"){
     local func index(table, key){
       assert(
         table == expectedTable,
-        "metatable __index function table is correct"
+        "metatable __index function table is correct",
       )
       assert(key == expectedField, "metatable __index function key is correct")
       return true
@@ -85,15 +85,15 @@ t.group("metatables"){
     local func newindex(table, key, value){
       assert(
         table == expectedTable,
-        "metatable __newindex function table is correct"
+        "metatable __newindex function table is correct",
       )
       assert(
         key == expectedField,
-        "metatable __newindex function key is correct"
+        "metatable __newindex function key is correct",
       )
       assert(
         value == expectedValue,
-        "metatable __newindex function value is correct"
+        "metatable __newindex function value is correct",
       )
     }
     local foo = {type: "Foo", bar: 42}
@@ -147,7 +147,7 @@ t.group("operator metamethods"){
     assert((a * 3).y == 6, "__mul vec scalar")
     assert(
       (3 * a).y == 6,
-      "__mul scalar vec uses the right operand's metatable"
+      "__mul scalar vec uses the right operand's metatable",
     )
     assert((b / 2).x == 5.0, "__div")
     assert((b % 3).x == 1, "__mod")

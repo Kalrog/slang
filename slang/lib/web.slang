@@ -61,6 +61,7 @@ local str = require("slang/string")
 local encoding = require("slang/encoding")
 local json = require("slang/json")
 local time = require("slang/time")
+local bundle = require("slang/bundle")
 
 local web = {}
 
@@ -244,7 +245,7 @@ local app_meta = {__index: app_methods, __type: "WebApp"}
 func web.app(options){
   local app = {
     routes: {}, ws_routes: {}, middleware: {}, fallback: null,
-    options: options or {},
+    options: options or {}
   }
   app.meta = app_meta
   app.on_error = func(req, err){
@@ -456,7 +457,7 @@ local types = {
   pdf: "application/pdf", wasm: "application/wasm", woff: "font/woff",
   woff2: "font/woff2", ttf: "font/ttf", otf: "font/otf", mp3: "audio/mpeg",
   wav: "audio/wav", ogg: "audio/ogg", mp4: "video/mp4", webm: "video/webm",
-  zip: "application/zip", gz: "application/gzip", tar: "application/x-tar",
+  zip: "application/zip", gz: "application/gzip", tar: "application/x-tar"
 }
 
 // type_of(path) -> the media type for the file's extension
@@ -530,8 +531,21 @@ func web.file(req, path, options){
     }
     local st = r[1]
     local mtime = to_int(st.mtime)
+    // a file bundled gzipped (slang build) goes as it is stored to a client
+    // that takes gzip: another representation, so another tag (ranges are
+    // of the file itself)
+    local stored = null
+    if(bundle.active()){
+      stored = bundle.read_raw(path)
+      if(stored != null and stored.encoding != "gzip"){
+        stored = null
+      }
+    }
+    local gzipped = stored != null and req.headers["range"] == null and
+      http.accepts_gzip(req)
     local etag = concat(
-      "\"", string(st.size), "-", string(to_int(st.mtime * 1000)), "\""
+      "\"", string(st.size), "-", string(to_int(st.mtime * 1000)),
+      gzipped and "-gz" or "", "\""
     )
     local headers = {
       ["Content-Type"]: options.type or web.type_of(path),
@@ -541,11 +555,14 @@ func web.file(req, path, options){
       ["Cache-Control"]: options.max_age != null and
         concat("public, max-age=", string(options.max_age)) or "no-cache",
     }
+    if(stored != null){
+      headers.Vary = "Accept-Encoding"
+    }
     if(options.download != null){
       headers["Content-Disposition"] = concat(
         "attachment; filename=\"",
         str.replace(options.download, "\"", ""),
-        "\""
+        "\"",
       )
     }
     // conditional requests
@@ -581,9 +598,14 @@ func web.file(req, path, options){
       return {
         status: 206, headers: headers, compress: false,
         body: async.fs.read_stream(path, {
-          start: range.start, length: range.length,
-        }),
+          start: range.start, length: range.length
+        })
       }
+    }
+    if(gzipped){
+      headers["Content-Encoding"] = "gzip"
+      headers["Content-Length"] = string(len(stored.data))
+      return {status: 200, headers: headers, compress: false, body: stored.data}
     }
     headers["Content-Length"] = string(st.size)
     return {status: 200, headers: headers, body: async.fs.read_stream(path)}
@@ -687,9 +709,9 @@ func web.csrf(options){
     if(unsafe[req.method] and not(options.skip != null and options.skip(req))){
       local sent = req.headers["x-csrf-token"]
       if(sent == null and req.body != null and str.starts_with(
-        str.lower(req.headers["content-type"] or ""),
-        "application/x-www-form-urlencoded"
-      )){
+          str.lower(req.headers["content-type"] or ""),
+          "application/x-www-form-urlencoded",
+        )){
         sent = req:form()._csrf
       }
       if(fresh or sent == null or not crypto.equal(sent, token)){
@@ -760,7 +782,7 @@ func client_methods.request(client, method, path, options){
       method: method, url: path,
       path: q >= 0 and str.substring(path, 0, q) or path,
       query: q >= 0 and str.substring(path, q + 1) or null, version: "1.1",
-      headers: headers, body: body,
+      headers: headers, body: body
     }
     if(client.app:stream_body(req)){
       local sent = false

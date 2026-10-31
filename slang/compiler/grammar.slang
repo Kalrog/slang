@@ -153,7 +153,7 @@ local func rule_ref(lin, name){
         ctx.tree = n
       }
       return q
-    }
+    },
   )
   p.fast = func(self, ctx, pos){
     local target = self.target
@@ -247,14 +247,14 @@ local func check_changes(g, what){
     error(
       "the grammar can only be changed by an extension statement (extension \"file\" or extension { ... } at the top level); ",
       what,
-      " was called from code running while a statement is being parsed"
+      " was called from code running while a statement is being parsed",
     )
   }
   local lin = g.state
   if(lin.parse_depth > 0 and lin.current != null and g != lin.current){
     error(
       what,
-      " was called on a grammar that is not the grammar of the unit being parsed (an extension loaded for another unit kept it); use the grammar passed to an apply function or require(\"slang/compiler\").grammar() at the time of the change, or extension global"
+      " was called on a grammar that is not the grammar of the unit being parsed (an extension loaded for another unit kept it); use the grammar passed to an apply function or require(\"slang/compiler\").grammar() at the time of the change, or extension global",
     )
   }
 }
@@ -958,7 +958,7 @@ local func install_core(g){
       }
       ctx.value = {
         value: s, start: start, stop: stop, buffer: buf, category: category,
-        meta: token_meta,
+        meta: token_meta
       }
       return str.skip_space(buf, stop)
     }
@@ -1060,51 +1060,36 @@ local func install_core(g){
         return null
       }
       v = (v << bits) | str.index_of(
-        "0123456789abcdef",
-        str.lower(str.char_at(s, i))
-      )
+          "0123456789abcdef",
+          str.lower(str.char_at(s, i)),
+        )
     }
     return negative and -v or v
   }
 
-  define(
-    "int_literal",
-    token(
-      peg.seq(
-        sign,
-        peg.choice(radix_int, decimal),
-        peg.seq(peg.char("."), peg.digit()):forbid(),
-        number_end
-      ), "int", "number"
-    )
-      :map(func(t){
-        local v = int_value(t.value)
-        if(v == null){
-          g:error_at(t, "integer literal out of range: ", t.value)
-        }
-        return ast.node("Int", {value: v}, t)
-      })
-  )
+  define("int_literal", token(peg.seq(
+    sign,
+    peg.choice(radix_int, decimal),
+    peg.seq(peg.char("."), peg.digit()):forbid(),
+    number_end,
+  ), "int", "number"):map(func(t){
+    local v = int_value(t.value)
+    if(v == null){
+      g:error_at(t, "integer literal out of range: ", t.value)
+    }
+    return ast.node("Int", {value: v}, t)
+  }))
 
-  define(
-    "double_literal",
-    token(
-      peg.seq(
-        sign, decimal,
-        peg.choice(
-          peg.seq(peg.char("."), decimal, exponent:optional()),
-          exponent
-        ), number_end
-      ), "double", "number"
-    )
-      :map(func(t){
-        local v = str.to_number(str.replace(t.value, "_", ""))
-        if(v - v != 0){
-          g:error_at(t, "double literal out of range: ", t.value)
-        }
-        return ast.node("Double", {value: v + 0.0}, t)
-      })
-  )
+  define("double_literal", token(peg.seq(sign, decimal, peg.choice(
+    peg.seq(peg.char("."), decimal, exponent:optional()),
+    exponent,
+  ), number_end), "double", "number"):map(func(t){
+    local v = str.to_number(str.replace(t.value, "_", ""))
+    if(v - v != 0){
+      g:error_at(t, "double literal out of range: ", t.value)
+    }
+    return ast.node("Double", {value: v + 0.0}, t)
+  }))
 
   define("valid_escape", peg.seq(peg.char("\\"), peg.choice(
     peg.char("\""), peg.char("\\"), peg.char("n"), peg.char("r"), peg.char("t"),
@@ -1113,16 +1098,11 @@ local func install_core(g){
 
   define("slang_char", peg.choice(rule("valid_escape"), peg.char("\n"):neg()))
 
-  define(
-    "double_quoted_string",
-    peg.seq(
-      peg.char("\""),
-      rule("slang_char"):star_lazy(peg.char("\"")):map(join_chars),
-      peg.char("\"")
-    )
-      :pick(1)
-      :token("string")
-  )
+  define("double_quoted_string", peg.seq(
+    peg.char("\""),
+    rule("slang_char"):star_lazy(peg.char("\"")):map(join_chars),
+    peg.char("\""),
+  ):pick(1):token("string"))
 
   define(
     "multiline_string",
@@ -1133,7 +1113,7 @@ local func install_core(g){
         :map(join_chars), peg.string("\"\"\"")
     )
       :pick(1)
-      :token("string")
+      :token("string"),
   )
 
   define(
@@ -1145,55 +1125,42 @@ local func install_core(g){
           g:error_at(t, r[1].message or r[1])
         }
         return ast.node("String", {value: r[1]}, t)
-      })
+      }),
   )
 
   define(
     "true_literal",
-    tok("true"):map(func(t){ return ast.node("True", {}, t) })
+    tok("true"):map(func(t){ return ast.node("True", {}, t) }),
   )
   define(
     "false_literal",
-    tok("false"):map(func(t){ return ast.node("False", {}, t) })
+    tok("false"):map(func(t){ return ast.node("False", {}, t) }),
   )
   define(
     "null_literal",
-    tok("null"):map(func(t){ return ast.node("Null", {}, t) })
+    tok("null"):map(func(t){ return ast.node("Null", {}, t) }),
   )
 
-  define(
+  define("identifier", token(
+    peg.seq(peg.pattern("a-zA-Z_"), peg.pattern("a-zA-Z0-9_"):star())
+      :flatten("Expected: identifier")
+      :where(func(name){ return lin.active.keywords[name] != true }),
     "identifier",
-    token(
-      peg.seq(peg.pattern("a-zA-Z_"), peg.pattern("a-zA-Z0-9_"):star())
-        :flatten("Expected: identifier")
-        :where(func(name){ return lin.active.keywords[name] != true }),
-      "identifier"
-    )
-      :map(func(t){ return ast.node("Identifier", {value: t.value}, t) })
-  )
+  ):map(func(t){ return ast.node("Identifier", {value: t.value}, t) }))
 
   // param: an identifier, or ...name for the rest parameter
-  define(
-    "param",
-    token(
-      peg.seq(
-        peg.string("..."):optional(),
-        peg.pattern("a-zA-Z_"),
-        peg.pattern("a-zA-Z0-9_"):star()
-      )
-        :flatten("Expected: parameter")
-        :where(func(name){ return lin.active.keywords[name] != true }),
-      "parameter", "parameter"
-    )
-      :map(func(t){ return ast.node("Identifier", {value: t.value}, t) })
-  )
+  define("param", token(peg.seq(
+    peg.string("..."):optional(),
+    peg.pattern("a-zA-Z_"),
+    peg.pattern("a-zA-Z0-9_"):star(),
+  ):flatten("Expected: parameter"):where(func(name){ return lin.active.keywords[name] != true }), "parameter", "parameter"):map(func(t){ return ast.node("Identifier", {value: t.value}, t) }))
 
   // spread: ...expr in an argument list or a table literal
   define(
     "spread",
     peg.seq(ftok("...", null, "none", "operator"), rule("expr")):map(func(v){
       return ast.node("Spread", {value: v[1]}, v[0])
-    })
+    }),
   )
 
   // name: an identifier where keywords are allowed: after `.` and `:` and as
@@ -1203,40 +1170,31 @@ local func install_core(g){
     "name",
     token(
       peg.seq(peg.pattern("a-zA-Z_"), peg.pattern("a-zA-Z0-9_"):star()):flatten(
-        "Expected: name"
-      ), "name", "identifier"
+        "Expected: name",
+      ),
+      "name",
+      "identifier",
     )
-      :map(func(t){ return ast.node("Identifier", {value: t.value}, t) })
+      :map(func(t){ return ast.node("Identifier", {value: t.value}, t) }),
   )
 
   // ------------------------------------------------------------ tables
 
   // field: name: value | [key]: value | value
-  define(
-    "field",
-    peg.choice(
-      rule("spread"),
-      peg.seq(
-        peg.choice(
-          peg.seq(rule("name"), ftok(":", "none", "space")):pick(0):map(func(n){
-            return ast.node("String", {value: n.value}, n.token)
-          }),
-          peg.seq(
-            ftok("[", null, "none"),
-            rule("expr"),
-            ftok("]", "none", "none"),
-            ftok(":", "none", "space")
-          ):pick(1)
-        ):optional(),
-        rule("expr")
-      )
-        :token()
-        :map(func(t){
-          local key = t.value[0]
-          return ast.node("Field", {key: key, value: t.value[1]}, t)
-        })
-    )
-  )
+  define("field", peg.choice(rule("spread"), peg.seq(peg.choice(
+    peg.seq(rule("name"), ftok(":", "none", "space")):pick(0):map(func(n){
+      return ast.node("String", {value: n.value}, n.token)
+    }),
+    peg.seq(
+      ftok("[", null, "none"),
+      rule("expr"),
+      ftok("]", "none", "none"),
+      ftok(":", "none", "space"),
+    ):pick(1),
+  ):optional(), rule("expr")):token():map(func(t){
+    local key = t.value[0]
+    return ast.node("Field", {key: key, value: t.value[1]}, t)
+  })))
 
   // a table that is the last argument of a call may hug it: f(x, {
   define(
@@ -1248,17 +1206,17 @@ local func install_core(g){
           fmt.mark(rule("field"):star_separated(ftok(",", "none", "line")), {
             fill: true,
           }),
-          "softline"
+          "softline",
         ),
         fmt.trailing_comma(tok(","):optional()),
-        fmt.gaps(tok("}"), "softline")
+        fmt.gaps(tok("}"), "softline"),
       ),
-      {group: true, huggable: true}
+      {group: true, huggable: true},
     )
       :pick(1)
       :map(elements)
       :token()
-      :map(func(t){ return ast.node("Table", {fields: t.value}, t) })
+      :map(func(t){ return ast.node("Table", {fields: t.value}, t) }),
   )
 
   // ------------------------------------------------------------ calls
@@ -1269,7 +1227,7 @@ local func install_core(g){
     }),
     peg.seq(tok("."), rule("name"):map(func(id){
       return ast.node("String", {value: id.value}, id.token)
-    })):pick(1):map(func(e){ return {e, "dot"} })
+    })):pick(1):map(func(e){ return {e, "dot"} }),
   ):star()):map(func(v){
     local node = v[0]
     for(let local right in values(v[1])){
@@ -1281,15 +1239,10 @@ local func install_core(g){
     return node
   }))
 
-  define(
-    "name_and_args",
-    peg.seq(
-      peg.seq(ftok(":", null, "none"), rule("name")):pick(1):optional(),
-      rule("args")
-    )
-      :token()
-      :map(func(t){ return list(t.value[0], t.value[1], t) })
-  )
+  define("name_and_args", peg.seq(
+    peg.seq(ftok(":", null, "none"), rule("name")):pick(1):optional(),
+    rule("args"),
+  ):token():map(func(t){ return list(t.value[0], t.value[1], t) }))
 
   // same_line: matches nothing, and only when no line break separates the
   // previous token from the next one. A call's ( and a block argument's {
@@ -1321,7 +1274,8 @@ local func install_core(g){
   })
 
   // the arguments break all at once; when one of them must break (a
-  // function), the others stay on the call's line if they fit
+  // function), the others stay on the call's line if they fit. A trailing
+  // comma keeps them one per line (see slang/format).
   define(
     "args",
     peg.choice(
@@ -1331,21 +1285,19 @@ local func install_core(g){
             same_line,
             tok("("),
             fmt.indent(
-              fmt.mark(
-                peg.choice(rule("spread"), rule("expr")):star_separated(
-                  ftok(",", "none", "line")
-                ),
-                {fill: true}
-              ):map(elements),
-              "softline"
+              fmt.mark(peg.choice(rule("spread"), rule("expr")):star_separated(
+                ftok(",", "none", "line"),
+              ), {fill: true}):map(elements),
+              "softline",
             ),
-            fmt.gaps(tok(")"), "softline")
+            fmt.trailing_comma(tok(","):optional()),
+            fmt.gaps(tok(")"), "softline"),
           ),
-          {group: true, hug: true, huggable: "call", before: "none"}
+          {group: true, hug: true, huggable: "call", before: "none"},
         ):pick(2),
-        peg.seq(same_line, fmt.gaps(rule("block"), "none")):pick(1):optional()
+        peg.seq(same_line, fmt.gaps(rule("block"), "none")):pick(1):optional(),
       ),
-      peg.seq(same_line, fmt.gaps(rule("block"), "none")):pick(1)
+      peg.seq(same_line, fmt.gaps(rule("block"), "none")):pick(1),
     )
       :map(func(args){
         if(type(args) == "Block"){
@@ -1359,58 +1311,53 @@ local func install_core(g){
           ))
         }
         return normal
-      })
+      }),
   )
 
   // ------------------------------------------------------------ statements
 
-  define(
-    "expr_statement",
-    peg.seq(rule("expr"), peg.seq(
-      ftok("=", "space", "space"),
-      rule("expr")
-    ):optional())
-      :map(func(v){
-        local exp = v[0]
-        local assignment = v[1]
-        if(assignment != null){
-          if(not ast.is_assignable(exp)){
-            error(
-              "Invalid assignment: ",
-              ast.to_string(exp),
-              " is not an assignable expression"
-            )
-          }
-          return ast.node(
-            "Assignment", {left: exp, right: assignment[1]}, assignment[0]
-          )
-        }
-        if(exp.type == "Call" or exp.type == "Invoke"){
-          return ast.node("CallStat", {call: exp}, exp.token)
-        }
-        if(exp.type == "Null"){
-          return null
-        }
-        return exp
-      })
-  )
+  define("expr_statement", peg.seq(rule("expr"), peg.seq(
+    ftok("=", "space", "space"),
+    rule("expr"),
+  ):optional()):map(func(v){
+    local exp = v[0]
+    local assignment = v[1]
+    if(assignment != null){
+      if(not ast.is_assignable(exp)){
+        error(
+          "Invalid assignment: ",
+          ast.to_string(exp),
+          " is not an assignable expression",
+        )
+      }
+      return ast.node(
+        "Assignment", {left: exp, right: assignment[1]}, assignment[0]
+      )
+    }
+    if(exp.type == "Call" or exp.type == "Invoke"){
+      return ast.node("CallStat", {call: exp}, exp.token)
+    }
+    if(exp.type == "Null"){
+      return null
+    }
+    return exp
+  }))
 
   define(
     "local_declaration",
     peg.seq(ftok("local", null, "space"), rule("expr"), peg.seq(
       ftok("=", "space", "space"),
-      rule("expr")
-    ):optional())
-      :map(func(v){
-        local right = null
-        if(v[2] != null){
-          right = v[2][1]
-        }
-        return ast.node(
-          "Declaration", {is_local: true, left: v[1], right: right}, v[0]
-        )
-      }),
-    {probe: "local x = 1"}
+      rule("expr"),
+    ):optional()):map(func(v){
+      local right = null
+      if(v[2] != null){
+        right = v[2][1]
+      }
+      return ast.node(
+        "Declaration", {is_local: true, left: v[1], right: right}, v[0]
+      )
+    }),
+    {probe: "local x = 1"},
   )
 
   // if(c){ a } else { b }: an expression; else is required, and else if
@@ -1430,38 +1377,32 @@ local func install_core(g){
         rule("if_expression"),
         peg.seq(
           ftok("{", null, "space"), rule("expr"), ftok("}", "space")
-        ):pick(1)
-      )
+        ):pick(1),
+      ),
     )
       :map(func(v){
         return ast.node(
           "IfExpr", {condition: v[2], thenValue: v[5], elseValue: v[8]}, v[0]
         )
-      })
+      }),
   )
 
-  define(
-    "if_statement",
-    peg.seq(
-      ftok("if", null, "none"),
-      ftok("(", "none", "none"),
-      rule("expr"),
-      ftok(")", "none", "brace"),
-      rule("statement"),
-      peg.seq(ftok("else", "space", "space"), rule("statement")):optional()
+  define("if_statement", peg.seq(
+    ftok("if", null, "none"),
+    ftok("(", "none", "none"),
+    rule("expr"),
+    ftok(")", "none", "brace"),
+    rule("statement"),
+    peg.seq(ftok("else", "space", "space"), rule("statement")):optional(),
+  ):map(func(v){
+    local else_branch = null
+    if(v[5] != null){
+      else_branch = v[5][1]
+    }
+    return ast.node(
+      "If", {condition: v[2], thenBranch: v[4], elseBranch: else_branch}, v[0]
     )
-      :map(func(v){
-        local else_branch = null
-        if(v[5] != null){
-          else_branch = v[5][1]
-        }
-        return ast.node(
-          "If", {condition: v[2], thenBranch: v[4], elseBranch: else_branch},
-          v[0]
-        )
-      }),
-    {probe: "if (x) { f() } else { g() }"}
-  )
+  }), {probe: "if (x) { f() } else { g() }"})
 
   define("for_loop", peg.seq(
     // for(init; condition; update), for(condition; update), for(condition);
@@ -1476,7 +1417,7 @@ local func install_core(g){
       :pick(1)
       :optional(),
     fmt.gaps(peg.char(")"), "none", "brace"),
-    rule("statement")
+    rule("statement"),
   ):map(func(v){
     // a lone call in the condition's place is parsed as a statement
     // (for(st:step())); the condition is the call's value
@@ -1504,7 +1445,7 @@ local func install_core(g){
       return ast.node(
         "For",
         {init: head[0], condition: value(head[1]), update: head[2], body: body},
-        v[0]
+        v[0],
       )
     }
     if(n == 2){
@@ -1527,77 +1468,50 @@ local func install_core(g){
     error("Invalid for loop")
   }), {probe: "for(local i = 0; i < 3; i = i + 1){ f(i) }"})
 
-  define(
-    "for_in_loop",
-    peg.seq(
-      ftok("for", null, "none"),
-      ftok("(", "none", "none"),
-      ftok("let", "none", "space"),
-      rule("slang_pattern"),
-      ftok("in", "space", "space"),
-      rule("expr"),
-      ftok(")", "none", "brace"),
-      rule("statement")
-    )
-      :map(func(v){
-        return ast.node(
-          "ForIn", {pattern: v[3], itterator: v[5], body: v[7]}, v[0]
-        )
-      }),
-    {probe: "for(let local x in values(t)){ f(x) }"}
-  )
+  define("for_in_loop", peg.seq(
+    ftok("for", null, "none"),
+    ftok("(", "none", "none"),
+    ftok("let", "none", "space"),
+    rule("slang_pattern"),
+    ftok("in", "space", "space"),
+    rule("expr"),
+    ftok(")", "none", "brace"),
+    rule("statement"),
+  ):map(func(v){
+    return ast.node("ForIn", {pattern: v[3], itterator: v[5], body: v[7]}, v[0])
+  }), {probe: "for(let local x in values(t)){ f(x) }"})
 
-  define(
-    "function_definition_statement",
-    peg.seq(
-      ftok("local", null, "space"):optional(),
-      ftok("func", null, "space"),
-      rule("identifier_and_index"),
-      rule("function_definition")
+  define("function_definition_statement", peg.seq(
+    ftok("local", null, "space"):optional(),
+    ftok("func", null, "space"),
+    rule("identifier_and_index"),
+    rule("function_definition"),
+  ):map(func(v){
+    return ast.node(
+      "Declaration", {is_local: v[0] != null, left: v[2], right: v[3]}, v[1]
     )
-      :map(func(v){
-        return ast.node(
-          "Declaration", {is_local: v[0] != null, left: v[2], right: v[3]}, v[1]
-        )
-      }),
-    {probe: "func f(a, b){ return a }"}
-  )
+  }), {probe: "func f(a, b){ return a }"})
 
   // let PATTERN = expr as a statement: binds, or raises when the value does
   // not match (the expression form is the condition of an if)
   // try { ... } catch(pattern) { ... } ...: the first clause whose pattern
   // matches the raised value runs; none matching raises it again. A clause
   // without a pattern catches everything.
-  define(
-    "catch_clause",
-    peg.seq(
-      ftok("catch", "space"),
-      peg.seq(
-        ftok("(", "none", "none"),
-        rule("slang_pattern"),
-        ftok(")", "none", "space")
-      )
-        :pick(1)
-        :optional(),
-      fmt.mark(rule("block"), {before: "space", hard_body: true})
-    )
-      :map(func(v){
-        return ast.node("Catch", {pattern: v[1], body: v[2]}, v[0])
-      })
-  )
+  define("catch_clause", peg.seq(ftok("catch", "space"), peg.seq(
+    ftok("(", "none", "none"),
+    rule("slang_pattern"),
+    ftok(")", "none", "space"),
+  ):pick(1):optional(), fmt.mark(rule("block"), {before: "space", hard_body: true})):map(func(v){
+    return ast.node("Catch", {pattern: v[1], body: v[2]}, v[0])
+  }))
 
-  define(
-    "try_statement",
-    peg.seq(
-      ftok("try", null, "space"),
-      rule("block"),
-      rule("catch_clause"):plus()
-    )
-      :map(func(v){
-        return ast.node("Try", {body: v[1], catches: v[2]}, v[0])
-      }),
-    {probe: "try { f() } catch(local e) { g(e) }"}
-  )
+  define("try_statement", peg.seq(
+    ftok("try", null, "space"),
+    rule("block"),
+    rule("catch_clause"):plus(),
+  ):map(func(v){
+    return ast.node("Try", {body: v[1], catches: v[2]}, v[0])
+  }), {probe: "try { f() } catch(local e) { g(e) }"})
 
   // defer statement: runs when the enclosing block is left, however it is
   // left (the end, a return, a break, an error), last in first out
@@ -1610,45 +1524,35 @@ local func install_core(g){
       }
       return ast.node("Defer", {body: body}, v[0])
     }),
-    {probe: "defer f()"}
+    {probe: "defer f()"},
   )
 
   // :name: for(...){ ... }: a loop that break name and continue name in
   // nested loops refer to
-  define(
-    "labeled_loop",
-    peg.seq(
-      ftok(":", null, "none"),
-      rule("identifier"),
-      ftok(":", "none", "space"),
-      peg.choice(rule("for_in_loop"), rule("for_loop"))
-    )
-      :map(func(v){
-        // a copy: parse results may be shared (memoized)
-        local loop = {}
-        for(let local e in entries(v[3])){
-          loop[e[0]] = e[1]
-        }
-        loop.meta = v[3].meta
-        loop.label = v[1].value
-        return loop
-      }),
-    {probe: ":outer: for(true){ break outer }"}
-  )
+  define("labeled_loop", peg.seq(
+    ftok(":", null, "none"),
+    rule("identifier"),
+    ftok(":", "none", "space"),
+    peg.choice(rule("for_in_loop"), rule("for_loop")),
+  ):map(func(v){
+    // a copy: parse results may be shared (memoized)
+    local loop = {}
+    for(let local e in entries(v[3])){
+      loop[e[0]] = e[1]
+    }
+    loop.meta = v[3].meta
+    loop.label = v[1].value
+    return loop
+  }), {probe: ":outer: for(true){ break outer }"})
 
-  define(
-    "let_statement",
-    peg.seq(
-      ftok("let", null, "space"),
-      rule("slang_pattern"),
-      ftok("=", "space", "space"),
-      rule("expr")
-    )
-      :map(func(v){
-        return ast.node("LetStat", {pattern: v[1], right: v[3]}, v[0])
-      }),
-    {probe: "let {name: local n} = t"}
-  )
+  define("let_statement", peg.seq(
+    ftok("let", null, "space"),
+    rule("slang_pattern"),
+    ftok("=", "space", "space"),
+    rule("expr"),
+  ):map(func(v){
+    return ast.node("LetStat", {pattern: v[1], right: v[3]}, v[0])
+  }), {probe: "let {name: local n} = t"})
 
   define("expression_or_statement", peg.choice(
     rule("local_declaration"),
@@ -1661,46 +1565,41 @@ local func install_core(g){
     rule("for_in_loop"),
     rule("block"),
     rule("function_definition_statement"),
-    rule("expr_statement")
+    rule("expr_statement"),
   ))
 
   // statements on lines of their own, one blank line between them kept;
   // the formatter drops their `;`
-  define(
-    "chunk",
-    peg.seq(
-      fmt.mark(
-        peg.seq(rule("statement"), fmt.drop(tok(";"):optional())):pick(0),
-        {before: "hardline", blank: true}
-      ):star(),
-      fmt.mark(
-        peg.seq(rule("final_statement"), fmt.drop(tok(";"):optional())):pick(0),
-        {before: "hardline", blank: true}
-      ):optional()
-    )
-      :token()
-      :map(func(t){
-        local statements = {}
-        local items = t.value[0]
-        local n = len(items)
-        for(local i = 0; i < n; i = i + 1){
-          if(items[i] != null){
-            append(statements, items[i])
-          }
-        }
-        if(t.value[1] != null){
-          append(statements, t.value[1])
-        }
-        return ast.node("Block", {statements: statements}, t)
-      })
-  )
+  define("chunk", peg.seq(
+    fmt.mark(
+      peg.seq(rule("statement"), fmt.drop(tok(";"):optional())):pick(0),
+      {before: "hardline", blank: true},
+    ):star(),
+    fmt.mark(
+      peg.seq(rule("final_statement"), fmt.drop(tok(";"):optional())):pick(0),
+      {before: "hardline", blank: true},
+    ):optional(),
+  ):token():map(func(t){
+    local statements = {}
+    local items = t.value[0]
+    local n = len(items)
+    for(local i = 0; i < n; i = i + 1){
+      if(items[i] != null){
+        append(statements, items[i])
+      }
+    }
+    if(t.value[1] != null){
+      append(statements, t.value[1])
+    }
+    return ast.node("Block", {statements: statements}, t)
+  }))
 
   define(
     "block",
     peg.seq(
       tok("{"), fmt.indent(rule("chunk"), "hardline", "hardline"), tok("}")
     ):pick(1),
-    {probe: "{ x = 1; f(x) }"}
+    {probe: "{ x = 1; f(x) }"},
   )
 
   // break and continue, optionally with the label of an enclosing loop
@@ -1708,13 +1607,13 @@ local func install_core(g){
     "break_statement",
     peg.seq(tok("break"), rule("identifier"):optional()):map(func(v){
       return ast.node("Break", {label: v[1] and v[1].value}, v[0])
-    })
+    }),
   )
   define(
     "continue_statement",
     peg.seq(tok("continue"), rule("identifier"):optional()):map(func(v){
       return ast.node("Continue", {label: v[1] and v[1].value}, v[0])
-    })
+    }),
   )
 
   // the value is optional: a bare `return` returns null
@@ -1722,13 +1621,13 @@ local func install_core(g){
     "return_statement",
     peg.seq(tok("return"), rule("expr"):optional()):map(func(v){
       return ast.node("Return", {value: v[1]}, v[0])
-    })
+    }),
   )
 
   define("final_statement", peg.choice(
     rule("return_statement"),
     rule("break_statement"),
-    rule("continue_statement")
+    rule("continue_statement"),
   ))
 
   // ------------------------------------------------------------ functions
@@ -1737,42 +1636,35 @@ local func install_core(g){
     "params",
     fmt.mark(rule("param"):star_separated(ftok(",", "none", "line")), {
       fill: true,
-    }):map(elements)
+    }):map(elements),
   )
 
-  define(
-    "function_definition",
-    peg.seq(
-      fmt.mark(
-        peg.seq(
-          tok("("),
-          fmt.indent(rule("params"), "softline"),
-          fmt.gaps(tok(")"), "softline")
-        ),
-        {group: true, before: "none"}
-      ),
-      peg.choice(
-        fmt.gaps(rule("block"), "none"),
-        peg.seq(ftok("=>", "space", "space"), rule("expr"))
+  define("function_definition", peg.seq(
+    fmt.mark(peg.seq(
+      tok("("),
+      fmt.indent(rule("params"), "softline"),
+      fmt.trailing_comma(tok(","):optional()),
+      fmt.gaps(tok(")"), "softline"),
+    ), {group: true, before: "none"}),
+    peg.choice(
+      fmt.gaps(rule("block"), "none"),
+      peg.seq(ftok("=>", "space", "space"), rule("expr")),
+    ),
+  ):token():map(func(t){
+    local v = {t.value[0][0], t.value[0][1], t.value[0][2], t.value[1]}
+    local body = v[3]
+    if(type(body) == "table"){
+      local e = body[1]
+      body = ast.node(
+        "Block", {statements: {ast.node("Return", {value: e}, e.token)}}, t
       )
-    )
-      :token()
-      :map(func(t){
-        local v = {t.value[0][0], t.value[0][1], t.value[0][2], t.value[1]}
-        local body = v[3]
-        if(type(body) == "table"){
-          local e = body[1]
-          body = ast.node(
-            "Block", {statements: {ast.node("Return", {value: e}, e.token)}}, t
-          )
-        }
-        return ast.node("Function", {params: v[1], body: body}, t)
-      })
-  )
+    }
+    return ast.node("Function", {params: v[1], body: body}, t)
+  }))
 
   define(
     "function_expression",
-    peg.seq(ftok("func", null, "none"), rule("function_definition")):pick(1)
+    peg.seq(ftok("func", null, "none"), rule("function_definition")):pick(1),
   )
 
   // ------------------------------------------------------------ patterns
@@ -1781,22 +1673,18 @@ local func install_core(g){
     rule("quoted_pattern"),
     rule("table_pattern"),
     rule("const_pattern"),
-    rule("var_pattern")
+    rule("var_pattern"),
   ))
 
-  define(
-    "table_pattern",
-    peg.seq(
-      ftok("{", null, "none"),
-      rule("field_pattern"):star_separated(ftok(",", "none", "space")),
-      ftok("}", "none")
+  define("table_pattern", peg.seq(
+    ftok("{", null, "none"),
+    rule("field_pattern"):star_separated(ftok(",", "none", "space")),
+    ftok("}", "none"),
+  ):map(func(v){
+    return ast.node(
+      "TablePattern", {type_check: "table", fields: v[1].elements}, v[0]
     )
-      :map(func(v){
-        return ast.node(
-          "TablePattern", {type_check: "table", fields: v[1].elements}, v[0]
-        )
-      })
-  )
+  }))
 
   // 'Name{...} checks the type (and matches the fields); 'Name as PATTERN
   // checks the type and matches PATTERN against the same value. Anything
@@ -1816,51 +1704,48 @@ local func install_core(g){
           :map(elements), tok(")")
       )
         :pick(1)
-        :optional()
-    )
-      :map(func(v){
-        if(v[1] == null){
-          return v[0]
-        }
-        return ast.node("Call", {function: v[0], args: v[1]}, v[0].token)
-      })
+        :optional(),
+    ):map(func(v){
+      if(v[1] == null){
+        return v[0]
+      }
+      return ast.node("Call", {function: v[0], args: v[1]}, v[0].token)
+    }),
   )
   define(
     "quoted_pattern",
     peg.seq(ftok("'", null, "none"), matcher_expr, peg.choice(
       peg.seq(tok("as"), rule("slang_pattern")):pick(1),
-      rule("table_pattern")
-    ):optional())
-      :map(func(v){
-        local m = v[1]
-        local sub = v[2]
-        if(m.parenthesised != null){
+      rule("table_pattern"),
+    ):optional()):map(func(v){
+      local m = v[1]
+      local sub = v[2]
+      if(m.parenthesised != null){
+        return ast.node(
+          "MatcherPattern",
+          {matcher: m.parenthesised, type_name: null, sub: sub}, v[0]
+        )
+      }
+      if(m.type == "Identifier"){
+        // a type name
+        if(sub == null){
           return ast.node(
-            "MatcherPattern",
-            {matcher: m.parenthesised, type_name: null, sub: sub}, v[0]
+            "TablePattern", {type_check: m.value, fields: {}}, v[0]
           )
         }
-        if(m.type == "Identifier"){
-          // a type name
-          if(sub == null){
-            return ast.node(
-              "TablePattern", {type_check: m.value, fields: {}}, v[0]
-            )
-          }
-          if(sub.type == "TablePattern" and sub.type_check == "table" and
-            sub.token.value == "{"){
-            sub.type_check = m.value
-            return sub
-          }
-          return ast.node(
-            "MatcherPattern", {matcher: null, type_name: m.value, sub: sub},
-            v[0]
-          )
+        if(sub.type == "TablePattern" and sub.type_check == "table" and
+          sub.token.value == "{"){
+          sub.type_check = m.value
+          return sub
         }
         return ast.node(
-          "MatcherPattern", {matcher: m, type_name: null, sub: sub}, v[0]
+          "MatcherPattern", {matcher: null, type_name: m.value, sub: sub}, v[0]
         )
-      })
+      }
+      return ast.node(
+        "MatcherPattern", {matcher: m, type_name: null, sub: sub}, v[0]
+      )
+    }),
   )
 
   define(
@@ -1872,8 +1757,8 @@ local func install_core(g){
           ftok("[", null, "none"),
           rule("expr"),
           ftok("]", "none", "none"),
-          ftok(":", "none", "space")
-        ):pick(1)
+          ftok(":", "none", "space"),
+        ):pick(1),
       )
         :map(func(exp){
           if(exp.type == "Identifier"){
@@ -1882,7 +1767,7 @@ local func install_core(g){
           return exp
         })
         :optional(),
-      rule("slang_pattern")
+      rule("slang_pattern"),
     )
       :map(func(v){
         local key = v[0]
@@ -1892,23 +1777,19 @@ local func install_core(g){
           token = key.token
         }
         return ast.node("FieldPattern", {key: key, value: value}, token)
-      })
+      }),
   )
 
-  define(
-    "const_pattern",
-    peg.choice(
-      rule("int_literal"),
-      rule("double_literal"),
-      rule("string_literal"),
-      rule("true_literal"),
-      rule("false_literal"),
-      rule("null_literal")
-    )
-      :map(func(exp){
-        return ast.node("ConstPattern", {value: exp}, exp.token)
-      })
-  )
+  define("const_pattern", peg.choice(
+    rule("int_literal"),
+    rule("double_literal"),
+    rule("string_literal"),
+    rule("true_literal"),
+    rule("false_literal"),
+    rule("null_literal"),
+  ):map(func(exp){
+    return ast.node("ConstPattern", {value: exp}, exp.token)
+  }))
 
   define(
     "var_pattern",
@@ -1917,54 +1798,47 @@ local func install_core(g){
         return ast.node(
           "VarPattern",
           {isLocal: v[0] != null, canBeNull: v[2] != null, name: v[1]},
-          v[1].token
+          v[1].token,
         )
-      })
+      }),
   )
 
-  define(
-    "pattern_assignment_exp",
-    peg.seq(
-      ftok("let", null, "space"),
-      rule("slang_pattern"),
-      ftok("=", "space", "space"),
-      rule("expr")
-    )
-      :map(func(v){
-        return ast.node("Let", {pattern: v[1], right: v[3]}, v[0])
-      })
-  )
+  define("pattern_assignment_exp", peg.seq(
+    ftok("let", null, "space"),
+    rule("slang_pattern"),
+    ftok("=", "space", "space"),
+    rule("expr"),
+  ):map(func(v){
+    return ast.node("Let", {pattern: v[1], right: v[3]}, v[0])
+  }))
 
   // ------------------------------------------------------------ quoting
   //
   // Quote and unquote are how extensions produce code; they are protected.
 
-  define(
-    "quote_body",
-    // laid out as +{stat: x} when it fits, else with the body on lines of
-    // its own (see the quote and unquote rules)
-    peg.choice(
-      peg.seq(
-        tok("id"),
-        ftok(":", "none", "line"),
-        fmt.indent(rule("identifier"), "softline")
-      ),
-      peg.seq(
-        tok("block"),
-        ftok(":", "none", "line"),
-        fmt.indent(rule("chunk"), "softline")
-      ),
-      peg.seq(tok("stat"), ftok(":", "none", "line"), fmt.indent(
-        peg.choice(rule("statement"), rule("final_statement")),
-        "softline"
-      )),
-      peg.seq(
-        peg.seq(tok("expr"), ftok(":", "none", "line")):optional(),
-        fmt.indent(rule("expr"), "softline")
-      )
+  define("quote_body",
+  // laid out as +{stat: x} when it fits, else with the body on lines of
+  // its own (see the quote and unquote rules)
+  peg.choice(
+    peg.seq(
+      tok("id"),
+      ftok(":", "none", "line"),
+      fmt.indent(rule("identifier"), "softline"),
     ),
-    {protected: true}
-  )
+    peg.seq(
+      tok("block"),
+      ftok(":", "none", "line"),
+      fmt.indent(rule("chunk"), "softline"),
+    ),
+    peg.seq(tok("stat"), ftok(":", "none", "line"), fmt.indent(
+      peg.choice(rule("statement"), rule("final_statement")),
+      "softline",
+    )),
+    peg.seq(
+      peg.seq(tok("expr"), ftok(":", "none", "line")):optional(),
+      fmt.indent(rule("expr"), "softline"),
+    ),
+  ), {protected: true})
 
   local func split_quote_body(body){
     if(len(body) == 3){
@@ -1980,20 +1854,13 @@ local func install_core(g){
     lin.in_quote = prev
     return q
   })
-  define(
-    "quote",
-    fmt.mark(
-      peg.seq(tok("+"), ftok("{", "none"), quote_body, ftok("}", "softline")),
-      {group: true, hug: true}
-    )
-      :pick(2)
-      :token()
-      :map(func(t){
-        local parts = split_quote_body(t.value)
-        return ast.node("Quote", {ast_type: parts[0], ast: parts[1]}, t)
-      }),
-    {protected: true}
-  )
+  define("quote", fmt.mark(
+    peg.seq(tok("+"), ftok("{", "none"), quote_body, ftok("}", "softline")),
+    {group: true, hug: true},
+  ):pick(2):token():map(func(t){
+    local parts = split_quote_body(t.value)
+    return ast.node("Quote", {ast_type: parts[0], ast: parts[1]}, t)
+  }), {protected: true})
 
   // An executed unquote is memoised per parse context and position: when the
   // parser backtracks and reaches the same unquote again, the AST produced by
@@ -2039,6 +1906,11 @@ local func install_core(g){
         node.token
       )
     }
+    if(lin.sandbox){
+      error(
+        "compile-time code (an unquote) is not allowed in a sandboxed compile",
+      )
+    }
     if(opts.run_block == null){
       error("this grammar cannot execute unquotes")
     }
@@ -2056,14 +1928,10 @@ local func install_core(g){
     memo[pos] = {node: ctx.value, stop: q, tree: body_tree}
     return q
   })
-  define(
-    "unquote",
-    fmt.mark(
-      peg.seq(tok("-"), ftok("{", "none"), unquote_body, ftok("}", "softline")),
-      {group: true, hug: true}
-    ):pick(2),
-    {protected: true}
-  )
+  define("unquote", fmt.mark(
+    peg.seq(tok("-"), ftok("{", "none"), unquote_body, ftok("}", "softline")),
+    {group: true, hug: true},
+  ):pick(2), {protected: true})
 
   // ------------------------------------------------------------ expressions
 
@@ -2114,15 +1982,12 @@ local func install_core(g){
     "indexAndCall",
     func(left, op){
       local name = op[1]
-      return ast.node(
-        "Index",
-        {
-          receiver: left,
-          index: ast.node("String", {value: name.value}, name.token),
-          dotStyle: true,
-        }, op[0]
-      )
-    }
+      return ast.node("Index", {
+        receiver: left,
+        index: ast.node("String", {value: name.value}, name.token),
+        dotStyle: true,
+      }, op[0])
+    },
   )
   w:postfix(
     peg.seq(ftok("[", "none", "none"), rule("expr"), ftok("]", "none")),
@@ -2131,7 +1996,7 @@ local func install_core(g){
       return ast.node(
         "Index", {receiver: left, index: op[1], dotStyle: false}, op[0]
       )
-    }
+    },
   )
   w:postfix(rule("name_and_args"), "indexAndCall", func(left, op){
     local name = op[0]
@@ -2147,15 +2012,11 @@ local func install_core(g){
   w:right(tok("^", "operator"), "power", binop)
 
   w:level("unary")
-  w:prefix(
-    peg.choice(
-      not_brace(tok("-", "operator")),
-      tok("not", "operator"),
-      tok("~", "operator")
-    ),
-    "unary",
-    func(op, exp){ return ast.node("UnOp", {op: op.value, operand: exp}, op) }
-  )
+  w:prefix(peg.choice(
+    not_brace(tok("-", "operator")),
+    tok("not", "operator"),
+    tok("~", "operator"),
+  ), "unary", func(op, exp){ return ast.node("UnOp", {op: op.value, operand: exp}, op) })
 
   w:level("multiply", {aliases: {"*", "/", "%"}})
   w:left(
@@ -2165,12 +2026,10 @@ local func install_core(g){
   )
 
   w:level("add", {aliases: {"+", "-"}})
-  w:left(
-    peg.choice(
-      not_brace(tok("-", "operator")),
-      not_brace(tok("+", "operator"))
-    ), "add", binop
-  )
+  w:left(peg.choice(
+    not_brace(tok("-", "operator")),
+    not_brace(tok("+", "operator")),
+  ), "add", binop)
 
   // bitwise operators sit between arithmetic and comparison, as in Lua:
   // `a & b == c` is `(a & b) == c`, `a + b << 1` is `(a + b) << 1`
@@ -2189,16 +2048,14 @@ local func install_core(g){
   w:left(tok("|", "operator"), "bitOr", binop)
 
   w:level("compare", {aliases: {"<=", ">=", "!=", "==", ">"}})
-  w:left(
-    peg.choice(
-      tok("<=", "operator"),
-      tok(">=", "operator"),
-      tok("!=", "operator"),
-      tok("==", "operator"),
-      tok(">", "operator"),
-      tok("<", "operator")
-    ), "compare", binop
-  )
+  w:left(peg.choice(
+    tok("<=", "operator"),
+    tok(">=", "operator"),
+    tok("!=", "operator"),
+    tok("==", "operator"),
+    tok(">", "operator"),
+    tok("<", "operator"),
+  ), "compare", binop)
 
   w:level("and")
   w:left(tok("and", "operator"), "and", binop)
@@ -2248,9 +2105,8 @@ local func install_core(g){
   g.builtin_extension = peg.seq(
     tok("extension"),
     tok("global"):optional(),
-    peg.choice(rule("string_literal"), rule("block"))
-  )
-    :map(func(r){ return {builtin: r[2], global: r[1] != null} })
+    peg.choice(rule("string_literal"), rule("block")),
+  ):map(func(r){ return {builtin: r[2], global: r[1] != null} })
 
   define("extension_statement", null, {
     protected: true,
@@ -2300,7 +2156,7 @@ local func with_changes_allowed(g, owner, f, a, b){
   local lin = g.state
   if(lin.statement_depth > 0){
     error(
-      "extension statements cannot run from code that executes while a statement is being parsed"
+      "extension statements cannot run from code that executes while a statement is being parsed",
     )
   }
   lin.compile_time_effects = true
@@ -2319,6 +2175,9 @@ local func with_changes_allowed(g, owner, f, a, b){
 // runs a parsed extension statement; returns a statement node to emit or null
 func methods.run_extension(g, parsed, origin){
   local opts = g.state.opts
+  if(g.state.sandbox){
+    error("extension statements are not allowed in a sandboxed compile")
+  }
   if(parsed.builtin != null){
     if(opts.run_extension == null){
       error("this grammar cannot run extension statements")
@@ -2495,7 +2354,7 @@ local func error_region(keywords){
         i = j
       }
       return out
-    },
+    }
   }
 }
 
@@ -2507,7 +2366,7 @@ local func parse_top_level(g, source, origin, scoped, recover, tree){
     final: peg.seq(rule_ref(lin, "final_statement"), tok_semicolon):pick(0),
     extension_statement: peg.seq(
       rule_ref(lin, "extension_statement"),
-      tok_semicolon
+      tok_semicolon,
     ):pick(0),
   }
   local ctx = peg.context(source, {tree: tree})
@@ -2651,7 +2510,7 @@ local func parse_top_level(g, source, origin, scoped, recover, tree){
   local block = ast.node(
     "Block",
     {statements: statements},
-    peg.make_token(ctx, null, 0, pos)
+    peg.make_token(ctx, null, 0, pos),
   )
   if(lin.opts.optimize != null){
     block = lin.opts.optimize(block)
@@ -2682,6 +2541,11 @@ func methods.parse_source(g, source, origin, options){
   local tree = options != null and
     (options.tree == true or options.recover == true)
   local recover = tree and options.recover == true
+  // a sandboxed parse runs no code: no unquotes, no extension statements
+  local outer_sandbox = lin.sandbox
+  if(options != null and options.sandbox == true){
+    lin.sandbox = true
+  }
   lin.last_failure = null
   if(tree){
     lin.last_tree = null
@@ -2700,6 +2564,7 @@ func methods.parse_source(g, source, origin, options){
     lin.last_tree = peg.node(unit_parser, 0, stop, parts)
   }
   lin.tree_parts = outer_parts
+  lin.sandbox = outer_sandbox
   lin.origin = outer_origin
   lin.current = outer_current
   lin.unit_id = outer_unit_id

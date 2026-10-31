@@ -72,7 +72,7 @@ func pkg.parse_version(s){
   }
   return {
     major: n[0], minor: n[1], patch: n[2],
-    text: concat(string(n[0]), ".", string(n[1]), ".", string(n[2])),
+    text: concat(string(n[0]), ".", string(n[1]), ".", string(n[2]))
   }
 }
 
@@ -106,7 +106,7 @@ local func mirror_dir(url){
   return concat(
     compiler.package_root(),
     "/.mirrors/",
-    str.substring(hex(encoding.sha256(url)), 0, 16)
+    str.substring(hex(encoding.sha256(url)), 0, 16),
   )
 }
 
@@ -158,7 +158,7 @@ local func versions_of(url, refresh){
 
 local func file_at(url, v, file){
   local r = os.exec({
-    "git", "-C", mirror(url, false), "show", concat(v.tag, ":", file),
+    "git", "-C", mirror(url, false), "show", concat(v.tag, ":", file)
   })
   if(r.status != 0){
     return null
@@ -168,7 +168,7 @@ local func file_at(url, v, file){
 
 local func commit_of(url, v){
   return str.trim(run({
-    "git", "-C", mirror(url, false), "rev-parse", concat(v.tag, "^{commit}"),
+    "git", "-C", mirror(url, false), "rev-parse", concat(v.tag, "^{commit}")
   }))
 }
 
@@ -177,7 +177,7 @@ local func export(url, v, dest){
   os.mkdir_all(dest)
   local tar = concat(dest, ".tar")
   run({
-    "git", "-C", mirror(url, false), "archive", "--format=tar", "-o", tar, v.tag,
+    "git", "-C", mirror(url, false), "archive", "--format=tar", "-o", tar, v.tag
   })
   run({"tar", "-xf", tar, "-C", dest})
   run({"rm", "-f", tar})
@@ -208,6 +208,8 @@ local func sorted_keys(t){
   return sorted_names(list)
 }
 
+// files_under(dir, rel, out) -> out with {rel, path} appended for every file
+// under dir, in order (rel is relative to dir, after the prefix rel)
 local func files_under(dir, rel, out){
   for(let local name in values(sorted_names(os.list_dir(dir)))){
     local path = concat(dir, "/", name)
@@ -220,6 +222,8 @@ local func files_under(dir, rel, out){
   }
   return out
 }
+
+pkg.files_under = files_under
 
 // tree_hash(dir) -> "sha256:..." of the files under dir: their paths and
 // contents, in order
@@ -290,7 +294,7 @@ local func requirements_of(manifest, dir, from, allow_path){
       }
       append(out, {
         name: name, git: spec.git, min: v, from: from,
-        asked: spec.version or "any",
+        asked: spec.version or "any"
       })
     } else {
       error(from, ": ", name, ": {git: url, version} or {path} expected")
@@ -363,7 +367,7 @@ func pkg.resolve(dir, manifest, lock, update){
           )
         }
         chosen[name] = {
-          name: name, path: r.path, dir: r.path, manifest: m, required: {},
+          name: name, path: r.path, dir: r.path, manifest: m, required: {}
         }
         for(let local q in values(requirements_of(m, r.path, name, true))){
           append(queue, q)
@@ -407,7 +411,7 @@ func pkg.resolve(dir, manifest, lock, update){
         seen[key] = true
         local m = parse_manifest(
           file_at(r.git, v, "slang.project"),
-          concat(name, "@", v.text, "/slang.project")
+          concat(name, "@", v.text, "/slang.project"),
         )
         if(m.name != name){
           error(
@@ -416,7 +420,7 @@ func pkg.resolve(dir, manifest, lock, update){
           )
         }
         for(let local q in values(
-          requirements_of(m, null, concat(name, " ", v.text), false)
+          requirements_of(m, null, concat(name, " ", v.text), false),
         )){
           append(queue, q)
         }

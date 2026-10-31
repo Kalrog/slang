@@ -42,31 +42,25 @@ g:extension_statement(
     g:token("_"),
     peg.choice(g:token("left"), g:token("right")):optional(),
     peg.choice(
-      peg.seq(
-        g:token("after"):map(|_|"after"),
-        peg.seq(
-          g:token("_"),
-          peg.any():star_lazy(peg.string("_")):flatten(),
-          g:token("_")
-        ):pick(1)
-      ),
-      peg.seq(
-        g:token("before"):map(|_|"before"),
-        peg.seq(
-          g:token("_"),
-          peg.any():star_lazy(peg.string("_")):flatten(),
-          g:token("_")
-        ):pick(1)
-      ),
+      peg.seq(g:token("after"):map(|_|"after"), peg.seq(
+        g:token("_"),
+        peg.any():star_lazy(peg.string("_")):flatten(),
+        g:token("_"),
+      ):pick(1)),
+      peg.seq(g:token("before"):map(|_|"before"), peg.seq(
+        g:token("_"),
+        peg.any():star_lazy(peg.string("_")):flatten(),
+        g:token("_"),
+      ):pick(1)),
       peg.seq(
         g:token("at"):map(|_|"at"),
-        peg.digit():plus():flatten():map(to_int)
-      )
+        peg.digit():plus():flatten():map(to_int),
+      ),
     ):optional(),
     g:token("("),
     g:rule("param"):star_seperated(g:token(",")):map(|args| args.elements),
     g:token(")"),
-    g:rule("block")
+    g:rule("block"),
   ),
   func(result, g){
     local symbol = g:token(result[2], result[2], "operator")
@@ -102,7 +96,7 @@ g:extension_statement(
 
     define_infix(g:expression():level(id.value, place(position)))
     return {token: result[0], ast: function_def}
-  }
+  },
 )
 
 g:extension_statement(
@@ -112,31 +106,25 @@ g:extension_statement(
     peg.any():star_lazy(g:token("_")):flatten():trim(),
     g:token("_"),
     peg.choice(
-      peg.seq(
-        g:token("after"):map(|_|"after"),
-        peg.seq(
-          g:token("_"),
-          peg.any():star_lazy(peg.string("_")):flatten(),
-          g:token("_")
-        ):pick(1)
-      ),
-      peg.seq(
-        g:token("before"):map(|_|"before"),
-        peg.seq(
-          g:token("_"),
-          peg.any():star_lazy(peg.string("_")):flatten(),
-          g:token("_")
-        ):pick(1)
-      ),
+      peg.seq(g:token("after"):map(|_|"after"), peg.seq(
+        g:token("_"),
+        peg.any():star_lazy(peg.string("_")):flatten(),
+        g:token("_"),
+      ):pick(1)),
+      peg.seq(g:token("before"):map(|_|"before"), peg.seq(
+        g:token("_"),
+        peg.any():star_lazy(peg.string("_")):flatten(),
+        g:token("_"),
+      ):pick(1)),
       peg.seq(
         g:token("at"):map(|_|"at"),
-        peg.digit():plus():flatten():map(to_int)
-      )
+        peg.digit():plus():flatten():map(to_int),
+      ),
     ):optional(),
     g:token("("),
     g:rule("param"):star_seperated(g:token(",")):map(|args| args.elements),
     g:token(")"),
-    g:rule("block")
+    g:rule("block"),
   ),
   func(result, g){
     local symbol = g:token(result[1], result[1], "operator")
@@ -159,7 +147,7 @@ g:extension_statement(
 
     define_prefix(g:expression():level(id.value, place(position)))
     return {token: result[0], ast: function_def}
-  }
+  },
 )
 
 g:extension_statement(
@@ -167,41 +155,32 @@ g:extension_statement(
   peg.seq(
     g:keyword("postfix"),
     g:token("_"),
-    peg.any()
-      :star_lazy(peg.choice(
-        g:token("("),
-        g:token("after"),
-        g:token("before"),
-        g:token("at")
-      ))
-      :flatten()
-      :trim(),
+    peg.any():star_lazy(peg.choice(
+      g:token("("),
+      g:token("after"),
+      g:token("before"),
+      g:token("at"),
+    )):flatten():trim(),
     peg.choice(
-      peg.seq(
-        g:token("after"):map(|_|"after"),
-        peg.seq(
-          g:token("_"),
-          peg.any():star_lazy(peg.string("_")):flatten(),
-          g:token("_")
-        ):pick(1)
-      ),
-      peg.seq(
-        g:token("before"):map(|_|"before"),
-        peg.seq(
-          g:token("_"),
-          peg.any():star_lazy(peg.string("_")):flatten(),
-          g:token("_")
-        ):pick(1)
-      ),
+      peg.seq(g:token("after"):map(|_|"after"), peg.seq(
+        g:token("_"),
+        peg.any():star_lazy(peg.string("_")):flatten(),
+        g:token("_"),
+      ):pick(1)),
+      peg.seq(g:token("before"):map(|_|"before"), peg.seq(
+        g:token("_"),
+        peg.any():star_lazy(peg.string("_")):flatten(),
+        g:token("_"),
+      ):pick(1)),
       peg.seq(
         g:token("at"):map(|_|"at"),
-        peg.digit():plus():flatten():map(to_int)
-      )
+        peg.digit():plus():flatten():map(to_int),
+      ),
     ):optional(),
     g:token("("),
     g:rule("param"):star_seperated(g:token(",")):map(|args| args.elements),
     g:token(")"),
-    g:rule("block")
+    g:rule("block"),
   ),
   func(result, g){
     local symbol = g:token(result[2], result[2], "operator")
@@ -224,5 +203,5 @@ g:extension_statement(
 
     define_postfix(g:expression():level(id.value, place(position)))
     return {token: result[0], ast: function_def}
-  }
+  },
 )

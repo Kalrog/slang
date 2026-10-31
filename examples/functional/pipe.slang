@@ -25,7 +25,7 @@ g:expression():level("pipe", {before: "compare", aliases: {"|>"}})
     call = ast.node(
       "Invoke",
       {receiver: right.receiver, name: right.name, args: {left, ...right.args}},
-      op
+      op,
     )
   } else {
     call = ast.node("Call", {function: right, args: {left}}, op)

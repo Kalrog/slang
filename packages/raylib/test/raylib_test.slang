@@ -28,7 +28,7 @@ t.group("raylib: structs are tables"){
   t.test("nested structs and matrices"){
     local camera = {
       position: {0, 10, 10}, target: {0, 0, 0}, up: {0, 1, 0}, fovy: 45,
-      projection: rl.CAMERA_PERSPECTIVE,
+      projection: rl.CAMERA_PERSPECTIVE
     }
     local m = rl.get_camera_matrix(camera)
     assert(near(m.m0, 1))
@@ -57,11 +57,11 @@ t.group("raylib: structs are tables"){
     assert(
       r[1].message ==
         "bad argument #1 to 'check_collision_recs' (Rectangle expected, got string)",
-      r[1].message
+      r[1].message,
     )
     r = pcall(rl.vector2_add, {1, 2})
     assert(
-      r[0] == "err" and r[1].message == "vector2_add takes 2 arguments, got 1"
+      r[0] == "err" and r[1].message == "vector2_add takes 2 arguments, got 1",
     )
   }
 }
@@ -97,5 +97,16 @@ t.group("raylib: text"){
     assert(rl.text_replace("a-b", "-", "+") == "a+b")
     assert(rl.compute_crc32("hello") == rl.compute_crc32("hello"))
     assert(rl.text_format("%d-%s", 7, "x") == "7-x")
+  }
+}
+
+t.group("raylib: names"){
+  t.test("a font size after a text is passed, not taken for its length"){
+    local names = require("raylib/names")
+    local param = func(name) => {name: name, type: {kind: "prim"}}
+    assert(not names.is_count(param("fontSize")))
+    assert(names.is_count(param("dataSize")) and names.is_count(
+        param("pointCount"),
+      ))
   }
 }

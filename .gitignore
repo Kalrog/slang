@@ -16,3 +16,8 @@ examples/webserver/todos.db
 examples/webserver/uploads/
 examples/desktop/todos.db
 /packages/*/lib/
+
+# built programs (slang build)
+/examples/webserver/webserver
+/examples/desktop/todos
+/dist/

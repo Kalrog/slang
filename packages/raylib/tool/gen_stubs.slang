@@ -150,7 +150,7 @@ line("// package makes these functions at run time, so tools read them here.")
 line("//")
 line("// Structs are tables (fields by name or by position); pointer fields")
 line(
-  "// reach into raylib's memory (model.materials[0].maps[0].texture = tex):"
+  "// reach into raylib's memory (model.materials[0].maps[0].texture = tex):",
 )
 local seen = {}
 for(let local e in entries(C.types)){
@@ -182,7 +182,7 @@ line("// the declarations, for slang/ffi: ffi.new(\"Vector2\", 4, m.decls)")
 line("m.decls = {}")
 line("")
 line(
-  "// ------------------------------------------------------------ constants"
+  "// ------------------------------------------------------------ constants",
 )
 line("")
 local constants = {}
@@ -205,7 +205,7 @@ for(let local name in values(constants)){
 }
 line("")
 line(
-  "// ------------------------------------------------------------ functions"
+  "// ------------------------------------------------------------ functions",
 )
 line("")
 local handwritten = {
@@ -269,7 +269,7 @@ for(let local c_name in values(C.order)){
     comment(sig, "//   ")
     comment(
       concat("C: ", cparam(ret, c_name), "(", str.join(cparams, ", "), ")"),
-      "//   "
+      "//   ",
     )
     local body = ""
     if(ret.kind == "struct"){
@@ -280,7 +280,7 @@ for(let local c_name in values(C.order)){
   }
 }
 line(
-  "// ------------------------------------------------------------ written by hand"
+  "// ------------------------------------------------------------ written by hand",
 )
 line("")
 local manual = {

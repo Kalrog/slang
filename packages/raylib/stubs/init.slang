@@ -638,7 +638,9 @@ func m.get_clipboard_text(){}
 // Get clipboard image content
 //   get_clipboard_image() -> Image
 //   C: Image GetClipboardImage()
-func m.get_clipboard_image(){ return {data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.get_clipboard_image(){
+  return {data: null, width: 0, height: 0, mipmaps: 0, format: 0}
+}
 
 // Enable waiting for events on EndDrawing(), no automatic event polling
 //   enable_event_waiting()
@@ -768,7 +770,13 @@ func m.end_vr_stereo_mode(){}
 // Load VR stereo config for VR simulator device parameters
 //   load_vr_stereo_config(device: VrDeviceInfo) -> VrStereoConfig
 //   C: VrStereoConfig LoadVrStereoConfig(VrDeviceInfo device)
-func m.load_vr_stereo_config(device){ return {projection: {}, view_offset: {}, left_lens_center: {}, right_lens_center: {}, left_screen_center: {}, right_screen_center: {}, scale: {}, scale_in: {}} }
+func m.load_vr_stereo_config(device){
+  return {
+    projection: {}, view_offset: {}, left_lens_center: {},
+    right_lens_center: {}, left_screen_center: {}, right_screen_center: {},
+    scale: {}, scale_in: {}
+  }
+}
 
 // Unload VR stereo config
 //   unload_vr_stereo_config(config: VrStereoConfig)
@@ -818,14 +826,18 @@ func m.unload_shader(shader){}
 // Get a ray trace from screen position (i.e mouse)
 //   get_screen_to_world_ray(position: Vector2, camera: Camera3D) -> Ray
 //   C: Ray GetScreenToWorldRay(Vector2 position, Camera3D camera)
-func m.get_screen_to_world_ray(position, camera){ return {position: {x: 0, y: 0, z: 0}, direction: {x: 0, y: 0, z: 0}} }
+func m.get_screen_to_world_ray(position, camera){
+  return {position: {x: 0, y: 0, z: 0}, direction: {x: 0, y: 0, z: 0}}
+}
 
 // Get a ray trace from screen position (i.e mouse) in a viewport
 //   get_screen_to_world_ray_ex(position: Vector2, camera: Camera3D, width: int,
 //      height: int) -> Ray
 //   C: Ray GetScreenToWorldRayEx(Vector2 position, Camera3D camera, int width,
 //      int height)
-func m.get_screen_to_world_ray_ex(position, camera, width, height){ return {position: {x: 0, y: 0, z: 0}, direction: {x: 0, y: 0, z: 0}} }
+func m.get_screen_to_world_ray_ex(position, camera, width, height){
+  return {position: {x: 0, y: 0, z: 0}, direction: {x: 0, y: 0, z: 0}}
+}
 
 // Get the screen space position for a 3d world space position
 //   get_world_to_screen(position: Vector3, camera: Camera3D) -> Vector2
@@ -837,7 +849,9 @@ func m.get_world_to_screen(position, camera){ return {x: 0, y: 0} }
 //      height: int) -> Vector2
 //   C: Vector2 GetWorldToScreenEx(Vector3 position, Camera3D camera, int width,
 //      int height)
-func m.get_world_to_screen_ex(position, camera, width, height){ return {x: 0, y: 0} }
+func m.get_world_to_screen_ex(position, camera, width, height){
+  return {x: 0, y: 0}
+}
 
 // Get the screen space position for a 2d camera world space position
 //   get_world_to_screen_2d(position: Vector2, camera: Camera2D) -> Vector2
@@ -852,12 +866,22 @@ func m.get_screen_to_world_2d(position, camera){ return {x: 0, y: 0} }
 // Get camera transform matrix (view matrix)
 //   get_camera_matrix(camera: Camera3D) -> Matrix
 //   C: Matrix GetCameraMatrix(Camera3D camera)
-func m.get_camera_matrix(camera){ return {m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0, m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0} }
+func m.get_camera_matrix(camera){
+  return {
+    m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0,
+    m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0
+  }
+}
 
 // Get camera 2d transform matrix
 //   get_camera_matrix_2d(camera: Camera2D) -> Matrix
 //   C: Matrix GetCameraMatrix2D(Camera2D camera)
-func m.get_camera_matrix_2d(camera){ return {m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0, m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0} }
+func m.get_camera_matrix_2d(camera){
+  return {
+    m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0,
+    m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0
+  }
+}
 
 // Set target FPS (maximum)
 //   set_target_fps(fps: int)
@@ -1144,7 +1168,9 @@ func m.compute_sha1(data){}
 // MAX_AUTOMATION_EVENTS
 //   load_automation_event_list(file_name: string) -> AutomationEventList
 //   C: AutomationEventList LoadAutomationEventList(const char *fileName)
-func m.load_automation_event_list(file_name){ return {capacity: 0, count: 0, events: null} }
+func m.load_automation_event_list(file_name){
+  return {capacity: 0, count: 0, events: null}
+}
 
 // Unload automation events list from file
 //   unload_automation_event_list(list: AutomationEventList)
@@ -1437,12 +1463,16 @@ func m.set_shapes_texture(texture, source){}
 // Get texture that is used for shapes drawing
 //   get_shapes_texture() -> Texture
 //   C: Texture GetShapesTexture()
-func m.get_shapes_texture(){ return {id: 0, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.get_shapes_texture(){
+  return {id: 0, width: 0, height: 0, mipmaps: 0, format: 0}
+}
 
 // Get texture source rectangle that is used for shapes drawing
 //   get_shapes_texture_rectangle() -> Rectangle
 //   C: Rectangle GetShapesTextureRectangle()
-func m.get_shapes_texture_rectangle(){ return {x: 0, y: 0, width: 0, height: 0} }
+func m.get_shapes_texture_rectangle(){
+  return {x: 0, y: 0, width: 0, height: 0}
+}
 
 // Draw a pixel using geometry [Can be slow, use with care]
 //   draw_pixel(pos_x: int, pos_y: int, color: Color)
@@ -1495,14 +1525,18 @@ func m.draw_circle(center_x, center_y, radius, color){}
 //      end_angle: float, segments: int, color: Color)
 //   C: void DrawCircleSector(Vector2 center, float radius, float startAngle,
 //      float endAngle, int segments, Color color)
-func m.draw_circle_sector(center, radius, start_angle, end_angle, segments, color){}
+func m.draw_circle_sector(
+  center, radius, start_angle, end_angle, segments, color
+){}
 
 // Draw circle sector outline
 //   draw_circle_sector_lines(center: Vector2, radius: float, start_angle:
 //      float, end_angle: float, segments: int, color: Color)
 //   C: void DrawCircleSectorLines(Vector2 center, float radius, float
 //      startAngle, float endAngle, int segments, Color color)
-func m.draw_circle_sector_lines(center, radius, start_angle, end_angle, segments, color){}
+func m.draw_circle_sector_lines(
+  center, radius, start_angle, end_angle, segments, color
+){}
 
 // Draw a gradient-filled circle
 //   draw_circle_gradient(center_x: int, center_y: int, radius: float, inner:
@@ -1547,14 +1581,18 @@ func m.draw_ellipse_lines(center_x, center_y, radius_h, radius_v, color){}
 //      start_angle: float, end_angle: float, segments: int, color: Color)
 //   C: void DrawRing(Vector2 center, float innerRadius, float outerRadius,
 //      float startAngle, float endAngle, int segments, Color color)
-func m.draw_ring(center, inner_radius, outer_radius, start_angle, end_angle, segments, color){}
+func m.draw_ring(
+  center, inner_radius, outer_radius, start_angle, end_angle, segments, color
+){}
 
 // Draw ring outline
 //   draw_ring_lines(center: Vector2, inner_radius: float, outer_radius: float,
 //      start_angle: float, end_angle: float, segments: int, color: Color)
 //   C: void DrawRingLines(Vector2 center, float innerRadius, float outerRadius,
 //      float startAngle, float endAngle, int segments, Color color)
-func m.draw_ring_lines(center, inner_radius, outer_radius, start_angle, end_angle, segments, color){}
+func m.draw_ring_lines(
+  center, inner_radius, outer_radius, start_angle, end_angle, segments, color
+){}
 
 // Draw a color-filled rectangle
 //   draw_rectangle(pos_x: int, pos_y: int, width: int, height: int, color:
@@ -1599,7 +1637,9 @@ func m.draw_rectangle_gradient_h(pos_x, pos_y, width, height, left, right){}
 //      Color, top_right: Color, bottom_right: Color)
 //   C: void DrawRectangleGradientEx(Rectangle rec, Color topLeft, Color
 //      bottomLeft, Color topRight, Color bottomRight)
-func m.draw_rectangle_gradient_ex(rec, top_left, bottom_left, top_right, bottom_right){}
+func m.draw_rectangle_gradient_ex(
+  rec, top_left, bottom_left, top_right, bottom_right
+){}
 
 // Draw rectangle outline
 //   draw_rectangle_lines(pos_x: int, pos_y: int, width: int, height: int,
@@ -1632,7 +1672,9 @@ func m.draw_rectangle_rounded_lines(rec, roundness, segments, color){}
 //      int, line_thick: float, color: Color)
 //   C: void DrawRectangleRoundedLinesEx(Rectangle rec, float roundness, int
 //      segments, float lineThick, Color color)
-func m.draw_rectangle_rounded_lines_ex(rec, roundness, segments, line_thick, color){}
+func m.draw_rectangle_rounded_lines_ex(
+  rec, roundness, segments, line_thick, color
+){}
 
 // Draw a color-filled triangle (vertex in counter-clockwise order!)
 //   draw_triangle(v1: Vector2, v2: Vector2, v3: Vector2, color: Color)
@@ -1846,7 +1888,9 @@ func m.check_collision_point_poly(point, points){}
 //      Vector2, end_pos2: Vector2, collision_point: Vector2 (updated)) -> bool
 //   C: bool CheckCollisionLines(Vector2 startPos1, Vector2 endPos1, Vector2
 //      startPos2, Vector2 endPos2, Vector2 *collisionPoint)
-func m.check_collision_lines(start_pos1, end_pos1, start_pos2, end_pos2, collision_point){}
+func m.check_collision_lines(
+  start_pos1, end_pos1, start_pos2, end_pos2, collision_point
+){}
 
 // Get collision rectangle for two rectangles collision
 //   get_collision_rec(rec1: Rectangle, rec2: Rectangle) -> Rectangle
@@ -1856,42 +1900,56 @@ func m.get_collision_rec(rec1, rec2){ return {x: 0, y: 0, width: 0, height: 0} }
 // Load image from file into CPU memory (RAM)
 //   load_image(file_name: string) -> Image
 //   C: Image LoadImage(const char *fileName)
-func m.load_image(file_name){ return {data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.load_image(file_name){
+  return {data: null, width: 0, height: 0, mipmaps: 0, format: 0}
+}
 
 // Load image from RAW file data
 //   load_image_raw(file_name: string, width: int, height: int, format: int,
 //      header_size: int) -> Image
 //   C: Image LoadImageRaw(const char *fileName, int width, int height, int
 //      format, int headerSize)
-func m.load_image_raw(file_name, width, height, format, header_size){ return {data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.load_image_raw(file_name, width, height, format, header_size){
+  return {data: null, width: 0, height: 0, mipmaps: 0, format: 0}
+}
 
 // Load image sequence from file (frames appended to image.data)
 //   load_image_anim(file_name: string, frames: pointer) -> Image
 //   C: Image LoadImageAnim(const char *fileName, int *frames)
-func m.load_image_anim(file_name, frames){ return {data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.load_image_anim(file_name, frames){
+  return {data: null, width: 0, height: 0, mipmaps: 0, format: 0}
+}
 
 // Load image sequence from memory buffer
 //   load_image_anim_from_memory(file_type: string, file_data: string, frames:
 //      pointer) -> Image
 //   C: Image LoadImageAnimFromMemory(const char *fileType, const unsigned char
 //      *fileData, int dataSize, int *frames)
-func m.load_image_anim_from_memory(file_type, file_data, frames){ return {data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.load_image_anim_from_memory(file_type, file_data, frames){
+  return {data: null, width: 0, height: 0, mipmaps: 0, format: 0}
+}
 
 // Load image from memory buffer, fileType refers to extension: i.e. '.png'
 //   load_image_from_memory(file_type: string, file_data: string) -> Image
 //   C: Image LoadImageFromMemory(const char *fileType, const unsigned char
 //      *fileData, int dataSize)
-func m.load_image_from_memory(file_type, file_data){ return {data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.load_image_from_memory(file_type, file_data){
+  return {data: null, width: 0, height: 0, mipmaps: 0, format: 0}
+}
 
 // Load image from GPU texture data
 //   load_image_from_texture(texture: Texture) -> Image
 //   C: Image LoadImageFromTexture(Texture texture)
-func m.load_image_from_texture(texture){ return {data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.load_image_from_texture(texture){
+  return {data: null, width: 0, height: 0, mipmaps: 0, format: 0}
+}
 
 // Load image from screen buffer and (screenshot)
 //   load_image_from_screen() -> Image
 //   C: Image LoadImageFromScreen()
-func m.load_image_from_screen(){ return {data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.load_image_from_screen(){
+  return {data: null, width: 0, height: 0, mipmaps: 0, format: 0}
+}
 
 // Check if an image is valid (data and parameters)
 //   is_image_valid(image: Image) -> bool
@@ -1923,7 +1981,9 @@ func m.export_image_as_code(image, file_name){}
 // Generate image: plain color
 //   gen_image_color(width: int, height: int, color: Color) -> Image
 //   C: Image GenImageColor(int width, int height, Color color)
-func m.gen_image_color(width, height, color){ return {data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.gen_image_color(width, height, color){
+  return {data: null, width: 0, height: 0, mipmaps: 0, format: 0}
+}
 
 // Generate image: linear gradient, direction in degrees [0..360], 0=Vertical
 // gradient
@@ -1931,77 +1991,103 @@ func m.gen_image_color(width, height, color){ return {data: null, width: 0, heig
 //      Color, end: Color) -> Image
 //   C: Image GenImageGradientLinear(int width, int height, int direction, Color
 //      start, Color end)
-func m.gen_image_gradient_linear(width, height, direction, start, end){ return {data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.gen_image_gradient_linear(width, height, direction, start, end){
+  return {data: null, width: 0, height: 0, mipmaps: 0, format: 0}
+}
 
 // Generate image: radial gradient
 //   gen_image_gradient_radial(width: int, height: int, density: float, inner:
 //      Color, outer: Color) -> Image
 //   C: Image GenImageGradientRadial(int width, int height, float density, Color
 //      inner, Color outer)
-func m.gen_image_gradient_radial(width, height, density, inner, outer){ return {data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.gen_image_gradient_radial(width, height, density, inner, outer){
+  return {data: null, width: 0, height: 0, mipmaps: 0, format: 0}
+}
 
 // Generate image: square gradient
 //   gen_image_gradient_square(width: int, height: int, density: float, inner:
 //      Color, outer: Color) -> Image
 //   C: Image GenImageGradientSquare(int width, int height, float density, Color
 //      inner, Color outer)
-func m.gen_image_gradient_square(width, height, density, inner, outer){ return {data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.gen_image_gradient_square(width, height, density, inner, outer){
+  return {data: null, width: 0, height: 0, mipmaps: 0, format: 0}
+}
 
 // Generate image: checked
 //   gen_image_checked(width: int, height: int, checks_x: int, checks_y: int,
 //      col1: Color, col2: Color) -> Image
 //   C: Image GenImageChecked(int width, int height, int checksX, int checksY,
 //      Color col1, Color col2)
-func m.gen_image_checked(width, height, checks_x, checks_y, col1, col2){ return {data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.gen_image_checked(width, height, checks_x, checks_y, col1, col2){
+  return {data: null, width: 0, height: 0, mipmaps: 0, format: 0}
+}
 
 // Generate image: white noise
 //   gen_image_white_noise(width: int, height: int, factor: float) -> Image
 //   C: Image GenImageWhiteNoise(int width, int height, float factor)
-func m.gen_image_white_noise(width, height, factor){ return {data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.gen_image_white_noise(width, height, factor){
+  return {data: null, width: 0, height: 0, mipmaps: 0, format: 0}
+}
 
 // Generate image: perlin noise
 //   gen_image_perlin_noise(width: int, height: int, offset_x: int, offset_y:
 //      int, scale: float) -> Image
 //   C: Image GenImagePerlinNoise(int width, int height, int offsetX, int
 //      offsetY, float scale)
-func m.gen_image_perlin_noise(width, height, offset_x, offset_y, scale){ return {data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.gen_image_perlin_noise(width, height, offset_x, offset_y, scale){
+  return {data: null, width: 0, height: 0, mipmaps: 0, format: 0}
+}
 
 // Generate image: cellular algorithm, bigger tileSize means bigger cells
 //   gen_image_cellular(width: int, height: int, tile_size: int) -> Image
 //   C: Image GenImageCellular(int width, int height, int tileSize)
-func m.gen_image_cellular(width, height, tile_size){ return {data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.gen_image_cellular(width, height, tile_size){
+  return {data: null, width: 0, height: 0, mipmaps: 0, format: 0}
+}
 
 // Generate image: grayscale image from text data
 //   gen_image_text(width: int, height: int, text: string) -> Image
 //   C: Image GenImageText(int width, int height, const char *text)
-func m.gen_image_text(width, height, text){ return {data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.gen_image_text(width, height, text){
+  return {data: null, width: 0, height: 0, mipmaps: 0, format: 0}
+}
 
 // Create an image duplicate (useful for transformations)
 //   image_copy(image: Image) -> Image
 //   C: Image ImageCopy(Image image)
-func m.image_copy(image){ return {data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.image_copy(image){
+  return {data: null, width: 0, height: 0, mipmaps: 0, format: 0}
+}
 
 // Create an image from another image piece
 //   image_from_image(image: Image, rec: Rectangle) -> Image
 //   C: Image ImageFromImage(Image image, Rectangle rec)
-func m.image_from_image(image, rec){ return {data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.image_from_image(image, rec){
+  return {data: null, width: 0, height: 0, mipmaps: 0, format: 0}
+}
 
 // Create an image from a selected channel of another image (GRAYSCALE)
 //   image_from_channel(image: Image, selected_channel: int) -> Image
 //   C: Image ImageFromChannel(Image image, int selectedChannel)
-func m.image_from_channel(image, selected_channel){ return {data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.image_from_channel(image, selected_channel){
+  return {data: null, width: 0, height: 0, mipmaps: 0, format: 0}
+}
 
 // Create an image from text (default font)
-//   image_text(text: string, color: Color) -> Image
+//   image_text(text: string, font_size: int, color: Color) -> Image
 //   C: Image ImageText(const char *text, int fontSize, Color color)
-func m.image_text(text, color){ return {data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.image_text(text, font_size, color){
+  return {data: null, width: 0, height: 0, mipmaps: 0, format: 0}
+}
 
 // Create an image from text (custom sprite font)
-//   image_text_ex(font: Font, text: string, spacing: float, tint: Color) ->
-//      Image
+//   image_text_ex(font: Font, text: string, font_size: float, spacing: float,
+//      tint: Color) -> Image
 //   C: Image ImageTextEx(Font font, const char *text, float fontSize, float
 //      spacing, Color tint)
-func m.image_text_ex(font, text, spacing, tint){ return {data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.image_text_ex(font, text, font_size, spacing, tint){
+  return {data: null, width: 0, height: 0, mipmaps: 0, format: 0}
+}
 
 // Convert image data to desired format
 //   image_format(image: Image (updated), new_format: int)
@@ -2064,7 +2150,9 @@ func m.image_resize_nn(image, new_width, new_height){}
 //      int, offset_x: int, offset_y: int, fill: Color)
 //   C: void ImageResizeCanvas(Image *image, int newWidth, int newHeight, int
 //      offsetX, int offsetY, Color fill)
-func m.image_resize_canvas(image, new_width, new_height, offset_x, offset_y, fill){}
+func m.image_resize_canvas(
+  image, new_width, new_height, offset_x, offset_y, fill
+){}
 
 // Compute all mipmap levels for a provided image
 //   image_mipmaps(image: Image (updated))
@@ -2152,7 +2240,9 @@ func m.unload_image_palette(colors){}
 // Get image alpha border rectangle
 //   get_image_alpha_border(image: Image, threshold: float) -> Rectangle
 //   C: Rectangle GetImageAlphaBorder(Image image, float threshold)
-func m.get_image_alpha_border(image, threshold){ return {x: 0, y: 0, width: 0, height: 0} }
+func m.get_image_alpha_border(image, threshold){
+  return {x: 0, y: 0, width: 0, height: 0}
+}
 
 // Get image pixel color at (x, y) position
 //   get_image_color(image: Image, x: int, y: int) -> Color
@@ -2180,7 +2270,9 @@ func m.image_draw_pixel_v(dst, position, color){}
 //      end_pos_x: int, end_pos_y: int, color: Color)
 //   C: void ImageDrawLine(Image *dst, int startPosX, int startPosY, int
 //      endPosX, int endPosY, Color color)
-func m.image_draw_line(dst, start_pos_x, start_pos_y, end_pos_x, end_pos_y, color){}
+func m.image_draw_line(
+  dst, start_pos_x, start_pos_y, end_pos_x, end_pos_y, color
+){}
 
 // Draw line within an image (Vector version)
 //   image_draw_line_v(dst: Image (updated), start: Vector2, end: Vector2,
@@ -2310,22 +2402,34 @@ func m.image_draw_text_ex(dst, font, text, position, font_size, spacing, tint){}
 // Load texture from file into GPU memory (VRAM)
 //   load_texture(file_name: string) -> Texture
 //   C: Texture LoadTexture(const char *fileName)
-func m.load_texture(file_name){ return {id: 0, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.load_texture(file_name){
+  return {id: 0, width: 0, height: 0, mipmaps: 0, format: 0}
+}
 
 // Load texture from image data
 //   load_texture_from_image(image: Image) -> Texture
 //   C: Texture LoadTextureFromImage(Image image)
-func m.load_texture_from_image(image){ return {id: 0, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.load_texture_from_image(image){
+  return {id: 0, width: 0, height: 0, mipmaps: 0, format: 0}
+}
 
 // Load cubemap from image, multiple image cubemap layouts supported
 //   load_texture_cubemap(image: Image, layout: int) -> Texture
 //   C: Texture LoadTextureCubemap(Image image, int layout)
-func m.load_texture_cubemap(image, layout){ return {id: 0, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.load_texture_cubemap(image, layout){
+  return {id: 0, width: 0, height: 0, mipmaps: 0, format: 0}
+}
 
 // Load texture for rendering (framebuffer)
 //   load_render_texture(width: int, height: int) -> RenderTexture
 //   C: RenderTexture LoadRenderTexture(int width, int height)
-func m.load_render_texture(width, height){ return {id: 0, texture: {id: 0, width: 0, height: 0, mipmaps: 0, format: 0}, depth: {id: 0, width: 0, height: 0, mipmaps: 0, format: 0}} }
+func m.load_render_texture(width, height){
+  return {
+    id: 0,
+    texture: {id: 0, width: 0, height: 0, mipmaps: 0, format: 0},
+    depth: {id: 0, width: 0, height: 0, mipmaps: 0, format: 0},
+  }
+}
 
 // Check if a texture is valid (loaded in GPU)
 //   is_texture_valid(texture: Texture) -> bool
@@ -2409,7 +2513,9 @@ func m.draw_texture_pro(texture, source, dest, origin, rotation, tint){}
 //      Rectangle, origin: Vector2, rotation: float, tint: Color)
 //   C: void DrawTextureNPatch(Texture texture, NPatchInfo nPatchInfo, Rectangle
 //      dest, Vector2 origin, float rotation, Color tint)
-func m.draw_texture_n_patch(texture, n_patch_info, dest, origin, rotation, tint){}
+func m.draw_texture_n_patch(
+  texture, n_patch_info, dest, origin, rotation, tint
+){}
 
 // Check if two colors are equal
 //   color_is_equal(col1: Color, col2: Color) -> bool
@@ -2500,25 +2606,49 @@ func m.get_pixel_data_size(width, height, format){}
 // Get the default Font
 //   get_font_default() -> Font
 //   C: Font GetFontDefault()
-func m.get_font_default(){ return {base_size: 0, glyph_count: 0, glyph_padding: 0, texture: {id: 0, width: 0, height: 0, mipmaps: 0, format: 0}, recs: null, glyphs: null} }
+func m.get_font_default(){
+  return {
+    base_size: 0, glyph_count: 0, glyph_padding: 0,
+    texture: {id: 0, width: 0, height: 0, mipmaps: 0, format: 0}, recs: null,
+    glyphs: null
+  }
+}
 
 // Load font from file into GPU memory (VRAM)
 //   load_font(file_name: string) -> Font
 //   C: Font LoadFont(const char *fileName)
-func m.load_font(file_name){ return {base_size: 0, glyph_count: 0, glyph_padding: 0, texture: {id: 0, width: 0, height: 0, mipmaps: 0, format: 0}, recs: null, glyphs: null} }
+func m.load_font(file_name){
+  return {
+    base_size: 0, glyph_count: 0, glyph_padding: 0,
+    texture: {id: 0, width: 0, height: 0, mipmaps: 0, format: 0}, recs: null,
+    glyphs: null
+  }
+}
 
 // Load font from file with extended parameters, use NULL for codepoints and 0
 // for codepointCount to load the default character set, font size is provided
 // in pixels height
-//   load_font_ex(file_name: string, codepoints: list) -> Font
+//   load_font_ex(file_name: string, font_size: int, codepoints: list) -> Font
 //   C: Font LoadFontEx(const char *fileName, int fontSize, int *codepoints, int
 //      codepointCount)
-func m.load_font_ex(file_name, codepoints){ return {base_size: 0, glyph_count: 0, glyph_padding: 0, texture: {id: 0, width: 0, height: 0, mipmaps: 0, format: 0}, recs: null, glyphs: null} }
+func m.load_font_ex(file_name, font_size, codepoints){
+  return {
+    base_size: 0, glyph_count: 0, glyph_padding: 0,
+    texture: {id: 0, width: 0, height: 0, mipmaps: 0, format: 0}, recs: null,
+    glyphs: null
+  }
+}
 
 // Load font from Image (XNA style)
 //   load_font_from_image(image: Image, key: Color, first_char: int) -> Font
 //   C: Font LoadFontFromImage(Image image, Color key, int firstChar)
-func m.load_font_from_image(image, key, first_char){ return {base_size: 0, glyph_count: 0, glyph_padding: 0, texture: {id: 0, width: 0, height: 0, mipmaps: 0, format: 0}, recs: null, glyphs: null} }
+func m.load_font_from_image(image, key, first_char){
+  return {
+    base_size: 0, glyph_count: 0, glyph_padding: 0,
+    texture: {id: 0, width: 0, height: 0, mipmaps: 0, format: 0}, recs: null,
+    glyphs: null
+  }
+}
 
 // Load font from memory buffer, fileType refers to extension: i.e. '.ttf'
 //   load_font_from_memory(file_type: string, file_data: string, font_size: int,
@@ -2526,7 +2656,13 @@ func m.load_font_from_image(image, key, first_char){ return {base_size: 0, glyph
 //   C: Font LoadFontFromMemory(const char *fileType, const unsigned char
 //      *fileData, int dataSize, int fontSize, int *codepoints, int
 //      codepointCount)
-func m.load_font_from_memory(file_type, file_data, font_size, codepoints){ return {base_size: 0, glyph_count: 0, glyph_padding: 0, texture: {id: 0, width: 0, height: 0, mipmaps: 0, format: 0}, recs: null, glyphs: null} }
+func m.load_font_from_memory(file_type, file_data, font_size, codepoints){
+  return {
+    base_size: 0, glyph_count: 0, glyph_padding: 0,
+    texture: {id: 0, width: 0, height: 0, mipmaps: 0, format: 0}, recs: null,
+    glyphs: null
+  }
+}
 
 // Check if a font is valid (font data loaded, WARNING: GPU texture not checked)
 //   is_font_valid(font: Font) -> bool
@@ -2545,7 +2681,9 @@ func m.load_font_data(file_data, font_size, codepoints, type){}
 //      padding: int, pack_method: int) -> Image
 //   C: Image GenImageFontAtlas(const GlyphInfo *glyphs, Rectangle * *glyphRecs,
 //      int glyphCount, int fontSize, int padding, int packMethod)
-func m.gen_image_font_atlas(glyphs, glyph_recs, font_size, padding, pack_method){ return {data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.gen_image_font_atlas(
+  glyphs, glyph_recs, font_size, padding, pack_method
+){ return {data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
 
 // Unload font chars info data (RAM)
 //   unload_font_data(glyphs: list of GlyphInfo)
@@ -2586,7 +2724,9 @@ func m.draw_text_ex(font, text, position, font_size, spacing, tint){}
 //      rotation: float, font_size: float, spacing: float, tint: Color)
 //   C: void DrawTextPro(Font font, const char *text, Vector2 position, Vector2
 //      origin, float rotation, float fontSize, float spacing, Color tint)
-func m.draw_text_pro(font, text, position, origin, rotation, font_size, spacing, tint){}
+func m.draw_text_pro(
+  font, text, position, origin, rotation, font_size, spacing, tint
+){}
 
 // Draw one character (codepoint)
 //   draw_text_codepoint(font: Font, codepoint: int, position: Vector2,
@@ -2601,7 +2741,9 @@ func m.draw_text_codepoint(font, codepoint, position, font_size, tint){}
 //   C: void DrawTextCodepoints(Font font, const int *codepoints, int
 //      codepointCount, Vector2 position, float fontSize, float spacing, Color
 //      tint)
-func m.draw_text_codepoints(font, codepoints, position, font_size, spacing, tint){}
+func m.draw_text_codepoints(
+  font, codepoints, position, font_size, spacing, tint
+){}
 
 // Set vertical line spacing when drawing with line-breaks
 //   set_text_line_spacing(spacing: int)
@@ -2609,15 +2751,16 @@ func m.draw_text_codepoints(font, codepoints, position, font_size, spacing, tint
 func m.set_text_line_spacing(spacing){}
 
 // Measure string width for default font
-//   measure_text(text: string) -> int
+//   measure_text(text: string, font_size: int) -> int
 //   C: int MeasureText(const char *text, int fontSize)
-func m.measure_text(text){}
+func m.measure_text(text, font_size){}
 
 // Measure string size for Font
-//   measure_text_ex(font: Font, text: string, spacing: float) -> Vector2
+//   measure_text_ex(font: Font, text: string, font_size: float, spacing: float)
+//      -> Vector2
 //   C: Vector2 MeasureTextEx(Font font, const char *text, float fontSize, float
 //      spacing)
-func m.measure_text_ex(font, text, spacing){ return {x: 0, y: 0} }
+func m.measure_text_ex(font, text, font_size, spacing){ return {x: 0, y: 0} }
 
 // Get glyph index position in font for a codepoint (unicode character),
 // fallback to '?' if not found
@@ -2629,13 +2772,20 @@ func m.get_glyph_index(font, codepoint){}
 // if not found
 //   get_glyph_info(font: Font, codepoint: int) -> GlyphInfo
 //   C: GlyphInfo GetGlyphInfo(Font font, int codepoint)
-func m.get_glyph_info(font, codepoint){ return {value: 0, offset_x: 0, offset_y: 0, advance_x: 0, image: {data: null, width: 0, height: 0, mipmaps: 0, format: 0}} }
+func m.get_glyph_info(font, codepoint){
+  return {
+    value: 0, offset_x: 0, offset_y: 0, advance_x: 0,
+    image: {data: null, width: 0, height: 0, mipmaps: 0, format: 0}
+  }
+}
 
 // Get glyph rectangle in font atlas for a codepoint (unicode character),
 // fallback to '?' if not found
 //   get_glyph_atlas_rec(font: Font, codepoint: int) -> Rectangle
 //   C: Rectangle GetGlyphAtlasRec(Font font, int codepoint)
-func m.get_glyph_atlas_rec(font, codepoint){ return {x: 0, y: 0, width: 0, height: 0} }
+func m.get_glyph_atlas_rec(font, codepoint){
+  return {x: 0, y: 0, width: 0, height: 0}
+}
 
 // Load UTF-8 text encoded from codepoints array
 //   load_utf8(codepoints: list) -> string
@@ -2854,28 +3004,36 @@ func m.draw_sphere_wires(center_pos, radius, rings, slices, color){}
 //      height: float, slices: int, color: Color)
 //   C: void DrawCylinder(Vector3 position, float radiusTop, float radiusBottom,
 //      float height, int slices, Color color)
-func m.draw_cylinder(position, radius_top, radius_bottom, height, slices, color){}
+func m.draw_cylinder(
+  position, radius_top, radius_bottom, height, slices, color
+){}
 
 // Draw a cylinder with base at startPos and top at endPos
 //   draw_cylinder_ex(start_pos: Vector3, end_pos: Vector3, start_radius: float,
 //      end_radius: float, sides: int, color: Color)
 //   C: void DrawCylinderEx(Vector3 startPos, Vector3 endPos, float startRadius,
 //      float endRadius, int sides, Color color)
-func m.draw_cylinder_ex(start_pos, end_pos, start_radius, end_radius, sides, color){}
+func m.draw_cylinder_ex(
+  start_pos, end_pos, start_radius, end_radius, sides, color
+){}
 
 // Draw a cylinder/cone wires
 //   draw_cylinder_wires(position: Vector3, radius_top: float, radius_bottom:
 //      float, height: float, slices: int, color: Color)
 //   C: void DrawCylinderWires(Vector3 position, float radiusTop, float
 //      radiusBottom, float height, int slices, Color color)
-func m.draw_cylinder_wires(position, radius_top, radius_bottom, height, slices, color){}
+func m.draw_cylinder_wires(
+  position, radius_top, radius_bottom, height, slices, color
+){}
 
 // Draw a cylinder wires with base at startPos and top at endPos
 //   draw_cylinder_wires_ex(start_pos: Vector3, end_pos: Vector3, start_radius:
 //      float, end_radius: float, sides: int, color: Color)
 //   C: void DrawCylinderWiresEx(Vector3 startPos, Vector3 endPos, float
 //      startRadius, float endRadius, int sides, Color color)
-func m.draw_cylinder_wires_ex(start_pos, end_pos, start_radius, end_radius, sides, color){}
+func m.draw_cylinder_wires_ex(
+  start_pos, end_pos, start_radius, end_radius, sides, color
+){}
 
 // Draw a capsule with the center of its sphere caps at startPos and endPos
 //   draw_capsule(start_pos: Vector3, end_pos: Vector3, radius: float, slices:
@@ -2910,12 +3068,28 @@ func m.draw_grid(slices, spacing){}
 // Load model from files (meshes and materials)
 //   load_model(file_name: string) -> Model
 //   C: Model LoadModel(const char *fileName)
-func m.load_model(file_name){ return {transform: {m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0, m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0}, mesh_count: 0, material_count: 0, meshes: null, materials: null, mesh_material: null, bone_count: 0, bones: null, bind_pose: null} }
+func m.load_model(file_name){
+  return {
+    transform: {
+      m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0,
+      m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0
+    }, mesh_count: 0, material_count: 0, meshes: null, materials: null,
+    mesh_material: null, bone_count: 0, bones: null, bind_pose: null
+  }
+}
 
 // Load model from generated mesh (default material)
 //   load_model_from_mesh(mesh: Mesh) -> Model
 //   C: Model LoadModelFromMesh(Mesh mesh)
-func m.load_model_from_mesh(mesh){ return {transform: {m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0, m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0}, mesh_count: 0, material_count: 0, meshes: null, materials: null, mesh_material: null, bone_count: 0, bones: null, bind_pose: null} }
+func m.load_model_from_mesh(mesh){
+  return {
+    transform: {
+      m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0,
+      m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0
+    }, mesh_count: 0, material_count: 0, meshes: null, materials: null,
+    mesh_material: null, bone_count: 0, bones: null, bind_pose: null
+  }
+}
 
 // Check if a model is valid (loaded in GPU, VAO/VBOs)
 //   is_model_valid(model: Model) -> bool
@@ -2930,7 +3104,9 @@ func m.unload_model(model){}
 // Compute model bounding box limits (considers all meshes)
 //   get_model_bounding_box(model: Model) -> BoundingBox
 //   C: BoundingBox GetModelBoundingBox(Model model)
-func m.get_model_bounding_box(model){ return {min: {x: 0, y: 0, z: 0}, max: {x: 0, y: 0, z: 0}} }
+func m.get_model_bounding_box(model){
+  return {min: {x: 0, y: 0, z: 0}, max: {x: 0, y: 0, z: 0}}
+}
 
 // Draw a model (with texture if set)
 //   draw_model(model: Model, position: Vector3, scale: float, tint: Color)
@@ -2942,7 +3118,9 @@ func m.draw_model(model, position, scale, tint){}
 //      rotation_angle: float, scale: Vector3, tint: Color)
 //   C: void DrawModelEx(Model model, Vector3 position, Vector3 rotationAxis,
 //      float rotationAngle, Vector3 scale, Color tint)
-func m.draw_model_ex(model, position, rotation_axis, rotation_angle, scale, tint){}
+func m.draw_model_ex(
+  model, position, rotation_axis, rotation_angle, scale, tint
+){}
 
 // Draw a model wires (with texture if set)
 //   draw_model_wires(model: Model, position: Vector3, scale: float, tint:
@@ -2956,7 +3134,9 @@ func m.draw_model_wires(model, position, scale, tint){}
 //      Vector3, rotation_angle: float, scale: Vector3, tint: Color)
 //   C: void DrawModelWiresEx(Model model, Vector3 position, Vector3
 //      rotationAxis, float rotationAngle, Vector3 scale, Color tint)
-func m.draw_model_wires_ex(model, position, rotation_axis, rotation_angle, scale, tint){}
+func m.draw_model_wires_ex(
+  model, position, rotation_axis, rotation_angle, scale, tint
+){}
 
 // Draw a model as points
 //   draw_model_points(model: Model, position: Vector3, scale: float, tint:
@@ -2970,7 +3150,9 @@ func m.draw_model_points(model, position, scale, tint){}
 //      Vector3, rotation_angle: float, scale: Vector3, tint: Color)
 //   C: void DrawModelPointsEx(Model model, Vector3 position, Vector3
 //      rotationAxis, float rotationAngle, Vector3 scale, Color tint)
-func m.draw_model_points_ex(model, position, rotation_axis, rotation_angle, scale, tint){}
+func m.draw_model_points_ex(
+  model, position, rotation_axis, rotation_angle, scale, tint
+){}
 
 // Draw bounding box (wires)
 //   draw_bounding_box(box: BoundingBox, color: Color)
@@ -2998,7 +3180,9 @@ func m.draw_billboard_rec(camera, texture, source, position, size, tint){}
 //   C: void DrawBillboardPro(Camera3D camera, Texture texture, Rectangle
 //      source, Vector3 position, Vector3 up, Vector2 size, Vector2 origin,
 //      float rotation, Color tint)
-func m.draw_billboard_pro(camera, texture, source, position, up, size, origin, rotation, tint){}
+func m.draw_billboard_pro(
+  camera, texture, source, position, up, size, origin, rotation, tint
+){}
 
 // Upload mesh vertex data in GPU and provide VAO/VBO ids
 //   upload_mesh(mesh: Mesh (updated), dynamic: bool)
@@ -3031,7 +3215,9 @@ func m.draw_mesh_instanced(mesh, material, transforms){}
 // Compute mesh bounding box limits
 //   get_mesh_bounding_box(mesh: Mesh) -> BoundingBox
 //   C: BoundingBox GetMeshBoundingBox(Mesh mesh)
-func m.get_mesh_bounding_box(mesh){ return {min: {x: 0, y: 0, z: 0}, max: {x: 0, y: 0, z: 0}} }
+func m.get_mesh_bounding_box(mesh){
+  return {min: {x: 0, y: 0, z: 0}, max: {x: 0, y: 0, z: 0}}
+}
 
 // Compute mesh tangents
 //   gen_mesh_tangents(mesh: Mesh (updated))
@@ -3051,58 +3237,146 @@ func m.export_mesh_as_code(mesh, file_name){}
 // Generate polygonal mesh
 //   gen_mesh_poly(sides: int, radius: float) -> Mesh
 //   C: Mesh GenMeshPoly(int sides, float radius)
-func m.gen_mesh_poly(sides, radius){ return {vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null, texcoords2: null, normals: null, tangents: null, colors: null, indices: null, anim_vertices: null, anim_normals: null, bone_ids: null, bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0, vbo_id: null} }
+func m.gen_mesh_poly(sides, radius){
+  return {
+    vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null,
+    texcoords2: null, normals: null, tangents: null, colors: null,
+    indices: null, anim_vertices: null, anim_normals: null, bone_ids: null,
+    bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0,
+    vbo_id: null
+  }
+}
 
 // Generate plane mesh (with subdivisions)
 //   gen_mesh_plane(width: float, length: float, res_x: int, res_z: int) -> Mesh
 //   C: Mesh GenMeshPlane(float width, float length, int resX, int resZ)
-func m.gen_mesh_plane(width, length, res_x, res_z){ return {vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null, texcoords2: null, normals: null, tangents: null, colors: null, indices: null, anim_vertices: null, anim_normals: null, bone_ids: null, bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0, vbo_id: null} }
+func m.gen_mesh_plane(width, length, res_x, res_z){
+  return {
+    vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null,
+    texcoords2: null, normals: null, tangents: null, colors: null,
+    indices: null, anim_vertices: null, anim_normals: null, bone_ids: null,
+    bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0,
+    vbo_id: null
+  }
+}
 
 // Generate cuboid mesh
 //   gen_mesh_cube(width: float, height: float, length: float) -> Mesh
 //   C: Mesh GenMeshCube(float width, float height, float length)
-func m.gen_mesh_cube(width, height, length){ return {vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null, texcoords2: null, normals: null, tangents: null, colors: null, indices: null, anim_vertices: null, anim_normals: null, bone_ids: null, bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0, vbo_id: null} }
+func m.gen_mesh_cube(width, height, length){
+  return {
+    vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null,
+    texcoords2: null, normals: null, tangents: null, colors: null,
+    indices: null, anim_vertices: null, anim_normals: null, bone_ids: null,
+    bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0,
+    vbo_id: null
+  }
+}
 
 // Generate sphere mesh (standard sphere)
 //   gen_mesh_sphere(radius: float, rings: int, slices: int) -> Mesh
 //   C: Mesh GenMeshSphere(float radius, int rings, int slices)
-func m.gen_mesh_sphere(radius, rings, slices){ return {vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null, texcoords2: null, normals: null, tangents: null, colors: null, indices: null, anim_vertices: null, anim_normals: null, bone_ids: null, bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0, vbo_id: null} }
+func m.gen_mesh_sphere(radius, rings, slices){
+  return {
+    vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null,
+    texcoords2: null, normals: null, tangents: null, colors: null,
+    indices: null, anim_vertices: null, anim_normals: null, bone_ids: null,
+    bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0,
+    vbo_id: null
+  }
+}
 
 // Generate half-sphere mesh (no bottom cap)
 //   gen_mesh_hemi_sphere(radius: float, rings: int, slices: int) -> Mesh
 //   C: Mesh GenMeshHemiSphere(float radius, int rings, int slices)
-func m.gen_mesh_hemi_sphere(radius, rings, slices){ return {vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null, texcoords2: null, normals: null, tangents: null, colors: null, indices: null, anim_vertices: null, anim_normals: null, bone_ids: null, bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0, vbo_id: null} }
+func m.gen_mesh_hemi_sphere(radius, rings, slices){
+  return {
+    vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null,
+    texcoords2: null, normals: null, tangents: null, colors: null,
+    indices: null, anim_vertices: null, anim_normals: null, bone_ids: null,
+    bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0,
+    vbo_id: null
+  }
+}
 
 // Generate cylinder mesh
 //   gen_mesh_cylinder(radius: float, height: float, slices: int) -> Mesh
 //   C: Mesh GenMeshCylinder(float radius, float height, int slices)
-func m.gen_mesh_cylinder(radius, height, slices){ return {vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null, texcoords2: null, normals: null, tangents: null, colors: null, indices: null, anim_vertices: null, anim_normals: null, bone_ids: null, bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0, vbo_id: null} }
+func m.gen_mesh_cylinder(radius, height, slices){
+  return {
+    vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null,
+    texcoords2: null, normals: null, tangents: null, colors: null,
+    indices: null, anim_vertices: null, anim_normals: null, bone_ids: null,
+    bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0,
+    vbo_id: null
+  }
+}
 
 // Generate cone/pyramid mesh
 //   gen_mesh_cone(radius: float, height: float, slices: int) -> Mesh
 //   C: Mesh GenMeshCone(float radius, float height, int slices)
-func m.gen_mesh_cone(radius, height, slices){ return {vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null, texcoords2: null, normals: null, tangents: null, colors: null, indices: null, anim_vertices: null, anim_normals: null, bone_ids: null, bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0, vbo_id: null} }
+func m.gen_mesh_cone(radius, height, slices){
+  return {
+    vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null,
+    texcoords2: null, normals: null, tangents: null, colors: null,
+    indices: null, anim_vertices: null, anim_normals: null, bone_ids: null,
+    bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0,
+    vbo_id: null
+  }
+}
 
 // Generate torus mesh
 //   gen_mesh_torus(radius: float, size: float, rad_seg: int, sides: int) ->
 //      Mesh
 //   C: Mesh GenMeshTorus(float radius, float size, int radSeg, int sides)
-func m.gen_mesh_torus(radius, size, rad_seg, sides){ return {vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null, texcoords2: null, normals: null, tangents: null, colors: null, indices: null, anim_vertices: null, anim_normals: null, bone_ids: null, bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0, vbo_id: null} }
+func m.gen_mesh_torus(radius, size, rad_seg, sides){
+  return {
+    vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null,
+    texcoords2: null, normals: null, tangents: null, colors: null,
+    indices: null, anim_vertices: null, anim_normals: null, bone_ids: null,
+    bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0,
+    vbo_id: null
+  }
+}
 
 // Generate trefoil knot mesh
 //   gen_mesh_knot(radius: float, size: float, rad_seg: int, sides: int) -> Mesh
 //   C: Mesh GenMeshKnot(float radius, float size, int radSeg, int sides)
-func m.gen_mesh_knot(radius, size, rad_seg, sides){ return {vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null, texcoords2: null, normals: null, tangents: null, colors: null, indices: null, anim_vertices: null, anim_normals: null, bone_ids: null, bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0, vbo_id: null} }
+func m.gen_mesh_knot(radius, size, rad_seg, sides){
+  return {
+    vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null,
+    texcoords2: null, normals: null, tangents: null, colors: null,
+    indices: null, anim_vertices: null, anim_normals: null, bone_ids: null,
+    bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0,
+    vbo_id: null
+  }
+}
 
 // Generate heightmap mesh from image data
 //   gen_mesh_heightmap(heightmap: Image, size: Vector3) -> Mesh
 //   C: Mesh GenMeshHeightmap(Image heightmap, Vector3 size)
-func m.gen_mesh_heightmap(heightmap, size){ return {vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null, texcoords2: null, normals: null, tangents: null, colors: null, indices: null, anim_vertices: null, anim_normals: null, bone_ids: null, bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0, vbo_id: null} }
+func m.gen_mesh_heightmap(heightmap, size){
+  return {
+    vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null,
+    texcoords2: null, normals: null, tangents: null, colors: null,
+    indices: null, anim_vertices: null, anim_normals: null, bone_ids: null,
+    bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0,
+    vbo_id: null
+  }
+}
 
 // Generate cubes-based map mesh from image data
 //   gen_mesh_cubicmap(cubicmap: Image, cube_size: Vector3) -> Mesh
 //   C: Mesh GenMeshCubicmap(Image cubicmap, Vector3 cubeSize)
-func m.gen_mesh_cubicmap(cubicmap, cube_size){ return {vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null, texcoords2: null, normals: null, tangents: null, colors: null, indices: null, anim_vertices: null, anim_normals: null, bone_ids: null, bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0, vbo_id: null} }
+func m.gen_mesh_cubicmap(cubicmap, cube_size){
+  return {
+    vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null,
+    texcoords2: null, normals: null, tangents: null, colors: null,
+    indices: null, anim_vertices: null, anim_normals: null, bone_ids: null,
+    bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0,
+    vbo_id: null
+  }
+}
 
 // Load materials from model file
 //   load_materials(file_name: string, material_count: pointer) -> Material
@@ -3113,7 +3387,9 @@ func m.load_materials(file_name, material_count){}
 // Load default material (Supports: DIFFUSE, SPECULAR, NORMAL maps)
 //   load_material_default() -> Material
 //   C: Material LoadMaterialDefault()
-func m.load_material_default(){ return {shader: {id: 0, locs: null}, maps: null, params: {}} }
+func m.load_material_default(){
+  return {shader: {id: 0, locs: null}, maps: null, params: {}}
+}
 
 // Check if a material is valid (shader assigned, map textures loaded in GPU)
 //   is_material_valid(material: Material) -> bool
@@ -3190,32 +3466,67 @@ func m.check_collision_box_sphere(box, center, radius){}
 //      RayCollision
 //   C: RayCollision GetRayCollisionSphere(Ray ray, Vector3 center, float
 //      radius)
-func m.get_ray_collision_sphere(ray, center, radius){ return {hit: false, distance: 0, point: {x: 0, y: 0, z: 0}, normal: {x: 0, y: 0, z: 0}} }
+func m.get_ray_collision_sphere(ray, center, radius){
+  return {
+    hit: false,
+    distance: 0,
+    point: {x: 0, y: 0, z: 0},
+    normal: {x: 0, y: 0, z: 0},
+  }
+}
 
 // Get collision info between ray and box
 //   get_ray_collision_box(ray: Ray, box: BoundingBox) -> RayCollision
 //   C: RayCollision GetRayCollisionBox(Ray ray, BoundingBox box)
-func m.get_ray_collision_box(ray, box){ return {hit: false, distance: 0, point: {x: 0, y: 0, z: 0}, normal: {x: 0, y: 0, z: 0}} }
+func m.get_ray_collision_box(ray, box){
+  return {
+    hit: false,
+    distance: 0,
+    point: {x: 0, y: 0, z: 0},
+    normal: {x: 0, y: 0, z: 0},
+  }
+}
 
 // Get collision info between ray and mesh
 //   get_ray_collision_mesh(ray: Ray, mesh: Mesh, transform: Matrix) ->
 //      RayCollision
 //   C: RayCollision GetRayCollisionMesh(Ray ray, Mesh mesh, Matrix transform)
-func m.get_ray_collision_mesh(ray, mesh, transform){ return {hit: false, distance: 0, point: {x: 0, y: 0, z: 0}, normal: {x: 0, y: 0, z: 0}} }
+func m.get_ray_collision_mesh(ray, mesh, transform){
+  return {
+    hit: false,
+    distance: 0,
+    point: {x: 0, y: 0, z: 0},
+    normal: {x: 0, y: 0, z: 0},
+  }
+}
 
 // Get collision info between ray and triangle
 //   get_ray_collision_triangle(ray: Ray, p1: Vector3, p2: Vector3, p3: Vector3)
 //      -> RayCollision
 //   C: RayCollision GetRayCollisionTriangle(Ray ray, Vector3 p1, Vector3 p2,
 //      Vector3 p3)
-func m.get_ray_collision_triangle(ray, p1, p2, p3){ return {hit: false, distance: 0, point: {x: 0, y: 0, z: 0}, normal: {x: 0, y: 0, z: 0}} }
+func m.get_ray_collision_triangle(ray, p1, p2, p3){
+  return {
+    hit: false,
+    distance: 0,
+    point: {x: 0, y: 0, z: 0},
+    normal: {x: 0, y: 0, z: 0},
+  }
+}
 
 // Get collision info between ray and quad
 //   get_ray_collision_quad(ray: Ray, p1: Vector3, p2: Vector3, p3: Vector3, p4:
 //      Vector3) -> RayCollision
 //   C: RayCollision GetRayCollisionQuad(Ray ray, Vector3 p1, Vector3 p2,
 //      Vector3 p3, Vector3 p4)
-func m.get_ray_collision_quad(ray, p1, p2, p3, p4){ return {hit: false, distance: 0, point: {x: 0, y: 0, z: 0}, normal: {x: 0, y: 0, z: 0}} }
+func m.get_ray_collision_quad(ray, p1, p2, p3, p4){
+  return {
+    hit: false,
+    distance: 0,
+    point: {x: 0, y: 0, z: 0},
+    normal: {x: 0, y: 0, z: 0},
+  }
+}
 
 // Initialize audio device and context
 //   init_audio_device()
@@ -3245,13 +3556,21 @@ func m.get_master_volume(){}
 // Load wave data from file
 //   load_wave(file_name: string) -> Wave
 //   C: Wave LoadWave(const char *fileName)
-func m.load_wave(file_name){ return {frame_count: 0, sample_rate: 0, sample_size: 0, channels: 0, data: null} }
+func m.load_wave(file_name){
+  return {
+    frame_count: 0, sample_rate: 0, sample_size: 0, channels: 0, data: null
+  }
+}
 
 // Load wave from memory buffer, fileType refers to extension: i.e. '.wav'
 //   load_wave_from_memory(file_type: string, file_data: string) -> Wave
 //   C: Wave LoadWaveFromMemory(const char *fileType, const unsigned char
 //      *fileData, int dataSize)
-func m.load_wave_from_memory(file_type, file_data){ return {frame_count: 0, sample_rate: 0, sample_size: 0, channels: 0, data: null} }
+func m.load_wave_from_memory(file_type, file_data){
+  return {
+    frame_count: 0, sample_rate: 0, sample_size: 0, channels: 0, data: null
+  }
+}
 
 // Checks if wave data is valid (data loaded and parameters)
 //   is_wave_valid(wave: Wave) -> bool
@@ -3261,18 +3580,39 @@ func m.is_wave_valid(wave){}
 // Load sound from file
 //   load_sound(file_name: string) -> Sound
 //   C: Sound LoadSound(const char *fileName)
-func m.load_sound(file_name){ return {stream: {buffer: null, processor: null, sample_rate: 0, sample_size: 0, channels: 0}, frame_count: 0} }
+func m.load_sound(file_name){
+  return {
+    stream: {
+      buffer: null, processor: null, sample_rate: 0, sample_size: 0, channels: 0
+    },
+    frame_count: 0,
+  }
+}
 
 // Load sound from wave data
 //   load_sound_from_wave(wave: Wave) -> Sound
 //   C: Sound LoadSoundFromWave(Wave wave)
-func m.load_sound_from_wave(wave){ return {stream: {buffer: null, processor: null, sample_rate: 0, sample_size: 0, channels: 0}, frame_count: 0} }
+func m.load_sound_from_wave(wave){
+  return {
+    stream: {
+      buffer: null, processor: null, sample_rate: 0, sample_size: 0, channels: 0
+    },
+    frame_count: 0,
+  }
+}
 
 // Create a new sound that shares the same sample data as the source sound, does
 // not own the sound data
 //   load_sound_alias(source: Sound) -> Sound
 //   C: Sound LoadSoundAlias(Sound source)
-func m.load_sound_alias(source){ return {stream: {buffer: null, processor: null, sample_rate: 0, sample_size: 0, channels: 0}, frame_count: 0} }
+func m.load_sound_alias(source){
+  return {
+    stream: {
+      buffer: null, processor: null, sample_rate: 0, sample_size: 0, channels: 0
+    },
+    frame_count: 0,
+  }
+}
 
 // Checks if a sound is valid (data loaded and buffers initialized)
 //   is_sound_valid(sound: Sound) -> bool
@@ -3352,7 +3692,11 @@ func m.set_sound_pan(sound, pan){}
 // Copy a wave to a new wave
 //   wave_copy(wave: Wave) -> Wave
 //   C: Wave WaveCopy(Wave wave)
-func m.wave_copy(wave){ return {frame_count: 0, sample_rate: 0, sample_size: 0, channels: 0, data: null} }
+func m.wave_copy(wave){
+  return {
+    frame_count: 0, sample_rate: 0, sample_size: 0, channels: 0, data: null
+  }
+}
 
 // Crop a wave to defined frames range
 //   wave_crop(wave: Wave (updated), init_frame: int, final_frame: int)
@@ -3379,13 +3723,25 @@ func m.unload_wave_samples(samples){}
 // Load music stream from file
 //   load_music_stream(file_name: string) -> Music
 //   C: Music LoadMusicStream(const char *fileName)
-func m.load_music_stream(file_name){ return {stream: {buffer: null, processor: null, sample_rate: 0, sample_size: 0, channels: 0}, frame_count: 0, looping: false, ctx_type: 0, ctx_data: null} }
+func m.load_music_stream(file_name){
+  return {
+    stream: {
+      buffer: null, processor: null, sample_rate: 0, sample_size: 0, channels: 0
+    }, frame_count: 0, looping: false, ctx_type: 0, ctx_data: null
+  }
+}
 
 // Load music stream from data
 //   load_music_stream_from_memory(file_type: string, data: string) -> Music
 //   C: Music LoadMusicStreamFromMemory(const char *fileType, const unsigned
 //      char *data, int dataSize)
-func m.load_music_stream_from_memory(file_type, data){ return {stream: {buffer: null, processor: null, sample_rate: 0, sample_size: 0, channels: 0}, frame_count: 0, looping: false, ctx_type: 0, ctx_data: null} }
+func m.load_music_stream_from_memory(file_type, data){
+  return {
+    stream: {
+      buffer: null, processor: null, sample_rate: 0, sample_size: 0, channels: 0
+    }, frame_count: 0, looping: false, ctx_type: 0, ctx_data: null
+  }
+}
 
 // Checks if a music stream is valid (context and buffers initialized)
 //   is_music_valid(music: Music) -> bool
@@ -3462,7 +3818,11 @@ func m.get_music_time_played(music){}
 //      AudioStream
 //   C: AudioStream LoadAudioStream(unsigned int sampleRate, unsigned int
 //      sampleSize, unsigned int channels)
-func m.load_audio_stream(sample_rate, sample_size, channels){ return {buffer: null, processor: null, sample_rate: 0, sample_size: 0, channels: 0} }
+func m.load_audio_stream(sample_rate, sample_size, channels){
+  return {
+    buffer: null, processor: null, sample_rate: 0, sample_size: 0, channels: 0
+  }
+}
 
 // Checks if an audio stream is valid (buffers initialized)
 //   is_audio_stream_valid(stream: AudioStream) -> bool
@@ -3876,7 +4236,9 @@ func m.vector3_rotate_by_axis_angle(v, axis, angle){ return {x: 0, y: 0, z: 0} }
 //   vector3_move_towards(v: Vector3, target: Vector3, max_distance: float) ->
 //      Vector3
 //   C: Vector3 Vector3MoveTowards(Vector3 v, Vector3 target, float maxDistance)
-func m.vector3_move_towards(v, target, max_distance){ return {x: 0, y: 0, z: 0} }
+func m.vector3_move_towards(v, target, max_distance){
+  return {x: 0, y: 0, z: 0}
+}
 
 // Calculate linear interpolation between two vectors
 //   vector3_lerp(v1: Vector3, v2: Vector3, amount: float) -> Vector3
@@ -3890,7 +4252,9 @@ func m.vector3_lerp(v1, v2, amount){ return {x: 0, y: 0, z: 0} }
 //      tangent2: Vector3, amount: float) -> Vector3
 //   C: Vector3 Vector3CubicHermite(Vector3 v1, Vector3 tangent1, Vector3 v2,
 //      Vector3 tangent2, float amount)
-func m.vector3_cubic_hermite(v1, tangent1, v2, tangent2, amount){ return {x: 0, y: 0, z: 0} }
+func m.vector3_cubic_hermite(v1, tangent1, v2, tangent2, amount){
+  return {x: 0, y: 0, z: 0}
+}
 
 // Calculate reflected vector to normal
 //   vector3_reflect(v: Vector3, normal: Vector3) -> Vector3
@@ -4044,7 +4408,9 @@ func m.vector4_lerp(v1, v2, amount){ return {x: 0, y: 0, z: 0, w: 0} }
 //   vector4_move_towards(v: Vector4, target: Vector4, max_distance: float) ->
 //      Vector4
 //   C: Vector4 Vector4MoveTowards(Vector4 v, Vector4 target, float maxDistance)
-func m.vector4_move_towards(v, target, max_distance){ return {x: 0, y: 0, z: 0, w: 0} }
+func m.vector4_move_towards(v, target, max_distance){
+  return {x: 0, y: 0, z: 0, w: 0}
+}
 
 // Invert the given vector
 //   vector4_invert(v: Vector4) -> Vector4
@@ -4069,81 +4435,156 @@ func m.matrix_trace(mat){}
 // Transposes provided matrix
 //   matrix_transpose(mat: Matrix) -> Matrix
 //   C: Matrix MatrixTranspose(Matrix mat)
-func m.matrix_transpose(mat){ return {m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0, m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0} }
+func m.matrix_transpose(mat){
+  return {
+    m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0,
+    m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0
+  }
+}
 
 // Invert provided matrix
 //   matrix_invert(mat: Matrix) -> Matrix
 //   C: Matrix MatrixInvert(Matrix mat)
-func m.matrix_invert(mat){ return {m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0, m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0} }
+func m.matrix_invert(mat){
+  return {
+    m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0,
+    m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0
+  }
+}
 
 // Get identity matrix
 //   matrix_identity() -> Matrix
 //   C: Matrix MatrixIdentity()
-func m.matrix_identity(){ return {m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0, m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0} }
+func m.matrix_identity(){
+  return {
+    m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0,
+    m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0
+  }
+}
 
 // Add two matrices
 //   matrix_add(left: Matrix, right: Matrix) -> Matrix
 //   C: Matrix MatrixAdd(Matrix left, Matrix right)
-func m.matrix_add(left, right){ return {m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0, m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0} }
+func m.matrix_add(left, right){
+  return {
+    m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0,
+    m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0
+  }
+}
 
 // Subtract two matrices (left - right)
 //   matrix_subtract(left: Matrix, right: Matrix) -> Matrix
 //   C: Matrix MatrixSubtract(Matrix left, Matrix right)
-func m.matrix_subtract(left, right){ return {m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0, m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0} }
+func m.matrix_subtract(left, right){
+  return {
+    m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0,
+    m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0
+  }
+}
 
 // Get two matrix multiplication NOTE: When multiplying matrices... the order
 // matters!
 //   matrix_multiply(left: Matrix, right: Matrix) -> Matrix
 //   C: Matrix MatrixMultiply(Matrix left, Matrix right)
-func m.matrix_multiply(left, right){ return {m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0, m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0} }
+func m.matrix_multiply(left, right){
+  return {
+    m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0,
+    m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0
+  }
+}
 
 // Get translation matrix
 //   matrix_translate(x: float, y: float, z: float) -> Matrix
 //   C: Matrix MatrixTranslate(float x, float y, float z)
-func m.matrix_translate(x, y, z){ return {m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0, m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0} }
+func m.matrix_translate(x, y, z){
+  return {
+    m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0,
+    m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0
+  }
+}
 
 // Create rotation matrix from axis and angle NOTE: Angle should be provided in
 // radians
 //   matrix_rotate(axis: Vector3, angle: float) -> Matrix
 //   C: Matrix MatrixRotate(Vector3 axis, float angle)
-func m.matrix_rotate(axis, angle){ return {m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0, m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0} }
+func m.matrix_rotate(axis, angle){
+  return {
+    m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0,
+    m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0
+  }
+}
 
 // Get x-rotation matrix NOTE: Angle must be provided in radians
 //   matrix_rotate_x(angle: float) -> Matrix
 //   C: Matrix MatrixRotateX(float angle)
-func m.matrix_rotate_x(angle){ return {m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0, m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0} }
+func m.matrix_rotate_x(angle){
+  return {
+    m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0,
+    m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0
+  }
+}
 
 // Get y-rotation matrix NOTE: Angle must be provided in radians
 //   matrix_rotate_y(angle: float) -> Matrix
 //   C: Matrix MatrixRotateY(float angle)
-func m.matrix_rotate_y(angle){ return {m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0, m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0} }
+func m.matrix_rotate_y(angle){
+  return {
+    m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0,
+    m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0
+  }
+}
 
 // Get z-rotation matrix NOTE: Angle must be provided in radians
 //   matrix_rotate_z(angle: float) -> Matrix
 //   C: Matrix MatrixRotateZ(float angle)
-func m.matrix_rotate_z(angle){ return {m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0, m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0} }
+func m.matrix_rotate_z(angle){
+  return {
+    m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0,
+    m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0
+  }
+}
 
 // Get xyz-rotation matrix NOTE: Angle must be provided in radians
 //   matrix_rotate_xyz(angle: Vector3) -> Matrix
 //   C: Matrix MatrixRotateXYZ(Vector3 angle)
-func m.matrix_rotate_xyz(angle){ return {m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0, m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0} }
+func m.matrix_rotate_xyz(angle){
+  return {
+    m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0,
+    m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0
+  }
+}
 
 // Get zyx-rotation matrix NOTE: Angle must be provided in radians
 //   matrix_rotate_zyx(angle: Vector3) -> Matrix
 //   C: Matrix MatrixRotateZYX(Vector3 angle)
-func m.matrix_rotate_zyx(angle){ return {m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0, m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0} }
+func m.matrix_rotate_zyx(angle){
+  return {
+    m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0,
+    m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0
+  }
+}
 
 // Get scaling matrix
 //   matrix_scale(x: float, y: float, z: float) -> Matrix
 //   C: Matrix MatrixScale(float x, float y, float z)
-func m.matrix_scale(x, y, z){ return {m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0, m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0} }
+func m.matrix_scale(x, y, z){
+  return {
+    m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0,
+    m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0
+  }
+}
 
 // Get perspective projection matrix
 //   matrix_frustum(left: float, right: float, bottom: float, top: float,
 //      near_plane: float, far_plane: float) -> Matrix
 //   C: Matrix MatrixFrustum(double left, double right, double bottom, double
 //      top, double nearPlane, double farPlane)
-func m.matrix_frustum(left, right, bottom, top, near_plane, far_plane){ return {m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0, m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0} }
+func m.matrix_frustum(left, right, bottom, top, near_plane, far_plane){
+  return {
+    m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0,
+    m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0
+  }
+}
 
 // Get perspective projection matrix NOTE: Fovy angle must be provided in
 // radians
@@ -4151,19 +4592,34 @@ func m.matrix_frustum(left, right, bottom, top, near_plane, far_plane){ return {
 //      far_plane: float) -> Matrix
 //   C: Matrix MatrixPerspective(double fovY, double aspect, double nearPlane,
 //      double farPlane)
-func m.matrix_perspective(fov_y, aspect, near_plane, far_plane){ return {m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0, m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0} }
+func m.matrix_perspective(fov_y, aspect, near_plane, far_plane){
+  return {
+    m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0,
+    m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0
+  }
+}
 
 // Get orthographic projection matrix
 //   matrix_ortho(left: float, right: float, bottom: float, top: float,
 //      near_plane: float, far_plane: float) -> Matrix
 //   C: Matrix MatrixOrtho(double left, double right, double bottom, double top,
 //      double nearPlane, double farPlane)
-func m.matrix_ortho(left, right, bottom, top, near_plane, far_plane){ return {m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0, m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0} }
+func m.matrix_ortho(left, right, bottom, top, near_plane, far_plane){
+  return {
+    m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0,
+    m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0
+  }
+}
 
 // Get camera look-at matrix (view matrix)
 //   matrix_look_at(eye: Vector3, target: Vector3, up: Vector3) -> Matrix
 //   C: Matrix MatrixLookAt(Vector3 eye, Vector3 target, Vector3 up)
-func m.matrix_look_at(eye, target, up){ return {m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0, m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0} }
+func m.matrix_look_at(eye, target, up){
+  return {
+    m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0,
+    m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0
+  }
+}
 
 // Get float array of matrix data
 //   matrix_to_float_v(mat: Matrix) -> float16
@@ -4247,12 +4703,16 @@ func m.quaternion_slerp(q1, q2, amount){ return {x: 0, y: 0, z: 0, w: 0} }
 //      Vector4, in_tangent2: Vector4, t: float) -> Vector4
 //   C: Vector4 QuaternionCubicHermiteSpline(Vector4 q1, Vector4 outTangent1,
 //      Vector4 q2, Vector4 inTangent2, float t)
-func m.quaternion_cubic_hermite_spline(q1, out_tangent1, q2, in_tangent2, t){ return {x: 0, y: 0, z: 0, w: 0} }
+func m.quaternion_cubic_hermite_spline(q1, out_tangent1, q2, in_tangent2, t){
+  return {x: 0, y: 0, z: 0, w: 0}
+}
 
 // Calculate quaternion based on the rotation from one vector to another
 //   quaternion_from_vector3_to_vector3(from: Vector3, to: Vector3) -> Vector4
 //   C: Vector4 QuaternionFromVector3ToVector3(Vector3 from, Vector3 to)
-func m.quaternion_from_vector3_to_vector3(from, to){ return {x: 0, y: 0, z: 0, w: 0} }
+func m.quaternion_from_vector3_to_vector3(from, to){
+  return {x: 0, y: 0, z: 0, w: 0}
+}
 
 // Get a quaternion for a given rotation matrix
 //   quaternion_from_matrix(mat: Matrix) -> Vector4
@@ -4262,13 +4722,20 @@ func m.quaternion_from_matrix(mat){ return {x: 0, y: 0, z: 0, w: 0} }
 // Get a matrix for a given quaternion
 //   quaternion_to_matrix(q: Vector4) -> Matrix
 //   C: Matrix QuaternionToMatrix(Vector4 q)
-func m.quaternion_to_matrix(q){ return {m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0, m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0} }
+func m.quaternion_to_matrix(q){
+  return {
+    m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0,
+    m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0
+  }
+}
 
 // Get rotation quaternion for an angle and axis NOTE: Angle must be provided in
 // radians
 //   quaternion_from_axis_angle(axis: Vector3, angle: float) -> Vector4
 //   C: Vector4 QuaternionFromAxisAngle(Vector3 axis, float angle)
-func m.quaternion_from_axis_angle(axis, angle){ return {x: 0, y: 0, z: 0, w: 0} }
+func m.quaternion_from_axis_angle(axis, angle){
+  return {x: 0, y: 0, z: 0, w: 0}
+}
 
 // Get the rotation angle and axis for a given quaternion
 //   quaternion_to_axis_angle(q: Vector4, out_axis: Vector3 (updated),
@@ -4279,7 +4746,9 @@ func m.quaternion_to_axis_angle(q, out_axis, out_angle){}
 // Get the quaternion equivalent to Euler angles NOTE: Rotation order is ZYX
 //   quaternion_from_euler(pitch: float, yaw: float, roll: float) -> Vector4
 //   C: Vector4 QuaternionFromEuler(float pitch, float yaw, float roll)
-func m.quaternion_from_euler(pitch, yaw, roll){ return {x: 0, y: 0, z: 0, w: 0} }
+func m.quaternion_from_euler(pitch, yaw, roll){
+  return {x: 0, y: 0, z: 0, w: 0}
+}
 
 // Get the Euler angles equivalent to quaternion (roll, pitch, yaw) NOTE: Angles
 // are returned in a Vector3 struct in radians

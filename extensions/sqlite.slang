@@ -38,7 +38,7 @@ local keyword_list = {
   "then", "else", "end", "cast", "collate", "escape", "exists", "begin",
   "commit", "rollback", "transaction", "savepoint", "release", "pragma",
   "explain", "vacuum", "analyze", "true", "false", "current_timestamp",
-  "current_date", "current_time",
+  "current_date", "current_time"
 }
 local keywords = {}
 for(let local k in values(keyword_list)){
@@ -54,7 +54,7 @@ local func punct(s){
 // a word: a keyword is highlighted, any other identifier is left alone
 local word_chars = peg.seq(
   peg.pattern("a-zA-Z_"),
-  peg.pattern("a-zA-Z0-9_"):star()
+  peg.pattern("a-zA-Z0-9_"):star(),
 ):flatten("word expected")
 local word = peg.token(word_chars, func(w){
   if(keywords[str.lower(w)] == true){
@@ -63,16 +63,12 @@ local word = peg.token(word_chars, func(w){
   return null
 }):map(func(t){ return {text: t.value} })
 
-local number = peg.token(
-  peg.seq(
-    peg.digit():plus(),
-    peg.seq(peg.char("."), peg.digit():star()):optional()
-  ):flatten("number expected"),
-  "number"
-)
-  :map(func(t){
-    return {text: t.value}
-  })
+local number = peg.token(peg.seq(
+  peg.digit():plus(),
+  peg.seq(peg.char("."), peg.digit():star()):optional(),
+):flatten("number expected"), "number"):map(func(t){
+  return {text: t.value}
+})
 
 // 'text' with '' for a quote inside
 local sql_string = peg.token(peg.custom(func(self, ctx, pos){
@@ -103,11 +99,10 @@ local sql_string = peg.token(peg.custom(func(self, ctx, pos){
 // -- to the end of the line, /* */ blocks; dropped from the text
 local line_comment = peg.token(
   peg.seq(peg.string("--"), peg.pattern("^\n"):star()):flatten(),
-  "comment"
-)
-  :map(func(t){
-    return {text: " "}
-  })
+  "comment",
+):map(func(t){
+  return {text: " "}
+})
 local block_comment = peg.token(peg.custom(func(self, ctx, pos){
   local buf = ctx.buffer
   if(str.substring(buf, pos, pos + 2) != "/*"){
@@ -146,7 +141,7 @@ local hole = peg.choice(
     }),
   peg.seq(punct("{"), ws, g:rule("expr"), ws, punct("}")):map(func(v){
     return {value: v[2]}
-  })
+  }),
 )
 
 local piece = peg.choice(
@@ -162,7 +157,7 @@ local func runtime(name, token){
     "Index",
     {
       receiver: module, index: ast.node("String", {value: name}, token),
-      dotStyle: true,
+      dotStyle: true
     }, token
   )
 }
@@ -229,7 +224,7 @@ local func build(pieces, token){
     "query",
     {
       text_node, ast.node("Table", {fields: fields}, token), origin_node,
-      count_node,
+      count_node
     }, token
   )
 }
@@ -242,5 +237,5 @@ g
     "sql",
     peg.seq(g:keyword("sql"), punct("{"), piece:star(), punct("}")):map(func(v){
       return {token: v[0], ast: build(v[2], v[0])}
-    })
+    }),
   )

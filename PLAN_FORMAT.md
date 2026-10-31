@@ -245,8 +245,15 @@ operator's parser format the operator itself.
   break.
 - Lists that don't fit are packed as many to a line as fit when their
   typical (median) element is at most 20 columns, with a long element on a
-  line of its own; otherwise one per line. Tables get a trailing comma when
-  broken.
+  line of its own; otherwise one per line.
+- **A trailing comma stands for one element per line** (2026-10-31, the
+  "magic trailing comma" of Black). Tables, call arguments and function
+  parameters may end with a comma. Written, it keeps the list one element
+  per line, even where it would fit on one line or be packed, and even when
+  the list was written on one line (`{a, b,}` breaks). It sticks: remove it
+  to join the list. The formatter writes one only when it lays a list out
+  one per line, so a packed list gets none. A list kept broken this way
+  breaks the groups around it, like a function written over several lines.
 - A last argument that is a function or a table stays on the call's line
   and breaks inside itself (`describe("x", func(){` ... `})`); a call as the
   last argument does so only when it is 60 columns or wider. With more than

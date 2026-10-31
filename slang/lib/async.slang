@@ -73,7 +73,7 @@ local future_meta = {__index: future_methods, __type: "Future"}
 
 local func new_future(){
   local f = {
-    state: "pending", value: null, error: null, waiters: {}, handled: false,
+    state: "pending", value: null, error: null, waiters: {}, handled: false
   }
   f.meta = future_meta
   return f
@@ -345,7 +345,7 @@ func async.main(f){
     }
     if(not more and fut.state == "pending"){
       error(
-        "async.main: the loop has nothing left to do but the main function has not finished"
+        "async.main: the loop has nothing left to do but the main function has not finished",
       )
     }
   }
@@ -379,7 +379,7 @@ local stream_meta = {__index: stream_methods, __type: "Stream"}
 func async.controller(options){
   local s = {
     buffer: {}, done: false, error: null, pending: null, listener: null,
-    paused: false, high_water: (options or {}).high_water or 16,
+    paused: false, high_water: (options or {}).high_water or 16
   }
   s.meta = stream_meta
   local c = {stream: s, on_pause: null, on_resume: null}
@@ -527,7 +527,7 @@ func pull_methods.next(s){
       s.busy = false
       s.done = true
       raise(e)
-    }
+    },
   )
 }
 
@@ -614,7 +614,7 @@ func async.connect(host, port){
       if(i >= len(addrs)){
         cb(
           last_err or concat("cannot connect to ", host, ": no addresses"),
-          null
+          null,
         )
         return
       }
@@ -722,8 +722,45 @@ func async.serve(host, port, options){
 //   fs.read(fd, length, offset) -> data ("" at the end; offset null reads on)
 //   fs.write(fd, data, offset) -> bytes written   fs.close(fd)
 //   fs.read_stream(path, {chunk_size, start, length}) -> a Stream of the file, read on demand
+//
+// In a program built by `slang build`, a relative path that names a bundled
+// file or directory is read from the bundle (read_file, stat, list_dir,
+// exists, read_stream; see slang/bundle); the rest is the disk's.
 local fs = {}
 async.fs = fs
+
+local bundle = require("slang/bundle")
+
+// what a relative path is in a built program's bundle: {stat} when the
+// bundle holds the file or directory, {path} for a file kept next to the
+// executable (slang build --dir), null when it is the disk's
+local func bundled(path){
+  local st = bundle.stat(path)
+  if(st == null){
+    return null
+  }
+  if(st.path != null){
+    return {path: st.path}
+  }
+  return {stat: st}
+}
+
+// where a path is on disk: a file kept next to the executable is there
+local func disk_path(b, path){
+  if(b != null and b.path != null){
+    return b.path
+  }
+  return path
+}
+
+// a bundled file's or directory's stat as uv gives it
+local func uv_stat(st){
+  local mtime = (st.mtime or 0) * 1.0
+  return {
+    size: st.size or 0, mode: st.is_dir and 16877 or 33188, mtime: mtime,
+    atime: mtime, ctime: mtime, is_file: st.is_file, is_dir: st.is_dir
+  }
+}
 
 local func fs_call(name, ...arguments){
   return async.wrap(func(cb){
@@ -732,15 +769,52 @@ local func fs_call(name, ...arguments){
   })
 }
 
-func fs.read_file(path){ return fs_call("fs_read_file", path) }
+func fs.read_file(path){
+  local b = bundled(path)
+  if(b != null and b.stat != null and b.stat.is_file){
+    return async.value(bundle.read(path))
+  }
+  return fs_call("fs_read_file", disk_path(b, path))
+}
 func fs.write_file(path, data){
   return fs_call("fs_write_file", path, data, false)
 }
 func fs.append_file(path, data){
   return fs_call("fs_write_file", path, data, true)
 }
-func fs.stat(path){ return fs_call("fs_stat", path) }
-func fs.list_dir(path){ return fs_call("fs_scandir", path) }
+func fs.stat(path){
+  local b = bundled(path)
+  if(b != null and b.stat != null){
+    return async.value(uv_stat(b.stat))
+  }
+  return fs_call("fs_stat", disk_path(b, path))
+}
+
+func fs.list_dir(path){
+  local b = bundled(path)
+  if(b == null or b.stat == null or not b.stat.is_dir){
+    return fs_call("fs_scandir", path)
+  }
+  // the bundle's entries, and the disk's when the directory is there too
+  return async.run(func(){
+    local out = {}
+    local seen = {}
+    for(let local name in values(bundle.list(path))){
+      seen[name] = true
+      local dir = bundle.is_dir(concat(path, "/", name))
+      append(out, {name: name, type: dir and "dir" or "file"})
+    }
+    local disk = pcall(async.await, fs_call("fs_scandir", path))
+    if(disk[0] == "ok"){
+      for(let local e in values(disk[1])){
+        if(not seen[e.name]){
+          append(out, e)
+        }
+      }
+    }
+    return out
+  })
+}
 func fs.remove(path){ return fs_call("fs_unlink", path) }
 func fs.mkdir(path){ return fs_call("fs_mkdir", path) }
 func fs.rmdir(path){ return fs_call("fs_rmdir", path) }
@@ -760,6 +834,26 @@ func fs.write(fd, data, offset){
   })
 }
 
+// a Stream of data from offset (length bytes, or to the end) in chunks
+local func memory_stream(data, size, offset, length){
+  local stop = len(data)
+  if(length != null and offset + length < stop){
+    stop = offset + length
+  }
+  return async.pull(func(){
+    if(offset >= stop){
+      return null
+    }
+    local to = offset + size
+    if(to > stop){
+      to = stop
+    }
+    local chunk = str.substring(data, offset, to)
+    offset = to
+    return chunk
+  })
+}
+
 // read_stream(path, options) -> a Stream of the file's contents in chunks,
 // read as they are asked for; options (or just a chunk size): chunk_size
 // (64 KiB), start (a byte offset, 0), length (bytes from start; to the end
@@ -772,6 +866,11 @@ func fs.read_stream(path, options){
   local size = options.chunk_size or 65536
   local offset = options.start or 0
   local left = options.length
+  local b = bundled(path)
+  if(b != null and b.stat != null and b.stat.is_file){
+    return memory_stream(bundle.read(path), size, offset, left)
+  }
+  path = disk_path(b, path)
   local fd = null
   local finished = false
   return async.pull(func(){
@@ -813,6 +912,11 @@ func fs.read_stream(path, options){
 }
 
 func fs.exists(path){
+  local b = bundled(path)
+  if(b != null and b.stat != null){
+    return async.value(true)
+  }
+  path = disk_path(b, path)
   return async.wrap(func(cb){
     loop_module().fs_stat(path, func(err, st){ cb(null, err == null) })
   })
@@ -868,7 +972,7 @@ func async.spawn(file, args, options){
   return {
     process: process, pid: process:pid(), pipes: pipes, stdin: pipes[0],
     stdout: pipes[1], stderr: pipes[2], exit: exit.future,
-    kill: func(sig){ process:kill(sig) },
+    kill: func(sig){ process:kill(sig) }
   }
 }
 

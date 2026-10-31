@@ -11,6 +11,7 @@ const Value = vm_mod.Value;
 const Table = vm_mod.Table;
 const NativeFn = vm_mod.NativeFn;
 const Error = vm_mod.Error;
+const bundle = @import("../bundle/exe.zig");
 
 pub const Native = struct {
     name: []const u8,
@@ -42,6 +43,12 @@ pub fn open(vm: *VM) void {
         }
     }
     nsp.append(vm.gpa, vm.str("."));
+    // a built program (slang build --dir) keeps its extensions in lib/ next to it
+    if (bundle.current) |b| {
+        const dir = std.fs.path.join(vm.gpa, &.{ b.exe_dir, "lib" }) catch @panic("out of memory");
+        defer vm.gpa.free(dir);
+        nsp.append(vm.gpa, vm.str(dir));
+    }
     // where slang's own library sources are, for tools (go to definition,
     // slang doc): a checkout's slang/lib and slang/compiler, an installed
     // slang's <prefix>/lib/slang/src; module slang/x is <dir>/x.slang
@@ -97,6 +104,9 @@ pub fn open(vm: *VM) void {
     preload(vm, "slang/thread", .{ .table = @import("threadlib.zig").module(vm) });
     preload(vm, "slang/encoding", .{ .table = @import("encoding.zig").module(vm) });
     preload(vm, "slang/time", .{ .table = @import("timelib.zig").module(vm) });
+    // a built program's files, and the writing of built programs (slang build)
+    preload(vm, "slang/bundle", .{ .table = @import("bundlelib.zig").module(vm) });
+    preload(vm, "slang/bundle_tool", .{ .table = @import("bundlelib.zig").toolModule(vm) });
 }
 
 /// Registers a module value so that require(name) finds it.

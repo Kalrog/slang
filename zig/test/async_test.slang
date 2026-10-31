@@ -44,14 +44,14 @@ t.group("async"){
       assert(
         caught[0] == "err" and
           str.index_of(caught[1].message, "inner failure") >= 0,
-        "caught through await"
+        "caught through await",
       )
       local f2 = async.failed("plain string error")
       local c2 = pcall(await, f2)
       assert(
         c2[0] == "err" and
           str.index_of(c2[1].message, "plain string error") >= 0,
-        c2[1].message
+        c2[1].message,
       )
       return "ok"
     })
@@ -59,7 +59,7 @@ t.group("async"){
     local outer = pcall(async.main, func(){ error("main failure") })
     assert(
       outer[0] == "err" and str.index_of(outer[1].message, "main failure") >= 0,
-      "main raises"
+      "main raises",
     )
   }
   t.test("await outside an async function is an error"){
@@ -68,7 +68,7 @@ t.group("async"){
     assert(
       r[0] == "err" and
         str.index_of(r[1].message, "outside an async function") >= 0,
-      r[1].message
+      r[1].message,
     )
     c.complete(1)
   }
@@ -126,7 +126,7 @@ t.group("async"){
       local err = pcall(await, c3 .stream:next())
       assert(
         err[0] == "err" and str.index_of(err[1].message, "stream broke") >= 0,
-        "stream errors arrive through next"
+        "stream errors arrive through next",
       )
       return {got, all}
     })
@@ -196,7 +196,7 @@ t.group("async: files, names, processes, signals"){
       await(fs.append_file(p, "b"))
       assert(await(fs.read_file(p)) == "ab")
       assert(await(fs.exists(p)) == true and await(
-          fs.exists(concat(p, "x"))
+          fs.exists(concat(p, "x")),
         ) == false)
       assert(await(fs.stat(p)).size == 2)
       local fd = await(fs.open(p, "r"))
@@ -226,7 +226,7 @@ t.group("async: files, names, processes, signals"){
       local r = pcall(await, async.connect("no-such-host.invalid", port))
       assert(
         r[0] == "err" and str.starts_with(r[1].message, "EAI_"),
-        r[1].message
+        r[1].message,
       )
     })
   }
@@ -235,7 +235,7 @@ t.group("async: files, names, processes, signals"){
       local r = await(
         async.exec("/bin/sh", {"-c", "cat; echo oops >&2; exit 4"}, {
           input: "in",
-        })
+        }),
       )
       assert(r.status == 4 and r.stdout == "in" and r.stderr == "oops\n")
       local e = await(async.exec("/usr/bin/env", {}, {env: {ONLY: "this"}}))
@@ -298,7 +298,7 @@ t.group("async: race, timeout, pull streams"){
       assert(len(chunks) == 3 and str.join(chunks, "") == data)
       local missing = pcall(
         await,
-        async.fs.read_stream(concat(p, ".no")):collect()
+        async.fs.read_stream(concat(p, ".no")):collect(),
       )
       assert(missing[0] == "err" and str.starts_with(
           missing[1].message, "ENOENT"
@@ -317,16 +317,13 @@ t.group("uncaught errors"){
       local r = await(async.exec("bin/slang", {"run", p}))
       assert(r.status != 0)
       local out = concat(r.stdout, r.stderr)
-      assert(
-        str.index_of(
-          out,
-          "error: let: the value does not match {\"age\":99,}, got {age: 36, }"
-        ) >= 0,
-        out
-      )
+      assert(str.index_of(
+        out,
+        "error: let: the value does not match {\"age\":99,}, got {age: 36, }",
+      ) >= 0, out)
       await(fs.write_file(
         p,
-        "raise({message: \"bad input\", value: 42, kind: \"x\"})\n"
+        "raise({message: \"bad input\", value: 42, kind: \"x\"})\n",
       ))
       local r2 = await(async.exec("bin/slang", {"run", p}))
       local out2 = concat(r2 .stdout, r2 .stderr)

@@ -10,7 +10,7 @@ g
         return values.elements
       }),
       g:token("|"),
-      g:rule("expr")
+      g:rule("expr"),
     )
       :map(func(results){
         local params = results[1]
@@ -23,5 +23,5 @@ g
             body: +{block: return -{expression}},
           },
         }
-      })
+      }),
   )

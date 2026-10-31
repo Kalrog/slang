@@ -76,7 +76,7 @@ test.group("expression walker", func(){
     assert(parse(w, "1 << 2 * 3 + 4") == {"+", {"<<", 1, {"*", 2, 3}}, 4})
     local bps = w:binding_powers()
     assert(
-      bps.product > bps.shift and bps.shift > bps.sum and bps.sum > bps.pipe
+      bps.product > bps.shift and bps.shift > bps.sum and bps.sum > bps.pipe,
     )
   }
 
@@ -116,17 +116,13 @@ test.group("expression walker", func(){
     local w = arithmetic()
     local expr = w:build()
     // a list literal as a primary, built from the walker's own expressions
-    w:primary(
-      peg.seq(
-        tok("["),
-        w.loopback:star_separated(tok(",")):map(func(s){ return s.elements }),
-        tok("]")
-      )
-        :pick(1)
-        :map(func(items){
-          return {"list", items}
-        })
-    )
+    w:primary(peg.seq(
+      tok("["),
+      w.loopback:star_separated(tok(",")):map(func(s){ return s.elements }),
+      tok("]"),
+    ):pick(1):map(func(items){
+      return {"list", items}
+    }))
     assert(parse(w, "[1, 2 + 3] + 4") == {"+", {"list", {1, {"+", 2, 3}}}, 4})
     // the expression parser inside an ordinary sequence
     local stmt = peg.seq(ident, tok("="), w:build()):map(func(v){
@@ -152,7 +148,7 @@ test.group("expression walker", func(){
     // when the operator's operand does not parse
     w:prefix(tok("-"), "unary", func(op, v){ return {"neg", v} })
     w:primary(
-      peg.seq(tok("-"), tok("?")):map(func(v){ return "minus-question" })
+      peg.seq(tok("-"), tok("?")):map(func(v){ return "minus-question" }),
     )
     w:primary(number)
     assert(parse(w, "-1") == {"neg", 1})

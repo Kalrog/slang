@@ -29,13 +29,13 @@ func m.record(req, status, ms){
     ms, " ms)\n"
   )
   local id = db:run(
-    sql{ insert into requests(method, path, status, ms) values ({req.method}, {req.path}, {status}, {ms}) }
+    sql{ insert into requests(method, path, status, ms) values ({req.method}, {req.path}, {status}, {ms}) },
   ).last_id
   local entry = null
   for(let local f in keys(listeners)){
     entry = entry or db:one(
-      sql{ select at, method, path, status, ms from requests where id = {id} }
-    )
+        sql{ select at, method, path, status, ms from requests where id = {id} },
+      )
     // one listener failing (a socket gone) must not stop the others
     pcall(f, entry)
   }
@@ -43,7 +43,7 @@ func m.record(req, status, ms){
 
 func m.recent(n){
   return db:all(
-    sql{ select at, method, path, status, ms from requests order by id desc limit {n} }
+    sql{ select at, method, path, status, ms from requests order by id desc limit {n} },
   )
 }
 

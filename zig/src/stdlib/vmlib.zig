@@ -25,11 +25,13 @@ pub fn module(vm: *VM) *Table {
         .{ .name = "disassemble", .f = vmDisassemble },
         .{ .name = "load_proto", .f = vmLoadProto },
         .{ .name = "load_native", .f = @import("../loader.zig").loadNative },
+        .{ .name = "find_native", .f = @import("../loader.zig").findNative },
     });
 }
 
-/// load_proto(proto): turns a prototype table produced by the compiler into
-/// a function. Layout:
+/// load_proto(proto, [env]): turns a prototype table produced by the
+/// compiler into a function whose globals are env (a table; the global
+/// table by default). Layout:
 ///
 ///   {code: {ints}, locations: {{pc, origin, line, column}}, constants: {{kind, value}},
 ///    upvalues: {{name, index, is_local}}, children: {proto}, max_stack, nargs, is_vararg,
@@ -37,7 +39,10 @@ pub fn module(vm: *VM) *Table {
 fn vmLoadProto(th: *Thread, args: []Value) Error!Value {
     const t = try api.argTable(th, args, 0, "proto");
     const p = try protoFromTable(th, t, 0);
-    return .{ .function = th.vm.load(p) };
+    const env = api.arg(args, 1);
+    if (env == .null) return .{ .function = th.vm.load(p) };
+    const e = env.asTable() orelse return api.argError(th, "env", 1, "table", env);
+    return .{ .function = th.vm.loadWithEnv(p, e) };
 }
 
 fn protoFromTable(th: *Thread, t: *Table, depth: usize) Error!*Proto {

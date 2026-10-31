@@ -15,7 +15,7 @@ t.group("encoding"){
     // RFC 4648 test vectors
     local vectors = {
       {"", ""}, {"f", "Zg=="}, {"fo", "Zm8="}, {"foo", "Zm9v"},
-      {"foob", "Zm9vYg=="}, {"fooba", "Zm9vYmE="}, {"foobar", "Zm9vYmFy"},
+      {"foob", "Zm9vYg=="}, {"fooba", "Zm9vYmE="}, {"foobar", "Zm9vYmFy"}
     }
     for(let local v in values(vectors)){
       assert(e.base64_encode(v[0]) == v[1], v[1])
@@ -56,7 +56,7 @@ t.group("encoding"){
     assert(e.url_decode("a+b%20c") == "a+b c", "+ stays + in a URL")
     assert(
       e.url_decode("100%") == null and e.url_decode("%zz") == null and
-        e.url_decode("%4") == null
+        e.url_decode("%4") == null,
     )
   }
   t.test("form_encode writes a space as +"){
@@ -78,11 +78,11 @@ t.group("encoding"){
     assert(
       e.query_encode({b: "x y!", a: 1, t: true, f: false, n: 1.5}) ==
         "a=1&b=x+y%21&n=1.5&t=true",
-      "sorted, false left out"
+      "sorted, false left out",
     )
     assert(
       e.query_encode({tag: {"a", "b c"}}) == "tag=a&tag=b+c",
-      "a list repeats its key"
+      "a list repeats its key",
     )
     assert(e.query_encode({}) == "")
     local q = e.query_decode(e.query_encode({["a&b"]: "c=d", ["\u{e9}"]: "?"}))
@@ -92,7 +92,7 @@ t.group("encoding"){
     assert(e.utf8_valid("") and e.utf8_valid("caf\u{e9} \u{1F600}"))
     assert(
       not e.utf8_valid("\xff") and not e.utf8_valid("\xc3"),
-      "invalid and truncated"
+      "invalid and truncated",
     )
     assert(not e.utf8_valid("\xed\xa0\x80"), "an encoded surrogate")
     assert(e.crc32("") == 0)
@@ -104,7 +104,7 @@ t.group("encoding"){
     assert(e.mask("Hello", key) == "\x7f\x9f\x4d\x51\x58")
     assert(e.mask(
       e.mask("any bytes \x00\xff", key),
-      key
+      key,
     ) == "any bytes \x00\xff")
     assert(e.mask("", key) == "")
     assert(pcall(e.mask, "x", "")[0] == "err")
@@ -122,7 +122,7 @@ t.group("string escapes"){
     assert(str.byte_at("\xFF", 0) == 255 and "\x41\x62" == "Ab")
     assert(
       "\u{41}" == "A" and "\u{e9}" == "\xc3\xa9" and
-        "\u{1F600}" == "\xf0\x9f\x98\x80"
+        "\u{1F600}" == "\xf0\x9f\x98\x80",
     )
     assert("\u{10FFFF}" == "\xf4\x8f\xbf\xbf")
   }
@@ -145,11 +145,11 @@ t.group("string escapes"){
       assert(r[0] == "err", c[0])
       assert(
         str.index_of(r[1].message, c[1]) >= 0,
-        concat(c[0], ": ", r[1].message)
+        concat(c[0], ": ", r[1].message),
       )
       assert(
         r[1].location != null and r[1].location.line == 2,
-        concat(c[0], " is located")
+        concat(c[0], " is located"),
       )
     }
   }
@@ -160,12 +160,12 @@ t.group("string escapes"){
     assert(
       ast.to_string(ast.node("String", {value: s}, null)) ==
         "\"a\\x00\\x1b\\x7fz caf\u{e9}\"",
-      "UTF-8 stays as it is"
+      "UTF-8 stays as it is",
     )
     assert(
       ast.to_string(ast.node("String", {value: "\xff\u{e9}"}, null)) ==
         "\"\\xff\\xc3\\xa9\"",
-      "a string that is not UTF-8 escapes every high byte"
+      "a string that is not UTF-8 escapes every high byte",
     )
   }
 }

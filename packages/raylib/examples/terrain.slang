@@ -83,10 +83,10 @@ rl.set_target_fps(60)
 local model = rl.load_model_from_mesh(terrain_mesh())
 local camera = {
   position: {16, 12, 16}, target: {0, 0, 0}, up: {0, 1, 0}, fovy: 45,
-  projection: rl.CAMERA_PERSPECTIVE,
+  projection: rl.CAMERA_PERSPECTIVE
 }
 local frames = to_int(require("slang/string").to_number(
-  os.getenv("TERRAIN_FRAMES") or "0"
+  os.getenv("TERRAIN_FRAMES") or "0",
 ))
 local frame = 0
 for(not rl.window_should_close()){
@@ -97,12 +97,10 @@ for(not rl.window_should_close()){
   rl.draw_model(model, {0, 0, 0}, 1, rl.WHITE)
   rl.draw_model_wires(model, {0, 0.01, 0}, 1, rl.fade(rl.BLACK, 0.15))
   rl.end_mode_3d()
-  rl.draw_text(
-    rl.text_format(
-      "%d vertices from slang buffers",
-      model.meshes[0].vertex_count
-    ), 12, 12, 20, rl.RAYWHITE
-  )
+  rl.draw_text(rl.text_format(
+    "%d vertices from slang buffers",
+    model.meshes[0].vertex_count,
+  ), 12, 12, 20, rl.RAYWHITE)
   rl.draw_fps(12, 40)
   rl.end_drawing()
   frame = frame + 1

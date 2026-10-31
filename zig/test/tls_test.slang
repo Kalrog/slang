@@ -32,7 +32,7 @@ local func fails_with(f, text){
 
 t.group("tls"){
   local server = tls.context({
-    server: true, cert: pair.cert, key: pair.key, alpn: {"h2", "http/1.1"},
+    server: true, cert: pair.cert, key: pair.key, alpn: {"h2", "http/1.1"}
   })
   t.test("sessions shake hands, agree on a protocol and carry data"){
     local client = tls.context({ca: pair.cert, alpn: {"http/1.1"}})
@@ -71,7 +71,7 @@ t.group("tls"){
   t.test("a server can ask for a client certificate"){
     local mine = tls.self_signed({"client"})
     local strict = tls.context({
-      server: true, cert: pair.cert, key: pair.key, verify: true, ca: mine.cert,
+      server: true, cert: pair.cert, key: pair.key, verify: true, ca: mine.cert
     })
     local c = tls.context({ca: pair.cert, cert: mine.cert, key: mine.key})
     local s = strict:session()
@@ -80,7 +80,7 @@ t.group("tls"){
     fails_with(func(){
       handshake(
         tls.context({ca: pair.cert}):session("localhost"),
-        strict:session()
+        strict:session(),
       )
     }, "peer did not return a certificate")
   }
@@ -129,7 +129,7 @@ t.group("tls"){
       assert(
         bad[0] == "err" and
           str.index_of(bad[1].message, "self-signed certificate") >= 0,
-        bad[1]
+        bad[1],
       )
       s.close()
       await(s.done)

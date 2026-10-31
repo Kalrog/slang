@@ -32,7 +32,7 @@ g:statement(
       return args.elements
     }),
     g:token(")"),
-    g:rule("block")
+    g:rule("block"),
   )
     :map(func(result){
       local id = result[1]
@@ -44,7 +44,7 @@ g:statement(
       local function = compile(ast, concat("macro_", id.value))()
       registry[id.value] = function
       return +{block: }
-    })
+    }),
 )
 
 return registry

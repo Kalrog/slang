@@ -13,6 +13,7 @@ local auth = require("auth")
 local files = require("files")
 local web = require("slang/web")
 local html = require("slang/html")
+local place = require("place")
 local encoding = require("slang/encoding")
 local m = {}
 
@@ -145,7 +146,7 @@ func m.install(app){
     local filter = filter_of(req)
     return views.fragment(
       <views.TodoList user={req.user} filter={filter}/>,
-      <views.Filters filter={filter} oob={true}/>
+      <views.Filters filter={filter} oob={true}/>,
     )
   }))
 
@@ -156,7 +157,7 @@ func m.install(app){
     }
     return views.fragment(
       <views.TodoList user={req.user} filter={filter_of(req)}/>,
-      <views.Count user={req.user} oob={true}/>
+      <views.Count user={req.user} oob={true}/>,
     )
   }))
 
@@ -164,7 +165,7 @@ func m.install(app){
     todos.clear_done(req.user.id)
     return views.fragment(
       <views.TodoList user={req.user} filter={filter_of(req)}/>,
-      <views.Count user={req.user} oob={true}/>
+      <views.Count user={req.user} oob={true}/>,
     )
   }))
 
@@ -195,7 +196,7 @@ func m.install(app){
       todos.toggle(req.user.id, t.id)
       return views.fragment(
         <views.Todo todo={todos.find(req.user.id, t.id)}/>,
-        <views.Count user={req.user} oob={true}/>
+        <views.Count user={req.user} oob={true}/>,
       )
     })
   }))
@@ -292,7 +293,7 @@ func m.install(app){
     local form = req:form()
     local r = await auth.register(
       str.trim(form.name or ""),
-      form.password or ""
+      form.password or "",
     )
     if(r.error != null){
       return views.page(
@@ -314,7 +315,7 @@ func m.install(app){
 
   // ---------------------------------------------------------- the rest
 
-  app:static("/static", "examples/webserver/static")
+  app:static("/static", place("static"))
 
   app.fallback = func(req){
     return views.page(

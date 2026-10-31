@@ -68,7 +68,7 @@ local func parse_hash(stored){
     local eq = str.index_of(kv, "=")
     if(eq > 0){
       params[str.substring(kv, 0, eq)] = str.to_number(
-        str.substring(kv, eq + 1)
+        str.substring(kv, eq + 1),
       )
     }
   }
@@ -97,7 +97,7 @@ func crypto.hash_password(password){
   local salt = native.random_bytes(16)
   return format_hash(
     salt,
-    native.scrypt(password, salt, 1 << LOG_N, R, P, KEY_LEN)
+    native.scrypt(password, salt, 1 << LOG_N, R, P, KEY_LEN),
   )
 }
 
@@ -178,7 +178,7 @@ func crypto.seal(key, text, aad){
   local iv = native.random_bytes(12)
   return encoding.base64url_encode(concat(
     iv,
-    native.encrypt("aes-256-gcm", key, iv, text, aad)
+    native.encrypt("aes-256-gcm", key, iv, text, aad),
   ))
 }
 

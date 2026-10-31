@@ -33,7 +33,7 @@ test.group("protected calls", func(){
     }
     assert(
       let {"ok", 5} = pcall(div, 15, 3),
-      "15/3 should be 5 pcall should not fail"
+      "15/3 should be 5 pcall should not fail",
     )
     assert(let {"err"} = pcall(div, 15, null), "15/null should fail")
   })

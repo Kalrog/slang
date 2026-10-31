@@ -12,6 +12,7 @@ local webview = require("slang/webview")
 local html = require("slang/html")
 local a = require("slang/async")
 local store = require("store")
+local place = require("place")
 
 local app = web.app()
 
@@ -47,7 +48,7 @@ app:get("/", func(req){
   </>
 })
 
-app:static("/static", "examples/desktop/static")
+app:static("/static", place("static"))
 
 local windows = {}
 

@@ -34,7 +34,7 @@ local func find_raylib(){
     append(prefixes, env)
   }
   for(let local p in values({
-    "/opt/homebrew/opt/raylib", "/opt/homebrew", "/usr/local", "/usr",
+    "/opt/homebrew/opt/raylib", "/opt/homebrew", "/usr/local", "/usr"
   })){
     append(prefixes, p)
   }
@@ -55,7 +55,7 @@ local func find_raylib(){
   }
   error(
     "raylib is not installed (brew install raylib, or apt install ",
-    "libraylib-dev), or RAYLIB_PREFIX does not name where it is"
+    "libraylib-dev), or RAYLIB_PREFIX does not name where it is",
   )
 }
 

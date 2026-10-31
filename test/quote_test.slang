@@ -16,7 +16,7 @@ t.group("quote"){
     assert(stat.left.value == "x")
     assert(stat.right.type == "BinOp")
     assert(
-      let 'Declaration{is_local: true, left: 'Identifier{value: "x"}, right: 'BinOp{left: 'Int{value: 2}, op: "+", right: 'Int{value: 2}}} = stat
+      let 'Declaration{is_local: true, left: 'Identifier{value: "x"}, right: 'BinOp{left: 'Int{value: 2}, op: "+", right: 'Int{value: 2}}} = stat,
     )
   }
   t.test("quote block"){
@@ -213,7 +213,7 @@ t.group("quote"){
     equivalent = +{func(x){ return x + 1 }}
     assert(
       resultAst == equivalent,
-      "resultAst should be equivalent to long form"
+      "resultAst should be equivalent to long form",
     )
   }
 }

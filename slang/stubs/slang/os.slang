@@ -1,5 +1,9 @@
 // slang/os: files, the process and its environment, built into the VM.
-// Relative paths are relative to the current directory.
+// Relative paths are relative to the current directory. In a program built
+// by `slang build`, a relative path that names a bundled file or directory
+// reads from the bundle first (exists, is_dir, read_file, list_dir; see
+// slang/bundle); writes always go to the disk, so a program that writes a
+// bundled path still reads the bundled file there.
 local m = {}
 
 // ------------------------------------------------------------ files
@@ -22,6 +26,14 @@ func m.write_file(path, content){}
 // directory. Raises an error when it cannot be listed.
 func m.list_dir(path){}
 
+// rename(from, to): moves a file or directory, replacing to. Raises an
+// error when it cannot.
+func m.rename(from, to){}
+
+// copy_file(from, to): copies a file with its permissions, replacing to
+// (whose directory must exist). Raises an error when it cannot.
+func m.copy_file(from, to){}
+
 // mkdir_all(path): creates the directory and any missing parents. Raises an
 // error when it cannot.
 func m.mkdir_all(path){}
@@ -30,6 +42,9 @@ func m.mkdir_all(path){}
 
 // cwd() -> the current directory
 func m.cwd(){}
+
+// executable() -> the path of the running executable
+func m.executable(){}
 
 // getenv(name) -> the value of the environment variable, or null
 func m.getenv(name){}

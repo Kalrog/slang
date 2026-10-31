@@ -4,13 +4,10 @@ local str = require("slang/string")
 local compiler = require("slang/compiler")
 
 local func run(source, origin){
-  return compile(
-    concat(
-      "extension \"examples/functional/pipe\"\nextension \"examples/functional/holes\"\nextension \"examples/functional/def\"\n",
-      source
-    ),
-    origin or "functional"
-  )()
+  return compile(concat(
+    "extension \"examples/functional/pipe\"\nextension \"examples/functional/holes\"\nextension \"examples/functional/def\"\n",
+    source,
+  ), origin or "functional")()
 }
 
 t.group("pipe operator"){
@@ -50,7 +47,7 @@ t.group("holes"){
     assert(r[0] == {6, 7, 8}, concat("map ", r[0]))
     assert(
       len(r[1]) == 3 and r[1][2] == 3 and r[1][4] == 5,
-      concat("filter keeps keys: ", r[1])
+      concat("filter keeps keys: ", r[1]),
     )
     assert(r[2] == 6, "fold with two holes")
     assert(r[3] == {"a", "b"}, "field access on a hole")
@@ -97,17 +94,14 @@ t.group("holes"){
   t.test("holes are highlighted as parameters"){
     local h = compiler.highlight(
       "extension \"examples/functional/holes\"\nlocal f = => _ + _2\n",
-      "holes.slang"
+      "holes.slang",
     )
     local cats = {}
     for(let local tk in values(h.tokens)){ append(cats, tk.category) }
-    assert(
-      str.index_of(
-        str.join(cats, " "),
-        "operator parameter operator parameter"
-      ) >= 0,
-      str.join(cats, " ")
-    )
+    assert(str.index_of(
+      str.join(cats, " "),
+      "operator parameter operator parameter",
+    ) >= 0, str.join(cats, " "))
     assert(len(h.diagnostics) == 0)
   }
 }
@@ -129,7 +123,7 @@ t.group("def"){
     """)
     assert(
       r[0] == 120 and r[1] == 12 and r[2] == 20 and r[3] == "other",
-      concat("results ", r)
+      concat("results ", r),
     )
     assert(r[4] == "hallo welt" and r[5] == {1} and r[6] == {1, 2})
   }

@@ -390,6 +390,18 @@ An unquote runs once, when the parser first reaches it, and the code it
 returns is spliced in its place. It may compute anything, but it may not
 change the grammar.
 
+`compile(code, origin, env)` gives the compiled code its own globals, as
+Lua's `load` does: it sees only what the table `env` holds, and its global
+assignments land in `env` (functions it makes keep that env). An env with
+`meta: {__index: shared}` reads through to other values. Since unquotes
+and extension statements would run with the compiler's globals, a
+sandboxed source may not contain them. It is a sandbox for names, not for
+resources: there are no CPU or memory limits.
+```slang
+compile("return x * 2", "calc", {x: 21})()   // 42
+compile("return require", "calc", {})()      // null: not in the env
+```
+
 Grammar changes are made by **extension statements**, which are only allowed
 at the top level of a file (or of a `compile`d string):
 ```slang
@@ -579,6 +591,58 @@ source: its native modules (`stubs/mod.slang` for `pkg/mod`), and modules
 whose fields it makes at run time, like an FFI binding (`stubs/init.slang`
 for `pkg`). The language server and `slang doc` read a package's stub
 instead of its source.
+
+## Single executables
+
+`slang build [file.slang]` turns a program into one executable that runs
+without slang installed:
+
+```
+bin/slang build -o hello main.slang      # ./hello, anywhere
+bin/slang build --dir examples/webserver/main.slang   # dist/webserver, dist/lib/, dist/static/
+```
+
+The executable is a copy of the slang runtime with the program appended:
+its modules as bytecode, found by following `require` from the main file
+(packages included; a `require` of a computed name is reported, and
+`build.modules` lists what it may load), and its asset files. Nothing is
+compiled from C. On macOS slang signs the result ad hoc itself, or runs
+`codesign` with an identity from `build.codesign`.
+
+Assets are listed in `slang.project` and keep their project-relative
+paths: the program reads them with `slang/os` as before (a relative path
+finds a bundled file first: `read_file`, `exists`, `is_dir`, `list_dir`, and
+`async.fs`), `app:static` serves them, and `slang/bundle` tells what os
+cannot (whether a file is bundled, how it is stored). Bundled files are
+read-only: writes go to the disk, and a bundled path keeps reading the
+bundled file, so a program keeps its data apart from its assets. With `compress`,
+assets are stored gzipped where that saves at least 10%, and `app:static`
+sends them as stored to clients that take gzip:
+
+```
+{
+  name: "app",
+  build: {
+    assets: {"static", "data/words.txt"},
+    compress: true,          // or a list of paths; images, video and archives are skipped
+    modules: {"plugins/a"},  // modules required by a computed name
+  },
+}
+```
+
+A program that needs native extensions (`slang/web` needs uv and llhttp)
+gets them linked in: `slang build` links the runtime from slang's static
+archives (`lib/static`: `libslang.a` with the runtime and C's `main`, the
+extensions and their libraries, `manifest.slang` saying what each needs)
+with `cc`, or `zig cc` where there is no `cc`, once per set of extensions
+(cached in `~/.cache/slang/runtimes`). `--dir` needs no linker: a directory
+with the executable (the runtime and the modules), the extensions in
+`lib/`, and the assets copied next to it, as they were. The extensions
+carry their third-party libraries (linked statically from the system's
+archives; llhttp is vendored in `extensions/native/vendor`), so either form
+runs on machines without them.
+A package's prebuilt native modules cannot be linked: such programs are
+built with `--dir`. `--list` shows what a build would take.
 
 ## Editor support
 

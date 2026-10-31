@@ -20,7 +20,7 @@ t.group("packages: versions"){
     // below 1.0 the minor is the major
     assert(not pkg.compatible(
       pkg.parse_version("0.1"),
-      pkg.parse_version("0.2")
+      pkg.parse_version("0.2"),
     ))
   }
 }
@@ -54,7 +54,7 @@ local func repo(name, versions){
     }
     sh(
       concat("git add -A && git commit -qm ", v.tag, " && git tag ", v.tag),
-      dir
+      dir,
     )
   }
   return dir
@@ -63,13 +63,13 @@ local func repo(name, versions){
 local func slang_in(dir, command){
   return sh(
     concat("SLANG_PKG_DIR=", scratch, "/cache ", slang, " ", command),
-    dir
+    dir,
   )
 }
 
 t.group("packages: get, update, run"){
   t.test(
-    "minimal versions, the lock, update, and extensions that stay in their package"
+    "minimal versions, the lock, update, and extensions that stay in their package",
   ){
     os.mkdir_all(concat(scratch, "/app"))
     local util = repo("util", {
@@ -106,11 +106,11 @@ t.group("packages: get, update, run"){
       fns,
       "\", version: \"^1.0\"},\n  util: {git: \"",
       util,
-      "\", version: \"^1.0\"},\n}}\n"
+      "\", version: \"^1.0\"},\n}}\n",
     ))
     write(
       "app/main.slang",
-      "local fns = require(\"fns\")\nprint(fns.double(21), \" \", fns.util, \"\\n\")\n"
+      "local fns = require(\"fns\")\nprint(fns.double(21), \" \", fns.util, \"\\n\")\n",
     )
     local app = concat(scratch, "/app")
     // the lowest versions that satisfy everyone
@@ -118,7 +118,7 @@ t.group("packages: get, update, run"){
     assert(
       str.index_of(out, "fns 1.0.0") >= 0 and
         str.index_of(out, "util 1.0.0") >= 0,
-      out
+      out,
     )
     assert(slang_in(app, "run main.slang") == "42 1.0\n")
     local lock = compiler.read_table_file(concat(app, "/slang.lock"))
@@ -130,7 +130,7 @@ t.group("packages: get, update, run"){
     assert(
       str.index_of(out, "fns 1.1.0") >= 0 and
         str.index_of(out, "util 1.1.0") >= 0,
-      out
+      out,
     )
     assert(slang_in(app, "run main.slang") == "42 1.1\n")
     // the package's lambda extension does not reach the project
@@ -151,13 +151,13 @@ t.group("packages: native modules"){
     write("nat/init.slang", "return require(\"nat/hello\")\n")
     write(
       "nat/stubs/hello.slang",
-      "// hello: a greeting\nlocal m = {}\nreturn m\n"
+      "// hello: a greeting\nlocal m = {}\nreturn m\n",
     )
     write("nat/hello.c", concat(
       "#include \"slang.h\"\n",
       "static int greet(slang_State *S) { slang_pushstring(S, \"hi\"); return 1; }\n",
       "static const slang_Reg funcs[] = {{\"greet\", greet}, {0, 0}};\n",
-      "SLANG_EXTENSION(nat_hello) { slang_newmodule(S, funcs); return 1; }\n"
+      "SLANG_EXTENSION(nat_hello) { slang_newmodule(S, funcs); return 1; }\n",
     ))
     local nat = concat(scratch, "/nat")
     local ext = ".so"
@@ -172,11 +172,11 @@ t.group("packages: native modules"){
         "cc ", flags, " -I", compiler.absolute_path("zig/include"), " -o lib/",
         platform, "/hello", ext, " hello.c"
       ),
-      nat
+      nat,
     )
     write(
       "napp/slang.project",
-      "{name: \"napp\", dependencies: {nat: {path: \"../nat\"}}}\n"
+      "{name: \"napp\", dependencies: {nat: {path: \"../nat\"}}}\n",
     )
     write("napp/main.slang", "print(require(\"nat\").greet(), \"\\n\")\n")
     local napp = concat(scratch, "/napp")
@@ -185,7 +185,7 @@ t.group("packages: native modules"){
     // the stubs are the package's
     write("napp/stub.slang", concat(
       "local c = require(\"slang/compiler\")\n",
-      "print(c.stub_path(\"nat/hello\") != null, \"\\n\")\n"
+      "print(c.stub_path(\"nat/hello\") != null, \"\\n\")\n",
     ))
     assert(slang_in(napp, "run stub.slang") == "true\n")
     // built for another platform only: an error that names this one

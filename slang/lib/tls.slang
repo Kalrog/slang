@@ -196,7 +196,7 @@ local func connection(tcp, session){
   local t = {
     tcp: tcp, session: session, done: false, error: null, closed: false,
     reading: false, on_chunk: null, received: {}, at: 0, eof: false,
-    eof_told: false, pending: {}, waiting: {},
+    eof_told: false, pending: {}, waiting: {}
   }
   t.tcp_cb = func(err, chunk){ on_tcp(t, err, chunk) }
   t.meta = meta
@@ -233,7 +233,7 @@ func tls.connect(host, port, options){
     local context = options.context
     local own = false
     for(let local name in values({
-      "ca", "ca_file", "cert", "cert_file", "verify", "alpn", "min_version",
+      "ca", "ca_file", "cert", "cert_file", "verify", "alpn", "min_version"
     })){
       own = own or options[name] != null
     }
@@ -339,7 +339,7 @@ func methods.close(t, cb){
 
 for(let local name in values({
   "getsockname", "getpeername", "nodelay", "keepalive", "is_closing",
-  "is_active", "fileno", "ref", "unref", "has_ref",
+  "is_active", "fileno", "ref", "unref", "has_ref"
 })){
   methods[name] = func(t, ...arguments){
     local tcp = t.tcp

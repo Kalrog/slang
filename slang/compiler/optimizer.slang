@@ -138,7 +138,7 @@ func visitors.For(n){
     "For",
     {
       init: maybe(n.init), condition: visit(n.condition),
-      update: maybe(n.update), body: visit(n.body), label: n.label,
+      update: maybe(n.update), body: visit(n.body), label: n.label
     }, n.token
   )
 }
@@ -153,7 +153,7 @@ func visitors.Invoke(n){
   return ast.node(
     "Invoke",
     {receiver: visit(n.receiver), name: n.name, args: visit_list(n.args)},
-    n.token
+    n.token,
   )
 }
 
@@ -183,21 +183,18 @@ func visitors.CallStat(n){
 }
 
 func visitors.If(n){
-  return ast.node(
-    "If",
-    {
-      condition: visit(n.condition),
-      thenBranch: visit(n.thenBranch),
-      elseBranch: maybe(n.elseBranch),
-    }, n.token
-  )
+  return ast.node("If", {
+    condition: visit(n.condition),
+    thenBranch: visit(n.thenBranch),
+    elseBranch: maybe(n.elseBranch),
+  }, n.token)
 }
 
 func visitors.Index(n){
   return ast.node(
     "Index",
     {receiver: visit(n.receiver), index: visit(n.index), dotStyle: n.dotStyle},
-    n.token
+    n.token,
   )
 }
 
@@ -216,14 +213,11 @@ func visitors.Defer(n){
 }
 
 func visitors.IfExpr(n){
-  return ast.node(
-    "IfExpr",
-    {
-      condition: visit(n.condition),
-      thenValue: visit(n.thenValue),
-      elseValue: visit(n.elseValue),
-    }, n.token
-  )
+  return ast.node("IfExpr", {
+    condition: visit(n.condition),
+    thenValue: visit(n.thenValue),
+    elseValue: visit(n.elseValue),
+  }, n.token)
 }
 
 func visitors.Return(n){

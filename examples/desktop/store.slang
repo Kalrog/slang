@@ -3,9 +3,10 @@
 //   store.list() -> {id, text, done} items      store.add(text)
 //   store.toggle(id)   store.remove(id)   store.clear_done()
 local sqlite = require("slang/sqlite")
+local place = require("place")
 local m = {}
 
-local db = sqlite.open("examples/desktop/todos.db")
+local db = sqlite.open(place("todos.db"))
 db:exec(sql{
   create table if not exists todos(
     id integer primary key,

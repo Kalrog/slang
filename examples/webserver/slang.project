@@ -1,5 +1,15 @@
 // async/await, the HTML templates and the sql{} literals are ambient in
 // every file of the server
 {
-  extensions: {"extensions/async", "extensions/html", "extensions/sqlite"},
+  extensions: {
+    "extensions/async",
+    "extensions/html",
+    "extensions/sqlite",
+  },
+  // slang build --dir examples/webserver/main.slang
+  build: {
+    name: "webserver",
+    assets: {"static"},
+    compress: true,
+  },
 }

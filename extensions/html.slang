@@ -59,15 +59,15 @@ local func punct(s){
 
 local name_chars = peg.seq(
   peg.pattern("a-zA-Z_"),
-  peg.pattern("a-zA-Z0-9_:-"):star()
+  peg.pattern("a-zA-Z0-9_:-"):star(),
 )
 local tag_name = peg.seq(
   name_chars,
-  peg.seq(peg.char("."), name_chars):star()
+  peg.seq(peg.char("."), name_chars):star(),
 ):flatten("tag name expected")
 local attr_name = peg.seq(
   peg.pattern("a-zA-Z_:@"),
-  peg.pattern("a-zA-Z0-9_:.-"):star()
+  peg.pattern("a-zA-Z0-9_:.-"):star(),
 ):flatten("attribute name expected")
 
 local func is_component(name){
@@ -117,7 +117,7 @@ local text = peg.custom(
     }
     ctx.tree = peg.node(self, pos, q, kids)
     return q
-  }
+  },
 )
 
 // ------------------------------------------------------------ literal text
@@ -214,7 +214,7 @@ local func part_token(token, part, offset){
   local start = token.start + offset
   return {
     value: part, start: start, stop: start + len(part), buffer: token.buffer,
-    meta: peg.token_meta,
+    meta: peg.token_meta
   }
 }
 
@@ -224,7 +224,7 @@ local func component_ref(name, token){
   local node = ast.node(
     "Identifier",
     {value: parts[0]},
-    part_token(token, parts[0], 0)
+    part_token(token, parts[0], 0),
   )
   local offset = len(parts[0]) + 1
   for(local i = 1; i < len(parts); i = i + 1){
@@ -302,19 +302,16 @@ local func build(name, attrs, children, token){
         ast.node(
           "Field",
           {key: string_node("meta", token), value: runtime("list", token)},
-          token
+          token,
         ),
       }
       for(local i = 0; i < len(kids); i = i + 1){
         append(marked, kids[i])
       }
-      append(fields, ast.node(
-        "Field",
-        {
-          key: string_node("children", token),
-          value: ast.node("Table", {fields: marked}, token),
-        }, token
-      ))
+      append(fields, ast.node("Field", {
+        key: string_node("children", token),
+        value: ast.node("Table", {fields: marked}, token),
+      }, token))
     }
     local props = ast.node("Table", {fields: fields}, token)
     return ast.node(
@@ -599,7 +596,7 @@ local braced_expr = fmt.role(
   peg.seq(
     punct("{"), ws, fmt.role(g:rule("expr"), "expr"), ws, punct("}")
   ):pick(2),
-  "braced"
+  "braced",
 )
 
 local attribute = fmt.role(peg.choice(
@@ -608,29 +605,26 @@ local attribute = fmt.role(peg.choice(
       punct("{"), ws, peg.token(peg.string("..."), "operator"),
       fmt.role(g:rule("expr"), "expr"), ws, punct("}")
     ),
-    "spread"
-  )
-    :map(func(v){
-      return {spread: v[3]}
-    }),
+    "spread",
+  ):map(func(v){
+    return {spread: v[3]}
+  }),
   peg.seq(
     fmt.role(peg.token(attr_name, "property"), "name"),
     peg.seq(ws, punct("="), ws, peg.choice(
       fmt.role(g:rule("string_literal"), "string"),
-      braced_expr
-    ))
-      :pick(3)
-      :optional()
+      braced_expr,
+    )):pick(3):optional(),
   )
     :map(func(v){
       return {name: v[0], value: v[1]}
-    })
+    }),
 ), "attr")
 
 local child = peg.choice(
   element,
   braced_expr:map(func(e){ return {expr: e} }),
-  fmt.role(text, "text"):map(func(s){ return {text: s} })
+  fmt.role(text, "text"):map(func(s){ return {text: s} }),
 )
 
 local tag_part = fmt.role(tag_token, "tag")
@@ -640,11 +634,10 @@ element:set(fmt.layout(peg.choice(
   peg.seq(
     fmt.role(punct("<>"), "fragment"),
     fmt.role(child:star(), "children"),
-    punct("</>")
-  )
-    :map(func(v){
-      return {token: v[0], ast: build(null, {}, v[1], v[0])}
-    }),
+    punct("</>"),
+  ):map(func(v){
+    return {token: v[0], ast: build(null, {}, v[1], v[0])}
+  }),
   peg.seq(
     punct("<"), tag_part, peg.seq(ws, attribute):pick(1):star(), ws,
     peg.choice(
@@ -655,7 +648,7 @@ element:set(fmt.layout(peg.choice(
       )
         :map(func(v){
           return {children: v[1], close: v[4]}
-        })
+        }),
     )
   )
     :map(func(v){
@@ -669,7 +662,7 @@ element:set(fmt.layout(peg.choice(
         )
       }
       return {token: v[0], ast: build(open, v[2], tail.children, v[0])}
-    })
+    }),
 ), func(api, n){ return layout_element(api, n) }))
 
 g:expression():primary("html", element)

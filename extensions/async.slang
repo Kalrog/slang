@@ -33,25 +33,21 @@ local func wrap_function(fn){
 }
 
 // async func NAME(params){ body }, also with `local` in front
-g:statement(
-  "asyncFunction",
-  peg.seq(
-    g:token("local"):optional(),
-    g:keyword("async"),
-    g:token("func"),
-    g:rule("identifier_and_index"),
-    g:rule("function_definition")
-  )
-    :map(func(v){
-      return {
-        token: v[1],
-        ast: ast.node(
-          "Declaration",
-          {is_local: v[0] != null, left: v[3], right: wrap_function(v[4])}, v[1]
-        ),
-      }
-    })
-)
+g:statement("asyncFunction", peg.seq(
+  g:token("local"):optional(),
+  g:keyword("async"),
+  g:token("func"),
+  g:rule("identifier_and_index"),
+  g:rule("function_definition"),
+):map(func(v){
+  return {
+    token: v[1],
+    ast: ast.node(
+      "Declaration",
+      {is_local: v[0] != null, left: v[3], right: wrap_function(v[4])}, v[1]
+    ),
+  }
+}))
 
 // async func(params){ body } as an expression
 g
@@ -60,7 +56,7 @@ g
     "asyncFunction",
     peg.seq(g:keyword("async"), g:rule("function_expression")):map(func(v){
       return {token: v[0], ast: wrap_function(v[1])}
-    })
+    }),
   )
 
 // await EXPR: a prefix that binds like a call
@@ -87,5 +83,5 @@ g:statement(
           "ForIn", {pattern: v[4], itterator: iterator, body: v[8]}, v[0]
         ),
       }
-    })
+    }),
 )

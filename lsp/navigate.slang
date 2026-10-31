@@ -37,7 +37,7 @@ func navigate.new(options){
   }
   local w = {
     root: root, read: options.read or os.read_file, documents: {}, cache: {},
-    files: null,
+    files: null
   }
   w.meta = meta
   return w
@@ -82,7 +82,7 @@ func methods.file(w, path){
 
 local skip_dirs = {
   ["zig-out"]: true, ["zig-cache"]: true, [".zig-cache"]: true,
-  node_modules: true, out: true,
+  node_modules: true, out: true
 }
 
 // the plain patterns of dir's .gitignore (names and paths; wildcard
@@ -113,7 +113,7 @@ local func ignore_rules(dir, rules){
       }
       append(out, {
         base: dir, pattern: p,
-        anywhere: not anchored and str.index_of(p, "/") < 0,
+        anywhere: not anchored and str.index_of(p, "/") < 0
       })
     }
   }
@@ -328,7 +328,7 @@ local func field_of(w, value, name, depth){
           path: value.path,
           def: {
             name: name, kind: "field", start: key.start, stop: key.stop,
-            value: fld.value, fields: {},
+            value: fld.value, fields: {}
           },
         }
       }
@@ -590,7 +590,7 @@ local func key_at(w, path, pos){
         if(mf != null and mf.index.exports[found.name] != null){
           return {
             kind: "export", path: m, name: found.name,
-            owner_name: found.owner.name,
+            owner_name: found.owner.name
           }
         }
       }
@@ -602,7 +602,7 @@ local func key_at(w, path, pos){
       if(member != null){
         return {
           kind: "member", path: member.path, def: member.def, name: found.name,
-          type_name: member.type_name, invoke: found.invoke,
+          type_name: member.type_name, invoke: found.invoke
         }
       }
       if(found.owner.global != null){
@@ -821,7 +821,7 @@ func navigate.markdown(doc){
 }
 
 local kind_words = {
-  local: "local", parameter: "parameter", global: "global", field: "field",
+  local: "local", parameter: "parameter", global: "global", field: "field"
 }
 
 func methods.hover(w, path, pos){
@@ -892,7 +892,7 @@ func methods.hover(w, path, pos){
     }
   }
   return {
-    markdown: str.join(lines, "\n\n"), start: found.start, stop: found.stop,
+    markdown: str.join(lines, "\n\n"), start: found.start, stop: found.stop
   }
 }
 

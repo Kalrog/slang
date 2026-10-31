@@ -108,7 +108,7 @@ local func new_socket(conn, rest, client, options){
   local closed = async.completer()
   local s = {
     conn: conn, client: client, messages: c.stream, closed: closed.future,
-    state: "open", max_message: options.max_message or 16 * 1024 * 1024,
+    state: "open", max_message: options.max_message or 16 * 1024 * 1024
   }
   s.meta = socket_meta
 
@@ -138,7 +138,7 @@ local func new_socket(conn, rest, client, options){
         },
         func(_){
           finish(code, reason)
-        }
+        },
       )
     } else {
       finish(code, reason)
@@ -230,7 +230,7 @@ local func new_socket(conn, rest, client, options){
             fail(
               1002,
               client and "a masked frame from the server" or
-                "an unmasked frame from the client"
+                "an unmasked frame from the client",
             )
             return null
           }
@@ -238,7 +238,7 @@ local func new_socket(conn, rest, client, options){
           if(masked){
             payload = encoding.mask(
               payload,
-              str.substring(buf, at + header - 4, at + header)
+              str.substring(buf, at + header - 4, at + header),
             )
           }
           at = at + header + length
@@ -264,7 +264,7 @@ local func new_socket(conn, rest, client, options){
                 local answer = code == 1005 and "" or close_payload(code, "")
                 local w = pcall(
                   async.await,
-                  write(frame(OP_CLOSE, answer, client))
+                  write(frame(OP_CLOSE, answer, client)),
                 )
               }
               finish(code, reason)
@@ -370,9 +370,7 @@ func ws.accept(req, conn, rest, options){
   local key = req.headers["sec-websocket-key"]
   if(not ws.is_upgrade(req) or key == null or
     req.headers["sec-websocket-version"] != "13" or req.method != "GET"){
-    require(
-      "slang/http"
-    ).write_response(conn, req, {
+    require("slang/http").write_response(conn, req, {
       status: 400,
       body: "a WebSocket handshake was expected\n",
       headers: {["Sec-WebSocket-Version"]: "13"},
@@ -383,7 +381,7 @@ func ws.accept(req, conn, rest, options){
     "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n",
     "Sec-WebSocket-Accept: ",
     accept_key(key),
-    "\r\n\r\n"
+    "\r\n\r\n",
   ))
   return new_socket(conn, rest, false, options)
 }

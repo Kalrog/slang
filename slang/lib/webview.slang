@@ -61,7 +61,7 @@ local func web_request(r){
     method: r.method, url: target,
     path: q >= 0 and str.substring(target, 0, q) or target,
     query: q >= 0 and str.substring(target, q + 1) or null, version: "1.1",
-    headers: r.headers, body: r.body,
+    headers: r.headers, body: r.body
   }
 }
 
@@ -80,7 +80,7 @@ local func serve(app, request, task){
         task:respond(
           500,
           {["Content-Type"]: "text/plain"},
-          concat("internal error: ", r[1].message or string(r[1]))
+          concat("internal error: ", r[1].message or string(r[1])),
         )
       })
     }

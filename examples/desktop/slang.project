@@ -2,4 +2,6 @@
 // every file of the app
 {
   extensions: {"extensions/async", "extensions/html", "extensions/sqlite"},
+  // slang build --dir examples/desktop/main.slang
+  build: {name: "todos", assets: {"static"}, compress: true},
 }

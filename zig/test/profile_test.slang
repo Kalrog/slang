@@ -8,7 +8,7 @@ local async = require("slang/async")
 local scratch = concat(
   os.getenv("TMPDIR") or "/tmp/",
   "/slang-profile-test-",
-  string(uv.getpid())
+  string(uv.getpid()),
 )
 os.mkdir_all(scratch)
 
@@ -37,7 +37,7 @@ t.group("profiler"){
     os.write_file(source, program)
     local r = async.main(func(){
       return async.await(async.exec("bin/slang", {
-        "run", "--profile", folded, source,
+        "run", "--profile", folded, source
       }))
     })
     assert(r.status == 0, concat("exit ", r.status, ": ", r.stderr))
@@ -64,7 +64,7 @@ t.group("profiler"){
     assert(all > 0, "something was sampled")
     assert(
       hot * 2 > all,
-      concat("hot has most of the time: ", hot, " of ", all)
+      concat("hot has most of the time: ", hot, " of ", all),
     )
   }
 }

@@ -27,7 +27,7 @@ t.group("extension statements"){
     """, "file extension")
     assert(
       run() == 42,
-      "lambda shorthand should work after the extension statement"
+      "lambda shorthand should work after the extension statement",
     )
   }
   t.test("ordinary unquotes may not change the grammar"){
@@ -43,7 +43,7 @@ t.group("extension statements"){
     assert(r[0] == "err", "compile should fail")
     assert(
       str.index_of(message_of(r), "extension statement") >= 0,
-      concat("message: ", message_of(r))
+      concat("message: ", message_of(r)),
     )
   }
   t.test("extension statements are only allowed at the top level"){
@@ -61,7 +61,7 @@ t.group("extension statements"){
     assert(r[0] == "err", "compile should fail")
     assert(
       str.index_of(message_of(r), "while a statement is being parsed") >= 0,
-      concat("message: ", message_of(r))
+      concat("message: ", message_of(r)),
     )
   }
   t.test("an unquote runs once even when the parser backtracks across it"){
@@ -84,7 +84,7 @@ t.group("extension statements"){
     """, "unquote memo")
     assert(
       unquote_runs == 1,
-      concat("the unquote block ran ", unquote_runs, " times")
+      concat("the unquote block ran ", unquote_runs, " times"),
     )
     run()
     assert(stored == 8, "the spliced value should be used")
@@ -102,7 +102,7 @@ t.group("extension statements"){
     assert(computed == 10, "the spliced statement should run")
     local f = compile(
       "return -{block: return {type: \"Int\", value: 10}} * 2",
-      "pure unquote expr"
+      "pure unquote expr",
     )
     assert(f() == 20, "spliced value should be usable")
   }
@@ -130,7 +130,7 @@ t.group("extension statements"){
     """, "keyword fields")
     assert(
       run() == 19,
-      "shout is a keyword but still a field, a method and a pattern key"
+      "shout is a keyword but still a field, a method and a pattern key",
     )
     // and not reserved outside it
     local r = pcall(compile, "local shout = 1", "keyword identifier")
@@ -163,7 +163,7 @@ t.group("extension statements"){
     """, "nested user extension statement")
     assert(
       r[0] == "err",
-      "extension statements defined by extensions are top-level only"
+      "extension statements defined by extensions are top-level only",
     )
   }
 }

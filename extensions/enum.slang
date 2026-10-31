@@ -25,13 +25,10 @@ g:statement(
     :map(func(r){
       local fields = {}
       for(let local m in values(r[3])){
-        append(fields, ast.node(
-          "Field",
-          {
-            key: ast.node("String", {value: m.value}, m),
-            value: ast.node("String", {value: m.value}, m),
-          }, m
-        ))
+        append(fields, ast.node("Field", {
+          key: ast.node("String", {value: m.value}, m),
+          value: ast.node("String", {value: m.value}, m),
+        }, m))
       }
       local table = ast.node("Table", {fields: fields}, r[2])
       local id = ast.node("Identifier", {value: r[1].value}, r[1])
@@ -41,5 +38,5 @@ g:statement(
           "Declaration", {is_local: true, left: id, right: table}, r[0]
         ),
       }
-    })
+    }),
 )

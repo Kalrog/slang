@@ -58,6 +58,11 @@ func names.is_count(p){
     return false
   }
   local name = p.name
+  // a font size follows a text (MeasureText(text, fontSize)) but is no
+  // length
+  if(name == "fontSize"){
+    return false
+  }
   return str.ends_with(name, "Count") or str.ends_with(name, "count") or
     str.ends_with(name, "Size") or name == "length" or name == "instances"
 }

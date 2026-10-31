@@ -23,7 +23,7 @@ local colors = {
   dim: {120, 120, 140},
   rows: {
     {232, 80, 90}, {240, 150, 60}, {240, 220, 80}, {110, 210, 120},
-    {90, 160, 240}, {170, 110, 230},
+    {90, 160, 240}, {170, 110, 230}
   },
 }
 
@@ -55,7 +55,7 @@ local func new_bricks(){
 local func reset_ball(){
   game.ball = {
     x: game.paddle.x + game.paddle.w / 2, y: game.paddle.y - 12, r: 8, vx: 0,
-    vy: 0, launched: false,
+    vy: 0, launched: false
   }
 }
 
@@ -153,11 +153,11 @@ local func update_ball(dt){
       // bounce on the side that was crossed
       local overlap_x = math.min(
         b.x + b.r - brick.x,
-        brick.x + brick.w - (b.x - b.r)
+        brick.x + brick.w - (b.x - b.r),
       )
       local overlap_y = math.min(
         b.y + b.r - brick.y,
-        brick.y + brick.h - (b.y - b.r)
+        brick.y + brick.h - (b.y - b.r),
       )
       if(overlap_x < overlap_y){
         b.vx = -b.vx

@@ -169,7 +169,7 @@ local func request_of(head){
   return {
     method: head.method, path: path, query: query, url: url,
     version: head.version, headers: head.headers, body: "",
-    content_length: head.content_length,
+    content_length: head.content_length
   }
 }
 
@@ -242,11 +242,11 @@ local func compressible(content_type){
     str.index_of(t, "svg") >= 0
 }
 
-// does the client take gzip? (a q=0 turns it down)
+// accepts_gzip(req) -> does the client take gzip? (a q=0 turns it down)
 local func accepts_gzip(req){
   for(let local part in values(str.split(
     str.lower(req.headers["accept-encoding"] or ""),
-    ","
+    ",",
   ))){
     local p = str.trim(part)
     if(p == "gzip" or
@@ -256,6 +256,8 @@ local func accepts_gzip(req){
   }
   return false
 }
+
+http.accepts_gzip = accepts_gzip
 
 local func should_gzip(req, res, options){
   if(options.compress == false or res.compress == false or res.status < 200 or
@@ -275,7 +277,7 @@ local func should_gzip(req, res, options){
 local func format_head(res, keep_alive, length, chunked){
   local parts = {
     "HTTP/1.1 ", string(res.status), " ",
-    http.status_text[res.status] or "Unknown", "\r\n",
+    http.status_text[res.status] or "Unknown", "\r\n"
   }
   local has_date = false
   for(let local e in entries(res.headers)){
@@ -353,7 +355,7 @@ local func send(conn, req, res, keep_alive, options){
     }
     async.await(async.write(
       conn,
-      concat(format_head(res, keep_alive, length, false), body)
+      concat(format_head(res, keep_alive, length, false), body),
     ))
     return
   }
@@ -377,7 +379,7 @@ local func send(conn, req, res, keep_alive, options){
     if(chunked){
       async.await(async.write(
         conn,
-        concat(hex_of(len(data)), "\r\n", data, "\r\n")
+        concat(hex_of(len(data)), "\r\n", data, "\r\n"),
       ))
     } else {
       async.await(async.write(conn, data))
@@ -444,7 +446,7 @@ local func event_source(conn, options, state){
   local src = {
     reader: async.reader(conn),
     parser: parser("request", {max_head: options.max_head or 65536}), queue: {},
-    at: 0, eof: false,
+    at: 0, eof: false
   }
   local func read(timeout){
     local c = async.completer()
@@ -856,7 +858,7 @@ func http.connect(host, port, options){
     local c = {
       conn: conn, reader: async.reader(conn), parser: parser("response", null),
       host: host, port: port, secure: secure, queue: {}, at: 0, eof: false,
-      closed: false,
+      closed: false
     }
     c.meta = client_meta
     return c
@@ -929,7 +931,7 @@ func client_methods.request(c, method, path, body, headers, options){
         if(e.status >= 200 or e.status == 101){
           res = {
             status: e.status, reason: e.reason, version: e.version,
-            headers: e.headers, body: "",
+            headers: e.headers, body: ""
           }
         }
       } else if(e.type == "body"){
@@ -1089,7 +1091,7 @@ func http.multipart_parser(boundary){
   return {
     meta: multipart_meta, first: concat("--", boundary),
     delimiter: concat("\r\n--", boundary), buffer: "", state: "preamble",
-    max_head: 16384,
+    max_head: 16384
   }
 }
 
@@ -1136,12 +1138,12 @@ func multipart_methods.push(p, chunk){
       }
       local headers = {}
       for(let local line in values(
-        str.split(str.substring(buf, 0, i), "\r\n")
+        str.split(str.substring(buf, 0, i), "\r\n"),
       )){
         local colon = str.index_of(line, ":")
         if(colon > 0){
           headers[str.lower(
-            str.trim(str.substring(line, 0, colon))
+            str.trim(str.substring(line, 0, colon)),
           )] = str.trim(str.substring(line, colon + 1))
         }
       }

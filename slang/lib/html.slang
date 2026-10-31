@@ -25,7 +25,7 @@ local html = {}
 
 local safe = str.char_class("^&<>\"'")
 local replacements = {
-  ["&"]: "&amp;", ["<"]: "&lt;", [">"]: "&gt;", ["\""]: "&quot;", ["'"]: "&#39;",
+  ["&"]: "&amp;", ["<"]: "&lt;", [">"]: "&gt;", ["\""]: "&quot;", ["'"]: "&#39;"
 }
 
 func html.escape(s){
@@ -61,7 +61,7 @@ html.list = {__type: "HtmlList"}
 // metatable, not a field
 local void = {
   area: true, base: true, br: true, col: true, embed: true, hr: true, img: true,
-  input: true, link: true, param: true, source: true, track: true, wbr: true,
+  input: true, link: true, param: true, source: true, track: true, wbr: true
 }
 local func is_void(tag){
   return tag == "meta" or void[tag] == true

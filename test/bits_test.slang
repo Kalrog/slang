@@ -7,7 +7,7 @@ local func fails_with(source, text){
   assert(r[0] == "err", concat("should fail: ", source))
   assert(
     str.index_of(r[1].message, text) >= 0,
-    concat(source, ": ", r[1].message)
+    concat(source, ": ", r[1].message),
   )
 }
 

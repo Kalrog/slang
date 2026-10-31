@@ -101,7 +101,7 @@ local func strip_comments(text){
         append(out, "\n")
       }
       append(comments, {
-        line: line, text: str.trim(body), own_line: not line_has_code,
+        line: line, text: str.trim(body), own_line: not line_has_code
       })
       line = line + len(lines) - 1
       start = j + 2
@@ -133,7 +133,7 @@ local puncts3 = {["..."]: true, ["<<="]: true, [">>="]: true}
 local puncts2 = {
   ["<<"]: true, [">>"]: true, ["=="]: true, ["!="]: true, ["<="]: true,
   [">="]: true, ["&&"]: true, ["||"]: true, ["##"]: true, ["->"]: true,
-  ["++"]: true, ["--"]: true,
+  ["++"]: true, ["--"]: true
 }
 
 // the tokens of a line: {kind: "id" | "num" | "str" | "char" | "punct",
@@ -333,7 +333,7 @@ local func evaluate(tokens, lookup){
   local levels = {
     ["||"]: 1, ["&&"]: 2, ["|"]: 3, ["^"]: 4, ["&"]: 5, ["=="]: 6, ["!="]: 6,
     ["<"]: 7, [">"]: 7, ["<="]: 7, [">="]: 7, ["<<"]: 8, [">>"]: 8, ["+"]: 9,
-    ["-"]: 9, ["*"]: 10, ["/"]: 10, ["%"]: 10,
+    ["-"]: 9, ["*"]: 10, ["/"]: 10, ["%"]: 10
   }
   local func apply(op, a, b){
     if(op == "+" and type(a) == "string"){
@@ -452,7 +452,7 @@ local func evaluate(tokens, lookup){
 local func platform_defines(){
   local p = os.platform()
   local d = {
-    __STDC__: 1, __STDC_VERSION__: 201112, __STDC_HOSTED__: 1, __LP64__: 1,
+    __STDC__: 1, __STDC_VERSION__: 201112, __STDC_HOSTED__: 1, __LP64__: 1
   }
   if(str.starts_with(p, "macos")){
     d.__APPLE__ = 1
@@ -727,14 +727,14 @@ local builtin_typedefs = {
   size_t: "uint64", ssize_t: "int64", ptrdiff_t: "int64", intptr_t: "int64",
   uintptr_t: "uint64", int8_t: "int8", uint8_t: "uint8", int16_t: "int16",
   uint16_t: "uint16", int32_t: "int32", uint32_t: "uint32", int64_t: "int64",
-  uint64_t: "uint64", wchar_t: "int32", off_t: "int64",
+  uint64_t: "uint64", wchar_t: "int32", off_t: "int64"
 }
 
 local qualifiers = {
   const: true, volatile: true, restrict: true, __restrict: true,
   __restrict__: true, extern: true, static: true, inline: true, __inline: true,
   __inline__: true, register: true, auto: true, _Noreturn: true,
-  __extension__: true, __cdecl: true, __stdcall: true,
+  __extension__: true, __cdecl: true, __stdcall: true
 }
 
 // cdef(text, [options]) -> the declarations of text: {types, functions,
@@ -746,7 +746,7 @@ local qualifiers = {
 func ffi.cdef(text, options){
   options = options or {}
   local decls = options.into or {
-    types: {}, functions: {}, constants: {}, structs: {}, order: {},
+    types: {}, functions: {}, constants: {}, structs: {}, order: {}
   }
   local field_name = options.field_name or func(name){ return name }
   local pre = preprocess(text, options.defines)
@@ -992,7 +992,7 @@ func ffi.cdef(text, options){
           base = {kind: "prim", name: builtin_typedefs[w], c: w}
         } else if(w == "va_list" or w == "__builtin_va_list" or w == "FILE"){
           base = {
-            kind: "opaque", name: w, c: w, why: concat(w, " cannot be passed"),
+            kind: "opaque", name: w, c: w, why: concat(w, " cannot be passed")
           }
         } else {
           break
@@ -1024,7 +1024,7 @@ func ffi.cdef(text, options){
         if(c.long != null){
           base = {
             kind: "opaque", name: "long double", c: "long double",
-            why: "long double is not supported",
+            why: "long double is not supported"
           }
         } else {
           base = {kind: "prim", name: "double", c: "double"}
@@ -1152,12 +1152,12 @@ func ffi.cdef(text, options){
       local s = suffixes[k]
       if(s.kind == "array"){
         t = {
-          kind: "array", of: t, n: s.n, c: concat(t.c, "[", string(s.n), "]"),
+          kind: "array", of: t, n: s.n, c: concat(t.c, "[", string(s.n), "]")
         }
       } else {
         t = {
           kind: "func", ret: t, params: s.params, variadic: s.variadic,
-          c: "function",
+          c: "function"
         }
       }
     }
@@ -1346,7 +1346,7 @@ core_of = func(t, decls){
 // "Vector2", "struct foo", "Vector2 *", "float[4]"
 func ffi.type(name, decls){
   decls = decls or {
-    types: {}, functions: {}, constants: {}, structs: {}, order: {},
+    types: {}, functions: {}, constants: {}, structs: {}, order: {}
   }
   decls.field_name = decls.field_name or func(n){ return n }
   // parsed as the declaration of a typedef: int[4] is int __probe[4]
@@ -1359,7 +1359,7 @@ func ffi.type(name, decls){
   }
   local probe = ffi.cdef(
     concat("typedef ", head, " __ffi_type_probe", tail, ";"),
-    {into: decls, field_name: decls.field_name}
+    {into: decls, field_name: decls.field_name},
   )
   local t = probe.types.__ffi_type_probe
   probe.types.__ffi_type_probe = null
@@ -1438,7 +1438,7 @@ local func library_dirs(options){
   }
   for(let local d in values({
     "/opt/homebrew/lib", "/usr/local/lib", "/usr/lib",
-    "/usr/lib/x86_64-linux-gnu", "/usr/lib/aarch64-linux-gnu",
+    "/usr/lib/x86_64-linux-gnu", "/usr/lib/aarch64-linux-gnu"
   })){
     append(dirs, d)
   }
@@ -1489,7 +1489,7 @@ local func open_library(name, options){
     "ffi.load: cannot load the C library ",
     name,
     ": ",
-    str.join(tried, "; ")
+    str.join(tried, "; "),
   )
 }
 
@@ -1512,7 +1512,7 @@ local func bind(lib, f, decls, name){
     local t = p.type
     append(
       writeback,
-      t.kind == "ptr" and not t.const_to and t.to.kind != "void"
+      t.kind == "ptr" and not t.const_to and t.to.kind != "void",
     )
   }
   local r = pcall(core_of, f.ret, decls)

@@ -5,54 +5,51 @@ local t = require("slang/test")
 local ffi = require("slang/ffi")
 local str = require("slang/string")
 
-local header = str.join(
-  {
-    "#include <stdint.h>",
-    "#define FT_VERSION \"1.2\"",
-    "#define FT_LIMIT (4 * 16)",
-    "#define FT_HALF 0.5f",
-    "#define FT_API",
-    "#if defined(FT_API) && FT_LIMIT > 10",
-    "#define FT_BIG 1",
-    "#else",
-    "#define FT_BIG 0",
-    "#endif",
-    "#ifdef NOT_DEFINED",
-    "this is not C and is skipped",
-    "#endif",
-    "#define FT_VEC(x, y) (Vec2){ x, y }",
-    "typedef struct { float x, y; } Vec2;",
-    "#define FT_ORIGIN FT_VEC(0, 0)",
-    "typedef struct { double a; int8_t b; int64_t c; } Mixed;",
-    "typedef struct { Vec2 pos; uint8_t tag[4]; char name[8]; } Item;",
-    "typedef struct { int32_t v[10]; } Big;",
-    "typedef struct Node { int value; struct Node *next; } Node;",
-    "typedef enum { RED, GREEN = 5, BLUE, MASK = 1 << 4 } Color;",
-    "/* scalars */",
-    "FT_API int8_t ft_i8(int8_t x);",
-    "uint8_t ft_u8(uint8_t x); int16_t ft_i16(int16_t x); uint16_t ft_u16(uint16_t x);",
-    "int32_t ft_i32(int32_t x); uint32_t ft_u32(uint32_t x);",
-    "int64_t ft_i64(int64_t x); uint64_t ft_u64(uint64_t x);",
-    "float ft_f32(float x); double ft_f64(double x); _Bool ft_not(_Bool b);",
-    "double ft_mix_args(int8_t a, double b, uint16_t c, float d, int64_t e);",
-    "const char *ft_greet(const char *name);  // says hello",
-    "// adds two vectors",
-    "Vec2 ft_vec_add(Vec2 a, Vec2 b);",
-    "Mixed ft_mixed(double a, int8_t b, int64_t c); double ft_mixed_sum(Mixed m);",
-    "Item ft_item(Vec2 pos, const char *name); int ft_item_tags(Item it);",
-    "Big ft_big(int start); int64_t ft_big_sum(Big b);",
-    "float ft_sum_vecs(const Vec2 *vs, int count);",
-    "void ft_scale(Vec2 *v, float k);",
-    "void ft_fill(int *out, int count);",
-    "int ft_count_nodes(const Node *n);",
-    "int ft_sum_ints(int count, ...);",
-    "int ft_next(void);",
-    "const void *ft_null(void);",
-    "int ft_missing(void);",
-    "static inline int ft_inline(int x) { return x * (2 + 1); }",
-  },
-  "\n"
-)
+local header = str.join({
+  "#include <stdint.h>",
+  "#define FT_VERSION \"1.2\"",
+  "#define FT_LIMIT (4 * 16)",
+  "#define FT_HALF 0.5f",
+  "#define FT_API",
+  "#if defined(FT_API) && FT_LIMIT > 10",
+  "#define FT_BIG 1",
+  "#else",
+  "#define FT_BIG 0",
+  "#endif",
+  "#ifdef NOT_DEFINED",
+  "this is not C and is skipped",
+  "#endif",
+  "#define FT_VEC(x, y) (Vec2){ x, y }",
+  "typedef struct { float x, y; } Vec2;",
+  "#define FT_ORIGIN FT_VEC(0, 0)",
+  "typedef struct { double a; int8_t b; int64_t c; } Mixed;",
+  "typedef struct { Vec2 pos; uint8_t tag[4]; char name[8]; } Item;",
+  "typedef struct { int32_t v[10]; } Big;",
+  "typedef struct Node { int value; struct Node *next; } Node;",
+  "typedef enum { RED, GREEN = 5, BLUE, MASK = 1 << 4 } Color;",
+  "/* scalars */",
+  "FT_API int8_t ft_i8(int8_t x);",
+  "uint8_t ft_u8(uint8_t x); int16_t ft_i16(int16_t x); uint16_t ft_u16(uint16_t x);",
+  "int32_t ft_i32(int32_t x); uint32_t ft_u32(uint32_t x);",
+  "int64_t ft_i64(int64_t x); uint64_t ft_u64(uint64_t x);",
+  "float ft_f32(float x); double ft_f64(double x); _Bool ft_not(_Bool b);",
+  "double ft_mix_args(int8_t a, double b, uint16_t c, float d, int64_t e);",
+  "const char *ft_greet(const char *name);  // says hello",
+  "// adds two vectors",
+  "Vec2 ft_vec_add(Vec2 a, Vec2 b);",
+  "Mixed ft_mixed(double a, int8_t b, int64_t c); double ft_mixed_sum(Mixed m);",
+  "Item ft_item(Vec2 pos, const char *name); int ft_item_tags(Item it);",
+  "Big ft_big(int start); int64_t ft_big_sum(Big b);",
+  "float ft_sum_vecs(const Vec2 *vs, int count);",
+  "void ft_scale(Vec2 *v, float k);",
+  "void ft_fill(int *out, int count);",
+  "int ft_count_nodes(const Node *n);",
+  "int ft_sum_ints(int count, ...);",
+  "int ft_next(void);",
+  "const void *ft_null(void);",
+  "int ft_missing(void);",
+  "static inline int ft_inline(int x) { return x * (2 + 1); }",
+}, "\n")
 
 local C = ffi.cdef(header)
 local lib = ffi.load("ffitest", C)
@@ -135,7 +132,7 @@ t.group("ffi: calls"){
     assert(
       r[1].message ==
         "bad argument #1 to 'ft_vec_add' (Vec2 expected, got string)",
-      r[1].message
+      r[1].message,
     )
     r = pcall(lib.ft_i32)
     assert(r[1].message == "ft_i32 takes 1 arguments, got 0")
@@ -165,7 +162,7 @@ t.group("ffi: buffers"){
     assert(
       r[1].message ==
         "bad argument #1 to 'ft_sum_vecs' (Vec2 * expected, got a buffer of float: use b:cast)",
-      r[1].message
+      r[1].message,
     )
     local floats = buffer.from({1, 2, 3, 4}, "float")
     assert(lib.ft_sum_vecs(floats:cast(ffi.type("Vec2", C)), 2) == 10)

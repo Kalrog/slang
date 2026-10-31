@@ -114,21 +114,21 @@ t.group("labels"){
     assert(
       str.index_of(printed, ":outer: for(let local x in xs)") >= 0 and
         str.index_of(printed, "continue outer") >= 0,
-      printed
+      printed,
     )
   }
   t.test("a label must name an enclosing loop; a defer may not be left"){
     fails_to_compile(
       "for(true){ break nowhere }",
-      "no enclosing loop is labeled nowhere"
+      "no enclosing loop is labeled nowhere",
     )
     fails_to_compile(
       ":a: for(true){ }\nfor(true){ continue a }",
-      "no enclosing loop is labeled a"
+      "no enclosing loop is labeled a",
     )
     fails_to_compile(
       ":a: for(true){ defer { break a } }",
-      "break is not allowed to leave a defer"
+      "break is not allowed to leave a defer",
     )
   }
 }
@@ -161,7 +161,7 @@ t.group("break out of a for-in"){
     }
     assert(
       landing != null and str.index_of(landing, "pop") >= 0,
-      concat("lands on: ", string(landing))
+      concat("lands on: ", string(landing)),
     )
   }
 }

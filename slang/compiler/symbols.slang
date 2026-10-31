@@ -284,7 +284,7 @@ func recorder.field(rec, node, write, value, statement){
   append(rec.fields, {
     receiver: receiver.token.start, name: key.value, start: key.token.start,
     stop: key.token.stop, write: write, value: value, statement: statement,
-    invoke: node.type == "Invoke",
+    invoke: node.type == "Invoke"
   })
 }
 
@@ -384,7 +384,7 @@ local func sorted(list){
 func symbols.analyse(block, source, origin){
   local rec = {
     source: source, defs: {}, refs: {}, fields: {}, at: {}, globals: {},
-    global_owners: {},
+    global_owners: {}
   }
   rec.meta = recorder_meta
   // a block that does not compile (an unfinished edit) still has the names
@@ -397,7 +397,7 @@ func symbols.analyse(block, source, origin){
       if(owner != null){
         local def = {
           name: f.name, kind: "field", start: f.start, stop: f.stop,
-          value: f.value, owner: owner, fields: {},
+          value: f.value, owner: owner, fields: {}
         }
         if(f.statement != null and in_source(rec, f.statement)){
           def.statement = f.statement.start
@@ -409,7 +409,7 @@ func symbols.analyse(block, source, origin){
           // a later assignment of a field is a use of the first
           append(rec.refs, {
             name: f.name, start: f.start, stop: f.stop,
-            def: owner.fields[f.name], owner: owner, write: true,
+            def: owner.fields[f.name], owner: owner, write: true
           })
           remove(rec.defs, len(rec.defs) - 1)
         }
@@ -429,7 +429,7 @@ func symbols.analyse(block, source, origin){
       if(owner != null){
         append(rec.refs, {
           name: f.name, start: f.start, stop: f.stop, def: owner.fields[f.name],
-          owner: owner, write: false, invoke: f.invoke,
+          owner: owner, write: false, invoke: f.invoke
         })
       }
     }
@@ -476,7 +476,7 @@ func symbols.analyse(block, source, origin){
         // `return require("other")`: the module is the other one
         returned = {
           name: "module", kind: "local", fields: {},
-          module: st.value.args[0].value,
+          module: st.value.args[0].value
         }
       }
       break

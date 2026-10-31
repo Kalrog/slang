@@ -137,7 +137,7 @@ local func split(token){
   }
   return {
     header: r[1][0], claims: r[1][1], signature: signature,
-    input: concat(parts[0], ".", parts[1]),
+    input: concat(parts[0], ".", parts[1])
   }
 }
 

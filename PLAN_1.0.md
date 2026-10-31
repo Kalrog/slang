@@ -224,30 +224,54 @@ C. Native code arrives as static archives (`.a`) built by whoever owns
 it: slang's own extensions come prebuilt with slang, a package's come
 from its author or from the user.
 
-- [ ] The runtime as a static archive (`libslang.a`, with `main`), shipped
-      with slang.
-- [ ] The extensions as static archives too (`lib/*.a` next to the
-      `.dylib`s): uv, sqlite, crypto, llhttp, zlib, webview. Their
-      third-party libraries are linked from static archives where the
-      system has them; the build documents what it needs.
-- [ ] Statically linked extensions found without a generated table: the
-      runtime looks up `slang_ext_<name>` in its own executable before it
-      searches for shared libraries; the link exports those symbols and
-      keeps whole archives (`-force_load` / `--whole-archive`).
-- [ ] The program's bytecode embedded at link time as a data section
-      (`-sectcreate` on macOS, an `ld -r -b binary` object on Linux): the
-      bundle holds every module the program requires, found by following
-      `require` from the entry point; a `require` of a computed name is
-      reported, and `slang.project` can list extra modules.
-- [ ] `slang build [entry] -o name`, with `build: {...}` in `slang.project`
-      for the extensions to link, extra modules, static files to embed,
-      and the linker to use (the system `cc`, or `zig cc` for other
-      targets when the archives for that target exist).
-- [ ] Embedded files: `slang/assets` reads files bundled into the binary,
-      so a web app's static folder ships inside it; `app:static` takes an
-      embedded folder.
-- [ ] Examples: the web server and the desktop app as single binaries; the
-      desktop app as a `.app` bundle.
+Done 2026-10-31, differently from the first sketch: the program is not a
+data section added by the linker but a payload appended to a copy of the
+runtime (`zig/src/bundle/`), so a program without native extensions needs
+no linker at all. On macOS the signature is taken off, the payload goes
+into `__LINKEDIT` and slang signs the result ad hoc itself (`macho.zig`,
+checked by `codesign --strict`; `build.codesign` runs `codesign` with an
+identity instead). A 32-byte trailer before the signature locates the
+payload; at startup the runtime maps its own file and runs the bundled
+program when it finds one.
+
+- [x] The runtime as a static archive (`libslang.a`, with `main`), shipped
+      with slang (`lib/static`, `zig/src/runtime_lib.zig`).
+- [x] The extensions as static archives too (`lib/static/lib<name>_ext.a`),
+      with their third-party archives where the system has them and
+      `manifest.slang` saying what each needs. build.zig is one table of
+      extensions; the `.dylib`s link their libraries statically too, so
+      they run without Homebrew. llhttp is vendored
+      (`extensions/native/vendor/llhttp`, 9.3.1, compiled into the
+      extension), as Homebrew ships no archive of it.
+- [x] Statically linked extensions found without a generated table:
+      `loadNative` looks up `slang_ext_version_<name>` and
+      `slang_open_<name>` in its own executable (dlopen(NULL)) first; the
+      link keeps whole archives (`-force_load` / `--whole-archive`) and
+      exports them.
+- [x] The bundle holds every module the program requires, found by
+      following `require` through the expanded AST (`ast.requires`,
+      `compiler.analyze_file`), packages included; slang's own library
+      is in every runtime, and the native extensions it requires are read
+      off its sources. A `require` of a computed name is reported;
+      `build.modules` lists extra modules.
+- [x] `slang build [--dir] [-o out] [--list] [--strip] [file]`, with
+      `build: {...}` in `slang.project` (main, name, output, modules,
+      assets, compress, strip, codesign, linker). Programs with native
+      extensions link the runtime with `cc` or `zig cc`, cached per set of
+      extensions in `~/.cache/slang/runtimes`. `--dir` needs no linker: the
+      executable, `lib/` with the extensions, the assets next to it.
+- [x] Embedded files: `slang/bundle` (stat, read, read_raw, list, ...) and
+      transparently `slang/os`, `async.fs` and so `app:static`: a relative
+      path finds a bundled file first. Assets can be stored gzipped
+      (`compress`, kept where it saves 10%, with Zig's std flate; no zlib),
+      and `web.file` sends them as stored to clients that take gzip.
+- [x] Examples: the web server and the desktop app build as single
+      binaries (`place.slang` finds their files from the repository or
+      the bundle).
+- [ ] The desktop app as a `.app` bundle.
+- [ ] Package natives (prebuilt dylibs) in single executables: only
+      `--dir` carries them now.
+- [ ] Other targets (`--target`, archives per target in `lib/static`).
 
 ## Phase 4: packages
 

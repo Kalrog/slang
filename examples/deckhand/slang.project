@@ -1,0 +1,5 @@
+{
+  name: "deckhand",
+  dependencies: {raylib: {path: "../../packages/raylib"}},
+  search_paths: {"."},
+}

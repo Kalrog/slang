@@ -8,21 +8,21 @@ local await = a.await
 t.group("http"){
   t.test("request heads parse"){
     local req = http.parse_head(
-      "GET /path/x?a=1&b=2 HTTP/1.1\r\nHost: example.org\r\nX-Thing:  spaced  \r\n\r\n"
+      "GET /path/x?a=1&b=2 HTTP/1.1\r\nHost: example.org\r\nX-Thing:  spaced  \r\n\r\n",
     )
     assert(
       req.method == "GET" and req.path == "/path/x" and
-        req.query == "a=1&b=2" and req.version == "1.1"
+        req.query == "a=1&b=2" and req.version == "1.1",
     )
     assert(
       req.headers["host"] == "example.org" and
-        req.headers["x-thing"] == "spaced"
+        req.headers["x-thing"] == "spaced",
     )
     assert(http.parse_head("nonsense\r\n\r\n") == null)
     assert(http.parse_head("GET / HTTP/1.1\r\nBad header\r\n\r\n") == null)
   }
   t.test(
-    "a server answers requests, keeps connections alive and reports errors"
+    "a server answers requests, keeps connections alive and reports errors",
   ){
     local seen = {}
     local errors = 0
@@ -55,26 +55,26 @@ t.group("http"){
     })
     assert(
       r[0].status == 200 and r[0].body == "plain text",
-      concat("plain: ", r[0].status, " ", r[0].body)
+      concat("plain: ", r[0].status, " ", r[0].body),
     )
     assert(r[0].headers["content-type"] == "text/plain; charset=utf-8")
     assert(
       r[1].status == 201 and r[1].body == "payload" and
         r[1].headers["x-echo"] == "yes",
-      "echo"
+      "echo",
     )
     assert(
       r[2].status == 200 and r[2].body == "waited",
-      "a Future result is awaited"
+      "a Future result is awaited",
     )
     assert(
       r[3].status == 500 and str.index_of(r[3].body, "handler failed") >= 0,
-      concat("boom: ", r[3].body)
+      concat("boom: ", r[3].body),
     )
     assert(r[4].status == 404 and r[4].body == "nope")
     assert(
       r[5].status == 200 and r[5].body == "plain text" and
-        r[5].headers["connection"] == "close"
+        r[5].headers["connection"] == "close",
     )
     assert(len(seen) == 6, concat("requests seen: ", len(seen)))
     assert(errors == 1, "on_error ran once")
@@ -112,7 +112,7 @@ t.group("http"){
     for(let local e in entries(r[0])){
       assert(
         e[1].body == concat("/", e[0]),
-        concat("response ", e[0], ": ", e[1].body)
+        concat("response ", e[0], ": ", e[1].body),
       )
     }
     assert(r[1] < 200, concat(
@@ -124,7 +124,7 @@ t.group("http"){
 t.group("http cookies"){
   t.test("cookie headers parse; the first of a name wins"){
     local c = http.parse_cookies(
-      "a=1; b=\"two\";  c = x=y ; a=shadowed; =nameless; flag"
+      "a=1; b=\"two\";  c = x=y ; a=shadowed; =nameless; flag",
     )
     assert(c.a == "1" and c.b == "two" and c.c == "x=y" and c.flag == null)
     assert(http.parse_cookies(null).a == null)
@@ -138,22 +138,22 @@ t.group("http cookies"){
     assert(
       http.cookie("sid", "abc", {
         path: "/app", domain: "example.com", max_age: 60, secure: true,
-        same_site: "Strict",
+        same_site: "Strict"
       }) ==
-        "sid=abc; Path=/app; Domain=example.com; Max-Age=60; HttpOnly; Secure; SameSite=Strict"
+        "sid=abc; Path=/app; Domain=example.com; Max-Age=60; HttpOnly; Secure; SameSite=Strict",
     )
     assert(
       http.cookie("t", "v", {
-        http_only: false, same_site: "None", expires: 0,
+        http_only: false, same_site: "None", expires: 0
       }) ==
         "t=v; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure; SameSite=None",
-      "None needs Secure"
+      "None needs Secure",
     )
     local r = pcall(http.cookie, "sid", "a b")
     assert(
       r[0] == "err" and
         str.index_of(r[1].message, "cannot contain a space") >= 0,
-      r[1].message
+      r[1].message,
     )
     local r2 = pcall(http.cookie, "a=b", "v")
     assert(r2[0] == "err")
@@ -170,7 +170,7 @@ t.group("http cookies"){
       local conn = await(a.connect("127.0.0.1", s.port))
       await(a.write(
         conn,
-        "GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+        "GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n",
       ))
       local chunks = await(a.reader(conn):collect())
       conn:close()
@@ -178,31 +178,22 @@ t.group("http cookies"){
       await(s.done)
       return str.join(chunks, "")
     })
-    assert(
-      str.index_of(
-        raw,
-        "Set-Cookie: one=1; Path=/; HttpOnly; SameSite=Lax\r\n"
-      ) >= 0,
-      raw
-    )
-    assert(
-      str.index_of(
-        raw,
-        "Set-Cookie: two=2; Path=/; Max-Age=5; HttpOnly; SameSite=Lax\r\n"
-      ) >= 0,
-      raw
-    )
-    assert(
-      str.index_of(
-        raw,
-        "Set-Cookie: old=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT"
-      ) >= 0,
-      raw
-    )
+    assert(str.index_of(
+      raw,
+      "Set-Cookie: one=1; Path=/; HttpOnly; SameSite=Lax\r\n",
+    ) >= 0, raw)
+    assert(str.index_of(
+      raw,
+      "Set-Cookie: two=2; Path=/; Max-Age=5; HttpOnly; SameSite=Lax\r\n",
+    ) >= 0, raw)
+    assert(str.index_of(
+      raw,
+      "Set-Cookie: old=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT",
+    ) >= 0, raw)
     assert(
       str.index_of(raw, "\r\nDate: ") >= 0 and
         str.index_of(raw, " GMT\r\n") >= 0,
-      raw
+      raw,
     )
   }
 }
@@ -230,16 +221,16 @@ t.group("llhttp and zlib bindings"){
       }
       assert(
         types == {"head", "done", "head", "done"},
-        concat("step ", string(step), ": ", types)
+        concat("step ", string(step), ": ", types),
       )
       assert(str.join(body, "") == "hello world")
       assert(
         heads[0].method == "POST" and heads[0].url == "/up?x=1" and
-          heads[0].chunked == true
+          heads[0].chunked == true,
       )
       assert(
         heads[0].headers["cookie"] == "a=1; b=2" and
-          heads[1].headers["host"] == "b"
+          heads[1].headers["host"] == "b",
       )
     }
   }
@@ -247,25 +238,25 @@ t.group("llhttp and zlib bindings"){
     local bad = llhttp.parser("request", null):execute("GARBAGE\r\n\r\n")
     assert(
       bad[0].type == "error" and bad[0].status == 400 and
-        bad[0].code == "HPE_INVALID_METHOD"
+        bad[0].code == "HPE_INVALID_METHOD",
     )
     local big = llhttp.parser("request", {max_head: 40}):execute(
-      "GET / HTTP/1.1\r\nX: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n\r\n"
+      "GET / HTTP/1.1\r\nX: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n\r\n",
     )
     assert(big[0].type == "error" and big[0].status == 431)
     local up = llhttp.parser("request", null):execute(
-      "GET /ws HTTP/1.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\nFRAME"
+      "GET /ws HTTP/1.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\nFRAME",
     )
     assert(
       up[0].upgrade == true and up[2].type == "upgrade" and
-        up[2].rest == "FRAME"
+        up[2].rest == "FRAME",
     )
     local r = llhttp.parser("response", null)
     local ev = r:execute(
-      "HTTP/1.1 200 OK\r\nSet-Cookie: a=1\r\nSet-Cookie: b=2\r\n\r\nto the end"
+      "HTTP/1.1 200 OK\r\nSet-Cookie: a=1\r\nSet-Cookie: b=2\r\n\r\nto the end",
     )
     assert(ev[0].status == 200 and ev[0].headers["set-cookie"] == {
-          "a=1", "b=2",
+          "a=1", "b=2"
         } and ev[1].data == "to the end")
     assert(r:finish()[0].type == "done", "a body ended by the connection")
     local h = llhttp.parser("response", null)
@@ -280,7 +271,7 @@ t.group("llhttp and zlib bindings"){
     assert(len(zlib.deflate(text)) < len(text) / 10)
     assert(
       zlib.inflate(zlib.deflate(text, "zlib", 9)) == text,
-      "auto detects zlib"
+      "auto detects zlib",
     )
     assert(zlib.inflate(zlib.deflate(text, "raw", 1), "raw") == text)
     local c = zlib.compressor("gzip", 6)
@@ -288,7 +279,7 @@ t.group("llhttp and zlib bindings"){
     local p2 = c:flush()
     assert(
       zlib.decompressor():push(concat(p1, p2)) == "abc",
-      "a flush makes the prefix decodable"
+      "a flush makes the prefix decodable",
     )
     local rest = c:push("def")
     local last = c:finish()
@@ -299,11 +290,11 @@ t.group("llhttp and zlib bindings"){
     local r2 = pcall(zlib.inflate, str.substring(zlib.deflate(text), 0, 20))
     assert(
       r2[0] == "err" and
-        r2[1].message == "zlib: the compressed data is cut short"
+        r2[1].message == "zlib: the compressed data is cut short",
     )
     local r3 = pcall(zlib.inflate, zlib.deflate(text), "auto", 100)
     assert(
-      r3[0] == "err" and r3[1].message == "zlib: output larger than 100 bytes"
+      r3[0] == "err" and r3[1].message == "zlib: output larger than 100 bytes",
     )
   }
 }
@@ -334,34 +325,34 @@ t.group("http: streaming, compression, limits"){
       })
       local r = raw(
         s.port,
-        "POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n3\r\nabc\r\n2\r\nde\r\n0\r\n\r\n"
+        "POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n3\r\nabc\r\n2\r\nde\r\n0\r\n\r\n",
       )
       assert(str.ends_with(r, "\r\n\r\ngot abcde"), r)
       local c = raw(
         s.port,
-        "POST / HTTP/1.1\r\nHost: x\r\nExpect: 100-continue\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"
+        "POST / HTTP/1.1\r\nHost: x\r\nExpect: 100-continue\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
       )
       assert(
         str.starts_with(c, "HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 200 OK"),
-        c
+        c,
       )
       local big = raw(
         s.port,
-        "POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 100\r\n\r\n"
+        "POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 100\r\n\r\n",
       )
       assert(str.starts_with(big, "HTTP/1.1 413 "), big)
       local chunky = raw(
         s.port,
-        "POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n20\r\n0123456789abcdef0123456789abcdef\r\n0\r\n\r\n"
+        "POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n20\r\n0123456789abcdef0123456789abcdef\r\n0\r\n\r\n",
       )
       assert(
         str.starts_with(chunky, "HTTP/1.1 413 "),
-        "the limit holds without a Content-Length"
+        "the limit holds without a Content-Length",
       )
       local head = raw(s.port, concat(
         "GET / HTTP/1.1\r\nX: ",
         str.join({str.substring(long, 0, 1000)}, ""),
-        "\r\n\r\n"
+        "\r\n\r\n",
       ))
       assert(str.starts_with(head, "HTTP/1.1 400 ") or str.starts_with(
           head, "HTTP/1.1 431 "
@@ -394,7 +385,7 @@ t.group("http: streaming, compression, limits"){
       local r2 = await(c:request("POST", "/up", "again"))
       assert(
         r2 .body == "5 bytes",
-        "the connection is reusable after a streamed body"
+        "the connection is reusable after a streamed body",
       )
       await(c:close())
       s.close()
@@ -417,59 +408,56 @@ t.group("http: streaming, compression, limits"){
         }
         if(req.path == "/png"){
           return {
-            status: 200, headers: {["Content-Type"]: "image/png"}, body: long,
+            status: 200, headers: {["Content-Type"]: "image/png"}, body: long
           }
         }
         return {
-          status: 200, headers: {["Content-Type"]: "text/plain"}, body: long,
+          status: 200, headers: {["Content-Type"]: "text/plain"}, body: long
         }
       })
       local plain = raw(
         s.port,
-        "GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+        "GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n",
       )
       assert(
         str.index_of(plain, "Content-Encoding") < 0 and
           str.ends_with(plain, long),
-        "no gzip unless asked"
+        "no gzip unless asked",
       )
       local res = await(http.get("127.0.0.1", s.port, "/"))
       assert(
         res.compressed == "gzip" and res.body == long and
           res.headers["vary"] == "Accept-Encoding",
-        "the client asks and inflates"
+        "the client asks and inflates",
       )
       assert(to_int(res.headers["content-length"]) < len(long) / 3)
       local png = await(http.get("127.0.0.1", s.port, "/png"))
       assert(
         png.compressed == null and png.body == long,
-        "images are not compressed"
+        "images are not compressed",
       )
       local st = raw(
         s.port,
-        "GET /stream HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+        "GET /stream HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n",
       )
       assert(str.index_of(st, "Transfer-Encoding: chunked\r\n") >= 0, st)
-      assert(
-        str.ends_with(
-          st,
-          "7\r\npart 1\n\r\n7\r\npart 2\n\r\n7\r\npart 3\n\r\n0\r\n\r\n"
-        ),
-        st
-      )
+      assert(str.ends_with(
+        st,
+        "7\r\npart 1\n\r\n7\r\npart 2\n\r\n7\r\npart 3\n\r\n0\r\n\r\n",
+      ), st)
       local gz = await(http.get("127.0.0.1", s.port, "/stream"))
       assert(
         gz.compressed == "gzip" and gz.body == "part 1\npart 2\npart 3\n",
-        "streams gzip too"
+        "streams gzip too",
       )
       local h = raw(
         s.port,
-        "HEAD / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+        "HEAD / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n",
       )
       assert(
         str.ends_with(h, "\r\n\r\n") and
           str.index_of(h, concat("Content-Length: ", string(len(long)))) >= 0,
-        h
+        h,
       )
       local c = await(http.connect("127.0.0.1", s.port))
       local hr = await(c:request("HEAD", "/", null, {
@@ -478,7 +466,7 @@ t.group("http: streaming, compression, limits"){
       local after = await(c:request("GET", "/png"))
       assert(
         hr.body == "" and after.body == long,
-        "a HEAD answer leaves the connection in step"
+        "a HEAD answer leaves the connection in step",
       )
       await(c:close())
       s.close()
@@ -488,17 +476,17 @@ t.group("http: streaming, compression, limits"){
   t.test("timeouts: a stalled request gets 408, an idle connection closes"){
     a.main(func(){
       local s = serve(func(req){ return "ok" }, {
-        idle_timeout: 100, request_timeout: 100,
+        idle_timeout: 100, request_timeout: 100
       })
       local stalled = raw(
         s.port,
-        "POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 10\r\n\r\nabc"
+        "POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 10\r\n\r\nabc",
       )
       assert(str.starts_with(stalled, "HTTP/1.1 408 "), stalled)
       local idle = raw(s.port, "GET / HTTP/1.1\r\nHost: x\r\n\r\n")
       assert(
         str.starts_with(idle, "HTTP/1.1 200 ") and str.ends_with(idle, "ok"),
-        "answered, then closed"
+        "answered, then closed",
       )
       s.close()
       await(s.done)
@@ -531,7 +519,7 @@ t.group("http: streaming, compression, limits"){
           a.run(func(){
             await(a.write(
               conn,
-              "HTTP/1.1 101 Switching Protocols\r\nUpgrade: echo\r\nConnection: Upgrade\r\n\r\n"
+              "HTTP/1.1 101 Switching Protocols\r\nUpgrade: echo\r\nConnection: Upgrade\r\n\r\n",
             ))
             await(a.write(conn, concat("echo:", rest)))
             conn:close()
@@ -541,12 +529,12 @@ t.group("http: streaming, compression, limits"){
       })
       local r = raw(
         s.port,
-        "GET /chat HTTP/1.1\r\nHost: x\r\nUpgrade: echo\r\nConnection: Upgrade\r\n\r\nhi there"
+        "GET /chat HTTP/1.1\r\nHost: x\r\nUpgrade: echo\r\nConnection: Upgrade\r\n\r\nhi there",
       )
       assert(
         str.starts_with(r, "HTTP/1.1 101 ") and
           str.ends_with(r, "echo:hi there"),
-        r
+        r,
       )
       assert(await(got.future) == "/chat")
       s.close()
@@ -560,14 +548,14 @@ t.group("http: streaming, compression, limits"){
       })
       local r = await(
         http.fetch(concat("http://localhost:", string(s.port), "/p?q=1"), {
-          method: "PUT", body: "b",
-        })
+          method: "PUT", body: "b"
+        }),
       )
       assert(r.status == 200 and r.body == "PUT /p?q=1 b", r.body)
       local bad = pcall(await, http.fetch("ftp://example.org/"))
       assert(bad[0] == "err" and str.index_of(
           bad[1].message,
-          "http:// or https://"
+          "http:// or https://",
         ) >= 0)
       s.close()
       await(s.done)
@@ -580,18 +568,18 @@ t.group("multipart"){
     "preamble\r\n--XyZ\r\n",
     "Content-Disposition: form-data; name=\"title\"\r\n\r\nhello\r\n",
     "--XyZ\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a \\\"b\\\".txt\"\r\nContent-Type: text/plain\r\n\r\n",
-    "line one\r\n--Xy almost\r\n-XyZ nearly\r\nline two\r\n--XyZ--\r\nepilogue"
+    "line one\r\n--Xy almost\r\n-XyZ nearly\r\nline two\r\n--XyZ--\r\nepilogue",
   )
   t.test("the boundary comes from the content type"){
     assert(http.multipart_boundary(
-      "multipart/form-data; boundary=XyZ"
+      "multipart/form-data; boundary=XyZ",
     ) == "XyZ")
     assert(http.multipart_boundary(
-      "multipart/form-data; charset=utf-8; boundary=\"a b\""
+      "multipart/form-data; charset=utf-8; boundary=\"a b\"",
     ) == "a b")
     assert(
       http.multipart_boundary("text/plain") == null and
-        http.multipart_boundary(null) == null
+        http.multipart_boundary(null) == null,
     )
   }
   t.test("parts parse whatever the chunking"){
@@ -604,7 +592,7 @@ t.group("multipart"){
         for(let local e in values(p:push(str.substring(body, i, stop)))){
           if(e.type == "part"){
             current = {
-              name: e.name, filename: e.filename, type: e.content_type, data: {},
+              name: e.name, filename: e.filename, type: e.content_type, data: {}
             }
           } else if(e.type == "data"){
             append(current.data, e.data)
@@ -618,15 +606,15 @@ t.group("multipart"){
       assert(len(parts) == 2, concat("step ", string(step)))
       assert(
         parts[0].name == "title" and parts[0].filename == null and
-          parts[0].data == "hello"
+          parts[0].data == "hello",
       )
       assert(
         parts[1].name == "file" and parts[1].filename == "a \"b\".txt" and
-          parts[1].type == "text/plain"
+          parts[1].type == "text/plain",
       )
       assert(
         parts[1].data == "line one\r\n--Xy almost\r\n-XyZ nearly\r\nline two",
-        concat("step ", string(step), ": ", parts[1].data)
+        concat("step ", string(step), ": ", parts[1].data),
       )
     }
   }
@@ -636,7 +624,7 @@ t.group("multipart"){
       body: body,
     })
     assert(len(
-      parts
+      parts,
     ) == 2 and parts[1].data == "line one\r\n--Xy almost\r\n-XyZ nearly\r\nline two")
     local cut = http.multipart_parser("XyZ")
     cut:push(str.substring(body, 0, 60))

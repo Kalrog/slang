@@ -3,8 +3,9 @@
 // log, created with its tables on the first start. The sql{ ... } literals
 // are extensions/sqlite, ambient here through slang.project.
 local sqlite = require("slang/sqlite")
+local place = require("place")
 
-local db = sqlite.open("examples/webserver/todos.db")
+local db = sqlite.open(place("todos.db"))
 
 db:exec(sql{
   create table if not exists users(
@@ -51,7 +52,7 @@ for(let local column in values(db:all(sql{ pragma table_info(todos) }))){
 }
 if(not has_owner){
   db:exec(
-    sql{ alter table todos add column user_id integer references users(id) }
+    sql{ alter table todos add column user_id integer references users(id) },
   )
 }
 

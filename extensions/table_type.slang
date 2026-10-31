@@ -16,8 +16,8 @@ g
         name = {type: "String", value: name.value}
         local table = list[2]
         append(table.fields, {
-          type: "Field", key: +{"meta"}, value: +{{__type: -{name}}},
+          type: "Field", key: +{"meta"}, value: +{{__type: -{name}}}
         })
         return table
-      })
+      }),
   )

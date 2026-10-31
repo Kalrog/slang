@@ -92,7 +92,7 @@ return m"""
     assert(g.kind == "global" and g.start == 0)
     assert(
       at(src, ix, "count", 2).def == null and
-        at(src, ix, "count", 2).name == "count"
+        at(src, ix, "count", 2).name == "count",
     )
     // `local x` twice is a compile error: the names before it are kept
     assert(at(src, ix, "x").kind == "local")
@@ -108,14 +108,14 @@ return m"""
   }
   t.test("doc comments split into prose and code"){
     local blocks = symbols.doc_blocks(
-      "Some prose\non two lines.\n\n  local x = 1\n\n  print(x)\nMore."
+      "Some prose\non two lines.\n\n  local x = 1\n\n  print(x)\nMore.",
     )
     assert(len(blocks) == 3)
     assert(
-      blocks[0].kind == "text" and blocks[0].text == "Some prose on two lines."
+      blocks[0].kind == "text" and blocks[0].text == "Some prose on two lines.",
     )
     assert(
-      blocks[1].kind == "code" and blocks[1].text == "local x = 1\n\nprint(x)"
+      blocks[1].kind == "code" and blocks[1].text == "local x = 1\n\nprint(x)",
     )
     assert(blocks[2].text == "More.")
     assert(symbols.doc_above("x\n// a\n\n// b\n// c\ny", 18) == "b\nc")
@@ -162,7 +162,7 @@ return m"""
     local mod = doc.module("shapes", "shapes.slang", src, analyse(src))
     local last = mod.sections[len(mod.sections) - 1]
     assert(
-      last.title == "type Box" and last.defs[0].signature == "Box:area(scale)"
+      last.title == "type Box" and last.defs[0].signature == "Box:area(scale)",
     )
     local html = doc.module_html(mod)
     assert(str.index_of(html, "id=\"Box:area\"") >= 0)

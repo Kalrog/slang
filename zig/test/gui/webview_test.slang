@@ -28,7 +28,7 @@ t.group("webview"){
           "  const later = await slang.call('later', 'x');",
           "  const obj = await slang.call('echo', {a: [1, 'two', null, true]});",
           "  slang.send({sum, failed, missing, later, obj});",
-          "})();</script>"
+          "})();</script>",
         ),
       })
       w:bind("add", func(x, y){ return x + y })
@@ -48,7 +48,7 @@ t.group("webview"){
     assert(str.index_of(got.failed, "on purpose") >= 0, got.failed)
     assert(
       str.index_of(got.missing, "no slang function is bound as nope") >= 0,
-      got.missing
+      got.missing,
     )
     assert(got.obj.a[0] == 1 and got.obj.a[1] == "two" and got.obj.a[3] == true)
   }
@@ -101,7 +101,7 @@ t.group("webview"){
           "  const p = await (await fetch('/echo', {method: 'POST', body: 'posted'})).text();",
           "  const s = await (await fetch('/static/missing.txt')).status;",
           "  slang.send({g, p, s});",
-          "})();</script>"
+          "})();</script>",
         ))
       })
       app:get("/data", func(req){ return web.json({x: req:query_params().x}) })
@@ -115,7 +115,7 @@ t.group("webview"){
     })
     assert(
       got.g.x == "1" and got.p == "echo posted" and got.s == 404,
-      concat("got ", got)
+      concat("got ", got),
     )
   }
   t.test("libuv keeps running: timers, a loopback server, signals"){
@@ -127,7 +127,7 @@ t.group("webview"){
       api:get("/ping", func(req){
         return {
           status: 200, headers: {["Access-Control-Allow-Origin"]: "*"},
-          body: "pong",
+          body: "pong"
         }
       })
       local s = api:listen("127.0.0.1", 0)
@@ -138,7 +138,7 @@ t.group("webview"){
         html: concat(
           "<script>fetch('http://127.0.0.1:",
           string(s.port),
-          "/ping').then(r => r.text()).then(t => slang.send(t))</script>"
+          "/ping').then(r => r.text()).then(t => slang.send(t))</script>",
         ),
       })
       local c = a.completer()
@@ -158,7 +158,7 @@ t.group("webview"){
     })
     assert(
       got == "pong" and signal == "SIGUSR2" and ticks > 3,
-      concat("ticks ", string(ticks))
+      concat("ticks ", string(ticks)),
     )
   }
   t.test("several windows; the count follows them"){

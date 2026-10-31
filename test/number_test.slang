@@ -7,7 +7,7 @@ local func fails_with(source, text){
   assert(r[0] == "err", concat("should fail: ", source))
   assert(
     str.index_of(r[1].message, text) >= 0,
-    concat(source, ": ", r[1].message)
+    concat(source, ": ", r[1].message),
   )
 }
 
@@ -26,11 +26,11 @@ t.group("number literals"){
     assert(0b1 << 63 == 0x8000000000000000)
     fails_with(
       "local a = 0x1_0000_0000_0000_0000",
-      "integer literal out of range: 0x1_0000_0000_0000_0000"
+      "integer literal out of range: 0x1_0000_0000_0000_0000",
     )
     fails_with(
       "local a = 0o2_000_000_000_000_000_000_000",
-      "integer literal out of range"
+      "integer literal out of range",
     )
     fails_with("local a = 99999999999999999999", "integer literal out of range")
   }
@@ -57,7 +57,7 @@ t.group("number literals"){
     local x = 3
     assert(
       x - 1 == 2 and 1.5 + 1 == 2.5 and 0 == 0 and type(1.0) == "double" and
-        type(10) == "int"
+        type(10) == "int",
     )
     assert(9223372036854775807 > 0)
   }
@@ -76,7 +76,7 @@ t.group("number literals"){
   t.test("printed doubles read back"){
     local ast = require("slang/ast")
     for(let local v in values({
-      0.1, 1e-7, 1e21, 123456.789, 1e300, - 2.5e-300,
+      0.1, 1e-7, 1e21, 123456.789, 1e300, - 2.5e-300
     })){
       local text = ast.to_string(ast.node("Double", {value: v}, null))
       local f = compile(concat("return ", text), "printed")

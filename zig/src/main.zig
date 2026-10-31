@@ -1,4 +1,5 @@
-//! The slang command line: run, test, repl, compile, disasm.
+//! The slang command line: run, test, repl, compile, disasm. An executable
+//! built by `slang build` runs its bundled program instead.
 
 const std = @import("std");
 const vm_mod = @import("vm.zig");
@@ -11,12 +12,20 @@ const Error = vm_mod.Error;
 const stdlib = @import("stdlib/stdlib.zig");
 const oslib = @import("stdlib/oslib.zig");
 const boot = @import("boot.zig");
+const bundle = @import("bundle/exe.zig");
+const bundle_format = @import("bundle/format.zig");
 
 // The C API must be compiled and exported even though nothing in the CLI
 // calls it: native extensions resolve the slang_* symbols against the
 // executable.
 comptime {
     _ = @import("capi.zig");
+}
+
+test {
+    _ = @import("bundle/exe.zig");
+    _ = @import("bundle/format.zig");
+    _ = @import("bundle/macho.zig");
 }
 
 var stderr_buf: [4096]u8 = undefined;
@@ -43,6 +52,8 @@ fn usage(io: std.Io) noreturn {
         \\  slang deps                  list the packages the project uses and who asks for them
         \\  slang doc [-o dir] [file|dir...]
         \\                              HTML documentation of the modules (default: the project, or slang's library)
+        \\  slang build [--dir] [-o out] [--list] [--strip] [file.slang]
+        \\                              one executable of a program, its modules and its assets
         \\
     ) catch {};
     w.interface.flush() catch {};
@@ -51,6 +62,14 @@ fn usage(io: std.Io) noreturn {
 
 pub fn main(init: std.process.Init) !u8 {
     const io = init.io;
+    const built = bundle.open(init.gpa, io) catch |e| {
+        var w = stderr(io);
+        w.interface.print("this executable's bundle is damaged: {t}\n", .{e}) catch {};
+        w.interface.flush() catch {};
+        return 1;
+    };
+    if (built) |b| return runBundled(init, b);
+
     var it = init.minimal.args.iterate();
     _ = it.next();
     const cmd = it.next() orelse usage(io);
@@ -93,6 +112,8 @@ pub fn main(init: std.process.Init) !u8 {
         return toolMain(init, "slang/format", args);
     } else if (std.mem.eql(u8, cmd, "doc")) {
         return toolMain(init, "slang/doc", args);
+    } else if (std.mem.eql(u8, cmd, "build")) {
+        return toolMain(init, "slang/build", args);
     } else if (std.mem.eql(u8, cmd, "get") or std.mem.eql(u8, cmd, "update") or std.mem.eql(u8, cmd, "deps")) {
         // slang/pkg's main takes the command first
         var all: std.ArrayList([]const u8) = .empty;
@@ -168,6 +189,23 @@ fn run(init: std.process.Init, path: []const u8, args: []const []const u8, expla
     const cl = loadFile(vm, path);
     _ = vm.call(.{ .function = cl }, &.{}) catch fail(vm);
     vm.flush();
+}
+
+/// Runs the program bundled into this executable (slang build): its entry
+/// module, with every argument as its own.
+fn runBundled(init: std.process.Init, b: *const bundle.Bundle) u8 {
+    var rest: std.ArrayList([]const u8) = .empty;
+    defer rest.deinit(init.gpa);
+    var it = init.minimal.args.iterate();
+    _ = it.next();
+    while (it.next()) |a| rest.append(init.gpa, a) catch oom();
+    const vm = newVM(init, rest.items);
+    defer vm.destroy();
+    const entry = b.index.lookup(.module, bundle_format.main_module) orelse failMsg(vm, "the bundle has no program", .{});
+    const cl = vm.loadBytes(entry.data) catch fail(vm);
+    _ = vm.call(.{ .function = cl }, &.{}) catch fail(vm);
+    vm.flush();
+    return 0;
 }
 
 /// Compiles and runs every *test.slang file in dir, then runs the collected

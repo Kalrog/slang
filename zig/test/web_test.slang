@@ -36,7 +36,7 @@ t.group("web apps"){
       local r = a.await(c:post("/items/7", {json: {x: 1}}))
       assert(
         r.status == 201 and r.body == "{\"id\":\"7\",\"body\":{\"x\":1}}",
-        r.body
+        r.body,
       )
       assert(a.await(c:get("/files/a/b/c")).body == "a/b/c")
       assert(a.await(c:get("/nothing")).status == 404)
@@ -44,7 +44,7 @@ t.group("web apps"){
       assert(m.status == 405 and m.header("allow") == "GET, POST")
       assert(
         a.await(c:request("HEAD", "/items/1")).status == 200,
-        "HEAD runs the GET route"
+        "HEAD runs the GET route",
       )
       local bad = a.await(c:post("/items/1", {body: "not json"}))
       assert(bad.status == 400 and str.index_of(bad.body, "not JSON") >= 0)
@@ -74,12 +74,12 @@ t.group("web apps"){
     run(func(){
       local r = a.await(c:get("/"))
       assert(r.body == "tagged" and r.header("x-outer") == "200" and r.header(
-          "content-type"
+          "content-type",
         ) == "text/plain; charset=utf-8")
     })
     assert(
       order == {"outer in", "inner in", "handler", "outer out"},
-      concat("order ", order)
+      concat("order ", order),
     )
   }
   t.test("errors: web.fail picks the status, others are 500s"){
@@ -98,13 +98,13 @@ t.group("web apps"){
       local tp = a.await(c:get("/teapot"))
       assert(tp.status == 418 and tp.body == "short and stout\n")
       assert(a.await(c:get("/boom")).status == 500 and a.await(
-          c:get("/async-boom")
+          c:get("/async-boom"),
         ).status == 500)
       assert(a.await(c:get("/elsewhere")).body == "custom")
     })
     assert(
       len(logged) == 2 and str.index_of(logged[0], "kaput") >= 0,
-      concat("logged ", logged)
+      concat("logged ", logged),
     )
   }
   t.test("response helpers"){
@@ -118,7 +118,7 @@ t.group("web apps"){
     run(func(){
       local h = a.await(c:get("/html"))
       assert(h.body == "<b>hi</b>" and h.header(
-          "content-type"
+          "content-type",
         ) == "text/html; charset=utf-8")
       assert(a.await(c:get("/json")).body == "{\"a\":[1,2]}")
       local g = a.await(c:get("/go"))
@@ -135,7 +135,7 @@ t.group("web apps"){
       assert(r.status == 200 and r.body == "hello, static world\n")
       assert(
         r.header("content-type") == "text/plain; charset=utf-8" and
-          r.header("cache-control") == "public, max-age=60"
+          r.header("cache-control") == "public, max-age=60",
       )
       local etag = r.header("etag")
       assert(a.await(c:get("/s/hello.txt", {
@@ -146,7 +146,7 @@ t.group("web apps"){
       })).status == 304)
       local p = a.await(c:get("/s/hello.txt", {headers: {Range: "bytes=7-12"}}))
       assert(p.status == 206 and p.body == "static" and p.header(
-          "content-range"
+          "content-range",
         ) == "bytes 7-12/20")
       assert(a.await(c:get("/s/hello.txt", {
         headers: {Range: "bytes=-6"},
@@ -161,7 +161,7 @@ t.group("web apps"){
       assert(a.await(c:get("/s/missing.txt")).status == 404)
       assert(
         web.type_of("a/b.CSS") == "text/css; charset=utf-8" and
-          web.type_of("x") == "application/octet-stream"
+          web.type_of("x") == "application/octet-stream",
       )
     })
   }
@@ -194,28 +194,28 @@ t.group("sessions and CSRF"){
     local c = web.test(app)
     run(func(){
       assert(a.await(
-        c:get("/count")
+        c:get("/count"),
       ).body == "1" and a.await(
-          c:get("/count")
+          c:get("/count"),
         ).body == "2")
       local cookie = c.cookies.session
       assert(str.index_of(cookie, "\"n\"") < 0, "the client cannot read it")
       local unchanged = a.await(c:get("/look"))
       assert(
         unchanged.body == "2" and unchanged.header("set-cookie") == null,
-        "not saved when unchanged"
+        "not saved when unchanged",
       )
       // (a different first character: the cookie starts with a random nonce)
       local first = str.substring(cookie, 0, 1) == "A" and "B" or "A"
       c.cookies.session = concat(first, str.substring(cookie, 1))
       assert(
         a.await(c:get("/look")).body == "null",
-        "a changed cookie is ignored"
+        "a changed cookie is ignored",
       )
       c.cookies.session = cookie
       assert(
         a.await(c:get("/forget")).body == "ok" and c.cookies.session == null,
-        "an emptied session is dropped"
+        "an emptied session is dropped",
       )
     })
     assert(pcall(web.sessions, {secret: "short"})[0] == "err")
@@ -269,7 +269,7 @@ t.group("WebSockets"){
       a.await(sock:send(big))
       assert(
         len(a.await(sock.messages:next()).value) == 80007,
-        "a 64-bit length frame"
+        "a 64-bit length frame",
       )
       a.await(sock:send("caf\u{e9}"))
       assert(a.await(sock.messages:next()).value == "lobby: caf\u{e9}")
@@ -279,7 +279,7 @@ t.group("WebSockets"){
       assert(closed_with == 4001, concat("server saw ", string(closed_with)))
       local refused = pcall(
         a.await,
-        ws.connect("127.0.0.1", s.port, "/nowhere")
+        ws.connect("127.0.0.1", s.port, "/nowhere"),
       )
       assert(refused[0] == "err" and str.index_of(
           refused[1].message, "404"
@@ -302,7 +302,7 @@ t.group("WebSockets"){
       local r = pcall(a.await, ws.connect("127.0.0.1", s.port, "/s"))
       assert(
         r[0] == "err" and str.index_of(r[1].message, "401") >= 0,
-        r[1].message
+        r[1].message,
       )
       local sock = a.await(ws.connect("127.0.0.1", s.port, "/s?key=ok"))
       assert(a.await(sock.messages:next()).value == "welcome")
@@ -312,7 +312,7 @@ t.group("WebSockets"){
     })
   }
   t.test(
-    "protocol errors close the socket; plain requests to ws routes are refused"
+    "protocol errors close the socket; plain requests to ws routes are refused",
   ){
     local app = web.app()
     app:ws("/w", func(sock, req){})
@@ -322,31 +322,28 @@ t.group("WebSockets"){
       local conn = a.await(a.connect("127.0.0.1", s.port))
       a.await(a.write(
         conn,
-        "GET /w HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n"
+        "GET /w HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n",
       ))
       a.await(a.write(conn, "\x81\x02hi"))
       local out = str.join(a.await(a.reader(conn):collect()), "")
       conn:close()
       // RFC 6455's example key and its answer
-      assert(
-        str.index_of(
-          out,
-          "Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n"
-        ) >= 0,
-        out
-      )
+      assert(str.index_of(
+        out,
+        "Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n",
+      ) >= 0, out)
       local close_at = str.index_of(out, "\x88")
       assert(
         close_at >= 0 and
           str.substring(out, close_at + 2, close_at + 4) == "\x03\xea",
-        "a close frame with 1002"
+        "a close frame with 1002",
       )
       assert(
         str.ends_with(out, "an unmasked frame from the client"),
-        "and the reason"
+        "and the reason",
       )
       local plain = a.await(http.fetch(
-        concat("http://127.0.0.1:", string(s.port), "/w")
+        concat("http://127.0.0.1:", string(s.port), "/w"),
       ))
       assert(plain.status == 404, "no upgrade asked: the app has no GET /w")
       s.close()

@@ -21,22 +21,22 @@ t.group("time"){
     local e = time.utc(0)
     assert(
       e.year == 1970 and e.month == 1 and e.day == 1 and e.weekday == 4 and
-        e.yday == 1
+        e.yday == 1,
     )
     local before = time.utc(- 1)
     assert(
       before.year == 1969 and before.month == 12 and before.day == 31 and
-        before.second == 59
+        before.second == 59,
     )
     assert(time.utc(1.25).ms == 250)
     assert(
       time.utc(951782400).month == 2 and time.utc(951782400).day == 29,
-      "2000 is a leap year"
+      "2000 is a leap year",
     )
   }
   t.test("from_utc is the inverse of utc"){
     assert(time.from_utc({
-      year: 1994, month: 11, day: 6, hour: 8, minute: 49, second: 37,
+      year: 1994, month: 11, day: 6, hour: 8, minute: 49, second: 37
     }) == example)
     assert(time.from_utc({year: 1970}) == 0, "fields default to the start")
     assert(time.from_utc({year: 1970, ms: 500}) == 0.5)
@@ -47,19 +47,19 @@ t.group("time"){
   }
   t.test("from_utc normalizes out-of-range fields"){
     assert(time.iso(time.from_utc({
-      year: 2026, month: 13, day: 1,
+      year: 2026, month: 13, day: 1
     })) == "2027-01-01T00:00:00Z")
     assert(time.iso(time.from_utc({
-      year: 2026, month: 1, day: 0,
+      year: 2026, month: 1, day: 0
     })) == "2025-12-31T00:00:00Z")
     assert(time.iso(time.from_utc({
-      year: 2026, month: 2, day: 28 + 30,
+      year: 2026, month: 2, day: 28 + 30
     })) == "2026-03-30T00:00:00Z")
     assert(time.iso(time.from_utc({
-      year: 2026, month: 0,
+      year: 2026, month: 0
     })) == "2025-12-01T00:00:00Z")
     assert(time.iso(time.from_utc({
-      year: 2026, month: 1, day: 1, hour: - 1,
+      year: 2026, month: 1, day: 1, hour: - 1
     })) == "2025-12-31T23:00:00Z")
     local r = pcall(time.from_utc, {month: 1})
     assert(r[0] == "err" and r[1].message == "from_utc: year is required")
@@ -68,7 +68,7 @@ t.group("time"){
     assert(time.http_date(example) == "Sun, 06 Nov 1994 08:49:37 GMT")
     assert(
       time.http_date(example + 0.9) == "Sun, 06 Nov 1994 08:49:37 GMT",
-      "whole seconds"
+      "whole seconds",
     )
     assert(time.http_date(0) == "Thu, 01 Jan 1970 00:00:00 GMT")
   }
@@ -103,7 +103,7 @@ t.group("time"){
     assert(time.parse_iso("1994-11-06t08:49:37z") == example)
     assert(
       time.parse_iso("1994-11-06 08:49:37") == example,
-      "SQLite's datetime()"
+      "SQLite's datetime()",
     )
     assert(time.parse_iso("1994-11-06T09:49:37+01:00") == example)
     assert(time.parse_iso("1994-11-06T03:19:37-0530") == example)
@@ -115,12 +115,12 @@ t.group("time"){
     assert(time.parse_iso(time.iso(1793275200.125)) == 1793275200.125)
     assert(
       type(time.parse_iso("1994-11-06")) == "int",
-      "an int without a fraction"
+      "an int without a fraction",
     )
     local bad = {
       "", "1994-11", "1994-13-01", "1994-02-29", "1994-11-06T",
       "1994-11-06T25:00", "1994-11-06T08:49:37.Z", "1994-11-06T08:49:37+1",
-      "1994-11-06T08:49:37 Z", "94-11-06", "1994-11-06T08:49:37Zjunk",
+      "1994-11-06T08:49:37 Z", "94-11-06", "1994-11-06T08:49:37Zjunk"
     }
     for(let local s in values(bad)){
       assert(time.parse_iso(s) == null, s)

@@ -17,7 +17,7 @@ t.group("raise"){
     assert(r[1].location.line > 0 and type(r[1].stack) == "string")
   }
   t.test(
-    "a re-raise keeps the first location; strings still become error tables"
+    "a re-raise keeps the first location; strings still become error tables",
   ){
     local first = null
     local r = pcall(func(){
@@ -52,7 +52,7 @@ t.group("try and catch"){
     }
     assert(
       log == {"missing /x", "other: plain message", "fine"},
-      concat("log ", log)
+      concat("log ", log),
     )
   }
   t.test("a value no clause matches is raised again, unchanged"){
@@ -198,7 +198,7 @@ t.group("defer"){
     assert(log == {"body", "b", "a", "after"}, concat("log ", log))
   }
   t.test(
-    "a return keeps its value; the defers run before the function returns"
+    "a return keeps its value; the defers run before the function returns",
   ){
     local log = {}
     local n = 1
@@ -231,7 +231,7 @@ t.group("defer"){
     })
     assert(
       r[1].kind == "boom" and log == {"inner", "outer"},
-      concat("log ", log)
+      concat("log ", log),
     )
   }
   t.test("deferred code sees the names of its own place"){
@@ -269,11 +269,11 @@ t.group("defer"){
   t.test("a defer may not return or break out of itself"){
     fails_to_compile(
       "local func f(){ defer { return 1 } }",
-      "return is not allowed inside defer"
+      "return is not allowed inside defer",
     )
     fails_to_compile(
       "for(true){ defer { break } }",
-      "break is not allowed to leave a defer"
+      "break is not allowed to leave a defer",
     )
   }
 }
@@ -284,7 +284,7 @@ t.group("if expressions"){
       return if(n < 0){ "negative" } else if(n == 0){ "zero" } else { "positive" }
     }
     assert(sign(- 3) == "negative" and sign(0) == "zero" and sign(
-        7
+        7,
       ) == "positive")
     assert(if(false){ 1 } else { 2 } + 10 == 12)
     local t = {v: if(true){ "yes" } else { "no" }}
@@ -305,7 +305,7 @@ t.group("if expressions"){
     local src = "local v = if(a){ 1 } else if(b){ 2 } else { 3 }"
     assert(str.index_of(
       ast.to_source(compiler.parse(src, "p")),
-      "if(a){ 1 } else if(b){ 2 } else { 3 }"
+      "if(a){ 1 } else if(b){ 2 } else { 3 }",
     ) >= 0)
   }
 }

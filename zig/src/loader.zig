@@ -49,6 +49,26 @@ fn findLibrary(vm: *VM, name: []const u8) ?[]u8 {
     return null;
 }
 
+/// The entry points of an extension linked into the executable itself (by
+/// slang build), or null. (On macOS the search also sees extensions already
+/// loaded from a library, which is the same extension.)
+fn selfLookup(version_sym: [:0]const u8, open_sym: [:0]const u8) ?struct { version: *const fn () callconv(.c) c_int, open: capi.CFunction } {
+    const self = std.c.dlopen(null, .{ .LAZY = true }) orelse return null;
+    const version = std.c.dlsym(self, version_sym) orelse return null;
+    const open = std.c.dlsym(self, open_sym) orelse return null;
+    return .{ .version = @ptrCast(@alignCast(version)), .open = @ptrCast(@alignCast(open)) };
+}
+
+/// find_native(name) -> the library file load_native(name) would load from
+/// the native search paths, or null.
+pub fn findNative(th: *Thread, args: []Value) Error!Value {
+    const vm = th.vm;
+    const name = try api.argString(th, args, 0, "name");
+    const file = findLibrary(vm, name) orelse return .null;
+    defer vm.gpa.free(file);
+    return vm.str(file);
+}
+
 /// load_native(name, [file]): the module value of the extension, or null
 /// when no library for the name exists in the native search paths. With
 /// file (a package's native build) that library is loaded instead of
@@ -56,39 +76,47 @@ fn findLibrary(vm: *VM, name: []const u8) ?[]u8 {
 pub fn loadNative(th: *Thread, args: []Value) Error!Value {
     const vm = th.vm;
     const name = try api.argString(th, args, 0, "name");
-    // for "a/b" the library is <path>/a/b.<ext>, which the loop above finds
-    const file = if (args.len > 1 and args[1] != .null)
-        vm.gpa.dupe(u8, try api.argString(th, args, 1, "file")) catch oom()
-    else
-        findLibrary(vm, name) orelse return .null;
-    defer vm.gpa.free(file);
-
-    var lib = std.DynLib.open(file) catch |e| {
-        return vm.raise("cannot load extension {s}: {t}", .{ file, e });
-    };
     const mangled = mangle(vm.gpa, name);
     defer vm.gpa.free(mangled);
-
     const version_sym = std.fmt.allocPrintSentinel(vm.gpa, "slang_ext_version_{s}", .{mangled}, 0) catch oom();
     defer vm.gpa.free(version_sym);
-    const version_fn = lib.lookup(*const fn () callconv(.c) c_int, version_sym) orelse {
-        lib.close();
-        return vm.raise("{s} is not a slang extension (no {s})", .{ file, version_sym });
-    };
-    const version = version_fn();
-    if (version != capi.api_version) {
-        lib.close();
-        return vm.raise("extension {s} was built for API version {d}, this VM provides version {d}", .{ file, version, capi.api_version });
-    }
-
     const open_sym = std.fmt.allocPrintSentinel(vm.gpa, "slang_open_{s}", .{mangled}, 0) catch oom();
     defer vm.gpa.free(open_sym);
-    const open_fn = lib.lookup(capi.CFunction, open_sym) orelse {
-        lib.close();
-        return vm.raise("extension {s} has no {s}", .{ file, open_sym });
-    };
-    // the library stays loaded: its functions are now reachable from slang
-    vm.libraries.append(vm.gpa, lib) catch oom();
+
+    const VersionFn = *const fn () callconv(.c) c_int;
+    var version_fn: VersionFn = undefined;
+    var open_fn: capi.CFunction = undefined;
+    // linked into the executable (slang build), unless a file is asked for
+    const builtin_ext = if (args.len > 1 and args[1] != .null) null else selfLookup(version_sym, open_sym);
+    if (builtin_ext) |found| {
+        version_fn = found.version;
+        open_fn = found.open;
+    } else {
+        // for "a/b" the library is <path>/a/b.<ext>, which findLibrary finds
+        const file = if (args.len > 1 and args[1] != .null)
+            vm.gpa.dupe(u8, try api.argString(th, args, 1, "file")) catch oom()
+        else
+            findLibrary(vm, name) orelse return .null;
+        defer vm.gpa.free(file);
+
+        var lib = std.DynLib.open(file) catch |e| {
+            return vm.raise("cannot load extension {s}: {t}", .{ file, e });
+        };
+        version_fn = lib.lookup(VersionFn, version_sym) orelse {
+            lib.close();
+            return vm.raise("{s} is not a slang extension (no {s})", .{ file, version_sym });
+        };
+        open_fn = lib.lookup(capi.CFunction, open_sym) orelse {
+            lib.close();
+            return vm.raise("extension {s} has no {s}", .{ file, open_sym });
+        };
+        // the library stays loaded: its functions are now reachable from slang
+        vm.libraries.append(vm.gpa, lib) catch oom();
+    }
+    const version = version_fn();
+    if (version != capi.api_version) {
+        return vm.raise("extension {s} was built for API version {d}, this VM provides version {d}", .{ name, version, capi.api_version });
+    }
 
     const fn_idx = th.top;
     try th.ensure(fn_idx + 9);

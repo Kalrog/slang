@@ -5,9 +5,19 @@
 local vm = __PACKAGES.preloaded["slang/vm"][1]
 local os = __PACKAGES.preloaded["slang/os"][1]
 local str = __PACKAGES.preloaded["slang/string"][1]
+local bundle = __PACKAGES.preloaded["slang/bundle"][1]
 
 local func preloaded_loader(name){
   return __PACKAGES.preloaded[name]
+}
+
+// the program's own modules, in an executable built by `slang build`
+local func bundle_loader(name){
+  local f = bundle.module(name)
+  if(f == null){
+    return null
+  }
+  return {true, f()}
 }
 
 // modules shipped inside the interpreter binary
@@ -146,6 +156,21 @@ local func package_native(p, name){
   return null
 }
 
+// native_file(name) -> the library file of native module name: a package's
+// prebuilt one, else one in the native search paths; null when there is
+// none. What `slang build` copies or links.
+local func native_file(name){
+  local p = package_of(name)
+  if(p != null and not p.pkg.missing and p.pkg.dir != null){
+    return package_native(p, name)
+  }
+  if(vm.find_native == null){
+    return null
+  }
+  return vm.find_native(name)
+}
+__PACKAGES.native_file = native_file
+
 // <nativeSearchPath>/<name>.{so,dylib,dll}: a native extension exporting
 // slang_open_<name> (see zig/include/slang.h); in a package, its prebuilt
 // library (see package_native). Only VMs with vm.load_native support this.
@@ -171,7 +196,8 @@ local func native_loader(name){
 }
 
 __PACKAGES.loaders = {
-  preloaded_loader, embedded_loader, search_path_loader, native_loader,
+  preloaded_loader, bundle_loader, embedded_loader, search_path_loader,
+  native_loader
 }
 
 func require(name){

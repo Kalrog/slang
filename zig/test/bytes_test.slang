@@ -21,7 +21,7 @@ t.group("bytes from buffers"){
     assert(r[0] == "err")
     assert(
       r[1].message ==
-        "bad argument #1 to 'deflate' (string or buffer expected, got table)"
+        "bad argument #1 to 'deflate' (string or buffer expected, got table)",
     )
   }
   t.test("sqlite binds a buffer as a blob"){

@@ -9,7 +9,7 @@ t.group("let statement"){
     let {map: local map, filter: local filter} = require("slang/table")
     assert(type(map) == "function" and type(filter) == "function")
     let {local first, local second, rest: {deep: local deep}} = {
-      1, 2, rest: {deep: 3},
+      1, 2, rest: {deep: 3}
     }
     assert(first + second + deep == 6)
     let local whole = 7
@@ -24,7 +24,7 @@ t.group("let statement"){
     local e = r[1]
     assert(
       e.kind == "let" and str.index_of(e.message, "does not match") >= 0,
-      e.message
+      e.message,
     )
     assert(str.index_of(e.pattern, "\"age\":99") >= 0, e.pattern)
     assert(e.value.name == "Ada", "the value travels with the error")

@@ -17,7 +17,7 @@ t.group("parser lib"){
     assert(result[0] == "error", "result should be error")
     assert(
       result[1] == "\"hello\" expected at 1:1",
-      "result should be \"hello\" expected at 1:1"
+      "result should be \"hello\" expected at 1:1",
     )
   }
   t.test("map"){
@@ -33,21 +33,21 @@ t.group("parser lib"){
     local parser = peg.seq(
       peg.string("hello"):trim(),
       peg.string("world"):trim(),
-      peg.string("!"):trim()
+      peg.string("!"):trim(),
     )
     local result = parser:parse("   hello    world   !  ")
     print(result, "\n")
     assert(result[0] == "ok", "result should be ok")
     assert(
       result[1] == {"hello", "world", "!"},
-      "result should be hello world !"
+      "result should be hello world !",
     )
   }
   t.test("pick"){
     local parser = peg.seq(
       peg.string("hello"):trim(),
       peg.string("world"):trim(),
-      peg.string("!"):trim()
+      peg.string("!"):trim(),
     ):pick(1)
     local result = parser:parse("   hello    world   !  ")
     print(result, "\n")

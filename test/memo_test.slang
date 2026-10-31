@@ -52,7 +52,7 @@ t.group("memoization"){
     // core's only shared prefix: the digits of the two numeric literals
     assert(
       memo_names() == {"number"},
-      concat("memoized in the base grammar: ", memo_names())
+      concat("memoized in the base grammar: ", memo_names()),
     )
     local afterwards = g:keyword("afterwards")
     g:modify("statement", func(old){
@@ -60,7 +60,7 @@ t.group("memoization"){
     })
     assert(
       memo_names() == {"number", "statement"},
-      concat("memoized: ", memo_names())
+      concat("memoized: ", memo_names()),
     )
     compiler.reset()
   }

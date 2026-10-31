@@ -17,27 +17,27 @@ t.group("threads"){
     local v = thread.resume(thr)
     assert(
       v == 0,
-      "thread.resume should return the value passed to thread.yield"
+      "thread.resume should return the value passed to thread.yield",
     )
     v = thread.resume(thr)
     assert(
       v == 1,
-      "thread.resume should return the value passed to thread.yield"
+      "thread.resume should return the value passed to thread.yield",
     )
     v = thread.resume(thr)
     assert(
       v == 2,
-      "thread.resume should return the value passed to thread.yield"
+      "thread.resume should return the value passed to thread.yield",
     )
     v = thread.resume(thr)
     assert(
       v == 3,
-      "thread.resume should return the value passed to thread.yield"
+      "thread.resume should return the value passed to thread.yield",
     )
     v = thread.resume(thr)
     assert(
       v == 4,
-      "thread.resume should return the value passed to thread.yield"
+      "thread.resume should return the value passed to thread.yield",
     )
   }
   t.test("thread return"){
@@ -47,11 +47,11 @@ t.group("threads"){
     local v = thread.resume(thr)
     assert(
       v == 1,
-      "thread.resume should return the value returned by the thread function"
+      "thread.resume should return the value returned by the thread function",
     )
     assert(
       thread.state(thr) == "dead",
-      "thread.state should return dead for a thread that has returned"
+      "thread.state should return dead for a thread that has returned",
     )
   }
   t.test("resume value for initialization"){
@@ -61,7 +61,7 @@ t.group("threads"){
     local value = thread.resume(thr, 123)
     assert(
       value == 123,
-      "thread.resume should pass the value to the thread function"
+      "thread.resume should pass the value to the thread function",
     )
   }
   t.test("yield should return value passed to resume"){
@@ -74,19 +74,19 @@ t.group("threads"){
     })
     assert(
       thread.resume(summer, 1) == 1,
-      "thread.resume should return the value passed to thread.yield"
+      "thread.resume should return the value passed to thread.yield",
     )
     assert(
       thread.resume(summer, 2) == 3,
-      "thread.resume should return the value passed to thread.yield"
+      "thread.resume should return the value passed to thread.yield",
     )
     assert(
       thread.resume(summer, 3) == 6,
-      "thread.resume should return the value passed to thread.yield"
+      "thread.resume should return the value passed to thread.yield",
     )
     assert(
       thread.resume(summer, 4) == 10,
-      "thread.resume should return the value passed to thread.yield"
+      "thread.resume should return the value passed to thread.yield",
     )
   }
   t.test("thread complex example"){
@@ -128,11 +128,11 @@ t.group("threads"){
     thread.resume(state_thread, nil)
     assert(
       store("a", 1) == 1,
-      "store should return the value passed to thread.yield"
+      "store should return the value passed to thread.yield",
     )
     assert(
       store("b", 2) == 2,
-      "store should return the value passed to thread.yield"
+      "store should return the value passed to thread.yield",
     )
     assert(get("a") == 1, "get should return the value stored")
     assert(get("b") == 2, "get should return the value stored")
@@ -152,12 +152,12 @@ t.group("threads"){
     })
     assert(
       thread.resume(thr) == 1,
-      "thread.resume should return the value passed to thread.yield"
+      "thread.resume should return the value passed to thread.yield",
     )
     print("yield 1 worked\n")
     assert(
       thread.resume(thr) == 2,
-      "thread.resume should return the value returned by the thread function"
+      "thread.resume should return the value returned by the thread function",
     )
     print("return 2 worked\n")
   }
@@ -178,7 +178,7 @@ t.group("threads"){
     for(local i = 0; i < 100; i = i + 1){
       assert(
         thread.resume(thr) == i % 10,
-        "thread.resume should return the value passed to thread.yield"
+        "thread.resume should return the value passed to thread.yield",
       )
     }
   }
@@ -192,12 +192,12 @@ t.group("threads"){
     })
     assert(
       thread.resume(thr) == "inside",
-      "yield inside a protected call should reach resume"
+      "yield inside a protected call should reach resume",
     )
     local r = thread.resume(thr)
     assert(
       r[0] == "ok" and r[1] == "done",
-      "pcall should complete after the resume"
+      "pcall should complete after the resume",
     )
     assert(thread.state(thr) == "dead", "thread should be dead")
   }

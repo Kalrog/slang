@@ -25,7 +25,7 @@ t.group("native extension (C)", func(){
     local r = pcall(hello.add, "a", 2)
     assert(r[0] == "err")
     assert(
-      r[1].message == "bad argument #1 to 'add' (number expected, got string)"
+      r[1].message == "bad argument #1 to 'add' (number expected, got string)",
     )
     assert(r[1].location != null)
   })
@@ -95,7 +95,7 @@ t.group("native extension (C)", func(){
       assert(r[0] == "err")
       assert(
         r[1].message ==
-          "bad argument #1 to 'push' (hello.buffer expected, got table)"
+          "bad argument #1 to 'push' (hello.buffer expected, got table)",
       )
     }
     // churn so the collector runs and finalizes the buffers
@@ -113,12 +113,12 @@ t.group("native extension (C)", func(){
     r = pcall(hello.buffer_sum, {1, 2})
     assert(
       r[1].message ==
-        "bad argument #1 to 'buffer_sum' (buffer expected, got table)"
+        "bad argument #1 to 'buffer_sum' (buffer expected, got table)",
     )
     r = pcall(hello.buffer_sum, buffer.new("int", 2))
     assert(
       r[1].message ==
-        "bad argument #1 to 'buffer_sum' (a buffer of float or double expected)"
+        "bad argument #1 to 'buffer_sum' (a buffer of float or double expected)",
     )
   })
 

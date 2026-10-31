@@ -38,11 +38,10 @@ func switch_statement.parser(){
     fmt.gaps(g:token(")"), "none", "none"),
     g:token("{"),
     fmt.indent(case_block.parser():star(), "hardline"),
-    fmt.gaps(g:token("}"), "hardline")
-  )
-    :map(func(result){
-      return switch_statement.new(result[0], result[2], result[5])
-    })
+    fmt.gaps(g:token("}"), "hardline"),
+  ):map(func(result){
+    return switch_statement.new(result[0], result[2], result[5])
+  })
 }
 
 func case_block.new(token, pattern, body){
@@ -66,11 +65,10 @@ func case_block.parser(){
     fmt.gaps(g:keyword("case"), "hardline", "space"),
     g:rule("slang_pattern"),
     fmt.gaps(g:token(":"), "none"),
-    fmt.indent(g:rule("chunk"), "hardline")
-  )
-    :map(func(result){
-      return case_block.new(result[0], result[1], result[3])
-    })
+    fmt.indent(g:rule("chunk"), "hardline"),
+  ):map(func(result){
+    return case_block.new(result[0], result[1], result[3])
+  })
 }
 
 g:statement("switch", switch_statement.parser():map(func(result){

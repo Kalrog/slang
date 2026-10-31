@@ -4,7 +4,7 @@ local peg = require("slang/peg")
 local func ok(result, expected, msg){
   assert(
     result[0] == "ok",
-    concat(msg or "", " expected ok, got ", string(result))
+    concat(msg or "", " expected ok, got ", string(result)),
   )
   if(expected != null){
     assert(result[1] == expected, concat(
@@ -41,7 +41,7 @@ t.group("peg"){
     ok(p:pick(- 1):parse("abc"), "c")
     assert(
       p:parse("abd")[1] == "\"c\" expected at 1:3",
-      "failure of the failing element"
+      "failure of the failing element",
     )
   }
   t.test("choice reports last failure"){
@@ -50,7 +50,7 @@ t.group("peg"){
     ok(p:parse("b"), "b")
     assert(
       p:parse("c")[1] == "\"b\" expected at 1:1",
-      "last alternative failure"
+      "last alternative failure",
     )
   }
   t.test("star, plus, optional"){
@@ -62,7 +62,7 @@ t.group("peg"){
     r = peg.seq(peg.string("a"):optional(), peg.string("b")):parse("b")
     assert(
       r[1][0] == null and r[1][1] == "b",
-      "optional yields null and keeps positions"
+      "optional yields null and keeps positions",
     )
     assert(len(r[1]) == 2, "sequence keeps the null slot")
   }
@@ -86,7 +86,7 @@ t.group("peg"){
     assert(r[0] == "ok" and len(r[1].elements) == 0, "empty list allowed")
     assert(
       peg.digit():plus_seperated(peg.char(",")):parse("")[0] == "error",
-      "plus separated needs one"
+      "plus separated needs one",
     )
     r = p:end():parse("1,2,")
     assert(r[0] == "error", "trailing separator is not consumed")
@@ -98,7 +98,7 @@ t.group("peg"){
     ok(peg.char("\n"):neg():parse("x"), "x")
     assert(
       peg.char("\n"):neg():parse("\n")[0] == "error",
-      "neg rejects the char"
+      "neg rejects the char",
     )
   }
   t.test("map, flatten, permute"){
@@ -111,7 +111,7 @@ t.group("peg"){
     assert(
       peg.digit():plus():flatten("number expected"):parse("x")[1] ==
         "number expected at 1:1",
-      "flatten message"
+      "flatten message",
     )
   }
   t.test("token"){
@@ -123,14 +123,14 @@ t.group("peg"){
     assert(tok.start == 3 and tok.stop == 5, "token range")
     assert(
       tok.line == 2 and tok.column == 2,
-      concat("token line/col ", tok.line, ":", tok.column)
+      concat("token line/col ", tok.line, ":", tok.column),
     )
   }
   t.test("trim"){
     local p = peg.seq(
       peg.string("hello"):trim(),
       peg.string("world"):trim(),
-      peg.string("!"):trim()
+      peg.string("!"):trim(),
     ):end()
     local r = p:parse("   hello    world   !  ")
     ok(r)
@@ -142,7 +142,7 @@ t.group("peg"){
     func term(){
       return peg.choice(
         peg.seq(peg.char("("), peg.ref(expr), peg.char(")")):pick(1),
-        peg.digit():plus():flatten():map(to_int)
+        peg.digit():plus():flatten():map(to_int),
       )
     }
     func expr(){

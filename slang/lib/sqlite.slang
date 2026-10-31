@@ -64,7 +64,7 @@ func sqlite.query(text, values, origin, count){
   // literals pass how many values there are
   count = count or len(values)
   local q = {
-    meta: query_meta, text: text, params: values, count: count, origin: origin,
+    meta: query_meta, text: text, params: values, count: count, origin: origin
   }
   if(count == 0){
     return q
@@ -126,7 +126,7 @@ local CACHE_SIZE = 64
 
 func sqlite.open(path){
   return {
-    meta: db_meta, raw: native.open(path), path: path, cache: {}, cached: 0,
+    meta: db_meta, raw: native.open(path), path: path, cache: {}, cached: 0
   }
 }
 

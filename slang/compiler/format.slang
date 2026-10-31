@@ -1210,6 +1210,81 @@ func formatter_methods.join_verbatim(self, pieces){
   return {t: "from_line", doc: segments}
 }
 
+// d with the list's fill directly in it (formatter_methods.fill's, not
+// inside a group: a rule's box or an indent may be around it; an operator
+// chain's fill is not one) laid out one element per line: its parts
+// concatenated, the lines between them breaking with the group around
+// them; null when d has no such fill
+local func unfill(d){
+  if(type(d) == "string" or d == null){
+    return null
+  }
+  if(d.t == "fill" and d.list){
+    // the elements break on their own, as they would in the fill; the
+    // lines between them break with the list
+    local parts = {}
+    for(let local part in values(d.parts)){
+      list_push(parts, part.t == "line" and part or group(part))
+    }
+    return parts
+  }
+  if(d.t == null){
+    for(local i = 0; i < len(d); i = i + 1){
+      local u = unfill(d[i])
+      if(u != null){
+        local out = {}
+        for(local j = 0; j < len(d); j = j + 1){
+          list_push(out, i == j and u or d[j])
+        }
+        return out
+      }
+    }
+    return null
+  }
+  if(d.t == "indent" or d.t == "nest" or d.t == "box"){
+    local u = unfill(d.doc)
+    if(u != null){
+      return {t: d.t, n: d.n, hug: d.hug, doc: u}
+    }
+  }
+  return null
+}
+
+// The trailing comma of a list (a table's fields, a call's arguments, a
+// function's parameters) stands for one element per line: written, it
+// keeps the list broken that way even where it would fit on one line (it
+// sticks: remove it to join the list); the formatter writes one only when
+// it lays the list out one per line, so a list packed as many to a line as
+// fit gets none.
+local func trailing_comma(pieces){
+  local comma = null
+  for(let local k in values(pieces)){
+    if(k.comma != null){
+      comma = k
+    }
+  }
+  if(comma == null){
+    return
+  }
+  local packed = false
+  for(let local k in values(pieces)){
+    if(k != comma){
+      local u = unfill(k.doc)
+      if(u != null){
+        packed = true
+        if(comma.comma){
+          k.doc = u
+        }
+      }
+    }
+  }
+  if(comma.comma){
+    comma.doc = {comma.doc, BREAK_PARENT}
+  } else if(packed){
+    comma.doc = ""
+  }
+}
+
 // the piece of a node, in mode ("formatted" or "verbatim")
 func formatter_methods.build(self, n, mode){
   local kids = n.kids
@@ -1235,7 +1310,7 @@ func formatter_methods.build(self, n, mode){
     return null
   }
   if(m.trailing_comma){
-    return {doc: if_break(",", ""), virtual: true}
+    return {doc: if_break(",", ""), virtual: true, comma: n.start != n.stop}
   }
   if(m.layout != null and mode == "formatted"){
     return self:build_layout(n, m)
@@ -1307,6 +1382,7 @@ func formatter_methods.build_node(self, n, m, mode){
         }
       }
     }
+    trailing_comma(pieces)
     if(len(pieces) == 1){
       piece = {
         doc: pieces[0].doc,
@@ -1794,7 +1870,7 @@ func formatter_methods.fill(self, pieces, kind){
     }
     i = i + 2
   }
-  return {t: "fill", parts: parts}
+  return {t: "fill", parts: parts, list: true}
 }
 
 // the number of statements of a chunk: the nodes marked as statements (a
@@ -1875,7 +1951,7 @@ func formatter_methods.build_soft_block(self, n){
   }
   if(str.index_of(
     str.substring(self.source, l.first.start, r.last.stop),
-    "\n"
+    "\n",
   ) >= 0){
     return null
   }
@@ -1928,7 +2004,7 @@ func formatter_methods.build_unit(self, n){
     list_push(parts, HARDLINE)
     if(count_newlines(str.substring(
       head,
-      head_comments[len(head_comments) - 1].stop
+      head_comments[len(head_comments) - 1].stop,
     )) >= 2){
       list_push(parts, HARDLINE)
     }
@@ -2019,7 +2095,7 @@ local func comments_of(f, toks_tree){
   local at = 0
   for(let local l in values(leaves)){
     for(let local c in values(
-      gap_comments(str.substring(f.source, at, l.start))
+      gap_comments(str.substring(f.source, at, l.start)),
     )){
       list_push(out, rstrip(str.substring(f.source, at + c.start, at + c.stop)))
     }
@@ -2104,11 +2180,7 @@ local func layout(f, tree, width){
   return concat(format.print(piece.doc, width or WIDTH), "\n")
 }
 
-// source(text, path, {find_project, width, check}) -> the formatted text, or
-// null for a file of a compile dialect. Raises when the file does not parse,
-// or when the result fails its checks (check: false skips them).
-func format.source(text, path, options){
-  options = options or {}
+local func format_text(text, path, options){
   local compiler = require("slang/compiler")
   local ast = require("slang/ast")
   local tree = compiler.tree(text, path, {find_project: options.find_project})
@@ -2176,6 +2248,26 @@ func format.source(text, path, options){
   return out
 }
 
+// a project file is a table literal, read as `return {...}` (see
+// compiler.read_table_file): it is formatted that way
+local PROJECT_PREFIX = "return "
+
+// source(text, path, {find_project, width, check}) -> the formatted text, or
+// null for a file of a compile dialect. Raises when the file does not parse,
+// or when the result fails its checks (check: false skips them). A
+// slang.project is formatted as the table literal it is.
+func format.source(text, path, options){
+  options = options or {}
+  if(not str.ends_with(path, "slang.project")){
+    return format_text(text, path, options)
+  }
+  local out = format_text(concat(PROJECT_PREFIX, text), path, options)
+  if(out == null or not str.starts_with(out, PROJECT_PREFIX)){
+    return out
+  }
+  return str.substring(out, len(PROJECT_PREFIX))
+}
+
 // ------------------------------------------------------------ slang fmt
 
 local func slang_files(os, path, out){
@@ -2186,7 +2278,8 @@ local func slang_files(os, path, out){
         slang_files(os, concat(path, "/", name), out)
       }
     }
-  } else if(str.ends_with(path, ".slang")){
+  } else if(str.ends_with(path, ".slang") or
+    str.ends_with(path, "slang.project")){
     list_push(out, path)
   }
   return out
@@ -2209,7 +2302,7 @@ func format.main(arguments){
   }
   if(len(paths) == 0){
     os.write_stderr(
-      "usage: slang fmt [--check] [--stdout] <file.slang|dir>...\n"
+      "usage: slang fmt [--check] [--stdout] <file.slang|slang.project|dir>...\n",
     )
     return 2
   }

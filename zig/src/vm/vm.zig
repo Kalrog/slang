@@ -443,10 +443,16 @@ pub const VM = struct {
     /// Instantiates a top-level prototype; its _ENV upvalue is bound to the
     /// global table.
     pub fn load(vm: *VM, p: *Proto) *Closure {
+        return vm.loadWithEnv(p, vm.globals);
+    }
+
+    /// Instantiates a top-level prototype whose globals are the table env
+    /// (its _ENV upvalue): a sandbox sees only what env holds.
+    pub fn loadWithEnv(vm: *VM, p: *Proto, env: *Table) *Closure {
         const cl = vm.newClosure(p);
         for (cl.upvals, 0..) |*u, i| {
             if (i == 0 and p.upvals[0].name.eqlBytes("_ENV")) {
-                u.* = vm.newUpvalue(.{ .table = vm.globals });
+                u.* = vm.newUpvalue(.{ .table = env });
             } else {
                 u.* = vm.newUpvalue(.null);
             }

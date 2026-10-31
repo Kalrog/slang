@@ -123,7 +123,7 @@ local func page_name(module){
 local func entry(d, signature){
   return {
     name: d.name, signature: signature or symbols.signature(d), doc: d.doc,
-    start: d.start,
+    start: d.start
   }
 }
 
@@ -397,7 +397,7 @@ func doc.main(arguments){
     compiler.reset()
     local text = os.read_file(path)
     local r = pcall(compiler.highlight, text, path, {
-      find_project: true, symbols: true,
+      find_project: true, symbols: true
     })
     if(r[0] == "err"){
       local e = r[1]
@@ -410,7 +410,7 @@ func doc.main(arguments){
         module_name(compiler, path),
         shown_path(compiler, path),
         text,
-        r[1].symbols
+        r[1].symbols,
       )
       if(m != null){
         append(modules, m)

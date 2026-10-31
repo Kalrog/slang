@@ -66,58 +66,57 @@ local number
 local end_of_input
 local build_ast
 
-func parser_def(
+func parser_def(,
 ) => peg.seq(
   g:keyword("parser"),
   g:token("{"),
   peg.ref(rule_def):plus(),
-  g:token("}")
-)
-  :pick(2)
-  :map(|rules| 'Parser{rules: rules})
+  g:token("}"),
+):pick(2):map(|rules| 'Parser{rules: rules})
 
 func rule_def() => peg.seq(
   g:rule("identifier"),
   g:token("->"),
   peg.ref(rule),
-  g:token(";"):optional()
+  g:token(";"):optional(),
 ):map(|results| 'RuleDef{name: results[0], rule: results[2]})
 
 func rule() => peg.ref(rule_or)
 
-func rule_or(
-) => peg.ref(rule_combine):plus_seperated(g:token("|")):map(|sep_list| 'RuleOr{
-  rules: sep_list.elements,
-})
+func rule_or() => peg.ref(rule_combine)
+  :plus_seperated(g:token("|"))
+  :map(|sep_list| 'RuleOr{
+    rules: sep_list.elements,
+  })
 
-func rule_combine(
+func rule_combine(,
 ) => peg.ref(rule_post_fix):plus():map(|list| 'RuleCombine{rules: list})
 
-func rule_post_fix(
+func rule_post_fix(,
 ) => peg.seq(peg.ref(rule_bracket), peg.choice(
   g:token("*"):map(|_| "*"),
   g:token("+"):map(|_| "+"),
   g:token("?"):map(|_| "?"),
   g:token("!"):map(|_| "!"),
   g:token("_"):map(|_| "_"),
-  peg.ref(permute)
+  peg.ref(permute),
 ):star()):map(
-  |results| foldLeft(results[1], results[0], |acc, elem| 'RulePostFix{value: acc, op: elem})
+  |results| foldLeft(results[1], results[0], |acc, elem| 'RulePostFix{value: acc, op: elem}),
 )
 
 func rule_bracket() => peg.choice(
   peg.seq(g:token("("), peg.ref(rule), g:token(")")):pick(1),
-  peg.ref(rule_primitive)
+  peg.ref(rule_primitive),
 )
 
 func rule_primitive() => peg.choice(
   peg.ref(string),
   peg.ref(rule_ref),
   peg.ref(end_of_input),
-  peg.ref(pattern)
+  peg.ref(pattern),
 )
 
-func string(
+func string(,
 ) => peg.seq(g:token("\""), peg.ref(string_content), g:token("\""))
   :pick(1)
   :map(|results| 'String{value: results})
@@ -128,35 +127,27 @@ func string_content() => peg.ref(string_char)
 
 func string_char() => peg.any()
 
-func rule_ref(
+func rule_ref(,
 ) => g
   :rule("identifier")
   :seq(g:token("->"):forbid())
   :pick(0)
   :map(|results| 'RuleRef{name: results})
 
-func pattern(
-) => peg.seq(
-  g:token("["),
-  peg.any():star_lazy(peg.char("]")):map(
-    |list| foldLeft(list, "", |acc, elem| concat(acc, elem))
-  ),
-  g:token("]")
-)
-  :pick(1)
-  :map(|results| 'Pattern{value: results})
+func pattern(,
+) => peg.seq(g:token("["), peg.any():star_lazy(peg.char("]")):map(
+  |list| foldLeft(list, "", |acc, elem| concat(acc, elem)),
+), g:token("]")):pick(1):map(|results| 'Pattern{value: results})
 
-func permute(
+func permute(,
 ) => peg.seq(
   g:token("P"),
   g:token("("),
   peg.ref(permute_field):star_seperated(g:token(",")),
-  g:token(")")
-)
-  :pick(2)
-  :map(|numbers| 'Permute{fields: numbers.elements})
+  g:token(")"),
+):pick(2):map(|numbers| 'Permute{fields: numbers.elements})
 
-func permute_field(
+func permute_field(,
 ) => peg.seq(g:rule("identifier"), g:token(":"), peg.ref(number))
   :permute(0, 2)
   :map(|results| 'PermuteField{name: results[0], number: results[1]})
@@ -181,7 +172,7 @@ func build_ast(ast){
       append(block.statements, +{stat: return peg.resolve(start())})
       return {
         type: "Call", function: {type: "Function", params: {}, body: block},
-        args: {},
+        args: {}
       }
     case 'RuleDef{name: local name, rule: local rule}:
       local function_def = +{stat:
@@ -227,15 +218,14 @@ func build_ast(ast){
     case 'RulePostFix{value: local value, op: 'Permute{fields: local fields}}:
       local steps = +{block: }
       for(let local field in values(fields)){
-        append(
-          steps.statements,
-          +{stat:
-            out[-{{
+        append(steps.statements, +{stat:
+          out[-{
+            {
               type: "String",
               value: field.name.value,
-            }}] = result[-{{type: "Int", value: field.number}}]
-          }
-        )
+            }
+          }] = result[-{{type: "Int", value: field.number}}]
+        })
       }
       local call = +{
         -{build_ast(value)}:map(func(result){

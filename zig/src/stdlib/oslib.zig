@@ -8,6 +8,8 @@ const Thread = vm_mod.Thread;
 const Error = vm_mod.Error;
 const api = vm_mod.api;
 const stdlib = @import("stdlib.zig");
+const bundle = @import("../bundle/exe.zig");
+const bundlelib = @import("bundlelib.zig");
 
 var process_start: ?std.Io.Timestamp = null;
 
@@ -29,6 +31,9 @@ pub fn module(vm: *VM) *Table {
         .{ .name = "time_ms", .f = osTimeMs },
         .{ .name = "exec", .f = osExec },
         .{ .name = "platform", .f = osPlatform },
+        .{ .name = "executable", .f = osExecutable },
+        .{ .name = "copy_file", .f = osCopyFile },
+        .{ .name = "rename", .f = osRename },
     });
 }
 
@@ -91,14 +96,21 @@ fn osTimeMs(th: *Thread, args: []Value) Error!Value {
     return .{ .int = @intCast(@divTrunc(now.nanoseconds, 1_000_000)) };
 }
 
+// In a program built by slang build, a relative path that names a bundled
+// file or directory is the bundle's for exists, is_dir, read_file and
+// list_dir (bundle.resolve); writes always go to the disk, so a program
+// that writes over a bundled path still reads the bundled file.
+
 fn osExists(th: *Thread, args: []Value) Error!Value {
     const path = try api.argString(th, args, 0, "path");
+    if (bundle.resolve(path) != null) return .{ .bool = true };
     _ = std.Io.Dir.cwd().statFile(th.vm.io, path, .{}) catch return .{ .bool = false };
     return .{ .bool = true };
 }
 
 fn osIsDir(th: *Thread, args: []Value) Error!Value {
     const path = try api.argString(th, args, 0, "path");
+    if (bundle.resolve(path)) |h| return .{ .bool = h == .dir };
     const st = std.Io.Dir.cwd().statFile(th.vm.io, path, .{}) catch return .{ .bool = false };
     return .{ .bool = st.kind == .directory };
 }
@@ -106,6 +118,10 @@ fn osIsDir(th: *Thread, args: []Value) Error!Value {
 fn osReadFile(th: *Thread, args: []Value) Error!Value {
     const vm = th.vm;
     const path = try api.argString(th, args, 0, "path");
+    if (bundle.resolve(path)) |h| switch (h) {
+        .file => |e| return bundlelib.readEntry(vm, e),
+        .dir => {},
+    };
     const data = std.Io.Dir.cwd().readFileAlloc(vm.io, path, vm.gpa, .unlimited) catch |e| {
         return vm.raise("cannot read {s}: {t}", .{ path, e });
     };
@@ -158,11 +174,57 @@ pub fn freeNames(vm: *VM, names: [][]u8) void {
 fn osListDir(th: *Thread, args: []Value) Error!Value {
     const vm = th.vm;
     const path = try api.argString(th, args, 0, "path");
+    if (bundle.resolve(path)) |h| if (h == .dir) return listBundledDir(vm, path);
     const names = listDir(vm, path) catch |e| return vm.raise("cannot list {s}: {t}", .{ path, e });
     defer freeNames(vm, names);
     const t = vm.newTable(names.len, 0);
     for (names) |n| t.append(vm.gpa, vm.str(n));
     return .{ .table = t };
+}
+
+/// A bundled directory's names merged with the disk's, if it exists there.
+fn listBundledDir(vm: *VM, path: []const u8) Value {
+    var all: std.ArrayList([]const u8) = .empty;
+    defer all.deinit(vm.gpa);
+    _ = bundle.current.?.list(vm.gpa, path, &all) catch oom();
+    const disk = listDir(vm, path) catch null;
+    defer if (disk) |d| freeNames(vm, d);
+    if (disk) |d| for (d) |n| all.append(vm.gpa, n) catch oom();
+    std.mem.sort([]const u8, all.items, {}, lessThan);
+    const t = vm.newTable(all.items.len, 0);
+    for (all.items, 0..) |n, i| {
+        if (i > 0 and std.mem.eql(u8, n, all.items[i - 1])) continue;
+        t.append(vm.gpa, vm.str(n));
+    }
+    return .{ .table = t };
+}
+
+/// executable(): the path of the running executable.
+fn osExecutable(th: *Thread, args: []Value) Error!Value {
+    _ = args;
+    const vm = th.vm;
+    const path = std.process.executablePathAlloc(vm.io, vm.gpa) catch |e| return vm.raise("executable: {t}", .{e});
+    defer vm.gpa.free(path);
+    return vm.str(path);
+}
+
+/// rename(from, to): moves a file or directory, replacing to.
+fn osRename(th: *Thread, args: []Value) Error!Value {
+    const from = try api.argString(th, args, 0, "from");
+    const to = try api.argString(th, args, 1, "to");
+    const cwd = std.Io.Dir.cwd();
+    cwd.rename(from, cwd, to, th.vm.io) catch |e| return th.vm.raise("cannot rename {s} to {s}: {t}", .{ from, to, e });
+    return .null;
+}
+
+/// copy_file(from, to): copies a file, its permissions included (to is
+/// replaced; its directory must exist).
+fn osCopyFile(th: *Thread, args: []Value) Error!Value {
+    const from = try api.argString(th, args, 0, "from");
+    const to = try api.argString(th, args, 1, "to");
+    const cwd = std.Io.Dir.cwd();
+    cwd.copyFile(from, cwd, to, th.vm.io, .{}) catch |e| return th.vm.raise("cannot copy {s} to {s}: {t}", .{ from, to, e });
+    return .null;
 }
 
 fn osGetenv(th: *Thread, args: []Value) Error!Value {

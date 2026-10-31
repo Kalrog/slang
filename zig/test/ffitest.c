@@ -2,6 +2,8 @@
  * ffitest: a C library for zig/test/ffi_test.slang to call through slang/ffi.
  * Built by `zig build` into lib/libffitest.<ext>; plain C, no slang.h.
  */
+#define _DEFAULT_SOURCE
+#include <pthread.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -81,3 +83,40 @@ int ft_sum_ints(int count, ...) {
 static int counter = 0;
 int ft_next(void) { return ++counter; }
 const void *ft_null(void) { return NULL; }
+
+/* callbacks */
+typedef int (*IntFn)(int);
+int ft_apply(IntFn f, int x) { return f(x); }
+uint8_t ft_apply_u8(uint8_t (*f)(uint8_t), uint8_t x) { return f(x); }
+int8_t ft_apply_i8(int8_t (*f)(int8_t), int8_t x) { return f(x); }
+double ft_apply_f64(double (*f)(double, float), double x) { return f(x, 0.5f); }
+Vec2 ft_map_vec(Vec2 (*f)(Vec2, const char *), Vec2 v) { return f(v, "scaled"); }
+const char *ft_name_of(const char *(*f)(int), int i) { return f(i); }
+
+typedef struct { IntFn on_value; int base; } Handler;
+static Handler saved;
+void ft_set_handler(Handler h) { saved = h; }
+int ft_fire(int x) { return saved.on_value ? saved.on_value(saved.base + x) : -1; }
+
+/* n threads at once call f(i) for their i; the sum of the results */
+struct ft_job { IntFn f; int x; int r; };
+static void *ft_run_job(void *p) {
+    struct ft_job *j = p;
+    for (int k = 0; k < 100; k++) j->r = j->f(j->x);
+    return NULL;
+}
+int ft_threads(IntFn f, int n) {
+    pthread_t t[16];
+    struct ft_job jobs[16];
+    if (n > 16) n = 16;
+    for (int i = 0; i < n; i++) {
+        jobs[i] = (struct ft_job){ f, i, 0 };
+        pthread_create(&t[i], NULL, ft_run_job, &jobs[i]);
+    }
+    int s = 0;
+    for (int i = 0; i < n; i++) {
+        pthread_join(t[i], NULL);
+        s += jobs[i].r;
+    }
+    return s;
+}

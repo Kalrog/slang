@@ -6,6 +6,15 @@
 //! Arguments convert as ctypes describes; a table given for a pointer
 //! parameter marked for writeback gets the memory back after the call
 //! (out parameters), and a buffer is passed as its memory.
+//!
+//! Callbacks: a slang function given for a function pointer becomes a
+//! libffi closure that calls it. C may call it from any thread: once a
+//! callback exists, the OS thread running slang holds the VM's lock
+//! (vm.ffi), every C call releases it for its duration, and a callback
+//! takes it, so slang still runs on one thread at a time. A callback runs on
+//! the slang thread that made the C call; its error cannot unwind through
+//! C, so C gets a zero result and the error is raised when the C call
+//! returns.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -28,6 +37,10 @@ const Ptr = ctypes.Ptr;
 extern fn ffi_prep_cif(cif: *Cif, abi: c_uint, nargs: c_uint, rtype: *FfiType, atypes: ?[*]*FfiType) c_int;
 extern fn ffi_prep_cif_var(cif: *Cif, abi: c_uint, nfixed: c_uint, ntotal: c_uint, rtype: *FfiType, atypes: ?[*]*FfiType) c_int;
 extern fn ffi_call(cif: *Cif, f: *const anyopaque, rvalue: ?*anyopaque, avalue: ?[*]?*anyopaque) void;
+extern fn ffi_closure_alloc(size: usize, code: *?*anyopaque) ?*anyopaque;
+extern fn ffi_closure_free(closure: *anyopaque) void;
+const ClosureFn = *const fn (cif: *Cif, ret: ?*anyopaque, args: [*]?*anyopaque, user: ?*anyopaque) callconv(.c) void;
+extern fn ffi_prep_closure_loc(closure: *anyopaque, cif: *Cif, fun: ClosureFn, user: ?*anyopaque, code: ?*anyopaque) c_int;
 
 const FFI_OK: c_int = 0;
 const default_abi: c_uint = switch (builtin.cpu.arch) {
@@ -55,6 +68,7 @@ const RTLD_NOW: c_int = 2;
 
 const library_tname = "ffi.library";
 const func_tname = "ffi.func";
+const callback_tname = "ffi.callback";
 
 const Func = struct {
     f: *const anyopaque,
@@ -69,10 +83,12 @@ const Func = struct {
 };
 
 pub fn module(vm: *VM) *Table {
+    ctypes.make_callback = lastingCallback;
     return stdlib.makeModule(vm, &.{
         .{ .name = "open", .f = ffiOpen },
         .{ .name = "symbol", .f = ffiSymbol },
         .{ .name = "func", .f = ffiFunc },
+        .{ .name = "callback", .f = ffiCallback },
     });
 }
 
@@ -210,7 +226,229 @@ fn callFunc(th: *Thread, args: []Value) Error!Value {
     }
     // integer results narrower than a register come back widened
     const rmem = arena.alignedAlloc(u8, .@"16", @max(f.ret.size, 16)) catch oom();
+    const released = release(vm, th);
     ffi_call(cif_ptr, f.f, rmem.ptr, values.ptr);
+    if (released) reacquire(vm);
+    if (vm.ffi.pending) |e| {
+        vm.ffi.pending = null;
+        if (vm.err) |*old| old.deinit(vm.gpa);
+        vm.err = e;
+        return error.Slang;
+    }
     try conv.writeBack();
     return ctypes.fromC(vm, f.ret, rmem.ptr, .null);
+}
+
+// ------------------------------------------------------------ the lock
+
+const threaded = !builtin.single_threaded;
+
+/// Before a C call: lets callbacks from other threads in (when there are
+/// callbacks), with th as the thread they run on. Returns whether it did.
+fn release(vm: *VM, th: *Thread) bool {
+    if (!threaded or !vm.ffi.on) return false;
+    vm.ffi.calls.append(vm.gpa, .{ .th = th, .os = std.Thread.getCurrentId() }) catch oom();
+    vm.ffi.owner.store(0, .release);
+    vm.ffi.lock.unlock(vm.io);
+    return true;
+}
+
+/// After a C call: slang is this thread's again.
+fn reacquire(vm: *VM) void {
+    vm.ffi.lock.lockUncancelable(vm.io);
+    vm.ffi.owner.store(std.Thread.getCurrentId(), .release);
+    _ = vm.ffi.calls.pop();
+}
+
+/// A callback starts: takes the lock unless this thread holds it (a C
+/// function called from slang without a C call around it, as a native
+/// module does). Returns whether it took it.
+fn enter(vm: *VM) bool {
+    if (!threaded) return false;
+    const self = std.Thread.getCurrentId();
+    if (vm.ffi.owner.load(.acquire) == self) return false;
+    vm.ffi.lock.lockUncancelable(vm.io);
+    vm.ffi.owner.store(self, .release);
+    return true;
+}
+
+fn leave(vm: *VM, took: bool) void {
+    if (!took) return;
+    vm.ffi.owner.store(0, .release);
+    vm.ffi.lock.unlock(vm.io);
+}
+
+/// The first callback: from now on the thread running slang holds the lock.
+fn turnOn(vm: *VM) void {
+    if (!threaded or vm.ffi.on) return;
+    vm.ffi.lock.lockUncancelable(vm.io);
+    vm.ffi.owner.store(std.Thread.getCurrentId(), .release);
+    vm.ffi.on = true;
+}
+
+// ------------------------------------------------------------ callbacks
+
+const Callback = struct {
+    vm: *VM,
+    func: Value,
+    sig: *ctypes.Signature,
+    cif: Cif,
+    ffi_args: []*FfiType,
+    closure: *anyopaque,
+    code: usize,
+};
+
+/// room for libffi's ffi_closure on every target (it is smaller)
+const closure_size = 256;
+
+fn newCallback(th: *Thread, f: Value, t: *Type) Error!*Callback {
+    const vm = th.vm;
+    const sig = t.sig orelse return vm.raise("ffi: {s} is not a function pointer type", .{t.name});
+    const ffi_args = vm.gpa.alloc(*FfiType, sig.args.len + 1) catch oom();
+    for (sig.args, 0..) |a, i| ffi_args[i] = a.ffi;
+    const cb = vm.gpa.create(Callback) catch oom();
+    cb.* = .{ .vm = vm, .func = f, .sig = sig, .cif = undefined, .ffi_args = ffi_args, .closure = undefined, .code = 0 };
+    if (ffi_prep_cif(&cb.cif, default_abi, @intCast(sig.args.len), sig.ret.ffi, ffi_args.ptr) != FFI_OK) {
+        return vm.raise("ffi: libffi cannot make a callback of type {s}", .{t.name});
+    }
+    var code: ?*anyopaque = null;
+    const closure = ffi_closure_alloc(closure_size, &code) orelse return vm.raise("ffi: libffi cannot allocate a callback", .{});
+    if (ffi_prep_closure_loc(closure, &cb.cif, handler, cb, code) != FFI_OK) {
+        ffi_closure_free(closure);
+        return vm.raise("ffi: libffi cannot make a callback of type {s}", .{t.name});
+    }
+    cb.closure = closure;
+    cb.code = @intFromPtr(code);
+    turnOn(vm);
+    return cb;
+}
+
+/// The callbacks made for functions given directly to C, which live as long
+/// as the program: the same function and type give the same one.
+const LastingKey = struct { vm: usize, func: usize, ty: usize };
+var lasting: std.AutoHashMapUnmanaged(LastingKey, *Callback) = .empty;
+var lasting_lock: std.Io.Mutex = .init;
+const lasting_limit = 1000;
+
+fn lastingCallback(th: *Thread, f: Value, t: *Type) Error!usize {
+    const vm = th.vm;
+    const key = LastingKey{ .vm = @intFromPtr(vm), .func = @intFromPtr(f.function), .ty = @intFromPtr(t) };
+    lasting_lock.lockUncancelable(vm.io);
+    defer lasting_lock.unlock(vm.io);
+    if (lasting.get(key)) |cb| return cb.code;
+    // each one lives for good: a function made anew on every pass of a
+    // loop would make a new one each time
+    if (lasting.count() >= lasting_limit) {
+        return vm.raise("ffi: more than {d} C callbacks made from slang functions (a function written inside a loop is a new function, and a new callback, each time): define it once, or use ffi.callback, which is freed with its pointer", .{lasting_limit});
+    }
+    const cb = try newCallback(th, f, t);
+    _ = vm.makeRef(f); // kept alive for good
+    // (malloc: under Emscripten the page allocator would grow the memory
+    // behind its back)
+    lasting.put(std.heap.c_allocator, key, cb) catch oom();
+    return cb.code;
+}
+
+/// callback(type, func) -> a pointer to a C function calling func, alive
+/// while the pointer is (the closure is freed when it is collected)
+fn ffiCallback(th: *Thread, args: []Value) Error!Value {
+    const vm = th.vm;
+    const t = try ctypes.argType(th, args, 0, "type");
+    const f = try api.argFunction(th, args, 1, "func");
+    const cb = try newCallback(th, .{ .function = f }, t);
+    const holder = vm.newUserdataOf(*Callback, cb, callback_tname, null);
+    holder.finalizer = freeCallback;
+    holder.owner = .{ .function = f };
+    return ctypes.newPointer(vm, cb.code, null, .{ .userdata = holder });
+}
+
+fn freeCallback(data: ?*anyopaque) callconv(.c) void {
+    const cb = @as(*align(1) *Callback, @ptrCast(data.?)).*;
+    ffi_closure_free(cb.closure);
+    cb.vm.gpa.free(cb.ffi_args);
+    cb.vm.gpa.destroy(cb);
+}
+
+/// What C calls: the slang function with the arguments converted, its
+/// result converted back.
+fn handler(cif: *Cif, ret: ?*anyopaque, args: [*]?*anyopaque, user: ?*anyopaque) callconv(.c) void {
+    _ = cif;
+    const cb: *Callback = @ptrCast(@alignCast(user.?));
+    const vm = cb.vm;
+    const sig = cb.sig;
+    // zero unless the function says otherwise (libffi widens small
+    // integer results to a register)
+    if (ret) |r| @memset(@as([*]u8, @ptrCast(r))[0..@max(sig.ret.size, @sizeOf(usize))], 0);
+    const took = enter(vm);
+    defer leave(vm, took);
+    // after an error C finishes without slang; the error is raised then
+    if (vm.ffi.pending != null) return;
+    const th = callbackThread(vm);
+    var arena_state = std.heap.ArenaAllocator.init(vm.gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const values = arena.alloc(Value, sig.args.len) catch oom();
+    for (sig.args, 0..) |t, i| values[i] = ctypes.fromC(vm, t, @ptrCast(args[i].?), .null);
+    const result = th.call(cb.func, values) catch return fail(th);
+    if (sig.ret.kind == .void) return;
+    const r: [*]u8 = @ptrCast(ret.?);
+    // the result is stored in C's memory: nothing temporary may go there
+    var conv = ctypes.Conv{ .th = th, .arena = null, .what = "bad result of a callback" };
+    switch (sig.ret.kind) {
+        .bool, .i8, .i16, .i32 => if (sig.ret.size < @sizeOf(usize)) {
+            var tmp: [8]u8 align(8) = undefined;
+            conv.toC(result, sig.ret, &tmp, false) catch return fail(th);
+            const v: isize = switch (sig.ret.kind) {
+                .bool => tmp[0],
+                .i8 => @as(i8, @bitCast(tmp[0])),
+                .i16 => @as(*align(1) i16, @ptrCast(&tmp)).*,
+                else => @as(*align(1) i32, @ptrCast(&tmp)).*,
+            };
+            @as(*align(1) isize, @ptrCast(r)).* = v;
+            return;
+        },
+        .u8, .u16, .u32 => if (sig.ret.size < @sizeOf(usize)) {
+            var tmp: [8]u8 align(8) = @splat(0);
+            conv.toC(result, sig.ret, &tmp, false) catch return fail(th);
+            const v: usize = switch (sig.ret.kind) {
+                .u8 => tmp[0],
+                .u16 => @as(*align(1) u16, @ptrCast(&tmp)).*,
+                else => @as(*align(1) u32, @ptrCast(&tmp)).*,
+            };
+            @as(*align(1) usize, @ptrCast(r)).* = v;
+            return;
+        },
+        else => {},
+    }
+    conv.toC(result, sig.ret, r, false) catch return fail(th);
+}
+
+/// The slang thread a callback runs on: the one whose C call it is inside,
+/// when it comes from that call's OS thread (calls nest there); else the
+/// OS thread's own.
+fn callbackThread(vm: *VM) *Thread {
+    if (!threaded) {
+        const items = vm.ffi.calls.items;
+        return if (items.len > 0) items[items.len - 1].th else vm.main;
+    }
+    const self = std.Thread.getCurrentId();
+    var i = vm.ffi.calls.items.len;
+    while (i > 0) {
+        i -= 1;
+        const c = vm.ffi.calls.items[i];
+        if (c.os == self) return c.th;
+    }
+    if (vm.ffi.foreign.get(self)) |t| return t;
+    const t = vm.newThread(null);
+    t.status = .running;
+    vm.ffi.foreign.put(vm.gpa, self, t) catch oom();
+    return t;
+}
+
+/// A callback failed: its error waits for the C call to return.
+fn fail(th: *Thread) void {
+    const vm = th.vm;
+    th.fillError();
+    vm.ffi.pending = vm.err;
+    vm.err = null;
 }

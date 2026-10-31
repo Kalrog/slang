@@ -39,6 +39,26 @@ const InternBytesCtx = struct {
     }
 };
 
+pub const FfiCall = struct { th: *Thread, os: std.Thread.Id };
+
+/// C callbacks (slang/ffi): once a callback exists, the OS thread that runs
+/// slang holds `lock`, and a call into C releases it so that a callback from
+/// another thread can run meanwhile (one at a time). See ffilib.zig.
+pub const FfiState = struct {
+    on: bool = false,
+    lock: std.Io.Mutex = .init,
+    /// the OS thread holding the lock (0: none)
+    owner: std.atomic.Value(std.Thread.Id) = .init(0),
+    /// the C calls under way, innermost last: a callback on the OS thread
+    /// of one runs on its slang thread (nested, as calls are)
+    calls: std.ArrayList(FfiCall) = .empty,
+    /// the slang threads callbacks from other OS threads run on, one per OS
+    /// thread (so that their calls never interleave on one stack)
+    foreign: std.AutoHashMapUnmanaged(std.Thread.Id, *Thread) = .empty,
+    /// the error of a callback, raised when the C call returns
+    pending: ?SlangError = null,
+};
+
 /// The state shared by all threads: globals, the package registry, the heap
 /// and the standard streams.
 pub const VM = struct {
@@ -82,6 +102,7 @@ pub const VM = struct {
 
     /// The pending error after a function returned error.Slang.
     err: ?SlangError = null,
+    ffi: FfiState = .{},
     next_thread_id: u32 = 0,
     /// SLANG_TRACE: print every instruction to stderr.
     trace: bool = false,
@@ -132,6 +153,9 @@ pub const VM = struct {
         vm.ref_free.deinit(vm.gpa);
         vm.libraries.deinit(vm.gpa);
         if (vm.err) |*e| e.deinit(vm.gpa);
+        if (vm.ffi.pending) |*e| e.deinit(vm.gpa);
+        vm.ffi.calls.deinit(vm.gpa);
+        vm.ffi.foreign.deinit(vm.gpa);
         vm.backing.free(vm.stdout_buf);
         vm.backing.free(vm.stdin_buf);
         vm.backing.destroy(vm);

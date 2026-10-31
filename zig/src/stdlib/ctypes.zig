@@ -85,7 +85,16 @@ var d_ptr = desc(@sizeOf(usize), T_POINTER);
 
 // ------------------------------------------------------------ types
 
-pub const Kind = enum { void, bool, i8, u8, i16, u16, i32, u32, i64, u64, f32, f64, pointer, string, @"struct", array };
+pub const Kind = enum { void, bool, i8, u8, i16, u16, i32, u32, i64, u64, f32, f64, pointer, string, @"struct", array, function };
+
+/// The signature of a function pointer type: what C passes a callback and
+/// what it expects back.
+pub const Signature = struct { ret: *Type, args: []*Type };
+
+/// Makes a slang function callable from C as a function pointer of type t
+/// (a callback; set by slang/ffi_core, which has libffi). The address lives
+/// as long as the program; the same function and type give the same one.
+pub var make_callback: ?*const fn (th: *Thread, f: Value, t: *Type) Error!usize = null;
 
 /// default: the value of a field a table leaves out (0 otherwise)
 pub const Field = struct { name: []const u8, offset: usize, ty: *Type, default: ?Value = null };
@@ -105,6 +114,8 @@ pub const Type = struct {
     complete: bool = true,
     /// char: an int8 whose arrays are strings
     char: bool = false,
+    /// a function pointer's signature
+    sig: ?*Signature = null,
 
     pub fn isScalar(t: *const Type) bool {
         return switch (t.kind) {
@@ -146,6 +157,7 @@ pub fn module(vm: *VM) *Table {
     const m = stdlib.makeModule(vm, &.{
         .{ .name = "primitive", .f = ctPrimitive },
         .{ .name = "pointer", .f = ctPointer },
+        .{ .name = "function", .f = ctFunction },
         .{ .name = "array", .f = ctArray },
         .{ .name = "struct", .f = ctStruct },
         .{ .name = "define", .f = ctDefine },
@@ -313,6 +325,28 @@ fn ctPointer(th: *Thread, args: []Value) Error!Value {
     var t = scalar(.pointer, "void *", @sizeOf(usize), &d_ptr);
     t.elem = target;
     if (target) |tt| t.name = std.fmt.allocPrint(vm.gpa, "{s} *", .{tt.name}) catch oom();
+    return typeValue(vm, newType(vm, t));
+}
+
+/// function(ret, {args...}) -> the type of a pointer to a C function with
+/// that signature: a slang function given for it becomes a callback
+fn ctFunction(th: *Thread, args: []Value) Error!Value {
+    const vm = th.vm;
+    const ret = try argType(th, args, 0, "ret");
+    const list = try api.argTable(th, args, 1, "args");
+    const n = list.arrayLen();
+    const types = vm.gpa.alloc(*Type, n) catch oom();
+    for (0..n) |i| {
+        const a = asType(list.getInt(@intCast(i))) orelse return vm.raise("ffi: argument {d} of a function type has no type", .{i});
+        if (!a.complete or a.kind == .void or a.kind == .array) return vm.raise("ffi: a callback cannot take a {s}", .{a.name});
+        types[i] = a;
+    }
+    if (!ret.complete or ret.kind == .array) return vm.raise("ffi: a callback cannot return a {s}", .{ret.name});
+    const sig = vm.gpa.create(Signature) catch oom();
+    sig.* = .{ .ret = ret, .args = types };
+    var t = scalar(.function, "function", @sizeOf(usize), &d_ptr);
+    t.sig = sig;
+    t.name = std.fmt.allocPrint(vm.gpa, "{s} (*)()", .{ret.name}) catch oom();
     return typeValue(vm, newType(vm, t));
 }
 
@@ -928,6 +962,24 @@ pub const Conv = struct {
             .pointer, .string => store(usize, dst, try c.address(v, t, writeback)),
             .@"struct" => try c.structToC(v, t, dst),
             .array => try c.arrayToC(v, t, dst),
+            .function => store(usize, dst, try c.function(v, t)),
+        }
+    }
+
+    /// a function pointer: null, a pointer (to a C function), or a slang
+    /// function, which becomes a callback
+    fn function(c: *Conv, v: Value, t: *Type) Error!usize {
+        switch (v) {
+            .null => return 0,
+            .function => {
+                const make = make_callback orelse return c.th.vm.raise("{s} (this slang has no libffi: a slang function cannot be a C callback)", .{c.what});
+                return make(c.th, v, t);
+            },
+            .userdata => |u| {
+                if (u.kind == .pointer) return u.as(Ptr).addr;
+                return c.fail(t, v);
+            },
+            else => return c.fail(t, v),
         }
     }
 
@@ -1062,6 +1114,7 @@ pub fn fromC(vm: *VM, t: *Type, src: [*]const u8, owner: Value) Value {
         .f32 => .{ .float = load(f32, src) },
         .f64 => .{ .float = load(f64, src) },
         .pointer => newPointer(vm, load(usize, src), t.elem, owner),
+        .function => newPointer(vm, load(usize, src), null, owner),
         .string => blk: {
             const a = load(usize, src);
             if (a == 0) break :blk .null;

@@ -167,6 +167,10 @@ pub fn collect(vm: *VM) void {
     m.markObject(&vm.main.obj);
     // a pending error's raised value
     if (vm.err) |e| m.markValue(e.value);
+    if (vm.ffi.pending) |e| m.markValue(e.value);
+    var foreign = vm.ffi.foreign.valueIterator();
+    while (foreign.next()) |t| m.markObject(&t.*.obj);
+    for (vm.ffi.calls.items) |c| m.markObject(&c.th.obj);
     m.drain();
 
     sweep(vm);

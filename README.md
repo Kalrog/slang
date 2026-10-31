@@ -92,8 +92,12 @@ index C memory like C (`p[i]`, `p.field`, assignment), `ffi.new` allocates
 memory the collector frees once nothing points into it, and variadic
 functions get C's promotions. Enum values and `#define` constants (numbers,
 strings, compound literals) are `C.constants`. A wrong declaration crashes
-as it would in C. Callbacks, unions, bit fields and `long double` are not
-supported yet. `packages/raylib` binds all of raylib this way,
+as it would in C. A slang function given for a function pointer is a C
+callback (libffi closures): C may call it from any thread, and slang still
+runs on one thread at a time, because every C call lets callbacks in while
+it runs (a lock, like Python's); an error in a callback is raised when the
+C call returns. Unions, bit fields and `long double` are not supported
+yet. `packages/raylib` binds all of raylib this way,
 `packages/box2d` Box2D (2D physics) and `packages/jolt` Jolt Physics (3D,
 through joltc, which the package ships built per platform: the library
 need not be installed).

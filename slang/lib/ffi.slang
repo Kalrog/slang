@@ -23,11 +23,21 @@
 // like C (p[i], p.field) and assign; ffi.new allocates memory the collector
 // frees.
 //
+// Callbacks: a slang function given for a function pointer (a parameter,
+// or a struct field) is a C function C can call, as long as the program
+// runs (the same function gives the same one; there may be 1000 of them);
+// [callback] makes one that is freed with its pointer, for functions made
+// again and again. C may call it
+// from any thread: slang still runs on one thread at a time (a C call lets
+// a callback in while it runs). An error in a callback cannot unwind
+// through C: C gets a zero result and the error is raised when the C call
+// returns. A callback cannot yield.
+//
 // A wrong declaration crashes the program as it would in C: the FFI calls
-// what it is told is there. Callbacks (C calling slang), unions, bit fields
-// and long double are not supported yet. Builds made without libffi
-// (-Dffi=false) have types and memory but no calls: [load] raises there,
-// and [available] says which it is.
+// what it is told is there. Unions, bit fields and long double are not
+// supported yet. Builds made without libffi (-Dffi=false) have types and
+// memory but no calls: [load] raises there, and [available] says which it
+// is.
 
 // A C type: made by [type] from a name ("int", "Vector2 *", "float[4]"),
 // and given to [new], [sizeof], [cast] and slang/buffer. Types live as long
@@ -1405,6 +1415,7 @@ local func prim(name){
 // the ffi_core type of a parsed C type, or an error naming why it cannot
 // cross
 local core_of = null
+local function_core = null
 core_of = func(t, decls){
   if(t.core != null){
     return t.core
@@ -1419,7 +1430,9 @@ core_of = func(t, decls){
     local to = t.to
     if(to.kind == "prim" and to.char and t.const_to){
       c = prim("string")
-    } else if(to.kind == "void" or to.kind == "func" or to.kind == "opaque"){
+    } else if(to.kind == "func"){
+      c = function_core(to, decls)
+    } else if(to.kind == "void" or to.kind == "opaque"){
       c = ct.pointer(null)
     } else if(to.kind == "struct" and to.unsupported != null){
       c = ct.pointer(null)
@@ -1446,10 +1459,29 @@ core_of = func(t, decls){
   } else if(k == "opaque"){
     error(t.why)
   } else if(k == "func"){
-    c = ct.pointer(null)
+    c = function_core(t, decls)
   }
   t.core = c
   return c
+}
+
+// a function pointer type: slang functions given for it are callbacks; a
+// signature that cannot cross (variadic, a union) is a plain pointer
+function_core = func(t, decls){
+  if(t.variadic){
+    return ct.pointer(null)
+  }
+  local r = pcall(func(){
+    local args = {}
+    for(let local p in values(t.params)){
+      append(args, core_of(p.type, decls))
+    }
+    return ct["function"](core_of(t.ret, decls), args)
+  })
+  if(r[0] == "err"){
+    return ct.pointer(null)
+  }
+  return r[1]
 }
 
 // ------------------------------------------------------------ types by name
@@ -1463,11 +1495,16 @@ func ffi.type(name, decls){
     types: {}, functions: {}, constants: {}, structs: {}, order: {}
   }
   decls.field_name = decls.field_name or func(n){ return n }
-  // parsed as the declaration of a typedef: int[4] is int __probe[4]
+  // parsed as the declaration of a typedef: int[4] is int __probe[4],
+  // int (*)(int) is int (*__probe)(int)
   local head = name
   local tail = ""
   local bracket = str.index_of(name, "[")
-  if(bracket >= 0){
+  local star = str.index_of(name, "(*)")
+  if(star >= 0){
+    head = str.substring(name, 0, star + 2)
+    tail = str.substring(name, star + 2)
+  } else if(bracket >= 0){
     head = str.substring(name, 0, bracket)
     tail = str.substring(name, bracket)
   }
@@ -1636,7 +1673,8 @@ local func bind(lib, f, decls, name){
     local t = p.type
     append(
       writeback,
-      t.kind == "ptr" and not t.const_to and t.to.kind != "void",
+      t.kind == "ptr" and not t.const_to and t.to.kind != "void" and
+        t.to.kind != "func",
     )
   }
   local r = pcall(core_of, f.ret, decls)
@@ -1682,6 +1720,21 @@ func ffi.load(name, decls, options){
 func ffi.bind(lib, f, name){
   need_core()
   return bind(lib, f, lib.decls, name)
+}
+
+// callback(t: string | Type, f: function, decls?: Decls) -> Pointer
+// A C function that calls f, of the function pointer type t (a typedef
+// such as "b2FrictionCallback", or "int (*)(int, int)"), for C to keep:
+// it lives while the pointer does, and is freed once nothing refers to the
+// pointer. A slang function given to C directly lives as long as the
+// program instead.
+//
+//   local cmp = ffi.callback("int (*)(const void *, const void *)", func(a, b){
+//     return ffi.cast(a, "int")[0] - ffi.cast(b, "int")[0]
+//   })
+func ffi.callback(t, f, decls){
+  need_core()
+  return core.callback(as_type(t, decls), f)
 }
 
 // available() -> bool

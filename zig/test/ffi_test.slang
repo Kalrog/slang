@@ -49,6 +49,18 @@ local header = str.join({
   "const void *ft_null(void);",
   "int ft_missing(void);",
   "static inline int ft_inline(int x) { return x * (2 + 1); }",
+  "/* callbacks */",
+  "typedef int (*IntFn)(int);",
+  "int ft_apply(IntFn f, int x);",
+  "uint8_t ft_apply_u8(uint8_t (*f)(uint8_t), uint8_t x);",
+  "int8_t ft_apply_i8(int8_t (*f)(int8_t), int8_t x);",
+  "double ft_apply_f64(double (*f)(double, float), double x);",
+  "Vec2 ft_map_vec(Vec2 (*f)(Vec2, const char *), Vec2 v);",
+  "const char *ft_name_of(const char *(*f)(int), int i);",
+  "typedef struct { IntFn on_value; int base; } Handler;",
+  "void ft_set_handler(Handler h);",
+  "int ft_fire(int x);",
+  "int ft_threads(IntFn f, int n);",
 }, "\n")
 
 local C = ffi.cdef(header)
@@ -246,5 +258,112 @@ t.group("ffi: memory"){
     local r = pcall(func(){ nodes[0].next = {value: 1} })
     assert(r[0] == "err")
     assert(str.index_of(r[1].message, "use ffi.new") >= 0, r[1].message)
+  }
+}
+
+t.group("ffi: callbacks"){
+  t.test("a slang function is a C function pointer"){
+    assert(lib.ft_apply(func(x){ return x * 2 }, 21) == 42)
+    // small integers widen and narrow as C's do
+    assert(lib.ft_apply_u8(func(x){ return x + 1 }, 255) == 0)
+    assert(lib.ft_apply_i8(func(x){ return -x }, 5) == -5)
+    assert(lib.ft_apply_f64(func(x, half){ return x * half }, 3.0) == 1.5)
+  }
+  t.test("structs and strings in, a struct out"){
+    local seen = null
+    local v = lib.ft_map_vec(func(v, why){
+      seen = why
+      return {v.x * 2, v.y * 2}
+    }, {1, 2})
+    assert(v.x == 2 and v.y == 4 and seen == "scaled")
+    // a string cannot be returned: C would keep a pointer into slang
+    local r = pcall(lib.ft_name_of, func(i){ return "x" }, 1)
+    assert(r[0] == "err")
+    assert(str.index_of(r[1].message, "bad result of a callback") >= 0, r[1].message)
+  }
+  t.test("a callback kept by C, in a struct, is called later"){
+    local total = 0
+    lib.ft_set_handler({on_value: func(x){
+      total = total + x
+      return x * 10
+    }, base: 100})
+    assert(lib.ft_fire(1) == 1010 and lib.ft_fire(2) == 1020)
+    assert(total == 203)
+    lib.ft_set_handler({on_value: null, base: 0})
+    assert(lib.ft_fire(1) == -1)
+  }
+  t.test("ffi.callback: an explicit one, by type name or C spelling"){
+    local double = ffi.callback("IntFn", func(x){ return x * 2 }, C)
+    assert(lib.ft_apply(double, 4) == 8)
+    local triple = ffi.callback("int (*)(int)", func(x){ return x * 3 })
+    assert(lib.ft_apply(triple, 4) == 12)
+    assert(lib.ft_fire != null)
+  }
+  t.test("a callback can call C again"){
+    local inner = func(x){ return x + 1 }
+    assert(lib.ft_apply(func(x){ return lib.ft_apply(inner, x) * 2 }, 4) == 10)
+  }
+  t.test("an error in a callback is raised when the C call returns"){
+    local r = pcall(lib.ft_apply, func(x){ error("bad ", x) }, 7)
+    assert(r[0] == "err" and r[1].message == "bad 7", r[1].message)
+    // an error in a nested callback goes up through the outer one
+    r = pcall(lib.ft_apply, func(x){
+      return lib.ft_apply(func(y){ error("inner") }, x)
+    }, 1)
+    assert(r[0] == "err" and r[1].message == "inner")
+    // a callback can catch it
+    assert(lib.ft_apply(func(x){
+      try {
+        lib.ft_apply(func(y){ error("caught") }, x)
+      } catch(e){
+        return 99
+      }
+    }, 1) == 99)
+    // a later call works
+    assert(lib.ft_apply(func(x){ return x }, 3) == 3)
+  }
+  t.test("callbacks from other threads run one at a time"){
+    local calls = 0
+    local busy = false
+    local overlapped = false
+    local sum = lib.ft_threads(func(i){
+      if(busy){
+        overlapped = true
+      }
+      busy = true
+      calls = calls + 1
+      local s = 0
+      for(local k = 0; k < 50; k = k + 1){
+        s = s + k
+      }
+      busy = false
+      return i * 2
+    }, 8)
+    assert(sum == 56, sum)
+    assert(calls == 800, calls)
+    assert(not overlapped)
+  }
+  t.test("callbacks on other threads that call C themselves"){
+    // a C call inside lets the other threads' callbacks in: each thread's
+    // calls stay on a stack of their own
+    local inner = func(x){ return x + 1 }
+    local sum = lib.ft_threads(func(i){
+      local r = lib.ft_apply(inner, i * 2)
+      local t = {i, r, lib.ft_apply(inner, r)}
+      return t[2] - 2
+    }, 8)
+    assert(sum == 56, sum)
+  }
+  // last: it uses up the program's callbacks
+  t.test("a function made anew on each pass is caught, not leaked"){
+    local r = null
+    for(local i = 0; i < 1100; i = i + 1){
+      r = pcall(lib.ft_apply, func(x){ return x }, i)
+      if(r[0] == "err"){
+        break
+      }
+    }
+    assert(r[0] == "err")
+    assert(str.index_of(r[1].message, "ffi.callback") >= 0, r[1].message)
   }
 }

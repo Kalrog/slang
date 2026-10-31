@@ -2,7 +2,7 @@
   "name": "slang-lang",
   "displayName": "slang",
   "description": "Highlighting, diagnostics, navigation and formatting for slang, from the slang language server",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "slang",
   "license": "MIT",
   "engines": { "vscode": "^1.85.0" },

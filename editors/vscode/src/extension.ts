@@ -440,8 +440,18 @@ class DebugAdapterFactory implements vscode.DebugAdapterDescriptorFactory {
 }
 
 function startDebugging(context: vscode.ExtensionContext): void {
+  // VS Code refuses when it does not (yet) know the extension declares the
+  // debugger: an update installed without reloading the window still runs
+  // with the old manifest. The rest of the extension works on regardless.
+  try {
+    context.subscriptions.push(
+      vscode.debug.registerDebugAdapterDescriptorFactory("slang", new DebugAdapterFactory())
+    );
+  } catch (e) {
+    vscode.window.showWarningMessage(`slang: debugging is not available until the window is reloaded (${e})`);
+    return;
+  }
   context.subscriptions.push(
-    vscode.debug.registerDebugAdapterDescriptorFactory("slang", new DebugAdapterFactory()),
     vscode.debug.registerDebugConfigurationProvider("slang", {
       // F5 without a launch.json: the current file
       resolveDebugConfiguration(_folder, config) {

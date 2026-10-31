@@ -29,6 +29,8 @@ ul.toc { columns: 2; padding-left: 1.2rem; }
 @media (max-width: 40rem) { ul.toc { columns: 1; } }
 dt { margin-top: 0.75rem; }
 dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
 </style>
 </head>
 <body>
@@ -36,7 +38,18 @@ dd { margin-left: 1rem; color: var(--muted); }
 <h1>slang/format</h1>
 <p>slang/format: the formatter (<code>slang fmt</code>).</p>
 <p>Formatting works on the lossless tree of a file (see slang/peg), not on its AST: extension syntax is expanded while parsing, so only the tree still shows what was written. The layout comes from marks in the format layer, set on the parsers of the grammar (format.gaps, format.indent, ...): they say what goes between two tokens, what is a group that is laid out on one line or broken, what is indented. A document printer in the style of Wadler's &quot;prettier printer&quot; then fits the result into 80 columns.</p>
-<p>Syntax that extensions add is formatted when the extension marks its parsers like the core does (format.gaps, format.indent, ...). Unmarked, it keeps its own line structure (verbatim mode): its gaps are what the source has, re-indented to where the syntax now sits. Core syntax inside it (an expression, a block) is formatted either way.</p>
+<p>Syntax that extensions add is formatted when the extension marks its parsers like the core does. Unmarked, it keeps its own line structure (verbatim mode): its gaps are what the source has, re-indented to where the syntax now sits. Core syntax inside it (an expression, a block) is formatted either way. A switch statement, as extensions/switch marks it:</p>
+<pre><code>local fmt = require(&quot;slang/format&quot;)
+peg.seq(
+  fmt.gaps(g:keyword(&quot;switch&quot;), null, &quot;none&quot;),
+  fmt.gaps(g:token(&quot;(&quot;), &quot;none&quot;, &quot;none&quot;),
+  g:rule(&quot;expr&quot;),
+  fmt.gaps(g:token(&quot;)&quot;), &quot;none&quot;, &quot;none&quot;),
+  g:token(&quot;{&quot;),
+  fmt.indent(case_block.parser():star(), &quot;hardline&quot;),
+  fmt.gaps(g:token(&quot;}&quot;), &quot;hardline&quot;),
+)</code></pre>
+<p>The marks are listed under <a href="#type-Marks"><code>Marks</code></a>. Syntax that marks cannot describe gets a layout function of its own (<a href="#layout"><code>layout</code></a>, &quot;extension layouts&quot;).</p>
 <p>format.source checks its own result before returning it: the output has the same tokens as the input (but for dropped <code>;</code> and trailing commas), the same AST, and the same comments in the same order.</p>
 <ul class="toc">
 <li><a href="#layer"><code>layer</code></a></li>
@@ -52,54 +65,80 @@ dd { margin-left: 1rem; color: var(--muted); }
 <li><a href="#role"><code>role</code></a></li>
 <li><a href="#uses_marks"><code>uses_marks</code></a></li>
 <li><a href="#extension"><code>extension</code></a></li>
+<li><a href="#owner_at"><code>owner_at</code></a></li>
 <li><a href="#doc"><code>doc</code></a></li>
 <li><a href="#print"><code>print</code></a></li>
 <li><a href="#source"><code>source</code></a></li>
 <li><a href="#main"><code>main</code></a></li>
+<li><a href="#type-Marks"><code>type Marks</code></a></li>
+<li><a href="#type-Doc"><code>type Doc</code></a></li>
+<li><a href="#type-LayoutApi"><code>type LayoutApi</code></a></li>
+<li><a href="#LayoutApi:text"><code>LayoutApi:text</code></a></li>
+<li><a href="#LayoutApi:role"><code>LayoutApi:role</code></a></li>
+<li><a href="#LayoutApi:parts"><code>LayoutApi:parts</code></a></li>
+<li><a href="#LayoutApi:format"><code>LayoutApi:format</code></a></li>
+<li><a href="#type-FormatOptions"><code>type FormatOptions</code></a></li>
 </ul>
 <h2>the layer</h2>
 <div class="def" id="layer"><h3><code>format.layer</code></h3>
-<p class="muted">No description.</p>
+<p>The peg layer the marks live in (a &quot;text&quot; layer: see slang/peg).</p>
+
 </div>
-<div class="def" id="mark"><h3><code>format.mark(parser, data)</code></h3>
-<p>mark(parser, data) -&gt; parser with the format marks data</p>
+<div class="def" id="mark"><h3><code>format.mark(parser: table, data: <a href="#type-Marks">Marks</a>) -> table</code></h3>
+<p>The other mark functions are shorthands for this one.</p>
+<dl class="params"><dt>returns</dt><dd>parser with the marks data</dd></dl>
 </div>
-<div class="def" id="gaps"><h3><code>format.gaps(parser, before, after)</code></h3>
-<p>gaps(parser, before, after) -&gt; parser with the gaps around it (null: unmarked)</p>
+<div class="def" id="gaps"><h3><code>format.gaps(parser: table, before?: string, after?: string) -> table</code></h3>
+<p>parser with the gaps around it; null leaves a side unmarked.</p>
+
 </div>
-<div class="def" id="group"><h3><code>format.group(parser)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="group"><h3><code>format.group(parser: table) -> table</code></h3>
+<p>parser as a group: on one line if it fits, else broken.</p>
+
 </div>
-<div class="def" id="indent"><h3><code>format.indent(parser, before, after)</code></h3>
-<p>indent(parser, before, after): indented, with the gaps around it</p>
+<div class="def" id="indent"><h3><code>format.indent(parser: table, before?: string, after?: string) -> table</code></h3>
+<p>parser indented (its breaks and the gap before it), with the gaps around it.</p>
+
 </div>
-<div class="def" id="drop"><h3><code>format.drop(parser)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="drop"><h3><code>format.drop(parser: table) -> table</code></h3>
+<p>parser whose tokens the formatter leaves out (an optional <code>;</code>).</p>
+
 </div>
-<div class="def" id="trailing_comma"><h3><code>format.trailing_comma(parser)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="trailing_comma"><h3><code>format.trailing_comma(parser: table) -> table</code></h3>
+<p>parser (an optional <code>,</code> at the end of a list) as a comma written only when its group breaks.</p>
+
 </div>
-<div class="def" id="verbatim"><h3><code>format.verbatim(parser)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="verbatim"><h3><code>format.verbatim(parser: table) -> table</code></h3>
+<p>parser whose gaps stay as the source has them, re-indented.</p>
+
 </div>
-<div class="def" id="formatted"><h3><code>format.formatted(parser)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="formatted"><h3><code>format.formatted(parser: table) -> table</code></h3>
+<p>parser whose gaps are formatted again inside verbatim syntax.</p>
+
 </div>
-<div class="def" id="layout"><h3><code>format.layout(parser, fn)</code></h3>
-<p>layout(parser, fn) -&gt; parser whose nodes fn(api, node) lays out; the result is a document (see format.doc and &quot;extension layouts&quot; below)</p>
+<div class="def" id="layout"><h3><code>format.layout(parser: table, fn: func(api: <a href="#type-LayoutApi">LayoutApi</a>, node: table): <a href="#type-Doc">Doc</a>) -> table</code></h3>
+<p>parser whose nodes fn lays out: it returns their document (see <a href="#doc"><code>doc</code></a> and &quot;extension layouts&quot; below).</p>
+
 </div>
-<div class="def" id="role"><h3><code>format.role(parser, name)</code></h3>
-<p>role(parser, name) -&gt; parser whose nodes a layout function finds as name</p>
+<div class="def" id="role"><h3><code>format.role(parser: table, name: string) -> table</code></h3>
+<p>parser whose nodes a layout function finds as name (<a href="#LayoutApi:role"><code>LayoutApi.role</code></a>).</p>
+
 </div>
-<div class="def" id="uses_marks"><h3><code>format.uses_marks(parser)</code></h3>
-<p>whether parser (or a parser inside it) carries layout marks; rule references and parts already marked formatted or verbatim are not looked into (they have a layout of their own)</p>
+<div class="def" id="uses_marks"><h3><code>format.uses_marks(parser: table) -> bool</code></h3>
+<p>Whether parser (or a parser inside it) carries format marks. Rule references and parts already marked formatted or verbatim are not looked into (they have a layout of their own).</p>
+
 </div>
-<div class="def" id="extension"><h3><code>format.extension(parser)</code></h3>
-<p>extension(parser) -&gt; the parser an extension registered, formatted when it uses marks, else verbatim (what the grammar applies to the syntax an extension adds)</p>
+<div class="def" id="extension"><h3><code>format.extension(parser: table, owner: string) -> table</code></h3>
+<p>The parser an extension registered, marked formatted when it uses marks, else verbatim: what the grammar applies to the syntax an extension adds.</p>
+<dl class="params"><dt><code>owner</code></dt><dd>the extension's name, kept in the mark (see <a href="#owner_at"><code>owner_at</code></a>)</dd></dl>
+</div>
+<div class="def" id="owner_at"><h3><code>format.owner_at(tree: table, pos: int) -> string?</code></h3>
+<p>The name of the extension whose syntax the lossless tree has at pos, or null for core syntax. Down from the root, an extension's mark names its owner; a formatted mark without one is core syntax again (what the extension was given, or an expression inside it).</p>
+
 </div>
 <h2>documents</h2>
 <div class="def" id="doc"><h3><code>format.doc</code></h3>
-<p>the documents an extension's layout function builds with: strings and lists of documents, and</p>
+<p>What an extension's layout function builds its <a href="#type-Doc"><code>Doc</code></a> with, besides strings and lists of documents:</p>
 <pre><code>line, softline, hardline   a space / nothing / a break when the group
                            around them is flat, a break when it breaks
 group(doc)                 on one line if it fits, else broken
@@ -107,18 +146,53 @@ indent(doc)                its breaks indented one more level
 fill(parts)                content, separator, content, ...: as many
                            contents on a line as fit (the separators
                            are lines)</code></pre>
+<p>For example, a list on one line or one item per line:</p>
+<pre><code>local d = format.doc
+d.group({&quot;[&quot;, d.indent({d.softline, a, &quot;,&quot;, d.line, b}), d.softline, &quot;]&quot;})</code></pre>
+
 </div>
-<div class="def" id="print"><h3><code>format.print(doc, width)</code></h3>
-<p>print(doc, width) -&gt; text</p>
+<div class="def" id="print"><h3><code>format.print(doc: <a href="#type-Doc">Doc</a>, width?: int) -> string</code></h3>
+<p>Lays a document out in width columns (80 by default), two spaces per indentation level.</p>
+
 </div>
 <h2>formatting</h2>
-<div class="def" id="source"><h3><code>format.source(text, path, options)</code></h3>
-<p>source(text, path, {find_project, width, check}) -&gt; the formatted text, or null for a file of a compile dialect. Raises when the file does not parse, or when the result fails its checks (check: false skips them).</p>
+<div class="def" id="source"><h3><code>format.source(text: string, path: string, options?: <a href="#type-FormatOptions">FormatOptions</a>) -> string?</code></h3>
+<p>The formatted text, or null for a file of a compile dialect. Raises when the file does not parse, when formatting does not settle, or when the result fails its checks (same tokens, same meaning, same comments). A slang.project is formatted as the table literal it is.</p>
+<pre><code>local out = format.source(os.read_file(path), path, {find_project: true})</code></pre>
+
 </div>
 <h2>slang fmt</h2>
-<div class="def" id="main"><h3><code>format.main(arguments)</code></h3>
-<p>main(args) -&gt; exit code: <code>slang fmt [--check] [--stdout] paths...</code></p>
+<div class="def" id="main"><h3><code>format.main(arguments: {string}) -> int</code></h3>
+<p><code>slang fmt [--check] [--stdout] paths...</code>: formats .slang files and slang.project files, directories searched. --check lists the files that would change, --stdout prints the results; otherwise files are rewritten.</p>
+<dl class="params"><dt>returns</dt><dd>the exit code</dd></dl>
 </div>
+<h2 id="type-Marks">type Marks</h2>
+<pre><code>type Marks = {before?: string, after?: string, blank?: bool, group?: bool, indent?: bool, hug?: bool, huggable?: bool | string, fill?: bool, hard_body?: bool, drop?: bool, trailing_comma?: bool, verbatim?: bool, formatted?: bool, owner?: string, break_before?: bool, style?: string, layout?: func(api: <a href="#type-LayoutApi">LayoutApi</a>, node: table): <a href="#type-Doc">Doc</a>, role?: string}</code></pre>
+<p>The format marks of a parser, merged per node (a parser marked twice has both). A gap is &quot;none&quot;, &quot;space&quot;, &quot;line&quot; (a space or a break), &quot;softline&quot; (nothing or a break), &quot;hardline&quot; or &quot;brace&quot; (nothing before a <code>{</code>, a space before anything else); an unmarked gap is a space if the source had whitespace there, else nothing.</p>
+<dl class="params"><dt><code>before?: string</code></dt><dd>the gap before the node's first token</dd><dt><code>after?: string</code></dt><dd>the gap after its last token</dd><dt><code>blank?: bool</code></dt><dd>a hardline before the node may keep one blank line</dd><dt><code>group?: bool</code></dt><dd>the node is laid out on one line if it fits, else broken</dd><dt><code>indent?: bool</code></dt><dd>breaks in the node, and the gap before it, are indented</dd><dt><code>hug?: bool</code></dt><dd>when a part inside must break, the group's own breaks stay flat</dd><dt><code>huggable?: bool | string</code></dt><dd>a group a hugging layout may break: true, &quot;call&quot; or &quot;body&quot;</dd><dt><code>fill?: bool</code></dt><dd>a separated list: as many elements on a line as fit</dd><dt><code>hard_body?: bool</code></dt><dd>a block that breaks even with one statement (a catch's)</dd><dt><code>drop?: bool</code></dt><dd>the node's tokens are left out (a <code>;</code>)</dd><dt><code>trailing_comma?: bool</code></dt><dd>the node is a <code>,</code> when its group breaks, else nothing</dd><dt><code>verbatim?: bool</code></dt><dd>gaps in the node are the source's (extension syntax)</dd><dt><code>formatted?: bool</code></dt><dd>gaps in the node are formatted again</dd><dt><code>owner?: string</code></dt><dd>the extension whose syntax the node is (see <a href="#owner_at"><code>owner_at</code></a>)</dd><dt><code>break_before?: bool</code></dt><dd>an infix operator's chain breaks before it, not after</dd><dt><code>style?: string</code></dt><dd>an infix operator's chain: &quot;lines&quot;, on one line or one per line</dd><dt><code>layout?: func(api: <a href="#type-LayoutApi">LayoutApi</a>, node: table): <a href="#type-Doc">Doc</a></code></dt><dd>the node is laid out by an extension's own function</dd><dt><code>role?: string</code></dt><dd>a name the layout function finds parts by (<a href="#LayoutApi:parts"><code>LayoutApi.parts</code></a>)</dd></dl>
+<h2 id="type-Doc">type Doc</h2>
+<pre><code>type Doc = string | {<a href="#type-Doc">Doc</a>} | table</code></pre>
+<p>What the printer lays out: a string, a list of documents (concatenated) or a table made by <a href="#doc"><code>doc</code></a>'s functions.</p>
+<h2 id="type-LayoutApi">type LayoutApi</h2>
+<p>What a layout function is given to look into its node (a node of the lossless tree) with.</p>
+<div class="def" id="LayoutApi:text"><h3><code>LayoutApi:text(n: table) -> string</code></h3>
+<dl class="params"><dt>returns</dt><dd>the source text of a node</dd></dl>
+</div>
+<div class="def" id="LayoutApi:role"><h3><code>LayoutApi:role(n: table) -> string?</code></h3>
+<dl class="params"><dt>returns</dt><dd>the role mark of a node's parser (<a href="#role"><code>role</code></a>)</dd></dl>
+</div>
+<div class="def" id="LayoutApi:parts"><h3><code>LayoutApi:parts(n: table) -> {table}</code></h3>
+<p>The nodes inside n that have a role or a layout of their own, in order; what is inside those is not looked into.</p>
+
+</div>
+<div class="def" id="LayoutApi:format"><h3><code>LayoutApi:format(n: table) -> <a href="#type-Doc">Doc</a></code></h3>
+<p>The document of n laid out by the formatter: slang code inside the syntax, or a nested node with a layout of its own.</p>
+
+</div>
+<h2 id="type-FormatOptions">type FormatOptions</h2>
+<pre><code>type FormatOptions = {find_project?: bool, width?: int, check?: bool}</code></pre>
+<p>What <a href="#source"><code>source</code></a> takes.</p>
+<dl class="params"><dt><code>find_project?: bool</code></dt><dd>look up the file's project (see compiler.highlight)</dd><dt><code>width?: int</code></dt><dd>the columns to fit in; 80 by default</dd><dt><code>check?: bool</code></dt><dd>false skips the checks of the result</dd></dl>
 <p class="muted">slang/compiler/format.slang</p>
 </body>
 </html>

@@ -29,6 +29,8 @@ ul.toc { columns: 2; padding-left: 1.2rem; }
 @media (max-width: 40rem) { ul.toc { columns: 1; } }
 dt { margin-top: 0.75rem; }
 dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
 </style>
 </head>
 <body>
@@ -45,51 +47,83 @@ local out = s:take()   // bytes to send to the server</code></pre>
 <li><a href="#context"><code>context</code></a></li>
 <li><a href="#self_signed"><code>self_signed</code></a></li>
 <li><a href="#version"><code>version</code></a></li>
-<li><a href="#tls.context:session"><code>tls.context:session</code></a></li>
-<li><a href="#tls.session:feed"><code>tls.session:feed</code></a></li>
-<li><a href="#tls.session:handshake"><code>tls.session:handshake</code></a></li>
-<li><a href="#tls.session:read"><code>tls.session:read</code></a></li>
-<li><a href="#tls.session:write"><code>tls.session:write</code></a></li>
-<li><a href="#tls.session:take"><code>tls.session:take</code></a></li>
-<li><a href="#tls.session:close"><code>tls.session:close</code></a></li>
-<li><a href="#tls.session:info"><code>tls.session:info</code></a></li>
+<li><a href="#type-ContextOptions"><code>type ContextOptions</code></a></li>
+<li><a href="#type-Info"><code>type Info</code></a></li>
+<li><a href="#type-Certificate"><code>type Certificate</code></a></li>
+<li><a href="#type-Context"><code>type Context</code></a></li>
+<li><a href="#Context:session"><code>Context:session</code></a></li>
+<li><a href="#type-Session"><code>type Session</code></a></li>
+<li><a href="#Session:feed"><code>Session:feed</code></a></li>
+<li><a href="#Session:handshake"><code>Session:handshake</code></a></li>
+<li><a href="#Session:read"><code>Session:read</code></a></li>
+<li><a href="#Session:write"><code>Session:write</code></a></li>
+<li><a href="#Session:take"><code>Session:take</code></a></li>
+<li><a href="#Session:close"><code>Session:close</code></a></li>
+<li><a href="#Session:info"><code>Session:info</code></a></li>
 </ul>
 <h2>contexts</h2>
-<div class="def" id="context"><h3><code>m.context(options)</code></h3>
-<p>context([options]) -&gt; a tls.context. options: server: a server context (false by default); cert, key: PEM text of the certificate chain (leaf first) and its private key, needed by a server; ca: PEM text of the certificates to trust instead of the system's; verify: check the peer's certificate; true by default for a client (which needs it valid for the host name), a server with verify asks for a client certificate; alpn: a list of protocol names, by preference; min_version: &quot;1.2&quot; (the default) or &quot;1.3&quot;.</p>
+<div class="def" id="context"><h3><code>tls.context(options?: <a href="#type-ContextOptions">ContextOptions</a>) -> <a href="#type-Context">Context</a></code></h3>
+<p>A context; raises &quot;tls: ...&quot; for a certificate or key it cannot load.</p>
+
 </div>
 <h2>certificates</h2>
-<div class="def" id="self_signed"><h3><code>m.self_signed(names, days)</code></h3>
-<p>self_signed(names, [days]) -&gt; {cert, key} as PEM text: a certificate for local development, valid for days (365), with an EC P-256 key. names are host names or IP addresses; the first is the subject.</p>
+<div class="def" id="self_signed"><h3><code>tls.self_signed(names: {string}, days?: int) -> <a href="#type-Certificate">Certificate</a></code></h3>
+<p>A certificate for local development, valid for days (365), with an EC P-256 key.</p>
+<pre><code>local c = tls.self_signed({&quot;localhost&quot;, &quot;127.0.0.1&quot;})
+local ctx = tls.context({server: true, cert: c.cert, key: c.key})</code></pre>
+<dl class="params"><dt><code>names</code></dt><dd>host names or IP addresses; the first is the subject</dd></dl>
 </div>
-<div class="def" id="version"><h3><code>m.version()</code></h3>
-<p>version() -&gt; the OpenSSL version text</p>
+<div class="def" id="version"><h3><code>tls.version() -> string</code></h3>
+<p>The OpenSSL version text.</p>
+
 </div>
-<h2>type tls.context</h2>
-<div class="def" id="tls.context:session"><h3><code>tls.context:session(hostname)</code></h3>
-<p>ctx:session([hostname]) -&gt; a tls.session: a client for hostname (a host name or an IP address; needed when the context verifies), or a server for a server context</p>
+<h2 id="type-ContextOptions">type ContextOptions</h2>
+<pre><code>type ContextOptions = {server?: bool, cert?: string, key?: string, ca?: string, verify?: bool, alpn?: {string}, min_version?: string}</code></pre>
+<p>The options of <a href="#context"><code>context</code></a>. A verifying client needs the server's certificate valid for the host name; a verifying server asks the client for a certificate.</p>
+<dl class="params"><dt><code>server?: bool</code></dt><dd>a server context (false by default)</dd><dt><code>cert?: string</code></dt><dd>PEM text of the certificate chain, leaf first; needed by a server</dd><dt><code>key?: string</code></dt><dd>PEM text of the certificate's private key; needed by a server</dd><dt><code>ca?: string</code></dt><dd>PEM text of the certificates to trust instead of the system's</dd><dt><code>verify?: bool</code></dt><dd>check the peer's certificate (a client does by default)</dd><dt><code>alpn?: {string}</code></dt><dd>protocol names to offer or accept, by preference</dd><dt><code>min_version?: string</code></dt><dd>&quot;1.2&quot; (the default) or &quot;1.3&quot;</dd></dl>
+<h2 id="type-Info">type Info</h2>
+<pre><code>type Info = {version: string, cipher?: string, alpn?: string, peer?: string, server_name?: string}</code></pre>
+<p>What <a href="#Session:info"><code>Session.info</code></a> tells about a session.</p>
+<dl class="params"><dt><code>version: string</code></dt><dd>the protocol version (&quot;TLSv1.3&quot;)</dd><dt><code>cipher?: string</code></dt><dd></dd><dt><code>alpn?: string</code></dt><dd>the protocol chosen with ALPN</dd><dt><code>peer?: string</code></dt><dd>the subject of the peer's certificate</dd><dt><code>server_name?: string</code></dt><dd>the host name the client asked for</dd></dl>
+<h2 id="type-Certificate">type Certificate</h2>
+<pre><code>type Certificate = {cert: string, key: string}</code></pre>
+<p>A certificate and its key as PEM text, from <a href="#self_signed"><code>self_signed</code></a>.</p>
+<dl class="params"><dt><code>cert: string</code></dt><dd></dd><dt><code>key: string</code></dt><dd></dd></dl>
+<h2 id="type-Context">type Context</h2>
+<p>Settings shared by many sessions: certificates, trust, ALPN.</p>
+<div class="def" id="Context:session"><h3><code>Context:session(hostname?: string) -> <a href="#type-Session">Session</a></code></h3>
+<p>A client session for hostname (a host name or an IP address; needed when the context verifies), or a server session for a server context.</p>
+
 </div>
-<h2>type tls.session</h2>
-<div class="def" id="tls.session:feed"><h3><code>tls.session:feed(bytes)</code></h3>
-<p>session:feed(bytes) hands the session bytes that arrived from the network</p>
+<h2 id="type-Session">type Session</h2>
+<p>One TLS connection's state machine: bytes from the network go in with <a href="#Session:feed"><code>Session.feed</code></a>, bytes for the network come out of <a href="#Session:take"><code>Session.take</code></a>.</p>
+<div class="def" id="Session:feed"><h3><code>Session:feed(bytes: string)</code></h3>
+<p>Hands the session bytes that arrived from the network.</p>
+
 </div>
-<div class="def" id="tls.session:handshake"><h3><code>tls.session:handshake()</code></h3>
-<p>session:handshake() -&gt; true when the handshake is done, false while it waits for the peer; raises when it fails (a certificate that does not verify, for one)</p>
+<div class="def" id="Session:handshake"><h3><code>Session:handshake() -> bool</code></h3>
+<p>Advances the handshake: true when it is done, false while it waits for the peer; raises when it fails (a certificate that does not verify, for one).</p>
+
 </div>
-<div class="def" id="tls.session:read"><h3><code>tls.session:read()</code></h3>
-<p>session:read() -&gt; the plaintext decrypted so far (&quot;&quot; for none), or null once the peer closed the session (close_notify)</p>
+<div class="def" id="Session:read"><h3><code>Session:read() -> string?</code></h3>
+<p>The plaintext decrypted so far (&quot;&quot; for none), or null once the peer closed the session (close_notify).</p>
+
 </div>
-<div class="def" id="tls.session:write"><h3><code>tls.session:write(plaintext)</code></h3>
-<p>session:write(plaintext) encrypts plaintext for take(); only after the handshake</p>
+<div class="def" id="Session:write"><h3><code>Session:write(plaintext: string)</code></h3>
+<p>Encrypts plaintext for <a href="#Session:take"><code>Session.take</code></a>; only after the handshake.</p>
+
 </div>
-<div class="def" id="tls.session:take"><h3><code>tls.session:take()</code></h3>
-<p>session:take() -&gt; the bytes to send to the network (&quot;&quot; for none); call it after every other method, which may all produce some</p>
+<div class="def" id="Session:take"><h3><code>Session:take() -> string</code></h3>
+<p>The bytes to send to the network (&quot;&quot; for none); call it after every other method, which may all produce some.</p>
+
 </div>
-<div class="def" id="tls.session:close"><h3><code>tls.session:close()</code></h3>
-<p>session:close() queues a close_notify for take(), when the handshake got that far</p>
+<div class="def" id="Session:close"><h3><code>Session:close()</code></h3>
+<p>Queues a close_notify for <a href="#Session:take"><code>Session.take</code></a>, when the handshake got that far.</p>
+
 </div>
-<div class="def" id="tls.session:info"><h3><code>tls.session:info()</code></h3>
-<p>session:info() -&gt; {version, cipher, alpn, peer, server_name}: the protocol version, the cipher, the protocol chosen with ALPN, the subject of the peer's certificate and the host name the client asked for (the last three only when known)</p>
+<div class="def" id="Session:info"><h3><code>Session:info() -> <a href="#type-Info">Info</a></code></h3>
+<p>What was negotiated so far; fields that are not known yet are null.</p>
+
 </div>
 <p class="muted">slang/stubs/tls.slang</p>
 </body>

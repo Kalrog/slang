@@ -29,12 +29,18 @@ ul.toc { columns: 2; padding-left: 1.2rem; }
 @media (max-width: 40rem) { ul.toc { columns: 1; } }
 dt { margin-top: 0.75rem; }
 dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
 </style>
 </head>
 <body>
 <nav><a href="index.html">index</a></nav>
 <h1>slang/table</h1>
-<p>slang/table: table helpers.</p>
+<p>slang/table: small helpers over tables: membership, map, filter, fold.</p>
+<pre><code>local tbl = require(&quot;slang/table&quot;)
+local squares = tbl.map({1, 2, 3}, func(x){ return x * x })   // {1, 4, 9}
+tbl.contains(squares, 4)                                      // true</code></pre>
+<p>The functions go over every entry of a table in the order of <code>keys</code> (list indices first, then the other keys) and keep keys as they are: <a href="#map"><code>map</code></a> and <a href="#filter"><code>filter</code></a> build tables with the same keys, so filtering a list can leave gaps in its indices.</p>
 <ul class="toc">
 <li><a href="#contains"><code>contains</code></a></li>
 <li><a href="#map"><code>map</code></a></li>
@@ -43,23 +49,31 @@ dd { margin-left: 1rem; color: var(--muted); }
 <li><a href="#dequeue"><code>dequeue</code></a></li>
 <li><a href="#keys"><code>keys</code></a></li>
 </ul>
-<div class="def" id="contains"><h3><code>m.contains(t, value)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="contains"><h3><code>table.contains(t: table, value) -> bool</code></h3>
+<p>Whether some value of t equals value (==).</p>
+
 </div>
-<div class="def" id="map"><h3><code>m.map(t, f)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="map"><h3><code>table.map(t: table, f: func(v: any): any) -> table</code></h3>
+<p>A new table with f(v) for each value v of t, under the same key.</p>
+
 </div>
-<div class="def" id="filter"><h3><code>m.filter(t, f)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="filter"><h3><code>table.filter(t: table, f: func(v: any): any) -> table</code></h3>
+<p>A new table with the entries of t whose value f accepts (returns neither null nor false), under the same keys.</p>
+<pre><code>tbl.filter({a: 1, b: 2}, func(v){ return v &gt; 1 })   // {b: 2}</code></pre>
+
 </div>
-<div class="def" id="fold"><h3><code>m.fold(t, init, f)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="fold"><h3><code>table.fold(t: table, init, f: func(acc: any, v: any): any) -> any</code></h3>
+<p>Combines the values of t into one, from init: acc = f(acc, v) for each value in order, then returns acc.</p>
+<pre><code>tbl.fold({1, 2, 3}, 0, func(a, v){ return a + v })   // 6</code></pre>
+
 </div>
-<div class="def" id="dequeue"><h3><code>m.dequeue(t)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="dequeue"><h3><code>table.dequeue(t: table) -> any</code></h3>
+<p>Removes and returns the first element of the list t (null when it is empty); the later elements shift down.</p>
+
 </div>
-<div class="def" id="keys"><h3><code>m.keys(t)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="keys"><h3><code>table.keys(t: table) -> {any}</code></h3>
+<p>The keys of t as a list, in the order of the global <code>keys</code>.</p>
+
 </div>
 <p class="muted">slang/lib/table.slang</p>
 </body>

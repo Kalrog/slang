@@ -29,12 +29,21 @@ ul.toc { columns: 2; padding-left: 1.2rem; }
 @media (max-width: 40rem) { ul.toc { columns: 1; } }
 dt { margin-top: 0.75rem; }
 dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
 </style>
 </head>
 <body>
 <nav><a href="index.html">index</a></nav>
 <h1>slang/ctypes</h1>
-<p>slang/ctypes: C types and C memory, in every build: the native part of slang/ffi and slang/buffer, which most code uses instead. Types are ffi.type values and live as long as the program. Memory is a pointer (ffi.pointer: an address, indexed like C) or a buffer (an address with a length, checked; see slang/buffer).</p>
+<p>slang/ctypes: C types and C memory, in every build: the native part of slang/ffi and slang/buffer, which most code uses instead (they take the names of C types where this module takes type values).</p>
+<pre><code>local ct = __PACKAGES.preloaded[&quot;slang/ctypes&quot;][1]
+local v2 = ct.struct(&quot;Vector2&quot;)
+ct.define(v2, {{&quot;x&quot;, ct.primitive(&quot;float&quot;)}, {&quot;y&quot;, ct.primitive(&quot;float&quot;)}})
+local p = ct.new(v2)
+p.x = 3
+ct.value(p)                            // {x: 3.0, y: 0.0}</code></pre>
+<p>Types live as long as the program. Memory is a <a href="#type-Pointer"><code>Pointer</code></a> (an address, indexed like C, unchecked) or a <a href="#type-Buffer"><code>Buffer</code></a> (an address with a length, checked; see slang/buffer). Values convert to C as slang/ffi describes: numbers and bools for arithmetic types, a string for const char *, a table for a struct (fields by name or position).</p>
 <ul class="toc">
 <li><a href="#primitive"><code>primitive</code></a></li>
 <li><a href="#pointer"><code>pointer</code></a></li>
@@ -54,61 +63,88 @@ dd { margin-left: 1rem; color: var(--muted); }
 <li><a href="#buffer_from"><code>buffer_from</code></a></li>
 <li><a href="#wrap"><code>wrap</code></a></li>
 <li><a href="#is_buffer"><code>is_buffer</code></a></li>
+<li><a href="#type-Type"><code>type Type</code></a></li>
+<li><a href="#type-Pointer"><code>type Pointer</code></a></li>
+<li><a href="#type-Buffer"><code>type Buffer</code></a></li>
 </ul>
-<div class="def" id="primitive"><h3><code>m.primitive(name)</code></h3>
-<p>primitive(name) -&gt; a type: void, bool, char (an int8 whose arrays are strings), int8..int64, uint8..uint64, float, double, pointer (void *) or string (const char *)</p>
+<div class="def" id="primitive"><h3><code>ctypes.primitive(name: string) -> <a href="#type-Type">Type</a></code></h3>
+<p>A scalar type: void, bool, char (an int8 whose arrays are strings), int8..int64, uint8..uint64, float, double, pointer (void *) or string (const char *); raises for another name.</p>
+
 </div>
-<div class="def" id="pointer"><h3><code>m.pointer(target)</code></h3>
-<p>pointer(target) -&gt; the type of a pointer to target (null: void *)</p>
+<div class="def" id="pointer"><h3><code>ctypes.pointer(target?: <a href="#type-Type">Type</a>) -> <a href="#type-Type">Type</a></code></h3>
+<p>The type of a pointer to target (null: void *).</p>
+
 </div>
-<div class="def" id="array"><h3><code>m.array(elem, n)</code></h3>
-<p>array(elem, n) -&gt; the type of n elems in a row (a struct field)</p>
+<div class="def" id="array"><h3><code>ctypes.array(elem: <a href="#type-Type">Type</a>, n: int) -> <a href="#type-Type">Type</a></code></h3>
+<p>The type of n elems in a row (a struct field).</p>
+
 </div>
-<div class="def" id="struct"><h3><code>m.struct(name)</code></h3>
-<p>struct(name) -&gt; a struct type, opaque until define gives its fields</p>
+<div class="def" id="struct"><h3><code>ctypes.struct(name: string) -> <a href="#type-Type">Type</a></code></h3>
+<p>A struct type, opaque (without a size) until <a href="#define"><code>define</code></a> gives its fields.</p>
+
 </div>
-<div class="def" id="define"><h3><code>m.define(struct_type, fields)</code></h3>
-<p>define(struct_type, {{name, type, [default]}, ...}): the fields, laid out by C's rules; default is used when a table leaves the field out</p>
+<div class="def" id="define"><h3><code>ctypes.define(struct_type: <a href="#type-Type">Type</a>, fields: {{any}})</code></h3>
+<p>Gives a struct its fields, laid out by C's rules.</p>
+<dl class="params"><dt><code>fields</code></dt><dd>{name, type, [default]} per field; default fills a field left out</dd></dl>
 </div>
-<div class="def" id="sizeof"><h3><code>m.sizeof(type)</code></h3>
-<p>sizeof(type) -&gt; its size in bytes</p>
+<div class="def" id="sizeof"><h3><code>ctypes.sizeof(type: <a href="#type-Type">Type</a>) -> int</code></h3>
+<p>Its size in bytes.</p>
+
 </div>
-<div class="def" id="offsetof"><h3><code>m.offsetof(type, field)</code></h3>
-<p>offsetof(type, field) -&gt; the offset of a struct field</p>
+<div class="def" id="offsetof"><h3><code>ctypes.offsetof(type: <a href="#type-Type">Type</a>, field: string) -> int</code></h3>
+<p>The offset of a struct field in bytes.</p>
+
 </div>
-<div class="def" id="type_name"><h3><code>m.type_name(type)</code></h3>
-<p>type_name(type) -&gt; its name in messages (&quot;Vector2 *&quot;)</p>
+<div class="def" id="type_name"><h3><code>ctypes.type_name(type: <a href="#type-Type">Type</a>) -> string</code></h3>
+<p>Its name as messages show it (&quot;Vector2 *&quot;).</p>
+
 </div>
-<div class="def" id="new"><h3><code>m.new(type, n)</code></h3>
-<p>new(type, [n]) -&gt; a pointer to n zeroed values the collector frees</p>
+<div class="def" id="new"><h3><code>ctypes.new(type: <a href="#type-Type">Type</a>, n?: int) -> <a href="#type-Pointer">Pointer</a></code></h3>
+<p>A pointer to n (1 by default) zeroed values the collector frees once nothing points into them.</p>
+
 </div>
-<div class="def" id="cast"><h3><code>m.cast(pointer, type)</code></h3>
-<p>cast(pointer, type) -&gt; the address as a pointer to type (an int is an address)</p>
+<div class="def" id="cast"><h3><code>ctypes.cast(pointer: <a href="#type-Pointer">Pointer</a> | int, type?: <a href="#type-Type">Type</a>) -> <a href="#type-Pointer">Pointer</a></code></h3>
+<p>The same address as a pointer to type (null: void *); an int is taken as an address.</p>
+
 </div>
-<div class="def" id="offset"><h3><code>m.offset(pointer, n)</code></h3>
-<p>offset(pointer, n) -&gt; the pointer n elements further</p>
+<div class="def" id="offset"><h3><code>ctypes.offset(pointer: <a href="#type-Pointer">Pointer</a>, n: int) -> <a href="#type-Pointer">Pointer</a></code></h3>
+<p>The pointer n elements further (bytes for a void pointer).</p>
+
 </div>
-<div class="def" id="address"><h3><code>m.address(pointer)</code></h3>
-<p>address(pointer) -&gt; the address as an int</p>
+<div class="def" id="address"><h3><code>ctypes.address(pointer: <a href="#type-Pointer">Pointer</a>?) -> int</code></h3>
+<p>The address as an int (0 for null).</p>
+
 </div>
-<div class="def" id="string"><h3><code>m.string(pointer, len)</code></h3>
-<p>string(pointer, [len]) -&gt; the C string at pointer, or len bytes</p>
+<div class="def" id="string"><h3><code>ctypes.string(pointer: <a href="#type-Pointer">Pointer</a>?, len?: int) -> string?</code></h3>
+<p>The zero-terminated C string at pointer, or len bytes; null for null.</p>
+
 </div>
-<div class="def" id="value"><h3><code>m.value(pointer)</code></h3>
-<p>value(pointer) -&gt; the value pointed to, copied (a struct as a table)</p>
+<div class="def" id="value"><h3><code>ctypes.value(pointer: <a href="#type-Pointer">Pointer</a>) -> any</code></h3>
+<p>The value pointed to, copied (a struct as a table); raises for a void pointer.</p>
+
 </div>
-<div class="def" id="buffer"><h3><code>m.buffer(type, n)</code></h3>
-<p>buffer(type, n) -&gt; a buffer of n zeroed elements</p>
+<div class="def" id="buffer"><h3><code>ctypes.buffer(type: <a href="#type-Type">Type</a>, n: int) -> <a href="#type-Buffer">Buffer</a></code></h3>
+<p>A buffer of n zeroed elements.</p>
+
 </div>
-<div class="def" id="buffer_from"><h3><code>m.buffer_from(type, src)</code></h3>
-<p>buffer_from(type, list or string) -&gt; a buffer of the list's elements, or of the string's bytes</p>
+<div class="def" id="buffer_from"><h3><code>ctypes.buffer_from(type: <a href="#type-Type">Type</a>, src: {any} | string) -> <a href="#type-Buffer">Buffer</a></code></h3>
+<p>A buffer of the list's elements, or of the string's bytes (a whole number of elements).</p>
+
 </div>
-<div class="def" id="wrap"><h3><code>m.wrap(pointer, n, type)</code></h3>
-<p>wrap(pointer, n, [type]) -&gt; a buffer over n elements of C's memory</p>
+<div class="def" id="wrap"><h3><code>ctypes.wrap(pointer: <a href="#type-Pointer">Pointer</a>, n: int, type?: <a href="#type-Type">Type</a>) -> <a href="#type-Buffer">Buffer</a></code></h3>
+<p>A buffer over n elements of C's memory at pointer, without a copy: of the pointer's type, or of type (needed for a void pointer).</p>
+
 </div>
-<div class="def" id="is_buffer"><h3><code>m.is_buffer(v)</code></h3>
-<p>is_buffer(v) -&gt; whether v is a buffer</p>
+<div class="def" id="is_buffer"><h3><code>ctypes.is_buffer(v) -> bool</code></h3>
+<p>Whether v is a buffer.</p>
+
 </div>
+<h2 id="type-Type">type Type</h2>
+<p>A C type: a scalar, a pointer, an array or a struct.</p>
+<h2 id="type-Pointer">type Pointer</h2>
+<p>An address and the type it points to (none for void *). p[i] and p.field read and write like C; an element or field that is a struct is a pointer again. Pointers are == when their addresses are.</p>
+<h2 id="type-Buffer">type Buffer</h2>
+<p>An address, an element type and a length; indexes are checked. Its methods are slang/buffer's.</p>
 <p class="muted">slang/stubs/slang/ctypes.slang</p>
 </body>
 </html>

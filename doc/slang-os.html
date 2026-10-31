@@ -29,20 +29,31 @@ ul.toc { columns: 2; padding-left: 1.2rem; }
 @media (max-width: 40rem) { ul.toc { columns: 1; } }
 dt { margin-top: 0.75rem; }
 dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
 </style>
 </head>
 <body>
 <nav><a href="index.html">index</a></nav>
 <h1>slang/os</h1>
-<p>slang/os: files, the process and its environment, built into the VM. Relative paths are relative to the current directory.</p>
+<p>slang/os: files, the process and its environment, built into the VM. Everything here blocks; slang/async has non-blocking files and processes.</p>
+<pre><code>local os = require(&quot;slang/os&quot;)
+if(not os.exists(&quot;out&quot;)){ os.mkdir_all(&quot;out&quot;) }
+os.write_file(&quot;out/hello.txt&quot;, concat(&quot;from &quot;, os.cwd(), &quot;\n&quot;))
+local r = os.exec({&quot;ls&quot;, &quot;out&quot;})
+print(r.stdout)</code></pre>
+<p>Relative paths are relative to the current directory. In a program built by <code>slang build</code>, a relative path that names a bundled file or directory reads from the bundle first (<a href="#exists"><code>exists</code></a>, <a href="#is_dir"><code>is_dir</code></a>, <a href="#read_file"><code>read_file</code></a>, <a href="#list_dir"><code>list_dir</code></a>; see slang/bundle); writes always go to the disk, so a program that writes a bundled path still reads the bundled file there.</p>
 <ul class="toc">
 <li><a href="#exists"><code>exists</code></a></li>
 <li><a href="#is_dir"><code>is_dir</code></a></li>
 <li><a href="#read_file"><code>read_file</code></a></li>
 <li><a href="#write_file"><code>write_file</code></a></li>
 <li><a href="#list_dir"><code>list_dir</code></a></li>
+<li><a href="#rename"><code>rename</code></a></li>
+<li><a href="#copy_file"><code>copy_file</code></a></li>
 <li><a href="#mkdir_all"><code>mkdir_all</code></a></li>
 <li><a href="#cwd"><code>cwd</code></a></li>
+<li><a href="#executable"><code>executable</code></a></li>
 <li><a href="#getenv"><code>getenv</code></a></li>
 <li><a href="#write_stderr"><code>write_stderr</code></a></li>
 <li><a href="#exit"><code>exit</code></a></li>
@@ -50,53 +61,84 @@ dd { margin-left: 1rem; color: var(--muted); }
 <li><a href="#time_ms"><code>time_ms</code></a></li>
 <li><a href="#exec"><code>exec</code></a></li>
 <li><a href="#platform"><code>platform</code></a></li>
+<li><a href="#type-ExecResult"><code>type ExecResult</code></a></li>
 </ul>
 <h2>files</h2>
-<div class="def" id="exists"><h3><code>m.exists(path)</code></h3>
-<p>exists(path) -&gt; whether a file or directory exists at path</p>
+<div class="def" id="exists"><h3><code>os.exists(path: string) -> bool</code></h3>
+<p>Whether a file or directory exists at path.</p>
+
 </div>
-<div class="def" id="is_dir"><h3><code>m.is_dir(path)</code></h3>
-<p>is_dir(path) -&gt; whether path is a directory</p>
+<div class="def" id="is_dir"><h3><code>os.is_dir(path: string) -> bool</code></h3>
+<p>Whether path is a directory.</p>
+
 </div>
-<div class="def" id="read_file"><h3><code>m.read_file(path)</code></h3>
-<p>read_file(path) -&gt; the whole content of the file as a string. Raises an error when it cannot be read.</p>
+<div class="def" id="read_file"><h3><code>os.read_file(path: string) -> string</code></h3>
+<p>The whole content of the file. Raises an error when it cannot be read.</p>
+
 </div>
-<div class="def" id="write_file"><h3><code>m.write_file(path, content)</code></h3>
-<p>write_file(path, content): writes the string content to the file, replacing what was there. Raises an error when it cannot be written.</p>
+<div class="def" id="write_file"><h3><code>os.write_file(path: string, content: string)</code></h3>
+<p>Writes content to the file, replacing what was there. Raises an error when it cannot be written.</p>
+
 </div>
-<div class="def" id="list_dir"><h3><code>m.list_dir(path)</code></h3>
-<p>list_dir(path) -&gt; the sorted list of the names of the entries of the directory. Raises an error when it cannot be listed.</p>
+<div class="def" id="list_dir"><h3><code>os.list_dir(path: string) -> {string}</code></h3>
+<p>The sorted names of the entries of the directory. Raises an error when it cannot be listed.</p>
+
 </div>
-<div class="def" id="mkdir_all"><h3><code>m.mkdir_all(path)</code></h3>
-<p>mkdir_all(path): creates the directory and any missing parents. Raises an error when it cannot.</p>
+<div class="def" id="rename"><h3><code>os.rename(from: string, to: string)</code></h3>
+<p>Moves a file or directory, replacing to. Raises an error when it cannot.</p>
+
+</div>
+<div class="def" id="copy_file"><h3><code>os.copy_file(from: string, to: string)</code></h3>
+<p>Copies a file with its permissions, replacing to (whose directory must exist). Raises an error when it cannot.</p>
+
+</div>
+<div class="def" id="mkdir_all"><h3><code>os.mkdir_all(path: string)</code></h3>
+<p>Creates the directory and any missing parents. Raises an error when it cannot.</p>
+
 </div>
 <h2>process</h2>
-<div class="def" id="cwd"><h3><code>m.cwd()</code></h3>
-<p>cwd() -&gt; the current directory</p>
+<div class="def" id="cwd"><h3><code>os.cwd() -> string</code></h3>
+<p>The current directory.</p>
+
 </div>
-<div class="def" id="getenv"><h3><code>m.getenv(name)</code></h3>
-<p>getenv(name) -&gt; the value of the environment variable, or null</p>
+<div class="def" id="executable"><h3><code>os.executable() -> string</code></h3>
+<p>The path of the running executable.</p>
+
 </div>
-<div class="def" id="write_stderr"><h3><code>m.write_stderr(text)</code></h3>
-<p>write_stderr(text): writes text to standard error, after flushing standard output</p>
+<div class="def" id="getenv"><h3><code>os.getenv(name: string) -> string?</code></h3>
+<p>The value of the environment variable, or null when it is not set.</p>
+
 </div>
-<div class="def" id="exit"><h3><code>m.exit(code)</code></h3>
-<p>exit([code]): flushes standard output and ends the process with code (0 by default)</p>
+<div class="def" id="write_stderr"><h3><code>os.write_stderr(text: string)</code></h3>
+<p>Writes text to standard error, after flushing standard output.</p>
+
+</div>
+<div class="def" id="exit"><h3><code>os.exit(code?: int)</code></h3>
+<p>Flushes standard output and ends the process with code (0 by default).</p>
+
 </div>
 <h2>clocks</h2>
-<div class="def" id="clock"><h3><code>m.clock()</code></h3>
-<p>clock() -&gt; seconds since the program started, as a double (monotonic)</p>
+<div class="def" id="clock"><h3><code>os.clock() -> float</code></h3>
+<p>Seconds since the program started, from a monotonic clock: for measuring.</p>
+
 </div>
-<div class="def" id="time_ms"><h3><code>m.time_ms()</code></h3>
-<p>time_ms() -&gt; milliseconds since the Unix epoch, as an int</p>
+<div class="def" id="time_ms"><h3><code>os.time_ms() -> int</code></h3>
+<p>Milliseconds since the Unix epoch.</p>
+
 </div>
 <h2>programs</h2>
-<div class="def" id="exec"><h3><code>m.exec(argv, cwd)</code></h3>
-<p>exec(argv, [cwd]) -&gt; {status, stdout, stderr}: runs a program (argv[0], looked up on the PATH) in cwd and waits for it; status is its exit code, -1 when a signal ended it. Raises when it cannot be started. Blocking, for tools; slang/async's exec does not block.</p>
+<div class="def" id="exec"><h3><code>os.exec(argv: {string}, cwd?: string) -> <a href="#type-ExecResult">ExecResult</a></code></h3>
+<p>Runs a program (argv[0], looked up on the PATH) in cwd (the current directory by default) and waits for it. Raises when it cannot be started. Blocking, for tools; slang/async's exec does not block.</p>
+
 </div>
-<div class="def" id="platform"><h3><code>m.platform()</code></h3>
-<p>platform() -&gt; &quot;&lt;os&gt;-&lt;arch&gt;&quot; of the running slang, as Zig names them (&quot;macos-aarch64&quot;, &quot;linux-x86_64&quot;): where packages keep their prebuilt native modules (lib/&lt;platform&gt;/)</p>
+<div class="def" id="platform"><h3><code>os.platform() -> string</code></h3>
+<p>&quot;&lt;os&gt;-&lt;arch&gt;&quot; of the running slang, as Zig names them (&quot;macos-aarch64&quot;, &quot;linux-x86_64&quot;): where packages keep their prebuilt native modules (lib/&lt;platform&gt;/).</p>
+
 </div>
+<h2 id="type-ExecResult">type ExecResult</h2>
+<pre><code>type ExecResult = {status: int, stdout: string, stderr: string}</code></pre>
+<p>What <a href="#exec"><code>exec</code></a> gives back.</p>
+<dl class="params"><dt><code>status: int</code></dt><dd>the exit code, -1 when a signal ended the program</dd><dt><code>stdout: string</code></dt><dd>all it wrote to standard output</dd><dt><code>stderr: string</code></dt><dd>all it wrote to standard error</dd></dl>
 <p class="muted">slang/stubs/slang/os.slang</p>
 </body>
 </html>

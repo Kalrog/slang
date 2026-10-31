@@ -29,24 +29,21 @@ ul.toc { columns: 2; padding-left: 1.2rem; }
 @media (max-width: 40rem) { ul.toc { columns: 1; } }
 dt { margin-top: 0.75rem; }
 dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
 </style>
 </head>
 <body>
 <nav><a href="index.html">index</a></nav>
 <h1>slang/html</h1>
-<p>slang/html: HTML nodes that render to a string; the runtime behind the JSX-like templates of extensions/html, and usable on its own.</p>
-<pre><code>html.element(tag, attrs, children) -&gt; node    &lt;tag attrs&gt;children&lt;/tag&gt;
-html.fragment(children) -&gt; node               children without a tag
-html.raw(s) -&gt; node                           s inserted as it is
-html.value(v) -&gt; what {v} in a template inserts: a string escaped, a
-                 number printed, a node or a list kept (lists element
-                 by element), null and booleans nothing (&quot;&quot;: a null
-                 would end the list of children it sits in)
-html.escape(s) -&gt; s with &amp; &lt; &gt; &quot; ' escaped
-html.render(v) -&gt; the string of v; string(node) renders too
-html.write(out, v)   appends the pieces of v to the list out
-html.doctype         the &lt;!DOCTYPE html&gt; node</code></pre>
-<p>The children of element and fragment, and any list with html.list as its meta, are trusted: their strings are markup (the extension escapes literal text when it compiles it, and wraps every {expr} in value), and value passes such a list through, so children handed to a component are not escaped twice. Attribute values are escaped when rendered, null and false omit the attribute, true writes it bare. Void elements (br, img, ...) have no end tag.</p>
+<p>slang/html: HTML nodes that render to a string. It is the runtime behind the JSX-like templates of extensions/html and works on its own.</p>
+<pre><code>local html = require(&quot;slang/html&quot;)
+local page = html.element(&quot;ul&quot;, {class: &quot;names&quot;}, {
+  html.element(&quot;li&quot;, null, {html.value(&quot;Tom &amp; Jerry&quot;)}),
+})
+html.render(page)   // &lt;ul class=&quot;names&quot;&gt;&lt;li&gt;Tom &amp;amp; Jerry&lt;/li&gt;&lt;/ul&gt;</code></pre>
+<p>Trust: the children of <a href="#element"><code>element</code></a> and <a href="#fragment"><code>fragment</code></a>, and any list whose metatable is <a href="#list"><code>list</code></a>, are trusted, so their strings are markup and are written as they are. Pass untrusted text through <a href="#value"><code>value</code></a> (or <a href="#escape"><code>escape</code></a>) first; the extension does that for every {expr} in a template and escapes literal text when it compiles it. <a href="#value"><code>value</code></a> passes trusted lists through, so children handed on to a component are not escaped twice.</p>
+<p>Attributes: values are escaped when rendered; null and false leave the attribute out, true writes it bare (&lt;input disabled&gt;). Void elements (br, img, input, meta, ...) get no end tag.</p>
 <ul class="toc">
 <li><a href="#escape"><code>escape</code></a></li>
 <li><a href="#list"><code>list</code></a></li>
@@ -58,37 +55,56 @@ html.doctype         the &lt;!DOCTYPE html&gt; node</code></pre>
 <li><a href="#value"><code>value</code></a></li>
 <li><a href="#write"><code>write</code></a></li>
 <li><a href="#render"><code>render</code></a></li>
+<li><a href="#type-Node"><code>type Node</code></a></li>
+<li><a href="#type-Content"><code>type Content</code></a></li>
 </ul>
-<div class="def" id="escape"><h3><code>html.escape(s)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="escape"><h3><code>html.escape(s: string) -> string</code></h3>
+<p>s with &amp; &lt; &gt; &quot; and ' replaced by their character references; s itself when there is nothing to replace.</p>
+
 </div>
 <div class="def" id="list"><h3><code>html.list</code></h3>
-<p>the meta of a trusted list of children</p>
+<p>The metatable that marks a list of children as trusted markup; type() of such a list is &quot;HtmlList&quot;.</p>
+
 </div>
-<div class="def" id="element"><h3><code>html.element(tag, attrs, children)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="element"><h3><code>html.element(tag: string, attrs?: {[string]: any}, children?: {<a href="#type-Content">Content</a>}) -> <a href="#type-Node">Node</a></code></h3>
+<p>The element &lt;tag attrs&gt;children&lt;/tag&gt;. children becomes trusted: its metatable is set to <a href="#list"><code>list</code></a>.</p>
+
 </div>
-<div class="def" id="fragment"><h3><code>html.fragment(children)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="fragment"><h3><code>html.fragment(children?: {<a href="#type-Content">Content</a>}) -> <a href="#type-Node">Node</a></code></h3>
+<p>The children without an enclosing tag. children becomes trusted, as for <a href="#element"><code>element</code></a>.</p>
+
 </div>
-<div class="def" id="raw"><h3><code>html.raw(s)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="raw"><h3><code>html.raw(s: string) -> <a href="#type-Node">Node</a></code></h3>
+<p>A node that writes s as it is, unescaped.</p>
+
 </div>
 <div class="def" id="doctype"><h3><code>html.doctype</code></h3>
-<p class="muted">No description.</p>
+<p>The &lt;!DOCTYPE html&gt; node, to put before &lt;html&gt;.</p>
+
 </div>
-<div class="def" id="is_node"><h3><code>html.is_node(v)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="is_node"><h3><code>html.is_node(v) -> bool</code></h3>
+<p>Whether v is a <a href="#type-Node"><code>Node</code></a>.</p>
+
 </div>
-<div class="def" id="value"><h3><code>html.value(v)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="value"><h3><code>html.value(v) -> <a href="#type-Content">Content</a></code></h3>
+<p>What {v} in a template inserts: a string escaped, a number printed, a <a href="#type-Node"><code>Node</code></a> or trusted list kept, a plain list converted element by element into a trusted list, null and booleans &quot;&quot; (not null, which would end the list of children it sits in). Anything else is rendered with string() and escaped.</p>
+
 </div>
-<div class="def" id="write"><h3><code>html.write(out, v)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="write"><h3><code>html.write(out: {string}, v: <a href="#type-Content">Content</a>)</code></h3>
+<p>Appends the pieces of the markup of v to the list out; <a href="#render"><code>render</code></a> joins them. Writing into one list avoids building strings for every node.</p>
+
 </div>
-<div class="def" id="render"><h3><code>html.render(v)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="render"><h3><code>html.render(v: <a href="#type-Content">Content</a>) -> string</code></h3>
+<p>The markup of v.</p>
+
 </div>
+<h2 id="type-Node">type Node</h2>
+<pre><code>type Node = {tag?: string, attrs?: {[string]: any}, children?: {<a href="#type-Content">Content</a>}, raw?: string}</code></pre>
+<p>A node; type() of it is &quot;Html&quot;, and string(node) renders it.</p>
+<dl class="params"><dt><code>tag?: string</code></dt><dd>the element's name; null for a fragment or raw markup</dd><dt><code>attrs?: {[string]: any}</code></dt><dd>the attributes by name</dd><dt><code>children?: {<a href="#type-Content">Content</a>}</code></dt><dd>trusted content, marked with <a href="#list"><code>list</code></a></dd><dt><code>raw?: string</code></dt><dd>markup written as it is</dd></dl>
+<h2 id="type-Content">type Content</h2>
+<pre><code>type Content = string | int | float | <a href="#type-Node">Node</a> | {<a href="#type-Content">Content</a>}</code></pre>
+<p>What can be rendered: markup strings, numbers, nodes and lists of these. null and booleans write nothing.</p>
 <p class="muted">slang/lib/html.slang</p>
 </body>
 </html>

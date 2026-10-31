@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>slang/bundle</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>slang/bundle</h1>
+<p>slang/bundle: the files of a program built by <code>slang build</code>, built into the VM.</p>
+<pre><code>local bundle = require(&quot;slang/bundle&quot;)
+if(bundle.active()){
+  for(let local path in values(bundle.files())){
+    print(path, &quot; &quot;, bundle.stat(path).size, &quot;\n&quot;)
+  }
+}</code></pre>
+<p>Paths are relative and '/'-separated, as they were in the project. slang/os already reads bundled files transparently (read_file, exists, is_dir, list_dir) and slang/web serves them (app:static); this module tells what os cannot: whether a file is bundled, how it is stored and its stat at build time. Outside a built program, <a href="#active"><code>active</code></a> is false and the rest find nothing.</p>
+<ul class="toc">
+<li><a href="#active"><code>active</code></a></li>
+<li><a href="#exists"><code>exists</code></a></li>
+<li><a href="#is_dir"><code>is_dir</code></a></li>
+<li><a href="#read"><code>read</code></a></li>
+<li><a href="#read_raw"><code>read_raw</code></a></li>
+<li><a href="#stat"><code>stat</code></a></li>
+<li><a href="#list"><code>list</code></a></li>
+<li><a href="#files"><code>files</code></a></li>
+<li><a href="#module"><code>module</code></a></li>
+<li><a href="#dir"><code>dir</code></a></li>
+<li><a href="#type-Stat"><code>type Stat</code></a></li>
+<li><a href="#type-Raw"><code>type Raw</code></a></li>
+</ul>
+<div class="def" id="active"><h3><code>bundle.active() -> bool</code></h3>
+<p>Whether this program runs from an executable built by slang build.</p>
+
+</div>
+<div class="def" id="exists"><h3><code>bundle.exists(path: string) -> bool</code></h3>
+<p>Whether path is a bundled file or a directory of them.</p>
+
+</div>
+<div class="def" id="is_dir"><h3><code>bundle.is_dir(path: string) -> bool</code></h3>
+<p>Whether bundled files lie under path.</p>
+
+</div>
+<div class="def" id="read"><h3><code>bundle.read(path: string) -> string?</code></h3>
+<p>The contents of a bundled file (uncompressed), or null when the bundle has no file at path. Raises when a file kept next to the executable cannot be read.</p>
+
+</div>
+<div class="def" id="read_raw"><h3><code>bundle.read_raw(path: string) -> <a href="#type-Raw">Raw</a>?</code></h3>
+<p>The file as stored, or null when it is not bundled.</p>
+
+</div>
+<div class="def" id="stat"><h3><code>bundle.stat(path: string) -> <a href="#type-Stat">Stat</a>?</code></h3>
+<p>What the bundle knows of a file or directory, or null when it is not bundled.</p>
+
+</div>
+<div class="def" id="list"><h3><code>bundle.list(path: string) -> {string}?</code></h3>
+<p>The sorted names of the bundled files and directories directly under path, or null when path is not a bundled directory.</p>
+
+</div>
+<div class="def" id="files"><h3><code>bundle.files() -> {string}</code></h3>
+<p>The paths of all bundled files, sorted.</p>
+
+</div>
+<div class="def" id="module"><h3><code>bundle.module(name: string) -> function?</code></h3>
+<p>The bundled module's function (not yet run), or null; require finds bundled modules first.</p>
+
+</div>
+<div class="def" id="dir"><h3><code>bundle.dir() -> string?</code></h3>
+<p>The directory of the running executable when bundled, else null.</p>
+
+</div>
+<h2 id="type-Stat">type Stat</h2>
+<pre><code>type Stat = {is_file: bool, is_dir: bool, size?: int, stored_size?: int, mtime?: int, encoding?: string, path?: string}</code></pre>
+<p>A bundled file or directory, from <a href="#stat"><code>stat</code></a>. A directory has only is_file and is_dir.</p>
+<dl class="params"><dt><code>is_file: bool</code></dt><dd></dd><dt><code>is_dir: bool</code></dt><dd></dd><dt><code>size?: int</code></dt><dd>the file's length</dd><dt><code>stored_size?: int</code></dt><dd>what the bundle holds; smaller when gzipped</dd><dt><code>mtime?: int</code></dt><dd>the source file's modification time at build time, in seconds</dd><dt><code>encoding?: string</code></dt><dd>&quot;gzip&quot;, or null when stored as it is</dd><dt><code>path?: string</code></dt><dd>where the file is on disk, for one kept next to the executable</dd></dl>
+<h2 id="type-Raw">type Raw</h2>
+<pre><code>type Raw = {data?: string, encoding?: string, path?: string}</code></pre>
+<p>A bundled file as stored, from <a href="#read_raw"><code>read_raw</code></a>: data and encoding, or path alone for a file kept next to the executable (slang build --dir).</p>
+<dl class="params"><dt><code>data?: string</code></dt><dd></dd><dt><code>encoding?: string</code></dt><dd>&quot;gzip&quot;, or null when data is the file as it is</dd><dt><code>path?: string</code></dt><dd></dd></dl>
+<p class="muted">slang/stubs/slang/bundle.slang</p>
+</body>
+</html>

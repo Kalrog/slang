@@ -29,6 +29,8 @@ ul.toc { columns: 2; padding-left: 1.2rem; }
 @media (max-width: 40rem) { ul.toc { columns: 1; } }
 dt { margin-top: 0.75rem; }
 dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
 </style>
 </head>
 <body>
@@ -37,45 +39,54 @@ dd { margin-left: 1rem; color: var(--muted); }
 <p>llhttp: the native binding of llhttp, the HTTP/1 parser of Node.js. slang/http parses requests and responses with it; most code should use slang/http.</p>
 <pre><code>local llhttp = require(&quot;llhttp&quot;)
 local p = llhttp.parser(&quot;request&quot;, {max_head: 65536})
-for(let local e in values(p:execute(bytes))){ ... }</code></pre>
-<p>execute(data) feeds bytes and returns the list of events they completed, in order:</p>
-<pre><code>{type: &quot;head&quot;, method, url, version, headers, keep_alive, upgrade,
- chunked, content_length}             (requests)
-{type: &quot;head&quot;, status, reason, version, headers, ...}  (responses)
-{type: &quot;body&quot;, data}                  a piece of the body, de-chunked
-{type: &quot;done&quot;, keep_alive}            the message is complete
-{type: &quot;upgrade&quot;, rest}               the connection switches protocol
-                                      (rest: the bytes after the head)
-{type: &quot;error&quot;, code, reason, status} the input is not HTTP; status is
-                                      431 for a head over max_head,
-                                      else 400; the parser stays failed</code></pre>
-<p>Header names are lowercased. A repeated header is joined with &quot;, &quot; (cookie with &quot;; &quot;), except set-cookie, which is always a list.</p>
+local events = p:execute(&quot;GET /hi HTTP/1.1\r\nHost: x\r\n\r\n&quot;)
+events[0].url      // &quot;/hi&quot;
+events[1].type     // &quot;done&quot;</code></pre>
+<p><a href="#Parser:execute"><code>Parser.execute</code></a> feeds bytes and returns the list of <a href="#type-Event"><code>Event</code></a>s they completed, in order: a &quot;head&quot;, then &quot;body&quot; pieces, then &quot;done&quot; for each message; &quot;upgrade&quot; when the connection switches protocol, &quot;error&quot; when the input is not HTTP.</p>
 <ul class="toc">
 <li><a href="#parser"><code>parser</code></a></li>
 <li><a href="#version"><code>version</code></a></li>
-<li><a href="#llhttp.parser:execute"><code>llhttp.parser:execute</code></a></li>
-<li><a href="#llhttp.parser:finish"><code>llhttp.parser:finish</code></a></li>
-<li><a href="#llhttp.parser:skip_body"><code>llhttp.parser:skip_body</code></a></li>
-<li><a href="#llhttp.parser:reset"><code>llhttp.parser:reset</code></a></li>
+<li><a href="#type-Event"><code>type Event</code></a></li>
+<li><a href="#type-ParserOptions"><code>type ParserOptions</code></a></li>
+<li><a href="#type-Parser"><code>type Parser</code></a></li>
+<li><a href="#Parser:execute"><code>Parser:execute</code></a></li>
+<li><a href="#Parser:finish"><code>Parser:finish</code></a></li>
+<li><a href="#Parser:skip_body"><code>Parser:skip_body</code></a></li>
+<li><a href="#Parser:reset"><code>Parser:reset</code></a></li>
 </ul>
-<div class="def" id="parser"><h3><code>m.parser(kind, options)</code></h3>
-<p>parser(kind, [options]) -&gt; an llhttp.parser; kind &quot;request&quot; or &quot;response&quot;. options.max_head limits the bytes of a head (0, the default: no limit).</p>
+<div class="def" id="parser"><h3><code>llhttp.parser(kind: string, options?: <a href="#type-ParserOptions">ParserOptions</a>) -> <a href="#type-Parser">Parser</a></code></h3>
+<p>A new parser of requests (kind &quot;request&quot;) or responses (&quot;response&quot;).</p>
+
 </div>
-<div class="def" id="version"><h3><code>m.version()</code></h3>
-<p>version() -&gt; the llhttp version as &quot;major.minor.patch&quot;</p>
+<div class="def" id="version"><h3><code>llhttp.version() -> string</code></h3>
+<p>The llhttp version as &quot;major.minor.patch&quot;.</p>
+
 </div>
-<h2>type llhttp.parser</h2>
-<div class="def" id="llhttp.parser:execute"><h3><code>llhttp.parser:execute(data)</code></h3>
-<p>parser:execute(data) -&gt; the list of events data completed; an empty list once the parser has failed (or switched protocol)</p>
+<h2 id="type-Event">type Event</h2>
+<pre><code>type Event = {type: string, method?: string, url?: string, status?: int, reason?: string, version?: string, headers?: {[string]: string | {string}}, keep_alive?: bool, upgrade?: bool, chunked?: bool, content_length?: int, data?: string, rest?: string, code?: string}</code></pre>
+<p>What a <a href="#type-Parser"><code>Parser</code></a> reports; which fields are set depends on type.</p>
+<dl class="params"><dt><code>type: string</code></dt><dd>&quot;head&quot;, &quot;body&quot;, &quot;done&quot;, &quot;upgrade&quot; or &quot;error&quot;</dd><dt><code>method?: string</code></dt><dd>head of a request: the method, &quot;GET&quot;</dd><dt><code>url?: string</code></dt><dd>head of a request: the request target</dd><dt><code>status?: int</code></dt><dd>head of a response: its status code; error: 431 for a head over max_head, else 400</dd><dt><code>reason?: string</code></dt><dd>head of a response: its reason phrase; error: what is wrong</dd><dt><code>version?: string</code></dt><dd>head: &quot;1.1&quot; and the like</dd><dt><code>headers?: {[string]: string | {string}}</code></dt><dd>head: by lowercased name; a repeated header is joined with &quot;, &quot; (cookie with &quot;; &quot;), except set-cookie, which is always a list</dd><dt><code>keep_alive?: bool</code></dt><dd>head and done: whether the connection may carry another message</dd><dt><code>upgrade?: bool</code></dt><dd>head: whether the message asks to switch protocol</dd><dt><code>chunked?: bool</code></dt><dd>head: whether the body is chunked</dd><dt><code>content_length?: int</code></dt><dd>head: the Content-Length, when there is one</dd><dt><code>data?: string</code></dt><dd>body: a piece of the body, de-chunked</dd><dt><code>rest?: string</code></dt><dd>upgrade: the bytes after the head, which belong to the new protocol</dd><dt><code>code?: string</code></dt><dd>error: llhttp's error name, like &quot;HPE_INVALID_METHOD&quot;</dd></dl>
+<h2 id="type-ParserOptions">type ParserOptions</h2>
+<pre><code>type ParserOptions = {max_head?: int}</code></pre>
+<p>How a <a href="#type-Parser"><code>Parser</code></a> limits its input.</p>
+<dl class="params"><dt><code>max_head?: int</code></dt><dd>the most bytes a head may have; 0 (the default) means no limit</dd></dl>
+<h2 id="type-Parser">type Parser</h2>
+<p>A parser of one connection's messages; type() of it is &quot;llhttp.parser&quot;.</p>
+<div class="def" id="Parser:execute"><h3><code>Parser:execute(data: string) -> {<a href="#type-Event">Event</a>}</code></h3>
+<p>Feeds data and returns the events it completed. After an &quot;error&quot; event the parser stays failed, and after &quot;upgrade&quot; it is done: execute then returns an empty list.</p>
+
 </div>
-<div class="def" id="llhttp.parser:finish"><h3><code>llhttp.parser:finish()</code></h3>
-<p>parser:finish() -&gt; the events that ending the input gives (a response that runs to the end of the connection completes)</p>
+<div class="def" id="Parser:finish"><h3><code>Parser:finish() -> {<a href="#type-Event">Event</a>}</code></h3>
+<p>The events that ending the input gives (a response that runs to the end of the connection completes).</p>
+
 </div>
-<div class="def" id="llhttp.parser:skip_body"><h3><code>llhttp.parser:skip_body()</code></h3>
-<p>parser:skip_body() makes the next head have no body (the answer to a HEAD request)</p>
+<div class="def" id="Parser:skip_body"><h3><code>Parser:skip_body()</code></h3>
+<p>Makes the next head have no body (the answer to a HEAD request).</p>
+
 </div>
-<div class="def" id="llhttp.parser:reset"><h3><code>llhttp.parser:reset()</code></h3>
-<p>parser:reset() readies the parser for a new connection</p>
+<div class="def" id="Parser:reset"><h3><code>Parser:reset()</code></h3>
+<p>Readies the parser for a new connection.</p>
+
 </div>
 <p class="muted">slang/stubs/llhttp.slang</p>
 </body>

@@ -29,34 +29,59 @@ ul.toc { columns: 2; padding-left: 1.2rem; }
 @media (max-width: 40rem) { ul.toc { columns: 1; } }
 dt { margin-top: 0.75rem; }
 dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
 </style>
 </head>
 <body>
 <nav><a href="index.html">index</a></nav>
 <h1>slang/test</h1>
-<p>slang/test: a small test framework.</p>
+<p>slang/test: a small test framework: groups of named tests, set up and torn down, run by <code>slang test</code>.</p>
+<pre><code>local t = require(&quot;slang/test&quot;)
+t.group(&quot;math&quot;){
+  t.test(&quot;adds&quot;){
+    assert(1 + 1 == 2, &quot;1 + 1&quot;)
+  }
+}</code></pre>
+<p>A test passes when its function returns and fails when it raises (a failed <code>assert</code> or any other error); the report shows the message and where it was raised. Registering only collects: <code>slang test</code> loads the test files, then calls <a href="#run_cli"><code>run_cli</code></a> with its arguments, which runs everything registered and reports.</p>
+<p>With --json, <a href="#run"><code>run</code></a> prints one JSON object per line instead of the report: {event: &quot;test&quot;, path, status, message, location} for each test that ran (status &quot;passed&quot; or &quot;failed&quot;; message and location when it failed), then {event: &quot;done&quot;, passed, failed}. With --only &quot;group / test&quot;, only the tests under that path run: a group's name, a test's, or the names from a top group down, joined by &quot; / &quot;.</p>
 <ul class="toc">
 <li><a href="#group"><code>group</code></a></li>
 <li><a href="#test"><code>test</code></a></li>
 <li><a href="#setup"><code>setup</code></a></li>
 <li><a href="#teardown"><code>teardown</code></a></li>
 <li><a href="#run"><code>run</code></a></li>
+<li><a href="#run_cli"><code>run_cli</code></a></li>
+<li><a href="#type-Options"><code>type Options</code></a></li>
 </ul>
-<div class="def" id="group"><h3><code>m.group(name, f)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="group"><h3><code>test.group(name: string, f: function)</code></h3>
+<p>Registers a group: runs f at once, and the tests, groups, setups and teardowns f registers belong to the group. Usually written with a block: t.group(&quot;name&quot;){ ... }.</p>
+
 </div>
-<div class="def" id="test"><h3><code>m.test(name, f)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="test"><h3><code>test.test(name: string, f: function)</code></h3>
+<p>Registers a test in the current group; f runs when the tests run. Usually written with a block: t.test(&quot;name&quot;){ ... }.</p>
+
 </div>
-<div class="def" id="setup"><h3><code>m.setup(f)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="setup"><h3><code>test.setup(f: function)</code></h3>
+<p>Registers f to run before each test and subgroup of the current group (each subgroup once, not before each of its tests).</p>
+
 </div>
-<div class="def" id="teardown"><h3><code>m.teardown(f)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="teardown"><h3><code>test.teardown(f: function)</code></h3>
+<p>Registers f to run after each test and subgroup of the current group, whether it passed or not.</p>
+
 </div>
-<div class="def" id="run"><h3><code>m.run()</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="run"><h3><code>test.run(opts?: <a href="#type-Options">Options</a>) -> int</code></h3>
+<p>Runs the registered tests, prints the report (or JSON lines) and returns the number of tests that failed.</p>
+
 </div>
+<div class="def" id="run_cli"><h3><code>test.run_cli(argv: {string}) -> bool</code></h3>
+<p><a href="#run"><code>run</code></a> with the options of <code>slang test</code> read from argv (--json, --only path; anything else is ignored); true when a test failed.</p>
+
+</div>
+<h2 id="type-Options">type Options</h2>
+<pre><code>type Options = {json?: bool, only?: string}</code></pre>
+<p>What <a href="#run"><code>run</code></a> does.</p>
+<dl class="params"><dt><code>json?: bool</code></dt><dd>print JSON lines instead of the report</dd><dt><code>only?: string</code></dt><dd>the path of the group or test to run, names joined by &quot; / &quot;</dd></dl>
 <p class="muted">slang/lib/test.slang</p>
 </body>
 </html>

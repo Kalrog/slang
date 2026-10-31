@@ -29,6 +29,8 @@ ul.toc { columns: 2; padding-left: 1.2rem; }
 @media (max-width: 40rem) { ul.toc { columns: 1; } }
 dt { margin-top: 0.75rem; }
 dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
 </style>
 </head>
 <body>
@@ -41,8 +43,8 @@ local libc = ffi.load(null, C)       // null: the program itself (libc)
 libc.abs(-3)                         // 3
 libc.div(17, 5)                      // {quot: 3, rem: 2}</code></pre>
 <p>A header is read as C reads it: the preprocessor runs (#define, #if, function-like macros; #include is skipped), then the declarations are parsed: typedefs, structs, enums, function prototypes (function bodies, as in inline functions, are skipped). Enum values and #define constants become C.constants.</p>
-<p>How values cross (see slang/ffi_core for the details): numbers and bools for the arithmetic types; a string for <code>const char *</code>; a table for a struct (fields by name or by position), returned as a table with the fields by name; for a pointer null, a pointer, a string (its bytes), or a table: a list of elements, or one struct, which is copied back after the call when the pointer is not to const (an out parameter). Pointers index like C (p[i], p.field) and assign; ffi.new allocates memory the collector frees.</p>
-<p>A wrong declaration crashes the program as it would in C: the FFI calls what it is told is there. Callbacks (C calling slang), unions, bit fields and long double are not supported yet.</p>
+<p>How values cross (slang/ctypes does the conversions): numbers and bools for the arithmetic types; a string for <code>const char *</code>; a table for a struct (fields by name or by position), returned as a table with the fields by name; for a pointer null, a pointer, a string (its bytes), or a table: a list of elements, or one struct, which is copied back after the call when the pointer is not to const (an out parameter). Pointers index like C (p[i], p.field) and assign; ffi.new allocates memory the collector frees.</p>
+<p>A wrong declaration crashes the program as it would in C: the FFI calls what it is told is there. Callbacks (C calling slang), unions, bit fields and long double are not supported yet. Builds made without libffi (-Dffi=false) have types and memory but no calls: <a href="#load"><code>load</code></a> raises there, and <a href="#available"><code>available</code></a> says which it is.</p>
 <ul class="toc">
 <li><a href="#cdef"><code>cdef</code></a></li>
 <li><a href="#type"><code>type</code></a></li>
@@ -56,46 +58,88 @@ libc.div(17, 5)                      // {quot: 3, rem: 2}</code></pre>
 <li><a href="#load"><code>load</code></a></li>
 <li><a href="#bind"><code>bind</code></a></li>
 <li><a href="#available"><code>available</code></a></li>
+<li><a href="#type-Type"><code>type Type</code></a></li>
+<li><a href="#type-Pointer"><code>type Pointer</code></a></li>
+<li><a href="#type-Decls"><code>type Decls</code></a></li>
+<li><a href="#type-FunctionDecl"><code>type FunctionDecl</code></a></li>
+<li><a href="#type-CdefOptions"><code>type CdefOptions</code></a></li>
+<li><a href="#type-Library"><code>type Library</code></a></li>
+<li><a href="#type-LoadOptions"><code>type LoadOptions</code></a></li>
 </ul>
 <h2>declarations</h2>
-<div class="def" id="cdef"><h3><code>ffi.cdef(text, options)</code></h3>
-<p>cdef(text, [options]) -&gt; the declarations of text: {types, functions, constants, order}. options: defines (macros for the preprocessor, like -D), field_name (a function renaming struct fields for slang), defaults (numbers for fields a table leaves out, by struct and field: {Color: {a: 255}}), and into (earlier declarations to add to, so headers can build on each other).</p>
+<div class="def" id="cdef"><h3><code>ffi.cdef(text: string, options?: <a href="#type-CdefOptions">CdefOptions</a>) -> <a href="#type-Decls">Decls</a></code></h3>
+<p>Reads C declarations: the preprocessor runs, then typedefs, structs, enums and function prototypes are parsed. Raises &quot;ffi.cdef: ...&quot; naming the line for what it cannot parse.</p>
+<pre><code>local C = ffi.cdef(os.read_file(&quot;mylib.h&quot;), {defines: {MYLIB_API: &quot;&quot;}})</code></pre>
+
 </div>
 <h2>types by name</h2>
-<div class="def" id="type"><h3><code>ffi.type(name, decls)</code></h3>
-<p>type(name, decls) -&gt; the ffi_core type of a C type name: &quot;int&quot;, &quot;Vector2&quot;, &quot;struct foo&quot;, &quot;Vector2 *&quot;, &quot;float[4]&quot;</p>
+<div class="def" id="type"><h3><code>ffi.type(name: string, decls?: <a href="#type-Decls">Decls</a>) -> <a href="#type-Type">Type</a></code></h3>
+<p>The type a C type name stands for: &quot;int&quot;, &quot;uint8_t&quot;, &quot;Vector2&quot;, &quot;struct foo&quot;, &quot;Vector2 *&quot;, &quot;float[4]&quot;.</p>
+<dl class="params"><dt><code>decls</code></dt><dd>the declarations that define the struct and typedef names</dd></dl>
 </div>
-<div class="def" id="new"><h3><code>ffi.new(t, count, decls)</code></h3>
-<p>new(type, [n], [decls]) -&gt; a pointer to n (1 by default) zeroed values, memory the collector frees once nothing points into it; type is an ffi type or a C type name</p>
+<div class="def" id="new"><h3><code>ffi.new(t: string | <a href="#type-Type">Type</a>, n?: int, decls?: <a href="#type-Decls">Decls</a>) -> <a href="#type-Pointer">Pointer</a></code></h3>
+<p>A pointer to n (1 by default) zeroed values of t, memory the collector frees once nothing points into it.</p>
+
 </div>
-<div class="def" id="sizeof"><h3><code>ffi.sizeof(t, decls)</code></h3>
-<p>sizeof(type, [decls]) -&gt; the size of a C type in bytes</p>
+<div class="def" id="sizeof"><h3><code>ffi.sizeof(t: string | <a href="#type-Type">Type</a>, decls?: <a href="#type-Decls">Decls</a>) -> int</code></h3>
+<p>The size of a C type in bytes.</p>
+
 </div>
-<div class="def" id="cast"><h3><code>ffi.cast(p, t, decls)</code></h3>
-<p>cast(pointer, type, [decls]) -&gt; the address as a pointer to type</p>
+<div class="def" id="cast"><h3><code>ffi.cast(p: <a href="#type-Pointer">Pointer</a> | int, t?: string | <a href="#type-Type">Type</a>, decls?: <a href="#type-Decls">Decls</a>) -> <a href="#type-Pointer">Pointer</a></code></h3>
+<p>The same address as a pointer to t (null: void *). An int is taken as an address.</p>
+
 </div>
-<div class="def" id="string"><h3><code>ffi.string(p, n)</code></h3>
-<p>string(pointer, [len]) -&gt; the C string at pointer (or len bytes)</p>
+<div class="def" id="string"><h3><code>ffi.string(p: <a href="#type-Pointer">Pointer</a>?, n?: int) -> string?</code></h3>
+<p>The zero-terminated C string at p, or the n bytes there; null for a null pointer.</p>
+
 </div>
-<div class="def" id="offset"><h3><code>ffi.offset(p, n)</code></h3>
-<p>offset(pointer, n) -&gt; the pointer n elements further</p>
+<div class="def" id="offset"><h3><code>ffi.offset(p: <a href="#type-Pointer">Pointer</a>, n: int) -> <a href="#type-Pointer">Pointer</a></code></h3>
+<p>The pointer n elements further (bytes for a void pointer); n may be negative.</p>
+
 </div>
-<div class="def" id="address"><h3><code>ffi.address(p)</code></h3>
-<p>address(pointer) -&gt; the address as an int (0 for null)</p>
+<div class="def" id="address"><h3><code>ffi.address(p: <a href="#type-Pointer">Pointer</a>?) -> int</code></h3>
+<p>The address as an int (0 for null).</p>
+
 </div>
-<div class="def" id="value"><h3><code>ffi.value(p)</code></h3>
-<p>value(pointer) -&gt; what it points to, copied (a struct as a table)</p>
+<div class="def" id="value"><h3><code>ffi.value(p: <a href="#type-Pointer">Pointer</a>) -> any</code></h3>
+<p>What p points to, copied: a number, or a table for a struct. Raises for a void pointer.</p>
+
 </div>
 <h2>libraries</h2>
-<div class="def" id="load"><h3><code>ffi.load(name, decls, options)</code></h3>
-<p>load(name, decls, [options]) -&gt; the library: its functions by their C names, bound on first use. name is a path, a library name (&quot;raylib&quot;: libraylib.dylib in options.paths, slang's native search paths, /opt/homebrew/lib, /usr/local/lib, /usr/lib, then the system's search), or null for the program itself.</p>
+<div class="def" id="load"><h3><code>ffi.load(name: string?, decls: <a href="#type-Decls">Decls</a>, options?: <a href="#type-LoadOptions">LoadOptions</a>) -> <a href="#type-Library">Library</a></code></h3>
+<p>Loads a C library with the declarations of its functions. A library name (&quot;raylib&quot;) is libraylib.dylib or .so in options.paths, slang's native search paths, /opt/homebrew/lib, /usr/local/lib, /usr/lib, then wherever the system finds it. Raises &quot;ffi.load: ...&quot; with what each attempt said when it cannot load it.</p>
+<dl class="params"><dt><code>name</code></dt><dd>a path (with a / or a .), a library name, or null for the program</dd></dl>
 </div>
-<div class="def" id="bind"><h3><code>ffi.bind(lib, f, name)</code></h3>
-<p>bind(library, decl, [name]) -&gt; the function a declaration from cdef (decls.functions.Name) declares, bound to the library (lib.Name does the same); name is what errors call it</p>
+<div class="def" id="bind"><h3><code>ffi.bind(lib: <a href="#type-Library">Library</a>, f: <a href="#type-FunctionDecl">FunctionDecl</a>, name?: string) -> function</code></h3>
+<p>The slang function calling the C function f declares (from decls.functions), bound to lib; lib.Name does the same for a declared name. Raises when the library lacks the symbol or a parameter's type cannot cross.</p>
+<dl class="params"><dt><code>name</code></dt><dd>what errors call it (its C name by default)</dd></dl>
 </div>
-<div class="def" id="available"><h3><code>ffi.available()</code></h3>
-<p>available() -&gt; whether this slang has the FFI</p>
+<div class="def" id="available"><h3><code>ffi.available() -> bool</code></h3>
+<p>Whether this slang can call C (it was built with libffi).</p>
+
 </div>
+<h2 id="type-Type">type Type</h2>
+<p>A C type: made by <a href="#type"><code>type</code></a> from a name (&quot;int&quot;, &quot;Vector2 *&quot;, &quot;float[4]&quot;), and given to <a href="#new"><code>new</code></a>, <a href="#sizeof"><code>sizeof</code></a>, <a href="#cast"><code>cast</code></a> and slang/buffer. Types live as long as the program.</p>
+<h2 id="type-Pointer">type Pointer</h2>
+<p>An address and the type it points to (none for void *). p[i] reads or writes the i-th element, p.field a field of a struct; an element or field that is a struct is a pointer again, so p.pos.x = 3 writes in place. Pointers are == when their addresses are.</p>
+<h2 id="type-Decls">type Decls</h2>
+<pre><code>type Decls = {types: {[string]: table}, functions: {[string]: <a href="#type-FunctionDecl">FunctionDecl</a>}, constants: {[string]: any}, structs: table, order: {string}}</code></pre>
+<p>What <a href="#cdef"><code>cdef</code></a> read: the declarations a library is loaded with.</p>
+<dl class="params"><dt><code>types: {[string]: table}</code></dt><dd>the typedefs and structs by name (&quot;Vector2&quot;, &quot;struct foo&quot;)</dd><dt><code>functions: {[string]: <a href="#type-FunctionDecl">FunctionDecl</a>}</code></dt><dd>the function prototypes by C name</dd><dt><code>constants: {[string]: any}</code></dt><dd>enum values and #define constants (numbers, strings, structs)</dd><dt><code>structs: table</code></dt><dd></dd><dt><code>order: {string}</code></dt><dd>the function names in the order they were declared</dd></dl>
+<h2 id="type-FunctionDecl">type FunctionDecl</h2>
+<pre><code>type FunctionDecl = {name: string, ret: table, params: {table}, variadic: bool, doc: string, line: int}</code></pre>
+<p>A function prototype <a href="#cdef"><code>cdef</code></a> read.</p>
+<dl class="params"><dt><code>name: string</code></dt><dd></dd><dt><code>ret: table</code></dt><dd>the parsed return type</dd><dt><code>params: {table}</code></dt><dd>the parsed parameters, each {name, type}</dd><dt><code>variadic: bool</code></dt><dd></dd><dt><code>doc: string</code></dt><dd>its comment, trailing or the lines right above (&quot;&quot; for none)</dd><dt><code>line: int</code></dt><dd>where it starts in the text</dd></dl>
+<h2 id="type-CdefOptions">type CdefOptions</h2>
+<pre><code>type CdefOptions = {defines?: {[string]: any}, field_name?: func(name: string): string, defaults?: {[string]: {[string]: any}}, into?: <a href="#type-Decls">Decls</a>}</code></pre>
+<p>What <a href="#cdef"><code>cdef</code></a> accepts besides the text.</p>
+<dl class="params"><dt><code>defines?: {[string]: any}</code></dt><dd>macros for the preprocessor, like -D</dd><dt><code>field_name?: func(name: string): string</code></dt><dd>renames struct fields for slang (C's names by default)</dd><dt><code>defaults?: {[string]: {[string]: any}}</code></dt><dd>values for fields a table leaves out: {Color: {a: 255}}</dd><dt><code>into?: <a href="#type-Decls">Decls</a></code></dt><dd>earlier declarations to add to, so headers can build on each other</dd></dl>
+<h2 id="type-Library">type Library</h2>
+<p>A loaded C library: its functions by their C names (lib.abs(-3)), bound on first use; a name the declarations do not have is null.</p>
+<h2 id="type-LoadOptions">type LoadOptions</h2>
+<pre><code>type LoadOptions = {paths?: {string}}</code></pre>
+<p>Where <a href="#load"><code>load</code></a> looks for a library given by name.</p>
+<dl class="params"><dt><code>paths?: {string}</code></dt><dd>directories searched first</dd></dl>
 <p class="muted">slang/lib/ffi.slang</p>
 </body>
 </html>

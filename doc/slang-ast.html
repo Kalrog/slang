@@ -29,13 +29,20 @@ ul.toc { columns: 2; padding-left: 1.2rem; }
 @media (max-width: 40rem) { ul.toc { columns: 1; } }
 dt { margin-top: 0.75rem; }
 dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
 </style>
 </head>
 <body>
 <nav><a href="index.html">index</a></nav>
 <h1>slang/ast</h1>
-<p>slang/ast: helpers for AST nodes.</p>
-<p>A node is a table {type: &quot;Name&quot;, ...fields, token} whose metatable has __type == &quot;Name&quot;, so patterns like 'BinOp{left: local l} match it. The field layout follows the table encoding of the original implementation, so quoted code (+{...}) and extension-generated code use exactly the same shape.</p>
+<p>slang/ast: building, checking and printing the syntax tree that the parser produces, quotes (+{...}) build and extensions return.</p>
+<pre><code>local ast = require(&quot;slang/ast&quot;)
+local sum = ast.node(&quot;BinOp&quot;, {
+  left: ast.literal(null, 1), op: &quot;+&quot;, right: +{x * 2},
+})
+print(ast.to_source(sum))        // 1 + x * 2</code></pre>
+<p>A node is a table {type: &quot;Name&quot;, ...fields, token} whose metatable has __type == &quot;Name&quot;: type(node) is &quot;Name&quot;, and patterns like 'BinOp{left: local l} match it. Each node type has a fixed set of fields, listed in <a href="#specs"><code>specs</code></a>. Quoted code (+{...}) and the code extensions generate have exactly the same shape, so an extension may return either; a plain table in node shape ({type: &quot;Identifier&quot;, value: &quot;x&quot;}) is accepted too wherever a parser result goes through <a href="#decode"><code>decode</code></a>.</p>
 <ul class="toc">
 <li><a href="#specs"><code>specs</code></a></li>
 <li><a href="#node"><code>node</code></a></li>
@@ -43,6 +50,7 @@ dd { margin-left: 1rem; color: var(--muted); }
 <li><a href="#is_statement"><code>is_statement</code></a></li>
 <li><a href="#is_assignable"><code>is_assignable</code></a></li>
 <li><a href="#is_literal"><code>is_literal</code></a></li>
+<li><a href="#requires"><code>requires</code></a></li>
 <li><a href="#literal"><code>literal</code></a></li>
 <li><a href="#resolve_escapes"><code>resolve_escapes</code></a></li>
 <li><a href="#quote"><code>quote</code></a></li>
@@ -51,52 +59,82 @@ dd { margin-left: 1rem; color: var(--muted); }
 <li><a href="#decode"><code>decode</code></a></li>
 <li><a href="#to_string"><code>to_string</code></a></li>
 <li><a href="#to_source"><code>to_source</code></a></li>
+<li><a href="#type-Node"><code>type Node</code></a></li>
+<li><a href="#type-Requires"><code>type Requires</code></a></li>
 </ul>
 <div class="def" id="specs"><h3><code>ast.specs</code></h3>
-<p>field specs per node type, in encoding order. kinds: &quot;node&quot; (child), &quot;node?&quot; (optional child), &quot;list&quot; (list of children), &quot;value&quot; (primitive)</p>
+<p>The fields of every node type, in order, as {name, kind} pairs: <code>specs.BinOp</code> is {{&quot;left&quot;, &quot;node&quot;}, {&quot;op&quot;, &quot;value&quot;}, {&quot;right&quot;, &quot;node&quot;}}. The kinds: &quot;node&quot; (a child node), &quot;node?&quot; (an optional child), &quot;list&quot; (a list of child nodes) and &quot;value&quot; (a string, number or bool). A type not listed here is not a node type.</p>
+
 </div>
-<div class="def" id="node"><h3><code>ast.node(type_name, fields, token)</code></h3>
-<p>node(type, fields, token): builds a node table</p>
+<div class="def" id="node"><h3><code>ast.node(type_name: string, fields: table, token?: table) -> <a href="#type-Node">Node</a></code></h3>
+<p>Makes fields a node of type type_name, in place, and returns it. Raises for an unknown node type; the fields are not checked against <a href="#specs"><code>specs</code></a>.</p>
+<pre><code>ast.node(&quot;Identifier&quot;, {value: &quot;x&quot;}, null)</code></pre>
+
 </div>
-<div class="def" id="is_node"><h3><code>ast.is_node(value)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="is_node"><h3><code>ast.is_node(value) -> bool</code></h3>
+<p>Whether value is a node with its metatable. A plain table in node shape is not; <a href="#decode"><code>decode</code></a> makes it one.</p>
+
 </div>
-<div class="def" id="is_statement"><h3><code>ast.is_statement(node)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="is_statement"><h3><code>ast.is_statement(node: <a href="#type-Node">Node</a>?) -> bool</code></h3>
+<p>Whether node may stand as a statement (a Block, If, Declaration, CallStat, Unquote, ...); false for null and for expressions.</p>
+
 </div>
-<div class="def" id="is_assignable"><h3><code>ast.is_assignable(node)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="is_assignable"><h3><code>ast.is_assignable(node: <a href="#type-Node">Node</a>) -> bool</code></h3>
+<p>Whether node may be assigned to: an Identifier, an Index or an Unquote.</p>
+
 </div>
-<div class="def" id="is_literal"><h3><code>ast.is_literal(node)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="is_literal"><h3><code>ast.is_literal(node: <a href="#type-Node">Node</a>) -> bool</code></h3>
+<p>Whether node is a constant: Int, Double, String, True, False or Null.</p>
+
 </div>
-<div class="def" id="literal"><h3><code>ast.literal(token, value)</code></h3>
-<p>literal(token, value): the node for a primitive value</p>
+<div class="def" id="requires"><h3><code>ast.requires(node: <a href="#type-Node">Node</a>) -> <a href="#type-Requires">Requires</a></code></h3>
+<p>The modules the code requires: those given by a constant name (<code>require(&quot;a/b&quot;)</code>) and the places of those whose name is computed. Quoted code is not looked into; positions are 0 for generated nodes.</p>
+
 </div>
-<div class="def" id="resolve_escapes"><h3><code>ast.resolve_escapes(literal)</code></h3>
-<p>resolve_escapes(&quot;a\\nb&quot;) -&gt; the string with escape sequences replaced: \n \r \t \b \f \v \\ \&quot; and \xHH (a byte), \u{H...} (a code point, as UTF-8); raises on any other</p>
+<div class="def" id="literal"><h3><code>ast.literal(token: table?, value) -> <a href="#type-Node">Node</a></code></h3>
+<p>The node for a string, int, double, bool or null value; raises for any other type.</p>
+
+</div>
+<div class="def" id="resolve_escapes"><h3><code>ast.resolve_escapes(literal: string) -> string</code></h3>
+<p>The text of a string literal's body with its escape sequences replaced: \n \r \t \b \f \v \\ \&quot; and \xHH (a byte), \u{H...} (a code point, as UTF-8). Raises on any other escape.</p>
+<pre><code>ast.resolve_escapes(&quot;a\\nb&quot;)   // &quot;a&quot;, a newline, &quot;b&quot;</code></pre>
+
 </div>
 <h2>quote support</h2>
-<div class="def" id="quote"><h3><code>ast.quote(node)</code></h3>
-<p>quote(node): the Table-literal expression that rebuilds this node at run time</p>
+<div class="def" id="quote"><h3><code>ast.quote(node: <a href="#type-Node">Node</a>) -> <a href="#type-Node">Node</a></code></h3>
+<p>The Table literal expression that rebuilds node at run time (what +{...} compiles to). An Unquote inside becomes the expression it holds, so its value is spliced in.</p>
+
 </div>
-<div class="def" id="strip"><h3><code>ast.strip(node)</code></h3>
-<p>strip(node): a copy of the tree without tokens (what extensions see)</p>
+<div class="def" id="strip"><h3><code>ast.strip(node: <a href="#type-Node">Node</a>?) -> <a href="#type-Node">Node</a>?</code></h3>
+<p>A copy of the tree without tokens. A value that is not a node is returned as it is.</p>
+
 </div>
-<div class="def" id="attach_token"><h3><code>ast.attach_token(node, token)</code></h3>
-<p>attach_token(node, token): gives every node of the tree that has no token this one</p>
+<div class="def" id="attach_token"><h3><code>ast.attach_token(node: <a href="#type-Node">Node</a>?, token: table?) -> <a href="#type-Node">Node</a>?</code></h3>
+<p>Gives every node of the tree that has no token this one, in place, and returns node; generated code then reports errors at token.</p>
+
 </div>
-<div class="def" id="decode"><h3><code>ast.decode(value)</code></h3>
-<p>decode(value): the node from a parser/extension result; either a node or {token: t, ast: node}</p>
+<div class="def" id="decode"><h3><code>ast.decode(value: <a href="#type-Node">Node</a> | {token: table, ast: <a href="#type-Node">Node</a>} | null) -> <a href="#type-Node">Node</a>?</code></h3>
+<p>The node an extension's parser or callback produced: a node; a {token, ast} pair, whose token goes to every node of ast that has none (see <a href="#attach_token"><code>attach_token</code></a>); or a plain table in node shape, which gets its metatable. Raises for anything else.</p>
+
 </div>
 <h2>to_string</h2>
-<div class="def" id="to_string"><h3><code>ast.to_string(node)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="to_string"><h3><code>ast.to_string(node: <a href="#type-Node">Node</a>) -> string</code></h3>
+<p>The tree in a compact debugging form: expressions fully parenthesized, <code>(1 + (x * 2))</code>. Not meant to be parsed again; see <a href="#to_source"><code>to_source</code></a>.</p>
+
 </div>
 <h2>to_source</h2>
-<div class="def" id="to_source"><h3><code>ast.to_source(node)</code></h3>
-<p>to_source(node) -&gt; slang source; a Block at the top is a chunk (no braces)</p>
+<div class="def" id="to_source"><h3><code>ast.to_source(node: <a href="#type-Node">Node</a>) -> string</code></h3>
+<p>slang source for a tree, ending with a newline: what a file looks like once its extensions have been applied (every extension lowers to the core AST). Parsing the result gives the same bytecode again. A Block at the top is printed as a chunk (no braces); a statement or an expression as itself, with parentheses only where precedence needs them.</p>
+
 </div>
+<h2 id="type-Node">type Node</h2>
+<pre><code>type Node = {type: string, token?: table}</code></pre>
+<p>A syntax tree node. Its other fields depend on its type (see <a href="#specs"><code>specs</code></a>).</p>
+<dl class="params"><dt><code>type: string</code></dt><dd>the node type: &quot;Identifier&quot;, &quot;BinOp&quot;, &quot;Call&quot;, &quot;Block&quot;, ...</dd><dt><code>token?: table</code></dt><dd>its source token (see slang/peg); null in generated code</dd></dl>
+<h2 id="type-Requires">type Requires</h2>
+<pre><code>type Requires = {names: {{name: string, pos: int}}, computed: {int}}</code></pre>
+<p>What <a href="#requires"><code>requires</code></a> finds.</p>
+<dl class="params"><dt><code>names: {{name: string, pos: int}}</code></dt><dd>each require of a constant name, with the byte offset of the call</dd><dt><code>computed: {int}</code></dt><dd>the byte offsets of the requires whose name is computed</dd></dl>
 <p class="muted">slang/compiler/ast.slang</p>
 </body>
 </html>

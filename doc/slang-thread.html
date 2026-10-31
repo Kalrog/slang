@@ -29,18 +29,22 @@ ul.toc { columns: 2; padding-left: 1.2rem; }
 @media (max-width: 40rem) { ul.toc { columns: 1; } }
 dt { margin-top: 0.75rem; }
 dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
 </style>
 </head>
 <body>
 <nav><a href="index.html">index</a></nav>
 <h1>slang/thread</h1>
-<p>slang/thread: cooperative coroutines, built into the VM. A coroutine runs only while it is resumed, until it yields or returns.</p>
-<pre><code>local co = thread.create(func(a){
+<p>slang/thread: cooperative coroutines, built into the VM. A coroutine runs only while it is resumed, until it yields or returns; nothing runs in parallel. slang/async builds its tasks on them.</p>
+<pre><code>local thread = require(&quot;slang/thread&quot;)
+local co = thread.create(func(a){
   local b = thread.yield(a + 1)
   return b * 2
 })
 thread.resume(co, 1)    // 2
-thread.resume(co, 10)   // 20</code></pre>
+thread.resume(co, 10)   // 20
+thread.state(co)        // &quot;dead&quot;</code></pre>
 <ul class="toc">
 <li><a href="#create"><code>create</code></a></li>
 <li><a href="#resume"><code>resume</code></a></li>
@@ -48,25 +52,35 @@ thread.resume(co, 10)   // 20</code></pre>
 <li><a href="#state"><code>state</code></a></li>
 <li><a href="#current"><code>current</code></a></li>
 <li><a href="#id"><code>id</code></a></li>
+<li><a href="#type-Coroutine"><code>type Coroutine</code></a></li>
 </ul>
-<div class="def" id="create"><h3><code>m.create(f)</code></h3>
-<p>create(f) -&gt; a new coroutine running f; it starts on the first resume</p>
+<div class="def" id="create"><h3><code>thread.create(f: function) -> <a href="#type-Coroutine">Coroutine</a></code></h3>
+<p>A new coroutine running f; it starts on the first <a href="#resume"><code>resume</code></a>.</p>
+
 </div>
-<div class="def" id="resume"><h3><code>m.resume(co, ...values)</code></h3>
-<p>resume(co, ...values) -&gt; the value co yields or returns. On the first resume the values are the arguments of its function; later the first value is the result of the yield it is suspended in. An error in co is raised by resume and ends co. Resuming a finished coroutine returns null; resuming a running one raises an error.</p>
+<div class="def" id="resume"><h3><code>thread.resume(co: <a href="#type-Coroutine">Coroutine</a>, ...values) -> any</code></h3>
+<p>Runs co until it yields or returns, and gives back the value it yields or returns. On the first resume the values are the arguments of its function; later the first value is the result of the <a href="#yield"><code>yield</code></a> it is suspended in. An error in co is raised by resume and ends co. Resuming a finished coroutine returns null; resuming a running one raises an error.</p>
+
 </div>
-<div class="def" id="yield"><h3><code>m.yield(value)</code></h3>
-<p>yield([value]) -&gt; the first value the next resume passes: suspends the current coroutine, and resume returns value. Raises an error on the main thread.</p>
+<div class="def" id="yield"><h3><code>thread.yield(value?) -> any</code></h3>
+<p>Suspends the current coroutine; the <a href="#resume"><code>resume</code></a> that ran it returns value. Gives back the first value the next resume passes. Raises an error on the main thread.</p>
+
 </div>
-<div class="def" id="state"><h3><code>m.state(co)</code></h3>
-<p>state([co]) -&gt; &quot;init&quot;, &quot;running&quot;, &quot;suspended&quot; or &quot;dead&quot;: the state of co, or of the current coroutine</p>
+<div class="def" id="state"><h3><code>thread.state(co?: <a href="#type-Coroutine">Coroutine</a>) -> string</code></h3>
+<p>&quot;init&quot;, &quot;running&quot;, &quot;suspended&quot; or &quot;dead&quot;: the state of co, or of the current coroutine.</p>
+
 </div>
-<div class="def" id="current"><h3><code>m.current()</code></h3>
-<p>current() -&gt; the running coroutine (or the main thread)</p>
+<div class="def" id="current"><h3><code>thread.current() -> <a href="#type-Coroutine">Coroutine</a></code></h3>
+<p>The running coroutine (or the main thread).</p>
+
 </div>
-<div class="def" id="id"><h3><code>m.id()</code></h3>
-<p>id() -&gt; the id of the running coroutine, an int</p>
+<div class="def" id="id"><h3><code>thread.id() -> int</code></h3>
+<p>The id of the running coroutine.</p>
+
 </div>
+<h2 id="type-Coroutine">type Coroutine</h2>
+<pre><code>type Coroutine = any</code></pre>
+<p>A coroutine; type() of it is &quot;thread&quot;. The main program runs on one too, the main thread.</p>
 <p class="muted">slang/stubs/slang/thread.slang</p>
 </body>
 </html>

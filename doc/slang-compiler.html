@@ -29,21 +29,31 @@ ul.toc { columns: 2; padding-left: 1.2rem; }
 @media (max-width: 40rem) { ul.toc { columns: 1; } }
 dt { margin-top: 0.75rem; }
 dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
 </style>
 </head>
 <body>
 <nav><a href="index.html">index</a></nav>
 <h1>slang/compiler</h1>
-<p>slang/compiler: the compiler driver. Defines the global <code>compile</code>; extensions get the grammar they extend with require(&quot;slang/compiler&quot;).grammar().</p>
-<p>Grammars are scoped: a file's extension statements end with the file. The root grammar is slang plus the ambient layer of the project file (slang.project: extensions loaded into every file, dialects selected by file suffix, search paths); <code>extension global</code> in the main file and changes made at run time also go to the root.</p>
+<p>slang/compiler: the compiler driver. It parses slang with the grammar extensions in effect, compiles it to functions, and finds a program's project and packages. It defines the global <code>compile</code>. Tools (the language server, slang fmt, slang doc) use it to see a file as the compiler sees it.</p>
+<pre><code>local compiler = require(&quot;slang/compiler&quot;)
+local f = compiler.compile(&quot;return 1 + 2&quot;, &quot;sum&quot;)
+f()   // 3
+local h = compiler.highlight(source, &quot;main.slang&quot;, {symbols: true})</code></pre>
+<p>Grammars are scoped: a file's extension statements end with the file. The root grammar is slang plus the ambient layer of the project file (slang.project: extensions loaded into every file, dialects selected by file suffix, search paths; see <a href="#type-Project"><code>Project</code></a>); <code>extension global</code> in the main file and changes made at run time also go to the root. A package's files compile under the package's own slang.project instead. Extensions get the grammar they extend with <a href="#grammar"><code>grammar</code></a>.</p>
 <ul class="toc">
 <li><a href="#explain"><code>explain</code></a></li>
 <li><a href="#load_extension"><code>load_extension</code></a></li>
 <li><a href="#grammar"><code>grammar</code></a></li>
 <li><a href="#reset"><code>reset</code></a></li>
 <li><a href="#parse"><code>parse</code></a></li>
+<li><a href="#parse_plain"><code>parse_plain</code></a></li>
 <li><a href="#generate"><code>generate</code></a></li>
 <li><a href="#compile"><code>compile</code></a></li>
+<li><a href="#find_project"><code>find_project</code></a></li>
+<li><a href="#dirname"><code>dirname</code></a></li>
+<li><a href="#join_path"><code>join_path</code></a></li>
 <li><a href="#package_root"><code>package_root</code></a></li>
 <li><a href="#package_dir"><code>package_dir</code></a></li>
 <li><a href="#read_table_file"><code>read_table_file</code></a></li>
@@ -53,101 +63,203 @@ dd { margin-left: 1rem; color: var(--muted); }
 <li><a href="#stub_path"><code>stub_path</code></a></li>
 <li><a href="#module_path"><code>module_path</code></a></li>
 <li><a href="#project"><code>project</code></a></li>
+<li><a href="#keywords"><code>keywords</code></a></li>
+<li><a href="#cache_root"><code>cache_root</code></a></li>
 <li><a href="#load_file"><code>load_file</code></a></li>
 <li><a href="#load_main"><code>load_main</code></a></li>
 <li><a href="#highlight"><code>highlight</code></a></li>
 <li><a href="#compile_file"><code>compile_file</code></a></li>
+<li><a href="#analyze_file"><code>analyze_file</code></a></li>
 <li><a href="#expand"><code>expand</code></a></li>
 <li><a href="#tree"><code>tree</code></a></li>
 <li><a href="#expand_file"><code>expand_file</code></a></li>
 <li><a href="#highlight_file"><code>highlight_file</code></a></li>
 <li><a href="#highlight_json"><code>highlight_json</code></a></li>
 <li><a href="#compile_repl"><code>compile_repl</code></a></li>
+<li><a href="#type-Project"><code>type Project</code></a></li>
+<li><a href="#type-Dialect"><code>type Dialect</code></a></li>
+<li><a href="#type-Package"><code>type Package</code></a></li>
+<li><a href="#type-Token"><code>type Token</code></a></li>
+<li><a href="#type-Diagnostic"><code>type Diagnostic</code></a></li>
+<li><a href="#type-Highlight"><code>type Highlight</code></a></li>
+<li><a href="#type-ParseOptions"><code>type ParseOptions</code></a></li>
+<li><a href="#type-Analysis"><code>type Analysis</code></a></li>
+<li><a href="#type-Require"><code>type Require</code></a></li>
 </ul>
 <div class="def" id="explain"><h3><code>compiler.explain</code></h3>
-<p><code>slang run --explain</code> sets compiler.explain; SLANG_EXPLAIN=1 does the same</p>
+<p>Whether the compiler tells on stderr what it does: the project and its extensions, the extensions and rule changes of each unit, the packages. <code>slang run --explain</code> sets it; SLANG_EXPLAIN=1 does the same. It also turns on grammar warnings.</p>
+
 </div>
-<div class="def" id="load_extension"><h3><code>compiler.load_extension(name)</code></h3>
-<p>load_extension(name): runs the extension module <code>name</code> for the grammar being extended. A module file on the search paths is compiled under the root grammar and run once per grammar that loads it; anything else (an embedded or native module) is required.</p>
+<div class="def" id="load_extension"><h3><code>compiler.load_extension(name: string)</code></h3>
+<p>Runs the extension module <code>name</code> for the grammar being extended (see <a href="#grammar"><code>grammar</code></a>), once per grammar: a second load does nothing. A module file on the search paths is compiled with <a href="#load_file"><code>load_file</code></a> and run anew for each grammar that loads it; anything else (an embedded or native module) is required, so it runs once per program.</p>
+
 </div>
-<div class="def" id="grammar"><h3><code>compiler.grammar()</code></h3>
-<p>grammar() -&gt; the grammar an extension extends: the grammar of the unit being parsed, or the root grammar at run time</p>
+<div class="def" id="grammar"><h3><code>compiler.grammar() -> table</code></h3>
+<p>The grammar of the unit being parsed, or the root grammar at run time (see slang/grammar for what it offers).</p>
+<dl class="params"><dt>returns</dt><dd>the grammar an extension extends</dd></dl>
 </div>
 <div class="def" id="reset"><h3><code>compiler.reset()</code></h3>
-<p>reset(): a fresh root grammar, no project</p>
+<p>Starts over: a fresh root grammar, no project, no packages, the default search paths. Raises while a file is being parsed, unless called from an extension statement. Tools that look at many files (slang fmt, slang doc) reset before each, so one file's project never reaches the next.</p>
+
 </div>
-<div class="def" id="parse"><h3><code>compiler.parse(source, origin)</code></h3>
-<p>parse(source, origin) -&gt; AST</p>
+<div class="def" id="parse"><h3><code>compiler.parse(source: string, origin?: string) -> table</code></h3>
+<p>Parses with the grammar of the unit that calls it (the root grammar at run time); extension syntax comes out expanded to core nodes.</p>
+<dl class="params"><dt><code>origin</code></dt><dd>the name in error messages and locations; &quot;string&quot; by default</dd><dt>returns</dt><dd>the AST</dd></dl>
 </div>
-<div class="def" id="generate"><h3><code>compiler.generate(node, origin)</code></h3>
-<p>generate(node, origin) -&gt; prototype table</p>
+<div class="def" id="parse_plain"><h3><code>compiler.parse_plain(source: string, origin?: string) -> table</code></h3>
+<p>Parses source as plain slang, without the project's extensions (what slang's own library modules are written in).</p>
+<dl class="params"><dt>returns</dt><dd>the AST</dd></dl>
 </div>
-<div class="def" id="compile"><h3><code>compiler.compile(code, origin, env)</code></h3>
-<p>compile(code, origin, [env]) -&gt; function; code is source text or an AST table. Source text is parsed with the grammar of the unit that calls compile (an unquote sees the extensions of its file).</p>
-<p>With env (a table) the function's globals are env, not the program's: a sandbox sees only what env holds, and its global assignments stay in env (env.meta = {__index: ...} reads through to other globals). The source then may not run code while it is compiled: unquotes and extension statements are errors, since they would run with the compiler's globals. There are no CPU or memory limits.</p>
+<div class="def" id="generate"><h3><code>compiler.generate(node: table, origin?: string) -> <a href="slang-codegen.html#type-Prototype">codegen.Prototype</a></code></h3>
+<p>Compiles an AST; vm.load_proto turns the result into a function.</p>
+
+</div>
+<div class="def" id="compile"><h3><code>compiler.compile(code: string | table, origin?: string, env?: table) -> function</code></h3>
+<p>Compiles source text or an AST table. Source text is parsed with the grammar of the unit that calls compile (an unquote sees the extensions of its file). Raises on a syntax error. This is the global <code>compile</code>.</p>
+<p>With env the function's globals are env, not the program's: a sandbox sees only what env holds, and its global assignments stay in env (env.meta = {__index: ...} reads through to other globals). The source then may not run code while it is compiled: unquotes and extension statements are errors, since they would run with the compiler's globals. There are no CPU or memory limits.</p>
 <pre><code>local f = compile(&quot;return x * 2&quot;, &quot;calc&quot;, {x: 21})
 f()   // 42</code></pre>
+
+</div>
+<h2>project file</h2>
+<div class="def" id="find_project"><h3><code>compiler.find_project(dir: string) -> string?</code></h3>
+<p>The path of slang.project in dir or the nearest directory above it, or null. A relative dir is taken from the working directory.</p>
+
+</div>
+<div class="def" id="dirname"><h3><code>compiler.dirname(path: string) -> string</code></h3>
+<p>The directory part of a path: &quot;.&quot; when there is none, &quot;/&quot; for a file at the root.</p>
+
+</div>
+<div class="def" id="join_path"><h3><code>compiler.join_path(dir: string, path: string) -> string</code></h3>
+<p>path relative to dir; an absolute path is returned as it is.</p>
+
 </div>
 <h2>packages</h2>
-<div class="def" id="package_root"><h3><code>compiler.package_root()</code></h3>
-<p>package_root() -&gt; where fetched packages live: $SLANG_PKG_DIR, else ~/.slang/pkg (a package is &lt;root&gt;/&lt;name&gt;@&lt;version&gt;)</p>
+<div class="def" id="package_root"><h3><code>compiler.package_root() -> string</code></h3>
+<p>$SLANG_PKG_DIR, else ~/.slang/pkg; a package is &lt;root&gt;/&lt;name&gt;@&lt;version&gt;.</p>
+<dl class="params"><dt>returns</dt><dd>where fetched packages live</dd></dl>
 </div>
-<div class="def" id="package_dir"><h3><code>compiler.package_dir(name, version)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="package_dir"><h3><code>compiler.package_dir(name: string, version: string) -> string</code></h3>
+<p>The directory of a fetched package's version under <a href="#package_root"><code>package_root</code></a>.</p>
+<dl class="params"><dt><code>version</code></dt><dd>as &quot;1.2.3&quot;</dd></dl>
 </div>
-<div class="def" id="read_table_file"><h3><code>compiler.read_table_file(path)</code></h3>
-<p>a slang table literal file (slang.project, slang.lock) as a table</p>
+<div class="def" id="read_table_file"><h3><code>compiler.read_table_file(path: string) -> table</code></h3>
+<p>Reads a file that is a slang table literal (slang.project, slang.lock). Raises when it is not one. It is compiled like any slang, so extensions in effect apply.</p>
+
 </div>
-<div class="def" id="packages"><h3><code>compiler.packages()</code></h3>
-<p>packages() -&gt; the program's packages by name: {name, dir, version, missing}</p>
+<div class="def" id="packages"><h3><code>compiler.packages() -> {[string]: <a href="#type-Package">Package</a>}</code></h3>
+<p>The program's packages by name: those of the loaded project's slang.lock, its dependencies that are not locked yet (missing), and the project itself when it has a name. Empty without a project. The tables are copies.</p>
+
 </div>
-<div class="def" id="load_project"><h3><code>compiler.load_project(path)</code></h3>
-<p>load_project(path): reads a project file and applies it: search paths, dialects and the ambient extensions (loaded into the root grammar)</p>
+<div class="def" id="load_project"><h3><code>compiler.load_project(path: string) -> <a href="#type-Project">Project</a></code></h3>
+<p>Reads a project file and applies it: its packages (from slang.lock), search paths (the project's directory first, then its search_paths, then the defaults), dialects and the ambient extensions, loaded into the root grammar. Raises when a project is already loaded or the file is not a table literal.</p>
+
 </div>
-<div class="def" id="absolute_path"><h3><code>compiler.absolute_path(path)</code></h3>
-<p>absolute_path(path) -&gt; path from the root, without . and .. parts</p>
+<div class="def" id="absolute_path"><h3><code>compiler.absolute_path(path: string) -> string</code></h3>
+<p>path from the root, without . and .. parts; a relative path is taken from the working directory. Symbolic links are not resolved.</p>
+
 </div>
-<div class="def" id="stub_path"><h3><code>compiler.stub_path(name)</code></h3>
-<p>stub_path(name) -&gt; the stub of a module without slang source (a native one, or &quot;globals&quot; for the global functions): a slang file that declares and documents it, never run; null when there is none. A package keeps the stubs of its modules in its stubs/ (&quot;name/a&quot; is &lt;package&gt;/stubs/a.slang, &quot;name&quot; stubs/init.slang): for native modules, and for modules whose fields are made at run time (a binding through slang/ffi), which tools then read instead of the source.</p>
+<div class="def" id="stub_path"><h3><code>compiler.stub_path(name: string) -> string?</code></h3>
+<p>The stub of a module without slang source (a native one, or &quot;globals&quot; for the global functions): a slang file that declares and documents it, never run; null when there is none. A package keeps the stubs of its modules in its stubs/ (&quot;name/a&quot; is &lt;package&gt;/stubs/a.slang, &quot;name&quot; stubs/init.slang): for native modules, and for modules whose fields are made at run time (a binding through slang/ffi), which tools then read instead of the source.</p>
+
 </div>
-<div class="def" id="module_path"><h3><code>compiler.module_path(name)</code></h3>
-<p>module_path(name) -&gt; the absolute path of the source file require(name) would load, its stub when it has no source or is a package module with a stub (see stub_path), or null: on the search paths (the project's first), else one of slang's own library modules (slang/http is http.slang in a librarySources directory)</p>
+<div class="def" id="module_path"><h3><code>compiler.module_path(name: string) -> string?</code></h3>
+<p>The absolute path of the source file require(name) would load, its stub when it has no source or is a package module with a stub (see <a href="#stub_path"><code>stub_path</code></a>), or null. Sources are looked for on the search paths (the project's first), then among slang's own library modules (slang/http is http.slang in a librarySources directory).</p>
+
 </div>
-<div class="def" id="project"><h3><code>compiler.project()</code></h3>
-<p>project() -&gt; the project in effect, or null</p>
+<div class="def" id="project"><h3><code>compiler.project() -> <a href="#type-Project">Project</a>?</code></h3>
+<dl class="params"><dt>returns</dt><dd>the program's project in effect, or null</dd></dl>
+</div>
+<div class="def" id="keywords"><h3><code>compiler.keywords(path: string) -> {string}</code></h3>
+<p>The words the grammar of a file at path reserves (its project's and dialect's extensions included), sorted. For a compile dialect, the root grammar's.</p>
+
 </div>
 <h2>bytecode cache</h2>
-<div class="def" id="load_file"><h3><code>compiler.load_file(path, origin)</code></h3>
-<p>load_file(path, origin) -&gt; function. A file is always compiled under the root grammar (or the grammar of its dialect): a module means the same wherever it is loaded from.</p>
+<div class="def" id="cache_root"><h3><code>compiler.cache_root() -> string?</code></h3>
+<p>$SLANG_CACHE_DIR, else ~/.cache/slang; null when neither that nor HOME is set.</p>
+<dl class="params"><dt>returns</dt><dd>where slang caches what it builds</dd></dl>
 </div>
-<div class="def" id="load_main"><h3><code>compiler.load_main(path)</code></h3>
-<p>load_main(path) -&gt; function: loads the main file of a program. The project file is looked up from the file's directory upwards the first time, and the file may use <code>extension global</code>.</p>
+<div class="def" id="load_file"><h3><code>compiler.load_file(path: string, origin?: string) -> function</code></h3>
+<p>Compiles a file as require and <code>slang run</code> do, through the bytecode cache. A file is compiled under its project's grammar (a package's for a file of a package) or that of its dialect, never the grammar of the file that loads it: a module means the same wherever it is loaded from. A file of a compile dialect is handed to the dialect's compile function.</p>
+<dl class="params"><dt><code>origin</code></dt><dd>the name in error messages and locations; path by default</dd></dl>
+</div>
+<div class="def" id="load_main"><h3><code>compiler.load_main(path: string) -> function</code></h3>
+<p>Loads the main file of a program like <a href="#load_file"><code>load_file</code></a>. The project file is looked up from the file's directory upwards the first time, and the file may use <code>extension global</code>.</p>
+
 </div>
 <h2>highlighting</h2>
-<div class="def" id="highlight"><h3><code>compiler.highlight(source, path, options)</code></h3>
-<p>highlight(source, path, {find_project, symbols}) -&gt; {tokens, diagnostics, symbols}: the tokens of source as the compiler would parse the file at path (its project, its dialect), with categories and 1-based line/column, and the parse errors as {line, column, message, severity}. Extension code runs as it would in the compiler; nothing is compiled or cached. A file of a dialect with a compile function has no tokens. The tokens are read off the lossless tree (peg.highlights); a statement that fails to parse is reported and highlighted by its words, and the parse goes on after it. With symbols, the same parse also gives the file's definitions and uses (see slang/symbols; not for a project file).</p>
+<div class="def" id="highlight"><h3><code>compiler.highlight(source: string, path: string, options?: <a href="#type-ParseOptions">ParseOptions</a>) -> <a href="#type-Highlight">Highlight</a></code></h3>
+<p>The tokens of source as the compiler would parse the file at path (its project, its dialect), and its parse errors. Extension code runs as it would in the compiler; nothing is compiled or cached. A file of a dialect with a compile function has no tokens. The tokens are read off the lossless tree (peg.highlights); a statement that fails to parse is reported and highlighted by its words, and the parse goes on after it. A slang.project gets no symbols.</p>
+
 </div>
-<div class="def" id="compile_file"><h3><code>compiler.compile_file(path, origin)</code></h3>
-<p>compile_file(path, origin) -&gt; function: compiles a file as <code>slang run</code> would (its project, its dialect), without the bytecode cache; what <code>slang compile</code> and <code>slang disasm</code> use</p>
+<div class="def" id="compile_file"><h3><code>compiler.compile_file(path: string, origin?: string) -> function</code></h3>
+<p>Compiles a file as <code>slang run</code> would (its project, its dialect), without the bytecode cache; what <code>slang compile</code> and <code>slang disasm</code> use. Looks the file's project up while none is loaded.</p>
+
 </div>
-<div class="def" id="expand"><h3><code>compiler.expand(source, path, options)</code></h3>
-<p>expand(source, path) -&gt; slang source: the file after its extensions have been applied (parsed like load_file would, then printed from the core AST; unquotes are executed, extension statements are gone, constants folded). A file of a compile dialect is returned as is.</p>
+<div class="def" id="analyze_file"><h3><code>compiler.analyze_file(path: string, origin?: string, main?: bool) -> <a href="#type-Analysis">Analysis</a></code></h3>
+<p>Compiles a file like <a href="#compile_file"><code>compile_file</code></a> and tells the modules it requires, as the code is after its extensions ran. What <code>slang build</code> follows.</p>
+<dl class="params"><dt><code>main</code></dt><dd>the file is a program's main file (it may use <code>extension global</code>)</dd></dl>
 </div>
-<div class="def" id="tree"><h3><code>compiler.tree(source, path, options)</code></h3>
-<p>tree(source, path, {find_project}) -&gt; the lossless tree of source as the compiler parses the file at path (its project, its dialect; see slang/peg: joining its leaves gives source back), or null for a file of a compile dialect. Extension code runs as it would in the compiler. tree.ast is the file's AST.</p>
+<div class="def" id="expand"><h3><code>compiler.expand(source: string, path: string, options?: <a href="#type-ParseOptions">ParseOptions</a>) -> string</code></h3>
+<p>The file as slang source after its extensions have been applied: parsed like <a href="#load_file"><code>load_file</code></a> would, then printed from the core AST (unquotes are executed, extension statements are gone, constants folded). A file of a compile dialect is returned as it is. Raises when it does not parse.</p>
+
 </div>
-<div class="def" id="expand_file"><h3><code>compiler.expand_file(path)</code></h3>
-<p>expand_file(path) -&gt; expand(...) for a file, with its project</p>
+<div class="def" id="tree"><h3><code>compiler.tree(source: string, path: string, options?: <a href="#type-ParseOptions">ParseOptions</a>) -> table?</code></h3>
+<p>The lossless tree of source as the compiler parses the file at path (its project, its dialect; see slang/peg: joining its leaves gives source back), or null for a file of a compile dialect. Extension code runs as it would in the compiler. The tree's ast field is the file's AST. Raises when it does not parse. What the formatter works on.</p>
+
 </div>
-<div class="def" id="highlight_file"><h3><code>compiler.highlight_file(path)</code></h3>
-<p>highlight_file(path) -&gt; the same for a file, looking up its project like load_main does</p>
+<div class="def" id="expand_file"><h3><code>compiler.expand_file(path: string) -> string</code></h3>
+<p><a href="#expand"><code>expand</code></a> for a file, looking up its project (<code>slang expand</code>).</p>
+
 </div>
-<div class="def" id="highlight_json"><h3><code>compiler.highlight_json(path)</code></h3>
-<p>highlight_json(path) -&gt; highlight_file(path) as JSON text (<code>slang highlight</code>)</p>
+<div class="def" id="highlight_file"><h3><code>compiler.highlight_file(path: string) -> <a href="#type-Highlight">Highlight</a></code></h3>
+<p><a href="#highlight"><code>highlight</code></a> for a file, without symbols, looking up its project the first time like <a href="#load_main"><code>load_main</code></a> does.</p>
+
 </div>
-<div class="def" id="compile_repl"><h3><code>compiler.compile_repl(source)</code></h3>
-<p>compile_repl(source) -&gt; function returning the value of an expression or null</p>
+<div class="def" id="highlight_json"><h3><code>compiler.highlight_json(path: string) -> string</code></h3>
+<p><a href="#highlight_file"><code>highlight_file</code></a> as JSON text, {tokens, diagnostics} (<code>slang highlight</code>); the tokens without stop.</p>
+
 </div>
+<div class="def" id="compile_repl"><h3><code>compiler.compile_repl(source: string) -> function</code></h3>
+<p>Compiles a line of the REPL with the root grammar: a chunk, or else an expression, whose function returns its value. Extension statements are not scoped: they stay in effect for the lines after.</p>
+
+</div>
+<h2 id="type-Project">type Project</h2>
+<pre><code>type Project = {path: string, dir: string, source: string, extensions: {string}, dialects: {[string]: <a href="#type-Dialect">Dialect</a>}, warnings?: bool | {[string]: bool}, key: string, grammar: table, dialect_grammars: {[string]: table}, package?: string}</code></pre>
+<p>A project file as the compiler applies it: the program's (from <a href="#load_project"><code>load_project</code></a>) or a package's.</p>
+<dl class="params"><dt><code>path: string</code></dt><dd>the project file</dd><dt><code>dir: string</code></dt><dd>the directory that holds it</dd><dt><code>source: string</code></dt><dd>the file's text</dd><dt><code>extensions: {string}</code></dt><dd>the ambient extensions, loaded into every file in order</dd><dt><code>dialects: {[string]: <a href="#type-Dialect">Dialect</a>}</code></dt><dd>by file suffix (&quot;.json&quot;)</dd><dt><code>warnings?: bool | {[string]: bool}</code></dt><dd>false turns grammar warnings off, a table per extension</dd><dt><code>key: string</code></dt><dd>the project file and its extensions' sources, for cache keys</dd><dt><code>grammar: table</code></dt><dd>the grammar files of the project compile with</dd><dt><code>dialect_grammars: {[string]: table}</code></dt><dd>the grammars made so far for dialects, by suffix</dd><dt><code>package?: string</code></dt><dd>the package's name, for a package's project</dd></dl>
+<h2 id="type-Dialect">type Dialect</h2>
+<pre><code>type Dialect = {compile?: string, extensions?: {string}}</code></pre>
+<p>A dialect of a project: files with its suffix compile differently. With compile the file is not slang at all.</p>
+<dl class="params"><dt><code>compile?: string</code></dt><dd>a module whose compile(source, origin) makes the file's function</dd><dt><code>extensions?: {string}</code></dt><dd>extensions loaded on top of the project's for these files</dd></dl>
+<h2 id="type-Package">type Package</h2>
+<pre><code>type Package = {name: string, dir?: string, version?: string, missing: bool}</code></pre>
+<p>A package of the program, as slang.lock and slang.project give it.</p>
+<dl class="params"><dt><code>name: string</code></dt><dd></dd><dt><code>dir?: string</code></dt><dd>absolute; the project's own directory for the project itself</dd><dt><code>version?: string</code></dt><dd>from slang.lock; null for a path dependency or the project</dd><dt><code>missing: bool</code></dt><dd>a dependency not fetched yet (<code>slang get</code> fetches it)</dd></dl>
+<h2 id="type-Token">type Token</h2>
+<pre><code>type Token = {category: string, start: int, stop: int, line: int, column: int, length: int}</code></pre>
+<p>A highlighted span of source.</p>
+<dl class="params"><dt><code>category: string</code></dt><dd>what the span is: &quot;keyword&quot;, &quot;string&quot;, &quot;comment&quot;, ...</dd><dt><code>start: int</code></dt><dd>byte offset; stop is past the end</dd><dt><code>stop: int</code></dt><dd></dd><dt><code>line: int</code></dt><dd>1-based, like column</dd><dt><code>column: int</code></dt><dd></dd><dt><code>length: int</code></dt><dd>in bytes</dd></dl>
+<h2 id="type-Diagnostic">type Diagnostic</h2>
+<pre><code>type Diagnostic = {line: int, column: int, message: string, severity: string}</code></pre>
+<p>A problem found in a file.</p>
+<dl class="params"><dt><code>line: int</code></dt><dd>1-based, like column</dd><dt><code>column: int</code></dt><dd></dd><dt><code>message: string</code></dt><dd></dd><dt><code>severity: string</code></dt><dd>&quot;error&quot; (the parser reports nothing else)</dd></dl>
+<h2 id="type-Highlight">type Highlight</h2>
+<pre><code>type Highlight = {tokens: {<a href="#type-Token">Token</a>}, diagnostics: {<a href="#type-Diagnostic">Diagnostic</a>}, symbols?: <a href="slang-symbols.html#type-Index">symbols.Index</a>, ast?: table}</code></pre>
+<p>What <a href="#highlight"><code>highlight</code></a> tells about a file.</p>
+<dl class="params"><dt><code>tokens: {<a href="#type-Token">Token</a>}</code></dt><dd>in source order, not overlapping</dd><dt><code>diagnostics: {<a href="#type-Diagnostic">Diagnostic</a>}</code></dt><dd></dd><dt><code>symbols?: <a href="slang-symbols.html#type-Index">symbols.Index</a></code></dt><dd>its definitions and uses, when asked for and the file parsed</dd><dt><code>ast?: table</code></dt><dd>its (expanded) AST, along with symbols</dd></dl>
+<h2 id="type-ParseOptions">type ParseOptions</h2>
+<pre><code>type ParseOptions = {find_project?: bool, symbols?: bool}</code></pre>
+<p>What <a href="#highlight"><code>highlight</code></a> and the other tree functions take.</p>
+<dl class="params"><dt><code>find_project?: bool</code></dt><dd>look up the file's project while none is loaded</dd><dt><code>symbols?: bool</code></dt><dd>also analyse the names (highlight only)</dd></dl>
+<h2 id="type-Analysis">type Analysis</h2>
+<pre><code>type Analysis = {function: function, requires?: {<a href="#type-Require">Require</a>}, computed: {int}}</code></pre>
+<p>What <a href="#analyze_file"><code>analyze_file</code></a> finds in a file.</p>
+<dl class="params"><dt><code>function: function</code></dt><dd>the compiled file</dd><dt><code>requires?: {<a href="#type-Require">Require</a>}</code></dt><dd>null for a file of a compile dialect (it cannot be looked into)</dd><dt><code>computed: {int}</code></dt><dd>the lines of requires with a computed name</dd></dl>
+<h2 id="type-Require">type Require</h2>
+<pre><code>type Require = {name: string, line: int}</code></pre>
+<p>A require of a module by name, and the line it is on.</p>
+<dl class="params"><dt><code>name: string</code></dt><dd></dd><dt><code>line: int</code></dt><dd></dd></dl>
 <p class="muted">slang/compiler/compiler.slang</p>
 </body>
 </html>

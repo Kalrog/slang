@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>slang/build</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>slang/build</h1>
+<p>slang/build: <code>slang build</code>, a program as one executable that runs without slang installed.</p>
+<pre><code>slang build [--dir] [-o out] [--list] [--strip] [file.slang]</code></pre>
+<p>The executable is a copy of the slang runtime with the program appended: its modules as bytecode (found by following require from the main file, packages included) and its asset files, signed ad hoc on macOS. Nothing is compiled from C. When the program needs native extensions (slang/web needs uv and llhttp, for instance), the runtime is first linked from slang's static archives (lib/static: libslang.a and the extensions) with cc or zig cc, once per set of extensions. A package's prebuilt extension cannot be linked: such a program is built with --dir, a directory with the executable, its extensions in lib/ and its assets next to it, as they were.</p>
+<p>slang.project can say more (paths are relative to the project):</p>
+<pre><code>build: {
+  main: &quot;app.slang&quot;,            // what `slang build` alone builds
+                                // (default: main.slang)
+  name: &quot;app&quot;,                  // the executable (default: the
+                                // project's name, else the main file's)
+  output: &quot;bin/app&quot;,            // where it goes (-o; --dir: dist/&lt;name&gt;)
+  modules: {&quot;plugins/a&quot;},       // modules required by a computed name
+  assets: {&quot;static&quot;, &quot;data/words.txt&quot;},   // files or directories
+  compress: true,               // gzip assets where it saves 10% (true:
+                                // all but images, video, archives...;
+                                // or a list of paths)
+  strip: false,                 // drop line information from bytecode
+  codesign: &quot;Developer ID Application: ...&quot;,   // macOS: sign with
+                                // codesign (&quot;-&quot;: ad hoc; default: ad
+                                // hoc, by slang itself)
+  linker: &quot;zig cc&quot;,             // default: cc, else zig cc
+}</code></pre>
+<p>Bundled assets keep their project-relative paths: the program reads them with slang/os as before (relative paths find bundled files first) and app:static serves them, gzipped ones as they are stored.</p>
+<ul class="toc">
+<li><a href="#main"><code>main</code></a></li>
+</ul>
+<h2>command</h2>
+<div class="def" id="main"><h3><code>build.main(arguments: {string}) -> int</code></h3>
+<p><code>slang build</code> with its arguments (see the usage above): builds the executable, or with --list prints what would go into it. Errors are reported on stderr (exit code 1); bad arguments print the usage (2).</p>
+<dl class="params"><dt>returns</dt><dd>the exit code</dd></dl>
+</div>
+<p class="muted">slang/compiler/build.slang</p>
+</body>
+</html>

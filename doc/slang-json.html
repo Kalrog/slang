@@ -29,33 +29,50 @@ ul.toc { columns: 2; padding-left: 1.2rem; }
 @media (max-width: 40rem) { ul.toc { columns: 1; } }
 dt { margin-top: 0.75rem; }
 dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
 </style>
 </head>
 <body>
 <nav><a href="index.html">index</a></nav>
 <h1>slang/json</h1>
 <p>slang/json: encode and decode JSON.</p>
-<p>decode(text, origin) -&gt; value: objects become tables with string keys, arrays become lists, null stays null (so a null member is an absent key). encode(value, options) -&gt; text: tables whose keys are 0..n-1 (or marked with json.array) become arrays, other tables objects with string keys; {indent: &quot;  &quot;} pretty-prints. Functions and other values are errors. json.null encodes as null where a value must be present (a table member set to null is absent): {result: json.null} -&gt; {&quot;result&quot;:null}.</p>
+<pre><code>local json = require(&quot;slang/json&quot;)
+local v = json.decode(&quot;{\&quot;name\&quot;: \&quot;slang\&quot;, \&quot;tags\&quot;: [1, 2]}&quot;)
+print(v.name, &quot; &quot;, v.tags[1], &quot;\n&quot;)                // slang 2
+print(json.encode({ok: true, items: {1, 2}}), &quot;\n&quot;) // {&quot;ok&quot;:true,&quot;items&quot;:[1,2]}</code></pre>
+<p>How values map: JSON objects are tables with string keys, arrays are lists, numbers are ints when they have no fraction or exponent, else doubles. JSON null is slang null, so a member that is null in the text is simply absent from its table. When encoding, a table whose keys are 0..n-1 (or one marked with <a href="#array"><code>array</code></a>) is an array, any other table an object, which must have only string keys. An empty table encodes as {} unless marked with <a href="#array"><code>array</code></a>. Use <a href="#null"><code>null</code></a> for a member that must be there as null: {result: json.null} encodes as {&quot;result&quot;:null}. Functions, NaN and the infinities cannot be encoded and raise an error.</p>
 <ul class="toc">
 <li><a href="#decode"><code>decode</code></a></li>
 <li><a href="#null"><code>null</code></a></li>
 <li><a href="#array"><code>array</code></a></li>
 <li><a href="#encode"><code>encode</code></a></li>
+<li><a href="#type-EncodeOptions"><code>type EncodeOptions</code></a></li>
 </ul>
 <h2>decoding</h2>
-<div class="def" id="decode"><h3><code>json.decode(text, origin)</code></h3>
-<p>decode(text, origin) -&gt; value (raises on malformed input)</p>
+<div class="def" id="decode"><h3><code>json.decode(text: string, origin?: string) -> any</code></h3>
+<p>The value of the JSON text. Raises &quot;invalid JSON in &lt;origin&gt; at line:col: ...&quot; on malformed input. Decoded arrays carry the <a href="#array"><code>array</code></a> mark, so they encode as arrays again even when empty.</p>
+<dl class="params"><dt><code>origin</code></dt><dd>names the text in error messages (&quot;string&quot; by default)</dd></dl>
 </div>
 <h2>encoding</h2>
 <div class="def" id="null"><h3><code>json.null</code></h3>
-<p>null: a value that encodes as null, for members that must be there</p>
+<p>A value that encodes as null, for a member that must be present (a member set to slang null is left out). type() of it is &quot;json.null&quot;.</p>
+
 </div>
-<div class="def" id="array"><h3><code>json.array(t)</code></h3>
-<p>array(t) -&gt; t, marked so that it encodes as a JSON array even when empty</p>
+<div class="def" id="array"><h3><code>json.array(t: table) -> table</code></h3>
+<p>Marks t (setting its metatable) so that it encodes as a JSON array even when empty, and returns it.</p>
+<pre><code>json.encode({items: json.array({})})   // {&quot;items&quot;:[]}</code></pre>
+
 </div>
-<div class="def" id="encode"><h3><code>json.encode(v, options)</code></h3>
-<p>encode(value, {indent}) -&gt; JSON text</p>
+<div class="def" id="encode"><h3><code>json.encode(value, options?: <a href="#type-EncodeOptions">EncodeOptions</a>) -> string</code></h3>
+<p>The JSON text of value; see the module doc for how values map. Object members come in the table's key order.</p>
+<pre><code>json.encode({a: 1}, {indent: &quot;  &quot;})   // &quot;{\n  \&quot;a\&quot;: 1\n}&quot;</code></pre>
+
 </div>
+<h2 id="type-EncodeOptions">type EncodeOptions</h2>
+<pre><code>type EncodeOptions = {indent?: string}</code></pre>
+<p>How <a href="#encode"><code>encode</code></a> writes.</p>
+<dl class="params"><dt><code>indent?: string</code></dt><dd>pretty-prints, with this string per level of nesting</dd></dl>
 <p class="muted">slang/lib/json.slang</p>
 </body>
 </html>

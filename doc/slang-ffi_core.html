@@ -29,26 +29,40 @@ ul.toc { columns: 2; padding-left: 1.2rem; }
 @media (max-width: 40rem) { ul.toc { columns: 1; } }
 dt { margin-top: 0.75rem; }
 dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
 </style>
 </head>
 <body>
 <nav><a href="index.html">index</a></nav>
 <h1>slang/ffi_core</h1>
-<p>slang/ffi_core: calls to C through libffi, the native part of slang/ffi (which most code uses instead). Types and memory are slang/ctypes'. Builds made with -Dffi=false do not have it.</p>
+<p>slang/ffi_core: calls to C through libffi, the native part of slang/ffi (which most code uses instead: it reads C declarations and makes these calls for you). Types, pointers and conversions are slang/ctypes'. Builds made with -Dffi=false do not have it.</p>
+<pre><code>local core = __PACKAGES.preloaded[&quot;slang/ffi_core&quot;][1]
+local ct = __PACKAGES.preloaded[&quot;slang/ctypes&quot;][1]
+local libc = core.open(null)
+local int = ct.primitive(&quot;int32&quot;)
+local abs = core.func(core.symbol(libc, &quot;abs&quot;), int, {int}, &quot;abs&quot;)
+abs(-3)                                // 3</code></pre>
 <ul class="toc">
 <li><a href="#open"><code>open</code></a></li>
 <li><a href="#symbol"><code>symbol</code></a></li>
 <li><a href="#func"><code>func</code></a></li>
+<li><a href="#type-Library"><code>type Library</code></a></li>
 </ul>
-<div class="def" id="open"><h3><code>m.open(path)</code></h3>
-<p>open(path) -&gt; a library (dlopen), or {null, message}; null is the program itself</p>
+<div class="def" id="open"><h3><code>ffi_core.open(path: string?) -> <a href="#type-Library">Library</a> | {any}</code></h3>
+<p>Opens a shared library (dlopen); on failure {null, message} with dlerror's message.</p>
+<dl class="params"><dt><code>path</code></dt><dd>null opens the program itself</dd></dl>
 </div>
-<div class="def" id="symbol"><h3><code>m.symbol(library, name)</code></h3>
-<p>symbol(library, name) -&gt; a pointer to the symbol, or null</p>
+<div class="def" id="symbol"><h3><code>ffi_core.symbol(library: <a href="#type-Library">Library</a>, name: string) -> any</code></h3>
+<p>A void pointer (a slang/ctypes pointer) to the symbol, or null when the library has none of that name.</p>
+
 </div>
-<div class="def" id="func"><h3><code>m.func(symbol, ret, args, name, writeback, variadic)</code></h3>
-<p>func(symbol, ret, args, name, [writeback], [variadic]) -&gt; a function calling the C function at symbol: args is the list of parameter types, writeback marks the pointer parameters whose tables get the memory back after the call, variadic allows extra arguments (C's promotions)</p>
+<div class="def" id="func"><h3><code>ffi_core.func(symbol, ret, args: {any}, name: string, writeback?: {bool}, variadic?: bool) -> function</code></h3>
+<p>A slang function calling the C function at symbol with that signature. Raises when a type cannot be passed (void, an array, an opaque struct). Writeback is how out parameters work: a table given for such a pointer is filled from the memory after the call. Variadic arguments go as C promotes them: an int as int32 or int64, a float as double.</p>
+<dl class="params"><dt><code>ret</code></dt><dd>the return type (a slang/ctypes type; void for none)</dd><dt><code>args</code></dt><dd>the parameter types, in order</dd><dt><code>name</code></dt><dd>what errors call the function</dd><dt><code>writeback</code></dt><dd>per parameter, whether a table given for it gets the memory back</dd><dt><code>variadic</code></dt><dd>extra arguments are allowed, passed with C's promotions</dd></dl>
 </div>
+<h2 id="type-Library">type Library</h2>
+<p>A shared library opened with dlopen.</p>
 <p class="muted">slang/stubs/slang/ffi_core.slang</p>
 </body>
 </html>

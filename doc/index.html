@@ -29,48 +29,53 @@ ul.toc { columns: 2; padding-left: 1.2rem; }
 @media (max-width: 40rem) { ul.toc { columns: 1; } }
 dt { margin-top: 0.75rem; }
 dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
 </style>
 </head>
 <body>
 <h1>slang's library</h1>
 <dl>
 <dt><a href="crypto.html"><code>crypto</code></a></dt><dd>crypto: the native binding of the parts of OpenSSL 3 (libcrypto) that web applications need.</dd>
-<dt><a href="globals.html"><code>globals</code></a></dt><dd>globals: the functions every slang program has, built into the VM.</dd>
+<dt><a href="globals.html"><code>globals</code></a></dt><dd>globals: the functions every slang program has without a require, built into the VM.</dd>
 <dt><a href="llhttp.html"><code>llhttp</code></a></dt><dd>llhttp: the native binding of llhttp, the HTTP/1 parser of Node.js.</dd>
-<dt><a href="slang-ast.html"><code>slang/ast</code></a></dt><dd>slang/ast: helpers for AST nodes.</dd>
+<dt><a href="slang-ast.html"><code>slang/ast</code></a></dt><dd>slang/ast: building, checking and printing the syntax tree that the parser produces, quotes (+{...}) build and extensions return.</dd>
 <dt><a href="slang-async.html"><code>slang/async</code></a></dt><dd>slang/async: Futures, Streams and await on coroutines, driven by the uv event loop (the native <code>uv</code> module).</dd>
 <dt><a href="slang-buffer.html"><code>slang/buffer</code></a></dt><dd>slang/buffer: typed memory.</dd>
-<dt><a href="slang-codegen.html"><code>slang/codegen</code></a></dt><dd>slang/codegen: compiles AST nodes into function prototypes.</dd>
+<dt><a href="slang-build.html"><code>slang/build</code></a></dt><dd>slang/build: <code>slang build</code>, a program as one executable that runs without slang installed.</dd>
+<dt><a href="slang-bundle.html"><code>slang/bundle</code></a></dt><dd>slang/bundle: the files of a program built by <code>slang build</code>, built into the VM.</dd>
+<dt><a href="slang-bundle_tool.html"><code>slang/bundle_tool</code></a></dt><dd>slang/bundle_tool: how <code>slang build</code> (slang/build) writes executables, built into the VM.</dd>
+<dt><a href="slang-codegen.html"><code>slang/codegen</code></a></dt><dd>slang/codegen: compiles AST nodes into function prototypes, tables that slang/vm's load_proto turns into functions.</dd>
 <dt><a href="slang-compiler.html"><code>slang/compiler</code></a></dt><dd>slang/compiler: the compiler driver.</dd>
 <dt><a href="slang-crypto.html"><code>slang/crypto</code></a></dt><dd>slang/crypto: the crypto native extension (OpenSSL) plus what web code builds from it: password hashes, random tokens, signed and sealed values.</dd>
-<dt><a href="slang-ctypes.html"><code>slang/ctypes</code></a></dt><dd>slang/ctypes: C types and C memory, in every build: the native part of slang/ffi and slang/buffer, which most code uses instead.</dd>
+<dt><a href="slang-ctypes.html"><code>slang/ctypes</code></a></dt><dd>slang/ctypes: C types and C memory, in every build: the native part of slang/ffi and slang/buffer, which most code uses instead (they take the names of C types where this module takes type values).</dd>
 <dt><a href="slang-doc.html"><code>slang/doc</code></a></dt><dd>slang/doc: API documentation from the comments the code already has, as HTML: <code>slang doc [-o dir] [file|dir...]</code>.</dd>
-<dt><a href="slang-encoding.html"><code>slang/encoding</code></a></dt><dd>slang/encoding: the byte encodings web code needs, built into the VM.</dd>
+<dt><a href="slang-encoding.html"><code>slang/encoding</code></a></dt><dd>slang/encoding: the byte encodings web code needs (base64, hex, percent-encoding, query strings) and checksums, built into the VM.</dd>
 <dt><a href="slang-ffi.html"><code>slang/ffi</code></a></dt><dd>slang/ffi: calling C libraries without writing C.</dd>
-<dt><a href="slang-ffi_core.html"><code>slang/ffi_core</code></a></dt><dd>slang/ffi_core: calls to C through libffi, the native part of slang/ffi (which most code uses instead).</dd>
+<dt><a href="slang-ffi_core.html"><code>slang/ffi_core</code></a></dt><dd>slang/ffi_core: calls to C through libffi, the native part of slang/ffi (which most code uses instead: it reads C declarations and makes these calls for you).</dd>
 <dt><a href="slang-format.html"><code>slang/format</code></a></dt><dd>slang/format: the formatter (<code>slang fmt</code>).</dd>
 <dt><a href="slang-grammar.html"><code>slang/grammar</code></a></dt><dd>slang/grammar: the slang grammar, built with slang/peg on top of a rule registry that lets programs extend and modify the parser at compile time.</dd>
-<dt><a href="slang-html.html"><code>slang/html</code></a></dt><dd>slang/html: HTML nodes that render to a string; the runtime behind the JSX-like templates of extensions/html, and usable on its own.</dd>
+<dt><a href="slang-html.html"><code>slang/html</code></a></dt><dd>slang/html: HTML nodes that render to a string.</dd>
 <dt><a href="slang-http.html"><code>slang/http</code></a></dt><dd>slang/http: an HTTP/1.1 server and client on slang/async, parsing with llhttp (the llhttp native extension) and compressing with zlib.</dd>
 <dt><a href="slang-json.html"><code>slang/json</code></a></dt><dd>slang/json: encode and decode JSON.</dd>
 <dt><a href="slang-jwt.html"><code>slang/jwt</code></a></dt><dd>slang/jwt: JSON Web Tokens (RFC 7519) over slang/crypto.</dd>
-<dt><a href="slang-math.html"><code>slang/math</code></a></dt><dd>slang/math: numeric functions, built into the VM.</dd>
-<dt><a href="slang-optimizer.html"><code>slang/optimizer</code></a></dt><dd>slang/optimizer: constant folding on the AST (applied to parsed chunks).</dd>
+<dt><a href="slang-math.html"><code>slang/math</code></a></dt><dd>slang/math: numeric functions and constants, built into the VM.</dd>
+<dt><a href="slang-optimizer.html"><code>slang/optimizer</code></a></dt><dd>slang/optimizer: constant folding on the AST, applied by the grammar to every parsed chunk.</dd>
 <dt><a href="slang-os.html"><code>slang/os</code></a></dt><dd>slang/os: files, the process and its environment, built into the VM.</dd>
-<dt><a href="slang-peg.html"><code>slang/peg</code></a></dt><dd>slang/peg: parser combinators in the style of petitparser.</dd>
+<dt><a href="slang-peg.html"><code>slang/peg</code></a></dt><dd>slang/peg: parser combinators in the style of petitparser (PEG: ordered choice, no ambiguity), the expression walker extensions add operators with, and the lossless tree that highlighting and formatting read.</dd>
 <dt><a href="slang-pkg.html"><code>slang/pkg</code></a></dt><dd>slang/pkg: packages: <code>slang get</code>, <code>slang update [name...]</code>, <code>slang deps</code>.</dd>
 <dt><a href="slang-sqlite.html"><code>slang/sqlite</code></a></dt><dd>slang/sqlite: SQLite with an API that reads well, on the native <code>sqlite</code> extension.</dd>
-<dt><a href="slang-std.html"><code>slang/std</code></a></dt><dd>slang/std: global helpers written in slang.</dd>
+<dt><a href="slang-std.html"><code>slang/std</code></a></dt><dd>slang/std: global functions written in slang: module, run and the matcher protocol behind 'm patterns.</dd>
 <dt><a href="slang-string.html"><code>slang/string</code></a></dt><dd>slang/string: string functions, built into the VM.</dd>
 <dt><a href="slang-symbols.html"><code>slang/symbols</code></a></dt><dd>slang/symbols: what a file defines and uses, for the language server (hover, go to definition, references) and slang doc.</dd>
-<dt><a href="slang-table.html"><code>slang/table</code></a></dt><dd>slang/table: table helpers.</dd>
-<dt><a href="slang-test.html"><code>slang/test</code></a></dt><dd>slang/test: a small test framework.</dd>
+<dt><a href="slang-table.html"><code>slang/table</code></a></dt><dd>slang/table: small helpers over tables: membership, map, filter, fold.</dd>
+<dt><a href="slang-test.html"><code>slang/test</code></a></dt><dd>slang/test: a small test framework: groups of named tests, set up and torn down, run by <code>slang test</code>.</dd>
 <dt><a href="slang-thread.html"><code>slang/thread</code></a></dt><dd>slang/thread: cooperative coroutines, built into the VM.</dd>
 <dt><a href="slang-time.html"><code>slang/time</code></a></dt><dd>slang/time: wall-clock time as seconds since the Unix epoch, in UTC, built into the VM.</dd>
 <dt><a href="slang-tls.html"><code>slang/tls</code></a></dt><dd>slang/tls: TLS on libuv TCP, with the tls native extension (OpenSSL).</dd>
 <dt><a href="slang-web.html"><code>slang/web</code></a></dt><dd>slang/web: the application layer on slang/http: routes, middleware, request helpers, responses, static files, sessions, CSRF protection, WebSocket routes and a test client.</dd>
 <dt><a href="slang-webview.html"><code>slang/webview</code></a></dt><dd>slang/webview: desktop windows whose content is a web page and whose logic is slang (macOS, WKWebView), in the style of Wails.</dd>
-<dt><a href="slang-ws.html"><code>slang/ws</code></a></dt><dd>slang/ws: WebSockets (RFC 6455) on slang/async.</dd>
+<dt><a href="slang-ws.html"><code>slang/ws</code></a></dt><dd>slang/ws: WebSockets (RFC 6455) on slang/async, both sides.</dd>
 <dt><a href="sqlite.html"><code>sqlite</code></a></dt><dd>sqlite: the native binding of SQLite, as thin as it is useful.</dd>
 <dt><a href="tls.html"><code>tls</code></a></dt><dd>tls: the native binding of OpenSSL 3's TLS (libssl) as an engine on memory buffers.</dd>
 <dt><a href="uv.html"><code>uv</code></a></dt><dd>uv: the native binding of libuv in the callback style of luv.</dd>

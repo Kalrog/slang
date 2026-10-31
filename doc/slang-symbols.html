@@ -29,65 +29,129 @@ ul.toc { columns: 2; padding-left: 1.2rem; }
 @media (max-width: 40rem) { ul.toc { columns: 1; } }
 dt { margin-top: 0.75rem; }
 dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
 </style>
 </head>
 <body>
 <nav><a href="index.html">index</a></nav>
 <h1>slang/symbols</h1>
 <p>slang/symbols: what a file defines and uses, for the language server (hover, go to definition, references) and slang doc.</p>
-<pre><code>local index = symbols.analyse(block, source, origin)</code></pre>
-<p>block is the file's parsed (expanded) AST; codegen resolves its names as it would compile them (see codegen.generate's record option), so scoping is exactly the compiler's, extensions included. Names an extension made up have no place in the source and are left out.</p>
-<p>index:</p>
-<pre><code>defs     the definitions, in source order: {name, kind, start, stop,
-         statement, value, doc, params, owner, module, fields}
-         kind &quot;local&quot;, &quot;parameter&quot;, &quot;global&quot; or &quot;field&quot;; start and stop
-         are byte offsets of the name; doc the comment above it; params
-         the parameter names when the value is a function; owner (of a
-         field) the definition it belongs to, or {global: name}; module
-         the name given to require when the value is require(&quot;name&quot;);
-         fields (of a table) {name: field definition}
-refs     the uses: {name, start, stop, def, write, owner, invoke}; def
-         is the definition the name resolved to (null for a global or a
-         field not found in the file); owner as for fields; invoke when
-         the field is called as a method (o:name())
-globals  {name: the first definition of a global in the file}
-by_start {offset: the def or ref whose name starts there}
-exports  {name: definition}: the fields of the table the file returns
-module_doc the comment block that starts the file
-sections the section dividers: {title, start}
-
-symbols.at(index, pos) -&gt; the def or ref whose name covers pos
-symbols.signature(def) -&gt; &quot;http.fetch(url, options)&quot; and the like
-symbols.doc_above(source, pos) -&gt; the comment block just above the line
-  of pos (no blank line between), as text, or null
-symbols.doc_blocks(text) -&gt; the doc as a list of {kind, text}: &quot;text&quot;
-  (a paragraph, its lines joined) or &quot;code&quot; (lines indented by two or
-  more spaces, kept as they are, less the common indentation)</code></pre>
+<pre><code>local index = symbols.analyse(block, source, origin)
+local found = symbols.at(index, pos)   // the def or ref at pos</code></pre>
+<p>block is the file's parsed (expanded) AST; codegen resolves its names as it would compile them (see codegen.generate's record option), so scoping is exactly the compiler's, extensions included. Names an extension made up have no place in the source and are left out. The result is an <a href="#type-Index"><code>Index</code></a>; its positions are byte offsets into source.</p>
+<p>Doc comments are read here too: a definition's doc is the comment block right above its statement (no blank line between). Its typed signature, its <code>[name]: text</code> lines and the types a file declares follow the notation described under &quot;typed docs&quot; below (<a href="#doc_info"><code>doc_info</code></a>, <a href="#types"><code>types</code></a>).</p>
 <ul class="toc">
 <li><a href="#doc_above"><code>doc_above</code></a></li>
 <li><a href="#doc_blocks"><code>doc_blocks</code></a></li>
+<li><a href="#parse_type"><code>parse_type</code></a></li>
+<li><a href="#type_text"><code>type_text</code></a></li>
+<li><a href="#doc_info"><code>doc_info</code></a></li>
+<li><a href="#types"><code>types</code></a></li>
 <li><a href="#analyse"><code>analyse</code></a></li>
 <li><a href="#at"><code>at</code></a></li>
 <li><a href="#signature"><code>signature</code></a></li>
+<li><a href="#type-Index"><code>type Index</code></a></li>
+<li><a href="#type-Def"><code>type Def</code></a></li>
+<li><a href="#type-Ref"><code>type Ref</code></a></li>
+<li><a href="#type-Section"><code>type Section</code></a></li>
+<li><a href="#type-DocInfo"><code>type DocInfo</code></a></li>
+<li><a href="#type-Signature"><code>type Signature</code></a></li>
+<li><a href="#type-Param"><code>type Param</code></a></li>
+<li><a href="#type-Result"><code>type Result</code></a></li>
+<li><a href="#type-Type"><code>type Type</code></a></li>
+<li><a href="#type-TypeField"><code>type TypeField</code></a></li>
+<li><a href="#type-TypeDecl"><code>type TypeDecl</code></a></li>
+<li><a href="#type-DocBlock"><code>type DocBlock</code></a></li>
 </ul>
 <h2>doc comments</h2>
-<div class="def" id="doc_above"><h3><code>symbols.doc_above(source, pos)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="doc_above"><h3><code>symbols.doc_above(source: string, pos: int) -> string?</code></h3>
+<p>The comment block just above the line of pos (no blank line or section divider between), its lines without <code>//</code> and joined by newlines; null when there is none or it is the comment that starts the file (the module's doc).</p>
+
 </div>
-<div class="def" id="doc_blocks"><h3><code>symbols.doc_blocks(text)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="doc_blocks"><h3><code>symbols.doc_blocks(text?: string) -> {<a href="#type-DocBlock">DocBlock</a>}</code></h3>
+<p>A doc split into paragraphs and code samples. Lines indented by two or more spaces are code, kept as they are less their common indentation; a blank line ends a paragraph, not a sample.</p>
+
+</div>
+<h2>typed docs</h2>
+<div class="def" id="parse_type"><h3><code>symbols.parse_type(text: string) -> <a href="#type-Type">Type</a>?</code></h3>
+<p>The type text is in the notation (all of it), or null.</p>
+
+</div>
+<div class="def" id="type_text"><h3><code>symbols.type_text(t?: <a href="#type-Type">Type</a>) -> string</code></h3>
+<p>The type written out again in the notation; &quot;any&quot; for null.</p>
+
+</div>
+<div class="def" id="doc_info"><h3><code>symbols.doc_info(doc?: string, name?: string) -> <a href="#type-DocInfo">DocInfo</a></code></h3>
+<p>Reads a definition's doc: the typed signature at its start (when the first line has name and a parameter list, maybe qualified: <code>http.serve(</code> for serve), its <code>[name]: text</code> lines, and the rest.</p>
+<dl class="params"><dt><code>name</code></dt><dd>the definition's name; null reads no signature (a type's doc)</dd></dl>
+</div>
+<div class="def" id="types"><h3><code>symbols.types(source: string) -> {[string]: <a href="#type-TypeDecl">TypeDecl</a>}</code></h3>
+<p>The <code>// type Name = T</code> and <code>// type Name</code> lines of a file, by name (a declaration may go on over lines until its braces and parentheses close). A bare one's methods are the table defined right below its comment block; <a href="#analyse"><code>analyse</code></a> finds that table, this does not.</p>
+
 </div>
 <h2>analysis</h2>
-<div class="def" id="analyse"><h3><code>symbols.analyse(block, source, origin)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="analyse"><h3><code>symbols.analyse(block: table, source: string, origin?: string) -> <a href="#type-Index">Index</a></code></h3>
+<p>The definitions and uses of a file. A block that does not compile (an unfinished edit) still gives the names up to where it fails.</p>
+<dl class="params"><dt><code>block</code></dt><dd>the file's AST, parsed from source (expanded)</dd><dt><code>origin</code></dt><dd>the file's name, as codegen gets it</dd></dl>
 </div>
 <h2>queries</h2>
-<div class="def" id="at"><h3><code>symbols.at(index, pos)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="at"><h3><code>symbols.at(index: <a href="#type-Index">Index</a>, pos: int) -> <a href="#type-Def">Def</a> | <a href="#type-Ref">Ref</a> | null</code></h3>
+<p>The definition or use whose name covers pos (its end included).</p>
+
 </div>
-<div class="def" id="signature"><h3><code>symbols.signature(def)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="signature"><h3><code>symbols.signature(def: <a href="#type-Def">Def</a>) -> string</code></h3>
+<p>The definition as it is called, from its parameter names: &quot;http.fetch(url, options)&quot; for a field of http, &quot;x&quot; for no function.</p>
+
 </div>
+<h2 id="type-Index">type Index</h2>
+<pre><code>type Index = {defs: {<a href="#type-Def">Def</a>}, refs: {<a href="#type-Ref">Ref</a>}, globals: {[string]: <a href="#type-Def">Def</a>}, by_start: {[int]: <a href="#type-Def">Def</a> | <a href="#type-Ref">Ref</a>}, exports: {[string]: <a href="#type-Def">Def</a>}, returned?: <a href="#type-Def">Def</a>, module_doc?: string, sections: {<a href="#type-Section">Section</a>}, types: {[string]: <a href="#type-TypeDecl">TypeDecl</a>}, origin?: string}</code></pre>
+<p>What <a href="#analyse"><code>analyse</code></a> finds in a file.</p>
+<dl class="params"><dt><code>defs: {<a href="#type-Def">Def</a>}</code></dt><dd>the definitions, in source order</dd><dt><code>refs: {<a href="#type-Ref">Ref</a>}</code></dt><dd>the uses, in source order</dd><dt><code>globals: {[string]: <a href="#type-Def">Def</a>}</code></dt><dd>the first definition of each global the file assigns</dd><dt><code>by_start: {[int]: <a href="#type-Def">Def</a> | <a href="#type-Ref">Ref</a>}</code></dt><dd>the def or ref whose name starts at an offset</dd><dt><code>exports: {[string]: <a href="#type-Def">Def</a>}</code></dt><dd>the fields of the table the file returns</dd><dt><code>returned?: <a href="#type-Def">Def</a></code></dt><dd>what the file returns, when that is a table, function or require</dd><dt><code>module_doc?: string</code></dt><dd>the comment block that starts the file</dd><dt><code>sections: {<a href="#type-Section">Section</a>}</code></dt><dd>the section dividers (<code>// ---- title</code>), in order</dd><dt><code>types: {[string]: <a href="#type-TypeDecl">TypeDecl</a>}</code></dt><dd>the types the doc comments declare, by name</dd><dt><code>origin?: string</code></dt><dd></dd></dl>
+<h2 id="type-Def">type Def</h2>
+<pre><code>type Def = {name: string, kind: string, start?: int, stop?: int, statement?: int, value?: table, doc?: string, info: <a href="#type-DocInfo">DocInfo</a>, params?: {string}, owner?: <a href="#type-Def">Def</a>, module?: string, fields: {[string]: <a href="#type-Def">Def</a>}, scope?: {start: int, stop: int}, type?: <a href="#type-Type">Type</a>}</code></pre>
+<p>A definition: a local, a parameter, a global's first assignment or a field (o.name = v, a table literal's name: v).</p>
+<dl class="params"><dt><code>name: string</code></dt><dd></dd><dt><code>kind: string</code></dt><dd>&quot;local&quot;, &quot;parameter&quot;, &quot;global&quot; or &quot;field&quot;</dd><dt><code>start?: int</code></dt><dd>where the name starts (stop: past its end); null when not in source</dd><dt><code>stop?: int</code></dt><dd></dd><dt><code>statement?: int</code></dt><dd>where the statement that defines it starts (its doc is above)</dd><dt><code>value?: table</code></dt><dd>the AST node it is given</dd><dt><code>doc?: string</code></dt><dd>the comment block above its statement</dd><dt><code>info: <a href="#type-DocInfo">DocInfo</a></code></dt><dd>its doc read by <a href="#doc_info"><code>doc_info</code></a></dd><dt><code>params?: {string}</code></dt><dd>the parameter names, when the value is a function</dd><dt><code>owner?: <a href="#type-Def">Def</a></code></dt><dd>a field's table: its definition, or {global, name, fields}</dd><dt><code>module?: string</code></dt><dd>the name, when the value is require(&quot;name&quot;)</dd><dt><code>fields: {[string]: <a href="#type-Def">Def</a>}</code></dt><dd>the fields set on it by name: the first definition of each</dd><dt><code>scope?: {start: int, stop: int}</code></dt><dd>a local's block, function or loop; null at the top level</dd><dt><code>type?: <a href="#type-Type">Type</a></code></dt><dd>a parameter's, from its function's typed signature</dd></dl>
+<h2 id="type-Ref">type Ref</h2>
+<pre><code>type Ref = {name: string, start: int, stop: int, def?: <a href="#type-Def">Def</a>, write: bool, owner?: <a href="#type-Def">Def</a>, invoke?: bool}</code></pre>
+<p>A use of a name.</p>
+<dl class="params"><dt><code>name: string</code></dt><dd></dd><dt><code>start: int</code></dt><dd></dd><dt><code>stop: int</code></dt><dd></dd><dt><code>def?: <a href="#type-Def">Def</a></code></dt><dd>what it resolved to; null for a global or field the file lacks</dd><dt><code>write: bool</code></dt><dd>it is assigned</dd><dt><code>owner?: <a href="#type-Def">Def</a></code></dt><dd>a field's table, as for <a href="#type-Def"><code>Def</code></a></dd><dt><code>invoke?: bool</code></dt><dd>the field is called as a method (o:name())</dd></dl>
+<h2 id="type-Section">type Section</h2>
+<pre><code>type Section = {title: string, start: int}</code></pre>
+<p>A section divider and where its line starts.</p>
+<dl class="params"><dt><code>title: string</code></dt><dd></dd><dt><code>start: int</code></dt><dd></dd></dl>
+<h2 id="type-DocInfo">type DocInfo</h2>
+<pre><code>type DocInfo = {signature?: <a href="#type-Signature">Signature</a>, items: {[string]: string}, prose?: string}</code></pre>
+<p>A doc comment read apart by <a href="#doc_info"><code>doc_info</code></a>.</p>
+<dl class="params"><dt><code>signature?: <a href="#type-Signature">Signature</a></code></dt><dd></dd><dt><code>items: {[string]: string}</code></dt><dd>the <code>[name]: text</code> lines, by name</dd><dt><code>prose?: string</code></dt><dd>the rest of the doc; null when nothing is left</dd></dl>
+<h2 id="type-Signature">type Signature</h2>
+<pre><code>type Signature = {params: {<a href="#type-Param">Param</a>}, result?: <a href="#type-Result">Result</a>, text?: string}</code></pre>
+<p>A typed signature: the parameters and what comes after them.</p>
+<dl class="params"><dt><code>params: {<a href="#type-Param">Param</a>}</code></dt><dd></dd><dt><code>result?: <a href="#type-Result">Result</a></code></dt><dd>after <code>-&gt;</code></dd><dt><code>text?: string</code></dt><dd>what follows the parameters without <code>-&gt;</code> (it begins the prose)</dd></dl>
+<h2 id="type-Param">type Param</h2>
+<pre><code>type Param = {name: string, type?: <a href="#type-Type">Type</a>, optional: bool, rest: bool}</code></pre>
+<p>A parameter of a signature or a function type.</p>
+<dl class="params"><dt><code>name: string</code></dt><dd></dd><dt><code>type?: <a href="#type-Type">Type</a></code></dt><dd></dd><dt><code>optional: bool</code></dt><dd></dd><dt><code>rest: bool</code></dt><dd><code>...name</code></dd></dl>
+<h2 id="type-Result">type Result</h2>
+<pre><code>type Result = {name?: string, type?: <a href="#type-Type">Type</a>, text?: string}</code></pre>
+<p>What a signature says after <code>-&gt;</code>: name and type, type and description (text), or prose alone (text).</p>
+<dl class="params"><dt><code>name?: string</code></dt><dd></dd><dt><code>type?: <a href="#type-Type">Type</a></code></dt><dd></dd><dt><code>text?: string</code></dt><dd></dd></dl>
+<h2 id="type-Type">type Type</h2>
+<pre><code>type Type = {kind: string, name?: string, of?: <a href="#type-Type">Type</a> | {<a href="#type-Type">Type</a>}, key?: <a href="#type-Type">Type</a>, value?: <a href="#type-Type">Type</a>, fields?: {<a href="#type-TypeField">TypeField</a>}, params?: {<a href="#type-Param">Param</a>}, returns?: <a href="#type-Type">Type</a>}</code></pre>
+<p>A type of the notation, parsed.</p>
+<dl class="params"><dt><code>kind: string</code></dt><dd>&quot;name&quot;, &quot;optional&quot;, &quot;union&quot;, &quot;list&quot;, &quot;map&quot;, &quot;shape&quot; or &quot;func&quot;</dd><dt><code>name?: string</code></dt><dd>a name's: &quot;string&quot;, &quot;Request&quot;, &quot;async.Future&quot;, ...</dd><dt><code>of?: <a href="#type-Type">Type</a> | {<a href="#type-Type">Type</a>}</code></dt><dd>what an optional or a list is of; a union's parts</dd><dt><code>key?: <a href="#type-Type">Type</a></code></dt><dd>a map's key type (value: its value type)</dd><dt><code>value?: <a href="#type-Type">Type</a></code></dt><dd></dd><dt><code>fields?: {<a href="#type-TypeField">TypeField</a>}</code></dt><dd>a shape's</dd><dt><code>params?: {<a href="#type-Param">Param</a>}</code></dt><dd>a function type's (returns: its result, or null)</dd><dt><code>returns?: <a href="#type-Type">Type</a></code></dt><dd></dd></dl>
+<h2 id="type-TypeField">type TypeField</h2>
+<pre><code>type TypeField = {name: string, optional: bool, type: <a href="#type-Type">Type</a>}</code></pre>
+<p>A field of a shape type.</p>
+<dl class="params"><dt><code>name: string</code></dt><dd></dd><dt><code>optional: bool</code></dt><dd></dd><dt><code>type: <a href="#type-Type">Type</a></code></dt><dd></dd></dl>
+<h2 id="type-TypeDecl">type TypeDecl</h2>
+<pre><code>type TypeDecl = {name: string, type?: <a href="#type-Type">Type</a>, start: int, stop: int, doc?: string, info: <a href="#type-DocInfo">DocInfo</a>, line_end: int, table?: <a href="#type-Def">Def</a>}</code></pre>
+<p>A type declared in a doc comment.</p>
+<dl class="params"><dt><code>name: string</code></dt><dd></dd><dt><code>type?: <a href="#type-Type">Type</a></code></dt><dd>null for a bare declaration</dd><dt><code>start: int</code></dt><dd>where the name starts (stop: past its end)</dd><dt><code>stop: int</code></dt><dd></dd><dt><code>doc?: string</code></dt><dd>the comments above and below the declaration line(s)</dd><dt><code>info: <a href="#type-DocInfo">DocInfo</a></code></dt><dd>the doc read by <a href="#doc_info"><code>doc_info</code></a>: its items describe the fields</dd><dt><code>line_end: int</code></dt><dd>where its comment block ends</dd><dt><code>table?: <a href="#type-Def">Def</a></code></dt><dd>a bare one's methods table, the definition right below it</dd></dl>
+<h2 id="type-DocBlock">type DocBlock</h2>
+<pre><code>type DocBlock = {kind: string, text: string}</code></pre>
+<p>A paragraph (&quot;text&quot;, its lines joined) or code sample (&quot;code&quot;) of a doc.</p>
+<dl class="params"><dt><code>kind: string</code></dt><dd></dd><dt><code>text: string</code></dt><dd></dd></dl>
 <p class="muted">slang/compiler/symbols.slang</p>
 </body>
 </html>

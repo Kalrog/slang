@@ -29,12 +29,20 @@ ul.toc { columns: 2; padding-left: 1.2rem; }
 @media (max-width: 40rem) { ul.toc { columns: 1; } }
 dt { margin-top: 0.75rem; }
 dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
 </style>
 </head>
 <body>
 <nav><a href="index.html">index</a></nav>
 <h1>slang/string</h1>
-<p>slang/string: string functions, built into the VM. Strings are byte strings (UTF-8 by convention); positions are byte offsets from 0.</p>
+<p>slang/string: string functions, built into the VM.</p>
+<pre><code>local str = require(&quot;slang/string&quot;)
+local parts = str.split(&quot;a, b, c&quot;, &quot;, &quot;)    // {&quot;a&quot;, &quot;b&quot;, &quot;c&quot;}
+str.join(parts, &quot;-&quot;)                       // &quot;a-b-c&quot;
+str.substring(&quot;hello&quot;, 1, 3)               // &quot;el&quot;
+str.index_of(&quot;hello&quot;, &quot;l&quot;)                 // 2</code></pre>
+<p>Strings are byte strings (UTF-8 by convention); positions are byte offsets from 0, and ranges include their start but not their end. For scanning text quickly, <a href="#char_class"><code>char_class</code></a> compiles a set of characters that <a href="#class_match"><code>class_match</code></a> and <a href="#class_run"><code>class_run</code></a> test against.</p>
 <ul class="toc">
 <li><a href="#substring"><code>substring</code></a></li>
 <li><a href="#byte_at"><code>byte_at</code></a></li>
@@ -62,91 +70,121 @@ dd { margin-left: 1rem; color: var(--muted); }
 <li><a href="#skip_space"><code>skip_space</code></a></li>
 <li><a href="#line_starts"><code>line_starts</code></a></li>
 <li><a href="#line_col"><code>line_col</code></a></li>
+<li><a href="#type-CharClass"><code>type CharClass</code></a></li>
 </ul>
 <h2>pieces</h2>
-<div class="def" id="substring"><h3><code>m.substring(s, start, end)</code></h3>
-<p>substring(s, [start], [end]) -&gt; the bytes of s from start (0 by default) up to, not including, end (the length of s by default). Raises an error when the range is out of bounds.</p>
+<div class="def" id="substring"><h3><code>string.substring(s: string, start?: int, end?: int) -> string</code></h3>
+<p>The bytes of s from start (0 by default) up to, not including, end (the length of s by default). Raises an error when the range is out of bounds.</p>
+
 </div>
-<div class="def" id="byte_at"><h3><code>m.byte_at(s, i)</code></h3>
-<p>byte_at(s, i) -&gt; the byte at offset i as an int, or null out of range</p>
+<div class="def" id="byte_at"><h3><code>string.byte_at(s: string, i: int) -> int?</code></h3>
+<p>The byte at offset i, or null out of range.</p>
+
 </div>
-<div class="def" id="char_at"><h3><code>m.char_at(s, i)</code></h3>
-<p>char_at(s, i) -&gt; the UTF-8 character starting at offset i as a string, or null out of range</p>
+<div class="def" id="char_at"><h3><code>string.char_at(s: string, i: int) -> string?</code></h3>
+<p>The UTF-8 character starting at offset i, or null out of range.</p>
+
 </div>
-<div class="def" id="rune_len_at"><h3><code>m.rune_len_at(s, pos)</code></h3>
-<p>rune_len_at(s, pos) -&gt; the byte length of the UTF-8 character at pos, or 0 at the end</p>
+<div class="def" id="rune_len_at"><h3><code>string.rune_len_at(s: string, pos: int) -> int</code></h3>
+<p>The byte length of the UTF-8 character at pos, or 0 at the end.</p>
+
 </div>
-<div class="def" id="chr"><h3><code>m.chr(code)</code></h3>
-<p>chr(code) -&gt; the UTF-8 encoding of the code point; an invalid code point gives U+FFFD</p>
+<div class="def" id="chr"><h3><code>string.chr(code: int) -> string</code></h3>
+<p>The UTF-8 encoding of the code point; an invalid code point gives U+FFFD.</p>
+
 </div>
-<div class="def" id="from_bytes"><h3><code>m.from_bytes(bytes)</code></h3>
-<p>from_bytes(bytes) -&gt; a string from a list of byte values (ints 0-255). Raises an error for any other element.</p>
+<div class="def" id="from_bytes"><h3><code>string.from_bytes(bytes: {int}) -> string</code></h3>
+<p>A string from a list of byte values (ints 0-255). Raises an error for any other element.</p>
+
 </div>
-<div class="def" id="utf16_len"><h3><code>m.utf16_len(s)</code></h3>
-<p>utf16_len(s) -&gt; the number of UTF-16 code units of s (what LSP positions count): one per code point, two above U+FFFF</p>
+<div class="def" id="utf16_len"><h3><code>string.utf16_len(s: string) -> int</code></h3>
+<p>The number of UTF-16 code units of s (what LSP positions count): one per code point, two above U+FFFF.</p>
+
 </div>
 <h2>searching</h2>
-<div class="def" id="index_of"><h3><code>m.index_of(s, part, from)</code></h3>
-<p>index_of(s, part, [from]) -&gt; the offset of the first part at or after from (0 by default), or -1</p>
+<div class="def" id="index_of"><h3><code>string.index_of(s: string, part: string, from?: int) -> int</code></h3>
+<p>The offset of the first part at or after from (0 by default), or -1.</p>
+
 </div>
-<div class="def" id="starts_with"><h3><code>m.starts_with(s, prefix, at)</code></h3>
-<p>starts_with(s, prefix, [at]) -&gt; whether s has prefix at offset at (0 by default)</p>
+<div class="def" id="starts_with"><h3><code>string.starts_with(s: string, prefix: string, at?: int) -> bool</code></h3>
+<p>Whether s has prefix at offset at (0 by default).</p>
+
 </div>
-<div class="def" id="ends_with"><h3><code>m.ends_with(s, suffix)</code></h3>
-<p>ends_with(s, suffix) -&gt; whether s ends with suffix</p>
+<div class="def" id="ends_with"><h3><code>string.ends_with(s: string, suffix: string) -> bool</code></h3>
+<p>Whether s ends with suffix.</p>
+
 </div>
-<div class="def" id="compare"><h3><code>m.compare(a, b)</code></h3>
-<p>compare(a, b) -&gt; -1, 0 or 1 as a sorts before, equal to or after b, byte by byte</p>
+<div class="def" id="compare"><h3><code>string.compare(a: string, b: string) -> int</code></h3>
+<p>-1, 0 or 1 as a sorts before, equal to or after b, byte by byte.</p>
+
 </div>
 <h2>transforming</h2>
-<div class="def" id="join"><h3><code>m.join(list, sep)</code></h3>
-<p>join(list, [sep]) -&gt; the strings of list joined with sep (&quot; &quot; by default). Raises an error for an element that is not a string.</p>
+<div class="def" id="join"><h3><code>string.join(list: {string}, sep?: string) -> string</code></h3>
+<p>The strings of list joined with sep (&quot; &quot; by default). Raises an error for an element that is not a string.</p>
+
 </div>
-<div class="def" id="split"><h3><code>m.split(s, sep)</code></h3>
-<p>split(s, sep) -&gt; the list of the parts of s between the occurrences of sep; an empty sep splits s into its UTF-8 characters</p>
+<div class="def" id="split"><h3><code>string.split(s: string, sep: string) -> {string}</code></h3>
+<p>The parts of s between the occurrences of sep; an empty sep splits s into its UTF-8 characters.</p>
+
 </div>
-<div class="def" id="trim"><h3><code>m.trim(s)</code></h3>
-<p>trim(s) -&gt; s without leading and trailing (Unicode) whitespace</p>
+<div class="def" id="trim"><h3><code>string.trim(s: string) -> string</code></h3>
+<p>s without leading and trailing (Unicode) whitespace.</p>
+
 </div>
-<div class="def" id="upper"><h3><code>m.upper(s)</code></h3>
-<p>upper(s) -&gt; s with the ASCII letters in upper case</p>
+<div class="def" id="upper"><h3><code>string.upper(s: string) -> string</code></h3>
+<p>s with the ASCII letters in upper case.</p>
+
 </div>
-<div class="def" id="lower"><h3><code>m.lower(s)</code></h3>
-<p>lower(s) -&gt; s with the ASCII letters in lower case</p>
+<div class="def" id="lower"><h3><code>string.lower(s: string) -> string</code></h3>
+<p>s with the ASCII letters in lower case.</p>
+
 </div>
-<div class="def" id="replace"><h3><code>m.replace(s, old, new)</code></h3>
-<p>replace(s, old, new) -&gt; s with every old replaced by new; an empty old returns s unchanged</p>
+<div class="def" id="replace"><h3><code>string.replace(s: string, old: string, new: string) -> string</code></h3>
+<p>s with every old replaced by new; an empty old returns s unchanged.</p>
+
 </div>
-<div class="def" id="to_number"><h3><code>m.to_number(s)</code></h3>
-<p>to_number(s) -&gt; s parsed as a decimal int, else as a double, or null when it is neither</p>
+<div class="def" id="to_number"><h3><code>string.to_number(s: string) -> int | float | null</code></h3>
+<p>s parsed as a decimal int, else as a double, or null when it is neither.</p>
+
 </div>
-<div class="def" id="hash"><h3><code>m.hash(s)</code></h3>
-<p>hash(s) -&gt; a stable 64-bit hash of s (FNV-1a) as hex digits</p>
+<div class="def" id="hash"><h3><code>string.hash(s: string) -> string</code></h3>
+<p>A stable 64-bit hash of s (FNV-1a), as hex digits.</p>
+
 </div>
 <h2>scanning</h2>
-<div class="def" id="char_class"><h3><code>m.char_class(spec)</code></h3>
-<p>char_class(spec) -&gt; a compiled character class: single characters and ranges like <code>a-z</code>, negated by a leading <code>^</code></p>
+<div class="def" id="char_class"><h3><code>string.char_class(spec: string) -> <a href="#type-CharClass">CharClass</a></code></h3>
+<p>Compiles a character class: single characters and ranges like <code>a-z</code>, negated by a leading <code>^</code>.</p>
 <pre><code>local digit = str.char_class(&quot;0-9&quot;)</code></pre>
+
 </div>
-<div class="def" id="class_match"><h3><code>m.class_match(class, s, pos)</code></h3>
-<p>class_match(class, s, [pos]) -&gt; the byte length of the character at pos (0 by default) when it is in class, otherwise 0</p>
+<div class="def" id="class_match"><h3><code>string.class_match(class: <a href="#type-CharClass">CharClass</a>, s: string, pos?: int) -> int</code></h3>
+<p>The byte length of the character at pos (0 by default) when it is in class, otherwise 0.</p>
+
 </div>
-<div class="def" id="class_run"><h3><code>m.class_run(class, s, pos)</code></h3>
-<p>class_run(class, s, [pos]) -&gt; the offset after the longest run of characters in class starting at pos (0 by default); pos when there is none</p>
+<div class="def" id="class_run"><h3><code>string.class_run(class: <a href="#type-CharClass">CharClass</a>, s: string, pos?: int) -> int</code></h3>
+<p>The offset after the longest run of characters in class starting at pos (0 by default); pos when there is none.</p>
+
 </div>
-<div class="def" id="space_at"><h3><code>m.space_at(s, pos)</code></h3>
-<p>space_at(s, pos) -&gt; the byte length of the whitespace character at pos, or 0</p>
+<div class="def" id="space_at"><h3><code>string.space_at(s: string, pos: int) -> int</code></h3>
+<p>The byte length of the whitespace character at pos, or 0.</p>
+
 </div>
-<div class="def" id="skip_space"><h3><code>m.skip_space(s, pos)</code></h3>
-<p>skip_space(s, [pos]) -&gt; the offset after the whitespace and <code>//</code> line comments starting at pos (0 by default); a comment ends before its newline</p>
+<div class="def" id="skip_space"><h3><code>string.skip_space(s: string, pos?: int) -> int</code></h3>
+<p>The offset after the whitespace and <code>//</code> line comments starting at pos (0 by default); a comment ends before its newline.</p>
+
 </div>
 <h2>lines</h2>
-<div class="def" id="line_starts"><h3><code>m.line_starts(s)</code></h3>
-<p>line_starts(s) -&gt; the list of offsets at which the lines of s start; the first is 0</p>
+<div class="def" id="line_starts"><h3><code>string.line_starts(s: string) -> {int}</code></h3>
+<p>The offsets at which the lines of s start; the first is 0.</p>
+
 </div>
-<div class="def" id="line_col"><h3><code>m.line_col(s, pos)</code></h3>
-<p>line_col(s, pos) -&gt; {line, column} of offset pos, both counting from 1 (the column in bytes)</p>
+<div class="def" id="line_col"><h3><code>string.line_col(s: string, pos: int) -> {int}</code></h3>
+<p>{line, column} of offset pos, both counting from 1 (the column in bytes).</p>
+
 </div>
+<h2 id="type-CharClass">type CharClass</h2>
+<pre><code>type CharClass = any</code></pre>
+<p>A compiled set of characters, from <a href="#char_class"><code>char_class</code></a>; type() of it is &quot;userdata&quot;.</p>
 <p class="muted">slang/stubs/slang/string.slang</p>
 </body>
 </html>

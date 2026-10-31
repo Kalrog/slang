@@ -29,31 +29,27 @@ ul.toc { columns: 2; padding-left: 1.2rem; }
 @media (max-width: 40rem) { ul.toc { columns: 1; } }
 dt { margin-top: 0.75rem; }
 dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
 </style>
 </head>
 <body>
 <nav><a href="index.html">index</a></nav>
 <h1>slang/webview</h1>
 <p>slang/webview: desktop windows whose content is a web page and whose logic is slang (macOS, WKWebView), in the style of Wails.</p>
-<pre><code>local webview = require(&quot;slang/webview&quot;)
+<pre><code>local async = require(&quot;slang/async&quot;)
+local webview = require(&quot;slang/webview&quot;)
 async.main(func(){
   local win = webview.window({title: &quot;Hello&quot;, html: &quot;&lt;h1&gt;hi&lt;/h1&gt;&quot;})
-  win:bind(&quot;add&quot;, func(a, b){ return a + b })    // await slang.call(&quot;add&quot;, 1, 2)
+  win:bind(&quot;add&quot;, func(a, b){ return a + b })  // page: await slang.call(&quot;add&quot;, 1, 2)
   await win.closed
 })</code></pre>
-<p>webview.window(options) -&gt; a window; options: title, width, height, resizable (true), debug (the Web Inspector), and what to show: url, html, or app, a slang/web app served to the window over the app:// scheme with no socket at all (path: the first page, &quot;/&quot;). WebKit keeps no cookies for app://, so such an app has no cookie sessions; it is one user's anyway.</p>
-<p>A window:</p>
-<pre><code>win.closed                    Future, completes when the window closes
-win:bind(name, f)             the page's slang.call(name, ...args)
-                              returns a Promise of f(...args) (f may
-                              return a Future; an error rejects it)
-win:on_message(f)             f(value) for each slang.send(value)
-win:send(value)               the page's slang.on(f) listeners get it
-win:navigate(url)   win:set_html(html)   win:eval(js)
-win:set_title(t)    win:close()          win:is_open()</code></pre>
-<p>Values cross as JSON. Opening a window makes slang/async's main loop wait on the window system and libuv together (async.set_driver), so servers, timers and files keep working while windows are open.</p>
+<p>The page gets a global <code>slang</code> object: slang.call(name, ...args) returns a Promise of what the function bound as name returns, slang.send(value) passes value to <a href="#Window:on_message"><code>Window.on_message</code></a> handlers, and slang.on(f) registers f for the values <a href="#Window:send"><code>Window.send</code></a> pushes. Values cross as JSON.</p>
+<p>Opening a window makes slang/async's main loop wait on the window system and libuv together (async.set_driver), so servers, timers and files keep working while windows are open.</p>
 <ul class="toc">
 <li><a href="#window"><code>window</code></a></li>
+<li><a href="#type-Options"><code>type Options</code></a></li>
+<li><a href="#type-Window"><code>type Window</code></a></li>
 <li><a href="#Window:receive"><code>Window:receive</code></a></li>
 <li><a href="#Window:bind"><code>Window:bind</code></a></li>
 <li><a href="#Window:on_message"><code>Window:on_message</code></a></li>
@@ -65,39 +61,55 @@ win:set_title(t)    win:close()          win:is_open()</code></pre>
 <li><a href="#Window:close"><code>Window:close</code></a></li>
 <li><a href="#Window:is_open"><code>Window:is_open</code></a></li>
 </ul>
-<div class="def" id="window"><h3><code>webview.window(options)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="window"><h3><code>webview.window(options?: <a href="#type-Options">Options</a>) -> <a href="#type-Window">Window</a></code></h3>
+<p>Opens a window. Raises when the native webview module cannot be loaded (it exists only on macOS).</p>
+
 </div>
-<h2>type Window</h2>
-<div class="def" id="Window:receive"><h3><code>Window:receive(text)</code></h3>
-<p>a message from the page: a call to answer or a value for on_message</p>
+<h2 id="type-Options">type Options</h2>
+<pre><code>type Options = {title?: string, width?: int, height?: int, resizable?: bool, debug?: bool, url?: string, html?: string, app?: any, path?: string}</code></pre>
+<p>What <a href="#window"><code>window</code></a> shows and how. One of url, html and app says what to show. WebKit keeps no cookies for app://, so an app has no cookie sessions (it serves one user anyway).</p>
+<dl class="params"><dt><code>title?: string</code></dt><dd>&quot;slang&quot; by default</dd><dt><code>width?: int</code></dt><dd>900 by default</dd><dt><code>height?: int</code></dt><dd>640 by default</dd><dt><code>resizable?: bool</code></dt><dd>true by default</dd><dt><code>debug?: bool</code></dt><dd>enables the Web Inspector</dd><dt><code>url?: string</code></dt><dd>a page to load</dd><dt><code>html?: string</code></dt><dd>markup to show</dd><dt><code>app?: any</code></dt><dd>a slang/web app, served to the window over app:// with no socket</dd><dt><code>path?: string</code></dt><dd>the first page of the app, &quot;/&quot; by default</dd></dl>
+<h2 id="type-Window">type Window</h2>
+<p>A window. Its field closed is an <a href="slang-async.html#type-Future"><code>async.Future</code></a> that completes (with null) when the window closes.</p>
+<div class="def" id="Window:receive"><h3><code>Window:receive(text: string)</code></h3>
+<p>Handles a raw message from the page: a call to answer or a value for the <a href="#Window:on_message"><code>Window.on_message</code></a> handlers. Used internally; text that is not a JSON object is ignored.</p>
+
 </div>
-<div class="def" id="Window:bind"><h3><code>Window:bind(name, f)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="Window:bind"><h3><code>Window:bind(name: string, f: function) -> <a href="#type-Window">Window</a></code></h3>
+<p>Makes the page's slang.call(name, ...args) call f(...args). The Promise resolves with f's result (f may return a Future, which is awaited) and rejects with the error message when f raises or nothing is bound as name. Returns the window, so calls chain.</p>
+
 </div>
-<div class="def" id="Window:on_message"><h3><code>Window:on_message(f)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="Window:on_message"><h3><code>Window:on_message(f: func(value: any)) -> <a href="#type-Window">Window</a></code></h3>
+<p>Calls f with each value the page sends with slang.send(value). An error in f is ignored. Returns the window.</p>
+
 </div>
 <div class="def" id="Window:send"><h3><code>Window:send(value)</code></h3>
-<p class="muted">No description.</p>
+<p>Passes value to the page's slang.on(f) listeners; does nothing once the window is closed.</p>
+
 </div>
-<div class="def" id="Window:navigate"><h3><code>Window:navigate(url)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="Window:navigate"><h3><code>Window:navigate(url: string)</code></h3>
+<p>Loads url in the window.</p>
+
 </div>
-<div class="def" id="Window:set_html"><h3><code>Window:set_html(html)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="Window:set_html"><h3><code>Window:set_html(html: string)</code></h3>
+<p>Replaces the page with html.</p>
+
 </div>
-<div class="def" id="Window:eval"><h3><code>Window:eval(js)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="Window:eval"><h3><code>Window:eval(js: string)</code></h3>
+<p>Runs JavaScript in the page; its result is not returned.</p>
+
 </div>
-<div class="def" id="Window:set_title"><h3><code>Window:set_title(t)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="Window:set_title"><h3><code>Window:set_title(t: string)</code></h3>
+<p>Sets the window's title.</p>
+
 </div>
 <div class="def" id="Window:close"><h3><code>Window:close()</code></h3>
-<p class="muted">No description.</p>
+<p>Closes the window; its closed future completes.</p>
+
 </div>
-<div class="def" id="Window:is_open"><h3><code>Window:is_open()</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="Window:is_open"><h3><code>Window:is_open() -> bool</code></h3>
+<p>Whether the window is still open.</p>
+
 </div>
 <p class="muted">slang/lib/webview.slang</p>
 </body>

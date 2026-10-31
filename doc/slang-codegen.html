@@ -29,20 +29,30 @@ ul.toc { columns: 2; padding-left: 1.2rem; }
 @media (max-width: 40rem) { ul.toc { columns: 1; } }
 dt { margin-top: 0.75rem; }
 dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
 </style>
 </head>
 <body>
 <nav><a href="index.html">index</a></nav>
 <h1>slang/codegen</h1>
-<p>slang/codegen: compiles AST nodes into function prototypes. A prototype is a table that slang/vm's load_proto turns into a function:</p>
-<pre><code>{code, locations, constants, upvalues, children, max_stack, nargs, is_vararg}</code></pre>
+<p>slang/codegen: compiles AST nodes into function prototypes, tables that slang/vm's load_proto turns into functions.</p>
+<pre><code>local proto = codegen.generate(ast_node, &quot;main.slang&quot;)
+local f = vm.load_proto(proto)</code></pre>
+<p>The AST is core slang (see slang/ast): extension syntax is expanded and unquotes are resolved by the parser before code is generated. Names are resolved here, which is also how slang/symbols learns a file's scoping (the record option of <a href="#generate"><code>generate</code></a>).</p>
 <ul class="toc">
 <li><a href="#generate"><code>generate</code></a></li>
+<li><a href="#type-Prototype"><code>type Prototype</code></a></li>
 </ul>
 <h2>blocks, defer, try</h2>
-<div class="def" id="generate"><h3><code>codegen.generate(node, origin, options)</code></h3>
-<p>generate(node, origin, {record}) -&gt; prototype table; record receives the names as they are resolved (see record_local above)</p>
+<div class="def" id="generate"><h3><code>codegen.generate(node: table, origin?: string, options?: {record?: table}) -> <a href="#type-Prototype">Prototype</a></code></h3>
+<p>Compiles an AST node (a chunk, usually) into the prototype of a function that runs it; it reaches globals through the upvalue _ENV. Raises on what cannot compile (break outside a loop, a variable declared twice, an unresolved unquote, ...). define, use and field methods (see record_local above and slang/symbols)</p>
+<dl class="params"><dt><code>origin</code></dt><dd>the name in locations and error messages; &quot;string&quot; by default</dd><dt><code>options</code></dt><dd>record, a recorder told of names as they are resolved, with</dd></dl>
 </div>
+<h2 id="type-Prototype">type Prototype</h2>
+<pre><code>type Prototype = {code: {int}, locations: {{any}}, constants: {any}, upvalues: {{any}}, children: {<a href="#type-Prototype">Prototype</a>}, max_stack: int, nargs: int, is_vararg: bool, name?: string, locals: {{any}}}</code></pre>
+<p>A compiled function, before the VM loads it.</p>
+<dl class="params"><dt><code>code: {int}</code></dt><dd>the instructions, encoded as the VM expects them</dd><dt><code>locations: {{any}}</code></dt><dd>{instruction index, origin, line, column} where they change</dd><dt><code>constants: {any}</code></dt><dd></dd><dt><code>upvalues: {{any}}</code></dt><dd>{name, index, from a local of the enclosing function: bool}</dd><dt><code>children: {<a href="#type-Prototype">Prototype</a>}</code></dt><dd>the prototypes of the functions defined in it</dd><dt><code>max_stack: int</code></dt><dd>the registers it needs</dd><dt><code>nargs: int</code></dt><dd>its fixed parameters</dd><dt><code>is_vararg: bool</code></dt><dd></dd><dt><code>name?: string</code></dt><dd>the name its definition gives it, for stack traces</dd><dt><code>locals: {{any}}</code></dt><dd>{name, register, first pc, end pc} of each local, for debuggers</dd></dl>
 <p class="muted">slang/compiler/codegen.slang</p>
 </body>
 </html>

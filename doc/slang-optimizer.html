@@ -29,17 +29,22 @@ ul.toc { columns: 2; padding-left: 1.2rem; }
 @media (max-width: 40rem) { ul.toc { columns: 1; } }
 dt { margin-top: 0.75rem; }
 dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
 </style>
 </head>
 <body>
 <nav><a href="index.html">index</a></nav>
 <h1>slang/optimizer</h1>
-<p>slang/optimizer: constant folding on the AST (applied to parsed chunks).</p>
+<p>slang/optimizer: constant folding on the AST, applied by the grammar to every parsed chunk.</p>
+<pre><code>local node = optimizer.optimize(ast_node)   // 2 * 3 + x is 6 + x</code></pre>
+<p>Operators on literals are computed when the result is certain to be the run-time one: arithmetic and comparisons on numbers, + on strings, string * int, bitwise operators on integers, not, - and ~ of literals. Division and modulo by zero and negative shifts are left to run time.</p>
 <ul class="toc">
 <li><a href="#optimize"><code>optimize</code></a></li>
 </ul>
-<div class="def" id="optimize"><h3><code>optimizer.optimize(node)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="optimize"><h3><code>optimizer.optimize(node: table) -> table</code></h3>
+<p>node with its constant expressions folded. The result is a new tree where something changed; nodes are not modified in place.</p>
+
 </div>
 <p class="muted">slang/compiler/optimizer.slang</p>
 </body>

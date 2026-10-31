@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>slang/bundle_tool</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>slang/bundle_tool</h1>
+<p>slang/bundle_tool: how <code>slang build</code> (slang/build) writes executables, built into the VM. A built executable is a slang runtime with the program's modules and assets appended; slang/bundle reads them back at run time.</p>
+<pre><code>local tool = require(&quot;slang/bundle_tool&quot;)
+tool.write_executable(base, &quot;out/app&quot;, {
+  {kind: &quot;module&quot;, name: &quot;&lt;main&gt;&quot;, data: compiled},
+  {kind: &quot;asset&quot;, name: &quot;static/index.html&quot;, file: &quot;static/index.html&quot;,
+   compress: true},
+})</code></pre>
+<ul class="toc">
+<li><a href="#write_executable"><code>write_executable</code></a></li>
+<li><a href="#inspect"><code>inspect</code></a></li>
+<li><a href="#type-Entry"><code>type Entry</code></a></li>
+<li><a href="#type-EntryInfo"><code>type EntryInfo</code></a></li>
+<li><a href="#type-Options"><code>type Options</code></a></li>
+</ul>
+<div class="def" id="write_executable"><h3><code>bundle_tool.write_executable(base: string, out: string, entries: {<a href="#type-Entry">Entry</a>}, options?: <a href="#type-Options">Options</a>) -> {<a href="#type-EntryInfo">EntryInfo</a>}</code></h3>
+<p>Writes out: the executable base (a slang runtime) with entries appended, made executable and on macOS signed. out is replaced by a new file, never rewritten in place. Raises on an entry with neither data nor file, or when a file cannot be read.</p>
+
+</div>
+<div class="def" id="inspect"><h3><code>bundle_tool.inspect(path: string) -> {<a href="#type-EntryInfo">EntryInfo</a>}?</code></h3>
+<p>The entries of a built executable, or null when it has none.</p>
+
+</div>
+<h2 id="type-Entry">type Entry</h2>
+<pre><code>type Entry = {kind: string, name: string, data?: string, file?: string, compress?: bool, external?: bool}</code></pre>
+<p>What goes into an executable: data, or a file to read it from (whose mtime is kept).</p>
+<dl class="params"><dt><code>kind: string</code></dt><dd>&quot;module&quot; (compiled code) or &quot;asset&quot;</dd><dt><code>name: string</code></dt><dd>the module's name or the asset's path; the module &quot;&lt;main&gt;&quot; is the program</dd><dt><code>data?: string</code></dt><dd></dd><dt><code>file?: string</code></dt><dd></dd><dt><code>compress?: bool</code></dt><dd>store it gzipped when that saves 10% or more</dd><dt><code>external?: bool</code></dt><dd>keep the file next to the executable instead of inside it</dd></dl>
+<h2 id="type-EntryInfo">type EntryInfo</h2>
+<pre><code>type EntryInfo = {kind: string, name: string, size: int, stored_size: int, encoding?: string, external: bool}</code></pre>
+<p>An entry of a built executable, as <a href="#write_executable"><code>write_executable</code></a> wrote it.</p>
+<dl class="params"><dt><code>kind: string</code></dt><dd></dd><dt><code>name: string</code></dt><dd></dd><dt><code>size: int</code></dt><dd>the entry's length</dd><dt><code>stored_size: int</code></dt><dd>what the executable holds; smaller when gzipped</dd><dt><code>encoding?: string</code></dt><dd>&quot;gzip&quot;, or null when stored as it is</dd><dt><code>external: bool</code></dt><dd></dd></dl>
+<h2 id="type-Options">type Options</h2>
+<pre><code>type Options = {sign?: string, identifier?: string}</code></pre>
+<p>How <a href="#write_executable"><code>write_executable</code></a> signs.</p>
+<dl class="params"><dt><code>sign?: string</code></dt><dd>&quot;adhoc&quot; (the default) signs a Mach-O ad hoc; &quot;external&quot; leaves it unsigned and ready for <code>codesign</code></dd><dt><code>identifier?: string</code></dt><dd>the signing identifier; the name of out by default</dd></dl>
+<p class="muted">slang/stubs/slang/bundle_tool.slang</p>
+</body>
+</html>

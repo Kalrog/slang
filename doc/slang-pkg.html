@@ -29,6 +29,8 @@ ul.toc { columns: 2; padding-left: 1.2rem; }
 @media (max-width: 40rem) { ul.toc { columns: 1; } }
 dt { margin-top: 0.75rem; }
 dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
 </style>
 </head>
 <body>
@@ -48,36 +50,58 @@ dependencies: {
 <li><a href="#parse_version"><code>parse_version</code></a></li>
 <li><a href="#compare"><code>compare</code></a></li>
 <li><a href="#compatible"><code>compatible</code></a></li>
+<li><a href="#files_under"><code>files_under</code></a></li>
 <li><a href="#tree_hash"><code>tree_hash</code></a></li>
 <li><a href="#resolve"><code>resolve</code></a></li>
 <li><a href="#get"><code>get</code></a></li>
 <li><a href="#main"><code>main</code></a></li>
+<li><a href="#type-Version"><code>type Version</code></a></li>
+<li><a href="#type-Chosen"><code>type Chosen</code></a></li>
 </ul>
 <h2>versions</h2>
-<div class="def" id="parse_version"><h3><code>pkg.parse_version(s)</code></h3>
-<p>parse_version(&quot;v1.2.3&quot; | &quot;1.2&quot; | &quot;^1.2&quot;) -&gt; {major, minor, patch, text}, or null for anything else (pre-releases included)</p>
+<div class="def" id="parse_version"><h3><code>pkg.parse_version(s: string) -> <a href="#type-Version">Version</a>?</code></h3>
+<p>Reads &quot;v1.2.3&quot;, &quot;1.2&quot; or &quot;^1.2&quot; (missing parts are 0); null for anything else, pre-releases included.</p>
+
 </div>
-<div class="def" id="compare"><h3><code>pkg.compare(a, b)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="compare"><h3><code>pkg.compare(a: <a href="#type-Version">Version</a>, b: <a href="#type-Version">Version</a>) -> int</code></h3>
+<p>-1, 0 or 1 as a is lower than b, the same or higher.</p>
+
 </div>
-<div class="def" id="compatible"><h3><code>pkg.compatible(a, b)</code></h3>
-<p>whether b can stand in for a: the same major (and minor below 1.0)</p>
+<div class="def" id="compatible"><h3><code>pkg.compatible(a: <a href="#type-Version">Version</a>, b: <a href="#type-Version">Version</a>) -> bool</code></h3>
+<p>Whether b can stand in for a: the same major (and minor below 1.0). It does not compare them: see <a href="#compare"><code>compare</code></a>.</p>
+
 </div>
 <h2>hashes</h2>
-<div class="def" id="tree_hash"><h3><code>pkg.tree_hash(dir)</code></h3>
-<p>tree_hash(dir) -&gt; &quot;sha256:...&quot; of the files under dir: their paths and contents, in order</p>
+<div class="def" id="files_under"><h3><code>pkg.files_under(dir: string, rel: string, out: {table}) -> {table}</code></h3>
+<p>out with {rel, path} appended for every file under dir, in name order, directories walked; rel is the file's path relative to dir after the prefix rel (&quot;&quot; for none).</p>
+
+</div>
+<div class="def" id="tree_hash"><h3><code>pkg.tree_hash(dir: string) -> string</code></h3>
+<p>&quot;sha256:...&quot; of the files under dir: their relative paths and contents, in order. What slang.lock records to pin a package's files.</p>
+
 </div>
 <h2>selection</h2>
-<div class="def" id="resolve"><h3><code>pkg.resolve(dir, manifest, lock, update)</code></h3>
-<p>resolve(dir, manifest, lock, update) -&gt; the build list {name: {name, git, version, path, dir, manifest, required}}, version a parsed version; update is null (keep slang.lock's versions), true (everything) or {name: true}</p>
+<div class="def" id="resolve"><h3><code>pkg.resolve(dir: string, manifest: table, lock: table, update?: bool | {[string]: bool}) -> {[string]: <a href="#type-Chosen">Chosen</a>}</code></h3>
+<p>The build list of a project: every package it needs, directly or not, by name, with versions chosen by minimal version selection. Fetches the repositories it needs into their mirrors, but installs nothing. Raises on a conflict (two majors, two packages under one name) or a version no tag satisfies.</p>
+<dl class="params"><dt><code>dir</code></dt><dd>the project's directory</dd><dt><code>manifest</code></dt><dd>its slang.project</dd><dt><code>lock</code></dt><dd>its slang.lock ({} without one)</dd><dt><code>update</code></dt><dd>null keeps slang.lock's versions; true updates all, a set some</dd></dl>
 </div>
 <h2>commands</h2>
-<div class="def" id="get"><h3><code>pkg.get(dir, update)</code></h3>
-<p>get(dir) -&gt; the build list, installed and locked</p>
+<div class="def" id="get"><h3><code>pkg.get(dir: string, update?: bool | {[string]: bool}) -> {[string]: <a href="#type-Chosen">Chosen</a>}</code></h3>
+<p><code>slang get</code> (and <code>slang update</code> with update): resolves the build list of the project in dir, installs what is missing into the package cache, checks the files against slang.lock's hashes and writes slang.lock.</p>
+<dl class="params"><dt><code>update</code></dt><dd>as for <a href="#resolve"><code>resolve</code></a>; the named repositories are fetched again</dd></dl>
 </div>
-<div class="def" id="main"><h3><code>pkg.main(arguments)</code></h3>
-<p>main(command, args) -&gt; exit code</p>
+<div class="def" id="main"><h3><code>pkg.main(arguments: {string}) -> int</code></h3>
+<p>The commands: {&quot;get&quot;}, {&quot;update&quot;, names...} or {&quot;deps&quot;}, for the project in the working directory or the nearest one above it.</p>
+<dl class="params"><dt>returns</dt><dd>the exit code</dd></dl>
 </div>
+<h2 id="type-Version">type Version</h2>
+<pre><code>type Version = {major: int, minor: int, patch: int, text: string, tag?: string}</code></pre>
+<p>A version: vMAJOR.MINOR.PATCH.</p>
+<dl class="params"><dt><code>major: int</code></dt><dd></dd><dt><code>minor: int</code></dt><dd></dd><dt><code>patch: int</code></dt><dd></dd><dt><code>text: string</code></dt><dd>&quot;1.2.3&quot;, without the v</dd><dt><code>tag?: string</code></dt><dd>the git tag it was read from, for a repository's versions</dd></dl>
+<h2 id="type-Chosen">type Chosen</h2>
+<pre><code>type Chosen = {name: string, git?: string, path?: string, version?: <a href="#type-Version">Version</a>, dir?: string, manifest?: table, required: {{from: string, asked: string}}, commit?: string, hash?: string}</code></pre>
+<p>A package of a build list, as <a href="#resolve"><code>resolve</code></a> chooses it.</p>
+<dl class="params"><dt><code>name: string</code></dt><dd></dd><dt><code>git?: string</code></dt><dd>the repository, for a package fetched with git</dd><dt><code>path?: string</code></dt><dd>the directory, for a path dependency (then dir is the same)</dd><dt><code>version?: <a href="#type-Version">Version</a></code></dt><dd>the version chosen, for a package fetched with git</dd><dt><code>dir?: string</code></dt><dd>where its files are (a git package's once <a href="#get"><code>get</code></a> installed it)</dd><dt><code>manifest?: table</code></dt><dd>its slang.project, for a path dependency</dd><dt><code>required: {{from: string, asked: string}}</code></dt><dd>who asked for it and what they asked for</dd><dt><code>commit?: string</code></dt><dd>the commit of its tag, once installed</dd><dt><code>hash?: string</code></dt><dd><a href="#tree_hash"><code>tree_hash</code></a> of its files, once installed</dd></dl>
 <p class="muted">slang/compiler/pkg.slang</p>
 </body>
 </html>

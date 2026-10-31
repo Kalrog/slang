@@ -29,34 +29,61 @@ ul.toc { columns: 2; padding-left: 1.2rem; }
 @media (max-width: 40rem) { ul.toc { columns: 1; } }
 dt { margin-top: 0.75rem; }
 dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
 </style>
 </head>
 <body>
 <nav><a href="index.html">index</a></nav>
 <h1>slang/doc</h1>
 <p>slang/doc: API documentation from the comments the code already has, as HTML: <code>slang doc [-o dir] [file|dir...]</code>.</p>
+<pre><code>slang doc -o site/api slang/lib/http.slang</code></pre>
 <p>A module is a file that returns a table; its documentation is the comment block that starts the file and, for every field of the returned table, the comment just above its definition (no blank line between). Section dividers (<code>// ---- title</code>) group the fields. In a comment, lines indented by two or more spaces are code samples; the rest is prose. A file that returns no table is documented by its globals that have a comment (the stub of the globals); others (programs, tests) are left out.</p>
-<p>Native modules and the globals are documented from their stubs (see compiler.stub_path), and every type a module defines (a meta table with __index and __type) gets a section of its methods. Without paths: the project in the working directory (a slang.project there), else slang's own library with the stubs. Output goes to dir (./doc by default): index.html and a page per module.</p>
+<p>A doc may start with a typed signature, describe parameters and fields in <code>[name]: text</code> lines and refer to names as <code>[name]</code>; files declare types in <code>// type Name = ...</code> lines (the notation is slang/symbols'). Signatures and types are shown with their names linked, and every type gets a section: a declared one with its fields or methods, and a meta table with __index and __type with its methods.</p>
+<p>Native modules and the globals are documented from their stubs (see compiler.stub_path). Without paths: the project in the working directory (a slang.project there), else slang's own library with the stubs. Output goes to dir (./doc by default): index.html and a page per module (slang/http is slang-http.html).</p>
 <ul class="toc">
 <li><a href="#module"><code>module</code></a></li>
 <li><a href="#module_html"><code>module_html</code></a></li>
 <li><a href="#index_html"><code>index_html</code></a></li>
 <li><a href="#main"><code>main</code></a></li>
+<li><a href="#type-ModulePage"><code>type ModulePage</code></a></li>
+<li><a href="#type-PageSection"><code>type PageSection</code></a></li>
+<li><a href="#type-Entry"><code>type Entry</code></a></li>
+<li><a href="#type-Links"><code>type Links</code></a></li>
 </ul>
 <h2>modules</h2>
-<div class="def" id="module"><h3><code>doc.module(name, path, source, index)</code></h3>
-<p>a module's documentation: {name, path, doc, sections: {title, defs}}: the fields of the table the file returns (or, in a file that returns none, its documented globals), by section, then its types; null when there is nothing to document</p>
+<div class="def" id="module"><h3><code>doc.module(name: string, path: string, source: string, index?: <a href="slang-symbols.html#type-Index">symbols.Index</a>) -> <a href="#type-ModulePage">ModulePage</a>?</code></h3>
+<p>A module's documentation: the fields of the table the file returns (or, in a file that returns none, its documented globals), by section, then its types; null when there is nothing to document.</p>
+<dl class="params"><dt><code>source</code></dt><dd>the file's text (not read: index has what is needed)</dd><dt><code>index</code></dt><dd>the file's names (compiler.highlight with symbols)</dd></dl>
 </div>
-<div class="def" id="module_html"><h3><code>doc.module_html(m)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="module_html"><h3><code>doc.module_html(m: <a href="#type-ModulePage">ModulePage</a>) -> string</code></h3>
+<dl class="params"><dt>returns</dt><dd>the module's page, as HTML</dd></dl>
 </div>
-<div class="def" id="index_html"><h3><code>doc.index_html(modules, title)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="index_html"><h3><code>doc.index_html(modules: {<a href="#type-ModulePage">ModulePage</a>}, title: string) -> string</code></h3>
+<p>The index page: each module with the first sentence of its doc.</p>
+
 </div>
 <h2>the command</h2>
-<div class="def" id="main"><h3><code>doc.main(arguments)</code></h3>
-<p>main(args) -&gt; exit code: <code>slang doc [-o dir] [file|dir...]</code></p>
+<div class="def" id="main"><h3><code>doc.main(arguments: {string}) -> int</code></h3>
+<p><code>slang doc [-o dir] [file|dir...]</code>: documents the .slang files found. A file that does not parse is reported and the exit code is 1.</p>
+<dl class="params"><dt>returns</dt><dd>the exit code</dd></dl>
 </div>
+<h2 id="type-ModulePage">type ModulePage</h2>
+<pre><code>type ModulePage = {name: string, path: string, doc?: string, sections: {<a href="#type-PageSection">PageSection</a>}, links: <a href="#type-Links">Links</a>}</code></pre>
+<p>The documentation of a module, as <a href="#module"><code>module</code></a> gathers it.</p>
+<dl class="params"><dt><code>name: string</code></dt><dd>the module's name, as require takes it</dd><dt><code>path: string</code></dt><dd>the file, as shown</dd><dt><code>doc?: string</code></dt><dd>the module's doc, the comment block that starts the file</dd><dt><code>sections: {<a href="#type-PageSection">PageSection</a>}</code></dt><dd></dd><dt><code>links: <a href="#type-Links">Links</a></code></dt><dd></dd></dl>
+<h2 id="type-PageSection">type PageSection</h2>
+<pre><code>type PageSection = {title?: string, defs: {<a href="#type-Entry">Entry</a>}, type_name?: string, decl?: <a href="slang-symbols.html#type-TypeDecl">symbols.TypeDecl</a>}</code></pre>
+<p>A part of a page: the entries under a section divider (title null for those before the first), or a type with its methods.</p>
+<dl class="params"><dt><code>title?: string</code></dt><dd></dd><dt><code>defs: {<a href="#type-Entry">Entry</a>}</code></dt><dd></dd><dt><code>type_name?: string</code></dt><dd>set for a type's section</dd><dt><code>decl?: <a href="slang-symbols.html#type-TypeDecl">symbols.TypeDecl</a></code></dt><dd>the declaration, for a type the doc comments declare</dd></dl>
+<h2 id="type-Entry">type Entry</h2>
+<pre><code>type Entry = {name: string, signature: string, doc?: string, start?: int, info: <a href="slang-symbols.html#type-DocInfo">symbols.DocInfo</a>, params?: {string}, method?: bool}</code></pre>
+<p>A documented definition.</p>
+<dl class="params"><dt><code>name: string</code></dt><dd>its anchor on the page (&quot;Type:name&quot; for a method)</dd><dt><code>signature: string</code></dt><dd>from its parameter names, for a doc without a typed one</dd><dt><code>doc?: string</code></dt><dd></dd><dt><code>start?: int</code></dt><dd></dd><dt><code>info: <a href="slang-symbols.html#type-DocInfo">symbols.DocInfo</a></code></dt><dd></dd><dt><code>params?: {string}</code></dt><dd></dd><dt><code>method?: bool</code></dt><dd></dd></dl>
+<h2 id="type-Links">type Links</h2>
+<pre><code>type Links = {types: {[string]: bool}, exports: {[string]: bool}, aliases: {[string]: string}, methods: {[string]: bool}}</code></pre>
+<p>What names in a page's docs can link to.</p>
+<dl class="params"><dt><code>types: {[string]: bool}</code></dt><dd>the module's types</dd><dt><code>exports: {[string]: bool}</code></dt><dd>the module's documented fields</dd><dt><code>aliases: {[string]: string}</code></dt><dd>the locals that hold a module, and its name</dd><dt><code>methods: {[string]: bool}</code></dt><dd>the anchors of the types' methods (&quot;Type:name&quot;)</dd></dl>
 <p class="muted">slang/compiler/doc.slang</p>
 </body>
 </html>

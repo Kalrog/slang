@@ -29,25 +29,35 @@ ul.toc { columns: 2; padding-left: 1.2rem; }
 @media (max-width: 40rem) { ul.toc { columns: 1; } }
 dt { margin-top: 0.75rem; }
 dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
 </style>
 </head>
 <body>
 <nav><a href="index.html">index</a></nav>
 <h1>slang/std</h1>
-<p>slang/std: global helpers written in slang.</p>
+<p>slang/std: global functions written in slang: module, run and the matcher protocol behind 'm patterns. They are globals; nothing needs to require this module.</p>
+<pre><code>local point = module{
+  func make(x, y){ return {x: x, y: y} }
+}
+local p = point.make(1, 2)
+local big = run{ if(p.x &gt; 0){ return &quot;right&quot; } return &quot;left&quot; }</code></pre>
 <ul class="toc">
 <li><a href="#module"><code>module</code></a></li>
 <li><a href="#__match"><code>__match</code></a></li>
 <li><a href="#run"><code>run</code></a></li>
 </ul>
-<div class="def" id="module"><h3><code>module(mfunc)</code></h3>
-<p>module{ ... } runs the block with a fresh environment table as its _ENV, so that every global defined inside ends up in that table.</p>
+<div class="def" id="module"><h3><code>module(mfunc: function) -> table</code></h3>
+<p>Runs mfunc (usually a block: module{ ... }) with a fresh table as its _ENV and returns that table, so every global defined inside ends up in it. While the block runs, names it does not define still read the enclosing globals; afterwards the table holds only its own definitions.</p>
+
 </div>
-<div class="def" id="__match"><h3><code>__match(m, v)</code></h3>
-<p>__match(m, v): the matcher protocol behind 'm patterns: m's __match metamethod decides whether v matches (null: no) and what the rest of the pattern sees (anything else)</p>
+<div class="def" id="__match"><h3><code>__match(m, v) -> any</code></h3>
+<p>The matcher protocol behind 'm patterns: calls the __match metamethod of m with (m, v). Its result decides: null means v does not match; anything else is what the rest of the pattern sees. Raises an error when m has no __match metamethod (strings, numbers, functions and the like never do).</p>
+
 </div>
-<div class="def" id="run"><h3><code>run(rfunc)</code></h3>
-<p>run{ ... } evaluates a block as an expression.</p>
+<div class="def" id="run"><h3><code>run(rfunc: function) -> any</code></h3>
+<p>Calls rfunc and returns its result: run{ ... } evaluates a block as an expression.</p>
+
 </div>
 <p class="muted">slang/lib/std.slang</p>
 </body>

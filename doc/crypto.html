@@ -29,6 +29,8 @@ ul.toc { columns: 2; padding-left: 1.2rem; }
 @media (max-width: 40rem) { ul.toc { columns: 1; } }
 dt { margin-top: 0.75rem; }
 dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
 </style>
 </head>
 <body>
@@ -55,99 +57,134 @@ crypto.hasher(&quot;sha256&quot;):update(&quot;a&quot;):update(&quot;bc&quot;):d
 <li><a href="#public_key"><code>public_key</code></a></li>
 <li><a href="#generate_key"><code>generate_key</code></a></li>
 <li><a href="#version"><code>version</code></a></li>
-<li><a href="#crypto.hasher:update"><code>crypto.hasher:update</code></a></li>
-<li><a href="#crypto.hasher:digest"><code>crypto.hasher:digest</code></a></li>
-<li><a href="#crypto.key:sign"><code>crypto.key:sign</code></a></li>
-<li><a href="#crypto.key:verify"><code>crypto.key:verify</code></a></li>
-<li><a href="#crypto.key:type"><code>crypto.key:type</code></a></li>
-<li><a href="#crypto.key:bits"><code>crypto.key:bits</code></a></li>
-<li><a href="#crypto.key:is_private"><code>crypto.key:is_private</code></a></li>
-<li><a href="#crypto.key:public_pem"><code>crypto.key:public_pem</code></a></li>
-<li><a href="#crypto.key:private_pem"><code>crypto.key:private_pem</code></a></li>
-<li><a href="#crypto.key:public_key"><code>crypto.key:public_key</code></a></li>
+<li><a href="#type-Hasher"><code>type Hasher</code></a></li>
+<li><a href="#Hasher:update"><code>Hasher:update</code></a></li>
+<li><a href="#Hasher:digest"><code>Hasher:digest</code></a></li>
+<li><a href="#type-Key"><code>type Key</code></a></li>
+<li><a href="#Key:sign"><code>Key:sign</code></a></li>
+<li><a href="#Key:verify"><code>Key:verify</code></a></li>
+<li><a href="#Key:type"><code>Key:type</code></a></li>
+<li><a href="#Key:bits"><code>Key:bits</code></a></li>
+<li><a href="#Key:is_private"><code>Key:is_private</code></a></li>
+<li><a href="#Key:public_pem"><code>Key:public_pem</code></a></li>
+<li><a href="#Key:private_pem"><code>Key:private_pem</code></a></li>
+<li><a href="#Key:public_key"><code>Key:public_key</code></a></li>
+<li><a href="#type-SignOptions"><code>type SignOptions</code></a></li>
 </ul>
 <h2>hashes and MACs</h2>
-<div class="def" id="hash"><h3><code>m.hash(digest, data)</code></h3>
-<p>hash(digest, data) -&gt; the raw digest of data</p>
+<div class="def" id="hash"><h3><code>crypto.hash(digest: string, data: string) -> string</code></h3>
+<p>The raw digest of data.</p>
+
 </div>
-<div class="def" id="hmac"><h3><code>m.hmac(digest, key, data)</code></h3>
-<p>hmac(digest, key, data) -&gt; the raw HMAC of data under key</p>
+<div class="def" id="hmac"><h3><code>crypto.hmac(digest: string, key: string, data: string) -> string</code></h3>
+<p>The raw HMAC of data under key.</p>
+
 </div>
-<div class="def" id="random_bytes"><h3><code>m.random_bytes(n)</code></h3>
-<p>random_bytes(n) -&gt; n cryptographically random bytes, n from 0 to 1048576</p>
+<div class="def" id="random_bytes"><h3><code>crypto.random_bytes(n: int) -> string</code></h3>
+<p>n cryptographically random bytes, n from 0 to 1048576.</p>
+
 </div>
-<div class="def" id="equal"><h3><code>m.equal(a, b)</code></h3>
-<p>equal(a, b) -&gt; whether the strings are equal, in time that depends only on their lengths (for comparing MACs and tokens)</p>
+<div class="def" id="equal"><h3><code>crypto.equal(a: string, b: string) -> bool</code></h3>
+<p>Whether the strings are equal, in time that depends only on their lengths (for comparing MACs and tokens).</p>
+
 </div>
-<div class="def" id="hasher"><h3><code>m.hasher(digest)</code></h3>
-<p>hasher(digest) -&gt; a crypto.hasher: update(data) as often as needed, then digest() once</p>
+<div class="def" id="hasher"><h3><code>crypto.hasher(digest: string) -> <a href="#type-Hasher">Hasher</a></code></h3>
+<p>A hasher for incremental hashing.</p>
+
 </div>
 <h2>key derivation</h2>
-<div class="def" id="pbkdf2"><h3><code>m.pbkdf2(digest, password, salt, iterations, length)</code></h3>
-<p>pbkdf2(digest, password, salt, iterations, length) -&gt; length bytes (1 to 4096) derived with PBKDF2-HMAC; at least one iteration</p>
+<div class="def" id="pbkdf2"><h3><code>crypto.pbkdf2(digest: string, password: string, salt: string, iterations: int, length: int) -> string</code></h3>
+<p>length bytes (1 to 4096) derived with PBKDF2-HMAC; at least one iteration.</p>
+
 </div>
-<div class="def" id="scrypt"><h3><code>m.scrypt(password, salt, n, r, p, length)</code></h3>
-<p>scrypt(password, salt, n, r, p, length) -&gt; length bytes (1 to 4096) derived with scrypt; n a power of two above 1, r and p positive</p>
+<div class="def" id="scrypt"><h3><code>crypto.scrypt(password: string, salt: string, n: int, r: int, p: int, length: int) -> string</code></h3>
+<p>length bytes (1 to 4096) derived with scrypt; n a power of two above 1, r and p positive.</p>
+
 </div>
-<div class="def" id="pbkdf2_async"><h3><code>m.pbkdf2_async(digest, password, salt, iterations, length, cb)</code></h3>
-<p>pbkdf2_async(digest, password, salt, iterations, length, cb) runs pbkdf2 on libuv's thread pool and calls cb(err, bytes) from the loop</p>
+<div class="def" id="pbkdf2_async"><h3><code>crypto.pbkdf2_async(digest: string, password: string, salt: string, iterations: int, length: int, cb: func(err: string?, bytes: string?))</code></h3>
+<p>Runs <a href="#pbkdf2"><code>pbkdf2</code></a> on libuv's thread pool and calls cb from the loop.</p>
+
 </div>
-<div class="def" id="scrypt_async"><h3><code>m.scrypt_async(password, salt, n, r, p, length, cb)</code></h3>
-<p>scrypt_async(password, salt, n, r, p, length, cb) runs scrypt on libuv's thread pool and calls cb(err, bytes) from the loop</p>
+<div class="def" id="scrypt_async"><h3><code>crypto.scrypt_async(password: string, salt: string, n: int, r: int, p: int, length: int, cb: func(err: string?, bytes: string?))</code></h3>
+<p>Runs <a href="#scrypt"><code>scrypt</code></a> on libuv's thread pool and calls cb from the loop.</p>
+
 </div>
 <h2>encryption</h2>
-<div class="def" id="encrypt"><h3><code>m.encrypt(cipher, key, iv, plaintext, aad)</code></h3>
-<p>encrypt(cipher, key, iv, plaintext, [aad]) -&gt; the ciphertext followed by the 16-byte tag. cipher is an AEAD: &quot;aes-128-gcm&quot;, &quot;aes-256-gcm&quot; or &quot;chacha20-poly1305&quot;; key as long as the cipher needs, iv 8 to 64 bytes (12 is usual); aad is authenticated but not encrypted.</p>
+<div class="def" id="encrypt"><h3><code>crypto.encrypt(cipher: string, key: string, iv: string, plaintext: string, aad?: string) -> string</code></h3>
+<p>The ciphertext followed by the 16-byte tag.</p>
+<dl class="params"><dt><code>cipher</code></dt><dd>an AEAD: &quot;aes-128-gcm&quot;, &quot;aes-256-gcm&quot; or &quot;chacha20-poly1305&quot;</dd><dt><code>key</code></dt><dd>as long as the cipher needs (32 bytes for aes-256-gcm)</dd><dt><code>iv</code></dt><dd>8 to 64 bytes (12 is usual); never reuse one with the same key</dd><dt><code>aad</code></dt><dd>data that is authenticated but not encrypted</dd></dl>
 </div>
-<div class="def" id="decrypt"><h3><code>m.decrypt(cipher, key, iv, sealed, aad)</code></h3>
-<p>decrypt(cipher, key, iv, sealed, [aad]) -&gt; the plaintext, or null when the data, the aad, the key or the iv do not match the tag</p>
+<div class="def" id="decrypt"><h3><code>crypto.decrypt(cipher: string, key: string, iv: string, sealed: string, aad?: string) -> string?</code></h3>
+<p>The plaintext of what <a href="#encrypt"><code>encrypt</code></a> made, or null when the data, the aad, the key or the iv do not match the tag.</p>
+
 </div>
 <h2>keys</h2>
-<div class="def" id="private_key"><h3><code>m.private_key(pem, passphrase)</code></h3>
-<p>private_key(pem, [passphrase]) -&gt; a crypto.key from a PEM private key</p>
+<div class="def" id="private_key"><h3><code>crypto.private_key(pem: string, passphrase?: string) -> <a href="#type-Key">Key</a></code></h3>
+<p>A key from a PEM private key (encrypted ones need the passphrase).</p>
+
 </div>
-<div class="def" id="public_key"><h3><code>m.public_key(pem)</code></h3>
-<p>public_key(pem) -&gt; a crypto.key from a PEM public key (&quot;BEGIN PUBLIC KEY&quot;)</p>
+<div class="def" id="public_key"><h3><code>crypto.public_key(pem: string) -> <a href="#type-Key">Key</a></code></h3>
+<p>A key from a PEM public key (&quot;BEGIN PUBLIC KEY&quot;).</p>
+
 </div>
-<div class="def" id="generate_key"><h3><code>m.generate_key(type, param)</code></h3>
-<p>generate_key(type, [param]) -&gt; a new private crypto.key: (&quot;rsa&quot;, [bits]) with bits 1024 to 16384 (2048), (&quot;ec&quot;, [curve]) with curve &quot;P-256&quot; by default, or (&quot;ed25519&quot;)</p>
+<div class="def" id="generate_key"><h3><code>crypto.generate_key(type: string, param?: int | string) -> <a href="#type-Key">Key</a></code></h3>
+<p>A new private key: (&quot;rsa&quot;, [bits]) with bits 1024 to 16384 (2048 by default), (&quot;ec&quot;, [curve]) with curve &quot;P-256&quot; by default, or (&quot;ed25519&quot;).</p>
+<pre><code>local key = crypto.generate_key(&quot;ec&quot;, &quot;P-384&quot;)</code></pre>
+
 </div>
 <h2>version</h2>
-<div class="def" id="version"><h3><code>m.version()</code></h3>
-<p>version() -&gt; the OpenSSL version text</p>
+<div class="def" id="version"><h3><code>crypto.version() -> string</code></h3>
+<p>The OpenSSL version text.</p>
+
 </div>
-<h2>type crypto.hasher</h2>
-<div class="def" id="crypto.hasher:update"><h3><code>crypto.hasher:update(data)</code></h3>
-<p>hasher:update(data) -&gt; hasher, with data added</p>
+<h2 id="type-Hasher">type Hasher</h2>
+<p>A digest computed piece by piece: <a href="#Hasher:update"><code>Hasher.update</code></a> as often as needed, then <a href="#Hasher:digest"><code>Hasher.digest</code></a> once.</p>
+<div class="def" id="Hasher:update"><h3><code>Hasher:update(data: string) -> <a href="#type-Hasher">Hasher</a></code></h3>
+<p>Adds data; returns the hasher, so calls chain.</p>
+
 </div>
-<div class="def" id="crypto.hasher:digest"><h3><code>crypto.hasher:digest()</code></h3>
-<p>hasher:digest() -&gt; the raw digest; the hasher raises on further use</p>
+<div class="def" id="Hasher:digest"><h3><code>Hasher:digest() -> string</code></h3>
+<p>The raw digest; the hasher raises on further use.</p>
+
 </div>
-<h2>type crypto.key</h2>
-<div class="def" id="crypto.key:sign"><h3><code>crypto.key:sign(digest, data, options)</code></h3>
-<p>key:sign(digest, data, [options]) -&gt; the signature of data; needs a private key. options: {padding: &quot;pss&quot;} for RSA-PSS (salt as long as the digest), {encoding: &quot;raw&quot;} for ECDSA signatures as r || s (the JWT form) instead of DER. Ed25519 ignores the digest (pass null).</p>
+<h2 id="type-Key">type Key</h2>
+<p>A private or public key (RSA, EC, Ed25519, ...) from <a href="#private_key"><code>private_key</code></a>, <a href="#public_key"><code>public_key</code></a> or <a href="#generate_key"><code>generate_key</code></a>; type(key) is &quot;crypto.key&quot;.</p>
+<div class="def" id="Key:sign"><h3><code>Key:sign(digest: string?, data: string, options?: <a href="#type-SignOptions">SignOptions</a>) -> string</code></h3>
+<p>The signature of data; needs a private key. Ed25519 ignores the digest (pass null).</p>
+
 </div>
-<div class="def" id="crypto.key:verify"><h3><code>crypto.key:verify(digest, data, signature, options)</code></h3>
-<p>key:verify(digest, data, signature, [options]) -&gt; whether signature is a valid signature of data; options as for sign</p>
+<div class="def" id="Key:verify"><h3><code>Key:verify(digest: string?, data: string, signature: string, options?: <a href="#type-SignOptions">SignOptions</a>) -> bool</code></h3>
+<p>Whether signature is a valid signature of data; options as for <a href="#Key:sign"><code>Key.sign</code></a>.</p>
+
 </div>
-<div class="def" id="crypto.key:type"><h3><code>crypto.key:type()</code></h3>
-<p>key:type() -&gt; &quot;rsa&quot;, &quot;rsa-pss&quot;, &quot;ec&quot;, &quot;ed25519&quot;, &quot;ed448&quot; or &quot;other&quot;</p>
+<div class="def" id="Key:type"><h3><code>Key:type() -> string</code></h3>
+<p>&quot;rsa&quot;, &quot;rsa-pss&quot;, &quot;ec&quot;, &quot;ed25519&quot;, &quot;ed448&quot; or &quot;other&quot;.</p>
+
 </div>
-<div class="def" id="crypto.key:bits"><h3><code>crypto.key:bits()</code></h3>
-<p>key:bits() -&gt; the size of the key in bits</p>
+<div class="def" id="Key:bits"><h3><code>Key:bits() -> int</code></h3>
+<p>The size of the key in bits (521 for a P-521 key).</p>
+
 </div>
-<div class="def" id="crypto.key:is_private"><h3><code>crypto.key:is_private()</code></h3>
-<p>key:is_private() -&gt; whether the key holds the private half</p>
+<div class="def" id="Key:is_private"><h3><code>Key:is_private() -> bool</code></h3>
+<p>Whether the key holds the private half.</p>
+
 </div>
-<div class="def" id="crypto.key:public_pem"><h3><code>crypto.key:public_pem()</code></h3>
-<p>key:public_pem() -&gt; the public key as PEM (&quot;BEGIN PUBLIC KEY&quot;)</p>
+<div class="def" id="Key:public_pem"><h3><code>Key:public_pem() -> string</code></h3>
+<p>The public key as PEM (&quot;BEGIN PUBLIC KEY&quot;).</p>
+
 </div>
-<div class="def" id="crypto.key:private_pem"><h3><code>crypto.key:private_pem()</code></h3>
-<p>key:private_pem() -&gt; the private key as unencrypted PKCS#8 PEM; raises for a public key</p>
+<div class="def" id="Key:private_pem"><h3><code>Key:private_pem() -> string</code></h3>
+<p>The private key as unencrypted PKCS#8 PEM; raises for a public key.</p>
+
 </div>
-<div class="def" id="crypto.key:public_key"><h3><code>crypto.key:public_key()</code></h3>
-<p>key:public_key() -&gt; the public half as a crypto.key of its own</p>
+<div class="def" id="Key:public_key"><h3><code>Key:public_key() -> <a href="#type-Key">Key</a></code></h3>
+<p>The public half as a key of its own.</p>
+
 </div>
+<h2 id="type-SignOptions">type SignOptions</h2>
+<pre><code>type SignOptions = {padding?: string, encoding?: string}</code></pre>
+<p>How <a href="#Key:sign"><code>Key.sign</code></a> and <a href="#Key:verify"><code>Key.verify</code></a> work beyond the key's own algorithm.</p>
+<dl class="params"><dt><code>padding?: string</code></dt><dd>&quot;pss&quot; for RSA-PSS (salt as long as the digest)</dd><dt><code>encoding?: string</code></dt><dd>&quot;raw&quot; for ECDSA signatures as r || s (JWT's) instead of DER</dd></dl>
 <p class="muted">slang/stubs/crypto.slang</p>
 </body>
 </html>

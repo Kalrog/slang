@@ -29,31 +29,56 @@ ul.toc { columns: 2; padding-left: 1.2rem; }
 @media (max-width: 40rem) { ul.toc { columns: 1; } }
 dt { margin-top: 0.75rem; }
 dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
 </style>
 </head>
 <body>
 <nav><a href="index.html">index</a></nav>
 <h1>slang/jwt</h1>
 <p>slang/jwt: JSON Web Tokens (RFC 7519) over slang/crypto.</p>
-<pre><code>jwt.sign(claims, key, options) -&gt; token
-jwt.verify(token, key, options) -&gt; the claims, or raises &quot;jwt: ...&quot;
-jwt.decode(token) -&gt; {header, claims} without checking anything</code></pre>
-<p>key is a secret string for HS256/384/512, or a crypto key: RSA for RS256/384/512 and PS256/384/512, EC for ES256/384/512, Ed25519 for EdDSA. The algorithm defaults to the one that fits the key (HS256, RS256, ES256/384/512 by curve, EdDSA).</p>
-<p>sign options: alg, expires_in (seconds from now: sets exp), not_before (seconds from now: nbf), issuer, subject, audience, header (extra header fields such as kid); iat is always set. verify options: alg or algs (the algorithms accepted; by default only the one that fits the key, so a token cannot choose a weaker one), leeway (seconds of clock skew allowed, default 0), now (seconds since the epoch, for tests), issuer and audience (required to match when given).</p>
+<pre><code>local jwt = require(&quot;slang/jwt&quot;)
+local token = jwt.sign({sub: &quot;42&quot;}, secret, {expires_in: 3600})
+local claims = jwt.verify(token, secret)        // {sub: &quot;42&quot;, iat, exp}</code></pre>
+<p>A key is a secret string for HS256/384/512, or a <a href="slang-crypto.html#type-Key"><code>crypto.Key</code></a>: RSA for RS256/384/512 and PS256/384/512, EC for ES256/384/512, Ed25519 for EdDSA. The algorithm defaults to the one that fits the key (HS256, RS256, ES256/384/512 by curve, EdDSA), and <a href="#verify"><code>verify</code></a> accepts only that one unless told otherwise, so a token cannot pick a weaker algorithm. Errors raise &quot;jwt: ...&quot; (&quot;jwt: expired&quot;, &quot;jwt: bad signature&quot;, ...).</p>
 <ul class="toc">
 <li><a href="#sign"><code>sign</code></a></li>
 <li><a href="#decode"><code>decode</code></a></li>
 <li><a href="#verify"><code>verify</code></a></li>
+<li><a href="#type-Claims"><code>type Claims</code></a></li>
+<li><a href="#type-SignOptions"><code>type SignOptions</code></a></li>
+<li><a href="#type-VerifyOptions"><code>type VerifyOptions</code></a></li>
+<li><a href="#type-Decoded"><code>type Decoded</code></a></li>
 </ul>
-<div class="def" id="sign"><h3><code>jwt.sign(claims, key, options)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="sign"><h3><code>jwt.sign(claims: <a href="#type-Claims">Claims</a>, key: string | <a href="slang-crypto.html#type-Key">crypto.Key</a>, options?: <a href="#type-SignOptions">SignOptions</a>) -> string</code></h3>
+<p>A signed token with claims (copied; the options add to them). Raises when the key does not fit the algorithm, or is a public key.</p>
+
 </div>
-<div class="def" id="decode"><h3><code>jwt.decode(token)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="decode"><h3><code>jwt.decode(token: string) -> <a href="#type-Decoded">Decoded</a></code></h3>
+<p>The header and claims of a token, without checking the signature or anything else: never trust them. Raises &quot;jwt: malformed token&quot;.</p>
+
 </div>
-<div class="def" id="verify"><h3><code>jwt.verify(token, key, options)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="verify"><h3><code>jwt.verify(token: string, key: string | <a href="slang-crypto.html#type-Key">crypto.Key</a>, options?: <a href="#type-VerifyOptions">VerifyOptions</a>) -> <a href="#type-Claims">Claims</a></code></h3>
+<p>The claims of a token whose algorithm is accepted, whose signature is valid for key, which has not expired and is valid already (exp and nbf, when present), and whose iss and aud match the options that ask. Raises &quot;jwt: ...&quot; otherwise.</p>
+<pre><code>local r = pcall(jwt.verify, token, public_key, {algs: {&quot;RS256&quot;, &quot;PS256&quot;}})</code></pre>
+
 </div>
+<h2 id="type-Claims">type Claims</h2>
+<pre><code>type Claims = {iss?: string, sub?: string, aud?: string | {string}, exp?: int, nbf?: int, iat?: int}</code></pre>
+<p>A token's claims: any JSON object. The registered ones <a href="#sign"><code>sign</code></a> sets and <a href="#verify"><code>verify</code></a> checks are below; times are seconds since the epoch.</p>
+<dl class="params"><dt><code>iss?: string</code></dt><dd></dd><dt><code>sub?: string</code></dt><dd></dd><dt><code>aud?: string | {string}</code></dt><dd></dd><dt><code>exp?: int</code></dt><dd>when the token expires</dd><dt><code>nbf?: int</code></dt><dd>when it becomes valid</dd><dt><code>iat?: int</code></dt><dd>when it was issued; <a href="#sign"><code>sign</code></a> always sets it</dd></dl>
+<h2 id="type-SignOptions">type SignOptions</h2>
+<pre><code>type SignOptions = {alg?: string, expires_in?: int, not_before?: int, issuer?: string, subject?: string, audience?: string | {string}, header?: table, now?: int}</code></pre>
+<p>What <a href="#sign"><code>sign</code></a> accepts besides the claims.</p>
+<dl class="params"><dt><code>alg?: string</code></dt><dd>&quot;HS256&quot;, &quot;RS256&quot;, &quot;ES256&quot;, &quot;EdDSA&quot;, ... (by default the key's)</dd><dt><code>expires_in?: int</code></dt><dd>seconds from now: sets exp</dd><dt><code>not_before?: int</code></dt><dd>seconds from now: sets nbf</dd><dt><code>issuer?: string</code></dt><dd>sets iss</dd><dt><code>subject?: string</code></dt><dd>sets sub</dd><dt><code>audience?: string | {string}</code></dt><dd>sets aud</dd><dt><code>header?: table</code></dt><dd>extra header fields, such as kid</dd><dt><code>now?: int</code></dt><dd>the time in seconds since the epoch, for tests</dd></dl>
+<h2 id="type-VerifyOptions">type VerifyOptions</h2>
+<pre><code>type VerifyOptions = {alg?: string, algs?: {string}, leeway?: int, now?: int, issuer?: string, audience?: string}</code></pre>
+<p>What <a href="#verify"><code>verify</code></a> checks.</p>
+<dl class="params"><dt><code>alg?: string</code></dt><dd>the algorithm accepted (by default the one that fits the key)</dd><dt><code>algs?: {string}</code></dt><dd>the algorithms accepted, instead of alg</dd><dt><code>leeway?: int</code></dt><dd>seconds of clock skew allowed for exp and nbf (0)</dd><dt><code>now?: int</code></dt><dd>the time in seconds since the epoch, for tests</dd><dt><code>issuer?: string</code></dt><dd>iss must equal it</dd><dt><code>audience?: string</code></dt><dd>aud must equal it or, as a list, contain it</dd></dl>
+<h2 id="type-Decoded">type Decoded</h2>
+<pre><code>type Decoded = {header: table, claims: <a href="#type-Claims">Claims</a>}</code></pre>
+<p>A token <a href="#decode"><code>decode</code></a> read: its two JSON parts.</p>
+<dl class="params"><dt><code>header: table</code></dt><dd></dd><dt><code>claims: <a href="#type-Claims">Claims</a></code></dt><dd></dd></dl>
 <p class="muted">slang/lib/jwt.slang</p>
 </body>
 </html>

@@ -29,6 +29,8 @@ ul.toc { columns: 2; padding-left: 1.2rem; }
 @media (max-width: 40rem) { ul.toc { columns: 1; } }
 dt { margin-top: 0.75rem; }
 dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
 </style>
 </head>
 <body>
@@ -37,78 +39,104 @@ dd { margin-left: 1rem; color: var(--muted); }
 <p>slang/tls: TLS on libuv TCP, with the tls native extension (OpenSSL).</p>
 <pre><code>local tls = require(&quot;slang/tls&quot;)
 local conn = async.await(tls.connect(&quot;example.com&quot;, 443))
-
-tls.connect(host, port, options) -&gt; Future of a connection whose
-  handshake completed; options are a context's (below), or context
-  (one made before), and server_name (the name to verify, the host by
-  default)
-tls.client(tcp, server_name, context) -&gt; a connection over a connected
-  uv.tcp handle; its handshake starts at once
-tls.server(tcp, context) -&gt; a connection over an accepted uv.tcp handle;
-  the handshake runs as the client's bytes arrive
-tls.context(options) -&gt; a context for many connections: the tls
-  extension's options (server, cert, key, ca as PEM text, verify, alpn,
-  min_version), or cert_file, key_file and ca_file to read them from
-tls.self_signed(names, [days]) -&gt; {cert, key} for local development</code></pre>
-<p>A connection works like the uv.tcp handle it wraps (read_start(cb), read_stop(), write(data, cb), shutdown(cb), close(cb), getsockname(), getpeername(), ...), so slang/async's reader, write and close, and slang/http and slang/ws on top of them, use it as they are. Writes made during the handshake wait for it; a failed handshake (a certificate that does not verify, say) reaches them and the reader as the error. Also:</p>
-<pre><code>conn:handshake() -&gt; Future of the connection once the handshake is done
-conn:info() -&gt; {version, cipher, alpn, peer, server_name}</code></pre>
-<p>A client verifies the server's certificate against the system's trust store and the host name by default; verify: false turns that off.</p>
+async.await(async.write(conn, &quot;GET / HTTP/1.1\r\nHost: example.com\r\n\r\n&quot;))</code></pre>
+<p>A <a href="#type-Connection"><code>Connection</code></a> works like the uv.tcp handle it wraps (read_start(cb), read_stop(), write(data, cb), shutdown(cb), close(cb), getsockname(), getpeername(), nodelay, keepalive, ...), so slang/async's reader, write and close, and slang/http and slang/ws on top of them, use it as they are. Writes made during the handshake wait for it; a failed handshake (a certificate that does not verify, say) reaches them and the reader as the error.</p>
+<p>A client verifies the server's certificate against the system's trust store and the host name by default; verify: false turns that off. A server needs a context with server: true, cert and key (see <a href="#context"><code>context</code></a>).</p>
 <ul class="toc">
 <li><a href="#context"><code>context</code></a></li>
 <li><a href="#self_signed"><code>self_signed</code></a></li>
 <li><a href="#client"><code>client</code></a></li>
 <li><a href="#server"><code>server</code></a></li>
 <li><a href="#connect"><code>connect</code></a></li>
-<li><a href="#TlsConnection:handshake"><code>TlsConnection:handshake</code></a></li>
-<li><a href="#TlsConnection:info"><code>TlsConnection:info</code></a></li>
-<li><a href="#TlsConnection:read_start"><code>TlsConnection:read_start</code></a></li>
-<li><a href="#TlsConnection:read_stop"><code>TlsConnection:read_stop</code></a></li>
-<li><a href="#TlsConnection:write"><code>TlsConnection:write</code></a></li>
-<li><a href="#TlsConnection:shutdown"><code>TlsConnection:shutdown</code></a></li>
-<li><a href="#TlsConnection:close"><code>TlsConnection:close</code></a></li>
-<li><a href="#TlsConnection:name"><code>TlsConnection:name</code></a></li>
+<li><a href="#type-ContextOptions"><code>type ContextOptions</code></a></li>
+<li><a href="#type-Context"><code>type Context</code></a></li>
+<li><a href="#type-Info"><code>type Info</code></a></li>
+<li><a href="#type-Certificate"><code>type Certificate</code></a></li>
+<li><a href="#type-ConnectOptions"><code>type ConnectOptions</code></a></li>
+<li><a href="#type-Connection"><code>type Connection</code></a></li>
+<li><a href="#Connection:handshake"><code>Connection:handshake</code></a></li>
+<li><a href="#Connection:info"><code>Connection:info</code></a></li>
+<li><a href="#Connection:read_start"><code>Connection:read_start</code></a></li>
+<li><a href="#Connection:read_stop"><code>Connection:read_stop</code></a></li>
+<li><a href="#Connection:write"><code>Connection:write</code></a></li>
+<li><a href="#Connection:shutdown"><code>Connection:shutdown</code></a></li>
+<li><a href="#Connection:close"><code>Connection:close</code></a></li>
+<li><a href="#Connection:name"><code>Connection:name</code></a></li>
 </ul>
-<div class="def" id="context"><h3><code>tls.context(options)</code></h3>
-<p>context(options): files read into PEM text, then the extension's context</p>
+<div class="def" id="context"><h3><code>tls.context(options?: <a href="#type-ContextOptions">ContextOptions</a>) -> <a href="#type-Context">Context</a></code></h3>
+<p>A context for many connections: the tls extension's context, with cert_file, key_file and ca_file read into PEM text first.</p>
+<pre><code>local ctx = tls.context({server: true, cert_file: &quot;cert.pem&quot;,
+  key_file: &quot;key.pem&quot;, alpn: {&quot;http/1.1&quot;}})</code></pre>
+
 </div>
-<div class="def" id="self_signed"><h3><code>tls.self_signed(names, days)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="self_signed"><h3><code>tls.self_signed(names: {string}, days?: int) -> <a href="#type-Certificate">Certificate</a></code></h3>
+<p>A certificate for local development, valid for days (365), with an EC P-256 key.</p>
+<dl class="params"><dt><code>names</code></dt><dd>host names or IP addresses; the first is the subject</dd></dl>
 </div>
 <h2>connections</h2>
-<div class="def" id="client"><h3><code>tls.client(tcp, server_name, context)</code></h3>
-<p>client(tcp, server_name, context): the handshake starts now</p>
+<div class="def" id="client"><h3><code>tls.client(tcp, server_name?: string, context?: <a href="#type-Context">Context</a>) -> <a href="#type-Connection">Connection</a></code></h3>
+<p>A client connection over a connected uv.tcp handle; its handshake starts at once.</p>
+<dl class="params"><dt><code>server_name</code></dt><dd>the name to ask for and verify (needed when verifying)</dd><dt><code>context</code></dt><dd>a shared default client context when null</dd></dl>
 </div>
-<div class="def" id="server"><h3><code>tls.server(tcp, context)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="server"><h3><code>tls.server(tcp, context: <a href="#type-Context">Context</a>) -> <a href="#type-Connection">Connection</a></code></h3>
+<p>A server connection over an accepted uv.tcp handle; the handshake runs as the client's bytes arrive.</p>
+
 </div>
-<div class="def" id="connect"><h3><code>tls.connect(host, port, options)</code></h3>
-<p>connect(host, port, options) -&gt; Future of a connection after its handshake</p>
+<div class="def" id="connect"><h3><code>tls.connect(host: string, port: int, options?: <a href="#type-ConnectOptions">ConnectOptions</a>) -> <a href="slang-async.html#type-Future">async.Future</a></code></h3>
+<p>Connects over TCP and completes the handshake: a Future of the <a href="#type-Connection"><code>Connection</code></a>. It fails, with the TCP handle closed, when connecting or the handshake fails.</p>
+
 </div>
-<h2>type TlsConnection</h2>
-<div class="def" id="TlsConnection:handshake"><h3><code>TlsConnection:handshake()</code></h3>
-<p class="muted">No description.</p>
+<h2 id="type-ContextOptions">type ContextOptions</h2>
+<pre><code>type ContextOptions = {server?: bool, cert?: string, key?: string, ca?: string, verify?: bool, alpn?: {string}, min_version?: string, cert_file?: string, key_file?: string, ca_file?: string}</code></pre>
+<p>The options of <a href="#context"><code>context</code></a>: the tls extension's context options, or files to read the PEM text from. A verifying client needs the server's certificate valid for the host name; a verifying server asks the client for a certificate.</p>
+<dl class="params"><dt><code>server?: bool</code></dt><dd>a server context (false by default)</dd><dt><code>cert?: string</code></dt><dd>PEM text of the certificate chain, leaf first; needed by a server</dd><dt><code>key?: string</code></dt><dd>PEM text of the certificate's private key; needed by a server</dd><dt><code>ca?: string</code></dt><dd>PEM text of the certificates to trust instead of the system's</dd><dt><code>verify?: bool</code></dt><dd>check the peer's certificate (a client does by default)</dd><dt><code>alpn?: {string}</code></dt><dd>protocol names to offer or accept, by preference</dd><dt><code>min_version?: string</code></dt><dd>&quot;1.2&quot; (the default) or &quot;1.3&quot;</dd><dt><code>cert_file?: string</code></dt><dd>a file to read cert from</dd><dt><code>key_file?: string</code></dt><dd>a file to read key from</dd><dt><code>ca_file?: string</code></dt><dd>a file to read ca from</dd></dl>
+<h2 id="type-Context">type Context</h2>
+<p>A context of the tls extension: settings shared by many connections (certificates, trust, ALPN), made by <a href="#context"><code>context</code></a>.</p>
+<h2 id="type-Info">type Info</h2>
+<pre><code>type Info = {version: string, cipher?: string, alpn?: string, peer?: string, server_name?: string}</code></pre>
+<p>What <a href="#Connection:info"><code>Connection.info</code></a> tells about a connection; fields not known yet are null.</p>
+<dl class="params"><dt><code>version: string</code></dt><dd>the protocol version (&quot;TLSv1.3&quot;)</dd><dt><code>cipher?: string</code></dt><dd></dd><dt><code>alpn?: string</code></dt><dd>the protocol chosen with ALPN</dd><dt><code>peer?: string</code></dt><dd>the subject of the peer's certificate</dd><dt><code>server_name?: string</code></dt><dd>the host name the client asked for</dd></dl>
+<h2 id="type-Certificate">type Certificate</h2>
+<pre><code>type Certificate = {cert: string, key: string}</code></pre>
+<p>A certificate and its key as PEM text, from <a href="#self_signed"><code>self_signed</code></a>.</p>
+<dl class="params"><dt><code>cert: string</code></dt><dd></dd><dt><code>key: string</code></dt><dd></dd></dl>
+<h2 id="type-ConnectOptions">type ConnectOptions</h2>
+<pre><code>type ConnectOptions = {context?: <a href="#type-Context">Context</a>, server_name?: string, ca?: string, ca_file?: string, cert?: string, cert_file?: string, verify?: bool, alpn?: {string}, min_version?: string}</code></pre>
+<p>The options of <a href="#connect"><code>connect</code></a>: a context's options, or a context made before, and the name to verify.</p>
+<dl class="params"><dt><code>context?: <a href="#type-Context">Context</a></code></dt><dd>a context to use instead of one made from the options</dd><dt><code>server_name?: string</code></dt><dd>the name to ask for and verify (the host by default)</dd><dt><code>ca?: string</code></dt><dd></dd><dt><code>ca_file?: string</code></dt><dd></dd><dt><code>cert?: string</code></dt><dd></dd><dt><code>cert_file?: string</code></dt><dd></dd><dt><code>verify?: bool</code></dt><dd></dd><dt><code>alpn?: {string}</code></dt><dd></dd><dt><code>min_version?: string</code></dt><dd></dd></dl>
+<h2 id="type-Connection">type Connection</h2>
+<p>A TLS connection over a uv.tcp handle; type(conn) is &quot;TlsConnection&quot;. It also has the handle's getsockname, getpeername, nodelay, keepalive, is_closing, is_active, fileno, ref, unref and has_ref, which go to the TCP handle.</p>
+<div class="def" id="Connection:handshake"><h3><code>Connection:handshake() -> <a href="slang-async.html#type-Future">async.Future</a></code></h3>
+<p>A Future of the connection once the handshake is done (at once when it is); it fails with the handshake's error.</p>
+
 </div>
-<div class="def" id="TlsConnection:info"><h3><code>TlsConnection:info()</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="Connection:info"><h3><code>Connection:info() -> <a href="#type-Info">Info</a></code></h3>
+<p>The protocol version, cipher, ALPN protocol, peer and server name.</p>
+
 </div>
-<div class="def" id="TlsConnection:read_start"><h3><code>TlsConnection:read_start(cb)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="Connection:read_start"><h3><code>Connection:read_start(cb: func(err: any, chunk: string?))</code></h3>
+<p>Calls cb with each chunk of plaintext as it arrives, and with a null chunk at the end of the stream; cb(err, null) when the connection fails.</p>
+
 </div>
-<div class="def" id="TlsConnection:read_stop"><h3><code>TlsConnection:read_stop()</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="Connection:read_stop"><h3><code>Connection:read_stop()</code></h3>
+<p>Stops calling the reader; plaintext that arrives meanwhile is kept for the next one.</p>
+
 </div>
-<div class="def" id="TlsConnection:write"><h3><code>TlsConnection:write(data, cb)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="Connection:write"><h3><code>Connection:write(data: string, cb?: func(err: any))</code></h3>
+<p>Encrypts and sends data; cb(err) once it is written. Writes made during the handshake are sent after it.</p>
+
 </div>
-<div class="def" id="TlsConnection:shutdown"><h3><code>TlsConnection:shutdown(cb)</code></h3>
-<p>shutdown(cb): a close_notify, then the TCP write side closes</p>
+<div class="def" id="Connection:shutdown"><h3><code>Connection:shutdown(cb?: func(err: any))</code></h3>
+<p>Sends a close_notify, then closes the TCP write side.</p>
+
 </div>
-<div class="def" id="TlsConnection:close"><h3><code>TlsConnection:close(cb)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="Connection:close"><h3><code>Connection:close(cb?: function)</code></h3>
+<p>Closes the TCP handle; waiting writes and handshakes fail with &quot;tls: the connection is closed&quot;.</p>
+
 </div>
-<div class="def" id="TlsConnection:name"><h3><code>TlsConnection:name(...arguments)</code></h3>
-<p class="muted">No description.</p>
+<div class="def" id="Connection:name"><h3><code>Connection:name(...arguments)</code></h3>
+<p>the TCP handle's method of that name</p>
+
 </div>
 <p class="muted">slang/lib/tls.slang</p>
 </body>

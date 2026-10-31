@@ -29,12 +29,19 @@ ul.toc { columns: 2; padding-left: 1.2rem; }
 @media (max-width: 40rem) { ul.toc { columns: 1; } }
 dt { margin-top: 0.75rem; }
 dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
 </style>
 </head>
 <body>
 <nav><a href="index.html">index</a></nav>
 <h1>globals</h1>
-<p>globals: the functions every slang program has, built into the VM. require, module and run are written in slang (slang/lib/package.slang and slang/lib/std.slang), compile in slang/compiler/compiler.slang.</p>
+<p>globals: the functions every slang program has without a require, built into the VM.</p>
+<pre><code>local f = open(&quot;notes.txt&quot;, &quot;w&quot;)
+f:write(concat(&quot;args: &quot;, len(args()), &quot;\n&quot;))
+f:close()
+for(let local e in entries({a: 1, b: 2})){ print(e[0], &quot;=&quot;, e[1], &quot;\n&quot;) }</code></pre>
+<p>Errors are values: <a href="#error"><code>error</code></a> raises one, <a href="#pcall"><code>pcall</code></a> catches it as an <a href="#type-Error"><code>Error</code></a> table, <a href="#raise"><code>raise</code></a> passes it on. Tables are both lists (keys 0..n-1) and maps; <a href="#keys"><code>keys</code></a>, <a href="#values"><code>values</code></a> and <a href="#entries"><code>entries</code></a> iterate them with list indices first, then the other keys in insertion order. require, module and run are globals too, written in slang (slang/lib/package.slang and slang/std); compile is in slang/compiler/compiler.slang.</p>
 <ul class="toc">
 <li><a href="#print"><code>print</code></a></li>
 <li><a href="#readLine"><code>readLine</code></a></li>
@@ -57,106 +64,137 @@ dd { margin-left: 1rem; color: var(--muted); }
 <li><a href="#concat"><code>concat</code></a></li>
 <li><a href="#set_raw"><code>set_raw</code></a></li>
 <li><a href="#get_raw"><code>get_raw</code></a></li>
-<li><a href="#file:read"><code>file:read</code></a></li>
-<li><a href="#file:readBytes"><code>file:readBytes</code></a></li>
-<li><a href="#file:write"><code>file:write</code></a></li>
-<li><a href="#file:writeBytes"><code>file:writeBytes</code></a></li>
-<li><a href="#file:close"><code>file:close</code></a></li>
+<li><a href="#type-Error"><code>type Error</code></a></li>
+<li><a href="#type-File"><code>type File</code></a></li>
+<li><a href="#File:read"><code>File:read</code></a></li>
+<li><a href="#File:readBytes"><code>File:readBytes</code></a></li>
+<li><a href="#File:write"><code>File:write</code></a></li>
+<li><a href="#File:writeBytes"><code>File:writeBytes</code></a></li>
+<li><a href="#File:close"><code>File:close</code></a></li>
 </ul>
 <h2>input and output</h2>
 <div class="def" id="print"><h3><code>print(...values)</code></h3>
-<p>print(...values): writes the values to standard output without separators; strings as they are, other values as <code>string</code> renders them. Output is buffered and flushed when a value contains a newline.</p>
+<p>Writes the values to standard output without separators: strings as they are, other values as <a href="#string"><code>string</code></a> renders them. Output is buffered and flushed when a value contains a newline.</p>
+
 </div>
-<div class="def" id="readLine"><h3><code>readLine()</code></h3>
-<p>readLine() -&gt; the next line of standard input without its line ending, or null at the end of the input. Flushes standard output first.</p>
+<div class="def" id="readLine"><h3><code>readLine() -> string?</code></h3>
+<p>The next line of standard input without its line ending, or null at the end of the input. Flushes standard output first.</p>
+
 </div>
-<div class="def" id="args"><h3><code>args()</code></h3>
-<p>args() -&gt; the command-line arguments of the program as a list of strings</p>
+<div class="def" id="args"><h3><code>args() -> {string}</code></h3>
+<p>The command-line arguments of the program.</p>
+
 </div>
-<div class="def" id="open"><h3><code>open(path, mode)</code></h3>
-<p>open(path, [mode]) -&gt; a file. mode is &quot;r&quot; (the default) to read, &quot;w&quot; to write (truncating), &quot;a&quot; to append; &quot;rw&quot; reads and writes, truncating, and &quot;ra&quot; reads and appends. A missing file is created first, together with its directory, whatever the mode. Raises &quot;cannot open &lt;path&gt;&quot; when the file cannot be opened. The file is closed when it is collected.</p>
-<pre><code>local f = open(&quot;out.txt&quot;, &quot;w&quot;)
-f:write(&quot;hello\n&quot;)
-f:close()</code></pre>
+<div class="def" id="open"><h3><code>open(path: string, mode?: string) -> <a href="#type-File">File</a></code></h3>
+<p>Opens a file. A missing file is created first, together with its directory, whatever the mode. Raises &quot;cannot open &lt;path&gt;&quot; when the file cannot be opened.</p>
+<dl class="params"><dt><code>mode</code></dt><dd>&quot;r&quot; (the default) to read, &quot;w&quot; to write (truncating), &quot;a&quot; to append, &quot;rw&quot; to read and write (truncating), &quot;ra&quot; to read and append local f = open(&quot;out.txt&quot;, &quot;w&quot;) f:write(&quot;hello\n&quot;) f:close()</dd></dl>
 </div>
 <h2>errors</h2>
 <div class="def" id="assert"><h3><code>assert(cond, ...message)</code></h3>
-<p>assert(cond, ...message): raises an error when cond is null or false. The message is the remaining values written one after the other, or &quot;assertion failed&quot; without them.</p>
+<p>Raises an error when cond is null or false. The message is the remaining values written one after the other, or &quot;assertion failed&quot; without them.</p>
+<pre><code>assert(len(list) &gt; 0, &quot;empty list for &quot;, name)</code></pre>
+
 </div>
 <div class="def" id="error"><h3><code>error(...values)</code></h3>
-<p>error(...values): raises an error whose message is the values rendered and joined like <code>print</code> does</p>
+<p>Raises an error whose message is the values rendered and joined as <a href="#print"><code>print</code></a> does.</p>
 <pre><code>error(&quot;Package not found: &quot;, name)</code></pre>
+
 </div>
-<div class="def" id="raise"><h3><code>raise(err)</code></h3>
-<p>raise(err): raises err again, an error table as <code>pcall</code> returns it or a string. The original location and stack of an error table are kept.</p>
+<div class="def" id="raise"><h3><code>raise(err: <a href="#type-Error">Error</a> | string)</code></h3>
+<p>Raises err again: an error table as <a href="#pcall"><code>pcall</code></a> gives it, or a string. An error table keeps its original location and stack.</p>
+
 </div>
-<div class="def" id="pcall"><h3><code>pcall(f, ...args)</code></h3>
-<p>pcall(f, ...args) -&gt; {&quot;ok&quot;, result} when f(...args) returns, {&quot;err&quot;, e} when it raises. e is a table {message, location: {line, column, origin}, stack}; a raised table is e itself, with location and stack added.</p>
+<div class="def" id="pcall"><h3><code>pcall(f: function, ...args) -> table</code></h3>
+<p>Calls f(...args) and catches what it raises: {&quot;ok&quot;, result} when it returns, {&quot;err&quot;, e} when it raises. e is an <a href="#type-Error"><code>Error</code></a>; when f raised a table, e is that table, with location and stack added.</p>
 <pre><code>local r = pcall(parse, text)
 if(let {&quot;err&quot;, local e} = r){
   print(e.message, &quot;\n&quot;)
 }</code></pre>
+
 </div>
 <h2>values</h2>
-<div class="def" id="type"><h3><code>type(v)</code></h3>
-<p>type(v) -&gt; the type name of v: &quot;null&quot;, &quot;bool&quot;, &quot;int&quot;, &quot;double&quot;, &quot;string&quot;, &quot;table&quot;, &quot;function&quot;, &quot;thread&quot; or &quot;userdata&quot;. A table or userdata whose metatable has __type gets that value instead (or its result, when __type is a function called with v).</p>
+<div class="def" id="type"><h3><code>type(v) -> string</code></h3>
+<p>The type name of v: &quot;null&quot;, &quot;bool&quot;, &quot;int&quot;, &quot;double&quot;, &quot;string&quot;, &quot;table&quot;, &quot;function&quot;, &quot;thread&quot; or &quot;userdata&quot;. A table or userdata whose metatable has __type gets that value instead (or its result, when __type is a function called with v).</p>
+
 </div>
-<div class="def" id="len"><h3><code>len(v)</code></h3>
-<p>len(v) -&gt; the length of a string in bytes, or the number of entries of a table; a metatable's __len function decides instead when there is one. Raises an error for other values.</p>
+<div class="def" id="len"><h3><code>len(v: string | table) -> int</code></h3>
+<p>The length of a string in bytes, or the number of entries of a table (list elements and other keys alike); a metatable's __len function decides instead when there is one. Raises an error for other values.</p>
+
 </div>
-<div class="def" id="string"><h3><code>string(v)</code></h3>
-<p>string(v) -&gt; v rendered as a string, through its __tostring metamethod when it has one</p>
+<div class="def" id="string"><h3><code>string(v) -> string</code></h3>
+<p>v rendered as a string, through its __tostring metamethod when it has one.</p>
+
 </div>
-<div class="def" id="to_int"><h3><code>to_int(v)</code></h3>
-<p>to_int(v) -&gt; v as an int: ints as they are, doubles truncated (saturating, NaN gives 0), strings parsed as decimal or &quot;0x&quot; hex digits with an optional sign. Raises an error for an invalid string or another type.</p>
+<div class="def" id="to_int"><h3><code>to_int(v: int | float | string) -> int</code></h3>
+<p>v as an int: ints as they are, doubles truncated (saturating, NaN gives 0), strings parsed as decimal or &quot;0x&quot; hex digits with an optional sign. Raises an error for an invalid string or another type.</p>
+
 </div>
 <h2>tables</h2>
-<div class="def" id="append"><h3><code>append(t, v)</code></h3>
-<p>append(t, v): sets t[len(t)] to v, adding v at the end of a list</p>
+<div class="def" id="append"><h3><code>append(t: table, v: any)</code></h3>
+<p>Sets t[len(t)] to v, adding v at the end of a list. As <a href="#len"><code>len</code></a> counts every entry, use it on lists: on a table with other keys it does not add at the end of the list part (see <a href="#list_push"><code>list_push</code></a>).</p>
+
 </div>
-<div class="def" id="list_push"><h3><code>list_push(t, v)</code></h3>
-<p>list_push(t, v): adds v at the end of the list part of t, keeping a null v as a slot (<code>append</code> and list literals stop at null)</p>
+<div class="def" id="list_push"><h3><code>list_push(t: table, v: any)</code></h3>
+<p>Adds v at the end of the list part of t, keeping a null v as a slot (<a href="#append"><code>append</code></a> and list literals stop at null).</p>
+
 </div>
-<div class="def" id="remove"><h3><code>remove(t, key)</code></h3>
-<p>remove(t, key) -&gt; the value removed from t at key, or null. Removing a list index shifts the later elements down. Returns null when t is not a table.</p>
+<div class="def" id="remove"><h3><code>remove(t: table, key) -> any</code></h3>
+<p>The value removed from t at key, or null. Removing a list index shifts the later elements down. Returns null when t is not a table.</p>
+
 </div>
-<div class="def" id="keys"><h3><code>keys(t)</code></h3>
-<p>keys(t) -&gt; an iterator over the keys of t: list indices first, then the other keys in insertion order. The keys are a snapshot taken by the call. Returns null when t is not a table.</p>
+<div class="def" id="keys"><h3><code>keys(t: table) -> function</code></h3>
+<p>An iterator over the keys of t: list indices first, then the other keys in insertion order. The keys are a snapshot taken by the call. A slang/buffer iterates its indices. Returns null for anything else.</p>
 <pre><code>for(let local k in keys(t)){ print(k, &quot;\n&quot;) }</code></pre>
+
 </div>
-<div class="def" id="values"><h3><code>values(t)</code></h3>
-<p>values(t) -&gt; an iterator over the values of t, in the order of <code>keys</code>; a null t iterates nothing, another non-table raises an error</p>
+<div class="def" id="values"><h3><code>values(t: table?) -> function</code></h3>
+<p>An iterator over the values of t, in the order of <a href="#keys"><code>keys</code></a>. A null t iterates nothing, a slang/buffer its elements; anything else raises an error.</p>
+
 </div>
-<div class="def" id="entries"><h3><code>entries(t)</code></h3>
-<p>entries(t) -&gt; an iterator over {key, value} pairs of t, in the order of <code>keys</code>; a null t iterates nothing, another non-table raises an error</p>
+<div class="def" id="entries"><h3><code>entries(t: table?) -> function</code></h3>
+<p>An iterator over the {key, value} pairs of t, in the order of <a href="#keys"><code>keys</code></a>. A null t iterates nothing, a slang/buffer its {index, element} pairs; anything else raises an error.</p>
 <pre><code>for(let local e in entries(t)){ print(e[0], &quot;=&quot;, e[1], &quot;\n&quot;) }</code></pre>
+
 </div>
-<div class="def" id="concat"><h3><code>concat(...values)</code></h3>
-<p>concat(...values) -&gt; when the first value is a string, all values rendered and joined into one string like <code>print</code> does; when it is a table, a new table with the lists of all the tables appended in order and their other keys copied (later tables win). Raises an error otherwise.</p>
+<div class="def" id="concat"><h3><code>concat(...values) -> string | table</code></h3>
+<p>When the first value is a string, all values rendered and joined into one string as <a href="#print"><code>print</code></a> does. When it is a table, a new table with the lists of all the tables appended in order and their other keys copied (later tables win). Raises an error otherwise.</p>
 <pre><code>concat(&quot;a&quot;, 1, &quot;b&quot;)   // &quot;a1b&quot;
 concat({1, 2}, {3})   // {1, 2, 3}</code></pre>
+
 </div>
-<div class="def" id="set_raw"><h3><code>set_raw(t, key, v)</code></h3>
-<p>set_raw(t, key, v): sets t[key] to v without metamethods</p>
+<div class="def" id="set_raw"><h3><code>set_raw(t: table, key, v: any)</code></h3>
+<p>Sets the value of t at key to v, without metamethods.</p>
+
 </div>
-<div class="def" id="get_raw"><h3><code>get_raw(t, key)</code></h3>
-<p>get_raw(t, key) -&gt; t[key] without metamethods</p>
+<div class="def" id="get_raw"><h3><code>get_raw(t: table, key) -> any</code></h3>
+<p>The value of t at key, without metamethods.</p>
+
 </div>
-<h2>type file</h2>
-<div class="def" id="file:read"><h3><code>file:read(n)</code></h3>
-<p>file:read([n]) -&gt; a string of the next n bytes, fewer at the end of the file, or the rest of the file when n is left out</p>
+<h2 id="type-Error">type Error</h2>
+<pre><code>type Error = {message: string, location?: {line: int, column: int, origin: string}, stack?: string}</code></pre>
+<p>What <a href="#pcall"><code>pcall</code></a> catches.</p>
+<dl class="params"><dt><code>message: string</code></dt><dd>the error's text</dd><dt><code>location?: {line: int, column: int, origin: string}</code></dt><dd>where it was raised</dd><dt><code>stack?: string</code></dt><dd>the stack traceback as text</dd></dl>
+<h2 id="type-File">type File</h2>
+<p>An open file, from <a href="#open"><code>open</code></a>; type() of it is &quot;file&quot;. It is closed when it is collected.</p>
+<div class="def" id="File:read"><h3><code>File:read(n?: int) -> string</code></h3>
+<p>The next n bytes, fewer at the end of the file, or the rest of the file when n is left out.</p>
+
 </div>
-<div class="def" id="file:readBytes"><h3><code>file:readBytes(n)</code></h3>
-<p>file:readBytes([n]) -&gt; like read, but a list of byte values (ints 0-255)</p>
+<div class="def" id="File:readBytes"><h3><code>File:readBytes(n?: int) -> {int}</code></h3>
+<p>Like <a href="#File:read"><code>File.read</code></a>, but a list of byte values (ints 0-255).</p>
+
 </div>
-<div class="def" id="file:write"><h3><code>file:write(s)</code></h3>
-<p>file:write(s): writes the string s</p>
+<div class="def" id="File:write"><h3><code>File:write(s: string)</code></h3>
+<p>Writes s.</p>
+
 </div>
-<div class="def" id="file:writeBytes"><h3><code>file:writeBytes(bytes)</code></h3>
-<p>file:writeBytes(bytes): writes a list of byte values (each int is cut to its low 8 bits)</p>
+<div class="def" id="File:writeBytes"><h3><code>File:writeBytes(bytes: {int})</code></h3>
+<p>Writes a list of byte values; each int is cut to its low 8 bits.</p>
+
 </div>
-<div class="def" id="file:close"><h3><code>file:close()</code></h3>
-<p>file:close(): closes the file; closing it again does nothing. read and write on a closed file raise an error.</p>
+<div class="def" id="File:close"><h3><code>File:close()</code></h3>
+<p>Closes the file; closing it again does nothing. Reading or writing a closed file raises an error.</p>
+
 </div>
 <p class="muted">slang/stubs/globals.slang</p>
 </body>

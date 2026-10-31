@@ -83,7 +83,6 @@ game/autopilot.slang  plays steps as a player would: path finding, jacking in, t
 game/render.slang     3D drawing
 game/hud.slang        the deck panel, the HUD and the screens
 test/                 the tests
-PLAN.md               the plan and what was found along the way
 ```
 
 Everything but `render`, `hud` and `main` runs without a window. The tests

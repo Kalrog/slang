@@ -120,7 +120,6 @@ Indexes count from 0 and are checked; `len`, `values`, `entries` and `==`
 `fill`, `set`, `copy`, `cast`, `to_list`, `to_string`, `from_string` run
 natively. `buffer.wrap(pointer, n)` makes a buffer over memory C owns.
 Buffers and `ffi.cdef` are in every build; only calling C needs libffi.
-`PLAN_BUFFERS.md` has the design and the measurements.
 
 ## Syntax
 ### Variables
@@ -518,8 +517,7 @@ object offers:
 
 See `extensions/` for examples (switch statement, lambda shorthand, custom
 infix/prefix/postfix operators, a grammar DSL, the JSON dialect) and
-`examples/deckhand/dsl` for a larger one. The plan for the rest of this work
-(memoization placement, tooling) is in `PLAN_GRAMMAR.md`.
+`examples/deckhand/dsl` for a larger one.
 
 ## Async, libuv and HTTP
 
@@ -544,7 +542,7 @@ a.main(func(){
 `async func` bodies run as coroutines; `await` takes a Future (or raises its
 error); `await for(let local x in stream)` loops over a Stream. Callbacks
 stay available everywhere (`f:then(...)`, `stream:listen(...)`, the `uv`
-module itself). `PLAN_UV.md` has the design.
+module itself).
 
 ## Packages
 
@@ -658,7 +656,6 @@ compiler resolves them; native modules and the globals resolve to their
 stubs. `editors/vscode` is the VS Code extension: a
 generated TextMate grammar for the core language plus the server's
 semantic tokens in trusted workspaces (`make vscode` builds the `.vsix`).
-`PLAN_LSP.md` has the design.
 
 ## Documentation
 
@@ -674,7 +671,6 @@ VM's modules, the C extensions) is documented by stubs in `slang/stubs/`:
 slang files that declare it with empty bodies and comments, never run.
 `doc/` holds the documentation
 of slang's own library (open `doc/index.html`); `make doc` regenerates it.
-`PLAN_DOC.md` has the design.
 
 ## Standard library
 Globals: `print`, `args`, `readLine`, `open` (files with `read`, `write`,
@@ -714,8 +710,6 @@ registering natives and calling slang functions through the same stack API
 the extensions use.
 
 ## Ideas
-The roadmap is PLAN_1.0.md; bitwise operators and the language server,
-once listed here, exist.
-- [ ] isolates: separate VMs on threads exchanging messages (PLAN_1.0.md
-      phase 9; coroutines stay the in-VM model)
-- [ ] static typing (PLAN_1.0.md phase 7)
+- [ ] isolates: separate VMs on threads exchanging messages (coroutines
+      stay the in-VM model)
+- [ ] static typing

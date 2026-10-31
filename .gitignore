@@ -15,3 +15,6 @@ examples/desktop/todos.db
 /examples/webserver/webserver
 /examples/desktop/todos
 /dist/
+
+# plans and notes, kept locally
+/plans/

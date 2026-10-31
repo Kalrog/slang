@@ -696,11 +696,9 @@ for(not rl.window_should_close() and not game.quit){
   } else if(game.screen == "play"){
     ui.begin()
     update_play(dt)
-    if(game.screen == "play"){
-      draw_play()
-    } else {
-      update_screens()
-    }
+    // (a screen that opened this frame is handled from the next one: the
+    // key that opened it must not close it again)
+    draw_play()
   } else if(game.screen == "editor"){
     ui.begin()
     game.editing:frame(dt)

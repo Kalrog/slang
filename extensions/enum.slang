@@ -15,15 +15,15 @@
 //     print(name, "\n")                    // Red, Green, Blue
 //   }
 //
-// The extension also shows how an extension highlights its own syntax:
-// the name is tagged `enum.declaration`, the members
-// `enumMember.declaration` (any standard LSP token type and modifiers can
-// be used in a category); the language server and `slang highlight` pass
-// the tags through.
+// Editors highlight the name as an enum and the members as enum members.
 local peg = require("slang/peg")
 local ast = require("slang/ast")
 local g = require("slang/compiler").grammar()
 
+// How an extension highlights its own syntax: the name is tagged
+// `enum.declaration`, the members `enumMember.declaration` (any standard
+// LSP token type, with modifiers after dots, can be a category); the
+// language server and `slang highlight` pass the tags through.
 local name = g:tag(g:rule("identifier"), "enum.declaration")
 local member = g:tag(g:rule("identifier"), "enumMember.declaration")
 

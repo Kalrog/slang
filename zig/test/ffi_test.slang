@@ -74,6 +74,34 @@ t.group("ffi: declarations"){
     assert(ffi.sizeof("Item", C) == 20)
     assert(ffi.sizeof("int64_t[3]", C) == 24)
   }
+  t.test("doc comments in Doxygen style; initializers with braces"){
+    local D = ffi.cdef(str.join({
+      "typedef struct { float x, y; } V;",
+      "static const V v_zero = { 0.0f, 0.0f };",
+      "/// makes a vector",
+      "V v_make(float x, float y);",
+      "/**",
+      " * adds two vectors",
+      " */",
+      "V v_add(V a, V b);",
+      "int v_count(void); ///< how many",
+    }, "\n"))
+    assert(D.functions.v_make.doc == "makes a vector")
+    assert(D.functions.v_add.doc == "adds two vectors")
+    assert(D.functions.v_count.doc == "how many")
+  }
+  t.test("header: quoted includes spliced in, each once"){
+    local os = require("slang/os")
+    local dir = concat(os.getenv("TMPDIR") or "/tmp/", "/slang-ffi-test")
+    os.mkdir_all(dir)
+    os.write_file(concat(dir, "/ffi_a.h"), "#include \"ffi_b.h\"\n#include <stdint.h>\nB f(void);\n")
+    os.write_file(concat(dir, "/ffi_b.h"), "#pragma once\n#include \"ffi_b.h\"\ntypedef int B;\n")
+    local text = ffi.header(concat(dir, "/ffi_a.h"))
+    assert(str.index_of(text, "typedef int B;") >= 0)
+    assert(str.index_of(text, "#include <stdint.h>") >= 0)
+    local D = ffi.cdef(text)
+    assert(D.types.B != null and D.functions.f != null)
+  }
   t.test("bad declarations are located errors"){
     local r = pcall(ffi.cdef, "int f(int x;")
     assert(r[0] == "err")

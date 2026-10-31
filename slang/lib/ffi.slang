@@ -94,8 +94,28 @@ local func need_core(){
 
 // ------------------------------------------------------------ text
 
+// a comment's text without the marks of doc comments: the third / of ///,
+// //! and ///<, and the * that starts each line of a /** ... */ block
+local func comment_text(body){
+  local lines = {}
+  for(let local l in values(str.split(body, "\n"))){
+    local t = str.trim(l)
+    local k = 0
+    for(k < len(t) and (str.byte_at(t, k) == 47 or str.byte_at(t, k) == 42 or
+      str.byte_at(t, k) == 33 or str.byte_at(t, k) == 60)){
+      k = k + 1
+    }
+    t = str.trim(str.substring(t, k))
+    if(t != ""){
+      append(lines, t)
+    }
+  }
+  return str.join(lines, " ")
+}
+
 // the code without comments (replaced by spaces, newlines kept), and the
-// comments: {line, text, own_line} with own_line when nothing precedes it
+// comments: {line, text, own_line} with own_line when nothing precedes it;
+// a block comment on lines of its own counts as on its last line
 local func strip_comments(text){
   local out = {}
   local comments = {}
@@ -129,7 +149,7 @@ local func strip_comments(text){
       append(out, str.substring(text, start, i))
       append(comments, {
         line: line,
-        text: str.trim(str.substring(text, i + 2, j)),
+        text: comment_text(str.substring(text, i + 2, j)),
         own_line: not line_has_code,
       })
       start = j
@@ -147,10 +167,13 @@ local func strip_comments(text){
       for(local k = 1; k < len(lines); k = k + 1){
         append(out, "\n")
       }
-      append(comments, {
-        line: line, text: str.trim(body), own_line: not line_has_code
-      })
+      local own = not line_has_code
       line = line + len(lines) - 1
+      local at = line
+      if(not own){
+        at = line - len(lines) + 1
+      }
+      append(comments, {line: at, text: comment_text(body), own_line: own})
       start = j + 2
       i = j + 2
     } else {
@@ -879,9 +902,9 @@ func ffi.cdef(text, options){
       if(depth == 0 and t.kind == "punct" and stops[t.text]){
         break
       }
-      if(t.text == "(" or t.text == "["){
+      if(t.text == "(" or t.text == "[" or t.text == "{"){
         depth = depth + 1
-      } else if(t.text == ")" or t.text == "]"){
+      } else if(t.text == ")" or t.text == "]" or t.text == "}"){
         depth = depth - 1
       }
       append(expr, t)
@@ -1324,6 +1347,49 @@ func ffi.cdef(text, options){
   decls.field_name = field_name
   decls.defaults = options.defaults or decls.defaults
   return decls
+}
+
+// header(path: string) -> string
+// The text of a header file with the headers it includes by quoted name
+// (`#include "types.h"`, found next to the file that includes it) put in
+// their place, each file once, for [cdef], which skips `#include`. The
+// includes are spliced whether or not an `#if` around them holds; system
+// headers (`<stdint.h>`) stay out.
+//
+//   local C = ffi.cdef(ffi.header("/usr/include/box2d/box2d.h"))
+func ffi.header(path){
+  local seen = {}
+  local splice = null
+  splice = func(file){
+    if(seen[file]){
+      return ""
+    }
+    seen[file] = true
+    local slash = len(file)
+    for(slash > 0 and str.byte_at(file, slash - 1) != 47){
+      slash = slash - 1
+    }
+    local dir = str.substring(file, 0, slash)
+    local out = {}
+    for(let local line in values(str.split(os.read_file(file), "\n"))){
+      local t = str.trim(line)
+      local q = str.index_of(t, "\"")
+      if(str.starts_with(t, "#") and q > 0 and
+        str.trim(str.substring(t, 1, q)) == "include"){
+        local name = str.substring(t, q + 1, str.index_of(t, "\"", q + 1))
+        local inner = concat(dir, name)
+        if(os.exists(inner)){
+          append(out, splice(inner))
+        } else {
+          append(out, line)
+        }
+      } else {
+        append(out, line)
+      }
+    }
+    return str.join(out, "\n")
+  }
+  return splice(path)
 }
 
 // ------------------------------------------------------------ to ffi_core

@@ -751,6 +751,47 @@ local func locations(s, list){
   return out
 }
 
+// the module a require at pos names (pos on the word require or in the
+// string after it): {name, path}, path its file as require finds it (null
+// when it cannot), or null when pos is not on a require
+local func required_at(text, pos){
+  local func name_from(open){
+    // open: the offset of the string's opening quote
+    if(open < 8 or str.substring(text, open - 8, open) != "require("){
+      return null
+    }
+    local close = str.index_of(text, "\"", open + 1)
+    if(close < 0 or str.index_of(str.substring(text, open, close), "\n") >= 0){
+      return null
+    }
+    local name = str.substring(text, open + 1, close)
+    return {name: name, path: compiler.module_path(name)}
+  }
+  // in the string: back to its opening quote
+  local i = pos
+  for(i > 0 and str.char_at(text, i - 1) != "\"" and
+    str.char_at(text, i - 1) != "\n"){
+    i = i - 1
+  }
+  if(i > 0 and str.char_at(text, i - 1) == "\""){
+    local found = name_from(i - 1)
+    if(found != null){
+      return found
+    }
+  }
+  // on the word require: the string after it
+  local start = pos
+  for(start > 0 and str.char_at(text, start - 1) != " " and
+    str.char_at(text, start - 1) != "(" and
+    str.char_at(text, start - 1) != "\n" and str.char_at(text, start - 1) != "="){
+    start = start - 1
+  }
+  if(str.substring(text, start, start + 9) == "require(\""){
+    return name_from(start + 8)
+  }
+  return null
+}
+
 // the extension whose syntax is at pos (not core syntax): {name, path},
 // path its source (null when require cannot find it)
 local func extension_at(at){
@@ -769,6 +810,21 @@ handlers["textDocument/definition"] = func(s, id, params){
   local at = position_of(s, params)
   if(at == null){
     return {response(id, json.array({}))}
+  }
+  // a require: the module's file
+  local module = required_at(at.text, at.pos)
+  if(module != null){
+    local out = json.array({})
+    if(module.path != null){
+      append(out, {
+        uri: lsp.path_to_uri(module.path),
+        range: {
+          start: {line: 0, character: 0},
+          ["end"]: {line: 0, character: 0},
+        },
+      })
+    }
+    return {response(id, out)}
   }
   local found = locations(s, nav_of(s):definition(at.doc.path, at.pos))
   if(len(found) == 0){
@@ -805,6 +861,25 @@ handlers["textDocument/hover"] = func(s, id, params){
   if(is_project_file(at.doc.path)){
     at.pos = lsp.offset_of(at.doc.text, params.position, s.encoding)
     return {response(id, project_hover(s, at))}
+  }
+  // a require: what the module's file says it is
+  local module = required_at(at.text, at.pos)
+  if(module != null){
+    local lines = {concat("```slang\nmodule \"", module.name, "\"\n```")}
+    if(module.path == null){
+      append(lines, "not found")
+    } else {
+      local f = nav_of(s):file(module.path)
+      if(f != null and f.index.module_doc != null){
+        append(lines, navigate.markdown(f.index.module_doc))
+      }
+      append(lines, concat("*", nav_of(s):shown(module.path), "*"))
+    }
+    return {
+      response(id, {
+        contents: {kind: "markdown", value: str.join(lines, "\n\n")},
+      }),
+    }
   }
   local h = nav_of(s):hover(at.doc.path, at.pos)
   if(h == null){

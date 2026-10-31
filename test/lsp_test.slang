@@ -282,6 +282,23 @@ t.group("language server: names"){
         "/slang/stubs/globals.slang",
       ))
   }
+  t.test("go to definition and hover on a require: the module's file"){
+    local d = ask("textDocument/definition", pos("navigate/util\""))
+    assert(len(d) == 1 and str.ends_with(d[0].uri, "/test/navigate/util.slang"))
+    d = ask("textDocument/definition", pos("require(\"test"))
+    assert(len(d) == 1 and str.ends_with(d[0].uri, "/test/navigate/util.slang"))
+    // a native module: its stub
+    d = ask("textDocument/definition", pos("slang/string"))
+    assert(len(d) == 1 and str.ends_with(
+        d[0].uri,
+        "/slang/stubs/slang/string.slang",
+      ))
+    local h = ask("textDocument/hover", pos("navigate/util\""))
+    assert(str.index_of(
+      h.contents.value,
+      "a module the language server tests require",
+    ) >= 0, h.contents.value)
+  }
   t.test("find references: a parameter, and a module field across files"){
     local r = spots(ask("textDocument/references", pos("name)", 1), {
       includeDeclaration: true,

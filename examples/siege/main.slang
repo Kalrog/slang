@@ -132,6 +132,7 @@ local func start(level, options){
   }
   game.screen = "play"
   game.cleared = false
+  game.shown_cleared = false
   game.settled_for = 0
   game.pending = 0
   game.editor_test = options.test or false
@@ -414,16 +415,26 @@ local func update_play(dt){
     v:reset(game.level.spawn)
     hud.message("Splash! Back to the start", 2.5)
   }
+  // the target reached: the screen waits for the wreckage to come to rest
+  // (two seconds at least, eight at most), so the fall can be watched
   if(not game.cleared and w.score >= game.level.target and game.level.target > 0){
     game.cleared = true
-    sound.play("fanfare")
-    local key = game.level.key or game.level.name
-    if(game.best[key] == null or w.score > game.best[key]){
-      game.best[key] = w.score
+    game.cleared_at = game.time
+    hud.message("target reached!", 2)
+  }
+  if(game.cleared and game.screen == "play" and not game.shown_cleared){
+    local waited = game.time - game.cleared_at
+    if((waited > 2 and w:settled()) or waited > 8){
+      game.shown_cleared = true
+      sound.play("fanfare")
+      local key = game.level.key or game.level.name
+      if(game.best[key] == null or w.score > game.best[key]){
+        game.best[key] = w.score
+      }
+      game.screen = "cleared"
+      rl.enable_cursor()
+      sound.stop_engine()
     }
-    game.screen = "cleared"
-    rl.enable_cursor()
-    sound.stop_engine()
   }
   if(not game.cleared and ammo_left() == 0 and not v:swinging()){
     if(w:settled()){

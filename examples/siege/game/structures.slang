@@ -202,8 +202,9 @@ func m.tower(o, out){
       local r = o.radius * 0.55
       // the planks taper toward the top: narrow enough not to overlap
       local pw = 2 * r * math.sin(math.pi / planks) - 0.04
+      // (a positive pitch tips the plank's outer end down: its top leans in)
       append(out, spec(o, "box", "wood", math.sin(a) * r, top + 0.2 + h * 0.45,
-        math.cos(a) * r, {x: pw, y: 0.12, z: h * 1.1}, a, {pitch: -lean}))
+        math.cos(a) * r, {x: pw, y: 0.12, z: h * 1.1}, a, {pitch: lean}))
       // nailed to the floor: the roof comes off in one piece
       append(o.joints, {type: "fixed", a: disc, b: len(out) - 1})
     }

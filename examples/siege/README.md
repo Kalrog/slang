@@ -38,9 +38,10 @@ selected* opens a copy of a level. The tools along the top:
 - **Terrain**: raise, lower, smooth or flatten with a brush (shift
   reverses it); *new hills* makes a fresh landscape from a seed.
 - **Water**: the water level.
-- **Place**: one part of any material and shape; click a part to select
-  it, drag it, Q/E turn it, R/F lift it, D with a modifier copies it, G
-  selects its whole group, Delete removes it.
+- **Place**: one part of any material and shape on the ground you click.
+  In this and the other placing tools a click on a part selects it and a
+  drag moves it; Q/E turn it, R/F lift it, alt+D copies it, G selects its
+  whole group, Delete or X removes it.
 - **Build**: a wall, tower, house, stack of crates, pillar or bridge with
   its own parameters; the ground under it is flattened.
 - **Decor**: trees, pines, bushes, flowers, boulders.

@@ -27,6 +27,7 @@ local mouse = {x: 0, y: 0}
 local pressed = false
 local down = false
 local released = false
+local over_last = false
 
 func m.set_font(f){
   font = f
@@ -42,12 +43,19 @@ func m.begin(){
   pressed = rl.is_mouse_button_pressed(rl.MOUSE_BUTTON_LEFT)
   down = rl.is_mouse_button_down(rl.MOUSE_BUTTON_LEFT)
   released = rl.is_mouse_button_released(rl.MOUSE_BUTTON_LEFT)
+  over_last = over
   over = false
 }
 
-// over_ui() -> whether the mouse was over a widget this frame
+// over_ui() -> whether the mouse was over a widget this frame (so far)
 func m.over_ui(){
   return over
+}
+
+// over_last() -> whether it was over a widget in the last frame: what
+// the world's input asks before this frame's widgets are drawn
+func m.over_last(){
+  return over_last
 }
 
 func m.mouse(){

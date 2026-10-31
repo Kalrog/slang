@@ -47,6 +47,7 @@ func m.new(level, hooks){
     selected_group: null,
     selected_decor: null,
     selected_joint: null,
+    drag: null,
     cam: {target: {x: level.spawn.x, y: 0, z: level.spawn.z + 10}, yaw: 0, pitch: 0.6, distance: 40},
     time: 0,
     dirty: false,
@@ -134,7 +135,8 @@ local func move_camera(ed, dt){
   }
   local speed = c.distance * 0.9 * dt
   local f = {x: math.sin(c.yaw), z: math.cos(c.yaw)}
-  local r = {x: math.cos(c.yaw), z: -math.sin(c.yaw)}
+  // (y up, looking along +z: the right-hand side is -x)
+  local r = {x: -math.cos(c.yaw), z: math.sin(c.yaw)}
   if(rl.is_key_down(rl.KEY_W) or rl.is_key_down(rl.KEY_UP)){
     c.target.x = c.target.x + f.x * speed
     c.target.z = c.target.z + f.z * speed
@@ -513,8 +515,8 @@ local func panel(ed, w, h){
       }
     }
     ed.place.yaw = slider("turn", ed.place.yaw, 0, 6.28, {step: 0.05})
-    ui.text(x + 12, y, "click: place · click a part: select", 14, ui.colors.dim)
-    ui.text(x + 12, y + 18, "Q/E turn, R/F lift, Del delete, D copy, G group", 14, ui.colors.dim)
+    ui.text(x + 12, y, "click the ground: place · click a part: select, drag moves it", 14, ui.colors.dim)
+    ui.text(x + 12, y + 18, "Q/E turn, R/F lift, Del or X delete, alt+D copy, G group", 14, ui.colors.dim)
   } else if(tool == "Build"){
     ui.panel(x, y - 8, pw, 330, "Build a structure")
     y = y + 34
@@ -691,7 +693,9 @@ func Editor.frame(ed, dt){
   local camera = camera_of(ed)
   local hit = pick(ed, camera)
   local tool = TOOLS[ed.tool]
-  local over = ui.over_ui()
+  // the panel's widgets are drawn after the world: last frame's answer
+  // says whether the mouse is on them
+  local over = ui.over_last()
   // the world
   render.backdrop(camera, ed.time)
   render.begin(camera)
@@ -717,7 +721,8 @@ func Editor.frame(ed, dt){
       ring(ed.built.t, hit.point.x, hit.point.z, structures.footprint(kind, {
         width: b.width, depth: b.depth, radius: b.radius, length: b.length
       }), {255, 255, 255, 200})
-    } else if(tool == "Place" and (hit.entity == null or rl.is_key_down(rl.KEY_LEFT_SHIFT))){
+    } else if(tool == "Place" and (hit.entity == null or rl.is_key_down(rl.KEY_LEFT_SHIFT)) and
+      not (ed.selected != null and down)){
       local spec = place_spec(ed, hit.point)
       local color = materials.color(spec.material, 0)
       local ghost = {color[0], color[1], color[2], 120}
@@ -741,6 +746,37 @@ func Editor.frame(ed, dt){
   local pressed = rl.is_mouse_button_pressed(rl.MOUSE_BUTTON_LEFT)
   local down = rl.is_mouse_button_down(rl.MOUSE_BUTTON_LEFT)
   local shift = rl.is_key_down(rl.KEY_LEFT_SHIFT) or rl.is_key_down(rl.KEY_RIGHT_SHIFT)
+  // in the placing tools a click on a part selects it (shift: the tool
+  // acts on it instead), and the selection drags along the mouse: over
+  // the level of its own floor, up the ground where that is higher
+  local placing = tool == "Place" or tool == "Build" or tool == "Decor" or tool == "Level"
+  if(hit != null and not over and not ed.name_focused and placing and pressed and
+    hit.entity != null and not shift){
+    ed.selected = hit.entity
+    ed.selected_group = null
+    ed.selected_decor = null
+    ed.drag = {floor: hit.entity.start.y - hit.entity.size.y / 2, moved: false}
+    hit = null
+  }
+  if(ed.drag != null){
+    if(not down){
+      ed.drag = null
+    } else if(ed.selected != null and not over){
+      local d = rl.get_mouse_delta()
+      if(d.x != 0 or d.y != 0){
+        local ray = rl.get_screen_to_world_ray(rl.get_mouse_position(), camera)
+        if(ray.direction.y < -0.02){
+          local t = (ed.drag.floor - ray.position.y) / ray.direction.y
+          local p = vec.add(ray.position, vec.scale(ray.direction, t))
+          local ground = terrain.height_at(ed.built.t, p.x, p.z)
+          p.y = math.max(ed.drag.floor, ground)
+          move_selection(ed, p)
+          ed.drag.moved = true
+        }
+      }
+      hit = null
+    }
+  }
   if(hit != null and not over and not ed.name_focused){
     if(tool == "Terrain"){
       if(down){
@@ -750,22 +786,10 @@ func Editor.frame(ed, dt){
       }
     } else if(tool == "Place"){
       if(pressed){
-        if(hit.entity != null and not shift){
-          ed.selected = hit.entity
-          ed.selected_group = null
-          ed.dragging = false
-        } else {
-          ed.selected = ed.built.w:add(place_spec(ed, hit.point))
-          ed.selected_group = null
-          ed.dirty = true
-          play_ui(ed)
-        }
-      } else if(down and ed.selected != null and not shift and hit.entity != ed.selected){
-        // dragging the selection over the ground
-        local d = rl.get_mouse_delta()
-        if(d.x != 0 or d.y != 0){
-          move_selection(ed, hit.point)
-        }
+        ed.selected = ed.built.w:add(place_spec(ed, hit.point))
+        ed.selected_group = null
+        ed.dirty = true
+        play_ui(ed)
       }
     } else if(tool == "Build"){
       if(pressed){

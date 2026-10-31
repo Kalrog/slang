@@ -538,8 +538,11 @@ local func analyse(s, uri){
   } else {
     doc.tokens = r[1].tokens
     doc.diagnostics = r[1].diagnostics
-    // while an edit does not compile, the last symbols stay
-    if(r[1].symbols != null){
+    // while an edit does not parse, the symbols of the last text that did
+    // stay (a recovered parse leaves out the statement being typed, its
+    // locals with it); a file that never parsed takes what there is
+    local clean = len(r[1].diagnostics) == 0
+    if(r[1].symbols != null and (clean or doc.symbols == null)){
       doc.symbols = r[1].symbols
       doc.symbols_text = doc.text
       doc.ast = r[1].ast
@@ -751,6 +754,41 @@ local func locations(s, list){
   return out
 }
 
+// the name at pos when pos is in a // comment (a [name] or a type of a
+// signature): letters, digits, _ and dots around it; null elsewhere
+local func comment_ref_at(text, pos){
+  local ls = pos
+  for(ls > 0 and str.char_at(text, ls - 1) != "\n"){
+    ls = ls - 1
+  }
+  local slash = str.index_of(text, "//", ls)
+  if(slash < 0 or slash > pos){
+    return null
+  }
+  local func name_char(i){
+    local b = str.byte_at(text, i)
+    return (b >= 48 and b <= 57) or (b >= 65 and b <= 90) or
+      (b >= 97 and b <= 122) or b == 95 or b == 46
+  }
+  local a = pos
+  for(a > slash + 2 and name_char(a - 1)){
+    a = a - 1
+  }
+  local b = pos
+  for(b < len(text) and name_char(b)){
+    b = b + 1
+  }
+  if(a == b){
+    return null
+  }
+  local name = str.substring(text, a, b)
+  // a sentence's final dot is not part of the name
+  for(str.ends_with(name, ".")){
+    name = str.substring(name, 0, len(name) - 1)
+  }
+  return len(name) > 0 and name or null
+}
+
 // the module a require at pos names (pos on the word require or in the
 // string after it): {name, path}, path its file as require finds it (null
 // when it cannot), or null when pos is not on a require
@@ -810,6 +848,16 @@ handlers["textDocument/definition"] = func(s, id, params){
   local at = position_of(s, params)
   if(at == null){
     return {response(id, json.array({}))}
+  }
+  // in a doc comment: what a [name] or a type names
+  local ref = comment_ref_at(at.text, at.pos)
+  if(ref != null){
+    local target = nav_of(s):doc_definition(at.doc.path, ref)
+    local out = json.array({})
+    if(target != null){
+      append(out, locations(s, {target})[0])
+    }
+    return {response(id, out)}
   }
   // a require: the module's file
   local module = required_at(at.text, at.pos)
@@ -1945,6 +1993,26 @@ handlers["textDocument/signatureHelp"] = func(s, id, params){
     }
     plist = rest
   }
+  // the doc's typed parameters when it has them
+  local info = target.def.info
+  local typed = info and info.signature and info.signature.params
+  if(typed != null){
+    if(method){
+      typed = navigate.method_params(typed, target.def)
+    }
+    plist = {}
+    for(let local p in values(typed)){
+      local shown = concat(
+        p.rest and "..." or "",
+        p.name,
+        p.optional and "?" or "",
+      )
+      if(p.type != null){
+        shown = concat(shown, ": ", symbols.type_text(p.type))
+      }
+      append(plist, shown)
+    }
+  }
   local label = concat(last, "(")
   local parameters = json.array({})
   for(let local e in entries(plist)){
@@ -1953,9 +2021,17 @@ handlers["textDocument/signatureHelp"] = func(s, id, params){
     }
     local a = str.utf16_len(label)
     label = concat(label, e[1])
-    append(parameters, {label: json.array({a, str.utf16_len(label)})})
+    local param = {label: json.array({a, str.utf16_len(label)})}
+    if(typed != null and info.items[typed[e[0]].name] != null){
+      param.documentation = info.items[typed[e[0]].name]
+    }
+    append(parameters, param)
   }
   label = concat(label, ")")
+  if(info != null and info.signature != null and
+    info.signature.result != null and info.signature.result.type != null){
+    label = concat(label, " -> ", symbols.type_text(info.signature.result.type))
+  }
   local active = call.commas
   // a rest parameter takes every argument from its place on
   if(len(plist) > 0 and active >= len(plist) and
@@ -1963,11 +2039,9 @@ handlers["textDocument/signatureHelp"] = func(s, id, params){
     active = len(plist) - 1
   }
   local sig = {label: label, parameters: parameters}
-  if(target.def.doc != null){
-    sig.documentation = {
-      kind: "markdown",
-      value: navigate.markdown(target.def.doc),
-    }
+  local md = navigate.doc_markdown(target.def)
+  if(md != null){
+    sig.documentation = {kind: "markdown", value: md}
   }
   return {
     response(id, {

@@ -30,34 +30,169 @@ local func escape(s){
   return str.replace(s, "\"", "&quot;")
 }
 
-// prose with `code` spans
-local func prose_html(text){
+local func is_ref_byte(b){
+  return (b >= 48 and b <= 57) or (b >= 65 and b <= 90) or
+    (b >= 97 and b <= 122) or b == 95 or b == 46 or b == 58
+}
+
+// [name] references in escaped prose: a link where resolve(name) gives one,
+// code for a name known otherwise (a parameter), the text as it is else
+local func refs_html(text, resolve){
+  if(resolve == null){
+    return text
+  }
+  local out = {}
+  local i = 0
+  for(i < len(text)){
+    local open = str.index_of(text, "[", i)
+    if(open < 0){
+      break
+    }
+    local close = str.index_of(text, "]", open)
+    if(close < 0){
+      break
+    }
+    local inner = str.substring(text, open + 1, close)
+    local ok = len(inner) > 0
+    for(local k = 0; k < len(inner); k = k + 1){
+      ok = ok and is_ref_byte(str.byte_at(inner, k))
+    }
+    local r = ok and resolve(inner) or null
+    append(out, str.substring(text, i, open))
+    if(r == null){
+      append(out, str.substring(text, open, close + 1))
+    } else if(r == true){
+      append(out, concat("<code>", inner, "</code>"))
+    } else {
+      append(out, concat("<a href=\"", r, "\"><code>", inner, "</code></a>"))
+    }
+    i = close + 1
+  }
+  append(out, str.substring(text, i))
+  return str.join(out, "")
+}
+
+// prose with `code` spans (and [name] references, with resolve)
+local func prose_html(text, resolve){
   local parts = str.split(escape(text), "`")
   if(len(parts) % 2 == 0){
     // an unpaired backquote: the text as it is
-    return escape(text)
+    return refs_html(escape(text), resolve)
   }
   local out = {}
   for(local i = 0; i < len(parts); i = i + 1){
     if(i % 2 == 1){
       append(out, concat("<code>", parts[i], "</code>"))
     } else {
-      append(out, parts[i])
+      append(out, refs_html(parts[i], resolve))
     }
   }
   return str.join(out, "")
 }
 
-local func blocks_html(text){
+local func blocks_html(text, resolve){
   local out = {}
   for(let local b in values(symbols.doc_blocks(text))){
     if(b.kind == "code"){
       append(out, concat("<pre><code>", escape(b.text), "</code></pre>"))
     } else {
-      append(out, concat("<p>", prose_html(b.text), "</p>"))
+      append(out, concat("<p>", prose_html(b.text, resolve), "</p>"))
     }
   }
   return str.join(out, "\n")
+}
+
+// ------------------------------------------------------------ types
+
+local params_html = null
+
+local builtin_types = {
+  string: true,
+  int: true,
+  float: true,
+  bool: true,
+  null: true,
+  any: true,
+  ["function"]: true,
+  table: true,
+  number: true,
+}
+
+// a type as html, its names linked
+local func type_html(t, resolve){
+  if(t == null){
+    return "any"
+  }
+  local k = t.kind
+  if(k == "name"){
+    local href = null
+    if(not builtin_types[t.name] and resolve != null){
+      href = resolve(t.name)
+    }
+    if(type(href) == "string"){
+      return concat("<a href=\"", href, "\">", escape(t.name), "</a>")
+    }
+    return escape(t.name)
+  }
+  if(k == "optional"){
+    local inner = type_html(t.of, resolve)
+    if(t.of.kind == "union" or t.of.kind == "func"){
+      inner = concat("(", inner, ")")
+    }
+    return concat(inner, "?")
+  }
+  if(k == "union"){
+    local parts = {}
+    for(let local p in values(t.of)){
+      append(parts, type_html(p, resolve))
+    }
+    return str.join(parts, " | ")
+  }
+  if(k == "list"){
+    return concat("{", type_html(t.of, resolve), "}")
+  }
+  if(k == "map"){
+    return concat(
+      "{[", type_html(t.key, resolve), "]: ", type_html(t.value, resolve), "}"
+    )
+  }
+  if(k == "shape"){
+    local parts = {}
+    for(let local f in values(t.fields)){
+      append(parts, concat(
+        escape(f.name),
+        f.optional and "?" or "",
+        ": ",
+        type_html(f.type, resolve),
+      ))
+    }
+    return concat("{", str.join(parts, ", "), "}")
+  }
+  if(k == "func"){
+    local out = concat("func", params_html(t.params, resolve))
+    if(t.returns != null){
+      out = concat(out, ": ", type_html(t.returns, resolve))
+    }
+    return out
+  }
+  return "any"
+}
+
+// (a: T, b?: U) as html
+params_html = func(params, resolve){
+  local parts = {}
+  for(let local p in values(params)){
+    local text = concat(
+      p.rest and "..." or "",
+      escape(p.name),
+      p.optional and "?" or "",
+    )
+    if(p.type != null){
+      text = concat(text, ": ", type_html(p.type, resolve))
+    }
+    append(parts, text)
+  }
+  return concat("(", str.join(parts, ", "), ")")
 }
 
 // the first sentence of a doc, for the index
@@ -99,6 +234,8 @@ ul.toc { columns: 2; padding-left: 1.2rem; }
 @media (max-width: 40rem) { ul.toc { columns: 1; } }
 dt { margin-top: 0.75rem; }
 dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
 """
 
 local func page(title, body){
@@ -123,15 +260,56 @@ local func page_name(module){
 local func entry(d, signature){
   return {
     name: d.name, signature: signature or symbols.signature(d), doc: d.doc,
-    start: d.start
+    start: d.start, info: d.info, params: d.params
   }
 }
 
-// the types a file defines: a table with __index and __type is the meta of
-// a type whose methods are the fields of the __index table; one section
-// per type, its methods as "type:name(params)" (without self)
+// the methods of a table: entries "Type:name(params)" (without self)
+local func methods_of(index, table, type_name){
+  local list = {}
+  for(let local m in values(index.defs)){
+    if(m.kind == "field" and m.owner == table){
+      local params = {}
+      for(local i = 1; i < len(m.params or {}); i = i + 1){
+        append(params, m.params[i])
+      }
+      local signature = concat(type_name, ".", m.name)
+      if(m.params != null){
+        signature = concat(
+          type_name, ":", m.name, "(", str.join(params, ", "), ")"
+        )
+      }
+      local e = entry(m, signature)
+      e.name = concat(type_name, ":", m.name)
+      e.method = true
+      append(list, e)
+    }
+  }
+  return list
+}
+
+// the types a file defines: those its doc comments declare (`type Name =
+// {...}` with its fields, `type Name` above the table of its methods), and
+// a table with __index and __type, the meta of a type whose methods are the
+// fields of the __index table; one section per type
 local func type_sections(index){
   local out = {}
+  local declared_tables = {}
+  local names = {}
+  for(let local t in values(index.types or {})){
+    append(names, t.name)
+  }
+  for(let local name in values(names)){
+    local t = index.types[name]
+    local sec = {
+      title: concat("type ", name), type_name: name, decl: t, defs: {}
+    }
+    if(t.table != null){
+      declared_tables[t.table] = name
+      sec.defs = methods_of(index, t.table, name)
+    }
+    append(out, sec)
+  }
   for(let local d in values(index.defs)){
     local fields = d.fields or {}
     local t = fields.__type
@@ -144,28 +322,14 @@ local func type_sections(index){
       if(r != null and r.kind == null){
         table = r.def
       }
-      if(table != null and table.fields != null){
+      if(table != null and table.fields != null and
+        declared_tables[table] == null){
         local type_name = t.value.value
-        local list = {}
-        for(let local m in values(index.defs)){
-          if(m.kind == "field" and m.owner == table){
-            local params = {}
-            for(local i = 1; i < len(m.params or {}); i = i + 1){
-              append(params, m.params[i])
-            }
-            local signature = concat(type_name, ".", m.name)
-            if(m.params != null){
-              signature = concat(
-                type_name, ":", m.name, "(", str.join(params, ", "), ")"
-              )
-            }
-            local e = entry(m, signature)
-            e.name = concat(type_name, ":", m.name)
-            append(list, e)
-          }
-        }
+        local list = methods_of(index, table, type_name)
         if(len(list) > 0){
-          append(out, {title: concat("type ", type_name), defs: list})
+          append(out, {
+            title: concat("type ", type_name), type_name: type_name, defs: list
+          })
         }
       }
     }
@@ -214,7 +378,189 @@ func doc.module(name, path, source, index){
   for(let local s in values(types)){
     append(kept, s)
   }
-  return {name: name, path: path, doc: index.module_doc, sections: kept}
+  // what [name] and type names can link to: this module's types and
+  // exports, and other modules through the names the file gives them
+  local links = {types: {}, exports: {}, aliases: {}}
+  for(let local sec in values(types)){
+    links.types[sec.type_name] = true
+  }
+  for(let local d in values(listed)){
+    links.exports[d.name] = true
+  }
+  for(let local d in values(index.defs)){
+    if(d.module != null){
+      links.aliases[d.name] = d.module
+    }
+  }
+  return {
+    name: name,
+    path: path,
+    doc: index.module_doc,
+    sections: kept,
+    links: links,
+  }
+}
+
+// what a name in a module's docs links to: a href, true for a name known
+// but not linked (a parameter), or null. params: the names of the entry at
+// hand.
+local func resolver(m, params){
+  return func(name){
+    if(params != null and params[name]){
+      return true
+    }
+    local links = m.links or {types: {}, exports: {}, aliases: {}}
+    if(links.types[name]){
+      return concat("#type-", name)
+    }
+    if(links.exports[name]){
+      return concat("#", name)
+    }
+    local dot = str.index_of(name, ".")
+    if(dot > 0){
+      local head = str.substring(name, 0, dot)
+      local rest = str.substring(name, dot + 1)
+      // Type.method of this module
+      if(links.types[head]){
+        return concat("#", head, ":", rest)
+      }
+      local module = links.aliases[head]
+      if(module != null){
+        local b = str.byte_at(rest, 0)
+        local anchor = (b >= 65 and b <= 90) and concat("type-", rest) or rest
+        return concat(page_name(module), "#", anchor)
+      }
+    }
+    return null
+  }
+}
+
+// an entry's heading: its typed signature when its doc has one
+local func signature_html(d, resolve){
+  local sig = d.info and d.info.signature
+  if(sig == null){
+    return escape(d.signature)
+  }
+  local cut = str.index_of(d.signature, "(")
+  local head = cut >= 0 and str.substring(d.signature, 0, cut) or d.signature
+  local params = sig.params
+  // a method's first parameter is the value it is called on: left out when
+  // the doc lists it (as many parameters as the function has)
+  if(d.method and d.params != null and len(params) == len(d.params) and
+    len(params) > 0){
+    local rest = {}
+    for(local i = 1; i < len(params); i = i + 1){
+      append(rest, params[i])
+    }
+    params = rest
+  }
+  local out = concat(escape(head), params_html(params, resolve))
+  local r = sig.result
+  if(r != null and r.type != null){
+    out = concat(out, " -> ")
+    if(r.name != null){
+      out = concat(out, escape(r.name), ": ")
+    }
+    out = concat(out, type_html(r.type, resolve))
+  }
+  return out
+}
+
+// the parameters and the result described: name, type, text
+local func items_html(d, resolve){
+  local info = d.info
+  if(info == null or info.signature == null){
+    return ""
+  }
+  local rows = {}
+  for(let local p in values(info.signature.params)){
+    local text = info.items[p.name]
+    if(text != null){
+      append(rows, concat(
+        "<dt><code>", escape(p.name), "</code></dt><dd>",
+        prose_html(text, resolve), "</dd>"
+      ))
+    }
+  }
+  local r = info.signature.result
+  if(r != null){
+    local text = r.name != null and info.items[r.name] or r.text
+    if(text != null){
+      append(rows, concat(
+        "<dt>returns",
+        r.name != null and concat(" <code>", escape(r.name), "</code>") or "",
+        "</dt><dd>", prose_html(text, resolve), "</dd>"
+      ))
+    }
+  }
+  if(len(rows) == 0){
+    return ""
+  }
+  return concat("<dl class=\"params\">", str.join(rows, ""), "</dl>")
+}
+
+local func entry_html(m, d){
+  local names = {}
+  if(d.info != null and d.info.signature != null){
+    for(let local p in values(d.info.signature.params)){
+      names[p.name] = true
+    }
+    if(d.info.signature.result != null and d.info.signature.result.name != null){
+      names[d.info.signature.result.name] = true
+    }
+  }
+  local resolve = resolver(m, names)
+  local out = {
+    concat(
+      "<div class=\"def\" id=\"", escape(d.name), "\"><h3><code>",
+      signature_html(d, resolve), "</code></h3>"
+    ),
+  }
+  local prose = d.doc
+  if(d.info != null){
+    prose = d.info.prose
+  }
+  if(prose != null){
+    append(out, blocks_html(prose, resolve))
+  } else if(d.doc == null){
+    append(out, "<p class=\"muted\">No description.</p>")
+  }
+  append(out, items_html(d, resolve))
+  append(out, "</div>")
+  return str.join(out, "\n")
+}
+
+// a declared type: its definition and what its fields are
+local func type_html_section(m, sec){
+  local out = {}
+  local t = sec.decl
+  local resolve = resolver(m, null)
+  if(t != null and t.type != null){
+    append(out, concat(
+      "<pre><code>type ", escape(sec.type_name), " = ",
+      type_html(t.type, resolve), "</code></pre>"
+    ))
+  }
+  if(t != null and t.info != null){
+    if(t.info.prose != null){
+      append(out, blocks_html(t.info.prose, resolve))
+    }
+    local rows = {}
+    if(t.type != null and t.type.kind == "shape"){
+      for(let local f in values(t.type.fields)){
+        local text = t.info.items[f.name]
+        append(rows, concat(
+          "<dt><code>", escape(f.name), f.optional and "?" or "", ": ",
+          type_html(f.type, resolve), "</code></dt><dd>",
+          text != null and prose_html(text, resolve) or "", "</dd>"
+        ))
+      }
+    }
+    if(len(rows) > 0){
+      append(out, concat("<dl class=\"params\">", str.join(rows, ""), "</dl>"))
+    }
+  }
+  return str.join(out, "\n")
 }
 
 func doc.module_html(m){
@@ -223,10 +569,16 @@ func doc.module_html(m){
     concat("<h1>", escape(m.name), "</h1>"),
   }
   if(m.doc != null){
-    append(body, blocks_html(m.doc))
+    append(body, blocks_html(m.doc, resolver(m, null)))
   }
   append(body, "<ul class=\"toc\">")
   for(let local s in values(m.sections)){
+    if(s.type_name != null){
+      append(body, concat(
+        "<li><a href=\"#type-", escape(s.type_name), "\"><code>type ",
+        escape(s.type_name), "</code></a></li>"
+      ))
+    }
     for(let local d in values(s.defs)){
       append(body, concat(
         "<li><a href=\"#", escape(d.name), "\"><code>", escape(d.name),
@@ -236,20 +588,16 @@ func doc.module_html(m){
   }
   append(body, "</ul>")
   for(let local s in values(m.sections)){
-    if(s.title != null){
+    if(s.type_name != null){
+      append(body, concat(
+        "<h2 id=\"type-", escape(s.type_name), "\">", escape(s.title), "</h2>"
+      ))
+      append(body, type_html_section(m, s))
+    } else if(s.title != null){
       append(body, concat("<h2>", escape(s.title), "</h2>"))
     }
     for(let local d in values(s.defs)){
-      append(body, concat(
-        "<div class=\"def\" id=\"", escape(d.name), "\">", "<h3><code>",
-        escape(d.signature), "</code></h3>"
-      ))
-      if(d.doc != null){
-        append(body, blocks_html(d.doc))
-      } else {
-        append(body, "<p class=\"muted\">No description.</p>")
-      }
-      append(body, "</div>")
+      append(body, entry_html(m, d))
     }
   }
   append(body, concat("<p class=\"muted\">", escape(m.path), "</p>"))

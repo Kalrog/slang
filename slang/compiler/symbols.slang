@@ -28,6 +28,11 @@
 //   exports  {name: definition}: the fields of the table the file returns
 //   module_doc the comment block that starts the file
 //   sections the section dividers: {title, start}
+//   types    {name: declaration}: the types the doc comments declare (see
+//            "typed docs"); a bare one has table, the definition that holds
+//            its methods
+//   a definition's info is its doc read as symbols.doc_info does; a
+//   parameter's type the one its function's signature gives it
 //
 //   symbols.at(index, pos) -> the def or ref whose name covers pos
 //   symbols.signature(def) -> "http.fetch(url, options)" and the like
@@ -207,6 +212,562 @@ local func sections_of(source){
       append(out, {title: title, start: pos})
     }
     pos = stop + 1
+  }
+  return out
+}
+
+// ------------------------------------------------------------ typed docs
+//
+// Doc comments may carry types, in their own small notation (slang has no
+// types; these are for readers, slang doc and the language server):
+//
+//   // serve(host: string, port: int, handler: func(req: Request): any,
+//   //       options?: ServeOptions) -> server: Server
+//   // An HTTP server on host:port.
+//   // [port]: 0 picks a free one
+//   // [server]: [Server.close] stops it
+//
+// The signature line(s) start with the definition's name (qualified or not)
+// and its parameter list, which may go on over lines until the parentheses
+// close; a parameter is `name`, `name: Type`, `name?: Type` (optional),
+// `[name]` (optional, untyped) or `...name`. After `->` comes the result:
+// `name: Type`, a Type, a `Type: description`, or prose (when it does not
+// read as a type). A line `[name]: text` documents a parameter, the named
+// result or a field; elsewhere `[name]` refers to a parameter, a type or a
+// definition. Types are declared on their own lines:
+//
+//   // type Request = {method: string, path: string, body?: string}
+//   // type Server                 (the table defined below holds its methods)
+//
+// Types: string, int, float, bool, null, any, function, table, Name (this
+// module's), mod.Name (the type Name of the module the local mod holds),
+// T?, A | B, {T} (a list), {[K]: V} (a map), {a: T, b?: U} (fields),
+// func(a: T, b?: U): R, (T).
+
+local func is_name_byte(b){
+  return (b >= 48 and b <= 57) or (b >= 65 and b <= 90) or
+    (b >= 97 and b <= 122) or b == 95
+}
+
+// how many more ( and { than ) and } a text has
+local func bracket_depth(text){
+  local d = 0
+  for(local i = 0; i < len(text); i = i + 1){
+    local b = str.byte_at(text, i)
+    if(b == 40 or b == 123){
+      d = d + 1
+    } else if(b == 41 or b == 125){
+      d = d - 1
+    }
+  }
+  return d
+}
+
+local func skip_spaces(text, i){
+  for(i < len(text) and str.char_at(text, i) == " "){
+    i = i + 1
+  }
+  return i
+}
+
+local func read_name(text, i){
+  local j = i
+  for(j < len(text) and is_name_byte(str.byte_at(text, j))){
+    j = j + 1
+  }
+  if(j == i){
+    return null
+  }
+  return {name: str.substring(text, i, j), stop: j}
+}
+
+local parse_union = null
+
+// the parameters of a function type or a signature: {params, stop} after
+// the closing ), or null
+local func parse_params(text, i){
+  local params = {}
+  i = skip_spaces(text, i)
+  if(str.char_at(text, i) == ")"){
+    return {params: params, stop: i + 1}
+  }
+  for(true){
+    i = skip_spaces(text, i)
+    local p = {optional: false, rest: false}
+    if(str.substring(text, i, i + 3) == "..."){
+      p.rest = true
+      i = i + 3
+    }
+    local bracket = str.char_at(text, i) == "["
+    if(bracket){
+      p.optional = true
+      i = i + 1
+    }
+    local n = read_name(text, i)
+    if(n == null){
+      return null
+    }
+    p.name = n.name
+    i = n.stop
+    if(bracket){
+      if(str.char_at(text, i) != "]"){
+        return null
+      }
+      i = i + 1
+    }
+    if(str.char_at(text, i) == "?"){
+      p.optional = true
+      i = i + 1
+    }
+    i = skip_spaces(text, i)
+    if(str.char_at(text, i) == ":"){
+      local t = parse_union(text, i + 1)
+      if(t == null){
+        return null
+      }
+      p.type = t.type
+      i = t.stop
+    }
+    append(params, p)
+    i = skip_spaces(text, i)
+    local c = str.char_at(text, i)
+    if(c == ")"){
+      return {params: params, stop: i + 1}
+    }
+    if(c != ","){
+      return null
+    }
+    i = i + 1
+  }
+}
+
+// a type at i: {type, stop}, or null
+local func parse_primary(text, i){
+  i = skip_spaces(text, i)
+  local c = str.char_at(text, i)
+  if(c == "("){
+    local inner = parse_union(text, i + 1)
+    if(inner == null){
+      return null
+    }
+    local j = skip_spaces(text, inner.stop)
+    if(str.char_at(text, j) != ")"){
+      return null
+    }
+    return {type: inner.type, stop: j + 1}
+  }
+  if(c == "{"){
+    local j = skip_spaces(text, i + 1)
+    if(str.char_at(text, j) == "}"){
+      return {type: {kind: "name", name: "table"}, stop: j + 1}
+    }
+    if(str.char_at(text, j) == "["){
+      // {[K]: V}
+      local key = parse_union(text, j + 1)
+      if(key == null){
+        return null
+      }
+      local k = skip_spaces(text, key.stop)
+      if(str.char_at(text, k) != "]"){
+        return null
+      }
+      k = skip_spaces(text, k + 1)
+      if(str.char_at(text, k) != ":"){
+        return null
+      }
+      local value = parse_union(text, k + 1)
+      if(value == null){
+        return null
+      }
+      local e = skip_spaces(text, value.stop)
+      if(str.char_at(text, e) != "}"){
+        return null
+      }
+      return {
+        type: {kind: "map", key: key.type, value: value.type},
+        stop: e + 1,
+      }
+    }
+    // fields when a name is followed by : or ?:
+    local n = read_name(text, j)
+    if(n != null){
+      local after = skip_spaces(text, n.stop)
+      local ac = str.char_at(text, after)
+      if(ac == ":" or (ac == "?" and str.char_at(text, after + 1) == ":")){
+        local fields = {}
+        local k = j
+        for(true){
+          k = skip_spaces(text, k)
+          if(str.char_at(text, k) == "}"){
+            return {type: {kind: "shape", fields: fields}, stop: k + 1}
+          }
+          local fname = read_name(text, k)
+          if(fname == null){
+            return null
+          }
+          k = fname.stop
+          local optional = false
+          if(str.char_at(text, k) == "?"){
+            optional = true
+            k = k + 1
+          }
+          k = skip_spaces(text, k)
+          if(str.char_at(text, k) != ":"){
+            return null
+          }
+          local ft = parse_union(text, k + 1)
+          if(ft == null){
+            return null
+          }
+          append(fields, {name: fname.name, optional: optional, type: ft.type})
+          k = skip_spaces(text, ft.stop)
+          local sep = str.char_at(text, k)
+          if(sep == ","){
+            k = k + 1
+          } else if(sep != "}"){
+            return null
+          }
+        }
+      }
+    }
+    // {T}: a list
+    local item = parse_union(text, j)
+    if(item == null){
+      return null
+    }
+    local e = skip_spaces(text, item.stop)
+    if(str.char_at(text, e) != "}"){
+      return null
+    }
+    return {type: {kind: "list", of: item.type}, stop: e + 1}
+  }
+  local n = read_name(text, i)
+  if(n == null){
+    return null
+  }
+  if(n.name == "func" and str.char_at(text, n.stop) == "("){
+    local ps = parse_params(text, n.stop + 1)
+    if(ps == null){
+      return null
+    }
+    local t = {kind: "func", params: ps.params}
+    local j = skip_spaces(text, ps.stop)
+    if(str.char_at(text, j) == ":"){
+      local r = parse_union(text, j + 1)
+      if(r == null){
+        return null
+      }
+      t.returns = r.type
+      return {type: t, stop: r.stop}
+    }
+    return {type: t, stop: ps.stop}
+  }
+  local name = n.name
+  local j = n.stop
+  // mod.Name
+  for(str.char_at(text, j) == "."){
+    local more = read_name(text, j + 1)
+    if(more == null){
+      break
+    }
+    name = concat(name, ".", more.name)
+    j = more.stop
+  }
+  return {type: {kind: "name", name: name}, stop: j}
+}
+
+local func parse_postfix(text, i){
+  local p = parse_primary(text, i)
+  if(p == null){
+    return null
+  }
+  if(str.char_at(text, p.stop) == "?"){
+    return {type: {kind: "optional", of: p.type}, stop: p.stop + 1}
+  }
+  return p
+}
+
+parse_union = func(text, i){
+  local first = parse_postfix(text, i)
+  if(first == null){
+    return null
+  }
+  local parts = {first.type}
+  local stop = first.stop
+  for(true){
+    local j = skip_spaces(text, stop)
+    if(str.char_at(text, j) != "|"){
+      break
+    }
+    local next = parse_postfix(text, j + 1)
+    if(next == null){
+      break
+    }
+    append(parts, next.type)
+    stop = next.stop
+  }
+  if(len(parts) == 1){
+    return first
+  }
+  return {type: {kind: "union", of: parts}, stop: stop}
+}
+
+// parse_type(text) -> the type text is (all of it), or null
+func symbols.parse_type(text){
+  local r = parse_union(text, 0)
+  if(r == null or skip_spaces(text, r.stop) != len(text)){
+    return null
+  }
+  return r.type
+}
+
+// type_text(type) -> the type written out again
+func symbols.type_text(t){
+  if(t == null){
+    return "any"
+  }
+  local k = t.kind
+  if(k == "name"){
+    return t.name
+  }
+  if(k == "optional"){
+    local inner = symbols.type_text(t.of)
+    if(t.of.kind == "union" or t.of.kind == "func"){
+      inner = concat("(", inner, ")")
+    }
+    return concat(inner, "?")
+  }
+  if(k == "union"){
+    local parts = {}
+    for(let local p in values(t.of)){
+      append(parts, symbols.type_text(p))
+    }
+    return str.join(parts, " | ")
+  }
+  if(k == "list"){
+    return concat("{", symbols.type_text(t.of), "}")
+  }
+  if(k == "map"){
+    return concat(
+      "{[", symbols.type_text(t.key), "]: ", symbols.type_text(t.value), "}"
+    )
+  }
+  if(k == "shape"){
+    local parts = {}
+    for(let local f in values(t.fields)){
+      append(parts, concat(
+        f.name,
+        f.optional and "?" or "",
+        ": ",
+        symbols.type_text(f.type),
+      ))
+    }
+    return concat("{", str.join(parts, ", "), "}")
+  }
+  if(k == "func"){
+    local parts = {}
+    for(let local p in values(t.params)){
+      local text = concat(
+        p.rest and "..." or "",
+        p.name,
+        p.optional and "?" or "",
+      )
+      if(p.type != null){
+        text = concat(text, ": ", symbols.type_text(p.type))
+      }
+      append(parts, text)
+    }
+    local out = concat("func(", str.join(parts, ", "), ")")
+    if(t.returns != null){
+      out = concat(out, ": ", symbols.type_text(t.returns))
+    }
+    return out
+  }
+  return "any"
+}
+
+// the result after `->`: {name, type, text} (text: prose, or a type's
+// description), or {text} when it is prose
+local func parse_result(rest){
+  rest = str.trim(rest)
+  local whole = symbols.parse_type(rest)
+  if(whole != null){
+    return {type: whole}
+  }
+  local colon = str.index_of(rest, ":")
+  if(colon > 0){
+    local before = str.trim(str.substring(rest, 0, colon))
+    local after = str.trim(str.substring(rest, colon + 1))
+    local name = read_name(before, 0)
+    // name: Type
+    if(name != null and name.stop == len(before)){
+      local t = symbols.parse_type(after)
+      if(t != null){
+        return {name: before, type: t}
+      }
+    }
+    // Type: description
+    local t = symbols.parse_type(before)
+    if(t != null){
+      return {type: t, text: after}
+    }
+  }
+  return {text: rest}
+}
+
+// doc_info(doc, name) -> {signature, items, prose}: the typed signature at
+// the start of a definition's doc ({params: {{name, type, optional, rest}},
+// result: {name, type, text}} or null), its `[name]: text` lines ({name:
+// text}), and the rest of the doc
+func symbols.doc_info(doc, name){
+  local info = {signature: null, items: {}, prose: doc}
+  if(doc == null){
+    return info
+  }
+  local lines = str.split(doc, "\n")
+  local i = 0
+  // the signature: the definition's name (maybe qualified) and (
+  if(len(lines) > 0 and name != null){
+    local first = lines[0]
+    local open = str.index_of(first, concat(name, "("))
+    local before = open >= 0 and str.substring(first, 0, open) or "x"
+    local qualified = true
+    for(local k = 0; k < len(before); k = k + 1){
+      local b = str.byte_at(before, k)
+      if(not(is_name_byte(b) or b == 46 or b == 58)){
+        qualified = false
+      }
+    }
+    if(open >= 0 and qualified){
+      // the lines up to where the parentheses close
+      local text = first
+      local j = 0
+      for(bracket_depth(text) > 0 and j + 1 < len(lines)){
+        j = j + 1
+        text = concat(text, " ", str.trim(lines[j]))
+      }
+      local start = open + len(name) + 1
+      local ps = parse_params(text, start)
+      if(ps != null){
+        local sig = {params: ps.params, result: null}
+        local tail = str.trim(str.substring(text, ps.stop))
+        if(str.starts_with(tail, "->")){
+          sig.result = parse_result(str.substring(tail, 2))
+        } else if(len(tail) > 0){
+          // `f(x): text` and the like: what follows is prose
+          sig.text = tail
+        }
+        info.signature = sig
+        i = j + 1
+      }
+    }
+  }
+  local prose = {}
+  for(; i < len(lines); i = i + 1){
+    local line = lines[i]
+    local item = null
+    if(str.starts_with(line, "[")){
+      local close = str.index_of(line, "]:")
+      if(close > 1){
+        local n = read_name(line, 1)
+        if(n != null and n.stop == close){
+          item = n.name
+          info.items[item] = str.trim(str.substring(line, close + 2))
+        }
+      }
+    }
+    if(item == null){
+      append(prose, line)
+    }
+  }
+  // `f(x): text` and `f(x) text`: the text begins the prose
+  if(info.signature != null and info.signature.text != null){
+    local t = info.signature.text
+    if(str.starts_with(t, ":")){
+      t = str.trim(str.substring(t, 1))
+    }
+    if(len(t) > 0){
+      local first = {t}
+      for(let local l in values(prose)){
+        append(first, l)
+      }
+      prose = first
+    }
+  }
+  local rest = str.trim(str.join(prose, "\n"))
+  info.prose = len(rest) > 0 and rest or null
+  return info
+}
+
+// types(source) -> {Name: {name, type, start, stop, doc, line_end}}: the
+// `// type Name = T` and `// type Name` lines of a file (a declaration may
+// go on over lines until its braces and parentheses close); type is null
+// for a bare one, whose methods are the table defined right below it
+// (line_end: where the comment block ends, to find that definition)
+func symbols.types(source){
+  local out = {}
+  local starts = str.line_starts(source)
+  local n = len(starts)
+  local k = 0
+  for(k < n){
+    local ls = starts[k]
+    local le = k + 1 < n and starts[k + 1] - 1 or len(source)
+    local text = comment_text(str.substring(source, ls, le))
+    if(text != null and str.starts_with(text, "type ")){
+      local name = read_name(text, 5)
+      if(name != null){
+        local decl = {
+          name: name.name, type: null,
+          start: ls + str.index_of(str.substring(source, ls, le), name.name),
+          stop: 0
+        }
+        decl.stop = decl.start + len(name.name)
+        local rest = str.trim(str.substring(text, name.stop))
+        local last = k
+        if(str.starts_with(rest, "=")){
+          // the declaration, over lines until its brackets close
+          local body = str.substring(rest, 1)
+          for(bracket_depth(body) > 0 and last + 1 < n){
+            last = last + 1
+            local next_le = last + 1 < n and starts[last + 1] - 1 or len(source)
+            local more = comment_text(
+              str.substring(source, starts[last], next_le),
+            )
+            if(more == null){
+              break
+            }
+            body = concat(body, " ", str.trim(more))
+          }
+          decl.type = symbols.parse_type(str.trim(body))
+        }
+        // the end of the comment block: a bare type names the table below
+        local e = last
+        for(e + 1 < n and
+          comment_text(str.substring(
+            source, starts[e + 1],
+            e + 2 < n and starts[e + 2] - 1 or len(source)
+          )) != null){
+          e = e + 1
+        }
+        // the doc: the comment lines right above the declaration and those
+        // after it (its fields' `[name]: text` among them)
+        local doc_lines = {}
+        local above = symbols.doc_above(source, ls)
+        if(above != null){
+          append(doc_lines, above)
+        }
+        for(local m = last + 1; m <= e; m = m + 1){
+          local ml = m + 1 < n and starts[m + 1] - 1 or len(source)
+          append(doc_lines, comment_text(str.substring(source, starts[m], ml)))
+        }
+        decl.doc = len(doc_lines) > 0 and str.join(doc_lines, "\n") or null
+        decl.info = symbols.doc_info(decl.doc, null)
+        decl.line_end = e + 1 < n and starts[e + 1] or len(source)
+        out[decl.name] = decl
+        k = last
+      }
+    }
+    k = k + 1
   }
   return out
 }
@@ -482,6 +1043,7 @@ func symbols.analyse(block, source, origin){
     if(def.statement != null){
       def.doc = symbols.doc_above(source, def.statement)
     }
+    def.info = symbols.doc_info(def.doc, def.name)
   }
   // a name given to another (m.f = f): its parameters and doc are the other's
   for(let local def in values(rec.defs)){
@@ -537,7 +1099,45 @@ func symbols.analyse(block, source, origin){
     by_start[d.start] = d
   }
   assign_scopes(block, source, by_start, null, true)
+  // a parameter's type is what its function's signature says
+  local typed = {}
+  for(let local d in values(rec.defs)){
+    local v = d.value
+    if(v != null and v.type == "Function" and v.token != null and
+      d.info != null and d.info.signature != null){
+      typed[v.token.start] = d.info.signature
+    }
+  }
+  for(let local d in values(rec.defs)){
+    if(d.kind == "parameter" and d.scope != null){
+      local sig = typed[d.scope.start]
+      if(sig != null){
+        for(let local p in values(sig.params)){
+          if(p.name == d.name and p.type != null){
+            d.type = p.type
+          }
+        }
+      }
+    }
+  }
+  // the declared types; a bare one is the table defined right below it
+  local types = symbols.types(source)
+  for(let local t in values(types)){
+    if(t.type == null){
+      // the statement on the line right after the comment block
+      local at = t.line_end
+      for(at < len(source) and str.char_at(source, at) == " "){
+        at = at + 1
+      }
+      for(let local d in values(rec.defs)){
+        if(d.statement == at and d.kind != "field" and d.kind != "parameter"){
+          t.table = d
+        }
+      }
+    }
+  }
   return {
+    types: types,
     origin: origin,
     defs: sorted(rec.defs),
     refs: sorted(rec.refs),

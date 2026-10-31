@@ -270,6 +270,83 @@ local MAX_DEPTH = 24
 local value_of_def = null
 local value_of_node = null
 
+// What a declared type is, as a value: a type with methods is the table that
+// holds them; a shape is a table of its fields (each with its type, so
+// that req.headers. goes on); mod.Name is the type Name of the module the
+// local mod holds. Null for the built-in types and what cannot be found.
+local func type_value(w, path, t, depth){
+  if(t == null or depth > MAX_DEPTH){
+    return null
+  }
+  if(t.kind == "optional"){
+    return type_value(w, path, t.of, depth + 1)
+  }
+  if(t.kind == "union"){
+    for(let local p in values(t.of)){
+      local v = type_value(w, path, p, depth + 1)
+      if(v != null){
+        return v
+      }
+    }
+    return null
+  }
+  if(t.kind == "shape"){
+    local def = {name: "shape", kind: "local", fields: {}}
+    for(let local f in values(t.fields)){
+      if(f.name != "meta"){
+        def.fields[f.name] = {
+          name: f.name, kind: "field", type: f.type, fields: {}
+        }
+      }
+    }
+    return {path: path, def: def}
+  }
+  if(t.kind != "name"){
+    return null
+  }
+  local f = w:file(path)
+  if(f == null){
+    return null
+  }
+  local name = t.name
+  local dot = str.index_of(name, ".")
+  if(dot > 0){
+    // mod.Name: the module a local of this file holds
+    local head = str.substring(name, 0, dot)
+    for(let local d in values(f.index.defs)){
+      if(d.name == head and d.module != null){
+        local mp = compiler.module_path(d.module)
+        if(mp != null){
+          return type_value(
+            w, mp, {kind: "name", name: str.substring(name, dot + 1)}, depth + 1
+          )
+        }
+      }
+    }
+    return null
+  }
+  local decl = (f.index.types or {})[name]
+  if(decl == null){
+    return null
+  }
+  if(decl.table != null){
+    return {path: path, def: decl.table, type_name: name}
+  }
+  local v = type_value(w, path, decl.type, depth + 1)
+  if(v != null and v.def != null){
+    // a shape's fields are documented on its declaration
+    for(let local e in entries(v.def.fields)){
+      e[1].start = decl.start
+      e[1].stop = decl.stop
+      if(decl.info != null and decl.info.items[e[0]] != null){
+        e[1].doc = decl.info.items[e[0]]
+      }
+    }
+    v.type_name = name
+  }
+  return v
+}
+
 // the expressions a function returns (not those of functions inside it)
 local func returns_of(node, out){
   if(node == null or type(node) == "string"){
@@ -396,8 +473,18 @@ local func function_of(value){
   return null
 }
 
-// what a call of the function value returns
+// what a call of the function value returns: its declared result when its
+// doc gives one, else what its returns are
 local func call_value(w, fn, depth){
+  if(fn != null and fn.def != null and fn.def.info != null and
+    fn.def.info.signature != null and fn.def.info.signature.result != null){
+    local declared = type_value(
+      w, fn.path, fn.def.info.signature.result.type, depth + 1
+    )
+    if(declared != null){
+      return declared
+    }
+  }
   local node = function_of(fn)
   if(node == null){
     return null
@@ -477,6 +564,10 @@ value_of_def = func(w, path, def, depth){
   }
   if(def.module != null){
     return module_value(w, compiler.module_path(def.module), depth)
+  }
+  // a declared type: a typed parameter, a field of a shape
+  if(def.type != null){
+    return type_value(w, path, def.type, depth + 1)
   }
   if(def.kind == "parameter"){
     return null
@@ -979,6 +1070,54 @@ func methods.callable(w, path, pos, cache){
   return out or null
 }
 
+// What a name in a doc comment refers to ([name], a type in a signature or
+// a type declaration): a type of the file, Type.method, mod.X (a type or
+// definition of the module the local mod holds), or a definition of the
+// file; {path, start, stop} or null
+func methods.doc_definition(w, path, name){
+  local f = w:file(path)
+  if(f == null){
+    return null
+  }
+  local types = f.index.types or {}
+  if(types[name] != null){
+    return {path: path, start: types[name].start, stop: types[name].stop}
+  }
+  local dot = str.index_of(name, ".")
+  if(dot > 0){
+    local head = str.substring(name, 0, dot)
+    local rest = str.substring(name, dot + 1)
+    // Type.method: a field of the type's table
+    local t = types[head]
+    if(t != null and t.table != null){
+      local m = (t.table.fields or {})[rest]
+      if(m != null and m.start != null){
+        return {path: path, start: m.start, stop: m.stop}
+      }
+    }
+    for(let local d in values(f.index.defs)){
+      if(d.name == head and d.module != null){
+        local mp = compiler.module_path(d.module)
+        if(mp != null){
+          return w:doc_definition(mp, rest)
+        }
+      }
+    }
+    return null
+  }
+  if(f.index.exports[name] != null and f.index.exports[name].start != null){
+    local e = f.index.exports[name]
+    return {path: path, start: e.start, stop: e.stop}
+  }
+  for(let local d in values(f.index.defs)){
+    if(d.name == name and d.start != null and
+      (d.kind == "global" or (d.kind == "local" and d.scope == null))){
+      return {path: path, start: d.start, stop: d.stop}
+    }
+  }
+  return null
+}
+
 // The uses of a field or method name whose owner cannot be told (w:file()
 // with w a parameter): they may or may not be the field at hand, so a
 // rename cannot be sure of them. {path, start, stop}
@@ -998,6 +1137,58 @@ func methods.unresolved_fields(w, name){
     }
   }
   return out
+}
+
+// a typed doc's parameters as a method takes them (o:m(...)): without the
+// first when the doc lists the value it is called on (its signature has
+// as many parameters as the function); docs often leave it out
+func navigate.method_params(params, def){
+  if(def.params != null and len(params) == len(def.params) and len(params) > 0){
+    local rest = {}
+    for(local i = 1; i < len(params); i = i + 1){
+      append(rest, params[i])
+    }
+    return rest
+  }
+  return params
+}
+
+// a definition's doc as markdown: with a typed signature, its prose and
+// what its parameters and result are; else the doc as it is
+func navigate.doc_markdown(def){
+  local info = def.info
+  if(info == null or info.signature == null){
+    if(def.doc == null){
+      return null
+    }
+    return navigate.markdown(def.doc)
+  }
+  local parts = {}
+  if(info.prose != null){
+    append(parts, navigate.markdown(info.prose))
+  }
+  local items = {}
+  for(let local p in values(info.signature.params)){
+    if(info.items[p.name] != null){
+      append(items, concat("- `", p.name, "`: ", info.items[p.name]))
+    }
+  }
+  local r = info.signature.result
+  if(r != null){
+    local text = r.name != null and info.items[r.name] or r.text
+    if(text != null){
+      append(items, concat(
+        "- returns", r.name and concat(" `", r.name, "`") or "", ": ", text
+      ))
+    }
+  }
+  if(len(items) > 0){
+    append(parts, str.join(items, "\n"))
+  }
+  if(len(parts) == 0){
+    return null
+  }
+  return str.join(parts, "\n\n")
 }
 
 // ------------------------------------------------------------ hover
@@ -1075,12 +1266,36 @@ func methods.hover(w, path, pos){
         }
       }
     }
+    local sig = def.info and def.info.signature
+    if(sig != null and def.params != null){
+      // the typed signature: the name as above, the parameters as the doc
+      // gives them (a method called with : without its first)
+      local cut = str.index_of(signature, "(")
+      local head = cut >= 0 and str.substring(signature, 0, cut) or signature
+      local params = sig.params
+      if(key.kind == "member" and key.invoke){
+        params = navigate.method_params(params, def)
+      }
+      local t = symbols.type_text({kind: "func", params: params})
+      signature = concat(head, str.substring(t, 4))
+      if(sig.result != null and sig.result.type != null){
+        signature = concat(
+          signature,
+          " -> ",
+          sig.result.name and concat(sig.result.name, ": ") or "",
+          symbols.type_text(sig.result.type),
+        )
+      }
+    } else if(def.type != null){
+      signature = concat(signature, ": ", symbols.type_text(def.type))
+    }
     append(lines, concat("```slang\n", word, " ", signature, "\n```"))
     if(def.module != null){
       append(lines, concat("module `", def.module, "`"))
     }
-    if(def.doc != null){
-      append(lines, navigate.markdown(def.doc))
+    local md = navigate.doc_markdown(def)
+    if(md != null){
+      append(lines, md)
     }
     if(d.path != path){
       append(lines, concat("*", w:shown(d.path), "*"))

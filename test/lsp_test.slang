@@ -456,10 +456,18 @@ t.group("language server: names"){
       "local x = require(\"test/navigate/",
       "textDocument/completion",
     ))
-    assert(mods == {"test/navigate/main", "test/navigate/util"}, str.join(
-      mods,
-      " ",
-    ))
+    assert(
+      mods == {
+          "test/navigate/main",
+          "test/navigate/typed",
+          "test/navigate/typed_main",
+          "test/navigate/util",
+        },
+      str.join(
+        mods,
+        " ",
+      ),
+    )
     assert(len(at_end("// util.", "textDocument/completion")) == 0)
   }
   t.test("signature help: parameters, the current one, methods"){
@@ -563,14 +571,74 @@ t.group("language server: names"){
     }))[0].result
     assert(str.starts_with(h.contents.value, "**build**"))
   }
+  t.test("typed docs: completion, hover, signature help, comment links"){
+    local ts = lsp.new({root: dir})
+    ts:handle(request(1, "initialize", {capabilities: {}}))
+    local tpath = concat(dir, "/typed_main.slang")
+    local turi = lsp.path_to_uri(tpath)
+    local ttext = os.read_file(tpath)
+    open_doc(ts, turi, ttext)
+    local func spot(t, word, shift){
+      local lc = str.line_col(t, str.index_of(t, word) + (shift or 0))
+      return {line: lc[0] - 1, character: lc[1] - 1}
+    }
+    // what is offered after the dot of edited text, the text put back after
+    local func complete_in(edited, marker){
+      ts:handle(notify("textDocument/didChange", {
+        textDocument: {uri: turi, version: 2},
+        contentChanges: {{text: edited}},
+      }))
+      local r = ts:handle(request(9, "textDocument/completion", {
+        textDocument: {uri: turi},
+        position: spot(edited, marker, len(marker)),
+      }))[0].result
+      ts:handle(notify("textDocument/didChange", {
+        textDocument: {uri: turi, version: 3},
+        contentChanges: {{text: ttext}},
+      }))
+      local names = {}
+      for(let local i in values(r)){
+        names[i.label] = true
+      }
+      return names
+    }
+    // a parameter typed in its function's doc
+    local fields = complete_in(str.replace(ttext, "req.path", "req."), "req.")
+    assert(fields == {method: true, path: true, body: true}, string(fields))
+    // what a function declared to return: its methods
+    assert(complete_in(str.replace(ttext, "s:close()", "s:"), "s:") == {
+        close: true,
+      })
+    local h = ts:handle(request(9, "textDocument/hover", {
+      textDocument: {uri: turi},
+      position: spot(ttext, "serve"),
+    }))[0].result.contents.value
+    assert(str.index_of(
+      h,
+      "typed.serve(port: int, handler: func(req: Request): string) -> server: Server",
+    ) >= 0, h)
+    assert(str.index_of(h, "- `port`: 0 picks a free one") >= 0, h)
+    // a type named in a doc comment: its declaration
+    local d = ts:handle(request(9, "textDocument/definition", {
+      textDocument: {uri: turi},
+      position: spot(ttext, "Request"),
+    }))[0].result
+    assert(len(d) == 1 and str.ends_with(
+        d[0].uri,
+        "/navigate/typed.slang",
+      ) and d[0].range.start.line == 4)
+  }
   t.test("hover: the signature and the doc comment"){
     local h = ask("textDocument/hover", pos("greet(\"x"))
     assert(h.contents.kind == "markdown")
     assert(str.index_of(h.contents.value, "local func greet(name)") >= 0)
-    assert(str.index_of(h.contents.value, "greet(name) -> a greeting") >= 0)
+    assert(
+      str.index_of(h.contents.value, "- returns: a greeting") >= 0,
+      h.contents.value,
+    )
     h = ask("textDocument/hover", pos("double"))
     assert(str.index_of(h.contents.value, "func util.double(x)") >= 0)
-    assert(str.index_of(h.contents.value, "double(x) -> twice x") >= 0)
+    assert(str.index_of(h.contents.value, "- returns: twice x") >= 0)
     assert(h.range.start.line == 5 and h.range.start.character == 34)
     local none = s:handle(request(9, "textDocument/hover", {
       textDocument: {uri: uri},

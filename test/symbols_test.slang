@@ -122,6 +122,88 @@ return m"""
   }
 }
 
+t.group("typed docs"){
+  t.test("types parse and print back"){
+    for(let local text in values({
+      "string",
+      "int?",
+      "{string}",
+      "{[string]: int}",
+      "{name: string, age?: int}",
+      "func(a: int, b?: string): bool",
+      "http.Request | null",
+      "(A | B)?",
+    })){
+      assert(symbols.type_text(symbols.parse_type(text)) == text, text)
+    }
+    assert(symbols.parse_type("a buffer of n") == null)
+  }
+  t.test("a typed signature, items, named and prose results"){
+    local info = symbols.doc_info(
+      "serve(port: int,\n      options?: Options) -> server: Server\nServes.\n[port]: 0 picks one",
+      "serve",
+    )
+    local p = info.signature.params
+    assert(p[0].name == "port" and symbols.type_text(p[0].type) == "int")
+    assert(p[1].optional and symbols.type_text(p[1].type) == "Options")
+    assert(info.signature.result.name == "server")
+    assert(info.items.port == "0 picks one" and info.prose == "Serves.")
+    // untyped, the old way: [x] is optional, a result in words stays words
+    info = symbols.doc_info("new(type, n, [decls]) -> a buffer of n", "new")
+    assert(info.signature.params[2].optional)
+    assert(info.signature.result.text == "a buffer of n")
+    info = symbols.doc_info("new(n) -> Buffer: n zeroed elements", "new")
+    assert(symbols.type_text(info.signature.result.type) == "Buffer")
+    assert(info.signature.result.text == "n zeroed elements")
+  }
+  t.test("declared types, typed parameters, the page"){
+    local src = """// web: a module
+local m = {}
+
+// What a handler gets.
+// type Request = {path: string,
+//   body?: string}
+// [body]: null when streamed
+
+// type Server
+local server_methods = {}
+
+// close(): stops it
+func server_methods.close(s){}
+
+// serve(handler: func(req: Request): string) -> Server
+// See [Server.close].
+func m.serve(handler){ return null }
+
+// handle(req: Request)
+func m.handle(req){ return req.path }
+return m"""
+    local ix = analyse(src)
+    assert(symbols.type_text(
+      ix.types.Request.type,
+    ) == "{path: string, body?: string}")
+    assert(ix.types.Request.info.items.body == "null when streamed")
+    assert(ix.types.Server.table.name == "server_methods")
+    local req = at(src, ix, "req", 2)
+    assert(req.kind == "parameter" and symbols.type_text(req.type) == "Request")
+    local html = doc.module_html(doc.module("web", "web.slang", src, ix))
+    assert(str.index_of(html, "<h2 id=\"type-Request\">type Request</h2>") >= 0)
+    assert(
+      str.index_of(html, "func(req: <a href=\"#type-Request\">Request</a>)") >=
+        0,
+      html,
+    )
+    assert(str.index_of(
+      html,
+      "<a href=\"#Server:close\"><code>Server.close</code></a>",
+    ) >= 0)
+    assert(str.index_of(
+      html,
+      "<dt><code>body?: string</code></dt><dd>null when streamed</dd>",
+    ) >= 0)
+  }
+}
+
 t.group("slang doc"){
   t.test("a module's page has its exports by section, with their docs"){
     local src = """// tiny: a module
@@ -143,7 +225,11 @@ return m"""
     assert(mod.sections[1].defs[0].name == "two")
     local html = doc.module_html(mod)
     assert(str.index_of(html, "<h3><code>m.one()</code></h3>") >= 0)
-    assert(str.index_of(html, "<p>one() -&gt; <code>1</code></p>") >= 0)
+    // the signature line is the heading; what follows -> its result
+    assert(
+      str.index_of(html, "<dt>returns</dt><dd><code>1</code></dd>") >= 0,
+      html,
+    )
     assert(str.index_of(html, "hidden") < 0, "only exports")
     assert(doc.module("x", "x.slang", "print(1)", analyse("print(1)")) == null)
   }

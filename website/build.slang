@@ -349,10 +349,28 @@ local func build_tour(pages){
 
 // ------------------------------------------------------------ playground
 
+local RAYLIB_EXAMPLES = {
+  {title: "Breakout (raylib, sound)", path: "examples/breakout/main.slang"},
+  {title: "3D cubes (raylib)", path: "packages/raylib/examples/cubes.slang"},
+  {
+    title: "Sparks: the mouse (raylib)",
+    path: "packages/raylib/examples/sparks.slang",
+  },
+  {
+    title: "3D terrain (raylib)",
+    path: "packages/raylib/examples/terrain.slang",
+  },
+}
+
 local func build_playground(pages){
   local examples = {}
   for(let local p in values(pages)){
     append(examples, {title: p.title, code: p.code})
+  }
+  // the raylib examples, as they are in the repository (the playground
+  // runs them on its graphics VM)
+  for(let local e in values(RAYLIB_EXAMPLES)){
+    append(examples, {title: e.title, code: os.read_file(e.path)})
   }
   for(let local f in values(sorted(os.list_dir(concat(here, "/examples"))))){
     if(str.ends_with(f, ".slang")){

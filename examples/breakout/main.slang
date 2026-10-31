@@ -1,6 +1,7 @@
-// Breakout on raylib. The window, drawing and keyboard come from the raylib
-// package (packages/raylib, a dependency in slang.project); everything else
-// is slang.
+// Breakout on raylib. The window, drawing, keyboard and sound come from the
+// raylib package (packages/raylib, a dependency in slang.project);
+// everything else is slang, the sounds too: they are made from samples
+// computed here.
 //
 //   make breakout        (or: slang run examples/breakout/main.slang)
 //
@@ -11,6 +12,7 @@
 local rl = require("raylib")
 local os = require("slang/os")
 local math = require("slang/math")
+local buffer = require("slang/buffer")
 
 local width = 800
 local height = 600
@@ -29,6 +31,69 @@ local colors = {
 
 local game = {}
 
+// ------------------------------------------------------------ sound
+
+// A tone made in slang: a square wave sliding from one pitch to another
+// and fading out, written as 16-bit samples into memory raylib allocates
+// (unload_wave frees it), then made a sound.
+local func tone(from, to, seconds, volume){
+  local rate = 22050
+  local n = to_int(rate * seconds)
+  local samples = buffer.wrap(rl.mem_alloc(n * 2), n, "short")
+  local phase = 0
+  for(local i = 0; i < n; i = i + 1){
+    local t = i / n
+    phase = phase + (from + (to - from) * t) / rate
+    local square = phase % 1 < 0.5 and 1 or -1
+    samples[i] = to_int(square * volume * (1 - t) * 32767)
+  }
+  local wave = {
+    frame_count: n,
+    sample_rate: rate,
+    sample_size: 16,
+    channels: 1,
+    data: samples,
+  }
+  local sound = rl.load_sound_from_wave(wave)
+  rl.unload_wave(wave)
+  return sound
+}
+
+// the sounds, or none when there is no audio device
+local sounds = null
+
+local func make_sounds(){
+  rl.init_audio_device()
+  if(not rl.is_audio_device_ready()){
+    return
+  }
+  sounds = {
+    paddle: tone(520, 560, 0.07, 0.25),
+    wall: tone(330, 330, 0.04, 0.2),
+    launch: tone(440, 880, 0.08, 0.2),
+    lost: tone(300, 90, 0.45, 0.3),
+    won: tone(520, 1040, 0.6, 0.25),
+    rows: {},
+  }
+  // a brick sounds higher the higher its row
+  for(local r = 0; r < len(colors.rows); r = r + 1){
+    local pitch = 900 - r * 90
+    append(sounds.rows, tone(pitch, pitch * 1.1, 0.06, 0.2))
+  }
+}
+
+local func play(sound){
+  if(sound != null){
+    rl.play_sound(sound)
+  }
+}
+
+local func sound_of(name){
+  return sounds and sounds[name]
+}
+
+// ------------------------------------------------------------ the game
+
 local func new_bricks(){
   local bricks = {}
   local rows = len(colors.rows)
@@ -44,6 +109,7 @@ local func new_bricks(){
         w: w,
         h: h,
         color: colors.rows[r],
+        row: r,
         points: (rows - r) * 10,
         alive: true,
       })
@@ -74,6 +140,7 @@ local func launch(){
   game.ball.vx = speed * math.sin(angle)
   game.ball.vy = -speed * math.cos(angle)
   game.ball.launched = true
+  play(sound_of("launch"))
 }
 
 local func clamp(v, lo, hi){
@@ -124,14 +191,17 @@ local func update_ball(dt){
   if(b.x - b.r < 0){
     b.x = b.r
     b.vx = -b.vx
+    play(sound_of("wall"))
   }
   if(b.x + b.r > width){
     b.x = width - b.r
     b.vx = -b.vx
+    play(sound_of("wall"))
   }
   if(b.y - b.r < 0){
     b.y = b.r
     b.vy = -b.vy
+    play(sound_of("wall"))
   }
 
   // paddle: the hit position steers the ball
@@ -143,6 +213,7 @@ local func update_ball(dt){
     b.vx = speed * math.sin(angle)
     b.vy = -speed * math.cos(angle)
     b.y = p.y - b.r
+    play(sound_of("paddle"))
   }
 
   // bricks: one hit per frame
@@ -150,6 +221,7 @@ local func update_ball(dt){
     if(brick.alive and hits(b, brick)){
       brick.alive = false
       game.score = game.score + brick.points
+      play(sounds and sounds.rows[brick.row])
       // bounce on the side that was crossed
       local overlap_x = math.min(
         b.x + b.r - brick.x,
@@ -170,6 +242,7 @@ local func update_ball(dt){
 
   if(b.y - b.r > height){
     game.lives = game.lives - 1
+    play(sound_of("lost"))
     if(game.lives <= 0){
       game.state = "lost"
     } else {
@@ -191,7 +264,10 @@ local func update(dt){
   if(game.state != "playing"){ return }
   update_paddle(dt)
   update_ball(dt)
-  if(bricks_left() == 0){ game.state = "won" }
+  if(bricks_left() == 0){
+    game.state = "won"
+    play(sound_of("won"))
+  }
 }
 
 local func text_centered(s, y, size, color){
@@ -230,6 +306,7 @@ local func draw(){
 
 rl.init_window(width, height, "Slang Breakout")
 rl.set_target_fps(60)
+make_sounds()
 new_game()
 
 local frame_limit = os.getenv("BREAKOUT_FRAMES")
@@ -238,6 +315,9 @@ for(; not rl.window_should_close(); frames = frames + 1){
   if(frame_limit != null and frames >= to_int(frame_limit)){ break }
   update(rl.get_frame_time())
   draw()
+}
+if(sounds != null){
+  rl.close_audio_device()
 }
 rl.close_window()
 print("breakout: ", frames, " frames, score ", game.score, "\n")

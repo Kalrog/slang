@@ -452,8 +452,13 @@ class Workbench {
     }
     // a fresh canvas for every run: a WebGL context does not start over
     stage.innerHTML = '<canvas tabindex="0" aria-label="The program\'s window"></canvas>' +
-      '<p class="hint">Click the window to give it the keyboard.</p>';
+      '<p class="hint">Click the window to give it the keyboard. ' +
+      '<button class="btn ghost small" data-fullscreen>Fullscreen</button></p>';
     const canvas = stage.querySelector("canvas");
+    stage.querySelector("[data-fullscreen]").addEventListener("click", () => {
+      (stage.requestFullscreen || stage.webkitRequestFullscreen).call(stage);
+      canvas.focus();
+    });
     const shift = this.editor.prefixLines;
     const show = (fd) => (text) => {
       this.output.insertAdjacentHTML("beforeend", outputHtml(text + "\n", fd, shift));
@@ -555,15 +560,40 @@ function guardKeys() {
   }
 }
 
+// in fullscreen the window is scaled to fill the screen, keeping its shape
+// (the mouse stays right: Emscripten maps it through the displayed size)
+document.addEventListener("fullscreenchange", () => {
+  const stage = document.fullscreenElement;
+  for (const canvas of document.querySelectorAll(".stage canvas")) {
+    if (stage && stage.contains(canvas)) {
+      const scale = Math.min(innerWidth / canvas.width, innerHeight / canvas.height);
+      canvas.style.setProperty("width", `${Math.floor(canvas.width * scale)}px`, "important");
+      canvas.style.setProperty("height", `${Math.floor(canvas.height * scale)}px`, "important");
+      canvas.focus();
+    } else {
+      canvas.style.removeProperty("width");
+      canvas.style.removeProperty("height");
+    }
+  }
+});
+
 function stopGraphics() {
   if (!gfx) return;
   const { module } = gfx;
   gfx = null;
   try {
     module._emscripten_cancel_main_loop();
+    // (a sound that plays goes quiet; harmless when there is no audio)
+    module._CloseAudioDevice();
     module._CloseWindow();
   } catch {}
 }
+
+// raylib 5.5's audio (miniaudio) leaves a click listener behind that refers
+// to its global after closing its last device: that error says nothing
+window.addEventListener("error", (e) => {
+  if (/miniaudio is not defined/.test(e.message)) e.preventDefault();
+});
 
 // ---------------------------------------------------------------- sharing
 
@@ -605,6 +635,8 @@ if (document.body.classList.contains("play") && benches.length) {
   select.addEventListener("change", () => {
     const ex = examples[+select.value];
     if (!ex) return;
+    // another example ends the one that runs
+    if (bench.running) bench.stop();
     bench.editor.value = ex.code;
     bench.output.classList.remove("shown");
     history.replaceState(null, "", location.pathname);

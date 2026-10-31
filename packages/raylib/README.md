@@ -123,4 +123,6 @@ stubs/init.slang    generated: declarations and docs for tools
 tool/gen_stubs.slang
 test/raylib_test.slang
 examples/terrain.slang  a mesh built in slang buffers
+examples/cubes.slang    3D: a generated cube model drawn many times, an orbiting camera
+examples/sparks.slang   the mouse: particles that follow, spray and gather
 ```

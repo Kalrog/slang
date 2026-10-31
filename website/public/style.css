@@ -528,14 +528,18 @@ section.install pre.code { border: 2px solid var(--ink); box-shadow: 6px 6px 0 v
 .stage { display: flex; flex-direction: column; align-items: center; gap: 0.3rem; }
 .stage canvas {
   max-width: 100%;
-  height: auto !important;
+  height: auto;
   border: 2px solid var(--ink);
   border-radius: 12px;
   background: #000;
   box-shadow: 5px 5px 0 var(--shadow);
 }
 .stage canvas:focus { outline: 3px solid var(--sky); outline-offset: 3px; }
-.stage .hint { margin: 0; color: var(--muted); font-size: 0.85rem; }
+.stage .hint { margin: 0; color: var(--muted); font-size: 0.85rem; display: flex; align-items: center; gap: 0.6rem; }
+.btn.small { font-size: 0.8rem; padding: 0.3rem 0.6rem; box-shadow: 2px 2px 0 var(--shadow); }
+.stage:fullscreen { background: #000; justify-content: center; }
+.stage:fullscreen canvas { max-width: none; border: 0; border-radius: 0; box-shadow: none; }
+.stage:fullscreen .hint { display: none; }
 
 /* ---------------------------------------------------------------- extensions */
 

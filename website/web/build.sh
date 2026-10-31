@@ -59,11 +59,12 @@ emcc -c "$CACHE/symbols.c" -o "$CACHE/symbols.o" -Os -I"$RAYLIB/src" -DPLATFORM_
 
 # linked by Emscripten: the raylib package and raylib's headers go into the
 # virtual file system, where the package looks for an installed raylib
+# (HEAPF32: raylib's audio, miniaudio, reads samples through it)
 emcc zig/zig-out-em/lib/slang.o "$CACHE/symbols.o" "$RAYLIB/web/libraylib.a" "$LIBFFI/out/lib/libffi.a" \
   -o "$OUT/slang-gfx.js" -O2 -sUSE_GLFW=3 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=8MB \
   -sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=createSlang -sINVOKE_RUN=0 -sEXIT_RUNTIME=1 \
-  -sENVIRONMENT=web -sFORCE_FILESYSTEM=1 -sEXPORTED_RUNTIME_METHODS=FS,callMain \
-  -sEXPORTED_FUNCTIONS=_main,_emscripten_cancel_main_loop,_CloseWindow \
+  -sENVIRONMENT=web -sFORCE_FILESYSTEM=1 -sEXPORTED_RUNTIME_METHODS=FS,callMain,HEAPF32 \
+  -sEXPORTED_FUNCTIONS=_main,_emscripten_cancel_main_loop,_CloseWindow,_CloseAudioDevice \
   --embed-file "$RAYLIB/src/raylib.h@/usr/include/raylib.h" \
   --embed-file "$RAYLIB/src/raymath.h@/usr/include/raymath.h" \
   --embed-file "$CACHE/empty@/usr/lib/libraylib.so" \

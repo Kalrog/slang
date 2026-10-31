@@ -1,0 +1,90 @@
+<main class="home-main">
+<section class="hero">
+  <div class="hero-text">
+    <p class="sticker">a little language</p>
+    <h1>Small language.<br><span class="marker">Your syntax.</span></h1>
+    <p class="lede">Slang is a scripting language in the family of Lua. Tables,
+    closures, coroutines and pattern matching, with a parser written in slang
+    that your programs can extend: new statements, new operators, whole
+    dialects, as plain libraries.</p>
+    <div class="cta">
+      <a class="btn big" href="tour/">Take the tour</a>
+      <a class="btn big ghost" href="play/">Open the playground</a>
+    </div>
+  </div>
+  <div class="hero-play">
+    <div class="bubble">try it — it runs right here</div>
+    {{editor:hero}}
+  </div>
+  <div class="shape s1" aria-hidden="true"></div>
+  <div class="shape s2" aria-hidden="true"></div>
+  <div class="shape s3" aria-hidden="true"></div>
+</section>
+
+<section class="feature">
+  <div class="feature-text">
+    <p class="sticker mint">familiar on day one</p>
+    <h2>Lua's simplicity, with a few modern manners</h2>
+    <p>One data structure, the table, for lists, records and objects.
+    Functions are values and closures. On top: patterns that take values
+    apart, <code>try</code>/<code>catch</code> that matches what was raised,
+    <code>defer</code>, labeled loops, spread arguments.</p>
+  </div>
+  <div class="feature-code">{{code:familiar}}</div>
+</section>
+
+<section class="feature flip">
+  <div class="feature-text">
+    <p class="sticker grape">grow the language</p>
+    <h2>The grammar is a library</h2>
+    <p>Slang's parser is written in slang, and a program can change it: an
+    <code>extension</code> block adds statements, operators or whole
+    sub-languages, for the rest of its file. Projects load extensions for
+    all their files, and give file types their own dialect.</p>
+    <p><a href="docs/slang-grammar.html">The grammar API →</a></p>
+  </div>
+  <div class="feature-code">{{code:grow}}</div>
+</section>
+
+<section class="feature">
+  <div class="feature-text">
+    <p class="sticker sky">batteries included</p>
+    <h2>Real programs, not just scripts</h2>
+    <p>An async runtime on libuv with HTTP, WebSockets and TLS, a web
+    framework with sessions and a test client, SQLite, JSON, HTML
+    templates, cryptography, and an FFI that calls C libraries straight
+    from their headers.</p>
+    <p><a href="docs/">Browse the library →</a></p>
+  </div>
+  <div class="feature-code">{{code:web}}</div>
+</section>
+
+<section class="tools">
+  <h2>Everything in one small binary</h2>
+  <div class="tool-grid">
+    <div class="tool"><h3>slang build</h3><p>One executable from a program,
+    its modules and its assets. No C compiler needed.</p></div>
+    <div class="tool"><h3>slang fmt</h3><p>An opinionated formatter that
+    knows your extensions' syntax too.</p></div>
+    <div class="tool"><h3>slang test</h3><p>Groups and tests, with JSON output
+    for editors and CI.</p></div>
+    <div class="tool"><h3>slang doc</h3><p>API docs from typed doc comments,
+    like the ones on this site.</p></div>
+    <div class="tool"><h3>Editors</h3><p>A language server, a VS Code
+    extension and a debugger, built on the real parser.</p></div>
+    <div class="tool"><h3>Packages</h3><p>Dependencies from git in
+    <code>slang.project</code>, with a lock file.</p></div>
+  </div>
+</section>
+
+<section class="install">
+  <h2>Get slang</h2>
+  <p>Slang builds from source with Zig 0.17. The binary carries its compiler
+  and standard library; nothing else is needed at run time.</p>
+  <pre class="code shell"><code>git clone https://github.com/Kalrog/slang
+cd slang
+make build            # bin/slang
+make install          # /usr/local (or PREFIX=~/.local)
+bin/slang run hello.slang</code></pre>
+</section>
+</main>

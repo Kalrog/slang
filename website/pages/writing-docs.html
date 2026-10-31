@@ -1,0 +1,75 @@
+<p class="kicker">Docs</p>
+<h1>Writing docs</h1>
+<p>Slang's documentation lives in ordinary comments. <code>slang doc</code>
+turns them into pages like these, and the language server shows them on
+hover, in completion and in signature help. The same comments work in your
+own modules: run <code>slang doc</code> in a project and it documents the
+project.</p>
+
+<h2>Where docs go</h2>
+<ul>
+<li>The comment block that starts a file documents the module: what it is
+for, a short example, what a reader needs to know first.</li>
+<li>The comment block directly above a definition, with no blank line in
+between, documents it. Only what a module returns is its API.</li>
+<li><code>// ---- title</code> lines group the API into sections.</li>
+<li>Lines indented by two spaces or more are code samples; the rest is
+prose, with <code>`code`</code> spans.</li>
+</ul>
+
+<h2>A definition's doc</h2>
+<pre><code>// serve(host: string, port: int, handler: func(req: Request): any,
+//       options?: ServeOptions) -&gt; server: Server
+// Serves HTTP on host:port until [Server.close]. The handler may return a
+// Future: an async function works as one.
+// [port]: 0 picks a free port
+// [options]: limits and timeouts, see [ServeOptions]
+// [server]: what is serving
+func http.serve(host, port, handler, options){ ... }</code></pre>
+<ul>
+<li>The first line is the signature: the name as users call it, the
+parameters, then <code>-&gt; result</code>. It may go on over lines until its
+parentheses close, and the <code>-&gt;</code> may start the next line.</li>
+<li>A parameter is <code>name</code>, <code>name: Type</code>,
+<code>name?: Type</code> (optional) or <code>...name</code> (the rest).</li>
+<li>The result is <code>-&gt; Type</code>, <code>-&gt; name: Type</code>,
+<code>-&gt; Type: what it is</code>, or prose when no type says it.</li>
+<li><code>[name]: text</code> lines describe a parameter, the named result
+or a field. An indented line right below one continues it.</li>
+<li><code>[name]</code> in prose refers to a parameter, a type, a definition
+of the module, a method (<code>[Server.close]</code>) or another module's
+definition through the name the file gives it (<code>[async.Future]</code>).
+Pages link it; editors jump to it.</li>
+<li>A method is documented without the value it is called on:
+<code>close()</code> for <code>func server_methods.close(s)</code>.</li>
+</ul>
+
+<h2>Types</h2>
+<pre><code>// What a handler receives. Header names are lowercase.
+// type Request = {method: string, path: string,
+//   headers: {[string]: string}, body?: string}
+// [body]: the body, read whole
+
+// A running server.
+// type Server
+local server_methods = {}</code></pre>
+<ul>
+<li><code>type Name = T</code> declares a type on its own comment lines, and
+may span lines until its braces close. <code>[field]: text</code> lines
+under it describe its fields.</li>
+<li><code>type Name</code> alone, directly above a table, makes that table's
+functions the type's methods.</li>
+<li>Type names are capitalized. Another module's type goes through the local
+the file binds the module to: <code>async.Future</code>.</li>
+<li>The notation: <code>string</code>, <code>int</code>, <code>float</code>,
+<code>bool</code>, <code>null</code>, <code>any</code>,
+<code>function</code>, <code>table</code>, <code>Name</code>,
+<code>mod.Name</code>, <code>T?</code>, <code>A | B</code>,
+<code>{T}</code> (a list), <code>{[K]: V}</code> (a map),
+<code>{a: T, b?: U}</code> (fields), <code>func(a: T): R</code>.</li>
+</ul>
+
+<h2>Native modules</h2>
+<p>Modules written in Zig or C are documented by stubs: slang files that
+declare the module's functions with empty bodies and the same doc
+comments.</p>

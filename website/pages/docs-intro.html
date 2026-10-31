@@ -1,0 +1,12 @@
+<p class="kicker">Docs</p>
+<h1>The standard library</h1>
+<p>Every module that ships with slang, generated from the doc comments in
+its source by <code>slang doc</code>. Load a module with
+<code>require</code>: <code>local str = require("slang/string")</code>. The
+globals (<code>print</code>, <code>len</code>, <code>pcall</code>, ...)
+need no require.</p>
+<p>Signatures are typed in the docs' own notation: <code>name?: T</code> is
+optional, <code>{T}</code> a list, <code>{[K]: V}</code> a map,
+<code>{a: T}</code> a table with fields, <code>A | B</code> either. Slang
+itself has no types; these are for readers and editors. New to the
+language? Start with <a href="../tour/">the tour</a>.</p>

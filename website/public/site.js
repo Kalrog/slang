@@ -1,0 +1,448 @@
+// The site's live code: every [data-workbench] becomes an editor that
+// highlights and checks as you type (slang highlight --check), runs
+// (slang run) and formats (slang fmt) on slang.wasm in a worker.
+
+// ---------------------------------------------------------------- workers
+
+class Worker2 {
+  constructor() {
+    this.url = new URL("worker.js", import.meta.url);
+    this.spawn();
+  }
+  spawn() {
+    this.worker = new Worker(this.url, { type: "module" });
+    this.worker.onmessage = (e) => this.receive(e.data);
+    this.pending = new Map();
+    this.next = 0;
+  }
+  request(cmd, code, onStream) {
+    const id = ++this.next;
+    return new Promise((resolve) => {
+      this.pending.set(id, { resolve, onStream });
+      this.worker.postMessage({ id, cmd, code });
+    });
+  }
+  receive(m) {
+    const p = this.pending.get(m.id);
+    if (!p) return;
+    if (m.stream) {
+      if (p.onStream) p.onStream(m.stream, m.text);
+      return;
+    }
+    this.pending.delete(m.id);
+    p.resolve(m);
+  }
+  // stops what runs (an endless loop, say) and starts a fresh worker
+  kill() {
+    this.worker.terminate();
+    const pending = [...this.pending.values()];
+    this.spawn();
+    for (const p of pending) p.resolve({ killed: true, code: -2, stdout: "", stderr: "" });
+  }
+}
+
+// one for checking and formatting, one for running (so a long run can be
+// stopped without losing the checker); made when first needed
+let checker = null, runner = null;
+const check = (cmd, code) => (checker ||= new Worker2()).request(cmd, code);
+
+// ---------------------------------------------------------------- text
+
+const escapeHtml = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+// byte offsets (what slang reports) to string indices
+function byteMap(text) {
+  if (!/[^\x00-\x7f]/.test(text)) return null;
+  const map = [];
+  for (let i = 0; i < text.length; i++) {
+    const c = text.codePointAt(i);
+    const n = c < 0x80 ? 1 : c < 0x800 ? 2 : c < 0x10000 ? 3 : 4;
+    for (let k = 0; k < n; k++) map.push(i);
+    if (c >= 0x10000) i++;
+  }
+  map.push(text.length);
+  return map;
+}
+const toIndex = (map, b) => (map ? map[Math.min(b, map.length - 1)] : b);
+
+function lineStarts(text) {
+  const starts = [0];
+  for (let i = 0; i < text.length; i++) if (text[i] === "\n") starts.push(i + 1);
+  return starts;
+}
+
+// the highlighted HTML of text: tokens [{from, to, kind}], problems
+// [{from, to, severity}]
+function render(text, tokens, problems) {
+  const n = text.length;
+  const kind = new Array(n).fill(null);
+  for (const t of tokens) for (let i = Math.max(0, t.from); i < Math.min(n, t.to); i++) kind[i] = t.kind;
+  const sev = new Array(n).fill(null);
+  for (const p of problems) {
+    for (let i = Math.max(0, p.from); i < Math.min(n, p.to); i++) {
+      if (sev[i] !== "error") sev[i] = p.severity;
+    }
+  }
+  let html = "";
+  let i = 0;
+  while (i < n) {
+    let j = i + 1;
+    while (j < n && kind[j] === kind[i] && sev[j] === sev[i]) j++;
+    let piece = escapeHtml(text.slice(i, j));
+    if (kind[i]) piece = `<span class="t-${kind[i]}">${piece}</span>`;
+    if (sev[i]) piece = `<span class="sq sq-${sev[i]}">${piece}</span>`;
+    html += piece;
+    i = j;
+  }
+  return html + "\n";
+}
+
+// ---------------------------------------------------------------- editor
+
+class Editor {
+  constructor(root) {
+    this.root = root;
+    this.input = root.querySelector(".ed-input");
+    this.code = root.querySelector(".ed-hl code");
+    this.original = this.input.value;
+    this.text = this.input.value;
+    this.tokens = null; // [{from, to, kind}] for this.text, once checked
+    this.problems = [];
+    this.version = 0;
+    this.listeners = [];
+    this.input.addEventListener("input", () => this.changed());
+    this.input.addEventListener("keydown", (e) => this.key(e));
+    this.input.addEventListener("scroll", () => this.follow());
+    this.grow = !root.closest(".big");
+    this.fit();
+  }
+  // the highlighted copy under the textarea scrolls with it
+  follow() {
+    this.code.parentElement.scrollTop = this.input.scrollTop;
+    this.code.parentElement.scrollLeft = this.input.scrollLeft;
+  }
+  // an editor in a page grows with its code (up to its max-height)
+  fit() {
+    if (!this.grow) return;
+    this.input.style.height = "auto";
+    this.input.style.height = this.input.scrollHeight + 2 + "px";
+  }
+  get value() {
+    return this.input.value;
+  }
+  set value(text) {
+    this.input.focus();
+    this.input.select();
+    // keeps undo where the browser can
+    if (!document.execCommand || !document.execCommand("insertText", false, text)) {
+      this.input.value = text;
+    }
+    this.input.setSelectionRange(0, 0);
+    this.input.scrollTop = 0;
+    this.changed();
+  }
+  onChange(f) {
+    this.listeners.push(f);
+  }
+  // until the checker answers, the old colours stay on the text before and
+  // after the change
+  changed() {
+    const next = this.input.value;
+    const old = this.text;
+    let p = 0;
+    while (p < old.length && p < next.length && old[p] === next[p]) p++;
+    let s = 0;
+    while (s < old.length - p && s < next.length - p && old[old.length - 1 - s] === next[next.length - 1 - s]) s++;
+    const delta = next.length - old.length;
+    const keep = (list) => list.flatMap((t) => {
+      if (t.to <= p) return [t];
+      if (t.from >= old.length - s) return [{ ...t, from: t.from + delta, to: t.to + delta }];
+      return [];
+    });
+    this.text = next;
+    if (this.tokens) this.tokens = keep(this.tokens);
+    this.problems = keep(this.problems);
+    this.paint();
+    this.fit();
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.check(), 180);
+    for (const f of this.listeners) f();
+  }
+  async check() {
+    const v = ++this.version;
+    const text = this.input.value;
+    const r = await check("check", text);
+    if (v !== this.version || r.killed) return;
+    let data;
+    try {
+      data = JSON.parse(r.stdout);
+    } catch {
+      return;
+    }
+    const map = byteMap(text);
+    const starts = lineStarts(text);
+    this.tokens = data.tokens.map((t) => ({
+      from: toIndex(map, t.start),
+      to: toIndex(map, t.start + t.length),
+      kind: t.category.split(".")[0],
+    }));
+    this.problems = data.diagnostics.map((d) => {
+      // columns count bytes from the line's start
+      const lineStart = starts[Math.min(d.line - 1, starts.length - 1)] || 0;
+      const lineBytes = map ? new TextEncoder().encode(text.slice(0, lineStart)).length : lineStart;
+      const from = toIndex(map, lineBytes + d.column - 1);
+      let to = d.length ? toIndex(map, lineBytes + d.column - 1 + d.length) : from;
+      if (!d.length) {
+        while (to < text.length && /[\w]/.test(text[to])) to++;
+        if (to === from) to = Math.min(text.length, from + 1);
+      }
+      return { from, to, line: d.line, column: d.column, message: d.message, severity: d.severity };
+    });
+    this.paint();
+    for (const f of this.listeners) f("checked");
+  }
+  paint() {
+    const tokens = this.tokens || [];
+    this.code.innerHTML = this.tokens || this.problems.length
+      ? render(this.text, tokens, this.problems)
+      : escapeHtml(this.text) + "\n";
+    this.follow();
+  }
+  goto(line, column) {
+    const starts = lineStarts(this.input.value);
+    const at = (starts[line - 1] ?? 0) + Math.max(0, (column || 1) - 1);
+    this.input.focus();
+    this.input.setSelectionRange(at, at);
+    const lineHeight = parseFloat(getComputedStyle(this.input).lineHeight) || 20;
+    this.input.scrollTop = Math.max(0, (line - 3) * lineHeight);
+  }
+  key(e) {
+    const ta = this.input;
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      e.preventDefault();
+      this.root.dispatchEvent(new CustomEvent("run", { bubbles: true }));
+      return;
+    }
+    const { selectionStart: a, selectionEnd: b, value } = ta;
+    const insert = (text) => {
+      if (!document.execCommand("insertText", false, text)) {
+        ta.setRangeText(text, ta.selectionStart, ta.selectionEnd, "end");
+        this.changed();
+      }
+    };
+    if (e.key === "Tab") {
+      e.preventDefault();
+      const lineStart = value.lastIndexOf("\n", a - 1) + 1;
+      if (a === b && !e.shiftKey) return insert("  ");
+      // indent or outdent the selected lines
+      const end = value.indexOf("\n", b - (b > a && value[b - 1] === "\n" ? 1 : 0));
+      const stop = end < 0 ? value.length : end;
+      const lines = value.slice(lineStart, stop).split("\n");
+      const changed = lines.map((l) => (e.shiftKey ? l.replace(/^ {1,2}/, "") : "  " + l)).join("\n");
+      ta.setSelectionRange(lineStart, stop);
+      insert(changed);
+      ta.setSelectionRange(lineStart, lineStart + changed.length);
+      return;
+    }
+    if (e.key === "Enter" && !e.shiftKey && !e.altKey) {
+      // keep the indentation, one more after an opening bracket
+      const lineStart = value.lastIndexOf("\n", a - 1) + 1;
+      const indent = value.slice(lineStart).match(/^ */)[0];
+      const before = value.slice(lineStart, a).trimEnd();
+      const opens = /[{(\[]$/.test(before);
+      const closes = /^[})\]]/.test(value.slice(b));
+      e.preventDefault();
+      if (opens && closes) {
+        insert(`\n${indent}  \n${indent}`);
+        const at = ta.selectionStart - indent.length - 1;
+        ta.setSelectionRange(at, at);
+      } else {
+        insert(`\n${indent}${opens ? "  " : ""}`);
+      }
+      return;
+    }
+    if (e.key === "}" && a === b) {
+      // a closing brace on a line of spaces goes back one step
+      const lineStart = value.lastIndexOf("\n", a - 1) + 1;
+      const line = value.slice(lineStart, a);
+      if (/^ {2,}$/.test(line)) {
+        e.preventDefault();
+        ta.setSelectionRange(a - 2, a);
+        insert("}");
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------- output
+
+// a program's output, with main.slang:line:col made into links
+function outputHtml(text, kind) {
+  return text.split(/(\n)/).map((line) => {
+    if (line === "\n") return line;
+    let cls = kind === 2 ? "err" : "";
+    if (kind === 2 && /^\s+at (slang\/|\[native)/.test(line)) cls += " trace";
+    const html = escapeHtml(line.replace(/\/work\/main\.slang/g, "main.slang"))
+      .replace(/main\.slang:(\d+):(\d+)/g, '<a href="#" data-line="$1" data-col="$2">main.slang:$1:$2</a>');
+    return cls ? `<span class="${cls}">${html}</span>` : html;
+  }).join("");
+}
+
+const LIMIT = 200000;
+
+class Workbench {
+  constructor(root) {
+    this.root = root;
+    this.editor = new Editor(root.querySelector("[data-editor]"));
+    this.output = root.querySelector("[data-output]");
+    this.status = root.querySelector("[data-status]");
+    this.problems = root.querySelector("[data-problems]");
+    this.runButton = root.querySelector("[data-run]");
+    this.running = false;
+    this.runButton?.addEventListener("click", () => (this.running ? this.stop() : this.run()));
+    root.addEventListener("run", () => this.run());
+    root.querySelector("[data-format]")?.addEventListener("click", () => this.format());
+    root.querySelector("[data-reset]")?.addEventListener("click", () => {
+      this.editor.value = this.editor.original;
+      this.output.textContent = "";
+      this.output.classList.remove("shown");
+    });
+    const open = root.querySelector("[data-open]");
+    open?.addEventListener("click", async (e) => {
+      e.preventDefault();
+      location.href = open.getAttribute("href") + "#code=" + (await pack(this.editor.value));
+    });
+    this.output.addEventListener("click", (e) => {
+      const a = e.target.closest("a[data-line]");
+      if (!a) return;
+      e.preventDefault();
+      this.editor.goto(+a.dataset.line, +a.dataset.col);
+    });
+    this.problems.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-line]");
+      if (b) this.editor.goto(+b.dataset.line, +b.dataset.col);
+    });
+    this.editor.onChange((what) => {
+      if (what === "checked") this.showProblems();
+    });
+  }
+  showProblems() {
+    const list = this.editor.problems;
+    this.problems.innerHTML = list.map((p) =>
+      `<button class="problem ${p.severity}" data-line="${p.line}" data-col="${p.column}">` +
+      `<span class="where">${p.line}:${p.column}</span> ${escapeHtml(p.message)}</button>`).join("");
+    this.problems.classList.toggle("shown", list.length > 0);
+  }
+  say(text) {
+    if (this.status) this.status.textContent = text;
+  }
+  async run() {
+    if (this.running) return;
+    this.running = true;
+    this.runButton.textContent = "Stop";
+    this.runButton.classList.add("stop");
+    this.output.classList.add("shown");
+    this.output.innerHTML = "";
+    this.say("running…");
+    let shown = 0;
+    const append = (fd, text) => {
+      if (shown > LIMIT) return;
+      shown += text.length;
+      this.output.insertAdjacentHTML("beforeend", outputHtml(text, fd));
+      if (shown > LIMIT) {
+        this.output.insertAdjacentHTML("beforeend", '<span class="err">\n… output limit reached, stopped\n</span>');
+        this.stop(true);
+      }
+    };
+    runner ||= new Worker2();
+    const started = performance.now();
+    this.timer = setTimeout(() => this.stop(), 20000);
+    const r = await runner.request("run", this.editor.value, append);
+    clearTimeout(this.timer);
+    this.running = false;
+    this.runButton.textContent = "Run";
+    this.runButton.classList.remove("stop");
+    if (r.killed) {
+      this.say(this.stopped === "limit" ? "stopped" : "stopped after " + Math.round((performance.now() - started) / 1000) + " s");
+      if (this.stopped !== "limit") this.output.insertAdjacentHTML("beforeend", '<span class="err">\n■ stopped\n</span>');
+      this.stopped = null;
+      return;
+    }
+    if (!this.output.textContent) this.output.innerHTML = '<span class="dim">(no output)</span>';
+    const ms = Math.round(r.ms);
+    this.say(r.code === 0 ? `done in ${ms} ms` : `exit code ${r.code}`);
+  }
+  stop(limit) {
+    if (!this.running || !runner) return;
+    this.stopped = limit ? "limit" : "user";
+    runner.kill();
+  }
+  async format() {
+    this.say("formatting…");
+    const r = await check("fmt", this.editor.value);
+    if (r.code !== 0) {
+      this.say("fix the errors first");
+      return;
+    }
+    if (r.stdout !== this.editor.value) this.editor.value = r.stdout;
+    this.say("formatted");
+  }
+}
+
+// ---------------------------------------------------------------- sharing
+
+const b64 = (bytes) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+const unb64 = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+
+async function pack(text) {
+  const stream = new Blob([text]).stream().pipeThrough(new CompressionStream("deflate-raw"));
+  return b64(new Uint8Array(await new Response(stream).arrayBuffer()));
+}
+async function unpack(s) {
+  const stream = new Blob([unb64(s)]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+  return await new Response(stream).text();
+}
+
+// ---------------------------------------------------------------- pages
+
+const benches = [...document.querySelectorAll("[data-workbench]")].map((el) => new Workbench(el));
+
+// load the VM while the reader reads
+if (benches.length) {
+  const warm = () => (checker ||= new Worker2());
+  (window.requestIdleCallback || ((f) => setTimeout(f, 300)))(warm);
+}
+
+if (document.body.classList.contains("play") && benches.length) {
+  const bench = benches[0];
+  const examples = JSON.parse(document.getElementById("examples").textContent);
+  const select = document.querySelector("[data-examples]");
+  const loadHash = async () => {
+    const m = location.hash.match(/^#code=(.+)$/);
+    if (!m) return;
+    try {
+      bench.editor.value = await unpack(m[1]);
+    } catch {
+      bench.say("that link holds no code");
+    }
+  };
+  select.addEventListener("change", () => {
+    const ex = examples[+select.value];
+    if (!ex) return;
+    bench.editor.value = ex.code;
+    bench.output.classList.remove("shown");
+    history.replaceState(null, "", location.pathname);
+  });
+  document.querySelector("[data-share]").addEventListener("click", async () => {
+    const url = location.origin + location.pathname + "#code=" + (await pack(bench.editor.value));
+    history.replaceState(null, "", url);
+    try {
+      await navigator.clipboard.writeText(url);
+      bench.say("link copied");
+    } catch {
+      bench.say("link in the address bar");
+    }
+  });
+  window.addEventListener("hashchange", loadHash);
+  loadHash();
+}

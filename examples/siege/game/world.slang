@@ -739,6 +739,7 @@ func World.step(w, dt){
     }
   }
   local n = active_bodies(w)
+  local moving = 0
   for(local i = 0; i < n; i = i + 1){
     local e = w.by_id[active_ids[i]]
     if(e == null or e.gone or e.static){
@@ -749,6 +750,13 @@ func World.step(w, dt){
     local p = jolt.body_interface_get_position(w.bodies, e.id)
     e.pos = p
     e.dirty = true
+    // what visibly moves (awake bodies settle for a while before they
+    // sleep): faster than a slow walk, a rolling stone faster still
+    local vel = jolt.body_interface_get_linear_velocity(w.bodies, e.id)
+    local speed2 = vel.x * vel.x + vel.y * vel.y + vel.z * vel.z
+    if(speed2 > 0.16 and (not e.projectile or speed2 > 1)){
+      moving = moving + 1
+    }
     if(not e.knocked and e.mat.points.moved != null and not e.projectile){
       if(vec.distance(p, e.start) > KNOCKED){
         e.knocked = true
@@ -772,19 +780,22 @@ func World.step(w, dt){
       e.sleeping = true
     }
   }
+  w.moving = moving
+  // calm: next to nothing moves (a couple of parts, or one in a hundred)
+  if(moving <= math.max(2, len(w.entities) * 0.01)){
+    w.calm_for = (w.calm_for or 0) + dt
+  } else {
+    w.calm_for = 0
+  }
   if(w.shake > 0){
     w.shake = math.max(0, w.shake - dt * 1.6)
   }
 }
 
-// settled(w) -> whether nothing (but the vehicle) moves any more
+// settled(w) -> whether next to nothing has moved for a moment (what
+// the eye calls still, long before Jolt puts the bodies to sleep)
 func World.settled(w){
-  for(let local e in values(w.entities)){
-    if(not e.static and not e.sleeping){
-      return false
-    }
-  }
-  return true
+  return (w.calm_for or 0) > 0.7
 }
 
 // ray(w, origin, direction, max) -> {entity?, point, distance}? the first

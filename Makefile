@@ -18,6 +18,8 @@
 #   make breakout     run the breakout example (examples/breakout) on the raylib package
 #   make deckhand     run the deckhand heist game (examples/deckhand) on the raylib package
 #   make deckhand-test run deckhand's tests (no window: the deck, maps, world, every mission's solution)
+#   make siege        run the siege catapult game (examples/siege) on the raylib and jolt packages
+#   make siege-test   run siege's tests (no window: structures stand, levels stand still, wrecking)
 #   make vscode       package the VS Code extension (editors/vscode) with the language server
 #   make doc          regenerate doc/: HTML documentation of slang's library (slang doc)
 #
@@ -31,7 +33,7 @@ LIB_SRC  := $(wildcard slang/lib/*.slang)
 COMPILER_SRC := $(wildcard slang/compiler/*.slang)
 SEED_DIR := boot/slang
 
-.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed fixpoint bench raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test clean doc \
+.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed fixpoint bench raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test siege siege-test clean doc \
         vscode vscode-grammar
 
 all: build
@@ -93,8 +95,8 @@ test: build unit
 	  else echo "raylib is not installed: packages/raylib not tested"; fi
 	@if [ -n "$(BOX2D_H)" ]; then $(MAKE) box2d-test; \
 	  else echo "Box2D is not installed: packages/box2d not tested"; fi
-	@if [ -d "packages/jolt/lib/$(SLANG_PLATFORM)" ]; then $(MAKE) jolt-test; \
-	  else echo "no joltc for $(SLANG_PLATFORM): packages/jolt not tested"; fi
+	@if [ -d "packages/jolt/lib/$(SLANG_PLATFORM)" ]; then $(MAKE) jolt-test && $(MAKE) siege-test; \
+	  else echo "no joltc for $(SLANG_PLATFORM): packages/jolt and examples/siege not tested"; fi
 
 test-gui: build
 	bin/slang test zig/test/gui
@@ -155,6 +157,12 @@ deckhand: build
 
 deckhand-test: build
 	cd examples/deckhand && ../../bin/slang test test
+
+siege: build
+	bin/slang run examples/siege/main.slang
+
+siege-test: build
+	cd examples/siege && ../../bin/slang test test
 
 # the VS Code extension (editors/vscode): generated grammar, bundled lsp/, .vsix
 vscode-grammar: build

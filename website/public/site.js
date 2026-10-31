@@ -298,7 +298,7 @@ function outputHtml(text, kind, shift = 0) {
   return text.split(/(\n)/).map((line) => {
     if (line === "\n") return line;
     let cls = kind === 2 ? "err" : "";
-    if (kind === 2 && /^\s+at (slang\/|\[native)/.test(line)) cls += " trace";
+    if (kind === 2 && /^\s+at (.*\()?(slang\/|\[native)/.test(line)) cls += " trace";
     const html = escapeHtml(line.replace(/\/work\/main\.slang/g, "main.slang"))
       .replace(/main\.slang:(\d+):(\d+)/g, (_, l, c) => {
         const line = Math.max(1, +l - shift);

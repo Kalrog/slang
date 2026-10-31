@@ -372,7 +372,8 @@ pub const Thread = struct {
         return null;
     }
 
-    /// Renders the frame stack, innermost first.
+    /// Renders the frame stack, innermost first: `name (origin:line:column)`
+    /// for a function with a name, the position alone otherwise.
     pub fn traceback(th: *const Thread) []u8 {
         var aw: std.Io.Writer.Allocating = .init(th.vm.gpa);
         defer aw.deinit();
@@ -389,7 +390,13 @@ pub const Thread = struct {
             };
             const pc: usize = if (fr.pc > 0) fr.pc - 1 else 0;
             if (p.location(pc)) |l| {
-                w.print("{s}:{d}:{d}", .{ l.origin.bytes(), l.line, l.column }) catch oom();
+                if (p.name) |n| {
+                    w.print("{s} ({s}:{d}:{d})", .{ n.bytes(), l.origin.bytes(), l.line, l.column }) catch oom();
+                } else {
+                    w.print("{s}:{d}:{d}", .{ l.origin.bytes(), l.line, l.column }) catch oom();
+                }
+            } else if (p.name) |n| {
+                w.print("{s} (no source info)", .{n.bytes()}) catch oom();
             } else {
                 w.writeAll("function (no source info)") catch oom();
             }

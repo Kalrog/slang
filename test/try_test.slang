@@ -33,6 +33,22 @@ t.group("raise"){
   }
 }
 
+t.group("stack traces"){
+  t.test("frames name their functions"){
+    local shapes = {}
+    func shapes.area(s){
+      return s.w * s.h
+    }
+    local func total(list){
+      return shapes.area(list[0])
+    }
+    local r = pcall(total, {{w: 2}})
+    local stack = r[1].stack
+    assert(str.index_of(stack, "  at shapes.area (") >= 0, stack)
+    assert(str.index_of(stack, "  at total (") >= 0, stack)
+  }
+}
+
 t.group("try and catch"){
   t.test("the first matching clause runs"){
     local log = {}

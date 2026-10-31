@@ -28,7 +28,7 @@ LIB_SRC  := $(wildcard slang/lib/*.slang)
 COMPILER_SRC := $(wildcard slang/compiler/*.slang)
 SEED_DIR := boot/slang
 
-.PHONY: all build wasm website build-safe install uninstall test test-safe test-gui unit seed fixpoint bench raylib-test breakout deckhand deckhand-test clean doc \
+.PHONY: all build wasm website serve build-safe install uninstall test test-safe test-gui unit seed fixpoint bench raylib-test breakout deckhand deckhand-test clean doc \
         vscode vscode-grammar
 
 all: build
@@ -46,6 +46,10 @@ wasm:
 # playground needs make wasm first
 website: build
 	bin/slang run website/build.slang
+
+# the built website at http://127.0.0.1:8080 (PORT=...), served by slang
+serve: website
+	bin/slang run website/serve.slang $(or $(PORT),8080)
 
 build-safe:
 	cd zig && $(ZIG) build -Doptimize=ReleaseSafe -p zig-out-safe

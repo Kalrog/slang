@@ -177,8 +177,8 @@ pub const Index = struct {
             .kind = @enumFromInt(rec[0]),
             .encoding = @enumFromInt(rec[1]),
             .flags = rec[2],
-            .name = idx.payload[name_off..][0..name_len],
-            .data = idx.payload[offset..][0..stored],
+            .name = idx.payload[@intCast(name_off)..][0..name_len],
+            .data = idx.payload[@intCast(offset)..][0..@intCast(stored)],
             .raw_len = std.mem.readInt(u64, rec[32..40], .little),
             .mtime = std.mem.readInt(i64, rec[40..48], .little),
         };
@@ -285,7 +285,7 @@ pub fn gzip(gpa: std.mem.Allocator, data: []const u8) ![]u8 {
 pub fn gunzip(gpa: std.mem.Allocator, data: []const u8, raw_len: u64) ![]u8 {
     var in: std.Io.Reader = .fixed(data);
     var d = flate.Decompress.init(&in, .gzip, &.{});
-    const out = try d.reader.allocRemaining(gpa, .limited(raw_len + 1));
+    const out = try d.reader.allocRemaining(gpa, .limited(@intCast(raw_len + 1)));
     if (out.len != raw_len) {
         gpa.free(out);
         return error.Corrupt;

@@ -139,6 +139,8 @@ pub fn resolve(path: []const u8) ?Bundle.Hit {
 /// its end. The mapping of one with a payload stays for the process's life.
 pub fn open(gpa: std.mem.Allocator, io: std.Io) !?*Bundle {
     if (current) |b| return b;
+    // a WebAssembly VM has no executable file of its own
+    if (comptime builtin.cpu.arch.isWasm()) return null;
     const path = std.process.executablePathAlloc(io, gpa) catch return null;
     defer gpa.free(path);
     const file = std.Io.Dir.cwd().openFile(io, path, .{}) catch return null;

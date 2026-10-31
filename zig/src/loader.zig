@@ -73,7 +73,16 @@ pub fn findNative(th: *Thread, args: []Value) Error!Value {
 /// when no library for the name exists in the native search paths. With
 /// file (a package's native build) that library is loaded instead of
 /// searching.
-pub fn loadNative(th: *Thread, args: []Value) Error!Value {
+pub const loadNative = if (builtin.cpu.arch.isWasm()) noNatives else loadLibrary;
+
+/// WebAssembly (the playground) loads no native code.
+fn noNatives(th: *Thread, args: []Value) Error!Value {
+    _ = th;
+    _ = args;
+    return .null;
+}
+
+fn loadLibrary(th: *Thread, args: []Value) Error!Value {
     const vm = th.vm;
     const name = try api.argString(th, args, 0, "name");
     const mangled = mangle(vm.gpa, name);

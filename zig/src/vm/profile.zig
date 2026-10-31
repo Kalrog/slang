@@ -42,7 +42,8 @@ pub const Profiler = struct {
             .io = io,
             .path = gpa.dupe(u8, path) catch oom(),
         };
-        p.timer = std.Thread.spawn(.{}, timerLoop, .{p}) catch null;
+        // (a single-threaded build, WebAssembly, has no timer)
+        p.timer = if (@import("builtin").single_threaded) null else std.Thread.spawn(.{}, timerLoop, .{p}) catch null;
         return p;
     }
 

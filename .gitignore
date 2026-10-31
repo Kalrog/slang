@@ -18,3 +18,7 @@ examples/desktop/todos.db
 
 # plans and notes, kept locally
 /plans/
+
+# the website: built pages and the wasm VM (make website, make wasm)
+/website/out/
+/website/public/slang.wasm

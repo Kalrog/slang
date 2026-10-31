@@ -28,7 +28,7 @@ LIB_SRC  := $(wildcard slang/lib/*.slang)
 COMPILER_SRC := $(wildcard slang/compiler/*.slang)
 SEED_DIR := boot/slang
 
-.PHONY: all build build-safe install uninstall test test-safe test-gui unit seed fixpoint bench raylib-test breakout deckhand deckhand-test clean doc \
+.PHONY: all build wasm build-safe install uninstall test test-safe test-gui unit seed fixpoint bench raylib-test breakout deckhand deckhand-test clean doc \
         vscode vscode-grammar
 
 all: build
@@ -36,6 +36,11 @@ all: build
 # bin/slang and lib/*.dylib (the install prefix is the repository root)
 build:
 	cd zig && $(ZIG) build -Doptimize=ReleaseFast -p ..
+
+# the VM as WebAssembly (WASI), for the playground: website/slang.wasm
+wasm:
+	cd zig && $(ZIG) build -Dtarget=wasm32-wasi -Dffi=false -Doptimize=ReleaseSmall -p zig-out-wasm
+	mkdir -p website/public && cp zig/zig-out-wasm/bin/slang.wasm website/public/slang.wasm
 
 build-safe:
 	cd zig && $(ZIG) build -Doptimize=ReleaseSafe -p zig-out-safe

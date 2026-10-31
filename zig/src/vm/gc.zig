@@ -109,7 +109,7 @@ const Marker = struct {
         switch (o.kind) {
             .string => {},
             .table => {
-                const t: *Table = @fieldParentPtr("obj", o);
+                const t: *Table = @alignCast(@fieldParentPtr("obj", o));
                 for (t.arr.items) |v| m.markValue(v);
                 for (t.ents.items) |e| {
                     m.markValue(e.key);
@@ -118,23 +118,23 @@ const Marker = struct {
                 m.markTable(t.meta);
             },
             .closure => {
-                const c: *Closure = @fieldParentPtr("obj", o);
+                const c: *Closure = @alignCast(@fieldParentPtr("obj", o));
                 if (c.proto) |p| m.markObject(&p.obj);
                 for (c.upvals) |u| m.markObject(&u.obj);
                 if (c.name) |n| m.markObject(&n.obj);
                 for (c.nvals) |v| m.markValue(v);
             },
             .upvalue => {
-                const u: *Upvalue = @fieldParentPtr("obj", o);
+                const u: *Upvalue = @alignCast(@fieldParentPtr("obj", o));
                 if (u.th) |th| m.markObject(&th.obj) else m.markValue(u.v);
             },
             .userdata => {
-                const u: *Userdata = @fieldParentPtr("obj", o);
+                const u: *Userdata = @alignCast(@fieldParentPtr("obj", o));
                 m.markTable(u.meta);
                 m.markValue(u.owner);
             },
             .proto => {
-                const p: *Proto = @fieldParentPtr("obj", o);
+                const p: *Proto = @alignCast(@fieldParentPtr("obj", o));
                 for (p.consts) |v| m.markValue(v);
                 for (p.upvals) |u| m.markObject(&u.name.obj);
                 for (p.locs) |l| m.markObject(&l.origin.obj);
@@ -143,7 +143,7 @@ const Marker = struct {
                 for (p.children) |c| m.markObject(&c.obj);
             },
             .thread => {
-                const th: *Thread = @fieldParentPtr("obj", o);
+                const th: *Thread = @alignCast(@fieldParentPtr("obj", o));
                 for (th.stack[0..th.top]) |v| m.markValue(v);
                 for (th.frames.items) |fr| m.markObject(&fr.cl.obj);
                 for (th.open_upvals.items) |u| m.markObject(&u.obj);
@@ -194,39 +194,39 @@ fn freeObject(vm: *VM, o: *Object) void {
     const gpa = vm.gpa;
     switch (o.kind) {
         .string => {
-            const s: *String = @fieldParentPtr("obj", o);
+            const s: *String = @alignCast(@fieldParentPtr("obj", o));
             if (s.interned) _ = vm.strings.remove(s);
             const mem: [*]align(@alignOf(String)) u8 = @ptrCast(s);
             gpa.free(mem[0..String.allocSize(s.len)]);
         },
         .table => {
-            const t: *Table = @fieldParentPtr("obj", o);
+            const t: *Table = @alignCast(@fieldParentPtr("obj", o));
             t.deinit(gpa);
             gpa.destroy(t);
         },
         .closure => {
-            const c: *Closure = @fieldParentPtr("obj", o);
+            const c: *Closure = @alignCast(@fieldParentPtr("obj", o));
             gpa.free(c.upvals);
             gpa.free(c.nvals);
             gpa.destroy(c);
         },
         .upvalue => {
-            const u: *Upvalue = @fieldParentPtr("obj", o);
+            const u: *Upvalue = @alignCast(@fieldParentPtr("obj", o));
             gpa.destroy(u);
         },
         .userdata => {
-            const u: *Userdata = @fieldParentPtr("obj", o);
+            const u: *Userdata = @alignCast(@fieldParentPtr("obj", o));
             if (u.finalizer) |f| f(u.data.ptr);
             gpa.free(@as([]align(16) u8, @alignCast(u.data)));
             gpa.destroy(u);
         },
         .proto => {
-            const p: *Proto = @fieldParentPtr("obj", o);
+            const p: *Proto = @alignCast(@fieldParentPtr("obj", o));
             p.deinit(gpa);
             gpa.destroy(p);
         },
         .thread => {
-            const t: *Thread = @fieldParentPtr("obj", o);
+            const t: *Thread = @alignCast(@fieldParentPtr("obj", o));
             t.deinit();
             gpa.destroy(t);
         },

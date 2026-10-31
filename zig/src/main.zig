@@ -71,7 +71,9 @@ pub fn main(init: std.process.Init) !u8 {
     };
     if (built) |b| return runBundled(init, b);
 
-    var it = init.minimal.args.iterate();
+    // (WASI needs the allocator; elsewhere it is not used)
+    var it = init.minimal.args.iterateAllocator(init.gpa) catch oom();
+    defer it.deinit();
     _ = it.next();
     const cmd = it.next() orelse usage(io);
 
@@ -151,7 +153,9 @@ fn newVM(init: std.process.Init, args: []const []const u8) *VM {
     }
     // SLANG_DEBUG=port (or run --debug port): an editor debugs the program
     const port_text = debug_port orelse init.environ_map.get("SLANG_DEBUG");
-    if (port_text) |text| {
+    if (comptime @import("builtin").cpu.arch.isWasm()) {
+        // no sockets in a browser
+    } else if (port_text) |text| {
         const port = std.fmt.parseInt(u16, text, 10) catch failMsg(vm, "the debug port must be a number, not {s}", .{text});
         vm.debugger = vm_mod.Debugger.start(vm, port) catch |e| failMsg(vm, "cannot debug on port {d}: {t}", .{ port, e });
     }
@@ -216,7 +220,9 @@ fn run(init: std.process.Init, path: []const u8, args: []const []const u8, expla
 fn runBundled(init: std.process.Init, b: *const bundle.Bundle) u8 {
     var rest: std.ArrayList([]const u8) = .empty;
     defer rest.deinit(init.gpa);
-    var it = init.minimal.args.iterate();
+    // (WASI needs the allocator; elsewhere it is not used)
+    var it = init.minimal.args.iterateAllocator(init.gpa) catch oom();
+    defer it.deinit();
     _ = it.next();
     while (it.next()) |a| rest.append(init.gpa, a) catch oom();
     const vm = newVM(init, rest.items);

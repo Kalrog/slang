@@ -33,6 +33,13 @@ pub fn build(b: *std.Build) void {
     exe.link_gc_sections = false;
     b.installArtifact(exe);
 
+    // WebAssembly (the playground, see website/): the VM alone, as a WASI
+    // command; nothing native loads in a browser
+    if (target.result.cpu.arch.isWasm()) {
+        exe.rdynamic = false;
+        return;
+    }
+
     // Example native extensions (extensions/native), installed into
     // zig-out/lib where zig/test/native_test.slang finds them. Their slang_*
     // references are resolved against the executable at load time.

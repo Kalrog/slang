@@ -1,11 +1,21 @@
-// slang/compiler: the compiler driver. Defines the global `compile`;
-// extensions get the grammar they extend with require("slang/compiler").grammar().
+// slang/compiler: the compiler driver. It parses slang with the grammar
+// extensions in effect, compiles it to functions, and finds a program's
+// project and packages. It defines the global `compile`. Tools (the
+// language server, slang fmt, slang doc) use it to see a file as the
+// compiler sees it.
+//
+//   local compiler = require("slang/compiler")
+//   local f = compiler.compile("return 1 + 2", "sum")
+//   f()   // 3
+//   local h = compiler.highlight(source, "main.slang", {symbols: true})
 //
 // Grammars are scoped: a file's extension statements end with the file. The
 // root grammar is slang plus the ambient layer of the project file
 // (slang.project: extensions loaded into every file, dialects selected by
-// file suffix, search paths); `extension global` in the main file and
-// changes made at run time also go to the root.
+// file suffix, search paths; see [Project]); `extension global` in the main
+// file and changes made at run time also go to the root. A package's files
+// compile under the package's own slang.project instead. Extensions get the
+// grammar they extend with [grammar].
 local peg = require("slang/peg")
 local ast = require("slang/ast")
 local grammar = require("slang/grammar")
@@ -18,7 +28,7 @@ local str = require("slang/string")
 
 local compiler = {}
 local root = null
-// the project in effect: {path, dir, source, extensions, dialects, warnings, key}
+// the project in effect (a Project), or null
 local project = null
 // slang before the project's ambient layer: what packages start from
 local base = null
@@ -30,7 +40,10 @@ local project_misses = {}
 local dialect_grammars = {}
 local default_search_paths = __PACKAGES.searchPaths
 
-// `slang run --explain` sets compiler.explain; SLANG_EXPLAIN=1 does the same
+// Whether the compiler tells on stderr what it does: the project and its
+// extensions, the extensions and rule changes of each unit, the packages.
+// `slang run --explain` sets it; SLANG_EXPLAIN=1 does the same. It also
+// turns on grammar warnings.
 compiler.explain = os.getenv("SLANG_EXPLAIN") != null
 
 local func join(parts){
@@ -58,10 +71,12 @@ local func run_block(block){
   return f()
 }
 
-// load_extension(name): runs the extension module `name` for the grammar
-// being extended. A module file on the search paths is compiled under the
-// root grammar and run once per grammar that loads it; anything else (an
-// embedded or native module) is required.
+// load_extension(name: string)
+// Runs the extension module [name] for the grammar being extended (see
+// [grammar]), once per grammar: a second load does nothing. A module file
+// on the search paths is compiled with [load_file] and run anew for each
+// grammar that loads it; anything else (an embedded or native module) is
+// required, so it runs once per program.
 func compiler.load_extension(name){
   local g = unit_grammar()
   if(g:has_extension(name)){
@@ -147,13 +162,18 @@ local func new_grammar(){
 
 root = new_grammar()
 
-// grammar() -> the grammar an extension extends: the grammar of the unit
-// being parsed, or the root grammar at run time
+// grammar() -> table: the grammar an extension extends
+// The grammar of the unit being parsed, or the root grammar at run time
+// (see slang/grammar for what it offers).
 func compiler.grammar(){
   return unit_grammar()
 }
 
-// reset(): a fresh root grammar, no project
+// reset()
+// Starts over: a fresh root grammar, no project, no packages, the default
+// search paths. Raises while a file is being parsed, unless called from an
+// extension statement. Tools that look at many files (slang fmt, slang
+// doc) reset before each, so one file's project never reaches the next.
 func compiler.reset(){
   if(not root:changes_allowed()){
     error(
@@ -172,27 +192,33 @@ func compiler.reset(){
   __PACKAGES.dialect_suffixes = {}
 }
 
-// parse(source, origin) -> AST
+// parse(source: string, origin?: string) -> table: the AST
+// Parses with the grammar of the unit that calls it (the root grammar at
+// run time); extension syntax comes out expanded to core nodes.
+// [origin]: the name in error messages and locations; "string" by default
 func compiler.parse(source, origin){
   return unit_grammar():parse_source(source, origin or "string")
 }
 
-// parse_plain(source, origin) -> AST of source as plain slang: without the
-// project's extensions (what slang's own library modules are written in)
+// parse_plain(source: string, origin?: string) -> table: the AST
+// Parses source as plain slang, without the project's extensions (what
+// slang's own library modules are written in).
 func compiler.parse_plain(source, origin){
   return (base or root):parse_source(source, origin or "string")
 }
 
-// generate(node, origin) -> prototype table
+// generate(node: table, origin?: string) -> codegen.Prototype
+// Compiles an AST; vm.load_proto turns the result into a function.
 func compiler.generate(node, origin){
   return codegen.generate(node, origin or "string")
 }
 
-// compile(code, origin, [env]) -> function; code is source text or an AST
-// table. Source text is parsed with the grammar of the unit that calls
-// compile (an unquote sees the extensions of its file).
+// compile(code: string | table, origin?: string, env?: table) -> function
+// Compiles source text or an AST table. Source text is parsed with the
+// grammar of the unit that calls compile (an unquote sees the extensions
+// of its file). Raises on a syntax error. This is the global `compile`.
 //
-// With env (a table) the function's globals are env, not the program's: a
+// With env the function's globals are env, not the program's: a
 // sandbox sees only what env holds, and its global assignments stay in
 // env (env.meta = {__index: ...} reads through to other globals). The
 // source then may not run code while it is compiled: unquotes and
@@ -240,6 +266,29 @@ func compiler.compile(code, origin, env){
 // required by its name (`require("json5/parse")`, `require("json5")` is
 // its init.slang) and compiles under its own slang.project.
 
+// A project file as the compiler applies it: the program's (from
+// [load_project]) or a package's.
+// type Project = {path: string, dir: string, source: string,
+//   extensions: {string}, dialects: {[string]: Dialect},
+//   warnings?: bool | {[string]: bool}, key: string, grammar: table,
+//   dialect_grammars: {[string]: table}, package?: string}
+// [path]: the project file
+// [dir]: the directory that holds it
+// [source]: the file's text
+// [extensions]: the ambient extensions, loaded into every file in order
+// [dialects]: by file suffix (".json")
+// [warnings]: false turns grammar warnings off, a table per extension
+// [key]: the project file and its extensions' sources, for cache keys
+// [grammar]: the grammar files of the project compile with
+// [dialect_grammars]: the grammars made so far for dialects, by suffix
+// [package]: the package's name, for a package's project
+
+// A dialect of a project: files with its suffix compile differently. With
+// compile the file is not slang at all.
+// type Dialect = {compile?: string, extensions?: {string}}
+// [compile]: a module whose compile(source, origin) makes the file's function
+// [extensions]: extensions loaded on top of the project's for these files
+
 local func dirname(path){
   local i = len(path) - 1
   for(i >= 0 and str.char_at(path, i) != "/"){
@@ -280,8 +329,16 @@ local func find_project(dir){
     dir = dirname(dir)
   }
 }
+// find_project(dir: string) -> string?
+// The path of slang.project in dir or the nearest directory above it, or
+// null. A relative dir is taken from the working directory.
 compiler.find_project = find_project
+// dirname(path: string) -> string
+// The directory part of a path: "." when there is none, "/" for a file at
+// the root.
 compiler.dirname = dirname
+// join_path(dir: string, path: string) -> string
+// path relative to dir; an absolute path is returned as it is.
 compiler.join_path = join_path
 
 local func source_of(name){
@@ -317,8 +374,8 @@ local func apply_layer(g, names, key){
 
 // ------------------------------------------------------------ packages
 
-// package_root() -> where fetched packages live: $SLANG_PKG_DIR, else
-// ~/.slang/pkg (a package is <root>/<name>@<version>)
+// package_root() -> string: where fetched packages live
+// $SLANG_PKG_DIR, else ~/.slang/pkg; a package is <root>/<name>@<version>.
 func compiler.package_root(){
   local dir = os.getenv("SLANG_PKG_DIR")
   if(dir == null){
@@ -327,11 +384,17 @@ func compiler.package_root(){
   return dir
 }
 
+// package_dir(name: string, version: string) -> string
+// The directory of a fetched package's version under [package_root].
+// [version]: as "1.2.3"
 func compiler.package_dir(name, version){
   return concat(compiler.package_root(), "/", name, "@", version)
 }
 
-// a slang table literal file (slang.project, slang.lock) as a table
+// read_table_file(path: string) -> table
+// Reads a file that is a slang table literal (slang.project, slang.lock).
+// Raises when it is not one. It is compiled like any slang, so extensions
+// in effect apply.
 func compiler.read_table_file(path){
   local t = compiler.compile(concat("return ", os.read_file(path)), path)()
   if(type(t) != "table"){
@@ -440,7 +503,17 @@ local func project_of(path){
   return project
 }
 
-// packages() -> the program's packages by name: {name, dir, version, missing}
+// A package of the program, as slang.lock and slang.project give it.
+// type Package = {name: string, dir?: string, version?: string, missing: bool}
+// [dir]: absolute; the project's own directory for the project itself
+// [version]: from slang.lock; null for a path dependency or the project
+// [missing]: a dependency not fetched yet (`slang get` fetches it)
+
+// packages() -> {[string]: Package}
+// The program's packages by name: those of the loaded project's
+// slang.lock, its dependencies that
+// are not locked yet (missing), and the project itself when it has a name.
+// Empty without a project. The tables are copies.
 func compiler.packages(){
   local out = {}
   for(let local e in entries(packages)){
@@ -454,8 +527,12 @@ func compiler.packages(){
   return out
 }
 
-// load_project(path): reads a project file and applies it: search paths,
-// dialects and the ambient extensions (loaded into the root grammar)
+// load_project(path: string) -> Project
+// Reads a project file and applies it: its packages (from slang.lock),
+// search paths (the project's directory first, then its search_paths,
+// then the defaults), dialects and the ambient extensions, loaded into
+// the root grammar. Raises when a project is already loaded or the file
+// is not a table literal.
 func compiler.load_project(path){
   if(project != null){
     error("a project file is already loaded: ", project.path)
@@ -508,7 +585,9 @@ func compiler.load_project(path){
   return project
 }
 
-// absolute_path(path) -> path from the root, without . and .. parts
+// absolute_path(path: string) -> string
+// path from the root, without . and .. parts; a relative path is taken
+// from the working directory. Symbolic links are not resolved.
 func compiler.absolute_path(path){
   local parts = {}
   for(let local part in values(str.split(join_path(os.cwd(), path), "/"))){
@@ -545,9 +624,10 @@ local func package_stub(name){
   return {path: null}
 }
 
-// stub_path(name) -> the stub of a module without slang source (a native
-// one, or "globals" for the global functions): a slang file that declares
-// and documents it, never run; null when there is none. A package keeps
+// stub_path(name: string) -> string?
+// The stub of a module without slang source (a native one, or "globals"
+// for the global functions): a slang file that declares and documents
+// it, never run; null when there is none. A package keeps
 // the stubs of its modules in its stubs/ ("name/a" is
 // <package>/stubs/a.slang, "name" stubs/init.slang): for native modules,
 // and for modules whose fields are made at run time (a binding through
@@ -566,11 +646,12 @@ func compiler.stub_path(name){
   return null
 }
 
-// module_path(name) -> the absolute path of the source file require(name)
-// would load, its stub when it has no source or is a package module with a
-// stub (see stub_path), or null:
-// on the search paths (the project's first), else one of slang's own
-// library modules (slang/http is http.slang in a librarySources directory)
+// module_path(name: string) -> string?
+// The absolute path of the source file require(name) would load, its stub
+// when it has no source or is a package module with a stub (see
+// [stub_path]), or null. Sources are looked for on the search paths (the
+// project's first), then among slang's own library modules (slang/http is
+// http.slang in a librarySources directory).
 func compiler.module_path(name){
   // a package's stub declares what its source makes at run time
   local in_package = package_stub(name)
@@ -593,7 +674,7 @@ func compiler.module_path(name){
   return compiler.stub_path(name)
 }
 
-// project() -> the project in effect, or null
+// project() -> Project?: the program's project in effect, or null
 func compiler.project(){
   return project
 }
@@ -649,8 +730,10 @@ local func grammar_for(path){
   return {grammar: g, dialect: dialect, project: proj}
 }
 
-// keywords(path) -> the words the grammar of a file at path reserves (its
-// project's and dialect's extensions included), sorted
+// keywords(path: string) -> {string}
+// The words the grammar of a file at path reserves (its project's and
+// dialect's extensions included), sorted. For a compile dialect, the root
+// grammar's.
 func compiler.keywords(path){
   local g = grammar_for(path).grammar or root
   local out = {}
@@ -671,10 +754,11 @@ func compiler.keywords(path){
 // Files loaded through load_file (require and `slang run`) are cached as
 // bytecode in $SLANG_CACHE_DIR (default ~/.cache/slang), keyed by origin,
 // path, content hash, the project key (the project file and the sources
-// of its ambient and dialect extensions) and the build id of the compiler. A file is only cached when it was
-// compiled with the root or a dialect grammar as the project defines them
-// and ran no code at compile time, so caching can never change what a
-// program does. SLANG_NO_CACHE=1 disables the cache.
+// of its ambient and dialect extensions) and the build id of the
+// compiler. A file is only cached when it was compiled with its project's
+// or a dialect's grammar as the project defines them and ran no code at
+// compile time, so caching can never change what a program does.
+// SLANG_NO_CACHE=1 disables the cache.
 
 local cache_dir = null
 
@@ -685,8 +769,9 @@ if(vm.build_id != null){
   build_id = vm.build_id()
 }
 
-// cache_root() -> where slang caches what it builds: $SLANG_CACHE_DIR, else
-// ~/.cache/slang; null without either
+// cache_root() -> string?: where slang caches what it builds
+// $SLANG_CACHE_DIR, else ~/.cache/slang; null when neither that nor HOME
+// is set.
 func compiler.cache_root(){
   local dir = os.getenv("SLANG_CACHE_DIR")
   if(dir == null){
@@ -717,9 +802,13 @@ local func get_cache_dir(){
   return cache_dir
 }
 
-// load_file(path, origin) -> function. A file is always compiled under the
-// root grammar (or the grammar of its dialect): a module means the same
-// wherever it is loaded from.
+// load_file(path: string, origin?: string) -> function
+// Compiles a file as require and `slang run` do, through the bytecode
+// cache. A file is compiled under its project's grammar (a package's for a
+// file of a package) or that of its dialect, never the grammar of the
+// file that loads it: a module means the same wherever it is loaded from.
+// A file of a compile dialect is handed to the dialect's compile function.
+// [origin]: the name in error messages and locations; path by default
 func compiler.load_file(path, origin){
   origin = origin or path
   local source = os.read_file(path)
@@ -768,9 +857,10 @@ func compiler.load_file(path, origin){
   return f
 }
 
-// load_main(path) -> function: loads the main file of a program. The project
-// file is looked up from the file's directory upwards the first time, and
-// the file may use `extension global`.
+// load_main(path: string) -> function
+// Loads the main file of a program like [load_file]. The project file is
+// looked up from the file's directory upwards the first time, and the
+// file may use `extension global`.
 func compiler.load_main(path){
   if(not project_searched){
     project_searched = true
@@ -804,17 +894,39 @@ local func find_project_for(path){
   }
 }
 
-// highlight(source, path, {find_project, symbols}) -> {tokens, diagnostics,
-// symbols, ast}: the tokens of source as
-// the compiler would parse the file at path (its project, its dialect),
-// with categories and 1-based line/column, and the parse errors as
-// {line, column, message, severity}. Extension code runs as it would in
-// the compiler; nothing is compiled or cached. A file of a dialect with a
-// compile function has no tokens. The tokens are read off the lossless tree
-// (peg.highlights); a statement that fails to parse is reported and
-// highlighted by its words, and the parse goes on after it. With symbols,
-// the same parse also gives the file's definitions and uses (see
-// slang/symbols; not for a project file), and ast its (expanded) tree.
+// A highlighted span of source.
+// type Token = {category: string, start: int, stop: int, line: int,
+//   column: int, length: int}
+// [category]: what the span is: "keyword", "string", "comment", ...
+// [start]: byte offset; stop is past the end
+// [line]: 1-based, like column
+// [length]: in bytes
+
+// A problem found in a file.
+// type Diagnostic = {line: int, column: int, message: string, severity: string}
+// [line]: 1-based, like column
+// [severity]: "error" (the parser reports nothing else)
+
+// What [highlight] tells about a file.
+// type Highlight = {tokens: {Token}, diagnostics: {Diagnostic},
+//   symbols?: symbols.Index, ast?: table}
+// [tokens]: in source order, not overlapping
+// [symbols]: its definitions and uses, when asked for and the file parsed
+// [ast]: its (expanded) AST, along with symbols
+
+// What [highlight] and the other tree functions take.
+// type ParseOptions = {find_project?: bool, symbols?: bool}
+// [find_project]: look up the file's project while none is loaded
+// [symbols]: also analyse the names (highlight only)
+
+// highlight(source: string, path: string, options?: ParseOptions) -> Highlight
+// The tokens of source as the compiler would parse the file at path (its
+// project, its dialect), and its parse errors. Extension code runs as it
+// would in the compiler; nothing is compiled or cached. A file of a
+// dialect with a compile function has no tokens. The tokens are read off
+// the lossless tree (peg.highlights); a statement that fails to parse is
+// reported and highlighted by its words, and the parse goes on after it.
+// A slang.project gets no symbols.
 func compiler.highlight(source, path, options){
   // the editor's documents look their project up while none is loaded (the
   // main program's own lookup does not count: the server has no project)
@@ -908,20 +1020,27 @@ func compiler.highlight(source, path, options){
   return {tokens: tokens, diagnostics: diagnostics, symbols: found, ast: tree}
 }
 
-// compile_file(path, origin) -> function: compiles a file as `slang run`
-// would (its project, its dialect), without the bytecode cache; what
-// `slang compile` and `slang disasm` use
+// compile_file(path: string, origin?: string) -> function
+// Compiles a file as `slang run` would (its project, its dialect), without
+// the bytecode cache; what `slang compile` and `slang disasm` use. Looks
+// the file's project up while none is loaded.
 func compiler.compile_file(path, origin){
   return compiler.analyze_file(path, origin).function
 }
 
-// analyze_file(path, origin, [main]) -> {function, requires, computed}:
-// compiles a file like compile_file and tells the modules it requires by
-// name ({name, line}) and the lines of requires with a computed name, as
-// the code is after its extensions ran. requires is null for a file of a
-// dialect with a compile function (it cannot be looked into). main: the
-// file is a program's main file (it may use `extension global`). What
-// `slang build` follows.
+// What [analyze_file] finds in a file.
+// type Analysis = {function: function, requires?: {Require}, computed: {int}}
+// [function]: the compiled file
+// [requires]: null for a file of a compile dialect (it cannot be looked into)
+// [computed]: the lines of requires with a computed name
+
+// A require of a module by name, and the line it is on.
+// type Require = {name: string, line: int}
+
+// analyze_file(path: string, origin?: string, main?: bool) -> Analysis
+// Compiles a file like [compile_file] and tells the modules it requires,
+// as the code is after its extensions ran. What `slang build` follows.
+// [main]: the file is a program's main file (it may use `extension global`)
 func compiler.analyze_file(path, origin, main){
   origin = origin or path
   find_project_for(path)
@@ -957,10 +1076,11 @@ func compiler.analyze_file(path, origin, main){
   }
 }
 
-// expand(source, path) -> slang source: the file after its extensions have
-// been applied (parsed like load_file would, then printed from the core AST;
-// unquotes are executed, extension statements are gone, constants folded).
-// A file of a compile dialect is returned as is.
+// expand(source: string, path: string, options?: ParseOptions) -> string
+// The file as slang source after its extensions have been applied: parsed
+// like [load_file] would, then printed from the core AST (unquotes are
+// executed, extension statements are gone, constants folded). A file of a
+// compile dialect is returned as it is. Raises when it does not parse.
 func compiler.expand(source, path, options){
   if(options != null and options.find_project){
     find_project_for(path)
@@ -972,11 +1092,12 @@ func compiler.expand(source, path, options){
   return ast.to_source(found.grammar:parse_source(source, path))
 }
 
-// tree(source, path, {find_project}) -> the lossless tree of source as the
-// compiler parses the file at path (its project, its dialect; see slang/peg:
-// joining its leaves gives source back), or null for a file of a compile
-// dialect. Extension code runs as it would in the compiler. tree.ast is the
-// file's AST.
+// tree(source: string, path: string, options?: ParseOptions) -> table?
+// The lossless tree of source as the compiler parses the file at path (its
+// project, its dialect; see slang/peg: joining its leaves gives source
+// back), or null for a file of a compile dialect. Extension code runs as
+// it would in the compiler. The tree's ast field is the file's AST. Raises
+// when it does not parse. What the formatter works on.
 func compiler.tree(source, path, options){
   if(options != null and options.find_project){
     find_project_for(path)
@@ -992,13 +1113,15 @@ func compiler.tree(source, path, options){
   return tree
 }
 
-// expand_file(path) -> expand(...) for a file, with its project
+// expand_file(path: string) -> string
+// [expand] for a file, looking up its project (`slang expand`).
 func compiler.expand_file(path){
   return compiler.expand(os.read_file(path), path, {find_project: true})
 }
 
-// highlight_file(path) -> the same for a file, looking up its project like
-// load_main does
+// highlight_file(path: string) -> Highlight
+// [highlight] for a file, without symbols, looking up its project the
+// first time like [load_main] does.
 func compiler.highlight_file(path){
   if(not project_searched){
     project_searched = true
@@ -1010,7 +1133,9 @@ func compiler.highlight_file(path){
   return compiler.highlight(os.read_file(path), path)
 }
 
-// highlight_json(path) -> highlight_file(path) as JSON text (`slang highlight`)
+// highlight_json(path: string) -> string
+// [highlight_file] as JSON text, {tokens, diagnostics} (`slang highlight`);
+// the tokens without stop.
 func compiler.highlight_json(path){
   local json = require("slang/json")
   local r = compiler.highlight_file(path)
@@ -1027,7 +1152,10 @@ func compiler.highlight_json(path){
   return json.encode(out)
 }
 
-// compile_repl(source) -> function returning the value of an expression or null
+// compile_repl(source: string) -> function
+// Compiles a line of the REPL with the root grammar: a chunk, or else an
+// expression, whose function returns its value. Extension statements are
+// not scoped: they stay in effect for the lines after.
 func compiler.compile_repl(source){
   local node = root:parse_repl(source)
   return vm.load_proto(codegen.generate(node, "repl"))

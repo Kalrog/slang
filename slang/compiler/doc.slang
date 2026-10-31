@@ -1,6 +1,8 @@
 // slang/doc: API documentation from the comments the code already has, as
 // HTML: `slang doc [-o dir] [file|dir...]`.
 //
+//   slang doc -o site/api slang/lib/http.slang
+//
 // A module is a file that returns a table; its documentation is the comment
 // block that starts the file and, for every field of the returned table, the
 // comment just above its definition (no blank line between). Section
@@ -9,12 +11,18 @@
 // returns no table is documented by its globals that have a comment (the
 // stub of the globals); others (programs, tests) are left out.
 //
+// A doc may start with a typed signature, describe parameters and fields in
+// `[name]: text` lines and refer to names as `[name]`; files declare types
+// in `// type Name = ...` lines (the notation is slang/symbols'). Signatures
+// and types are shown with their names linked, and every type gets a
+// section: a declared one with its fields or methods, and a meta table
+// with __index and __type with its methods.
+//
 // Native modules and the globals are documented from their stubs (see
-// compiler.stub_path), and every type a module defines (a meta table with
-// __index and __type) gets a section of its methods. Without paths: the
-// project in the working directory (a slang.project there), else slang's
-// own library with the stubs. Output goes to dir (./doc by default):
-// index.html and a page per module.
+// compiler.stub_path). Without paths: the project in the working directory
+// (a slang.project there), else slang's own library with the stubs. Output
+// goes to dir (./doc by default): index.html and a page per module
+// (slang/http is slang-http.html).
 local str = require("slang/string")
 local os = require("slang/os")
 local symbols = require("slang/symbols")
@@ -254,9 +262,35 @@ local func page_name(module){
 
 // ------------------------------------------------------------ modules
 
-// a module's documentation: {name, path, doc, sections: {title, defs}}
-// or null when the file returns no table
-// an entry of a page: {name (the anchor), signature, doc, start}
+// The documentation of a module, as [module] gathers it.
+// type ModulePage = {name: string, path: string, doc?: string,
+//   sections: {PageSection}, links: Links}
+// [name]: the module's name, as require takes it
+// [path]: the file, as shown
+// [doc]: the module's doc, the comment block that starts the file
+
+// A part of a page: the entries under a section divider (title null for
+// those before the first), or a type with its methods.
+// type PageSection = {title?: string, defs: {Entry}, type_name?: string,
+//   decl?: symbols.TypeDecl}
+// [type_name]: set for a type's section
+// [decl]: the declaration, for a type the doc comments declare
+
+// A documented definition.
+// type Entry = {name: string, signature: string, doc?: string, start?: int,
+//   info: symbols.DocInfo, params?: {string}, method?: bool}
+// [name]: its anchor on the page ("Type:name" for a method)
+// [signature]: from its parameter names, for a doc without a typed one
+
+// What names in a page's docs can link to.
+// type Links = {types: {[string]: bool}, exports: {[string]: bool},
+//   aliases: {[string]: string}, methods: {[string]: bool}}
+// [types]: the module's types
+// [exports]: the module's documented fields
+// [aliases]: the locals that hold a module, and its name
+// [methods]: the anchors of the types' methods ("Type:name")
+
+// an entry of a page (see Entry)
 local func entry(d, signature){
   return {
     name: d.name, signature: signature or symbols.signature(d), doc: d.doc,
@@ -295,6 +329,8 @@ local func methods_of(index, table, type_name){
 local func type_sections(index){
   local out = {}
   local declared_tables = {}
+  // the section of each type name: two metas with the same __type share one
+  local by_name = {}
   local names = {}
   for(let local t in values(index.types or {})){
     append(names, t.name)
@@ -308,6 +344,7 @@ local func type_sections(index){
       declared_tables[t.table] = name
       sec.defs = methods_of(index, t.table, name)
     }
+    by_name[name] = sec
     append(out, sec)
   }
   for(let local d in values(index.defs)){
@@ -326,10 +363,15 @@ local func type_sections(index){
         declared_tables[table] == null){
         local type_name = t.value.value
         local list = methods_of(index, table, type_name)
-        if(len(list) > 0){
-          append(out, {
+        if(len(list) > 0 and by_name[type_name] != null){
+          for(let local e in values(list)){
+            append(by_name[type_name].defs, e)
+          }
+        } else if(len(list) > 0){
+          by_name[type_name] = {
             title: concat("type ", type_name), type_name: type_name, defs: list
-          })
+          }
+          append(out, by_name[type_name])
         }
       }
     }
@@ -337,19 +379,30 @@ local func type_sections(index){
   return out
 }
 
-// a module's documentation: {name, path, doc, sections: {title, defs}}:
-// the fields of the table the file returns (or, in a file that returns
-// none, its documented globals), by section, then its types; null when
-// there is nothing to document
+// module(name: string, path: string, source: string,
+//   index?: symbols.Index) -> ModulePage?
+// A module's documentation: the fields of the table the file returns (or,
+// in a file that returns none, its documented globals), by section, then
+// its types; null when there is nothing to document.
+// [source]: the file's text (not read: index has what is needed)
+// [index]: the file's names (compiler.highlight with symbols)
 func doc.module(name, path, source, index){
   if(index == null){
     return null
   }
   local listed = {}
+  // exports are shown as their users call them: http.serve(...), whatever
+  // the file calls its table
+  local parts = str.split(name, "/")
+  local short = parts[len(parts) - 1]
   for(let local d in values(index.defs)){
     if(index.returned != null){
       if(index.exports[d.name] == d){
-        append(listed, entry(d))
+        local signature = concat(short, ".", d.name)
+        if(d.params != null){
+          signature = concat(signature, "(", str.join(d.params, ", "), ")")
+        }
+        append(listed, entry(d, signature))
       }
     } else if(d.kind == "global" and d.doc != null){
       append(listed, entry(d))
@@ -380,9 +433,12 @@ func doc.module(name, path, source, index){
   }
   // what [name] and type names can link to: this module's types and
   // exports, and other modules through the names the file gives them
-  local links = {types: {}, exports: {}, aliases: {}}
+  local links = {types: {}, exports: {}, aliases: {}, methods: {}}
   for(let local sec in values(types)){
     links.types[sec.type_name] = true
+    for(let local e in values(sec.defs)){
+      links.methods[e.name] = true
+    }
   }
   for(let local d in values(listed)){
     links.exports[d.name] = true
@@ -420,9 +476,12 @@ local func resolver(m, params){
     if(dot > 0){
       local head = str.substring(name, 0, dot)
       local rest = str.substring(name, dot + 1)
-      // Type.method of this module
+      // Type.method of this module, or the type for one of its fields
       if(links.types[head]){
-        return concat("#", head, ":", rest)
+        if((links.methods or {})[concat(head, ":", rest)]){
+          return concat("#", head, ":", rest)
+        }
+        return concat("#type-", head)
       }
       local module = links.aliases[head]
       if(module != null){
@@ -563,6 +622,7 @@ local func type_html_section(m, sec){
   return str.join(out, "\n")
 }
 
+// module_html(m: ModulePage) -> string: the module's page, as HTML
 func doc.module_html(m){
   local body = {
     "<nav><a href=\"index.html\">index</a></nav>",
@@ -604,6 +664,8 @@ func doc.module_html(m){
   return page(m.name, str.join(body, "\n"))
 }
 
+// index_html(modules: {ModulePage}, title: string) -> string
+// The index page: each module with the first sentence of its doc.
 func doc.index_html(modules, title){
   local body = {concat("<h1>", escape(title), "</h1>"), "<dl>"}
   for(let local m in values(modules)){
@@ -695,7 +757,9 @@ local func by_name(list){
   return out
 }
 
-// main(args) -> exit code: `slang doc [-o dir] [file|dir...]`
+// main(arguments: {string}) -> int: the exit code
+// `slang doc [-o dir] [file|dir...]`: documents the .slang files found.
+// A file that does not parse is reported and the exit code is 1.
 func doc.main(arguments){
   local compiler = require("slang/compiler")
   local out_dir = "doc"

@@ -1,11 +1,30 @@
-// slang/codegen: compiles AST nodes into function prototypes. A prototype is a
-// table that slang/vm's load_proto turns into a function:
-//   {code, locations, constants, upvalues, children, max_stack, nargs, is_vararg,
-//    locals}   (locals: {name, register, start pc, end pc}, for debuggers)
+// slang/codegen: compiles AST nodes into function prototypes, tables that
+// slang/vm's load_proto turns into functions.
+//
+//   local proto = codegen.generate(ast_node, "main.slang")
+//   local f = vm.load_proto(proto)
+//
+// The AST is core slang (see slang/ast): extension syntax is expanded and
+// unquotes are resolved by the parser before code is generated. Names are
+// resolved here, which is also how slang/symbols learns a file's scoping
+// (the record option of [generate]).
 local ast = require("slang/ast")
 local str = require("slang/string")
 
 local codegen = {}
+
+// A compiled function, before the VM loads it.
+// type Prototype = {code: {int}, locations: {{any}}, constants: {any},
+//   upvalues: {{any}}, children: {Prototype}, max_stack: int, nargs: int,
+//   is_vararg: bool, name?: string, locals: {{any}}}
+// [code]: the instructions, encoded as the VM expects them
+// [locations]: {instruction index, origin, line, column} where they change
+// [upvalues]: {name, index, from a local of the enclosing function: bool}
+// [children]: the prototypes of the functions defined in it
+// [max_stack]: the registers it needs
+// [nargs]: its fixed parameters
+// [name]: the name its definition gives it, for stack traces
+// [locals]: {name, register, first pc, end pc} of each local, for debuggers
 
 // opcodes (must match the VM)
 local OP_LOAD_CONSTANT = 0
@@ -1548,8 +1567,14 @@ func visitors.Unquote(g, node){
   error("Unquote was not resolved in parsing step: ", position(node.token))
 }
 
-// generate(node, origin, {record}) -> prototype table; record receives the
-// names as they are resolved (see record_local above)
+// generate(node: table, origin?: string,
+//   options?: {record?: table}) -> Prototype
+// Compiles an AST node (a chunk, usually) into the prototype of a function
+// that runs it; it reaches globals through the upvalue _ENV. Raises on what cannot compile (break outside a loop, a variable
+// declared twice, an unresolved unquote, ...).
+// [origin]: the name in locations and error messages; "string" by default
+// [options]: record, a recorder told of names as they are resolved, with
+// define, use and field methods (see record_local above and slang/symbols)
 func codegen.generate(node, origin, options){
   local g = {}
   g.meta = gen_meta

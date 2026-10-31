@@ -636,7 +636,10 @@ local func plan_of(opts){
   }
 }
 
-// main(arguments) -> exit code
+// main(arguments: {string}) -> int: the exit code
+// `slang build` with its arguments (see the usage above): builds the
+// executable, or with --list prints what would go into it. Errors are
+// reported on stderr (exit code 1); bad arguments print the usage (2).
 func build.main(arguments){
   local opts = parse_args(arguments)
   if(opts == null){

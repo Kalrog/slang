@@ -14,7 +14,7 @@
 // as in inline functions, are skipped). Enum values and #define constants
 // become C.constants.
 //
-// How values cross (see slang/ffi_core for the details): numbers and bools
+// How values cross (slang/ctypes does the conversions): numbers and bools
 // for the arithmetic types; a string for `const char *`; a table for a
 // struct (fields by name or by position), returned as a table with the
 // fields by name; for a pointer null, a pointer, a string (its bytes), or a
@@ -25,7 +25,54 @@
 //
 // A wrong declaration crashes the program as it would in C: the FFI calls
 // what it is told is there. Callbacks (C calling slang), unions, bit fields
-// and long double are not supported yet.
+// and long double are not supported yet. Builds made without libffi
+// (-Dffi=false) have types and memory but no calls: [load] raises there,
+// and [available] says which it is.
+
+// A C type: made by [type] from a name ("int", "Vector2 *", "float[4]"),
+// and given to [new], [sizeof], [cast] and slang/buffer. Types live as long
+// as the program.
+// type Type
+
+// An address and the type it points to (none for void *). p[i] reads or
+// writes the i-th element, p.field a field of a struct; an element or field
+// that is a struct is a pointer again, so p.pos.x = 3 writes in place.
+// Pointers are == when their addresses are.
+// type Pointer
+
+// What [cdef] read: the declarations a library is loaded with.
+// type Decls = {types: {[string]: table}, functions: {[string]: FunctionDecl},
+//   constants: {[string]: any}, structs: table, order: {string}}
+// [types]: the typedefs and structs by name ("Vector2", "struct foo")
+// [functions]: the function prototypes by C name
+// [constants]: enum values and #define constants (numbers, strings, structs)
+// [order]: the function names in the order they were declared
+
+// A function prototype [cdef] read.
+// type FunctionDecl = {name: string, ret: table, params: {table},
+//   variadic: bool, doc: string, line: int}
+// [ret]: the parsed return type
+// [params]: the parsed parameters, each {name, type}
+// [doc]: its comment, trailing or the lines right above ("" for none)
+// [line]: where it starts in the text
+
+// What [cdef] accepts besides the text.
+// type CdefOptions = {defines?: {[string]: any},
+//   field_name?: func(name: string): string,
+//   defaults?: {[string]: {[string]: any}}, into?: Decls}
+// [defines]: macros for the preprocessor, like -D
+// [field_name]: renames struct fields for slang (C's names by default)
+// [defaults]: values for fields a table leaves out: {Color: {a: 255}}
+// [into]: earlier declarations to add to, so headers can build on each other
+
+// A loaded C library: its functions by their C names (lib.abs(-3)), bound
+// on first use; a name the declarations do not have is null.
+// type Library
+
+// Where [load] looks for a library given by name.
+// type LoadOptions = {paths?: {string}}
+// [paths]: directories searched first
+
 local str = require("slang/string")
 local os = require("slang/os")
 
@@ -737,12 +784,12 @@ local qualifiers = {
   __extension__: true, __cdecl: true, __stdcall: true
 }
 
-// cdef(text, [options]) -> the declarations of text: {types, functions,
-// constants, order}. options: defines (macros for the preprocessor, like
-// -D), field_name (a function renaming struct fields for slang), defaults
-// (numbers for fields a table leaves out, by struct and field: {Color:
-// {a: 255}}), and into (earlier declarations to add to, so headers can
-// build on each other).
+// cdef(text: string, options?: CdefOptions) -> Decls
+// Reads C declarations: the preprocessor runs, then typedefs, structs,
+// enums and function prototypes are parsed. Raises "ffi.cdef: ..." naming
+// the line for what it cannot parse.
+//
+//   local C = ffi.cdef(os.read_file("mylib.h"), {defines: {MYLIB_API: ""}})
 func ffi.cdef(text, options){
   options = options or {}
   local decls = options.into or {
@@ -1102,8 +1149,8 @@ func ffi.cdef(text, options){
     return {params: params, variadic: variadic}
   }
 
-  // a declarator over base: {name, type}; abstract ones (parameters,
-  // type names) may leave the name out
+  // a declarator over base: {name, type}; abstract ones (parameters, the
+  // names of types) may leave the name out
   parse_declarator = func(base, abstract){
     local t = base
     for(is("*")){
@@ -1342,8 +1389,10 @@ core_of = func(t, decls){
 
 // ------------------------------------------------------------ types by name
 
-// type(name, decls) -> the ffi_core type of a C type name: "int",
-// "Vector2", "struct foo", "Vector2 *", "float[4]"
+// type(name: string, decls?: Decls) -> Type
+// The type a C type name stands for: "int", "uint8_t", "Vector2",
+// "struct foo", "Vector2 *", "float[4]".
+// [decls]: the declarations that define the struct and typedef names
 func ffi.type(name, decls){
   decls = decls or {
     types: {}, functions: {}, constants: {}, structs: {}, order: {}
@@ -1373,19 +1422,22 @@ local func as_type(t, decls){
   return t
 }
 
-// new(type, [n], [decls]) -> a pointer to n (1 by default) zeroed values,
-// memory the collector frees once nothing points into it; type is an
-// ffi type or a C type name
+// new(t: string | Type, n?: int, decls?: Decls) -> Pointer
+// A pointer to n (1 by default) zeroed values of t, memory the collector
+// frees once nothing points into it.
 func ffi.new(t, count, decls){
   return ct.new(as_type(t, decls), count or 1)
 }
 
-// sizeof(type, [decls]) -> the size of a C type in bytes
+// sizeof(t: string | Type, decls?: Decls) -> int
+// The size of a C type in bytes.
 func ffi.sizeof(t, decls){
   return ct.sizeof(as_type(t, decls))
 }
 
-// cast(pointer, type, [decls]) -> the address as a pointer to type
+// cast(p: Pointer | int, t?: string | Type, decls?: Decls) -> Pointer
+// The same address as a pointer to t (null: void *). An int is taken as an
+// address.
 func ffi.cast(p, t, decls){
   if(t == null){
     return ct.cast(p, null)
@@ -1393,22 +1445,29 @@ func ffi.cast(p, t, decls){
   return ct.cast(p, as_type(t, decls))
 }
 
-// string(pointer, [len]) -> the C string at pointer (or len bytes)
+// string(p: Pointer?, n?: int) -> string?
+// The zero-terminated C string at p, or the n bytes there; null for a
+// null pointer.
 func ffi.string(p, n){
   return ct.string(p, n)
 }
 
-// offset(pointer, n) -> the pointer n elements further
+// offset(p: Pointer, n: int) -> Pointer
+// The pointer n elements further (bytes for a void pointer); n may be
+// negative.
 func ffi.offset(p, n){
   return ct.offset(p, n)
 }
 
-// address(pointer) -> the address as an int (0 for null)
+// address(p: Pointer?) -> int
+// The address as an int (0 for null).
 func ffi.address(p){
   return ct.address(p)
 }
 
-// value(pointer) -> what it points to, copied (a struct as a table)
+// value(p: Pointer) -> any
+// What p points to, copied: a number, or a table for a struct. Raises for
+// a void pointer.
 func ffi.value(p){
   return ct.value(p)
 }
@@ -1535,11 +1594,13 @@ local library_meta = {
   __type: "ffi.library",
 }
 
-// load(name, decls, [options]) -> the library: its functions by their C
-// names, bound on first use. name is a path, a library name ("raylib":
-// libraylib.dylib in options.paths, slang's native search paths,
-// /opt/homebrew/lib, /usr/local/lib, /usr/lib, then the system's search),
-// or null for the program itself.
+// load(name: string?, decls: Decls, options?: LoadOptions) -> Library
+// Loads a C library with the declarations of its functions. A library
+// name ("raylib") is libraylib.dylib or .so in options.paths, slang's
+// native search paths, /opt/homebrew/lib, /usr/local/lib, /usr/lib, then
+// wherever the system finds it. Raises "ffi.load: ..." with what each
+// attempt said when it cannot load it.
+// [name]: a path (with a / or a .), a library name, or null for the program
 func ffi.load(name, decls, options){
   need_core()
   options = options or {}
@@ -1547,15 +1608,19 @@ func ffi.load(name, decls, options){
   return {meta: library_meta, handle: handle, decls: decls}
 }
 
-// bind(library, decl, [name]) -> the function a declaration from cdef
-// (decls.functions.Name) declares, bound to the library (lib.Name does the
-// same); name is what errors call it
+// bind(lib: Library, f: FunctionDecl, name?: string) -> function
+// The slang function calling the C function f declares (from
+// decls.functions), bound to lib; lib.Name does the same for a declared
+// name. Raises when the library lacks the symbol or a parameter's type
+// cannot cross.
+// [name]: what errors call it (its C name by default)
 func ffi.bind(lib, f, name){
   need_core()
   return bind(lib, f, lib.decls, name)
 }
 
-// available() -> whether this slang has the FFI
+// available() -> bool
+// Whether this slang can call C (it was built with libffi).
 func ffi.available(){
   return core != null
 }

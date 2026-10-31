@@ -224,7 +224,7 @@ return m"""
     assert(len(mod.sections) == 2 and mod.sections[0].title == "first")
     assert(mod.sections[1].defs[0].name == "two")
     local html = doc.module_html(mod)
-    assert(str.index_of(html, "<h3><code>m.one()</code></h3>") >= 0)
+    assert(str.index_of(html, "<h3><code>tiny.one()</code></h3>") >= 0)
     // the signature line is the heading; what follows -> its result
     assert(
       str.index_of(html, "<dt>returns</dt><dd><code>1</code></dd>") >= 0,

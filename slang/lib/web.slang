@@ -2,59 +2,37 @@
 // request helpers, responses, static files, sessions, CSRF protection,
 // WebSocket routes and a test client.
 //
+//   local async = require("slang/async")
 //   local web = require("slang/web")
 //   local app = web.app()
-//   app:use(func(req, next){ local res = next(req) ... return res })
-//   app:get("/todos/:id", func(req, params){ return web.json(find(params.id)) })
+//   app:use(web.sessions({secret: "at least sixteen characters"}))
+//   app:get("/todos/:id", func(req, params){ return web.json({id: params.id}) })
 //   app:post("/upload", handler, {stream_body: true})
 //   app:static("/static", "public", {max_age: 3600})
-//   app:ws("/live", func(socket, req, params){ ... })
+//   app:ws("/live", func(socket, req, params){ socket:send("hello") })
 //   app.fallback = func(req){ return web.text("nothing here", 404) }
-//   async.await(app:listen("127.0.0.1", 8080).done)
+//   async.main(func(){ async.await(app:listen("127.0.0.1", 8080).done) })
 //
 // Handlers and middleware run inside a coroutine, so they may await. A
-// handler gets (req, params) and returns a string (text/plain), an HTML node
-// from slang/html (text/html), a response table {status, headers, body}, or
-// a Future of one of those. A middleware gets (req, next): next(req) runs
-// the rest of the chain and returns its response, normalized (a table with
-// status, headers and body), so middleware can look at it and change it.
+// [Handler] gets (req, params) and returns a string (text/plain), an HTML
+// node from slang/html (text/html), a response table {status, headers,
+// body}, or a Future of one of those. A [Middleware] gets (req, next):
+// next(req) runs the rest of the chain and returns its response,
+// normalized (a table with status, headers and body), so middleware can
+// look at it and change it.
+//
 // An error in a handler becomes a 500 (and app.on_error(req, err) runs,
-// printing by default); web.fail(status, message) raises an error that
-// becomes that response instead. A path that matches routes of other
-// methods only is answered 405 with Allow; HEAD runs the GET route.
+// printing to stderr by default); [fail] raises an error that becomes the
+// response it names instead. A path that matches routes of other methods
+// only is answered 405 with Allow; HEAD runs the GET route.
 //
-// Requests are the tables of slang/http with methods:
-//   req:query_params() -> the query string decoded (req.query is the raw
-//                 text)                         req:cookie(name)
-//   req:form() -> fields of a urlencoded or multipart body (a file field
-//                 is {filename, content_type, data})
-//   req:json() -> the decoded JSON body (400 when it is not JSON)
-// and req.params, the route's :name and * (as rest) parts.
+// Requests are slang/http's request tables with the methods of [Request]
+// (query_params, cookie, form, json) and req.params. [test] runs an app
+// without a socket:
 //
-// Responses:
-//   web.text(s, status)   web.html(node or s, status)   web.json(value, status)
-//   web.redirect(url, status)  (303 by default)
-//   web.file(req, path, options) -> Future of a file response: ETag and
-//     Last-Modified, 304 for conditional requests, a single byte Range (206,
-//     416), the type from the extension; options: max_age (Cache-Control),
-//     type, download (a file name: Content-Disposition attachment)
-//   web.fail(status, message)  raises; the app answers with status
-//
-// Middleware:
-//   web.sessions({secret, name, max_age, secure}) -> req.session, a table
-//     kept in an encrypted cookie (AES-GCM, so the client can read nothing
-//     and change nothing); it is saved when it changed, dropped when empty
-//   web.csrf({skip}) -> unsafe requests (POST, PUT, PATCH, DELETE) need the
-//     token in req.csrf_token back, as the X-CSRF-Token header or the _csrf
-//     form field; the token lives in an HttpOnly SameSite=Lax cookie
-//
-// Testing without a socket:
 //   local client = web.test(app)
-//   local res = await client:get("/todos", {headers})       -- also post, put,
-//   local res = await client:post("/login", {form: {...}})   -- patch, delete
-// options: headers, body, form (urlencoded), json; res is {status, headers,
-// body (a string, Streams collected), header(name)}; the client keeps
-// cookies across requests.
+//   local res = async.await(client:post("/login", {form: {user: "ann"}}))
+//   print(res.status, res.header("location"))
 local async = require("slang/async")
 local http = require("slang/http")
 local str = require("slang/string")
@@ -74,6 +52,8 @@ local func message_of(e){
 
 // ------------------------------------------------------------ responses
 
+// text(s: string, status?: int) -> http.Response
+// A text/plain response (200 by default).
 func web.text(s, status){
   return {
     status: status or 200,
@@ -82,6 +62,9 @@ func web.text(s, status){
   }
 }
 
+// html(content: string | table, status?: int) -> http.Response
+// A text/html response (200 by default) of an HTML string or a slang/html
+// node, which is rendered.
 func web.html(content, status){
   local body = content
   if(type(content) != "string"){
@@ -94,6 +77,8 @@ func web.html(content, status){
   }
 }
 
+// json(value, status?: int) -> http.Response
+// An application/json response (200 by default) of value encoded.
 func web.json(value, status){
   return {
     status: status or 200,
@@ -102,10 +87,18 @@ func web.json(value, status){
   }
 }
 
+// redirect(url: string, status?: int) -> http.Response
+// A redirect to url: 303 See Other by default (the browser follows with a
+// GET); 301, 302, 307 or 308 when asked.
 func web.redirect(url, status){
   return {status: status or 303, headers: {Location: url}, body: ""}
 }
 
+// fail(status: int, message?: string)
+// Raises an error the app answers with status and the message as text
+// (the status's reason phrase by default), instead of a 500. on_error is
+// not called for it.
+//   if(todo == null){ web.fail(404, "no such todo") }
 func web.fail(status, message){
   error(concat(
     "HTTP ", string(status), ": ",
@@ -142,9 +135,15 @@ local func normalize(res){
 
 // ------------------------------------------------------------ requests
 
+// A request as handlers and middleware see it: an [http.Request] with
+// these methods. The app adds params (the route's :name parts, and the *
+// part as rest); middleware may add more (session, csrf_token).
+// type Request
 local request_methods = {}
 local request_meta = {__index: request_methods, __type: "Request"}
 
+// query_params() -> {[string]: string}
+// The query string decoded (req.query is the raw text).
 func request_methods.query_params(req){
   if(req.query_table == null){
     req.query_table = encoding.query_decode(req.query)
@@ -152,10 +151,17 @@ func request_methods.query_params(req){
   return req.query_table
 }
 
+// cookie(name: string) -> string?
+// The value of the request's cookie name, or null.
 func request_methods.cookie(req, name){
   return http.cookies(req)[name]
 }
 
+// form() -> {[string]: any}
+// The fields of a form body: urlencoded (or no Content-Type) or
+// multipart/form-data, where a file field is {filename, content_type,
+// data}. Fails with 415 for other types, and with 400 for a multipart
+// body that was streamed.
 func request_methods.form(req){
   if(req.form_table != null){
     return req.form_table
@@ -186,6 +192,8 @@ func request_methods.form(req){
   return out
 }
 
+// json() -> the decoded JSON body
+// Fails with 400 when the body is not JSON.
 func request_methods.json(req){
   local r = pcall(json.decode, req.body or "")
   if(r[0] == "err"){
@@ -239,9 +247,27 @@ local func match(parts, route_parts){
   return params
 }
 
+// What a route runs: it returns a string, a slang/html node, an
+// [http.Response] or a Future of one of those.
+// type Handler = func(req: Request, params: {[string]: string}): any
+// [params]: the route's :name parts decoded, and the * part as rest
+
+// What [WebApp.use] takes: next(req) runs the rest of the chain (with req,
+// or the one given) and returns its normalized [http.Response].
+// type Middleware = func(req: Request,
+//   next: func(req?: Request): http.Response): any
+
+// An application: routes and middleware, served by [WebApp.listen].
+// app.fallback, a func(req), answers requests no route matches (404 by
+// default); app.on_error(req, err) is told of errors that became a 500
+// (it prints to stderr by default).
+// type WebApp
 local app_methods = {}
 local app_meta = {__index: app_methods, __type: "WebApp"}
 
+// app(options?: table) -> WebApp
+// A new application with no routes.
+// [options]: kept as app.options; the app itself uses none
 func web.app(options){
   local app = {
     routes: {}, ws_routes: {}, middleware: {}, fallback: null,
@@ -257,11 +283,26 @@ func web.app(options){
   return app
 }
 
+// use(middleware: Middleware) -> WebApp
+// Adds a middleware; they run in the order added, around every route
+// (WebSocket routes included) and the fallback.
 func app_methods.use(app, middleware){
   append(app.middleware, middleware)
   return app
 }
 
+// What a route may ask for.
+// type RouteOptions = {stream_body?: bool}
+// [stream_body]: true hands the body over as req.stream, unread (uploads)
+
+// route(method: string, pattern: string, handler: Handler,
+//       options?: RouteOptions) -> WebApp
+// Adds a route. A pattern is a path whose parts may be :name (one
+// non-empty part, decoded into params.name) or a last * (the rest of the
+// path, into params.rest). The first route added that matches wins.
+//   app:route("GET", "/files/:user/*", func(req, params){
+//     return concat(params.user, " wants ", params.rest)
+//   })
 func app_methods.route(app, method, pattern, handler, options){
   append(app.routes, {
     method: method,
@@ -272,22 +313,39 @@ func app_methods.route(app, method, pattern, handler, options){
   return app
 }
 
+// get(pattern: string, handler: Handler, options?: RouteOptions) -> WebApp
+// [WebApp.route] for GET.
 func app_methods.get(app, pattern, handler, options){
   return app:route("GET", pattern, handler, options)
 }
+// post(pattern: string, handler: Handler, options?: RouteOptions) -> WebApp
+// [WebApp.route] for POST.
 func app_methods.post(app, pattern, handler, options){
   return app:route("POST", pattern, handler, options)
 }
+// put(pattern: string, handler: Handler, options?: RouteOptions) -> WebApp
+// [WebApp.route] for PUT.
 func app_methods.put(app, pattern, handler, options){
   return app:route("PUT", pattern, handler, options)
 }
+// patch(pattern: string, handler: Handler, options?: RouteOptions) -> WebApp
+// [WebApp.route] for PATCH.
 func app_methods.patch(app, pattern, handler, options){
   return app:route("PATCH", pattern, handler, options)
 }
+// delete(pattern: string, handler: Handler, options?: RouteOptions) -> WebApp
+// [WebApp.route] for DELETE.
 func app_methods.delete(app, pattern, handler, options){
   return app:route("DELETE", pattern, handler, options)
 }
 
+// ws(pattern: string, handler: func(socket: table, req: Request,
+//    params: {[string]: string}), options?: {max_message?: int}) -> WebApp
+// Adds a WebSocket route: a matching upgrade request (after the
+// middleware) is accepted and handler gets the slang/ws socket. An error
+// the handler raises closes the socket with 1011. The first matching
+// route wins; a request no route matches gets a 404.
+// [options]: as for slang/ws's accept
 func app_methods.ws(app, pattern, handler, options){
   append(app.ws_routes, {
     parts: split_pattern(pattern),
@@ -317,8 +375,9 @@ local func find(app, req){
   return null
 }
 
-// stream_body(req): should slang/http hand this request's body over as a
-// stream? (its route says stream_body: true)
+// stream_body(req: http.Request) -> bool
+// Whether the route for req says stream_body: true; what [WebApp.listen]
+// gives slang/http as its stream_body.
 func app_methods.stream_body(app, req){
   local found = find(app, req)
   return found != null and found.route != null and
@@ -378,7 +437,10 @@ local func chain(app, k, req, final){
   }))
 }
 
-// handle(req) -> Future of the response: the http handler of the app
+// handle(req: http.Request) -> async.Future
+// Runs the app for a request: a Future of the normalized [http.Response]
+// (it does not fail; errors become responses). The slang/http handler of
+// the app, and what [test] calls.
 func app_methods.handle(app, req){
   prepare(req)
   return async.run(func(){
@@ -390,8 +452,11 @@ func app_methods.handle(app, req){
   })
 }
 
-// upgrade(req, conn, rest): a request asking for another protocol; a
-// matching app:ws route (after the middleware) gets a WebSocket
+// upgrade(req: http.Request, conn, rest: string)
+// Handles a request for another protocol (slang/http's on_upgrade): a
+// matching [WebApp.ws] route, after the middleware, gets a WebSocket;
+// otherwise the connection is answered (404, or what the middleware
+// returned) and closed.
 func app_methods.upgrade(app, req, conn, rest){
   prepare(req)
   async.run(func(){
@@ -429,8 +494,10 @@ func app_methods.upgrade(app, req, conn, rest){
   })
 }
 
-// listen(host, port, options) -> the slang/http server (with done and
-// close()); options as for http.serve
+// listen(host: string, port: int,
+//        options?: http.ServeOptions) -> http.Server
+// Serves the app with [http.serve]. stream_body is the route's (or yours,
+// when it says true) and on_upgrade is the app's.
 func app_methods.listen(app, host, port, options){
   local o = {}
   for(let local e in entries(options or {})){
@@ -460,7 +527,9 @@ local types = {
   zip: "application/zip", gz: "application/gzip", tar: "application/x-tar"
 }
 
-// type_of(path) -> the media type for the file's extension
+// type_of(path: string) -> string
+// The media type for the file's extension, like "text/css; charset=utf-8";
+// application/octet-stream when it is not known.
 func web.type_of(path){
   local dot = - 1
   for(local i = len(path) - 1; i >= 0; i = i - 1){
@@ -522,6 +591,19 @@ local func parse_range(header, size){
   return {start: start, length: stop - start + 1}
 }
 
+// How [file] sends a file.
+// type FileOptions = {max_age?: int, type?: string, download?: string}
+// [max_age]: seconds browsers may cache it (Cache-Control); no-cache if not given
+// [type]: the Content-Type; by default from the extension ([type_of])
+// [download]: a file name: Content-Disposition attachment
+
+// file(req: Request, path: string, options?: FileOptions) -> async.Future
+// A Future of a response sending the file: 404 when it is not a file;
+// ETag and Last-Modified, 304 for conditional requests, a single byte
+// Range (206, 416). The body is streamed from disk (or the bundle of a
+// built program; a file bundled gzipped goes as it is to a client that
+// takes gzip).
+//   app:get("/report", func(req){ return web.file(req, "out/report.pdf") })
 func web.file(req, path, options){
   options = options or {}
   return async.run(func(){
@@ -627,6 +709,10 @@ local func safe_path(rest){
   return rest
 }
 
+// static(prefix: string, dir: string, options?: FileOptions) -> WebApp
+// Serves the files under dir at prefix, as [file] does: "/static/a/b.css"
+// for prefix "/static" is dir/a/b.css. Paths with "..", "." or empty
+// parts, backslashes or NULs get a 404.
 func app_methods.static(app, prefix, dir, options){
   options = options or {}
   local pattern = str.ends_with(prefix, "/") and concat(prefix, "*") or
@@ -642,6 +728,24 @@ func app_methods.static(app, prefix, dir, options){
 
 // ------------------------------------------------------------ sessions
 
+// What [sessions] takes.
+// type SessionOptions = {secret: string, name?: string, max_age?: int,
+//   secure?: bool}
+// [secret]: at least 16 characters; the key the cookie is sealed with
+// [name]: the cookie's name ("session")
+// [max_age]: the cookie's lifetime in seconds (14 days)
+// [secure]: send the cookie over HTTPS only
+
+// sessions(options: SessionOptions) -> Middleware
+// Sessions in a cookie: req.session is a table kept in an encrypted
+// cookie (AES-GCM, so the client can read nothing and change nothing),
+// saved when it changed (as JSON) and dropped when empty. Raises without
+// a good secret, and when a session grows too large for a cookie.
+//   app:use(web.sessions({secret: os.getenv("SESSION_SECRET")}))
+//   app:post("/login", func(req){
+//     req.session.user = req:form().user
+//     return web.redirect("/")
+//   })
 func web.sessions(options){
   options = options or {}
   if(type(options.secret) != "string" or len(options.secret) < 16){
@@ -694,6 +798,19 @@ func web.sessions(options){
 
 local unsafe = {POST: true, PUT: true, PATCH: true, DELETE: true}
 
+// What [csrf] takes; every field is optional.
+// type CsrfOptions = {skip?: func(req: Request): bool, cookie?: string,
+//   secure?: bool}
+// [skip]: true for requests that need no token (webhooks, say)
+// [cookie]: the cookie's name ("csrf")
+// [secure]: send the cookie over HTTPS only
+
+// csrf(options?: CsrfOptions) -> Middleware
+// CSRF protection: unsafe requests (POST, PUT, PATCH, DELETE) must send
+// the token req.csrf_token holds back, as the X-CSRF-Token header or the
+// _csrf field of a urlencoded form; others get a 403. The token lives in
+// an HttpOnly SameSite=Lax cookie. Add it after [sessions] and put
+// req.csrf_token in your forms.
 func web.csrf(options){
   options = options or {}
   local crypto = require("slang/crypto")
@@ -728,9 +845,25 @@ func web.csrf(options){
 
 // ------------------------------------------------------------ testing
 
+// A client that runs requests through an app without a socket, keeping
+// cookies across requests.
+// type WebTestClient
 local client_methods = {}
 local client_meta = {__index: client_methods, __type: "WebTestClient"}
 
+// What a test request sends; every field is optional.
+// type TestOptions = {headers?: {[string]: string}, body?: string,
+//   form?: {[string]: string}, json?: any}
+// [form]: sent urlencoded, with its Content-Type
+// [json]: sent encoded, with its Content-Type
+
+// What a test request gives: the app's response with the body collected.
+// type TestResponse = {status: int, headers: table, body: string,
+//   header: func(name: string): any}
+// [header]: a header by name in any case; call it res.header(name)
+
+// test(app: WebApp) -> WebTestClient
+// A test client for app.
 func web.test(app){
   return {meta: client_meta, app: app, cookies: {}}
 }
@@ -754,6 +887,11 @@ local func remember_cookies(client, headers){
   }
 }
 
+// request(method: string, path: string,
+//         options?: TestOptions) -> async.Future
+// Runs a request through the app: a Future of the [TestResponse]. path may
+// carry a query. The client's cookies are sent and the Set-Cookie headers
+// of the response remembered.
 func client_methods.request(client, method, path, options){
   options = options or {}
   return async.run(func(){
@@ -810,18 +948,28 @@ func client_methods.request(client, method, path, options){
   })
 }
 
+// get(path: string, options?: TestOptions) -> async.Future
+// [WebTestClient.request] with GET.
 func client_methods.get(c, path, options){
   return c:request("GET", path, options)
 }
+// post(path: string, options?: TestOptions) -> async.Future
+// [WebTestClient.request] with POST.
 func client_methods.post(c, path, options){
   return c:request("POST", path, options)
 }
+// put(path: string, options?: TestOptions) -> async.Future
+// [WebTestClient.request] with PUT.
 func client_methods.put(c, path, options){
   return c:request("PUT", path, options)
 }
+// patch(path: string, options?: TestOptions) -> async.Future
+// [WebTestClient.request] with PATCH.
 func client_methods.patch(c, path, options){
   return c:request("PATCH", path, options)
 }
+// delete(path: string, options?: TestOptions) -> async.Future
+// [WebTestClient.request] with DELETE.
 func client_methods.delete(c, path, options){
   return c:request("DELETE", path, options)
 }

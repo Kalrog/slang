@@ -1,20 +1,88 @@
 // slang/grammar: the slang grammar, built with slang/peg on top of a rule
 // registry that lets programs extend and modify the parser at compile time.
+// An extension gets the grammar of the unit being compiled with
+// `require("slang/compiler").grammar()` and changes it from an extension
+// statement; the change applies from the next top-level statement on.
+//
+//   extension {
+//     local peg = require("slang/peg")
+//     local g = require("slang/compiler").grammar()
+//     // unless(condition){ ... }
+//     g:statement("unless", peg.seq(
+//       g:keyword("unless"), g:token("("), g:rule("expr"), g:token(")"),
+//       g:rule("block"),
+//     ):map(func(r){
+//       return {token: r[0], ast: +{stat: if(not -{r[2]}) -{r[4]}}}
+//     }))
+//     // x |> f calls f(x); looser than every core operator
+//     g:expression():level("pipe", {after: "or"}):left(
+//       g:token("|>", null, "operator"), func(left, op, right){
+//         return {token: op, ast: +{-{right}(-{left})}}
+//       },
+//     )
+//   }
+//   unless(1 > 2){
+//     print(16 |> string, "\n")
+//   }
+//
+// Parsers come from slang/peg; tokens from [Grammar.token] and
+// [Grammar.keyword] skip the whitespace and comments around them. What an
+// extension's parser or callback produces is [Code]: an AST node (see
+// slang/ast), usually from a quote, with the token it should be reported
+// at. Grammar changes are only allowed between top-level statements (from
+// an extension statement) or at run time, never while a statement is
+// being parsed.
 //
 // A grammar is a registry of named rules plus the registries of statements,
 // extension statements and the expression walker (primaries, levels and
-// operators, see peg.walker). Rules are
-// referenced by name (g:rule(name)) and resolved late: the first parse after
-// a change seals the grammar (builds the expression walker, the dispatch
-// tables and the rule targets) once. Grammars derive from each other; the
-// rule references are shared by a whole lineage and always point at the
-// rules of the grammar that was activated last.
+// operators, see peg.walker). Rules are referenced by name (g:rule(name))
+// and resolved late: the first parse after a change seals the grammar
+// (builds the expression walker, the dispatch tables and the rule targets)
+// once. Grammars derive from each other; the rule references are shared by
+// a whole lineage and always point at the rules of the grammar that was
+// activated last.
+
+// What extension parsers and callbacks produce: a node, or a node with
+// the token it came from, which every node of it without a token gets (so
+// errors in generated code point at the source; see ast.decode).
+// type Code = ast.Node | {token: peg.Token, ast: ast.Node}
+
+// The options of a root grammar ([new]); the compiler passes them.
+// type Options = {run_block?: func(block: ast.Node): any,
+//   run_extension?: func(node: ast.Node, origin: string),
+//   optimize?: func(block: ast.Node): ast.Node,
+//   warn?: func(message: string, owner: string),
+//   explain?: func(origin: string, unit: Grammar), memoize?: bool}
+// [run_block]: executes an unquote at parse time
+// [run_extension]: runs a built-in extension statement (a file name or a block)
+// [optimize]: applied to every parsed chunk
+// [warn]: reports grammar warnings; with it set, modify checks shapes and probes
+// [explain]: called after a unit parsed under a grammar of its own
+// [memoize]: false turns off the memoization placed while sealing
+
+// How a rule was registered and changed: what [Grammar.rules] lists.
+// type RuleInfo = {name: string, owner: string, protected: bool,
+//   history: {string}}
+// [owner]: the extension that defined it, or "core"
+// [history]: the extensions that modified it, in order
+
+// The options of [Grammar.define].
+// type RuleOptions = {protected?: bool, probe?: string,
+//   build?: func(g: Grammar): peg.Parser}
+// [protected]: modify raises for this rule
+// [probe]: source the rule must keep parsing; checked after every modify while warnings are on
+// [build]: builds the rule at seal time instead (define it with parser null)
+
 local peg = require("slang/peg")
 local ast = require("slang/ast")
 local str = require("slang/string")
 local fmt = require("slang/format")
 
 local grammar = {}
+// A grammar: the rules, statements and expressions of slang for one unit
+// (a file or a compiled string), as extensions see it. Derived grammars
+// share their rule references (see [Grammar.derive]).
+// type Grammar
 local methods = {}
 local grammar_meta = {__index: methods, __type: "grammar"}
 
@@ -236,6 +304,10 @@ local func new_grammar(lin, parent){
   return g
 }
 
+// changes_allowed() -> bool
+// Whether the grammar may be changed now: at run time (no parse in
+// progress), or from an extension statement between two top-level
+// statements. The methods that change it raise otherwise.
 func methods.changes_allowed(g){
   local lin = g.state
   return lin.parse_depth == 0 or
@@ -281,13 +353,20 @@ local func warn(g, ...parts){
 
 // ------------------------------------------------------------ rule registry
 
-// rule(name) -> a parser referring to the rule, resolved at parse time
+// rule(name: string) -> peg.Parser
+// A parser for the rule of that name, resolved at parse time: it always
+// parses the rule as the grammar in use defines it, modifications made
+// later included. Core rules include "expr", "statement", "block",
+// "chunk", "identifier", "param", "slang_pattern", "table_literal",
+// "string_literal" and "trivia"; [Grammar.rules] lists them all.
 func methods.rule(g, name){
   return rule_ref(g.state, name)
 }
 
-// define(name, parser, {protected, probe}): registers a rule. A rule may also
-// be built at seal time: define(name, null, {build: func(g) -> parser}).
+// define(name: string, parser: peg.Parser?, options?: RuleOptions)
+// Registers a rule, replacing one of the same name. A rule may also be
+// built at seal time: define(name, null, {build: func(g){ ... }}).
+// Raises when changes are not allowed (see [Grammar.changes_allowed]).
 func methods.define(g, name, parser, options){
   check_changes(g, "define")
   options = options or {}
@@ -344,8 +423,15 @@ local func check_probe(g, entry){
   }
 }
 
-// modify(name, func(old) -> new): replaces the rule by f(old); replacing is
-// just not using old. Rules built at seal time are wrapped after building.
+// modify(name: string, f: func(old: peg.Parser): peg.Parser)
+// Replaces the rule by f(old), where old is its current parser; replacing
+// it outright is just not using old. Rules built at seal time ("expr",
+// "statement") are wrapped after building, so f runs at seal time: create
+// the tokens it uses before calling modify. Raises for an unknown or
+// protected rule, and when f does not return a parser.
+//   g:modify("identifier", func(old){
+//     return old:where(func(t){ return t.value != "it" }, "not it")
+//   })
 func methods.modify(g, name, f){
   check_changes(g, "modify")
   local entry = g.rule_table[name]
@@ -397,7 +483,7 @@ func methods.modify(g, name, f){
   }
 }
 
-// rules() -> {{name, owner, protected, history}}: every rule with its provenance
+// rules() -> {RuleInfo}: every rule with where it came from, in order
 func methods.rules(g){
   local out = {}
   for(let local name in values(g.rule_order)){
@@ -412,23 +498,29 @@ func methods.rules(g){
   return out
 }
 
-// derive() -> a grammar that starts as a copy of this one; changes to either
-// do not affect the other
+// derive() -> Grammar
+// A grammar that starts as a copy of this one; changes to either do not
+// affect the other. The unit grammars are derived from the root this way.
 func methods.derive(g){
   return new_grammar(g.state, g)
 }
 
-// root() -> the root grammar of the lineage (slang plus the ambient layer)
+// root() -> Grammar
+// The root grammar of the lineage: slang plus the ambient layer (the
+// project's extensions).
 func methods.root(g){
   return g.state.root
 }
 
-// unit() -> the grammar of the unit being parsed, this one at run time
+// unit() -> Grammar
+// The grammar of the unit being parsed; this one at run time.
 func methods.unit(g){
   return g.state.current or g
 }
 
-// the extensions loaded into this grammar, by name (inherited by derivation)
+// has_extension(name: string) -> bool
+// Whether the extension was loaded into this grammar (or the one it was
+// derived from).
 func methods.has_extension(g, name){
   for(let local n in values(g.loaded_extensions)){
     if(n == name){
@@ -438,15 +530,21 @@ func methods.has_extension(g, name){
   return false
 }
 
+// add_extension(name: string)
+// Records that the extension was loaded into this grammar; the compiler
+// calls it.
 func methods.add_extension(g, name){
   append(g.loaded_extensions, name)
 }
 
+// extensions() -> {string}: the extensions loaded into this grammar, in order
 func methods.extensions(g){
   return copy_list(g.loaded_extensions)
 }
 
-// with_owner(owner, f) -> f(): runs f with grammar changes attributed to owner
+// with_owner(owner: string, f: func(): any) -> any
+// Runs f with the grammar changes it makes attributed to owner (for
+// [Grammar.rules] and warnings) and returns what f returns.
 func methods.with_owner(g, owner, f){
   local lin = g.state
   local outer = lin.owner
@@ -459,7 +557,10 @@ func methods.with_owner(g, owner, f){
   return r[1]
 }
 
-// keyword(word) -> token parser; the word is reserved (not an identifier)
+// keyword(s: string) -> peg.Parser
+// A token parser for the word s, which becomes reserved: no longer an
+// identifier, though still usable as a field name (`t.unless`). Its value
+// is a peg.Token. Reserving a new word is a grammar change.
 func methods.keyword(g, s){
   if(g.keywords[s] != true){
     check_changes(g, "keyword")
@@ -469,11 +570,15 @@ func methods.keyword(g, s){
   return peg.ref(g.state.token_fn, s)
 }
 
-// token(source, name, category) -> parser: a token trimmed by trivia. source
-// is a string (the token's text; word-like tokens may not be followed by an
-// identifier character) or a parser (name says what the error message
-// expects). category is what a highlighter shows; it defaults to "keyword"
-// for words, "punctuation" for other strings and name for parsers.
+// token(source: string | peg.Parser, name?: string,
+//   category?: string) -> peg.Parser
+// A token trimmed by trivia (whitespace and comments); its value is a
+// peg.Token. Unlike [Grammar.keyword], a word given here is not reserved.
+// [source]: the token's text (a word may not be followed by an identifier character), or a parser whose text makes the token
+// [name]: what the failure message says is expected
+// [category]: what a highlighter shows: by default "keyword" for words, "punctuation" for other strings, name for parsers
+//   g:token("=>")
+//   g:token(peg.digit():plus(), "number", "number")
 func methods.token(g, source, name, category){
   if(type(source) == "string"){
     return peg.ref(g.state.token_fn, source, name, category)
@@ -481,30 +586,37 @@ func methods.token(g, source, name, category){
   return g.state.token_fn(source, name, category)
 }
 
-// tag(parser, category) -> parser: what parser produced, recorded again
-// under category for highlighting (see peg.tag)
+// tag(parser: peg.Parser, category: string) -> peg.Parser
+// What parser produced, highlighted again under category without changing
+// its value (see peg.tag).
+//   g:tag(g:rule("identifier"), "function.declaration")
 func methods.tag(g, parser, category){
   return peg.tag(parser, category)
 }
 
-// unit_id() -> a number identifying the parse of the current unit (a new
-// one for every unit, including nested compiles), for per-unit extension state
+// unit_id() -> int
+// A number identifying the parse of the current unit (a new one for every
+// unit, nested compiles included), for per-unit state in an extension
+// loaded once for a whole project.
 func methods.unit_id(g){
   return g.state.unit_id
 }
 
-// origin() -> the name of the source being parsed (null outside a parse)
+// origin() -> string?: the name of the source being parsed (null outside a parse)
 func methods.origin(g){
   return g.state.origin
 }
 
-// unit_local(key, expr) -> Identifier: a local of the unit being parsed,
-// declared once per unit as `local <name> = expr`, placed before the
-// top-level statement that first asked for it. For the code an extension
-// generates in expression position, where it cannot declare anything: a
-// runtime module is required once per unit instead of at every use. The
-// name is `__` and key with every other character replaced by `_`.
 local name_class = str.char_class("a-zA-Z0-9_")
+// unit_local(key: string, expr: ast.Node) -> ast.Node
+// An Identifier for a local of the unit being parsed, declared once per
+// unit as `local <name> = expr`, before the top-level statement that first
+// asked for it. For the code an extension generates in expression
+// position, where it cannot declare anything: a runtime module is
+// required once per unit instead of at every use. The name is `__` and
+// key with every other character replaced by `_`. Raises outside a parse.
+//   local async = g:unit_local("slang/async", +{require("slang/async")})
+//   return {token: op, ast: +{-{async}.await(-{exp})}}
 func methods.unit_local(g, key, expr){
   local locals = g.state.unit_locals
   if(locals == null){
@@ -528,8 +640,10 @@ func methods.unit_local(g, key, expr){
   return ast.node("Identifier", {value: name}, token)
 }
 
-// error_at(token, message...): raises a compile error located at token (a
-// token as produced by token/keyword, or any table with line and column)
+// error_at(token: peg.Token, ...message)
+// Raises a compile error located at token (a token as [Grammar.token] and
+// [Grammar.keyword] produce, or any table with line and column), with the
+// parts of message joined.
 func methods.error_at(g, token, ...message){
   local location = null
   if(type(token) == "table" and token.line != null){
@@ -546,7 +660,9 @@ func methods.error_at(g, token, ...message){
   raise({message: text, location: location})
 }
 
-// uniq_id() -> an identifier node with a name no program can write
+// uniq_id() -> ast.Node
+// An Identifier node with a fresh name no program can write, for the
+// locals of generated code.
 func methods.uniq_id(g){
   g.state.uniq_counter = g.state.uniq_counter + 1
   return ast.node(
@@ -563,22 +679,32 @@ local func decode_statement(value){
 }
 
 // ------------------------------------------------------------ expression API
-//
-// expression() -> the expression registry of the grammar: the walker (see
-// peg.walker) behind a facade that decodes what extension callbacks return
-// ({token, ast} or a node) and names primaries and levels.
 
+// The expression registry of a grammar ([Grammar.expression]): its
+// expression walker (see peg.walker) behind a facade that decodes what
+// extension callbacks return ([Code]). Levels are ordered tightest first;
+// core has "bracket", "indexAndCall", "power", "unary", "multiply", "add",
+// "shift", "bitAnd", "bitXor", "bitOr", "compare", "and" and "or". Its
+// changes are grammar changes. Operators of one level are tried in the
+// order they were added.
+// type ExpressionRegistry
 local expression_methods = {}
 local expression_meta = {
   __index: expression_methods,
   __type: "expression_registry",
 }
+// A level of an [ExpressionRegistry], as [ExpressionRegistry.level]
+// returns it: adds operators at that level. Each method returns the level.
+// type Level
 local level_facade_methods = {}
 local level_facade_meta = {
   __index: level_facade_methods,
   __type: "expression_level",
 }
 
+// expression() -> ExpressionRegistry
+// The expression registry of the grammar: where primaries, levels and
+// operators are added.
 func methods.expression(g){
   local e = {grammar: g}
   e.meta = expression_meta
@@ -598,7 +724,11 @@ local func level_facade(e, level){
   return f
 }
 
-// primary(name, parser, {after, before, at, aliases})
+// primary(name: string, parser: peg.Parser,
+//   placement?: peg.Placement) -> ExpressionRegistry
+// Adds a primary expression: what an operand can be. parser yields
+// [Code]. Note the order of the arguments: peg's walker takes the parser
+// first.
 func expression_methods.primary(self, name, parser, placement){
   local w = facade_walker(self)
   peg.resolve(parser)
@@ -609,7 +739,11 @@ func expression_methods.primary(self, name, parser, placement){
   return self
 }
 
-// level(name, {after, before, at, aliases}) -> level
+// level(name: string, placement?: peg.Placement) -> Level
+// A new precedence level placed among the others (without a placement:
+// looser than all). A level of a name already in use is replaced by the
+// new, empty one.
+//   g:expression():level("pipe", {after: "or"})
 func expression_methods.level(self, name, placement){
   local w = facade_walker(self)
   return level_facade(self, w:level(name, placement))
@@ -622,6 +756,9 @@ local func operator_of(e, parser){
   return fmt.extension(parser, e.grammar.state.owner)
 }
 
+// prefix(operator: peg.Parser, level: string,
+//   callback: func(op: peg.Token, operand: ast.Node): Code) -> ExpressionRegistry
+// A prefix operator at the level of that name.
 func expression_methods.prefix(self, operator, level, callback){
   local w = facade_walker(self)
   w:prefix(operator_of(self, operator), level, func(op, exp){
@@ -630,6 +767,9 @@ func expression_methods.prefix(self, operator, level, callback){
   return self
 }
 
+// postfix(operator: peg.Parser, level: string,
+//   callback: func(left: ast.Node, op: peg.Token): Code) -> ExpressionRegistry
+// A postfix operator at the level of that name.
 func expression_methods.postfix(self, operator, level, callback){
   local w = facade_walker(self)
   w:postfix(operator_of(self, operator), level, func(exp, op){
@@ -638,6 +778,10 @@ func expression_methods.postfix(self, operator, level, callback){
   return self
 }
 
+// left(operator: peg.Parser, level: string,
+//   callback: func(left: ast.Node, op: peg.Token, right: ast.Node): Code
+// ) -> ExpressionRegistry
+// A left-associative infix operator at the level of that name.
 func expression_methods.left(self, operator, level, callback){
   local w = facade_walker(self)
   w:left(operator_of(self, operator), level, func(left, op, right){
@@ -646,6 +790,10 @@ func expression_methods.left(self, operator, level, callback){
   return self
 }
 
+// right(operator: peg.Parser, level: string,
+//   callback: func(left: ast.Node, op: peg.Token, right: ast.Node): Code
+// ) -> ExpressionRegistry
+// A right-associative infix operator at the level of that name.
 func expression_methods.right(self, operator, level, callback){
   local w = facade_walker(self)
   w:right(operator_of(self, operator), level, func(left, op, right){
@@ -654,58 +802,97 @@ func expression_methods.right(self, operator, level, callback){
   return self
 }
 
+// wrapper(left: peg.Parser, right: peg.Parser, level: string,
+//   callback: func(left: peg.Token, value: ast.Node, right: peg.Token): Code
+// ) -> ExpressionRegistry
+// An expression between two tokens, such as parentheses, at the level of
+// that name.
 func expression_methods.wrapper(self, left, right, level, callback){
   local w = facade_walker(self)
-  w:wrapper(operator_of(self, left), operator_of(self, right), level, func(l, value, r){
-    return ast.decode(callback(l, value, r))
-  })
+  w:wrapper(
+    operator_of(self, left),
+    operator_of(self, right),
+    level,
+    func(l, value, r){
+      return ast.decode(callback(l, value, r))
+    },
+  )
   return self
 }
 
-// engine API: nud(operator, rbp, f) and led(operator, lbp, f), where
-// f(w, ctx, pos, op) (or f(w, ctx, pos, left, op)) parses its own operands
-// through w:parse_at(ctx, pos, bp) and leaves an AST node in ctx.value
-// (see peg.walker); for syntax that must act before its operand is parsed
+// nud(operator: peg.Parser, rbp: int,
+//   f: func(w: peg.Walker, ctx: peg.Context, pos: int, op): int
+// ) -> ExpressionRegistry
+// Engine API, for syntax that must act before its operand is parsed: an
+// operator an expression starts with, at an explicit binding power. f
+// parses its own operands through w:parse_at(ctx, pos, bp), leaves an AST
+// node in ctx.value (it is not decoded) and returns the new position or
+// -1 (see peg.walker).
 func expression_methods.nud(self, operator, rbp, f){
   local w = facade_walker(self)
   w:nud(operator_of(self, operator), rbp, f)
   return self
 }
 
+// led(operator: peg.Parser, lbp: int,
+//   f: func(w: peg.Walker, ctx: peg.Context, pos: int, left, op): int
+// ) -> ExpressionRegistry
+// Engine API: an operator that follows a value, as for
+// [ExpressionRegistry.nud].
 func expression_methods.led(self, operator, lbp, f){
   local w = facade_walker(self)
   w:led(operator_of(self, operator), lbp, f)
   return self
 }
 
+// levels() -> {string}: the names of the levels, tightest first
 func expression_methods.levels(self){
   return self.grammar.expression_walker:level_names()
 }
 
+// primaries() -> {string}: the names of the primary expressions, in order
 func expression_methods.primaries(self){
   return self.grammar.expression_walker:primary_names()
 }
 
+// prefix(operator: peg.Parser,
+//   callback: func(op: peg.Token, operand: ast.Node): Code) -> Level
+// [ExpressionRegistry.prefix] at this level.
 func level_facade_methods.prefix(self, operator, callback){
   self.registry:prefix(operator, self.level, callback)
   return self
 }
 
+// postfix(operator: peg.Parser,
+//   callback: func(left: ast.Node, op: peg.Token): Code) -> Level
+// [ExpressionRegistry.postfix] at this level.
 func level_facade_methods.postfix(self, operator, callback){
   self.registry:postfix(operator, self.level, callback)
   return self
 }
 
+// left(operator: peg.Parser,
+//   callback: func(left: ast.Node, op: peg.Token, right: ast.Node): Code
+// ) -> Level
+// [ExpressionRegistry.left] at this level.
 func level_facade_methods.left(self, operator, callback){
   self.registry:left(operator, self.level, callback)
   return self
 }
 
+// right(operator: peg.Parser,
+//   callback: func(left: ast.Node, op: peg.Token, right: ast.Node): Code
+// ) -> Level
+// [ExpressionRegistry.right] at this level.
 func level_facade_methods.right(self, operator, callback){
   self.registry:right(operator, self.level, callback)
   return self
 }
 
+// wrapper(left: peg.Parser, right: peg.Parser,
+//   callback: func(left: peg.Token, value: ast.Node, right: peg.Token): Code
+// ) -> Level
+// [ExpressionRegistry.wrapper] at this level.
 func level_facade_methods.wrapper(self, left, right, callback){
   self.registry:wrapper(left, right, self.level, callback)
   return self
@@ -732,10 +919,12 @@ local func build_rule(g, entry){
   return p
 }
 
-// seal(): builds the rule targets, the expression walker and the dispatch
-// tables of this grammar. Rules built at seal time (expr, statement,
-// extension_statement) are built in that order, each installed before the
-// next is analysed, so first sets never come from a stale definition.
+// seal()
+// Builds the rule targets, the expression walker and the dispatch tables
+// of this grammar; the first parse after a change does it. Rules built at
+// seal time (expr, statement, extension_statement) are built in that
+// order, each installed before the next is analysed, so first sets never
+// come from a stale definition.
 func methods.seal(g){
   local sealed = {}
   local built = {}
@@ -781,8 +970,9 @@ func methods.seal(g){
   g.dirty = false
 }
 
-// activate(): makes this grammar the one the rule references parse with,
-// sealing it first when it changed
+// activate()
+// Makes this grammar the one the rule references parse with, sealing it
+// first when it changed.
 func methods.activate(g){
   if(g.dirty){
     g:seal()
@@ -794,8 +984,10 @@ func methods.activate(g){
 
 // ------------------------------------------------------------ registries
 
-// statement(name, parser): a statement; the parser yields a statement node
-// or {token, ast}
+// statement(name: string, parser: peg.Parser)
+// Adds a statement (or replaces the one of that name); parser yields
+// [Code] for a statement node. Statements are tried in the order they
+// were added, before slang's own statements.
 func methods.statement(g, name, parser){
   check_changes(g, "statement")
   peg.resolve(parser)
@@ -810,10 +1002,13 @@ func methods.statement(g, name, parser){
   touch(g)
 }
 
-// extension_statement(name, parser, apply): a statement that is only
-// recognised at the top level; after it parsed, apply(result, g) runs between
-// statements with grammar changes allowed (g is the grammar of the unit being
-// parsed) and returns the statement to emit (or null)
+// extension_statement(name: string, parser: peg.Parser,
+//   apply: func(result, g: Grammar): Code?)
+// A statement that is only recognised at the top level. After it parsed,
+// apply(result, g) runs between statements with grammar changes allowed,
+// with result parser's value and g the grammar of the unit being parsed
+// (not necessarily this one: a project loads an extension once), and
+// returns the statement to emit, or null.
 func methods.extension_statement(g, name, parser, apply){
   check_changes(g, "extension_statement")
   peg.resolve(parser)
@@ -851,8 +1046,9 @@ local func trivia_skip(g){
   }
 }
 
-// walker() -> a fresh expression walker skipping slang trivia, for
-// extensions that define their own expression language (see peg.walker)
+// walker() -> peg.Walker
+// A fresh expression walker skipping slang trivia, for extensions that
+// define their own expression language (see peg.walker).
 func methods.walker(g){
   return peg.walker(trivia_skip(g))
 }
@@ -2176,7 +2372,10 @@ local func with_changes_allowed(g, owner, f, a, b){
   return r[1]
 }
 
-// runs a parsed extension statement; returns a statement node to emit or null
+// run_extension(parsed: table, origin: string) -> ast.Node?
+// Runs a parsed extension statement (what the "extension_statement" rule
+// produced) and returns the statement node to emit, or null; the parser of
+// a unit calls it between top-level statements.
 func methods.run_extension(g, parsed, origin){
   local opts = g.state.opts
   if(g.state.sandbox){
@@ -2293,8 +2492,10 @@ local func trivia_start(buf, from, to){
   }
 }
 
-// comments(buffer, start, stop) -> the `//` comments in a run of trivia, as
-// highlighter spans
+// comments(buffer: string, start: int,
+//   stop: int) -> {{category: string, start: int, stop: int}}
+// The `//` comments in buffer[start, stop), a run of trivia, as highlighter
+// spans of category "comment" (see peg.highlights).
 func grammar.comments(buffer, start, stop){
   local out = {}
   local i = str.index_of(buffer, "//", start)
@@ -2525,15 +2726,16 @@ local func parse_top_level(g, source, origin, scoped, recover, tree){
   return block
 }
 
-// parse_source(source, origin, {scoped, tree, recover}) -> Block node
-// (raises on failure; the details of a parse failure are in
-// g.state.last_failure). Extension statements of a scoped unit (the default)
-// only affect that unit. With tree, the lossless tree of the unit is left in
-// g.state.last_tree (see slang/peg): a node of kind "unit" whose kids are the
-// top-level statements; after a failure, the statements parsed before it.
-// recover (with tree, for highlighting) goes past statements that fail to
-// parse: they are error regions in the tree (with highlight functions, see
-// peg.highlights) and their failures are in g.state.failures.
+// parse_source(source: string, origin: string, options?: {scoped?: bool,
+//   tree?: bool, recover?: bool, sandbox?: bool}) -> ast.Node
+// Parses a unit to a Block node, one top-level statement at a time,
+// running its unquotes and extension statements. Raises on failure; the
+// details of a parse failure are in g.state.last_failure ({message, pos,
+// far_pos, far_message}).
+// [scoped]: true by default: the unit's extension statements only affect it
+// [tree]: leaves the lossless tree in g.state.last_tree (see peg.Tree): a node whose kids are the top-level statements; after a failure, those parsed before it
+// [recover]: implies tree; goes past statements that fail to parse, which become error regions in the tree; their failures are in g.state.failures
+// [sandbox]: no unquotes and no extension statements may run
 func methods.parse_source(g, source, origin, options){
   local lin = g.state
   local outer_origin = lin.origin
@@ -2584,9 +2786,9 @@ func methods.parse_source(g, source, origin, options){
   return r[1]
 }
 
-// parse_repl(source) -> node: a chunk, or an expression wrapped in a return.
-// The REPL is one unit spread over many lines: its extension statements are
-// not scoped.
+// parse_repl(source: string) -> ast.Node
+// A chunk, or an expression wrapped in a Return. The REPL is one unit
+// spread over many lines: its extension statements are not scoped.
 func methods.parse_repl(g, source){
   local r = pcall(g.parse_source, g, source, "repl", {scoped: false})
   if(let {"ok", local block} = r){
@@ -2600,7 +2802,10 @@ func methods.parse_repl(g, source){
   raise(r[1])
 }
 
-// new(opts) -> the root grammar of a new lineage, with slang's syntax
+// new(opts?: Options) -> Grammar
+// The root grammar of a new lineage, with slang's syntax. Extensions do
+// not call it: they get their grammar from the compiler (see the module
+// doc).
 func grammar.new(opts){
   local lin = new_lineage(opts or {})
   local g = new_grammar(lin, null)

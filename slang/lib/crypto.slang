@@ -1,25 +1,32 @@
 // slang/crypto: the crypto native extension (OpenSSL) plus what web code
 // builds from it: password hashes, random tokens, signed and sealed values.
 //
-//   crypto.hash(digest, data), crypto.hmac(digest, key, data), crypto.equal,
-//   crypto.random_bytes(n), crypto.hasher(digest), crypto.pbkdf2,
-//   crypto.scrypt, crypto.encrypt, crypto.decrypt, crypto.private_key,
-//   crypto.public_key, crypto.generate_key     as in the native module
-//   crypto.hex(digest, data) -> the hash as lowercase hex
-//   crypto.token(n) -> n random bytes (32 by default) as base64url text
-//   crypto.hash_password(password) -> "$scrypt$ln=15,r=8,p=1$salt$hash"
-//   crypto.verify_password(password, stored) -> bool
-//   crypto.hash_password_async / verify_password_async -> Futures, the work
-//     on libuv's thread pool (an scrypt hash takes tens of milliseconds)
-//   crypto.sign_value(secret, value) -> "value.mac"
-//   crypto.unsign_value(secret, signed) -> value, or null when tampered
-//   crypto.seal(key, text, [aad]) -> base64url of iv, ciphertext and tag
-//   crypto.unseal(key, sealed, [aad]) -> text, or null
+//   local crypto = require("slang/crypto")
+//   local stored = crypto.hash_password("hunter2")
+//   crypto.verify_password("hunter2", stored)       // true
+//   local cookie = crypto.sign_value(secret, "user=42")
+//   crypto.unsign_value(secret, cookie)             // "user=42"
+//   crypto.hex("sha256", "abc")                     // "ba7816bf..."
+//
+// Everything the native module has is here too, under the same names:
+// [native.hash], [native.hmac], [native.equal], [native.random_bytes],
+// [native.hasher], [native.pbkdf2], [native.scrypt], [native.encrypt],
+// [native.decrypt], [native.private_key], [native.public_key],
+// [native.generate_key], [native.version] and the _async forms. Results
+// are raw byte strings; slang/encoding makes hex or base64 of them.
 //
 // Password hashes use scrypt with n = 2^15, r = 8, p = 1 (32 MiB, the
-// OWASP recommendation) and a 16-byte salt; verify_password also accepts
-// "$pbkdf2-sha256$i=...$salt$hash". seal uses AES-256-GCM with a random
+// OWASP recommendation) and a 16-byte salt; [verify_password] also accepts
+// "$pbkdf2-sha256$i=...$salt$hash". [seal] uses AES-256-GCM with a random
 // 12-byte iv and needs a 32-byte key.
+
+// A key, as [native.private_key], [native.public_key] and
+// [native.generate_key] make it.
+// type Key = native.Key
+
+// An incremental hasher, from [native.hasher].
+// type Hasher = native.Hasher
+
 local native = require("crypto")
 local encoding = require("slang/encoding")
 local str = require("slang/string")
@@ -29,10 +36,15 @@ for(let local e in entries(native)){
   crypto[e[0]] = e[1]
 }
 
+// hex(digest: string, data: string) -> string
+// The digest of data as lowercase hex.
 func crypto.hex(digest, data){
   return encoding.hex_encode(native.hash(digest, data))
 }
 
+// token(n?: int) -> string
+// n random bytes (32 by default) as base64url text: a session id, a CSRF
+// token, a key for a reset link.
 func crypto.token(n){
   return encoding.base64url_encode(native.random_bytes(n or 32))
 }
@@ -93,6 +105,10 @@ local func derivation(h){
   return null
 }
 
+// hash_password(password: string) -> string
+// A salted scrypt hash to store, "$scrypt$ln=15,r=8,p=1$salt$hash". It
+// takes tens of milliseconds on purpose; a server should prefer
+// [hash_password_async].
 func crypto.hash_password(password){
   local salt = native.random_bytes(16)
   return format_hash(
@@ -101,6 +117,9 @@ func crypto.hash_password(password){
   )
 }
 
+// verify_password(password: string, stored: string) -> bool
+// Whether password matches a hash [hash_password] made (or a
+// $pbkdf2-sha256$ one); false for a stored value it cannot read.
 func crypto.verify_password(password, stored){
   local h = parse_hash(stored)
   local d = h and derivation(h)
@@ -116,6 +135,9 @@ func crypto.verify_password(password, stored){
   return native.equal(key, h.key)
 }
 
+// hash_password_async(password: string) -> async.Future
+// [hash_password] on libuv's thread pool: a Future of the hash, while the
+// loop stays free.
 func crypto.hash_password_async(password){
   local async = require("slang/async")
   local salt = native.random_bytes(16)
@@ -124,6 +146,8 @@ func crypto.hash_password_async(password){
   }):then(func(key){ return format_hash(salt, key) })
 }
 
+// verify_password_async(password: string, stored: string) -> async.Future
+// [verify_password] on libuv's thread pool: a Future of the bool.
 func crypto.verify_password_async(password, stored){
   local async = require("slang/async")
   local h = parse_hash(stored)
@@ -148,10 +172,17 @@ local func mac(secret, value){
   return encoding.base64url_encode(native.hmac("sha256", secret, value))
 }
 
+// sign_value(secret: string, value: string) -> string
+// "value.mac": value with an HMAC-SHA256 of it under secret, base64url.
+// Anyone can read value; only who knows secret can make one that
+// [unsign_value] accepts.
 func crypto.sign_value(secret, value){
   return concat(value, ".", mac(secret, value))
 }
 
+// unsign_value(secret: string, signed: string) -> string?
+// The value [sign_value] signed, or null when signed was not made with
+// secret or was changed.
 func crypto.unsign_value(secret, signed){
   if(type(signed) != "string"){
     return null
@@ -174,6 +205,11 @@ func crypto.unsign_value(secret, signed){
   return value
 }
 
+// seal(key: string, text: string, aad?: string) -> string
+// text encrypted and authenticated (AES-256-GCM, a random iv), as
+// base64url of iv, ciphertext and tag.
+// [key]: 32 bytes, such as native.random_bytes(32) kept secret
+// [aad]: data it is bound to without containing it (a user id); unseal needs it
 func crypto.seal(key, text, aad){
   local iv = native.random_bytes(12)
   return encoding.base64url_encode(concat(
@@ -182,6 +218,9 @@ func crypto.seal(key, text, aad){
   ))
 }
 
+// unseal(key: string, sealed: string, aad?: string) -> string?
+// The text [seal] sealed, or null when sealed is malformed, was changed,
+// or the key or the aad do not match.
 func crypto.unseal(key, sealed, aad){
   local raw = type(sealed) == "string" and encoding.base64url_decode(sealed)
   if(not raw or len(raw) < 28){

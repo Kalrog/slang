@@ -40,14 +40,34 @@ local compiler = require("slang/compiler")
 
 local pkg = {}
 
+// A version: vMAJOR.MINOR.PATCH.
+// type Version = {major: int, minor: int, patch: int, text: string,
+//   tag?: string}
+// [text]: "1.2.3", without the v
+// [tag]: the git tag it was read from, for a repository's versions
+
+// A package of a build list, as [resolve] chooses it.
+// type Chosen = {name: string, git?: string, path?: string,
+//   version?: Version, dir?: string, manifest?: table,
+//   required: {{from: string, asked: string}}, commit?: string, hash?: string}
+// [git]: the repository, for a package fetched with git
+// [path]: the directory, for a path dependency (then dir is the same)
+// [version]: the version chosen, for a package fetched with git
+// [dir]: where its files are (a git package's once [get] installed it)
+// [manifest]: its slang.project, for a path dependency
+// [required]: who asked for it and what they asked for
+// [commit]: the commit of its tag, once installed
+// [hash]: [tree_hash] of its files, once installed
+
 local func hex(data){
   return encoding.hex_encode(data)
 }
 
 // ------------------------------------------------------------ versions
 
-// parse_version("v1.2.3" | "1.2" | "^1.2") -> {major, minor, patch, text},
-// or null for anything else (pre-releases included)
+// parse_version(s: string) -> Version?
+// Reads "v1.2.3", "1.2" or "^1.2" (missing parts are 0); null for anything
+// else, pre-releases included.
 func pkg.parse_version(s){
   if(type(s) != "string"){
     return null
@@ -76,6 +96,8 @@ func pkg.parse_version(s){
   }
 }
 
+// compare(a: Version, b: Version) -> int
+// -1, 0 or 1 as a is lower than b, the same or higher.
 func pkg.compare(a, b){
   for(let local k in values({"major", "minor", "patch"})){
     if(a[k] != b[k]){
@@ -85,7 +107,9 @@ func pkg.compare(a, b){
   return 0
 }
 
-// whether b can stand in for a: the same major (and minor below 1.0)
+// compatible(a: Version, b: Version) -> bool
+// Whether b can stand in for a: the same major (and minor below 1.0). It
+// does not compare them: see [compare].
 func pkg.compatible(a, b){
   return a.major == b.major and (a.major > 0 or a.minor == b.minor)
 }
@@ -223,10 +247,15 @@ local func files_under(dir, rel, out){
   return out
 }
 
+// files_under(dir: string, rel: string, out: {table}) -> {table}
+// out with {rel, path} appended for every file under dir, in name order,
+// directories walked; rel is the file's path relative to dir after the
+// prefix rel ("" for none).
 pkg.files_under = files_under
 
-// tree_hash(dir) -> "sha256:..." of the files under dir: their paths and
-// contents, in order
+// tree_hash(dir: string) -> string
+// "sha256:..." of the files under dir: their relative paths and contents,
+// in order. What slang.lock records to pin a package's files.
 func pkg.tree_hash(dir){
   local parts = {}
   for(let local f in values(files_under(dir, "", {}))){
@@ -330,10 +359,17 @@ local func pick(url, min, newest, refresh){
   )
 }
 
-// resolve(dir, manifest, lock, update) -> the build list {name: {name,
-// git, version, path, dir, manifest, required}}, version a parsed version;
-// update is null (keep slang.lock's versions), true (everything) or
-// {name: true}
+// resolve(dir: string, manifest: table, lock: table,
+//   update?: bool | {[string]: bool}) -> {[string]: Chosen}
+// The build list of a project: every package it needs, directly or not,
+// by name, with versions chosen by minimal version selection. Fetches the
+// repositories it needs into their mirrors, but installs nothing. Raises on
+// a conflict (two majors, two packages under one name) or a version no tag
+// satisfies.
+// [dir]: the project's directory
+// [manifest]: its slang.project
+// [lock]: its slang.lock ({} without one)
+// [update]: null keeps slang.lock's versions; true updates all, a set some
 func pkg.resolve(dir, manifest, lock, update){
   local func updating(name){
     return update == true or (update != null and update[name] == true)
@@ -562,7 +598,11 @@ local func report(chosen){
   }
 }
 
-// get(dir) -> the build list, installed and locked
+// get(dir: string, update?: bool | {[string]: bool}) -> {[string]: Chosen}
+// `slang get` (and `slang update` with update): resolves the build list of
+// the project in dir, installs what is missing into the package cache,
+// checks the files against slang.lock's hashes and writes slang.lock.
+// [update]: as for [resolve]; the named repositories are fetched again
 func pkg.get(dir, update){
   local p = load(dir)
   if(update != null){
@@ -593,7 +633,9 @@ local func deps(dir){
 
 local USAGE = "usage: slang get | slang update [package...] | slang deps\n"
 
-// main(command, args) -> exit code
+// main(arguments: {string}) -> int: the exit code
+// The commands: {"get"}, {"update", names...} or {"deps"}, for the project
+// in the working directory or the nearest one above it.
 func pkg.main(arguments){
   local command = arguments[0]
   local dir = find_project()

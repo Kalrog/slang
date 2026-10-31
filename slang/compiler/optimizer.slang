@@ -1,4 +1,12 @@
-// slang/optimizer: constant folding on the AST (applied to parsed chunks).
+// slang/optimizer: constant folding on the AST, applied by the grammar to
+// every parsed chunk.
+//
+//   local node = optimizer.optimize(ast_node)   // 2 * 3 + x is 6 + x
+//
+// Operators on literals are computed when the result is certain to be the
+// run-time one: arithmetic and comparisons on numbers, + on strings,
+// string * int, bitwise operators on integers, not, - and ~ of literals.
+// Division and modulo by zero and negative shifts are left to run time.
 local ast = require("slang/ast")
 
 local optimizer = {}
@@ -252,6 +260,9 @@ func visitors.Declaration(n){
   )
 }
 
+// optimize(node: table) -> table
+// node with its constant expressions folded. The result is a new tree
+// where something changed; nodes are not modified in place.
 func optimizer.optimize(node){
   return visit(node)
 }

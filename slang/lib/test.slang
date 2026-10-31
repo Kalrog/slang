@@ -1,10 +1,30 @@
-// slang/test: a small test framework.
+// slang/test: a small test framework: groups of named tests, set up and
+// torn down, run by `slang test`.
 //
-// `slang test` loads the test files and calls run_cli(args()): --json
-// prints one JSON object per line ({event: "test", path, status, message,
-// location}, then {event: "done", passed, failed}) instead of the report,
-// --only "group / test" runs the tests under that path (a group's name, a
-// test's, or the names from a top group down, joined by " / ").
+//   local t = require("slang/test")
+//   t.group("math"){
+//     t.test("adds"){
+//       assert(1 + 1 == 2, "1 + 1")
+//     }
+//   }
+//
+// A test passes when its function returns and fails when it raises (a failed
+// `assert` or any other error); the report shows the message and where it
+// was raised. Registering only collects: `slang test` loads the test
+// files, then calls [run_cli] with its arguments, which runs everything
+// registered and reports.
+//
+// With --json, [run] prints one JSON object per line instead of the
+// report: {event: "test", path, status, message, location} for each test
+// that ran (status "passed" or "failed"; message and location when it
+// failed), then {event: "done", passed, failed}. With --only "group /
+// test", only the tests under that path run: a group's name, a test's, or
+// the names from a top group down, joined by " / ".
+
+// What [run] does.
+// type Options = {json?: bool, only?: string}
+// [json]: print JSON lines instead of the report
+// [only]: the path of the group or test to run, names joined by " / "
 local json = require("slang/json")
 local str = require("slang/string")
 
@@ -27,7 +47,6 @@ func group.new(name){
 }
 
 func group.add_child(self, child){
-  print(indentStr(), "Adding child to group ", self.name, " ", child.name, "\n")
   append(self.children, child)
 }
 
@@ -162,6 +181,10 @@ func test.count(self){
   }
 }
 
+// group(name: string, f: function)
+// Registers a group: runs f at once, and the tests, groups, setups and
+// teardowns f registers belong to the group. Usually written with a block:
+// t.group("name"){ ... }.
 func m.group(name, f){
   local g = group.new(name)
   local parent = current
@@ -171,20 +194,31 @@ func m.group(name, f){
   parent:add_child(g)
 }
 
+// test(name: string, f: function)
+// Registers a test in the current group; f runs when the tests run.
+// Usually written with a block: t.test("name"){ ... }.
 func m.test(name, f){
   local parent = current
   parent:add_child(test.new(name, f))
 }
 
+// setup(f: function)
+// Registers f to run before each test and subgroup of the current group
+// (each subgroup once, not before each of its tests).
 func m.setup(f){
   append(current.setups, f)
 }
 
+// teardown(f: function)
+// Registers f to run after each test and subgroup of the current group,
+// whether it passed or not.
 func m.teardown(f){
   append(current.teardowns, f)
 }
 
-// run([{json, only}]) -> the number of tests that failed
+// run(opts?: Options) -> int
+// Runs the registered tests, prints the report (or JSON lines) and
+// returns the number of tests that failed.
 func m.run(opts){
   options = opts or {}
   if(not options.json){
@@ -211,8 +245,9 @@ func m.run(opts){
   return stats[1]
 }
 
-// run_cli(argv) -> whether a test failed: run with the options of `slang
-// test` (--json, --only path)
+// run_cli(argv: {string}) -> bool
+// [run] with the options of `slang test` read from argv (--json, --only
+// path; anything else is ignored); true when a test failed.
 func m.run_cli(argv){
   local opts = {}
   local i = 0

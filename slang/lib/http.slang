@@ -11,74 +11,28 @@
 //     async.await(s.done)
 //   })
 //
-// Requests. A handler receives {method, path, query, url, version, headers,
-// body} (header names lowercased; a repeated header joined with ", ",
-// cookie with "; "; query the raw text after `?`). The body is read whole
-// first, up to max_body bytes (413 beyond). When stream_body(req) says so
-// (it sees the request before its body), req.body is null and req.stream a
-// Stream of the body's chunks instead, for uploads; the handler should read
-// it to the end (what it leaves is discarded). Chunked request bodies are
-// de-chunked either way; Expect: 100-continue is answered.
+// A handler receives a [Request] and returns a string (200, text/plain), a
+// [Response] table or a Future of either (an async function works as a
+// handler); [serve] takes [ServeOptions]. The body is read whole first, up
+// to max_body bytes (413 beyond), unless stream_body asks for a Stream.
+// Chunked request bodies are de-chunked either way; Expect: 100-continue is
+// answered; HEAD requests get the headers alone. An error the handler
+// raises becomes a 500.
 //
-// Responses. A handler returns a string (200, text/plain), a response
-// table {status, headers, body}, or a Future of either (an async function
-// works as a handler). body is a string or a Stream of strings; a Stream is
-// sent chunked as it comes (unless the headers give a Content-Length). A
-// header whose value is a list is sent once per element (several
-// Set-Cookie); Date is added. Text-like bodies (text/*, JSON, JavaScript,
-// XML, SVG) of 1 KiB or more, and text-like Streams, are gzipped when the
-// client accepts gzip, unless the response sets Content-Encoding or
-// compress: false (or the server option compress is false). HEAD requests
-// get the headers alone.
+// A body that is a Stream is sent chunked as it comes (unless the headers
+// give a Content-Length). Text-like bodies (text/*, JSON, JavaScript, XML,
+// SVG) of 1 KiB or more, and text-like Streams, are gzipped when the client
+// accepts gzip, unless the response sets Content-Encoding or compress:
+// false (or the server option compress is false). Date is added.
 //
-// serve(host, port, handler, options) -> {server, port, done, close()};
-// options:
-//   max_head (64 KiB; 431 beyond), max_body (16 MiB; 413 beyond),
-//   stream_body(req) -> bool, compress (true),
-//   idle_timeout (5000 ms between requests on a kept-alive connection),
-//   request_timeout (30000 ms to receive a request; 408 after),
-//   on_error(req, err) (a handler raised; the client gets a 500),
-//   on_upgrade(req, conn, rest) (a request asked for another protocol,
-//     like WebSocket; it gets the connection and the bytes read past the
-//     head, and the server forgets the connection),
-//   tls (serve HTTPS: {cert, key} as PEM text, or {cert_file, key_file},
-//     or a context from slang/tls; req.secure is true then).
-// close() stops accepting; idle connections close at once, busy ones after
-// their response; done completes when the listener is closed.
+// The client side: [connect] gives an [HttpClient] for several requests on
+// one connection; [get] and [fetch] make one request each. Responses are
+// [ClientResponse]s. Clients say User-Agent: slang unless told otherwise,
+// ask for gzip and inflate it; chunked and connection-delimited responses
+// are read to their end.
 //
-// Client:
-//   http.connect(host, port, options) -> Future of a client;
-//     client:request(method, path, body, headers) -> Future of {status,
-//     reason, headers, body}, one at a time on the connection;
-//     client:close()
-//   http.get(host, port, path) -> Future of a response
-//   http.fetch(url, {method, headers, body, tls}) -> Future of a response
-//     to an http:// or https:// URL
-// options.tls makes a client talk HTTPS: true, or the options of
-// slang/tls's connect (ca to trust a server's own certificate, verify:
-// false, ...); fetch uses it for https:// URLs.
-// The client says User-Agent: slang unless told otherwise, asks for gzip
-// and inflates it (res.compressed says it was);
-// chunked and connection-delimited responses are read to their end.
-//
-// Multipart (form uploads):
-//   http.multipart_boundary(content_type) -> the boundary, or null
-//   http.multipart_parser(boundary) -> p; p:push(chunk) -> events
-//     {type: "part", name, filename, content_type, headers},
-//     {type: "data", data}, {type: "end_part"}, {type: "end"}; p:finish()
-//     raises when the body ended early
-//   http.multipart(req) -> list of {name, filename, content_type, headers,
-//     data} of a buffered body
-//
-// Cookies:
-//   http.cookies(req) -> {name: value} from the Cookie header
-//   http.set_cookie(res, name, value, options) adds a Set-Cookie header
-//   http.clear_cookie(res, name, options) tells the browser to drop it
-//   http.cookie(name, value, options) -> the Set-Cookie header value
-// options: path ("/"), domain, max_age (seconds), expires (seconds since
-// the epoch), http_only (true), secure, same_site ("Lax"; "Strict" or
-// "None"). Values must be cookie-safe (encode others first, for example
-// with slang/encoding's base64url_encode).
+// Also: multipart form bodies ([multipart], [multipart_parser]) and cookies
+// ([cookies], [set_cookie]).
 local async = require("slang/async")
 local str = require("slang/string")
 local time = require("slang/time")
@@ -110,6 +64,8 @@ local func tls_module(){
   return tls
 }
 
+// The reason phrase of each status code the server knows, like
+// status_text[404] == "Not Found".
 http.status_text = {
   [100]: "Continue",
   [101]: "Switching Protocols",
@@ -156,6 +112,20 @@ local func message_of(e){
 
 // ------------------------------------------------------------ requests
 
+// What a handler receives. Header names are lowercase; a repeated header
+// is joined with ", " (cookie with "; ").
+// type Request = {method: string, path: string, query?: string, url: string,
+//   version: string, headers: {[string]: string}, body?: string,
+//   stream?: async.Stream, content_length?: int, secure?: bool}
+// [path]: the URL up to `?`, not decoded
+// [query]: the raw text after `?`; null when there is none
+// [url]: the request target as sent
+// [version]: the HTTP version, like "1.1"
+// [body]: the whole body ("" when none); null when [stream] is set
+// [stream]: the body's chunks, when stream_body said so; read it to the end (the rest is discarded)
+// [content_length]: the Content-Length the client gave
+// [secure]: true on an HTTPS server
+
 // the request table for a head event
 local func request_of(head){
   local url = head.url
@@ -173,7 +143,9 @@ local func request_of(head){
   }
 }
 
-// parse_head(text) -> the request of a complete head (body ""), or null
+// parse_head(text: string) -> Request?
+// Parses the head of a request (up to the blank line): the [Request] with
+// body "", or null when the text is malformed or incomplete.
 func http.parse_head(text){
   local p = parser("request", null)
   for(let local e in values(p:execute(text))){
@@ -189,7 +161,18 @@ func http.parse_head(text){
 
 // ------------------------------------------------------------ responses
 
-// response(status, body, headers) -> a response table
+// What a handler returns (or a string, the body of a 200 text/plain
+// response). Fields left out default to status 200, Content-Type
+// text/plain; charset=utf-8 and an empty body.
+// type Response = {status?: int, headers?: {[string]: string | {string}},
+//   body?: string | async.Stream, compress?: bool}
+// [headers]: a list value sends the header once per element (Set-Cookie)
+// [body]: a Stream of strings is sent chunked as it comes
+// [compress]: false keeps the body from being gzipped
+
+// response(status: int, body?: string | async.Stream,
+//          headers?: {[string]: string | {string}}) -> Response
+// A [Response] table; body defaults to "" and headers to {}.
 func http.response(status, body, headers){
   return {status: status, body: body or "", headers: headers or {}}
 }
@@ -257,6 +240,8 @@ local func accepts_gzip(req){
   return false
 }
 
+// accepts_gzip(req: Request) -> bool
+// Whether the request's Accept-Encoding takes gzip (a q=0 turns it down).
 http.accepts_gzip = accepts_gzip
 
 local func should_gzip(req, res, options){
@@ -422,10 +407,18 @@ local func respond(handler, req, options){
   return normalize(r[1])
 }
 
+// normalize(res: string | Response) -> Response
+// What a handler returned as a full [Response]: status (200 by default),
+// headers (a copy, with Content-Type text/plain unless given), body (a
+// string or a Stream; other values are turned into strings) and compress.
+// Raises for anything but a string or a table.
 http.normalize = normalize
 
-// write_response(conn, req, res, options) -> Future: sends res on a raw
-// connection (one from on_upgrade, to refuse an upgrade) and closes it
+// write_response(conn, req: Request, res: string | Response,
+//                options?: ServeOptions) -> async.Future
+// Sends res on a raw connection and closes it: for a connection from
+// on_upgrade, to refuse the upgrade.
+// [options]: compress is the one that matters
 func http.write_response(conn, req, res, options){
   return async.run(func(){
     send(conn, req, normalize(res), false, options or {})
@@ -684,7 +677,39 @@ local func handle_connection(conn, handler, options, server){
   }
 }
 
-// serve(host, port, handler, options) -> {server, port, done, close()}
+// How a server behaves; every field is optional.
+// type ServeOptions = {max_head?: int, max_body?: int,
+//   stream_body?: func(req: Request): bool, compress?: bool,
+//   idle_timeout?: int, request_timeout?: int,
+//   on_error?: func(req: Request, err: any),
+//   on_upgrade?: func(req: Request, conn: any, rest: string), tls?: any,
+//   backlog?: int}
+// [max_head]: the most bytes of a request head (64 KiB; 431 beyond)
+// [max_body]: the most bytes of a body read whole (16 MiB; 413 beyond)
+// [stream_body]: sees the request before its body; true hands the body over as req.stream
+// [compress]: false gzips nothing (true by default)
+// [idle_timeout]: ms to wait for the next request on a kept-alive connection (5000)
+// [request_timeout]: ms to receive a request (30000; 408 after)
+// [on_error]: called when a handler raised; the client gets a 500
+// [on_upgrade]: gets a request for another protocol (WebSocket), the connection and the bytes read past the head; the server lets go of the connection
+// [tls]: serve HTTPS: {cert, key} as PEM text, {cert_file, key_file}, or a tls.context
+// [backlog]: pending connections the listener queues (128)
+
+// A running server.
+// type Server = {server: any, port: int, done: async.Future, close: func()}
+// [server]: the listening uv.tcp handle
+// [port]: the port it listens on (useful after port 0)
+// [done]: completes when the listener is closed
+// [close]: stops accepting; idle connections close at once, busy ones after their response
+
+// serve(host: string, port: int,
+//       handler: func(req: Request): string | Response | async.Future,
+//       options?: ServeOptions) -> Server
+// Serves HTTP (or HTTPS, with options.tls) on host:port until the
+// [Server] is closed. Each connection is handled in its own async function;
+// requests on one connection are answered in order. Raises when it cannot
+// bind.
+// [port]: 0 picks a free port; the [Server]'s port says which
 func http.serve(host, port, handler, options){
   options = options or {}
   local context = null
@@ -734,6 +759,9 @@ func http.serve(host, port, handler, options){
 
 // ------------------------------------------------------------ cookies
 
+// parse_cookies(header?: string) -> {[string]: string}
+// The cookies of a Cookie header value, by name; quotes around a value are
+// dropped, and of a repeated name the first wins. Not a string: {}.
 func http.parse_cookies(header){
   local out = {}
   if(type(header) != "string"){
@@ -757,6 +785,8 @@ func http.parse_cookies(header){
   return out
 }
 
+// cookies(req: Request) -> {[string]: string}
+// The request's cookies by name (parsed once, kept in req.cookies).
 func http.cookies(req){
   if(req.cookies == null){
     req.cookies = http.parse_cookies(req.headers["cookie"])
@@ -778,6 +808,22 @@ local func check_cookie_part(what, s){
   }
 }
 
+// How a cookie is set; every field is optional.
+// type CookieOptions = {path?: string, domain?: string, max_age?: int,
+//   expires?: int, http_only?: bool, secure?: bool, same_site?: string}
+// [path]: "/" by default
+// [max_age]: seconds until it expires
+// [expires]: when it expires, in seconds since the epoch
+// [http_only]: true by default: scripts cannot read it
+// [secure]: HTTPS only; set anyway when same_site is "None"
+// [same_site]: "Lax" (the default), "Strict" or "None"
+
+// cookie(name: string, value: string, options?: CookieOptions) -> string
+// The Set-Cookie header value for a cookie. Raises when the name is empty
+// or the name or value holds bytes a cookie cannot (spaces, quotes, commas,
+// semicolons, backslashes, control or non-ASCII bytes; = in the name):
+// encode such values first, for example with slang/encoding's
+// base64url_encode.
 func http.cookie(name, value, options){
   options = options or {}
   check_cookie_part("name", name)
@@ -819,10 +865,19 @@ local func add_header(res, name, value){
   return res
 }
 
+// set_cookie(res: Response, name: string, value: string,
+//            options?: CookieOptions) -> Response
+// Adds a Set-Cookie header for the cookie to res (keeping those already
+// there) and returns res. Raises as [cookie] does.
+//   return http.set_cookie({body: "hi"}, "theme", "dark", {max_age: 86400})
 func http.set_cookie(res, name, value, options){
   return add_header(res, "Set-Cookie", http.cookie(name, value, options))
 }
 
+// clear_cookie(res: Response, name: string,
+//              options?: CookieOptions) -> Response
+// Adds a Set-Cookie header that tells the browser to drop the cookie and
+// returns res. Give the path and domain it was set with.
 func http.clear_cookie(res, name, options){
   local o = {}
   for(let local e in entries(options or {})){
@@ -835,12 +890,24 @@ func http.clear_cookie(res, name, options){
 
 // ------------------------------------------------------------ client
 
+// A connection to an HTTP server, for requests one after another.
+// type HttpClient
 local client_methods = {}
 local client_meta = {__index: client_methods, __type: "HttpClient"}
 
-// connect(host, port, options) -> Future of a client; its request() sends
-// one request at a time on the connection and resolves to {status, reason,
-// headers, body}; options.tls for HTTPS
+// What a client request resolves to. Header names are lowercase.
+// type ClientResponse = {status: int, reason: string, version: string,
+//   headers: {[string]: string}, body: string, compressed?: string}
+// [body]: the whole body, inflated when the server gzipped it
+// [compressed]: "gzip" or "deflate" when the body came compressed
+
+// connect(host: string, port: int,
+//         options?: {tls?: bool | table}) -> async.Future
+// A Future of an [HttpClient] connected to host:port.
+// [options]: tls: true, or slang/tls's connect options (ca, verify, ...), makes it HTTPS
+//   local c = async.await(http.connect("example.com", 80))
+//   local res = async.await(c:request("GET", "/"))
+//   async.await(c:close())
 func http.connect(host, port, options){
   local secure = options != null and options.tls != null and
     options.tls != false
@@ -885,6 +952,16 @@ local func client_event(c){
   return ev
 }
 
+// request(method: string, path: string, body?: string,
+//         headers?: {[string]: string},
+//         options?: {raw?: bool, max_size?: int}) -> async.Future
+// Sends a request and gives a Future of its [ClientResponse]. Wait for one
+// to finish before the next. Host, Accept-Encoding: gzip, User-Agent:
+// slang and Content-Length (with a body) are added unless headers has
+// them. Fails when the connection closes early or the response is
+// malformed, and once the server closed the connection.
+// [path]: the request target, with the query
+// [options]: raw: true keeps a gzipped body as it came; max_size limits the inflated body (256 MiB)
 func client_methods.request(c, method, path, body, headers, options){
   options = options or {}
   return async.run(func(){
@@ -963,12 +1040,16 @@ func client_methods.request(c, method, path, body, headers, options){
   })
 }
 
+// close() -> async.Future
+// Closes the connection.
 func client_methods.close(c){
   c.closed = true
   return async.close(c.conn)
 }
 
-// get(host, port, path) -> Future of a response, on a connection of its own
+// get(host: string, port: int, path: string) -> async.Future
+// A GET request on a connection of its own: a Future of the
+// [ClientResponse]. Plain HTTP only; see [fetch] for HTTPS.
 func http.get(host, port, path){
   return async.run(func(){
     local c = async.await(http.connect(host, port))
@@ -978,8 +1059,19 @@ func http.get(host, port, path){
   })
 }
 
-// fetch(url, {method, headers, body, tls}) -> Future of a response: one
-// request to an http:// or https:// URL on a connection of its own
+// Options of [fetch]; every field is optional.
+// type FetchOptions = {method?: string, headers?: {[string]: string},
+//   body?: string, tls?: bool | table, raw?: bool, max_size?: int}
+// [method]: "GET" by default
+// [tls]: slang/tls's connect options for an https:// URL
+// [raw]: true keeps a gzipped body as it came
+// [max_size]: the most bytes of an inflated body (256 MiB)
+
+// fetch(url: string, options?: FetchOptions) -> async.Future
+// One request to an http:// or https:// URL, on a connection of its own:
+// a Future of the [ClientResponse]. Redirects are not followed.
+//   local res = async.await(http.fetch("https://example.com/"))
+//   print(res.status, " ", len(res.body), "\n")
 func http.fetch(url, options){
   options = options or {}
   return async.run(func(){
@@ -1018,7 +1110,8 @@ func http.fetch(url, options){
 
 // ------------------------------------------------------------ multipart
 
-// multipart_boundary(content_type) -> the boundary of a multipart type, or null
+// multipart_boundary(content_type?: string) -> string?
+// The boundary of a multipart/* Content-Type, or null for other types.
 func http.multipart_boundary(content_type){
   local t = content_type or ""
   if(not str.starts_with(str.lower(t), "multipart/")){
@@ -1081,9 +1174,32 @@ local func header_params(value){
   return out
 }
 
+// A multipart body parser fed chunk by chunk, for streamed uploads.
+// type MultipartParser
 local multipart_methods = {}
 local multipart_meta = {__index: multipart_methods, __type: "MultipartParser"}
 
+// What [MultipartParser.push] gives, in order: a part's head, its data in
+// pieces, its end; after the last part, the end.
+// type MultipartEvent = {type: string, name?: string, filename?: string,
+//   content_type?: string, headers?: {[string]: string}, data?: string}
+// [type]: "part", "data", "end_part" or "end"
+// [name]: of a "part": the form field's name
+// [filename]: of a "part": the file name a file field gives
+// [content_type]: of a "part": text/plain when the part does not say
+// [headers]: of a "part": its headers, names lowercase
+// [data]: of a "data": a piece of the part's body
+
+// multipart_parser(boundary: string) -> MultipartParser
+// A parser for a multipart body with the boundary (see
+// [multipart_boundary]). Raises when the boundary is empty.
+//   local p = http.multipart_parser(http.multipart_boundary(req.headers["content-type"]))
+//   for(true){
+//     local e = async.await(req.stream:next())
+//     if(e.done){ break }
+//     for(let local ev in values(p:push(e.value))){ ... }
+//   }
+//   p:finish()
 func http.multipart_parser(boundary){
   if(boundary == null or boundary == ""){
     error("http: a multipart body needs a boundary")
@@ -1095,7 +1211,10 @@ func http.multipart_parser(boundary){
   }
 }
 
-// push(chunk) -> the events the chunk completes
+// push(chunk: string) -> {MultipartEvent}
+// Feeds the next chunk of the body; gives the events it completes (data is
+// held back while it could be the start of a boundary). Raises when the
+// body is malformed or a part's head is over 16 KiB.
 func multipart_methods.push(p, chunk){
   local events = {}
   p.buffer = concat(p.buffer, chunk)
@@ -1186,6 +1305,9 @@ func multipart_methods.push(p, chunk){
   return events
 }
 
+// finish() -> {}
+// Says the body has ended; raises when it ended before the closing
+// boundary.
 func multipart_methods.finish(p){
   if(p.state != "done"){
     error("http: the multipart body ended early")
@@ -1193,11 +1315,22 @@ func multipart_methods.finish(p){
   return {}
 }
 
+// is_done() -> bool
+// Whether the closing boundary has been seen.
 func multipart_methods.is_done(p){
   return p.state == "done"
 }
 
-// multipart(req) -> the parts of a buffered multipart body
+// A part of a multipart body.
+// type Part = {name?: string, filename?: string, content_type: string,
+//   headers: {[string]: string}, data: string}
+// [filename]: given for a file field
+// [content_type]: text/plain when the part does not say
+
+// multipart(req: Request) -> {Part}
+// The parts of a request's multipart body, read whole. Raises when the
+// request is not multipart or the body is malformed. For a streamed body
+// use [multipart_parser].
 func http.multipart(req){
   local boundary = http.multipart_boundary(req.headers["content-type"])
   if(boundary == null){

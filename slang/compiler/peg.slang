@@ -1,24 +1,88 @@
-// slang/peg: parser combinators in the style of petitparser.
+// slang/peg: parser combinators in the style of petitparser (PEG: ordered
+// choice, no ambiguity), the expression walker extensions add operators
+// with, and the lossless tree that highlighting and formatting read.
+// Grammar extensions build their syntax with it (see slang/grammar).
 //
-// A parser is a table with a `parse_on` function:
+//   local peg = require("slang/peg")
+//   local number = peg.digit():plus():flatten():trim():map(to_int)
+//   local numbers = number:star_separated(peg.char(",")):map(func(r){
+//     return r.elements
+//   })
+//   numbers:end():parse("1, 2 ,3")      // {"ok", {1, 2, 3}}
+//   numbers:end():parse("1, x")         // {"error", "end of input expected at 1:2"}
+//
+// Every combinator is a function of peg and a method of [Parser]:
+// `peg.star(p)` is `p:star()`. A parser matches at a position and produces
+// a value: a primitive its text, [seq] the list of its children's values,
+// [map] what its function returns, and so on. Strings are not parsers:
+// write peg.string("if"), not "if". A parser is also a matcher in
+// patterns: `let 'numbers as local xs = "7,8"` parses the whole string
+// and matches the value.
+//
+// Under the methods, a parser is a table with a `parse_on` function:
 //   parser:parse_on(ctx, pos) -> new position, or -1 on failure
 // On success the parsed value is left in ctx.value. On failure the message and
 // position are recorded in ctx.fail_msg / ctx.fail_pos (the last failure wins,
-// like petitparser's choice), and the farthest failure in ctx.far_*.
+// like petitparser's choice), and the farthest failure in ctx.far_* (see
+// [Context]). [custom] makes a parser from such a function.
 //
 // A parser can also build the lossless tree of what it parsed:
 // peg.parse_tree(parser, ctx, pos) parses like parse_on and leaves the node
-// of the parser in ctx.tree, a table {p, start, stop, kids} where p is the
-// parser (or walker entry) and kids its children in source order. A node
-// without kids is a leaf and stands for the text it spans. Every character a
-// parse consumes is covered by exactly one leaf, so joining the leaves gives
-// back the input (peg.text). Parsing for a tree is a separate path (see "the
-// lossless tree" below), so a parse without one costs nothing extra; a
-// parser that has no tree path of its own becomes a leaf.
+// of the parser in ctx.tree (a [Tree]). A node without kids is a leaf and
+// stands for the text it spans. Every character a parse consumes is covered
+// by exactly one leaf, so joining the leaves gives back the input
+// ([text]). Parsing for a tree is a separate path (see "the lossless tree"
+// below), so a parse without one costs nothing extra; a parser that has no
+// tree path of its own becomes a leaf. [run] with {tree: true} returns one;
+// [evaluate] computes values from it in layers, [highlights] the
+// highlighter's spans.
+
+// The state of one parse, passed to every parse_on. Custom parsers read the
+// input from it and leave their value in it.
+// type Context = {buffer: string, len: int, value: any, fail_pos: int,
+//   fail_msg?: string, far_pos: int, far_msg?: string, tree?: Tree,
+//   tree_on: bool}
+// [buffer]: the input
+// [len]: the length of the input in bytes
+// [value]: the value of the parser that succeeded last
+// [fail_pos]: where the last failure happened (-1: none yet)
+// [fail_msg]: what the last failure expected
+// [far_pos]: the farthest position a failure happened at
+// [far_msg]: the message of the farthest failure
+// [tree]: the node a tree path left (see [parse_tree])
+// [tree_on]: whether this parse builds a tree
+
+// A node of the lossless tree: what parser p matched from start to stop
+// (byte offsets, stop exclusive).
+// type Tree = {p: any, start: int, stop: int, kids?: {Tree}, value?: any}
+// [p]: the parser, or the walker entry of an operator application
+// [kids]: the children in source order; null for a leaf (it stands for its text)
+// [value]: the value the parser produced (the default layer)
+
+// A token: what [token] produces. line and column (1-based) are computed
+// when first read.
+// type Token = {value: any, start: int, stop: int, line: int, column: int,
+//   category?: string}
+// [value]: the value of the parser inside (for a string or flatten, the text)
+// [category]: what a highlighter shows it as
+
+// What [run] returns.
+// type Result = {ok: bool, value?: any, position: int, tree?: Tree,
+//   message?: string, line?: int, column?: int, far_message?: string,
+//   far_line?: int, far_column?: int}
+// [position]: where the parse stopped; on failure, where it failed
+// [tree]: the lossless tree, with {tree: true}
+// [message]: on failure, what was expected (the last failure)
+// [far_message]: on failure, the farthest failure, often the better message
 
 local str = require("slang/string")
 
 local peg = {}
+// A parser. Every combinator of the module is also one of its methods, with
+// the parser as its first argument: `p:map(f)` is `peg.map(p, f)`. Its
+// fields: parse_on(self, ctx, pos) and fast(self, ctx, pos) (the same
+// parse without building values), kind (the combinator's name), children.
+// type Parser
 local methods = {}
 local parser_meta = {__index: methods, __type: "parser"}
 
@@ -71,9 +135,11 @@ local func leaf(p, start, stop){
   return {p: p, start: start, stop: stop}
 }
 
-// node(p, start, stop, kids) / leaf(p, start, stop): tree nodes, for the tree
-// paths of custom parsers (see peg.custom)
+// node(p, start: int, stop: int, kids: {Tree}) -> Tree
+// A tree node, for the tree paths of custom parsers (see [custom]).
 peg.node = node
+// leaf(p, start: int, stop: int) -> Tree
+// A leaf of the tree (no kids), for the tree paths of custom parsers.
 peg.leaf = leaf
 
 // the tree paths by parser kind, filled in "the lossless tree" below
@@ -178,13 +244,19 @@ local func tparse(p, ctx, pos){
   return q
 }
 
-// parse_tree(parser, ctx, pos) -> pos | -1: parse_on, also leaving the node
-// of parser in ctx.tree
+// parse_tree(parser: Parser, ctx: Context, pos: int) -> int
+// Parses like parser:parse_on(ctx, pos) (the new position, or -1) and also
+// leaves the node of parser in ctx.tree, with its value in node.value. For
+// the tree paths of custom parsers; [run] with {tree: true} does it for a
+// whole input.
 peg.parse_tree = tparse
 
-// collect(ctx, pos, tree_path) -> pos | -1, for code that runs inside a
-// parser without a tree path while ctx.collect is set (see weave): parses
-// with tree_path(ctx, pos) and puts the tree in the list
+// collect(ctx: Context, pos: int,
+//   tree_path: func(ctx: Context, pos: int): int) -> int
+// For code that runs inside a parser without a tree path while ctx.collect
+// is set: parses with tree_path(ctx, pos) and adds the tree it left to the
+// trees the enclosing node is woven from. Returns the new position or -1.
+// [sub] is the usual way in.
 func peg.collect(ctx, pos, tree_path){
   local list = ctx.collect
   ctx.collect = null
@@ -196,10 +268,10 @@ func peg.collect(ctx, pos, tree_path){
   return q
 }
 
-// sub(parser, ctx, pos) -> pos | -1: parser:parse_on(ctx, pos), for a custom
-// parser that parses others itself. When a tree is being built, their tree
-// becomes part of the custom parser's node (highlighting and formatting see
-// inside it).
+// sub(parser: Parser, ctx: Context, pos: int) -> int
+// parser:parse_on(ctx, pos), for a custom parser that parses others itself.
+// When a tree is being built, their tree becomes part of the custom
+// parser's node (highlighting and formatting see inside it).
 func peg.sub(parser, ctx, pos){
   if(ctx.collect != null){
     return peg.collect(ctx, pos, func(c, at){ return tparse(parser, c, at) })
@@ -207,8 +279,9 @@ func peg.sub(parser, ctx, pos){
   return parser:parse_on(ctx, pos)
 }
 
-// context(buffer, {tree}) -> a parse context; tree marks a context parsed
-// with parse_tree
+// context(buffer: string, options?: {tree?: bool}) -> Context
+// A fresh parse context for buffer; tree marks a context parsed with
+// [parse_tree]. [run] and [parse] make their own.
 func peg.context(buffer, options){
   local tree_on = false
   if(options != null){
@@ -228,7 +301,8 @@ func peg.context(buffer, options){
   }
 }
 
-// line_col(ctx, pos) -> {line, column} (1-based)
+// line_col(ctx: Context, pos: int) -> {int}
+// {line, column} of a byte offset, both 1-based.
 func peg.line_col(ctx, pos){
   return str.line_col(ctx.buffer, pos)
 }
@@ -247,23 +321,28 @@ local token_meta = {
   },
 }
 
-// the metatable of tokens, for parsers that make their own (a token
-// {value, start, stop, buffer} with it gets line and column on demand)
+// The metatable of tokens, for parsers that make their own: a table
+// {value, start, stop, buffer} with it gets line and column on demand.
 peg.token_meta = token_meta
 
-// make_token(ctx, value, start, stop) -> {value, start, stop, line, column}
+// make_token(ctx: Context, value, start: int, stop: int) -> Token
+// A token for ctx's input, without a category.
 func peg.make_token(ctx, value, start, stop){
   return {
     value: value, start: start, stop: stop, buffer: ctx.buffer, meta: token_meta
   }
 }
 
+// is_parser(value) -> bool
 func peg.is_parser(value){
   return type(value) == "parser"
 }
 
 // ---------------------------------------------------------------- primitives
 
+// string(s: string, message?: string) -> Parser
+// Matches s exactly; its value is s.
+// [message]: the failure message, `"s" expected` by default
 func peg.string(s, message){
   local msg = message or concat("\"", s, "\" expected")
   local n = len(s)
@@ -285,10 +364,17 @@ func peg.string(s, message){
   return p
 }
 
+// char(c: string, message?: string) -> Parser
+// The same as [string]; c is usually one character.
 func peg.char(c, message){
   return peg.string(c, message or concat("\"", c, "\" expected"))
 }
 
+// pattern(spec: string, message?: string) -> Parser
+// One character of a class (see slang/string's char_class): single
+// characters and ranges, negated by a leading `^`. Its value is the
+// character. [star] and [plus] of a pattern run natively.
+//   peg.pattern("a-zA-Z_")
 func peg.pattern(spec, message){
   local cls = str.char_class(spec)
   local msg = message or concat("[", spec, "] expected")
@@ -316,6 +402,8 @@ func peg.pattern(spec, message){
   return p
 }
 
+// any(message?: string) -> Parser
+// Any one character (a UTF-8 sequence); fails only at the end of the input.
 func peg.any(message){
   local msg = message or "input expected"
   return new_parser(
@@ -339,18 +427,24 @@ func peg.any(message){
   )
 }
 
+// digit(message?: string) -> Parser: one character 0-9
 func peg.digit(message){
   return peg.pattern("0-9", message or "digit expected")
 }
 
+// letter(message?: string) -> Parser: one character a-z or A-Z
 func peg.letter(message){
   return peg.pattern("a-zA-Z", message or "letter expected")
 }
 
+// word(message?: string) -> Parser
+// One letter, digit or underscore (not a whole word: use [plus]).
 func peg.word(message){
   return peg.pattern("a-zA-Z0-9_", message or "letter or digit expected")
 }
 
+// whitespace(message?: string) -> Parser
+// One whitespace character; the default trimmer of [trim].
 func peg.whitespace(message){
   local msg = message or "whitespace expected"
   return new_parser(
@@ -374,6 +468,8 @@ func peg.whitespace(message){
   )
 }
 
+// end_of_input(message?: string) -> Parser
+// Succeeds, with value null, only at the end of the input.
 func peg.end_of_input(message){
   local msg = message or "end of input expected"
   return new_parser(func(self, ctx, pos){
@@ -385,6 +481,8 @@ func peg.end_of_input(message){
   }, null, "end")
 }
 
+// epsilon(value?) -> Parser
+// Always succeeds without consuming anything; its value is value.
 func peg.epsilon(value){
   return new_parser(func(self, ctx, pos){
     ctx.value = value
@@ -392,6 +490,7 @@ func peg.epsilon(value){
   }, null, "epsilon")
 }
 
+// failure(message: string) -> Parser: always fails with message
 func peg.failure(message){
   return new_parser(func(self, ctx, pos){
     return fail(ctx, pos, message)
@@ -464,22 +563,35 @@ local func seq_list(parsers){
   )
 }
 
+// seq(...parsers: Parser) -> Parser
+// Each parser in turn; fails if any fails. Its value is the list of their
+// values (a new list on every parse).
 func peg.seq(...parsers){
   return seq_list(parsers)
 }
 
+// choice(...parsers: Parser) -> Parser
+// The first parser that succeeds (ordered choice: once one matched, the
+// others are not tried, even when what follows fails). Its value is that
+// parser's.
 func peg.choice(...parsers){
   return choice_list(parsers)
 }
 
+// seq_list(parsers: {Parser}) -> Parser: [seq] of a list
 func peg.seq_list(parsers){
   return seq_list(parsers)
 }
 
+// choice_list(parsers: {Parser}) -> Parser: [choice] of a list
 func peg.choice_list(parsers){
   return choice_list(parsers)
 }
 
+// star(child: Parser) -> Parser
+// child zero or more times, as often as it matches (greedy, no
+// backtracking); its value is the list of child's values. A match that
+// consumes nothing ends the repetition.
 func peg.star(child){
   local fast
   if(child.kind == "pattern"){
@@ -514,6 +626,8 @@ func peg.star(child){
   }, {child}, "star", fast)
 }
 
+// plus(child: Parser) -> Parser
+// child one or more times; otherwise as [star].
 func peg.plus(child){
   local fast
   if(child.kind == "pattern"){
@@ -564,6 +678,9 @@ func peg.plus(child){
   }, {child}, "plus", fast)
 }
 
+// optional(child: Parser, default_value?) -> Parser
+// child, or nothing: when child fails it succeeds without consuming, with
+// default_value (null by default) as its value.
 func peg.optional(child, default_value){
   local p = new_parser(
     func(self, ctx, pos){
@@ -588,7 +705,11 @@ func peg.optional(child, default_value){
   return p
 }
 
-// child repeated lazily until limit matches (limit is not consumed)
+// star_lazy(child: Parser, limit: Parser) -> Parser
+// child repeated until limit matches; limit is tried first at every
+// position and is not consumed. Fails when child fails before limit
+// matched. Its value is the list of child's values.
+//   peg.any():star_lazy(peg.string("*/")):flatten()   // a comment's text
 func peg.star_lazy(child, limit){
   return new_parser(
     func(self, ctx, pos){
@@ -658,15 +779,29 @@ local func separated(child, separator, at_least_one){
   return p
 }
 
+// The value of [star_separated] and [plus_separated].
+// type Separated = {elements: {any}, separators: {any}}
+// [elements]: the values of the elements
+// [separators]: the values of the separators between them
+
+// star_separated(child: Parser, separator: Parser) -> Parser
+// Zero or more child separated by separator; a separator is only consumed
+// when an element follows it. Its value is a [Separated].
+//   peg.digit():star_separated(peg.char(","))   // "1,2,3"
 func peg.star_separated(child, separator){
   return separated(child, separator, false)
 }
 
+// plus_separated(child: Parser, separator: Parser) -> Parser
+// One or more child separated by separator; otherwise as [star_separated].
 func peg.plus_separated(child, separator){
   return separated(child, separator, true)
 }
 
-// succeeds (with value null) only if child fails; consumes nothing
+// forbid(child: Parser, message?: string) -> Parser
+// Negative lookahead: succeeds, with value null, only where child fails;
+// consumes nothing.
+// [message]: the failure where child matches, "success not expected" by default
 func peg.forbid(child, message){
   local msg = message or "success not expected"
   return new_parser(
@@ -688,7 +823,9 @@ func peg.forbid(child, message){
   )
 }
 
-// lookahead: succeeds if child succeeds, consumes nothing
+// and(child: Parser) -> Parser
+// Lookahead: succeeds, with value null, where child succeeds; consumes
+// nothing.
 func peg.and(child){
   return new_parser(
     func(self, ctx, pos){
@@ -709,7 +846,9 @@ func peg.and(child){
   )
 }
 
-// any single character that child does not match
+// neg(child: Parser, message?: string) -> Parser
+// Any one character where child does not match; its value is the character.
+//   peg.char("\""):neg():star()   // the inside of a string
 func peg.neg(child, message){
   local msg = message or "input not expected"
   return new_parser(
@@ -739,6 +878,10 @@ func peg.neg(child, message){
   )
 }
 
+// pick(child: Parser, index: int) -> Parser
+// child (whose value is a list, as a [seq]'s) with the element at index as
+// its value; a negative index counts from the end.
+//   peg.seq(open, body, close):pick(1)
 func peg.pick(child, index){
   local p = new_parser(
     func(self, ctx, pos){
@@ -764,6 +907,9 @@ func peg.pick(child, index){
   return p
 }
 
+// permute(child: Parser, ...indices: int) -> Parser
+// child (whose value is a list) with a list of the elements at indices as
+// its value; negative indices count from the end.
 func peg.permute(child, ...indices){
   local n = len(indices)
   local p = new_parser(
@@ -795,6 +941,11 @@ func peg.permute(child, ...indices){
   return p
 }
 
+// map(child: Parser, f: func(value): any) -> Parser
+// child with f(value) as its value. f runs on every match, also of
+// alternatives that are later backtracked over, so it should not have
+// effects; a memoized parser shares one result, so f must not change its
+// input either.
 func peg.map(child, f){
   local p = new_parser(func(self, ctx, pos){
     local q = child:parse_on(ctx, pos)
@@ -808,8 +959,10 @@ func peg.map(child, f){
   return p
 }
 
-// replaces the value by the consumed input (the child is parsed without
-// building values)
+// flatten(child: Parser, message?: string) -> Parser
+// child with the text it consumed as its value. child is parsed without
+// building values where that can be skipped ([map] and [where] still run).
+// [message]: replaces child's failure message
 func peg.flatten(child, message){
   return new_parser(
     func(self, ctx, pos){
@@ -835,10 +988,11 @@ func peg.flatten(child, message){
   )
 }
 
-// token(child, category): the consumed input as a token {value, start, stop,
-// line, column, category}; the category is what a highlighter shows (see
-// peg.highlights). It may be a function of the child's value returning the
-// category or null (a word that is a keyword only in some cases).
+// token(child: Parser, category?: string | func(value): string?) -> Parser
+// child with a [Token] of what it consumed as its value (its value
+// inside). The category is what a highlighter shows (see [highlights]); it
+// may be a function of child's value returning the category or null (a
+// word that is a keyword only in some cases).
 func peg.token(child, category){
   local static = null
   if(type(category) == "string"){
@@ -913,6 +1067,12 @@ local func consume(trimmer, ctx, pos){
   return pos
 }
 
+// trim(child: Parser, before?: Parser, after?: Parser) -> Parser
+// child with whatever before matches skipped in front of it and whatever
+// after matches skipped behind it; each trimmer is applied as often as it
+// matches. Its value is child's.
+// [before]: [whitespace] by default
+// [after]: before by default
 func peg.trim(child, before, after){
   before = before or default_trimmer
   after = after or before
@@ -941,6 +1101,11 @@ func peg.trim(child, before, after){
   )
 }
 
+// where(child: Parser, predicate: func(value): bool,
+//   message?: string) -> Parser
+// child, but only where predicate(value) is true; otherwise it fails at
+// child's start with message ("unexpected value" by default).
+//   ident:where(func(t){ return t.value != "end" })
 func peg.where(child, predicate, message){
   local msg = message or "unexpected value"
   local p = new_parser(func(self, ctx, pos){
@@ -958,16 +1123,26 @@ func peg.where(child, predicate, message){
   return p
 }
 
+// end(child: Parser, message?: string) -> Parser
+// child followed by the end of the input; its value is child's.
+// [message]: the failure when input is left, "end of input expected" by default
 func peg.end(child, message){
   return peg.pick(peg.seq(child, peg.end_of_input(message)), 0)
 }
 
+// labeled(child: Parser, label) -> Parser
+// Sets child.label to label, in place, and returns child.
 func peg.labeled(child, label){
   child.label = label
   return child
 }
 
-// a parser whose target can be replaced later
+// settable(target?: Parser) -> Parser
+// A parser that parses with target, which [Parser.set] replaces later: for
+// a grammar whose parts refer to each other.
+//   local expr = peg.settable()
+//   local group = peg.seq(peg.char("("), expr, peg.char(")"))
+//   expr:set(peg.choice(group, peg.digit()))
 func peg.settable(target){
   local p = new_parser(
     func(self, ctx, pos){
@@ -984,6 +1159,7 @@ func peg.settable(target){
   return p
 }
 
+// set(target: Parser): the parser a [settable] parses with from now on
 func methods.set(self, target){
   self.target = target
 }
@@ -1026,6 +1202,14 @@ local func resolve_ref(f, args){
   return target
 }
 
+// ref(f: func(...args): Parser, ...args) -> Parser
+// A lazy parser: the first time it is used (or [resolve]d) it calls
+// f(...args), at most four arguments, and parses with the result. Calls
+// with the same f and arguments share one target, so a grammar written as
+// functions that refer to each other forms a finite graph.
+//   local func list(){
+//     return peg.seq(peg.char("("), peg.ref(list):star(), peg.char(")"))
+//   }
 func peg.ref(f, ...args){
   if(type(f) != "function"){
     error("ref expects a function, got ", type(f))
@@ -1055,8 +1239,9 @@ func peg.ref(f, ...args){
   return p
 }
 
-// resolve(parser): eagerly resolves every reference reachable from parser
-// (grammar functions run now, so keywords they register take effect now).
+// resolve(parser: Parser) -> Parser
+// Resolves every [ref] reachable from parser now and returns parser: the
+// functions behind them run now, so keywords they register take effect now.
 func peg.resolve(parser){
   local seen = {}
   local stack = {parser}
@@ -1078,27 +1263,44 @@ func peg.resolve(parser){
   return parser
 }
 
-// custom(parse_on, parse_tree): a parser from a raw parse function
-// (self, ctx, pos) -> pos | -1. In a tree it is a leaf of what it consumed,
-// unless parse_tree (same signature) parses and leaves its node in ctx.tree.
+// custom(parse_on: func(self: Parser, ctx: Context, pos: int): int,
+//   parse_tree?: func(self: Parser, ctx: Context, pos: int): int) -> Parser
+// A parser from a raw parse function, which returns the new position and
+// leaves its value in ctx.value, or returns [fail]. In a tree it is a leaf
+// of what it consumed (with the trees of the parsers it ran through [sub]
+// woven in), unless parse_tree parses and leaves its node in ctx.tree.
+//   local upper = peg.custom(func(self, ctx, pos){
+//     local b = str.byte_at(ctx.buffer, pos)
+//     if(b != null and b >= 65 and b <= 90){
+//       ctx.value = str.chr(b)
+//       return pos + 1
+//     }
+//     return peg.fail(ctx, pos, "capital expected")
+//   })
 func peg.custom(parse_on, parse_tree){
   local p = new_parser(parse_on)
   p.parse_tree = parse_tree
   return p
 }
 
-// fail(ctx, pos, message): record a failure and return -1 (for custom parsers)
+// fail(ctx: Context, pos: int, message: string) -> int
+// Records a failure at pos and returns -1, for custom parsers.
 func peg.fail(ctx, pos, message){
   return fail(ctx, pos, message)
 }
 
+// reset_refs()
+// Forgets the targets [ref] has made, so new references call their
+// functions again; references that were already resolved keep theirs.
 func peg.reset_refs(){
   ref_cache = {}
 }
 
 // --------------------------------------------------------------------- running
 
-// parse(parser, input) -> {"ok", value} | {"error", "message at line:column"}
+// parse(parser: Parser, input: string) -> {any}
+// Parses input from its start: {"ok", value} or {"error", message}. It need not consume all of it: use [end].
+// The error is "message at line:column", for the last failure.
 func peg.parse(parser, input){
   local ctx = peg.context(input)
   local pos = parser:parse_on(ctx, 0)
@@ -1109,9 +1311,9 @@ func peg.parse(parser, input){
   return {"error", concat(ctx.fail_msg, " at ", lc[0], ":", lc[1])}
 }
 
-// run(parser, input, {tree}) -> {ok: bool, value, position, tree, message,
-// line, column, far_message, far_line, far_column}; tree (the lossless tree,
-// see parse_tree) only with {tree: true}
+// run(parser: Parser, input: string, options?: {tree?: bool}) -> Result
+// Parses input from its start, as [parse] does, with the details of the
+// result or failure. With {tree: true} the result has the lossless tree.
 func peg.run(parser, input, options){
   local ctx = peg.context(input, options)
   local pos
@@ -1148,7 +1350,7 @@ func peg.run(parser, input, options){
 // them as numbers. See peg.walker below, after the first-byte analysis the
 // walker's dispatch tables are built with.
 
-// --- first-byte analysis: {first: set of bytes | null (unknown), nullable: bool}
+// first-byte analysis: {first: set of bytes | null (unknown), nullable: bool}
 
 local UNKNOWN = {nullable: true}
 
@@ -1279,10 +1481,13 @@ local func info_of(p, memo, visiting){
   return r
 }
 
-// tag(child, category): parses child; its span is highlighted again under
-// category (it wins over the tokens inside), so an extension can colour what
-// a rule produced (an identifier as a function being declared, say) without
-// changing the value (see peg.highlights)
+// ------------------------------------------------------------- tags
+
+// tag(child: Parser, category: string) -> Parser
+// Parses child; its span is highlighted again under category (it wins over
+// the tokens inside), so an extension can colour what a rule produced (an
+// identifier as a function being declared, say) without changing the value
+// (see [highlights]).
 func peg.tag(child, category){
   local p = new_parser(
     func(self, ctx, pos){
@@ -1307,8 +1512,10 @@ func peg.tag(child, category){
 // of the rule twice. Results live in ctx.rule_memo per position; a cached
 // result is shared, so parser actions must not mutate their inputs.
 
-// memoize(p): makes p remember its results, in place (every grammar sharing
-// the parser sees it)
+// memoize(p: Parser) -> Parser
+// Makes p remember its result per position in ctx.rule_memo, in place
+// (every grammar sharing the parser sees it), and returns p. A grammar
+// places these itself (see [place_memos]).
 func peg.memoize(p){
   if(p.memoized){
     return p
@@ -1461,10 +1668,11 @@ local func leading_set(p, cache, visiting, memo){
   return out
 }
 
-// place_memos(roots, named) -> list of {parser, name}: memoizes every parser
-// in `named` (parser -> name: the rules and the parsers they were modified
-// from) that leads more than one alternative of a choice or dispatch
-// reachable from roots
+// place_memos(roots: {Parser},
+//   named: {[Parser]: string}) -> {{parser: Parser, name: string}}
+// Memoizes every parser in named (the rules of a grammar and the parsers
+// they were modified from, by name) that leads more than one alternative
+// of a choice or dispatch reachable from roots; returns what it memoized.
 func peg.place_memos(roots, named){
   local placed = {}
   local placed_set = {}
@@ -1545,8 +1753,9 @@ func peg.place_memos(roots, named){
   return placed
 }
 
-// skip_space(ctx, pos) -> pos: skips slang whitespace and comments (the skip
-// function of a walker or dispatch when the trivia rule is the default)
+// skip_space(ctx: Context, pos: int) -> int
+// The position after the slang whitespace and `//` comments at pos: the
+// skip function of a walker or dispatch for slang's own trivia.
 func peg.skip_space(ctx, pos){
   return str.skip_space(ctx.buffer, pos)
 }
@@ -1671,11 +1880,14 @@ local func try_ops(d, ctx, pos){
   return null
 }
 
-// dispatch(parsers, skip, message): an ordered choice over parsers that only
-// tries, in order, the alternatives whose first byte (after skip(ctx, pos),
-// when given) can match. When no alternative can match, message (if given) is recorded
-// as the failure. The tables are built now, from the current resolution of
-// every rule reference, so a dispatch belongs to one sealed grammar.
+// dispatch(parsers: {Parser}, skip?: func(ctx: Context, pos: int): int,
+//   message?: string) -> Parser
+// An ordered choice over parsers that only tries, in order, the
+// alternatives whose first byte (after skip(ctx, pos)) can match; without
+// skip it tries them all. When no alternative can match, message (if
+// given) is recorded as the failure. The tables are built now, from the
+// current resolution of every rule reference, so a dispatch belongs to one
+// sealed grammar.
 func peg.dispatch(parsers, skip, message){
   local entries = {}
   for(let local p in values(parsers)){
@@ -1754,15 +1966,41 @@ local func candidates(d, ctx, pos){
 // backtracking point: when the operand of the first matching operator fails,
 // the other operators of that binding power are not tried, looser ones are.
 //
-// build() returns the expression parser (kind "expression"); w.loopback is
-// a settable that parses a whole expression, for operators that embed one
-// (`a[expr]`). The walker is itself usable as a parser after build().
+// build() returns the expression parser (kind "expression"), also kept in
+// w.parser; w.loopback is a settable that parses a whole expression, for
+// operators that embed one (`a[expr]`).
 
+// Where a level or primary goes among the others (by name or alias).
+// type Placement = {after?: string, before?: string, at?: int,
+//   aliases?: {string}}
+// [after]: just after this one (for levels: looser than it)
+// [before]: just before this one (for levels: tighter than it)
+// [at]: at this index of the list (0: first, the tightest level)
+// [aliases]: other names the new entry goes by
+
+// An expression walker (see [walker]): a Pratt parser for operators and
+// primaries, registered by level.
+// type Walker
 local walker_methods = {}
 local walker_meta = {__index: walker_methods, __type: "walker"}
+// A precedence level of a [Walker]: the walker's operator registration
+// without naming the level. Each method returns the level.
+// type Level
 local level_methods = {}
 local level_meta = {__index: level_methods, __type: "expression_level"}
 
+// walker(skip?: func(ctx: Context, pos: int): int) -> Walker
+// A new, empty expression walker. skip finds the next byte that matters
+// (usually [skip_space]); with it the walker dispatches on first bytes.
+// Register levels (tightest first), operators and primaries, then
+// [Walker.build] the parser.
+//   local w = peg.walker(peg.skip_space)
+//   local num = peg.digit():plus():flatten():trim():map(to_int)
+//   local func op(s){ return peg.string(s):trim() }
+//   w:primary(num)
+//   w:level("product"):left(op("*"), func(a, o, b){ return a * b })
+//   w:level("sum"):left(op("+"), func(a, o, b){ return a + b })
+//   w:build():end():parse("1 + 2 * 3")       // {"ok", 7}
 func peg.walker(skip){
   local w = {
     skip: skip, levels: {}, primaries: {}, nuds: {}, leds: {},
@@ -1870,6 +2108,11 @@ local func resolve_level(w, level){
   return w.levels[i]
 }
 
+// level(name?: string, placement?: Placement) -> Level
+// A new precedence level. Levels form a total order, tightest first;
+// without a placement the level is looser than all so far. A level of a
+// name already in use replaces that level. Raises when a placement names a
+// level that does not exist.
 func walker_methods.level(self, name, placement){
   placement = placement or {}
   local l = new_level(self, name, placement.aliases)
@@ -1878,6 +2121,9 @@ func walker_methods.level(self, name, placement){
   return l
 }
 
+// primary(parser: Parser, name?: string, placement?: Placement) -> Walker
+// Adds a primary expression (what an operand can be). Primaries are tried
+// in order, after every prefix operator and wrapper.
 func walker_methods.primary(self, parser, name, placement){
   placement = placement or {}
   local entry = {parser: parser, name: name, aliases: placement.aliases or {}}
@@ -1886,8 +2132,7 @@ func walker_methods.primary(self, parser, name, placement){
   return self
 }
 
-// level_names() -> the level names, tightest first; primary_names() -> the
-// names of the primaries
+// level_names() -> {string?}: the level names, tightest first
 func walker_methods.level_names(self){
   local out = {}
   for(let local l in values(self.levels)){
@@ -1896,6 +2141,7 @@ func walker_methods.level_names(self){
   return out
 }
 
+// primary_names() -> {string?}: the names of the primaries, in order
 func walker_methods.primary_names(self){
   local out = {}
   for(let local p in values(self.primaries)){
@@ -1904,6 +2150,10 @@ func walker_methods.primary_names(self){
   return out
 }
 
+// prefix(operator: Parser, level: string | Level,
+//   callback: func(op, operand): any) -> Walker
+// A prefix operator at a level; the expression's value is what callback
+// returns from the operator's and the operand's values.
 func walker_methods.prefix(self, operator, level, callback){
   append(resolve_level(self, level).prefixes, {
     parser: operator, callback: callback
@@ -1912,6 +2162,8 @@ func walker_methods.prefix(self, operator, level, callback){
   return self
 }
 
+// postfix(operator: Parser, level: string | Level,
+//   callback: func(left, op): any) -> Walker
 func walker_methods.postfix(self, operator, level, callback){
   append(resolve_level(self, level).postfixes, {
     parser: operator, callback: callback
@@ -1920,6 +2172,9 @@ func walker_methods.postfix(self, operator, level, callback){
   return self
 }
 
+// left(operator: Parser, level: string | Level,
+//   callback: func(left, op, right): any) -> Walker
+// A left-associative infix operator: a - b - c is (a - b) - c.
 func walker_methods.left(self, operator, level, callback){
   append(resolve_level(self, level).lefts, {
     parser: operator, callback: callback
@@ -1928,6 +2183,9 @@ func walker_methods.left(self, operator, level, callback){
   return self
 }
 
+// right(operator: Parser, level: string | Level,
+//   callback: func(left, op, right): any) -> Walker
+// A right-associative infix operator: a ^ b ^ c is a ^ (b ^ c).
 func walker_methods.right(self, operator, level, callback){
   append(resolve_level(self, level).rights, {
     parser: operator, callback: callback
@@ -1936,6 +2194,9 @@ func walker_methods.right(self, operator, level, callback){
   return self
 }
 
+// wrapper(left: Parser, right: Parser, level: string | Level,
+//   callback: func(left, value, right): any) -> Walker
+// A whole expression between left and right, such as parentheses.
 func walker_methods.wrapper(self, left, right, level, callback){
   append(resolve_level(self, level).wrappers, {
     left: left, right: right, callback: callback
@@ -1944,40 +2205,60 @@ func walker_methods.wrapper(self, left, right, level, callback){
   return self
 }
 
-// engine API: explicit binding powers, callbacks that parse their operands
+// nud(operator: Parser, rbp: int,
+//   f: func(w: Walker, ctx: Context, pos: int, op): int) -> Walker
+// Engine API: an operator an expression can start with, at an explicit
+// binding power. After operator matched, f parses the rest itself from pos
+// (with [Walker.parse_at]), leaves the value in ctx.value and returns the
+// new position or -1.
 func walker_methods.nud(self, operator, rbp, f){
   append(self.nuds, {parser: operator, kind: "nud", bp: rbp, nud: f})
   self.sealed = null
   return self
 }
 
+// led(operator: Parser, lbp: int,
+//   f: func(w: Walker, ctx: Context, pos: int, left, op): int) -> Walker
+// Engine API: an operator that follows a value, applied when lbp is
+// higher than the binding power being parsed; f gets the value on its left
+// and parses the rest as for [Walker.nud].
 func walker_methods.led(self, operator, lbp, f){
   append(self.leds, {parser: operator, kind: "led", lbp: lbp, led: f})
   self.sealed = null
   return self
 }
 
-// level objects offer the same registration without naming the level
+// wrapper(left: Parser, right: Parser,
+//   callback: func(left, value, right): any) -> Level
+// [Walker.wrapper] at this level.
 func level_methods.wrapper(self, left, right, callback){
   self.walker:wrapper(left, right, self, callback)
   return self
 }
 
+// prefix(operator: Parser, callback: func(op, operand): any) -> Level
+// [Walker.prefix] at this level.
 func level_methods.prefix(self, operator, callback){
   self.walker:prefix(operator, self, callback)
   return self
 }
 
+// postfix(operator: Parser, callback: func(left, op): any) -> Level
+// [Walker.postfix] at this level.
 func level_methods.postfix(self, operator, callback){
   self.walker:postfix(operator, self, callback)
   return self
 }
 
+// right(operator: Parser, callback: func(left, op, right): any) -> Level
+// [Walker.right] at this level.
 func level_methods.right(self, operator, callback){
   self.walker:right(operator, self, callback)
   return self
 }
 
+// left(operator: Parser, callback: func(left, op, right): any) -> Level
+// [Walker.left] at this level.
 func level_methods.left(self, operator, callback){
   self.walker:left(operator, self, callback)
   return self
@@ -1991,8 +2272,9 @@ local func copy_entries(list){
   return out
 }
 
-// derive() -> a walker with the same registrations; changes to either do
-// not affect the other
+// derive() -> Walker
+// A walker with the same registrations; changes to either do not affect
+// the other. Build it before use.
 func walker_methods.derive(self){
   local w = peg.walker(self.skip)
   for(let local l in values(self.levels)){
@@ -2010,7 +2292,9 @@ func walker_methods.derive(self){
   return w
 }
 
-// binding_powers() -> {name: base} after build (for debugging extensions)
+// binding_powers() -> {[string]: int}
+// The base binding power of every level by name (higher binds tighter),
+// for debugging extensions.
 func walker_methods.binding_powers(self){
   local out = {}
   local n = len(self.levels)
@@ -2150,8 +2434,10 @@ local func build_tables(w){
   return sealed
 }
 
-// parse_at(ctx, pos, min_bp) -> pos | -1: an expression whose operators
-// bind tighter than min_bp; the value is in ctx.value
+// parse_at(ctx: Context, pos: int, min_bp: int) -> int
+// Parses an expression whose operators bind tighter than min_bp and
+// returns the new position or -1; the value is in ctx.value. For the
+// callbacks of [Walker.nud] and [Walker.led]; needs [Walker.build] first.
 func walker_methods.parse_at(self, ctx, pos, min_bp){
   local sealed = self.sealed
   local cands = candidates(sealed.nuds, ctx, pos)
@@ -2340,7 +2626,8 @@ local func led_tree(w, e, ctx, pos, left, left_tree, op, op_tree){
   return r
 }
 
-// parse_at_tree(ctx, pos, min_bp): parse_at, leaving the node in ctx.tree
+// parse_at_tree(ctx: Context, pos: int, min_bp: int) -> int
+// [Walker.parse_at], also leaving the node in ctx.tree.
 func walker_methods.parse_at_tree(self, ctx, pos, min_bp){
   local sealed = self.sealed
   local cands = candidates(sealed.nuds, ctx, pos)
@@ -2413,7 +2700,9 @@ func walker_methods.parse_at_tree(self, ctx, pos, min_bp){
   return q
 }
 
-// build() -> the expression parser
+// build() -> Parser
+// Builds the dispatch tables and returns the expression parser. After a
+// later change, build again before parsing.
 func walker_methods.build(self){
   self.sealed = build_tables(self)
   local w = self
@@ -2738,7 +3027,7 @@ tree_kinds.dispatch = func(self, ctx, pos){
   return - 1
 }
 
-// leaves(tree) -> the leaves of tree in source order
+// leaves(tree: Tree?) -> {Tree}: the leaves of tree in source order
 func peg.leaves(tree){
   local out = {}
   if(tree == null){
@@ -2761,8 +3050,9 @@ func peg.leaves(tree){
   return out
 }
 
-// text(tree, buffer) -> the text of the leaves of tree, joined: the input
-// the tree was parsed from (the part tree spans)
+// text(tree: Tree, buffer: string) -> string
+// The text of the leaves of tree, joined: the part of buffer (the input
+// the tree was parsed from) that tree spans.
 func peg.text(tree, buffer){
   local parts = {}
   for(let local l in values(peg.leaves(tree))){
@@ -2771,9 +3061,10 @@ func peg.text(tree, buffer){
   return str.join(parts, "")
 }
 
-// tree_gap(tree) -> null when the leaves of tree cover its span exactly, in
-// order; otherwise {at, leaf}: the position where the next leaf should have
-// started and the leaf found there (null when the leaves end early)
+// tree_gap(tree: Tree) -> {at: int, leaf?: Tree}?
+// null when the leaves of tree cover its span exactly, in order; otherwise
+// the position where the next leaf should have started and the leaf found
+// there (null when the leaves end early). For testing tree paths.
 func peg.tree_gap(tree){
   local at = tree.start
   for(let local l in values(peg.leaves(tree))){
@@ -2826,8 +3117,14 @@ local builtin_layers = {
   default: {name: "default", tags: all_tags},
 }
 
-// layer(name, base) -> a custom layer starting from the built-in layer base
-// ("text", "raw" or "default")
+// A custom layer, made by [layer]: a key for the operations parsers carry
+// for it ([on], [mark]) and for [evaluate].
+// type Layer = {name: string, base: string, custom: bool}
+// [base]: the built-in layer it starts from
+
+// layer(name: string, base: string) -> Layer
+// A custom layer starting from the built-in layer base: "text", "raw" or
+// "default". Raises for any other base.
 func peg.layer(name, base){
   local b = builtin_layers[base]
   if(b == null){
@@ -2836,7 +3133,10 @@ func peg.layer(name, base){
   return {name: name, base: base, tags: b.tags, custom: true}
 }
 
-// the value pipeline a layer's operations are recorded on
+// The value pipeline a layer's operations are recorded on: what the
+// function given to [on] receives and returns. Each method adds an
+// operation and returns the pipeline.
+// type Pipeline
 local pipeline_methods = {}
 local pipeline_meta = {__index: pipeline_methods, __type: "layer_pipeline"}
 
@@ -2844,18 +3144,24 @@ local func add_op(self, op){
   list_push(self.ops, op)
   return self
 }
+// map(f: func(value): any) -> Pipeline: replaces the value by f(value)
 func pipeline_methods.map(self, f){
   return add_op(self, {op: "map", fn: f})
 }
+// pick(index: int) -> Pipeline: the element at index of a list value
 func pipeline_methods.pick(self, index){
   return add_op(self, {op: "pick", index: index})
 }
+// permute(...indices: int) -> Pipeline: a list of the elements at indices
 func pipeline_methods.permute(self, ...indices){
   return add_op(self, {op: "permute", indices: indices})
 }
+// flatten() -> Pipeline: replaces the value by the node's text
 func pipeline_methods.flatten(self){
   return add_op(self, {op: "flatten"})
 }
+// mark(data) -> Pipeline
+// Attaches data to the node, leaving the value alone (see [marks]).
 func pipeline_methods.mark(self, data){
   return add_op(self, {op: "mark", data: data})
 }
@@ -2897,10 +3203,13 @@ tree_kinds.layer = func(self, ctx, pos){
   return q
 }
 
-// on(parser, layer, f) -> a parser that parses like parser and carries the
-// operations f records for layer (f(pipeline) -> pipeline). The parser
-// itself is not changed: a shared parser (a rule reference, say) keeps no
-// operations from one use.
+// on(parser: Parser, layer: Layer, f: func(v: Pipeline): Pipeline) -> Parser
+// A parser that parses like parser and carries the operations f records
+// for layer. The parser itself is not changed: a shared parser (a rule
+// reference, say) keeps no operations from one use. Also a method:
+// p:on(layer, f).
+//   local names = peg.layer("names", "raw")
+//   local id = peg.word():plus():on(names, func(v){ return v:flatten() })
 func peg.on(parser, layer, f){
   if(type(layer) != "table" or not layer.custom){
     error("on() takes a layer made with peg.layer")
@@ -2936,14 +3245,17 @@ func peg.on(parser, layer, f){
   return p
 }
 
-// mark(parser, layer, data) -> on(parser, layer, func(v){ return v:mark(data) })
+// mark(parser: Parser, layer: Layer, data) -> Parser
+// on(parser, layer, func(v){ return v:mark(data) }): data attached to the
+// nodes of parser, read with [marks]. Also a method: p:mark(layer, data).
 func peg.mark(parser, layer, data){
   return peg.on(parser, layer, func(v){
     return v:mark(data)
   })
 }
 
-// marks(node, layer) -> the data marked on node's parser for layer, in order
+// marks(n: Tree, layer: Layer) -> {any}
+// The data marked on the node's parser for layer, in order.
 func peg.marks(n, layer){
   local out = {}
   local ops = n.p.layer_ops
@@ -3147,11 +3459,15 @@ local func evaluate(n, layer, tags, buffer, use_stored){
   return {value: v, changed: changed}
 }
 
-// evaluate(tree, layer, buffer, {replay}) -> the value of tree in layer: a
-// built-in layer's name or a layer made with peg.layer. buffer is the input
-// the tree was parsed from. The default layer is the value the parse
-// produced, kept in the tree; {replay: true} computes it from the tree
-// instead, running the functions of map and the walker again.
+// evaluate(tree: Tree, layer: string | Layer, buffer: string,
+//   options?: {replay?: bool}) -> any
+// The value of tree in layer: a built-in layer's name ("text", "raw",
+// "default") or a layer made with [layer]. buffer is the input the tree
+// was parsed from. The default layer is the value the parse produced, kept
+// in the tree; {replay: true} computes it from the tree instead, running
+// the functions of map and the walker again.
+//   local r = peg.run(numbers, "4,5", {tree: true})
+//   peg.evaluate(r.tree, "text", "4,5")   // {{"4"}, ",", {"5"}}
 func peg.evaluate(tree, layer, buffer, options){
   local replay = options != null and options.replay
   if(type(layer) == "string"){
@@ -3169,24 +3485,14 @@ func peg.evaluate(tree, layer, buffer, options){
   ).value
 }
 
+// on(layer: Layer, f: func(v: Pipeline): Pipeline) -> Parser
+// See [on].
 methods.on = peg.on
+// mark(layer: Layer, data) -> Parser
+// See [mark].
 methods.mark = peg.mark
 
 // ------------------------------------------------------------- highlighting
-//
-// highlights(tree, buffer, {trivia}) -> the tokens of a tree as a
-// highlighter shows them: {category, start, stop, line, column, length},
-// sorted, not overlapping. They come from
-//   token(child, category)   its span (category may be a function of the
-//                            child's value returning a category or null)
-//   tag(child, category)     the span of the child's value (a token, or a
-//                            node's token) or of the child
-//   leaves whose parser has highlight(buffer, start, stop) -> spans
-//   trivia: options.trivia(buffer, start, stop) -> spans (comments) for the
-//            leaves of trimmers (p.trivia, whitespace, a rule named
-//            "trivia")
-// An outer span wins over the ones inside it that start where it starts;
-// the others overlapping it are dropped.
 
 local func value_span(v){
   local t = type(v)
@@ -3204,6 +3510,26 @@ local func value_span(v){
   return null
 }
 
+// A highlighted span of the source: what [highlights] returns.
+// type Span = {category: string, start: int, stop: int, line: int,
+//   column: int, length: int}
+// [category]: an LSP token type with modifiers after dots ("keyword", "enumMember.declaration")
+
+// highlights(tree: Tree, buffer: string,
+//   options?: {trivia?: func(buffer: string, start: int, stop: int): {Span}}
+// ) -> {Span}
+// The tokens of a tree as a highlighter shows them, sorted and not
+// overlapping. They come from
+//   token(child, category)   its span (category may be a function of the
+//                            child's value returning a category or null)
+//   tag(child, category)     the span of the child's value (a token, or a
+//                            node's token) or of the child
+//   leaves whose parser has highlight(buffer, start, stop) -> spans
+//   trivia: options.trivia(buffer, start, stop) -> spans (comments) for the
+//            leaves of trimmers (p.trivia, whitespace, a rule named
+//            "trivia")
+// An outer span wins over the ones inside it that start where it starts;
+// the others overlapping it are dropped.
 func peg.highlights(tree, buffer, options){
   options = options or {}
   local trivia = options.trivia
@@ -3294,30 +3620,82 @@ func peg.highlights(tree, buffer, options){
 
 // ---------------------------------------------------------------------- methods
 
+// The combinators as methods of [Parser], the parser as the first argument.
+
+// tag(category: string) -> Parser
+// See [tag].
 methods.tag = peg.tag
+// seq(...parsers: Parser) -> Parser
+// This parser, then parsers (see [seq]).
 methods.seq = peg.seq
+// choice(...parsers: Parser) -> Parser
+// This parser, or else parsers (see [choice]).
 methods.choice = peg.choice
+// star() -> Parser
+// Zero or more times (see [star]).
 methods.star = peg.star
+// plus() -> Parser
+// One or more times (see [plus]).
 methods.plus = peg.plus
+// optional(default_value?) -> Parser
+// See [optional].
 methods.optional = peg.optional
+// star_lazy(limit: Parser) -> Parser
+// Repeated until limit matches (see [star_lazy]).
 methods.star_lazy = peg.star_lazy
+// star_separated(separator: Parser) -> Parser
+// See [star_separated].
 methods.star_separated = peg.star_separated
+// star_seperated(separator: Parser) -> Parser
+// The old spelling of [Parser.star_separated].
 methods.star_seperated = peg.star_separated
+// plus_separated(separator: Parser) -> Parser
+// See [plus_separated].
 methods.plus_separated = peg.plus_separated
+// plus_seperated(separator: Parser) -> Parser
+// The old spelling of [Parser.plus_separated].
 methods.plus_seperated = peg.plus_separated
+// forbid(message?: string) -> Parser
+// Negative lookahead (see [forbid]).
 methods.forbid = peg.forbid
+// and() -> Parser
+// Lookahead (see [and]).
 methods.and = peg.and
+// neg(message?: string) -> Parser
+// One character this parser does not match (see [neg]).
 methods.neg = peg.neg
+// pick(index: int) -> Parser
+// One element of the value (see [pick]).
 methods.pick = peg.pick
+// permute(...indices: int) -> Parser
+// Some elements of the value (see [permute]).
 methods.permute = peg.permute
+// map(f: func(value): any) -> Parser
+// The value replaced by f(value) (see [map]).
 methods.map = peg.map
+// flatten(message?: string) -> Parser
+// The consumed text as the value (see [flatten]).
 methods.flatten = peg.flatten
+// token(category?: string | func(value): string?) -> Parser
+// See [token].
 methods.token = peg.token
+// trim(before?: Parser, after?: Parser) -> Parser
+// See [trim].
 methods.trim = peg.trim
+// where(predicate: func(value): bool, message?: string) -> Parser
+// See [where].
 methods.where = peg.where
+// end(message?: string) -> Parser
+// Followed by the end of the input (see [end]).
 methods.end = peg.end
+// labeled(label) -> Parser
+// See [labeled].
 methods.labeled = peg.labeled
+// parse(input: string) -> {any}
+// See [parse].
 methods.parse = peg.parse
+// run(input: string, options?: {tree?: bool}) -> Result
+// See [run].
 methods.run = peg.run
 
 return peg

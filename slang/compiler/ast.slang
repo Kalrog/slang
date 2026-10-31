@@ -1,17 +1,36 @@
-// slang/ast: helpers for AST nodes.
+// slang/ast: building, checking and printing the syntax tree that the
+// parser produces, quotes (+{...}) build and extensions return.
+//
+//   local ast = require("slang/ast")
+//   local sum = ast.node("BinOp", {
+//     left: ast.literal(null, 1), op: "+", right: +{x * 2},
+//   })
+//   print(ast.to_source(sum))        // 1 + x * 2
 //
 // A node is a table {type: "Name", ...fields, token} whose metatable has
-// __type == "Name", so patterns like 'BinOp{left: local l} match it. The field
-// layout follows the table encoding of the original implementation, so quoted
-// code (+{...}) and extension-generated code use exactly the same shape.
+// __type == "Name": type(node) is "Name", and patterns like
+// 'BinOp{left: local l} match it. Each node type has a fixed set of fields,
+// listed in [specs]. Quoted code (+{...}) and the code extensions generate
+// have exactly the same shape, so an extension may return either; a plain
+// table in node shape ({type: "Identifier", value: "x"}) is accepted too
+// wherever a parser result goes through [decode].
+
+// A syntax tree node. Its other fields depend on its type (see [specs]).
+// type Node = {type: string, token?: table}
+// [type]: the node type: "Identifier", "BinOp", "Call", "Block", ...
+// [token]: its source token (see slang/peg); null in generated code
+
+// What [requires] finds.
+// type Requires = {names: {{name: string, pos: int}}, computed: {int}}
+// [names]: each require of a constant name, with the byte offset of the call
+// [computed]: the byte offsets of the requires whose name is computed
 
 local str = require("slang/string")
 local encoding = require("slang/encoding")
 
 local ast = {}
 
-// field specs per node type, in encoding order.
-// kinds: "node" (child), "node?" (optional child), "list" (list of children), "value" (primitive)
+// the fields of every node type (see ast.specs)
 local specs = {
   Int: {{"value", "value"}},
   Double: {{"value", "value"}},
@@ -62,6 +81,11 @@ local specs = {
   Throw: {{"value", "node"}},
   IfExpr: {{"condition", "node"}, {"thenValue", "node"}, {"elseValue", "node"}},
 }
+// The fields of every node type, in order, as {name, kind} pairs:
+// `specs.BinOp` is {{"left", "node"}, {"op", "value"}, {"right", "node"}}.
+// The kinds: "node" (a child node), "node?" (an optional child), "list" (a
+// list of child nodes) and "value" (a string, number or bool). A type not
+// listed here is not a node type.
 ast.specs = specs
 
 local statement_types = {
@@ -75,7 +99,10 @@ for(let local name in keys(specs)){
   metas[name] = {__type: name}
 }
 
-// node(type, fields, token): builds a node table
+// node(type_name: string, fields: table, token?: table) -> Node
+// Makes fields a node of type type_name, in place, and returns it. Raises
+// for an unknown node type; the fields are not checked against [specs].
+//   ast.node("Identifier", {value: "x"}, null)
 func ast.node(type_name, fields, token){
   if(metas[type_name] == null){
     error("unknown AST node type: ", type_name)
@@ -88,29 +115,40 @@ func ast.node(type_name, fields, token){
   return fields
 }
 
+// is_node(value) -> bool
+// Whether value is a node with its metatable. A plain table in node shape
+// is not; [decode] makes it one.
 func ast.is_node(value){
   return type(value) != "table" and get_raw(value, "type") != null and
     specs[get_raw(value, "type")] != null
 }
 
+// is_statement(node: Node?) -> bool
+// Whether node may stand as a statement (a Block, If, Declaration,
+// CallStat, Unquote, ...); false for null and for expressions.
 func ast.is_statement(node){
   return node != null and statement_types[node.type] == true
 }
 
+// is_assignable(node: Node) -> bool
+// Whether node may be assigned to: an Identifier, an Index or an Unquote.
 func ast.is_assignable(node){
   return node.type == "Identifier" or node.type == "Index" or
     node.type == "Unquote"
 }
 
+// is_literal(node: Node) -> bool
+// Whether node is a constant: Int, Double, String, True, False or Null.
 func ast.is_literal(node){
   local t = node.type
   return t == "Int" or t == "Double" or t == "String" or t == "True" or
     t == "False" or t == "Null"
 }
 
-// requires(node) -> {names, computed}: the modules the code requires by
-// name (`require("a/b")`, each {name, pos}) and the source positions of the
-// requires whose name is computed. Quoted code is not looked into.
+// requires(node: Node) -> Requires
+// The modules the code requires: those given by a constant name
+// (`require("a/b")`) and the places of those whose name is computed.
+// Quoted code is not looked into; positions are 0 for generated nodes.
 func ast.requires(node){
   local found = {names: {}, computed: {}}
   local func walk(n){
@@ -146,7 +184,9 @@ func ast.requires(node){
   return found
 }
 
-// literal(token, value): the node for a primitive value
+// literal(token: table?, value) -> Node
+// The node for a string, int, double, bool or null value; raises for any
+// other type.
 func ast.literal(token, value){
   local t = type(value)
   if(t == "string"){
@@ -191,9 +231,11 @@ local func hex_value(literal, from, to){
   return v
 }
 
-// resolve_escapes("a\\nb") -> the string with escape sequences replaced:
+// resolve_escapes(literal: string) -> string
+// The text of a string literal's body with its escape sequences replaced:
 // \n \r \t \b \f \v \\ \" and \xHH (a byte), \u{H...} (a code point,
-// as UTF-8); raises on any other
+// as UTF-8). Raises on any other escape.
+//   ast.resolve_escapes("a\\nb")   // "a", a newline, "b"
 func ast.resolve_escapes(literal){
   if(str.index_of(literal, "\\") < 0){
     return literal
@@ -277,7 +319,10 @@ local func table_node(token, fields){
   return ast.node("Table", {fields: fields}, token)
 }
 
-// quote(node): the Table-literal expression that rebuilds this node at run time
+// quote(node: Node) -> Node
+// The Table literal expression that rebuilds node at run time (what
+// +{...} compiles to). An Unquote inside becomes the expression it holds,
+// so its value is spliced in.
 func ast.quote(node){
   if(node.type == "Unquote"){
     return node.ast
@@ -315,7 +360,9 @@ func ast.quote(node){
   return table_node(token, fields)
 }
 
-// strip(node): a copy of the tree without tokens (what extensions see)
+// strip(node: Node?) -> Node?
+// A copy of the tree without tokens. A value that is not a node is
+// returned as it is.
 func ast.strip(node){
   if(node == null){
     return null
@@ -346,7 +393,9 @@ func ast.strip(node){
   return ast.node(node.type, out, null)
 }
 
-// attach_token(node, token): gives every node of the tree that has no token this one
+// attach_token(node: Node?, token: table?) -> Node?
+// Gives every node of the tree that has no token this one, in place, and
+// returns node; generated code then reports errors at token.
 func ast.attach_token(node, token){
   if(node == null or token == null){
     return node
@@ -374,8 +423,11 @@ func ast.attach_token(node, token){
   return node
 }
 
-// decode(value): the node from a parser/extension result; either a node or
-// {token: t, ast: node}
+// decode(value: Node | {token: table, ast: Node} | null) -> Node?
+// The node an extension's parser or callback produced: a node; a
+// {token, ast} pair, whose token goes to every node of ast that has none
+// (see [attach_token]); or a plain table in node shape, which gets its
+// metatable. Raises for anything else.
 func ast.decode(value){
   if(value == null){
     return null
@@ -709,6 +761,9 @@ func writer.visit(self, node){
   }
 }
 
+// to_string(node: Node) -> string
+// The tree in a compact debugging form: expressions fully parenthesized,
+// `(1 + (x * 2))`. Not meant to be parsed again; see [to_source].
 func ast.to_string(node){
   local w = writer.new()
   w:visit(node)
@@ -1133,7 +1188,12 @@ func source.statement(self, node){
   }
 }
 
-// to_source(node) -> slang source; a Block at the top is a chunk (no braces)
+// to_source(node: Node) -> string
+// slang source for a tree, ending with a newline: what a file looks like
+// once its extensions have been applied (every extension lowers to the
+// core AST). Parsing the result gives the same bytecode again. A Block at
+// the top is printed as a chunk (no braces); a statement or an expression
+// as itself, with parentheses only where precedence needs them.
 func ast.to_source(node){
   local w = source.new()
   if(node.type == "Block"){

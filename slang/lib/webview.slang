@@ -1,32 +1,38 @@
 // slang/webview: desktop windows whose content is a web page and whose
 // logic is slang (macOS, WKWebView), in the style of Wails.
 //
+//   local async = require("slang/async")
 //   local webview = require("slang/webview")
 //   async.main(func(){
 //     local win = webview.window({title: "Hello", html: "<h1>hi</h1>"})
-//     win:bind("add", func(a, b){ return a + b })    // await slang.call("add", 1, 2)
+//     win:bind("add", func(a, b){ return a + b })  // page: await slang.call("add", 1, 2)
 //     await win.closed
 //   })
 //
-// webview.window(options) -> a window; options: title, width, height,
-// resizable (true), debug (the Web Inspector), and what to show: url, html,
-// or app, a slang/web app served to the window over the app:// scheme with
-// no socket at all (path: the first page, "/"). WebKit keeps no cookies for
-// app://, so such an app has no cookie sessions; it is one user's anyway.
+// The page gets a global `slang` object: slang.call(name, ...args) returns
+// a Promise of what the function bound as name returns, slang.send(value)
+// passes value to [Window.on_message] handlers, and slang.on(f) registers
+// f for the values [Window.send] pushes. Values cross as JSON.
 //
-// A window:
-//   win.closed                    Future, completes when the window closes
-//   win:bind(name, f)             the page's slang.call(name, ...args)
-//                                 returns a Promise of f(...args) (f may
-//                                 return a Future; an error rejects it)
-//   win:on_message(f)             f(value) for each slang.send(value)
-//   win:send(value)               the page's slang.on(f) listeners get it
-//   win:navigate(url)   win:set_html(html)   win:eval(js)
-//   win:set_title(t)    win:close()          win:is_open()
-//
-// Values cross as JSON. Opening a window makes slang/async's main loop
-// wait on the window system and libuv together (async.set_driver), so
-// servers, timers and files keep working while windows are open.
+// Opening a window makes slang/async's main loop wait on the window system
+// and libuv together (async.set_driver), so servers, timers and files keep
+// working while windows are open.
+
+// What [window] shows and how.
+// type Options = {title?: string, width?: int, height?: int,
+//   resizable?: bool, debug?: bool, url?: string, html?: string,
+//   app?: any, path?: string}
+// [title]: "slang" by default
+// [width]: 900 by default
+// [height]: 640 by default
+// [resizable]: true by default
+// [debug]: enables the Web Inspector
+// [url]: a page to load
+// [html]: markup to show
+// [app]: a slang/web app, served to the window over app:// with no socket
+// [path]: the first page of the app, "/" by default
+// One of url, html and app says what to show. WebKit keeps no cookies for
+// app://, so an app has no cookie sessions (it serves one user anyway).
 local async = require("slang/async")
 local json = require("slang/json")
 local str = require("slang/string")
@@ -43,6 +49,9 @@ local func module(){
   return native
 }
 
+// A window. Its field closed is an [async.Future] that completes (with
+// null) when the window closes.
+// type Window
 local window_methods = {}
 local window_meta = {__index: window_methods, __type: "Window"}
 
@@ -87,6 +96,9 @@ local func serve(app, request, task){
   })
 }
 
+// window(options?: Options) -> Window
+// Opens a window. Raises when the native webview module cannot be loaded
+// (it exists only on macOS).
 func webview.window(options){
   options = options or {}
   local n = module()
@@ -117,7 +129,10 @@ func webview.window(options){
   return w
 }
 
-// a message from the page: a call to answer or a value for on_message
+// receive(text: string)
+// Handles a raw message from the page: a call to answer or a value for
+// the [Window.on_message] handlers. Used internally; text that is not a
+// JSON object is ignored.
 func window_methods.receive(w, text){
   local r = pcall(json.decode, text)
   if(r[0] == "err" or type(r[1]) != "table"){
@@ -159,27 +174,50 @@ func window_methods.receive(w, text){
   }
 }
 
+// bind(name: string, f: function) -> Window
+// Makes the page's slang.call(name, ...args) call f(...args). The Promise
+// resolves with f's result (f may return a Future, which is awaited) and
+// rejects with the error message when f raises or nothing is bound as
+// name. Returns the window, so calls chain.
 func window_methods.bind(w, name, f){
   w.binds[name] = f
   return w
 }
 
+// on_message(f: func(value: any)) -> Window
+// Calls f with each value the page sends with slang.send(value). An error
+// in f is ignored. Returns the window.
 func window_methods.on_message(w, f){
   append(w.handlers, f)
   return w
 }
 
+// send(value)
+// Passes value to the page's slang.on(f) listeners; does nothing once the
+// window is closed.
 func window_methods.send(w, value){
   if(w.native:is_open()){
     w.native:eval(concat("slang._deliver(", json.encode(value), ")"))
   }
 }
 
+// navigate(url: string)
+// Loads url in the window.
 func window_methods.navigate(w, url){ w.native:navigate(url) }
+// set_html(html: string)
+// Replaces the page with html.
 func window_methods.set_html(w, html){ w.native:set_html(html) }
+// eval(js: string)
+// Runs JavaScript in the page; its result is not returned.
 func window_methods.eval(w, js){ w.native:eval(js) }
+// set_title(t: string)
+// Sets the window's title.
 func window_methods.set_title(w, t){ w.native:set_title(t) }
+// close()
+// Closes the window; its closed future completes.
 func window_methods.close(w){ w.native:close() }
+// is_open() -> bool
+// Whether the window is still open.
 func window_methods.is_open(w){ return w.native:is_open() }
 
 return webview

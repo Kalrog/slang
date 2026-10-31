@@ -17,79 +17,107 @@
 // on use. Errors read "sqlite: ...".
 local m = {}
 
+// What [Statement.run_async] gives its callback.
+// type AsyncResult = {rows: {{[string]: any}}, changes: int,
+//   last_insert_rowid: int}
+// [rows]: the rows, tables by column name
+
+// An open database connection.
+// type Database
 local db_methods = {}
 local db_meta = {__index: db_methods, __type: "sqlite.db"}
 
+// A prepared statement of a [Database].
+// type Statement
 local stmt_methods = {}
 local stmt_meta = {__index: stmt_methods, __type: "sqlite.stmt"}
 
-// open(path) -> a sqlite.db; the file is created when missing, ":memory:"
-// opens a database in memory. Raises when it cannot be opened.
+// open(path: string) -> Database
+// Opens a database file, created when missing; ":memory:" opens a database
+// in memory. Raises when it cannot be opened.
 func m.open(path){ return {meta: db_meta} }
 
-// version() -> the version of the SQLite library
+// version() -> string
+// The version of the SQLite library ("3.46.0").
 func m.version(){}
 
 // ------------------------------------------------------------ databases
 
-// db:exec(sql) runs one or more statements, discarding any rows
+// exec(sql: string)
+// Runs one or more statements without parameters, discarding any rows.
 func db_methods.exec(db, sql){}
 
-// db:prepare(sql) -> a sqlite.stmt for the first statement in sql; raises
-// when the text holds no statement
+// prepare(sql: string) -> Statement
+// A statement for the first statement in sql, with ? for its parameters;
+// raises when the text holds no statement.
 func db_methods.prepare(db, sql){ return {meta: stmt_meta} }
 
-// db:close() finalizes the statements and closes the database; raises
-// while queries started with run_async are running
+// close()
+// Finalizes the statements and closes the database; raises while queries
+// started with [Statement.run_async] are running.
 func db_methods.close(db){}
 
-// db:is_open() -> whether the database is still open
+// is_open() -> bool
+// Whether the database is still open.
 func db_methods.is_open(db){}
 
-// db:changes() -> the number of rows changed by the last statement
+// changes() -> int
+// The number of rows the last insert, update or delete changed.
 func db_methods.changes(db){}
 
-// db:last_insert_rowid() -> the rowid of the last inserted row
+// last_insert_rowid() -> int
+// The rowid of the last inserted row.
 func db_methods.last_insert_rowid(db){}
 
 // ------------------------------------------------------------ statements
 
-// stmt:bind(i, value) -> stmt; binds parameter i (from 1) to value
+// bind(i: int, value) -> Statement
+// Binds parameter i (counting from 1) to value; returns the statement.
 func stmt_methods.bind(stmt, i, value){}
 
-// stmt:bind_all(values, [count]) -> stmt; binds the parameters in order.
-// count (default len(values)) covers values after a null, which ends a
-// list's length; it must equal the number of parameters.
+// bind_all(values: {any}, count?: int) -> Statement
+// Binds all parameters in order; returns the statement. Raises unless
+// count equals the number of parameters.
+// [count]: how many values (len(values)); a null value ends a list's length
 func stmt_methods.bind_all(stmt, values, count){}
 
-// stmt:step() -> true when a row is ready, false when the statement is done
+// step() -> bool
+// Runs the statement to its next row: true when a row is ready, false when
+// the statement is done.
 func stmt_methods.step(stmt){}
 
-// stmt:row() -> {name: value, ...} of the current row
+// row() -> {[string]: any}
+// The current row by column name.
 func stmt_methods.row(stmt){}
 
-// stmt:values() -> {value, ...} of the current row, in column order
+// values() -> {any}
+// The current row's values, in column order.
 func stmt_methods.values(stmt){}
 
-// stmt:columns() -> the list of column names
+// columns() -> {string}
+// The column names, in order.
 func stmt_methods.columns(stmt){}
 
-// stmt:parameter_count() -> the number of parameters
+// parameter_count() -> int
+// The number of parameters.
 func stmt_methods.parameter_count(stmt){}
 
-// stmt:reset() -> stmt, ready to run again with its bindings cleared
+// reset() -> Statement
+// The statement, ready to run again, with its bindings cleared.
 func stmt_methods.reset(stmt){}
 
-// stmt:finalize() frees the statement; using it afterwards raises
+// finalize()
+// Frees the statement; using it afterwards raises.
 func stmt_methods.finalize(stmt){}
 
-// stmt:run_async(cb) runs the bound statement to the end on libuv's thread
-// pool and calls cb(err, {rows, changes, last_insert_rowid}) from the loop
-// (rows: a list of {name: value} tables). Until then the statement is busy:
-// using it raises and the database cannot be closed.
+// run_async(cb: func(err: string?, result: AsyncResult?))
+// Runs the bound statement to the end on libuv's thread pool and calls cb
+// from the loop. Until then the statement is busy: using it raises and the
+// database cannot be closed.
 func stmt_methods.run_async(stmt, cb){}
 
-// stmt:is_busy() -> whether a run_async query is still running it
+// is_busy() -> bool
+// Whether a [Statement.run_async] query is still running it.
 func stmt_methods.is_busy(stmt){}
 
 return m

@@ -1,28 +1,44 @@
 // slang/sqlite: SQLite with an API that reads well, on the native `sqlite`
-// extension. The sql{ ... } literals of extensions/sqlite produce the query
-// values; plain SQL text with a parameter list works as well.
+// extension. The sql{ ... } literals of extensions/sqlite make the
+// queries; plain SQL text with a list of values works as well.
 //
 //   local db = sqlite.open("todos.db")            // or ":memory:"
 //   db:exec("create table if not exists todos(id integer primary key, text text, done boolean)")
-//   db:run(sql{ insert into todos(text, done) values ({text}, {false}) })  -> {changes, last_id}
-//   db:all(sql{ select * from todos where done = {done} })  -> rows, tables by column name
-//   db:one(sql{ select * from todos where id = {id} })      -> a row or null
+//   db:run(sql{ insert into todos(text, done) values ({text}, {false}) })  // {changes, last_id}
+//   db:all(sql{ select * from todos where done = {done} })  // rows, tables by column name
+//   db:one(sql{ select * from todos where id = {id} })      // a row or null
 //   for(let {id: local id, text: local text} in db:each(sql{ select id, text from todos })){ ... }
-//   db:transaction(func(){ ... })   commits, or rolls back when the function raises
-//   db:all("select * from todos where id > ?", {5})          the same without the syntax
+//   db:transaction(func(){ ... })   // commits, or rolls back when the function raises
+//   db:all("select * from todos where id > ?", {5})          // the same without the syntax
 //   db:close()
 //
-// Queries: sqlite.query(text, values, origin, count) holds the text with
-// one ? per value and the values (count says how many, since a null value
-// ends a list literal's length; it defaults to len(values)); a value made with sqlite.list(items) expands to
-// ?, ?, ... (an empty list to null, which matches nothing), a value that
-// is itself a query is spliced in with its parameters, so fragments
-// compose safely. Prepared statements are cached per database by text.
-// Errors name the literal: "sqlite: no such table: todo (at views.slang:12)".
+// A query ([Query]) is SQL text with one ? per value, and the values. A
+// value made with [list] expands to ?, ?, ... and a value that is itself a
+// query is spliced in with its parameters, so fragments compose safely.
+// Values are null, bools (stored as 0/1), ints, doubles and strings; a
+// column declared boolean reads back as true/false. Prepared statements
+// are cached per database by text. Errors raise "sqlite: ..." naming the
+// literal: "sqlite: no such table: todo (at views.slang:12)".
+
+// SQL text with its parameters, made by [query] (or a sql{ } literal).
+// type Query = {text: string, params: {any}, count: int, origin?: string}
+// [count]: how many params there are (a null value ends a list's length)
+// [origin]: where the literal is, for error messages ("views.slang:12")
+
+// A row: its values by column name.
+// type Row = {[string]: any}
+
+// What [Database.run] tells about a statement that changed rows.
+// type RunResult = {changes: int, last_id: int}
+// [changes]: the number of rows inserted, updated or deleted
+// [last_id]: the rowid of the last inserted row
+
 local native = require("sqlite")
 local str = require("slang/string")
 local sqlite = {}
 
+// version() -> string
+// The version of the SQLite library.
 sqlite.version = native.version
 
 // ------------------------------------------------------------ queries
@@ -33,6 +49,11 @@ func query_meta.__tostring(self){
 }
 local list_meta = {__type: "sqlite.list"}
 
+// list(items: {any}) -> table
+// A value for a query that expands to one ? per item, for `in (...)`; an
+// empty list expands to null, which matches nothing.
+//
+//   db:all(sql{ select * from todos where id in ({sqlite.list(ids)}) })
 func sqlite.list(items){
   return {meta: list_meta, items: items}
 }
@@ -58,6 +79,12 @@ local func placeholders(n){
   return str.join(marks, ", ")
 }
 
+// query(text: string, values?: {any}, origin?: string, count?: int) -> Query
+// A query of text with one ? per value; [list] values and queries among
+// the values are expanded into the text. Raises when the number of ? does
+// not match (also counting a ? inside a string literal of the SQL).
+// [origin]: where the query comes from, added to its error messages
+// [count]: how many values (len(values)); a null value ends a list's length
 func sqlite.query(text, values, origin, count){
   values = values or {}
   // a null value ends a list literal's length, not its contents, so the
@@ -120,10 +147,15 @@ local func resolve(q, values){
 
 // ------------------------------------------------------------ databases
 
+// An open database, from [open].
+// type Database
 local db_methods = {}
 local db_meta = {__index: db_methods, __type: "sqlite.db"}
 local CACHE_SIZE = 64
 
+// open(path: string) -> Database
+// Opens a database file, created when missing; ":memory:" opens one in
+// memory. Raises when it cannot be opened.
 func sqlite.open(path){
   return {
     meta: db_meta, raw: native.open(path), path: path, cache: {}, cached: 0
@@ -178,6 +210,9 @@ local func statement(db, q){
   return st
 }
 
+// all(q: Query | string, values?: {any}) -> {Row}
+// The rows a query returns. q is a query, or SQL text with values for its
+// ? (as for all of these methods).
 func db_methods.all(db, q, values){
   q = resolve(q, values)
   local st = statement(db, q)
@@ -191,6 +226,8 @@ func db_methods.all(db, q, values){
   return rows
 }
 
+// one(q: Query | string, values?: {any}) -> Row?
+// The first row a query returns, or null.
 func db_methods.one(db, q, values){
   q = resolve(q, values)
   local st = statement(db, q)
@@ -204,6 +241,8 @@ func db_methods.one(db, q, values){
   return row
 }
 
+// run(q: Query | string, values?: {any}) -> RunResult
+// Runs a statement to the end, ignoring rows: an insert, update or delete.
 func db_methods.run(db, q, values){
   q = resolve(q, values)
   local st = statement(db, q)
@@ -218,7 +257,10 @@ func db_methods.run(db, q, values){
   return result
 }
 
-// each(q) -> an iterator of the rows, for `for(let pattern in db:each(q))`
+// each(q: Query | string, values?: {any}) -> func(): Row?
+// An iterator of the rows, for `for(let row in db:each(q))`, reading one
+// row at a time. The statement is shared with other calls of the same
+// text: finish the loop before running that query again.
 func db_methods.each(db, q, values){
   q = resolve(q, values)
   local st = statement(db, q)
@@ -273,23 +315,30 @@ local func query_async(db, q){
   })
 }
 
+// all_async(q: Query | string, values?: {any}) -> async.Future
+// [Database.all] on the thread pool: a Future of the rows.
 func db_methods.all_async(db, q, values){
   return query_async(db, resolve(q, values)):then(func(r){ return r.rows })
 }
 
-// one_async(q) -> Future of the first row or null (the query runs to the
-// end: give it a limit)
+// one_async(q: Query | string, values?: {any}) -> async.Future
+// [Database.one] on the thread pool: a Future of the first row or null.
+// The query runs to the end: give it a limit.
 func db_methods.one_async(db, q, values){
   return query_async(db, resolve(q, values)):then(func(r){ return r.rows[0] })
 }
 
+// run_async(q: Query | string, values?: {any}) -> async.Future
+// [Database.run] on the thread pool: a Future of a [RunResult].
 func db_methods.run_async(db, q, values){
   return query_async(db, resolve(q, values)):then(func(r){
     return {changes: r.changes, last_id: r.last_insert_rowid}
   })
 }
 
-// exec(text or query): one or more statements, no parameters, no result
+// exec(q: Query | string)
+// Runs one or more statements, without parameters or results: schema
+// changes, pragmas.
 func db_methods.exec(db, q){
   if(type(q) == "sqlite.query"){
     located(q, func(){ db.raw:exec(q.text) })
@@ -299,6 +348,9 @@ func db_methods.exec(db, q){
   return null
 }
 
+// transaction(f: function) -> what f returns
+// Runs f in a transaction: commits when it returns, rolls back and raises
+// the error again when it raises. Transactions do not nest.
 func db_methods.transaction(db, f){
   db.raw:exec("begin")
   local r = pcall(f)
@@ -310,6 +362,9 @@ func db_methods.transaction(db, f){
   return r[1]
 }
 
+// close()
+// Finalizes the cached statements and closes the database; raises while
+// an _async query is running.
 func db_methods.close(db){
   clear_cache(db)
   db.raw:close()

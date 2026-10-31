@@ -2,30 +2,62 @@
 //
 //   local tls = require("slang/tls")
 //   local conn = async.await(tls.connect("example.com", 443))
+//   async.await(async.write(conn, "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"))
 //
-//   tls.connect(host, port, options) -> Future of a connection whose
-//     handshake completed; options are a context's (below), or context
-//     (one made before), and server_name (the name to verify, the host by
-//     default)
-//   tls.client(tcp, server_name, context) -> a connection over a connected
-//     uv.tcp handle; its handshake starts at once
-//   tls.server(tcp, context) -> a connection over an accepted uv.tcp handle;
-//     the handshake runs as the client's bytes arrive
-//   tls.context(options) -> a context for many connections: the tls
-//     extension's options (server, cert, key, ca as PEM text, verify, alpn,
-//     min_version), or cert_file, key_file and ca_file to read them from
-//   tls.self_signed(names, [days]) -> {cert, key} for local development
-//
-// A connection works like the uv.tcp handle it wraps (read_start(cb),
+// A [Connection] works like the uv.tcp handle it wraps (read_start(cb),
 // read_stop(), write(data, cb), shutdown(cb), close(cb), getsockname(),
-// getpeername(), ...), so slang/async's reader, write and close, and
-// slang/http and slang/ws on top of them, use it as they are. Writes made
-// during the handshake wait for it; a failed handshake (a certificate that
-// does not verify, say) reaches them and the reader as the error. Also:
-//   conn:handshake() -> Future of the connection once the handshake is done
-//   conn:info() -> {version, cipher, alpn, peer, server_name}
+// getpeername(), nodelay, keepalive, ...), so slang/async's reader, write
+// and close, and slang/http and slang/ws on top of them, use it as they
+// are. Writes made during the handshake wait for it; a failed handshake (a
+// certificate that does not verify, say) reaches them and the reader as
+// the error.
+//
 // A client verifies the server's certificate against the system's trust
-// store and the host name by default; verify: false turns that off.
+// store and the host name by default; verify: false turns that off. A
+// server needs a context with server: true, cert and key (see [context]).
+
+// The options of [context]: the tls extension's context options, or files
+// to read the PEM text from. A verifying client needs the server's
+// certificate valid for the host name; a verifying server asks the client
+// for a certificate.
+// type ContextOptions = {server?: bool, cert?: string, key?: string,
+//   ca?: string, verify?: bool, alpn?: {string}, min_version?: string,
+//   cert_file?: string, key_file?: string, ca_file?: string}
+// [cert_file]: a file to read cert from
+// [key_file]: a file to read key from
+// [ca_file]: a file to read ca from
+// [server]: a server context (false by default)
+// [cert]: PEM text of the certificate chain, leaf first; needed by a server
+// [key]: PEM text of the certificate's private key; needed by a server
+// [ca]: PEM text of the certificates to trust instead of the system's
+// [verify]: check the peer's certificate (a client does by default)
+// [alpn]: protocol names to offer or accept, by preference
+// [min_version]: "1.2" (the default) or "1.3"
+
+// A context of the tls extension: settings shared by many connections
+// (certificates, trust, ALPN), made by [context].
+// type Context
+
+// What [Connection.info] tells about a connection; fields not known yet
+// are null.
+// type Info = {version: string, cipher?: string, alpn?: string,
+//   peer?: string, server_name?: string}
+// [version]: the protocol version ("TLSv1.3")
+// [alpn]: the protocol chosen with ALPN
+// [peer]: the subject of the peer's certificate
+// [server_name]: the host name the client asked for
+
+// A certificate and its key as PEM text, from [self_signed].
+// type Certificate = {cert: string, key: string}
+
+// The options of [connect]: a context's options, or a context made
+// before, and the name to verify.
+// type ConnectOptions = {context?: Context, server_name?: string,
+//   ca?: string, ca_file?: string, cert?: string, cert_file?: string,
+//   verify?: bool, alpn?: {string}, min_version?: string}
+// [context]: a context to use instead of one made from the options
+// [server_name]: the name to ask for and verify (the host by default)
+
 local async = require("slang/async")
 local os = require("slang/os")
 
@@ -39,7 +71,12 @@ local func engine(){
   return native
 }
 
-// context(options): files read into PEM text, then the extension's context
+// context(options?: ContextOptions) -> Context
+// A context for many connections: the tls extension's context, with
+// cert_file, key_file and ca_file read into PEM text first.
+//
+//   local ctx = tls.context({server: true, cert_file: "cert.pem",
+//     key_file: "key.pem", alpn: {"http/1.1"}})
 func tls.context(options){
   local o = {}
   for(let local e in entries(options or {})){
@@ -54,12 +91,21 @@ func tls.context(options){
   return engine().context(o)
 }
 
+// self_signed(names: {string}, days?: int) -> Certificate
+// A certificate for local development, valid for days (365), with an EC
+// P-256 key.
+// [names]: host names or IP addresses; the first is the subject
 func tls.self_signed(names, days){
   return engine().self_signed(names, days)
 }
 
 // ------------------------------------------------------------ connections
 
+// A TLS connection over a uv.tcp handle; type(conn) is "TlsConnection".
+// It also has the handle's getsockname, getpeername, nodelay, keepalive,
+// is_closing, is_active, fileno, ref, unref and has_ref, which go to the
+// TCP handle.
+// type Connection
 local methods = {}
 local meta = {__index: methods, __type: "TlsConnection"}
 
@@ -205,7 +251,11 @@ local func connection(tcp, session){
 
 local client_context = null
 
-// client(tcp, server_name, context): the handshake starts now
+// client(tcp, server_name?: string, context?: Context) -> Connection
+// A client connection over a connected uv.tcp handle; its handshake starts
+// at once.
+// [server_name]: the name to ask for and verify (needed when verifying)
+// [context]: a shared default client context when null
 func tls.client(tcp, server_name, context){
   if(context == null){
     if(client_context == null){
@@ -220,13 +270,19 @@ func tls.client(tcp, server_name, context){
   return t
 }
 
+// server(tcp, context: Context) -> Connection
+// A server connection over an accepted uv.tcp handle; the handshake runs
+// as the client's bytes arrive.
 func tls.server(tcp, context){
   local t = connection(tcp, context:session())
   start_reading(t)
   return t
 }
 
-// connect(host, port, options) -> Future of a connection after its handshake
+// connect(host: string, port: int, options?: ConnectOptions) -> async.Future
+// Connects over TCP and completes the handshake: a Future of the
+// [Connection]. It fails, with the TCP handle closed, when connecting or
+// the handshake fails.
 func tls.connect(host, port, options){
   options = options or {}
   return async.run(func(){
@@ -253,6 +309,9 @@ func tls.connect(host, port, options){
   })
 }
 
+// handshake() -> async.Future
+// A Future of the connection once the handshake is done (at once when it
+// is); it fails with the handshake's error.
 func methods.handshake(t){
   return async.wrap(func(cb){
     if(t.error != null){
@@ -265,10 +324,15 @@ func methods.handshake(t){
   })
 }
 
+// info() -> Info
+// The protocol version, cipher, ALPN protocol, peer and server name.
 func methods.info(t){
   return t.session:info()
 }
 
+// read_start(cb: func(err: any, chunk: string?))
+// Calls cb with each chunk of plaintext as it arrives, and with a null
+// chunk at the end of the stream; cb(err, null) when the connection fails.
 func methods.read_start(t, cb){
   t.on_chunk = cb
   if(t.error != null){
@@ -281,6 +345,9 @@ func methods.read_start(t, cb){
   }
 }
 
+// read_stop()
+// Stops calling the reader; plaintext that arrives meanwhile is kept for
+// the next one.
 func methods.read_stop(t){
   t.on_chunk = null
   if(t.done and t.reading){
@@ -289,6 +356,9 @@ func methods.read_stop(t){
   }
 }
 
+// write(data: string, cb?: func(err: any))
+// Encrypts and sends data; cb(err) once it is written. Writes made during
+// the handshake are sent after it.
 func methods.write(t, data, cb){
   if(t.error != null){
     if(cb != null){
@@ -310,7 +380,8 @@ func methods.write(t, data, cb){
   flush(t, cb)
 }
 
-// shutdown(cb): a close_notify, then the TCP write side closes
+// shutdown(cb?: func(err: any))
+// Sends a close_notify, then closes the TCP write side.
 func methods.shutdown(t, cb){
   t.session:close()
   flush(t, func(err){
@@ -324,6 +395,9 @@ func methods.shutdown(t, cb){
   })
 }
 
+// close(cb?: function)
+// Closes the TCP handle; waiting writes and handshakes fail with
+// "tls: the connection is closed".
 func methods.close(t, cb){
   t.closed = true
   t.reading = false
@@ -341,6 +415,7 @@ for(let local name in values({
   "getsockname", "getpeername", "nodelay", "keepalive", "is_closing",
   "is_active", "fileno", "ref", "unref", "has_ref"
 })){
+  // the TCP handle's method of that name
   methods[name] = func(t, ...arguments){
     local tcp = t.tcp
     return tcp[name](tcp, ...arguments)

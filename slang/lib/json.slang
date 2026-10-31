@@ -1,12 +1,19 @@
 // slang/json: encode and decode JSON.
 //
-// decode(text, origin) -> value: objects become tables with string keys,
-// arrays become lists, null stays null (so a null member is an absent key).
-// encode(value, options) -> text: tables whose keys are 0..n-1 (or marked
-// with json.array) become arrays, other tables objects with string keys;
-// {indent: "  "} pretty-prints. Functions and other values are errors.
-// json.null encodes as null where a value must be present (a table member
-// set to null is absent): {result: json.null} -> {"result":null}.
+//   local json = require("slang/json")
+//   local v = json.decode("{\"name\": \"slang\", \"tags\": [1, 2]}")
+//   print(v.name, " ", v.tags[1], "\n")                // slang 2
+//   print(json.encode({ok: true, items: {1, 2}}), "\n") // {"ok":true,"items":[1,2]}
+//
+// How values map: JSON objects are tables with string keys, arrays are
+// lists, numbers are ints when they have no fraction or exponent, else
+// doubles. JSON null is slang null, so a member that is null in the text
+// is simply absent from its table. When encoding, a table whose keys are
+// 0..n-1 (or one marked with [array]) is an array, any other table an
+// object, which must have only string keys. An empty table encodes as {}
+// unless marked with [array]. Use [null] for a member that must be there
+// as null: {result: json.null} encodes as {"result":null}. Functions,
+// NaN and the infinities cannot be encoded and raise an error.
 local peg = require("slang/peg")
 local str = require("slang/string")
 
@@ -95,7 +102,11 @@ value:set(peg.choice(
 
 local document = peg.seq(ws, value, ws, peg.end_of_input()):pick(1)
 
-// decode(text, origin) -> value (raises on malformed input)
+// decode(text: string, origin?: string) -> any
+// The value of the JSON text. Raises "invalid JSON in <origin> at
+// line:col: ..." on malformed input. Decoded arrays carry the [array]
+// mark, so they encode as arrays again even when empty.
+// [origin]: names the text in error messages ("string" by default)
 func json.decode(text, origin){
   local r = peg.run(document, text)
   if(not r.ok){
@@ -110,11 +121,15 @@ func json.decode(text, origin){
 
 // ------------------------------------------------------------ encoding
 
-// null: a value that encodes as null, for members that must be there
+// A value that encodes as null, for a member that must be present (a
+// member set to slang null is left out). type() of it is "json.null".
 json.null = {}
 json.null.meta = {__type: "json.null"}
 
-// array(t) -> t, marked so that it encodes as a JSON array even when empty
+// array(t: table) -> table
+// Marks t (setting its metatable) so that it encodes as a JSON array even
+// when empty, and returns it.
+//   json.encode({items: json.array({})})   // {"items":[]}
 func json.array(t){
   t.meta = array_meta
   return t
@@ -239,7 +254,14 @@ local func encode_value(v, out, indent, depth){
   }
 }
 
-// encode(value, {indent}) -> JSON text
+// How [encode] writes.
+// type EncodeOptions = {indent?: string}
+// [indent]: pretty-prints, with this string per level of nesting
+
+// encode(value, options?: EncodeOptions) -> string
+// The JSON text of value; see the module doc for how values map. Object
+// members come in the table's key order.
+//   json.encode({a: 1}, {indent: "  "})   // "{\n  \"a\": 1\n}"
 func json.encode(v, options){
   local out = {}
   encode_value(v, out, (options or {}).indent, 0)

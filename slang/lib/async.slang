@@ -16,16 +16,21 @@
 // The extension `extensions/async` adds `async func`, `await` and `await for`
 // on top of this module.
 //
-// A Future completes once, with a value or an error (any value; errors raised
-// inside async functions are the error tables pcall produces). A Stream is a
-// sequence of values ending with done or an error; `next()` gives the next
-// event as a Future, `listen` consumes it with a callback.
+// A [Future] completes once, with a value or an error (any value; errors
+// raised inside async functions are the error tables pcall produces). A
+// [Stream] is a sequence of values ending with done or an error; its next()
+// gives the next [Event] as a Future, listen() consumes it with a callback.
+// A [Completer] makes a Future, a [Controller] a Stream.
 //
-// await(f) must be called from a coroutine started by async.run (an "async
-// function"). It registers a waiter that reschedules the coroutine and
-// yields; a completed Future returns immediately without yielding. Waiters
-// run from the loop (a zero timer), never inside the code that completed
-// the Future, so completing a Future never re-enters the completer.
+// [await] must be called from a coroutine started by [run] or [main] (an
+// "async function"). It registers a waiter that reschedules the coroutine
+// and yields; a completed Future returns immediately without yielding.
+// Waiters run from the loop (a zero timer), never inside the code that
+// completed the Future, so completing a Future never re-enters the
+// completer.
+//
+// Handles (TCP connections, pipes, timers) are the native `uv` module's;
+// [connect], [serve] and [reader] turn them into Futures and Streams.
 local thread = require("slang/thread")
 local str = require("slang/string")
 
@@ -68,6 +73,11 @@ local unhandled = {}
 
 // ------------------------------------------------------------ futures
 
+// The result of an operation that finishes later: it completes once, with
+// a value or an error. [await] it in an async function, or chain
+// [Future.then] and [Future.catch]. A failed Future nobody awaits or
+// catches is reported by [main].
+// type Future
 local future_methods = {}
 local future_meta = {__index: future_methods, __type: "Future"}
 
@@ -108,13 +118,17 @@ local func on_settled(f, w){
   }
 }
 
+// is_done() -> bool
+// Whether the future has completed or failed.
 func future_methods.is_done(f){
   return f.state != "pending"
 }
 
-// then(on_value, on_error) -> Future of what the handler returns; a handler
-// may return a Future, which the result then follows. Without on_error the
-// error propagates to the returned future.
+// then(on_value?: func(value: any): any,
+//      on_error?: func(error: any): any) -> Future
+// A Future of what the handler returns; a handler may return a Future,
+// which the result then follows. Without on_error the error propagates to
+// the returned future; an error the handler raises fails it.
 func future_methods.then(f, on_value, on_error){
   local out = new_future()
   on_settled(f, func(f){
@@ -146,11 +160,23 @@ func future_methods.then(f, on_value, on_error){
   return out
 }
 
+// catch(on_error: func(error: any): any) -> Future
+// then(null, on_error): a Future of f's value, or of what on_error returns
+// for its error.
 func future_methods.catch(f, on_error){
   return f:then(null, on_error)
 }
 
-// completer() -> {future, complete(value), fail(error)}
+// The making side of a Future: call complete or fail once (a second call
+// raises "the future is already ...").
+// type Completer = {future: Future, complete: func(value: any),
+//   fail: func(error: any)}
+
+// completer() -> Completer
+// A pending [Future] and the functions that settle it.
+//   local c = async.completer()
+//   timer:start(100, 0, func(){ c.complete("late") })
+//   return c.future
 func async.completer(){
   local f = new_future()
   return {
@@ -160,20 +186,28 @@ func async.completer(){
   }
 }
 
+// value(v) -> Future
+// A Future already completed with v.
 func async.value(v){
   local f = new_future()
   settle(f, "done", v)
   return f
 }
 
+// failed(e) -> Future
+// A Future already failed with e. Unless something awaits or catches it,
+// [main] reports it as unhandled.
 func async.failed(e){
   local f = new_future()
   settle(f, "error", e)
   return f
 }
 
-// wrap(start) -> Future: start(cb) begins an operation whose callback has the
-// uv shape cb(err, value); the future fails with err or completes with value
+// wrap(start: func(cb: func(err: any, value: any))) -> Future
+// Turns a callback-style operation into a Future: start(cb) begins it, and
+// cb has the uv shape cb(err, value). The future fails with err (when not
+// null) or completes with value; an error start raises fails it too.
+//   local f = async.wrap(func(cb){ handle:write(data, cb) })
 func async.wrap(start){
   local c = async.completer()
   local r = pcall(start, func(err, value){
@@ -189,7 +223,9 @@ func async.wrap(start){
   return c.future
 }
 
-// all(futures) -> Future of the list of values (fails with the first error)
+// all(futures: {Future}) -> Future
+// A Future of the list of the futures' values, in their order; it fails
+// with the first error. An empty list gives an empty list at once.
 func async.all(futures){
   local c = async.completer()
   local values_out = {}
@@ -218,8 +254,9 @@ func async.all(futures){
   return c.future
 }
 
-// race(futures) -> Future that settles like the first of the futures to
-// settle; the others are marked handled and their results dropped
+// race(futures: {Future}) -> Future
+// Settles like the first of the futures to settle; the others are marked
+// handled and their results dropped. An empty list never settles.
 func async.race(futures){
   local c = async.completer()
   local settled = false
@@ -237,10 +274,12 @@ func async.race(futures){
   return c.future
 }
 
-// timeout(f, ms, message) -> Future of f's value, or failing with message
-// ("timed out after <ms> ms" by default) when f takes longer than ms
-// milliseconds (an error keeps only its message through raise, so tell a
-// timeout by the message you chose)
+// timeout(f: Future, ms: int, message?: string) -> Future
+// A Future of f's value (or error), failing with [message] instead when f
+// takes longer than ms milliseconds. f itself goes on; its late result is
+// dropped. An error keeps only its message through raise, so tell a
+// timeout by the message you chose.
+// [message]: "timed out after <ms> ms" by default
 func async.timeout(f, ms, message){
   local c = async.completer()
   local settled = false
@@ -268,7 +307,10 @@ func async.timeout(f, ms, message){
 
 // ------------------------------------------------------------ await and run
 
-// await(f) -> the value of f, or raises its error
+// await(f: Future) -> the value of f
+// Waits for f, suspending the async function, and returns its value or
+// raises its error. Raises when f is not a Future or when called outside
+// an async function ([run], [main]). A completed f returns at once.
 func async.await(f){
   if(type(f) != "Future"){
     error("await expects a Future, got ", type(f))
@@ -290,8 +332,10 @@ func async.await(f){
   return f.value
 }
 
-// run(f) -> Future: runs f in a coroutine that may await; the future
-// completes with f's return value or fails with its error
+// run(f: function) -> Future
+// Runs f as an async function: in a coroutine that may [await]. It starts
+// at once and runs until its first await. The future completes with f's
+// return value or fails with its error.
 func async.run(f){
   local fut = new_future()
   local co = null
@@ -309,7 +353,8 @@ func async.run(f){
   return fut
 }
 
-// sleep(ms) -> Future that completes after ms milliseconds
+// sleep(ms: int) -> Future
+// Completes (with null) after ms milliseconds.
 func async.sleep(ms){
   return async.wrap(func(cb){
     local timer = loop_module().timer()
@@ -326,13 +371,20 @@ func async.sleep(ms){
 // the window system and on libuv together.
 local driver = null
 
-// set_driver(step) replaces the driver; null restores libuv's
+// set_driver(step?: func(): bool)
+// Replaces how [main] waits for events: step() handles one batch and says
+// whether there is more to do. null restores libuv's run("once"). For GUI
+// extensions (slang/webview) that wait on a window system and libuv
+// together.
 func async.set_driver(step){
   driver = step
 }
 
-// main(f) -> the value of f: runs f as an async function and drives the
-// event loop until it finishes. Failed futures nobody handled are reported.
+// main(f: function) -> the value of f
+// Runs f as an async function and drives the event loop until it
+// finishes; the program's entry point. Raises f's error, or when the loop
+// runs dry while f still waits. Failed futures nobody awaited or caught
+// are printed as "async: unhandled error in a future".
 func async.main(f){
   local uv = loop_module()
   local fut = async.run(f)
@@ -370,12 +422,30 @@ func async.main(f){
 
 // ------------------------------------------------------------ streams
 
+// A sequence of values that ends with done or an error. Read it one way:
+// [Stream.next] (or `await for`), [Stream.listen] or [Stream.collect]; a
+// second reader raises "the stream is already being read".
+// type Stream
 local stream_methods = {}
 local stream_meta = {__index: stream_methods, __type: "Stream"}
 
-// controller() -> {stream, add(value), close(), fail(error)}; on_pause and
-// on_resume on the controller are called when the buffer passes high_water
-// and when a reader drains it (backpressure)
+// What [Stream.next] gives: {value: v}, or {done: true} at the end.
+// type Event = {value?: any, done?: bool}
+
+// The writing side of a Stream. add raises once the stream is closed;
+// close and fail after the end do nothing.
+// type Controller = {stream: Stream, add: func(value: any), close: func(),
+//   fail: func(error: any), on_pause?: func(), on_resume?: func()}
+// [on_pause]: called when the buffer reaches the high-water mark: pause
+// [on_resume]: called when a reader has drained the buffer below it again
+
+// controller(options?: {high_water?: int}) -> Controller
+// A [Stream] fed by add(), with a buffer for values no one has read yet.
+//   local c = async.controller()
+//   c.add("a")
+//   c.close()
+//   async.await(c.stream:collect())   // {"a"}
+// [options]: high_water, the buffered values that call on_pause (16)
 func async.controller(options){
   local s = {
     buffer: {}, done: false, error: null, pending: null, listener: null,
@@ -446,7 +516,9 @@ func async.controller(options){
   return c
 }
 
-// next() -> Future of {value} or {done: true}; fails with the stream's error
+// next() -> Future
+// A Future of the next [Event]; it fails with the stream's error. One
+// next() at a time; raises while another is pending or with a listener.
 func stream_methods.next(s){
   if(s.pending != null){
     error("the stream is already being read")
@@ -460,7 +532,10 @@ func stream_methods.next(s){
   return c.future
 }
 
-// listen(cb(err, value)): callback style; value is null at the end
+// listen(cb: func(err: any, value: any)) -> Stream
+// Reads the stream with a callback: cb(null, value) for each value, then
+// cb(null, null) at the end or cb(err, null) on an error. Returns the
+// stream.
 func stream_methods.listen(s, cb){
   if(s.listener != null or s.pending != null){
     error("the stream is already being read")
@@ -470,7 +545,9 @@ func stream_methods.listen(s, cb){
   return s
 }
 
-// collect() -> Future of the list of all values
+// collect() -> Future
+// A Future of the list of all the values; it fails with the stream's
+// error.
 func stream_methods.collect(s){
   local c = async.completer()
   local out = {}
@@ -486,17 +563,25 @@ func stream_methods.collect(s){
   return c.future
 }
 
-// pull(next_value) -> a Stream that reads only when asked: next() calls
-// next_value(), which returns the next value, null at the end, or a Future
-// of either. Nothing is read ahead, so a slow reader slows the source (a
-// file sent to a slow client is not read into memory first).
+// the methods of a pulled Stream (async.pull): next, collect and listen as
+// a controller's Stream has them
 local pull_methods = {}
 local pull_meta = {__index: pull_methods, __type: "Stream"}
 
+// pull(next_value: func(): any) -> Stream
+// A Stream that reads only when asked: each next() calls next_value(),
+// which returns the next value, null at the end, or a Future of either; an
+// error it raises (or its Future's) ends the stream with that error.
+// Nothing is read ahead, so a slow reader slows the source (a file sent to
+// a slow client is not read into memory first).
+//   local n = 0
+//   local s = async.pull(func(){ n = n + 1  return n <= 3 and n or null })
 func async.pull(next_value){
   return {meta: pull_meta, source: next_value, done: false, busy: false}
 }
 
+// next() -> Future
+// Calls the source once and gives a Future of the next [Event].
 func pull_methods.next(s){
   if(s.busy){
     error("the stream is already being read")
@@ -531,6 +616,8 @@ func pull_methods.next(s){
   )
 }
 
+// collect() -> Future
+// A Future of the list of all the values.
 func pull_methods.collect(s){
   return async.run(func(){
     local out = {}
@@ -544,6 +631,8 @@ func pull_methods.collect(s){
   })
 }
 
+// listen(cb: func(err: any, value: any)) -> Stream
+// Reads the stream with a callback, as [Stream.listen] does.
 func pull_methods.listen(s, cb){
   async.run(func(){
     local r = pcall(func(){
@@ -564,9 +653,11 @@ func pull_methods.listen(s, cb){
   return s
 }
 
-// iterator(stream) -> a function returning the next value, or null at the
-// end (what `await for` loops over: a for-in loop calls it until the pattern
-// stops matching, so a null value ends the loop early)
+// iterator(s: Stream) -> func(): any
+// A function that awaits and returns the stream's next value, or null at
+// the end; what `await for` loops over. Call it in an async function. A
+// for-in loop stops at the first null, so a null value in the stream ends
+// the loop early.
 func async.iterator(s){
   return func(){
     local e = async.await(s:next())
@@ -593,8 +684,12 @@ local func is_ip(host){
   return true
 }
 
-// resolve(host, port, family) -> Future of the list of {ip, port, family}
-// the name resolves to; family "ipv4" or "ipv6" limits it
+// An address a name resolves to.
+// type Address = {ip: string, port: int, family: string}
+
+// resolve(host: string, port: int, family?: string) -> Future
+// A Future of the list of [Address]es host resolves to.
+// [family]: "ipv4" or "ipv6" to resolve to that family only
 func async.resolve(host, port, family){
   return async.wrap(func(cb){
     if(family != null){
@@ -605,8 +700,9 @@ func async.resolve(host, port, family){
   })
 }
 
-// connect(host, port) -> Future of a connected uv.tcp handle; a host name
-// is resolved first and its addresses tried in order
+// connect(host: string, port: int) -> Future
+// A Future of a connected uv.tcp handle. A host name is resolved first and
+// its addresses tried in order; the future fails with the last error.
 func async.connect(host, port){
   local uv = loop_module()
   return async.wrap(func(cb){
@@ -642,28 +738,36 @@ func async.connect(host, port){
   })
 }
 
-// write(handle, data) -> Future
+// write(handle, data: string) -> Future
+// Writes data to a uv stream handle (TCP, pipe, TLS); completes when it is
+// written.
 func async.write(handle, data){
   return async.wrap(func(cb){
     handle:write(data, cb)
   })
 }
 
-// shutdown(handle) -> Future; close(handle) -> Future
+// shutdown(handle) -> Future
+// Ends the writing side of a uv stream handle once pending writes are done.
 func async.shutdown(handle){
   return async.wrap(func(cb){
     handle:shutdown(cb)
   })
 }
 
+// close(handle) -> Future
+// Closes a uv handle; completes when it is closed.
 func async.close(handle){
   return async.wrap(func(cb){
     handle:close(func(){ cb(null, null) })
   })
 }
 
-// reader(handle) -> Stream of chunks (reading pauses when the consumer falls
-// behind and resumes when it catches up)
+// reader(handle, options?: {high_water?: int}) -> Stream
+// A Stream of the string chunks read from a uv stream handle, ending when
+// the other side does. Reading pauses when the consumer falls behind and
+// resumes when it catches up.
+// [options]: as for [controller]
 func async.reader(handle, options){
   local c = async.controller(options)
   c.on_pause = func(){ handle:read_stop() }
@@ -681,9 +785,17 @@ func async.reader(handle, options){
   return c.stream
 }
 
-// serve(host, port, options) -> {server, connections, close()}: a listening
-// socket and a Stream of accepted uv.tcp handles; close() stops listening
-// and ends the stream
+// A listening TCP socket.
+// type Listener = {server: any, connections: Stream, close: func()}
+// [server]: the uv.tcp handle (server:getsockname().port is the port)
+// [connections]: the accepted connections, as uv.tcp handles
+// [close]: stops listening and ends connections
+
+// serve(host: string, port: int, options?: {backlog?: int,
+//   high_water?: int}) -> Listener
+// Listens on host:port. Raises when it cannot bind.
+// [port]: 0 picks a free port
+// [options]: backlog, pending connections (128); high_water: [controller]
 func async.serve(host, port, options){
   local uv = loop_module()
   local server = uv.tcp()
@@ -710,6 +822,8 @@ func async.serve(host, port, options){
 
 // ------------------------------------------------------------ files
 
+local fs = {}
+
 // The file system on libuv's thread pool; every function returns a Future.
 // Errors read like "ENOENT: no such file or directory, read_file 'x'".
 //
@@ -726,10 +840,19 @@ func async.serve(host, port, options){
 // In a program built by `slang build`, a relative path that names a bundled
 // file or directory is read from the bundle (read_file, stat, list_dir,
 // exists, read_stream; see slang/bundle); the rest is the disk's.
-local fs = {}
+//
+//   local text = async.await(async.fs.read_file("notes.txt"))
 async.fs = fs
 
 local bundle = require("slang/bundle")
+
+// What fs.stat gives; times are seconds since the epoch.
+// type Stat = {size: int, mode: int, mtime: float, atime: float,
+//   ctime: float, is_file: bool, is_dir: bool}
+
+// An entry of fs.list_dir.
+// type DirEntry = {name: string, type: string}
+// [type]: "file", "dir", "link", "unknown" or "other"
 
 // what a relative path is in a built program's bundle: {stat} when the
 // bundle holds the file or directory, {path} for a file kept next to the
@@ -769,6 +892,8 @@ local func fs_call(name, ...arguments){
   })
 }
 
+// read_file(path: string) -> Future
+// A Future of the file's contents.
 func fs.read_file(path){
   local b = bundled(path)
   if(b != null and b.stat != null and b.stat.is_file){
@@ -776,12 +901,18 @@ func fs.read_file(path){
   }
   return fs_call("fs_read_file", disk_path(b, path))
 }
+// write_file(path: string, data: string) -> Future
+// Writes data to the file, replacing what it held.
 func fs.write_file(path, data){
   return fs_call("fs_write_file", path, data, false)
 }
+// append_file(path: string, data: string) -> Future
+// Adds data at the end of the file.
 func fs.append_file(path, data){
   return fs_call("fs_write_file", path, data, true)
 }
+// stat(path: string) -> Future
+// A Future of the file's or directory's [Stat].
 func fs.stat(path){
   local b = bundled(path)
   if(b != null and b.stat != null){
@@ -790,6 +921,9 @@ func fs.stat(path){
   return fs_call("fs_stat", disk_path(b, path))
 }
 
+// list_dir(path: string) -> Future
+// A Future of the directory's entries, a list of [DirEntry]. A bundled
+// directory lists the bundle's entries and the disk's.
 func fs.list_dir(path){
   local b = bundled(path)
   if(b == null or b.stat == null or not b.stat.is_dir){
@@ -815,19 +949,38 @@ func fs.list_dir(path){
     return out
   })
 }
+// remove(path: string) -> Future
+// Deletes a file.
 func fs.remove(path){ return fs_call("fs_unlink", path) }
+// mkdir(path: string) -> Future
+// Makes a directory (its parent must exist).
 func fs.mkdir(path){ return fs_call("fs_mkdir", path) }
+// rmdir(path: string) -> Future
+// Removes an empty directory.
 func fs.rmdir(path){ return fs_call("fs_rmdir", path) }
+// rename(from: string, to: string) -> Future
+// Renames or moves a file or directory.
 func fs.rename(from, to){ return fs_call("fs_rename", from, to) }
+// open(path: string, flags?: string) -> Future
+// A Future of a file descriptor for [fs.read], [fs.write] and [fs.close].
+// [flags]: as for fopen: "r" (the default), "w", "a", "r+", ...
 func fs.open(path, flags){ return fs_call("fs_open", path, flags or "r") }
+// close(fd: int) -> Future
+// Closes a file descriptor from [fs.open].
 func fs.close(fd){ return fs_call("fs_close", fd) }
 
+// read(fd: int, length: int, offset?: int) -> Future
+// A Future of up to length bytes; "" at the end of the file.
+// [offset]: where to read; null reads on from the current position
 func fs.read(fd, length, offset){
   return async.wrap(func(cb){
     loop_module().fs_read(fd, length, offset or - 1, cb)
   })
 }
 
+// write(fd: int, data: string, offset?: int) -> Future
+// A Future of the number of bytes written.
+// [offset]: where to write; null writes on from the current position
 func fs.write(fd, data, offset){
   return async.wrap(func(cb){
     loop_module().fs_write(fd, data, offset or - 1, cb)
@@ -854,10 +1007,12 @@ local func memory_stream(data, size, offset, length){
   })
 }
 
-// read_stream(path, options) -> a Stream of the file's contents in chunks,
-// read as they are asked for; options (or just a chunk size): chunk_size
-// (64 KiB), start (a byte offset, 0), length (bytes from start; to the end
-// by default). The file is closed at the end or on an error.
+// read_stream(path: string, options?: {chunk_size?: int, start?: int,
+//   length?: int} | int) -> Stream
+// A Stream of the file's contents in chunks, read as they are asked for
+// (see [pull]). The file is closed at the end or on an error. options may
+// be just the chunk size.
+// [options]: chunk_size (64 KiB), start (0), length (bytes; to the end)
 func fs.read_stream(path, options){
   if(type(options) == "int"){
     options = {chunk_size: options}
@@ -911,6 +1066,8 @@ func fs.read_stream(path, options){
   })
 }
 
+// exists(path: string) -> Future
+// A Future of whether the path names a file or directory.
 func fs.exists(path){
   local b = bundled(path)
   if(b != null and b.stat != null){
@@ -924,9 +1081,10 @@ func fs.exists(path){
 
 // ------------------------------------------------------------ signals
 
-// on_signal(name, f) -> the uv.signal handle: f(name) runs each time the
-// process gets the signal ("SIGINT", "SIGTERM", ...). The handle does not
-// keep the loop running; stop() or close() it when done.
+// on_signal(name: string, f: func(name: string)) -> the uv.signal handle
+// Runs f(name) each time the process gets the signal ("SIGINT", "SIGTERM",
+// ...). The handle does not keep the loop running; stop() or close() it
+// when done.
 func async.on_signal(name, f){
   local h = loop_module().signal()
   h:start(name, func(err, got){ f(got) })
@@ -936,12 +1094,25 @@ func async.on_signal(name, f){
 
 // ------------------------------------------------------------ processes
 
-// spawn(file, args, options) -> {process, pid, stdin, stdout, stderr,
-// pipes, exit, kill(sig)}: starts a program. options as for uv.spawn (cwd,
-// env, detached), except that a stdio entry "pipe" makes a pipe: the ones
-// for fds 0, 1 and 2 are stdin, stdout and stderr, all of them are in
-// pipes by fd. Without stdio the child inherits 0, 1 and 2. exit is a
-// Future of {status, signal}. Raises when the program cannot be started.
+// A started program.
+// type Process = {process: any, pid: int, stdin?: any, stdout?: any,
+//   stderr?: any, pipes: {[int]: any}, exit: Future, kill: func(sig?: string | int)}
+// [process]: the uv.process handle
+// [stdin]: the uv.pipe for fd 0 when stdio has "pipe" there
+// [stdout]: the uv.pipe for fd 1, likewise
+// [stderr]: the uv.pipe for fd 2, likewise
+// [pipes]: every pipe stdio asked for, by fd
+// [exit]: {status, signal} when it ends (signal when a signal ended it)
+// [kill]: sends a signal, a number or a name ("SIGTERM" by default)
+
+// spawn(file: string, args?: {string}, options?: table) -> Process
+// Starts a program. Raises when it cannot be started. options are as for
+// uv.spawn (cwd, env, detached, stdio), except that a stdio entry "pipe"
+// makes a pipe. Without stdio the child inherits fds 0, 1 and 2.
+//
+//   local p = async.spawn("sleep", {"1"})
+//   local r = async.await(p.exit)   // {status: 0}
+// [args]: the arguments, without the program itself
 func async.spawn(file, args, options){
   local uv = loop_module()
   local opts = {}
@@ -994,9 +1165,13 @@ local func collect(pipe){
   })
 }
 
-// exec(file, args, options) -> Future of {status, signal, stdout, stderr}:
-// runs a program to the end and collects its output. options.input is
-// written to its stdin (otherwise stdin is empty); cwd and env as for spawn.
+// exec(file: string, args?: {string}, options?: table) -> Future
+// Runs a program to the end and collects its output: a Future of {status,
+// signal, stdout, stderr}. It fails when the program cannot be started.
+//
+//   local r = async.await(async.exec("git", {"status", "--short"}))
+//   print(r.status, r.stdout)
+// [options]: input (written to stdin, else empty); cwd and env: [spawn]
 func async.exec(file, args, options){
   local opts = {}
   for(let local e in entries(options or {})){

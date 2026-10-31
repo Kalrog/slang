@@ -1,21 +1,50 @@
 // slang/jwt: JSON Web Tokens (RFC 7519) over slang/crypto.
 //
-//   jwt.sign(claims, key, options) -> token
-//   jwt.verify(token, key, options) -> the claims, or raises "jwt: ..."
-//   jwt.decode(token) -> {header, claims} without checking anything
+//   local jwt = require("slang/jwt")
+//   local token = jwt.sign({sub: "42"}, secret, {expires_in: 3600})
+//   local claims = jwt.verify(token, secret)        // {sub: "42", iat, exp}
 //
-// key is a secret string for HS256/384/512, or a crypto key: RSA for
+// A key is a secret string for HS256/384/512, or a [crypto.Key]: RSA for
 // RS256/384/512 and PS256/384/512, EC for ES256/384/512, Ed25519 for
-// EdDSA. The algorithm defaults to the one that fits the key (HS256, RS256,
-// ES256/384/512 by curve, EdDSA).
-//
-// sign options: alg, expires_in (seconds from now: sets exp), not_before
-// (seconds from now: nbf), issuer, subject, audience, header (extra header
-// fields such as kid); iat is always set.
-// verify options: alg or algs (the algorithms accepted; by default only the
-// one that fits the key, so a token cannot choose a weaker one), leeway
-// (seconds of clock skew allowed, default 0), now (seconds since the epoch,
-// for tests), issuer and audience (required to match when given).
+// EdDSA. The algorithm defaults to the one that fits the key (HS256,
+// RS256, ES256/384/512 by curve, EdDSA), and [verify] accepts only that
+// one unless told otherwise, so a token cannot pick a weaker algorithm.
+// Errors raise "jwt: ..." ("jwt: expired", "jwt: bad signature", ...).
+
+// A token's claims: any JSON object. The registered ones [sign] sets and
+// [verify] checks are below; times are seconds since the epoch.
+// type Claims = {iss?: string, sub?: string, aud?: string | {string},
+//   exp?: int, nbf?: int, iat?: int}
+// [exp]: when the token expires
+// [nbf]: when it becomes valid
+// [iat]: when it was issued; [sign] always sets it
+
+// What [sign] accepts besides the claims.
+// type SignOptions = {alg?: string, expires_in?: int, not_before?: int,
+//   issuer?: string, subject?: string, audience?: string | {string},
+//   header?: table, now?: int}
+// [alg]: "HS256", "RS256", "ES256", "EdDSA", ... (by default the key's)
+// [expires_in]: seconds from now: sets exp
+// [not_before]: seconds from now: sets nbf
+// [issuer]: sets iss
+// [subject]: sets sub
+// [audience]: sets aud
+// [header]: extra header fields, such as kid
+// [now]: the time in seconds since the epoch, for tests
+
+// What [verify] checks.
+// type VerifyOptions = {alg?: string, algs?: {string}, leeway?: int,
+//   now?: int, issuer?: string, audience?: string}
+// [alg]: the algorithm accepted (by default the one that fits the key)
+// [algs]: the algorithms accepted, instead of alg
+// [leeway]: seconds of clock skew allowed for exp and nbf (0)
+// [now]: the time in seconds since the epoch, for tests
+// [issuer]: iss must equal it
+// [audience]: aud must equal it or, as a list, contain it
+
+// A token [decode] read: its two JSON parts.
+// type Decoded = {header: table, claims: Claims}
+
 local crypto = require("slang/crypto")
 local encoding = require("slang/encoding")
 local json = require("slang/json")
@@ -82,6 +111,10 @@ local func now(options){
   return options.now or to_int(time.now())
 }
 
+// sign(claims: Claims, key: string | crypto.Key,
+//   options?: SignOptions) -> string
+// A signed token with claims (copied; the options add to them). Raises
+// when the key does not fit the algorithm, or is a public key.
 func jwt.sign(claims, key, options){
   options = options or {}
   local alg = options.alg or default_alg(key)
@@ -141,6 +174,9 @@ local func split(token){
   }
 }
 
+// decode(token: string) -> Decoded
+// The header and claims of a token, without checking the signature or
+// anything else: never trust them. Raises "jwt: malformed token".
 func jwt.decode(token){
   local t = split(token)
   return {header: t.header, claims: t.claims}
@@ -155,6 +191,14 @@ local func contains(list, v){
   return false
 }
 
+// verify(token: string, key: string | crypto.Key,
+//   options?: VerifyOptions) -> Claims
+// The claims of a token whose algorithm is accepted, whose signature is
+// valid for key, which has not expired and is valid already (exp and nbf,
+// when present), and whose iss and aud match the options that ask. Raises
+// "jwt: ..." otherwise.
+//
+//   local r = pcall(jwt.verify, token, public_key, {algs: {"RS256", "PS256"}})
 func jwt.verify(token, key, options){
   options = options or {}
   local t = split(token)

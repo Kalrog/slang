@@ -2,50 +2,113 @@
 // (hover, go to definition, references) and slang doc.
 //
 //   local index = symbols.analyse(block, source, origin)
+//   local found = symbols.at(index, pos)   // the def or ref at pos
 //
 // block is the file's parsed (expanded) AST; codegen resolves its names as
 // it would compile them (see codegen.generate's record option), so scoping
 // is exactly the compiler's, extensions included. Names an extension made
-// up have no place in the source and are left out.
+// up have no place in the source and are left out. The result is an
+// [Index]; its positions are byte offsets into source.
 //
-// index:
-//   defs     the definitions, in source order: {name, kind, start, stop,
-//            statement, value, doc, params, owner, module, fields}
-//            kind "local", "parameter", "global" or "field"; start and stop
-//            are byte offsets of the name; doc the comment above it; params
-//            the parameter names when the value is a function; owner (of a
-//            field) the definition it belongs to, or {global: name}; module
-//            the name given to require when the value is require("name");
-//            fields (of a table) {name: field definition}; scope (of a local
-//            or parameter) {start, stop} of the block, function or loop it
-//            lives in, null at the top level of the file
-//   refs     the uses: {name, start, stop, def, write, owner, invoke}; def
-//            is the definition the name resolved to (null for a global or a
-//            field not found in the file); owner as for fields; invoke when
-//            the field is called as a method (o:name())
-//   globals  {name: the first definition of a global in the file}
-//   by_start {offset: the def or ref whose name starts there}
-//   exports  {name: definition}: the fields of the table the file returns
-//   module_doc the comment block that starts the file
-//   sections the section dividers: {title, start}
-//   types    {name: declaration}: the types the doc comments declare (see
-//            "typed docs"); a bare one has table, the definition that holds
-//            its methods
-//   a definition's info is its doc read as symbols.doc_info does; a
-//   parameter's type the one its function's signature gives it
-//
-//   symbols.at(index, pos) -> the def or ref whose name covers pos
-//   symbols.signature(def) -> "http.fetch(url, options)" and the like
-//   symbols.doc_above(source, pos) -> the comment block just above the line
-//     of pos (no blank line between), as text, or null
-//   symbols.doc_blocks(text) -> the doc as a list of {kind, text}: "text"
-//     (a paragraph, its lines joined) or "code" (lines indented by two or
-//     more spaces, kept as they are, less the common indentation)
+// Doc comments are read here too: a definition's doc is the comment block
+// right above its statement (no blank line between). Its typed signature,
+// its `[name]: text` lines and the types a file declares follow the
+// notation described under "typed docs" below ([doc_info], [types]).
 local str = require("slang/string")
 local codegen = require("slang/codegen")
 local ast = require("slang/ast")
 
 local symbols = {}
+
+// What [analyse] finds in a file.
+// type Index = {defs: {Def}, refs: {Ref}, globals: {[string]: Def},
+//   by_start: {[int]: Def | Ref}, exports: {[string]: Def}, returned?: Def,
+//   module_doc?: string, sections: {Section}, types: {[string]: TypeDecl},
+//   origin?: string}
+// [defs]: the definitions, in source order
+// [refs]: the uses, in source order
+// [globals]: the first definition of each global the file assigns
+// [by_start]: the def or ref whose name starts at an offset
+// [exports]: the fields of the table the file returns
+// [returned]: what the file returns, when that is a table, function or require
+// [module_doc]: the comment block that starts the file
+// [sections]: the section dividers (`// ---- title`), in order
+// [types]: the types the doc comments declare, by name
+
+// A definition: a local, a parameter, a global's first assignment or a
+// field (o.name = v, a table literal's name: v).
+// type Def = {name: string, kind: string, start?: int, stop?: int,
+//   statement?: int, value?: table, doc?: string, info: DocInfo,
+//   params?: {string}, owner?: Def, module?: string, fields: {[string]: Def},
+//   scope?: {start: int, stop: int}, type?: Type}
+// [kind]: "local", "parameter", "global" or "field"
+// [start]: where the name starts (stop: past its end); null when not in source
+// [statement]: where the statement that defines it starts (its doc is above)
+// [value]: the AST node it is given
+// [doc]: the comment block above its statement
+// [info]: its doc read by [doc_info]
+// [params]: the parameter names, when the value is a function
+// [owner]: a field's table: its definition, or {global, name, fields}
+// [module]: the name, when the value is require("name")
+// [fields]: the fields set on it by name: the first definition of each
+// [scope]: a local's block, function or loop; null at the top level
+// [type]: a parameter's, from its function's typed signature
+
+// A use of a name.
+// type Ref = {name: string, start: int, stop: int, def?: Def, write: bool,
+//   owner?: Def, invoke?: bool}
+// [def]: what it resolved to; null for a global or field the file lacks
+// [write]: it is assigned
+// [owner]: a field's table, as for [Def]
+// [invoke]: the field is called as a method (o:name())
+
+// A section divider and where its line starts.
+// type Section = {title: string, start: int}
+
+// A doc comment read apart by [doc_info].
+// type DocInfo = {signature?: Signature, items: {[string]: string},
+//   prose?: string}
+// [items]: the `[name]: text` lines, by name
+// [prose]: the rest of the doc; null when nothing is left
+
+// A typed signature: the parameters and what comes after them.
+// type Signature = {params: {Param}, result?: Result, text?: string}
+// [result]: after `->`
+// [text]: what follows the parameters without `->` (it begins the prose)
+
+// A parameter of a signature or a function type.
+// type Param = {name: string, type?: Type, optional: bool, rest: bool}
+// [rest]: `...name`
+
+// What a signature says after `->`: name and type, type and description
+// (text), or prose alone (text).
+// type Result = {name?: string, type?: Type, text?: string}
+
+// A type of the notation, parsed.
+// type Type = {kind: string, name?: string, of?: Type | {Type}, key?: Type,
+//   value?: Type, fields?: {TypeField}, params?: {Param}, returns?: Type}
+// [kind]: "name", "optional", "union", "list", "map", "shape" or "func"
+// [name]: a name's: "string", "Request", "async.Future", ...
+// [of]: what an optional or a list is of; a union's parts
+// [key]: a map's key type (value: its value type)
+// [fields]: a shape's
+// [params]: a function type's (returns: its result, or null)
+
+// A field of a shape type.
+// type TypeField = {name: string, optional: bool, type: Type}
+
+// A type declared in a doc comment.
+// type TypeDecl = {name: string, type?: Type, start: int, stop: int,
+//   doc?: string, info: DocInfo, line_end: int, table?: Def}
+// [type]: null for a bare declaration
+// [start]: where the name starts (stop: past its end)
+// [doc]: the comments above and below the declaration line(s)
+// [info]: the doc read by [doc_info]: its items describe the fields
+// [line_end]: where its comment block ends
+// [table]: a bare one's methods table, the definition right below it
+
+// A paragraph ("text", its lines joined) or code sample ("code") of a doc.
+// type DocBlock = {kind: string, text: string}
 
 // ------------------------------------------------------------ doc comments
 
@@ -84,6 +147,11 @@ local func line_start(source, pos){
   return i
 }
 
+// doc_above(source: string, pos: int) -> string?
+// The comment block just above the line of pos (no blank line or section
+// divider between), its lines without `//` and joined by newlines; null
+// when there is none or it is the comment that starts the file (the
+// module's doc).
 func symbols.doc_above(source, pos){
   local lines = {}
   local stop = line_start(source, pos)
@@ -116,6 +184,10 @@ local func indent_of(line){
   return i
 }
 
+// doc_blocks(text?: string) -> {DocBlock}
+// A doc split into paragraphs and code samples. Lines indented by two or
+// more spaces are code, kept as they are less their common indentation; a
+// blank line ends a paragraph, not a sample.
 func symbols.doc_blocks(text){
   local blocks = {}
   local current = null
@@ -294,7 +366,7 @@ local func parse_params(text, i){
   for(true){
     i = skip_spaces(text, i)
     local p = {optional: false, rest: false}
-    if(str.substring(text, i, i + 3) == "..."){
+    if(str.starts_with(text, "...", i)){
       p.rest = true
       i = i + 3
     }
@@ -512,7 +584,8 @@ parse_union = func(text, i){
   return {type: {kind: "union", of: parts}, stop: stop}
 }
 
-// parse_type(text) -> the type text is (all of it), or null
+// parse_type(text: string) -> Type?
+// The type text is in the notation (all of it), or null.
 func symbols.parse_type(text){
   local r = parse_union(text, 0)
   if(r == null or skip_spaces(text, r.stop) != len(text)){
@@ -521,7 +594,8 @@ func symbols.parse_type(text){
   return r.type
 }
 
-// type_text(type) -> the type written out again
+// type_text(t?: Type) -> string
+// The type written out again in the notation; "any" for null.
 func symbols.type_text(t){
   if(t == null){
     return "any"
@@ -594,7 +668,19 @@ local func parse_result(rest){
   if(whole != null){
     return {type: whole}
   }
-  local colon = str.index_of(rest, ":")
+  // the first `:` outside brackets: `{[string]: T}: text`
+  local colon = - 1
+  local depth = 0
+  for(local k = 0; k < len(rest) and colon < 0; k = k + 1){
+    local b = str.byte_at(rest, k)
+    if(b == 40 or b == 91 or b == 123){
+      depth = depth + 1
+    } else if(b == 41 or b == 93 or b == 125){
+      depth = depth - 1
+    } else if(b == 58 and depth == 0){
+      colon = k
+    }
+  }
   if(colon > 0){
     local before = str.trim(str.substring(rest, 0, colon))
     local after = str.trim(str.substring(rest, colon + 1))
@@ -615,10 +701,11 @@ local func parse_result(rest){
   return {text: rest}
 }
 
-// doc_info(doc, name) -> {signature, items, prose}: the typed signature at
-// the start of a definition's doc ({params: {{name, type, optional, rest}},
-// result: {name, type, text}} or null), its `[name]: text` lines ({name:
-// text}), and the rest of the doc
+// doc_info(doc?: string, name?: string) -> DocInfo
+// Reads a definition's doc: the typed signature at its start (when the
+// first line has name and a parameter list, maybe qualified: `http.serve(`
+// for serve), its `[name]: text` lines, and the rest.
+// [name]: the definition's name; null reads no signature (a type's doc)
 func symbols.doc_info(doc, name){
   local info = {signature: null, items: {}, prose: doc}
   if(doc == null){
@@ -651,6 +738,12 @@ func symbols.doc_info(doc, name){
       if(ps != null){
         local sig = {params: ps.params, result: null}
         local tail = str.trim(str.substring(text, ps.stop))
+        // `-> Result` may also start the line after the parentheses close
+        if(len(tail) == 0 and j + 1 < len(lines) and
+          str.starts_with(str.trim(lines[j + 1]), "->")){
+          j = j + 1
+          tail = str.trim(lines[j])
+        }
         if(str.starts_with(tail, "->")){
           sig.result = parse_result(str.substring(tail, 2))
         } else if(len(tail) > 0){
@@ -663,10 +756,17 @@ func symbols.doc_info(doc, name){
     }
   }
   local prose = {}
+  // the item the previous line described: an indented line right below
+  // continues it
+  local last_item = null
   for(; i < len(lines); i = i + 1){
     local line = lines[i]
     local item = null
-    if(str.starts_with(line, "[")){
+    if(last_item != null and str.starts_with(line, " ") and
+      len(str.trim(line)) > 0){
+      info.items[last_item] = concat(info.items[last_item], " ", str.trim(line))
+      item = last_item
+    } else if(str.starts_with(line, "[")){
       local close = str.index_of(line, "]:")
       if(close > 1){
         local n = read_name(line, 1)
@@ -679,6 +779,7 @@ func symbols.doc_info(doc, name){
     if(item == null){
       append(prose, line)
     }
+    last_item = item
   }
   // `f(x): text` and `f(x) text`: the text begins the prose
   if(info.signature != null and info.signature.text != null){
@@ -699,11 +800,11 @@ func symbols.doc_info(doc, name){
   return info
 }
 
-// types(source) -> {Name: {name, type, start, stop, doc, line_end}}: the
-// `// type Name = T` and `// type Name` lines of a file (a declaration may
-// go on over lines until its braces and parentheses close); type is null
-// for a bare one, whose methods are the table defined right below it
-// (line_end: where the comment block ends, to find that definition)
+// types(source: string) -> {[string]: TypeDecl}
+// The `// type Name = T` and `// type Name` lines of a file, by name (a
+// declaration may go on over lines until its braces and parentheses
+// close). A bare one's methods are the table defined right below its
+// comment block; [analyse] finds that table, this does not.
 func symbols.types(source){
   local out = {}
   local starts = str.line_starts(source)
@@ -715,7 +816,9 @@ func symbols.types(source){
     local text = comment_text(str.substring(source, ls, le))
     if(text != null and str.starts_with(text, "type ")){
       local name = read_name(text, 5)
-      if(name != null){
+      local after = name != null and str.trim(str.substring(text, name.stop))
+      if(name != null and (len(after) == 0 or str.starts_with(after, "=")) and
+        str.byte_at(name.name, 0) >= 65 and str.byte_at(name.name, 0) <= 90){
         local decl = {
           name: name.name, type: null,
           start: ls + str.index_of(str.substring(source, ls, le), name.name),
@@ -982,6 +1085,11 @@ local func sorted(list){
   return out
 }
 
+// analyse(block: table, source: string, origin?: string) -> Index
+// The definitions and uses of a file. A block that does not compile (an
+// unfinished edit) still gives the names up to where it fails.
+// [block]: the file's AST, parsed from source (expanded)
+// [origin]: the file's name, as codegen gets it
 func symbols.analyse(block, source, origin){
   local rec = {
     source: source, defs: {}, refs: {}, fields: {}, at: {}, globals: {},
@@ -1052,7 +1160,10 @@ func symbols.analyse(block, source, origin){
       local r = rec.at[v.token.start]
       if(r != null and r.def != null and r.def != def){
         def.params = def.params or r.def.params
-        def.doc = def.doc or r.def.doc
+        if(def.doc == null and r.def.doc != null){
+          def.doc = r.def.doc
+          def.info = r.def.info
+        }
         def.module = def.module or r.def.module
       }
     }
@@ -1152,6 +1263,8 @@ func symbols.analyse(block, source, origin){
 
 // ------------------------------------------------------------ queries
 
+// at(index: Index, pos: int) -> Def | Ref | null
+// The definition or use whose name covers pos (its end included).
 func symbols.at(index, pos){
   for(let local d in values(index.defs)){
     if(d.start <= pos and pos <= d.stop){
@@ -1166,6 +1279,9 @@ func symbols.at(index, pos){
   return null
 }
 
+// signature(def: Def) -> string
+// The definition as it is called, from its parameter names:
+// "http.fetch(url, options)" for a field of http, "x" for no function.
 func symbols.signature(def){
   local name = def.name
   if(def.owner != null and def.owner.name != null){

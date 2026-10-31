@@ -9,10 +9,24 @@
 // Wadler's "prettier printer" then fits the result into 80 columns.
 //
 // Syntax that extensions add is formatted when the extension marks its
-// parsers like the core does (format.gaps, format.indent, ...). Unmarked,
-// it keeps its own line structure (verbatim mode): its gaps are what the
-// source has, re-indented to where the syntax now sits. Core syntax inside
-// it (an expression, a block) is formatted either way.
+// parsers like the core does. Unmarked, it keeps its own line structure
+// (verbatim mode): its gaps are what the source has, re-indented to where
+// the syntax now sits. Core syntax inside it (an expression, a block) is
+// formatted either way. A switch statement, as extensions/switch marks it:
+//
+//   local fmt = require("slang/format")
+//   peg.seq(
+//     fmt.gaps(g:keyword("switch"), null, "none"),
+//     fmt.gaps(g:token("("), "none", "none"),
+//     g:rule("expr"),
+//     fmt.gaps(g:token(")"), "none", "none"),
+//     g:token("{"),
+//     fmt.indent(case_block.parser():star(), "hardline"),
+//     fmt.gaps(g:token("}"), "hardline"),
+//   )
+//
+// The marks are listed under [Marks]. Syntax that marks cannot describe
+// gets a layout function of its own ([layout], "extension layouts").
 //
 // format.source checks its own result before returning it: the output has
 // the same tokens as the input (but for dropped `;` and trailing commas),
@@ -26,34 +40,47 @@ local WIDTH = 80
 local INDENT = 2
 
 // ------------------------------------------------------------ the layer
-//
-// Marks are tables merged per node:
-//   before, after    the gap before the node's first token / after its last:
-//                    "none", "space", "line" (a space or a break), "softline"
-//                    (nothing or a break), "hardline", "brace" (nothing
-//                    before a `{`, a space before anything else); without a
-//                    mark a gap is a space if the source had whitespace
-//   blank            a hardline before the node may keep one blank line
-//   group            the node is laid out on one line if it fits, else broken
-//   indent           breaks in the node, and the gap before it, are indented
-//   hug              a group that, when something inside it must break,
-//                    keeps its own breaks flat if the first line fits
-//   drop             the node's tokens are left out (a `;`)
-//   trailing_comma   the node is a `,` when its group breaks, else nothing
-//   verbatim         gaps in the node are the source's (extension syntax)
-//   formatted        gaps in the node are formatted again
-//   layout           fn(api, node) -> doc: the node is laid out by an
-//                    extension's own function (see "extension layouts")
-//   role             a name the layout function finds parts by
 
+// The format marks of a parser, merged per node (a parser marked twice has
+// both). A gap is "none", "space", "line" (a space or a break),
+// "softline" (nothing or a break), "hardline" or "brace" (nothing before a
+// `{`, a space before anything else); an unmarked gap is a space if the
+// source had whitespace there, else nothing.
+// type Marks = {before?: string, after?: string, blank?: bool, group?: bool,
+//   indent?: bool, hug?: bool, huggable?: bool | string, fill?: bool,
+//   hard_body?: bool, drop?: bool, trailing_comma?: bool, verbatim?: bool,
+//   formatted?: bool, owner?: string, break_before?: bool, style?: string,
+//   layout?: func(api: LayoutApi, node: table): Doc, role?: string}
+// [before]: the gap before the node's first token
+// [after]: the gap after its last token
+// [blank]: a hardline before the node may keep one blank line
+// [group]: the node is laid out on one line if it fits, else broken
+// [indent]: breaks in the node, and the gap before it, are indented
+// [hug]: when a part inside must break, the group's own breaks stay flat
+// [huggable]: a group a hugging layout may break: true, "call" or "body"
+// [fill]: a separated list: as many elements on a line as fit
+// [hard_body]: a block that breaks even with one statement (a catch's)
+// [drop]: the node's tokens are left out (a `;`)
+// [trailing_comma]: the node is a `,` when its group breaks, else nothing
+// [verbatim]: gaps in the node are the source's (extension syntax)
+// [formatted]: gaps in the node are formatted again
+// [owner]: the extension whose syntax the node is (see [owner_at])
+// [break_before]: an infix operator's chain breaks before it, not after
+// [style]: an infix operator's chain: "lines", on one line or one per line
+// [layout]: the node is laid out by an extension's own function
+// [role]: a name the layout function finds parts by ([LayoutApi.parts])
+
+// The peg layer the marks live in (a "text" layer: see slang/peg).
 format.layer = peg.layer("format", "text")
 
-// mark(parser, data) -> parser with the format marks data
+// mark(parser: table, data: Marks) -> table: parser with the marks data
+// The other mark functions are shorthands for this one.
 func format.mark(parser, data){
   return peg.mark(parser, format.layer, data)
 }
 
-// gaps(parser, before, after) -> parser with the gaps around it (null: unmarked)
+// gaps(parser: table, before?: string, after?: string) -> table
+// parser with the gaps around it; null leaves a side unmarked.
 func format.gaps(parser, before, after){
   local data = {}
   if(before != null){
@@ -65,11 +92,15 @@ func format.gaps(parser, before, after){
   return format.mark(parser, data)
 }
 
+// group(parser: table) -> table
+// parser as a group: on one line if it fits, else broken.
 func format.group(parser){
   return format.mark(parser, {group: true})
 }
 
-// indent(parser, before, after): indented, with the gaps around it
+// indent(parser: table, before?: string, after?: string) -> table
+// parser indented (its breaks and the gap before it), with the gaps
+// around it.
 func format.indent(parser, before, after){
   local data = {indent: true}
   if(before != null){
@@ -81,36 +112,48 @@ func format.indent(parser, before, after){
   return format.mark(parser, data)
 }
 
+// drop(parser: table) -> table
+// parser whose tokens the formatter leaves out (an optional `;`).
 func format.drop(parser){
   return format.mark(parser, {drop: true})
 }
 
+// trailing_comma(parser: table) -> table
+// parser (an optional `,` at the end of a list) as a comma written only
+// when its group breaks.
 func format.trailing_comma(parser){
   return format.mark(parser, {trailing_comma: true})
 }
 
+// verbatim(parser: table) -> table
+// parser whose gaps stay as the source has them, re-indented.
 func format.verbatim(parser){
   return format.mark(parser, {verbatim: true})
 }
 
+// formatted(parser: table) -> table
+// parser whose gaps are formatted again inside verbatim syntax.
 func format.formatted(parser){
   return format.mark(parser, {formatted: true})
 }
 
-// layout(parser, fn) -> parser whose nodes fn(api, node) lays out; the
-// result is a document (see format.doc and "extension layouts" below)
+// layout(parser: table, fn: func(api: LayoutApi, node: table): Doc) -> table
+// parser whose nodes fn lays out: it returns their document (see
+// [doc] and "extension layouts" below).
 func format.layout(parser, fn){
   return format.mark(parser, {layout: fn})
 }
 
-// role(parser, name) -> parser whose nodes a layout function finds as name
+// role(parser: table, name: string) -> table
+// parser whose nodes a layout function finds as name ([LayoutApi.role]).
 func format.role(parser, name){
   return format.mark(parser, {role: name})
 }
 
-// whether parser (or a parser inside it) carries layout marks; rule
+// uses_marks(parser: table) -> bool
+// Whether parser (or a parser inside it) carries format marks. Rule
 // references and parts already marked formatted or verbatim are not looked
-// into (they have a layout of their own)
+// into (they have a layout of their own).
 func format.uses_marks(parser){
   peg.resolve(parser)
   local seen = {}
@@ -145,10 +188,10 @@ func format.uses_marks(parser){
   return false
 }
 
-// extension(parser, owner) -> the parser an extension registered, formatted
-// when it uses marks, else verbatim (what the grammar applies to the syntax
-// an extension adds); owner, the extension's name, is kept in the mark (see
-// owner_at)
+// extension(parser: table, owner: string) -> table
+// The parser an extension registered, marked formatted when it uses marks,
+// else verbatim: what the grammar applies to the syntax an extension adds.
+// [owner]: the extension's name, kept in the mark (see [owner_at])
 func format.extension(parser, owner){
   if(format.uses_marks(parser)){
     return format.mark(parser, {formatted: true, owner: owner})
@@ -156,10 +199,11 @@ func format.extension(parser, owner){
   return format.mark(parser, {verbatim: true, owner: owner})
 }
 
-// owner_at(tree, pos) -> the name of the extension whose syntax the lossless
-// tree has at pos, or null for core syntax. Down from the root, an
-// extension's mark names its owner; a formatted mark without one is core
-// syntax again (what the extension was given, or an expression inside it).
+// owner_at(tree: table, pos: int) -> string?
+// The name of the extension whose syntax the lossless tree has at pos, or
+// null for core syntax. Down from the root, an extension's mark names its
+// owner; a formatted mark without one is core syntax again (what the
+// extension was given, or an expression inside it).
 func format.owner_at(tree, pos){
   local owner = null
   local n = tree
@@ -186,9 +230,13 @@ func format.owner_at(tree, pos){
 }
 
 // ------------------------------------------------------------ documents
-//
-// A document is a string, a list of documents (concatenated) or a table
-// with t: line (soft: nothing when flat, hard: always a break), group,
+
+// What the printer lays out: a string, a list of documents (concatenated)
+// or a table made by [doc]'s functions.
+// type Doc = string | {Doc} | table
+
+// The tables of a document (the printer's own kinds included) have
+// t: line (soft: nothing when flat, hard: always a break), group,
 // indent, nest (n more columns), from_line (indented from the indentation of
 // the line it starts on, not from the enclosing indent: verbatim code
 // inside a group that stayed on one line), flat (groups inside stay on one
@@ -218,8 +266,8 @@ local func if_break(broken, flat){
   return {t: "if_break", broken: broken, flat: flat}
 }
 
-// the documents an extension's layout function builds with: strings and
-// lists of documents, and
+// What an extension's layout function builds its [Doc] with, besides
+// strings and lists of documents:
 //   line, softline, hardline   a space / nothing / a break when the group
 //                              around them is flat, a break when it breaks
 //   group(doc)                 on one line if it fits, else broken
@@ -227,6 +275,9 @@ local func if_break(broken, flat){
 //   fill(parts)                content, separator, content, ...: as many
 //                              contents on a line as fit (the separators
 //                              are lines)
+// For example, a list on one line or one item per line:
+//   local d = format.doc
+//   d.group({"[", d.indent({d.softline, a, ",", d.line, b}), d.softline, "]"})
 format.doc = {
   line: LINE,
   softline: SOFTLINE,
@@ -417,7 +468,9 @@ local func spaces(n){
   return s
 }
 
-// print(doc, width) -> text
+// print(doc: Doc, width?: int) -> string
+// Lays a document out in width columns (80 by default), two spaces per
+// indentation level.
 func format.print(doc, width){
   width = width or WIDTH
   propagate(doc)
@@ -1534,28 +1587,30 @@ func formatter_methods.build_node(self, n, m, mode){
 // ------------------------------------------------------------ extension layouts
 //
 // A parser marked with format.layout(parser, fn) is laid out by fn(api,
-// node), which returns a document (format.doc). The api:
-//   api:text(n)     the source text of a node
-//   api:role(n)     the role mark of a node's parser (format.role), or null
-//   api:parts(n)    the nodes inside n that have a role or a layout of
-//                   their own, in order (not looked into)
-//   api:format(n)   the document of n laid out by the formatter: slang code
-//                   inside the syntax, or a nested node with a layout
+// node), which returns a document (format.doc); api is a [LayoutApi].
 // Gaps outside the node are the formatter's as usual; inside it the
 // function decides everything (whitespace leaves of the node are not
 // tokens, so changing them is not a change of the code).
 
+// What a layout function is given to look into its node (a node of the
+// lossless tree) with.
+// type LayoutApi
 local layout_api = {}
 local layout_api_meta = {__index: layout_api}
 
+// text(n: table) -> string: the source text of a node
 func layout_api.text(api, n){
   return api.f:text(n)
 }
 
+// role(n: table) -> string?: the role mark of a node's parser ([role])
 func layout_api.role(api, n){
   return api.f:marks(n).role
 }
 
+// parts(n: table) -> {table}
+// The nodes inside n that have a role or a layout of their own, in order;
+// what is inside those is not looked into.
 func layout_api.parts(api, n){
   local out = {}
   local func walk(node){
@@ -1572,6 +1627,9 @@ func layout_api.parts(api, n){
   return out
 }
 
+// format(n: table) -> Doc
+// The document of n laid out by the formatter: slang code inside the
+// syntax, or a nested node with a layout of its own.
 func layout_api.format(api, n){
   local piece = api.f:build(n, "formatted")
   if(piece == null){
@@ -2282,10 +2340,18 @@ local func format_text(text, path, options){
 // compiler.read_table_file): it is formatted that way
 local PROJECT_PREFIX = "return "
 
-// source(text, path, {find_project, width, check}) -> the formatted text, or
-// null for a file of a compile dialect. Raises when the file does not parse,
-// or when the result fails its checks (check: false skips them). A
+// What [source] takes.
+// type FormatOptions = {find_project?: bool, width?: int, check?: bool}
+// [find_project]: look up the file's project (see compiler.highlight)
+// [width]: the columns to fit in; 80 by default
+// [check]: false skips the checks of the result
+
+// source(text: string, path: string, options?: FormatOptions) -> string?
+// The formatted text, or null for a file of a compile dialect. Raises when
+// the file does not parse, when formatting does not settle, or when the
+// result fails its checks (same tokens, same meaning, same comments). A
 // slang.project is formatted as the table literal it is.
+//   local out = format.source(os.read_file(path), path, {find_project: true})
 func format.source(text, path, options){
   options = options or {}
   if(not str.ends_with(path, "slang.project")){
@@ -2315,7 +2381,10 @@ local func slang_files(os, path, out){
   return out
 }
 
-// main(args) -> exit code: `slang fmt [--check] [--stdout] paths...`
+// main(arguments: {string}) -> int: the exit code
+// `slang fmt [--check] [--stdout] paths...`: formats .slang files and
+// slang.project files, directories searched. --check lists the files that
+// would change, --stdout prints the results; otherwise files are rewritten.
 func format.main(arguments){
   local os = require("slang/os")
   local check = false

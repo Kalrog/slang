@@ -1,25 +1,23 @@
-// slang/ws: WebSockets (RFC 6455) on slang/async.
+// slang/ws: WebSockets (RFC 6455) on slang/async, both sides.
 //
-//   ws.accept(req, conn, rest, options) -> socket   the server side, from
-//     slang/http's on_upgrade (slang/web's app:ws does this for you); a
-//     request that is not a WebSocket handshake gets a 400 and raises
-//   ws.is_upgrade(req) -> bool
-//   await ws.connect(host, port, path, options) -> socket   the client side
+//   local async = require("slang/async")
+//   local ws = require("slang/ws")
+//   async.main(func(){
+//     local socket = async.await(ws.connect("127.0.0.1", 8080, "/live"))
+//     async.await(socket:send("hello"))
+//     local m = async.await(socket.messages:next())
+//     if(not m.done){ print(m.value, "\n") }
+//     async.await(socket:close())
+//   })
 //
-// A socket:
-//   socket.messages           a Stream of the messages received (strings,
-//                             text and binary alike), ending at the close
-//   socket:send(text)         -> Future; socket:send_binary(data) -> Future
-//   socket:ping(data)         -> Future (pongs are answered automatically)
-//   socket:close(code, reason) -> Future of the close
-//   socket.closed             Future of {code, reason} once the connection is gone
-//   socket:is_open()
+// [connect] is the client side; [accept] the server side, for slang/http's
+// on_upgrade (slang/web's app:ws does it for you). Either gives a
+// [WebSocket]: read its messages Stream, send with [WebSocket.send].
 //
-// options: max_message (bytes, 16 MiB; a larger message closes the socket
-// with 1009); for connect also tls (wss: true, or the options of
-// slang/tls's connect). Text messages must be UTF-8 (else 1007); the server requires
-// masked frames and the client sends them; extensions such as compression
-// are not negotiated.
+// Text messages must be UTF-8 (else the socket closes with 1007); a
+// message over max_message closes it with 1009. The server requires masked
+// frames and the client sends them; pings are answered; extensions such as
+// compression are not negotiated.
 local async = require("slang/async")
 local str = require("slang/string")
 local encoding = require("slang/encoding")
@@ -45,6 +43,9 @@ local func header_has(value, token){
   return false
 }
 
+// is_upgrade(req: table) -> bool
+// Whether a slang/http request asks to upgrade to a WebSocket (its Upgrade
+// and Connection headers say so).
 func ws.is_upgrade(req){
   return header_has(req.headers["upgrade"], "websocket") and
     header_has(req.headers["connection"], "upgrade")
@@ -99,8 +100,22 @@ local func close_payload(code, reason){
 
 // ------------------------------------------------------------ sockets
 
+// An open WebSocket connection. Its fields: messages, an async.Stream of
+// the messages received (strings, text and binary alike) that ends when
+// the connection does; closed, an async.Future of the [CloseInfo] once the
+// connection is gone.
+// type WebSocket
 local socket_methods = {}
 local socket_meta = {__index: socket_methods, __type: "WebSocket"}
+
+// How a connection ended: the close code the other side sent (1005 when
+// none; 1006 when the connection dropped) or the one it was closed with.
+// type CloseInfo = {code: int, reason: string}
+
+// Options of [accept] and [connect].
+// type Options = {max_message?: int, tls?: bool | table}
+// [max_message]: the largest message in bytes (16 MiB); a larger one closes with 1009
+// [tls]: connect only: wss, true or slang/tls's connect options
 
 local func new_socket(conn, rest, client, options){
   options = options or {}
@@ -319,6 +334,8 @@ local func new_socket(conn, rest, client, options){
   return s
 }
 
+// is_open() -> bool
+// Whether messages can still be sent: false once a close has begun.
 func socket_methods.is_open(s){
   return s.state == "open"
 }
@@ -330,20 +347,31 @@ local func send_frame(s, opcode, data){
   return async.write(s.conn, frame(opcode, data, s.client))
 }
 
+// send(text: string) -> async.Future
+// Sends a text message; completes when it is written. Fails when the
+// socket is not open.
 func socket_methods.send(s, text){
   return send_frame(s, OP_TEXT, text)
 }
 
+// send_binary(data: string) -> async.Future
+// Sends a binary message, as [WebSocket.send] does.
 func socket_methods.send_binary(s, data){
   return send_frame(s, OP_BINARY, data)
 }
 
+// ping(data?: string) -> async.Future
+// Sends a ping (with up to 125 bytes of data); completes when it is
+// written. The pong is not reported.
 func socket_methods.ping(s, data){
   return send_frame(s, OP_PING, data or "")
 }
 
-// close(code, reason) -> Future of the closed result: sends a close frame
-// and waits (two seconds at most) for the other side's answer
+// close(code?: int, reason?: string) -> async.Future
+// Closes the connection: sends a close frame (code 1000 by default) and
+// waits, two seconds at most, for the other side's answer. Gives the
+// closed Future, a Future of the [CloseInfo]; once closing, it only
+// returns that.
 func socket_methods.close(s, code, reason){
   if(s.state == "open"){
     s.state = "closing"
@@ -366,6 +394,13 @@ func socket_methods.close(s, code, reason){
 
 // ------------------------------------------------------------ handshakes
 
+// accept(req: table, conn, rest: string, options?: Options) -> WebSocket
+// Completes the handshake of an upgrade request and gives the server side
+// of the WebSocket. A request that is not a WebSocket handshake (GET,
+// version 13, with a key) gets a 400 and accept raises.
+// [req]: the slang/http request
+// [conn]: the connection on_upgrade handed over
+// [rest]: the bytes read past the request head
 func ws.accept(req, conn, rest, options){
   local key = req.headers["sec-websocket-key"]
   if(not ws.is_upgrade(req) or key == null or
@@ -386,6 +421,11 @@ func ws.accept(req, conn, rest, options){
   return new_socket(conn, rest, false, options)
 }
 
+// connect(host: string, port: int, path?: string,
+//         options?: Options) -> async.Future
+// Opens a WebSocket to host:port at path ("/"): a Future of the client
+// side [WebSocket]. It fails when the server does not accept the
+// handshake.
 func ws.connect(host, port, path, options){
   return async.run(func(){
     local conn = null

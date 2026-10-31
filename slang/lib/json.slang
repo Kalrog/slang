@@ -28,7 +28,8 @@ local func tok(s){
 
 local value = peg.settable(null)
 
-local escape = peg.seq(peg.char("\\"), peg.any()):map(func(v){
+// the escapes JSON has (\uXXXX below); others are errors
+local escape = peg.seq(peg.char("\\"), peg.pattern("\"\\\\/bfnrt")):map(func(v){
   local c = v[1]
   if(c == "n"){ return "\n" }
   if(c == "t"){ return "\t" }
@@ -37,21 +38,49 @@ local escape = peg.seq(peg.char("\\"), peg.any()):map(func(v){
   if(c == "f"){ return "\f" }
   return c
 })
+// \uXXXX: a UTF-16 code unit, joined with its pair by the string below
+local hex = peg.pattern("0-9a-fA-F")
 local unicode = peg.seq(
   peg.string("\\u"),
-  peg.pattern("0-9a-fA-F"):plus():flatten(),
+  peg.seq(hex, hex, hex, hex):flatten(),
 ):map(func(v){
-  return str.chr(to_int(concat("0x", v[1])))
+  return {unit: to_int(concat("0x", v[1]))}
 })
+
+// the string's pieces as text: a surrogate pair of units is one code point,
+// a lone surrogate U+FFFD
+local func join_string(parts){
+  local out = {}
+  local i = 0
+  for(i < len(parts)){
+    local p = parts[i]
+    if(type(p) == "table"){
+      local u = p.unit
+      local next = parts[i + 1]
+      if(u >= 0xD800 and u <= 0xDBFF and type(next) == "table" and
+        next.unit >= 0xDC00 and next.unit <= 0xDFFF){
+        append(out, str.chr(
+          0x10000 + ((u - 0xD800) << 10) + (next.unit - 0xDC00),
+        ))
+        i = i + 1
+      } else if(u >= 0xD800 and u <= 0xDFFF){
+        append(out, str.chr(0xFFFD))
+      } else {
+        append(out, str.chr(u))
+      }
+    } else {
+      append(out, p)
+    }
+    i = i + 1
+  }
+  return str.join(out, "")
+}
+
 local string_literal = peg.seq(
   peg.char("\""),
-  peg.choice(unicode, escape, peg.pattern("^\"\\")):star():map(func(parts){
-    return str.join(parts, "")
-  }),
+  peg.choice(unicode, escape, peg.pattern("^\"\\")):star():map(join_string),
   peg.char("\""),
-)
-  :pick(1)
-  :trim(ws)
+):pick(1):trim(ws)
 
 local number = peg.seq(
   peg.char("-"):optional(),

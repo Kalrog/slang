@@ -289,7 +289,8 @@ func tls.connect(host, port, options){
     local context = options.context
     local own = false
     for(let local name in values({
-      "ca", "ca_file", "cert", "cert_file", "verify", "alpn", "min_version"
+      "ca", "ca_file", "cert", "cert_file", "key", "key_file", "verify", "alpn",
+      "min_version"
     })){
       own = own or options[name] != null
     }

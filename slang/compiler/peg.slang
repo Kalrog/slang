@@ -1130,13 +1130,6 @@ func peg.end(child, message){
   return peg.pick(peg.seq(child, peg.end_of_input(message)), 0)
 }
 
-// labeled(child: Parser, label) -> Parser
-// Sets child.label to label, in place, and returns child.
-func peg.labeled(child, label){
-  child.label = label
-  return child
-}
-
 // settable(target?: Parser) -> Parser
 // A parser that parses with target, which [Parser.set] replaces later: for
 // a grammar whose parts refer to each other.
@@ -1299,16 +1292,25 @@ func peg.reset_refs(){
 // --------------------------------------------------------------------- running
 
 // parse(parser: Parser, input: string) -> {any}
-// Parses input from its start: {"ok", value} or {"error", message}. It need not consume all of it: use [end].
-// The error is "message at line:column", for the last failure.
+// Parses input from its start: {"ok", value} or {"error", message}. It
+// need not consume all of it: use [end]. The error is "message at
+// line:column", for the failure that got furthest into the input.
 func peg.parse(parser, input){
   local ctx = peg.context(input)
   local pos = parser:parse_on(ctx, 0)
   if(pos >= 0){
     return {"ok", ctx.value}
   }
-  local lc = peg.line_col(ctx, ctx.fail_pos)
-  return {"error", concat(ctx.fail_msg, " at ", lc[0], ":", lc[1])}
+  // the failure that got furthest says the most (a choice that fell back
+  // to an alternative failing early would hide it)
+  local at = ctx.fail_pos
+  local msg = ctx.fail_msg
+  if(ctx.far_pos > at){
+    at = ctx.far_pos
+    msg = ctx.far_msg
+  }
+  local lc = peg.line_col(ctx, at)
+  return {"error", concat(msg, " at ", lc[0], ":", lc[1])}
 }
 
 // run(parser: Parser, input: string, options?: {tree?: bool}) -> Result
@@ -2439,6 +2441,10 @@ local func build_tables(w){
 // returns the new position or -1; the value is in ctx.value. For the
 // callbacks of [Walker.nud] and [Walker.led]; needs [Walker.build] first.
 func walker_methods.parse_at(self, ctx, pos, min_bp){
+  // a change since the last build cleared the tables: build them again
+  if(self.sealed == null){
+    self:build()
+  }
   local sealed = self.sealed
   local cands = candidates(sealed.nuds, ctx, pos)
   local value = null
@@ -2629,6 +2635,9 @@ local func led_tree(w, e, ctx, pos, left, left_tree, op, op_tree){
 // parse_at_tree(ctx: Context, pos: int, min_bp: int) -> int
 // [Walker.parse_at], also leaving the node in ctx.tree.
 func walker_methods.parse_at_tree(self, ctx, pos, min_bp){
+  if(self.sealed == null){
+    self:build()
+  }
   local sealed = self.sealed
   local cands = candidates(sealed.nuds, ctx, pos)
   local value = null
@@ -2701,8 +2710,9 @@ func walker_methods.parse_at_tree(self, ctx, pos, min_bp){
 }
 
 // build() -> Parser
-// Builds the dispatch tables and returns the expression parser. After a
-// later change, build again before parsing.
+// Builds the dispatch tables and returns the expression parser. A parser
+// from an earlier build rebuilds the tables itself after a change; build
+// again anyway to get a parser whose first-byte set knows the change.
 func walker_methods.build(self){
   self.sealed = build_tables(self)
   local w = self
@@ -3224,6 +3234,10 @@ func peg.on(parser, layer, f){
       p[e[0]] = e[1]
     }
     p.meta = parser_meta
+    // an id of its own: memos are kept by id, and the copy's nodes carry
+    // other layer operations
+    next_id = next_id + 1
+    p.id = next_id
   } else {
     p = layer_wrapper(parser)
   }
@@ -3688,9 +3702,6 @@ methods.where = peg.where
 // end(message?: string) -> Parser
 // Followed by the end of the input (see [end]).
 methods.end = peg.end
-// labeled(label) -> Parser
-// See [labeled].
-methods.labeled = peg.labeled
 // parse(input: string) -> {any}
 // See [parse].
 methods.parse = peg.parse

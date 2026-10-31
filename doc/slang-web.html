@@ -255,7 +255,7 @@ app:post(&quot;/login&quot;, func(req){
 <p>What <a href="#csrf"><code>csrf</code></a> takes; every field is optional.</p>
 <dl class="params"><dt><code>skip?: func(req: <a href="#type-Request">Request</a>): bool</code></dt><dd>true for requests that need no token (webhooks, say)</dd><dt><code>cookie?: string</code></dt><dd>the cookie's name (&quot;csrf&quot;)</dd><dt><code>secure?: bool</code></dt><dd>send the cookie over HTTPS only</dd></dl>
 <h2 id="type-WebTestClient">type WebTestClient</h2>
-<p>A client that runs requests through an app without a socket, keeping cookies across requests.</p>
+<p>A client that runs requests through an app without a socket, keeping cookies across requests: client.cookies holds their values by name (a test may read and change it), sent to the paths their Path allows. Domain is not looked at: the client talks to one app.</p>
 <div class="def" id="WebTestClient:request"><h3><code>WebTestClient:request(method: string, path: string, options?: <a href="#type-TestOptions">TestOptions</a>) -> <a href="slang-async.html#type-Future">async.Future</a></code></h3>
 <p>Runs a request through the app: a Future of the <a href="#type-TestResponse"><code>TestResponse</code></a>. path may carry a query. The client's cookies are sent and the Set-Cookie headers of the response remembered.</p>
 

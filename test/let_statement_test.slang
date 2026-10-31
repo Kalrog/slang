@@ -26,7 +26,7 @@ t.group("let statement"){
       e.kind == "let" and str.index_of(e.message, "does not match") >= 0,
       e.message,
     )
-    assert(str.index_of(e.pattern, "\"age\":99") >= 0, e.pattern)
+    assert(e.pattern == "{name: local name, age: 99}", e.pattern)
     assert(e.value.name == "Ada", "the value travels with the error")
     assert(e.location.line > 0)
     // and a catch can pick it out

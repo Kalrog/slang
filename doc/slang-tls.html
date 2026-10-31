@@ -61,7 +61,6 @@ async.await(async.write(conn, &quot;GET / HTTP/1.1\r\nHost: example.com\r\n\r\n&
 <li><a href="#Connection:write"><code>Connection:write</code></a></li>
 <li><a href="#Connection:shutdown"><code>Connection:shutdown</code></a></li>
 <li><a href="#Connection:close"><code>Connection:close</code></a></li>
-<li><a href="#Connection:name"><code>Connection:name</code></a></li>
 </ul>
 <div class="def" id="context"><h3><code>tls.context(options?: <a href="#type-ContextOptions">ContextOptions</a>) -> <a href="#type-Context">Context</a></code></h3>
 <p>A context for many connections: the tls extension's context, with cert_file, key_file and ca_file read into PEM text first.</p>
@@ -132,10 +131,6 @@ async.await(async.write(conn, &quot;GET / HTTP/1.1\r\nHost: example.com\r\n\r\n&
 </div>
 <div class="def" id="Connection:close"><h3><code>Connection:close(cb?: function)</code></h3>
 <p>Closes the TCP handle; waiting writes and handshakes fail with &quot;tls: the connection is closed&quot;.</p>
-
-</div>
-<div class="def" id="Connection:name"><h3><code>Connection:name(...arguments)</code></h3>
-<p>the TCP handle's method of that name</p>
 
 </div>
 <p class="muted">slang/lib/tls.slang</p>

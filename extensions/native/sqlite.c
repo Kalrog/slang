@@ -14,7 +14,8 @@
  * Databases and statements are userdata; a statement is linked to its
  * database, so closing or collecting either first is safe: closing the
  * database finalizes its statements, and a finalized statement raises on
- * use. Values: null, bool (bound as 0/1), int, double, string (text; a blob
+ * use. A database that is only collected stays open for the statements
+ * still alive and closes with the last of them. Values: null, bool (bound as 0/1), int, double, string (text; a blob
  * column also comes back as a string). A column declared boolean (or bool)
  * is read as true/false.
  *
@@ -39,7 +40,6 @@ typedef struct db {
     stmt *stmts;    /* the live statements of this database */
     int users;      /* the userdata plus one per live statement */
     int busy;       /* async queries that have not finished */
-    int close_pending; /* the userdata was collected while busy */
 } db;
 
 struct stmt {
@@ -58,8 +58,11 @@ static int stmt_meta_ref = SLANG_REFNULL;
 
 /* ---- lifetime ---- */
 
+/* the connection closes with its last user: the userdata or a statement */
 static void db_release(db *d) {
-    if (--d->users == 0) free(d);
+    if (--d->users > 0) return;
+    if (d->handle != NULL) sqlite3_close(d->handle);
+    free(d);
 }
 
 /* finalizes the sqlite statement; the struct stays until its userdata goes */
@@ -89,15 +92,10 @@ static void db_shutdown(db *d) {
     }
 }
 
+/* the statements still alive keep the connection (an async query's
+   statement among them) */
 static void db_finalize(void *data) {
-    db *d = *(db **)data;
-    if (d->busy > 0) {
-        /* the last async query to finish shuts it down */
-        d->close_pending = 1;
-        return;
-    }
-    db_shutdown(d);
-    db_release(d);
+    db_release(*(db **)data);
 }
 
 static void stmt_finalize(void *data) {
@@ -499,11 +497,7 @@ static void query_done(void *data) {
     free(j->cells);
     free(j->err);
     j->s->busy = 0;
-    db *d = j->d;
-    if (--d->busy == 0 && d->close_pending) {
-        db_shutdown(d);
-        db_release(d);
-    }
+    j->d->busy--;
     free(j);
 }
 

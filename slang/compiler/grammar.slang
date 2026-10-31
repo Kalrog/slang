@@ -699,7 +699,7 @@ local expression_meta = {
 local level_facade_methods = {}
 local level_facade_meta = {
   __index: level_facade_methods,
-  __type: "expression_level",
+  __type: "grammar.level",
 }
 
 // expression() -> ExpressionRegistry
@@ -716,6 +716,15 @@ local func facade_walker(e){
   check_changes(g, "expression")
   touch(g)
   return g.expression_walker
+}
+
+// the walker's level for a level the registry takes: a name, or a
+// [Level] of the registry (its walker level inside)
+local func walker_level(level){
+  if(type(level) == "grammar.level"){
+    return level.level
+  }
+  return level
 }
 
 local func level_facade(e, level){
@@ -761,7 +770,7 @@ local func operator_of(e, parser){
 // A prefix operator at the level of that name.
 func expression_methods.prefix(self, operator, level, callback){
   local w = facade_walker(self)
-  w:prefix(operator_of(self, operator), level, func(op, exp){
+  w:prefix(operator_of(self, operator), walker_level(level), func(op, exp){
     return ast.decode(callback(op, exp))
   })
   return self
@@ -772,7 +781,7 @@ func expression_methods.prefix(self, operator, level, callback){
 // A postfix operator at the level of that name.
 func expression_methods.postfix(self, operator, level, callback){
   local w = facade_walker(self)
-  w:postfix(operator_of(self, operator), level, func(exp, op){
+  w:postfix(operator_of(self, operator), walker_level(level), func(exp, op){
     return ast.decode(callback(exp, op))
   })
   return self
@@ -784,9 +793,13 @@ func expression_methods.postfix(self, operator, level, callback){
 // A left-associative infix operator at the level of that name.
 func expression_methods.left(self, operator, level, callback){
   local w = facade_walker(self)
-  w:left(operator_of(self, operator), level, func(left, op, right){
-    return ast.decode(callback(left, op, right))
-  })
+  w:left(
+    operator_of(self, operator),
+    walker_level(level),
+    func(left, op, right){
+      return ast.decode(callback(left, op, right))
+    },
+  )
   return self
 }
 
@@ -796,9 +809,13 @@ func expression_methods.left(self, operator, level, callback){
 // A right-associative infix operator at the level of that name.
 func expression_methods.right(self, operator, level, callback){
   local w = facade_walker(self)
-  w:right(operator_of(self, operator), level, func(left, op, right){
-    return ast.decode(callback(left, op, right))
-  })
+  w:right(
+    operator_of(self, operator),
+    walker_level(level),
+    func(left, op, right){
+      return ast.decode(callback(left, op, right))
+    },
+  )
   return self
 }
 
@@ -812,7 +829,7 @@ func expression_methods.wrapper(self, left, right, level, callback){
   w:wrapper(
     operator_of(self, left),
     operator_of(self, right),
-    level,
+    walker_level(level),
     func(l, value, r){
       return ast.decode(callback(l, value, r))
     },

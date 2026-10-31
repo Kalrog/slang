@@ -1198,6 +1198,8 @@ func ast.to_source(node){
   local w = source.new()
   if(node.type == "Block"){
     w:statements(node.statements, null)
+  } else if(str.ends_with(node.type, "Pattern")){
+    w:pattern(node)
   } else if(ast.is_statement(node)){
     w:statement(node)
   } else {

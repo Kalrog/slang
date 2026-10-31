@@ -552,6 +552,19 @@ t.group("http: streaming, compression, limits"){
         }),
       )
       assert(r.status == 200 and r.body == "PUT /p?q=1 b", r.body)
+      // a query right after the host, a fragment
+      local q = await(
+        http.fetch(concat("http://localhost:", string(s.port), "?x=1#top")),
+      )
+      assert(q.body == "GET /?x=1 ", q.body)
+      // an IPv6 address in brackets, and in the Host header
+      local s6 = http.serve("::1", 0, func(req){ return req.headers.host })
+      local v6 = await(
+        http.fetch(concat("http://[::1]:", string(s6 .port), "/six")),
+      )
+      assert(v6 .body == concat("[::1]:", string(s6 .port)), v6 .body)
+      s6 .close()
+      await(s6 .done)
       local bad = pcall(await, http.fetch("ftp://example.org/"))
       assert(bad[0] == "err" and str.index_of(
           bad[1].message,

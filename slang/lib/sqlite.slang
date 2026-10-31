@@ -79,10 +79,51 @@ local func placeholders(n){
   return str.join(marks, ", ")
 }
 
+// the text around the ? placeholders of SQL: the pieces between them (a ?
+// in a string, a quoted name or a comment is not one)
+local func split_placeholders(text){
+  local pieces = {}
+  local start = 0
+  local i = 0
+  local n = len(text)
+  for(i < n){
+    local c = str.byte_at(text, i)
+    if(c == 63){
+      append(pieces, str.substring(text, start, i))
+      start = i + 1
+      i = i + 1
+    } else if(c == 39 or c == 34 or c == 96){
+      // '...', "..." and `...`, a doubled quote inside escaping it
+      i = i + 1
+      for(i < n and str.byte_at(text, i) != c){
+        i = i + 1
+      }
+      i = i + 1
+    } else if(c == 91){
+      // [name]
+      for(i < n and str.byte_at(text, i) != 93){
+        i = i + 1
+      }
+      i = i + 1
+    } else if(c == 45 and str.starts_with(text, "--", i)){
+      for(i < n and str.byte_at(text, i) != 10){
+        i = i + 1
+      }
+    } else if(c == 47 and str.starts_with(text, "/*", i)){
+      local close = str.index_of(text, "*/", i + 2)
+      i = close < 0 and n or close + 2
+    } else {
+      i = i + 1
+    }
+  }
+  append(pieces, str.substring(text, start))
+  return pieces
+}
+
 // query(text: string, values?: {any}, origin?: string, count?: int) -> Query
 // A query of text with one ? per value; [list] values and queries among
 // the values are expanded into the text. Raises when the number of ? does
-// not match (also counting a ? inside a string literal of the SQL).
+// not match (a ? in a string, a quoted name or a comment is not counted).
 // [origin]: where the query comes from, added to its error messages
 // [count]: how many values (len(values)); a null value ends a list's length
 func sqlite.query(text, values, origin, count){
@@ -96,7 +137,7 @@ func sqlite.query(text, values, origin, count){
   if(count == 0){
     return q
   }
-  local pieces = str.split(text, "?")
+  local pieces = split_placeholders(text)
   if(len(pieces) != count + 1){
     error(
       "sqlite: the query has ", len(pieces) - 1, " ? for ", count,
@@ -259,12 +300,18 @@ func db_methods.run(db, q, values){
 
 // each(q: Query | string, values?: {any}) -> func(): Row?
 // An iterator of the rows, for `for(let row in db:each(q))`, reading one
-// row at a time. The statement is shared with other calls of the same
-// text: finish the loop before running that query again.
+// row at a time. The loop has a statement of its own, so the loop's body
+// may run any query, the same one included; the statement is finalized
+// when the rows end (or when a loop left early is collected).
 func db_methods.each(db, q, values){
   q = resolve(q, values)
-  local st = statement(db, q)
+  local st = located(q, func(){ return db.raw:prepare(q.text) })
+  located(q, func(){ st:bind_all(q.params, q.count) })
+  local done = false
   return func(){
+    if(done){
+      return null
+    }
     local row = located(q, func(){
       if(st:step()){
         return st:row()
@@ -272,7 +319,8 @@ func db_methods.each(db, q, values){
       return null
     })
     if(row == null){
-      st:reset()
+      done = true
+      st:finalize()
     }
     return row
   }

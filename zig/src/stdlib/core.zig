@@ -162,9 +162,10 @@ fn coreReadLine(th: *Thread, args: []Value) Error!Value {
 
 fn coreAssert(th: *Thread, args: []Value) Error!Value {
     if (api.arg(args, 0).truthy()) return .null;
+    // the message renders like error's: values with __tostring through it
     var aw: std.Io.Writer.Allocating = .init(th.vm.gpa);
     defer aw.deinit();
-    for (args[@min(1, args.len)..]) |a| vm_mod.format.writeValue(&aw.writer, a) catch oom();
+    try renderArgs(th, 1, &aw);
     const msg = aw.writer.buffered();
     return th.vm.raiseMsg(if (msg.len == 0) "assertion failed" else msg);
 }

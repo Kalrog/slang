@@ -78,7 +78,7 @@ db:close()</code></pre>
 
 </div>
 <div class="def" id="query"><h3><code>sqlite.query(text: string, values?: {any}, origin?: string, count?: int) -> <a href="#type-Query">Query</a></code></h3>
-<p>A query of text with one ? per value; <a href="#list"><code>list</code></a> values and queries among the values are expanded into the text. Raises when the number of ? does not match (also counting a ? inside a string literal of the SQL).</p>
+<p>A query of text with one ? per value; <a href="#list"><code>list</code></a> values and queries among the values are expanded into the text. Raises when the number of ? does not match (a ? in a string, a quoted name or a comment is not counted).</p>
 <dl class="params"><dt><code>origin</code></dt><dd>where the query comes from, added to its error messages</dd><dt><code>count</code></dt><dd>how many values (len(values)); a null value ends a list's length</dd></dl>
 </div>
 <h2>databases</h2>
@@ -112,7 +112,7 @@ db:close()</code></pre>
 
 </div>
 <div class="def" id="Database:each"><h3><code>Database:each(q: <a href="#type-Query">Query</a> | string, values?: {any}) -> func(): <a href="#type-Row">Row</a>?</code></h3>
-<p>An iterator of the rows, for <code>for(let row in db:each(q))</code>, reading one row at a time. The statement is shared with other calls of the same text: finish the loop before running that query again.</p>
+<p>An iterator of the rows, for <code>for(let row in db:each(q))</code>, reading one row at a time. The loop has a statement of its own, so the loop's body may run any query, the same one included; the statement is finalized when the rows end (or when a loop left early is collected).</p>
 
 </div>
 <div class="def" id="Database:all_async"><h3><code>Database:all_async(q: <a href="#type-Query">Query</a> | string, values?: {any}) -> <a href="slang-async.html#type-Future">async.Future</a></code></h3>

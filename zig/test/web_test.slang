@@ -88,6 +88,12 @@ t.group("web apps"){
     app.on_error = func(req, e){ append(logged, e.message) }
     app:get("/teapot", func(req){ web.fail(418, "short and stout") })
     app:get("/boom", func(req){ error("kaput") })
+    // a message that only looks like a failure is a 500
+    app:get("/mimic", func(req){ error("upstream said HTTP 404: gone") })
+    app:get("/async-fail", async func(req){
+      await a.sleep(1)
+      web.fail(409, "taken")
+    })
     app:get("/async-boom", async func(req){
       await a.sleep(1)
       error("later")
@@ -101,9 +107,12 @@ t.group("web apps"){
           c:get("/async-boom"),
         ).status == 500)
       assert(a.await(c:get("/elsewhere")).body == "custom")
+      assert(a.await(c:get("/mimic")).status == 500)
+      local late = a.await(c:get("/async-fail"))
+      assert(late.status == 409 and late.body == "taken\n", string(late))
     })
     assert(
-      len(logged) == 2 and str.index_of(logged[0], "kaput") >= 0,
+      len(logged) == 3 and str.index_of(logged[0], "kaput") >= 0,
       concat("logged ", logged),
     )
   }
@@ -174,6 +183,32 @@ t.group("web apps"){
     local c = web.test(app)
     run(func(){
       assert(a.await(c:post("/up", {body: "streamed"})).body == "null streamed")
+    })
+  }
+}
+
+t.group("the test client"){
+  t.test("cookies go to their Path; Max-Age 0 or less removes them"){
+    local app = web.app()
+    app:get("/admin/login", func(req){
+      return http.set_cookie(web.text("in"), "admin", "yes", {path: "/admin"})
+    })
+    app:get("/logout", func(req){
+      return http.set_cookie(web.text("out"), "admin", "x", {
+        path: "/admin",
+        max_age: -1,
+      })
+    })
+    app:get("/*", func(req){ return http.cookies(req).admin or "none" })
+    local c = web.test(app)
+    run(func(){
+      a.await(c:get("/admin/login"))
+      assert(a.await(c:get("/admin/panel")).body == "yes")
+      assert(a.await(c:get("/admin")).body == "yes")
+      assert(a.await(c:get("/administrator")).body == "none", "not a prefix")
+      assert(a.await(c:get("/home")).body == "none")
+      a.await(c:get("/logout"))
+      assert(c.cookies.admin == null)
     })
   }
 }
@@ -273,6 +308,11 @@ t.group("WebSockets"){
       )
       a.await(sock:send("caf\u{e9}"))
       assert(a.await(sock.messages:next()).value == "lobby: caf\u{e9}")
+      // the server answers a ping; the pong is reported
+      local pong = a.completer()
+      sock.on_pong = func(data){ pong.complete(data) }
+      a.await(sock:ping("p1"))
+      assert(a.await(pong.future) == "p1")
       local done = a.await(sock:close(4001, "bye"))
       assert(done.code == 4001)
       a.await(a.sleep(10))

@@ -245,6 +245,13 @@ t.group("utf16 positions"){
 }
 
 t.group("json"){
+  t.test("\\u escapes: four digits, surrogate pairs; only JSON's escapes"){
+    assert(json.decode("\"\\u00e9abc\"") == "\u{e9}abc")
+    assert(json.decode("\"\\ud83d\\ude00!\"") == "\u{1f600}!")
+    assert(json.decode("\"\\ud83d x\"") == "\u{fffd} x", "a lone surrogate")
+    assert(pcall(json.decode, "\"\\u12\"")[0] == "err")
+    assert(pcall(json.decode, "\"\\x\"")[0] == "err")
+  }
   t.test("encode and decode round trip"){
     local v = {
       name: "x\"y\n",

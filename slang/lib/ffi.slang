@@ -634,7 +634,6 @@ local func preprocess(text, defines){
   local stack = {}
   local active = true
   local out = {}
-  local pending = null
   local func condition(tokens){
     // defined(X) and defined X first, then the macros
     local resolved = {}

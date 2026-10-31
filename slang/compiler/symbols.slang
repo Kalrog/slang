@@ -945,6 +945,10 @@ func recorder.field(rec, node, write, value, statement){
     (key.type != "String" and key.type != "Identifier")){
     return null
   }
+  // o[name] is the field the variable names, not one called name
+  if(key.type == "Identifier" and node.type == "Index" and not node.dotStyle){
+    return null
+  }
   if(not in_source(rec, receiver.token) or not in_source(rec, key.token)){
     return null
   }

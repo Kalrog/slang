@@ -84,12 +84,12 @@ t.group("ffi: declarations"){
 
 t.group("ffi: calls"){
   t.test("integers wrap to their C width, floats round to float"){
-    assert(lib.ft_i8(200) == - 56)
-    assert(lib.ft_u8(- 1) == 255)
-    assert(lib.ft_i16(40000) == - 25536 and lib.ft_u16(70000) == 4464)
-    assert(lib.ft_i32(- 7) == - 7 and lib.ft_u32(- 1) == 4294967295)
+    assert(lib.ft_i8(200) == -56)
+    assert(lib.ft_u8(-1) == 255)
+    assert(lib.ft_i16(40000) == -25536 and lib.ft_u16(70000) == 4464)
+    assert(lib.ft_i32(-7) == -7 and lib.ft_u32(-1) == 4294967295)
     assert(lib.ft_i64(9007199254740993) == 9007199254740993)
-    assert(lib.ft_u64(- 1) == - 1, "uint64 comes back as its bits")
+    assert(lib.ft_u64(-1) == -1, "uint64 comes back as its bits")
     assert(lib.ft_f32(0.1) != 0.1 and lib.ft_f64(0.1) == 0.1)
     assert(lib.ft_not(false) == true and lib.ft_not(1) == false)
     assert(lib.ft_mix_args(1, 2.5, 3, 0.5, 4) == 11)
@@ -103,8 +103,8 @@ t.group("ffi: calls"){
   t.test("structs by value: by name or position, padded, nested, large"){
     local v = lib.ft_vec_add({1, 2}, {x: 3, y: 4})
     assert(v.x == 4 and v.y == 6)
-    local m = lib.ft_mixed(1.5, - 2, 1 << 40)
-    assert(m.a == 1.5 and m.b == - 2 and m.c == 1 << 40)
+    local m = lib.ft_mixed(1.5, -2, 1 << 40)
+    assert(m.a == 1.5 and m.b == -2 and m.c == 1 << 40)
     assert(lib.ft_mixed_sum(m) == 1.5 - 2 + (1 << 40))
     local it = lib.ft_item({1, 2}, "abc")
     assert(it.pos.x == 1 and it.tag == {1, 2, 3, 4} and it.name == "abc")

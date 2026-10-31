@@ -33,20 +33,6 @@ local func foldLeft(list, initial, f){
   return result
 }
 
-local func foldRight(list, initial, f){
-  local i = len(list) - 1
-  if(not f){
-    f = initial
-    initial = list[i]
-    i = i - 1
-  }
-  local result = initial
-  for(i = i; i >= 0; i = i - 1){
-    result = f(result, list[i])
-  }
-  return result
-}
-
 local parser_def
 local rule_def
 local rule

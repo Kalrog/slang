@@ -91,17 +91,20 @@ fn writeTable(w: *Writer, t: *const Table, depth: usize) Writer.Error!void {
     }
     if (depth > 32) return w.writeAll("{...}");
     try w.writeByte('{');
+    var first = true;
     for (t.arr.items, 0..) |v, i| {
+        if (!first) try w.writeAll(", ");
+        first = false;
         try w.print("{d}: ", .{i});
         try writeValueDepth(w, v, depth + 1);
-        try w.writeAll(", ");
     }
     for (t.ents.items) |e| {
         if (e.key == .null) continue;
+        if (!first) try w.writeAll(", ");
+        first = false;
         try writeValueDepth(w, e.key, depth + 1);
         try w.writeAll(": ");
         try writeValueDepth(w, e.val, depth + 1);
-        try w.writeAll(", ");
     }
     try w.writeByte('}');
 }

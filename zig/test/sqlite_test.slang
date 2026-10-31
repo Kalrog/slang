@@ -137,6 +137,27 @@ t.group("slang/sqlite"){
     )
     assert(db:one(sql{ select count(*) as n from todos }).n == 4)
   }
+  t.test("each has a statement of its own; ? in strings is no placeholder"){
+    local db = fresh()
+    // the same query inside its own loop, past the statement cache's size
+    local pairs = 0
+    for(let {id: local id} in db:each("select id from todos order by id")){
+      for(let local inner in db:each("select id from todos order by id")){
+        pairs = pairs + 1
+      }
+      for(local k = 0; k < 70; k = k + 1){
+        db:one(concat("select ", string(k), " as k"))
+      }
+    }
+    assert(pairs == 9, concat("pairs ", pairs))
+    local r = db:one(
+      "select 'what?' as q, \"odd?name\" as n from (select 1 as \"odd?name\") -- why?\n where 1 = ?",
+      {1},
+    )
+    assert(r.q == "what?" and r.n == 1, string(r))
+    local mismatch = pcall(func(){ return db:one("select ?, ?", {1}) })
+    assert(mismatch[0] == "err")
+  }
   t.test("lists, fragments and plain text queries"){
     local db = fresh()
     local ids = {1, 3}

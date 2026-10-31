@@ -1182,7 +1182,7 @@ func visitors.LetStat(g, node){
   local fail_jump = g.asm:emit_jump()
   local done = g.asm:emit_jump()
   g.asm:patch_jump(fail_jump)
-  local pattern_text = ast.to_string(node.pattern)
+  local pattern_text = str.trim(ast.to_source(node.pattern))
   local func field(name, v){
     return ast.node(
       "Field", {key: ast.node("String", {value: name}, token), value: v}, token

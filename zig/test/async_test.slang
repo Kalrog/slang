@@ -319,7 +319,7 @@ t.group("uncaught errors"){
       local out = concat(r.stdout, r.stderr)
       assert(str.index_of(
         out,
-        "error: let: the value does not match {\"age\":99,}, got {age: 36, }",
+        "error: let: the value does not match {age: 99}, got {age: 36}",
       ) >= 0, out)
       await(fs.write_file(
         p,

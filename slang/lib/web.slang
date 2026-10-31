@@ -100,24 +100,21 @@ func web.redirect(url, status){
 // not called for it.
 //   if(todo == null){ web.fail(404, "no such todo") }
 func web.fail(status, message){
-  error(concat(
-    "HTTP ", string(status), ": ",
-    message or http.status_text[status] or "error"
-  ))
+  message = message or http.status_text[status] or "error"
+  raise({
+    kind: "web.fail",
+    status: status,
+    text: message,
+    message: concat("HTTP ", string(status), ": ", message),
+  })
 }
 
 // the status and message of an error from web.fail, or null
 local func failure_of(e){
-  local m = message_of(e)
-  local i = str.index_of(m, "HTTP ")
-  if(i < 0 or len(m) < i + 9 or str.char_at(m, i + 8) != ":"){
+  if(type(e) != "table" or e.kind != "web.fail"){
     return null
   }
-  local status = str.to_number(str.substring(m, i + 5, i + 8))
-  if(type(status) != "int"){
-    return null
-  }
-  return {status: status, message: str.trim(str.substring(m, i + 9))}
+  return {status: e.status, message: e.text}
 }
 
 // normalize(res) -> {status, headers, body} (plus upgraded and compress)
@@ -846,7 +843,9 @@ func web.csrf(options){
 // ------------------------------------------------------------ testing
 
 // A client that runs requests through an app without a socket, keeping
-// cookies across requests.
+// cookies across requests: client.cookies holds their values by name (a
+// test may read and change it), sent to the paths their Path allows.
+// Domain is not looked at: the client talks to one app.
 // type WebTestClient
 local client_methods = {}
 local client_meta = {__index: client_methods, __type: "WebTestClient"}
@@ -865,7 +864,7 @@ local client_meta = {__index: client_methods, __type: "WebTestClient"}
 // test(app: WebApp) -> WebTestClient
 // A test client for app.
 func web.test(app){
-  return {meta: client_meta, app: app, cookies: {}}
+  return {meta: client_meta, app: app, cookies: {}, cookie_paths: {}}
 }
 
 local func remember_cookies(client, headers){
@@ -873,14 +872,31 @@ local func remember_cookies(client, headers){
     if(str.lower(e[0]) == "set-cookie"){
       local list = type(e[1]) == "table" and e[1] or {e[1]}
       for(let local line in values(list)){
-        local first = str.split(line, ";")[0]
+        local parts = str.split(line, ";")
+        local first = parts[0]
         local eq = str.index_of(first, "=")
-        local cname = str.substring(first, 0, eq)
-        local value = str.substring(first, eq + 1)
-        if(str.index_of(line, "Max-Age=0") >= 0 or value == ""){
+        local cname = str.trim(str.substring(first, 0, eq))
+        local value = str.trim(str.substring(first, eq + 1))
+        local path = "/"
+        local gone = value == ""
+        for(local i = 1; i < len(parts); i = i + 1){
+          local attr = str.trim(parts[i])
+          local at = str.index_of(attr, "=")
+          local key = str.lower(at >= 0 and str.substring(attr, 0, at) or attr)
+          local v = at >= 0 and str.trim(str.substring(attr, at + 1)) or ""
+          if(key == "max-age"){
+            local n = to_int(v)
+            gone = gone or (n != null and n <= 0)
+          } else if(key == "path" and str.starts_with(v, "/")){
+            path = v
+          }
+        }
+        if(gone){
           client.cookies[cname] = null
+          client.cookie_paths[cname] = null
         } else {
           client.cookies[cname] = value
+          client.cookie_paths[cname] = path
         }
       }
     }
@@ -908,17 +924,27 @@ func client_methods.request(client, method, path, options){
       body = json.encode(options.json)
       headers["content-type"] = headers["content-type"] or "application/json"
     }
+    local q = str.index_of(path, "?")
+    local req_path = q >= 0 and str.substring(path, 0, q) or path
+    // a cookie goes to its Path and below it
+    local func allowed(cpath){
+      if(cpath == null or cpath == "/" or req_path == cpath){
+        return true
+      }
+      local prefix = str.ends_with(cpath, "/") and cpath or concat(cpath, "/")
+      return str.starts_with(req_path, prefix)
+    }
     local jar = {}
     for(let local e in entries(client.cookies)){
-      append(jar, concat(e[0], "=", e[1]))
+      if(allowed(client.cookie_paths[e[0]])){
+        append(jar, concat(e[0], "=", e[1]))
+      }
     }
     if(len(jar) > 0){
       headers["cookie"] = str.join(jar, "; ")
     }
-    local q = str.index_of(path, "?")
     local req = {
-      method: method, url: path,
-      path: q >= 0 and str.substring(path, 0, q) or path,
+      method: method, url: path, path: req_path,
       query: q >= 0 and str.substring(path, q + 1) or null, version: "1.1",
       headers: headers, body: body
     }

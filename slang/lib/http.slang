@@ -969,6 +969,10 @@ func client_methods.request(c, method, path, body, headers, options){
       error("http: the server closed this connection; connect again")
     }
     local host = c.host
+    // an IPv6 address goes in brackets
+    if(str.index_of(host, ":") >= 0){
+      host = concat("[", host, "]")
+    }
     if(c.port != null and c.port != (c.secure and 443 or 80)){
       host = concat(host, ":", string(c.port))
     }
@@ -1024,6 +1028,9 @@ func client_methods.request(c, method, path, body, headers, options){
         error(concat("http: malformed response: ", e.reason))
       } else if(e.type == "upgrade"){
         c.closed = true
+        if(res == null){
+          error("http: the server switched protocols without a response")
+        }
         break
       }
     }
@@ -1080,15 +1087,51 @@ func http.fetch(url, options){
       error("http.fetch: an http:// or https:// URL expected: ", url)
     }
     local rest = str.substring(url, secure and 8 or 7)
-    local slash = str.index_of(rest, "/")
-    local authority = slash >= 0 and str.substring(rest, 0, slash) or rest
-    local path = slash >= 0 and str.substring(rest, slash) or "/"
+    // the authority ends at the path, the query or the fragment
+    local stop = len(rest)
+    for(let local mark in values({"/", "?", "#"})){
+      local at = str.index_of(rest, mark)
+      if(at >= 0 and at < stop){
+        stop = at
+      }
+    }
+    local authority = str.substring(rest, 0, stop)
+    local path = str.substring(rest, stop)
+    if(str.starts_with(path, "#")){
+      path = ""
+    }
+    local hash = str.index_of(path, "#")
+    if(hash >= 0){
+      path = str.substring(path, 0, hash)
+    }
+    if(path == "" or str.starts_with(path, "?")){
+      path = concat("/", path)
+    }
     local host = authority
     local port = secure and 443 or 80
-    local colon = str.index_of(authority, ":")
-    if(colon >= 0){
-      host = str.substring(authority, 0, colon)
-      port = to_int(str.substring(authority, colon + 1))
+    local port_text = null
+    if(str.starts_with(authority, "[")){
+      // [::1]:8080, an IPv6 address
+      local close = str.index_of(authority, "]")
+      if(close < 0){
+        error("http.fetch: a ] expected in ", url)
+      }
+      host = str.substring(authority, 1, close)
+      if(str.starts_with(authority, ":", close + 1)){
+        port_text = str.substring(authority, close + 2)
+      }
+    } else {
+      local colon = str.index_of(authority, ":")
+      if(colon >= 0){
+        host = str.substring(authority, 0, colon)
+        port_text = str.substring(authority, colon + 1)
+      }
+    }
+    if(port_text != null){
+      port = to_int(port_text)
+      if(port == null){
+        error("http.fetch: a bad port in ", url)
+      }
     }
     local headers = {Connection: "close"}
     for(let local e in entries(options.headers or {})){

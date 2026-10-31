@@ -92,7 +92,6 @@ numbers:end():parse(&quot;1, x&quot;)         // {&quot;error&quot;, &quot;end o
 <li><a href="#trim"><code>trim</code></a></li>
 <li><a href="#where"><code>where</code></a></li>
 <li><a href="#end"><code>end</code></a></li>
-<li><a href="#labeled"><code>labeled</code></a></li>
 <li><a href="#settable"><code>settable</code></a></li>
 <li><a href="#ref"><code>ref</code></a></li>
 <li><a href="#resolve"><code>resolve</code></a></li>
@@ -146,7 +145,6 @@ numbers:end():parse(&quot;1, x&quot;)         // {&quot;error&quot;, &quot;end o
 <li><a href="#Parser:trim"><code>Parser:trim</code></a></li>
 <li><a href="#Parser:where"><code>Parser:where</code></a></li>
 <li><a href="#Parser:end"><code>Parser:end</code></a></li>
-<li><a href="#Parser:labeled"><code>Parser:labeled</code></a></li>
 <li><a href="#Parser:parse"><code>Parser:parse</code></a></li>
 <li><a href="#Parser:run"><code>Parser:run</code></a></li>
 <li><a href="#type-Separated"><code>type Separated</code></a></li>
@@ -353,10 +351,6 @@ numbers:end():parse(&quot;1, x&quot;)         // {&quot;error&quot;, &quot;end o
 <p>child followed by the end of the input; its value is child's.</p>
 <dl class="params"><dt><code>message</code></dt><dd>the failure when input is left, &quot;end of input expected&quot; by default</dd></dl>
 </div>
-<div class="def" id="labeled"><h3><code>peg.labeled(child: <a href="#type-Parser">Parser</a>, label) -> <a href="#type-Parser">Parser</a></code></h3>
-<p>Sets child.label to label, in place, and returns child.</p>
-
-</div>
 <div class="def" id="settable"><h3><code>peg.settable(target?: <a href="#type-Parser">Parser</a>) -> <a href="#type-Parser">Parser</a></code></h3>
 <p>A parser that parses with target, which <a href="#Parser:set"><code>Parser.set</code></a> replaces later: for a grammar whose parts refer to each other.</p>
 <pre><code>local expr = peg.settable()
@@ -398,7 +392,7 @@ expr:set(peg.choice(group, peg.digit()))</code></pre>
 </div>
 <h2>running</h2>
 <div class="def" id="parse"><h3><code>peg.parse(parser: <a href="#type-Parser">Parser</a>, input: string) -> {any}</code></h3>
-<p>Parses input from its start: {&quot;ok&quot;, value} or {&quot;error&quot;, message}. It need not consume all of it: use <a href="#end"><code>end</code></a>. The error is &quot;message at line:column&quot;, for the last failure.</p>
+<p>Parses input from its start: {&quot;ok&quot;, value} or {&quot;error&quot;, message}. It need not consume all of it: use <a href="#end"><code>end</code></a>. The error is &quot;message at line:column&quot;, for the failure that got furthest into the input.</p>
 
 </div>
 <div class="def" id="run"><h3><code>peg.run(parser: <a href="#type-Parser">Parser</a>, input: string, options?: {tree?: bool}) -> <a href="#type-Result">Result</a></code></h3>
@@ -608,10 +602,6 @@ trivia: options.trivia(buffer, start, stop) -&gt; spans (comments) for the
 <p>Followed by the end of the input (see <a href="#end"><code>end</code></a>).</p>
 
 </div>
-<div class="def" id="Parser:labeled"><h3><code>Parser.labeled(label) -> <a href="#type-Parser">Parser</a></code></h3>
-<p>See <a href="#labeled"><code>labeled</code></a>.</p>
-
-</div>
 <div class="def" id="Parser:parse"><h3><code>Parser.parse(input: string) -> {any}</code></h3>
 <p>See <a href="#parse"><code>parse</code></a>.</p>
 
@@ -688,7 +678,7 @@ trivia: options.trivia(buffer, start, stop) -&gt; spans (comments) for the
 
 </div>
 <div class="def" id="Walker:build"><h3><code>Walker:build() -> <a href="#type-Parser">Parser</a></code></h3>
-<p>Builds the dispatch tables and returns the expression parser. After a later change, build again before parsing.</p>
+<p>Builds the dispatch tables and returns the expression parser. A parser from an earlier build rebuilds the tables itself after a change; build again anyway to get a parser whose first-byte set knows the change.</p>
 
 </div>
 <h2 id="type-Level">type Level</h2>

@@ -313,7 +313,7 @@ t.group("uv: files, names, processes, signals, poll"){
     })
     uv.run()
     assert(events == "r")
-    local r = pcall(uv.poll, - 1)
+    local r = pcall(uv.poll, -1)
     assert(r[0] == "err" and str.starts_with(r[1].message, "EBADF"))
   }
   t.test("the C API for other extensions is there"){

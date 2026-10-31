@@ -103,7 +103,8 @@ local func close_payload(code, reason){
 // An open WebSocket connection. Its fields: messages, an async.Stream of
 // the messages received (strings, text and binary alike) that ends when
 // the connection does; closed, an async.Future of the [CloseInfo] once the
-// connection is gone.
+// connection is gone. A program may set on_pong, a function called with
+// the data of each pong (see [WebSocket.ping]).
 // type WebSocket
 local socket_methods = {}
 local socket_meta = {__index: socket_methods, __type: "WebSocket"}
@@ -277,14 +278,15 @@ local func new_socket(conn, rest, client, options){
                 // answer the close, then end
                 s.state = "closing"
                 local answer = code == 1005 and "" or close_payload(code, "")
-                local w = pcall(
-                  async.await,
-                  write(frame(OP_CLOSE, answer, client)),
-                )
+                pcall(async.await, write(frame(OP_CLOSE, answer, client)))
               }
               finish(code, reason)
               return null
-            } else if(op != OP_PONG){
+            } else if(op == OP_PONG){
+              if(s.on_pong != null){
+                pcall(s.on_pong, payload)
+              }
+            } else {
               fail(1002, "unknown control opcode")
               return null
             }
@@ -328,7 +330,8 @@ local func new_socket(conn, rest, client, options){
       }
     })
     if(r[0] == "err"){
-      finish(1006, r[1].message or string(r[1]))
+      local e = r[1]
+      finish(1006, type(e) == "table" and e.message or string(e))
     }
   })
   return s
@@ -362,7 +365,8 @@ func socket_methods.send_binary(s, data){
 
 // ping(data?: string) -> async.Future
 // Sends a ping (with up to 125 bytes of data); completes when it is
-// written. The pong is not reported.
+// written. The pong that answers it goes to socket.on_pong(data), when
+// the socket has one.
 func socket_methods.ping(s, data){
   return send_frame(s, OP_PING, data or "")
 }
@@ -441,8 +445,14 @@ func ws.connect(host, port, path, options){
       conn = async.await(async.connect(host, port))
     }
     local key = encoding.base64_encode(crypto().random_bytes(16))
+    // the port only when it is not the scheme's; an IPv6 address in brackets
+    local authority = str.index_of(host, ":") >= 0 and concat("[", host, "]") or
+      host
+    if(port != (secure and 443 or 80)){
+      authority = concat(authority, ":", string(port))
+    }
     async.await(async.write(conn, concat(
-      "GET ", path or "/", " HTTP/1.1\r\nHost: ", host, ":", string(port),
+      "GET ", path or "/", " HTTP/1.1\r\nHost: ", authority,
       "\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: ",
       key, "\r\nSec-WebSocket-Version: 13\r\n\r\n"
     )))

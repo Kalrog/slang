@@ -280,14 +280,18 @@ func World.velocity(w, e){
 // type JointSpec = {type: string, a: Entity, b: Entity, point?: Vec3,
 //   axis?: Vec3, min?: float, max?: float}
 
-local lock = null
+// both bodies locked for writing (the lock interface is the world's own:
+// a destroyed world's would be a dangling pointer)
 local locks = null
 
 local func with_bodies(w, a, b, f){
-  if(lock == null){
-    lock = jolt.physics_system_get_body_lock_interface(w.jw.system)
+  if(w.lock == null){
+    w.lock = jolt.physics_system_get_body_lock_interface(w.jw.system)
+  }
+  if(locks == null){
     locks = {ffi.new("JPH_BodyLockWrite", 1, D), ffi.new("JPH_BodyLockWrite", 1, D)}
   }
+  local lock = w.lock
   jolt.body_lock_interface_lock_write(lock, a.id, locks[0])
   jolt.body_lock_interface_lock_write(lock, b.id, locks[1])
   local r = f(locks[0].body, locks[1].body)

@@ -479,7 +479,10 @@ func Vehicle.destroy(v){
   local jw = v.world.jw
   jolt.physics_system_remove_step_listener(jw.system, v.listener)
   jolt.physics_system_remove_constraint(jw.system, v.constraint)
+  jolt.constraint_destroy(v.constraint)
+  jolt.vehicle_collision_tester_destroy(v.tester)
   jolt.body_interface_remove_and_destroy_body(v.world.bodies, v.id)
+  v.world.blast = null
 }
 
 return m

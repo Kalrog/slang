@@ -195,8 +195,8 @@ m.decls = {}
 // type JobSystemThreadPoolConfig = {max_jobs: int, max_barriers: int,
 //   num_threads: int}
 
-// type JobSystemConfig = {context: ffi.Pointer, queue_job: ffi.Pointer,
-//   queue_jobs: ffi.Pointer, max_concurrency: int, max_barriers: int}
+// type JobSystemConfig = {context: ffi.Pointer, queue_job: function,
+//   queue_jobs: function, max_concurrency: int, max_barriers: int}
 
 // type PhysicsSystemSettings = {max_bodies: int, num_body_mutexes: int,
 //   max_body_pairs: int, max_contact_constraints: int, padding: int,
@@ -222,42 +222,41 @@ m.decls = {}
 // type PhysicsStepListenerContext = {delta_time: float, is_first_step: int,
 //   is_last_step: int, physics_system: ffi.Pointer}
 
-// type PhysicsStepListener_Procs = {on_step: ffi.Pointer}
+// type PhysicsStepListener_Procs = {on_step: function}
 
-// type BroadPhaseLayerFilter_Procs = {should_collide: ffi.Pointer}
+// type BroadPhaseLayerFilter_Procs = {should_collide: function}
 
-// type ObjectLayerFilter_Procs = {should_collide: ffi.Pointer}
+// type ObjectLayerFilter_Procs = {should_collide: function}
 
-// type BodyFilter_Procs = {should_collide: ffi.Pointer, should_collide_locked:
-//   ffi.Pointer}
+// type BodyFilter_Procs = {should_collide: function, should_collide_locked:
+//   function}
 
-// type ShapeFilter_Procs = {should_collide: ffi.Pointer, should_collide2:
-//   ffi.Pointer}
+// type ShapeFilter_Procs = {should_collide: function, should_collide2:
+//   function}
 
-// type SimShapeFilter_Procs = {should_collide: ffi.Pointer}
+// type SimShapeFilter_Procs = {should_collide: function}
 
-// type ContactListener_Procs = {on_contact_validate: ffi.Pointer,
-//   on_contact_added: ffi.Pointer, on_contact_persisted: ffi.Pointer,
-//   on_contact_removed: ffi.Pointer}
+// type ContactListener_Procs = {on_contact_validate: function,
+//   on_contact_added: function, on_contact_persisted: function,
+//   on_contact_removed: function}
 
-// type BodyActivationListener_Procs = {on_body_activated: ffi.Pointer,
-//   on_body_deactivated: ffi.Pointer}
+// type BodyActivationListener_Procs = {on_body_activated: function,
+//   on_body_deactivated: function}
 
-// type BodyDrawFilter_Procs = {should_draw: ffi.Pointer}
+// type BodyDrawFilter_Procs = {should_draw: function}
 
-// type CharacterContactListener_Procs = {on_adjust_body_velocity: ffi.Pointer,
-//   on_contact_validate: ffi.Pointer, on_character_contact_validate:
-//   ffi.Pointer, on_contact_added: ffi.Pointer, on_contact_persisted:
-//   ffi.Pointer, on_contact_removed: ffi.Pointer, on_character_contact_added:
-//   ffi.Pointer, on_character_contact_persisted: ffi.Pointer,
-//   on_character_contact_removed: ffi.Pointer, on_contact_solve: ffi.Pointer,
-//   on_character_contact_solve: ffi.Pointer}
+// type CharacterContactListener_Procs = {on_adjust_body_velocity: function,
+//   on_contact_validate: function, on_character_contact_validate: function,
+//   on_contact_added: function, on_contact_persisted: function,
+//   on_contact_removed: function, on_character_contact_added: function,
+//   on_character_contact_persisted: function, on_character_contact_removed:
+//   function, on_contact_solve: function, on_character_contact_solve: function}
 
-// type CharacterVsCharacterCollision_Procs = {collide_character: ffi.Pointer,
-//   cast_character: ffi.Pointer}
+// type CharacterVsCharacterCollision_Procs = {collide_character: function,
+//   cast_character: function}
 
-// type DebugRenderer_Procs = {draw_line: ffi.Pointer, draw_triangle:
-//   ffi.Pointer, draw_text3_d: ffi.Pointer}
+// type DebugRenderer_Procs = {draw_line: function, draw_triangle: function,
+//   draw_text3_d: function}
 
 // type SkeletonJoint = {name: string, parent_name: string, parent_joint_index:
 //   int}
@@ -288,6 +287,11 @@ m.decls = {}
 //   narrow_phase: ffi.Pointer, broad_phase: ffi.Pointer, jobs: ffi.Pointer}
 // [bodies]: the body interface: body_interface_* functions take it
 // [narrow_phase]: for narrow_phase_query_* (ray casts, point tests)
+
+// A contact between two bodies: their ids, the normal from body1 to
+// body2, how deep they overlap and where they touch.
+// type Contact = {body1: int, body2: int, normal: Vec3, depth: float,
+//   points: {Vec3}}
 
 // What create_body takes. Any other field names a
 // body_creation_settings_set_* function: {friction: 0.2} calls
@@ -522,11 +526,11 @@ func m.init(){}
 // C: `void JPH_Shutdown()`
 func m.shutdown(){}
 
-// set_trace_handler(handler?: ffi.Pointer)
+// set_trace_handler(handler?: function)
 // C: `void JPH_SetTraceHandler(function *handler)`
 func m.set_trace_handler(handler){}
 
-// set_assert_failure_handler(handler?: ffi.Pointer)
+// set_assert_failure_handler(handler?: function)
 // C: `void JPH_SetAssertFailureHandler(function *handler)`
 func m.set_assert_failure_handler(handler){}
 
@@ -1368,7 +1372,7 @@ func m.shape_cast_ray(shape, origin, direction, hit){}
 
 // shape_cast_ray2(shape: ffi.Pointer, origin: Vec3, direction: Vec3,
 //   ray_cast_settings: RayCastSettings, collector_type: int, callback?:
-//   ffi.Pointer, user_data?: ffi.Pointer, shape_filter?: ffi.Pointer) -> bool
+//   function, user_data?: ffi.Pointer, shape_filter?: ffi.Pointer) -> bool
 // C: `bool JPH_Shape_CastRay2(const JPH_Shape *shape, const JPH_Vec3 *origin,
 // const JPH_Vec3 *direction, const JPH_RayCastSettings *rayCastSettings, enum
 // JPH_CollisionCollectorType collectorType, function *callback, void *userData,
@@ -1382,8 +1386,8 @@ func m.shape_cast_ray2(shape, origin, direction, ray_cast_settings, collector_ty
 func m.shape_collide_point(shape, point, shape_filter){}
 
 // shape_collide_point2(shape: ffi.Pointer, point: Vec3, collector_type: int,
-//   callback?: ffi.Pointer, user_data?: ffi.Pointer, shape_filter?:
-//   ffi.Pointer) -> bool
+//   callback?: function, user_data?: ffi.Pointer, shape_filter?: ffi.Pointer)
+//   -> bool
 // C: `bool JPH_Shape_CollidePoint2(const JPH_Shape *shape, const JPH_Vec3
 // *point, enum JPH_CollisionCollectorType collectorType, function *callback,
 // void *userData, const JPH_ShapeFilter *shapeFilter)`
@@ -4427,7 +4431,7 @@ func m.collide_shape_settings_init(settings){}
 func m.shape_cast_settings_init(settings){}
 
 // broad_phase_query_cast_ray(query: ffi.Pointer, origin: Vec3, direction: Vec3,
-//   callback?: ffi.Pointer, user_data?: ffi.Pointer, broad_phase_layer_filter?:
+//   callback?: function, user_data?: ffi.Pointer, broad_phase_layer_filter?:
 //   ffi.Pointer, object_layer_filter?: ffi.Pointer) -> bool
 // C: `bool JPH_BroadPhaseQuery_CastRay(const JPH_BroadPhaseQuery *query, const
 // JPH_Vec3 *origin, const JPH_Vec3 *direction, function *callback, void
@@ -4436,7 +4440,7 @@ func m.shape_cast_settings_init(settings){}
 func m.broad_phase_query_cast_ray(query, origin, direction, callback, user_data, broad_phase_layer_filter, object_layer_filter){}
 
 // broad_phase_query_cast_ray2(query: ffi.Pointer, origin: Vec3, direction:
-//   Vec3, collector_type: int, callback?: ffi.Pointer, user_data?: ffi.Pointer,
+//   Vec3, collector_type: int, callback?: function, user_data?: ffi.Pointer,
 //   broad_phase_layer_filter?: ffi.Pointer, object_layer_filter?: ffi.Pointer)
 //   -> bool
 // C: `bool JPH_BroadPhaseQuery_CastRay2(const JPH_BroadPhaseQuery *query, const
@@ -4447,8 +4451,8 @@ func m.broad_phase_query_cast_ray(query, origin, direction, callback, user_data,
 func m.broad_phase_query_cast_ray2(query, origin, direction, collector_type, callback, user_data, broad_phase_layer_filter, object_layer_filter){}
 
 // broad_phase_query_collide_aa_box(query: ffi.Pointer, box: AABox, callback?:
-//   ffi.Pointer, user_data?: ffi.Pointer, broad_phase_layer_filter?:
-//   ffi.Pointer, object_layer_filter?: ffi.Pointer) -> bool
+//   function, user_data?: ffi.Pointer, broad_phase_layer_filter?: ffi.Pointer,
+//   object_layer_filter?: ffi.Pointer) -> bool
 // C: `bool JPH_BroadPhaseQuery_CollideAABox(const JPH_BroadPhaseQuery *query,
 // const JPH_AABox *box, function *callback, void *userData, const
 // JPH_BroadPhaseLayerFilter *broadPhaseLayerFilter, const JPH_ObjectLayerFilter
@@ -4456,7 +4460,7 @@ func m.broad_phase_query_cast_ray2(query, origin, direction, collector_type, cal
 func m.broad_phase_query_collide_aa_box(query, box, callback, user_data, broad_phase_layer_filter, object_layer_filter){}
 
 // broad_phase_query_collide_sphere(query: ffi.Pointer, center: Vec3, radius:
-//   float, callback?: ffi.Pointer, user_data?: ffi.Pointer,
+//   float, callback?: function, user_data?: ffi.Pointer,
 //   broad_phase_layer_filter?: ffi.Pointer, object_layer_filter?: ffi.Pointer)
 //   -> bool
 // C: `bool JPH_BroadPhaseQuery_CollideSphere(const JPH_BroadPhaseQuery *query,
@@ -4466,8 +4470,8 @@ func m.broad_phase_query_collide_aa_box(query, box, callback, user_data, broad_p
 func m.broad_phase_query_collide_sphere(query, center, radius, callback, user_data, broad_phase_layer_filter, object_layer_filter){}
 
 // broad_phase_query_collide_point(query: ffi.Pointer, point: Vec3, callback?:
-//   ffi.Pointer, user_data?: ffi.Pointer, broad_phase_layer_filter?:
-//   ffi.Pointer, object_layer_filter?: ffi.Pointer) -> bool
+//   function, user_data?: ffi.Pointer, broad_phase_layer_filter?: ffi.Pointer,
+//   object_layer_filter?: ffi.Pointer) -> bool
 // C: `bool JPH_BroadPhaseQuery_CollidePoint(const JPH_BroadPhaseQuery *query,
 // const JPH_Vec3 *point, function *callback, void *userData, const
 // JPH_BroadPhaseLayerFilter *broadPhaseLayerFilter, const JPH_ObjectLayerFilter
@@ -4485,10 +4489,9 @@ func m.broad_phase_query_collide_point(query, point, callback, user_data, broad_
 func m.narrow_phase_query_cast_ray(query, origin, direction, hit, broad_phase_layer_filter, object_layer_filter, body_filter){}
 
 // narrow_phase_query_cast_ray2(query: ffi.Pointer, origin: Vec3, direction:
-//   Vec3, ray_cast_settings: RayCastSettings, callback?: ffi.Pointer,
-//   user_data?: ffi.Pointer, broad_phase_layer_filter?: ffi.Pointer,
-//   object_layer_filter?: ffi.Pointer, body_filter?: ffi.Pointer,
-//   shape_filter?: ffi.Pointer) -> bool
+//   Vec3, ray_cast_settings: RayCastSettings, callback?: function, user_data?:
+//   ffi.Pointer, broad_phase_layer_filter?: ffi.Pointer, object_layer_filter?:
+//   ffi.Pointer, body_filter?: ffi.Pointer, shape_filter?: ffi.Pointer) -> bool
 // C: `bool JPH_NarrowPhaseQuery_CastRay2(const JPH_NarrowPhaseQuery *query,
 // const JPH_Vec3 *origin, const JPH_Vec3 *direction, const JPH_RayCastSettings
 // *rayCastSettings, function *callback, void *userData, const
@@ -4499,8 +4502,8 @@ func m.narrow_phase_query_cast_ray2(query, origin, direction, ray_cast_settings,
 
 // narrow_phase_query_cast_ray3(query: ffi.Pointer, origin: Vec3, direction:
 //   Vec3, ray_cast_settings: RayCastSettings, collector_type: int, callback?:
-//   ffi.Pointer, user_data?: ffi.Pointer, broad_phase_layer_filter?:
-//   ffi.Pointer, object_layer_filter?: ffi.Pointer, body_filter?: ffi.Pointer,
+//   function, user_data?: ffi.Pointer, broad_phase_layer_filter?: ffi.Pointer,
+//   object_layer_filter?: ffi.Pointer, body_filter?: ffi.Pointer,
 //   shape_filter?: ffi.Pointer) -> bool
 // C: `bool JPH_NarrowPhaseQuery_CastRay3(const JPH_NarrowPhaseQuery *query,
 // const JPH_Vec3 *origin, const JPH_Vec3 *direction, const JPH_RayCastSettings
@@ -4511,8 +4514,8 @@ func m.narrow_phase_query_cast_ray2(query, origin, direction, ray_cast_settings,
 func m.narrow_phase_query_cast_ray3(query, origin, direction, ray_cast_settings, collector_type, callback, user_data, broad_phase_layer_filter, object_layer_filter, body_filter, shape_filter){}
 
 // narrow_phase_query_collide_point(query: ffi.Pointer, point: Vec3, callback?:
-//   ffi.Pointer, user_data?: ffi.Pointer, broad_phase_layer_filter?:
-//   ffi.Pointer, object_layer_filter?: ffi.Pointer, body_filter?: ffi.Pointer,
+//   function, user_data?: ffi.Pointer, broad_phase_layer_filter?: ffi.Pointer,
+//   object_layer_filter?: ffi.Pointer, body_filter?: ffi.Pointer,
 //   shape_filter?: ffi.Pointer) -> bool
 // C: `bool JPH_NarrowPhaseQuery_CollidePoint(const JPH_NarrowPhaseQuery *query,
 // const JPH_Vec3 *point, function *callback, void *userData, const
@@ -4522,7 +4525,7 @@ func m.narrow_phase_query_cast_ray3(query, origin, direction, ray_cast_settings,
 func m.narrow_phase_query_collide_point(query, point, callback, user_data, broad_phase_layer_filter, object_layer_filter, body_filter, shape_filter){}
 
 // narrow_phase_query_collide_point2(query: ffi.Pointer, point: Vec3,
-//   collector_type: int, callback?: ffi.Pointer, user_data?: ffi.Pointer,
+//   collector_type: int, callback?: function, user_data?: ffi.Pointer,
 //   broad_phase_layer_filter?: ffi.Pointer, object_layer_filter?: ffi.Pointer,
 //   body_filter?: ffi.Pointer, shape_filter?: ffi.Pointer) -> bool
 // C: `bool JPH_NarrowPhaseQuery_CollidePoint2(const JPH_NarrowPhaseQuery
@@ -4534,10 +4537,10 @@ func m.narrow_phase_query_collide_point2(query, point, collector_type, callback,
 
 // narrow_phase_query_collide_shape(query: ffi.Pointer, shape: ffi.Pointer,
 //   scale: Vec3, center_of_mass_transform: Mat4, settings:
-//   CollideShapeSettings, base_offset?: Vec3, callback?: ffi.Pointer,
-//   user_data?: ffi.Pointer, broad_phase_layer_filter?: ffi.Pointer,
-//   object_layer_filter?: ffi.Pointer, body_filter?: ffi.Pointer,
-//   shape_filter?: ffi.Pointer) -> Vec3?
+//   CollideShapeSettings, base_offset?: Vec3, callback?: function, user_data?:
+//   ffi.Pointer, broad_phase_layer_filter?: ffi.Pointer, object_layer_filter?:
+//   ffi.Pointer, body_filter?: ffi.Pointer, shape_filter?: ffi.Pointer) ->
+//   Vec3?
 // C: `bool JPH_NarrowPhaseQuery_CollideShape(const JPH_NarrowPhaseQuery *query,
 // const JPH_Shape *shape, const JPH_Vec3 *scale, const JPH_Mat4
 // *centerOfMassTransform, const JPH_CollideShapeSettings *settings, JPH_Vec3
@@ -4550,8 +4553,8 @@ func m.narrow_phase_query_collide_shape(query, shape, scale, center_of_mass_tran
 // narrow_phase_query_collide_shape2(query: ffi.Pointer, shape: ffi.Pointer,
 //   scale: Vec3, center_of_mass_transform: Mat4, settings:
 //   CollideShapeSettings, base_offset?: Vec3, collector_type: int, callback?:
-//   ffi.Pointer, user_data?: ffi.Pointer, broad_phase_layer_filter?:
-//   ffi.Pointer, object_layer_filter?: ffi.Pointer, body_filter?: ffi.Pointer,
+//   function, user_data?: ffi.Pointer, broad_phase_layer_filter?: ffi.Pointer,
+//   object_layer_filter?: ffi.Pointer, body_filter?: ffi.Pointer,
 //   shape_filter?: ffi.Pointer) -> Vec3?
 // C: `bool JPH_NarrowPhaseQuery_CollideShape2(const JPH_NarrowPhaseQuery
 // *query, const JPH_Shape *shape, const JPH_Vec3 *scale, const JPH_Mat4
@@ -4564,7 +4567,7 @@ func m.narrow_phase_query_collide_shape2(query, shape, scale, center_of_mass_tra
 
 // narrow_phase_query_cast_shape(query: ffi.Pointer, shape: ffi.Pointer,
 //   world_transform: Mat4, direction: Vec3, settings: ShapeCastSettings,
-//   base_offset?: Vec3, callback?: ffi.Pointer, user_data?: ffi.Pointer,
+//   base_offset?: Vec3, callback?: function, user_data?: ffi.Pointer,
 //   broad_phase_layer_filter?: ffi.Pointer, object_layer_filter?: ffi.Pointer,
 //   body_filter?: ffi.Pointer, shape_filter?: ffi.Pointer) -> Vec3?
 // C: `bool JPH_NarrowPhaseQuery_CastShape(const JPH_NarrowPhaseQuery *query,
@@ -4577,10 +4580,10 @@ func m.narrow_phase_query_cast_shape(query, shape, world_transform, direction, s
 
 // narrow_phase_query_cast_shape2(query: ffi.Pointer, shape: ffi.Pointer,
 //   world_transform: Mat4, direction: Vec3, settings: ShapeCastSettings,
-//   base_offset?: Vec3, collector_type: int, callback?: ffi.Pointer,
-//   user_data?: ffi.Pointer, broad_phase_layer_filter?: ffi.Pointer,
-//   object_layer_filter?: ffi.Pointer, body_filter?: ffi.Pointer,
-//   shape_filter?: ffi.Pointer) -> Vec3?
+//   base_offset?: Vec3, collector_type: int, callback?: function, user_data?:
+//   ffi.Pointer, broad_phase_layer_filter?: ffi.Pointer, object_layer_filter?:
+//   ffi.Pointer, body_filter?: ffi.Pointer, shape_filter?: ffi.Pointer) ->
+//   Vec3?
 // C: `bool JPH_NarrowPhaseQuery_CastShape2(const JPH_NarrowPhaseQuery *query,
 // const JPH_Shape *shape, const JPH_Mat4 *worldTransform, const JPH_Vec3
 // *direction, const JPH_ShapeCastSettings *settings, JPH_Vec3 *baseOffset, enum
@@ -5673,7 +5676,7 @@ func m.character_vs_character_collision_destroy(listener){}
 // collision_dispatch_collide_shape_vs_shape(shape1: ffi.Pointer, shape2:
 //   ffi.Pointer, scale1: Vec3, scale2: Vec3, center_of_mass_transform1: Mat4,
 //   center_of_mass_transform2: Mat4, collide_shape_settings:
-//   CollideShapeSettings, callback?: ffi.Pointer, user_data?: ffi.Pointer,
+//   CollideShapeSettings, callback?: function, user_data?: ffi.Pointer,
 //   shape_filter?: ffi.Pointer) -> bool
 // CollisionDispatch
 // C: `bool JPH_CollisionDispatch_CollideShapeVsShape(const JPH_Shape *shape1,
@@ -5688,7 +5691,7 @@ func m.collision_dispatch_collide_shape_vs_shape(shape1, shape2, scale1, scale2,
 //   ffi.Pointer, shape2: ffi.Pointer, scale1_in_shape2_local_space: Vec3,
 //   scale2: Vec3, center_of_mass_transform1_in_shape2_local_space?: Mat4,
 //   center_of_mass_world_transform2?: Mat4, shape_cast_settings:
-//   ShapeCastSettings, callback?: ffi.Pointer, user_data?: ffi.Pointer,
+//   ShapeCastSettings, callback?: function, user_data?: ffi.Pointer,
 //   shape_filter?: ffi.Pointer) ->
 //   {center_of_mass_transform1_in_shape2_local_space: Mat4,
 //   center_of_mass_world_transform2: Mat4, result: bool}
@@ -5703,7 +5706,7 @@ func m.collision_dispatch_cast_shape_vs_shape_local_space(direction, shape1, sha
 // collision_dispatch_cast_shape_vs_shape_world_space(direction: Vec3, shape1:
 //   ffi.Pointer, shape2: ffi.Pointer, scale1: Vec3, in_scale2: Vec3,
 //   center_of_mass_world_transform1: Mat4, center_of_mass_world_transform2:
-//   Mat4, shape_cast_settings: ShapeCastSettings, callback?: ffi.Pointer,
+//   Mat4, shape_cast_settings: ShapeCastSettings, callback?: function,
 //   user_data?: ffi.Pointer, shape_filter?: ffi.Pointer) -> bool
 // C: `bool JPH_CollisionDispatch_CastShapeVsShapeWorldSpace(const JPH_Vec3
 // *direction, const JPH_Shape *shape1, const JPH_Shape *shape2, const JPH_Vec3
@@ -7274,8 +7277,7 @@ func m.wheeled_vehicle_controller_get_hand_brake_input(controller){}
 func m.wheeled_vehicle_controller_get_wheel_speed_at_clutch(controller){}
 
 // wheeled_vehicle_controller_set_tire_max_impulse_callback(controller?:
-//   ffi.Pointer, tire_max_impulse_callback?: ffi.Pointer, user_data?:
-//   ffi.Pointer)
+//   ffi.Pointer, tire_max_impulse_callback?: function, user_data?: ffi.Pointer)
 // C: `void
 // JPH_WheeledVehicleController_SetTireMaxImpulseCallback(JPH_WheeledVehicleController
 // *controller, function *tireMaxImpulseCallback, void *userData)`
@@ -7737,12 +7739,20 @@ func m.temp_allocator_destroy(allocator){}
 func m.physics_system_update2(system, delta_time, collision_steps, temp_allocator, job_system){}
 
 // create_world(options?: {gravity?: Vec3, max_bodies?: int,
-//   max_body_pairs?: int, max_contact_constraints?: int, threads?: int})
-//   -> World
+//   max_body_pairs?: int, max_contact_constraints?: int, threads?: int,
+//   contact_events?: bool | string}) -> World
 // A physics system with two object layers ([layers]) and a job system with
 // threads worker threads (by default one fewer than the machine has
 // cores).
+// [contact_events]: true collects the contacts that begin and end in each
+//   step for [world_get_contact_events]; "all" also the ones that go on
 func m.create_world(options){}
+
+// world_get_contact_events(world: World) -> {added: {Contact}, persisted?:
+//   {Contact}, removed: {{body1: int, body2: int}}}
+// The contacts that began, went on (with contact_events "all") and ended
+// in the last step, for a world made with contact_events.
+func m.world_get_contact_events(world){}
 
 // step(world: World, dt: float, collision_steps?: int)
 // Advances the world by dt seconds, in collision_steps collision steps

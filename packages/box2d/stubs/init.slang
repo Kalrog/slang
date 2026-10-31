@@ -129,11 +129,10 @@ m.decls = {}
 //   restitution_iterations: int, enable_restitution_propagation: bool,
 //   hit_event_threshold: float, contact_hertz: float, contact_damping_ratio:
 //   float, contact_speed: float, maximum_linear_speed: float,
-//   friction_callback: ffi.Pointer, restitution_callback: ffi.Pointer,
-//   enable_sleep: bool, enable_continuous: bool, worker_count: int,
-//   enqueue_task: ffi.Pointer, finish_task: ffi.Pointer, user_task_context:
-//   ffi.Pointer, user_data: ffi.Pointer, capacity: Capacity, internal_value:
-//   int}
+//   friction_callback: function, restitution_callback: function, enable_sleep:
+//   bool, enable_continuous: bool, worker_count: int, enqueue_task: function,
+//   finish_task: function, user_task_context: ffi.Pointer, user_data:
+//   ffi.Pointer, capacity: Capacity, internal_value: int}
 
 // type MotionLocks = {linear_x: bool, linear_y: bool, angular_z: bool}
 
@@ -260,18 +259,17 @@ m.decls = {}
 // type ContactData = {contact_id: ContactId, shape_id_a: ShapeId, shape_id_b:
 //   ShapeId, manifold: Manifold}
 
-// type DebugDraw = {draw_polygon_fcn: ffi.Pointer, draw_solid_polygon_fcn:
-//   ffi.Pointer, draw_circle_fcn: ffi.Pointer, draw_solid_circle_fcn:
-//   ffi.Pointer, draw_solid_capsule_fcn: ffi.Pointer, draw_line_fcn:
-//   ffi.Pointer, draw_transform_fcn: ffi.Pointer, draw_point_fcn: ffi.Pointer,
-//   draw_string_fcn: ffi.Pointer, draw_bounds_fcn: ffi.Pointer, drawing_bounds:
-//   AABB, force_scale: float, joint_scale: float, draw_contacts: bool,
-//   draw_anchor_a: bool, draw_shapes: bool, draw_chain_normals: bool,
-//   draw_joints: bool, draw_joint_extras: bool, draw_bounds: bool, draw_mass:
-//   bool, draw_body_names: bool, draw_graph_colors: bool,
-//   draw_contact_features: bool, draw_contact_normals: bool,
-//   draw_contact_forces: bool, draw_friction_forces: bool, draw_islands: bool,
-//   context: ffi.Pointer}
+// type DebugDraw = {draw_polygon_fcn: function, draw_solid_polygon_fcn:
+//   function, draw_circle_fcn: function, draw_solid_circle_fcn: function,
+//   draw_solid_capsule_fcn: function, draw_line_fcn: function,
+//   draw_transform_fcn: function, draw_point_fcn: function, draw_string_fcn:
+//   function, draw_bounds_fcn: function, drawing_bounds: AABB, force_scale:
+//   float, joint_scale: float, draw_contacts: bool, draw_anchor_a: bool,
+//   draw_shapes: bool, draw_chain_normals: bool, draw_joints: bool,
+//   draw_joint_extras: bool, draw_bounds: bool, draw_mass: bool,
+//   draw_body_names: bool, draw_graph_colors: bool, draw_contact_features:
+//   bool, draw_contact_normals: bool, draw_contact_forces: bool,
+//   draw_friction_forces: bool, draw_islands: bool, context: ffi.Pointer}
 
 // type ReplayInfo = {frame_count: int, worker_count: int, time_step: float,
 //   sub_step_count: int, length_scale: float, bounds: AABB}
@@ -482,7 +480,7 @@ m.DEFAULT_CATEGORY_BITS = 1
 
 // ------------------------------------------------------------ functions
 
-// set_allocator(alloc_fcn: ffi.Pointer, free_fcn: ffi.Pointer)
+// set_allocator(alloc_fcn: function, free_fcn: function)
 // This allows the user to override the allocation functions. These should be
 // set during application startup.
 // C: `void b2SetAllocator(function *allocFcn, function *freeFcn)`
@@ -493,13 +491,13 @@ func m.set_allocator(alloc_fcn, free_fcn){}
 // C: `size_t b2GetByteCount()`
 func m.get_byte_count(){}
 
-// set_assert_callback(assert_fcn: ffi.Pointer)
+// set_assert_callback(assert_fcn: function)
 // Override the default assert function
 // C: `void b2SetAssertCallback(function *assertFcn)`
 // [assert_fcn]: a non-null assert callback
 func m.set_assert_callback(assert_fcn){}
 
-// set_log_callback(log_fcn: ffi.Pointer)
+// set_log_callback(log_fcn: function)
 // Override the default log function
 // C: `void b2SetLogCallback(function *logFcn)`
 // [log_fcn]: a non-null log callback
@@ -933,7 +931,7 @@ func m.dynamic_tree_set_category_bits(tree, proxy_id, category_bits){}
 func m.dynamic_tree_get_category_bits(tree, proxy_id){}
 
 // dynamic_tree_overlap_aabb(tree: ffi.Pointer, aabb: AABB, mask_bits: int,
-//   callback: ffi.Pointer, context: ffi.Pointer) -> TreeStats
+//   callback: function, context: ffi.Pointer) -> TreeStats
 // Query an AABB for overlapping proxies. The callback is called for each proxy
 // that overlaps the supplied AABB. Returns performance data
 // C: `b2TreeStats b2DynamicTree_OverlapAABB(const b2DynamicTree *tree, b2AABB
@@ -941,7 +939,7 @@ func m.dynamic_tree_get_category_bits(tree, proxy_id){}
 func m.dynamic_tree_overlap_aabb(tree, aabb, mask_bits, callback, context){}
 
 // dynamic_tree_overlap_aabb_all(tree: ffi.Pointer, aabb: AABB, callback:
-//   ffi.Pointer, context: ffi.Pointer) -> TreeStats
+//   function, context: ffi.Pointer) -> TreeStats
 // Query an AABB for overlapping proxies. The callback is called for each proxy
 // that overlaps the supplied AABB. No filtering is performed. Returns
 // performance data
@@ -950,7 +948,7 @@ func m.dynamic_tree_overlap_aabb(tree, aabb, mask_bits, callback, context){}
 func m.dynamic_tree_overlap_aabb_all(tree, aabb, callback, context){}
 
 // dynamic_tree_cast_ray(tree: ffi.Pointer, input: RayCastInput, mask_bits: int,
-//   callback: ffi.Pointer, context: ffi.Pointer) -> TreeStats
+//   callback: function, context: ffi.Pointer) -> TreeStats
 // Ray cast against the proxies in the tree. This relies on the callback to
 // perform an exact ray cast in the case where the proxy contains a shape. The
 // callback also performs any collision filtering. This has performance roughly
@@ -968,7 +966,7 @@ func m.dynamic_tree_overlap_aabb_all(tree, aabb, callback, context){}
 func m.dynamic_tree_cast_ray(tree, input, mask_bits, callback, context){}
 
 // dynamic_tree_cast_box(tree: ffi.Pointer, input: BoxCastInput, mask_bits: int,
-//   callback: ffi.Pointer, context: ffi.Pointer) -> TreeStats
+//   callback: function, context: ffi.Pointer) -> TreeStats
 // Cast a swept AABB through the tree. This has performance roughly equal to k *
 // log(n), where k is the number of collisions and n is the number of proxies in
 // the tree. Returns performance data
@@ -1772,7 +1770,7 @@ func m.world_get_contact_events(world){}
 func m.world_get_joint_events(world){}
 
 // world_overlap_aabb(world_id: WorldId, origin: Vec2, aabb: AABB, filter?:
-//   QueryFilter, fcn: ffi.Pointer, context: ffi.Pointer) -> TreeStats
+//   QueryFilter, fcn: function, context: ffi.Pointer) -> TreeStats
 // Overlap test for all shapes that *potentially* overlap the provided AABB. The
 // AABB is relative to the origin, which keeps the test precise far from the
 // world origin in large world mode. Near the origin pass b2Pos_zero and a world
@@ -1782,7 +1780,7 @@ func m.world_get_joint_events(world){}
 func m.world_overlap_aabb(world_id, origin, aabb, filter, fcn, context){}
 
 // world_overlap_shape(world_id: WorldId, origin: Vec2, proxy: ShapeProxy,
-//   filter?: QueryFilter, fcn: ffi.Pointer, context: ffi.Pointer) -> TreeStats
+//   filter?: QueryFilter, fcn: function, context: ffi.Pointer) -> TreeStats
 // Overlap test for all shapes that overlap the provided shape proxy. The proxy
 // points are relative to the origin. Near the origin pass b2Pos_zero and world
 // points.
@@ -1791,7 +1789,7 @@ func m.world_overlap_aabb(world_id, origin, aabb, filter, fcn, context){}
 func m.world_overlap_shape(world_id, origin, proxy, filter, fcn, context){}
 
 // world_cast_ray(world_id: WorldId, origin: Vec2, translation: Vec2, filter?:
-//   QueryFilter, fcn: ffi.Pointer, context: ffi.Pointer) -> TreeStats
+//   QueryFilter, fcn: function, context: ffi.Pointer) -> TreeStats
 // Cast a ray into the world to collect shapes in the path of the ray. Your
 // callback function controls whether you get the closest point, any point, or
 // n-points. Note: The callback function may receive shapes in any order Returns
@@ -1817,7 +1815,7 @@ func m.world_cast_ray(world_id, origin, translation, filter, fcn, context){}
 func m.world_cast_ray_closest(world_id, origin, translation, filter){}
 
 // world_cast_shape(world_id: WorldId, origin: Vec2, proxy: ShapeProxy,
-//   translation: Vec2, filter?: QueryFilter, fcn: ffi.Pointer, context:
+//   translation: Vec2, filter?: QueryFilter, fcn: function, context:
 //   ffi.Pointer) -> TreeStats
 // Cast a shape through the world. Similar to a ray cast except that a shape is
 // cast instead of a point. The proxy points are relative to the origin.
@@ -1838,7 +1836,7 @@ func m.world_cast_shape(world_id, origin, proxy, translation, filter, fcn, conte
 func m.world_cast_mover(world_id, origin, mover, translation, filter){}
 
 // world_collide_mover(world_id: WorldId, origin: Vec2, mover: Capsule, filter?:
-//   QueryFilter, fcn: ffi.Pointer, context: ffi.Pointer)
+//   QueryFilter, fcn: function, context: ffi.Pointer)
 // Collide a capsule mover with the world, gathering collision planes that can
 // be fed to b2SolvePlanes. Useful for kinematic character movement. The mover
 // capsule and the resulting planes are relative to the origin.
@@ -1917,15 +1915,15 @@ func m.world_set_hit_event_threshold(world_id, value){}
 // C: `float b2World_GetHitEventThreshold(b2WorldId worldId)`
 func m.world_get_hit_event_threshold(world_id){}
 
-// world_set_custom_filter_callback(world_id: WorldId, fcn: ffi.Pointer,
-//   context: ffi.Pointer)
+// world_set_custom_filter_callback(world_id: WorldId, fcn: function, context:
+//   ffi.Pointer)
 // Register the custom filter callback. This is optional.
 // C: `void b2World_SetCustomFilterCallback(b2WorldId worldId, function *fcn,
 // void *context)`
 func m.world_set_custom_filter_callback(world_id, fcn, context){}
 
-// world_set_pre_solve_callback(world_id: WorldId, pre_solve_fcn: ffi.Pointer,
-//   pre_continuous_fcn: ffi.Pointer, context: ffi.Pointer)
+// world_set_pre_solve_callback(world_id: WorldId, pre_solve_fcn: function,
+//   pre_continuous_fcn: function, context: ffi.Pointer)
 // Register the pre-solve and pre-continuous callbacks. This is optional.
 // C: `void b2World_SetPreSolveCallback(b2WorldId worldId, function
 // *preSolveFcn, function *preContinuousFcn, void *context)`
@@ -2043,12 +2041,12 @@ func m.world_set_user_data(world_id, user_data){}
 // C: `void *b2World_GetUserData(b2WorldId worldId)`
 func m.world_get_user_data(world_id){}
 
-// world_set_friction_callback(world_id: WorldId, callback: ffi.Pointer)
+// world_set_friction_callback(world_id: WorldId, callback: function)
 // Set the friction callback. Passing NULL resets to default.
 // C: `void b2World_SetFrictionCallback(b2WorldId worldId, function *callback)`
 func m.world_set_friction_callback(world_id, callback){}
 
-// world_set_restitution_callback(world_id: WorldId, callback: ffi.Pointer)
+// world_set_restitution_callback(world_id: WorldId, callback: function)
 // Set the restitution callback. Passing NULL resets to default.
 // C: `void b2World_SetRestitutionCallback(b2WorldId worldId, function
 // *callback)`

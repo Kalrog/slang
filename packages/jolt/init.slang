@@ -195,12 +195,84 @@ local initialized = false
 // [bodies]: the body interface: body_interface_* functions take it
 // [narrow_phase]: for narrow_phase_query_* (ray casts, point tests)
 
+// ---- contact events: one listener per world that wants them, all
+// through one table of callbacks (joltc keeps a pointer to it)
+
+// the event lists each listener collects during a step, by listener id
+local collecting = {}
+local next_listener = 1
+local procs = null
+
+// a contact as slang sees it: the bodies, the normal (from body1 to
+// body2), the penetration depth and the contact points
+local func contact_of(body1, body2, manifold){
+  local points = {}
+  local n = lib.JPH_ContactManifold_GetPointCount(manifold)
+  for(local i = 0; i < n; i = i + 1){
+    append(points, jolt.contact_manifold_get_world_space_contact_point_on1(
+      manifold, i
+    ))
+  }
+  return {
+    body1: lib.JPH_Body_GetID(body1),
+    body2: lib.JPH_Body_GetID(body2),
+    normal: jolt.contact_manifold_get_world_space_normal(manifold),
+    depth: lib.JPH_ContactManifold_GetPenetrationDepth(manifold),
+    points: points,
+  }
+}
+
+local func on_added(user, body1, body2, manifold, settings){
+  local events = collecting[ffi.address(user)]
+  if(events != null){
+    append(events.added, contact_of(body1, body2, manifold))
+  }
+}
+
+local func on_persisted(user, body1, body2, manifold, settings){
+  local events = collecting[ffi.address(user)]
+  if(events != null and events.persisted != null){
+    append(events.persisted, contact_of(body1, body2, manifold))
+  }
+}
+
+local func on_removed(user, pair){
+  local events = collecting[ffi.address(user)]
+  if(events != null){
+    append(events.removed, {body1: pair.body1_id, body2: pair.body2_id})
+  }
+}
+
+// a listener for a world: its id, and the callbacks set up the first time
+local func listen(all){
+  if(procs == null){
+    procs = ffi.new("JPH_ContactListener_Procs", 1, C)
+    procs.on_contact_added = on_added
+    procs.on_contact_removed = on_removed
+    lib.JPH_ContactListener_SetProcs(procs)
+  }
+  if(all){
+    // touching pairs report every step: only when a world asks
+    procs.on_contact_persisted = on_persisted
+  }
+  local id = next_listener
+  next_listener = next_listener + 1
+  local events = {added: {}, removed: {}}
+  if(all){
+    events.persisted = {}
+  }
+  collecting[id] = events
+  return id
+}
+
 // create_world(options?: {gravity?: Vec3, max_bodies?: int,
-//   max_body_pairs?: int, max_contact_constraints?: int, threads?: int})
-//   -> World
+//   max_body_pairs?: int, max_contact_constraints?: int, threads?: int,
+//   contact_events?: bool | string}) -> World
 // A physics system with two object layers ([layers]) and a job system with
 // threads worker threads (by default one fewer than the machine has
 // cores).
+// [contact_events]: true collects the contacts that begin and end in each
+//   step for [world_get_contact_events]; "all" also the ones that go on
 func special.create_world(options){
   options = options or {}
   if(not initialized){
@@ -240,19 +312,52 @@ func special.create_world(options){
   if(options.threads != null){
     config = {max_jobs: 0, max_barriers: 0, num_threads: options.threads}
   }
-  return {
+  local world = {
     system: system,
     bodies: lib.JPH_PhysicsSystem_GetBodyInterface(system),
     narrow_phase: lib.JPH_PhysicsSystem_GetNarrowPhaseQuery(system),
     broad_phase: lib.JPH_PhysicsSystem_GetBroadPhaseQuery(system),
     jobs: lib.JPH_JobSystemThreadPool_Create(config),
   }
+  if(options.contact_events){
+    local id = listen(options.contact_events == "all")
+    world.listener_id = id
+    world.listener = lib.JPH_ContactListener_Create(ffi.cast(id))
+    world.contacts = collecting[id]
+    lib.JPH_PhysicsSystem_SetContactListener(system, world.listener)
+  }
+  return world
+}
+
+// A contact between two bodies: their ids, the normal from body1 to
+// body2, how deep they overlap and where they touch.
+// type Contact = {body1: int, body2: int, normal: Vec3, depth: float,
+//   points: {Vec3}}
+
+// world_get_contact_events(world: World) -> {added: {Contact}, persisted?:
+//   {Contact}, removed: {{body1: int, body2: int}}}
+// The contacts that began, went on (with contact_events "all") and ended
+// in the last step, for a world made with contact_events.
+func special.world_get_contact_events(world){
+  if(world.contacts == null){
+    error("jolt.world_get_contact_events: create_world with contact_events")
+  }
+  return world.contacts
 }
 
 // step(world: World, dt: float, collision_steps?: int)
 // Advances the world by dt seconds, in collision_steps collision steps
 // (1 by default; one per 1/60 s is Jolt's advice).
 func special.step(world, dt, collision_steps){
+  if(world.listener_id != null){
+    // fresh lists for this step's events
+    local events = {added: {}, removed: {}}
+    if(world.contacts.persisted != null){
+      events.persisted = {}
+    }
+    collecting[world.listener_id] = events
+    world.contacts = events
+  }
   lib.JPH_PhysicsSystem_Update(
     world.system, dt, collision_steps or 1, world.jobs
   )
@@ -263,6 +368,10 @@ func special.step(world, dt, collision_steps){
 func special.destroy_world(world){
   lib.JPH_JobSystem_Destroy(world.jobs)
   lib.JPH_PhysicsSystem_Destroy(world.system)
+  if(world.listener != null){
+    lib.JPH_ContactListener_Destroy(world.listener)
+    collecting[world.listener_id] = null
+  }
 }
 
 // ---- bodies

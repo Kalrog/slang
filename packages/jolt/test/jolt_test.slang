@@ -111,3 +111,77 @@ t.group("jolt: helpers"){
     )
   }
 }
+
+t.group("jolt: contact events (callbacks from Jolt's threads)"){
+  t.test("a ball lands: one contact added, with its normal and point"){
+    local world = jolt.create_world({
+      gravity: {0, -9.81, 0},
+      contact_events: true,
+    })
+    local floor = jolt.create_body(world, {
+      shape: jolt.box_shape_create({50, 1, 50}),
+      position: {0, -1, 0},
+    })
+    local ball = jolt.create_body(world, {
+      shape: jolt.sphere_shape_create(0.5), position: {0, 2, 0},
+      motion: "dynamic"
+    })
+    local added = {}
+    for(local i = 0; i < 120; i = i + 1){
+      jolt.step(world, 1 / 60)
+      for(let local c in values(jolt.world_get_contact_events(world).added)){
+        append(added, c)
+      }
+    }
+    assert(len(added) == 1, len(added))
+    local c = added[0]
+    assert(
+      (c.body1 == floor and c.body2 == ball) or
+        (c.body1 == ball and c.body2 == floor),
+    )
+    assert(near(c.normal.y * c.normal.y, 1) and len(c.points) >= 1)
+    assert(near(c.points[0].y, 0, 0.05), c.points[0])
+    jolt.destroy_world(world)
+  }
+  t.test("many bodies at once, and contacts that end"){
+    local world = jolt.create_world({
+      gravity: {0, -9.81, 0},
+      contact_events: "all",
+    })
+    jolt.create_body(world, {
+      shape: jolt.box_shape_create({50, 1, 50}),
+      position: {0, -1, 0},
+    })
+    local shape = jolt.box_shape_create({0.4, 0.4, 0.4})
+    local ids = {}
+    for(local i = 0; i < 40; i = i + 1){
+      append(ids, jolt.create_body(world, {
+        shape: shape,
+        position: {(i % 8) - 4, 1 + to_int(i / 8) * 1.2, 0},
+        motion: "dynamic",
+      }))
+    }
+    local added = 0
+    local persisted = 0
+    for(local i = 0; i < 90; i = i + 1){
+      jolt.step(world, 1 / 60)
+      local ev = jolt.world_get_contact_events(world)
+      added = added + len(ev.added)
+      persisted = persisted + len(ev.persisted)
+    }
+    assert(added >= 40 and persisted > added, added)
+    // thrown apart: their contacts end
+    for(local i = 0; i < len(ids); i = i + 1){
+      jolt.body_interface_set_linear_velocity(world.bodies, ids[i], {
+        (i % 8) - 4, 10 + i, 0
+      })
+    }
+    local removed = 0
+    for(local i = 0; i < 10; i = i + 1){
+      jolt.step(world, 1 / 60)
+      removed = removed + len(jolt.world_get_contact_events(world).removed)
+    }
+    assert(removed >= 40, removed)
+    jolt.destroy_world(world)
+  }
+}

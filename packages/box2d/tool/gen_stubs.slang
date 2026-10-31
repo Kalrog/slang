@@ -110,8 +110,15 @@ slang_type = func(t){
   if(has_fields(t)){
     return type_name(t.name)
   }
+  if(k == "func"){
+    return "function"
+  }
   if(k == "ptr"){
     local to = t.to
+    if(to.kind == "func"){
+      // a slang function is a callback
+      return "function"
+    }
     if(to.char and t.const_to){
       return "string"
     }

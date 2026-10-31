@@ -93,9 +93,20 @@ the program's thread.
 - **Drawing:** `body_interface_get_world_transform(bodies, id)` is the
   body's matrix; `mat4_to_matrix(m)` turns it into sixteen fields in
   raylib's `Matrix` layout, for a model's `transform`.
-- **Not bound:** callbacks (contact listeners, the callback forms of the
-  queries, custom filters), which slang/ffi does not support yet; find
-  contacts with queries.
+- **Contacts:** `create_world({contact_events: true})` collects the
+  contacts that begin and end in each step, and
+  `world_get_contact_events(world)` returns them after `step`: `added`
+  (each with `body1`, `body2`, `normal`, `depth` and `points`) and
+  `removed` (`body1`, `body2`); `contact_events: "all"` adds `persisted`,
+  the contacts that go on. Jolt reports them from its worker threads; slang
+  runs them one at a time.
+- **Callbacks** in general are slang functions (slang/ffi): the other
+  listeners, the callback forms of the queries, custom filters. Jolt calls
+  them from its worker threads during `step`; there they should only read
+  what they are given, since a Jolt call that waits for another thread
+  would wait forever. joltc keeps the procs tables it is given
+  (`contact_listener_set_procs`): make them with `ffi.new` and keep them,
+  as the package does for contact events.
 
 `jolt.decls` holds the declarations, for `slang/ffi`:
 `ffi.new("JPH_Vec3", 8, jolt.decls)`.

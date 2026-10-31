@@ -85,8 +85,12 @@ to close (`window_should_close` is false), and raylib logs only errors.
   - `load_image_colors` returns a list of colors.
   - `get_image_data` returns an image's pixels as a string.
   - `load_model_animations` returns a list of animations.
-- **Not bound:** callbacks (`SetTraceLogCallback`, the audio stream
-  callbacks), which slang/ffi does not support yet.
+- **Callbacks** are slang functions: `set_audio_stream_callback(stream,
+  func(buffer, frames){ ... })` fills audio from slang. raylib calls it
+  from its audio thread; it runs while the program is in a raylib call
+  (every frame is many), one at a time with the rest of the program.
+  `SetTraceLogCallback` takes a `va_list`, which slang/ffi cannot pass:
+  not bound.
 
 - **Buffers** (`slang/buffer`) go where lists go, as their memory with no
   conversion: `draw_triangle_strip(points, color)` with `points` a buffer

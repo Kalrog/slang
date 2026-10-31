@@ -104,10 +104,10 @@ emcc -c "$CACHE/symbols.c" -o "$CACHE/symbols.o" -Os -I"$RAYLIB/src" -DPLATFORM_
 # linked by Emscripten (em++: Jolt is C++): the packages and the libraries'
 # headers go into the virtual file system, where the packages look for
 # installed libraries (HEAPF32: raylib's audio, miniaudio, reads samples
-# through it)
+# through it; a callback is a function libffi adds to the table)
 em++ zig/zig-out-em/lib/slang.o "$CACHE/symbols.o" "$RAYLIB/web/libraylib.a" \
   "$BOX2D/web/src/libbox2d.a" $JOLT_LIBS "$LIBFFI/out/lib/libffi.a" \
-  -o "$OUT/slang-gfx.js" -O2 -sUSE_GLFW=3 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=8MB \
+  -o "$OUT/slang-gfx.js" -O2 -sUSE_GLFW=3 -sALLOW_MEMORY_GROWTH=1 -sALLOW_TABLE_GROWTH=1 -sSTACK_SIZE=8MB \
   -sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=createSlang -sINVOKE_RUN=0 -sEXIT_RUNTIME=1 \
   -sENVIRONMENT=web -sFORCE_FILESYSTEM=1 -sEXPORTED_RUNTIME_METHODS=FS,callMain,HEAPF32 \
   -sEXPORTED_FUNCTIONS=_main,_emscripten_cancel_main_loop,_CloseWindow,_CloseAudioDevice \

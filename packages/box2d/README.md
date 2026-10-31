@@ -83,9 +83,22 @@ the same.
   `is_null(id)` and `id_equals(a, b)` are Box2D's `B2_IS_NULL` and
   `B2_ID_EQUALS`. User data pointers cannot hold slang values; key a table
   by id instead.
-- **Not bound:** callbacks (custom filters, the callback forms of the
-  queries, debug draw), which slang/ffi does not support yet. Every query
-  has a callback-free form or a sensor that does the same job.
+- **Callbacks** are slang functions: the callback forms of the queries
+  (`world_overlap_aabb`, `world_cast_ray` with a function that sees every
+  hit), custom filters (`world_set_custom_filter_callback`), pre-solve, and
+  debug draw, whose def is a table of functions:
+
+  ```slang
+  b2.world_draw(world, {
+    draw_shapes: true,
+    draw_solid_polygon_fcn: func(transform, vertices, count, radius, color, context){
+      ...   // vertices[0] .. vertices[count - 1], in the body's frame
+    },
+  })
+  ```
+
+  Define such functions once, not inside the frame loop: each function
+  given to C stays a C callback for good (slang/ffi stops at 1000).
 
 `b2.decls` holds the declarations, for `slang/ffi`: `ffi.new("b2Vec2", 8,
 b2.decls)`.

@@ -132,3 +132,80 @@ t.group("box2d: the header's helpers"){
     b2 .destroy_world(s.world)
   }
 }
+
+t.group("box2d: callbacks"){
+  t.test("an overlap query calls back for each shape"){
+    local s = scene()
+    local found = {}
+    b2 .world_overlap_aabb(
+      s.world,
+      {0, 0},
+      {lower_bound: {-1, 3}, upper_bound: {1, 5}},
+      null,
+      func(shape, context){
+        append(found, shape)
+        return true
+      },
+      null,
+    )
+    assert(len(found) == 1 and b2 .id_equals(found[0], s.shape))
+    b2 .destroy_world(s.world)
+  }
+  t.test("a ray cast collects every hit along the ray"){
+    local s = scene()
+    local hits = {}
+    b2 .world_cast_ray(
+      s.world,
+      {0, 10},
+      {0, -20},
+      null,
+      func(shape, point, normal, fraction, context){
+        append(hits, fraction)
+        // go on: report every shape, not the closest only
+        return 1
+      },
+      null,
+    )
+    // the box and the ground
+    assert(len(hits) == 2, len(hits))
+    b2 .destroy_world(s.world)
+  }
+  t.test("a custom filter decides what collides"){
+    local s = scene()
+    local asked = 0
+    b2 .world_set_custom_filter_callback(s.world, func(a, b, context){
+      asked = asked + 1
+      return false
+    }, null)
+    local box = b2 .create_body(s.world, {
+      type: b2 .dynamic_body,
+      position: {3, 2},
+    })
+    b2 .create_polygon_shape(
+      box,
+      {density: 1, enable_custom_filtering: true},
+      b2 .make_box(0.5, 0.5),
+    )
+    for(local i = 0; i < 120; i = i + 1){
+      b2 .world_step(s.world, 1 / 60, 4)
+    }
+    // the filter said no: it fell through the ground
+    assert(asked > 0 and b2 .body_get_position(box).y < -5)
+    b2 .destroy_world(s.world)
+  }
+  t.test("debug draw: a def of functions"){
+    local s = scene()
+    local polygons = 0
+    b2 .world_draw(s.world, {
+      draw_shapes: true,
+      draw_solid_polygon_fcn: func(
+        transform, vertices, count, radius, color, context
+      ){
+        polygons = polygons + 1
+        assert(count == 4 and vertices[3] != null)
+      },
+    })
+    assert(polygons == 2, polygons)
+    b2 .destroy_world(s.world)
+  }
+}

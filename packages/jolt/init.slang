@@ -204,7 +204,8 @@ local next_listener = 1
 local procs = null
 
 // a contact as slang sees it: the bodies, the normal (from body1 to
-// body2), the penetration depth and the contact points
+// body2), the penetration depth, the contact points and the bodies'
+// velocities at the moment they hit
 local func contact_of(body1, body2, manifold){
   local points = {}
   local n = lib.JPH_ContactManifold_GetPointCount(manifold)
@@ -219,6 +220,10 @@ local func contact_of(body1, body2, manifold){
     normal: jolt.contact_manifold_get_world_space_normal(manifold),
     depth: lib.JPH_ContactManifold_GetPenetrationDepth(manifold),
     points: points,
+    // the velocities as the bodies hit, before Jolt resolves the contact:
+    // how hard they hit (the velocities after the step are the result)
+    velocity1: jolt.body_get_linear_velocity(body1),
+    velocity2: jolt.body_get_linear_velocity(body2),
   }
 }
 
@@ -330,9 +335,10 @@ func special.create_world(options){
 }
 
 // A contact between two bodies: their ids, the normal from body1 to
-// body2, how deep they overlap and where they touch.
+// body2, how deep they overlap, where they touch, and how fast each was
+// moving as they hit (before the contact was resolved: the impact).
 // type Contact = {body1: int, body2: int, normal: Vec3, depth: float,
-//   points: {Vec3}}
+//   points: {Vec3}, velocity1: Vec3, velocity2: Vec3}
 
 // world_get_contact_events(world: World) -> {added: {Contact}, persisted?:
 //   {Contact}, removed: {{body1: int, body2: int}}}

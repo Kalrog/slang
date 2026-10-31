@@ -48,9 +48,11 @@ libc.abs(-3)                         // 3
 libc.div(17, 5)                      // {quot: 3, rem: 2}</code></pre>
 <p>A header is read as C reads it: the preprocessor runs (#define, #if, function-like macros; #include is skipped), then the declarations are parsed: typedefs, structs, enums, function prototypes (function bodies, as in inline functions, are skipped). Enum values and #define constants become C.constants.</p>
 <p>How values cross (slang/ctypes does the conversions): numbers and bools for the arithmetic types; a string for <code>const char *</code>; a table for a struct (fields by name or by position), returned as a table with the fields by name; for a pointer null, a pointer, a string (its bytes), or a table: a list of elements, or one struct, which is copied back after the call when the pointer is not to const (an out parameter). Pointers index like C (p[i], p.field) and assign; ffi.new allocates memory the collector frees.</p>
-<p>A wrong declaration crashes the program as it would in C: the FFI calls what it is told is there. Callbacks (C calling slang), unions, bit fields and long double are not supported yet. Builds made without libffi (-Dffi=false) have types and memory but no calls: <a href="#load"><code>load</code></a> raises there, and <a href="#available"><code>available</code></a> says which it is.</p>
+<p>Callbacks: a slang function given for a function pointer (a parameter, or a struct field) is a C function C can call, as long as the program runs (the same function gives the same one; there may be 1000 of them); <a href="#callback"><code>callback</code></a> makes one that is freed with its pointer, for functions made again and again. C may call it from any thread: slang still runs on one thread at a time (a C call lets a callback in while it runs). An error in a callback cannot unwind through C: C gets a zero result and the error is raised when the C call returns. A callback cannot yield.</p>
+<p>A wrong declaration crashes the program as it would in C: the FFI calls what it is told is there. Unions, bit fields and long double are not supported yet. Builds made without libffi (-Dffi=false) have types and memory but no calls: <a href="#load"><code>load</code></a> raises there, and <a href="#available"><code>available</code></a> says which it is.</p>
 <ul class="toc">
 <li><a href="#cdef"><code>cdef</code></a></li>
+<li><a href="#header"><code>header</code></a></li>
 <li><a href="#type"><code>type</code></a></li>
 <li><a href="#new"><code>new</code></a></li>
 <li><a href="#sizeof"><code>sizeof</code></a></li>
@@ -61,6 +63,7 @@ libc.div(17, 5)                      // {quot: 3, rem: 2}</code></pre>
 <li><a href="#value"><code>value</code></a></li>
 <li><a href="#load"><code>load</code></a></li>
 <li><a href="#bind"><code>bind</code></a></li>
+<li><a href="#callback"><code>callback</code></a></li>
 <li><a href="#available"><code>available</code></a></li>
 <li><a href="#type-Type"><code>type Type</code></a></li>
 <li><a href="#type-Pointer"><code>type Pointer</code></a></li>
@@ -74,6 +77,11 @@ libc.div(17, 5)                      // {quot: 3, rem: 2}</code></pre>
 <div class="def" id="cdef"><h3><code>ffi.cdef(text: string, options?: <a href="#type-CdefOptions">CdefOptions</a>) -> <a href="#type-Decls">Decls</a></code></h3>
 <p>Reads C declarations: the preprocessor runs, then typedefs, structs, enums and function prototypes are parsed. Raises &quot;ffi.cdef: ...&quot; naming the line for what it cannot parse.</p>
 <pre><code>local C = ffi.cdef(os.read_file(&quot;mylib.h&quot;), {defines: {MYLIB_API: &quot;&quot;}})</code></pre>
+
+</div>
+<div class="def" id="header"><h3><code>ffi.header(path: string) -> string</code></h3>
+<p>The text of a header file with the headers it includes by quoted name (<code>#include &quot;types.h&quot;</code>, found next to the file that includes it) put in their place, each file once, for <a href="#cdef"><code>cdef</code></a>, which skips <code>#include</code>. The includes are spliced whether or not an <code>#if</code> around them holds; system headers (<code>&lt;stdint.h&gt;</code>) stay out.</p>
+<pre><code>local C = ffi.cdef(ffi.header(&quot;/usr/include/box2d/box2d.h&quot;))</code></pre>
 
 </div>
 <h2>types by name</h2>
@@ -117,6 +125,13 @@ libc.div(17, 5)                      // {quot: 3, rem: 2}</code></pre>
 <div class="def" id="bind"><h3><code>ffi.bind(lib: <a href="#type-Library">Library</a>, f: <a href="#type-FunctionDecl">FunctionDecl</a>, name?: string) -> function</code></h3>
 <p>The slang function calling the C function f declares (from decls.functions), bound to lib; lib.Name does the same for a declared name. Raises when the library lacks the symbol or a parameter's type cannot cross.</p>
 <dl class="params"><dt><code>name</code></dt><dd>what errors call it (its C name by default)</dd></dl>
+</div>
+<div class="def" id="callback"><h3><code>ffi.callback(t: string | <a href="#type-Type">Type</a>, f: function, decls?: <a href="#type-Decls">Decls</a>) -> <a href="#type-Pointer">Pointer</a></code></h3>
+<p>A C function that calls f, of the function pointer type t (a typedef such as &quot;b2FrictionCallback&quot;, or &quot;int (*)(int, int)&quot;), for C to keep: it lives while the pointer does, and is freed once nothing refers to the pointer. A slang function given to C directly lives as long as the program instead.</p>
+<pre><code>local cmp = ffi.callback(&quot;int (*)(const void *, const void *)&quot;, func(a, b){
+  return ffi.cast(a, &quot;int&quot;)[0] - ffi.cast(b, &quot;int&quot;)[0]
+})</code></pre>
+
 </div>
 <div class="def" id="available"><h3><code>ffi.available() -> bool</code></h3>
 <p>Whether this slang can call C (it was built with libffi).</p>

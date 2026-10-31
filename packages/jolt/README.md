@@ -96,7 +96,8 @@ the program's thread.
 - **Contacts:** `create_world({contact_events: true})` collects the
   contacts that begin and end in each step, and
   `world_get_contact_events(world)` returns them after `step`: `added`
-  (each with `body1`, `body2`, `normal`, `depth` and `points`) and
+  (each with `body1`, `body2`, `normal`, `depth`, `points`, and
+  `velocity1` and `velocity2`, the bodies' velocities as they hit) and
   `removed` (`body1`, `body2`); `contact_events: "all"` adds `persisted`,
   the contacts that go on. Jolt reports them from its worker threads; slang
   runs them one at a time.

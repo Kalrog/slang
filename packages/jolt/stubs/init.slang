@@ -289,9 +289,10 @@ m.decls = {}
 // [narrow_phase]: for narrow_phase_query_* (ray casts, point tests)
 
 // A contact between two bodies: their ids, the normal from body1 to
-// body2, how deep they overlap and where they touch.
+// body2, how deep they overlap, where they touch, and how fast each was
+// moving as they hit (before the contact was resolved: the impact).
 // type Contact = {body1: int, body2: int, normal: Vec3, depth: float,
-//   points: {Vec3}}
+//   points: {Vec3}, velocity1: Vec3, velocity2: Vec3}
 
 // What create_body takes. Any other field names a
 // body_creation_settings_set_* function: {friction: 0.2} calls

@@ -1490,9 +1490,25 @@ function_core = func(t, decls){
 // The type a C type name stands for: "int", "uint8_t", "Vector2",
 // "struct foo", "Vector2 *", "float[4]".
 // [decls]: the declarations that define the struct and typedef names
+local builtin_decls = null
+
 func ffi.type(name, decls){
-  decls = decls or {
-    types: {}, functions: {}, constants: {}, structs: {}, order: {}
+  if(decls == null){
+    builtin_decls = builtin_decls or {
+      types: {}, functions: {}, constants: {}, structs: {}, order: {}
+    }
+    decls = builtin_decls
+  }
+  // a name parsed once per declaration set: new("JPH_Vec3", 1, decls)
+  // every frame must not parse C every frame
+  local cache = decls.by_name
+  if(cache == null){
+    cache = {}
+    decls.by_name = cache
+  }
+  local known = cache[name]
+  if(known != null){
+    return known
   }
   decls.field_name = decls.field_name or func(n){ return n }
   // parsed as the declaration of a typedef: int[4] is int __probe[4],
@@ -1514,7 +1530,9 @@ func ffi.type(name, decls){
   )
   local t = probe.types.__ffi_type_probe
   probe.types.__ffi_type_probe = null
-  return core_of(t, decls)
+  local result = core_of(t, decls)
+  cache[name] = result
+  return result
 }
 
 local func as_type(t, decls){

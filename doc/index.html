@@ -31,12 +31,15 @@ dt { margin-top: 0.75rem; }
 dd { margin-left: 1rem; color: var(--muted); }
 dl.params dt { margin-top: 0.4rem; }
 dl.params dd { margin: 0 0 0 1.5rem; }
+pre.ebnf { white-space: pre-wrap; border-left: 3px solid var(--link); }
+dl.syntax dd { margin: 0.2rem 0 0.8rem 0.2rem; }
+figure.example { margin: 1rem 0; }
+details.expanded summary { cursor: pointer; color: var(--muted); }
 </style>
 </head>
 <body>
 <h1>slang's library</h1>
-<dl>
-<dt><a href="crypto.html"><code>crypto</code></a></dt><dd>crypto: the native binding of the parts of OpenSSL 3 (libcrypto) that web applications need.</dd>
+<dl><dt><a href="crypto.html"><code>crypto</code></a></dt><dd>crypto: the native binding of the parts of OpenSSL 3 (libcrypto) that web applications need.</dd>
 <dt><a href="globals.html"><code>globals</code></a></dt><dd>globals: the functions every slang program has without a require, built into the VM.</dd>
 <dt><a href="llhttp.html"><code>llhttp</code></a></dt><dd>llhttp: the native binding of llhttp, the HTTP/1 parser of Node.js.</dd>
 <dt><a href="slang-ast.html"><code>slang/ast</code></a></dt><dd>slang/ast: building, checking and printing the syntax tree that the parser produces, quotes (+{...}) build and extensions return.</dd>
@@ -79,7 +82,6 @@ dl.params dd { margin: 0 0 0 1.5rem; }
 <dt><a href="sqlite.html"><code>sqlite</code></a></dt><dd>sqlite: the native binding of SQLite, as thin as it is useful.</dd>
 <dt><a href="tls.html"><code>tls</code></a></dt><dd>tls: the native binding of OpenSSL 3's TLS (libssl) as an engine on memory buffers.</dd>
 <dt><a href="uv.html"><code>uv</code></a></dt><dd>uv: the native binding of libuv in the callback style of luv.</dd>
-<dt><a href="zlib.html"><code>zlib</code></a></dt><dd>zlib: the native binding of zlib (deflate and inflate in the gzip, zlib and raw formats), at once or as a stream.</dd>
-</dl>
+<dt><a href="zlib.html"><code>zlib</code></a></dt><dd>zlib: the native binding of zlib (deflate and inflate in the gzip, zlib and raw formats), at once or as a stream.</dd></dl>
 </body>
 </html>

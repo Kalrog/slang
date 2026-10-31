@@ -26,6 +26,7 @@
 local str = require("slang/string")
 local os = require("slang/os")
 local symbols = require("slang/symbols")
+local peg = require("slang/peg")
 
 local doc = {}
 
@@ -244,6 +245,10 @@ dt { margin-top: 0.75rem; }
 dd { margin-left: 1rem; color: var(--muted); }
 dl.params dt { margin-top: 0.4rem; }
 dl.params dd { margin: 0 0 0 1.5rem; }
+pre.ebnf { white-space: pre-wrap; border-left: 3px solid var(--link); }
+dl.syntax dd { margin: 0.2rem 0 0.8rem 0.2rem; }
+figure.example { margin: 1rem 0; }
+details.expanded summary { cursor: pointer; color: var(--muted); }
 """
 
 local func page(title, body){
@@ -264,9 +269,10 @@ local func page_name(module){
 
 // The documentation of a module, as [module] gathers it.
 // type ModulePage = {name: string, path: string, doc?: string,
-//   sections: {PageSection}, links: Links}
+//   sections: {PageSection}, links: Links, kind: string}
 // [name]: the module's name, as require takes it
 // [path]: the file, as shown
+// [kind]: "module" ([ExtensionPage] has "extension")
 // [doc]: the module's doc, the comment block that starts the file
 
 // A part of a page: the entries under a section divider (title null for
@@ -449,6 +455,7 @@ func doc.module(name, path, source, index){
     }
   }
   return {
+    kind: "module",
     name: name,
     path: path,
     doc: index.module_doc,
@@ -676,14 +683,28 @@ func doc.module_html(m){
 // The index as HTML without the page around it: each module, linked to
 // its page, with the first sentence of its doc.
 func doc.index_body(modules, title){
-  local body = {concat("<h1>", escape(title), "</h1>"), "<dl>"}
-  for(let local m in values(modules)){
-    append(body, concat(
-      "<dt><a href=\"", page_name(m.name), "\"><code>", escape(m.name),
-      "</code></a></dt><dd>", prose_html(summary(m.doc)), "</dd>"
-    ))
+  local body = {concat("<h1>", escape(title), "</h1>")}
+  local func list(kind){
+    local rows = {}
+    for(let local m in values(modules)){
+      if((m.kind == "extension") == (kind == "extension")){
+        append(rows, concat(
+          "<dt><a href=\"", page_name(m.name), "\"><code>", escape(m.name),
+          "</code></a></dt><dd>", prose_html(summary(m.doc)), "</dd>"
+        ))
+      }
+    }
+    return rows
   }
-  append(body, "</dl>")
+  local mods = list("module")
+  local exts = list("extension")
+  if(len(mods) > 0){
+    append(body, concat("<dl>", str.join(mods, "\n"), "</dl>"))
+  }
+  if(len(exts) > 0){
+    append(body, "<h2>Extensions</h2>")
+    append(body, concat("<dl>", str.join(exts, "\n"), "</dl>"))
+  }
   return str.join(body, "\n")
 }
 
@@ -702,6 +723,644 @@ doc.page_name = page_name
 // spaces or more as code samples.
 func doc.blocks_html(text){
   return blocks_html(text, null)
+}
+
+// ------------------------------------------------------------ extensions
+//
+// An extension (a file that changes the grammar it is loaded into) gets a
+// page of its own: what its doc says (what it is for and means), the
+// syntax it adds as EBNF, worked out from the grammar it leaves behind (or
+// written by hand after a `Syntax:` line), the words it reserves, the
+// extensions it loads, and its examples (the doc's code samples) next to
+// what they expand to.
+
+// The documentation of an extension, as [extension] gathers it.
+// type ExtensionPage = {name: string, path: string, doc?: string,
+//   blocks: {ExtensionBlock}, syntax: {SyntaxRule}, hand_syntax?: string,
+//   keywords: {string}, uses: {string}, examples: {Example}, error?: string,
+//   kind: string}
+// [name]: what `extension "name"` takes
+// [doc]: the doc's first paragraph, its summary
+// [blocks]: the rest of the doc in order, its code samples as examples
+// [hand_syntax]: the EBNF written after `Syntax:`, shown instead of syntax
+// [keywords]: the words it reserves: no longer usable as variable names
+// [uses]: the other extensions it loads
+// [error]: why the extension could not be loaded to find its syntax
+// [kind]: "extension"
+
+// A production of the syntax an extension adds.
+// type SyntaxRule = {rule: string, ebnf: string, note?: string}
+// [rule]: what it extends: statement, expr, or a rule's name
+// [note]: how it fits: a new rule, a changed one, an operator's precedence
+
+// A piece of an extension's doc after its summary.
+// type ExtensionBlock = {kind: string, text?: string, example?: Example}
+// [kind]: "prose" (text) or "example"
+
+// An example of an extension and what it expands to.
+// type Example = {code: string, expanded?: string}
+// [expanded]: the example in core slang (slang expand), null when it fails
+
+// the EBNF of a parser: {text, prec}, prec 0 for a choice, 1 for a
+// sequence, 2 for what needs no parentheses
+local ebnf_of = null
+
+local func ebnf_at(p, ctx, level){
+  local r = ebnf_of(p, ctx)
+  if(r.text != "" and r.prec < level){
+    return concat("(", r.text, ")")
+  }
+  return r.text
+}
+
+// control characters written as escapes
+local func visible(s){
+  return str.replace(
+    str.replace(str.replace(s, "\n", "\\n"), "\t", "\\t"), "\r", "\\r"
+  )
+}
+
+local func quote(s){
+  s = visible(s)
+  if(str.index_of(s, "\"") >= 0){
+    return concat("'", s, "'")
+  }
+  return concat("\"", s, "\"")
+}
+
+local TRANSPARENT = {
+  map: true,
+  pick: true,
+  tag: true,
+  where: true,
+  token: true,
+  memo: true,
+  layer: true,
+  trim: true,
+}
+
+ebnf_of = func(p, ctx){
+  if(p == null){
+    return {text: "", prec: 2}
+  }
+  local named = ctx.names[p]
+  if(named != null){
+    return {text: named, prec: 2}
+  }
+  if(ctx.visiting[p]){
+    // a parser that contains itself: what it is written for, by name, or a
+    // production of its own below
+    if(ctx.visiting[p] == "top"){
+      return {text: ctx.top, prec: 2}
+    }
+    if(ctx.cycles[p] == null){
+      ctx.count = ctx.count + 1
+      ctx.cycles[p] = ctx.count == 1 and "nested" or concat("nested", ctx.count)
+      append(ctx.cycle_order, p)
+    }
+    return {text: ctx.cycles[p], prec: 2}
+  }
+  if(ctx.cycles[p] != null){
+    return {text: ctx.cycles[p], prec: 2}
+  }
+  local k = p.kind
+  local kids = p.children or {}
+  if(k == "string"){
+    return {text: quote(p.literal), prec: 2}
+  }
+  if(k == "pattern"){
+    return {text: concat("[", visible(p.spec), "]"), prec: 2}
+  }
+  if(k == "rule"){
+    return {text: p.rule_name, prec: 2}
+  }
+  if(k == "any"){
+    return {text: "⟨any character⟩", prec: 2}
+  }
+  // lookaheads and whitespace leave nothing to write
+  if(k == "forbid" or k == "and" or k == "whitespace"){
+    return {text: "", prec: 2}
+  }
+  ctx.visiting[p] = ctx.tops[p] and "top" or true
+  local out = null
+  if(k == "seq"){
+    local parts = {}
+    local only = null
+    local i = 0
+    for(i < len(kids)){
+      local c = kids[i]
+      local t = ebnf_at(c, ctx, 1)
+      // forbid(x) any: one character that does not start x
+      if(c.kind == "forbid" and i + 1 < len(kids) and kids[i + 1].kind == "any"){
+        t = concat("⟨any character but ", ebnf_at(c.children[0], ctx, 2), "⟩")
+        i = i + 1
+      }
+      if(t != ""){
+        append(parts, t)
+        only = c
+      }
+      i = i + 1
+    }
+    if(len(parts) == 1 and only.kind != "forbid"){
+      out = ebnf_of(only, ctx)
+    } else if(len(parts) == 1){
+      out = {text: parts[0], prec: 2}
+    } else {
+      out = {text: str.join(parts, " "), prec: 1}
+    }
+  } else if(k == "choice"){
+    local parts = {}
+    for(let local c in values(kids)){
+      local t = ebnf_at(c, ctx, 0)
+      append(parts, t == "" and "ε" or t)
+    }
+    out = {text: str.join(parts, " | "), prec: len(parts) > 1 and 0 or 2}
+  } else if(k == "star_lazy" and kids[0] != null and kids[0].kind == "any" and
+    kids[1] != null){
+    // any character up to the terminator
+    out = {
+      text: concat("⟨any character but ", ebnf_at(kids[1], ctx, 2), "⟩*"),
+      prec: 2,
+    }
+  } else if(k == "star" or k == "star_lazy" or k == "plus" or k == "optional"){
+    local inner = ebnf_at(kids[0], ctx, 2)
+    local mark = k == "plus" and "+" or (k == "optional" and "?" or "*")
+    out = {text: inner == "" and "" or concat(inner, mark), prec: 2}
+  } else if(k == "separated"){
+    local item = ebnf_at(kids[0], ctx, 2)
+    local sep = ebnf_at(kids[1], ctx, 1)
+    local list = concat(item, " (", sep, " ", item, ")*")
+    out = p.at_least_one and {text: list, prec: 1} or
+      {text: concat("(", list, ")?"), prec: 2}
+  } else if(k == "ref"){
+    local a = (p.ref_args or {})[0]
+    if(type(a) == "string"){
+      out = {text: quote(a), prec: 2}
+    } else if(peg.is_parser(a)){
+      out = ebnf_of(a, ctx)
+    } else {
+      out = {text: "⟨token⟩", prec: 2}
+    }
+  } else if(k == "flatten"){
+    // a token's name is its failure message less "expected"
+    local label = p.message
+    if(label != null){
+      label = str.replace(str.replace(label, "Expected: ", ""), " expected", "")
+    }
+    out = label != null and {text: concat("⟨", label, "⟩"), prec: 2} or
+      ebnf_of(kids[0], ctx)
+  } else if(k == "settable"){
+    out = ebnf_of(p.target, ctx)
+  } else if(k == "neg"){
+    out = {
+      text: concat("⟨any character but ", ebnf_at(kids[0], ctx, 2), "⟩"),
+      prec: 2,
+    }
+  } else if(TRANSPARENT[k] or len(kids) == 1){
+    out = ebnf_of(kids[0], ctx)
+  } else {
+    out = {text: concat("⟨", k, "⟩"), prec: 2}
+  }
+  ctx.visiting[p] = null
+  return out
+}
+
+// ebnf(parser: peg.Parser, names?: {[any]: string}, top?: string) -> string
+// A parser written as EBNF (W3C style: "text", [a-z], rule names, a b,
+// a | b, x*, x+, x?, ⟨named token⟩). Values, marks and lookaheads leave
+// no trace; rules are referred to by name.
+// [names]: parsers to write as the given text (a rule's previous parser)
+// [top]: what parser is written for (a rule's name): parser inside itself
+func doc.ebnf(parser, names, top){
+  local ctx = {
+    names: names or {},
+    visiting: {},
+    top: top or "…",
+    cycles: {},
+    cycle_order: {},
+    count: 0,
+  }
+  // the parser and the wrappers under it that only change values are what
+  // top names
+  local inner = parser
+  ctx.tops = {}
+  for(inner != null){
+    ctx.tops[inner] = true
+    if(inner.kind == "settable"){
+      inner = inner.target
+    } else if(TRANSPARENT[inner.kind]){
+      inner = inner.children[0]
+    } else {
+      break
+    }
+  }
+  local lines = {ebnf_of(parser, ctx).text}
+  // the parsers met inside themselves, each a production of its own
+  local done = 0
+  for(done < len(ctx.cycle_order)){
+    local q = ctx.cycle_order[done]
+    local name = ctx.cycles[q]
+    ctx.cycles[q] = null
+    ctx.tops = {}
+    ctx.tops[q] = true
+    ctx.top = name
+    ctx.visiting = {}
+    append(lines, concat(name, " ::= ", ebnf_of(q, ctx).text))
+    ctx.cycles[q] = name
+    done = done + 1
+  }
+  return str.join(lines, "\n")
+}
+
+local func sorted_keys(t){
+  local out = {}
+  for(let local k in keys(t)){
+    local i = len(out)
+    append(out, k)
+    for(i > 0 and str.compare(out[i - 1], k) > 0){
+      out[i] = out[i - 1]
+      i = i - 1
+    }
+    out[i] = k
+  }
+  return out
+}
+
+local func contains(list, v){
+  for(let local x in values(list)){
+    if(x == v){
+      return true
+    }
+  }
+  return false
+}
+
+// the operators of a level the base does not have, as syntax rules
+local func level_syntax(level, base_level, where, out){
+  local func new_entries(field){
+    local old = base_level and base_level[field] or {}
+    local fresh = {}
+    for(let local e in values(level[field] or {})){
+      if(not contains(old, e)){
+        append(fresh, e)
+      }
+    }
+    return fresh
+  }
+  local name = level.name or "an unnamed level"
+  for(let local e in values(new_entries("prefixes"))){
+    append(out, {
+      rule: "expr",
+      ebnf: concat(doc.ebnf(e.parser), " expr"),
+      note: concat("a prefix operator on level ", name, where),
+    })
+  }
+  for(let local e in values(new_entries("postfixes"))){
+    append(out, {
+      rule: "expr",
+      ebnf: concat("expr ", doc.ebnf(e.parser)),
+      note: concat("a postfix operator on level ", name, where),
+    })
+  }
+  for(let local e in values(new_entries("lefts"))){
+    append(out, {
+      rule: "expr",
+      ebnf: concat("expr ", doc.ebnf(e.parser), " expr"),
+      note: concat("a left-associative infix operator on level ", name, where),
+    })
+  }
+  for(let local e in values(new_entries("rights"))){
+    append(out, {
+      rule: "expr",
+      ebnf: concat("expr ", doc.ebnf(e.parser), " expr"),
+      note: concat("a right-associative infix operator on level ", name, where),
+    })
+  }
+  for(let local e in values(new_entries("wrappers"))){
+    append(out, {
+      rule: "expr",
+      ebnf: concat(doc.ebnf(e.left), " expr ", doc.ebnf(e.right)),
+      note: concat("a bracketing operator on level ", name, where),
+    })
+  }
+}
+
+// where a level sits among the others: "tighter than x, looser than y"
+local func placement_of(names, i){
+  local parts = {}
+  if(i > 0 and names[i - 1] != null){
+    append(parts, concat("binds looser than ", names[i - 1]))
+  }
+  if(i + 1 < len(names) and names[i + 1] != null){
+    append(parts, concat("tighter than ", names[i + 1]))
+  }
+  if(len(parts) == 0){
+    return ", a new level"
+  }
+  return concat(", a new level that ", str.join(parts, " and "))
+}
+
+// the syntax a grammar has that its base does not: statements, rules,
+// expression operators and primaries, keywords
+local func grammar_changes(g, base, name){
+  local syntax = {}
+  for(let local s in values(g.statement_order)){
+    if(g.statements[s] != base.statements[s]){
+      append(syntax, {
+        rule: "statement",
+        ebnf: doc.ebnf(g.statements[s], null, "statement"),
+        note: base.statements[s] == null and concat("a new statement (", s, ")") or
+          concat("replaces the statement ", s),
+      })
+    }
+  }
+  for(let local s in values(g.extension_statement_order)){
+    if(g.extension_statements[s] != base.extension_statements[s]){
+      append(syntax, {
+        rule: "extension_statement",
+        ebnf: doc.ebnf(g.extension_statements[s], null, "extension_statement"),
+        note: concat(
+          "a statement only at the top level of a file, which changes the ",
+          "grammar for the statements after it (",
+          s,
+          ")",
+        ),
+      })
+    }
+  }
+  for(let local r in values(g:rules())){
+    local before = base.rule_table[r.name]
+    local entry = g.rule_table[r.name]
+    if(before == null or entry.parser != before.parser or
+      len(entry.wrappers) != len(before.wrappers)){
+      if(before == null){
+        append(syntax, {
+          rule: r.name,
+          ebnf: entry.parser != null and doc.ebnf(entry.parser, null, r.name) or
+            "⟨built when the grammar is sealed⟩",
+          note: "a new rule, for other rules and extensions to use",
+        })
+      } else if(entry.parser != before.parser and entry.parser != null){
+        local names = {}
+        names[before.parser] = concat("⟨", r.name, " as before⟩")
+        append(syntax, {
+          rule: r.name,
+          ebnf: doc.ebnf(entry.parser, names, r.name),
+          note: concat("changes the rule ", r.name),
+        })
+      } else {
+        append(syntax, {
+          rule: r.name,
+          ebnf: concat("⟨", r.name, " as before, wrapped when sealed⟩"),
+          note: concat(
+            "changes the rule ", r.name, " (its parser is built late)"
+          ),
+        })
+      }
+    }
+  }
+  local w = g.expression_walker
+  local bw = base.expression_walker
+  local base_levels = {}
+  for(let local l in values(bw.levels)){
+    if(l.name != null){
+      base_levels[l.name] = l
+    }
+  }
+  local names = w:level_names()
+  for(local i = 0; i < len(w.levels); i = i + 1){
+    local l = w.levels[i]
+    local old = l.name != null and base_levels[l.name] or null
+    level_syntax(l, old, old == null and placement_of(names, i) or "", syntax)
+  }
+  local base_primaries = {}
+  for(let local p in values(bw.primaries)){
+    base_primaries[p.parser] = true
+  }
+  for(let local p in values(w.primaries)){
+    if(not base_primaries[p.parser]){
+      append(syntax, {
+        rule: "expr",
+        ebnf: doc.ebnf(p.parser, null, "expr"),
+        note: concat(
+          "a new kind of expression",
+          p.name and concat(" (", p.name, ")") or "",
+        ),
+      })
+    }
+  }
+  local keywords = {}
+  for(let local k in values(sorted_keys(g.keywords))){
+    if(not base.keywords[k]){
+      append(keywords, k)
+    }
+  }
+  local uses = {}
+  for(let local e in values(g.loaded_extensions)){
+    if(e != name and not contains(base.loaded_extensions, e)){
+      append(uses, e)
+    }
+  }
+  return {syntax: syntax, keywords: keywords, uses: uses}
+}
+
+// extension(name: string, path: string, index: symbols.Index) -> ExtensionPage
+// An extension's documentation: its doc (from index), and what loading it
+// into a fresh grammar shows (see compiler.extension_grammar). Its code
+// samples are its examples, expanded with the extension.
+func doc.extension(name, path, index){
+  local compiler = require("slang/compiler")
+  local ext = {
+    kind: "extension",
+    name: name,
+    path: path,
+    doc: null,
+    blocks: {},
+    syntax: {},
+    keywords: {},
+    uses: {},
+    examples: {},
+  }
+  // the doc: its first paragraph is the summary; then prose and examples
+  // (its code samples) in order; a code sample after a paragraph that is
+  // just `Syntax:` is the hand-written syntax
+  local blocks = symbols.doc_blocks(index.module_doc)
+  for(local i = 0; i < len(blocks); i = i + 1){
+    local b = blocks[i]
+    local next = blocks[i + 1]
+    if(b.kind == "code"){
+      local ex = {code: b.text}
+      append(ext.examples, ex)
+      append(ext.blocks, {kind: "example", example: ex})
+    } else if(str.trim(b.text) == "Syntax:" and next != null and
+      next.kind == "code"){
+      ext.hand_syntax = next.text
+      i = i + 1
+    } else if(ext.doc == null){
+      ext.doc = b.text
+    } else {
+      append(ext.blocks, {kind: "prose", text: b.text})
+    }
+  }
+  local r = pcall(compiler.extension_grammar, name)
+  if(r[0] == "err"){
+    local e = r[1]
+    ext.error = type(e) == "table" and e.message or string(e)
+  } else {
+    local changes = grammar_changes(r[1].grammar, r[1].base, name)
+    ext.syntax = changes.syntax
+    ext.keywords = changes.keywords
+    ext.uses = changes.uses
+  }
+  for(let local ex in values(ext.examples)){
+    compiler.reset()
+    local x = pcall(
+      compiler.expand,
+      concat("extension \"", name, "\"\n", ex.code),
+      "example.slang",
+    )
+    if(x[0] == "ok"){
+      ex.expanded = str.trim(x[1])
+    }
+  }
+  return ext
+}
+
+// whether a file is an extension: it changes the grammar it gets from
+// slang/compiler and returns no module
+local func is_extension(source, index){
+  return index != null and index.returned == null and
+    str.index_of(source, "grammar()") >= 0 and
+    str.index_of(source, "slang/compiler") >= 0
+}
+doc.is_extension = is_extension
+
+// example_html(ex: Example) -> string
+// An example as HTML: a <figure class="example"> with the code and, in a
+// <details>, what it expands to.
+func doc.example_html(ex){
+  local parts = {
+    "<figure class=\"example\">",
+    concat("<pre><code>", escape(ex.code), "</code></pre>"),
+  }
+  if(ex.expanded != null){
+    append(parts, concat(
+      "<details class=\"expanded\"><summary>Expanded</summary><pre><code>",
+      escape(ex.expanded),
+      "</code></pre></details>",
+    ))
+  }
+  append(parts, "</figure>")
+  return str.join(parts, "")
+}
+
+// extension_body(ext: ExtensionPage, example?: func(ex: Example): string)
+//   -> string
+// The extension's documentation as HTML without the page around it: its
+// summary, how to load it, its syntax, the words it reserves and the
+// extensions it loads, then the rest of its doc with the examples where
+// the doc has them.
+// [example]: writes an example ([example_html] by default)
+func doc.extension_body(ext, example){
+  example = example or doc.example_html
+  local resolve = func(name){ return null }
+  local out = {concat("<h1>", escape(ext.name), "</h1>")}
+  if(ext.doc != null){
+    append(out, concat(
+      "<p class=\"summary\">",
+      prose_html(ext.doc, resolve),
+      "</p>",
+    ))
+  }
+  append(out, concat(
+    "<p class=\"use\">Load it at the top of a file with <code>extension \"",
+    escape(ext.name),
+    "\"</code>, or for every file of a project in ",
+    "<code>slang.project</code>: <code>extensions: {\"",
+    escape(ext.name),
+    "\"}</code>. It changes the grammar of the files that load it only.</p>",
+  ))
+  append(out, "<h2 id=\"syntax\">Syntax</h2>")
+  if(ext.hand_syntax != null){
+    append(out, concat(
+      "<pre class=\"ebnf\"><code>",
+      escape(ext.hand_syntax),
+      "</code></pre>",
+    ))
+  } else if(ext.error != null){
+    append(out, concat(
+      "<p class=\"muted\">Not worked out: the extension did not load here (",
+      escape(ext.error),
+      ").</p>",
+    ))
+  } else if(len(ext.syntax) == 0){
+    append(out, "<p class=\"muted\">It adds no syntax.</p>")
+  } else {
+    local rows = {}
+    for(let local r in values(ext.syntax)){
+      append(rows, concat(
+        "<dt><pre class=\"ebnf\"><code>",
+        escape(r.rule),
+        " ::= ",
+        escape(r.ebnf),
+        "</code></pre></dt><dd>",
+        escape(r.note or ""),
+        "</dd>",
+      ))
+    }
+    append(out, concat("<dl class=\"syntax\">", str.join(rows, ""), "</dl>"))
+  }
+  if(len(ext.keywords) > 0){
+    local words = {}
+    for(let local k in values(ext.keywords)){
+      append(words, concat("<code>", escape(k), "</code>"))
+    }
+    append(out, concat(
+      "<p><strong>Reserved words:</strong> ",
+      str.join(words, ", "),
+      ". In a file that loads it they can no longer name variables; fields ",
+      "may still use them (<code>t.",
+      escape(ext.keywords[0]),
+      "</code>).</p>",
+    ))
+  }
+  if(len(ext.uses) > 0){
+    local names = {}
+    for(let local u in values(ext.uses)){
+      append(names, concat(
+        "<a href=\"",
+        page_name(u),
+        "\"><code>",
+        escape(u),
+        "</code></a>",
+      ))
+    }
+    append(out, concat(
+      "<p><strong>Loads:</strong> ",
+      str.join(names, ", "),
+      "</p>",
+    ))
+  }
+  if(len(ext.blocks) > 0){
+    append(out, "<h2 id=\"use\">How it works</h2>")
+    for(let local b in values(ext.blocks)){
+      if(b.kind == "example"){
+        append(out, example(b.example))
+      } else {
+        append(out, blocks_html(b.text, resolve))
+      }
+    }
+  }
+  append(out, concat("<p class=\"muted\">", escape(ext.path), "</p>"))
+  return str.join(out, "\n")
+}
+
+// extension_html(ext: ExtensionPage) -> string: the extension's page
+func doc.extension_html(ext){
+  return page(ext.name, concat(
+    "<nav><a href=\"index.html\">index</a></nav>\n",
+    doc.extension_body(ext),
+  ))
 }
 
 // ------------------------------------------------------------ the command
@@ -829,7 +1488,10 @@ func doc.main(arguments){
   local modules = r.modules
   os.mkdir_all(out_dir)
   for(let local m in values(modules)){
-    os.write_file(concat(out_dir, "/", page_name(m.name)), doc.module_html(m))
+    os.write_file(
+      concat(out_dir, "/", page_name(m.name)),
+      m.kind == "extension" and doc.extension_html(m) or doc.module_html(m),
+    )
   }
   os.write_file(concat(out_dir, "/index.html"), doc.index_html(modules, title))
   print(len(modules), " modules documented in ", out_dir, "/index.html\n")
@@ -861,12 +1523,13 @@ func doc.collect(paths){
       ))
       status = 1
     } else {
-      local m = doc.module(
-        module_name(compiler, path),
-        shown_path(compiler, path),
-        text,
-        r[1].symbols,
-      )
+      local name = module_name(compiler, path)
+      local m = null
+      if(is_extension(text, r[1].symbols)){
+        m = doc.extension(name, shown_path(compiler, path), r[1].symbols)
+      } else {
+        m = doc.module(name, shown_path(compiler, path), text, r[1].symbols)
+      }
       if(m != null){
         append(modules, m)
       }

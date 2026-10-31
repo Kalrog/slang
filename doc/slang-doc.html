@@ -31,6 +31,10 @@ dt { margin-top: 0.75rem; }
 dd { margin-left: 1rem; color: var(--muted); }
 dl.params dt { margin-top: 0.4rem; }
 dl.params dd { margin: 0 0 0 1.5rem; }
+pre.ebnf { white-space: pre-wrap; border-left: 3px solid var(--link); }
+dl.syntax dd { margin: 0.2rem 0 0.8rem 0.2rem; }
+figure.example { margin: 1rem 0; }
+details.expanded summary { cursor: pointer; color: var(--muted); }
 </style>
 </head>
 <body>
@@ -49,12 +53,22 @@ dl.params dd { margin: 0 0 0 1.5rem; }
 <li><a href="#index_html"><code>index_html</code></a></li>
 <li><a href="#page_name"><code>page_name</code></a></li>
 <li><a href="#blocks_html"><code>blocks_html</code></a></li>
+<li><a href="#ebnf"><code>ebnf</code></a></li>
+<li><a href="#extension"><code>extension</code></a></li>
+<li><a href="#is_extension"><code>is_extension</code></a></li>
+<li><a href="#example_html"><code>example_html</code></a></li>
+<li><a href="#extension_body"><code>extension_body</code></a></li>
+<li><a href="#extension_html"><code>extension_html</code></a></li>
 <li><a href="#main"><code>main</code></a></li>
 <li><a href="#collect"><code>collect</code></a></li>
 <li><a href="#type-ModulePage"><code>type ModulePage</code></a></li>
 <li><a href="#type-PageSection"><code>type PageSection</code></a></li>
 <li><a href="#type-Entry"><code>type Entry</code></a></li>
 <li><a href="#type-Links"><code>type Links</code></a></li>
+<li><a href="#type-ExtensionPage"><code>type ExtensionPage</code></a></li>
+<li><a href="#type-SyntaxRule"><code>type SyntaxRule</code></a></li>
+<li><a href="#type-ExtensionBlock"><code>type ExtensionBlock</code></a></li>
+<li><a href="#type-Example"><code>type Example</code></a></li>
 </ul>
 <h2>modules</h2>
 <div class="def" id="module"><h3><code>doc.module(name: string, path: string, source: string, index?: <a href="slang-symbols.html#type-Index">symbols.Index</a>) -> <a href="#type-ModulePage">ModulePage</a>?</code></h3>
@@ -84,6 +98,30 @@ dl.params dd { margin: 0 0 0 1.5rem; }
 <p>Doc text as HTML: paragraphs with <code>code</code> spans, and lines indented by two spaces or more as code samples.</p>
 
 </div>
+<h2>extensions</h2>
+<div class="def" id="ebnf"><h3><code>doc.ebnf(parser: <a href="slang-peg.html#type-Parser">peg.Parser</a>, names?: {[any]: string}, top?: string) -> string</code></h3>
+<p>A parser written as EBNF (W3C style: &quot;text&quot;, [a-z], rule names, a b, a | b, x*, x+, x?, ⟨named token⟩). Values, marks and lookaheads leave no trace; rules are referred to by name.</p>
+<dl class="params"><dt><code>names</code></dt><dd>parsers to write as the given text (a rule's previous parser)</dd><dt><code>top</code></dt><dd>what parser is written for (a rule's name): parser inside itself</dd></dl>
+</div>
+<div class="def" id="extension"><h3><code>doc.extension(name: string, path: string, index: <a href="slang-symbols.html#type-Index">symbols.Index</a>) -> <a href="#type-ExtensionPage">ExtensionPage</a></code></h3>
+<p>An extension's documentation: its doc (from index), and what loading it into a fresh grammar shows (see compiler.extension_grammar). Its code samples are its examples, expanded with the extension.</p>
+
+</div>
+<div class="def" id="is_extension"><h3><code>doc.is_extension(source, index)</code></h3>
+<p>whether a file is an extension: it changes the grammar it gets from slang/compiler and returns no module</p>
+
+</div>
+<div class="def" id="example_html"><h3><code>doc.example_html(ex: <a href="#type-Example">Example</a>) -> string</code></h3>
+<p>An example as HTML: a &lt;figure class=&quot;example&quot;&gt; with the code and, in a &lt;details&gt;, what it expands to.</p>
+
+</div>
+<div class="def" id="extension_body"><h3><code>doc.extension_body(ext: <a href="#type-ExtensionPage">ExtensionPage</a>, example?: func(ex: <a href="#type-Example">Example</a>): string) -> string</code></h3>
+<p>The extension's documentation as HTML without the page around it: its summary, how to load it, its syntax, the words it reserves and the extensions it loads, then the rest of its doc with the examples where the doc has them.</p>
+<dl class="params"><dt><code>example</code></dt><dd>writes an example (<a href="#example_html"><code>example_html</code></a> by default)</dd></dl>
+</div>
+<div class="def" id="extension_html"><h3><code>doc.extension_html(ext: <a href="#type-ExtensionPage">ExtensionPage</a>) -> string</code></h3>
+<dl class="params"><dt>returns</dt><dd>the extension's page</dd></dl>
+</div>
 <h2>the command</h2>
 <div class="def" id="main"><h3><code>doc.main(arguments: {string}) -> int</code></h3>
 <p><code>slang doc [-o dir] [file|dir...]</code>: documents the .slang files found. A file that does not parse is reported and the exit code is 1.</p>
@@ -94,9 +132,9 @@ dl.params dd { margin: 0 0 0 1.5rem; }
 
 </div>
 <h2 id="type-ModulePage">type ModulePage</h2>
-<pre><code>type ModulePage = {name: string, path: string, doc?: string, sections: {<a href="#type-PageSection">PageSection</a>}, links: <a href="#type-Links">Links</a>}</code></pre>
+<pre><code>type ModulePage = {name: string, path: string, doc?: string, sections: {<a href="#type-PageSection">PageSection</a>}, links: <a href="#type-Links">Links</a>, kind: string}</code></pre>
 <p>The documentation of a module, as <a href="#module"><code>module</code></a> gathers it.</p>
-<dl class="params"><dt><code>name: string</code></dt><dd>the module's name, as require takes it</dd><dt><code>path: string</code></dt><dd>the file, as shown</dd><dt><code>doc?: string</code></dt><dd>the module's doc, the comment block that starts the file</dd><dt><code>sections: {<a href="#type-PageSection">PageSection</a>}</code></dt><dd></dd><dt><code>links: <a href="#type-Links">Links</a></code></dt><dd></dd></dl>
+<dl class="params"><dt><code>name: string</code></dt><dd>the module's name, as require takes it</dd><dt><code>path: string</code></dt><dd>the file, as shown</dd><dt><code>doc?: string</code></dt><dd>the module's doc, the comment block that starts the file</dd><dt><code>sections: {<a href="#type-PageSection">PageSection</a>}</code></dt><dd></dd><dt><code>links: <a href="#type-Links">Links</a></code></dt><dd></dd><dt><code>kind: string</code></dt><dd>&quot;module&quot; (<a href="#type-ExtensionPage"><code>ExtensionPage</code></a> has &quot;extension&quot;)</dd></dl>
 <h2 id="type-PageSection">type PageSection</h2>
 <pre><code>type PageSection = {title?: string, defs: {<a href="#type-Entry">Entry</a>}, type_name?: string, decl?: <a href="slang-symbols.html#type-TypeDecl">symbols.TypeDecl</a>}</code></pre>
 <p>A part of a page: the entries under a section divider (title null for those before the first), or a type with its methods.</p>
@@ -109,6 +147,22 @@ dl.params dd { margin: 0 0 0 1.5rem; }
 <pre><code>type Links = {types: {[string]: bool}, exports: {[string]: bool}, aliases: {[string]: string}, methods: {[string]: bool}}</code></pre>
 <p>What names in a page's docs can link to.</p>
 <dl class="params"><dt><code>types: {[string]: bool}</code></dt><dd>the module's types</dd><dt><code>exports: {[string]: bool}</code></dt><dd>the module's documented fields</dd><dt><code>aliases: {[string]: string}</code></dt><dd>the locals that hold a module, and its name</dd><dt><code>methods: {[string]: bool}</code></dt><dd>the anchors of the types' methods (&quot;Type:name&quot;)</dd></dl>
+<h2 id="type-ExtensionPage">type ExtensionPage</h2>
+<pre><code>type ExtensionPage = {name: string, path: string, doc?: string, blocks: {<a href="#type-ExtensionBlock">ExtensionBlock</a>}, syntax: {<a href="#type-SyntaxRule">SyntaxRule</a>}, hand_syntax?: string, keywords: {string}, uses: {string}, examples: {<a href="#type-Example">Example</a>}, error?: string, kind: string}</code></pre>
+<p>The documentation of an extension, as <a href="#extension"><code>extension</code></a> gathers it.</p>
+<dl class="params"><dt><code>name: string</code></dt><dd>what <code>extension &quot;name&quot;</code> takes</dd><dt><code>path: string</code></dt><dd></dd><dt><code>doc?: string</code></dt><dd>the doc's first paragraph, its summary</dd><dt><code>blocks: {<a href="#type-ExtensionBlock">ExtensionBlock</a>}</code></dt><dd>the rest of the doc in order, its code samples as examples</dd><dt><code>syntax: {<a href="#type-SyntaxRule">SyntaxRule</a>}</code></dt><dd></dd><dt><code>hand_syntax?: string</code></dt><dd>the EBNF written after <code>Syntax:</code>, shown instead of syntax</dd><dt><code>keywords: {string}</code></dt><dd>the words it reserves: no longer usable as variable names</dd><dt><code>uses: {string}</code></dt><dd>the other extensions it loads</dd><dt><code>examples: {<a href="#type-Example">Example</a>}</code></dt><dd></dd><dt><code>error?: string</code></dt><dd>why the extension could not be loaded to find its syntax</dd><dt><code>kind: string</code></dt><dd>&quot;extension&quot;</dd></dl>
+<h2 id="type-SyntaxRule">type SyntaxRule</h2>
+<pre><code>type SyntaxRule = {rule: string, ebnf: string, note?: string}</code></pre>
+<p>A production of the syntax an extension adds.</p>
+<dl class="params"><dt><code>rule: string</code></dt><dd>what it extends: statement, expr, or a rule's name</dd><dt><code>ebnf: string</code></dt><dd></dd><dt><code>note?: string</code></dt><dd>how it fits: a new rule, a changed one, an operator's precedence</dd></dl>
+<h2 id="type-ExtensionBlock">type ExtensionBlock</h2>
+<pre><code>type ExtensionBlock = {kind: string, text?: string, example?: <a href="#type-Example">Example</a>}</code></pre>
+<p>A piece of an extension's doc after its summary.</p>
+<dl class="params"><dt><code>kind: string</code></dt><dd>&quot;prose&quot; (text) or &quot;example&quot;</dd><dt><code>text?: string</code></dt><dd></dd><dt><code>example?: <a href="#type-Example">Example</a></code></dt><dd></dd></dl>
+<h2 id="type-Example">type Example</h2>
+<pre><code>type Example = {code: string, expanded?: string}</code></pre>
+<p>An example of an extension and what it expands to.</p>
+<dl class="params"><dt><code>code: string</code></dt><dd></dd><dt><code>expanded?: string</code></dt><dd>the example in core slang (slang expand), null when it fails</dd></dl>
 <p class="muted">slang/compiler/doc.slang</p>
 </body>
 </html>

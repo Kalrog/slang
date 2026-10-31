@@ -1076,6 +1076,22 @@ func compiler.analyze_file(path, origin, main){
   }
 }
 
+// What loading an extension did to a grammar, for its documentation.
+// type ExtensionGrammar = {grammar: table, base: table}
+// [grammar]: a grammar derived from the root with the extension loaded
+// [base]: the root it was derived from, as it was before
+
+// extension_grammar(name: string) -> ExtensionGrammar
+// Loads the extension [name] (as `extension "name"` would) into a grammar
+// derived from the root, which stays as it is: comparing the two shows
+// what the extension adds (slang doc's extension pages).
+func compiler.extension_grammar(name){
+  local g = root:derive()
+  local source = concat("extension \"", name, "\"\n")
+  g:parse_source(source, concat(name, " (doc)"), {scoped: false})
+  return {grammar: g, base: root}
+}
+
 // expand(source: string, path: string, options?: ParseOptions) -> string
 // The file as slang source after its extensions have been applied: parsed
 // like [load_file] would, then printed from the core AST (unquotes are

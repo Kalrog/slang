@@ -31,6 +31,10 @@ dt { margin-top: 0.75rem; }
 dd { margin-left: 1rem; color: var(--muted); }
 dl.params dt { margin-top: 0.4rem; }
 dl.params dd { margin: 0 0 0 1.5rem; }
+pre.ebnf { white-space: pre-wrap; border-left: 3px solid var(--link); }
+dl.syntax dd { margin: 0.2rem 0 0.8rem 0.2rem; }
+figure.example { margin: 1rem 0; }
+details.expanded summary { cursor: pointer; color: var(--muted); }
 </style>
 </head>
 <body>
@@ -70,6 +74,7 @@ local h = compiler.highlight(source, &quot;main.slang&quot;, {symbols: true})</c
 <li><a href="#highlight"><code>highlight</code></a></li>
 <li><a href="#compile_file"><code>compile_file</code></a></li>
 <li><a href="#analyze_file"><code>analyze_file</code></a></li>
+<li><a href="#extension_grammar"><code>extension_grammar</code></a></li>
 <li><a href="#expand"><code>expand</code></a></li>
 <li><a href="#tree"><code>tree</code></a></li>
 <li><a href="#expand_file"><code>expand_file</code></a></li>
@@ -85,6 +90,7 @@ local h = compiler.highlight(source, &quot;main.slang&quot;, {symbols: true})</c
 <li><a href="#type-ParseOptions"><code>type ParseOptions</code></a></li>
 <li><a href="#type-Analysis"><code>type Analysis</code></a></li>
 <li><a href="#type-Require"><code>type Require</code></a></li>
+<li><a href="#type-ExtensionGrammar"><code>type ExtensionGrammar</code></a></li>
 </ul>
 <div class="def" id="explain"><h3><code>compiler.explain</code></h3>
 <p>Whether the compiler tells on stderr what it does: the project and its extensions, the extensions and rule changes of each unit, the packages. <code>slang run --explain</code> sets it; SLANG_EXPLAIN=1 does the same. It also turns on grammar warnings.</p>
@@ -200,6 +206,10 @@ f()   // 42</code></pre>
 <p>Compiles a file like <a href="#compile_file"><code>compile_file</code></a> and tells the modules it requires, as the code is after its extensions ran. What <code>slang build</code> follows.</p>
 <dl class="params"><dt><code>main</code></dt><dd>the file is a program's main file (it may use <code>extension global</code>)</dd></dl>
 </div>
+<div class="def" id="extension_grammar"><h3><code>compiler.extension_grammar(name: string) -> <a href="#type-ExtensionGrammar">ExtensionGrammar</a></code></h3>
+<p>Loads the extension <code>name</code> (as <code>extension &quot;name&quot;</code> would) into a grammar derived from the root, which stays as it is: comparing the two shows what the extension adds (slang doc's extension pages).</p>
+
+</div>
 <div class="def" id="expand"><h3><code>compiler.expand(source: string, path: string, options?: <a href="#type-ParseOptions">ParseOptions</a>) -> string</code></h3>
 <p>The file as slang source after its extensions have been applied: parsed like <a href="#load_file"><code>load_file</code></a> would, then printed from the core AST (unquotes are executed, extension statements are gone, constants folded). A file of a compile dialect is returned as it is. Raises when it does not parse.</p>
 
@@ -260,6 +270,10 @@ f()   // 42</code></pre>
 <pre><code>type Require = {name: string, line: int}</code></pre>
 <p>A require of a module by name, and the line it is on.</p>
 <dl class="params"><dt><code>name: string</code></dt><dd></dd><dt><code>line: int</code></dt><dd></dd></dl>
+<h2 id="type-ExtensionGrammar">type ExtensionGrammar</h2>
+<pre><code>type ExtensionGrammar = {grammar: table, base: table}</code></pre>
+<p>What loading an extension did to a grammar, for its documentation.</p>
+<dl class="params"><dt><code>grammar: table</code></dt><dd>a grammar derived from the root with the extension loaded</dd><dt><code>base: table</code></dt><dd>the root it was derived from, as it was before</dd></dl>
 <p class="muted">slang/compiler/compiler.slang</p>
 </body>
 </html>

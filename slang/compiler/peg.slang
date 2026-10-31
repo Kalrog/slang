@@ -964,7 +964,7 @@ func peg.map(child, f){
 // building values where that can be skipped ([map] and [where] still run).
 // [message]: replaces child's failure message
 func peg.flatten(child, message){
-  return new_parser(
+  local p = new_parser(
     func(self, ctx, pos){
       local q = child.fast(child, ctx, pos)
       if(q < 0){
@@ -986,6 +986,9 @@ func peg.flatten(child, message){
       return q
     },
   )
+  // what it is called, for descriptions of the grammar (slang doc's EBNF)
+  p.message = message
+  return p
 }
 
 // token(child: Parser, category?: string | func(value): string?) -> Parser

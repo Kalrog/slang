@@ -5,6 +5,7 @@ local str = require("slang/string")
 local compiler = require("slang/compiler")
 local symbols = require("slang/symbols")
 local doc = require("slang/doc")
+local os = require("slang/os")
 
 local func analyse(source){
   return compiler.highlight(source, "snippet.slang", {symbols: true}).symbols
@@ -201,6 +202,49 @@ return m"""
       html,
       "<dt><code>body?: string</code></dt><dd>null when streamed</dd>",
     ) >= 0)
+  }
+}
+
+t.group("extension docs"){
+  t.test("EBNF from parsers"){
+    local peg = require("slang/peg")
+    local p = peg.seq(
+      peg.string("a"),
+      peg.choice(peg.string("b"), peg.pattern("0-9"):plus()),
+      peg.string(","):star(),
+      peg.string("c"):optional(),
+    )
+    assert(doc.ebnf(p) == "\"a\" (\"b\" | [0-9]+) \",\"* \"c\"?", doc.ebnf(p))
+  }
+  t.test("an extension's syntax, reserved words, examples and page"){
+    local name = "test/fixtures/greet_ext"
+    local path = concat(name, ".slang")
+    local source = os.read_file(path)
+    local ix = compiler.highlight(source, path, {symbols: true}).symbols
+    assert(doc.is_extension(source, ix))
+    local page = doc.extension(name, path, ix)
+    assert(page.kind == "extension" and page.error == null, page.error)
+    assert(str.starts_with(page.doc, "greet NAME prints"), page.doc)
+    assert(len(page.syntax) == 2, string(page.syntax))
+    assert(
+      page.syntax[0].rule == "statement" and
+        page.syntax[0].ebnf == "\"greet\" identifier",
+      page.syntax[0].ebnf,
+    )
+    assert(page.syntax[1].ebnf == "expr \"|>\" expr", page.syntax[1].ebnf)
+    assert(
+      str.index_of(page.syntax[1].note, "binds looser than or") >= 0,
+      page.syntax[1].note,
+    )
+    assert(page.keywords == {"greet"}, string(page.keywords))
+    assert(len(page.examples) == 1 and page.examples[0].code == "greet world")
+    assert(
+      page.examples[0].expanded == "print(\"hello \", \"world\", \"\\n\")",
+      page.examples[0].expanded,
+    )
+    local html = doc.extension_body(page)
+    assert(str.index_of(html, "<details class=\"expanded\">") >= 0)
+    assert(str.index_of(html, "Reserved words") >= 0)
   }
 }
 

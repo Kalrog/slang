@@ -15,27 +15,21 @@
 #   make breakout     run the breakout example (examples/breakout) on the raylib package
 #   make deckhand     run the deckhand heist game (examples/deckhand) on the raylib package
 #   make deckhand-test run deckhand's tests (no window: the deck, maps, world, every mission's solution)
-#   make dungeon-test run the dungeon example's DSL tests
-#   make dungeon      run the dungeon example on its Go/Ebitengine host (legacy host, uses the Go VM)
 #   make vscode       package the VS Code extension (editors/vscode) with the language server
 #   make doc          regenerate doc/: HTML documentation of slang's library (slang doc)
 #
-# Legacy implementations, kept for reference: the Go VM (go/, the reference
-# implementation during the port; `make go-build`, `make go-test`,
-# `make go-fixpoint`) and the original Dart one (legacy/, `make stage0-seed`).
+# The earlier implementations, the Go VM and the original Dart one (with the
+# dungeon example, which ran on the Go VM), are on the branch `legacy`.
 
 ZIG    ?= zig
-GO     ?= go
-DART   ?= dart
 PREFIX ?= /usr/local
-STAGE0  = cd legacy && $(DART) run tool/stage0.dart
 
 LIB_SRC  := $(wildcard slang/lib/*.slang)
 COMPILER_SRC := $(wildcard slang/compiler/*.slang)
 SEED_DIR := boot/slang
 
-.PHONY: all build build-safe install uninstall test test-safe test-gui unit seed fixpoint bench raylib-test breakout deckhand deckhand-test dungeon dungeon-test clean doc \
-        vscode vscode-grammar go-build go-seed-copy go-test go-fixpoint stage0-seed
+.PHONY: all build build-safe install uninstall test test-safe test-gui unit seed fixpoint bench raylib-test breakout deckhand deckhand-test clean doc \
+        vscode vscode-grammar
 
 all: build
 
@@ -123,12 +117,6 @@ deckhand: build
 deckhand-test: build
 	cd examples/deckhand && ../../bin/slang test test
 
-dungeon-test: build
-	cd examples/dungeon && ../../bin/slang test test
-
-dungeon: go-seed-copy
-	cd examples/dungeon && $(GO) run ./host .
-
 # the VS Code extension (editors/vscode): generated grammar, bundled lsp/, .vsix
 vscode-grammar: build
 	bin/slang run editors/vscode/gen_grammar.slang > editors/vscode/syntaxes/slang.tmLanguage.json
@@ -143,31 +131,4 @@ vscode: vscode-grammar
 	cd editors/vscode && npm install --no-audit --no-fund && npm run package
 
 clean:
-	rm -rf bin lib zig/zig-out zig/zig-out-* zig/.zig-cache go/bin go/boot/slang editors/vscode/out editors/vscode/lsp editors/vscode/*.vsix
-
-# ------------------------------------------------------------ legacy: Go VM
-
-# Go's embed cannot leave its module: the seed is copied into go/boot/slang
-go-seed-copy:
-	@mkdir -p go/boot/slang && cp $(SEED_DIR)/*.slb go/boot/slang/
-
-go-build: go-seed-copy
-	cd go && $(GO) build -o bin/slang ./cmd/slang
-
-go-test: go-build
-	go/bin/slang test test
-
-go-fixpoint: go-build
-	@rm -rf /tmp/slang-go-fixpoint && mkdir -p /tmp/slang-go-fixpoint
-	@for f in $(LIB_SRC) $(COMPILER_SRC); do \
-	  n=$$(basename $$f .slang); \
-	  go/bin/slang compile $$f -o /tmp/slang-go-fixpoint/$$n.slb --origin slang/$$n || exit 1; \
-	  cmp $(SEED_DIR)/$$n.slb /tmp/slang-go-fixpoint/$$n.slb || { echo "go-fixpoint: $$n differs"; exit 1; }; \
-	done
-	@echo "go-fixpoint: ok"
-
-# ------------------------------------------------------------ legacy: Dart
-
-stage0-seed: $(LIB_SRC) $(COMPILER_SRC)
-	$(STAGE0) --out ../go/boot --strip ../slang/lib/ --prefix slang/ $(addprefix ../,$(LIB_SRC))
-	$(STAGE0) --out ../go/boot --strip ../slang/compiler/ --prefix slang/ $(addprefix ../,$(COMPILER_SRC))
+	rm -rf bin lib zig/zig-out zig/zig-out-* zig/.zig-cache editors/vscode/out editors/vscode/lsp editors/vscode/*.vsix

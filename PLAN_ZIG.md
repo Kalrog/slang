@@ -2,6 +2,9 @@
 
 Status legend: `[ ]` todo, `[~]` in progress, `[x]` done.
 
+Done. Since 2026-10-31 the Go VM, the Dart implementation and the dungeon
+example are on the branch `legacy` rather than on main.
+
 ## Why
 
 Native extensions (modules that wrap a system library or need native speed) cannot be loaded at runtime in a reasonable way from Go: `plugin` does not work on Windows and needs an identical toolchain and dependency set, and cgo + dlopen forbids C from holding Go pointers and adds overhead on every callback. Today the only way to add natives is to build a custom Go host binary (`examples/dungeon/host`). The goal of this port is a VM where `require "foo"` can load `foo.so`/`foo.dylib`/`foo.dll`, written in C, Zig or anything with a C ABI.

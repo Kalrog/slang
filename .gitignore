@@ -1,14 +1,8 @@
-.dart_tool/
 *.exe
 .DS_Store
 /bin/
 /lib/
-/go/boot/slang/
-/go/bin/
 /test/*.slb
-/examples/dungeon/dungeon
-/examples/dungeon/host/host
-/examples/dungeon/host/dungeon
 /zig/zig-out
 /zig/.zig-cache
 /zig/zig-out-*

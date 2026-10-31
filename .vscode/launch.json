@@ -1,7 +1,6 @@
 {
-  // Launch configurations for the Go implementation (requires the Go extension).
-  // Each one runs the slang binary under the Go debugger from the workspace
-  // root, so `require` resolves paths the same way as on the command line.
+  // Runs the slang binary from the workspace root under lldb-dap, so
+  // `require` resolves paths the same way as on the command line.
   "version": "0.2.0",
   "configurations": [
     {
@@ -14,32 +13,6 @@
         "run",
         "${file}"
       ]
-    },
-    // {
-    //   "name": "Slang: Tests",
-    //   "type": "go",
-    //   "request": "launch",
-    //   "mode": "auto",
-    //   "program": "${workspaceFolder}/go/cmd/slang",
-    //   "cwd": "${workspaceFolder}",
-    //   "args": ["test", "test"]
-    // },
-    // {
-    //   "name": "Slang: Disassemble Current File",
-    //   "type": "go",
-    //   "request": "launch",
-    //   "mode": "auto",
-    //   "program": "${workspaceFolder}/go/cmd/slang",
-    //   "cwd": "${workspaceFolder}",
-    //   "args": ["disasm", "${file}"]
-    // },
-    // {
-    //   "name": "Slang: Go unit tests",
-    //   "type": "go",
-    //   "request": "launch",
-    //   "mode": "test",
-    //   "program": "${workspaceFolder}/go/vm",
-    //   "cwd": "${workspaceFolder}/go"
-    // }
+    }
   ]
 }

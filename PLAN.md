@@ -3,9 +3,10 @@
 Status legend: `[ ]` todo, `[~]` in progress, `[x]` done.
 
 Historical (2026-10-30): the Go VM was followed by the Zig VM (PLAN_ZIG.md),
-which is the implementation now; `go/` is kept for reference and not
-maintained. Concurrency beyond coroutines continues as isolates in
-PLAN_1.0.md phase 9.
+which is the implementation now. Concurrency beyond coroutines continues as
+isolates in PLAN_1.0.md phase 9. Since 2026-10-31 the Go VM (`go/`), the
+Dart implementation (`legacy/`) and the dungeon example are no longer on
+main: they are on the branch `legacy`, as are the paths this plan names.
 
 ## Goals
 

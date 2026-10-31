@@ -518,7 +518,7 @@ object offers:
 
 See `extensions/` for examples (switch statement, lambda shorthand, custom
 infix/prefix/postfix operators, a grammar DSL, the JSON dialect) and
-`examples/dungeon/dsl` for larger ones. The plan for the rest of this work
+`examples/deckhand/dsl` for a larger one. The plan for the rest of this work
 (memoization placement, tooling) is in `PLAN_GRAMMAR.md`.
 
 ## Async, libuv and HTTP
@@ -699,20 +699,19 @@ bench/     benchmarks (make bench)
 extensions/ parser extensions written in slang; extensions/native are native ones
 packages/  packages kept with slang: packages/raylib (raylib through slang/ffi)
 examples/  example programs: examples/breakout on the raylib package, examples/project (slang.project), examples/functional (|> and holes),
-           examples/dungeon, a game whose content is written in DSLs (its window host is the legacy Go one)
+           examples/deckhand, a heist game on raylib whose maps are written in a DSL, examples/webserver and examples/desktop
 lsp/       the language server (highlighting and diagnostics from the real parser); editors/vscode is its VS Code client
-go/        the Go VM: the reference implementation during the Zig port, kept for comparison
-           (make go-build, go-test, go-fixpoint); it cannot load native extensions
-legacy/    the original Dart implementation and the oracle scripts in tool/, kept for history
 ```
+
+The earlier implementations, the Go VM (the reference during the Zig port)
+and the original Dart one, are on the branch `legacy`, with the dungeon
+example that ran on the Go VM.
 
 ## Embedding
 
 `slang.h` also embeds: `slang_new`, `slang_dostring`, `slang_dofile`,
 registering natives and calling slang functions through the same stack API
-the extensions use. `examples/dungeon/host` is a host program for the Go VM
-(Ebitengine); its port to the C API is still to do, so `make dungeon` uses
-the Go VM.
+the extensions use.
 
 ## Ideas
 The roadmap is PLAN_1.0.md; bitwise operators and the language server,

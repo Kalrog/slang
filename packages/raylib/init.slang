@@ -291,6 +291,28 @@ func special.trace_log(level, text){
   lib.TraceLog(level, "%s", text)
 }
 
+// end_drawing(): in the browser (slang's web build, the playground) the
+// frame also ends the program's turn: the browser shows it and handles
+// input, and the program goes on at the next animation frame
+local web_entry = __PACKAGES.preloaded["slang/web"]
+if(web_entry != null){
+  local web = web_entry[1]
+  func special.end_drawing(){
+    lib.EndDrawing()
+    web.frame()
+  }
+  // the browser paces the frames (one per display refresh): raylib's own
+  // wait would block it
+  func special.set_target_fps(fps){}
+  // a page has no window to close (raylib's web version would sleep here)
+  func special.window_should_close(){
+    return false
+  }
+  // the page shows raylib's errors, not its start-up report (WebGL 1 has
+  // warnings to make)
+  lib.SetTraceLogLevel(C.constants.LOG_ERROR)
+}
+
 // ------------------------------------------------------------ the module
 
 for(let local e in entries(C.constants)){

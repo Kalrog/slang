@@ -28,7 +28,7 @@ LIB_SRC  := $(wildcard slang/lib/*.slang)
 COMPILER_SRC := $(wildcard slang/compiler/*.slang)
 SEED_DIR := boot/slang
 
-.PHONY: all build wasm website serve build-safe install uninstall test test-safe test-gui unit seed fixpoint bench raylib-test breakout deckhand deckhand-test clean doc \
+.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed fixpoint bench raylib-test breakout deckhand deckhand-test clean doc \
         vscode vscode-grammar
 
 all: build
@@ -41,6 +41,11 @@ build:
 wasm:
 	cd zig && $(ZIG) build -Dtarget=wasm32-wasi -Dffi=false -Doptimize=ReleaseSmall -p zig-out-wasm
 	mkdir -p website/public && cp zig/zig-out-wasm/bin/slang.wasm website/public/slang.wasm
+
+# the playground's graphics VM (slang with raylib, built with Emscripten):
+# website/public/slang-gfx.js and .wasm; needs emcc (brew install emscripten)
+wasm-gfx: build
+	ZIG=$(ZIG) website/web/build.sh
 
 # the website (website/out): home, tour, playground and API docs; the
 # playground needs make wasm first

@@ -33,8 +33,16 @@ const FFI_OK: c_int = 0;
 const default_abi: c_uint = switch (builtin.cpu.arch) {
     .aarch64 => if (builtin.os.tag == .windows) 2 else 1, // FFI_WIN64 / FFI_SYSV
     .x86_64 => if (builtin.os.tag == .windows) 1 else 2, // FFI_WIN64 / FFI_UNIX64
+    .wasm32 => 2, // FFI_WASM32_EMSCRIPTEN
     else => @compileError("ffi: unsupported architecture"),
 };
+
+/// Under Emscripten nothing is loaded at run time: the C libraries are linked
+/// into the program, and a generated table (see website/web/) gives their
+/// symbols by name. Every library "opens" as that table.
+const static_symbols = builtin.os.tag == .emscripten;
+extern "c" fn slang_ffi_static_symbol(name: [*:0]const u8) ?*anyopaque;
+var static_handle: u8 = 0;
 
 /// ffi_cif, kept opaque: libffi's layout differs between targets, so it is
 /// given more room than any of them needs.
@@ -75,7 +83,9 @@ pub fn module(vm: *VM) *Table {
 fn ffiOpen(th: *Thread, args: []Value) Error!Value {
     const vm = th.vm;
     var h: ?*anyopaque = null;
-    if (api.arg(args, 0) == .null) {
+    if (static_symbols) {
+        h = &static_handle;
+    } else if (api.arg(args, 0) == .null) {
         h = dlopen(null, RTLD_NOW);
     } else {
         const path = try api.argString(th, args, 0, "path");
@@ -101,7 +111,7 @@ fn ffiSymbol(th: *Thread, args: []Value) Error!Value {
     const name = try api.argString(th, args, 1, "name");
     const z = vm.gpa.dupeSentinel(u8, name, 0) catch oom();
     defer vm.gpa.free(z);
-    const p = dlsym(h, z.ptr) orelse return .null;
+    const p = (if (static_symbols) slang_ffi_static_symbol(z.ptr) else dlsym(h, z.ptr)) orelse return .null;
     return ctypes.newPointer(vm, @intFromPtr(p), null, .null);
 }
 

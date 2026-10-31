@@ -2,6 +2,7 @@
 //! built by `slang build` runs its bundled program instead.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const vm_mod = @import("vm.zig");
 const oom = vm_mod.oom;
 const VM = vm_mod.VM;
@@ -214,10 +215,47 @@ fn run(init: std.process.Init, path: []const u8, args: []const []const u8, expla
         compiler.table.set(vm.gpa, vm.str("explain"), .{ .bool = true });
     }
     const cl = loadFile(vm, path);
+    if (builtin.os.tag == .emscripten) return web.start(vm, cl);
     _ = vm.call(.{ .function = cl }, &.{}) catch fail(vm);
     vm.flush();
     ended(vm, 0);
 }
+
+/// In the browser (Emscripten) a program runs as a coroutine: when it yields
+/// (slang/web's frame(), which raylib's end_drawing calls) main hands the
+/// browser control, and each animation frame resumes it. The VM outlives
+/// main: emscripten_set_main_loop does not return.
+const web = if (builtin.os.tag == .emscripten) struct {
+    extern fn emscripten_set_main_loop(f: *const fn () callconv(.c) void, fps: c_int, simulate_infinite_loop: c_int) void;
+    extern fn emscripten_cancel_main_loop() void;
+    extern fn emscripten_force_exit(code: c_int) noreturn;
+    var the_vm: *VM = undefined;
+    var program: i64 = 0;
+
+    fn start(vm: *VM, cl: *vm_mod.Closure) void {
+        const co = vm.newThread(cl);
+        the_vm = vm;
+        program = vm.makeRef(.{ .thread = co });
+        _ = co.resumeCo(&.{}) catch fail(vm);
+        vm.flush();
+        if (co.status == .dead) return ended(vm, 0);
+        emscripten_set_main_loop(frame, 0, 1);
+    }
+
+    fn frame() callconv(.c) void {
+        const vm = the_vm;
+        const co = vm.getRef(program).thread;
+        _ = co.resumeCo(&.{}) catch {
+            emscripten_cancel_main_loop();
+            fail(vm);
+        };
+        vm.flush();
+        if (co.status == .dead) {
+            emscripten_cancel_main_loop();
+            emscripten_force_exit(0);
+        }
+    }
+} else struct {};
 
 /// Runs the program bundled into this executable (slang build): its entry
 /// module, with every argument as its own.

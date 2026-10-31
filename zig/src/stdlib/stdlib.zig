@@ -102,6 +102,10 @@ pub fn open(vm: *VM) void {
         preload(vm, "slang/ffi_core", .{ .table = @import("ffilib.zig").module(vm) });
     }
     preload(vm, "slang/thread", .{ .table = @import("threadlib.zig").module(vm) });
+    // the browser's frames, in the Emscripten build (the playground)
+    if (@import("builtin").os.tag == .emscripten) {
+        preload(vm, "slang/web", .{ .table = @import("weblib.zig").module(vm) });
+    }
     preload(vm, "slang/encoding", .{ .table = @import("encoding.zig").module(vm) });
     preload(vm, "slang/time", .{ .table = @import("timelib.zig").module(vm) });
     // a built program's files, and the writing of built programs (slang build)

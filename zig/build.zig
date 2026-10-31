@@ -21,7 +21,20 @@ pub fn build(b: *std.Build) void {
     mod.addOptions("build_options", options);
     const seed = seedModule(b);
     mod.addImport("seed", seed);
-    if (with_ffi) mod.linkSystemLibrary("ffi", .{});
+    // (under Emscripten emcc links libffi; -Dffi-include names its headers)
+    const ffi_include = b.option([]const u8, "ffi-include", "libffi's headers (Emscripten)");
+    if (with_ffi and target.result.os.tag != .emscripten) mod.linkSystemLibrary("ffi", .{});
+    if (ffi_include) |dir| mod.addIncludePath(.{ .cwd_relative = dir });
+
+    // Emscripten (the playground with raylib, see website/): Zig compiles the
+    // VM to an object and emcc links it (with raylib and Emscripten's JS
+    // runtime); `zig build -Dtarget=wasm32-emscripten --sysroot <emscripten
+    // cache/sysroot>` installs lib/slang.o
+    if (target.result.os.tag == .emscripten) {
+        const obj = b.addObject(.{ .name = "slang", .root_module = mod });
+        b.getInstallStep().dependOn(&b.addInstallFile(obj.getEmittedBin(), "lib/slang.o").step);
+        return;
+    }
 
     const exe = b.addExecutable(.{
         .name = "slang",

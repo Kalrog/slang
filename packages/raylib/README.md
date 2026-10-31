@@ -44,6 +44,15 @@ dependencies: {raylib: {git: "<repository>", version: "^1.0"}}
 Inside the slang repository, use `{path: "../packages/raylib"}` instead, as
 `examples/breakout` does. Then run `slang get`.
 
+## In the browser
+
+The website's playground runs programs that use this package on a slang
+built with Emscripten, with raylib's web platform linked in (`make
+wasm-gfx`). The package is the same; there, `end_drawing` also ends the
+program's turn so the page can show the frame and deliver input,
+`set_target_fps` does nothing (the browser paces frames), a page never asks
+to close (`window_should_close` is false), and raylib logs only errors.
+
 ## How raylib maps to slang
 
 - **Names** are snake_case: `DrawTextEx` is `draw_text_ex`, `BeginMode2D`

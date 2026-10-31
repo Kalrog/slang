@@ -22,3 +22,5 @@ examples/desktop/todos.db
 # the website: built pages and the wasm VM (make website, make wasm)
 /website/out/
 /website/public/slang.wasm
+/website/public/slang-gfx.*
+/website/web/.cache/

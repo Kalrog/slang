@@ -108,12 +108,14 @@ pub const Thread = struct {
 
     /// The closure of the innermost frame (for natives reading their nvals).
     pub fn currentClosure(th: *const Thread) *Closure {
+        th.assertNativeFrame();
         return th.frames.items[th.frames.items.len - 1].cl;
     }
 
     /// Argument i of the running native, read from the stack (valid even
     /// after a call back into the VM moved the stack).
     pub fn arg(th: *const Thread, i: usize) Value {
+        th.assertNativeFrame();
         const fr = th.frames.items[th.frames.items.len - 1];
         const idx = fr.base + i;
         if (idx >= th.top) return .null;
@@ -121,8 +123,15 @@ pub const Thread = struct {
     }
 
     pub fn nargs(th: *const Thread) usize {
+        th.assertNativeFrame();
         const fr = th.frames.items[th.frames.items.len - 1];
         return th.top - fr.base;
+    }
+
+    /// A native marked frameless (stdlib.Native) that reads its frame would
+    /// read its caller's: the checked builds catch it here.
+    inline fn assertNativeFrame(th: *const Thread) void {
+        std.debug.assert(th.frames.items[th.frames.items.len - 1].cl.proto == null);
     }
 
     fn pushFrame(th: *Thread, cl: *Closure, base: usize, protected: bool) Error!void {
@@ -259,11 +268,15 @@ pub const Thread = struct {
                 return th.vm.raise("attempt to call a {s} value", .{f.typeName()});
             },
         };
-        if (cl.special == .pcall) {
-            if (nargs_ < 1) return th.vm.raise("pcall requires at least one argument", .{});
-            std.mem.copyForwards(Value, th.stack[fn_idx .. th.top - 1], th.stack[fn_idx + 1 .. th.top]);
-            th.top -= 1;
-            return th.precall(fn_idx, nargs_ - 1, true);
+        if (cl.special != .none) {
+            if (cl.special == .pcall) {
+                if (nargs_ < 1) return th.vm.raise("pcall requires at least one argument", .{});
+                std.mem.copyForwards(Value, th.stack[fn_idx .. th.top - 1], th.stack[fn_idx + 1 .. th.top]);
+                th.top -= 1;
+                return th.precall(fn_idx, nargs_ - 1, true);
+            }
+            // frameless, unless the profiler wants the frame to sample
+            if (th.vm.profiler == null) return th.callFrameless(cl, fn_idx, protected);
         }
         if (cl.native) |native| {
             try th.pushFrame(cl, fn_idx + 1, protected);
@@ -306,16 +319,47 @@ pub const Thread = struct {
                 th.top = base + nparams;
             }
         } else {
-            while (th.top < base + nparams) th.push(.null);
+            // (ensure above made room for the parameters and max_stack)
+            if (th.top < base + nparams) {
+                @memset(th.stack[th.top .. base + nparams], .null);
+                th.top = base + nparams;
+            }
             if (p.is_vararg) th.push(.{ .table = th.vm.newTable(0, 0) });
         }
         const need = base + p.max_stack;
-        while (th.top < need) {
-            th.stack[th.top] = .null;
-            th.top += 1;
+        if (th.top < need) {
+            @memset(th.stack[th.top..need], .null);
+            th.top = need;
         }
         try th.pushFrame(cl, base, protected);
         return true;
+    }
+
+    /// A native marked frameless: called on the arguments as they are on
+    /// the stack, with a frame made up only for an error's traceback (or
+    /// a yield, which the resume expects to pop).
+    fn callFrameless(th: *Thread, cl: *Closure, fn_idx: usize, protected: bool) Error!bool {
+        const res = cl.native.?(th, th.stack[fn_idx + 1 .. th.top]) catch |e| {
+            th.frames.append(th.vm.gpa, .{ .cl = cl, .pc = 0, .base = @intCast(fn_idx + 1), .protected = protected }) catch oom();
+            if (e == error.Yield) return error.Yield;
+            th.fillError();
+            th.popFrame();
+            if (protected) {
+                th.top = fn_idx;
+                const r = th.errResult();
+                th.push(r);
+                return false;
+            }
+            return error.Slang;
+        };
+        th.top = fn_idx;
+        if (protected) {
+            const r = th.okResult(res);
+            th.push(r);
+        } else {
+            th.push(res);
+        }
+        return false;
     }
 
     pub fn run(th: *Thread, stop_depth: usize) Error!void {

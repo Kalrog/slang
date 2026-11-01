@@ -2,11 +2,11 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const oom = @import("../vm.zig").oom;
 
-/// Temporary memory for calls into C (slang/ffi): a block that grows to
-/// the largest call seen and then stays, carved out in stack order. A call
-/// takes a mark, carves what it needs and releases back to the mark, so
-/// nested calls (a callback that calls C again) stack on the same thread.
-/// Carved memory never moves: C holds pointers into it during the call.
+/// Temporary memory for a native call: a block that grows to the largest
+/// call seen and then stays, carved out in stack order. A call takes a
+/// mark, carves what it needs and releases back to the mark, so nested
+/// calls (a C callback that calls C again) stack on the same thread.
+/// Carved memory never moves: the callee may hold pointers into it.
 pub const Scratch = struct {
     buf: []align(16) u8 = &.{},
     top: usize = 0,
@@ -25,7 +25,7 @@ pub const Scratch = struct {
     /// n bytes, 16-aligned, uninitialised.
     pub inline fn bytes(s: *Scratch, gpa: Allocator, n: usize) [*]align(16) u8 {
         const need = std.mem.alignForward(usize, n, 16);
-        if (s.buf.len == 0) s.buf = gpa.alignedAlloc(u8, .@"16", initial) catch oom();
+        if (s.buf.len == 0) s.first(gpa);
         if (s.top + need <= s.buf.len) {
             const p: [*]align(16) u8 = @alignCast(s.buf.ptr + s.top);
             s.top += need;
@@ -35,6 +35,11 @@ pub const Scratch = struct {
         const block = gpa.alignedAlloc(u8, .@"16", need) catch oom();
         s.spill.append(gpa, block) catch oom();
         return block.ptr;
+    }
+
+    fn first(s: *Scratch, gpa: Allocator) void {
+        @branchHint(.cold);
+        s.buf = gpa.alignedAlloc(u8, .@"16", initial) catch oom();
     }
 
     pub fn array(s: *Scratch, gpa: Allocator, comptime T: type, n: usize) []T {

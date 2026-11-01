@@ -33,49 +33,29 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
     outer: while (true) {
         const n = th.frames.items.len;
         if (n <= stop_depth) return;
-        const fi = n - 1;
+        var fi = n - 1;
         const frame = th.frames.items[fi];
-        const proto = frame.cl.proto orelse return vm.raise("internal error: native frame in interpreter loop", .{});
-        const code = proto.code;
-        const consts = proto.consts;
-        const base: usize = frame.base;
+        var proto = frame.cl.proto orelse return vm.raise("internal error: native frame in interpreter loop", .{});
+        var code = proto.code;
+        var consts = proto.consts;
+        var base: usize = frame.base;
         var pc: usize = frame.pc;
         var top: usize = th.top;
         var stack: [*]Value = th.stack.ptr;
-        var ins = code[pc];
-        if (trace) {
-            th.top = top;
-            traceInstruction(th, fi, base, pc, ins);
-        }
-        pc += 1;
-        th.frames.items[fi].pc = @intCast(pc);
+        var ins: u32 = undefined;
         // labelled switch: every opcode fetches the next instruction and
         // jumps straight to its case
-        sw: switch (d.opOf(ins)) {
+        sw: switch (fetch(trace, th, code, fi, base, &pc, top, &ins)) {
             .load_constant => {
                 stack[top] = consts[d.argBx(ins)];
                 top += 1;
-                ins = code[pc];
-                if (trace) {
-                    th.top = top;
-                    traceInstruction(th, fi, base, pc, ins);
-                }
-                pc += 1;
-                th.frames.items[fi].pc = @intCast(pc);
-                continue :sw d.opOf(ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
             },
             .load_bool => {
                 stack[top] = .{ .bool = d.argB(ins) != 0 };
                 top += 1;
                 if (d.argC(ins) != 0) pc += 1;
-                ins = code[pc];
-                if (trace) {
-                    th.top = top;
-                    traceInstruction(th, fi, base, pc, ins);
-                }
-                pc += 1;
-                th.frames.items[fi].pc = @intCast(pc);
-                continue :sw d.opOf(ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
             },
             .load_closure => {
                 th.top = top;
@@ -83,34 +63,20 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 const cl = th.makeClosure(th.frames.items[fi], proto.children[d.argAx(ins)]);
                 stack[top] = .{ .function = cl };
                 top += 1;
-                ins = code[pc];
-                if (trace) {
-                    th.top = top;
-                    traceInstruction(th, fi, base, pc, ins);
-                }
-                pc += 1;
-                th.frames.items[fi].pc = @intCast(pc);
-                continue :sw d.opOf(ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
             },
-            .add => {
+            inline .add, .sub, .mul, .div, .mod => |op| {
                 const b = stack[top - 1];
                 const a = stack[top - 2];
-                if (a == .int and b == .int) {
+                if (numArith(op, a, b)) |r| {
                     top -= 1;
-                    stack[top - 1] = .{ .int = a.int +% b.int };
-                    ins = code[pc];
-                    if (trace) {
-                        th.top = top;
-                        traceInstruction(th, fi, base, pc, ins);
-                    }
-                    pc += 1;
-                    th.frames.items[fi].pc = @intCast(pc);
-                    continue :sw d.opOf(ins);
+                    stack[top - 1] = r;
+                    continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
                 }
                 // operands stay on the stack during the (possibly
                 // allocating) operation so the collector can see them
-                th.top = top;
-                const r = th.arithMeta(.add, a, b) catch |e| {
+                spill(trace, th, fi, pc, top);
+                const r = th.arithMeta(op, a, b) catch |e| {
                     th.top -= 2;
                     try th.handleError(e, stop_depth);
                     continue :outer;
@@ -118,52 +84,12 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 top = th.top - 1;
                 stack = th.stack.ptr;
                 stack[top - 1] = r;
-                ins = code[pc];
-                if (trace) {
-                    th.top = top;
-                    traceInstruction(th, fi, base, pc, ins);
-                }
-                pc += 1;
-                th.frames.items[fi].pc = @intCast(pc);
-                continue :sw d.opOf(ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
             },
-            .sub => {
+            .pow, .band, .bor, .bxor, .shl, .shr => {
                 const b = stack[top - 1];
                 const a = stack[top - 2];
-                if (a == .int and b == .int) {
-                    top -= 1;
-                    stack[top - 1] = .{ .int = a.int -% b.int };
-                    ins = code[pc];
-                    if (trace) {
-                        th.top = top;
-                        traceInstruction(th, fi, base, pc, ins);
-                    }
-                    pc += 1;
-                    th.frames.items[fi].pc = @intCast(pc);
-                    continue :sw d.opOf(ins);
-                }
-                th.top = top;
-                const r = th.arithMeta(.sub, a, b) catch |e| {
-                    th.top -= 2;
-                    try th.handleError(e, stop_depth);
-                    continue :outer;
-                };
-                top = th.top - 1;
-                stack = th.stack.ptr;
-                stack[top - 1] = r;
-                ins = code[pc];
-                if (trace) {
-                    th.top = top;
-                    traceInstruction(th, fi, base, pc, ins);
-                }
-                pc += 1;
-                th.frames.items[fi].pc = @intCast(pc);
-                continue :sw d.opOf(ins);
-            },
-            .mul, .div, .mod, .pow, .band, .bor, .bxor, .shl, .shr => {
-                const b = stack[top - 1];
-                const a = stack[top - 2];
-                th.top = top;
+                spill(trace, th, fi, pc, top);
                 const r = th.arithMeta(d.opOf(ins), a, b) catch |e| {
                     th.top -= 2;
                     try th.handleError(e, stop_depth);
@@ -172,14 +98,7 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 top = th.top - 1;
                 stack = th.stack.ptr;
                 stack[top - 1] = r;
-                ins = code[pc];
-                if (trace) {
-                    th.top = top;
-                    traceInstruction(th, fi, base, pc, ins);
-                }
-                pc += 1;
-                th.frames.items[fi].pc = @intCast(pc);
-                continue :sw d.opOf(ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
             },
             .neg => {
                 const a = stack[top - 1];
@@ -187,7 +106,7 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                     .int => |i| stack[top - 1] = .{ .int = 0 -% i },
                     .float => |f| stack[top - 1] = .{ .float = -f },
                     else => {
-                        th.top = top;
+                        spill(trace, th, fi, pc, top);
                         const f = metamethod(a, .null, "__unm");
                         if (f == .function) {
                             const r = th.call(f, &.{a}) catch |e| {
@@ -197,35 +116,21 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                             top = th.top;
                             stack = th.stack.ptr;
                             stack[top - 1] = r;
-                            ins = code[pc];
-                            if (trace) {
-                                th.top = top;
-                                traceInstruction(th, fi, base, pc, ins);
-                            }
-                            pc += 1;
-                            th.frames.items[fi].pc = @intCast(pc);
-                            continue :sw d.opOf(ins);
+                            continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
                         }
                         vm.setError("attempt to negate a {s} value", .{a.typeName()});
                         try th.handleError(error.Slang, stop_depth);
                         continue :outer;
                     },
                 }
-                ins = code[pc];
-                if (trace) {
-                    th.top = top;
-                    traceInstruction(th, fi, base, pc, ins);
-                }
-                pc += 1;
-                th.frames.items[fi].pc = @intCast(pc);
-                continue :sw d.opOf(ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
             },
             .bnot => {
                 const a = stack[top - 1];
                 if (a == .int) {
                     stack[top - 1] = .{ .int = ~a.int };
                 } else {
-                    th.top = top;
+                    spill(trace, th, fi, pc, top);
                     const r = bnotSlow(th, a) catch |e| {
                         try th.handleError(e, stop_depth);
                         continue :outer;
@@ -234,14 +139,7 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                     stack = th.stack.ptr;
                     stack[top - 1] = r;
                 }
-                ins = code[pc];
-                if (trace) {
-                    th.top = top;
-                    traceInstruction(th, fi, base, pc, ins);
-                }
-                pc += 1;
-                th.frames.items[fi].pc = @intCast(pc);
-                continue :sw d.opOf(ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
             },
             .not => {
                 // Read into a local first: writing `.{ .bool = ... }` straight
@@ -249,23 +147,26 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 // (Zig result-location semantics).
                 const v = stack[top - 1];
                 stack[top - 1] = .{ .bool = !v.truthy() };
-                ins = code[pc];
-                if (trace) {
-                    th.top = top;
-                    traceInstruction(th, fi, base, pc, ins);
-                }
-                pc += 1;
-                th.frames.items[fi].pc = @intCast(pc);
-                continue :sw d.opOf(ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
             },
             .eq => {
                 const b = stack[top - 1];
                 const a = stack[top - 2];
                 top -= 1;
+                if (a == .int and b == .int) {
+                    const r = a.int == b.int;
+                    stack[top - 1] = .{ .bool = r };
+                    continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+                }
+                if (a == .float and b == .float) {
+                    const r = a.float == b.float;
+                    stack[top - 1] = .{ .bool = r };
+                    continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+                }
                 if (a.kind() == b.kind() and (a == .table or a == .userdata)) {
                     const f = metamethod(a, b, "__eq");
                     if (f == .function) {
-                        th.top = top;
+                        spill(trace, th, fi, pc, top);
                         const r = th.call(f, &.{ a, b }) catch |e| {
                             th.top -= 1;
                             try th.handleError(e, stop_depth);
@@ -274,25 +175,11 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                         top = th.top;
                         stack = th.stack.ptr;
                         stack[top - 1] = .{ .bool = r.truthy() };
-                        ins = code[pc];
-                        if (trace) {
-                            th.top = top;
-                            traceInstruction(th, fi, base, pc, ins);
-                        }
-                        pc += 1;
-                        th.frames.items[fi].pc = @intCast(pc);
-                        continue :sw d.opOf(ins);
+                        continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
                     }
                 }
                 stack[top - 1] = .{ .bool = a.equals(b) };
-                ins = code[pc];
-                if (trace) {
-                    th.top = top;
-                    traceInstruction(th, fi, base, pc, ins);
-                }
-                pc += 1;
-                th.frames.items[fi].pc = @intCast(pc);
-                continue :sw d.opOf(ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
             },
             .lt, .leq => {
                 const b = stack[top - 1];
@@ -307,7 +194,7 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                     const y = b.asNumber();
                     r = if (is_lt) x < y else x <= y;
                 } else {
-                    th.top = top;
+                    spill(trace, th, fi, pc, top);
                     const name: []const u8 = if (is_lt) "__lt" else "__le";
                     const f = metamethod(a, b, name);
                     if (f == .function) {
@@ -319,14 +206,7 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                         top = th.top;
                         stack = th.stack.ptr;
                         stack[top - 1] = .{ .bool = res.truthy() };
-                        ins = code[pc];
-                        if (trace) {
-                            th.top = top;
-                            traceInstruction(th, fi, base, pc, ins);
-                        }
-                        pc += 1;
-                        th.frames.items[fi].pc = @intCast(pc);
-                        continue :sw d.opOf(ins);
+                        continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
                     }
                     th.top -= 1;
                     vm.setError("attempt to compare {s} {s} {s}", .{ a.typeName(), if (is_lt) "<" else "<=", b.typeName() });
@@ -334,39 +214,18 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                     continue :outer;
                 }
                 stack[top - 1] = .{ .bool = r };
-                ins = code[pc];
-                if (trace) {
-                    th.top = top;
-                    traceInstruction(th, fi, base, pc, ins);
-                }
-                pc += 1;
-                th.frames.items[fi].pc = @intCast(pc);
-                continue :sw d.opOf(ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
             },
             .move => {
                 const v = stack[top - 1];
                 top -= 1;
                 stack[absIndex(top, base, d.argSBx(ins))] = v;
-                ins = code[pc];
-                if (trace) {
-                    th.top = top;
-                    traceInstruction(th, fi, base, pc, ins);
-                }
-                pc += 1;
-                th.frames.items[fi].pc = @intCast(pc);
-                continue :sw d.opOf(ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
             },
             .push => {
                 stack[top] = stack[absIndex(top, base, d.argSBx(ins))];
                 top += 1;
-                ins = code[pc];
-                if (trace) {
-                    th.top = top;
-                    traceInstruction(th, fi, base, pc, ins);
-                }
-                pc += 1;
-                th.frames.items[fi].pc = @intCast(pc);
-                continue :sw d.opOf(ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
             },
             .pop => {
                 const keep: usize = d.argA(ins);
@@ -375,14 +234,7 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                     std.mem.copyForwards(Value, stack[top - drop - keep .. top - drop], stack[top - keep .. top]);
                 }
                 top -= drop;
-                ins = code[pc];
-                if (trace) {
-                    th.top = top;
-                    traceInstruction(th, fi, base, pc, ins);
-                }
-                pc += 1;
-                th.frames.items[fi].pc = @intCast(pc);
-                continue :sw d.opOf(ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
             },
             .@"return" => {
                 var res = stack[top - 1];
@@ -392,23 +244,29 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 th.popFrame();
                 th.top = fn_idx;
                 if (prot) res = okResult(th, res);
-                th.push(res);
+                th.stack[fn_idx] = res;
+                th.top = fn_idx + 1;
                 if (th.frames.items.len == stop_depth) return;
-                continue :outer;
+                // the caller's frame, without leaving the switch (every
+                // frame above stop_depth is a slang frame: natives that
+                // call back run their own loop)
+                fi = th.frames.items.len - 1;
+                const fr = th.frames.items[fi];
+                proto = fr.cl.proto.?;
+                code = proto.code;
+                consts = proto.consts;
+                base = fr.base;
+                pc = fr.pc;
+                top = th.top;
+                stack = th.stack.ptr;
+                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
             },
             .new_table => {
                 th.top = top;
                 gc.safePoint(vm, th);
                 stack[top] = .{ .table = vm.newTable(d.argB(ins), d.argC(ins)) };
                 top += 1;
-                ins = code[pc];
-                if (trace) {
-                    th.top = top;
-                    traceInstruction(th, fi, base, pc, ins);
-                }
-                pc += 1;
-                th.frames.items[fi].pc = @intCast(pc);
-                continue :sw d.opOf(ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
             },
             .set_table => {
                 const val = stack[top - 1];
@@ -423,31 +281,22 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                     const s = key.string;
                     if (!s.isMeta() and (if (t.meta) |m| !m.hasNewindex(vm.newindex_name) or t.replaceStr(s, val) else true)) {
                         t.setStr(gpa, s, val);
-                        ins = code[pc];
-                        if (trace) {
-                            th.top = top;
-                            traceInstruction(th, fi, base, pc, ins);
-                        }
-                        pc += 1;
-                        th.frames.items[fi].pc = @intCast(pc);
-                        continue :sw d.opOf(ins);
+                        continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+                    }
+                } else if (obj == .userdata and key == .int) {
+                    // an element of a buffer of scalars
+                    if (ctypes.bufferSet(obj.userdata, key.int, val)) {
+                        continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
                     }
                 }
-                th.top = top;
+                spill(trace, th, fi, pc, top);
                 th.setTable(obj, key, val) catch |e| {
                     try th.handleError(e, stop_depth);
                     continue :outer;
                 };
                 top = th.top;
                 stack = th.stack.ptr;
-                ins = code[pc];
-                if (trace) {
-                    th.top = top;
-                    traceInstruction(th, fi, base, pc, ins);
-                }
-                pc += 1;
-                th.frames.items[fi].pc = @intCast(pc);
-                continue :sw d.opOf(ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
             },
             .get_table => {
                 const key = stack[top - 1];
@@ -462,27 +311,19 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                     };
                     if (v != .null or t.meta == null) {
                         stack[top - 1] = v;
-                        ins = code[pc];
-                        if (trace) {
-                            th.top = top;
-                            traceInstruction(th, fi, base, pc, ins);
-                        }
-                        pc += 1;
-                        th.frames.items[fi].pc = @intCast(pc);
-                        continue :sw d.opOf(ins);
+                        continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
                     }
                     // a miss on a table with a metatable: walk __index
                     // tables inline, leaving functions to the slow path
                     if (getChain(t, key, vm.index_name)) |r| {
                         stack[top - 1] = r;
-                        ins = code[pc];
-                        if (trace) {
-                            th.top = top;
-                            traceInstruction(th, fi, base, pc, ins);
-                        }
-                        pc += 1;
-                        th.frames.items[fi].pc = @intCast(pc);
-                        continue :sw d.opOf(ins);
+                        continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+                    }
+                } else if (obj == .userdata and key == .int) {
+                    // an element of a buffer of scalars
+                    if (ctypes.bufferGet(obj.userdata, key.int)) |v| {
+                        stack[top - 1] = v;
+                        continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
                     }
                 } else if (obj == .userdata and key == .string) {
                     // a method of a userdata: its metatable's __index table
@@ -492,20 +333,13 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                             const v = idx.table.getStr(key.string);
                             if (v != .null) {
                                 stack[top - 1] = v;
-                                ins = code[pc];
-                                if (trace) {
-                                    th.top = top;
-                                    traceInstruction(th, fi, base, pc, ins);
-                                }
-                                pc += 1;
-                                th.frames.items[fi].pc = @intCast(pc);
-                                continue :sw d.opOf(ins);
+                                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
                             }
                         }
                     }
                 }
                 top -= 1;
-                th.top = top;
+                spill(trace, th, fi, pc, top);
                 const v = th.getTable(obj, key) catch |e| {
                     try th.handleError(e, stop_depth);
                     continue :outer;
@@ -514,82 +348,40 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 stack = th.stack.ptr;
                 stack[top] = v;
                 top += 1;
-                ins = code[pc];
-                if (trace) {
-                    th.top = top;
-                    traceInstruction(th, fi, base, pc, ins);
-                }
-                pc += 1;
-                th.frames.items[fi].pc = @intCast(pc);
-                continue :sw d.opOf(ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
             },
             .set_upvalue => {
                 const v = stack[top - 1];
                 top -= 1;
                 th.frames.items[fi].cl.upvals[d.argAx(ins)].set(v);
-                ins = code[pc];
-                if (trace) {
-                    th.top = top;
-                    traceInstruction(th, fi, base, pc, ins);
-                }
-                pc += 1;
-                th.frames.items[fi].pc = @intCast(pc);
-                continue :sw d.opOf(ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
             },
             .get_upvalue => {
                 stack[top] = th.frames.items[fi].cl.upvals[d.argAx(ins)].get();
                 top += 1;
-                ins = code[pc];
-                if (trace) {
-                    th.top = top;
-                    traceInstruction(th, fi, base, pc, ins);
-                }
-                pc += 1;
-                th.frames.items[fi].pc = @intCast(pc);
-                continue :sw d.opOf(ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
             },
             .close_upvalues => {
                 th.closeUpvalues(base + d.argAx(ins));
-                ins = code[pc];
-                if (trace) {
-                    th.top = top;
-                    traceInstruction(th, fi, base, pc, ins);
-                }
-                pc += 1;
-                th.frames.items[fi].pc = @intCast(pc);
-                continue :sw d.opOf(ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
             },
             .@"test" => {
                 const v = stack[top - 1];
                 top -= 1;
                 if (v.truthy() != (d.argC(ins) != 0)) pc += 1;
-                ins = code[pc];
-                if (trace) {
-                    th.top = top;
-                    traceInstruction(th, fi, base, pc, ins);
-                }
-                pc += 1;
-                th.frames.items[fi].pc = @intCast(pc);
-                continue :sw d.opOf(ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
             },
             .jump => {
                 const off = d.argSBx(ins);
                 if (off < 0) {
-                    th.top = top;
+                    spill(trace, th, fi, pc, top);
                     gc.safePoint(vm, th);
                 }
                 pc = @intCast(@as(i64, @intCast(pc)) + off);
-                ins = code[pc];
-                if (trace) {
-                    th.top = top;
-                    traceInstruction(th, fi, base, pc, ins);
-                }
-                pc += 1;
-                th.frames.items[fi].pc = @intCast(pc);
-                continue :sw d.opOf(ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
             },
             .call_spread => {
-                th.top = top;
+                spill(trace, th, fi, pc, top);
                 gc.safePoint(vm, th);
                 const fixed: usize = d.argBx(ins);
                 const list = stack[top - 1];
@@ -600,7 +392,7 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 }
                 const items = list.table.arr.items;
                 top -= 1;
-                th.top = top;
+                spill(trace, th, fi, pc, top);
                 th.ensure(top + items.len + 8) catch |e| {
                     try th.handleError(e, stop_depth);
                     continue :outer;
@@ -610,27 +402,32 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                     stack[top] = v;
                     top += 1;
                 }
-                th.top = top;
+                spill(trace, th, fi, pc, top);
                 const nargs = fixed + items.len;
                 const fn_idx = top - nargs - 1;
                 const is_slang = th.precall(fn_idx, nargs, false) catch |e| {
                     try th.handleError(e, stop_depth);
                     continue :outer;
                 };
-                if (is_slang) continue :outer;
+                if (is_slang) {
+                    // the callee's frame, without leaving the switch
+                    fi = th.frames.items.len - 1;
+                    const fr = th.frames.items[fi];
+                    proto = fr.cl.proto.?;
+                    code = proto.code;
+                    consts = proto.consts;
+                    base = fr.base;
+                    pc = fr.pc;
+                    top = th.top;
+                    stack = th.stack.ptr;
+                    continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+                }
                 top = th.top;
                 stack = th.stack.ptr;
-                ins = code[pc];
-                if (trace) {
-                    th.top = top;
-                    traceInstruction(th, fi, base, pc, ins);
-                }
-                pc += 1;
-                th.frames.items[fi].pc = @intCast(pc);
-                continue :sw d.opOf(ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
             },
             .call => {
-                th.top = top;
+                spill(trace, th, fi, pc, top);
                 gc.safePoint(vm, th);
                 const nargs: usize = d.argBx(ins);
                 const fn_idx = top - nargs - 1;
@@ -638,21 +435,26 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                     try th.handleError(e, stop_depth);
                     continue :outer;
                 };
-                if (is_slang) continue :outer;
+                if (is_slang) {
+                    // the callee's frame, without leaving the switch
+                    fi = th.frames.items.len - 1;
+                    const fr = th.frames.items[fi];
+                    proto = fr.cl.proto.?;
+                    code = proto.code;
+                    consts = proto.consts;
+                    base = fr.base;
+                    pc = fr.pc;
+                    top = th.top;
+                    stack = th.stack.ptr;
+                    continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+                }
                 top = th.top;
                 stack = th.stack.ptr;
-                ins = code[pc];
-                if (trace) {
-                    th.top = top;
-                    traceInstruction(th, fi, base, pc, ins);
-                }
-                pc += 1;
-                th.frames.items[fi].pc = @intCast(pc);
-                continue :sw d.opOf(ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
             },
             .type => {
                 const v = stack[top - 1];
-                th.top = top;
+                spill(trace, th, fi, pc, top);
                 const r = th.typeOf(v) catch |e| {
                     th.top -= 1;
                     try th.handleError(e, stop_depth);
@@ -661,14 +463,7 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 top = th.top;
                 stack = th.stack.ptr;
                 stack[top - 1] = r;
-                ins = code[pc];
-                if (trace) {
-                    th.top = top;
-                    traceInstruction(th, fi, base, pc, ins);
-                }
-                pc += 1;
-                th.frames.items[fi].pc = @intCast(pc);
-                continue :sw d.opOf(ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
             },
             .try_begin => {
                 const off = d.argSBx(ins);
@@ -678,39 +473,47 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                     .top = @intCast(top),
                     .close_from = @intCast(base + d.argA(ins)),
                 });
-                ins = code[pc];
-                if (trace) {
-                    th.top = top;
-                    traceInstruction(th, fi, base, pc, ins);
-                }
-                pc += 1;
-                th.frames.items[fi].pc = @intCast(pc);
-                continue :sw d.opOf(ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
             },
             .try_end => {
                 _ = th.handlers.pop();
-                ins = code[pc];
-                if (trace) {
-                    th.top = top;
-                    traceInstruction(th, fi, base, pc, ins);
-                }
-                pc += 1;
-                th.frames.items[fi].pc = @intCast(pc);
-                continue :sw d.opOf(ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
             },
             .throw => {
                 const v = stack[top - 1];
-                th.top = top - 1;
+                spill(trace, th, fi, pc, top - 1);
                 vm.setErrorFromValue(v);
                 try th.handleError(error.Slang, stop_depth);
                 continue :outer;
             },
             _ => {
-                th.top = top;
+                spill(trace, th, fi, pc, top);
                 return vm.raise("unknown opcode {d}", .{ins & 0x3F});
             },
         }
     }
+}
+
+/// Fetches the next instruction and returns its opcode. The trace build
+/// (profiler, debugger, SLANG_TRACE) also runs the hook and keeps the
+/// frame's pc current at every instruction.
+inline fn fetch(comptime trace: bool, th: *Thread, code: []const u32, fi: usize, base: usize, pc: *usize, top: usize, ins: *u32) Op {
+    ins.* = code[pc.*];
+    if (trace) {
+        th.top = top;
+        traceInstruction(th, fi, base, pc.*, ins.*);
+    }
+    pc.* += 1;
+    if (trace) th.frames.items[fi].pc = @intCast(pc.*);
+    return d.opOf(ins.*);
+}
+
+/// Before anything that can raise, call, yield or collect: the thread's
+/// top and the frame's pc (which error locations, tracebacks and the
+/// return from a call read) are stored. The hot opcodes skip this.
+inline fn spill(comptime trace: bool, th: *Thread, fi: usize, pc: usize, top: usize) void {
+    th.top = top;
+    if (!trace) th.frames.items[fi].pc = @intCast(pc);
 }
 
 fn traceInstruction(th: *Thread, fi: usize, base: usize, pc: usize, ins: u32) void {
@@ -877,6 +680,60 @@ fn bnotSlow(th: *Thread, a: Value) Error!Value {
     return th.vm.raise("attempt to perform bitwise operation (~) on a {s} value", .{a.typeName()});
 }
 
+/// + - * / % ^ on two integers: null for a modulo by zero (an error).
+inline fn intArith(op: Op, x: i64, y: i64) ?Value {
+    switch (op) {
+        .add => return .{ .int = x +% y },
+        .sub => return .{ .int = x -% y },
+        .mul => return .{ .int = x *% y },
+        .div => return .{ .float = @as(f64, @floatFromInt(x)) / @as(f64, @floatFromInt(y)) },
+        .mod => {
+            if (y == 0) return null;
+            if (y == -1) return .{ .int = 0 };
+            var r = @rem(x, y);
+            if (r < 0) r = if (y < 0) r - y else r + y;
+            return .{ .int = r };
+        },
+        .pow => {
+            if (y >= 0) {
+                var r: i64 = 1;
+                var bs = x;
+                var e = y;
+                while (e > 0) {
+                    if (e & 1 == 1) r *%= bs;
+                    bs *%= bs;
+                    e >>= 1;
+                }
+                return .{ .int = r };
+            }
+            return .{ .float = std.math.pow(f64, @floatFromInt(x), @floatFromInt(y)) };
+        },
+        else => unreachable,
+    }
+}
+
+inline fn floatArith(op: Op, x: f64, y: f64) Value {
+    return switch (op) {
+        .add => .{ .float = x + y },
+        .sub => .{ .float = x - y },
+        .mul => .{ .float = x * y },
+        .div => .{ .float = x / y },
+        .mod => .{ .float = floatMod(x, y) },
+        .pow => .{ .float = std.math.pow(f64, x, y) },
+        else => unreachable,
+    };
+}
+
+/// + - * / % ^ on numbers: int and int, float and float, then mixed; null
+/// when an operand is not a number (or for an integer modulo by zero).
+/// The opcodes call this with a comptime op, so each folds to its case.
+inline fn numArith(op: Op, a: Value, b: Value) ?Value {
+    if (a == .int and b == .int) return intArith(op, a.int, b.int);
+    if (a == .float and b == .float) return floatArith(op, a.float, b.float);
+    if (a.isNumber() and b.isNumber()) return floatArith(op, a.asNumber(), b.asNumber());
+    return null;
+}
+
 /// A binary arithmetic operation on built-in types. Returns null when the
 /// operands do not support it.
 fn arith(th: *Thread, op: Op, a: Value, b: Value) ?Value {
@@ -885,51 +742,7 @@ fn arith(th: *Thread, op: Op, a: Value, b: Value) ?Value {
         const y = exactInt(b) orelse return null;
         return bitop(op, x, y);
     }
-    if (a == .int and b == .int) {
-        const x = a.int;
-        const y = b.int;
-        switch (op) {
-            .add => return .{ .int = x +% y },
-            .sub => return .{ .int = x -% y },
-            .mul => return .{ .int = x *% y },
-            .div => return .{ .float = @as(f64, @floatFromInt(x)) / @as(f64, @floatFromInt(y)) },
-            .mod => {
-                if (y == 0) return null;
-                if (y == -1) return .{ .int = 0 };
-                var r = @rem(x, y);
-                if (r < 0) r = if (y < 0) r - y else r + y;
-                return .{ .int = r };
-            },
-            .pow => {
-                if (y >= 0) {
-                    var r: i64 = 1;
-                    var bs = x;
-                    var e = y;
-                    while (e > 0) {
-                        if (e & 1 == 1) r *%= bs;
-                        bs *%= bs;
-                        e >>= 1;
-                    }
-                    return .{ .int = r };
-                }
-                return .{ .float = std.math.pow(f64, @floatFromInt(x), @floatFromInt(y)) };
-            },
-            else => unreachable,
-        }
-    }
-    if (a.isNumber() and b.isNumber()) {
-        const x = a.asNumber();
-        const y = b.asNumber();
-        return switch (op) {
-            .add => .{ .float = x + y },
-            .sub => .{ .float = x - y },
-            .mul => .{ .float = x * y },
-            .div => .{ .float = x / y },
-            .mod => .{ .float = floatMod(x, y) },
-            .pow => .{ .float = std.math.pow(f64, x, y) },
-            else => unreachable,
-        };
-    }
+    if (numArith(op, a, b)) |r| return r;
     if (a == .string) {
         switch (op) {
             .add => if (b == .string) {

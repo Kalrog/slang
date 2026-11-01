@@ -14,7 +14,7 @@ const stdlib = @import("stdlib.zig");
 pub fn module(vm: *VM) *Table {
     return stdlib.makeModule(vm, &.{
         .{ .name = "crc32", .f = crc32 },
-        .{ .name = "fnv1a", .f = fnv1a },
+        stdlib.fast("fnv1a", fnv1a),
         .{ .name = "sha256", .f = sha256 },
     });
 }

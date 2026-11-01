@@ -16,11 +16,28 @@ const bundle = @import("../bundle/exe.zig");
 pub const Native = struct {
     name: []const u8,
     f: NativeFn,
+    /// Called without a frame of its own (cheaper): f reads only `args`
+    /// and the VM, never th.arg, th.nargs, th.currentClosure or th.top,
+    /// does not call back into slang and does not yield. On an error the
+    /// frame is made up, so the traceback still names the native. The
+    /// profiler turns this off so that samples are attributed.
+    frameless: bool = false,
+
+    pub fn value(n: Native, vm: *VM) Value {
+        const cl = vm.newNative(n.name, n.f, &.{});
+        if (n.frameless) cl.special = .frameless;
+        return .{ .function = cl };
+    }
 };
+
+/// A native that runs without a frame (see Native.frameless).
+pub fn fast(name: []const u8, f: NativeFn) Native {
+    return .{ .name = name, .f = f, .frameless = true };
+}
 
 pub fn makeModule(vm: *VM, natives: []const Native) *Table {
     const t = vm.newTable(0, natives.len);
-    for (natives) |n| t.set(vm.gpa, vm.str(n.name), vm.nativeValue(n.name, n.f));
+    for (natives) |n| t.set(vm.gpa, vm.str(n.name), n.value(vm));
     return t;
 }
 

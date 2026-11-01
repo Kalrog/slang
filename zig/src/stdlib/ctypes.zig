@@ -15,7 +15,7 @@
 //!     frees), a slice of another buffer (keeping it alive), or wrapping C
 //!     memory of a known length. b[i] is checked against the count; string
 //!     keys are methods. The VM indexes buffers of scalars without a call
-//!     (fastGet and fastSet below).
+//!     (bufferGet and bufferSet below).
 //!
 //! Values convert as follows (slang -> C, and back):
 //!   bool and the integer and float types: numbers (and bools)
@@ -409,9 +409,9 @@ inline fn fieldOf(tbl: *const Table, key: *String) Value {
 /// Type is never freed, so neither are its keys).
 fn pinKey(vm: *VM, name: []const u8) *String {
     const s = vm.newString(name);
-    const pins = vm.registry.getName("ffi_keys").asTable() orelse blk: {
+    const pins = vm.registry.getName("ctypes_keys").asTable() orelse blk: {
         const t = vm.newTable(0, 16);
-        vm.registry.set(vm.gpa, vm.str("ffi_keys"), .{ .table = t });
+        vm.registry.set(vm.gpa, vm.str("ctypes_keys"), .{ .table = t });
         break :blk t;
     };
     pins.set(vm.gpa, .{ .string = s }, .{ .bool = true });
@@ -913,23 +913,116 @@ fn bufPointer(th: *Thread, args: []Value) Error!Value {
     return newPointer(th.vm, p.addr, p.ty, ownerOf(u));
 }
 
-/// b[i] without a call, for the VM: null when the key or the element type
-/// is not the fast case (the metatable handles it then).
-pub fn fastGet(th: *Thread, u: *Userdata, i: i64) Error!?Value {
-    const p = u.as(Ptr);
-    const t = p.ty.?;
-    if (!t.isScalar()) return null;
-    if (i < 0 or i >= p.count) return th.vm.raise("buffer index {d} out of range (length {d})", .{ i, p.count });
-    const src: [*]const u8 = @ptrFromInt(p.addr + @as(usize, @intCast(i)) * t.size);
-    return fromC(th.vm, t, src, .null);
+/// v as a C integer: ints as they are, floats truncated (clamped, nan as
+/// 0), bools as 0 or 1; null for anything else.
+pub inline fn intOf(v: Value) ?i64 {
+    return switch (v) {
+        .int => |i| i,
+        .float => |f| if (std.math.isFinite(f)) @intFromFloat(std.math.clamp(f, -9.2e18, 9.2e18)) else 0,
+        .bool => |b| @intFromBool(b),
+        else => null,
+    };
 }
 
-/// b[i] = v without a call: false when it is not the fast case.
+/// v as a C floating point number: null for anything but a number or bool.
+pub inline fn numOf(v: Value) ?f64 {
+    return switch (v) {
+        .int => |i| @floatFromInt(i),
+        .float => |f| f,
+        .bool => |b| if (b) 1 else 0,
+        else => null,
+    };
+}
+
+/// The scalar of type t at src (t.isScalar() holds).
+pub inline fn scalarGet(t: *const Type, src: [*]const u8) Value {
+    return switch (t.kind) {
+        .bool => .{ .bool = src[0] != 0 },
+        .i8 => .{ .int = load(i8, src) },
+        .u8 => .{ .int = load(u8, src) },
+        .i16 => .{ .int = load(i16, src) },
+        .u16 => .{ .int = load(u16, src) },
+        .i32 => .{ .int = load(i32, src) },
+        .u32 => .{ .int = load(u32, src) },
+        .i64 => .{ .int = load(i64, src) },
+        .u64 => .{ .int = @bitCast(load(u64, src)) },
+        .f32 => .{ .float = load(f32, src) },
+        .f64 => .{ .float = load(f64, src) },
+        else => unreachable,
+    };
+}
+
+/// Stores v as the scalar type t at dst (t.isScalar() holds): false when
+/// v is not a number (Conv.toC then raises the message).
+pub inline fn scalarSet(t: *const Type, dst: [*]u8, v: Value) bool {
+    switch (t.kind) {
+        .bool => dst[0] = @intFromBool(v.truthy()),
+        .f32 => store(f32, dst, @floatCast(numOf(v) orelse return false)),
+        .f64 => store(f64, dst, numOf(v) orelse return false),
+        else => {
+            const i = intOf(v) orelse return false;
+            switch (t.kind) {
+                .i8 => store(i8, dst, @truncate(i)),
+                .u8 => store(u8, dst, @truncate(@as(u64, @bitCast(i)))),
+                .i16 => store(i16, dst, @truncate(i)),
+                .u16 => store(u16, dst, @truncate(@as(u64, @bitCast(i)))),
+                .i32 => store(i32, dst, @truncate(i)),
+                .u32 => store(u32, dst, @truncate(@as(u64, @bitCast(i)))),
+                .i64 => store(i64, dst, i),
+                .u64 => store(u64, dst, @bitCast(i)),
+                else => unreachable,
+            }
+        },
+    }
+    return true;
+}
+
+/// u[i] for the VM's get_table: the element when u is a buffer of scalars
+/// and i is in range, else null (fastGet then raises or the metatable
+/// answers).
+pub inline fn bufferGet(u: *Userdata, i: i64) ?Value {
+    if (u.kind != .buffer) return null;
+    const p = u.as(Ptr);
+    const t = p.ty.?;
+    const idx: usize = @bitCast(i);
+    if (!t.isScalar() or idx >= p.count) return null;
+    return scalarGet(t, @ptrFromInt(p.addr + idx * t.size));
+}
+
+/// u[i] = v for the VM's set_table: false when it is not the fast case
+/// (fastSet then raises or the metatable takes it).
+pub inline fn bufferSet(u: *Userdata, i: i64, v: Value) bool {
+    if (u.kind != .buffer) return false;
+    const p = u.as(Ptr);
+    const t = p.ty.?;
+    const idx: usize = @bitCast(i);
+    if (!t.isScalar() or idx >= p.count) return false;
+    return scalarSet(t, @ptrFromInt(p.addr + idx * t.size), v);
+}
+
+fn indexError(th: *Thread, p: *const Ptr, i: i64) Error {
+    return th.vm.raise("buffer index {d} out of range (length {d})", .{ i, p.count });
+}
+
+/// The slow path of bufferGet: the element, an error for an index out of
+/// range, or null when the element type is not a scalar (the metatable
+/// handles it then).
+pub fn fastGet(th: *Thread, u: *Userdata, i: i64) Error!?Value {
+    if (bufferGet(u, i)) |v| return v;
+    const p = u.as(Ptr);
+    if (!p.ty.?.isScalar()) return null;
+    return indexError(th, p, i);
+}
+
+/// The slow path of bufferSet: stores, or raises for an index out of
+/// range or a value that is not a number; false when the element type is
+/// not a scalar.
 pub fn fastSet(th: *Thread, u: *Userdata, i: i64, v: Value) Error!bool {
+    if (bufferSet(u, i, v)) return true;
     const p = u.as(Ptr);
     const t = p.ty.?;
     if (!t.isScalar()) return false;
-    if (i < 0 or i >= p.count) return th.vm.raise("buffer index {d} out of range (length {d})", .{ i, p.count });
+    if (i < 0 or i >= p.count) return indexError(th, p, i);
     var conv = Conv{ .th = th };
     try conv.toC(v, t, @ptrFromInt(p.addr + @as(usize, @intCast(i)) * t.size), false);
     return true;
@@ -976,21 +1069,11 @@ pub const Conv = struct {
     }
 
     fn number(c: *Conv, t: *Type, v: Value) Error!f64 {
-        return switch (v) {
-            .int => |i| @floatFromInt(i),
-            .float => |f| f,
-            .bool => |b| if (b) 1 else 0,
-            else => c.fail(t, v),
-        };
+        return numOf(v) orelse c.fail(t, v);
     }
 
     fn integer(c: *Conv, t: *Type, v: Value) Error!i64 {
-        return switch (v) {
-            .int => |i| i,
-            .float => |f| if (std.math.isFinite(f)) @intFromFloat(std.math.clamp(f, -9.2e18, 9.2e18)) else 0,
-            .bool => |b| @intFromBool(b),
-            else => c.fail(t, v),
-        };
+        return intOf(v) orelse c.fail(t, v);
     }
 
     fn temp(c: *Conv, t: *Type, n: usize, v: Value) Error![*]u8 {
@@ -1168,17 +1251,7 @@ fn fillTable(vm: *VM, t: *Type, src: [*]const u8, tbl: *Table, fresh: bool) void
 pub fn fromC(vm: *VM, t: *Type, src: [*]const u8, owner: Value) Value {
     return switch (t.kind) {
         .void => .null,
-        .bool => .{ .bool = src[0] != 0 },
-        .i8 => .{ .int = load(i8, src) },
-        .u8 => .{ .int = load(u8, src) },
-        .i16 => .{ .int = load(i16, src) },
-        .u16 => .{ .int = load(u16, src) },
-        .i32 => .{ .int = load(i32, src) },
-        .u32 => .{ .int = load(u32, src) },
-        .i64 => .{ .int = load(i64, src) },
-        .u64 => .{ .int = @bitCast(load(u64, src)) },
-        .f32 => .{ .float = load(f32, src) },
-        .f64 => .{ .float = load(f64, src) },
+        .bool, .i8, .u8, .i16, .u16, .i32, .u32, .i64, .u64, .f32, .f64 => scalarGet(t, src),
         .pointer => newPointer(vm, load(usize, src), t.elem, owner),
         .function => newPointer(vm, load(usize, src), null, owner),
         .string => blk: {

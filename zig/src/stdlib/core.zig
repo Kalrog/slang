@@ -16,24 +16,24 @@ pub fn open(vm: *VM) void {
         .{ .name = "print", .f = corePrint },
         .{ .name = "args", .f = coreArgs },
         .{ .name = "assert", .f = coreAssert },
-        .{ .name = "append", .f = coreAppend },
-        .{ .name = "remove", .f = coreRemove },
+        stdlib.fast("append", coreAppend),
+        stdlib.fast("remove", coreRemove),
         .{ .name = "keys", .f = coreKeys },
         .{ .name = "values", .f = coreValues },
         .{ .name = "entries", .f = coreEntries },
         .{ .name = "concat", .f = coreConcat },
         .{ .name = "error", .f = coreError },
-        .{ .name = "len", .f = coreLen },
-        .{ .name = "type", .f = coreType },
-        .{ .name = "set_raw", .f = coreSetRaw },
-        .{ .name = "get_raw", .f = coreGetRaw },
-        .{ .name = "to_int", .f = coreToInt },
-        .{ .name = "to_float", .f = coreToFloat },
+        stdlib.fast("len", coreLen),
+        stdlib.fast("type", coreType),
+        stdlib.fast("set_raw", coreSetRaw),
+        stdlib.fast("get_raw", coreGetRaw),
+        stdlib.fast("to_int", coreToInt),
+        stdlib.fast("to_float", coreToFloat),
         .{ .name = "string", .f = coreString },
-        .{ .name = "list_push", .f = coreListPush },
+        stdlib.fast("list_push", coreListPush),
         .{ .name = "raise", .f = coreRaise },
     };
-    for (core) |n| vm.register(n.name, n.f);
+    for (core) |n| vm.setGlobal(n.name, n.value(vm));
     @import("file.zig").init(vm);
 
     const pcall = vm.newNative("pcall", pcallNative, &.{});

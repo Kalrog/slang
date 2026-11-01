@@ -15,9 +15,9 @@ const decodeRune = @import("stringlib.zig").decodeRune;
 pub fn module(vm: *VM) *Table {
     return stdlib.makeModule(vm, &.{
         .{ .name = "valid", .f = utf8Valid },
-        .{ .name = "count", .f = utf8Count },
+        stdlib.fast("count", utf8Count),
         .{ .name = "char", .f = utf8Char },
-        .{ .name = "code_at", .f = utf8CodeAt },
+        stdlib.fast("code_at", utf8CodeAt),
         .{ .name = "size_at", .f = utf8SizeAt },
         .{ .name = "utf16_len", .f = utf8Utf16Len },
     });

@@ -10,7 +10,7 @@
 #   make test-gui     the webview tests (macOS; they open and close windows)
 #   make seed         re-generate the seed with bin/slang itself (self-hosting), then rebuild
 #   make fixpoint     check that the seed compiles itself to identical bytecode
-#   make bench        run bench/
+#   make bench        run bench/ (bench/run_all.sh adds the Lua ports and the C sawtooth)
 #   make raylib-test  run the raylib package's tests (packages/raylib; needs raylib installed)
 #   make box2d-test   run the box2d package's tests (packages/box2d; needs Box2D 3 installed)
 #   make jolt-test    run the jolt package's tests (packages/jolt; ships its own Jolt)
@@ -128,7 +128,7 @@ fixpoint: build
 	@echo "fixpoint: ok"
 
 bench: build
-	@for b in bench/fib bench/dijkstra bench/tables bench/strings bench/compile; do bin/slang run $$b.slang; done
+	@for b in bench/fib bench/dijkstra bench/tables bench/strings bench/compile bench/micro bench/audio; do bin/slang run $$b.slang; done
 
 # the raylib package calls the installed raylib through slang/ffi
 RAYLIB_H := $(firstword $(wildcard $(RAYLIB_PREFIX)/include/raylib.h /opt/homebrew/include/raylib.h /usr/local/include/raylib.h /usr/include/raylib.h))

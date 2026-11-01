@@ -61,6 +61,8 @@ pub const Thread = struct {
     run_depth: u32 = 0,
     yielded: Value = .null,
     is_main: bool = false,
+    /// temporary memory of the C calls made on this thread (slang/ffi)
+    scratch: root.Scratch = .{},
 
     pub const initial_stack = 256;
     pub const max_stack = 1 << 24;
@@ -77,6 +79,7 @@ pub const Thread = struct {
         th.frames.deinit(th.vm.gpa);
         th.handlers.deinit(th.vm.gpa);
         th.open_upvals.deinit(th.vm.gpa);
+        th.scratch.deinit(th.vm.gpa);
     }
 
     pub fn depth(th: *const Thread) usize {

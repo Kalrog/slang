@@ -174,6 +174,7 @@ pub fn collect(vm: *VM) void {
     m.drain();
 
     sweep(vm);
+    vm.compactStrings();
     vm.collections += 1;
     vm.next_gc = if (build_options.gc_stress)
         vm.bytes_allocated + stress_step
@@ -199,7 +200,7 @@ fn freeObject(vm: *VM, o: *Object) void {
     switch (o.kind) {
         .string => {
             const s: *String = @alignCast(@fieldParentPtr("obj", o));
-            if (s.interned) _ = vm.strings.remove(s);
+            if (s.interned and vm.strings.remove(s)) vm.strings_removed += 1;
             const mem: [*]align(@alignOf(String)) u8 = @ptrCast(s);
             gpa.free(mem[0..String.allocSize(s.len)]);
         },

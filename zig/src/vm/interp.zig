@@ -416,9 +416,13 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 const obj = stack[top - 3];
                 top -= 3;
                 if (obj == .table and key == .string) {
+                    // inline unless the store could go to a __newindex:
+                    // the key is "meta", or the table has a metatable with
+                    // __newindex and the key is new
                     const t = obj.table;
-                    if (t.meta == null and !key.string.eqlBytes("meta")) {
-                        t.setStr(gpa, key.string, val);
+                    const s = key.string;
+                    if (!s.isMeta() and (if (t.meta) |m| !m.hasNewindex(vm.newindex_name) or t.replaceStr(s, val) else true)) {
+                        t.setStr(gpa, s, val);
                         ins = code[pc];
                         if (trace) {
                             th.top = top;
@@ -458,6 +462,19 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                     };
                     if (v != .null or t.meta == null) {
                         stack[top - 1] = v;
+                        ins = code[pc];
+                        if (trace) {
+                            th.top = top;
+                            traceInstruction(th, fi, base, pc, ins);
+                        }
+                        pc += 1;
+                        th.frames.items[fi].pc = @intCast(pc);
+                        continue :sw d.opOf(ins);
+                    }
+                    // a miss on a table with a metatable: walk __index
+                    // tables inline, leaving functions to the slow path
+                    if (getChain(t, key, vm.index_name)) |r| {
+                        stack[top - 1] = r;
                         ins = code[pc];
                         if (trace) {
                             th.top = top;
@@ -718,6 +735,26 @@ fn traceInstruction(th: *Thread, fi: usize, base: usize, pc: usize, ins: u32) vo
     var ew = std.Io.File.stderr().writerStreaming(th.vm.io, &eb);
     ew.interface.writeAll(w.buffered()) catch {};
     ew.interface.flush() catch {};
+}
+
+/// The __index chain over tables for a key t0 does not have: the value
+/// (null when the chain ends without one), or null when an __index
+/// function or anything else needs the generic path (getTable).
+inline fn getChain(t0: *Table, key: Value, index_name: *String) ?Value {
+    var t = t0;
+    var depth: usize = 0;
+    while (depth < 100) : (depth += 1) {
+        const m = t.meta orelse return .null;
+        const idx = m.getStr(index_name);
+        switch (idx) {
+            .table => |n| t = n,
+            .null => return .null,
+            else => return null,
+        }
+        const v = t.get(key);
+        if (v != .null) return v;
+    }
+    return null;
 }
 
 inline fn absIndex(top: usize, base: usize, idx: i32) usize {
@@ -1030,7 +1067,7 @@ pub const ThreadOps = struct {
     }
 
     pub fn rawSet(th: *Thread, t: *Table, key: Value, val: Value) Error!void {
-        if (key == .string and key.string.eqlBytes("meta")) {
+        if (key == .string and key.string.isMeta()) {
             switch (val) {
                 .table => |m| t.meta = m,
                 .null => t.meta = null,

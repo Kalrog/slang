@@ -206,3 +206,56 @@ t.group("operator metamethods"){
     assert(r[0] == "err", "no __add on files")
   }
 }
+
+t.group("metatable fast paths"){
+  // stores into a table with a metatable go inline unless the metatable
+  // has __newindex and the key is new; the VM caches whether it has one
+  t.test("__newindex added to a metatable later is seen"){
+    local m = {}
+    local o = {a: 1}
+    o.meta = m
+    o.b = 2
+    assert(o.b == 2, "inline store without __newindex")
+    local log = {}
+    m.__newindex = func(tbl, k, v){ append(log, k) }
+    o.c = 3
+    assert(o.c == null and log[0] == "c", "__newindex called once it exists")
+    o.a = 10
+    assert(o.a == 10 and len(log) == 1, "an existing key is stored in place")
+    m.__newindex = null
+    o.d = 4
+    assert(o.d == 4 and len(log) == 1, "removed again: inline")
+  }
+  t.test("__newindex replaced by a table redirects"){
+    local other = {}
+    local o = {}
+    o.meta = {__newindex: func(){}}
+    o.x = 1
+    assert(o.x == null, "function first")
+    o.meta.__newindex = other
+    o.y = 2
+    assert(o.y == null and other.y == 2, "then the table")
+  }
+  t.test("__index chains over tables"){
+    local a = {deep: "a"}
+    local b = {meta: {__index: a}}
+    local c = {meta: {__index: b}}
+    local o = {meta: {__index: c}}
+    assert(o.deep == "a", "three levels")
+    assert(o.missing == null, "a miss at the end is null")
+  }
+  t.test("__index function in the middle of a chain"){
+    local b = {meta: {__index: func(tbl, k){ return concat("fn:", k) }}}
+    local o = {meta: {__index: b}}
+    assert(o.name == "fn:name", "the function answers")
+  }
+  t.test("the key meta works when the string is built at run time"){
+    local o = {x: 1}
+    local k = concat("me", "ta")
+    o[k] = {__index: {y: 2}}
+    assert(o.y == 2, "set the metatable through a built key")
+    assert(o[k].__index.y == 2, "read it back through a built key")
+    o[k] = null
+    assert(o.y == null, "removed through a built key")
+  }
+}

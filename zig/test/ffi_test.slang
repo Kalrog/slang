@@ -184,6 +184,21 @@ t.group("ffi: calls"){
   }
 }
 
+t.group("ffi: struct fields by key"){
+  // tables convert to structs by field name and back, with the names
+  // interned once per type
+  t.test("fields given positionally and by name"){
+    assert(lib.ft_vec_add({x: 1, y: 2}, {3, 4}).x == 4)
+    assert(lib.ft_vec_add({x: 1, y: 2}, {3, 4}).y == 6)
+  }
+  t.test("a missing field is zero, a wrong value names the argument"){
+    assert(lib.ft_vec_add({x: 1}, {}).x == 1)
+    assert(lib.ft_vec_add({x: 1}, {}).y == 0)
+    local r = pcall(lib.ft_vec_add, {x: "a"}, {})
+    assert(r[0] == "err" and r[1].message == "bad argument #1 to 'ft_vec_add' (float expected, got string)", r[1].message)
+  }
+}
+
 t.group("ffi: buffers"){
   t.test("a buffer is its memory: no copy, C writes it in place"){
     local buffer = require("slang/buffer")

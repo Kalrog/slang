@@ -48,8 +48,23 @@ pub const Table = struct {
     ents: std.ArrayList(Entry) = .empty,
     index: Index = .empty,
     indexed: bool = false,
+    /// what this table has as a metatable (see hasNewindex); 0 is unknown
+    mflags: u8 = 0,
     dead: u32 = 0,
     meta: ?*Table = null,
+
+    const mf_valid: u8 = 1;
+    const mf_newindex: u8 = 2;
+
+    /// Whether this table, used as a metatable, has a __newindex entry
+    /// (newindex is the VM's interned "__newindex"). Cached until a key is
+    /// added to or removed from the table.
+    pub inline fn hasNewindex(m: *Table, newindex: *String) bool {
+        if (m.mflags & mf_valid == 0) {
+            m.mflags = mf_valid | (if (m.find(.{ .string = newindex }) != null) mf_newindex else 0);
+        }
+        return m.mflags & mf_newindex != 0;
+    }
 
     pub fn init(gpa: Allocator, narr: usize, nhash: usize) Table {
         var t: Table = .{ .obj = .{ .kind = .table } };
@@ -92,7 +107,7 @@ pub const Table = struct {
 
     pub fn getStr(t: *const Table, s: *String) Value {
         if (t.find(.{ .string = s })) |idx| return t.ents.items[idx].val;
-        if (s.eqlBytes("meta")) return Value.fromTable(t.meta);
+        if (s.isMeta()) return Value.fromTable(t.meta);
         return .null;
     }
 
@@ -131,6 +146,7 @@ pub const Table = struct {
 
     /// Removes the entry at idx (found by find) and returns its value.
     fn takeEntry(t: *Table, gpa: Allocator, idx: u32) Value {
+        t.mflags = 0;
         const e = t.ents.items[idx];
         if (t.indexed) _ = t.index.remove(e.key);
         t.killEntry(gpa, idx);
@@ -182,11 +198,27 @@ pub const Table = struct {
             _ = t.remove(gpa, .{ .string = s });
             return;
         }
-        if (s.eqlBytes("meta")) {
+        if (s.isMeta()) {
             t.meta = val.asTable();
             return;
         }
         t.setAny(gpa, .{ .string = s }, val);
+    }
+
+    /// Overwrites the value of an existing string key; false when the key
+    /// is absent (or is "meta", or the value is null, which both change the
+    /// key set).
+    pub fn replaceStr(t: *Table, s: *String, val: Value) bool {
+        if (val == .null or s.isMeta()) return false;
+        const idx = t.find(.{ .string = s }) orelse return false;
+        t.ents.items[idx].val = val;
+        return true;
+    }
+
+    /// Stores under a string key that is known to be absent (and not
+    /// "meta") a value that is not null: what filling a fresh table does.
+    pub fn addFresh(t: *Table, gpa: Allocator, s: *String, val: Value) void {
+        t.insertNew(gpa, .{ .string = s }, val);
     }
 
     fn setAny(t: *Table, gpa: Allocator, key: Value, val: Value) void {
@@ -194,6 +226,12 @@ pub const Table = struct {
             t.ents.items[idx].val = val;
             return;
         }
+        t.insertNew(gpa, key, val);
+    }
+
+    /// Adds an entry for a key that is not in the hash part.
+    fn insertNew(t: *Table, gpa: Allocator, key: Value, val: Value) void {
+        t.mflags = 0;
         const idx: u32 = @intCast(t.ents.items.len);
         t.ents.append(gpa, .{ .key = key, .val = val }) catch oom();
         if (t.indexed) {
@@ -251,7 +289,7 @@ pub const Table = struct {
             },
             .string => |s| {
                 if (t.find(key)) |idx| return t.takeEntry(gpa, idx);
-                if (s.eqlBytes("meta")) {
+                if (s.isMeta()) {
                     const m = t.meta;
                     t.meta = null;
                     return Value.fromTable(m);

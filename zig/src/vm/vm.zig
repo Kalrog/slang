@@ -88,6 +88,10 @@ pub const VM = struct {
     /// All heap objects, for the collector.
     objects: ?*Object = null,
     strings: std.HashMapUnmanaged(*String, void, InternCtx, 80) = .empty,
+    /// interned strings removed by the collector since the map was last
+    /// rehashed: removals leave tombstones the map counts as free, so it
+    /// never grows and misses probe further and further (see compactStrings)
+    strings_removed: usize = 0,
     bytes_allocated: usize = 0,
     next_gc: usize = gc.initial_threshold,
     gc_running: bool = false,
@@ -307,6 +311,15 @@ pub const VM = struct {
         return t;
     }
 
+    /// After a sweep: rehashes the intern table in place once the tombstones
+    /// its removals left could cost lookups of new strings a long probe.
+    pub fn compactStrings(vm: *VM) void {
+        const cap = vm.strings.capacity();
+        if (vm.strings_removed < 64 or vm.strings_removed < cap / 8) return;
+        vm.strings.rehash(InternCtx{});
+        vm.strings_removed = 0;
+    }
+
     /// Creates (or finds, for short strings) a string with these bytes.
     pub fn newString(vm: *VM, bytes: []const u8) *String {
         if (bytes.len <= String.intern_limit) {
@@ -314,6 +327,7 @@ pub const VM = struct {
             if (gop.found_existing) return gop.key_ptr.*;
             const s = vm.allocString(bytes);
             s.interned = true;
+            s.is_meta = std.mem.eql(u8, bytes, "meta");
             s.hash_cache = String.hashBytes(bytes);
             gop.key_ptr.* = s;
             return s;

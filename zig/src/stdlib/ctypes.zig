@@ -35,6 +35,8 @@ const oom = vm_mod.oom;
 const VM = vm_mod.VM;
 const Value = vm_mod.Value;
 const Table = vm_mod.Table;
+const Scratch = vm_mod.Scratch;
+const String = vm_mod.String;
 const Thread = vm_mod.Thread;
 const Userdata = vm_mod.Userdata;
 const Error = vm_mod.Error;
@@ -97,7 +99,14 @@ pub const Signature = struct { ret: *Type, args: []*Type };
 pub var make_callback: ?*const fn (th: *Thread, f: Value, t: *Type) Error!usize = null;
 
 /// default: the value of a field a table leaves out (0 otherwise)
-pub const Field = struct { name: []const u8, offset: usize, ty: *Type, default: ?Value = null };
+pub const Field = struct {
+    name: []const u8,
+    offset: usize,
+    ty: *Type,
+    default: ?Value = null,
+    /// the name interned, so a table converts with pointer compares
+    key: *String,
+};
 
 pub const Type = struct {
     kind: Kind,
@@ -385,6 +394,30 @@ fn ctArray(th: *Thread, args: []Value) Error!Value {
     }));
 }
 
+/// tbl[key] for a struct field: a small record holds interned keys, so a
+/// scan comparing pointers finds it without hashing.
+inline fn fieldOf(tbl: *const Table, key: *String) Value {
+    if (!tbl.indexed) {
+        for (tbl.ents.items) |e| {
+            if (e.key == .string and e.key.string == key) return e.val;
+        }
+    }
+    return tbl.getStr(key);
+}
+
+/// The interned string for a field name, kept alive in the registry (a
+/// Type is never freed, so neither are its keys).
+fn pinKey(vm: *VM, name: []const u8) *String {
+    const s = vm.newString(name);
+    const pins = vm.registry.getName("ffi_keys").asTable() orelse blk: {
+        const t = vm.newTable(0, 16);
+        vm.registry.set(vm.gpa, vm.str("ffi_keys"), .{ .table = t });
+        break :blk t;
+    };
+    pins.set(vm.gpa, .{ .string = s }, .{ .bool = true });
+    return s;
+}
+
 /// struct(name) -> a struct type to be defined with define (an opaque
 /// struct until then: pointers to it work, values do not)
 fn ctStruct(th: *Thread, args: []Value) Error!Value {
@@ -425,6 +458,7 @@ fn ctDefine(th: *Thread, args: []Value) Error!Value {
         const def = pair.getInt(2);
         fields[i] = .{
             .name = vm.gpa.dupe(u8, fname) catch oom(),
+            .key = pinKey(vm, fname),
             .offset = offset,
             .ty = ft,
             .default = switch (def) {
@@ -640,7 +674,7 @@ fn ptrNewIndex(th: *Thread, args: []Value) Error!Value {
         const k = key.asBytes() orelse "?";
         return th.vm.raise("ffi: {s} has no field {s}", .{ if (u.as(Ptr).ty) |t| t.name else "void", k });
     };
-    var conv = Conv{ .th = th, .arena = null };
+    var conv = Conv{ .th = th };
     try conv.toC(api.arg(args, 2), pl.ty, @ptrFromInt(pl.addr), false);
     return .null;
 }
@@ -709,7 +743,7 @@ fn ctBufferFrom(th: *Thread, args: []Value) Error!Value {
     const list = src.asTable() orelse return api.argError(th, "list", 1, "list or string", src);
     const n = list.arrayLen();
     const u = try ownedMemory(th, t, n, .buffer);
-    var conv = Conv{ .th = th, .arena = null, .what = "buffer.from" };
+    var conv = Conv{ .th = th, .label = "buffer.from" };
     const base: [*]u8 = @ptrFromInt(u.as(Ptr).addr);
     for (0..n) |i| try conv.toC(list.getInt(@intCast(i)), t, base + i * t.size, false);
     return .{ .userdata = u };
@@ -743,7 +777,7 @@ fn bufNewIndex(th: *Thread, args: []Value) Error!Value {
     const key = api.arg(args, 1);
     if (key != .int) return th.vm.raise("a buffer is indexed with ints, not {s}", .{key.typeName()});
     const pl = (try place(th, u, key)).?;
-    var conv = Conv{ .th = th, .arena = null };
+    var conv = Conv{ .th = th };
     try conv.toC(api.arg(args, 2), pl.ty, @ptrFromInt(pl.addr), false);
     return .null;
 }
@@ -801,7 +835,7 @@ fn bufFill(th: *Thread, args: []Value) Error!Value {
     const p = u.as(Ptr);
     const t = p.ty.?;
     if (p.count == 0) return args[0];
-    var conv = Conv{ .th = th, .arena = null, .what = "buffer:fill" };
+    var conv = Conv{ .th = th, .label = "buffer:fill" };
     const base: [*]u8 = @ptrFromInt(p.addr);
     try conv.toC(api.arg(args, 1), t, base, false);
     // the first element, copied over the rest
@@ -830,7 +864,7 @@ fn bufSet(th: *Thread, args: []Value) Error!Value {
     const list = src.asTable() orelse return api.argError(th, "list", 1, "list or buffer", src);
     const n = list.arrayLen();
     if (at < 0 or at + @as(i64, @intCast(n)) > p.count) return th.vm.raise("buffer:set: {d} elements at {d} do not fit (length {d})", .{ n, at, p.count });
-    var conv = Conv{ .th = th, .arena = null, .what = "buffer:set" };
+    var conv = Conv{ .th = th, .label = "buffer:set" };
     for (0..n) |i| try conv.toC(list.getInt(@intCast(i)), t, base + (@as(usize, @intCast(at)) + i) * t.size, false);
     return args[0];
 }
@@ -896,7 +930,7 @@ pub fn fastSet(th: *Thread, u: *Userdata, i: i64, v: Value) Error!bool {
     const t = p.ty.?;
     if (!t.isScalar()) return false;
     if (i < 0 or i >= p.count) return th.vm.raise("buffer index {d} out of range (length {d})", .{ i, p.count });
-    var conv = Conv{ .th = th, .arena = null };
+    var conv = Conv{ .th = th };
     try conv.toC(v, t, @ptrFromInt(p.addr + @as(usize, @intCast(i)) * t.size), false);
     return true;
 }
@@ -922,13 +956,23 @@ pub const Conv = struct {
     th: *Thread,
     /// temporary memory of a call; null when writing into C memory, where
     /// nothing temporary may be stored
-    arena: ?std.mem.Allocator,
+    scratch: ?*Scratch = null,
     writebacks: std.ArrayList(Writeback) = .empty,
-    /// what is being converted, for messages
-    what: []const u8 = "ffi: cannot store the value",
+    /// what is being converted, for messages: argument `arg` (from 1) of
+    /// the function `fname` when arg is set, else the label
+    label: []const u8 = "ffi: cannot store the value",
+    fname: []const u8 = "",
+    arg: usize = 0,
+    msg_buf: [128]u8 = undefined,
+
+    /// The message prefix (formatted only when a conversion fails).
+    fn what(c: *Conv) []const u8 {
+        if (c.arg == 0) return c.label;
+        return std.fmt.bufPrint(&c.msg_buf, "bad argument #{d} to '{s}'", .{ c.arg, c.fname }) catch "bad argument";
+    }
 
     fn fail(c: *Conv, t: *Type, v: Value) Error {
-        return c.th.vm.raise("{s} ({s} expected, got {s})", .{ c.what, t.name, v.typeName() });
+        return c.th.vm.raise("{s} ({s} expected, got {s})", .{ c.what(), t.name, v.typeName() });
     }
 
     fn number(c: *Conv, t: *Type, v: Value) Error!f64 {
@@ -950,10 +994,11 @@ pub const Conv = struct {
     }
 
     fn temp(c: *Conv, t: *Type, n: usize, v: Value) Error![*]u8 {
-        const a = c.arena orelse return c.th.vm.raise("{s} (a {s} cannot be stored in C memory: use ffi.new)", .{ c.what, v.typeName() });
-        const mem = a.alignedAlloc(u8, .@"16", @max(t.size * n, 1)) catch oom();
-        @memset(mem, 0);
-        return mem.ptr;
+        const s = c.scratch orelse return c.th.vm.raise("{s} (a {s} cannot be stored in C memory: use ffi.new)", .{ c.what(), v.typeName() });
+        const size = @max(t.size * n, 1);
+        const mem = s.bytes(c.th.vm.gpa, size);
+        @memset(mem[0..size], 0);
+        return mem;
     }
 
     /// v as a value of type t at dst. writeback: a table given for a
@@ -985,7 +1030,7 @@ pub const Conv = struct {
         switch (v) {
             .null => return 0,
             .function => {
-                const make = make_callback orelse return c.th.vm.raise("{s} (this slang has no libffi: a slang function cannot be a C callback)", .{c.what});
+                const make = make_callback orelse return c.th.vm.raise("{s} (this slang has no libffi: a slang function cannot be a C callback)", .{c.what()});
                 return make(c.th, v, t);
             },
             .userdata => |u| {
@@ -1006,7 +1051,7 @@ pub const Conv = struct {
                     // pointer points to, unless it takes any bytes
                     const p = u.as(Ptr);
                     if (t.kind == .pointer and !t.takesBytes() and !sameType(t.elem.?, p.ty.?)) {
-                        return c.th.vm.raise("{s} ({s} expected, got a buffer of {s}: use b:cast)", .{ c.what, t.name, p.ty.?.name });
+                        return c.th.vm.raise("{s} ({s} expected, got a buffer of {s}: use b:cast)", .{ c.what(), t.name, p.ty.?.name });
                     }
                     return p.addr;
                 }
@@ -1014,7 +1059,7 @@ pub const Conv = struct {
             },
             .string => |s| {
                 // the bytes of the string (NUL terminated), during the call
-                if (c.arena == null) return c.th.vm.raise("{s} (a string cannot be stored in C memory: use ffi.new)", .{c.what});
+                if (c.scratch == null) return c.th.vm.raise("{s} (a string cannot be stored in C memory: use ffi.new)", .{c.what()});
                 return @intFromPtr(s.bytes().ptr);
             },
             .table => |tbl| {
@@ -1032,7 +1077,7 @@ pub const Conv = struct {
                 } else {
                     try c.structToC(v, elem, mem);
                 }
-                if (writeback) c.writebacks.append(c.arena.?, .{ .table = tbl, .ty = elem, .mem = mem, .list = list, .n = n }) catch oom();
+                if (writeback) c.writebacks.append(c.th.vm.gpa, .{ .table = tbl, .ty = elem, .mem = mem, .list = list, .n = n }) catch oom();
                 return @intFromPtr(mem);
             },
             else => return c.fail(t, v),
@@ -1040,7 +1085,7 @@ pub const Conv = struct {
     }
 
     fn structToC(c: *Conv, v: Value, t: *Type, dst: [*]u8) Error!void {
-        if (!t.complete) return c.th.vm.raise("{s} ({s} is an incomplete struct)", .{ c.what, t.name });
+        if (!t.complete) return c.th.vm.raise("{s} ({s} is an incomplete struct)", .{ c.what(), t.name });
         if (asMemory(v)) |u| {
             const p = u.as(Ptr);
             if (p.ty != t) return c.fail(t, v);
@@ -1049,7 +1094,7 @@ pub const Conv = struct {
         }
         const tbl = v.asTable() orelse return c.fail(t, v);
         for (t.fields, 0..) |f, i| {
-            var fv = tbl.getName(f.name);
+            var fv = fieldOf(tbl, f.key);
             if (fv == .null) fv = tbl.getInt(@intCast(i));
             if (fv == .null) fv = f.default orelse continue; // zero, like C's {0}
             try c.toC(fv, f.ty, dst + f.offset, false);
@@ -1085,13 +1130,13 @@ pub const Conv = struct {
                     const old = w.table.getInt(@intCast(i));
                     const mem = w.mem + i * w.ty.size;
                     if (w.ty.kind == .@"struct" and old.asTable() != null) {
-                        fillTable(vm, w.ty, mem, old.asTable().?);
+                        fillTable(vm, w.ty, mem, old.asTable().?, false);
                     } else {
                         w.table.set(vm.gpa, .{ .int = @intCast(i) }, fromC(vm, w.ty, mem, .null));
                     }
                 }
             } else {
-                fillTable(vm, w.ty, w.mem, w.table);
+                fillTable(vm, w.ty, w.mem, w.table, false);
             }
         }
     }
@@ -1105,9 +1150,17 @@ fn load(comptime T: type, src: [*]const u8) T {
     return @as(*align(1) const T, @ptrCast(src)).*;
 }
 
-/// the fields of the struct at src into the table t (by name)
-fn fillTable(vm: *VM, t: *Type, src: [*]const u8, tbl: *Table) void {
-    for (t.fields) |f| tbl.set(vm.gpa, vm.str(f.name), fromC(vm, f.ty, src + f.offset, .null));
+/// the fields of the struct at src into the table tbl (by name); a fresh
+/// table has none of the keys yet and is filled without lookups
+fn fillTable(vm: *VM, t: *Type, src: [*]const u8, tbl: *Table, fresh: bool) void {
+    for (t.fields) |f| {
+        const v = fromC(vm, f.ty, src + f.offset, .null);
+        if (fresh and v != .null and !f.key.isMeta()) {
+            tbl.addFresh(vm.gpa, f.key, v);
+        } else {
+            tbl.setStr(vm.gpa, f.key, v);
+        }
+    }
 }
 
 /// The value of type t at src as a slang value. Pointers in it keep owner
@@ -1135,7 +1188,7 @@ pub fn fromC(vm: *VM, t: *Type, src: [*]const u8, owner: Value) Value {
         },
         .@"struct" => blk: {
             const tbl = vm.newTable(0, t.fields.len);
-            fillTable(vm, t, src, tbl);
+            fillTable(vm, t, src, tbl, true);
             break :blk .{ .table = tbl };
         },
         .array => blk: {

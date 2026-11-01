@@ -220,40 +220,43 @@ fn callFunc(th: *Thread, args: []Value) Error!Value {
     if (args.len < fixed or (args.len > fixed and !f.variadic)) {
         return vm.raise("{s} takes {d} arguments, got {d}", .{ f.name, fixed, args.len });
     }
-    var arena_state = std.heap.ArenaAllocator.init(vm.gpa);
-    defer arena_state.deinit();
-    const arena = arena_state.allocator();
-    var conv = ctypes.Conv{ .th = th, .arena = arena };
+    // the argument blocks and the result live in the thread's scratch,
+    // which grows to the largest call and stays
+    const scratch = &th.scratch;
+    const mk = scratch.mark();
+    defer scratch.release(vm.gpa, mk);
+    var conv = ctypes.Conv{ .th = th, .scratch = scratch, .fname = f.name };
+    defer conv.writebacks.deinit(vm.gpa);
     const total = args.len;
-    const values = arena.alloc(?*anyopaque, total + 1) catch oom();
+    const values = scratch.array(vm.gpa, ?*anyopaque, total + 1);
     var types = f.args;
     var cif_ptr = &f.cif;
     if (f.variadic) {
-        types = arena.alloc(*Type, total) catch oom();
-        const ffi_types = arena.alloc(*FfiType, total + 1) catch oom();
+        types = scratch.array(vm.gpa, *Type, total);
+        const ffi_types = scratch.array(vm.gpa, *FfiType, total + 1);
         for (0..total) |i| {
             types[i] = if (i < fixed) f.args[i] else try variadicType(vm, args[i]);
             ffi_types[i] = types[i].ffi;
         }
-        const cif = arena.create(Cif) catch oom();
+        const cif = &scratch.array(vm.gpa, Cif, 1)[0];
         if (ffi_prep_cif_var(cif, default_abi, @intCast(fixed), @intCast(total), f.ret.ffi, ffi_types.ptr) != FFI_OK) {
             return vm.raise("{s}: libffi cannot make this call", .{f.name});
         }
         cif_ptr = cif;
     }
-    var what_buf: [128]u8 = undefined;
     for (0..total) |i| {
         const t = types[i];
-        const mem = arena.alignedAlloc(u8, .@"16", @max(t.size, 8)) catch oom();
-        @memset(mem, 0);
-        conv.what = std.fmt.bufPrint(&what_buf, "bad argument #{d} to '{s}'", .{ i + 1, f.name }) catch "bad argument";
-        try conv.toC(args[i], t, mem.ptr, i < fixed and f.writeback[i]);
-        values[i] = mem.ptr;
+        const size = @max(t.size, 8);
+        const mem = scratch.bytes(vm.gpa, size);
+        @memset(mem[0..size], 0);
+        conv.arg = i + 1;
+        try conv.toC(args[i], t, mem, i < fixed and f.writeback[i]);
+        values[i] = mem;
     }
     // integer results narrower than a register come back widened
-    const rmem = arena.alignedAlloc(u8, .@"16", @max(f.ret.size, 16)) catch oom();
+    const rmem = scratch.bytes(vm.gpa, @max(f.ret.size, 16));
     const released = release(vm, th);
-    ffi_call(cif_ptr, f.f, rmem.ptr, values.ptr);
+    ffi_call(cif_ptr, f.f, rmem, values.ptr);
     if (released) reacquire(vm);
     if (vm.ffi.pending) |e| {
         vm.ffi.pending = null;
@@ -262,7 +265,7 @@ fn callFunc(th: *Thread, args: []Value) Error!Value {
         return error.Slang;
     }
     try conv.writeBack();
-    return ctypes.fromC(vm, f.ret, rmem.ptr, .null);
+    return ctypes.fromC(vm, f.ret, rmem, .null);
 }
 
 // ------------------------------------------------------------ the lock
@@ -410,16 +413,17 @@ fn handler(cif: *Cif, ret: ?*anyopaque, args: [*]?*anyopaque, user: ?*anyopaque)
     // after an error C finishes without slang; the error is raised then
     if (vm.ffi.pending != null) return;
     const th = callbackThread(vm);
-    var arena_state = std.heap.ArenaAllocator.init(vm.gpa);
-    defer arena_state.deinit();
-    const arena = arena_state.allocator();
-    const values = arena.alloc(Value, sig.args.len) catch oom();
+    // (th.call copies the arguments onto the stack before anything collects)
+    var small: [8]Value = undefined;
+    const n = sig.args.len;
+    const values: []Value = if (n <= small.len) small[0..n] else vm.gpa.alloc(Value, n) catch oom();
+    defer if (n > small.len) vm.gpa.free(values);
     for (sig.args, 0..) |t, i| values[i] = ctypes.fromC(vm, t, @ptrCast(args[i].?), .null);
     const result = th.call(cb.func, values) catch return fail(th);
     if (sig.ret.kind == .void) return;
     const r: [*]u8 = @ptrCast(ret.?);
     // the result is stored in C's memory: nothing temporary may go there
-    var conv = ctypes.Conv{ .th = th, .arena = null, .what = "bad result of a callback" };
+    var conv = ctypes.Conv{ .th = th, .label = "bad result of a callback" };
     switch (sig.ret.kind) {
         .bool, .i8, .i16, .i32 => if (sig.ret.size < @sizeOf(usize)) {
             var tmp: [8]u8 align(8) = undefined;

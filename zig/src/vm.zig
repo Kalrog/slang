@@ -15,6 +15,7 @@ pub const Object = @import("vm/object.zig").Object;
 pub const NativeFn = @import("vm/object.zig").NativeFn;
 pub const Thread = @import("vm/thread.zig").Thread;
 pub const Status = @import("vm/thread.zig").Status;
+pub const Scratch = @import("vm/scratch.zig").Scratch;
 pub const VM = @import("vm/vm.zig").VM;
 pub const EmbeddedFile = @import("vm/vm.zig").EmbeddedFile;
 pub const Error = @import("vm/errors.zig").Error;

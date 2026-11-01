@@ -274,7 +274,7 @@ const threaded = !builtin.single_threaded;
 
 /// Before a C call: lets callbacks from other threads in (when there are
 /// callbacks), with th as the thread they run on. Returns whether it did.
-fn release(vm: *VM, th: *Thread) bool {
+pub fn release(vm: *VM, th: *Thread) bool {
     if (!threaded or !vm.ffi.on) return false;
     vm.ffi.calls.append(vm.gpa, .{ .th = th, .os = std.Thread.getCurrentId() }) catch oom();
     vm.ffi.owner.store(0, .release);
@@ -283,7 +283,7 @@ fn release(vm: *VM, th: *Thread) bool {
 }
 
 /// After a C call: slang is this thread's again.
-fn reacquire(vm: *VM) void {
+pub fn reacquire(vm: *VM) void {
     vm.ffi.lock.lockUncancelable(vm.io);
     vm.ffi.owner.store(std.Thread.getCurrentId(), .release);
     _ = vm.ffi.calls.pop();

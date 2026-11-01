@@ -152,10 +152,6 @@ pub const type_tname = "ffi.type";
 pub const pointer_tname = "ffi.pointer";
 pub const buffer_tname = "buffer";
 
-var type_meta: ?*Table = null;
-var pointer_meta: ?*Table = null;
-var buffer_meta: ?*Table = null;
-var buffer_methods: ?*Table = null;
 
 /// Pointers and buffers: an address, what it points to (null for void *)
 /// and, for a buffer, the number of elements. Owned memory follows this
@@ -196,10 +192,11 @@ pub fn module(vm: *VM) *Table {
         .{ .name = "buffer_from", .f = ctBufferFrom },
         .{ .name = "wrap", .f = ctWrap },
         .{ .name = "is_buffer", .f = ctIsBuffer },
+        .{ .name = "shared_buffer", .f = ctSharedBuffer },
     });
     const tm = vm.newTable(0, 2);
     tm.set(vm.gpa, vm.str("__type"), vm.str(type_tname));
-    type_meta = tm;
+    vm.lib.type_meta = tm;
     vm.registry.set(vm.gpa, vm.str("ctypes_type_meta"), .{ .table = tm });
 
     const pm = vm.newTable(0, 4);
@@ -207,7 +204,7 @@ pub fn module(vm: *VM) *Table {
     pm.set(vm.gpa, vm.str("__newindex"), vm.nativeValue("ffi.pointer.__newindex", ptrNewIndex));
     pm.set(vm.gpa, vm.str("__eq"), vm.nativeValue("ffi.pointer.__eq", ptrEq));
     pm.set(vm.gpa, vm.str("__type"), vm.str(pointer_tname));
-    pointer_meta = pm;
+    vm.lib.pointer_meta = pm;
     vm.registry.set(vm.gpa, vm.str("ctypes_pointer_meta"), .{ .table = pm });
 
     const methods = stdlib.makeModule(vm, &.{
@@ -222,8 +219,11 @@ pub fn module(vm: *VM) *Table {
         .{ .name = "to_string", .f = bufToString },
         .{ .name = "same", .f = bufSame },
         .{ .name = "pointer", .f = bufPointer },
+        .{ .name = "is_shared", .f = bufIsShared },
+        .{ .name = "lock", .f = bufLock },
+        .{ .name = "unlock", .f = bufUnlock },
     });
-    buffer_methods = methods;
+    vm.lib.buffer_methods = methods;
     const bm = vm.newTable(0, 6);
     bm.set(vm.gpa, vm.str("__index"), vm.nativeValue("buffer.__index", bufIndex));
     bm.set(vm.gpa, vm.str("__newindex"), vm.nativeValue("buffer.__newindex", bufNewIndex));
@@ -231,7 +231,7 @@ pub fn module(vm: *VM) *Table {
     bm.set(vm.gpa, vm.str("__len"), vm.nativeValue("buffer.__len", bufLen));
     bm.set(vm.gpa, vm.str("__type"), vm.str(buffer_tname));
     bm.set(vm.gpa, vm.str("methods"), .{ .table = methods });
-    buffer_meta = bm;
+    vm.lib.buffer_meta = bm;
     vm.registry.set(vm.gpa, vm.str("ctypes_buffer_meta"), .{ .table = bm });
     return m;
 }
@@ -243,7 +243,7 @@ fn newType(vm: *VM, t: Type) *Type {
 }
 
 pub fn typeValue(vm: *VM, t: *Type) Value {
-    const u = vm.newUserdataOf(*Type, t, type_tname, type_meta);
+    const u = vm.newUserdataOf(*Type, t, type_tname, vm.lib.type_meta);
     u.to_string = typeToString;
     return .{ .userdata = u };
 }
@@ -512,7 +512,7 @@ fn ctTypeName(th: *Thread, args: []Value) Error!Value {
 
 pub fn newPointer(vm: *VM, addr: usize, ty: ?*Type, owner: Value) Value {
     if (addr == 0) return .null;
-    const u = vm.newUserdataOf(Ptr, .{ .addr = addr, .ty = ty }, pointer_tname, pointer_meta);
+    const u = vm.newUserdataOf(Ptr, .{ .addr = addr, .ty = ty }, pointer_tname, vm.lib.pointer_meta);
     u.owner = owner;
     u.kind = .pointer;
     u.to_string = ptrToString;
@@ -571,7 +571,7 @@ fn ownedMemory(th: *Thread, t: *Type, n: usize, kind: vm_mod.UserKind) Error!*Us
     if (!t.complete or t.size == 0) return vm.raise("{s} has no size", .{t.name});
     const bytes = std.math.mul(usize, t.size, n) catch return vm.raise("{d} values of {s} do not fit in memory", .{ n, t.name });
     const tname = if (kind == .buffer) buffer_tname else pointer_tname;
-    const meta = if (kind == .buffer) buffer_meta else pointer_meta;
+    const meta = if (kind == .buffer) vm.lib.buffer_meta else vm.lib.pointer_meta;
     const u = vm.newUserdata(@sizeOf(Ptr) + bytes + 16, tname, meta);
     const base = @intFromPtr(u.data.ptr) + @sizeOf(Ptr);
     u.as(Ptr).* = .{ .addr = std.mem.alignForward(usize, base, @max(t.alignment, 1)), .ty = t, .count = n };
@@ -694,7 +694,7 @@ fn ptrEq(th: *Thread, args: []Value) Error!Value {
 // ------------------------------------------------------------ buffers
 
 fn newBufferView(vm: *VM, addr: usize, ty: *Type, count: usize, owner: Value) *Userdata {
-    const u = vm.newUserdataOf(Ptr, .{ .addr = addr, .ty = ty, .count = count }, buffer_tname, buffer_meta);
+    const u = vm.newUserdataOf(Ptr, .{ .addr = addr, .ty = ty, .count = count }, buffer_tname, vm.lib.buffer_meta);
     u.owner = owner;
     u.kind = .buffer;
     u.to_string = bufToStringFn;
@@ -772,7 +772,7 @@ fn ctIsBuffer(th: *Thread, args: []Value) Error!Value {
 fn bufIndex(th: *Thread, args: []Value) Error!Value {
     const u = asBuffer(api.arg(args, 0)) orelse return .null;
     const key = api.arg(args, 1);
-    if (key == .string) return buffer_methods.?.get(key);
+    if (key == .string) return th.vm.lib.buffer_methods.?.get(key);
     const pl = (try place(th, u, key)) orelse return .null;
     return readPlace(th.vm, u, pl);
 }
@@ -918,6 +918,133 @@ fn bufPointer(th: *Thread, args: []Value) Error!Value {
     return newPointer(th.vm, p.addr, p.ty, ownerOf(u));
 }
 
+// ------------------------------------------------------------ shared buffers
+
+/// The memory of a shared buffer (slang/isolate): outside every heap,
+/// reference counted by the buffers of every VM that holds it, with a mutex
+/// for whoever needs more than single element accesses to be atomic.
+pub const SharedMem = struct {
+    refs: std.atomic.Value(u32) = .init(1),
+    mutex: std.Io.Mutex = .init,
+    /// the OS thread holding the mutex (0: none), so that unlock can check
+    owner: std.atomic.Value(std.Thread.Id) = .init(0),
+    ty: *Type,
+    count: usize,
+    bytes: []align(16) u8,
+
+    pub fn retain(m: *SharedMem) void {
+        _ = m.refs.fetchAdd(1, .monotonic);
+    }
+
+    pub fn release(m: *SharedMem) void {
+        if (m.refs.fetchSub(1, .acq_rel) != 1) return;
+        std.heap.c_allocator.free(m.bytes);
+        std.heap.c_allocator.destroy(m);
+    }
+};
+
+/// A shared buffer's userdata is {Ptr, *SharedMem}; slices of it keep it
+/// alive through their owner.
+fn sharedFinalize(data: ?*anyopaque) callconv(.c) void {
+    const base: [*]u8 = @ptrCast(data.?);
+    const m: **SharedMem = @ptrCast(@alignCast(base + @sizeOf(Ptr)));
+    m.*.release();
+}
+
+/// The shared memory behind a buffer (itself or the buffer it slices), or
+/// null for a buffer of one heap.
+pub fn sharedOf(u: *Userdata) ?*SharedMem {
+    const root = if (u.finalizer == sharedFinalize) u else (u.owner.asUserdata() orelse return null);
+    if (root.finalizer != sharedFinalize) return null;
+    const base: [*]u8 = root.data.ptr;
+    return @as(**SharedMem, @ptrCast(@alignCast(base + @sizeOf(Ptr)))).*;
+}
+
+/// A buffer of vm over the whole of m, holding a reference of its own.
+pub fn sharedBuffer(vm: *VM, m: *SharedMem) *Userdata {
+    m.retain();
+    const u = vm.newUserdata(@sizeOf(Ptr) + @sizeOf(*SharedMem), buffer_tname, vm.lib.buffer_meta);
+    u.as(Ptr).* = .{ .addr = @intFromPtr(m.bytes.ptr), .ty = m.ty, .count = m.count };
+    const base: [*]u8 = u.data.ptr;
+    @as(**SharedMem, @ptrCast(@alignCast(base + @sizeOf(Ptr)))).* = m;
+    u.finalizer = sharedFinalize;
+    u.owner = .{ .userdata = u };
+    u.kind = .buffer;
+    u.to_string = bufToStringFn;
+    return u;
+}
+
+/// A view of count elements of type ty at addr inside the shared buffer
+/// root (a slice or cast that crossed to another isolate).
+pub fn sharedView(vm: *VM, root: *Userdata, addr: usize, ty: *Type, count: usize) *Userdata {
+    return newBufferView(vm, addr, ty, count, .{ .userdata = root });
+}
+
+/// shared_buffer(type, n) -> n zeroed elements of a scalar type in memory
+/// that isolates share (it crosses channels by reference)
+fn ctSharedBuffer(th: *Thread, args: []Value) Error!Value {
+    const vm = th.vm;
+    const t = try argType(th, args, 0, "type");
+    const n = try api.argInt(th, args, 1, "n");
+    if (n < 0) return vm.raise("buffer.shared: a negative length {d}", .{n});
+    const name = primitiveName(t) orelse return vm.raise("buffer.shared: {s} is not a number type (shared buffers hold numbers)", .{t.name});
+    const ty = primitive(std.mem.span(name)).?;
+    const bytes = std.math.mul(usize, ty.size, @intCast(n)) catch return vm.raise("{d} values of {s} do not fit in memory", .{ n, ty.name });
+    const mem = std.heap.c_allocator.alignedAlloc(u8, .@"16", @max(bytes, 1)) catch oom();
+    @memset(mem, 0);
+    const m = std.heap.c_allocator.create(SharedMem) catch oom();
+    m.* = .{ .ty = ty, .count = @intCast(n), .bytes = mem };
+    const u = sharedBuffer(vm, m);
+    m.release();
+    return .{ .userdata = u };
+}
+
+/// b:is_shared() -> whether b's memory is shared between isolates
+fn bufIsShared(th: *Thread, args: []Value) Error!Value {
+    const u = try argBuffer(th, args, 0, "buffer");
+    return .{ .bool = sharedOf(u) != null };
+}
+
+fn argShared(th: *Thread, args: []Value, what: []const u8) Error!*SharedMem {
+    const u = try argBuffer(th, args, 0, "buffer");
+    return sharedOf(u) orelse th.vm.raise("buffer:{s}: not a shared buffer (buffer.shared)", .{what});
+}
+
+fn lockShared(vm: *VM, m: *SharedMem) Error!void {
+    const self = std.Thread.getCurrentId();
+    if (m.owner.load(.acquire) == self) return vm.raise("buffer:lock: this isolate holds the lock already", .{});
+    m.mutex.lockUncancelable(vm.io);
+    m.owner.store(self, .release);
+}
+
+fn unlockShared(vm: *VM, m: *SharedMem) void {
+    m.owner.store(0, .release);
+    m.mutex.unlock(vm.io);
+}
+
+/// b:lock(f?) -> any: with f, holds b's mutex while f() runs and returns
+/// its result (released also when f raises); without, takes the mutex
+/// until b:unlock()
+fn bufLock(th: *Thread, args: []Value) Error!Value {
+    const vm = th.vm;
+    const m = try argShared(th, args, "lock");
+    const f = api.arg(args, 1);
+    if (f != .null and f != .function) return api.argError(th, "f", 1, "Closure", f);
+    try lockShared(vm, m);
+    if (f == .null) return .null;
+    defer unlockShared(vm, m);
+    return th.call(f, &.{});
+}
+
+/// b:unlock(): releases the mutex taken by b:lock()
+fn bufUnlock(th: *Thread, args: []Value) Error!Value {
+    const vm = th.vm;
+    const m = try argShared(th, args, "unlock");
+    if (m.owner.load(.acquire) != std.Thread.getCurrentId()) return vm.raise("buffer:unlock: the lock is not held here", .{});
+    unlockShared(vm, m);
+    return .null;
+}
+
 /// v as a C integer: ints as they are, floats truncated (clamped, nan as
 /// 0), bools as 0 or 1; null for anything else.
 pub inline fn intOf(v: Value) ?i64 {
@@ -989,9 +1116,10 @@ pub inline fn bufferGet(u: *Userdata, i: i64) ?Value {
     if (u.kind != .buffer) return null;
     const p = u.as(Ptr);
     const t = p.ty.?;
-    const idx: usize = @bitCast(i);
+    // a negative i wraps to a huge index (u64: wider than usize on wasm32)
+    const idx: u64 = @bitCast(i);
     if (!t.isScalar() or idx >= p.count) return null;
-    return scalarGet(t, @ptrFromInt(p.addr + idx * t.size));
+    return scalarGet(t, @ptrFromInt(p.addr + @as(usize, @intCast(idx)) * t.size));
 }
 
 /// u[i] = v for the VM's set_table: false when it is not the fast case
@@ -1000,9 +1128,9 @@ pub inline fn bufferSet(u: *Userdata, i: i64, v: Value) bool {
     if (u.kind != .buffer) return false;
     const p = u.as(Ptr);
     const t = p.ty.?;
-    const idx: usize = @bitCast(i);
+    const idx: u64 = @bitCast(i);
     if (!t.isScalar() or idx >= p.count) return false;
-    return scalarSet(t, @ptrFromInt(p.addr + idx * t.size), v);
+    return scalarSet(t, @ptrFromInt(p.addr + @as(usize, @intCast(idx)) * t.size), v);
 }
 
 fn indexError(th: *Thread, p: *const Ptr, i: i64) Error {

@@ -31,7 +31,8 @@
 //   fill: func(v: any): Buffer, set: func(src: {any} | Buffer, at?: int): Buffer,
 //   cast: func(t: ffi.Type): Buffer, to_list: func(): {any},
 //   to_string: func(): string, same: func(other: any): bool,
-//   pointer: func(): ffi.Pointer}
+//   pointer: func(): ffi.Pointer, is_shared: func(): bool,
+//   lock: func(f?: func(): any): any, unlock: func()}
 // [size]: the size in bytes
 // [type]: the element type
 // [slice]: the elements from .. to - 1 (all by default), sharing the memory
@@ -43,6 +44,10 @@
 // [to_string]: the bytes as a string
 // [same]: whether other is a buffer of the same address, length and type
 // [pointer]: a pointer to the first element, keeping the memory alive
+// [is_shared]: whether the memory is shared between isolates ([shared])
+// [lock]: on a shared buffer, holds its mutex while f() runs and returns
+//   f's result (released when f raises too); without f, until [unlock]
+// [unlock]: releases the mutex lock() took
 //
 // slice and set raise when the indexes are out of range; set copies
 // correctly between overlapping slices of one buffer. fill and set return
@@ -91,6 +96,20 @@ local func type_of(t, decls){
 // [decls]: the declarations that define t, when it is a struct name
 func buffer.new(t, n, decls){
   return ct.buffer(type_of(t, decls), n)
+}
+
+// shared(t: string | ffi.Type, n: int) -> Buffer
+// A buffer of n zeroed numbers of type t whose memory isolates share
+// (slang/isolate): sent through a channel it crosses by reference, so
+// every isolate that receives it reads and writes the same memory. Single
+// element reads and writes of up to 8 bytes are atomic on the machines
+// slang runs on, but no more than that: whatever must see several
+// elements change together holds [Buffer.lock] around them. Slices and
+// casts of a shared buffer cross by reference too.
+//   local image = buffer.shared("uint8_t", w * h * 4)
+//   worker_channel:send({image: image, from: 0, to: h / 2})
+func buffer.shared(t, n){
+  return ct.shared_buffer(type_of(t), n)
 }
 
 // from(src: {any} | string, t: string | ffi.Type,

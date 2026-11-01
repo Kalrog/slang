@@ -76,10 +76,22 @@ pub const CountingAllocator = struct {
     }
 };
 
-/// Called by the interpreter at safe points.
-pub inline fn safePoint(vm: *VM, th: *Thread) void {
+/// Called by the interpreter at safe points. An isolate being killed sets
+/// next_gc to 0, so the interrupt check costs nothing on the fast path.
+pub inline fn safePoint(vm: *VM, th: *Thread) root.Error!void {
+    if (vm.bytes_allocated >= vm.next_gc) try slowPoint(vm, th);
+}
+
+fn slowPoint(vm: *VM, th: *Thread) root.Error!void {
     _ = th;
-    if (vm.bytes_allocated >= vm.next_gc) collect(vm);
+    if (vm.interrupt.load(.seq_cst)) return vm.raise("isolate killed", .{});
+    collect(vm);
+}
+
+/// Stops vm at its next safe point; called from another OS thread.
+pub fn interrupt(vm: *VM) void {
+    vm.interrupt.store(true, .seq_cst);
+    @atomicStore(usize, &vm.next_gc, 0, .seq_cst);
 }
 
 const Marker = struct {
@@ -180,6 +192,8 @@ pub fn collect(vm: *VM) void {
         vm.bytes_allocated + stress_step
     else
         @max(initial_threshold, vm.bytes_allocated * 2);
+    // a kill that arrived during the collection keeps its zero
+    if (vm.interrupt.load(.seq_cst)) vm.next_gc = 0;
 }
 
 fn sweep(vm: *VM) void {

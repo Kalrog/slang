@@ -52,6 +52,11 @@ local pipe_meta = {__index: pipe_methods, __type: "uv.pipe"}
 local signal_methods = {}
 local signal_meta = {__index: signal_methods, __type: "uv.signal"}
 
+// A handle woken from other threads ([async]); type() of it is "uv.async".
+// type Async
+local async_methods = {}
+local async_meta = {__index: async_methods, __type: "uv.async"}
+
 // A child process started by [spawn]; type() of it is "uv.process".
 // type Process
 local process_methods = {}
@@ -316,6 +321,39 @@ func signal_methods.unref(signal){}
 // has_ref() -> bool
 // Whether the handle keeps [run] going.
 func signal_methods.has_ref(signal){}
+
+// ------------------------------------------------------------ async handles
+
+// async(cb: func()) -> Async
+// A handle whose cb runs on the loop after a wake from any thread: another
+// extension sends it through the C API (slang_uv.h's async_send), and an
+// isolate's channel through [isolate.Channel.watch]. Several wakes before
+// cb runs make one call. It keeps [run] going until it is closed.
+func m.async(cb){ return {meta: async_meta} }
+
+// close(cb?: func())
+// Closes the handle; cb() runs once it is closed.
+func async_methods.close(h, cb){}
+
+// is_active() -> bool
+// Whether the handle is open.
+func async_methods.is_active(h){}
+
+// is_closing() -> bool
+// Whether [Async.close] was called.
+func async_methods.is_closing(h){}
+
+// ref()
+// Makes the handle keep [run] going again (the default).
+func async_methods.ref(h){}
+
+// unref()
+// Makes the handle no longer keep [run] going.
+func async_methods.unref(h){}
+
+// has_ref() -> bool
+// Whether the handle keeps [run] going.
+func async_methods.has_ref(h){}
 
 // ------------------------------------------------------------ processes
 

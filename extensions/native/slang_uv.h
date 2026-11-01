@@ -20,9 +20,10 @@
 
 #include "slang.h"
 
-/* 1: queue; 2: run, backend_fd, backend_timeout; 3: hold. The struct only
- * grows, so an extension built for an older version works with a newer uv. */
-#define SLANG_UV_API_VERSION 3
+/* 1: queue; 2: run, backend_fd, backend_timeout; 3: hold; 4: async_handle,
+ * async_send. The struct only grows, so an extension built for an older
+ * version works with a newer uv. */
+#define SLANG_UV_API_VERSION 4
 #define SLANG_UV_API_TNAME "uv.c_api"
 
 typedef struct slang_uv_api {
@@ -64,6 +65,16 @@ typedef struct slang_uv_api {
      * else does not keep the loop going) would never be heard.
      */
     void (*hold)(int on);
+    /*
+     * The libuv handle of the uv.async handle (uv.async(cb)) at idx, or
+     * NULL for anything else, and async_send, which wakes it from any
+     * thread: its callback then runs on the loop thread (several sends
+     * before it runs make one call). The pointer is valid until the handle
+     * is closed; whoever keeps it must stop sending first. slang/isolate's
+     * channel:watch is the user.
+     */
+    void *(*async_handle)(slang_State *S, int idx);
+    int (*async_send)(void *h);
 } slang_uv_api;
 
 /* The API in the uv.c_api userdata at idx, or NULL when it is missing or

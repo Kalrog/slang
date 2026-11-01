@@ -67,6 +67,7 @@ async.main(func(){
 <li><a href="#await"><code>await</code></a></li>
 <li><a href="#run"><code>run</code></a></li>
 <li><a href="#sleep"><code>sleep</code></a></li>
+<li><a href="#receive"><code>receive</code></a></li>
 <li><a href="#set_driver"><code>set_driver</code></a></li>
 <li><a href="#main"><code>main</code></a></li>
 <li><a href="#controller"><code>controller</code></a></li>
@@ -147,6 +148,10 @@ return c.future</code></pre>
 </div>
 <div class="def" id="sleep"><h3><code>async.sleep(ms: int) -> <a href="#type-Future">Future</a></code></h3>
 <p>Completes (with null) after ms milliseconds.</p>
+
+</div>
+<div class="def" id="receive"><h3><code>async.receive(ch: isolate.Channel) -> <a href="#type-Future">Future</a></code></h3>
+<p>The next value of a channel (slang/isolate) as a Future, without blocking the loop: it completes when a value arrives, with null once the channel is closed and empty. An isolate's channel wakes the loop through a uv async handle, which keeps the loop running while the receive waits.</p>
 
 </div>
 <div class="def" id="set_driver"><h3><code>async.set_driver(step?: func(): bool)</code></h3>

@@ -365,6 +365,30 @@ func async.sleep(ms){
   })
 }
 
+// receive(ch: isolate.Channel) -> Future
+// The next value of a channel (slang/isolate) as a Future, without
+// blocking the loop: it completes when a value arrives, with null once the
+// channel is closed and empty. An isolate's channel wakes the loop through
+// a uv async handle, which keeps the loop running while the receive waits.
+func async.receive(ch){
+  local v = ch:try_receive()
+  if(v != null or ch:is_closed()){
+    return async.value(v)
+  }
+  local c = async.completer()
+  local h = null
+  h = loop_module().async(func(){
+    local got = ch:try_receive()
+    if(got != null or ch:is_closed()){
+      ch:unwatch(h)
+      h:close()
+      c.complete(got)
+    }
+  })
+  ch:watch(h)
+  return c.future
+}
+
 // The driver: what async.main calls to wait for and handle one batch of
 // events, returning whether there is more to do. By default libuv's
 // run("once"); a GUI extension (slang/webview) sets its own, which waits on

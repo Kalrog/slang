@@ -465,6 +465,8 @@ pub const Thread = struct {
         // an error nothing will catch stops the debugger before the unwinding
         if (th.vm.debugger) |dbg| dbg.raised(th);
         var i = th.frames.items.len;
+        // a killed isolate unwinds past every try and pcall
+        if (th.vm.interrupt.load(.monotonic)) i = stop_depth;
         while (i > stop_depth) {
             i -= 1;
             // a try in this frame catches before the frame's own protection

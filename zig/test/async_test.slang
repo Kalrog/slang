@@ -331,4 +331,35 @@ t.group("uncaught errors"){
       await(fs.remove(p))
     })
   }
+
+  t.test("receive waits for an isolate's channel without blocking the loop"){
+    local isolate = require("slang/isolate")
+    local ch = isolate.channel()
+    local w = isolate.spawn(func(ch){
+      local time = require("slang/time")
+      for(local i = 1; i <= 3; i = i + 1){
+        time.sleep(0.01)
+        ch:send(i)
+      }
+      ch:close()
+    }, ch)
+    local got = {}
+    local ticks = 0
+    async.main(func(){
+      async.run(func(){
+        for(local i = 0; i < 3; i = i + 1){
+          await(async.sleep(5))
+          ticks = ticks + 1
+        }
+      })
+      for(true){
+        local v = await(async.receive(ch))
+        if(v == null){ break }
+        append(got, v)
+      }
+    })
+    w:join()
+    assert(got == {1, 2, 3}, concat("got ", got))
+    assert(ticks == 3)
+  }
 }

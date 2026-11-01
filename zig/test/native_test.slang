@@ -155,3 +155,26 @@ t.group("native extension (Zig)", func(){
     assert(r[0] == "err")
   })
 })
+
+t.group("native extension driving isolates (C)", func(){
+  t.test("an isolate driven from a thread the extension owns", func(){
+    assert(hello.drive(func(i){ return i * i }, 10) == 285)
+    local r = pcall(hello.drive, func(i){ raise("in the thread") }, 1)
+    assert(r[0] == "err" and r[1].message == "drive: in the thread", r[1].message)
+    local y = 2
+    assert(pcall(hello.drive, func(i){ return y }, 1)[0] == "err")
+    local isolate = require("slang/isolate")
+    local input = isolate.channel()
+    local output = isolate.channel()
+    hello.pump(input, output)
+    for(local i = 1; i <= 5; i = i + 1){ input:send(i) }
+    input:close()
+    local got = {}
+    for(true){
+      local v = output:receive()
+      if(v == -1){ break }
+      append(got, v)
+    }
+    assert(got == {2, 4, 6, 8, 10}, concat("got ", got))
+  })
+})

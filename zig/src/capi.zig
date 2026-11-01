@@ -21,6 +21,7 @@ const interp = @import("vm/interp.zig");
 const stdlib = @import("stdlib/stdlib.zig");
 const boot = @import("boot.zig");
 const ctypes = @import("stdlib/ctypes.zig");
+const isolates = @import("stdlib/isolatelib.zig");
 
 pub const api_version: c_int = 1;
 
@@ -550,6 +551,15 @@ pub export fn slang_call(th: *Thread, nargs: c_int) c_int {
         return err;
     }
     const fn_idx = th.top - n - 1;
+    // a state of slang_isolate_new is one OS thread's at a time
+    var entered = false;
+    if (std.debug.runtime_safety and th.vm.driven) {
+        const self = std.Thread.getCurrentId();
+        if (th.vm.driver.cmpxchgStrong(0, self, .acquire, .monotonic)) |other| {
+            if (other != self) @panic("slang_call: two OS threads use one isolate's state at once");
+        } else entered = true;
+    }
+    defer if (entered) th.vm.driver.store(0, .release);
     th.callInPlace(fn_idx, n) catch return err;
     return ok;
 }
@@ -691,6 +701,38 @@ pub export fn slang_new() ?*Thread {
         return null;
     };
     return vm.main;
+}
+
+pub export fn slang_isolate_new(th: *Thread, idx: c_int) ?*Thread {
+    const v = get(th, idx);
+    const vm = isolates.newDriven(th.vm, v) catch return null;
+    return vm.main;
+}
+
+pub export fn slang_send(th: *Thread, ch_idx: c_int) c_int {
+    const ch = get(th, ch_idx);
+    const v = pop(th);
+    _ = isolates.sendTo(th, ch, v, true) catch return err;
+    return ok;
+}
+
+pub export fn slang_trysend(th: *Thread, ch_idx: c_int) c_int {
+    const ch = get(th, ch_idx);
+    const v = pop(th);
+    const sent = isolates.sendTo(th, ch, v, false) catch return err;
+    return @intFromBool(sent);
+}
+
+pub export fn slang_receive(th: *Thread, ch_idx: c_int) c_int {
+    const v = isolates.receiveFrom(th, get(th, ch_idx), true) catch return err;
+    th.push(v);
+    return ok;
+}
+
+pub export fn slang_tryreceive(th: *Thread, ch_idx: c_int) c_int {
+    const v = isolates.receiveFrom(th, get(th, ch_idx), false) catch return err;
+    th.push(v);
+    return @intFromBool(v != .null);
 }
 
 pub export fn slang_close(th: *Thread) void {

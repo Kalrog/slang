@@ -39,6 +39,19 @@ const InternBytesCtx = struct {
     }
 };
 
+/// Library state that would otherwise be process-wide: every VM (every
+/// isolate) has its own metatables and random generator.
+pub const LibState = struct {
+    type_meta: ?*Table = null,
+    pointer_meta: ?*Table = null,
+    buffer_meta: ?*Table = null,
+    buffer_methods: ?*Table = null,
+    file_meta: ?*Table = null,
+    channel_meta: ?*Table = null,
+    isolate_meta: ?*Table = null,
+    prng: ?std.Random.DefaultPrng = null,
+};
+
 pub const FfiCall = struct { th: *Thread, os: std.Thread.Id };
 
 /// C callbacks (slang/ffi): once a callback exists, the OS thread that runs
@@ -111,6 +124,16 @@ pub const VM = struct {
     /// The pending error after a function returned error.Slang.
     err: ?SlangError = null,
     ffi: FfiState = .{},
+    lib: LibState = .{},
+    /// Set from another OS thread to stop this VM at its next safe point
+    /// (an isolate's kill); errors raised then cannot be caught.
+    interrupt: std.atomic.Value(bool) = .init(false),
+    /// The isolate this VM runs (slang/isolate), null for the main VM.
+    isolate: ?*anyopaque = null,
+    /// Made by slang_isolate_new for an OS thread of the caller's: checked
+    /// builds catch two threads in slang_call at once.
+    driven: bool = false,
+    driver: std.atomic.Value(std.Thread.Id) = .init(0),
     next_thread_id: u32 = 0,
     /// SLANG_TRACE: print every instruction to stderr.
     trace: bool = false,

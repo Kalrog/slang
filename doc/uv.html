@@ -61,6 +61,7 @@ uv.run()</code></pre>
 <li><a href="#tcp"><code>tcp</code></a></li>
 <li><a href="#pipe"><code>pipe</code></a></li>
 <li><a href="#signal"><code>signal</code></a></li>
+<li><a href="#async"><code>async</code></a></li>
 <li><a href="#spawn"><code>spawn</code></a></li>
 <li><a href="#kill"><code>kill</code></a></li>
 <li><a href="#getpid"><code>getpid</code></a></li>
@@ -132,6 +133,13 @@ uv.run()</code></pre>
 <li><a href="#Signal:ref"><code>Signal:ref</code></a></li>
 <li><a href="#Signal:unref"><code>Signal:unref</code></a></li>
 <li><a href="#Signal:has_ref"><code>Signal:has_ref</code></a></li>
+<li><a href="#type-Async"><code>type Async</code></a></li>
+<li><a href="#Async:close"><code>Async:close</code></a></li>
+<li><a href="#Async:is_active"><code>Async:is_active</code></a></li>
+<li><a href="#Async:is_closing"><code>Async:is_closing</code></a></li>
+<li><a href="#Async:ref"><code>Async:ref</code></a></li>
+<li><a href="#Async:unref"><code>Async:unref</code></a></li>
+<li><a href="#Async:has_ref"><code>Async:has_ref</code></a></li>
 <li><a href="#type-Process"><code>type Process</code></a></li>
 <li><a href="#Process:pid"><code>Process:pid</code></a></li>
 <li><a href="#Process:kill"><code>Process:kill</code></a></li>
@@ -198,6 +206,11 @@ uv.run()</code></pre>
 <h2>signals</h2>
 <div class="def" id="signal"><h3><code>uv.signal() -> <a href="#type-Signal">Signal</a></code></h3>
 <p>A new signal watcher, not started.</p>
+
+</div>
+<h2>async handles</h2>
+<div class="def" id="async"><h3><code>uv.async(cb: func()) -> <a href="#type-Async">Async</a></code></h3>
+<p>A handle whose cb runs on the loop after a wake from any thread: another extension sends it through the C API (slang_uv.h's async_send), and an isolate's channel through [isolate.Channel.watch]. Several wakes before cb runs make one call. It keeps <a href="#run"><code>run</code></a> going until it is closed.</p>
 
 </div>
 <h2>processes</h2>
@@ -476,6 +489,32 @@ uv.run()</code></pre>
 
 </div>
 <div class="def" id="Signal:has_ref"><h3><code>Signal:has_ref() -> bool</code></h3>
+<p>Whether the handle keeps <a href="#run"><code>run</code></a> going.</p>
+
+</div>
+<h2 id="type-Async">type Async</h2>
+<p>A handle woken from other threads (<a href="#async"><code>async</code></a>); type() of it is &quot;uv.async&quot;.</p>
+<div class="def" id="Async:close"><h3><code>Async:close(cb?: func())</code></h3>
+<p>Closes the handle; cb() runs once it is closed.</p>
+
+</div>
+<div class="def" id="Async:is_active"><h3><code>Async:is_active() -> bool</code></h3>
+<p>Whether the handle is open.</p>
+
+</div>
+<div class="def" id="Async:is_closing"><h3><code>Async:is_closing() -> bool</code></h3>
+<p>Whether <a href="#Async:close"><code>Async.close</code></a> was called.</p>
+
+</div>
+<div class="def" id="Async:ref"><h3><code>Async:ref()</code></h3>
+<p>Makes the handle keep <a href="#run"><code>run</code></a> going again (the default).</p>
+
+</div>
+<div class="def" id="Async:unref"><h3><code>Async:unref()</code></h3>
+<p>Makes the handle no longer keep <a href="#run"><code>run</code></a> going.</p>
+
+</div>
+<div class="def" id="Async:has_ref"><h3><code>Async:has_ref() -> bool</code></h3>
 <p>Whether the handle keeps <a href="#run"><code>run</code></a> going.</p>
 
 </div>

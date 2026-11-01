@@ -15,6 +15,7 @@ const oslib = @import("stdlib/oslib.zig");
 const boot = @import("boot.zig");
 const bundle = @import("bundle/exe.zig");
 const bundle_format = @import("bundle/format.zig");
+const isolates = @import("stdlib/isolatelib.zig");
 
 // The C API must be compiled and exported even though nothing in the CLI
 // calls it: native extensions resolve the slang_* symbols against the
@@ -181,6 +182,7 @@ fn fail(vm: *VM) noreturn {
     // a profile of a run that failed is still a profile
     if (vm.profiler) |p| p.finish();
     ended(vm, 1);
+    isolates.printUnjoined(vm.io);
     var e = vm.takeError();
     var w = stderr(vm.io);
     e.write(&w.interface) catch {};
@@ -219,6 +221,7 @@ fn run(init: std.process.Init, path: []const u8, args: []const []const u8, expla
     _ = vm.call(.{ .function = cl }, &.{}) catch fail(vm);
     vm.flush();
     ended(vm, 0);
+    isolates.finish(vm, 0);
 }
 
 /// In the browser (Emscripten) a program runs as a coroutine: when it yields
@@ -273,6 +276,7 @@ fn runBundled(init: std.process.Init, b: *const bundle.Bundle) u8 {
     const cl = vm.loadBytes(entry.data) catch fail(vm);
     _ = vm.call(.{ .function = cl }, &.{}) catch fail(vm);
     vm.flush();
+    isolates.finish(vm, 0);
     return 0;
 }
 
@@ -313,6 +317,7 @@ fn runTests(init: std.process.Init, args: []const []const u8) u8 {
     vm.flush();
     const code: u8 = if (failed.truthy()) 1 else 0;
     ended(vm, code);
+    isolates.finish(vm, code);
     return code;
 }
 
@@ -378,6 +383,7 @@ fn toolMain(init: std.process.Init, module: []const u8, args: []const []const u8
         else => 0,
     };
     ended(vm, code);
+    isolates.finish(vm, code);
     return code;
 }
 

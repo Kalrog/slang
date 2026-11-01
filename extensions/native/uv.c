@@ -16,8 +16,9 @@
  * slang/async builds Futures and Streams on top of this module.
  *
  * Handles: timer, tcp, pipe, signal (start(name, cb)), process (from
- * spawn(file, args, options, on_exit); pid, kill) and poll (on a descriptor
- * another library owns); every handle has close, is_active, is_closing,
+ * spawn(file, args, options, on_exit); pid, kill), poll (on a descriptor
+ * another library owns) and async (async(cb): cb runs on the loop after a
+ * wake from another thread, see slang_uv.h); every handle has close, is_active, is_closing,
  * ref, unref and has_ref. getaddrinfo resolves names. The fs_* functions
  * (read_file, write_file, stat, scandir, unlink, mkdir, rmdir, rename,
  * open, read, write, close) run libuv's file calls on its thread pool, the
@@ -40,6 +41,7 @@ typedef struct handle {
         uv_signal_t signal;
         uv_process_t process;
         uv_poll_t poll;
+        uv_async_t async;
     } u;
     int self_ref;    /* the userdata, while the handle is active or closing */
     int cb_ref;      /* timer, listen or read callback */
@@ -189,7 +191,7 @@ static int l_is_active(slang_State *S, const char *tname) {
 
 /* ---- methods every handle has ---- */
 
-static const char *handle_tnames[] = {"uv.timer", "uv.tcp", "uv.pipe", "uv.signal", "uv.process", "uv.poll", NULL};
+static const char *handle_tnames[] = {"uv.timer", "uv.tcp", "uv.pipe", "uv.signal", "uv.process", "uv.poll", "uv.async", NULL};
 
 static handle *check_any(slang_State *S, int idx) {
     for (int i = 0; handle_tnames[i] != NULL; i++) {
@@ -873,7 +875,55 @@ static void api_hold(int on) {
     else uv_unref((uv_handle_t *)&hold_handle);
 }
 
-static const slang_uv_api the_api = {SLANG_UV_API_VERSION, api_queue, api_run, api_backend_fd, api_backend_timeout, api_hold};
+/* ---- async handles: woken from other threads ---- */
+
+static int async_meta_ref = SLANG_REFNULL;
+
+static void on_async(uv_async_t *a) {
+    handle *h = (handle *)a;
+    if (begin_callback(h->cb_ref)) finish_callback(0);
+}
+
+/* async(cb): a handle whose cb runs on the loop after a wake (through the C
+ * API's async_send, from any thread). It keeps the loop running until it
+ * is closed. */
+static int l_async(slang_State *S) {
+    slang_checkfunction(S, 1);
+    if (slang_failed(S)) return SLANG_ERROR;
+    handle *h = new_handle(S, "uv.async", async_meta_ref);
+    int r = uv_async_init(loop(), &h->u.async, on_async);
+    if (r < 0) {
+        h->closed = h->close_done = 1;
+        push_uv_error(S, r);
+        return slang_raise(S);
+    }
+    slang_pushvalue(S, 1);
+    h->cb_ref = slang_ref(S);
+    retain(S, h, -1);
+    return 1;
+}
+
+static int async_close(slang_State *S) { return l_close(S, "uv.async"); }
+static int async_is_active(slang_State *S) { return l_is_active(S, "uv.async"); }
+static int async_is_closing(slang_State *S) { return l_is_closing(S, "uv.async"); }
+
+static const slang_Reg async_methods[] = {
+    {"close", async_close},
+    {"is_active", async_is_active},
+    {"is_closing", async_is_closing},
+    HANDLE_METHODS,
+    {NULL, NULL},
+};
+
+static void *api_async_handle(slang_State *S, int idx) {
+    handle **box = slang_testudata(S, idx, "uv.async");
+    if (box == NULL || (*box)->closed) return NULL;
+    return &(*box)->u.async;
+}
+
+static int api_async_send(void *h) { return uv_async_send((uv_async_t *)h); }
+
+static const slang_uv_api the_api = {SLANG_UV_API_VERSION, api_queue, api_run, api_backend_fd, api_backend_timeout, api_hold, api_async_handle, api_async_send};
 
 /* ---- file system: libuv's synchronous calls, run on the pool ---- */
 
@@ -1697,6 +1747,7 @@ static const slang_Reg funcs[] = {
     {"tcp", l_tcp},
     {"pipe", l_pipe},
     {"signal", l_signal},
+    {"async", l_async},
     {"spawn", l_spawn},
     {"kill", l_kill},
     {"getpid", l_getpid},
@@ -1733,6 +1784,7 @@ SLANG_EXTENSION(uv) {
     signal_meta_ref = make_meta(S, "uv.signal", signal_methods);
     process_meta_ref = make_meta(S, "uv.process", process_methods);
     poll_meta_ref = make_meta(S, "uv.poll", poll_methods);
+    async_meta_ref = make_meta(S, "uv.async", async_methods);
     slang_newmodule(S, funcs);
     const slang_uv_api **api = slang_newuserdata(S, sizeof(slang_uv_api *), SLANG_UV_API_TNAME, NULL);
     *api = &the_api;

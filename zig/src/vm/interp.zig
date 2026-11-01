@@ -59,7 +59,11 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
             },
             .load_closure => {
                 th.top = top;
-                gc.safePoint(vm, th);
+                gc.safePoint(vm, th) catch |e| {
+                    spill(trace, th, fi, pc, top);
+                    try th.handleError(e, stop_depth);
+                    continue :outer;
+                };
                 const cl = th.makeClosure(th.frames.items[fi], proto.children[d.argAx(ins)]);
                 stack[top] = .{ .function = cl };
                 top += 1;
@@ -263,7 +267,11 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
             },
             .new_table => {
                 th.top = top;
-                gc.safePoint(vm, th);
+                gc.safePoint(vm, th) catch |e| {
+                    spill(trace, th, fi, pc, top);
+                    try th.handleError(e, stop_depth);
+                    continue :outer;
+                };
                 stack[top] = .{ .table = vm.newTable(d.argB(ins), d.argC(ins)) };
                 top += 1;
                 continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
@@ -375,14 +383,22 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 const off = d.argSBx(ins);
                 if (off < 0) {
                     spill(trace, th, fi, pc, top);
-                    gc.safePoint(vm, th);
+                    gc.safePoint(vm, th) catch |e| {
+                        spill(trace, th, fi, pc, top);
+                        try th.handleError(e, stop_depth);
+                        continue :outer;
+                    };
                 }
                 pc = @intCast(@as(i64, @intCast(pc)) + off);
                 continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
             },
             .call_spread => {
                 spill(trace, th, fi, pc, top);
-                gc.safePoint(vm, th);
+                gc.safePoint(vm, th) catch |e| {
+                    spill(trace, th, fi, pc, top);
+                    try th.handleError(e, stop_depth);
+                    continue :outer;
+                };
                 const fixed: usize = d.argBx(ins);
                 const list = stack[top - 1];
                 if (list != .table) {
@@ -428,7 +444,11 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
             },
             .call => {
                 spill(trace, th, fi, pc, top);
-                gc.safePoint(vm, th);
+                gc.safePoint(vm, th) catch |e| {
+                    spill(trace, th, fi, pc, top);
+                    try th.handleError(e, stop_depth);
+                    continue :outer;
+                };
                 const nargs: usize = d.argBx(ins);
                 const fn_idx = top - nargs - 1;
                 const is_slang = th.precall(fn_idx, nargs, false) catch |e| {

@@ -8,8 +8,6 @@ const Error = vm_mod.Error;
 const api = vm_mod.api;
 const stdlib = @import("stdlib.zig");
 
-var prng: std.Random.DefaultPrng = undefined;
-var prng_ready = false;
 
 /// slang/math.
 pub fn module(vm: *VM) *Table {
@@ -90,17 +88,18 @@ fn unary(comptime f: fn (f64) f64) vm_mod.NativeFn {
     }.native;
 }
 
-fn ensurePrng(th: *Thread) void {
-    if (!prng_ready) {
+/// The VM's generator, seeded from the OS on first use.
+fn ensurePrng(th: *Thread) *std.Random.DefaultPrng {
+    if (th.vm.lib.prng == null) {
         var seed: [8]u8 = undefined;
         th.vm.io.random(&seed);
-        prng = std.Random.DefaultPrng.init(std.mem.readInt(u64, &seed, .little));
-        prng_ready = true;
+        th.vm.lib.prng = std.Random.DefaultPrng.init(std.mem.readInt(u64, &seed, .little));
     }
+    return &th.vm.lib.prng.?;
 }
 
 fn mathRandom(th: *Thread, args: []Value) Error!Value {
-    ensurePrng(th);
+    const prng = ensurePrng(th);
     const lo = api.argNumberOr(args, 0, 0);
     const hi = api.argNumberOr(args, 1, 1);
     return .{ .float = prng.random().float(f64) * (hi - lo) + lo };
@@ -197,7 +196,7 @@ fn mathIsInf(th: *Thread, args: []Value) Error!Value {
 
 /// random_int(lo, hi): a random int from lo up to and including hi.
 fn mathRandomInt(th: *Thread, args: []Value) Error!Value {
-    ensurePrng(th);
+    const prng = ensurePrng(th);
     const lo = try api.argInt(th, args, 0, "lo");
     const hi = try api.argInt(th, args, 1, "hi");
     if (hi < lo) return th.vm.raise("random_int: hi ({d}) is below lo ({d})", .{ hi, lo });
@@ -207,7 +206,6 @@ fn mathRandomInt(th: *Thread, args: []Value) Error!Value {
 /// seed(n): makes random and random_int repeat the same sequence for n.
 fn mathSeed(th: *Thread, args: []Value) Error!Value {
     const n = try api.argInt(th, args, 0, "n");
-    prng = std.Random.DefaultPrng.init(@bitCast(n));
-    prng_ready = true;
+    th.vm.lib.prng = std.Random.DefaultPrng.init(@bitCast(n));
     return .null;
 }

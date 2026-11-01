@@ -30,8 +30,6 @@ const Handle = struct {
     path: []u8,
 };
 
-var file_meta: ?*Table = null;
-
 pub fn init(vm: *VM) void {
     const meta = vm.newTable(0, 2);
     meta.set(vm.gpa, vm.str("__index"), .{ .table = stdlib.makeModule(vm, &.{
@@ -45,7 +43,7 @@ pub fn init(vm: *VM) void {
         .{ .name = "close", .f = fileClose },
     }) });
     meta.set(vm.gpa, vm.str("__type"), vm.str("file"));
-    file_meta = meta;
+    vm.lib.file_meta = meta;
     // keep the metatable alive
     vm.registry.set(vm.gpa, vm.str("file_meta"), .{ .table = meta });
 }
@@ -84,7 +82,7 @@ pub fn osOpen(th: *Thread, args: []Value) Error!Value {
         };
     }
     const f = fopen(pathz, cmode) orelse return vm.raise("cannot open {s}", .{path});
-    const u = vm.newUserdataOf(Handle, .{ .vm = vm, .file = f, .path = vm.gpa.dupe(u8, path) catch oom() }, tname, file_meta);
+    const u = vm.newUserdataOf(Handle, .{ .vm = vm, .file = f, .path = vm.gpa.dupe(u8, path) catch oom() }, tname, vm.lib.file_meta);
     u.finalizer = finalize;
     u.to_string = toString;
     return .{ .userdata = u };

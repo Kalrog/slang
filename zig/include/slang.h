@@ -258,6 +258,33 @@ SLANG_EXPORT int slang_dofile(slang_State *S, const char *path);
 /* Makes the module on top of the stack available to require(name). Pops. */
 SLANG_EXPORT void slang_preload(slang_State *S, const char *name);
 
+/* ---- isolates (slang/isolate) ----
+ *
+ * slang_isolate_new makes a VM that shares nothing with S, for an OS thread
+ * the caller owns (an audio callback, a thread pool): it has S's search
+ * paths and arguments, and the value at idx copied onto its stack the way
+ * a channel copies (a function crosses as bytecode and may use globals,
+ * not locals of the code around it). Returns the new state, or NULL with
+ * the error pending on S. Only one OS thread at a time may use the new
+ * state (checked builds catch two in slang_call at once); slang_close ends
+ * it. Run the function with slang_pushvalue(I, 1), its arguments and
+ * slang_call(I, n).
+ *
+ * The channel functions work on any state, a driven one included; ch_idx
+ * is a channel's stack index. slang_send pops the value on top and sends
+ * it, blocking while a channel with a capacity is full; slang_trysend
+ * returns 1 when it sent, 0 when the channel was full (the value is popped
+ * either way). slang_receive pushes the next value, waiting for one, or
+ * null once the channel is closed and empty; slang_tryreceive pushes the
+ * next value and returns 1, or pushes null and returns 0 when there is
+ * none. All return SLANG_ERROR with an error pending (a closed channel for
+ * a send, a value that cannot cross). */
+SLANG_EXPORT slang_State *slang_isolate_new(slang_State *S, int idx);
+SLANG_EXPORT int slang_send(slang_State *S, int ch_idx);
+SLANG_EXPORT int slang_trysend(slang_State *S, int ch_idx);
+SLANG_EXPORT int slang_receive(slang_State *S, int ch_idx);
+SLANG_EXPORT int slang_tryreceive(slang_State *S, int ch_idx);
+
 /* ---- extension entry point ----
  *
  * SLANG_EXTENSION(name) { ... } defines slang_open_<name>, the function

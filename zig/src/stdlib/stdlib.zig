@@ -119,6 +119,8 @@ pub fn open(vm: *VM) void {
         preload(vm, "slang/ffi_core", .{ .table = @import("ffilib.zig").module(vm) });
     }
     preload(vm, "slang/thread", .{ .table = @import("threadlib.zig").module(vm) });
+    // parallel VMs that talk through channels
+    preload(vm, "slang/isolate", .{ .table = @import("isolatelib.zig").module(vm) });
     // the browser's frames, in the Emscripten build (the playground)
     if (@import("builtin").os.tag == .emscripten) {
         preload(vm, "slang/web", .{ .table = @import("weblib.zig").module(vm) });

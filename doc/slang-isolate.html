@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>slang/isolate</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
+pre.ebnf { white-space: pre-wrap; border-left: 3px solid var(--link); }
+dl.syntax dd { margin: 0.2rem 0 0.8rem 0.2rem; }
+figure.example { margin: 1rem 0; }
+details.expanded summary { cursor: pointer; color: var(--muted); }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>slang/isolate</h1>
+<p>slang/isolate: parallelism without shared state, built into the VM. An isolate is a VM of its own (heap, collector, globals, modules) on an OS thread of its own, so isolates run in parallel; they share nothing and talk through channels, which copy what is sent.</p>
+<pre><code>local isolate = require(&quot;slang/isolate&quot;)
+local jobs = isolate.channel()
+local results = isolate.channel()
+local worker = isolate.spawn(func(jobs, results){
+  local iso = require(&quot;slang/isolate&quot;)    // a fresh VM: it requires
+  for(let local job in iso.each(jobs)){    // what it needs itself
+    results:send({id: job.id, area: job.w * job.h})
+  }
+  return &quot;done&quot;
+}, jobs, results)
+jobs:send({id: 1, w: 2, h: 3})            // copied
+jobs:close()
+results:receive().area                    // 6, waiting for it
+worker:join()                             // &quot;done&quot;</code></pre>
+<p>What crosses (the arguments of spawn, a function's result, a value sent through a channel) is copied into the receiving heap: null, bools, numbers, strings, tables (with their metatables; cycles and tables that appear twice in one value stay so) and functions. A function crosses as bytecode and is loaded with the receiver's globals: it may use globals and what it requires itself, but not locals of the code around it (an error names the variable). Channels, isolates and shared buffers (slang/buffer's shared) cross by reference: both sides use the same one. Coroutines, other buffers and other userdata do not cross.</p>
+<p>Inside an isolate, slang/async and the uv module are the main program's only for now (the uv loop is one per process); an isolate blocks on its channels instead. slang/async's receive waits for a channel from the main program's loop.</p>
+<p>The main program ending ends the process: isolates still running stop with it, so join the ones whose work matters. An isolate's error nobody joined is printed to stderr when the program ends. In a browser (the playground) there are no threads: available() is false and spawn raises.</p>
+<ul class="toc">
+<li><a href="#available"><code>available</code></a></li>
+<li><a href="#spawn"><code>spawn</code></a></li>
+<li><a href="#channel"><code>channel</code></a></li>
+<li><a href="#each"><code>each</code></a></li>
+<li><a href="#id"><code>id</code></a></li>
+<li><a href="#cpu_count"><code>cpu_count</code></a></li>
+<li><a href="#type-Isolate"><code>type Isolate</code></a></li>
+<li><a href="#type-Channel"><code>type Channel</code></a></li>
+</ul>
+<div class="def" id="available"><h3><code>isolate.available() -> bool</code></h3>
+<p>Whether isolates can run here: false in a browser, which has no threads.</p>
+
+</div>
+<div class="def" id="spawn"><h3><code>isolate.spawn(f: function, ...args) -> <a href="#type-Isolate">Isolate</a></code></h3>
+<p>Runs f(args) in a new isolate, in parallel with the caller, and returns at once. f and the arguments are copied as described above; f must not use locals of the code around it. The isolate finds modules where the caller does (the same search paths and program arguments).</p>
+<pre><code>local w = isolate.spawn(func(n){ return n * n }, 12)
+w:join()    // 144</code></pre>
+
+</div>
+<div class="def" id="channel"><h3><code>isolate.channel(options?: {capacity?: int}) -> <a href="#type-Channel">Channel</a></code></h3>
+<p>A new channel, unbounded unless options.capacity (at least 1) limits how many values it holds; send blocks on a full one.</p>
+
+</div>
+<div class="def" id="each"><h3><code>isolate.each(ch: <a href="#type-Channel">Channel</a>) -> function</code></h3>
+<p>An iterator over the values of ch: receives until ch is closed and empty. Like every iterator it also stops at a value of false.</p>
+<pre><code>for(let local job in isolate.each(jobs)){ ... }</code></pre>
+
+</div>
+<div class="def" id="id"><h3><code>isolate.id() -> int</code></h3>
+<p>The running isolate's id; the main program's is 0.</p>
+
+</div>
+<div class="def" id="cpu_count"><h3><code>isolate.cpu_count() -> int</code></h3>
+<p>How many CPUs the machine runs threads on: how many isolates that compute can run at once (1 where there are no threads).</p>
+
+</div>
+<h2 id="type-Isolate">type Isolate</h2>
+<pre><code>type Isolate = {join: func(): any, kill: func(), is_running: func(): bool, id: func(): int}</code></pre>
+<p>An isolate, as spawn returns it; == compares which isolate.</p>
+<dl class="params"><dt><code>join: func(): any</code></dt><dd>waits for the isolate's function to return and gives its result (copied; again on every join), or raises its error, with the location and traceback where it was raised in the isolate. A killed isolate gives null.</dd><dt><code>kill: func()</code></dt><dd>stops the isolate at its next safe point (a call, a loop, a channel it waits on; code inside a C call stops when it returns) and waits until it has; try and pcall do not catch the stop.</dd><dt><code>is_running: func(): bool</code></dt><dd>whether its function has not returned yet</dd><dt><code>id: func(): int</code></dt><dd>a number for the isolate, from 1</dd></dl>
+<h2 id="type-Channel">type Channel</h2>
+<pre><code>type Channel = {send: func(v: any), receive: func(): any, try_send: func(v: any): bool, try_receive: func(): any, close: func(), is_closed: func(): bool, len: func(): int, capacity: func(): int, watch: func(h: any), unwatch: func(h: any)}</code></pre>
+<p>A channel: a queue of copied values between isolates (or within one); == compares which channel. A channel is unbounded unless made with a capacity: send never blocks then.</p>
+<dl class="params"><dt><code>send: func(v: any)</code></dt><dd>copies v into the channel; blocks while a channel with a capacity is full; raises when the channel is closed. null cannot be sent: receive gives null for a closed channel.</dd><dt><code>receive: func(): any</code></dt><dd>the next value, waiting until there is one; null once the channel is closed and empty</dd><dt><code>try_send: func(v: any): bool</code></dt><dd>like send, but returns false instead of blocking on a full channel</dd><dt><code>try_receive: func(): any</code></dt><dd>the next value, or null when none is queued (is_closed tells whether more can come)</dd><dt><code>close: func()</code></dt><dd>no more sends; what is queued can still be received</dd><dt><code>is_closed: func(): bool</code></dt><dd>whether close was called</dd><dt><code>len: func(): int</code></dt><dd>how many values are queued</dd><dt><code>capacity: func(): int</code></dt><dd>the capacity, or null for an unbounded channel</dd><dt><code>watch: func(h: any)</code></dt><dd>sends the uv async handle h (uv.async(cb)) whenever the channel changes, and at once when values are queued; how slang/async's receive wakes the loop. unwatch before closing h.</dd><dt><code>unwatch: func(h: any)</code></dt><dd>stops sending h</dd></dl>
+<p class="muted">slang/stubs/slang/isolate.slang</p>
+</body>
+</html>

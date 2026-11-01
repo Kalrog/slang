@@ -6,6 +6,7 @@
  */
 #include <string.h>
 #include <stdlib.h>
+#include <pthread.h>
 #include "slang.h"
 
 /* add(a, b): numbers, with argument checks */
@@ -260,7 +261,88 @@ static int l_ramp(slang_State *S) {
     return 1;
 }
 
+/* ---- isolates driven from a thread of our own ---- */
+
+typedef struct drive_job {
+    slang_State *I;
+    int n;
+    long long sum;
+    int failed;
+} drive_job;
+
+static void *drive_thread(void *arg) {
+    drive_job *job = arg;
+    for (int i = 0; i < job->n; i++) {
+        slang_pushvalue(job->I, 1);
+        slang_pushint(job->I, i);
+        if (slang_call(job->I, 1) != SLANG_OK) {
+            job->failed = 1;
+            break;
+        }
+        job->sum += slang_toint(job->I, -1);
+        slang_pop(job->I, 1);
+    }
+    return NULL;
+}
+
+/* drive(f, n): sum of f(i) for i in 0..n-1, called in an isolate of its own
+ * on a thread this extension starts (the way an audio callback runs slang) */
+static int l_drive(slang_State *S) {
+    slang_checkfunction(S, 1);
+    int n = (int)slang_checkint(S, 2);
+    if (slang_failed(S)) return SLANG_ERROR;
+    drive_job job = {slang_isolate_new(S, 1), n, 0, 0};
+    if (job.I == NULL) return SLANG_ERROR;
+    pthread_t t;
+    pthread_create(&t, NULL, drive_thread, &job);
+    pthread_join(t, NULL);
+    if (job.failed) {
+        slang_error(S, "drive: %s", slang_errormessage(job.I));
+        slang_close(job.I);
+        return SLANG_ERROR;
+    }
+    slang_close(job.I);
+    slang_pushint(S, job.sum);
+    return 1;
+}
+
+/* the pump's thread: doubles the ints of channel 1 into channel 2 until
+ * channel 1 is closed, then sends -1 */
+static void *pump_thread(void *arg) {
+    slang_State *I = arg;
+    slang_geti(I, 1, 0);
+    slang_geti(I, 1, 1);
+    for (;;) {
+        if (slang_receive(I, 2) != SLANG_OK || slang_isnull(I, -1)) break;
+        int64_t v = slang_toint(I, -1);
+        slang_pop(I, 1);
+        slang_pushint(I, v * 2);
+        if (slang_send(I, 3) != SLANG_OK) break;
+    }
+    slang_pushint(I, -1);
+    slang_send(I, 3);
+    slang_close(I);
+    return NULL;
+}
+
+/* pump(in, out): starts a thread that serves the channels through the C API */
+static int l_pump(slang_State *S) {
+    slang_newtable(S);
+    slang_pushvalue(S, 1);
+    slang_append(S, -2);
+    slang_pushvalue(S, 2);
+    slang_append(S, -2);
+    slang_State *I = slang_isolate_new(S, -1);
+    if (I == NULL) return SLANG_ERROR;
+    pthread_t t;
+    pthread_create(&t, NULL, pump_thread, I);
+    pthread_detach(t);
+    return 0;
+}
+
 static const slang_Reg funcs[] = {
+    {"drive", l_drive},
+    {"pump", l_pump},
     {"buffer_sum", l_buffer_sum},
     {"ramp", l_ramp},
     {"add", l_add},

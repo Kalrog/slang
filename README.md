@@ -375,6 +375,36 @@ inside `pcall`, but not from inside a function that was called by a native
 function (for example a metamethod). An error inside a coroutine is raised
 in the resumer, and the coroutine is dead afterwards.
 
+### Isolates
+```slang
+local isolate = require("slang/isolate")
+local jobs = isolate.channel()
+local results = isolate.channel()
+local worker = isolate.spawn(func(jobs, results){
+    local iso = require("slang/isolate")    // a VM of its own: it requires what it needs
+    for(let local job in iso.each(jobs)){
+        results:send(job.w * job.h)
+    }
+    return "done"
+}, jobs, results)
+jobs:send({w: 2, h: 3})     // copied into the worker's heap
+jobs:close()
+print(results:receive())    // 6
+print(worker:join())        // done (or the worker's error, raised here)
+```
+An isolate is a VM of its own on an OS thread of its own, so isolates run in
+parallel; they share nothing and talk through channels, which copy what is
+sent (tables with cycles and metatables, functions as bytecode). A function
+that crosses may use globals, not locals of the code around it. Channels
+and isolate handles cross by reference, and so does `buffer.shared(type, n)`,
+memory that every isolate reads and writes (with `b:lock(f)` for more than
+single elements). Channels can be bounded (`channel({capacity: 8})`), polled
+(`try_send`, `try_receive`) and awaited from the event loop
+(`async.receive(ch)`); `w:kill()` stops an isolate at its next safe point.
+`examples/isolates` renders a Mandelbrot set with one isolate per CPU, and
+`slang_isolate_new` (slang.h) runs an isolate from a thread an extension
+owns.
+
 ### Errors
 ```slang
 local r = pcall(func(a, b){ return a / b }, 1, 0)   // {"ok", value} or {"err", e}
@@ -739,7 +769,7 @@ Modules (`require("slang/...")`), one job each, Go style:
 - `os`: files (`open` with `read_line`/`lines`, `read_file`, `write_file`,
   `append_file`, `stat`, `remove`, `remove_all`, ...), `read_line`,
   `exec`, `getenv`; `path` (`join`, `dir`, `base`, `ext`, `clean`, `rel`).
-- `thread` (coroutines), `vm` (upvalue access, bytecode loading), `test`
+- `thread` (coroutines), `isolate` (parallel VMs and channels), `vm` (upvalue access, bytecode loading), `test`
   (group/test/setup/teardown/run), `compiler`, `peg`, `grammar`; and the
   web, C and native modules below.
 
@@ -755,7 +785,8 @@ bench/     benchmarks (make bench)
 extensions/ parser extensions written in slang; extensions/native are native ones
 packages/  packages kept with slang: packages/raylib (raylib through slang/ffi), packages/box2d (2D physics), packages/jolt (3D physics)
 examples/  example programs: examples/breakout on the raylib package, examples/physics (Box2D and Jolt drawn with raylib), examples/project (slang.project), examples/functional (|> and holes),
-           examples/deckhand, a heist game on raylib whose maps are written in a DSL, examples/webserver and examples/desktop
+           examples/deckhand, a heist game on raylib whose maps are written in a DSL, examples/webserver and examples/desktop,
+           examples/isolates (a Mandelbrot set rendered by one isolate per CPU)
 lsp/       the language server (highlighting and diagnostics from the real parser); editors/vscode is its VS Code client
 ```
 
@@ -767,9 +798,9 @@ example that ran on the Go VM.
 
 `slang.h` also embeds: `slang_new`, `slang_dostring`, `slang_dofile`,
 registering natives and calling slang functions through the same stack API
-the extensions use.
+the extensions use. `slang_isolate_new` makes a VM for a thread the host or
+an extension owns, and `slang_send`/`slang_receive` (with `try` forms) use
+channels from C.
 
 ## Ideas
-- [ ] isolates: separate VMs on threads exchanging messages (coroutines
-      stay the in-VM model)
 - [ ] static typing

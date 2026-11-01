@@ -11,29 +11,33 @@ const stdlib = @import("stdlib.zig");
 const bundle = @import("../bundle/exe.zig");
 const bundlelib = @import("bundlelib.zig");
 
-var process_start: ?std.Io.Timestamp = null;
-
 /// slang/os: files and process environment.
 pub fn module(vm: *VM) *Table {
-    process_start = std.Io.Clock.now(.awake, vm.io);
     return stdlib.makeModule(vm, &.{
+        // files
+        .{ .name = "open", .f = @import("file.zig").osOpen },
         .{ .name = "exists", .f = osExists },
         .{ .name = "is_dir", .f = osIsDir },
+        .{ .name = "stat", .f = osStat },
         .{ .name = "read_file", .f = osReadFile },
         .{ .name = "write_file", .f = osWriteFile },
-        .{ .name = "write_stderr", .f = osWriteStderr },
+        .{ .name = "append_file", .f = osAppendFile },
         .{ .name = "list_dir", .f = osListDir },
+        .{ .name = "mkdir_all", .f = osMkdirAll },
+        .{ .name = "remove", .f = osRemove },
+        .{ .name = "remove_all", .f = osRemoveAll },
+        .{ .name = "rename", .f = osRename },
+        .{ .name = "copy_file", .f = osCopyFile },
+        .{ .name = "temp_dir", .f = osTempDir },
+        // the process
+        .{ .name = "read_line", .f = osReadLine },
+        .{ .name = "write_stderr", .f = osWriteStderr },
         .{ .name = "getenv", .f = osGetenv },
         .{ .name = "cwd", .f = osCwd },
-        .{ .name = "exit", .f = osExit },
-        .{ .name = "clock", .f = osClock },
-        .{ .name = "mkdir_all", .f = osMkdirAll },
-        .{ .name = "time_ms", .f = osTimeMs },
-        .{ .name = "exec", .f = osExec },
-        .{ .name = "platform", .f = osPlatform },
         .{ .name = "executable", .f = osExecutable },
-        .{ .name = "copy_file", .f = osCopyFile },
-        .{ .name = "rename", .f = osRename },
+        .{ .name = "platform", .f = osPlatform },
+        .{ .name = "exec", .f = osExec },
+        .{ .name = "exit", .f = osExit },
     });
 }
 
@@ -81,21 +85,6 @@ fn osMkdirAll(th: *Thread, args: []Value) Error!Value {
     return .null;
 }
 
-/// clock(): seconds since program start (monotonic, double).
-fn osClock(th: *Thread, args: []Value) Error!Value {
-    _ = args;
-    const now = std.Io.Clock.now(.awake, th.vm.io);
-    const ns = process_start.?.durationTo(now).nanoseconds;
-    return .{ .float = @as(f64, @floatFromInt(ns)) / 1e9 };
-}
-
-/// time_ms(): milliseconds since the Unix epoch (int).
-fn osTimeMs(th: *Thread, args: []Value) Error!Value {
-    _ = args;
-    const now = std.Io.Clock.now(.real, th.vm.io);
-    return .{ .int = @intCast(@divTrunc(now.nanoseconds, 1_000_000)) };
-}
-
 // In a program built by slang build, a relative path that names a bundled
 // file or directory is the bundle's for exists, is_dir, read_file and
 // list_dir (bundle.resolve); writes always go to the disk, so a program
@@ -136,6 +125,87 @@ fn osWriteFile(th: *Thread, args: []Value) Error!Value {
         return th.vm.raise("cannot write {s}: {t}", .{ path, e });
     };
     return .null;
+}
+
+fn osAppendFile(th: *Thread, args: []Value) Error!Value {
+    const vm = th.vm;
+    const path = try api.argString(th, args, 0, "path");
+    const content = try api.argString(th, args, 1, "content");
+    const cwd = std.Io.Dir.cwd();
+    const f = cwd.openFile(vm.io, path, .{ .mode = .write_only }) catch |e| switch (e) {
+        error.FileNotFound => cwd.createFile(vm.io, path, .{}) catch |e2| return vm.raise("cannot write {s}: {t}", .{ path, e2 }),
+        else => return vm.raise("cannot write {s}: {t}", .{ path, e }),
+    };
+    defer f.close(vm.io);
+    const st = f.stat(vm.io) catch |e| return vm.raise("cannot write {s}: {t}", .{ path, e });
+    f.writePositionalAll(vm.io, content, st.size) catch |e| return vm.raise("cannot write {s}: {t}", .{ path, e });
+    return .null;
+}
+
+/// stat(path) -> {size, mtime, is_dir, mode} or null when nothing is there.
+fn osStat(th: *Thread, args: []Value) Error!Value {
+    const vm = th.vm;
+    const path = try api.argString(th, args, 0, "path");
+    if (bundle.resolve(path)) |h| {
+        const t = vm.newTable(0, 4);
+        switch (h) {
+            .file => |e| t.set(vm.gpa, vm.str("size"), .{ .int = @intCast(e.raw_len) }),
+            .dir => t.set(vm.gpa, vm.str("size"), .{ .int = 0 }),
+        }
+        t.set(vm.gpa, vm.str("mtime"), .{ .int = 0 });
+        t.set(vm.gpa, vm.str("is_dir"), .{ .bool = h == .dir });
+        t.set(vm.gpa, vm.str("mode"), .{ .int = if (h == .dir) 0o555 else 0o444 });
+        return .{ .table = t };
+    }
+    const st = std.Io.Dir.cwd().statFile(vm.io, path, .{}) catch return .null;
+    const t = vm.newTable(0, 4);
+    t.set(vm.gpa, vm.str("size"), .{ .int = @intCast(st.size) });
+    const ms = @divFloor(st.mtime.nanoseconds, 1_000_000);
+    t.set(vm.gpa, vm.str("mtime"), .{ .float = @as(f64, @floatFromInt(ms)) / 1000 });
+    t.set(vm.gpa, vm.str("is_dir"), .{ .bool = st.kind == .directory });
+    const mode: i64 = if (@hasDecl(@TypeOf(st.permissions), "toMode")) @intCast(st.permissions.toMode() & 0o7777) else 0;
+    t.set(vm.gpa, vm.str("mode"), .{ .int = mode });
+    return .{ .table = t };
+}
+
+/// remove(path): deletes a file or an empty directory.
+fn osRemove(th: *Thread, args: []Value) Error!Value {
+    const vm = th.vm;
+    const path = try api.argString(th, args, 0, "path");
+    const cwd = std.Io.Dir.cwd();
+    cwd.deleteFile(vm.io, path) catch |e| switch (e) {
+        error.IsDir => cwd.deleteDir(vm.io, path) catch |e2| return vm.raise("cannot remove {s}: {t}", .{ path, e2 }),
+        else => return vm.raise("cannot remove {s}: {t}", .{ path, e }),
+    };
+    return .null;
+}
+
+/// remove_all(path): deletes path and everything under it; nothing there is
+/// not an error.
+fn osRemoveAll(th: *Thread, args: []Value) Error!Value {
+    const vm = th.vm;
+    const path = try api.argString(th, args, 0, "path");
+    std.Io.Dir.cwd().deleteTree(vm.io, path) catch |e| return vm.raise("cannot remove {s}: {t}", .{ path, e });
+    return .null;
+}
+
+/// temp_dir(): the directory for temporary files (TMPDIR, else /tmp).
+fn osTempDir(th: *Thread, args: []Value) Error!Value {
+    _ = args;
+    const dir = th.vm.getenv("TMPDIR") orelse th.vm.getenv("TEMP") orelse "/tmp";
+    const trimmed = if (dir.len > 1) std.mem.trimEnd(u8, dir, "/") else dir;
+    return th.vm.str(trimmed);
+}
+
+/// read_line(): the next line of standard input without its line ending,
+/// or null at the end.
+fn osReadLine(th: *Thread, args: []Value) Error!Value {
+    _ = args;
+    const vm = th.vm;
+    vm.flush();
+    const line = vm.stdin.interface.takeDelimiter('\n') catch return .null;
+    const l = line orelse return .null;
+    return vm.str(std.mem.trimEnd(u8, l, "\r\n"));
 }
 
 /// write_stderr(text): writes text to the standard error stream.

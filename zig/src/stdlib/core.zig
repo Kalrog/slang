@@ -15,7 +15,6 @@ pub fn open(vm: *VM) void {
     const core = [_]Native{
         .{ .name = "print", .f = corePrint },
         .{ .name = "args", .f = coreArgs },
-        .{ .name = "readLine", .f = coreReadLine },
         .{ .name = "assert", .f = coreAssert },
         .{ .name = "append", .f = coreAppend },
         .{ .name = "remove", .f = coreRemove },
@@ -29,10 +28,10 @@ pub fn open(vm: *VM) void {
         .{ .name = "set_raw", .f = coreSetRaw },
         .{ .name = "get_raw", .f = coreGetRaw },
         .{ .name = "to_int", .f = coreToInt },
+        .{ .name = "to_float", .f = coreToFloat },
         .{ .name = "string", .f = coreString },
         .{ .name = "list_push", .f = coreListPush },
         .{ .name = "raise", .f = coreRaise },
-        .{ .name = "open", .f = @import("file.zig").coreOpen },
     };
     for (core) |n| vm.register(n.name, n.f);
     @import("file.zig").init(vm);
@@ -149,15 +148,6 @@ fn coreArgs(th: *Thread, args: []Value) Error!Value {
     const t = vm.newTable(vm.args.len, 0);
     for (vm.args) |a| t.append(vm.gpa, vm.str(a));
     return .{ .table = t };
-}
-
-fn coreReadLine(th: *Thread, args: []Value) Error!Value {
-    _ = args;
-    const vm = th.vm;
-    vm.flush();
-    const line = vm.stdin.interface.takeDelimiter('\n') catch return .null;
-    const l = line orelse return .null;
-    return vm.str(std.mem.trimEnd(u8, l, "\r\n"));
 }
 
 fn coreAssert(th: *Thread, args: []Value) Error!Value {
@@ -370,7 +360,22 @@ fn coreToInt(th: *Thread, args: []Value) Error!Value {
             const n = parseIntStrict(body, base) orelse return th.vm.raise("FormatException: Invalid number: \"{s}\"", .{str});
             return .{ .int = if (neg) 0 -% n else n };
         },
-        else => return th.vm.raise("toInt requires an integer or string", .{}),
+        else => return th.vm.raise("to_int requires a number or a string, got {s}", .{a.typeName()}),
+    }
+}
+
+/// to_float(v): ints as doubles, doubles as they are, strings parsed.
+fn coreToFloat(th: *Thread, args: []Value) Error!Value {
+    const a = api.arg(args, 0);
+    switch (a) {
+        .int => |i| return .{ .float = @floatFromInt(i) },
+        .float => return a,
+        .string => |s| {
+            const str = std.mem.trim(u8, s.bytes(), " \t\r\n");
+            const f = std.fmt.parseFloat(f64, str) catch return th.vm.raise("to_float: not a number: \"{s}\"", .{s.bytes()});
+            return .{ .float = f };
+        },
+        else => return th.vm.raise("to_float requires a number or a string, got {s}", .{a.typeName()}),
     }
 }
 

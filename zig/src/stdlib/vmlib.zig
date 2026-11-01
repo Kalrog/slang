@@ -14,9 +14,9 @@ const object = @import("../vm/object.zig");
 /// slang/vm: access to closures, upvalues and bytecode.
 pub fn module(vm: *VM) *Table {
     return stdlib.makeModule(vm, &.{
-        .{ .name = "setUpvalue", .f = vmSetUpvalue },
-        .{ .name = "getUpvalue", .f = vmGetUpvalue },
-        .{ .name = "upvalueNames", .f = vmUpvalueNames },
+        .{ .name = "set_upvalue", .f = vmSetUpvalue },
+        .{ .name = "get_upvalue", .f = vmGetUpvalue },
+        .{ .name = "upvalue_names", .f = vmUpvalueNames },
         .{ .name = "load_bytecode", .f = vmLoadBytecode },
         .{ .name = "load_bytes", .f = vmLoadBytes },
         .{ .name = "to_bytes", .f = vmToBytes },

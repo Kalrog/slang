@@ -72,6 +72,7 @@
 local peg = require("slang/peg")
 local ast = require("slang/ast")
 local str = require("slang/string")
+local regex = require("slang/regex")
 local fmt = require("slang/format")
 local g = require("slang/compiler").grammar()
 
@@ -116,14 +117,14 @@ local tag_token = peg.token(tag_name, func(name){
 // whitespace between them are leaves of their own: the words are the
 // tokens, the whitespace is the formatter's to lay out (by the rules of
 // clean_text below, see layout_element)
-local text_class = str.char_class("^<{")
-local word_class = str.char_class("^ \t\r\n<{")
-local blank_class = str.char_class(" \t\r\n")
+local text_run = regex.compile("[^<{]*")
+local word_run = regex.compile("[^ \t\r\n<{]*")
+local blank_run = regex.compile("[ \t\r\n]*")
 local text_word = peg.custom(func(self, ctx, pos){ return -1 })
 local text_space = peg.whitespace()
 local text = peg.custom(
   func(self, ctx, pos){
-    local q = str.class_run(text_class, ctx.buffer, pos)
+    local q = text_run:match_at(ctx.buffer, pos)
     if(q == pos){
       return peg.fail(ctx, pos, "text expected")
     }
@@ -138,11 +139,11 @@ local text = peg.custom(
     local kids = {}
     local i = pos
     for(i < q){
-      local j = str.class_run(blank_class, ctx.buffer, i)
+      local j = blank_run:match_at(ctx.buffer, i)
       if(j > i){
         append(kids, peg.leaf(text_space, i, j))
       } else {
-        j = str.class_run(word_class, ctx.buffer, i)
+        j = word_run:match_at(ctx.buffer, i)
         append(kids, peg.leaf(text_word, i, j))
       }
       i = j
@@ -155,7 +156,7 @@ local text = peg.custom(
 // ------------------------------------------------------------ literal text
 
 // & < > escaped, entities (&name; &#123;) left alone
-local entity_class = str.char_class("a-zA-Z0-9#")
+local entity_run = regex.compile("[a-zA-Z0-9#]*")
 local func escape_text(s){
   if(str.index_of(s, "&") < 0 and str.index_of(s, ">") < 0){
     return s
@@ -171,7 +172,7 @@ local func escape_text(s){
     } else if(c == "<"){
       repl = "&lt;"
     } else if(c == "&"){
-      local q = str.class_run(entity_class, s, i + 1)
+      local q = entity_run:match_at(s, i + 1)
       if(q == i + 1 or str.substring(s, q, q + 1) != ";"){
         repl = "&amp;"
       }
@@ -186,9 +187,9 @@ local func escape_text(s){
   return str.join(parts, "")
 }
 
-local space_class = str.char_class(" \t\r\n")
+local space_char = regex.compile("[ \t\r\n]")
 local func is_space(s, i){
-  return str.class_match(space_class, s, i) > 0
+  return space_char:match_at(s, i) > 0
 }
 
 // the text of a child as written, with JSX whitespace rules: no line break,
@@ -380,12 +381,12 @@ local D = fmt.doc
 local func words_of(s){
   local out = {lead: "", words: {}, gaps: {}, trail: ""}
   local n = len(s)
-  local i = str.class_run(blank_class, s, 0)
+  local i = blank_run:match_at(s, 0)
   out.lead = str.substring(s, 0, i)
   for(i < n){
-    local k = str.class_run(word_class, s, i)
+    local k = word_run:match_at(s, i)
     append(out.words, str.substring(s, i, k))
-    local e = str.class_run(blank_class, s, k)
+    local e = blank_run:match_at(s, k)
     if(e >= n){
       out.trail = str.substring(s, k, e)
     } else if(len(out.words) > 0){

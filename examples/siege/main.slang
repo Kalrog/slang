@@ -36,22 +36,15 @@ local sound = require("game/sound")
 local ui = require("game/ui")
 local hud = require("game/hud")
 local levels = require("game/levels")
+local time = require("slang/time")
+local path_lib = require("slang/path")
 
 local WIDTH = 1280
 local HEIGHT = 720
 local STEP = 1 / 60
 
 // where the game's files are: levels/ and assets/ next to this file
-local func dir_of(path){
-  local slash = len(path)
-  for(slash > 0 and str.byte_at(path, slash - 1) != 47){
-    slash = slash - 1
-  }
-  if(slash == 0){
-    return "."
-  }
-  return str.substring(path, 0, slash - 1)
-}
+local dir_of = path_lib.dir
 
 local here = dir_of(dir_of(__PACKAGES.find_source("game/levels").path))
 levels.dir = here
@@ -695,7 +688,7 @@ if(os.getenv("SIEGE_EDITOR") != null){
 }
 
 local frames = 0
-local started = os.clock()
+local started = time.clock()
 for(not rl.window_should_close() and not game.quit){
   if(frame_limit != null and frames >= to_int(str.to_number(frame_limit))){
     break
@@ -724,7 +717,7 @@ for(not rl.window_should_close() and not game.quit){
 }
 if(frame_limit != null and game.built != null){
   print("siege: ", frames, " frames, score ", game.built.w.score, ", ",
-    len(game.built.w.entities), " parts, ", to_int(frames / (os.clock() - started)),
+    len(game.built.w.entities), " parts, ", to_int(frames / (time.clock() - started)),
     " frames/s\n")
 }
 destroy_built()

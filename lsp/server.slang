@@ -31,6 +31,7 @@ local format = require("slang/format")
 local symbols = require("slang/symbols")
 local ast = require("slang/ast")
 local vm = require("slang/vm")
+local utf8 = require("slang/utf8")
 
 local lsp = {}
 
@@ -146,7 +147,7 @@ func lsp.uri_to_path(uri){
   local n = len(path)
   for(i < n){
     if(str.byte_at(path, i) == 37 and i + 2 < n){
-      append(out, str.chr(hex_value(str.char_at(path, i + 1)) * 16 + hex_value(
+      append(out, utf8.char(hex_value(str.char_at(path, i + 1)) * 16 + hex_value(
           str.char_at(path, i + 2),
         )))
       i = i + 3
@@ -186,7 +187,7 @@ local func character_at(text, line_start, pos, encoding){
   if(encoding == "utf-8"){
     return pos - line_start
   }
-  return str.utf16_len(str.substring(text, line_start, pos))
+  return utf8.utf16_len(str.substring(text, line_start, pos))
 }
 
 // offset_of(text, {line, character}, encoding) -> the byte offset of an LSP
@@ -1770,7 +1771,7 @@ local func module_names(s){
   local names = {}
   // a project file is required by its path from a search path
   local roots = {}
-  for(let local dir in values(__PACKAGES.searchPaths or {})){
+  for(let local dir in values(__PACKAGES.search_paths or {})){
     append(roots, concat(compiler.absolute_path(dir), "/"))
   }
   if(nav.root != null){
@@ -1795,10 +1796,10 @@ local func module_names(s){
       }
     }
   }
-  for(let local dir in values(__PACKAGES.librarySources or {})){
+  for(let local dir in values(__PACKAGES.library_sources or {})){
     modules_in(dir, "slang/", 0, names)
   }
-  for(let local dir in values(__PACKAGES.stubSources or {})){
+  for(let local dir in values(__PACKAGES.stub_sources or {})){
     modules_in(dir, "", 1, names)
   }
   return names
@@ -2019,9 +2020,9 @@ handlers["textDocument/signatureHelp"] = func(s, id, params){
     if(e[0] > 0){
       label = concat(label, ", ")
     }
-    local a = str.utf16_len(label)
+    local a = utf8.utf16_len(label)
     label = concat(label, e[1])
-    local param = {label: json.array({a, str.utf16_len(label)})}
+    local param = {label: json.array({a, utf8.utf16_len(label)})}
     if(typed != null and info.items[typed[e[0]].name] != null){
       param.documentation = info.items[typed[e[0]].name]
     }

@@ -29,11 +29,29 @@ pub fn module(vm: *VM) *Table {
         .{ .name = "acos", .f = unary(m_acos) },
         .{ .name = "atan", .f = unary(m_atan) },
         .{ .name = "atan2", .f = mathAtan2 },
-        .{ .name = "log", .f = unary(logE) },
+        .{ .name = "log", .f = mathLog },
+        .{ .name = "log2", .f = unary(m_log2) },
+        .{ .name = "log10", .f = unary(m_log10) },
         .{ .name = "exp", .f = unary(m_exp) },
+        .{ .name = "trunc", .f = unary(m_trunc) },
+        .{ .name = "hypot", .f = mathHypot },
+        .{ .name = "sinh", .f = unary(m_sinh) },
+        .{ .name = "cosh", .f = unary(m_cosh) },
+        .{ .name = "tanh", .f = unary(m_tanh) },
+        .{ .name = "sign", .f = mathSign },
+        .{ .name = "clamp", .f = mathClamp },
+        .{ .name = "lerp", .f = mathLerp },
+        .{ .name = "is_nan", .f = mathIsNan },
+        .{ .name = "is_inf", .f = mathIsInf },
+        .{ .name = "random_int", .f = mathRandomInt },
+        .{ .name = "seed", .f = mathSeed },
     });
     t.set(vm.gpa, vm.str("pi"), .{ .float = std.math.pi });
     t.set(vm.gpa, vm.str("e"), .{ .float = std.math.e });
+    t.set(vm.gpa, vm.str("inf"), .{ .float = std.math.inf(f64) });
+    t.set(vm.gpa, vm.str("nan"), .{ .float = std.math.nan(f64) });
+    t.set(vm.gpa, vm.str("max_int"), .{ .int = std.math.maxInt(i64) });
+    t.set(vm.gpa, vm.str("min_int"), .{ .int = std.math.minInt(i64) });
     return t;
 }
 
@@ -47,6 +65,12 @@ fn m_asin(x: f64) f64 { return std.math.asin(x); }
 fn m_acos(x: f64) f64 { return std.math.acos(x); }
 fn m_atan(x: f64) f64 { return std.math.atan(x); }
 fn m_exp(x: f64) f64 { return @exp(x); }
+fn m_log2(x: f64) f64 { return @log2(x); }
+fn m_log10(x: f64) f64 { return @log10(x); }
+fn m_trunc(x: f64) f64 { return @trunc(x); }
+fn m_sinh(x: f64) f64 { return std.math.sinh(x); }
+fn m_cosh(x: f64) f64 { return std.math.cosh(x); }
+fn m_tanh(x: f64) f64 { return std.math.tanh(x); }
 
 fn logE(x: f64) f64 {
     return @log(x);
@@ -66,13 +90,17 @@ fn unary(comptime f: fn (f64) f64) vm_mod.NativeFn {
     }.native;
 }
 
-fn mathRandom(th: *Thread, args: []Value) Error!Value {
+fn ensurePrng(th: *Thread) void {
     if (!prng_ready) {
         var seed: [8]u8 = undefined;
         th.vm.io.random(&seed);
         prng = std.Random.DefaultPrng.init(std.mem.readInt(u64, &seed, .little));
         prng_ready = true;
     }
+}
+
+fn mathRandom(th: *Thread, args: []Value) Error!Value {
+    ensurePrng(th);
     const lo = api.argNumberOr(args, 0, 0);
     const hi = api.argNumberOr(args, 1, 1);
     return .{ .float = prng.random().float(f64) * (hi - lo) + lo };
@@ -109,4 +137,77 @@ fn mathAtan2(th: *Thread, args: []Value) Error!Value {
     const y = try api.argNumber(th, args, 0, "y");
     const x = try api.argNumber(th, args, 1, "x");
     return .{ .float = std.math.atan2(y, x) };
+}
+
+/// log(x, [base]): the natural logarithm, or the logarithm in base.
+fn mathLog(th: *Thread, args: []Value) Error!Value {
+    const x = try api.argNumber(th, args, 0, "x");
+    if (api.arg(args, 1) == .null) return .{ .float = logE(x) };
+    const base = try api.argNumber(th, args, 1, "base");
+    return .{ .float = @log(x) / @log(base) };
+}
+
+fn mathHypot(th: *Thread, args: []Value) Error!Value {
+    const x = try api.argNumber(th, args, 0, "x");
+    const y = try api.argNumber(th, args, 1, "y");
+    return .{ .float = std.math.hypot(x, y) };
+}
+
+/// sign(x): -1, 0 or 1, an int for an int.
+fn mathSign(th: *Thread, args: []Value) Error!Value {
+    const x = api.arg(args, 0);
+    return switch (x) {
+        .int => |i| .{ .int = std.math.sign(i) },
+        .float => |f| .{ .float = if (std.math.isNan(f)) f else std.math.sign(f) },
+        else => th.vm.raise("sign: a number expected, got {s}", .{x.typeName()}),
+    };
+}
+
+/// clamp(x, lo, hi): x limited to lo..hi; ints stay ints.
+fn mathClamp(th: *Thread, args: []Value) Error!Value {
+    const x = api.arg(args, 0);
+    const lo = api.arg(args, 1);
+    const hi = api.arg(args, 2);
+    if (x == .int and lo == .int and hi == .int) return .{ .int = std.math.clamp(x.int, lo.int, @max(lo.int, hi.int)) };
+    const xf = try api.argNumber(th, args, 0, "x");
+    const lof = try api.argNumber(th, args, 1, "lo");
+    const hif = try api.argNumber(th, args, 2, "hi");
+    return .{ .float = @min(@max(xf, lof), @max(lof, hif)) };
+}
+
+/// lerp(a, b, t): a + (b - a) * t.
+fn mathLerp(th: *Thread, args: []Value) Error!Value {
+    const a = try api.argNumber(th, args, 0, "a");
+    const b = try api.argNumber(th, args, 1, "b");
+    const t = try api.argNumber(th, args, 2, "t");
+    return .{ .float = a + (b - a) * t };
+}
+
+fn mathIsNan(th: *Thread, args: []Value) Error!Value {
+    _ = th;
+    const x = api.arg(args, 0);
+    return .{ .bool = x == .float and std.math.isNan(x.float) };
+}
+
+fn mathIsInf(th: *Thread, args: []Value) Error!Value {
+    _ = th;
+    const x = api.arg(args, 0);
+    return .{ .bool = x == .float and std.math.isInf(x.float) };
+}
+
+/// random_int(lo, hi): a random int from lo up to and including hi.
+fn mathRandomInt(th: *Thread, args: []Value) Error!Value {
+    ensurePrng(th);
+    const lo = try api.argInt(th, args, 0, "lo");
+    const hi = try api.argInt(th, args, 1, "hi");
+    if (hi < lo) return th.vm.raise("random_int: hi ({d}) is below lo ({d})", .{ hi, lo });
+    return .{ .int = prng.random().intRangeAtMost(i64, lo, hi) };
+}
+
+/// seed(n): makes random and random_int repeat the same sequence for n.
+fn mathSeed(th: *Thread, args: []Value) Error!Value {
+    const n = try api.argInt(th, args, 0, "n");
+    prng = std.Random.DefaultPrng.init(@bitCast(n));
+    prng_ready = true;
+    return .null;
 }

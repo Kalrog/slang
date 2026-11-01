@@ -31,7 +31,7 @@ pub fn open(vm: *VM) void {
     pkgs.set(vm.gpa, vm.str("preloaded"), .{ .table = vm.newTable(0, 16) });
     const sp = vm.newTable(1, 0);
     sp.append(vm.gpa, vm.str("."));
-    pkgs.set(vm.gpa, vm.str("searchPaths"), .{ .table = sp });
+    pkgs.set(vm.gpa, vm.str("search_paths"), .{ .table = sp });
     // native extensions: the directories in SLANG_NATIVE_PATH, ".", then
     // lib/slang and lib next to the executable's bin directory (an installed
     // slang finds <prefix>/lib/slang/*.dylib, a checkout its lib/)
@@ -85,9 +85,9 @@ pub fn open(vm: *VM) void {
         defer vm.gpa.free(lib_dir);
         nsp.append(vm.gpa, vm.str(lib_dir));
     } else |_| {}
-    pkgs.set(vm.gpa, vm.str("nativeSearchPaths"), .{ .table = nsp });
-    pkgs.set(vm.gpa, vm.str("librarySources"), .{ .table = lsp_dirs });
-    pkgs.set(vm.gpa, vm.str("stubSources"), .{ .table = stub_dirs });
+    pkgs.set(vm.gpa, vm.str("native_search_paths"), .{ .table = nsp });
+    pkgs.set(vm.gpa, vm.str("library_sources"), .{ .table = lsp_dirs });
+    pkgs.set(vm.gpa, vm.str("stub_sources"), .{ .table = stub_dirs });
     vm.setGlobal("__PACKAGES", .{ .table = pkgs });
 
     @import("core.zig").open(vm);
@@ -106,6 +106,9 @@ pub fn open(vm: *VM) void {
     if (@import("builtin").os.tag == .emscripten) {
         preload(vm, "slang/web", .{ .table = @import("weblib.zig").module(vm) });
     }
+    preload(vm, "slang/utf8", .{ .table = @import("utf8lib.zig").module(vm) });
+    preload(vm, "slang/hash", .{ .table = @import("hashlib.zig").module(vm) });
+    preload(vm, "slang/regex", .{ .table = @import("regex.zig").module(vm) });
     preload(vm, "slang/encoding", .{ .table = @import("encoding.zig").module(vm) });
     preload(vm, "slang/time", .{ .table = @import("timelib.zig").module(vm) });
     // a built program's files, and the writing of built programs (slang build)

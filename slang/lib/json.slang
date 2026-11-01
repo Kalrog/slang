@@ -16,6 +16,7 @@
 // NaN and the infinities cannot be encoded and raise an error.
 local peg = require("slang/peg")
 local str = require("slang/string")
+local utf8 = require("slang/utf8")
 
 local json = {}
 
@@ -59,14 +60,14 @@ local func join_string(parts){
       local next = parts[i + 1]
       if(u >= 0xD800 and u <= 0xDBFF and type(next) == "table" and
         next.unit >= 0xDC00 and next.unit <= 0xDFFF){
-        append(out, str.chr(
+        append(out, utf8.char(
           0x10000 + ((u - 0xD800) << 10) + (next.unit - 0xDC00),
         ))
         i = i + 1
       } else if(u >= 0xD800 and u <= 0xDFFF){
-        append(out, str.chr(0xFFFD))
+        append(out, utf8.char(0xFFFD))
       } else {
-        append(out, str.chr(u))
+        append(out, utf8.char(u))
       }
     } else {
       append(out, p)

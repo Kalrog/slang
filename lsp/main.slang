@@ -10,10 +10,10 @@ local str = require("slang/string")
 local dir = args()[0]
 if(dir != null){
   local paths = {dir}
-  for(let local p in values(__PACKAGES.searchPaths)){
+  for(let local p in values(__PACKAGES.search_paths)){
     append(paths, p)
   }
-  __PACKAGES.searchPaths = paths
+  __PACKAGES.search_paths = paths
 }
 local lsp = require("lsp/server")
 

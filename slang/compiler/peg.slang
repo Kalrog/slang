@@ -76,6 +76,31 @@
 // [far_message]: on failure, the farthest failure, often the better message
 
 local str = require("slang/string")
+local regex = require("slang/regex")
+local utf8 = require("slang/utf8")
+local tbl = require("slang/table")
+
+// slang's whitespace (what Go's unicode.IsSpace accepts) and `//` comments
+local space_class = "[\\t\\n\\x0B\\f\\r \\x{85}\\x{A0}\\x{1680}\\x{2000}-\\x{200A}\\x{2028}\\x{2029}\\x{202F}\\x{205F}\\x{3000}]"
+local space_char = regex.compile(space_class)
+local space_run = regex.compile(concat("(?:", space_class, "+|//[^\\n]*)*"))
+// the method as a plain function: the hot paths call it without a method
+// lookup
+local match_at = space_run.match_at
+
+// The regex character class of a pattern spec: the spec's characters and
+// ranges, with the regex metacharacters of a class escaped.
+local func class_regex(spec){
+  local out = {"["}
+  for(let local c in values(str.split(spec, ""))){
+    if(c == "\\" or c == "]" or c == "["){
+      append(out, "\\")
+    }
+    append(out, c)
+  }
+  append(out, "]")
+  return str.join(out, "")
+}
 
 local peg = {}
 // A parser. Every combinator of the module is also one of its methods, with
@@ -371,33 +396,34 @@ func peg.char(c, message){
 }
 
 // pattern(spec: string, message?: string) -> Parser
-// One character of a class (see slang/string's char_class): single
-// characters and ranges, negated by a leading `^`. Its value is the
-// character. [star] and [plus] of a pattern run natively.
+// One character of a class: single characters and ranges, negated by a
+// leading `^` (a regex character class without the brackets). Its value is
+// the character. [star] and [plus] of a pattern run natively.
 //   peg.pattern("a-zA-Z_")
 func peg.pattern(spec, message){
-  local cls = str.char_class(spec)
+  local cls = regex.compile(class_regex(spec))
   local msg = message or concat("[", spec, "] expected")
   local p = new_parser(
     func(self, ctx, pos){
-      local n = str.class_match(cls, ctx.buffer, pos)
-      if(n > 0){
-        ctx.value = str.substring(ctx.buffer, pos, pos + n)
-        return pos + n
+      local q = match_at(cls, ctx.buffer, pos)
+      if(q > 0){
+        ctx.value = str.substring(ctx.buffer, pos, q)
+        return q
       }
       return fail(ctx, pos, msg)
     },
     null,
     "pattern",
     func(self, ctx, pos){
-      local n = str.class_match(cls, ctx.buffer, pos)
-      if(n > 0){
-        return pos + n
+      local q = match_at(cls, ctx.buffer, pos)
+      if(q > 0){
+        return q
       }
       return fail(ctx, pos, msg)
     },
   )
   p.class = cls
+  p.run = regex.compile(concat(class_regex(spec), "*"))
   p.spec = spec
   return p
 }
@@ -408,7 +434,7 @@ func peg.any(message){
   local msg = message or "input expected"
   return new_parser(
     func(self, ctx, pos){
-      local n = str.rune_len_at(ctx.buffer, pos)
+      local n = utf8.size_at(ctx.buffer, pos)
       if(n > 0){
         ctx.value = str.substring(ctx.buffer, pos, pos + n)
         return pos + n
@@ -418,7 +444,7 @@ func peg.any(message){
     null,
     "any",
     func(self, ctx, pos){
-      local n = str.rune_len_at(ctx.buffer, pos)
+      local n = utf8.size_at(ctx.buffer, pos)
       if(n > 0){
         return pos + n
       }
@@ -449,19 +475,19 @@ func peg.whitespace(message){
   local msg = message or "whitespace expected"
   return new_parser(
     func(self, ctx, pos){
-      local n = str.space_at(ctx.buffer, pos)
-      if(n > 0){
-        ctx.value = str.substring(ctx.buffer, pos, pos + n)
-        return pos + n
+      local q = match_at(space_char, ctx.buffer, pos)
+      if(q > 0){
+        ctx.value = str.substring(ctx.buffer, pos, q)
+        return q
       }
       return fail(ctx, pos, msg)
     },
     null,
     "whitespace",
     func(self, ctx, pos){
-      local n = str.space_at(ctx.buffer, pos)
-      if(n > 0){
-        return pos + n
+      local q = match_at(space_char, ctx.buffer, pos)
+      if(q > 0){
+        return q
       }
       return fail(ctx, pos, msg)
     },
@@ -595,9 +621,9 @@ func peg.choice_list(parsers){
 func peg.star(child){
   local fast
   if(child.kind == "pattern"){
-    local cls = child.class
+    local run = child.run
     fast = func(self, ctx, pos){
-      return str.class_run(cls, ctx.buffer, pos)
+      return match_at(run, ctx.buffer, pos)
     }
   } else {
     fast = func(self, ctx, pos){
@@ -631,10 +657,10 @@ func peg.star(child){
 func peg.plus(child){
   local fast
   if(child.kind == "pattern"){
-    local cls = child.class
+    local run = child.run
     local msg = concat("[", child.spec, "] expected")
     fast = func(self, ctx, pos){
-      local q = str.class_run(cls, ctx.buffer, pos)
+      local q = match_at(run, ctx.buffer, pos)
       if(q == pos){
         return fail(ctx, pos, msg)
       }
@@ -856,7 +882,7 @@ func peg.neg(child, message){
       if(child.fast(child, ctx, pos) >= 0){
         return fail(ctx, pos, msg)
       }
-      local n = str.rune_len_at(ctx.buffer, pos)
+      local n = utf8.size_at(ctx.buffer, pos)
       if(n > 0){
         ctx.value = str.substring(ctx.buffer, pos, pos + n)
         return pos + n
@@ -869,7 +895,7 @@ func peg.neg(child, message){
       if(child.fast(child, ctx, pos) >= 0){
         return fail(ctx, pos, msg)
       }
-      local n = str.rune_len_at(ctx.buffer, pos)
+      local n = utf8.size_at(ctx.buffer, pos)
       if(n > 0){
         return pos + n
       }
@@ -1268,7 +1294,7 @@ func peg.resolve(parser){
 //   local upper = peg.custom(func(self, ctx, pos){
 //     local b = str.byte_at(ctx.buffer, pos)
 //     if(b != null and b >= 65 and b <= 90){
-//       ctx.value = str.chr(b)
+//       ctx.value = utf8.char(b)
 //       return pos + 1
 //     }
 //     return peg.fail(ctx, pos, "capital expected")
@@ -1407,7 +1433,7 @@ local func info_of(p, memo, visiting){
     } else {
       local first = {}
       for(local b = 0; b < 128; b = b + 1){
-        if(str.class_match(p.class, str.chr(b), 0) > 0){
+        if(p.class:match_at(utf8.char(b), 0) > 0){
           first[b] = true
         }
       }
@@ -1762,49 +1788,18 @@ func peg.place_memos(roots, named){
 // The position after the slang whitespace and `//` comments at pos: the
 // skip function of a walker or dispatch for slang's own trivia.
 func peg.skip_space(ctx, pos){
-  return str.skip_space(ctx.buffer, pos)
+  return match_at(space_run, ctx.buffer, pos)
 }
 
-// stable merge sort of a list by a comparison less(a, b)
-local func merge_sort(list, less){
-  local n = len(list)
-  if(n < 2){
-    return list
-  }
-  local mid = n / 2
-  mid = to_int(mid)
-  local left = {}
-  local right = {}
-  for(local i = 0; i < mid; i = i + 1){
-    list_push(left, list[i])
-  }
-  for(local i = mid; i < n; i = i + 1){
-    list_push(right, list[i])
-  }
-  left = merge_sort(left, less)
-  right = merge_sort(right, less)
-  local out = {}
-  local a = 0
-  local b = 0
-  for(a < len(left) and b < len(right)){
-    if(less(right[b], left[a])){
-      list_push(out, right[b])
-      b = b + 1
-    } else {
-      list_push(out, left[a])
-      a = a + 1
-    }
-  }
-  for(a < len(left)){
-    list_push(out, left[a])
-    a = a + 1
-  }
-  for(b < len(right)){
-    list_push(out, right[b])
-    b = b + 1
-  }
-  return out
+// space_end(s: string, pos: int) -> int
+// [skip_space] on a string: the position after the whitespace and `//`
+// comments at pos.
+func peg.space_end(s, pos){
+  return match_at(space_run, s, pos)
 }
+
+// The regex of [space_end], for scanners that call its match_at directly.
+peg.space = space_run
 
 // a dispatch table: candidates per first byte, in the original order;
 // skip(ctx, pos) -> pos finds the first byte that matters
@@ -2310,19 +2305,10 @@ func walker_methods.binding_powers(self){
 }
 
 local func sort_entries(list, key, descending){
-  // insertion sort: stable, lists are short
-  local n = len(list)
-  for(local i = 1; i < n; i = i + 1){
-    local e = list[i]
-    local j = i - 1
-    for(j >= 0 and
-      ((descending and list[j][key] < e[key]) or
-        (not descending and list[j][key] > e[key])); j = j - 1){
-      list[j + 1] = list[j]
-    }
-    list[j + 1] = e
+  if(descending){
+    return tbl.sort(list, func(a, b){ return a[key] > b[key] })
   }
-  return list
+  return tbl.sort(list, func(a, b){ return a[key] < b[key] })
 }
 
 // the nud and led tables of a walker from its levels and engine entries

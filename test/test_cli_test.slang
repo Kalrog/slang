@@ -2,9 +2,10 @@
 local t = require("slang/test")
 local str = require("slang/string")
 local os = require("slang/os")
+local time = require("slang/time")
 
 local dir = concat(
-  os.getenv("TMPDIR") or "/tmp/", "/slang-test-cli-", string(os.time_ms())
+  os.getenv("TMPDIR") or "/tmp/", "/slang-test-cli-", string(time.now_ms())
 )
 
 t.group("slang test"){

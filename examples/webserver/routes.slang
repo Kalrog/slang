@@ -39,7 +39,7 @@ local func filter_of(req){
     local url = req.headers["hx-current-url"] or ""
     local q = str.index_of(url, "?")
     if(q >= 0){
-      filter = encoding.query_decode(str.substring(url, q + 1)).filter
+      filter = encoding.query.decode(str.substring(url, q + 1)).filter
     }
   }
   return filter or "all"

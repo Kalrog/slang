@@ -7,13 +7,13 @@
 //   log.uptime()                  seconds since the server started, one decimal
 //   log.subscribe(f) -> stop()    f(entry) for each request recorded from now
 //                                 on (the live log); stop() ends it
-local os = require("slang/os")
 local db = require("db")
+local time = require("slang/time")
 local m = {}
-local started = os.time_ms()
+local started = time.now_ms()
 
 func m.uptime(){
-  return to_int((os.time_ms() - started) / 100) / 10
+  return to_int((time.now_ms() - started) / 100) / 10
 }
 
 local listeners = {}

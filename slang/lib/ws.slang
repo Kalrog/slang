@@ -21,6 +21,7 @@
 local async = require("slang/async")
 local str = require("slang/string")
 local encoding = require("slang/encoding")
+local utf8 = require("slang/utf8")
 
 local ws = {}
 
@@ -31,7 +32,7 @@ local func crypto(){
 }
 
 local func accept_key(key){
-  return encoding.base64_encode(crypto().hash("sha1", concat(key, GUID)))
+  return encoding.base64.encode(crypto().hash("sha1", concat(key, GUID)))
 }
 
 local func header_has(value, token){
@@ -86,7 +87,7 @@ local func frame(opcode, payload, mask){
   }
   if(mask){
     local key = crypto().random_bytes(4)
-    return concat(str.from_bytes(head), ext, key, encoding.mask(payload, key))
+    return concat(str.from_bytes(head), ext, key, str.xor(payload, key))
   }
   return concat(str.from_bytes(head), ext, payload)
 }
@@ -252,7 +253,7 @@ local func new_socket(conn, rest, client, options){
           }
           local payload = str.substring(buf, at + header, at + header + length)
           if(masked){
-            payload = encoding.mask(
+            payload = str.xor(
               payload,
               str.substring(buf, at + header - 4, at + header),
             )
@@ -317,7 +318,7 @@ local func new_socket(conn, rest, client, options){
             if(fin){
               local message = str.join(parts, "")
               parts = null
-              if(part_op == OP_TEXT and not encoding.utf8_valid(message)){
+              if(part_op == OP_TEXT and not utf8.valid(message)){
                 fail(1007, "text that is not UTF-8")
                 return null
               }
@@ -444,7 +445,7 @@ func ws.connect(host, port, path, options){
     } else {
       conn = async.await(async.connect(host, port))
     }
-    local key = encoding.base64_encode(crypto().random_bytes(16))
+    local key = encoding.base64.encode(crypto().random_bytes(16))
     // the port only when it is not the scheme's; an IPv6 address in brackets
     local authority = str.index_of(host, ":") >= 0 and concat("[", host, "]") or
       host

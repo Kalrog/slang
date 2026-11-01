@@ -44,30 +44,50 @@ details.expanded summary { cursor: pointer; color: var(--muted); }
 <pre><code>local os = require(&quot;slang/os&quot;)
 if(not os.exists(&quot;out&quot;)){ os.mkdir_all(&quot;out&quot;) }
 os.write_file(&quot;out/hello.txt&quot;, concat(&quot;from &quot;, os.cwd(), &quot;\n&quot;))
+for(let local line in os.open(&quot;out/hello.txt&quot;):lines()){ print(line, &quot;\n&quot;) }
 local r = os.exec({&quot;ls&quot;, &quot;out&quot;})
 print(r.stdout)</code></pre>
 <p>Relative paths are relative to the current directory. In a program built by <code>slang build</code>, a relative path that names a bundled file or directory reads from the bundle first (<a href="#exists"><code>exists</code></a>, <a href="#is_dir"><code>is_dir</code></a>, <a href="#read_file"><code>read_file</code></a>, <a href="#list_dir"><code>list_dir</code></a>; see slang/bundle); writes always go to the disk, so a program that writes a bundled path still reads the bundled file there.</p>
 <ul class="toc">
+<li><a href="#open"><code>open</code></a></li>
 <li><a href="#exists"><code>exists</code></a></li>
 <li><a href="#is_dir"><code>is_dir</code></a></li>
 <li><a href="#read_file"><code>read_file</code></a></li>
 <li><a href="#write_file"><code>write_file</code></a></li>
+<li><a href="#append_file"><code>append_file</code></a></li>
+<li><a href="#stat"><code>stat</code></a></li>
 <li><a href="#list_dir"><code>list_dir</code></a></li>
 <li><a href="#rename"><code>rename</code></a></li>
 <li><a href="#copy_file"><code>copy_file</code></a></li>
 <li><a href="#mkdir_all"><code>mkdir_all</code></a></li>
+<li><a href="#remove"><code>remove</code></a></li>
+<li><a href="#remove_all"><code>remove_all</code></a></li>
+<li><a href="#temp_dir"><code>temp_dir</code></a></li>
+<li><a href="#read_line"><code>read_line</code></a></li>
 <li><a href="#cwd"><code>cwd</code></a></li>
 <li><a href="#executable"><code>executable</code></a></li>
 <li><a href="#getenv"><code>getenv</code></a></li>
 <li><a href="#write_stderr"><code>write_stderr</code></a></li>
 <li><a href="#exit"><code>exit</code></a></li>
-<li><a href="#clock"><code>clock</code></a></li>
-<li><a href="#time_ms"><code>time_ms</code></a></li>
 <li><a href="#exec"><code>exec</code></a></li>
 <li><a href="#platform"><code>platform</code></a></li>
+<li><a href="#type-File"><code>type File</code></a></li>
+<li><a href="#File:read"><code>File:read</code></a></li>
+<li><a href="#File:read_line"><code>File:read_line</code></a></li>
+<li><a href="#File:lines"><code>File:lines</code></a></li>
+<li><a href="#File:read_bytes"><code>File:read_bytes</code></a></li>
+<li><a href="#File:write"><code>File:write</code></a></li>
+<li><a href="#File:write_bytes"><code>File:write_bytes</code></a></li>
+<li><a href="#File:flush"><code>File:flush</code></a></li>
+<li><a href="#File:close"><code>File:close</code></a></li>
+<li><a href="#type-FileInfo"><code>type FileInfo</code></a></li>
 <li><a href="#type-ExecResult"><code>type ExecResult</code></a></li>
 </ul>
 <h2>files</h2>
+<div class="def" id="open"><h3><code>os.open(path: string, mode?: string) -> <a href="#type-File">File</a></code></h3>
+<p>Opens a file. Writing and appending create a missing file, together with its directory. Raises &quot;cannot open &lt;path&gt;&quot; when the file cannot be opened.</p>
+<dl class="params"><dt><code>mode</code></dt><dd>&quot;r&quot; (the default) to read, &quot;w&quot; to write (truncating), &quot;a&quot; to append, &quot;rw&quot; to read and write (truncating), &quot;ra&quot; to read and append local f = os.open(&quot;out.txt&quot;, &quot;w&quot;) f:write(&quot;hello\n&quot;) f:close()</dd></dl>
+</div>
 <div class="def" id="exists"><h3><code>os.exists(path: string) -> bool</code></h3>
 <p>Whether a file or directory exists at path.</p>
 
@@ -82,6 +102,14 @@ print(r.stdout)</code></pre>
 </div>
 <div class="def" id="write_file"><h3><code>os.write_file(path: string, content: string)</code></h3>
 <p>Writes content to the file, replacing what was there. Raises an error when it cannot be written.</p>
+
+</div>
+<div class="def" id="append_file"><h3><code>os.append_file(path: string, content: string)</code></h3>
+<p>Adds content at the end of the file, creating it when it is missing. Raises an error when it cannot be written.</p>
+
+</div>
+<div class="def" id="stat"><h3><code>os.stat(path: string) -> <a href="#type-FileInfo">FileInfo</a>?</code></h3>
+<p>Size, modification time, kind and permissions of what is at path, or null when nothing is.</p>
 
 </div>
 <div class="def" id="list_dir"><h3><code>os.list_dir(path: string) -> {string}</code></h3>
@@ -100,7 +128,23 @@ print(r.stdout)</code></pre>
 <p>Creates the directory and any missing parents. Raises an error when it cannot.</p>
 
 </div>
+<div class="def" id="remove"><h3><code>os.remove(path: string)</code></h3>
+<p>Deletes a file or an empty directory. Raises an error when it cannot, also when nothing is there.</p>
+
+</div>
+<div class="def" id="remove_all"><h3><code>os.remove_all(path: string)</code></h3>
+<p>Deletes path and everything under it; nothing there is not an error.</p>
+
+</div>
+<div class="def" id="temp_dir"><h3><code>os.temp_dir() -> string</code></h3>
+<p>The directory for temporary files: TMPDIR (TEMP on Windows), else /tmp.</p>
+
+</div>
 <h2>process</h2>
+<div class="def" id="read_line"><h3><code>os.read_line() -> string?</code></h3>
+<p>The next line of standard input without its line ending, or null at the end of the input. Flushes standard output first.</p>
+
+</div>
 <div class="def" id="cwd"><h3><code>os.cwd() -> string</code></h3>
 <p>The current directory.</p>
 
@@ -121,15 +165,6 @@ print(r.stdout)</code></pre>
 <p>Flushes standard output and ends the process with code (0 by default).</p>
 
 </div>
-<h2>clocks</h2>
-<div class="def" id="clock"><h3><code>os.clock() -> float</code></h3>
-<p>Seconds since the program started, from a monotonic clock: for measuring.</p>
-
-</div>
-<div class="def" id="time_ms"><h3><code>os.time_ms() -> int</code></h3>
-<p>Milliseconds since the Unix epoch.</p>
-
-</div>
 <h2>programs</h2>
 <div class="def" id="exec"><h3><code>os.exec(argv: {string}, cwd?: string) -> <a href="#type-ExecResult">ExecResult</a></code></h3>
 <p>Runs a program (argv[0], looked up on the PATH) in cwd (the current directory by default) and waits for it. Raises when it cannot be started. Blocking, for tools; slang/async's exec does not block.</p>
@@ -139,6 +174,45 @@ print(r.stdout)</code></pre>
 <p>&quot;&lt;os&gt;-&lt;arch&gt;&quot; of the running slang, as Zig names them (&quot;macos-aarch64&quot;, &quot;linux-x86_64&quot;): where packages keep their prebuilt native modules (lib/&lt;platform&gt;/).</p>
 
 </div>
+<h2 id="type-File">type File</h2>
+<p>An open file, from <a href="#open"><code>open</code></a>; type() of it is &quot;file&quot;. It is closed when it is collected.</p>
+<div class="def" id="File:read"><h3><code>File:read(n?: int) -> string</code></h3>
+<p>The next n bytes, fewer at the end of the file, or the rest of the file when n is left out.</p>
+
+</div>
+<div class="def" id="File:read_line"><h3><code>File:read_line() -> string?</code></h3>
+<p>The next line without its line ending (&quot;\n&quot; or &quot;\r\n&quot;), or null at the end of the file.</p>
+
+</div>
+<div class="def" id="File:lines"><h3><code>File:lines() -> function</code></h3>
+<p>An iterator over the remaining lines of the file, as <a href="#File:read_line"><code>File.read_line</code></a> gives them.</p>
+<pre><code>for(let local line in f:lines()){ print(line, &quot;\n&quot;) }</code></pre>
+
+</div>
+<div class="def" id="File:read_bytes"><h3><code>File:read_bytes(n?: int) -> {int}</code></h3>
+<p>Like <a href="#File:read"><code>File.read</code></a>, but a list of byte values (ints 0-255).</p>
+
+</div>
+<div class="def" id="File:write"><h3><code>File:write(s: string)</code></h3>
+<p>Writes s.</p>
+
+</div>
+<div class="def" id="File:write_bytes"><h3><code>File:write_bytes(bytes: {int})</code></h3>
+<p>Writes a list of byte values; each int is cut to its low 8 bits.</p>
+
+</div>
+<div class="def" id="File:flush"><h3><code>File:flush()</code></h3>
+<p>Writes out what the file buffers.</p>
+
+</div>
+<div class="def" id="File:close"><h3><code>File:close()</code></h3>
+<p>Closes the file; closing it again does nothing. Reading or writing a closed file raises an error.</p>
+
+</div>
+<h2 id="type-FileInfo">type FileInfo</h2>
+<pre><code>type FileInfo = {size: int, mtime: float, is_dir: bool, mode: int}</code></pre>
+<p>What <a href="#stat"><code>stat</code></a> gives back.</p>
+<dl class="params"><dt><code>size: int</code></dt><dd>the length in bytes</dd><dt><code>mtime: float</code></dt><dd>when it was last modified, in seconds since the epoch</dd><dt><code>is_dir: bool</code></dt><dd></dd><dt><code>mode: int</code></dt><dd>the permission bits, like 0o644 (420)</dd></dl>
 <h2 id="type-ExecResult">type ExecResult</h2>
 <pre><code>type ExecResult = {status: int, stdout: string, stderr: string}</code></pre>
 <p>What <a href="#exec"><code>exec</code></a> gives back.</p>

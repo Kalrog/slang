@@ -94,6 +94,10 @@ pub const VM = struct {
     collections: usize = 0,
     /// Values kept alive by the C API (slang_ref).
     registry: *Table,
+    /// "__index" and "__newindex", interned and kept in the registry, so
+    /// that metatable lookups compare pointers instead of bytes
+    index_name: *String = undefined,
+    newindex_name: *String = undefined,
 
     /// Line starts of the string most recently passed to str.line_col
     /// (parsers call it once per token on the same buffer).
@@ -135,6 +139,10 @@ pub const VM = struct {
         vm.globals = vm.newTable(0, 64);
         vm.packages = vm.newTable(0, 4);
         vm.registry = vm.newTable(0, 0);
+        vm.index_name = vm.newString("__index");
+        vm.newindex_name = vm.newString("__newindex");
+        vm.registry.set(vm.gpa, .{ .string = vm.index_name }, .{ .bool = true });
+        vm.registry.set(vm.gpa, .{ .string = vm.newindex_name }, .{ .bool = true });
         vm.main = vm.newThread(null);
         vm.main.is_main = true;
         vm.main.status = .running;

@@ -5,6 +5,7 @@ local str = require("slang/string")
 local os = require("slang/os")
 local pkg = require("slang/pkg")
 local compiler = require("slang/compiler")
+local time = require("slang/time")
 
 t.group("packages: versions"){
   t.test("tags and asks parse; majors decide what stands in"){
@@ -29,7 +30,7 @@ t.group("packages: versions"){
 
 local slang = compiler.absolute_path("bin/slang")
 local scratch = concat(
-  os.getenv("TMPDIR") or "/tmp/", "/slang-pkg-test-", string(os.time_ms())
+  os.getenv("TMPDIR") or "/tmp/", "/slang-pkg-test-", string(time.now_ms())
 )
 
 local func sh(command, dir){

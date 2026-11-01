@@ -170,7 +170,7 @@ f()   // 42</code></pre>
 
 </div>
 <div class="def" id="module_path"><h3><code>compiler.module_path(name: string) -> string?</code></h3>
-<p>The absolute path of the source file require(name) would load, its stub when it has no source or is a package module with a stub (see <a href="#stub_path"><code>stub_path</code></a>), or null. Sources are looked for on the search paths (the project's first), then among slang's own library modules (slang/http is http.slang in a librarySources directory).</p>
+<p>The absolute path of the source file require(name) would load, its stub when it has no source or is a package module with a stub (see <a href="#stub_path"><code>stub_path</code></a>), or null. Sources are looked for on the search paths (the project's first), then among slang's own library modules (slang/http is http.slang in a library_sources directory).</p>
 
 </div>
 <div class="def" id="project"><h3><code>compiler.project() -> <a href="#type-Project">Project</a>?</code></h3>

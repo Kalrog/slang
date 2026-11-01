@@ -5,6 +5,7 @@ local os = require("slang/os")
 local ast = require("slang/ast")
 local compiler = require("slang/compiler")
 local tool = require("slang/bundle_tool")
+local time = require("slang/time")
 
 t.group("build: requires"){
   t.test("literal requires are found, computed ones located, quotes skipped"){
@@ -21,7 +22,7 @@ t.group("build: requires"){
 
 local slang = os.executable()
 local scratch = concat(
-  os.getenv("TMPDIR") or "/tmp/", "/slang-build-test-", string(os.time_ms())
+  os.getenv("TMPDIR") or "/tmp/", "/slang-build-test-", string(time.now_ms())
 )
 
 local func sh(command, dir){

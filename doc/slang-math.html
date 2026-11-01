@@ -50,16 +50,31 @@ math.max(3, 7, 5)           // 7, still an int</code></pre>
 <ul class="toc">
 <li><a href="#pi"><code>pi</code></a></li>
 <li><a href="#e"><code>e</code></a></li>
+<li><a href="#inf"><code>inf</code></a></li>
+<li><a href="#nan"><code>nan</code></a></li>
+<li><a href="#max_int"><code>max_int</code></a></li>
+<li><a href="#min_int"><code>min_int</code></a></li>
 <li><a href="#round"><code>round</code></a></li>
 <li><a href="#floor"><code>floor</code></a></li>
 <li><a href="#ceil"><code>ceil</code></a></li>
 <li><a href="#abs"><code>abs</code></a></li>
 <li><a href="#min"><code>min</code></a></li>
 <li><a href="#max"><code>max</code></a></li>
+<li><a href="#trunc"><code>trunc</code></a></li>
+<li><a href="#sign"><code>sign</code></a></li>
+<li><a href="#clamp"><code>clamp</code></a></li>
+<li><a href="#lerp"><code>lerp</code></a></li>
+<li><a href="#is_nan"><code>is_nan</code></a></li>
+<li><a href="#is_inf"><code>is_inf</code></a></li>
 <li><a href="#random"><code>random</code></a></li>
+<li><a href="#random_int"><code>random_int</code></a></li>
+<li><a href="#seed"><code>seed</code></a></li>
 <li><a href="#sqrt"><code>sqrt</code></a></li>
 <li><a href="#exp"><code>exp</code></a></li>
 <li><a href="#log"><code>log</code></a></li>
+<li><a href="#log2"><code>log2</code></a></li>
+<li><a href="#log10"><code>log10</code></a></li>
+<li><a href="#hypot"><code>hypot</code></a></li>
 <li><a href="#sin"><code>sin</code></a></li>
 <li><a href="#cos"><code>cos</code></a></li>
 <li><a href="#tan"><code>tan</code></a></li>
@@ -67,6 +82,9 @@ math.max(3, 7, 5)           // 7, still an int</code></pre>
 <li><a href="#acos"><code>acos</code></a></li>
 <li><a href="#atan"><code>atan</code></a></li>
 <li><a href="#atan2"><code>atan2</code></a></li>
+<li><a href="#sinh"><code>sinh</code></a></li>
+<li><a href="#cosh"><code>cosh</code></a></li>
+<li><a href="#tanh"><code>tanh</code></a></li>
 </ul>
 <div class="def" id="pi"><h3><code>math.pi</code></h3>
 <p>The constant pi, 3.14159...</p>
@@ -74,6 +92,22 @@ math.max(3, 7, 5)           // 7, still an int</code></pre>
 </div>
 <div class="def" id="e"><h3><code>math.e</code></h3>
 <p>The constant e, 2.71828...</p>
+
+</div>
+<div class="def" id="inf"><h3><code>math.inf</code></h3>
+<p>Positive infinity, a double.</p>
+
+</div>
+<div class="def" id="nan"><h3><code>math.nan</code></h3>
+<p>A NaN, a double; use <a href="#is_nan"><code>is_nan</code></a> to test for one (NaN == NaN is false).</p>
+
+</div>
+<div class="def" id="max_int"><h3><code>math.max_int</code></h3>
+<p>The largest int, 2^63 - 1.</p>
+
+</div>
+<div class="def" id="min_int"><h3><code>math.min_int</code></h3>
+<p>The smallest int, -2^63.</p>
 
 </div>
 <h2>rounding</h2>
@@ -101,8 +135,41 @@ math.max(3, 7, 5)           // 7, still an int</code></pre>
 <p>The largest of the numbers, as given (an int stays an int); the double minus infinity without arguments. Raises an error for a non-number.</p>
 
 </div>
+<div class="def" id="trunc"><h3><code>math.trunc(x: int | float) -> float</code></h3>
+<p>x without its fraction, toward zero.</p>
+
+</div>
+<div class="def" id="sign"><h3><code>math.sign(x: int | float) -> int | float</code></h3>
+<p>-1, 0 or 1 as x is negative, zero or positive; an int for an int.</p>
+
+</div>
+<div class="def" id="clamp"><h3><code>math.clamp(x: int | float, lo: int | float, hi: int | float) -> int | float</code></h3>
+<p>x limited to lo..hi; an int when all three are ints.</p>
+
+</div>
+<div class="def" id="lerp"><h3><code>math.lerp(a: int | float, b: int | float, t: int | float) -> float</code></h3>
+<p>The value t of the way from a to b: a + (b - a) * t.</p>
+
+</div>
+<div class="def" id="is_nan"><h3><code>math.is_nan(x) -> bool</code></h3>
+<p>Whether x is a NaN.</p>
+
+</div>
+<div class="def" id="is_inf"><h3><code>math.is_inf(x) -> bool</code></h3>
+<p>Whether x is an infinity (either sign).</p>
+
+</div>
+<h2>random</h2>
 <div class="def" id="random"><h3><code>math.random(lo?: int | float, hi?: int | float) -> float</code></h3>
 <p>A random double from lo (0 by default) up to hi (1 by default).</p>
+
+</div>
+<div class="def" id="random_int"><h3><code>math.random_int(lo: int, hi: int) -> int</code></h3>
+<p>A random int from lo up to and including hi.</p>
+
+</div>
+<div class="def" id="seed"><h3><code>math.seed(n: int)</code></h3>
+<p>Starts the random numbers over from n, so a program repeats the same ones; without it they differ every run.</p>
 
 </div>
 <h2>functions</h2>
@@ -114,8 +181,20 @@ math.max(3, 7, 5)           // 7, still an int</code></pre>
 <p>e to the power x.</p>
 
 </div>
-<div class="def" id="log"><h3><code>math.log(x: int | float) -> float</code></h3>
-<p>The natural logarithm of x.</p>
+<div class="def" id="log"><h3><code>math.log(x: int | float, base?: int | float) -> float</code></h3>
+<p>The natural logarithm of x, or the logarithm in base.</p>
+
+</div>
+<div class="def" id="log2"><h3><code>math.log2(x: int | float) -> float</code></h3>
+<p>The base-2 logarithm of x.</p>
+
+</div>
+<div class="def" id="log10"><h3><code>math.log10(x: int | float) -> float</code></h3>
+<p>The base-10 logarithm of x.</p>
+
+</div>
+<div class="def" id="hypot"><h3><code>math.hypot(x: int | float, y: int | float) -> float</code></h3>
+<p>sqrt(x*x + y*y), without overflow on the way.</p>
 
 </div>
 <div class="def" id="sin"><h3><code>math.sin(x: int | float) -> float</code></h3>
@@ -144,6 +223,18 @@ math.max(3, 7, 5)           // 7, still an int</code></pre>
 </div>
 <div class="def" id="atan2"><h3><code>math.atan2(y: int | float, x: int | float) -> float</code></h3>
 <p>The angle of the point (x, y) from the x axis, in radians.</p>
+
+</div>
+<div class="def" id="sinh"><h3><code>math.sinh(x: int | float) -> float</code></h3>
+<p>The hyperbolic sine of x.</p>
+
+</div>
+<div class="def" id="cosh"><h3><code>math.cosh(x: int | float) -> float</code></h3>
+<p>The hyperbolic cosine of x.</p>
+
+</div>
+<div class="def" id="tanh"><h3><code>math.tanh(x: int | float) -> float</code></h3>
+<p>The hyperbolic tangent of x.</p>
 
 </div>
 <p class="muted">slang/stubs/slang/math.slang</p>

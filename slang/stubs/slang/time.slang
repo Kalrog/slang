@@ -24,6 +24,22 @@ local m = {}
 // The current time in seconds, with millisecond precision.
 func m.now(){}
 
+// now_ms() -> int
+// The current time in milliseconds.
+func m.now_ms(){}
+
+// clock() -> float
+// Seconds since the program started, from a monotonic clock: for
+// measuring.
+//   local t0 = time.clock()
+//   work()
+//   print(str.format("%.1f ms\n", (time.clock() - t0) * 1000))
+func m.clock(){}
+
+// sleep(seconds: int | float)
+// Blocks the program for that long; slang/async's sleep does not block.
+func m.sleep(seconds){}
+
 // ------------------------------------------------------------ calendar
 
 // utc(t: int | float) -> Fields

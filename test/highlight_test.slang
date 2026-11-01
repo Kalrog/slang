@@ -3,6 +3,7 @@ local t = require("slang/test")
 local str = require("slang/string")
 local compiler = require("slang/compiler")
 local json = require("slang/json")
+local utf8 = require("slang/utf8")
 
 // the categories of the tokens of source, as "category:text" in order
 local func spell(source, path){
@@ -235,12 +236,12 @@ local v = 1 <> 2
 }
 
 t.group("utf16 positions"){
-  t.test("utf16_len counts code units"){
-    assert(str.utf16_len("abc") == 3)
-    assert(str.utf16_len("héllo") == 5)
-    assert(str.utf16_len("日本") == 2)
-    assert(str.utf16_len("a😀b") == 4, "an astral code point is two units")
-    assert(str.utf16_len("") == 0)
+  t.test("utf8.utf16_len counts code units"){
+    assert(utf8.utf16_len("abc") == 3)
+    assert(utf8.utf16_len("héllo") == 5)
+    assert(utf8.utf16_len("日本") == 2)
+    assert(utf8.utf16_len("a😀b") == 4, "an astral code point is two units")
+    assert(utf8.utf16_len("") == 0)
   }
 }
 

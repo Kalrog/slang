@@ -27,6 +27,7 @@ local str = require("slang/string")
 local os = require("slang/os")
 local symbols = require("slang/symbols")
 local peg = require("slang/peg")
+local tbl = require("slang/table")
 
 local doc = {}
 
@@ -973,17 +974,7 @@ func doc.ebnf(parser, names, top){
 }
 
 local func sorted_keys(t){
-  local out = {}
-  for(let local k in keys(t)){
-    local i = len(out)
-    append(out, k)
-    for(i > 0 and str.compare(out[i - 1], k) > 0){
-      out[i] = out[i - 1]
-      i = i - 1
-    }
-    out[i] = k
-  }
-  return out
+  return tbl.sort(tbl.keys(t))
 }
 
 local func contains(list, v){
@@ -1382,14 +1373,14 @@ local func slang_files(path, out){
 // path relative to the working directory without .slang
 local func module_name(compiler, path){
   local abs = compiler.absolute_path(path)
-  for(let local dir in values(__PACKAGES.librarySources or {})){
+  for(let local dir in values(__PACKAGES.library_sources or {})){
     local d = concat(compiler.absolute_path(dir), "/")
     if(str.starts_with(abs, d)){
       return concat("slang/", str.substring(abs, len(d), len(abs) - 6))
     }
   }
   // a stub: the native module it declares
-  for(let local dir in values(__PACKAGES.stubSources or {})){
+  for(let local dir in values(__PACKAGES.stub_sources or {})){
     local d = concat(compiler.absolute_path(dir), "/")
     if(str.starts_with(abs, d)){
       return str.substring(abs, len(d), len(abs) - 6)
@@ -1469,13 +1460,13 @@ func doc.main(arguments){
       append(paths, ".")
       title = compiler.absolute_path(".")
     } else {
-      for(let local dir in values(__PACKAGES.librarySources or {})){
+      for(let local dir in values(__PACKAGES.library_sources or {})){
         if(os.is_dir(dir)){
           append(paths, dir)
         }
       }
       // the native modules and the globals, from their stubs
-      for(let local dir in values(__PACKAGES.stubSources or {})){
+      for(let local dir in values(__PACKAGES.stub_sources or {})){
         if(os.is_dir(dir)){
           append(paths, dir)
           break

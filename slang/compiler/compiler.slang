@@ -25,6 +25,7 @@ local optimizer = require("slang/optimizer")
 local vm = require("slang/vm")
 local os = require("slang/os")
 local str = require("slang/string")
+local hash = require("slang/hash")
 
 local compiler = {}
 local root = null
@@ -38,7 +39,7 @@ local packages = {}
 local project_searched = false
 local project_misses = {}
 local dialect_grammars = {}
-local default_search_paths = __PACKAGES.searchPaths
+local default_search_paths = __PACKAGES.search_paths
 
 // Whether the compiler tells on stderr what it does: the project and its
 // extensions, the extensions and rule changes of each unit, the packages.
@@ -188,7 +189,7 @@ func compiler.reset(){
   project_searched = false
   project_misses = {}
   dialect_grammars = {}
-  __PACKAGES.searchPaths = default_search_paths
+  __PACKAGES.search_paths = default_search_paths
   __PACKAGES.dialect_suffixes = {}
 }
 
@@ -559,7 +560,7 @@ func compiler.load_project(path){
   for(let local sp in values(default_search_paths)){
     append(paths, sp)
   }
-  __PACKAGES.searchPaths = paths
+  __PACKAGES.search_paths = paths
   local suffixes = {}
   for(let local e in entries(project.dialects)){
     append(suffixes, e[0])
@@ -637,7 +638,7 @@ func compiler.stub_path(name){
   if(in_package != null){
     return in_package.path
   }
-  for(let local dir in values(__PACKAGES.stubSources or {})){
+  for(let local dir in values(__PACKAGES.stub_sources or {})){
     local path = concat(dir, "/", name, ".slang")
     if(os.exists(path)){
       return compiler.absolute_path(path)
@@ -651,7 +652,7 @@ func compiler.stub_path(name){
 // when it has no source or is a package module with a stub (see
 // [stub_path]), or null. Sources are looked for on the search paths (the
 // project's first), then among slang's own library modules (slang/http is
-// http.slang in a librarySources directory).
+// http.slang in a library_sources directory).
 func compiler.module_path(name){
   // a package's stub declares what its source makes at run time
   local in_package = package_stub(name)
@@ -664,7 +665,7 @@ func compiler.module_path(name){
   }
   if(str.starts_with(name, "slang/")){
     local base = str.substring(name, 6)
-    for(let local dir in values(__PACKAGES.librarySources or {})){
+    for(let local dir in values(__PACKAGES.library_sources or {})){
       local path = concat(dir, "/", base, ".slang")
       if(os.exists(path)){
         return compiler.absolute_path(path)
@@ -837,8 +838,8 @@ func compiler.load_file(path, origin){
       }
       cache_path = concat(
         dir, "/",
-        str.hash(concat(origin, "\n", path, "\n", key or "", "\n", build_id)),
-        "-", str.hash(source), ".slb"
+        str.format("%x", hash.fnv1a(concat(origin, "\n", path, "\n", key or "", "\n", build_id))),
+        "-", str.format("%x", hash.fnv1a(source)), ".slb"
       )
       if(os.exists(cache_path)){
         return vm.load_bytecode(cache_path)

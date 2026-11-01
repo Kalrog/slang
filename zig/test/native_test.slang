@@ -3,7 +3,7 @@
 // zig/zig-out/lib. Run from the repository root with `make zig-test`.
 local t = require("slang/test")
 
-append(__PACKAGES.nativeSearchPaths, "zig/zig-out/lib")
+append(__PACKAGES.native_search_paths, "zig/zig-out/lib")
 local hello = require("hello")
 local vec = require("vec")
 

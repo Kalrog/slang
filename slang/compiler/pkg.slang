@@ -37,6 +37,11 @@ local str = require("slang/string")
 local os = require("slang/os")
 local encoding = require("slang/encoding")
 local compiler = require("slang/compiler")
+local hash = require("slang/hash")
+local regex = require("slang/regex")
+local tbl = require("slang/table")
+
+local all_digits = regex.compile("^[0-9]+$")
 
 local pkg = {}
 
@@ -60,7 +65,7 @@ local pkg = {}
 // [hash]: [tree_hash] of its files, once installed
 
 local func hex(data){
-  return encoding.hex_encode(data)
+  return encoding.hex.encode(data)
 }
 
 // ------------------------------------------------------------ versions
@@ -85,7 +90,7 @@ func pkg.parse_version(s){
   local n = {0, 0, 0}
   for(local i = 0; i < len(parts); i = i + 1){
     local p = parts[i]
-    if(len(p) == 0 or str.class_run(str.char_class("0-9"), p, 0) != len(p)){
+    if(not all_digits:matches(p)){
       return null
     }
     n[i] = to_int(p)
@@ -130,7 +135,7 @@ local func mirror_dir(url){
   return concat(
     compiler.package_root(),
     "/.mirrors/",
-    str.substring(hex(encoding.sha256(url)), 0, 16),
+    str.substring(hex(hash.sha256(url)), 0, 16),
   )
 }
 
@@ -152,17 +157,7 @@ local func mirror(url, refresh){
 }
 
 local func sorted_versions(list){
-  local out = {}
-  for(let local v in values(list)){
-    local i = len(out)
-    append(out, v)
-    for(i > 0 and pkg.compare(out[i - 1], v) > 0){
-      out[i] = out[i - 1]
-      i = i - 1
-    }
-    out[i] = v
-  }
-  return out
+  return tbl.sort(tbl.slice(list), func(a, b){ return pkg.compare(a, b) < 0 })
 }
 
 // the versions of a repository, from its tags, oldest first
@@ -210,26 +205,12 @@ local func export(url, v, dest){
 // ------------------------------------------------------------ hashes
 
 local func sorted_names(list){
-  local out = {}
-  for(let local s in values(list)){
-    local i = len(out)
-    append(out, s)
-    for(i > 0 and str.compare(out[i - 1], s) > 0){
-      out[i] = out[i - 1]
-      i = i - 1
-    }
-    out[i] = s
-  }
-  return out
+  return tbl.sort(tbl.slice(list))
 }
 
 // the keys of a table, sorted
 local func sorted_keys(t){
-  local list = {}
-  for(let local k in keys(t)){
-    append(list, k)
-  }
-  return sorted_names(list)
+  return tbl.sort(tbl.keys(t))
 }
 
 // files_under(dir, rel, out) -> out with {rel, path} appended for every file
@@ -260,19 +241,18 @@ func pkg.tree_hash(dir){
   local parts = {}
   for(let local f in values(files_under(dir, "", {}))){
     append(parts, concat(
-      f.rel, "\n", hex(encoding.sha256(os.read_file(f.path))), "\n"
+      f.rel, "\n", hex(hash.sha256(os.read_file(f.path))), "\n"
     ))
   }
-  return concat("sha256:", hex(encoding.sha256(str.join(parts, ""))))
+  return concat("sha256:", hex(hash.sha256(str.join(parts, ""))))
 }
 
 // ------------------------------------------------------------ manifests
 
-local name_class = str.char_class("a-z0-9_")
+local name_re = regex.compile("^[a-z0-9_]+$")
 
 local func check_name(name, where){
-  if(type(name) != "string" or len(name) == 0 or
-    str.class_run(name_class, name, 0) != len(name)){
+  if(type(name) != "string" or not name_re:matches(name)){
     error(
       where, ": a package name is lowercase letters, digits and _: ",
       string(name)

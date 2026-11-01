@@ -32,7 +32,7 @@ fn mangle(gpa: std.mem.Allocator, name: []const u8) []u8 {
 /// Looks for <path>/<name>.<ext> or <path>/lib<name>.<ext> in every native
 /// search path; returns the first file that exists.
 fn findLibrary(vm: *VM, name: []const u8) ?[]u8 {
-    const paths = vm.packages.getName("nativeSearchPaths").asTable() orelse return null;
+    const paths = vm.packages.getName("native_search_paths").asTable() orelse return null;
     var it = paths.iterator();
     while (it.next()) |e| {
         const dir = e.val.asBytes() orelse continue;

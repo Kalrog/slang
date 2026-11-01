@@ -5,15 +5,16 @@
 local os = require("slang/os")
 local peg = require("slang/peg")
 local compiler = require("slang/compiler")
+local clock = require("slang/time").clock
 local source = os.read_file("bench/data/sample.slang")
 local n = 3
 
 local func time(label){
-  local t0 = os.clock()
+  local t0 = clock()
   for(local i = 0; i < n; i = i + 1){
     compiler.parse(source, "sample")
   }
-  print(label, ": ", (os.clock() - t0) * 1000 / n, " ms/run\n")
+  print(label, ": ", (clock() - t0) * 1000 / n, " ms/run\n")
 }
 
 time("base grammar")

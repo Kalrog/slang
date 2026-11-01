@@ -115,7 +115,7 @@ t.group("grammar scoping"){
 
 t.group("project file"){
   t.test("ambient extensions, dialects and search paths"){
-    local paths = __PACKAGES.searchPaths
+    local paths = __PACKAGES.search_paths
     compiler.load_project("test/project/slang.project")
     local p = compiler.project()
     assert(p.extensions == {"test/project_ext"}, "extensions")
@@ -124,11 +124,11 @@ t.group("project file"){
       "dialect suffixes",
     )
     assert(
-      __PACKAGES.searchPaths[0] == "test/project",
+      __PACKAGES.search_paths[0] == "test/project",
       "the project directory comes first",
     )
     assert(
-      __PACKAGES.searchPaths[1] == "test/project/../..",
+      __PACKAGES.search_paths[1] == "test/project/../..",
       "then its search paths",
     )
     for(let local name in values({"data", "module", "plain"})){
@@ -156,7 +156,7 @@ t.group("project file"){
     assert(len(p.key) > 0, "the project key records the extension sources")
     compiler.reset()
     assert(compiler.project() == null, "reset forgets the project")
-    assert(__PACKAGES.searchPaths == paths, "and restores the search paths")
+    assert(__PACKAGES.search_paths == paths, "and restores the search paths")
     local r = pcall(compile, "return twice 1", "after reset")
     assert(r[0] == "err" or r[1]() == null, "the ambient extension is gone")
     for(let local name in values({"data", "module", "plain"})){

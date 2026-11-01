@@ -1,5 +1,5 @@
 // slang/package: require and module loading.
-// __PACKAGES is created by the VM: {loaders, preloaded, searchPaths}.
+// __PACKAGES is created by the VM: {loaders, preloaded, search_paths}.
 // A loader takes a module name and returns {true, value} or null.
 
 local vm = __PACKAGES.preloaded["slang/vm"][1]
@@ -84,7 +84,7 @@ local func find_source(name){
     }
     return found
   }
-  for(let local path in values(__PACKAGES.searchPaths)){
+  for(let local path in values(__PACKAGES.search_paths)){
     local src = concat(path, "/", name, ".slang")
     if(os.exists(src)){
       return {path: src, suffix: ".slang"}
@@ -114,7 +114,7 @@ local func search_path_loader(name){
     }
     return {true, f()}
   }
-  for(let local path in values(__PACKAGES.searchPaths)){
+  for(let local path in values(__PACKAGES.search_paths)){
     local bin = concat(path, "/", name, ".slb")
     if(os.exists(bin)){
       local f = vm.load_bytecode(bin)

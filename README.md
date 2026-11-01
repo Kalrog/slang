@@ -718,17 +718,32 @@ works too. The playground runs `slang run`, `slang fmt` and `slang highlight
 --check` (parse and compile errors, lint) in a web worker.
 
 ## Standard library
-Globals: `print`, `args`, `readLine`, `open` (files with `read`, `write`,
-`readBytes`, `writeBytes`, `close`), `assert`, `error`, `raise`, `pcall`, `compile`,
-`require`, `type`, `len`, `append`, `remove`, `keys`, `values`, `entries`,
-`concat`, `set_raw`, `get_raw`, `to_int`, `string`, `module`, `run`.
+Globals: `print`, `args`, `assert`, `error`, `raise`, `pcall`, `compile`,
+`require`, `type`, `len`, `append`, `list_push`, `remove`, `keys`, `values`,
+`entries`, `concat`, `set_raw`, `get_raw`, `to_int`, `to_float`, `string`,
+`module`, `run`.
 
-Modules (`require("slang/...")`): `table` (contains, map, filter, fold,
-dequeue), `string` (join, substring, split, trim, replace, index_of,
-starts_with, ends_with, byte_at, char_at, chr, upper, lower, to_number, ...),
-`math`, `os` (exists, read_file, write_file, list_dir, getenv, cwd, exit,
-clock, time_ms), `thread` (coroutines), `vm` (upvalue access, bytecode
-loading), `parser`, `test` (group/test/setup/teardown/run), `compiler`.
+Modules (`require("slang/...")`), one job each, Go style:
+
+- `string`: byte strings: searching (`index_of`, `last_index_of`,
+  `contains`, `count`), splitting (`split`, `cut`, `fields`, `lines`),
+  trimming, `replace`, `format` (printf verbs), `parse_int`, `to_number`.
+- `utf8`: characters (`valid`, `count`, `char`, `code_at`, `size_at`).
+- `regex`: regular expressions in RE2/Go syntax, linear time (`compile`,
+  then `matches`, `find`, `find_all`, `replace`, `split`, `match_at`).
+- `table`: `sort` (stable), `insert`, `index_of`, `reverse`, `slice`,
+  `contains`, `map`, `filter`, `fold`, `keys`.
+- `math`, `time` (`now`, `clock`, `sleep`, UTC calendar, HTTP and ISO
+  dates), `encoding` (`base64`, `base64url`, `hex`, `url`, `form`, `query`,
+  each with `encode`/`decode`), `hash` (`crc32`, `fnv1a`, `sha256`), `json`.
+- `os`: files (`open` with `read_line`/`lines`, `read_file`, `write_file`,
+  `append_file`, `stat`, `remove`, `remove_all`, ...), `read_line`,
+  `exec`, `getenv`; `path` (`join`, `dir`, `base`, `ext`, `clean`, `rel`).
+- `thread` (coroutines), `vm` (upvalue access, bytecode loading), `test`
+  (group/test/setup/teardown/run), `compiler`, `peg`, `grammar`; and the
+  web, C and native modules below.
+
+`bin/slang doc` writes the reference of every module to doc/.
 
 ## Repository layout
 ```

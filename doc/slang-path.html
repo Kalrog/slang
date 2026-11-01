@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>slang/path</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
+pre.ebnf { white-space: pre-wrap; border-left: 3px solid var(--link); }
+dl.syntax dd { margin: 0.2rem 0 0.8rem 0.2rem; }
+figure.example { margin: 1rem 0; }
+details.expanded summary { cursor: pointer; color: var(--muted); }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>slang/path</h1>
+<p>slang/path: slash-separated paths, as files and URLs use them (Go's path and path/filepath on Unix). Nothing here touches the disk except <a href="#abs"><code>abs</code></a>, which reads the current directory.</p>
+<pre><code>local path = require(&quot;slang/path&quot;)
+path.join(&quot;a&quot;, &quot;b/../c&quot;, &quot;d.txt&quot;)   // &quot;a/c/d.txt&quot;
+path.dir(&quot;src/main.slang&quot;)          // &quot;src&quot;
+path.base(&quot;src/main.slang&quot;)         // &quot;main.slang&quot;
+path.ext(&quot;src/main.slang&quot;)          // &quot;.slang&quot;
+path.rel(&quot;/a/b&quot;, &quot;/a/c/d&quot;)          // &quot;../c/d&quot;</code></pre>
+<ul class="toc">
+<li><a href="#clean"><code>clean</code></a></li>
+<li><a href="#join"><code>join</code></a></li>
+<li><a href="#split"><code>split</code></a></li>
+<li><a href="#base"><code>base</code></a></li>
+<li><a href="#dir"><code>dir</code></a></li>
+<li><a href="#ext"><code>ext</code></a></li>
+<li><a href="#is_abs"><code>is_abs</code></a></li>
+<li><a href="#abs"><code>abs</code></a></li>
+<li><a href="#rel"><code>rel</code></a></li>
+</ul>
+<div class="def" id="clean"><h3><code>path.clean(p: string) -> string</code></h3>
+<p>The shortest path naming the same file: repeated slashes become one, &quot;.&quot; elements go, and &quot;..&quot; removes the element before it where there is one (a rooted path starts over at &quot;/&quot;). The empty path is &quot;.&quot;.</p>
+<pre><code>path.clean(&quot;a//b/./../c/&quot;)   // &quot;a/c&quot;</code></pre>
+
+</div>
+<div class="def" id="join"><h3><code>path.join(...parts: string) -> string</code></h3>
+<p>The non-empty parts joined with &quot;/&quot; and cleaned; &quot;&quot; when all are empty.</p>
+<pre><code>path.join(&quot;a&quot;, &quot;&quot;, &quot;/b&quot;, &quot;c/&quot;)   // &quot;a/b/c&quot;</code></pre>
+
+</div>
+<div class="def" id="split"><h3><code>path.split(p: string) -> {string}</code></h3>
+<p>{dir, file}: p split after its last slash; dir keeps the slash, so concat(dir, file) is p.</p>
+<pre><code>path.split(&quot;a/b/c.txt&quot;)   // {&quot;a/b/&quot;, &quot;c.txt&quot;}</code></pre>
+
+</div>
+<div class="def" id="base"><h3><code>path.base(p: string) -> string</code></h3>
+<p>The last element of p, without trailing slashes; &quot;.&quot; for &quot;&quot; and &quot;/&quot; for a path of slashes only.</p>
+
+</div>
+<div class="def" id="dir"><h3><code>path.dir(p: string) -> string</code></h3>
+<p>All of p but its last element, cleaned: &quot;.&quot; when there is no slash.</p>
+<pre><code>path.dir(&quot;/a/b&quot;)   // &quot;/a&quot;</code></pre>
+
+</div>
+<div class="def" id="ext"><h3><code>path.ext(p: string) -> string</code></h3>
+<p>The extension of the last element of p, from its last &quot;.&quot; on; &quot;&quot; when it has none.</p>
+
+</div>
+<div class="def" id="is_abs"><h3><code>path.is_abs(p: string) -> bool</code></h3>
+<p>Whether p starts at the root.</p>
+
+</div>
+<div class="def" id="abs"><h3><code>path.abs(p: string) -> string</code></h3>
+<p>p made absolute against the current directory, cleaned.</p>
+
+</div>
+<div class="def" id="rel"><h3><code>path.rel(from: string, to: string) -> string</code></h3>
+<p>A relative path that leads from the directory from to to, so that join(from, rel(from, to)) is clean(to). Raises when one is absolute and the other is not, or when from climbs above to with &quot;..&quot;.</p>
+<pre><code>path.rel(&quot;a/b&quot;, &quot;a/c/d&quot;)   // &quot;../c/d&quot;</code></pre>
+
+</div>
+<p class="muted">slang/lib/path.slang</p>
+</body>
+</html>

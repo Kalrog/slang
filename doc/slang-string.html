@@ -40,41 +40,46 @@ details.expanded summary { cursor: pointer; color: var(--muted); }
 <body>
 <nav><a href="index.html">index</a></nav>
 <h1>slang/string</h1>
-<p>slang/string: string functions, built into the VM.</p>
+<p>slang/string: functions on byte strings, built into the VM.</p>
 <pre><code>local str = require(&quot;slang/string&quot;)
 local parts = str.split(&quot;a, b, c&quot;, &quot;, &quot;)    // {&quot;a&quot;, &quot;b&quot;, &quot;c&quot;}
 str.join(parts, &quot;-&quot;)                       // &quot;a-b-c&quot;
 str.substring(&quot;hello&quot;, 1, 3)               // &quot;el&quot;
-str.index_of(&quot;hello&quot;, &quot;l&quot;)                 // 2</code></pre>
-<p>Strings are byte strings (UTF-8 by convention); positions are byte offsets from 0, and ranges include their start but not their end. For scanning text quickly, <a href="#char_class"><code>char_class</code></a> compiles a set of characters that <a href="#class_match"><code>class_match</code></a> and <a href="#class_run"><code>class_run</code></a> test against.</p>
+str.format(&quot;%-6s|%5.2f&quot;, &quot;pi&quot;, 3.14159)    // &quot;pi    | 3.14&quot;</code></pre>
+<p>Strings are byte strings (UTF-8 by convention); positions are byte offsets from 0, and ranges include their start but not their end. slang/utf8 works with characters, slang/regex with patterns. <code>s * n</code> repeats a string n times.</p>
 <ul class="toc">
 <li><a href="#substring"><code>substring</code></a></li>
 <li><a href="#byte_at"><code>byte_at</code></a></li>
 <li><a href="#char_at"><code>char_at</code></a></li>
-<li><a href="#rune_len_at"><code>rune_len_at</code></a></li>
-<li><a href="#chr"><code>chr</code></a></li>
 <li><a href="#from_bytes"><code>from_bytes</code></a></li>
-<li><a href="#utf16_len"><code>utf16_len</code></a></li>
+<li><a href="#to_bytes"><code>to_bytes</code></a></li>
 <li><a href="#index_of"><code>index_of</code></a></li>
+<li><a href="#last_index_of"><code>last_index_of</code></a></li>
+<li><a href="#contains"><code>contains</code></a></li>
+<li><a href="#count"><code>count</code></a></li>
 <li><a href="#starts_with"><code>starts_with</code></a></li>
 <li><a href="#ends_with"><code>ends_with</code></a></li>
 <li><a href="#compare"><code>compare</code></a></li>
+<li><a href="#equal_fold"><code>equal_fold</code></a></li>
 <li><a href="#join"><code>join</code></a></li>
 <li><a href="#split"><code>split</code></a></li>
+<li><a href="#cut"><code>cut</code></a></li>
+<li><a href="#fields"><code>fields</code></a></li>
+<li><a href="#lines"><code>lines</code></a></li>
 <li><a href="#trim"><code>trim</code></a></li>
+<li><a href="#trim_start"><code>trim_start</code></a></li>
+<li><a href="#trim_end"><code>trim_end</code></a></li>
+<li><a href="#trim_prefix"><code>trim_prefix</code></a></li>
+<li><a href="#trim_suffix"><code>trim_suffix</code></a></li>
 <li><a href="#upper"><code>upper</code></a></li>
 <li><a href="#lower"><code>lower</code></a></li>
 <li><a href="#replace"><code>replace</code></a></li>
+<li><a href="#xor"><code>xor</code></a></li>
+<li><a href="#format"><code>format</code></a></li>
 <li><a href="#to_number"><code>to_number</code></a></li>
-<li><a href="#hash"><code>hash</code></a></li>
-<li><a href="#char_class"><code>char_class</code></a></li>
-<li><a href="#class_match"><code>class_match</code></a></li>
-<li><a href="#class_run"><code>class_run</code></a></li>
-<li><a href="#space_at"><code>space_at</code></a></li>
-<li><a href="#skip_space"><code>skip_space</code></a></li>
+<li><a href="#parse_int"><code>parse_int</code></a></li>
 <li><a href="#line_starts"><code>line_starts</code></a></li>
 <li><a href="#line_col"><code>line_col</code></a></li>
-<li><a href="#type-CharClass"><code>type CharClass</code></a></li>
 </ul>
 <h2>pieces</h2>
 <div class="def" id="substring"><h3><code>string.substring(s: string, start?: int, end?: int) -> string</code></h3>
@@ -89,25 +94,29 @@ str.index_of(&quot;hello&quot;, &quot;l&quot;)                 // 2</code></pre>
 <p>The UTF-8 character starting at offset i, or null out of range.</p>
 
 </div>
-<div class="def" id="rune_len_at"><h3><code>string.rune_len_at(s: string, pos: int) -> int</code></h3>
-<p>The byte length of the UTF-8 character at pos, or 0 at the end.</p>
-
-</div>
-<div class="def" id="chr"><h3><code>string.chr(code: int) -> string</code></h3>
-<p>The UTF-8 encoding of the code point; an invalid code point gives U+FFFD.</p>
-
-</div>
 <div class="def" id="from_bytes"><h3><code>string.from_bytes(bytes: {int}) -> string</code></h3>
 <p>A string from a list of byte values (ints 0-255). Raises an error for any other element.</p>
 
 </div>
-<div class="def" id="utf16_len"><h3><code>string.utf16_len(s: string) -> int</code></h3>
-<p>The number of UTF-16 code units of s (what LSP positions count): one per code point, two above U+FFFF.</p>
+<div class="def" id="to_bytes"><h3><code>string.to_bytes(s: string) -> {int}</code></h3>
+<p>The bytes of s as a list of ints 0-255.</p>
 
 </div>
 <h2>searching</h2>
 <div class="def" id="index_of"><h3><code>string.index_of(s: string, part: string, from?: int) -> int</code></h3>
 <p>The offset of the first part at or after from (0 by default), or -1.</p>
+
+</div>
+<div class="def" id="last_index_of"><h3><code>string.last_index_of(s: string, part: string, from?: int) -> int</code></h3>
+<p>The offset of the last part that starts at or before from (the end of s by default), or -1.</p>
+
+</div>
+<div class="def" id="contains"><h3><code>string.contains(s: string, part: string) -> bool</code></h3>
+<p>Whether part occurs in s.</p>
+
+</div>
+<div class="def" id="count"><h3><code>string.count(s: string, part: string) -> int</code></h3>
+<p>The number of non-overlapping parts in s; an empty part counts the characters of s plus one.</p>
 
 </div>
 <div class="def" id="starts_with"><h3><code>string.starts_with(s: string, prefix: string, at?: int) -> bool</code></h3>
@@ -122,17 +131,52 @@ str.index_of(&quot;hello&quot;, &quot;l&quot;)                 // 2</code></pre>
 <p>-1, 0 or 1 as a sorts before, equal to or after b, byte by byte.</p>
 
 </div>
-<h2>transforming</h2>
+<div class="def" id="equal_fold"><h3><code>string.equal_fold(a: string, b: string) -> bool</code></h3>
+<p>Whether a and b are equal ignoring ASCII case.</p>
+
+</div>
+<h2>splitting and joining</h2>
 <div class="def" id="join"><h3><code>string.join(list: {string}, sep?: string) -> string</code></h3>
 <p>The strings of list joined with sep (&quot; &quot; by default). Raises an error for an element that is not a string.</p>
 
 </div>
-<div class="def" id="split"><h3><code>string.split(s: string, sep: string) -> {string}</code></h3>
-<p>The parts of s between the occurrences of sep; an empty sep splits s into its UTF-8 characters.</p>
+<div class="def" id="split"><h3><code>string.split(s: string, sep: string, n?: int) -> {string}</code></h3>
+<p>The parts of s between the occurrences of sep; an empty sep splits s into its UTF-8 characters. With n &gt; 0 there are at most n parts, the last one the rest of s; n = 0 gives none.</p>
+<pre><code>str.split(&quot;a,b,c&quot;, &quot;,&quot;, 2)   // {&quot;a&quot;, &quot;b,c&quot;}</code></pre>
 
 </div>
-<div class="def" id="trim"><h3><code>string.trim(s: string) -> string</code></h3>
-<p>s without leading and trailing (Unicode) whitespace.</p>
+<div class="def" id="cut"><h3><code>string.cut(s: string, sep: string) -> {string}?</code></h3>
+<p>{before, after}: s around the first sep, or null when sep is not in s.</p>
+<pre><code>if(let {local k, local v} = str.cut(line, &quot;=&quot;)){ ... }</code></pre>
+
+</div>
+<div class="def" id="fields"><h3><code>string.fields(s: string) -> {string}</code></h3>
+<p>The parts of s between runs of whitespace; none for blank s.</p>
+
+</div>
+<div class="def" id="lines"><h3><code>string.lines(s: string) -> {string}</code></h3>
+<p>The lines of s without their line endings (&quot;\n&quot; or &quot;\r\n&quot;). A line ending at the very end does not start another line.</p>
+
+</div>
+<h2>transforming</h2>
+<div class="def" id="trim"><h3><code>string.trim(s: string, cutset?: string) -> string</code></h3>
+<p>s without leading and trailing (Unicode) whitespace, or without the characters of cutset when it is given.</p>
+
+</div>
+<div class="def" id="trim_start"><h3><code>string.trim_start(s: string, cutset?: string) -> string</code></h3>
+<p>Like <a href="#trim"><code>trim</code></a>, at the start only.</p>
+
+</div>
+<div class="def" id="trim_end"><h3><code>string.trim_end(s: string, cutset?: string) -> string</code></h3>
+<p>Like <a href="#trim"><code>trim</code></a>, at the end only.</p>
+
+</div>
+<div class="def" id="trim_prefix"><h3><code>string.trim_prefix(s: string, prefix: string) -> string</code></h3>
+<p>s without prefix when it starts with it; s otherwise.</p>
+
+</div>
+<div class="def" id="trim_suffix"><h3><code>string.trim_suffix(s: string, suffix: string) -> string</code></h3>
+<p>s without suffix when it ends with it; s otherwise.</p>
 
 </div>
 <div class="def" id="upper"><h3><code>string.upper(s: string) -> string</code></h3>
@@ -143,41 +187,33 @@ str.index_of(&quot;hello&quot;, &quot;l&quot;)                 // 2</code></pre>
 <p>s with the ASCII letters in lower case.</p>
 
 </div>
-<div class="def" id="replace"><h3><code>string.replace(s: string, old: string, new: string) -> string</code></h3>
-<p>s with every old replaced by new; an empty old returns s unchanged.</p>
+<div class="def" id="replace"><h3><code>string.replace(s: string, old: string, new: string, n?: int) -> string</code></h3>
+<p>s with every old (the first n, when n is given and not negative) replaced by new; an empty old returns s unchanged.</p>
+
+</div>
+<div class="def" id="xor"><h3><code>string.xor(data: string, key: string) -> string</code></h3>
+<p>The bytes of data XOR the bytes of key, repeated: WebSocket masking, and the same call undoes it. Raises an error for an empty key.</p>
+
+</div>
+<h2>numbers and formatting</h2>
+<div class="def" id="format"><h3><code>string.format(fmt: string, ...values) -> string</code></h3>
+<p>The values formatted by the verbs of fmt, printf style after Go's fmt: <code>%v</code> any value as [string] renders it, <code>%s</code> a string, <code>%q</code> a quoted string, <code>%d</code> an int (or a double without fraction), <code>%x %X %o %b</code> an int in base 16, 8 or 2 as an unsigned 64-bit number (<code>%x</code> of a string gives the hex of its bytes), <code>%c</code> the character of a code point, <code>%t</code> a bool, <code>%f %e %g</code> (and <code>%F %E %G</code>) a number as a double, <code>%%</code> a percent sign. Flags: <code>-</code> pads on the right, <code>+</code> writes a sign, a space leaves room for one, <code>0</code> pads numbers with zeros, <code>#</code> adds 0x/0/0b. A width and a precision (<code>%8.3f</code>) may be <code>*</code>, taken from the values. Width counts characters; the precision of <code>%s</code> is the most characters to keep, of <code>%d</code> the fewest digits, of <code>%f</code> and <code>%e</code> the digits after the point (6 by default) and of <code>%g</code> the significant digits. Raises an error for an unknown verb, a value of the wrong type, or too few or too many values.</p>
+<pre><code>str.format(&quot;%-8s%6.2f&quot;, &quot;total&quot;, 12.5)   // &quot;total    12.50&quot;
+str.format(&quot;%04d-%02d&quot;, 2026, 3)          // &quot;2026-03&quot;
+str.format(&quot;%x&quot;, hash.sha256(s))          // the digest as hex</code></pre>
 
 </div>
 <div class="def" id="to_number"><h3><code>string.to_number(s: string) -> int | float | null</code></h3>
 <p>s parsed as a decimal int, else as a double, or null when it is neither.</p>
 
 </div>
-<div class="def" id="hash"><h3><code>string.hash(s: string) -> string</code></h3>
-<p>A stable 64-bit hash of s (FNV-1a), as hex digits.</p>
+<div class="def" id="parse_int"><h3><code>string.parse_int(s: string, base?: int) -> int?</code></h3>
+<p>s as an int in base (10 by default, 2 to 36) with an optional sign, or null when it is not one or does not fit. Base 0 reads a 0x, 0o or 0b prefix.</p>
+<pre><code>str.parse_int(&quot;ff&quot;, 16)    // 255
+str.parse_int(&quot;0b101&quot;, 0)  // 5</code></pre>
 
 </div>
-<h2>scanning</h2>
-<div class="def" id="char_class"><h3><code>string.char_class(spec: string) -> <a href="#type-CharClass">CharClass</a></code></h3>
-<p>Compiles a character class: single characters and ranges like <code>a-z</code>, negated by a leading <code>^</code>.</p>
-<pre><code>local digit = str.char_class(&quot;0-9&quot;)</code></pre>
-
-</div>
-<div class="def" id="class_match"><h3><code>string.class_match(class: <a href="#type-CharClass">CharClass</a>, s: string, pos?: int) -> int</code></h3>
-<p>The byte length of the character at pos (0 by default) when it is in class, otherwise 0.</p>
-
-</div>
-<div class="def" id="class_run"><h3><code>string.class_run(class: <a href="#type-CharClass">CharClass</a>, s: string, pos?: int) -> int</code></h3>
-<p>The offset after the longest run of characters in class starting at pos (0 by default); pos when there is none.</p>
-
-</div>
-<div class="def" id="space_at"><h3><code>string.space_at(s: string, pos: int) -> int</code></h3>
-<p>The byte length of the whitespace character at pos, or 0.</p>
-
-</div>
-<div class="def" id="skip_space"><h3><code>string.skip_space(s: string, pos?: int) -> int</code></h3>
-<p>The offset after the whitespace and <code>//</code> line comments starting at pos (0 by default); a comment ends before its newline.</p>
-
-</div>
-<h2>lines</h2>
+<h2>lines and columns</h2>
 <div class="def" id="line_starts"><h3><code>string.line_starts(s: string) -> {int}</code></h3>
 <p>The offsets at which the lines of s start; the first is 0.</p>
 
@@ -186,9 +222,6 @@ str.index_of(&quot;hello&quot;, &quot;l&quot;)                 // 2</code></pre>
 <p>{line, column} of offset pos, both counting from 1 (the column in bytes).</p>
 
 </div>
-<h2 id="type-CharClass">type CharClass</h2>
-<pre><code>type CharClass = any</code></pre>
-<p>A compiled set of characters, from <a href="#char_class"><code>char_class</code></a>; type() of it is &quot;userdata&quot;.</p>
 <p class="muted">slang/stubs/slang/string.slang</p>
 </body>
 </html>

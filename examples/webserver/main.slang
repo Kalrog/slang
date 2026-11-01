@@ -20,9 +20,9 @@
 //   db.slang      the SQLite database (todos.db) and its tables
 local web = require("slang/web")
 local a = require("slang/async")
-local os = require("slang/os")
 local log = require("log")
 local auth = require("auth")
+local time = require("slang/time")
 
 local port = to_int(args()[0] or "8080")
 
@@ -31,9 +31,9 @@ local app = web.app()
 // every request is logged with its status and how long it took (an error
 // in a handler arrives here as the 500 slang/web made of it)
 app:use(func(req, next){
-  local t0 = os.time_ms()
+  local t0 = time.now_ms()
   local res = next(req)
-  log.record(req, res.status, os.time_ms() - t0)
+  log.record(req, res.status, time.now_ms() - t0)
   return res
 })
 

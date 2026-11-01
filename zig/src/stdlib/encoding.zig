@@ -1,23 +1,20 @@
-//! slang/encoding: the byte encodings web code needs, in native code.
+//! slang/encoding: the byte encodings web code needs, in native code, one
+//! table per encoding (Go's encoding/base64, encoding/hex, net/url):
 //!
-//!   base64_encode(s)            base64_decode(s) -> string or null
-//!   base64url_encode(s, pad)    base64url_decode(s) -> string or null
-//!   hex_encode(s)               hex_decode(s) -> string or null
-//!   url_encode(s)               url_decode(s) -> string or null
-//!   form_encode(s)              form_decode(s) -> string or null
-//!   query_encode(table)         query_decode(s) -> table
-//!   utf8_valid(s) -> bool       crc32(s) -> int
-//!   sha256(s) -> the 32-byte digest (hex_encode it for text)
-//!   mask(data, key) -> data XOR the key repeated (WebSocket masking; the
-//!     same call unmasks)
+//!   base64.encode(s)            base64.decode(s) -> string or null
+//!   base64url.encode(s, pad)    base64url.decode(s) -> string or null
+//!   hex.encode(s)               hex.decode(s) -> string or null
+//!   url.encode(s)               url.decode(s) -> string or null
+//!   form.encode(s)              form.decode(s) -> string or null
+//!   query.encode(table)         query.decode(s) -> table
 //!
 //! Strings are byte strings, so every encoder takes any bytes. Decoders
 //! return null on malformed input (untrusted input is the normal case).
-//! base64_decode accepts its input with or without padding; base64url
+//! base64.decode accepts its input with or without padding; base64url
 //! leaves the padding off unless pad is true, and decodes either form.
-//! url_* is percent-encoding of a URI component (RFC 3986: everything but
-//! A-Z a-z 0-9 - . _ ~ is escaped); form_* is the same with a space as
-//! "+" (application/x-www-form-urlencoded).
+//! url is percent-encoding of a URI component (RFC 3986: everything but
+//! A-Z a-z 0-9 - . _ ~ is escaped); form is the same with a space as "+"
+//! (application/x-www-form-urlencoded).
 
 const std = @import("std");
 const vm_mod = @import("../vm.zig");
@@ -30,24 +27,22 @@ const api = vm_mod.api;
 const stdlib = @import("stdlib.zig");
 
 pub fn module(vm: *VM) *Table {
-    return stdlib.makeModule(vm, &.{
-        .{ .name = "base64_encode", .f = base64Encode },
-        .{ .name = "base64_decode", .f = base64Decode },
-        .{ .name = "base64url_encode", .f = base64urlEncode },
-        .{ .name = "base64url_decode", .f = base64urlDecode },
-        .{ .name = "hex_encode", .f = hexEncode },
-        .{ .name = "hex_decode", .f = hexDecode },
-        .{ .name = "url_encode", .f = urlEncode },
-        .{ .name = "url_decode", .f = urlDecode },
-        .{ .name = "form_encode", .f = formEncode },
-        .{ .name = "form_decode", .f = formDecode },
-        .{ .name = "query_encode", .f = queryEncode },
-        .{ .name = "query_decode", .f = queryDecode },
-        .{ .name = "utf8_valid", .f = utf8Valid },
-        .{ .name = "crc32", .f = crc32 },
-        .{ .name = "sha256", .f = sha256 },
-        .{ .name = "mask", .f = mask },
+    const m = vm.newTable(0, 6);
+    sub(vm, m, "base64", base64Encode, base64Decode);
+    sub(vm, m, "base64url", base64urlEncode, base64urlDecode);
+    sub(vm, m, "hex", hexEncode, hexDecode);
+    sub(vm, m, "url", urlEncode, urlDecode);
+    sub(vm, m, "form", formEncode, formDecode);
+    sub(vm, m, "query", queryEncode, queryDecode);
+    return m;
+}
+
+fn sub(vm: *VM, m: *Table, name: []const u8, enc: vm_mod.NativeFn, dec: vm_mod.NativeFn) void {
+    const t = stdlib.makeModule(vm, &.{
+        .{ .name = "encode", .f = enc },
+        .{ .name = "decode", .f = dec },
     });
+    m.set(vm.gpa, vm.str(name), .{ .table = t });
 }
 
 /// A fresh string of n bytes for the caller to fill.
@@ -303,32 +298,4 @@ fn appendEncoded(gpa: std.mem.Allocator, out: *std.ArrayList(u8), s: []const u8)
     const n = percentEncodedLen(s, true);
     const dest = out.addManyAsSlice(gpa, n) catch vm_mod.oom();
     _ = percentEncodeInto(dest, s, true);
-}
-
-// ------------------------------------------------------------ checks
-
-fn utf8Valid(th: *Thread, args: []Value) Error!Value {
-    const src = try api.argString(th, args, 0, "str");
-    return .{ .bool = std.unicode.utf8ValidateSlice(src) };
-}
-
-fn crc32(th: *Thread, args: []Value) Error!Value {
-    const src = try api.argString(th, args, 0, "str");
-    return .{ .int = std.hash.Crc32.hash(src) };
-}
-
-fn sha256(th: *Thread, args: []Value) Error!Value {
-    const src = try api.argString(th, args, 0, "str");
-    var out: [32]u8 = undefined;
-    std.crypto.hash.sha2.Sha256.hash(src, &out, .{});
-    return th.vm.str(&out);
-}
-
-fn mask(th: *Thread, args: []Value) Error!Value {
-    const src = try api.argString(th, args, 0, "data");
-    const key = try api.argString(th, args, 1, "key");
-    if (key.len == 0) return th.vm.raise("mask: the key is empty", .{});
-    const out = uninit(th.vm, src.len);
-    for (src, 0..) |b, i| out.bytes[i] = b ^ key[i % key.len];
-    return out.value;
 }

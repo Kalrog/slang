@@ -1,6 +1,9 @@
 //! slang/time: wall-clock time as seconds since the Unix epoch, in UTC.
 //!
 //!   now() -> seconds (float, millisecond precision)
+//!   now_ms() -> milliseconds (int)
+//!   clock() -> seconds since the program started (monotonic, for measuring)
+//!   sleep(seconds) -> blocks this thread
 //!   utc(t) -> {year, month, day, hour, minute, second, ms, weekday, yday}
 //!   from_utc({year, month, day, hour, minute, second, ms}) -> seconds
 //!   http_date(t) -> "Sun, 06 Nov 1994 08:49:37 GMT"
@@ -28,9 +31,15 @@ const Error = vm_mod.Error;
 const api = vm_mod.api;
 const stdlib = @import("stdlib.zig");
 
+var process_start: ?std.Io.Timestamp = null;
+
 pub fn module(vm: *VM) *Table {
+    if (process_start == null) process_start = std.Io.Clock.now(.awake, vm.io);
     return stdlib.makeModule(vm, &.{
         .{ .name = "now", .f = timeNow },
+        .{ .name = "now_ms", .f = timeNowMs },
+        .{ .name = "clock", .f = timeClock },
+        .{ .name = "sleep", .f = timeSleep },
         .{ .name = "utc", .f = timeUtc },
         .{ .name = "from_utc", .f = timeFromUtc },
         .{ .name = "http_date", .f = timeHttpDate },
@@ -135,6 +144,31 @@ fn timeNow(th: *Thread, args: []Value) Error!Value {
     const now = std.Io.Clock.now(.real, th.vm.io);
     const ms = @divFloor(now.nanoseconds, 1_000_000);
     return .{ .float = @as(f64, @floatFromInt(ms)) / 1000 };
+}
+
+/// now_ms(): milliseconds since the Unix epoch (int).
+pub fn timeNowMs(th: *Thread, args: []Value) Error!Value {
+    _ = args;
+    const now = std.Io.Clock.now(.real, th.vm.io);
+    return .{ .int = @intCast(@divTrunc(now.nanoseconds, 1_000_000)) };
+}
+
+/// clock(): seconds since the program started (monotonic, double).
+pub fn timeClock(th: *Thread, args: []Value) Error!Value {
+    _ = args;
+    const now = std.Io.Clock.now(.awake, th.vm.io);
+    const ns = process_start.?.durationTo(now).nanoseconds;
+    return .{ .float = @as(f64, @floatFromInt(ns)) / 1e9 };
+}
+
+/// sleep(seconds): blocks the thread (slang/async's sleep does not).
+fn timeSleep(th: *Thread, args: []Value) Error!Value {
+    const secs = try api.argNumber(th, args, 0, "seconds");
+    if (!(secs > 0)) return .null;
+    th.vm.flush();
+    const ns: i96 = @intFromFloat(@min(secs, 1e9) * 1e9);
+    std.Io.sleep(th.vm.io, .fromNanoseconds(ns), .awake) catch {};
+    return .null;
 }
 
 fn timeUtc(th: *Thread, args: []Value) Error!Value {

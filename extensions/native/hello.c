@@ -2,7 +2,7 @@
  * hello: an example native extension in C, used by zig/test/native_test.slang
  * to exercise the whole of slang.h. Build: `zig build` in zig/ produces
  * zig-out/lib/hello.dylib (or .so); `require("hello")` finds it through
- * __PACKAGES.nativeSearchPaths.
+ * __PACKAGES.native_search_paths.
  */
 #include <string.h>
 #include <stdlib.h>

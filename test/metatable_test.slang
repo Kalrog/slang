@@ -202,7 +202,7 @@ t.group("operator metamethods"){
   }
   t.test("userdata metamethods"){
     // files are userdata with an __index metatable; they have no __add
-    local r = pcall(func(){ return open("README.md", "r") + 1 })
+    local r = pcall(func(){ return require("slang/os").open("README.md", "r") + 1 })
     assert(r[0] == "err", "no __add on files")
   }
 }

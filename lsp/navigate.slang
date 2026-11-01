@@ -212,11 +212,11 @@ func methods.shown(w, path){
     }
     return null
   }
-  local library = under(__PACKAGES.librarySources)
+  local library = under(__PACKAGES.library_sources)
   if(library != null){
     return concat("slang/", library)
   }
-  local stub = under(__PACKAGES.stubSources)
+  local stub = under(__PACKAGES.stub_sources)
   if(stub != null){
     return concat(stub, " (native)")
   }

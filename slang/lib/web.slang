@@ -143,7 +143,7 @@ local request_meta = {__index: request_methods, __type: "Request"}
 // The query string decoded (req.query is the raw text).
 func request_methods.query_params(req){
   if(req.query_table == null){
-    req.query_table = encoding.query_decode(req.query)
+    req.query_table = encoding.query.decode(req.query)
   }
   return req.query_table
 }
@@ -166,7 +166,7 @@ func request_methods.form(req){
   local t = str.lower(req.headers["content-type"] or "")
   local out = {}
   if(str.starts_with(t, "application/x-www-form-urlencoded") or t == ""){
-    out = encoding.query_decode(req.body or "")
+    out = encoding.query.decode(req.body or "")
   } else if(str.starts_with(t, "multipart/form-data")){
     if(req.body == null){
       web.fail(400, "the body was streamed; read req.stream instead")
@@ -229,7 +229,7 @@ local func match(parts, route_parts){
       return null
     }
     if(str.starts_with(p, ":")){
-      local v = encoding.url_decode(parts[i])
+      local v = encoding.url.decode(parts[i])
       if(v == null or parts[i] == ""){
         return null
       }
@@ -917,7 +917,7 @@ func client_methods.request(client, method, path, options){
     }
     local body = options.body or ""
     if(options.form != null){
-      body = encoding.query_encode(options.form)
+      body = encoding.query.encode(options.form)
       headers["content-type"] = headers["content-type"] or
         "application/x-www-form-urlencoded"
     } else if(options.json != null){

@@ -180,12 +180,12 @@ g:add_edge("fuel", "humor", 6)
 g:add_edge("engine", "freedom", 22)
 g:add_edge("technique", "orchestra", 15)
 
-local os = require("slang/os")
+local time = require("slang/time")
 local n = 1000
-local t0 = os.clock()
+local t0 = time.clock()
 for(local i = 0; i < n; i = i + 1){
   queue = {}
   local result = g:dijkstra("fix")
 }
-local t1 = os.clock()
+local t1 = time.clock()
 print("dijkstra x", n, ": ", (t1 - t0) * 1000, " ms\n")

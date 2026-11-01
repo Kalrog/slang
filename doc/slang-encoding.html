@@ -40,100 +40,53 @@ details.expanded summary { cursor: pointer; color: var(--muted); }
 <body>
 <nav><a href="index.html">index</a></nav>
 <h1>slang/encoding</h1>
-<p>slang/encoding: the byte encodings web code needs (base64, hex, percent-encoding, query strings) and checksums, built into the VM.</p>
+<p>slang/encoding: the byte encodings web code needs, built into the VM, one table per encoding with an encode and a decode.</p>
 <pre><code>local enc = require(&quot;slang/encoding&quot;)
-enc.base64_encode(&quot;hi!&quot;)                  // &quot;aGkh&quot;
-enc.hex_encode(enc.sha256(&quot;abc&quot;))         // &quot;ba7816bf...&quot;
-enc.query_encode({q: &quot;slang lang&quot;, page: 2})   // &quot;page=2&amp;q=slang+lang&quot;</code></pre>
-<p>Strings are byte strings, so every encoder takes any bytes. Decoders return null on malformed input instead of raising (untrusted input is the normal case).</p>
+enc.base64.encode(&quot;hi!&quot;)                     // &quot;aGkh&quot;
+enc.hex.encode(&quot;\x01\xff&quot;)                   // &quot;01ff&quot;
+enc.query.encode({q: &quot;slang lang&quot;, page: 2}) // &quot;page=2&amp;q=slang+lang&quot;
+enc.url.decode(&quot;a%20b&quot;)                      // &quot;a b&quot;</code></pre>
+<p>Strings are byte strings, so every encoder takes any bytes. Decoders return null on malformed input instead of raising (untrusted input is the normal case). Checksums are in slang/hash, characters in slang/utf8.</p>
 <ul class="toc">
-<li><a href="#base64_encode"><code>base64_encode</code></a></li>
-<li><a href="#base64_decode"><code>base64_decode</code></a></li>
-<li><a href="#base64url_encode"><code>base64url_encode</code></a></li>
-<li><a href="#base64url_decode"><code>base64url_decode</code></a></li>
-<li><a href="#hex_encode"><code>hex_encode</code></a></li>
-<li><a href="#hex_decode"><code>hex_decode</code></a></li>
-<li><a href="#url_encode"><code>url_encode</code></a></li>
-<li><a href="#url_decode"><code>url_decode</code></a></li>
-<li><a href="#form_encode"><code>form_encode</code></a></li>
-<li><a href="#form_decode"><code>form_decode</code></a></li>
-<li><a href="#query_encode"><code>query_encode</code></a></li>
-<li><a href="#query_decode"><code>query_decode</code></a></li>
-<li><a href="#utf8_valid"><code>utf8_valid</code></a></li>
-<li><a href="#crc32"><code>crc32</code></a></li>
-<li><a href="#sha256"><code>sha256</code></a></li>
-<li><a href="#mask"><code>mask</code></a></li>
+<li><a href="#base64"><code>base64</code></a></li>
+<li><a href="#base64url"><code>base64url</code></a></li>
+<li><a href="#hex"><code>hex</code></a></li>
+<li><a href="#url"><code>url</code></a></li>
+<li><a href="#form"><code>form</code></a></li>
+<li><a href="#query"><code>query</code></a></li>
+<li><a href="#type-Codec"><code>type Codec</code></a></li>
 </ul>
-<h2>base64</h2>
-<div class="def" id="base64_encode"><h3><code>encoding.base64_encode(s: string) -> string</code></h3>
-<p>s in standard base64, with &quot;=&quot; padding.</p>
+<div class="def" id="base64"><h3><code>encoding.base64</code></h3>
+<p>Standard base64 (RFC 4648), a <a href="#type-Codec"><code>Codec</code></a>: encode writes &quot;=&quot; padding, decode accepts text with or without it.</p>
+<pre><code>enc.base64.decode(&quot;aGkh&quot;)   // &quot;hi!&quot;</code></pre>
 
 </div>
-<div class="def" id="base64_decode"><h3><code>encoding.base64_decode(s: string) -> string?</code></h3>
-<p>The bytes of standard base64 text with or without padding, or null.</p>
+<div class="def" id="base64url"><h3><code>encoding.base64url</code></h3>
+<p>URL-safe base64 (&quot;-&quot; and &quot;_&quot; for &quot;+&quot; and &quot;/&quot;), as JWTs use it, a decode accepts either form.</p>
 
 </div>
-<div class="def" id="base64url_encode"><h3><code>encoding.base64url_encode(s: string, pad?: bool) -> string</code></h3>
-<p>s in URL-safe base64, without padding unless pad is true.</p>
+<div class="def" id="hex"><h3><code>encoding.hex</code></h3>
+<p>Hex digits, a <a href="#type-Codec"><code>Codec</code></a>: encode writes two lower-case digits per byte, decode reads either case.</p>
 
 </div>
-<div class="def" id="base64url_decode"><h3><code>encoding.base64url_decode(s: string) -> string?</code></h3>
-<p>The bytes of URL-safe base64 text with or without padding, or null.</p>
+<div class="def" id="url"><h3><code>encoding.url</code></h3>
+<p>Percent-encoding of a URI component (RFC 3986), a <a href="#type-Codec"><code>Codec</code></a>: encode escapes everything but A-Z a-z 0-9 - . _ ~; decode fails when a &quot;%&quot; is not followed by two hex digits.</p>
 
 </div>
-<h2>hex</h2>
-<div class="def" id="hex_encode"><h3><code>encoding.hex_encode(s: string) -> string</code></h3>
-<p>s as lower-case hex digits, two per byte.</p>
+<div class="def" id="form"><h3><code>encoding.form</code></h3>
+<p>Form encoding (application/x-www-form-urlencoded), a <a href="#type-Codec"><code>Codec</code></a>: <a href="#url"><code>url</code></a> with a space as &quot;+&quot;.</p>
 
 </div>
-<div class="def" id="hex_decode"><h3><code>encoding.hex_decode(s: string) -> string?</code></h3>
-<p>The bytes of hex text (either case), or null.</p>
+<div class="def" id="query"><h3><code>encoding.query</code></h3>
+<p>Form query strings. encode(t) writes the string, number and boolean fields of t in key order, so the result is stable; a list value repeats its key once per element, and null, false and other values are left out. decode(s?) gives the pairs as a table: a leading &quot;?&quot; is skipped, a repeated key keeps its last value, a pair that does not decode is skipped, and null gives {}.</p>
+<pre><code>enc.query.encode({b: &quot;x y!&quot;, a: 1})      // &quot;a=1&amp;b=x+y%21&quot;
+enc.query.decode(&quot;a=1&amp;b=x+y%21&amp;flag&quot;)    // {a: &quot;1&quot;, b: &quot;x y!&quot;, flag: &quot;&quot;}</code></pre>
 
 </div>
-<h2>percent-encoding</h2>
-<div class="def" id="url_encode"><h3><code>encoding.url_encode(s: string) -> string</code></h3>
-<p>s percent-encoded as a URI component (RFC 3986): everything but A-Z a-z 0-9 - . _ ~ is escaped.</p>
-
-</div>
-<div class="def" id="url_decode"><h3><code>encoding.url_decode(s: string) -> string?</code></h3>
-<p>s with its %XX escapes decoded, or null when a &quot;%&quot; is not followed by two hex digits.</p>
-
-</div>
-<div class="def" id="form_encode"><h3><code>encoding.form_encode(s: string) -> string</code></h3>
-<p>Like <a href="#url_encode"><code>url_encode</code></a>, but a space becomes &quot;+&quot; (application/x-www-form-urlencoded).</p>
-
-</div>
-<div class="def" id="form_decode"><h3><code>encoding.form_decode(s: string) -> string?</code></h3>
-<p>Like <a href="#url_decode"><code>url_decode</code></a>, but &quot;+&quot; becomes a space.</p>
-
-</div>
-<div class="def" id="query_encode"><h3><code>encoding.query_encode(t: table) -> string</code></h3>
-<p>The string, number and boolean fields of t as a form query string, in key order so the result is stable. A list value repeats its key once per element; null, false and other values are left out.</p>
-<pre><code>enc.query_encode({b: &quot;x y!&quot;, a: 1})   // &quot;a=1&amp;b=x+y%21&quot;</code></pre>
-
-</div>
-<div class="def" id="query_decode"><h3><code>encoding.query_decode(s?: string) -> {[string]: string}</code></h3>
-<p>The pairs of a form query string. A leading &quot;?&quot; is skipped, a repeated key keeps its last value and a pair that does not decode is skipped; null gives {}.</p>
-<pre><code>enc.query_decode(&quot;a=1&amp;b=x+y%21&amp;flag&quot;)   // {a: &quot;1&quot;, b: &quot;x y!&quot;, flag: &quot;&quot;}</code></pre>
-
-</div>
-<h2>checks</h2>
-<div class="def" id="utf8_valid"><h3><code>encoding.utf8_valid(s: string) -> bool</code></h3>
-<p>Whether s is valid UTF-8.</p>
-
-</div>
-<div class="def" id="crc32"><h3><code>encoding.crc32(s: string) -> int</code></h3>
-<p>The CRC-32 checksum of s.</p>
-
-</div>
-<div class="def" id="sha256"><h3><code>encoding.sha256(s: string) -> string</code></h3>
-<p>The SHA-256 digest of s: 32 raw bytes (<a href="#hex_encode"><code>hex_encode</code></a> them for text).</p>
-
-</div>
-<div class="def" id="mask"><h3><code>encoding.mask(data: string, key: string) -> string</code></h3>
-<p>data XOR key repeated (WebSocket masking; the same call unmasks). Raises an error for an empty key.</p>
-
-</div>
+<h2 id="type-Codec">type Codec</h2>
+<pre><code>type Codec = {encode: func(s: string): string, decode: func(s: string): string?}</code></pre>
+<p>An encoding: encode(s) gives the encoded text, decode(s) the bytes back, or null when s is not valid.</p>
+<dl class="params"><dt><code>encode: func(s: string): string</code></dt><dd></dd><dt><code>decode: func(s: string): string?</code></dt><dd></dd></dl>
 <p class="muted">slang/stubs/slang/encoding.slang</p>
 </body>
 </html>

@@ -1,9 +1,7 @@
 // globals: the functions every slang program has without a require,
 // built into the VM.
 //
-//   local f = open("notes.txt", "w")
-//   f:write(concat("args: ", len(args()), "\n"))
-//   f:close()
+//   print(concat("args: ", len(args()), "\n"))
 //   for(let local e in entries({a: 1, b: 2})){ print(e[0], "=", e[1], "\n") }
 //
 // Errors are values: [error] raises one, [pcall] catches it as an [Error]
@@ -20,7 +18,7 @@
 // [location]: where it was raised
 // [stack]: the stack traceback as text
 
-// ------------------------------------------------------------ input and output
+// ------------------------------------------------------------ output
 
 // print(...values)
 // Writes the values to standard output without separators: strings as
@@ -28,54 +26,9 @@
 // flushed when a value contains a newline.
 func print(...values){}
 
-// readLine() -> string?
-// The next line of standard input without its line ending, or null at the
-// end of the input. Flushes standard output first.
-func readLine(){}
-
 // args() -> {string}
 // The command-line arguments of the program.
 func args(){}
-
-// An open file, from [open]; type() of it is "file". It is closed when it
-// is collected.
-// type File
-local file_methods = {}
-local file_meta = {__index: file_methods, __type: "file"}
-
-// open(path: string, mode?: string) -> File
-// Opens a file. A missing file is created first, together with its
-// directory, whatever the mode. Raises "cannot open <path>" when the file
-// cannot be opened.
-// [mode]: "r" (the default) to read, "w" to write (truncating), "a" to append, "rw" to read and write (truncating), "ra" to read and append
-//   local f = open("out.txt", "w")
-//   f:write("hello\n")
-//   f:close()
-func open(path, mode){
-  return {meta: file_meta}
-}
-
-// read(n?: int) -> string
-// The next n bytes, fewer at the end of the file, or the rest of the file
-// when n is left out.
-func file_methods.read(file, n){}
-
-// readBytes(n?: int) -> {int}
-// Like [File.read], but a list of byte values (ints 0-255).
-func file_methods.readBytes(file, n){}
-
-// write(s: string)
-// Writes s.
-func file_methods.write(file, s){}
-
-// writeBytes(bytes: {int})
-// Writes a list of byte values; each int is cut to its low 8 bits.
-func file_methods.writeBytes(file, bytes){}
-
-// close()
-// Closes the file; closing it again does nothing. Reading or writing a
-// closed file raises an error.
-func file_methods.close(file){}
 
 // ------------------------------------------------------------ errors
 
@@ -126,6 +79,11 @@ func len(v){}
 // v rendered as a string, through its __tostring metamethod when it has
 // one.
 func string(v){}
+
+// to_float(v: int | float | string) -> float
+// v as a double: ints converted, doubles as they are, strings parsed.
+// Raises an error for an invalid string or another type.
+func to_float(v){}
 
 // to_int(v: int | float | string) -> int
 // v as an int: ints as they are, doubles truncated (saturating, NaN gives

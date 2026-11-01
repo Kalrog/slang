@@ -52,6 +52,9 @@
 local peg = require("slang/peg")
 local ast = require("slang/ast")
 local str = require("slang/string")
+local regex = require("slang/regex")
+local hash = require("slang/hash")
+local utf8 = require("slang/utf8")
 local g = require("slang/compiler").grammar()
 
 // ------------------------------------------------------------ lexical pieces
@@ -151,9 +154,9 @@ local block_comment = peg.token(peg.custom(func(self, ctx, pos){
 })
 
 // anything else up to the next brace, quote, word, digit or comment start
-local other_class = str.char_class("^{}'a-zA-Z0-9_/-")
+local other_run = regex.compile("[^{}'a-zA-Z0-9_/-]*")
 local other = peg.custom(func(self, ctx, pos){
-  local q = str.class_run(other_class, ctx.buffer, pos)
+  local q = other_run:match_at(ctx.buffer, pos)
   if(q == pos){
     return peg.fail(ctx, pos, "sql expected")
   }
@@ -197,21 +200,21 @@ local func runtime_call(name, args, token){
   return ast.node("Call", {function: runtime(name, token), args: args}, token)
 }
 
-local space_class = str.char_class(" \t\r\n")
+local space_run = regex.compile("[ \t\r\n]*")
 // whitespace runs collapsed to one space, the ends trimmed
 local func collapse(text){
   local out = {}
   local n = len(text)
   local i = 0
   for(i < n){
-    local q = str.class_run(space_class, text, i)
+    local q = space_run:match_at(text, i)
     if(q > i){
       if(len(out) > 0){
         append(out, " ")
       }
       i = q
     } else {
-      local c = str.rune_len_at(text, i)
+      local c = utf8.size_at(text, i)
       append(out, str.substring(text, i, i + c))
       i = i + c
     }
@@ -240,7 +243,7 @@ local func build(pieces, token){
   local text_node = ast.node("String", {value: sql}, token)
   local origin_node = ast.node("String", {value: origin}, token)
   if(len(holes) == 0){
-    local node = g:unit_local(concat("sql_", str.hash(sql)), runtime_call(
+    local node = g:unit_local(concat("sql_", str.format("%x", hash.fnv1a(sql))), runtime_call(
       "query", {text_node, ast.node("Null", {}, token), origin_node}, token
     ))
     node.token = token

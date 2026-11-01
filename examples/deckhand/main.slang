@@ -25,6 +25,7 @@ local hud = require("game/hud")
 local editor = require("game/editor")
 local autopilot = require("game/autopilot")
 local solutions = require("game/solutions")
+local utf8 = require("slang/utf8")
 
 local width = 1280
 local height = 720
@@ -122,7 +123,7 @@ local func deck_keys(){
   }
   for(local c = rl.get_char_pressed(); c > 0; c = rl.get_char_pressed()){
     if(c >= 32 and c < 127 and not ctrl and not cmd){
-      ed:insert(str.chr(c))
+      ed:insert(utf8.char(c))
     }
   }
   if(rl.is_key_pressed(rl.KEY_ENTER) or rl.is_key_pressed(rl.KEY_KP_ENTER)){

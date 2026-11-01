@@ -26,7 +26,7 @@
 // [computed]: the byte offsets of the requires whose name is computed
 
 local str = require("slang/string")
-local encoding = require("slang/encoding")
+local utf8 = require("slang/utf8")
 
 local ast = {}
 
@@ -289,7 +289,7 @@ func ast.resolve_escapes(literal){
         if(v == null or v > 1114111 or (v >= 55296 and v <= 57343)){
           error("\\u needs a code point in braces, like \\u{e9}")
         }
-        append(pieces, str.chr(v))
+        append(pieces, utf8.char(v))
         i = close
       } else {
         error("Invalid escape sequence \\", c)
@@ -456,7 +456,7 @@ local hex_digits = "0123456789abcdef"
 // the bytes of s with the other control bytes, and the high bytes when s
 // is not UTF-8, written as \xHH
 local func escape_bytes(s){
-  local high = not encoding.utf8_valid(s)
+  local high = not utf8.valid(s)
   local pieces = {}
   local start = 0
   local n = len(s)

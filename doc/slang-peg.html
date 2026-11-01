@@ -108,6 +108,8 @@ numbers:end():parse(&quot;1, x&quot;)         // {&quot;error&quot;, &quot;end o
 <li><a href="#memoize"><code>memoize</code></a></li>
 <li><a href="#place_memos"><code>place_memos</code></a></li>
 <li><a href="#skip_space"><code>skip_space</code></a></li>
+<li><a href="#space_end"><code>space_end</code></a></li>
+<li><a href="#space"><code>space</code></a></li>
 <li><a href="#dispatch"><code>dispatch</code></a></li>
 <li><a href="#walker"><code>walker</code></a></li>
 <li><a href="#leaves"><code>leaves</code></a></li>
@@ -234,7 +236,7 @@ numbers:end():parse(&quot;1, x&quot;)         // {&quot;error&quot;, &quot;end o
 
 </div>
 <div class="def" id="pattern"><h3><code>peg.pattern(spec: string, message?: string) -> <a href="#type-Parser">Parser</a></code></h3>
-<p>One character of a class (see slang/string's char_class): single characters and ranges, negated by a leading <code>^</code>. Its value is the character. <a href="#star"><code>star</code></a> and <a href="#plus"><code>plus</code></a> of a pattern run natively.</p>
+<p>One character of a class: single characters and ranges, negated by a leading <code>^</code> (a regex character class without the brackets). Its value is the character. <a href="#star"><code>star</code></a> and <a href="#plus"><code>plus</code></a> of a pattern run natively.</p>
 <pre><code>peg.pattern(&quot;a-zA-Z_&quot;)</code></pre>
 
 </div>
@@ -379,7 +381,7 @@ expr:set(peg.choice(group, peg.digit()))</code></pre>
 <pre><code>local upper = peg.custom(func(self, ctx, pos){
   local b = str.byte_at(ctx.buffer, pos)
   if(b != null and b &gt;= 65 and b &lt;= 90){
-    ctx.value = str.chr(b)
+    ctx.value = utf8.char(b)
     return pos + 1
   }
   return peg.fail(ctx, pos, &quot;capital expected&quot;)
@@ -419,6 +421,14 @@ expr:set(peg.choice(group, peg.digit()))</code></pre>
 </div>
 <div class="def" id="skip_space"><h3><code>peg.skip_space(ctx: <a href="#type-Context">Context</a>, pos: int) -> int</code></h3>
 <p>The position after the slang whitespace and <code>//</code> comments at pos: the skip function of a walker or dispatch for slang's own trivia.</p>
+
+</div>
+<div class="def" id="space_end"><h3><code>peg.space_end(s: string, pos: int) -> int</code></h3>
+<p><a href="#skip_space"><code>skip_space</code></a> on a string: the position after the whitespace and <code>//</code> comments at pos.</p>
+
+</div>
+<div class="def" id="space"><h3><code>peg.space</code></h3>
+<p>The regex of <a href="#space_end"><code>space_end</code></a>, for scanners that call its match_at directly.</p>
 
 </div>
 <div class="def" id="dispatch"><h3><code>peg.dispatch(parsers: {<a href="#type-Parser">Parser</a>}, skip?: func(ctx: <a href="#type-Context">Context</a>, pos: int): int, message?: string) -> <a href="#type-Parser">Parser</a></code></h3>

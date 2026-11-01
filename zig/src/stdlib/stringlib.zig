@@ -16,32 +16,44 @@ const stdlib = @import("stdlib.zig");
 
 pub fn module(vm: *VM) *Table {
     return stdlib.makeModule(vm, &.{
-        .{ .name = "join", .f = strJoin },
+        // pieces
         .{ .name = "substring", .f = strSubstring },
         .{ .name = "byte_at", .f = strByteAt },
         .{ .name = "char_at", .f = strCharAt },
-        .{ .name = "chr", .f = strChr },
         .{ .name = "from_bytes", .f = strFromBytes },
+        .{ .name = "to_bytes", .f = strToBytes },
+        // searching
         .{ .name = "index_of", .f = strIndexOf },
+        .{ .name = "last_index_of", .f = strLastIndexOf },
+        .{ .name = "contains", .f = strContains },
+        .{ .name = "count", .f = strCount },
         .{ .name = "starts_with", .f = strStartsWith },
         .{ .name = "ends_with", .f = strEndsWith },
-        .{ .name = "line_starts", .f = strLineStarts },
+        .{ .name = "compare", .f = strCompare },
+        .{ .name = "equal_fold", .f = strEqualFold },
+        // splitting and joining
+        .{ .name = "join", .f = strJoin },
         .{ .name = "split", .f = strSplit },
+        .{ .name = "cut", .f = strCut },
+        .{ .name = "fields", .f = strFields },
+        .{ .name = "lines", .f = strLines },
+        // transforming
         .{ .name = "trim", .f = strTrim },
+        .{ .name = "trim_start", .f = strTrimStart },
+        .{ .name = "trim_end", .f = strTrimEnd },
+        .{ .name = "trim_prefix", .f = strTrimPrefix },
+        .{ .name = "trim_suffix", .f = strTrimSuffix },
         .{ .name = "upper", .f = strUpper },
         .{ .name = "lower", .f = strLower },
         .{ .name = "replace", .f = strReplace },
+        .{ .name = "xor", .f = strXor },
+        // numbers and formatting
+        .{ .name = "format", .f = strFormat },
         .{ .name = "to_number", .f = strToNumber },
-        .{ .name = "char_class", .f = strCharClass },
-        .{ .name = "class_match", .f = strClassMatch },
-        .{ .name = "class_run", .f = strClassRun },
+        .{ .name = "parse_int", .f = strParseInt },
+        // lines and columns
+        .{ .name = "line_starts", .f = strLineStarts },
         .{ .name = "line_col", .f = strLineCol },
-        .{ .name = "space_at", .f = strSpaceAt },
-        .{ .name = "skip_space", .f = strSkipSpace },
-        .{ .name = "utf16_len", .f = strUtf16Len },
-        .{ .name = "rune_len_at", .f = strRuneLenAt },
-        .{ .name = "compare", .f = strCompare },
-        .{ .name = "hash", .f = strHash },
     });
 }
 
@@ -59,17 +71,13 @@ pub fn decodeRune(s: []const u8, pos: usize) Rune {
 }
 
 /// Go's unicode.IsSpace.
-fn isUnicodeSpace(r: u21) bool {
+pub fn isUnicodeSpace(r: u21) bool {
     return switch (r) {
         ' ', '\t', '\n', '\r', 0x0b, 0x0c, 0x85, 0xA0 => true,
         0x1680, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000 => true,
         0x2000...0x200A => true,
         else => false,
     };
-}
-
-fn isAsciiSpace(b: u8) bool {
-    return b == ' ' or b == '\t' or b == '\n' or b == '\r' or b == 0x0c or b == 0x0b;
 }
 
 fn strJoin(th: *Thread, args: []Value) Error!Value {
@@ -120,17 +128,6 @@ fn strCharAt(th: *Thread, args: []Value) Error!Value {
     return th.vm.str(s[pos .. pos + r.len]);
 }
 
-/// chr(code): the character with the given code point.
-fn strChr(th: *Thread, args: []Value) Error!Value {
-    const c = try api.argInt(th, args, 0, "code");
-    if (c >= 0 and c < 128) return th.vm.str(&[_]u8{@intCast(c)});
-    var buf: [4]u8 = undefined;
-    // Go's string(rune) turns invalid code points into U+FFFD
-    const cp: u21 = if (c < 0 or c > 0x10FFFF or (c >= 0xD800 and c <= 0xDFFF)) 0xFFFD else @intCast(c);
-    const n = std.unicode.utf8Encode(cp, &buf) catch unreachable;
-    return th.vm.str(buf[0..n]);
-}
-
 /// index_of(s, sub, [from]): byte index of sub in s at or after from, or -1.
 fn strIndexOf(th: *Thread, args: []Value) Error!Value {
     const s = try api.argString(th, args, 0, "str");
@@ -141,6 +138,59 @@ fn strIndexOf(th: *Thread, args: []Value) Error!Value {
     const f: usize = @intCast(from);
     const i = std.mem.indexOf(u8, s[f..], sub) orelse return .{ .int = -1 };
     return .{ .int = @intCast(f + i) };
+}
+
+/// last_index_of(s, sub, [from]): byte index of the last sub that starts
+/// at or before from (the end by default), or -1.
+fn strLastIndexOf(th: *Thread, args: []Value) Error!Value {
+    const s = try api.argString(th, args, 0, "str");
+    const sub = try api.argString(th, args, 1, "sub");
+    const from = api.argIntOr(args, 2, @intCast(s.len));
+    if (from < 0) return .{ .int = -1 };
+    const limit = @min(s.len, @as(usize, @intCast(from)) + sub.len);
+    const i = std.mem.lastIndexOf(u8, s[0..limit], sub) orelse return .{ .int = -1 };
+    return .{ .int = @intCast(i) };
+}
+
+fn strContains(th: *Thread, args: []Value) Error!Value {
+    const s = try api.argString(th, args, 0, "str");
+    const sub = try api.argString(th, args, 1, "sub");
+    return .{ .bool = std.mem.indexOf(u8, s, sub) != null };
+}
+
+/// count(s, sub): the number of non-overlapping subs in s; an empty sub
+/// counts the characters plus one (Go's strings.Count).
+fn strCount(th: *Thread, args: []Value) Error!Value {
+    const s = try api.argString(th, args, 0, "str");
+    const sub = try api.argString(th, args, 1, "sub");
+    if (sub.len == 0) {
+        var n: i64 = 1;
+        for (s) |b| {
+            if (b & 0xC0 != 0x80) n += 1;
+        }
+        return .{ .int = n };
+    }
+    var n: i64 = 0;
+    var pos: usize = 0;
+    while (std.mem.indexOfPos(u8, s, pos, sub)) |i| {
+        n += 1;
+        pos = i + sub.len;
+    }
+    return .{ .int = n };
+}
+
+fn strEqualFold(th: *Thread, args: []Value) Error!Value {
+    const a = try api.argString(th, args, 0, "a");
+    const b = try api.argString(th, args, 1, "b");
+    return .{ .bool = std.ascii.eqlIgnoreCase(a, b) };
+}
+
+/// to_bytes(s): the bytes of s as a list of ints.
+fn strToBytes(th: *Thread, args: []Value) Error!Value {
+    const s = try api.argString(th, args, 0, "str");
+    const t = th.vm.newTable(s.len, 0);
+    for (s) |b| t.append(th.vm.gpa, .{ .int = b });
+    return .{ .table = t };
 }
 
 /// starts_with(s, prefix, [at]): whether s has prefix at byte offset at.
@@ -169,44 +219,153 @@ fn strLineStarts(th: *Thread, args: []Value) Error!Value {
     return .{ .table = t };
 }
 
+/// split(s, sep, [n]): the parts between the seps; n > 0 keeps at most n
+/// parts (the last is the rest of s), n == 0 none, n < 0 (the default) all.
 fn strSplit(th: *Thread, args: []Value) Error!Value {
     const vm = th.vm;
     const s = try api.argString(th, args, 0, "str");
     const sep = try api.argString(th, args, 1, "sep");
+    const n = api.argIntOr(args, 2, -1);
     const t = vm.newTable(0, 0);
+    if (n == 0) return .{ .table = t };
+    var parts: i64 = 0;
+    var pos: usize = 0;
     if (sep.len == 0) {
         // Go splits into UTF-8 characters
-        var pos: usize = 0;
         while (pos < s.len) {
+            if (n > 0 and parts == n - 1) break;
             const r = decodeRune(s, pos);
             t.append(vm.gpa, vm.str(s[pos .. pos + r.len]));
             pos += r.len;
+            parts += 1;
         }
+        if (pos < s.len) t.append(vm.gpa, vm.str(s[pos..]));
         return .{ .table = t };
     }
-    var it = std.mem.splitSequence(u8, s, sep);
-    while (it.next()) |part| t.append(vm.gpa, vm.str(part));
+    while (true) {
+        if (n > 0 and parts == n - 1) break;
+        const i = std.mem.indexOfPos(u8, s, pos, sep) orelse break;
+        t.append(vm.gpa, vm.str(s[pos..i]));
+        pos = i + sep.len;
+        parts += 1;
+    }
+    t.append(vm.gpa, vm.str(s[pos..]));
     return .{ .table = t };
 }
 
-fn strTrim(th: *Thread, args: []Value) Error!Value {
+/// cut(s, sep): {before, after} around the first sep, or null.
+fn strCut(th: *Thread, args: []Value) Error!Value {
+    const vm = th.vm;
     const s = try api.argString(th, args, 0, "str");
+    const sep = try api.argString(th, args, 1, "sep");
+    const i = std.mem.indexOf(u8, s, sep) orelse return .null;
+    const t = vm.newTable(2, 0);
+    t.append(vm.gpa, vm.str(s[0..i]));
+    t.append(vm.gpa, vm.str(s[i + sep.len ..]));
+    return .{ .table = t };
+}
+
+/// fields(s): the parts of s between runs of whitespace.
+fn strFields(th: *Thread, args: []Value) Error!Value {
+    const vm = th.vm;
+    const s = try api.argString(th, args, 0, "str");
+    const t = vm.newTable(0, 0);
+    var pos: usize = 0;
+    var start: ?usize = null;
+    while (pos < s.len) {
+        const r = decodeRune(s, pos);
+        if (isUnicodeSpace(r.r)) {
+            if (start) |st| t.append(vm.gpa, vm.str(s[st..pos]));
+            start = null;
+        } else if (start == null) {
+            start = pos;
+        }
+        pos += r.len;
+    }
+    if (start) |st| t.append(vm.gpa, vm.str(s[st..]));
+    return .{ .table = t };
+}
+
+/// lines(s): the lines of s without their line endings ("\n" or "\r\n");
+/// a final line ending does not start another line.
+fn strLines(th: *Thread, args: []Value) Error!Value {
+    const vm = th.vm;
+    const s = try api.argString(th, args, 0, "str");
+    const t = vm.newTable(0, 0);
+    var pos: usize = 0;
+    while (pos < s.len) {
+        const nl = std.mem.indexOfScalarPos(u8, s, pos, '\n') orelse s.len;
+        var end = nl;
+        if (end > pos and s[end - 1] == '\r') end -= 1;
+        t.append(vm.gpa, vm.str(s[pos..end]));
+        pos = nl + 1;
+    }
+    return .{ .table = t };
+}
+
+/// Whether r is trimmed: in the cutset, or whitespace without one.
+fn trimmed(r: u21, cutset: ?[]const u8) bool {
+    const set = cutset orelse return isUnicodeSpace(r);
+    var i: usize = 0;
+    while (i < set.len) {
+        const c = decodeRune(set, i);
+        if (c.r == r) return true;
+        i += c.len;
+    }
+    return false;
+}
+
+fn trimRange(s: []const u8, cutset: ?[]const u8, front: bool, back: bool) []const u8 {
     var start: usize = 0;
     var end: usize = s.len;
-    while (start < end) {
+    if (front) while (start < end) {
         const r = decodeRune(s, start);
-        if (!isUnicodeSpace(r.r)) break;
+        if (!trimmed(r.r, cutset)) break;
         start += r.len;
-    }
-    while (end > start) {
+    };
+    if (back) while (end > start) {
         // walk back to the start of the last character
         var p = end - 1;
         while (p > start and (s[p] & 0xC0) == 0x80) p -= 1;
         const r = decodeRune(s, p);
-        if (!isUnicodeSpace(r.r)) break;
+        if (!trimmed(r.r, cutset)) break;
         end = p;
-    }
-    return th.vm.str(s[start..end]);
+    };
+    return s[start..end];
+}
+
+fn trimWith(th: *Thread, args: []Value, front: bool, back: bool) Error!Value {
+    const s = try api.argString(th, args, 0, "str");
+    const cutset: ?[]const u8 = if (api.arg(args, 1) == .null) null else try api.argString(th, args, 1, "cutset");
+    return th.vm.str(trimRange(s, cutset, front, back));
+}
+
+/// trim(s, [cutset]): s without leading and trailing whitespace, or
+/// characters of cutset.
+fn strTrim(th: *Thread, args: []Value) Error!Value {
+    return trimWith(th, args, true, true);
+}
+
+fn strTrimStart(th: *Thread, args: []Value) Error!Value {
+    return trimWith(th, args, true, false);
+}
+
+fn strTrimEnd(th: *Thread, args: []Value) Error!Value {
+    return trimWith(th, args, false, true);
+}
+
+fn strTrimPrefix(th: *Thread, args: []Value) Error!Value {
+    const s = try api.argString(th, args, 0, "str");
+    const prefix = try api.argString(th, args, 1, "prefix");
+    if (!std.mem.startsWith(u8, s, prefix)) return api.arg(args, 0);
+    return th.vm.str(s[prefix.len..]);
+}
+
+fn strTrimSuffix(th: *Thread, args: []Value) Error!Value {
+    const s = try api.argString(th, args, 0, "str");
+    const suffix = try api.argString(th, args, 1, "suffix");
+    if (!std.mem.endsWith(u8, s, suffix)) return api.arg(args, 0);
+    return th.vm.str(s[0 .. s.len - suffix.len]);
 }
 
 fn strUpper(th: *Thread, args: []Value) Error!Value {
@@ -223,14 +382,90 @@ fn strLower(th: *Thread, args: []Value) Error!Value {
     return .{ .string = out };
 }
 
+/// replace(s, old, new, [n]): s with the first n olds (all when n is left
+/// out or negative) replaced by new.
 fn strReplace(th: *Thread, args: []Value) Error!Value {
     const s = try api.argString(th, args, 0, "str");
     const old = try api.argString(th, args, 1, "old");
     const repl = try api.argString(th, args, 2, "new");
-    if (old.len == 0) return api.arg(args, 0);
-    const out = std.mem.replaceOwned(u8, th.vm.gpa, s, old, repl) catch oom();
-    defer th.vm.gpa.free(out);
-    return th.vm.str(out);
+    const n = api.argIntOr(args, 3, -1);
+    if (old.len == 0 or n == 0) return api.arg(args, 0);
+    if (n < 0) {
+        const out = std.mem.replaceOwned(u8, th.vm.gpa, s, old, repl) catch oom();
+        defer th.vm.gpa.free(out);
+        return th.vm.str(out);
+    }
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(th.vm.gpa);
+    var pos: usize = 0;
+    var done: i64 = 0;
+    while (done < n) : (done += 1) {
+        const i = std.mem.indexOfPos(u8, s, pos, old) orelse break;
+        out.appendSlice(th.vm.gpa, s[pos..i]) catch oom();
+        out.appendSlice(th.vm.gpa, repl) catch oom();
+        pos = i + old.len;
+    }
+    out.appendSlice(th.vm.gpa, s[pos..]) catch oom();
+    return th.vm.str(out.items);
+}
+
+/// xor(data, key): data XOR key repeated (WebSocket masking; the same call
+/// unmasks).
+fn strXor(th: *Thread, args: []Value) Error!Value {
+    const src = try api.argString(th, args, 0, "data");
+    const key = try api.argString(th, args, 1, "key");
+    if (key.len == 0) return th.vm.raise("xor: the key is empty", .{});
+    const out = th.vm.newStringUninit(src.len);
+    const bytes = out.mutableBytes();
+    for (src, 0..) |b, i| bytes[i] = b ^ key[i % key.len];
+    return .{ .string = out };
+}
+
+/// format(fmt, ...values): see strformat.zig.
+fn strFormat(th: *Thread, args: []Value) Error!Value {
+    const fmt = try api.argString(th, args, 0, "format");
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(th.vm.gpa);
+    try @import("strformat.zig").format(th, fmt, 1, &out);
+    return th.vm.str(out.items);
+}
+
+/// parse_int(s, [base]): s as an int in base (10 by default, 2 to 36; 0
+/// reads a 0x, 0o or 0b prefix), with an optional sign; null when s is not
+/// one or does not fit.
+fn strParseInt(th: *Thread, args: []Value) Error!Value {
+    const s = try api.argString(th, args, 0, "str");
+    var base = api.argIntOr(args, 1, 10);
+    if (base != 0 and (base < 2 or base > 36)) return th.vm.raise("parse_int: base {d} is not 0 or 2 to 36", .{base});
+    var body = s;
+    var neg = false;
+    if (body.len > 0 and (body[0] == '-' or body[0] == '+')) {
+        neg = body[0] == '-';
+        body = body[1..];
+    }
+    if (base == 0) {
+        base = 10;
+        if (body.len > 2 and body[0] == '0') {
+            switch (body[1]) {
+                'x', 'X' => base = 16,
+                'o', 'O' => base = 8,
+                'b', 'B' => base = 2,
+                else => {},
+            }
+            if (base != 10) body = body[2..];
+        }
+    }
+    if (body.len == 0) return .null;
+    // accumulate negatively so that the minimum int parses
+    var n: i64 = 0;
+    for (body) |c| {
+        const dgt = std.fmt.charToDigit(c, @intCast(base)) catch return .null;
+        n = std.math.mul(i64, n, base) catch return .null;
+        n = std.math.sub(i64, n, dgt) catch return .null;
+    }
+    if (neg) return .{ .int = n };
+    if (n == std.math.minInt(i64)) return .null;
+    return .{ .int = -n };
 }
 
 /// to_number(s): parses an int or a double, or returns null.
@@ -245,114 +480,6 @@ fn strToNumber(th: *Thread, args: []Value) Error!Value {
     if (@import("core.zig").parseIntStrict(body, 10)) |i| return .{ .int = if (neg) 0 -% i else i };
     if (std.fmt.parseFloat(f64, s)) |f| return .{ .float = f } else |_| {}
     return .null;
-}
-
-/// A compiled character class in petitparser pattern syntax: ranges like
-/// a-z, single characters, and a leading ^ for negation.
-const CharClass = struct {
-    gpa: std.mem.Allocator,
-    negate: bool,
-    ranges: []u21, // pairs lo, hi
-    spec: []u8,
-
-    fn match(c: *const CharClass, r: u21) bool {
-        var hit = false;
-        var i: usize = 0;
-        while (i + 1 < c.ranges.len) : (i += 2) {
-            if (r >= c.ranges[i] and r <= c.ranges[i + 1]) {
-                hit = true;
-                break;
-            }
-        }
-        return hit != c.negate;
-    }
-};
-
-const class_tname = "char_class";
-
-fn classFinalize(data: ?*anyopaque) callconv(.c) void {
-    const c: *CharClass = @ptrCast(@alignCast(data.?));
-    c.gpa.free(c.ranges);
-    c.gpa.free(c.spec);
-}
-
-fn classToString(u: *Userdata, w: *std.Io.Writer) std.Io.Writer.Error!void {
-    try w.print("[{s}]", .{u.as(CharClass).spec});
-}
-
-fn compileCharClass(vm: *VM, spec: []const u8) CharClass {
-    var runes: std.ArrayList(u21) = .empty;
-    defer runes.deinit(vm.gpa);
-    var pos: usize = 0;
-    while (pos < spec.len) {
-        const r = decodeRune(spec, pos);
-        runes.append(vm.gpa, r.r) catch oom();
-        pos += r.len;
-    }
-    const rs = runes.items;
-    var ranges: std.ArrayList(u21) = .empty;
-    var i: usize = 0;
-    var negate = false;
-    if (rs.len > 0 and rs[0] == '^') {
-        negate = true;
-        i = 1;
-    }
-    while (i < rs.len) {
-        const lo = rs[i];
-        if (i + 2 < rs.len and rs[i + 1] == '-') {
-            ranges.appendSlice(vm.gpa, &.{ lo, rs[i + 2] }) catch oom();
-            i += 3;
-            continue;
-        }
-        ranges.appendSlice(vm.gpa, &.{ lo, lo }) catch oom();
-        i += 1;
-    }
-    return .{
-        .gpa = vm.gpa,
-        .negate = negate,
-        .ranges = ranges.toOwnedSlice(vm.gpa) catch oom(),
-        .spec = vm.gpa.dupe(u8, spec) catch oom(),
-    };
-}
-
-/// char_class(spec): compiles a character class.
-fn strCharClass(th: *Thread, args: []Value) Error!Value {
-    const spec = try api.argString(th, args, 0, "spec");
-    const u = th.vm.newUserdataOf(CharClass, compileCharClass(th.vm, spec), class_tname, null);
-    u.finalizer = classFinalize;
-    u.to_string = classToString;
-    return .{ .userdata = u };
-}
-
-/// class_match(class, s, pos): byte length of the character at pos if it is
-/// in the class, otherwise 0.
-fn strClassMatch(th: *Thread, args: []Value) Error!Value {
-    const c = try api.argUserdata(th, args, 0, "class", CharClass, class_tname);
-    const s = try api.argString(th, args, 1, "str");
-    const pos = api.argIntOr(args, 2, 0);
-    if (pos < 0 or pos >= s.len) return .{ .int = 0 };
-    const r = decodeRune(s, @intCast(pos));
-    return .{ .int = if (c.match(r.r)) @intCast(r.len) else 0 };
-}
-
-/// class_run(class, s, pos): the position after the longest run of
-/// characters in the class starting at pos (pos itself when there is none).
-fn strClassRun(th: *Thread, args: []Value) Error!Value {
-    const c = try api.argUserdata(th, args, 0, "class", CharClass, class_tname);
-    const s = try api.argString(th, args, 1, "str");
-    var pos: usize = @intCast(@max(0, api.argIntOr(args, 2, 0)));
-    while (pos < s.len) {
-        const b = s[pos];
-        if (b < 0x80) {
-            if (!c.match(b)) break;
-            pos += 1;
-            continue;
-        }
-        const r = decodeRune(s, pos);
-        if (!c.match(r.r)) break;
-        pos += r.len;
-    }
-    return .{ .int = @intCast(pos) };
 }
 
 /// The line starts of the most recently used buffer (parsers call line_col
@@ -388,74 +515,6 @@ fn strLineCol(th: *Thread, args: []Value) Error!Value {
     t.append(th.vm.gpa, .{ .int = @intCast(line + 1) });
     t.append(th.vm.gpa, .{ .int = @as(i64, pos) - starts[line] + 1 });
     return .{ .table = t };
-}
-
-/// space_at(s, pos): byte length of the whitespace character at pos, or 0.
-fn strSpaceAt(th: *Thread, args: []Value) Error!Value {
-    const s = try api.argString(th, args, 0, "str");
-    const pos = api.argIntOr(args, 1, 0);
-    if (pos < 0 or pos >= s.len) return .{ .int = 0 };
-    const p: usize = @intCast(pos);
-    if (s[p] < 0x80) return .{ .int = if (isAsciiSpace(s[p])) 1 else 0 };
-    const r = decodeRune(s, p);
-    return .{ .int = if (isUnicodeSpace(r.r)) @intCast(r.len) else 0 };
-}
-
-/// utf16_len(s): the number of UTF-16 code units of a UTF-8 string (what
-/// LSP positions count by default): one per code point, two above U+FFFF.
-fn strUtf16Len(th: *Thread, args: []Value) Error!Value {
-    const s = try api.argString(th, args, 0, "str");
-    var n: i64 = 0;
-    for (s) |b| {
-        if (b & 0xC0 != 0x80) n += 1;
-        if (b >= 0xF0) n += 1;
-    }
-    return .{ .int = n };
-}
-
-/// skip_space(s, pos): the position after any run of whitespace and line
-/// comments (// up to, not including, the newline) starting at pos.
-fn strSkipSpace(th: *Thread, args: []Value) Error!Value {
-    const s = try api.argString(th, args, 0, "str");
-    var pos: usize = @intCast(@max(0, api.argIntOr(args, 1, 0)));
-    const n = s.len;
-    while (pos < n) {
-        const b = s[pos];
-        if (isAsciiSpace(b)) {
-            pos += 1;
-            continue;
-        }
-        if (b == '/' and pos + 1 < n and s[pos + 1] == '/') {
-            pos += 2;
-            while (pos < n and s[pos] != '\n') pos += 1;
-            continue;
-        }
-        if (b >= 0x80) {
-            const r = decodeRune(s, pos);
-            if (isUnicodeSpace(r.r)) {
-                pos += r.len;
-                continue;
-            }
-        }
-        break;
-    }
-    return .{ .int = @intCast(pos) };
-}
-
-/// rune_len_at(s, pos): byte length of the character at pos, or 0 at the end.
-fn strRuneLenAt(th: *Thread, args: []Value) Error!Value {
-    const s = try api.argString(th, args, 0, "str");
-    const pos = api.argIntOr(args, 1, 0);
-    if (pos < 0 or pos >= s.len) return .{ .int = 0 };
-    return .{ .int = @intCast(decodeRune(s, @intCast(pos)).len) };
-}
-
-/// hash(s): a stable 64-bit hash of s as hex digits (FNV-1a).
-fn strHash(th: *Thread, args: []Value) Error!Value {
-    const s = try api.argString(th, args, 0, "str");
-    var buf: [16]u8 = undefined;
-    const out = std.fmt.bufPrint(&buf, "{x}", .{std.hash.Fnv1a_64.hash(s)}) catch unreachable;
-    return th.vm.str(out);
 }
 
 /// compare(a, b): -1, 0 or 1 (byte-wise).

@@ -467,6 +467,25 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                         th.frames.items[fi].pc = @intCast(pc);
                         continue :sw d.opOf(ins);
                     }
+                } else if (obj == .userdata and key == .string) {
+                    // a method of a userdata: its metatable's __index table
+                    if (obj.userdata.meta) |m| {
+                        const idx = m.getStr(vm.index_name);
+                        if (idx == .table) {
+                            const v = idx.table.getStr(key.string);
+                            if (v != .null) {
+                                stack[top - 1] = v;
+                                ins = code[pc];
+                                if (trace) {
+                                    th.top = top;
+                                    traceInstruction(th, fi, base, pc, ins);
+                                }
+                                pc += 1;
+                                th.frames.items[fi].pc = @intCast(pc);
+                                continue :sw d.opOf(ins);
+                            }
+                        }
+                    }
                 }
                 top -= 1;
                 th.top = top;
@@ -945,7 +964,7 @@ pub const ThreadOps = struct {
                 else => return .null,
             }
             const m = meta orelse return .null;
-            const idx = m.getName("__index");
+            const idx = m.getStr(th.vm.index_name);
             switch (idx) {
                 .function => return th.call(idx, &.{ obj, key }),
                 .table => obj = idx,
@@ -965,7 +984,7 @@ pub const ThreadOps = struct {
                     if (key == .null) return th.vm.raise("table index is null", .{});
                     const m = t.meta orelse return th.rawSet(t, key, val);
                     if (t.get(key) != .null) return th.rawSet(t, key, val);
-                    const ni = m.getName("__newindex");
+                    const ni = m.getStr(th.vm.newindex_name);
                     switch (ni) {
                         .null => return th.rawSet(t, key, val),
                         .function => {
@@ -981,7 +1000,7 @@ pub const ThreadOps = struct {
                         if (try ctypes.fastSet(th, u, key.int, val)) return;
                     }
                     if (u.meta) |m| {
-                        const ni = m.getName("__newindex");
+                        const ni = m.getStr(th.vm.newindex_name);
                         switch (ni) {
                             .function => {
                                 _ = try th.call(ni, &.{ obj, key, val });

@@ -127,3 +127,14 @@ t.group("time"){
     }
   }
 }
+
+t.group("time clocks"){
+  t.test("now_ms, clock and sleep"){
+    assert(type(time.now_ms()) == "int" and time.now_ms() > 1700000000000)
+    local t0 = time.clock()
+    time.sleep(0.01)
+    assert(time.clock() - t0 >= 0.009, "sleep blocks for its time")
+    time.sleep(0)
+    time.sleep(-1)
+  }
+}

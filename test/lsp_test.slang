@@ -227,11 +227,11 @@ t.group("language server: names"){
   // builds live in zig/zig-out-*, where no slang/stubs is next to them)
   local stubs = compiler.absolute_path("slang/stubs")
   local known = false
-  for(let local d in values(__PACKAGES.stubSources)){
+  for(let local d in values(__PACKAGES.stub_sources)){
     known = known or compiler.absolute_path(d) == stubs
   }
   if(not known){
-    append(__PACKAGES.stubSources, stubs)
+    append(__PACKAGES.stub_sources, stubs)
   }
   // test/navigate/main.slang requires test/navigate/util.slang
   local dir = compiler.absolute_path("test/navigate")

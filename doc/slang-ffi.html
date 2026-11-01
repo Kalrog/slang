@@ -64,6 +64,7 @@ libc.div(17, 5)                      // {quot: 3, rem: 2}</code></pre>
 <li><a href="#load"><code>load</code></a></li>
 <li><a href="#bind"><code>bind</code></a></li>
 <li><a href="#callback"><code>callback</code></a></li>
+<li><a href="#gc"><code>gc</code></a></li>
 <li><a href="#available"><code>available</code></a></li>
 <li><a href="#type-Type"><code>type Type</code></a></li>
 <li><a href="#type-Pointer"><code>type Pointer</code></a></li>
@@ -85,9 +86,9 @@ libc.div(17, 5)                      // {quot: 3, rem: 2}</code></pre>
 
 </div>
 <h2>types by name</h2>
-<div class="def" id="type"><h3><code>ffi.type(name: string, decls?: <a href="#type-Decls">Decls</a>) -> <a href="#type-Type">Type</a></code></h3>
-<p>The type a C type name stands for: &quot;int&quot;, &quot;uint8_t&quot;, &quot;Vector2&quot;, &quot;struct foo&quot;, &quot;Vector2 *&quot;, &quot;float[4]&quot;.</p>
-<dl class="params"><dt><code>decls</code></dt><dd>the declarations that define the struct and typedef names</dd></dl>
+<div class="def" id="type"><h3><code>ffi.type(name, decls)</code></h3>
+<p class="muted">No description.</p>
+
 </div>
 <div class="def" id="new"><h3><code>ffi.new(t: string | <a href="#type-Type">Type</a>, n?: int, decls?: <a href="#type-Decls">Decls</a>) -> <a href="#type-Pointer">Pointer</a></code></h3>
 <p>A pointer to n (1 by default) zeroed values of t, memory the collector frees once nothing points into it.</p>
@@ -131,6 +132,11 @@ libc.div(17, 5)                      // {quot: 3, rem: 2}</code></pre>
 <pre><code>local cmp = ffi.callback(&quot;int (*)(const void *, const void *)&quot;, func(a, b){
   return ffi.cast(a, &quot;int&quot;)[0] - ffi.cast(b, &quot;int&quot;)[0]
 })</code></pre>
+
+</div>
+<div class="def" id="gc"><h3><code>ffi.gc(p: <a href="#type-Pointer">Pointer</a>, free: function?) -> <a href="#type-Pointer">Pointer</a></code></h3>
+<p>p, with what it points to freed by the C function free once nothing refers to p any more: free takes one pointer and returns nothing (a function of a loaded library, or <a href="#bind"><code>bind</code></a>'s). For memory C handed out (ffi.new's is slang's own and needs none). Null takes the finalizer away, for what was freed by hand; p is changed and returned.</p>
+<pre><code>local shape = ffi.gc(lib.JPH_BoxShape_Create(half, 0.05), lib.JPH_Shape_Destroy)</code></pre>
 
 </div>
 <div class="def" id="available"><h3><code>ffi.available() -> bool</code></h3>

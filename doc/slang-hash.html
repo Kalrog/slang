@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>slang/hash</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
+pre.ebnf { white-space: pre-wrap; border-left: 3px solid var(--link); }
+dl.syntax dd { margin: 0.2rem 0 0.8rem 0.2rem; }
+figure.example { margin: 1rem 0; }
+details.expanded summary { cursor: pointer; color: var(--muted); }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>slang/hash</h1>
+<p>slang/hash: checksums and digests, built into the VM. slang/crypto (an OpenSSL extension) has the others and HMAC.</p>
+<pre><code>local hash = require(&quot;slang/hash&quot;)
+hash.crc32(&quot;abc&quot;)                          // 891568578
+str.format(&quot;%x&quot;, hash.sha256(&quot;abc&quot;))       // &quot;ba7816bf...&quot;</code></pre>
+<ul class="toc">
+<li><a href="#crc32"><code>crc32</code></a></li>
+<li><a href="#fnv1a"><code>fnv1a</code></a></li>
+<li><a href="#sha256"><code>sha256</code></a></li>
+</ul>
+<div class="def" id="crc32"><h3><code>hash.crc32(s: string) -> int</code></h3>
+<p>The CRC-32 (IEEE) checksum of s.</p>
+
+</div>
+<div class="def" id="fnv1a"><h3><code>hash.fnv1a(s: string) -> int</code></h3>
+<p>The 64-bit FNV-1a hash of s, as an int; not for security, for keys and caches. str.format(&quot;%x&quot;, h) writes it as hex.</p>
+
+</div>
+<div class="def" id="sha256"><h3><code>hash.sha256(s: string) -> string</code></h3>
+<p>The SHA-256 digest of s: 32 raw bytes.</p>
+
+</div>
+<p class="muted">slang/stubs/slang/hash.slang</p>
+</body>
+</html>

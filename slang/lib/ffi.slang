@@ -84,6 +84,7 @@
 // [paths]: directories searched first
 
 local str = require("slang/string")
+local regex = require("slang/regex")
 local os = require("slang/os")
 
 local ffi = {}
@@ -197,10 +198,9 @@ local func strip_comments(text){
   return {text: str.join(out, ""), comments: comments}
 }
 
-local ident_start = str.char_class("a-zA-Z_")
-local ident_rest = str.char_class("a-zA-Z0-9_")
-local digits = str.char_class("0-9a-zA-Z_.")
-local spaces = str.char_class(" \t\r")
+local ident = regex.compile("[a-zA-Z_][a-zA-Z0-9_]*")
+local digits = regex.compile("[0-9a-zA-Z_.]*")
+local spaces = regex.compile("[ \t\r]+")
 
 local func math_min(a, b){
   if(a < b){
@@ -224,22 +224,22 @@ local func lex(text, line){
   local i = 0
   for(i < n){
     local c = str.byte_at(text, i)
-    if(str.class_match(spaces, text, i) > 0){
-      i = str.class_run(spaces, text, i)
-    } else if(str.class_match(ident_start, text, i) > 0){
-      local j = str.class_run(ident_rest, text, i)
+    if(spaces:match_at(text, i) > 0){
+      i = spaces:match_at(text, i)
+    } else if(ident:match_at(text, i) > 0){
+      local j = ident:match_at(text, i)
       append(out, {kind: "id", text: str.substring(text, i, j), line: line})
       i = j
     } else if(c >= 48 and c <= 57 or
       c == 46 and str.byte_at(text, i + 1) != null and
         str.byte_at(text, i + 1) >= 48 and str.byte_at(text, i + 1) <= 57){
-      local j = str.class_run(digits, text, i)
+      local j = digits:match_at(text, i)
       // exponents: 1e-5
       for(j < n and
         (str.byte_at(text, j) == 45 or str.byte_at(text, j) == 43) and
         (str.byte_at(text, j - 1) == 101 or str.byte_at(text, j - 1) == 69) and
         not str.starts_with(text, "0x", i)){
-        j = str.class_run(digits, text, j + 1)
+        j = digits:match_at(text, j + 1)
       }
       append(out, {kind: "num", text: str.substring(text, i, j), line: line})
       i = j
@@ -1612,7 +1612,7 @@ local func library_dirs(options){
   for(let local d in values(options.paths or {})){
     append(dirs, d)
   }
-  for(let local d in values(__PACKAGES.nativeSearchPaths or {})){
+  for(let local d in values(__PACKAGES.native_search_paths or {})){
     append(dirs, d)
   }
   for(let local d in values({

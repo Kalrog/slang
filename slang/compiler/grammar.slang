@@ -76,7 +76,12 @@
 local peg = require("slang/peg")
 local ast = require("slang/ast")
 local str = require("slang/string")
+local regex = require("slang/regex")
 local fmt = require("slang/format")
+// slang's whitespace and comments, and the regex method as a function for
+// the hot paths (see peg.space)
+local space_re = peg.space
+local match_at = space_re.match_at
 
 local grammar = {}
 // A grammar: the rules, statements and expressions of slang for one unit
@@ -607,7 +612,7 @@ func methods.origin(g){
   return g.state.origin
 }
 
-local name_class = str.char_class("a-zA-Z0-9_")
+local not_name = regex.compile("[^a-zA-Z0-9_]")
 // unit_local(key: string, expr: ast.Node) -> ast.Node
 // An Identifier for a local of the unit being parsed, declared once per
 // unit as `local <name> = expr`, before the top-level statement that first
@@ -625,12 +630,7 @@ func methods.unit_local(g, key, expr){
   local name = locals.names[key]
   local token = expr.token
   if(name == null){
-    local parts = {"__"}
-    for(local i = 0; i < len(key); i = i + 1){
-      local c = str.substring(key, i, i + 1)
-      append(parts, str.class_match(name_class, c, 0) > 0 and c or "_")
-    }
-    name = str.join(parts, "")
+    name = concat("__", not_name:replace(key, "_"))
     locals.names[key] = name
     local left = ast.node("Identifier", {value: name}, token)
     append(locals.pending, ast.node(
@@ -1104,7 +1104,7 @@ local func install_core(g){
 
   // trivia: whitespace and comments, skipped by one native call
   local trivia = peg.custom(func(self, ctx, pos){
-    local q = str.skip_space(ctx.buffer, pos)
+    local q = match_at(space_re, ctx.buffer, pos)
     // (no failure recorded: trivia is optional wherever it is used, and
     // recording one at every token boundary without space was a tenth of
     // the parse time)
@@ -1122,22 +1122,10 @@ local func install_core(g){
   local space = rule("trivia")
   space.single = true
 
-  local ident_class = str.char_class("a-zA-Z0-9_")
-  local letter_class = str.char_class("a-zA-Z")
-
   // is_word("local") -> true: letters/digits/underscores with at least one letter
+  local word_re = regex.compile("^[a-zA-Z0-9_]*[a-zA-Z][a-zA-Z0-9_]*$")
   local func is_word(s){
-    local n = len(s)
-    local has_letter = false
-    for(local i = 0; i < n; i = i + 1){
-      if(str.class_match(ident_class, s, i) != 1){
-        return false
-      }
-      if(str.class_match(letter_class, s, i) == 1){
-        has_letter = true
-      }
-    }
-    return has_letter
+    return word_re:matches(s)
   }
 
   // token(source, name, category): a token parser trimmed by trivia (see
@@ -1150,7 +1138,7 @@ local func install_core(g){
   // one does (same positions and messages). A parse that builds a tree, or
   // runs under a grammar whose trivia an extension changed, uses the
   // composed parser.
-  local word_end = str.char_class("a-zA-Z0-9_")
+  local word_end = regex.compile("[a-zA-Z0-9_]")
   local token_meta = peg.token_meta
   local func literal_token(s, word, category, message, composed){
     local n = len(s)
@@ -1159,7 +1147,7 @@ local func install_core(g){
         return composed:parse_on(ctx, pos)
       }
       local buf = ctx.buffer
-      local start = str.skip_space(buf, pos)
+      local start = match_at(space_re, buf, pos)
       if(not str.starts_with(buf, s, start)){
         ctx.fail_pos = start
         ctx.fail_msg = message
@@ -1170,14 +1158,14 @@ local func install_core(g){
         return -1
       }
       local stop = start + n
-      if(word and str.class_match(word_end, buf, stop) > 0){
+      if(word and match_at(word_end, buf, stop) > 0){
         return peg.fail(ctx, stop, "success not expected")
       }
       ctx.value = {
         value: s, start: start, stop: stop, buffer: buf, category: category,
         meta: token_meta
       }
-      return str.skip_space(buf, stop)
+      return match_at(space_re, buf, stop)
     }
     local p = peg.custom(parse, func(self, ctx, pos){
       return peg.parse_tree(composed, ctx, pos)
@@ -1482,7 +1470,7 @@ local func install_core(g){
       }
       i = i - 1
     }
-    local q = str.skip_space(buf, pos)
+    local q = match_at(space_re, buf, pos)
     if(q > pos and str.index_of(str.substring(buf, pos, q), "\n") >= 0){
       return peg.fail(ctx, pos, "on the same line")
     }
@@ -2527,8 +2515,8 @@ func grammar.comments(buffer, start, stop){
   return out
 }
 
-local word_class = str.char_class("a-zA-Z0-9_")
-local digit_class = str.char_class("0-9")
+local word_run = regex.compile("[a-zA-Z0-9_]+")
+local digit = regex.compile("[0-9]")
 
 // a region a parse with {recover: true} went past: highlighted by its words
 // (keywords of the grammar, identifiers, numbers), strings and comments
@@ -2559,10 +2547,10 @@ local func error_region(keywords){
             j = j + 1
           }
           category = "string"
-        } else if(str.class_match(word_class, buffer, i) > 0){
-          j = i + str.class_run(word_class, buffer, i) - i
+        } else if(word_run:match_at(buffer, i) > 0){
+          j = word_run:match_at(buffer, i)
           local w = str.substring(buffer, i, j)
-          if(str.class_match(digit_class, buffer, i) > 0){
+          if(digit:match_at(buffer, i) > 0){
             category = "number"
           } else if(keywords[w] == true){
             category = "keyword"
@@ -2681,7 +2669,7 @@ local func parse_top_level(g, source, origin, scoped, recover, tree){
         }
       }
     }
-    stop = str.skip_space(source, pos)
+    stop = match_at(space_re, source, pos)
     if(stop == len(source) or not recover){
       break
     }

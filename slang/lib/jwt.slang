@@ -105,7 +105,7 @@ local func algorithm(alg, key){
   return a
 }
 
-local func b64(s){ return encoding.base64url_encode(s) }
+local func b64(s){ return encoding.base64url.encode(s) }
 
 local func now(options){
   return options.now or to_int(time.now())
@@ -156,9 +156,9 @@ local func split(token){
   if(len(parts) != 3){
     error("jwt: malformed token")
   }
-  local header_text = encoding.base64url_decode(parts[0])
-  local claims_text = encoding.base64url_decode(parts[1])
-  local signature = encoding.base64url_decode(parts[2])
+  local header_text = encoding.base64url.decode(parts[0])
+  local claims_text = encoding.base64url.decode(parts[1])
+  local signature = encoding.base64url.decode(parts[2])
   if(header_text == null or claims_text == null or signature == null){
     error("jwt: malformed token")
   }

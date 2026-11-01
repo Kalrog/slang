@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>slang/regex</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
+pre.ebnf { white-space: pre-wrap; border-left: 3px solid var(--link); }
+dl.syntax dd { margin: 0.2rem 0 0.8rem 0.2rem; }
+figure.example { margin: 1rem 0; }
+details.expanded summary { cursor: pointer; color: var(--muted); }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>slang/regex</h1>
+<p>slang/regex: regular expressions, built into the VM.</p>
+<pre><code>local regex = require(&quot;slang/regex&quot;)
+local kv = regex.compile(&quot;(?P&lt;key&gt;\\w+)=(\\d+)&quot;)
+kv:matches(&quot;a=1&quot;)                        // true
+local m = kv:find(&quot;x a=1&quot;)               // m.text &quot;a=1&quot;, m.groups[1] &quot;a&quot;
+kv:replace(&quot;a=1 b=2&quot;, &quot;$key:$2&quot;)         // &quot;a:1 b:2&quot;
+regex.compile(&quot;\\s*,\\s*&quot;):split(&quot;a , b,c&quot;)   // {&quot;a&quot;, &quot;b&quot;, &quot;c&quot;}</code></pre>
+<p>The syntax is RE2's, as in Go: <code>.</code> <code>[a-z]</code> <code>[^...]</code> <code>[[:alpha:]]</code> <code>\d \w \s</code> (and <code>\D \W \S</code>, all ASCII), <code>^ $ \A \z \b \B</code>, groups <code>(...)</code>, <code>(?:...)</code>, <code>(?P&lt;name&gt;...)</code> or <code>(?&lt;name&gt;...)</code>, <code>| * + ? {n} {n,} {n,m}</code>, lazy forms <code>*? +? ?? {n,m}?</code>, escapes <code>\n \t \x41 \x{263a} \Q...\E</code>, and flags <code>(?i)</code> (ASCII case folding), <code>(?m)</code> (^ and $ at lines), <code>(?s)</code> (. matches \n) and <code>(?U)</code> (lazy by default), also scoped as <code>(?i:...)</code>. There are no backreferences or lookaround, so a match takes time linear in the length of the input. Matching is leftmost-first, as in Perl and Go. Positions are byte offsets; <code>.</code> and classes match one UTF-8 character.</p>
+<ul class="toc">
+<li><a href="#compile"><code>compile</code></a></li>
+<li><a href="#escape"><code>escape</code></a></li>
+<li><a href="#type-Regex"><code>type Regex</code></a></li>
+<li><a href="#Regex:matches"><code>Regex:matches</code></a></li>
+<li><a href="#Regex:match_at"><code>Regex:match_at</code></a></li>
+<li><a href="#Regex:find"><code>Regex:find</code></a></li>
+<li><a href="#Regex:find_all"><code>Regex:find_all</code></a></li>
+<li><a href="#Regex:replace"><code>Regex:replace</code></a></li>
+<li><a href="#Regex:split"><code>Regex:split</code></a></li>
+<li><a href="#Regex:pattern"><code>Regex:pattern</code></a></li>
+<li><a href="#Regex:group_names"><code>Regex:group_names</code></a></li>
+<li><a href="#type-Match"><code>type Match</code></a></li>
+</ul>
+<div class="def" id="compile"><h3><code>regex.compile(pattern: string) -> <a href="#type-Regex">Regex</a></code></h3>
+<p>Compiles a pattern; raises &quot;regex: &lt;problem&gt; at offset &lt;n&gt; in <code>&lt;pattern&gt;</code>&quot; for a syntax error.</p>
+
+</div>
+<div class="def" id="escape"><h3><code>regex.escape(s: string) -> string</code></h3>
+<p>s with every metacharacter escaped, for a pattern matching s literally.</p>
+
+</div>
+<h2 id="type-Regex">type Regex</h2>
+<p>A compiled pattern, from <a href="#compile"><code>compile</code></a>; type() of it is &quot;regex&quot;, and string(re) is &quot;regex(&lt;pattern&gt;)&quot;.</p>
+<div class="def" id="Regex:matches"><h3><code>Regex:matches(s: string) -> bool</code></h3>
+<p>Whether the pattern matches anywhere in s.</p>
+
+</div>
+<div class="def" id="Regex:match_at"><h3><code>Regex:match_at(s: string, pos?: int) -> int</code></h3>
+<p>The end of a match that starts exactly at pos (0 by default), or -1. Allocates nothing: the call for scanners and lexers.</p>
+<pre><code>regex.compile(&quot;[a-z_]\\w*&quot;):match_at(&quot;x1 = 2&quot;, 0)   // 2</code></pre>
+
+</div>
+<div class="def" id="Regex:find"><h3><code>Regex:find(s: string, from?: int) -> <a href="#type-Match">Match</a>?</code></h3>
+<p>The leftmost match at or after offset from (0 by default), or null. <code>^</code> and <code>\b</code> still see the text before from.</p>
+
+</div>
+<div class="def" id="Regex:find_all"><h3><code>Regex:find_all(s: string, n?: int) -> {<a href="#type-Match">Match</a>}</code></h3>
+<p>The successive non-overlapping matches (at most n). An empty match right after a match is skipped.</p>
+
+</div>
+<div class="def" id="Regex:replace"><h3><code>Regex:replace(s: string, repl: string | func(m: <a href="#type-Match">Match</a>): string, n?: int) -> string</code></h3>
+<p>s with its matches (the first n) replaced. A string repl expands <code>$1</code>, <code>${1}</code>, <code>$name</code> and <code>${name}</code> to the group's text and <code>$$</code> to <code>$</code>; a function gets the <a href="#type-Match"><code>Match</code></a> and returns the replacement.</p>
+<pre><code>regex.compile(&quot;(\\w+)@(\\w+)&quot;):replace(&quot;me@host&quot;, &quot;$2 at $1&quot;)   // &quot;host at me&quot;</code></pre>
+
+</div>
+<div class="def" id="Regex:split"><h3><code>Regex:split(s: string, n?: int) -> {string}</code></h3>
+<p>The parts of s between the matches; with n &gt; 0 at most n parts, the last one the rest of s.</p>
+
+</div>
+<div class="def" id="Regex:pattern"><h3><code>Regex:pattern() -> string</code></h3>
+<p>The source of the pattern.</p>
+
+</div>
+<div class="def" id="Regex:group_names"><h3><code>Regex:group_names() -> {string}</code></h3>
+<p>The name of each group by number: index 0 (the whole match) and unnamed groups are &quot;&quot;.</p>
+
+</div>
+<h2 id="type-Match">type Match</h2>
+<pre><code>type Match = {text: string, start: int, end: int, groups: {string}, spans: {{int}}, named: {[string]: string}}</code></pre>
+<p>A match, from <a href="#Regex:find"><code>Regex.find</code></a> and <a href="#Regex:find_all"><code>Regex.find_all</code></a>.</p>
+<dl class="params"><dt><code>text: string</code></dt><dd>the matched text, s from start up to end</dd><dt><code>start: int</code></dt><dd></dd><dt><code>end: int</code></dt><dd></dd><dt><code>groups: {string}</code></dt><dd>the text of each group by number, the whole match at 0; &quot;&quot; for a group that took no part</dd><dt><code>spans: {{int}}</code></dt><dd>{start, end} of each group by number; {-1, -1} for one that took no part</dd><dt><code>named: {[string]: string}</code></dt><dd>the text of each named group that took part</dd></dl>
+<p class="muted">slang/stubs/slang/regex.slang</p>
+</body>
+</html>

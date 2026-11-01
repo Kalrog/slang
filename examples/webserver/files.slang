@@ -63,7 +63,7 @@ async func begin(part){
 
 async func finish(user, f){
   await a.fs.close(f.fd)
-  local digest = encoding.hex_encode(f.hasher:digest())
+  local digest = encoding.hex.encode(f.hasher:digest())
   local id = db:run(sql{
     insert into files(user_id, name, type, size, sha256) values ({user}, {f.name}, {f.type}, {f.size}, {digest})
   }).last_id

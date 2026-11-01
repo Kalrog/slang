@@ -32,6 +32,7 @@ local str = require("slang/string")
 local math = require("slang/math")
 local buffer = require("slang/buffer")
 local names = require("jolt/names")
+local path_lib = require("slang/path")
 local snake = names.snake
 
 // ------------------------------------------------------------ the library
@@ -46,13 +47,7 @@ local func library_in(dir){
   return null
 }
 
-local func dir_of(path){
-  local slash = len(path)
-  for(slash > 0 and str.byte_at(path, slash - 1) != 47){
-    slash = slash - 1
-  }
-  return str.substring(path, 0, slash - 1)
-}
+local dir_of = path_lib.dir
 
 // where joltc is: {header, library}: JOLT_PREFIX, the package's own build
 // for this platform, or an installation

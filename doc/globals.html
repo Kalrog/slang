@@ -41,16 +41,12 @@ details.expanded summary { cursor: pointer; color: var(--muted); }
 <nav><a href="index.html">index</a></nav>
 <h1>globals</h1>
 <p>globals: the functions every slang program has without a require, built into the VM.</p>
-<pre><code>local f = open(&quot;notes.txt&quot;, &quot;w&quot;)
-f:write(concat(&quot;args: &quot;, len(args()), &quot;\n&quot;))
-f:close()
+<pre><code>print(concat(&quot;args: &quot;, len(args()), &quot;\n&quot;))
 for(let local e in entries({a: 1, b: 2})){ print(e[0], &quot;=&quot;, e[1], &quot;\n&quot;) }</code></pre>
 <p>Errors are values: <a href="#error"><code>error</code></a> raises one, <a href="#pcall"><code>pcall</code></a> catches it as an <a href="#type-Error"><code>Error</code></a> table, <a href="#raise"><code>raise</code></a> passes it on. Tables are both lists (keys 0..n-1) and maps; <a href="#keys"><code>keys</code></a>, <a href="#values"><code>values</code></a> and <a href="#entries"><code>entries</code></a> iterate them with list indices first, then the other keys in insertion order. require, module and run are globals too, written in slang (slang/lib/package.slang and slang/std); compile is in slang/compiler/compiler.slang.</p>
 <ul class="toc">
 <li><a href="#print"><code>print</code></a></li>
-<li><a href="#readLine"><code>readLine</code></a></li>
 <li><a href="#args"><code>args</code></a></li>
-<li><a href="#open"><code>open</code></a></li>
 <li><a href="#assert"><code>assert</code></a></li>
 <li><a href="#error"><code>error</code></a></li>
 <li><a href="#raise"><code>raise</code></a></li>
@@ -58,6 +54,7 @@ for(let local e in entries({a: 1, b: 2})){ print(e[0], &quot;=&quot;, e[1], &quo
 <li><a href="#type"><code>type</code></a></li>
 <li><a href="#len"><code>len</code></a></li>
 <li><a href="#string"><code>string</code></a></li>
+<li><a href="#to_float"><code>to_float</code></a></li>
 <li><a href="#to_int"><code>to_int</code></a></li>
 <li><a href="#append"><code>append</code></a></li>
 <li><a href="#list_push"><code>list_push</code></a></li>
@@ -69,29 +66,15 @@ for(let local e in entries({a: 1, b: 2})){ print(e[0], &quot;=&quot;, e[1], &quo
 <li><a href="#set_raw"><code>set_raw</code></a></li>
 <li><a href="#get_raw"><code>get_raw</code></a></li>
 <li><a href="#type-Error"><code>type Error</code></a></li>
-<li><a href="#type-File"><code>type File</code></a></li>
-<li><a href="#File:read"><code>File:read</code></a></li>
-<li><a href="#File:readBytes"><code>File:readBytes</code></a></li>
-<li><a href="#File:write"><code>File:write</code></a></li>
-<li><a href="#File:writeBytes"><code>File:writeBytes</code></a></li>
-<li><a href="#File:close"><code>File:close</code></a></li>
 </ul>
-<h2>input and output</h2>
+<h2>output</h2>
 <div class="def" id="print"><h3><code>print(...values)</code></h3>
 <p>Writes the values to standard output without separators: strings as they are, other values as <a href="#string"><code>string</code></a> renders them. Output is buffered and flushed when a value contains a newline.</p>
-
-</div>
-<div class="def" id="readLine"><h3><code>readLine() -> string?</code></h3>
-<p>The next line of standard input without its line ending, or null at the end of the input. Flushes standard output first.</p>
 
 </div>
 <div class="def" id="args"><h3><code>args() -> {string}</code></h3>
 <p>The command-line arguments of the program.</p>
 
-</div>
-<div class="def" id="open"><h3><code>open(path: string, mode?: string) -> <a href="#type-File">File</a></code></h3>
-<p>Opens a file. A missing file is created first, together with its directory, whatever the mode. Raises &quot;cannot open &lt;path&gt;&quot; when the file cannot be opened.</p>
-<dl class="params"><dt><code>mode</code></dt><dd>&quot;r&quot; (the default) to read, &quot;w&quot; to write (truncating), &quot;a&quot; to append, &quot;rw&quot; to read and write (truncating), &quot;ra&quot; to read and append local f = open(&quot;out.txt&quot;, &quot;w&quot;) f:write(&quot;hello\n&quot;) f:close()</dd></dl>
 </div>
 <h2>errors</h2>
 <div class="def" id="assert"><h3><code>assert(cond, ...message)</code></h3>
@@ -127,6 +110,10 @@ if(let {&quot;err&quot;, local e} = r){
 </div>
 <div class="def" id="string"><h3><code>string(v) -> string</code></h3>
 <p>v rendered as a string, through its __tostring metamethod when it has one.</p>
+
+</div>
+<div class="def" id="to_float"><h3><code>to_float(v: int | float | string) -> float</code></h3>
+<p>v as a double: ints converted, doubles as they are, strings parsed. Raises an error for an invalid string or another type.</p>
 
 </div>
 <div class="def" id="to_int"><h3><code>to_int(v: int | float | string) -> int</code></h3>
@@ -178,28 +165,6 @@ concat({1, 2}, {3})   // {1, 2, 3}</code></pre>
 <pre><code>type Error = {message: string, location?: {line: int, column: int, origin: string}, stack?: string}</code></pre>
 <p>What <a href="#pcall"><code>pcall</code></a> catches.</p>
 <dl class="params"><dt><code>message: string</code></dt><dd>the error's text</dd><dt><code>location?: {line: int, column: int, origin: string}</code></dt><dd>where it was raised</dd><dt><code>stack?: string</code></dt><dd>the stack traceback as text</dd></dl>
-<h2 id="type-File">type File</h2>
-<p>An open file, from <a href="#open"><code>open</code></a>; type() of it is &quot;file&quot;. It is closed when it is collected.</p>
-<div class="def" id="File:read"><h3><code>File:read(n?: int) -> string</code></h3>
-<p>The next n bytes, fewer at the end of the file, or the rest of the file when n is left out.</p>
-
-</div>
-<div class="def" id="File:readBytes"><h3><code>File:readBytes(n?: int) -> {int}</code></h3>
-<p>Like <a href="#File:read"><code>File.read</code></a>, but a list of byte values (ints 0-255).</p>
-
-</div>
-<div class="def" id="File:write"><h3><code>File:write(s: string)</code></h3>
-<p>Writes s.</p>
-
-</div>
-<div class="def" id="File:writeBytes"><h3><code>File:writeBytes(bytes: {int})</code></h3>
-<p>Writes a list of byte values; each int is cut to its low 8 bits.</p>
-
-</div>
-<div class="def" id="File:close"><h3><code>File:close()</code></h3>
-<p>Closes the file; closing it again does nothing. Reading or writing a closed file raises an error.</p>
-
-</div>
 <p class="muted">slang/stubs/globals.slang</p>
 </body>
 </html>

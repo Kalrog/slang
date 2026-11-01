@@ -5,13 +5,14 @@
 local os = require("slang/os")
 local buffer = require("slang/buffer")
 local ffi = require("slang/ffi")
+local clock = require("slang/time").clock
 
 local n = 1000000
 
 local func time(name, f){
-  local t0 = os.clock()
+  local t0 = clock()
   local r = f()
-  print(name, ": ", string(to_int((os.clock() - t0) * 1000)), " ms\n")
+  print(name, ": ", string(to_int((clock() - t0) * 1000)), " ms\n")
   return r
 }
 

@@ -5,6 +5,7 @@
 local rl = require("raylib")
 local math = require("slang/math")
 local str = require("slang/string")
+local utf8 = require("slang/utf8")
 
 local m = {}
 
@@ -246,7 +247,7 @@ func m.field(x, y, w, h, text, focused){
   if(focused){
     for(local c = rl.get_char_pressed(); c > 0; c = rl.get_char_pressed()){
       if(c >= 32 and c < 127 and len(text) < 24){
-        text = concat(text, str.chr(c))
+        text = concat(text, utf8.char(c))
       }
     }
     if((rl.is_key_pressed(rl.KEY_BACKSPACE) or rl.is_key_pressed_repeat(rl.KEY_BACKSPACE)) and len(text) > 0){

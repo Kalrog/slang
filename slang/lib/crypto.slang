@@ -39,14 +39,14 @@ for(let local e in entries(native)){
 // hex(digest: string, data: string) -> string
 // The digest of data as lowercase hex.
 func crypto.hex(digest, data){
-  return encoding.hex_encode(native.hash(digest, data))
+  return encoding.hex.encode(native.hash(digest, data))
 }
 
 // token(n?: int) -> string
 // n random bytes (32 by default) as base64url text: a session id, a CSRF
 // token, a key for a reset link.
 func crypto.token(n){
-  return encoding.base64url_encode(native.random_bytes(n or 32))
+  return encoding.base64url.encode(native.random_bytes(n or 32))
 }
 
 // ------------------------------------------------------------ passwords
@@ -56,8 +56,8 @@ local R = 8
 local P = 1
 local KEY_LEN = 32
 
-local func b64(s){ return encoding.base64_encode(s) }
-local func unb64(s){ return encoding.base64_decode(s) }
+local func b64(s){ return encoding.base64.encode(s) }
+local func unb64(s){ return encoding.base64.decode(s) }
 
 local func format_hash(salt, key){
   return concat(
@@ -169,7 +169,7 @@ func crypto.verify_password_async(password, stored){
 // ------------------------------------------------------------ signed and sealed values
 
 local func mac(secret, value){
-  return encoding.base64url_encode(native.hmac("sha256", secret, value))
+  return encoding.base64url.encode(native.hmac("sha256", secret, value))
 }
 
 // sign_value(secret: string, value: string) -> string
@@ -212,7 +212,7 @@ func crypto.unsign_value(secret, signed){
 // [aad]: data it is bound to without containing it (a user id); unseal needs it
 func crypto.seal(key, text, aad){
   local iv = native.random_bytes(12)
-  return encoding.base64url_encode(concat(
+  return encoding.base64url.encode(concat(
     iv,
     native.encrypt("aes-256-gcm", key, iv, text, aad),
   ))
@@ -222,7 +222,7 @@ func crypto.seal(key, text, aad){
 // The text [seal] sealed, or null when sealed is malformed, was changed,
 // or the key or the aad do not match.
 func crypto.unseal(key, sealed, aad){
-  local raw = type(sealed) == "string" and encoding.base64url_decode(sealed)
+  local raw = type(sealed) == "string" and encoding.base64url.decode(sealed)
   if(not raw or len(raw) < 28){
     return null
   }

@@ -5,7 +5,7 @@ local native = require("crypto")
 local crypto = require("slang/crypto")
 local jwt = require("slang/jwt")
 local e = require("slang/encoding")
-local hex = e.hex_encode
+local hex = e.hex.encode
 
 local func fails_with(f, text){
   local r = pcall(f)
@@ -159,9 +159,9 @@ t.group("slang/crypto"){
     local salt = "saltsaltsaltsalt"
     local stored = concat(
       "$pbkdf2-sha256$i=1000$",
-      e.base64_encode(salt),
+      e.base64.encode(salt),
       "$",
-      e.base64_encode(native.pbkdf2("sha256", "pw", salt, 1000, 32)),
+      e.base64.encode(native.pbkdf2("sha256", "pw", salt, 1000, 32)),
     )
     assert(crypto.verify_password("pw", stored) and not crypto.verify_password(
         "pv", stored
@@ -202,7 +202,7 @@ t.group("slang/crypto"){
 
 t.group("slang/jwt"){
   // RFC 7515, appendix A.1
-  local rfc_key = e.base64url_decode(
+  local rfc_key = e.base64url.decode(
     "AyM1SysPpbyDfgZld3umj1qzKObwVMkoqQ-EstJQLr_T-1qS0gZH75aKtMN3Yj0iPS4hcgUuTwjAzZr1Z9CAow",
   )
   local rfc_token = "eyJ0eXAiOiJKV1QiLA0KICJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGFtcGxlLmNvbS9pc19yb290Ijp0cnVlfQ.dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"

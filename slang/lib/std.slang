@@ -17,7 +17,7 @@ local vm = require("slang/vm")
 func module(mfunc){
   local m = {}
   m.meta = {__index: _ENV}
-  vm.setUpvalue(mfunc, "_ENV", m)
+  vm.set_upvalue(mfunc, "_ENV", m)
   mfunc()
   m.meta.__index = null
   return m

@@ -30,9 +30,10 @@
 // these. null and booleans write nothing.
 // type Content = string | int | float | Node | {Content}
 local str = require("slang/string")
+local regex = require("slang/regex")
 local html = {}
 
-local safe = str.char_class("^&<>\"'")
+local safe_run = regex.compile("[^&<>\"']*")
 local replacements = {
   ["&"]: "&amp;", ["<"]: "&lt;", [">"]: "&gt;", ["\""]: "&quot;", ["'"]: "&#39;"
 }
@@ -42,7 +43,7 @@ local replacements = {
 // when there is nothing to replace.
 func html.escape(s){
   local n = len(s)
-  local q = str.class_run(safe, s, 0)
+  local q = safe_run:match_at(s, 0)
   if(q >= n){
     return s
   }
@@ -54,7 +55,7 @@ func html.escape(s){
     }
     append(parts, replacements[str.substring(s, q, q + 1)])
     start = q + 1
-    q = str.class_run(safe, s, start)
+    q = safe_run:match_at(s, start)
   }
   if(start < n){
     append(parts, str.substring(s, start, n))

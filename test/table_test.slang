@@ -33,23 +33,37 @@ t.group("table"){
     t1 .b.hello = "moon"
     assert(t1 != t2, "Tables should not be equal")
   }
-  t.test("table.dequeue"){
-    local t = {1, 2, 3}
-    assert(
-      table.dequeue(t) == 1,
-      "table.dequeue should return the first element",
-    )
-    print(t)
-    assert(len(t) == 2, "table.dequeue should remove the first element")
-    assert(
-      table.dequeue(t) == 2,
-      "table.dequeue should return the first element",
-    )
-    assert(len(t) == 1, "table.dequeue should remove the first element")
-    assert(
-      table.dequeue(t) == 3,
-      "table.dequeue should return the first element",
-    )
-    assert(len(t) == 0, "table.dequeue should remove the first element")
+  t.test("sort"){
+    assert(table.sort({3, 1, 2}) == {1, 2, 3})
+    assert(table.sort({"b", "c", "a"}) == {"a", "b", "c"}, "strings byte by byte")
+    assert(table.sort({}) == {} and table.sort({5}) == {5})
+    local people = {
+      {name: "a", age: 30}, {name: "b", age: 20}, {name: "c", age: 30},
+      {name: "d", age: 20}
+    }
+    table.sort(people, func(x, y){ return x.age < y.age })
+    local names = table.map(people, func(p){ return p.name })
+    assert(names == {"b", "d", "a", "c"}, "stable: equal ages keep their order")
+    local many = {}
+    for(local i = 0; i < 100; i = i + 1){
+      append(many, (i * 37) % 100)
+    }
+    table.sort(many, func(x, y){ return x > y })
+    for(local i = 1; i < 100; i = i + 1){
+      assert(many[i - 1] >= many[i], "descending with a less function")
+    }
+  }
+  t.test("insert, index_of, reverse, slice"){
+    local l = {1, 3}
+    table.insert(l, 1, 2)
+    table.insert(l, 3, 4)
+    table.insert(l, 0, 0)
+    assert(l == {0, 1, 2, 3, 4})
+    assert(pcall(table.insert, l, 9, 1)[0] == "err")
+    assert(table.index_of(l, 3) == 3 and table.index_of(l, 7) == -1)
+    assert(table.reverse({1, 2, 3}) == {3, 2, 1} and table.reverse({}) == {})
+    assert(table.slice(l, 1, 3) == {1, 2})
+    assert(table.slice(l, -2) == {3, 4})
+    assert(table.slice(l) == l and table.slice(l, 3, 99) == {3, 4})
   }
 }

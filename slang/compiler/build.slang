@@ -44,6 +44,8 @@ local ast = require("slang/ast")
 local compiler = require("slang/compiler")
 local pkg = require("slang/pkg")
 local tool = require("slang/bundle_tool")
+local hash = require("slang/hash")
+local time = require("slang/time")
 
 local build = {}
 
@@ -514,20 +516,20 @@ local func link_runtime(plan, natives){
   // the same command on the same archives gives the same runtime
   local key = {
     str.join(argv, " "),
-    str.hash(os.read_file(concat(dir, "/manifest.slang"))),
+    str.format("%x", hash.fnv1a(os.read_file(concat(dir, "/manifest.slang")))),
   }
   for(let local list in values({whole, archives})){
     for(let local a in values(list)){
-      append(key, str.hash(os.read_file(a)))
+      append(key, str.format("%x", hash.fnv1a(os.read_file(a))))
     }
   }
   local cache = concat(compiler.cache_root() or concat(dir, "/.."), "/runtimes")
   os.mkdir_all(cache)
-  local out = concat(cache, "/", str.hash(str.join(key, "\n")))
+  local out = concat(cache, "/", str.format("%x", hash.fnv1a(str.join(key, "\n"))))
   if(os.exists(out)){
     return out
   }
-  local tmp = concat(out, ".", string(os.time_ms()), ".tmp")
+  local tmp = concat(out, ".", string(time.now_ms()), ".tmp")
   append(argv, "-o")
   append(argv, tmp)
   local r = os.exec(argv)

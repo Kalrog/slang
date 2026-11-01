@@ -14,6 +14,7 @@ local json = require("slang/json")
 local encoding = require("slang/encoding")
 local compiler = require("slang/compiler")
 local doc = require("slang/doc")
+local tbl = require("slang/table")
 
 local here = "website"
 local out = args()[0] or concat(here, "/out")
@@ -216,17 +217,7 @@ local func write(path, text){
 
 // a list of strings in order
 local func sorted(list){
-  local outl = {}
-  for(let local v in values(list)){
-    local i = len(outl)
-    append(outl, v)
-    for(i > 0 and str.compare(outl[i - 1], v) > 0){
-      outl[i] = outl[i - 1]
-      i = i - 1
-    }
-    outl[i] = v
-  }
-  return outl
+  return tbl.sort(tbl.slice(list))
 }
 
 // ------------------------------------------------------------ the tour
@@ -450,7 +441,7 @@ local func build_siege(){
   )
   files["slang.lock"] = "{[\"jolt\"]: {path: \"/jolt\"}, [\"raylib\"]: {path: \"/raylib\"}}"
   files["assets/Fredoka.ttf"] = {
-    b64: encoding.base64_encode(os.read_file(concat(dir, "/assets/Fredoka.ttf"))),
+    b64: encoding.base64.encode(os.read_file(concat(dir, "/assets/Fredoka.ttf"))),
   }
   // the sources are shown from the page's own copy, highlighted when
   // opened (the page carries each file once)
@@ -534,11 +525,14 @@ local GROUPS = {
     modules: {
       "globals",
       "slang/string",
+      "slang/utf8",
+      "slang/regex",
       "slang/math",
       "slang/table",
       "slang/thread",
       "slang/time",
       "slang/encoding",
+      "slang/hash",
       "slang/json",
       "slang/std",
     },
@@ -547,6 +541,7 @@ local GROUPS = {
     title: "Programs",
     modules: {
       "slang/os",
+      "slang/path",
       "slang/test",
       "slang/html",
       "slang/bundle",
@@ -723,12 +718,12 @@ local func doc_page(modules, current, title, content){
 
 local func build_docs(){
   local paths = {}
-  for(let local dir in values(__PACKAGES.librarySources or {})){
+  for(let local dir in values(__PACKAGES.library_sources or {})){
     if(os.is_dir(dir)){
       append(paths, dir)
     }
   }
-  for(let local dir in values(__PACKAGES.stubSources or {})){
+  for(let local dir in values(__PACKAGES.stub_sources or {})){
     if(os.is_dir(dir)){
       append(paths, dir)
       break

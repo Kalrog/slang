@@ -50,6 +50,9 @@ time.parse_http_date(&quot;Sun, 06 Nov 1994 08:49:37 GMT&quot;)   // 784111777</
 <p>A time is a number of seconds: an int, or a double with a fraction of a second. There are no local time zones. Functions taking a time raise an error when it is out of range (beyond the year 9999).</p>
 <ul class="toc">
 <li><a href="#now"><code>now</code></a></li>
+<li><a href="#now_ms"><code>now_ms</code></a></li>
+<li><a href="#clock"><code>clock</code></a></li>
+<li><a href="#sleep"><code>sleep</code></a></li>
 <li><a href="#utc"><code>utc</code></a></li>
 <li><a href="#from_utc"><code>from_utc</code></a></li>
 <li><a href="#http_date"><code>http_date</code></a></li>
@@ -60,6 +63,21 @@ time.parse_http_date(&quot;Sun, 06 Nov 1994 08:49:37 GMT&quot;)   // 784111777</
 </ul>
 <div class="def" id="now"><h3><code>time.now() -> float</code></h3>
 <p>The current time in seconds, with millisecond precision.</p>
+
+</div>
+<div class="def" id="now_ms"><h3><code>time.now_ms() -> int</code></h3>
+<p>The current time in milliseconds.</p>
+
+</div>
+<div class="def" id="clock"><h3><code>time.clock() -> float</code></h3>
+<p>Seconds since the program started, from a monotonic clock: for measuring.</p>
+<pre><code>local t0 = time.clock()
+work()
+print(str.format(&quot;%.1f ms\n&quot;, (time.clock() - t0) * 1000))</code></pre>
+
+</div>
+<div class="def" id="sleep"><h3><code>time.sleep(seconds: int | float)</code></h3>
+<p>Blocks the program for that long; slang/async's sleep does not block.</p>
 
 </div>
 <h2>calendar</h2>

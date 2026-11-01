@@ -17,6 +17,7 @@
 local str = require("slang/string")
 local codegen = require("slang/codegen")
 local ast = require("slang/ast")
+local tbl = require("slang/table")
 
 local symbols = {}
 
@@ -1062,31 +1063,8 @@ local func assign_scopes(node, source, by_start, scope, top){
 
 // a list sorted by start (stable)
 local func sorted(list){
-  local n = len(list)
-  if(n < 2){
-    return list
-  }
-  local mid = to_int(n / 2)
-  local left = {}
-  local right = {}
-  for(local i = 0; i < n; i = i + 1){
-    append(i < mid and left or right, list[i])
-  }
-  left = sorted(left)
-  right = sorted(right)
-  local out = {}
-  local a = 0
-  local b = 0
-  for(a < len(left) or b < len(right)){
-    if(b >= len(right) or (a < len(left) and left[a].start <= right[b].start)){
-      append(out, left[a])
-      a = a + 1
-    } else {
-      append(out, right[b])
-      b = b + 1
-    }
-  }
-  return out
+  // by start, stable
+  return tbl.sort(tbl.slice(list), func(a, b){ return a.start < b.start })
 }
 
 // analyse(block: table, source: string, origin?: string) -> Index

@@ -1,5 +1,5 @@
-//! The file userdata behind open(): a libc FILE with read/write/readBytes/
-//! writeBytes/close methods.
+//! The file userdata behind os.open(): a libc FILE with read, read_line,
+//! lines, read_bytes, write, write_bytes, flush and close methods.
 
 const std = @import("std");
 const vm_mod = @import("../vm.zig");
@@ -20,6 +20,7 @@ extern "c" fn fread(buf: [*]u8, size: usize, n: usize, f: *FILE) usize;
 extern "c" fn fwrite(buf: [*]const u8, size: usize, n: usize, f: *FILE) usize;
 extern "c" fn fflush(f: *FILE) c_int;
 extern "c" fn ferror(f: *FILE) c_int;
+extern "c" fn fgets(buf: [*]u8, n: c_int, f: *FILE) ?[*]u8;
 
 pub const tname = "file";
 
@@ -35,9 +36,12 @@ pub fn init(vm: *VM) void {
     const meta = vm.newTable(0, 2);
     meta.set(vm.gpa, vm.str("__index"), .{ .table = stdlib.makeModule(vm, &.{
         .{ .name = "read", .f = fileRead },
+        .{ .name = "read_line", .f = fileReadLine },
+        .{ .name = "lines", .f = fileLines },
+        .{ .name = "read_bytes", .f = fileReadBytes },
         .{ .name = "write", .f = fileWrite },
-        .{ .name = "readBytes", .f = fileReadBytes },
-        .{ .name = "writeBytes", .f = fileWriteBytes },
+        .{ .name = "write_bytes", .f = fileWriteBytes },
+        .{ .name = "flush", .f = fileFlush },
         .{ .name = "close", .f = fileClose },
     }) });
     meta.set(vm.gpa, vm.str("__type"), vm.str("file"));
@@ -56,7 +60,7 @@ fn toString(u: *Userdata, w: *std.Io.Writer) std.Io.Writer.Error!void {
     try w.print("File: '{s}'", .{u.as(Handle).path});
 }
 
-pub fn coreOpen(th: *Thread, args: []Value) Error!Value {
+pub fn osOpen(th: *Thread, args: []Value) Error!Value {
     const vm = th.vm;
     const path = try api.argString(th, args, 0, "path");
     const mode = api.argStringOr(args, 1, "r");
@@ -70,12 +74,15 @@ pub fn coreOpen(th: *Thread, args: []Value) Error!Value {
     const pathz = vm.gpa.allocSentinel(u8, path.len, 0) catch oom();
     @memcpy(pathz, path);
     defer vm.gpa.free(pathz);
-    // like the Go VM: create the file (and its directory) if it is missing
-    const cwd = std.Io.Dir.cwd();
-    _ = cwd.statFile(vm.io, path, .{}) catch {
-        if (std.fs.path.dirname(path)) |dir| cwd.createDirPath(vm.io, dir) catch {};
-        if (cwd.createFile(vm.io, path, .{})) |f| f.close(vm.io) else |_| {}
-    };
+    // writing creates the file and its directory; reading a missing file
+    // is an error
+    if (w or a) {
+        const cwd = std.Io.Dir.cwd();
+        _ = cwd.statFile(vm.io, path, .{}) catch {
+            if (std.fs.path.dirname(path)) |dir| cwd.createDirPath(vm.io, dir) catch {};
+            if (cwd.createFile(vm.io, path, .{})) |f| f.close(vm.io) else |_| {}
+        };
+    }
     const f = fopen(pathz, cmode) orelse return vm.raise("cannot open {s}", .{path});
     const u = vm.newUserdataOf(Handle, .{ .vm = vm, .file = f, .path = vm.gpa.dupe(u8, path) catch oom() }, tname, file_meta);
     u.finalizer = finalize;
@@ -141,6 +148,47 @@ fn fileWriteBytes(th: *Thread, args: []Value) Error!Value {
     var it = t.iterator();
     while (it.next()) |e| buf.append(th.vm.gpa, @truncate(@as(u64, @bitCast(e.val.asInt())))) catch oom();
     if (fwrite(buf.items.ptr, 1, buf.items.len, f) != buf.items.len) return th.vm.raise("write error on {s}", .{h.path});
+    return .null;
+}
+
+/// The next line without its line ending, or null at the end of the file.
+fn readLine(th: *Thread, h: *Handle) Error!Value {
+    const vm = th.vm;
+    const f = h.file orelse return vm.raise("file {s} is closed", .{h.path});
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(vm.gpa);
+    var chunk: [4096]u8 = undefined;
+    while (true) {
+        const got = fgets(&chunk, chunk.len, f) orelse break;
+        const piece = std.mem.sliceTo(@as([*:0]u8, @ptrCast(got)), 0);
+        buf.appendSlice(vm.gpa, piece) catch oom();
+        if (piece.len > 0 and piece[piece.len - 1] == '\n') break;
+    }
+    if (ferror(f) != 0) return vm.raise("read error on {s}", .{h.path});
+    if (buf.items.len == 0) return .null;
+    return vm.str(std.mem.trimEnd(u8, buf.items, "\r\n"));
+}
+
+fn fileReadLine(th: *Thread, args: []Value) Error!Value {
+    return readLine(th, try handle(th, args));
+}
+
+fn linesNext(th: *Thread, args: []Value) Error!Value {
+    _ = args;
+    const u = th.currentClosure().nvals[0].userdata;
+    return readLine(th, u.as(Handle));
+}
+
+/// lines(): an iterator over the remaining lines of the file.
+fn fileLines(th: *Thread, args: []Value) Error!Value {
+    _ = try handle(th, args);
+    return .{ .function = th.vm.newNative("lines", linesNext, &.{args[0]}) };
+}
+
+fn fileFlush(th: *Thread, args: []Value) Error!Value {
+    const h = try handle(th, args);
+    const f = h.file orelse return th.vm.raise("file {s} is closed", .{h.path});
+    if (fflush(f) != 0) return th.vm.raise("write error on {s}", .{h.path});
     return .null;
 }
 

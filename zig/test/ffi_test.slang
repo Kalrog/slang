@@ -187,6 +187,12 @@ t.group("ffi: calls"){
 t.group("ffi: struct fields by key"){
   // tables convert to structs by field name and back, with the names
   // interned once per type
+  t.test("two fields of one name are refused"){
+    // (a struct is defined when it is first used)
+    local D = ffi.cdef("typedef struct { int a; int a; } Twice;")
+    local r = pcall(ffi.sizeof, "Twice", D)
+    assert(r[0] == "err" and str.contains(r[1].message, "two fields named a"), r[0] == "err" and r[1].message or "no error")
+  }
   t.test("fields given positionally and by name"){
     assert(lib.ft_vec_add({x: 1, y: 2}, {3, 4}).x == 4)
     assert(lib.ft_vec_add({x: 1, y: 2}, {3, 4}).y == 6)

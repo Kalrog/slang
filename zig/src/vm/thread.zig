@@ -131,7 +131,8 @@ pub const Thread = struct {
     /// A native marked frameless (stdlib.Native) that reads its frame would
     /// read its caller's: the checked builds catch it here.
     inline fn assertNativeFrame(th: *const Thread) void {
-        std.debug.assert(th.frames.items[th.frames.items.len - 1].cl.proto == null);
+        const n = th.frames.items.len;
+        std.debug.assert(n > 0 and th.frames.items[n - 1].cl.proto == null);
     }
 
     fn pushFrame(th: *Thread, cl: *Closure, base: usize, protected: bool) Error!void {

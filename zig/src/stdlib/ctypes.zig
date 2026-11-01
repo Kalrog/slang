@@ -454,6 +454,11 @@ fn ctDefine(th: *Thread, args: []Value) Error!Value {
         const fname = pair.getInt(0).asBytes() orelse return vm.raise("ffi.define: field {d} has no name", .{i});
         const ft = asType(pair.getInt(1)) orelse return vm.raise("ffi.define: field {s} has no type", .{fname});
         if (!ft.complete or ft.kind == .void) return vm.raise("ffi.define: field {s} of {s} has the incomplete type {s}", .{ fname, t.name, ft.name });
+        // (a struct result is filled without lookups, which needs the
+        // names to be distinct)
+        for (fields[0..i]) |prev| {
+            if (std.mem.eql(u8, prev.name, fname)) return vm.raise("ffi.define: {s} has two fields named {s}", .{ t.name, fname });
+        }
         offset = std.mem.alignForward(usize, offset, ft.alignment);
         const def = pair.getInt(2);
         fields[i] = .{

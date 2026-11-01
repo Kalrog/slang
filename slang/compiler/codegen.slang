@@ -10,6 +10,7 @@
 // (the record option of [generate]).
 local ast = require("slang/ast")
 local str = require("slang/string")
+local vm = require("slang/vm")
 
 local codegen = {}
 
@@ -65,6 +66,23 @@ local OP_CALL_SPREAD = 34
 local OP_TRY_BEGIN = 35
 local OP_TRY_END = 36
 local OP_THROW = 37
+
+// the fused forms (the VM's `fused` profile), numbered from 63 down; see
+// fuse below and zig/src/vm/disasm.zig
+local OP_FOR_LOOP = 50
+local OP_SELF_X = 51
+local OP_MOVE_X = 52
+local OP_SET_X = 53
+local OP_GET_X = 54
+local OP_JTEST = 55
+local OP_JEQ = 56
+local OP_JLEQ = 57
+local OP_JLT = 58
+local OP_MOD_X = 59
+local OP_DIV_X = 60
+local OP_MUL_X = 61
+local OP_SUB_X = 62
+local OP_ADD_X = 63
 
 // instruction layout: |b:9|c:9|a:8|op:6|, bx = 18 bits, sbx = bx - 0x1FFFF, ax = 26 bits
 local SBX_OFFSET = 131071
@@ -526,10 +544,365 @@ func asm.end_pattern(self){
   remove(self.patterns, len(self.patterns) - 1)
 }
 
-func asm.assemble(self){
+// ------------------------------------------------------------ fused instructions
+//
+// When the VM has the fused profile (vm.features(); SLANG_ISA=core hides
+// it), assemble rewrites a function's finished instructions: a short
+// sequence that pushes registers, constants or upvalues and operates on
+// them becomes one instruction. The operands are 9-bit codes: 0..127 a
+// register, 128..383 a constant, 384..510 an upvalue, 511 the value on top
+// of the stack. A destination of 255 pushes the result.
+//
+//   push a; push b; add [move r]       addX r|push a b (sub, mul, div, mod)
+//   push a; push b; lt [not] test c    jlt k a b, then the jump stays
+//   push a; test c                     jtest c a, then the jump stays
+//   push a; push b; getTable [move r]  getX r|push a b
+//   push t; push k; push v; setTable   setX t k v (t: 254 the top, kept;
+//                                      255 popped; k may be popped)
+//   push a; move r                     moveX r a
+//   push o; push -1; loadConstant k;   selfX o k (o may be the top)
+//   getTable; push -2
+//   addX i i step; jump <condition>    forLoop i step limit, then a jump to
+//                                      the body whose A has the flags
+//
+// Any first operand may be missing, meaning the value on the stack. A
+// jump may only land on the first instruction of a sequence, and the one a
+// test or loadBool skips stays alone. Jumps, locations and the ranges of
+// locals are moved to the new indices.
+
+local fuse_enabled = vm.features != null and vm.features().fused == true
+
+local FIRST_CONSTANT = 128
+local FIRST_UPVALUE = 384
+local STACK_OPERAND = 511
+local PUSH_DEST = 255
+local PEEK_DEST = 254
+local FOR_LEQ = 1
+local FOR_NEGATE = 2
+local FOR_SUB = 4
+
+local fused_arith = {}
+fused_arith[OP_ADD] = OP_ADD_X
+fused_arith[OP_SUB] = OP_SUB_X
+fused_arith[OP_MUL] = OP_MUL_X
+fused_arith[OP_DIV] = OP_DIV_X
+fused_arith[OP_MOD] = OP_MOD_X
+
+local fused_compare = {}
+fused_compare[OP_LT] = OP_JLT
+fused_compare[OP_LEQ] = OP_JLEQ
+fused_compare[OP_EQ] = OP_JEQ
+
+local func arg_a(ins){
+  return (ins >> 6) & 255
+}
+
+local func arg_c(ins){
+  return (ins >> 14) & 511
+}
+
+local func arg_sbx(ins){
+  return (ins >> 14) - SBX_OFFSET
+}
+
+// the operand code of an instruction that pushes a register, a constant or
+// an upvalue (null for anything else)
+local func operand_of(ins){
+  if(ins == null){
+    return null
+  }
+  local op = ins & 63
+  if(op == OP_PUSH){
+    local r = arg_sbx(ins)
+    if(r >= 0 and r < FIRST_CONSTANT){
+      return r
+    }
+  } else if(op == OP_LOAD_CONSTANT){
+    local k = ins >> 14
+    if(k < FIRST_UPVALUE - FIRST_CONSTANT){
+      return FIRST_CONSTANT + k
+    }
+  } else if(op == OP_GET_UPVALUE){
+    local u = ins >> 6
+    if(u < STACK_OPERAND - FIRST_UPVALUE){
+      return FIRST_UPVALUE + u
+    }
+  }
+  return null
+}
+
+local func fuse(a){
+  local code = a.instructions
+  local n = len(code)
+  local func op_at(i){
+    if(i >= n){
+      return -1
+    }
+    return code[i] & 63
+  }
+  local func is_push(i, offset){
+    return op_at(i) == OP_PUSH and arg_sbx(code[i]) == offset
+  }
+  // the register a move at i stores to (below `limit`), or null
+  local func move_to(i, limit){
+    if(op_at(i) == OP_MOVE){
+      local r = arg_sbx(code[i])
+      if(r >= 0 and r < limit){
+        return r
+      }
+    }
+    return null
+  }
+  // where jumps land, and what a test or loadBool may skip
+  local target = {}
+  local alone = {}
+  for(local i = 0; i < n + 2; i = i + 1){
+    append(target, false)
+    append(alone, false)
+  }
+  for(local i = 0; i < n; i = i + 1){
+    local ins = code[i]
+    local op = ins & 63
+    if(op == OP_JUMP or op == OP_TRY_BEGIN){
+      target[i + 1 + arg_sbx(ins)] = true
+    } else if(op == OP_TEST or (op == OP_LOAD_BOOL and arg_c(ins) != 0)){
+      alone[i + 1] = true
+      target[i + 2] = true
+    }
+  }
+  // can instructions from..to-1 become one
+  local func joinable(from, to){
+    if(to > n){
+      return false
+    }
+    for(local i = from; i < to; i = i + 1){
+      if(alone[i] or (i > from and target[i])){
+        return false
+      }
+    }
+    return true
+  }
+  // the two operands of a binary operation at i: {b, c, at} where `at` is
+  // the operation's index; b is the stack when only one operand is there
+  local func operands(i, ops){
+    local b = operand_of(code[i])
+    local c = operand_of(code[i + 1])
+    if(b != null and c != null and ops[op_at(i + 2)] != null){
+      return {b, c, i + 2}
+    }
+    if(b != null and ops[op_at(i + 1)] != null){
+      return {STACK_OPERAND, b, i + 1}
+    }
+    return null
+  }
+  local get_ops = {}
+  get_ops[OP_GET_TABLE] = OP_GET_X
+  // each match: {instruction, size}, compares also the parts the loops
+  // below need
+  local func match_self(i){
+    local b = operand_of(code[i])
+    local at = i + 1
+    if(b == null){
+      b = STACK_OPERAND
+      at = i
+    }
+    if(is_push(at, -1) and op_at(at + 1) == OP_LOAD_CONSTANT and
+      op_at(at + 2) == OP_GET_TABLE and is_push(at + 3, -2)){
+      local k = operand_of(code[at + 1])
+      if(k != null and joinable(i, at + 4)){
+        return {enc_abc(OP_SELF_X, 0, b, k), at + 4 - i}
+      }
+    }
+    return null
+  }
+  local func match_compare(i){
+    local o = operands(i, fused_compare)
+    if(o == null){
+      return null
+    }
+    local p = o[2] + 1
+    local negate = 0
+    if(op_at(p) == OP_NOT){
+      negate = 1
+      p = p + 1
+    }
+    if(op_at(p) != OP_TEST or op_at(p + 1) != OP_JUMP or
+      not joinable(i, p + 1)){
+      return null
+    }
+    local k = 0
+    if(arg_c(code[p]) != negate){
+      k = 1
+    }
+    local op = op_at(o[2])
+    return {
+      enc_abc(fused_compare[op], k, o[0], o[1]), p + 1 - i,
+      {op: op, b: o[0], c: o[1], k: k},
+    }
+  }
+  local func match_test(i){
+    local b = operand_of(code[i])
+    if(b != null and op_at(i + 1) == OP_TEST and op_at(i + 2) == OP_JUMP and
+      joinable(i, i + 2)){
+      return {enc_abc(OP_JTEST, arg_c(code[i + 1]), b, 0), 2}
+    }
+    return null
+  }
+  // an operation with a destination: a move after it stores the result
+  local func match_dest(i, ops){
+    local o = operands(i, ops)
+    if(o == null){
+      return null
+    }
+    local op = ops[op_at(o[2])]
+    local r = move_to(o[2] + 1, PUSH_DEST)
+    if(r != null and joinable(i, o[2] + 2)){
+      return {enc_abc(op, r, o[0], o[1]), o[2] + 2 - i, op_at(o[2])}
+    }
+    if(joinable(i, o[2] + 1)){
+      return {enc_abc(op, PUSH_DEST, o[0], o[1]), o[2] + 1 - i, op_at(o[2])}
+    }
+    return null
+  }
+  local func match_set(i){
+    local x = operand_of(code[i])
+    local y = operand_of(code[i + 1])
+    local z = operand_of(code[i + 2])
+    if(x != null and y != null and z != null and op_at(i + 3) == OP_SET_TABLE and
+      x < FIRST_CONSTANT and joinable(i, i + 4)){
+      return {enc_abc(OP_SET_X, x, y, z), 4}
+    }
+    if(is_push(i, -1) and y != null and z != null and
+      op_at(i + 3) == OP_SET_TABLE and joinable(i, i + 4)){
+      return {enc_abc(OP_SET_X, PEEK_DEST, y, z), 4}
+    }
+    if(x != null and y != null and op_at(i + 2) == OP_SET_TABLE and
+      joinable(i, i + 3)){
+      return {enc_abc(OP_SET_X, PUSH_DEST, x, y), 3}
+    }
+    if(x != null and op_at(i + 1) == OP_SET_TABLE and joinable(i, i + 2)){
+      return {enc_abc(OP_SET_X, PUSH_DEST, STACK_OPERAND, x), 2}
+    }
+    return null
+  }
+  local func match_move(i){
+    local b = operand_of(code[i])
+    local r = move_to(i + 1, PUSH_DEST)
+    if(b != null and r != null and joinable(i, i + 2)){
+      return {enc_abc(OP_MOVE_X, r, b, 0), 2}
+    }
+    return null
+  }
+  // the new instructions, the old index each jump in them goes to (-1:
+  // none), the new index of each old instruction
+  local out = {}
+  local jumps = {}
+  local new_index = {}
+  // old index -> the fused compare that starts there, for loops
+  local compares = {}
+  local i = 0
+  for(i < n){
+    local ins = code[i]
+    local m = match_self(i) or match_compare(i) or match_test(i)
+    if(m == null){
+      m = match_dest(i, fused_arith)
+      if(m != null){
+        // i = i + step; jump <the condition i < limit>: a numeric for
+        local stop = i + m[1]
+        local r = arg_a(m[0])
+        local cmp = null
+        if(op_at(stop) == OP_JUMP and arg_sbx(code[stop]) < 0 and
+          (m[2] == OP_ADD or m[2] == OP_SUB) and r < FIRST_CONSTANT and
+          r == (m[0] >> 23) and joinable(i, stop + 1)){
+          cmp = compares[stop + 1 + arg_sbx(code[stop])]
+        }
+        if(cmp != null and cmp.op != OP_EQ and cmp.b == r and
+          cmp.c != STACK_OPERAND and
+          cmp.exit + 1 + arg_sbx(code[cmp.exit]) == stop + 1){
+          local flags = 0
+          if(cmp.op == OP_LEQ){
+            flags = flags | FOR_LEQ
+          }
+          if(cmp.k == 1){
+            flags = flags | FOR_NEGATE
+          }
+          if(m[2] == OP_SUB){
+            flags = flags | FOR_SUB
+          }
+          for(local j = i; j < stop; j = j + 1){
+            append(new_index, len(out))
+          }
+          append(out, enc_abc(OP_FOR_LOOP, r, arg_c(m[0]), cmp.c))
+          append(jumps, -1)
+          append(new_index, len(out))
+          append(out, enc_asbx(OP_JUMP, flags, 0))
+          append(jumps, cmp.exit + 1)
+          i = stop + 1
+          continue
+        }
+      }
+    }
+    if(m == null){
+      m = match_dest(i, get_ops) or match_set(i) or match_move(i)
+    }
+    if(m == null){
+      local op = ins & 63
+      append(new_index, len(out))
+      append(out, ins)
+      if(op == OP_JUMP or op == OP_TRY_BEGIN){
+        append(jumps, i + 1 + arg_sbx(ins))
+      } else {
+        append(jumps, -1)
+      }
+      i = i + 1
+    } else {
+      if(len(m) > 2 and type(m[2]) == "table"){
+        local cmp = m[2]
+        cmp.size = m[1]
+        cmp.exit = i + m[1]
+        compares[i] = cmp
+      }
+      for(local j = 0; j < m[1]; j = j + 1){
+        append(new_index, len(out))
+      }
+      append(out, m[0])
+      append(jumps, -1)
+      i = i + m[1]
+    }
+  }
+  append(new_index, len(out))
+  for(local p = 0; p < len(out); p = p + 1){
+    if(jumps[p] >= 0){
+      local ins = out[p]
+      out[p] = enc_asbx(ins & 63, arg_a(ins), new_index[jumps[p]] - p - 1)
+    }
+  }
+  // a location that starts inside a fused instruction moves to it, and
+  // the last of them wins: it is the one of the operation that may raise
+  local locations = {}
+  for(let local l in values(a.locations)){
+    local at = new_index[l[0]]
+    local entry = {at, l[1], l[2], l[3]}
+    local last = len(locations) - 1
+    if(last >= 0 and locations[last][0] == at){
+      locations[last] = entry
+    } else {
+      append(locations, entry)
+    }
+  }
+  for(let local v in values(a.local_vars)){
+    v[2] = new_index[v[2]]
+    v[3] = new_index[v[3]]
+  }
+  a.instructions = out
+  a.locations = locations
+}
+
+// assemble(fused: bool): with fused, the instructions are fused (see fuse)
+func asm.assemble(self, fused){
   local children = {}
   for(let local c in values(self.children)){
-    append(children, c:assemble())
+    append(children, c:assemble(fused))
   }
   local upvalues = {}
   for(let local u in values(self.upvalue_list)){
@@ -544,6 +917,9 @@ func asm.assemble(self){
     if(v[3] < 0){
       v[3] = len(self.instructions)
     }
+  }
+  if(fused){
+    fuse(self)
   }
   return {
     code: self.instructions,
@@ -1568,18 +1944,24 @@ func visitors.Unquote(g, node){
 }
 
 // generate(node: table, origin?: string,
-//   options?: {record?: table}) -> Prototype
+//   options?: {record?: table, core?: bool}) -> Prototype
 // Compiles an AST node (a chunk, usually) into the prototype of a function
 // that runs it; it reaches globals through the upvalue _ENV. Raises on what cannot compile (break outside a loop, a variable
 // declared twice, an unresolved unquote, ...).
 // [origin]: the name in locations and error messages; "string" by default
 // [options]: record, a recorder told of names as they are resolved, with
-// define, use and field methods (see record_local above and slang/symbols)
+// define, use and field methods (see record_local above and slang/symbols);
+// core: true emits core instructions only, as for a VM without the fused
+// profile (the default when vm.features() has no fused)
 func codegen.generate(node, origin, options){
   local g = {}
   g.meta = gen_meta
+  local fused = fuse_enabled
   if(options != null){
     g.record = options.record
+    if(options.core){
+      fused = false
+    }
   }
   local parent = asm.new(null, origin or "string")
   parent:create_local("_ENV")
@@ -1587,7 +1969,7 @@ func codegen.generate(node, origin, options){
   g:visit(node)
   g.asm:emit_load_constant(null)
   g.asm:emit_return()
-  return g.asm:assemble()
+  return g.asm:assemble(fused)
 }
 
 return codegen

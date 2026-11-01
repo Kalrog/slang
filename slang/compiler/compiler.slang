@@ -765,9 +765,13 @@ local cache_dir = null
 
 // the compiler's identity in cache keys: a hash of the embedded seed (the
 // VMs that have none get no cache invalidation across compiler changes)
+// and the instructions it emits (core only without the fused profile)
 local build_id = ""
 if(vm.build_id != null){
   build_id = vm.build_id()
+}
+if(vm.features == null or not vm.features().fused){
+  build_id = concat(build_id, "-core")
 }
 
 // cache_root() -> string?: where slang caches what it builds

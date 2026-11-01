@@ -29,7 +29,6 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
     th.run_depth += 1;
     defer th.run_depth -= 1;
     const vm = th.vm;
-    const gpa = vm.gpa;
     outer: while (true) {
         const n = th.frames.items.len;
         if (n <= stop_depth) return;
@@ -281,22 +280,7 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 const key = stack[top - 2];
                 const obj = stack[top - 3];
                 top -= 3;
-                if (obj == .table and key == .string) {
-                    // inline unless the store could go to a __newindex:
-                    // the key is "meta", or the table has a metatable with
-                    // __newindex and the key is new
-                    const t = obj.table;
-                    const s = key.string;
-                    if (!s.isMeta() and (if (t.meta) |m| !m.hasNewindex(vm.newindex_name) or t.replaceStr(s, val) else true)) {
-                        t.setStr(gpa, s, val);
-                        continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-                    }
-                } else if (obj == .userdata and key == .int) {
-                    // an element of a buffer of scalars
-                    if (ctypes.bufferSet(obj.userdata, key.int, val)) {
-                        continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-                    }
-                }
+                if (setFast(vm, obj, key, val)) continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
                 spill(trace, th, fi, pc, top);
                 th.setTable(obj, key, val) catch |e| {
                     try th.handleError(e, stop_depth);
@@ -310,41 +294,9 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 const key = stack[top - 1];
                 const obj = stack[top - 2];
                 top -= 1;
-                if (obj == .table) {
-                    const t = obj.table;
-                    const v = switch (key) {
-                        .string => |s| t.getStr(s),
-                        .int => |i| t.getInt(i),
-                        else => t.get(key),
-                    };
-                    if (v != .null or t.meta == null) {
-                        stack[top - 1] = v;
-                        continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-                    }
-                    // a miss on a table with a metatable: walk __index
-                    // tables inline, leaving functions to the slow path
-                    if (getChain(t, key, vm.index_name)) |r| {
-                        stack[top - 1] = r;
-                        continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-                    }
-                } else if (obj == .userdata and key == .int) {
-                    // an element of a buffer of scalars
-                    if (ctypes.bufferGet(obj.userdata, key.int)) |v| {
-                        stack[top - 1] = v;
-                        continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-                    }
-                } else if (obj == .userdata and key == .string) {
-                    // a method of a userdata: its metatable's __index table
-                    if (obj.userdata.meta) |m| {
-                        const idx = m.getStr(vm.index_name);
-                        if (idx == .table) {
-                            const v = idx.table.getStr(key.string);
-                            if (v != .null) {
-                                stack[top - 1] = v;
-                                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-                            }
-                        }
-                    }
+                if (getFast(vm, obj, key)) |v| {
+                    stack[top - 1] = v;
+                    continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
                 }
                 top -= 1;
                 spill(trace, th, fi, pc, top);
@@ -506,6 +458,220 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 try th.handleError(error.Slang, stop_depth);
                 continue :outer;
             },
+            // ---- the fused forms (see disasm.zig): each does what its core
+            // sequence does, with the same errors at the same location
+            inline .add_x, .sub_x, .mul_x, .div_x, .mod_x => |op| {
+                const core = comptime d.coreOf(op);
+                const bx = d.argB(ins);
+                const b = operandValue(th, fi, stack, base, consts, d.argC(ins));
+                const popped: usize = @intFromBool(bx == d.stack_operand);
+                const a = if (popped != 0) stack[top - 1] else operandValue(th, fi, stack, base, consts, bx);
+                if (numArith(core, a, b)) |r| {
+                    top -= popped;
+                    storeDest(stack, base, &top, d.argA(ins), r);
+                    continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+                }
+                // a popped operand stays on the stack during the operation
+                spill(trace, th, fi, pc, top);
+                const r = th.arithMeta(core, a, b) catch |e| {
+                    th.top -= popped;
+                    try th.handleError(e, stop_depth);
+                    continue :outer;
+                };
+                top = th.top - popped;
+                stack = th.stack.ptr;
+                storeDest(stack, base, &top, d.argA(ins), r);
+                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+            },
+            inline .jlt, .jleq, .jeq => |op| {
+                const core = comptime d.coreOf(op);
+                const bx = d.argB(ins);
+                const b = operandValue(th, fi, stack, base, consts, d.argC(ins));
+                const popped: usize = @intFromBool(bx == d.stack_operand);
+                const a = if (popped != 0) stack[top - 1] else operandValue(th, fi, stack, base, consts, bx);
+                var r: bool = undefined;
+                if (a == .int and b == .int) {
+                    r = switch (core) {
+                        .lt => a.int < b.int,
+                        .leq => a.int <= b.int,
+                        else => a.int == b.int,
+                    };
+                } else if (a == .float and b == .float) {
+                    r = switch (core) {
+                        .lt => a.float < b.float,
+                        .leq => a.float <= b.float,
+                        else => a.float == b.float,
+                    };
+                } else {
+                    spill(trace, th, fi, pc, top);
+                    r = compareSlow(th, core, a, b) catch |e| {
+                        th.top -= popped;
+                        try th.handleError(e, stop_depth);
+                        continue :outer;
+                    };
+                    top = th.top;
+                    stack = th.stack.ptr;
+                }
+                top -= popped;
+                if (r != (d.argA(ins) != 0)) {
+                    pc += 1;
+                } else {
+                    // the jump that follows, taken here when it goes
+                    // forward (a backward one runs as itself: safe point)
+                    const off = d.argSBx(code[pc]);
+                    if (off >= 0) pc += 1 + @as(usize, @intCast(off));
+                }
+                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+            },
+            .jtest => {
+                const v = operandValue(th, fi, stack, base, consts, d.argB(ins));
+                if (v.truthy() != (d.argA(ins) != 0)) {
+                    pc += 1;
+                } else {
+                    const off = d.argSBx(code[pc]);
+                    if (off >= 0) pc += 1 + @as(usize, @intCast(off));
+                }
+                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+            },
+            .get_x => {
+                const bx = d.argB(ins);
+                const key = operandValue(th, fi, stack, base, consts, d.argC(ins));
+                const popped: usize = @intFromBool(bx == d.stack_operand);
+                const obj = if (popped != 0) stack[top - 1] else operandValue(th, fi, stack, base, consts, bx);
+                top -= popped;
+                if (getFast(vm, obj, key)) |v| {
+                    storeDest(stack, base, &top, d.argA(ins), v);
+                    continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+                }
+                spill(trace, th, fi, pc, top);
+                const v = th.getTable(obj, key) catch |e| {
+                    try th.handleError(e, stop_depth);
+                    continue :outer;
+                };
+                top = th.top;
+                stack = th.stack.ptr;
+                storeDest(stack, base, &top, d.argA(ins), v);
+                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+            },
+            .set_x => {
+                const val = operandValue(th, fi, stack, base, consts, d.argC(ins));
+                const bx = d.argB(ins);
+                var popped: usize = 0;
+                var key: Value = undefined;
+                if (bx == d.stack_operand) {
+                    key = stack[top - 1];
+                    popped = 1;
+                } else {
+                    key = operandValue(th, fi, stack, base, consts, bx);
+                }
+                const ax = d.argA(ins);
+                var obj: Value = undefined;
+                switch (ax) {
+                    d.push_dest => {
+                        obj = stack[top - 1 - popped];
+                        popped += 1;
+                    },
+                    d.peek_dest => obj = stack[top - 1 - popped],
+                    else => obj = stack[base + ax],
+                }
+                top -= popped;
+                if (setFast(vm, obj, key, val)) continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+                spill(trace, th, fi, pc, top);
+                th.setTable(obj, key, val) catch |e| {
+                    try th.handleError(e, stop_depth);
+                    continue :outer;
+                };
+                top = th.top;
+                stack = th.stack.ptr;
+                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+            },
+            .move_x => {
+                stack[base + d.argA(ins)] = operandValue(th, fi, stack, base, consts, d.argB(ins));
+                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+            },
+            .self_x => {
+                // obj -> obj, obj[key], obj (a method call's receiver, the
+                // method, the receiver as its first argument)
+                const bx = d.argB(ins);
+                const key = operandValue(th, fi, stack, base, consts, d.argC(ins));
+                var obj: Value = undefined;
+                if (bx == d.stack_operand) {
+                    obj = stack[top - 1];
+                } else {
+                    obj = operandValue(th, fi, stack, base, consts, bx);
+                    stack[top] = obj;
+                    top += 1;
+                }
+                var f: Value = undefined;
+                if (getFast(vm, obj, key)) |v| {
+                    f = v;
+                } else {
+                    spill(trace, th, fi, pc, top);
+                    f = th.getTable(obj, key) catch |e| {
+                        try th.handleError(e, stop_depth);
+                        continue :outer;
+                    };
+                    top = th.top;
+                    stack = th.stack.ptr;
+                }
+                stack[top] = f;
+                stack[top + 1] = obj;
+                top += 2;
+                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+            },
+            .for_loop => {
+                // the update and the condition of a numeric for; the jump
+                // word after it goes to the body and carries the flags
+                const ra = base + d.argA(ins);
+                const step = operandValue(th, fi, stack, base, consts, d.argB(ins));
+                const limit = operandValue(th, fi, stack, base, consts, d.argC(ins));
+                const j = code[pc];
+                const flags = d.argA(j);
+                const is_sub = flags & d.for_flags.sub != 0;
+                const i = stack[ra];
+                // the jump's offset from the word after it: the body, or
+                // the condition (two before the body) to compare in full
+                var off: i64 = d.argSBx(j);
+                var cont = true;
+                if (i == .int and step == .int and limit == .int) {
+                    const k = if (is_sub) i.int -% step.int else i.int +% step.int;
+                    stack[ra] = .{ .int = k };
+                    const c = if (flags & d.for_flags.leq != 0) k <= limit.int else k < limit.int;
+                    cont = c != (flags & d.for_flags.negate != 0);
+                } else {
+                    const r = (if (is_sub) numArith(.sub, i, step) else numArith(.add, i, step)) orelse slow: {
+                        spill(trace, th, fi, pc, top);
+                        const r = th.arithMeta(if (is_sub) .sub else .add, i, step) catch |e| {
+                            try th.handleError(e, stop_depth);
+                            continue :outer;
+                        };
+                        top = th.top;
+                        stack = th.stack.ptr;
+                        break :slow r;
+                    };
+                    stack[ra] = r;
+                    if (r.isNumber() and limit.isNumber()) {
+                        const x = r.asNumber();
+                        const y = limit.asNumber();
+                        const c = if (flags & d.for_flags.leq != 0) x <= y else x < y;
+                        cont = c != (flags & d.for_flags.negate != 0);
+                    } else {
+                        off -= 2;
+                    }
+                }
+                if (cont) {
+                    spill(trace, th, fi, pc, top);
+                    gc.safePoint(vm, th) catch |e| {
+                        spill(trace, th, fi, pc, top);
+                        try th.handleError(e, stop_depth);
+                        continue :outer;
+                    };
+                    pc = @intCast(@as(i64, @intCast(pc)) + 1 + off);
+                } else {
+                    pc += 1;
+                }
+                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+            },
             _ => {
                 spill(trace, th, fi, pc, top);
                 return vm.raise("unknown opcode {d}", .{ins & 0x3F});
@@ -558,6 +724,96 @@ fn traceInstruction(th: *Thread, fi: usize, base: usize, pc: usize, ins: u32) vo
     var ew = std.Io.File.stderr().writerStreaming(th.vm.io, &eb);
     ew.interface.writeAll(w.buffered()) catch {};
     ew.interface.flush() catch {};
+}
+
+/// A fused form's B or C operand when it is not the stack: a register, a
+/// constant or an upvalue.
+inline fn operandValue(th: *Thread, fi: usize, stack: [*]Value, base: usize, consts: []const Value, x: u32) Value {
+    if (x < d.first_constant) return stack[base + x];
+    if (x < d.first_upvalue) return consts[x - d.first_constant];
+    return th.frames.items[fi].cl.upvals[x - d.first_upvalue].get();
+}
+
+/// Stores a fused form's result: pushed, or into register a.
+inline fn storeDest(stack: [*]Value, base: usize, top: *usize, a: u32, v: Value) void {
+    if (a == d.push_dest) {
+        stack[top.*] = v;
+        top.* += 1;
+    } else {
+        stack[base + a] = v;
+    }
+}
+
+/// get_table's inline cases: a table (then __index tables), a buffer
+/// element, a userdata's method. Null when the generic path (getTable)
+/// must run.
+inline fn getFast(vm: *root.VM, obj: Value, key: Value) ?Value {
+    if (obj == .table) {
+        const t = obj.table;
+        const v = switch (key) {
+            .string => |s| t.getStr(s),
+            .int => |i| t.getInt(i),
+            else => t.get(key),
+        };
+        if (v != .null or t.meta == null) return v;
+        // a miss on a table with a metatable: walk __index tables inline,
+        // leaving functions to the slow path
+        return getChain(t, key, vm.index_name);
+    } else if (obj == .userdata and key == .int) {
+        // an element of a buffer of scalars
+        return ctypes.bufferGet(obj.userdata, key.int);
+    } else if (obj == .userdata and key == .string) {
+        // a method of a userdata: its metatable's __index table
+        if (obj.userdata.meta) |m| {
+            const idx = m.getStr(vm.index_name);
+            if (idx == .table) {
+                const v = idx.table.getStr(key.string);
+                if (v != .null) return v;
+            }
+        }
+    }
+    return null;
+}
+
+/// set_table's inline cases; false when the generic path (setTable) must
+/// run.
+inline fn setFast(vm: *root.VM, obj: Value, key: Value, val: Value) bool {
+    if (obj == .table and key == .string) {
+        // inline unless the store could go to a __newindex: the key is
+        // "meta", or the table has a metatable with __newindex and the key
+        // is new
+        const t = obj.table;
+        const s = key.string;
+        if (!s.isMeta() and (if (t.meta) |m| !m.hasNewindex(vm.newindex_name) or t.replaceStr(s, val) else true)) {
+            t.setStr(vm.gpa, s, val);
+            return true;
+        }
+    } else if (obj == .userdata and key == .int) {
+        // an element of a buffer of scalars
+        return ctypes.bufferSet(obj.userdata, key.int, val);
+    }
+    return false;
+}
+
+/// A comparison that is not int with int or float with float: mixed
+/// numbers, metamethods, the error; as the core eq, lt and leq do it.
+fn compareSlow(th: *Thread, comptime op: Op, a: Value, b: Value) Error!bool {
+    if (op == .eq) {
+        if (a.kind() == b.kind() and (a == .table or a == .userdata)) {
+            const f = metamethod(a, b, "__eq");
+            if (f == .function) return (try th.call(f, &.{ a, b })).truthy();
+        }
+        return a.equals(b);
+    }
+    const is_lt = op == .lt;
+    if (a.isNumber() and b.isNumber()) {
+        const x = a.asNumber();
+        const y = b.asNumber();
+        return if (is_lt) x < y else x <= y;
+    }
+    const f = metamethod(a, b, if (is_lt) "__lt" else "__le");
+    if (f == .function) return (try th.call(f, &.{ a, b })).truthy();
+    return th.vm.raise("attempt to compare {s} {s} {s}", .{ a.typeName(), if (is_lt) "<" else "<=", b.typeName() });
 }
 
 /// The __index chain over tables for a key t0 does not have: the value

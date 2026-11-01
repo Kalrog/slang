@@ -1,7 +1,8 @@
-//! The .slb container, version 4 (versions 2 and 3, without the locals and
-//! version 2 without the name, are still read):
+//! The .slb container, version 5 (versions 2 to 4, without the profile
+//! byte, version 2 and 3 without the locals and version 2 without the
+//! name, are still read):
 //!
-//!   magic "SLANG", u8 version
+//!   magic "SLANG", u8 version, u8 profiles (bit 0: fused instructions)
 //!   proto := u32 maxStack, u32 nargs, u8 isVarArg, str name ("": none),
 //!            u32 nCode, u32[nCode],
 //!            u32 nLocs, {u32 firstPC, str origin, u32 line, u32 column}*,
@@ -20,18 +21,24 @@ const VM = root.VM;
 const Value = root.Value;
 const Proto = root.Proto;
 const object = @import("object.zig");
+const disasm = @import("disasm.zig");
 
 pub const magic = "SLANG";
-pub const version: u8 = 4;
+pub const version: u8 = 5;
+
+/// The profiles byte: which optional parts of the ISA the code uses.
+pub const profile_fused: u8 = 1;
+const known_profiles: u8 = profile_fused;
 
 const Tag = enum(u8) { int = 0, double = 1, string = 2, bool = 3, null = 4 };
 
-pub const DecodeError = error{ BadMagic, BadVersion, Truncated, BadCount, BadTag, TooDeep };
+pub const DecodeError = error{ BadMagic, BadVersion, BadProfile, Truncated, BadCount, BadTag, TooDeep };
 
 pub fn errorMessage(e: DecodeError) []const u8 {
     return switch (e) {
         error.BadMagic => "not a slang bytecode file (bad magic)",
-        error.BadVersion => "unsupported bytecode version (want 2 to 4)",
+        error.BadVersion => "unsupported bytecode version (want 2 to 5)",
+        error.BadProfile => "bytecode uses instructions this VM does not have",
         error.Truncated => "bytecode: unexpected end of data",
         error.BadCount => "bytecode: implausible count",
         error.BadTag => "bytecode: unknown constant tag",
@@ -47,8 +54,19 @@ pub fn encode(gpa: std.mem.Allocator, p: *const Proto, strip_locs: bool) []u8 {
     const out = &w.writer;
     out.writeAll(magic) catch oom();
     out.writeByte(version) catch oom();
+    out.writeByte(profiles(p)) catch oom();
     encodeProto(out, p, strip_locs);
     return w.toOwnedSlice() catch oom();
+}
+
+/// The profiles a prototype and its children use.
+pub fn profiles(p: *const Proto) u8 {
+    var r: u8 = 0;
+    for (p.code) |ins| {
+        if (disasm.isFused(disasm.opOf(ins))) r |= profile_fused;
+    }
+    for (p.children) |c| r |= profiles(c);
+    return r;
 }
 
 fn encodeStr(w: *std.Io.Writer, s: []const u8) void {
@@ -215,12 +233,15 @@ const Reader = struct {
     }
 };
 
-/// Parses a .slb v2 container. The prototypes become VM objects.
+/// Parses a .slb container. The prototypes become VM objects.
 pub fn decode(vm: *VM, data: []const u8) DecodeError!*Proto {
     var r: Reader = .{ .vm = vm, .buf = data };
     const m = try r.take(magic.len);
     if (!std.mem.eql(u8, m, magic)) return error.BadMagic;
     r.version = try r.u8_();
-    if (r.version < 2 or r.version > 4) return error.BadVersion;
+    if (r.version < 2 or r.version > version) return error.BadVersion;
+    if (r.version >= 5) {
+        if ((try r.u8_()) & ~known_profiles != 0) return error.BadProfile;
+    }
     return r.proto(0);
 }

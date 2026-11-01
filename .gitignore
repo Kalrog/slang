@@ -26,3 +26,6 @@ examples/desktop/todos.db
 /website/public/slang.wasm
 /website/public/slang-gfx.*
 /website/web/.cache/
+
+# the core seed (make seed-core)
+/build/

@@ -22,6 +22,7 @@ pub fn module(vm: *VM) *Table {
         .{ .name = "to_bytes", .f = vmToBytes },
         .{ .name = "embedded", .f = vmEmbedded },
         .{ .name = "build_id", .f = vmBuildId },
+        .{ .name = "features", .f = vmFeatures },
         .{ .name = "disassemble", .f = vmDisassemble },
         .{ .name = "load_proto", .f = vmLoadProto },
         .{ .name = "load_native", .f = @import("../loader.zig").loadNative },
@@ -212,6 +213,19 @@ fn vmDisassemble(th: *Thread, args: []Value) Error!Value {
     defer aw.deinit();
     vm_mod.disasm.disassemble(&aw.writer, p) catch oom();
     return th.vm.str(aw.writer.buffered());
+}
+
+/// features(): the optional parts of the ISA this VM runs, as a set
+/// ({fused: true}); the compiler emits core bytecode for what is missing.
+/// SLANG_ISA=core hides the fused instructions, which makes the compiler
+/// emit core bytecode only.
+fn vmFeatures(th: *Thread, args: []Value) Error!Value {
+    _ = args;
+    const vm = th.vm;
+    const t = vm.newTable(0, 1);
+    const isa = vm.getenv("SLANG_ISA");
+    if (isa == null or !std.mem.eql(u8, isa.?, "core")) t.set(vm.gpa, vm.str("fused"), .{ .bool = true });
+    return .{ .table = t };
 }
 
 /// build_id(): a hash of the embedded seed bytecode, as 16 hex digits; the

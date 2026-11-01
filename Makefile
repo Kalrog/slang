@@ -9,7 +9,9 @@
 #   make test-safe    the suites on the checked build (ReleaseSafe) and under GC stress
 #   make test-gui     the webview tests (macOS; they open and close windows)
 #   make seed         re-generate the seed with bin/slang itself (self-hosting), then rebuild
-#   make fixpoint     check that the seed compiles itself to identical bytecode
+#   make seed-core    write the seed in core instructions only (SLANG_ISA=core) to build/seed-core,
+#                     for ports of the VM that leave out the fused profile
+#   make fixpoint     check that the seed compiles itself to identical bytecode, fused and core
 #   make bench        run bench/ (bench/run_all.sh adds the Lua ports and the C sawtooth)
 #   make raylib-test  run the raylib package's tests (packages/raylib; needs raylib installed)
 #   make box2d-test   run the box2d package's tests (packages/box2d; needs Box2D 3 installed)
@@ -32,8 +34,9 @@ PREFIX ?= /usr/local
 LIB_SRC  := $(wildcard slang/lib/*.slang)
 COMPILER_SRC := $(wildcard slang/compiler/*.slang)
 SEED_DIR := boot/slang
+SEED_CORE_DIR := build/seed-core
 
-.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed fixpoint bench raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test siege siege-test clean doc \
+.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed seed-core fixpoint bench raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test siege siege-test clean doc \
         vscode vscode-grammar
 
 all: build
@@ -117,13 +120,27 @@ seed: build
 	done
 	cd zig && $(ZIG) build -Doptimize=ReleaseFast -p ..
 
-# the seed must reproduce itself exactly
+# the seed in core instructions (the compiler leaves out the fused forms)
+seed-core: build
+	@mkdir -p $(SEED_CORE_DIR)
+	@for f in $(LIB_SRC) $(COMPILER_SRC); do \
+	  n=$$(basename $$f .slang); \
+	  SLANG_ISA=core bin/slang compile $$f -o $(SEED_CORE_DIR)/$$n.slb --origin slang/$$n || exit 1; \
+	done
+	@echo "seed-core: $(SEED_CORE_DIR)"
+
+# the seed must reproduce itself exactly; the core seed must be what the
+# core compiler gives too (the fusing pass is deterministic)
 fixpoint: build
-	@rm -rf /tmp/slang-fixpoint && mkdir -p /tmp/slang-fixpoint
+	@rm -rf /tmp/slang-fixpoint && mkdir -p /tmp/slang-fixpoint/core
 	@for f in $(LIB_SRC) $(COMPILER_SRC); do \
 	  n=$$(basename $$f .slang); \
 	  bin/slang compile $$f -o /tmp/slang-fixpoint/$$n.slb --origin slang/$$n || exit 1; \
 	  cmp $(SEED_DIR)/$$n.slb /tmp/slang-fixpoint/$$n.slb || { echo "fixpoint: $$n differs"; exit 1; }; \
+	  SLANG_ISA=core bin/slang compile $$f -o /tmp/slang-fixpoint/core/$$n.slb --origin slang/$$n || exit 1; \
+	  if [ -f $(SEED_CORE_DIR)/$$n.slb ]; then \
+	    cmp $(SEED_CORE_DIR)/$$n.slb /tmp/slang-fixpoint/core/$$n.slb || { echo "fixpoint: core $$n differs"; exit 1; }; \
+	  fi; \
 	done
 	@echo "fixpoint: ok"
 

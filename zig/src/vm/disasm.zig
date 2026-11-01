@@ -48,6 +48,24 @@ pub const Op = enum(u6) {
     try_begin, // push a handler: on an error, pc += sbx, close upvalues >= a
     try_end, // pop the innermost handler
     throw, // raise pop()
+
+    // The fused forms (the `fused` profile), numbered from 63 down so the
+    // core can grow upward. B and C are operands (see `operand`); A is a
+    // destination register, 255 for a push.
+    for_loop = 50, // r[a] += B (or -=), compare with C, jump; the next word is the jump to the body, its A the flags (`for_flags`)
+    self_x, // obj = B (the top when 511, kept): push obj[C], obj
+    move_x, // r[a] = B
+    set_x, // obj[B] = C; obj is r[a], 254: the top (kept), 255: popped; B 511: popped (above obj)
+    get_x, // dest = B[C]
+    jtest, // if truthy(B) != a: pc++ (the next word is a jump)
+    jeq, // if (B == C) != a: pc++ (the next word is a jump)
+    jleq, // if (B <= C) != a: pc++
+    jlt, // if (B < C) != a: pc++
+    mod_x, // dest = B % C
+    div_x, // dest = B / C
+    mul_x, // dest = B * C
+    sub_x, // dest = B - C
+    add_x, // dest = B + C
     _,
 
     pub fn name(op: Op) []const u8 {
@@ -90,17 +108,31 @@ pub const Op = enum(u6) {
             .try_begin => "tryBegin",
             .try_end => "tryEnd",
             .throw => "throw",
+            .add_x => "addX",
+            .sub_x => "subX",
+            .mul_x => "mulX",
+            .div_x => "divX",
+            .mod_x => "modX",
+            .jlt => "jlt",
+            .jleq => "jleq",
+            .jeq => "jeq",
+            .jtest => "jtest",
+            .get_x => "getX",
+            .set_x => "setX",
+            .move_x => "moveX",
+            .self_x => "selfX",
+            .for_loop => "forLoop",
             _ => "op?",
         };
     }
 
     pub fn symbol(op: Op) []const u8 {
         return switch (op) {
-            .add => "+",
-            .sub => "-",
-            .mul => "*",
-            .div => "/",
-            .mod => "%",
+            .add, .add_x => "+",
+            .sub, .sub_x => "-",
+            .mul, .mul_x => "*",
+            .div, .div_x => "/",
+            .mod, .mod_x => "%",
             .pow => "^",
             .band => "&",
             .bor => "|",
@@ -112,7 +144,55 @@ pub const Op = enum(u6) {
     }
 };
 
-const Mode = enum { abc, abx, asbx, ax, none };
+/// The opcodes below this one are the core ISA.
+pub const first_fused: u6 = @intFromEnum(Op.for_loop);
+
+pub inline fn isFused(op: Op) bool {
+    return @intFromEnum(op) >= first_fused;
+}
+
+/// The core arithmetic or comparison a fused form performs.
+pub fn coreOf(comptime op: Op) Op {
+    return switch (op) {
+        .add_x => .add,
+        .sub_x => .sub,
+        .mul_x => .mul,
+        .div_x => .div,
+        .mod_x => .mod,
+        .jlt => .lt,
+        .jleq => .leq,
+        .jeq => .eq,
+        else => unreachable,
+    };
+}
+
+/// A fused form's B or C operand: a register, a constant, an upvalue or
+/// the value on top of the stack.
+pub const Operand = union(enum) { register: u32, constant: u32, upvalue: u32, stack };
+
+pub const first_constant = 128;
+pub const first_upvalue = 384;
+pub const stack_operand = 511;
+/// A destination of 255 pushes the result; set_x's object of 254 is the
+/// top of the stack, kept there.
+pub const push_dest = 255;
+pub const peek_dest = 254;
+
+pub fn operand(x: u32) Operand {
+    if (x < first_constant) return .{ .register = x };
+    if (x < first_upvalue) return .{ .constant = x - first_constant };
+    if (x < stack_operand) return .{ .upvalue = x - first_upvalue };
+    return .stack;
+}
+
+/// The flags of a for_loop, in the A of the jump word after it.
+pub const for_flags = struct {
+    pub const leq = 1; // the condition is <= (else <)
+    pub const negate = 2; // the loop goes on while the condition is false
+    pub const sub = 4; // the update subtracts the step
+};
+
+const Mode = enum { abc, abx, asbx, ax, none, fused };
 
 fn mode(op: Op) Mode {
     return switch (op) {
@@ -120,7 +200,7 @@ fn mode(op: Op) Mode {
         .load_bool, .new_table, .@"test" => .abc,
         .load_closure, .set_upvalue, .get_upvalue, .close_upvalues => .ax,
         .move, .push, .jump, .try_begin => .asbx,
-        else => .none,
+        else => if (isFused(op)) .fused else .none,
     };
 }
 
@@ -156,6 +236,30 @@ pub fn writeInstruction(w: *Writer, ins: u32) Writer.Error!void {
         .asbx => try w.print("{s} A={d} sBx={d}", .{ name, argA(ins), argSBx(ins) }),
         .ax => try w.print("{s} Ax={d}", .{ name, argAx(ins) }),
         .none => try w.writeAll(name),
+        .fused => {
+            try w.writeAll(name);
+            switch (op) {
+                .jlt, .jleq, .jeq, .jtest => try w.print(" A={d}", .{argA(ins)}),
+                .set_x => switch (argA(ins)) {
+                    push_dest => try w.writeAll(" top"),
+                    peek_dest => try w.writeAll(" top(kept)"),
+                    else => |r| try w.print(" r{d}", .{r}),
+                },
+                .self_x => {},
+                else => if (argA(ins) == push_dest) try w.writeAll(" push") else try w.print(" r{d}", .{argA(ins)}),
+            }
+            try writeOperand(w, argB(ins));
+            if (op != .move_x and op != .jtest) try writeOperand(w, argC(ins));
+        },
+    }
+}
+
+fn writeOperand(w: *Writer, x: u32) Writer.Error!void {
+    switch (operand(x)) {
+        .register => |r| try w.print(" r{d}", .{r}),
+        .constant => |k| try w.print(" k{d}", .{k}),
+        .upvalue => |u| try w.print(" u{d}", .{u}),
+        .stack => try w.writeAll(" top"),
     }
 }
 
@@ -171,20 +275,7 @@ fn annotate(w: *Writer, p: *const Proto, pc: usize, ins: u32) Writer.Error!void 
     switch (opOf(ins)) {
         .load_constant => {
             const idx = argBx(ins);
-            if (idx < p.consts.len) {
-                const c = p.consts[idx];
-                if (c == .string) {
-                    const b = c.string.bytes();
-                    if (b.len > 40) {
-                        try writeQuoted(w, b[0..40]);
-                        try w.print("... ({d} bytes)", .{b.len});
-                    } else {
-                        try writeQuoted(w, b);
-                    }
-                } else {
-                    try root.format.writeValue(w, c);
-                }
-            }
+            if (idx < p.consts.len) try annotateConstant(w, p.consts[idx]);
         },
         .load_bool => {
             try w.writeAll(if (argB(ins) != 0) "true" else "false");
@@ -222,7 +313,58 @@ fn annotate(w: *Writer, p: *const Proto, pc: usize, ins: u32) Writer.Error!void 
         .call => try w.print("{d} arg{s}", .{ argBx(ins), if (argBx(ins) == 1) "" else "s" }),
         .call_spread => try w.print("{d} fixed args and a list", .{argBx(ins)}),
         .close_upvalues => try w.print("from register {d}", .{argAx(ins)}),
-        else => {},
+        else => |op| if (isFused(op)) {
+            var first = true;
+            for ([_]u32{ argB(ins), argC(ins) }, 0..) |x, i| {
+                if (i == 1 and (op == .move_x or op == .jtest)) break;
+                switch (operand(x)) {
+                    .constant => |k| if (k < p.consts.len) {
+                        if (!first) try w.writeAll(", ");
+                        first = false;
+                        try annotateConstant(w, p.consts[k]);
+                    },
+                    .upvalue => |u| if (u < p.upvals.len) {
+                        if (!first) try w.writeAll(", ");
+                        first = false;
+                        try w.writeAll(p.upvals[u].name.bytes());
+                    },
+                    else => {},
+                }
+            }
+            switch (op) {
+                .jlt, .jleq, .jeq, .jtest => try w.writeAll(if (first) "" else "; "),
+                else => {},
+            }
+            switch (op) {
+                .jlt, .jleq, .jeq, .jtest => try w.writeAll(if (argA(ins) != 0) "skip next when false" else "skip next when true"),
+                .for_loop => if (pc + 1 < p.code.len) {
+                    const j = p.code[pc + 1];
+                    const f = argA(j);
+                    if (!first) try w.writeAll("; ");
+                    try w.print("{s} {s}{s}, body -> {d}", .{
+                        if (f & for_flags.sub != 0) "-=" else "+=",
+                        if (f & for_flags.negate != 0) "until " else "while ",
+                        if (f & for_flags.leq != 0) "<=" else "<",
+                        @as(i64, @intCast(pc)) + 2 + argSBx(j),
+                    });
+                },
+                else => {},
+            }
+        },
+    }
+}
+
+fn annotateConstant(w: *Writer, c: root.Value) Writer.Error!void {
+    if (c == .string) {
+        const b = c.string.bytes();
+        if (b.len > 40) {
+            try writeQuoted(w, b[0..40]);
+            try w.print("... ({d} bytes)", .{b.len});
+        } else {
+            try writeQuoted(w, b);
+        }
+    } else {
+        try root.format.writeValue(w, c);
     }
 }
 

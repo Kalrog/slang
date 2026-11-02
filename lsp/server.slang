@@ -825,7 +825,8 @@ local func required_at(text, pos){
     str.char_at(text, start - 1) != "\n" and str.char_at(text, start - 1) != "="){
     start = start - 1
   }
-  if(str.substring(text, start, start + 9) == "require(\""){
+  // (the file may end sooner)
+  if(str.starts_with(text, "require(\"", start)){
     return name_from(start + 8)
   }
   return null

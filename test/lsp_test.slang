@@ -647,4 +647,14 @@ t.group("language server: names"){
     assert(type(none.result) == "json.null", "no hover is a null result")
     assert(str.index_of(lsp.encode(none), "\"result\":null") >= 0)
   }
+  t.test("hover on the last word of a file"){
+    local tail_uri = lsp.path_to_uri(concat(dir, "/tail.slang"))
+    local tail = "local buffer = {}\nreturn buffer"
+    open_doc(s, tail_uri, tail)
+    local r = s:handle(request(9, "textDocument/hover", {
+      textDocument: {uri: tail_uri}, position: {line: 1, character: 9}
+    }))[0]
+    assert(r.error == null, r.error and r.error.message)
+    assert(str.index_of(r.result.contents.value, "local buffer") >= 0)
+  }
 }

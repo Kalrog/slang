@@ -935,10 +935,42 @@ local func loop_value(w, path, node, depth){
   return null
 }
 
+// what the parameter of a function literal another function returns is,
+// from that function's doc: the parameter's type of the function type it
+// is declared to return (signed_in(...) -> web.Handler)
+local func returned_value(w, path, site, depth){
+  local from = site.returned_from
+  local f = w:file(path)
+  if(f == null or from.token == null){
+    return null
+  }
+  for(let local d in values(f.index.defs)){
+    local v = d.value
+    if(v != null and v.type == "Function" and v.token != null and
+      v.token.start == from.token.start and d.info != null and
+      d.info.signature != null and d.info.signature.result != null){
+      local t = d.info.signature.result.type
+      local given = t and type_value(w, path, t, depth + 1)
+      if(given == null or given.fn_type == null){
+        return null
+      }
+      local q = given.fn_type.params[site.index]
+      if(q == null or q.type == null){
+        return null
+      }
+      return type_value(w, given.path, q.type, depth + 1)
+    }
+  }
+  return null
+}
+
 // what the parameter of a function literal passed as an argument is, from
 // the callee's doc: the parameter's type of the function type it is given
 // for (handler: func(req: Request): any)
 local func callback_value(w, path, site, depth){
+  if(site.returned_from != null){
+    return returned_value(w, path, site, depth)
+  }
   local call = site.call
   local fn = null
   local method = false

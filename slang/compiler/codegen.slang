@@ -1235,6 +1235,13 @@ func visitors.Return(g, node){
     error("return is not allowed inside defer ", position(node.token))
   }
   if(node.value != null){
+    if(g.record != null and node.value.type == "Function" and
+      g.record_function != null){
+      // (a function literal returned: its parameters are recorded with a
+      // CallbackParam value, {returned_from: the Function node it is
+      // returned from, index})
+      g.callback_site = {returned_from: g.record_function}
+    }
     g:visit(node.value)
   } else {
     g.asm:emit_load_constant(null)
@@ -1646,11 +1653,17 @@ func visitors.Function(g, node){
     g.asm:create_local(name)
     local value = null
     if(site != null){
-      value = {type: "CallbackParam", call: site.call, arg: site.arg, index: i}
+      value = {
+        type: "CallbackParam", call: site.call, arg: site.arg,
+        returned_from: site.returned_from, index: i
+      }
     }
     record_local(g, name, param.token, "parameter", value)
   }
+  local outer_function = g.record_function
+  g.record_function = node
   g:visit(node.body)
+  g.record_function = outer_function
   g.asm:leave_scope()
   g.asm:emit_load_constant(null)
   g.asm:emit_return()

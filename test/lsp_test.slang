@@ -823,6 +823,8 @@ t.group("language server: names"){
       "print(items()[0].weight, lookup().any.name)",
       "each(func(item, i){ print(item.weight) })",
       "print(maker().weight, current.name)",
+      "// later() -> func(item: Item)",
+      "local func later(){ return func(it2){ print(it2.weight) } }",
       "",
     }, "\n")
     open_doc(s, typed_uri, src)
@@ -854,6 +856,8 @@ t.group("language server: names"){
     // a function type's result; a local's declared type and its doc
     is_item_field("weight, current", "weight")
     is_item_field("name)\n", "name")
+    // a function literal returned where the doc declares a function type
+    is_item_field("weight) } }", "weight")
     h = hover("current = ")
     assert(str.index_of(h, "local current: Item") >= 0 and
       str.index_of(h, "The item at hand.") >= 0 and

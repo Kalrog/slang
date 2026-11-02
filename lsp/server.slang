@@ -835,11 +835,18 @@ local func required_at(text, pos){
 // the extension whose syntax is at pos (not core syntax): {name, path},
 // path its source (null when require cannot find it)
 local func extension_at(at){
-  local r = pcall(compiler.tree, at.text, at.doc.path, {find_project: true})
-  if(r[0] == "err" or r[1] == null){
+  // the tree is kept for the text it is of: hovers that find no name ask
+  // for it again and again
+  local doc = at.doc
+  if(doc.tree_text != at.text){
+    local r = pcall(compiler.tree, at.text, doc.path, {find_project: true})
+    doc.tree = r[0] == "ok" and r[1] or false
+    doc.tree_text = at.text
+  }
+  if(not doc.tree){
     return null
   }
-  local owner = format.owner_at(r[1], at.pos)
+  local owner = format.owner_at(doc.tree, at.pos)
   if(owner == null){
     return null
   }
@@ -1714,7 +1721,9 @@ project_hover = func(s, at){
 // ------------------------------------------------------------ completion
 
 // LSP completion item kinds
-local ITEM = {method: 2, fn: 3, field: 5, variable: 6, module: 9, keyword: 14}
+local ITEM = {
+  method: 2, fn: 3, field: 5, variable: 6, module: 9, property: 10, keyword: 14
+}
 
 local func item_of(name, def, rank, method){
   local kind = ITEM.variable
@@ -1735,6 +1744,11 @@ local func item_of(name, def, rank, method){
     detail = concat("require(\"", def.module, "\")")
   } else if(def.kind == "field"){
     kind = ITEM.field
+  } else if(def.kind == "property"){
+    kind = ITEM.property
+    if(def.type_shown != null){
+      detail = symbols.type_text(def.type_shown)
+    }
   }
   local item = {
     label: name, kind: kind, sortText: concat(rank, name), detail: detail

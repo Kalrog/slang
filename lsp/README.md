@@ -21,6 +21,10 @@ of its uses cannot be resolved), `workspace/symbol`, `inlayHint`
 `initializationOptions.parameterHints`), `completion` (the members of
 what `a.b.` holds and the methods after `a:`, the names in scope, the
 grammar's keywords, module names in `require("...")`), `signatureHelp`,
+properties (the keys of a metatable's `__get` and `__set`, also along its
+`__index` chain: hover shows the getter's doc and its declared result as
+the property's type, definition goes to the getter, completion lists them
+and follows what the getter returns),
 lint warnings with the parse errors (unused locals, globals no project
 file defines, requires of missing modules, computed requires;
 `initializationOptions.lint: false` turns them off), `formatting` and

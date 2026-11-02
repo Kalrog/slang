@@ -269,6 +269,7 @@ local MAX_DEPTH = 24
 
 local value_of_def = null
 local value_of_node = null
+local field_of = null
 
 // What a declared type is, as a value: a type with methods is the table that
 // holds them; a shape is a table of its fields (each with its type, so
@@ -330,6 +331,15 @@ local func type_value(w, path, t, depth){
     return null
   }
   if(decl.table != null){
+    local fields = decl.table.fields or {}
+    if(fields.__index != null or fields.__get != null or fields.__set != null){
+      // a metatable: the type is that of the objects it is the meta of
+      return {
+        path: path,
+        def: {name: name, kind: "local", fields: {meta: decl.table}},
+        type_name: name,
+      }
+    }
     return {path: path, def: decl.table, type_name: name}
   }
   local v = type_value(w, path, decl.type, depth + 1)
@@ -388,15 +398,79 @@ local func module_value(w, path, depth){
   return value_of_def(w, path, f.index.returned, depth + 1)
 }
 
+// whether a field definition is an assignment (o.name = v) rather than a
+// table literal's (whose statement starts at its name)
+local func assigned(def){
+  return def.kind == "field" and def.statement != null and
+    def.statement != def.start
+}
+
+// the keys of a meta that are looked up on it alone, never along __index
+// (a table literal cannot hold meta as a key: it would be its metatable)
+local meta_keys = {__index: true, __get: true, __set: true}
+
+// the getter or setter name has in a meta's __get or __set (which), as
+// {path, def}, or null
+local func accessor_of(w, meta_value, which, name, depth){
+  local t = field_of(w, meta_value, which, depth + 1)
+  if(t == null){
+    return null
+  }
+  return field_of(w, value_of_def(w, t.path, t.def, depth + 1), name, depth + 1)
+}
+
+// A property: a key of a meta's __get or __set, as {path, def} where def
+// is {kind: "property", getter?, setter?} (each {path, def}), placed and
+// documented where its getter is (else its setter). Its value is what the
+// getter returns. The same accessors give the same def.
+local func property_of(w, meta_value, name, depth){
+  local getter = accessor_of(w, meta_value, "__get", name, depth)
+  local setter = accessor_of(w, meta_value, "__set", name, depth)
+  local at = getter or setter
+  if(at == null){
+    return null
+  }
+  local def = at.def.property
+  if(def == null or def.setter_def != (setter and setter.def)){
+    def = {
+      name: name, kind: "property", start: at.def.start, stop: at.def.stop,
+      getter: getter, setter: setter, setter_def: setter and setter.def,
+      fields: {}
+    }
+    // the doc: the accessor's prose; its declared result (a getter's) or
+    // second parameter (a setter's) is the property's type
+    local info = at.def.info
+    def.doc = at.def.doc
+    if(info != null and info.signature != null){
+      def.doc = info.prose or (info.signature.result and info.signature.result.text)
+      local sig = info.signature
+      if(getter != null and sig.result != null){
+        def.type_shown = sig.result.type
+      } else if(getter == null and len(sig.params) > 1){
+        def.type_shown = sig.params[1].type
+      }
+    }
+    at.def.property = def
+  }
+  return {path: at.path, def: def}
+}
+
 // the field name of a value, as {path, def}, with the methods of its meta
-local func field_of(w, value, name, depth){
+// and its properties
+field_of = func(w, value, name, depth){
   if(value == null or depth > MAX_DEPTH){
     return null
   }
+  // a field assigned (o.name = v) gives way to a property of that name: the
+  // assignment ran its setter; one in the table literal is the object's own
+  local own = null
   if(value.def != null and value.def.fields != null){
     local d = value.def.fields[name]
     if(d != null){
-      return {path: value.path, def: d}
+      own = {path: value.path, def: d}
+      if(not assigned(d)){
+        return own
+      }
     }
   }
   if(value.node != null and value.node.type == "Table"){
@@ -415,16 +489,19 @@ local func field_of(w, value, name, depth){
       }
     }
   }
-  if(name == "meta" or name == "__index"){
-    return null
+  if(name == "meta" or meta_keys[name]){
+    return own
   }
   local meta = field_of(w, value, "meta", depth + 1)
   if(meta == null){
-    return null
+    return own
   }
-  local index = field_of(
-    w, value_of_def(w, meta.path, meta.def, depth + 1), "__index", depth + 1
-  )
+  local mv = value_of_def(w, meta.path, meta.def, depth + 1)
+  local property = property_of(w, mv, name, depth + 1)
+  if(property != null or own != null){
+    return property or own
+  }
+  local index = field_of(w, mv, "__index", depth + 1)
   if(index == null){
     return null
   }
@@ -565,6 +642,14 @@ value_of_def = func(w, path, def, depth){
   if(def.module != null){
     return module_value(w, compiler.module_path(def.module), depth)
   }
+  // a property: what its getter returns
+  if(def.kind == "property"){
+    local g = def.getter
+    if(g == null){
+      return null
+    }
+    return call_value(w, value_of_def(w, g.path, g.def, depth + 1), depth + 1)
+  }
   // a declared type: a typed parameter, a field of a shape
   if(def.type != null){
     return type_value(w, path, def.type, depth + 1)
@@ -661,12 +746,31 @@ local func member_of(w, path, ref){
   if(owner == null or owner.global != null){
     return null
   }
-  local value = value_of_def(w, path, owner, 0)
+  // a field of an expression (a.b.c, f().x): what the expression is
+  local value = null
+  if(owner.receiver != null){
+    value = value_of_node(w, path, owner.receiver, 0)
+  } else {
+    value = value_of_def(w, path, owner, 0)
+  }
   local found = field_of(w, value, ref.name, 0)
   if(found == null){
     return null
   }
   found.type_name = type_name_of(w, value)
+  return found
+}
+
+// the property an assigned field definition sets (o.name = v where o's
+// meta has a setter or getter for name): {path, def, type_name}, or null
+local func assigned_property(w, path, def){
+  if(not assigned(def) or def.owner == null or def.owner.global != null){
+    return null
+  }
+  local found = member_of(w, path, {owner: def.owner, name: def.name})
+  if(found == null or found.def.kind != "property"){
+    return null
+  }
   return found
 }
 
@@ -728,6 +832,14 @@ local func key_at(w, path, pos){
   }
   if(def.kind == "global"){
     return {kind: "global", name: def.name}
+  }
+  // an assignment of a property: the property, not a field
+  local property = assigned_property(w, path, def)
+  if(property != null){
+    return {
+      kind: "member", path: property.path, def: property.def, name: def.name,
+      type_name: property.type_name, invoke: found.invoke
+    }
   }
   if(def.kind == "field"){
     if(def.owner == f.index.returned){
@@ -806,15 +918,28 @@ local func matches_in(w, key, path, index, out, with_declaration){
     if(with_declaration and path == key.path){
       append(out, location(path, key.def))
     }
+    // a use the index resolved to an assigned field may be the property
+    // too (as may that field's own definition)
+    local func through(r){
+      if(r.def == null or assigned(r.def)){
+        local m = member_of(w, path, r)
+        return m != null and same(m.path, m.def)
+      }
+      return false
+    }
     for(let local r in values(index.refs)){
-      if(r.name == key.name and r.owner != null){
-        local hit = same(path, r.def)
-        if(not hit and r.def == null){
-          local m = member_of(w, path, r)
-          hit = m != null and same(m.path, m.def)
-        }
-        if(hit){
-          append(out, location(path, r))
+      if(r.name == key.name and r.owner != null and
+        (same(path, r.def) or through(r))){
+        append(out, location(path, r))
+      }
+    }
+    if(key.def.kind == "property"){
+      for(let local d in values(index.defs)){
+        if(d.name == key.name and assigned(d) and d.owner != null){
+          local m = member_of(w, path, d)
+          if(m != null and m.def.kind == "property" and same(m.path, m.def)){
+            append(out, location(path, d))
+          }
         }
       }
     }
@@ -975,6 +1100,27 @@ func methods.member(w, target, name){
   return field_of(w, value_of_def(w, target.path, target.def, 0), name, 0)
 }
 
+// the string keys a table value holds: its fields, those of its literal
+local func table_keys(w, value){
+  local out = {}
+  if(value == null){
+    return out
+  }
+  if(value.def != null){
+    for(let local e in entries(value.def.fields or {})){
+      append(out, e[0])
+    }
+  }
+  if(value.node != null and value.node.type == "Table"){
+    for(let local fld in values(value.node.fields)){
+      if(fld.type == "Field" and fld.key != null and fld.key.type == "String"){
+        append(out, fld.key.value)
+      }
+    }
+  }
+  return out
+}
+
 // the members of a target: {name: {path, def}}: its fields, a module's
 // exports, and the methods its meta's __index holds
 func methods.members(w, target){
@@ -990,7 +1136,9 @@ func methods.members(w, target){
     if(value.def != null){
       for(let local e in entries(value.def.fields or {})){
         if(e[0] != "meta" and out[e[0]] == null){
-          out[e[0]] = {path: value.path, def: e[1]}
+          // an assigned field may be a property's setter at work
+          out[e[0]] = assigned(e[1]) and field_of(w, value, e[0], 0) or
+            {path: value.path, def: e[1]}
         }
       }
     }
@@ -1011,12 +1159,22 @@ func methods.members(w, target){
         }
       }
     }
-    // the methods: the fields of meta.__index
+    // the properties: the keys of meta.__get and meta.__set; the methods:
+    // the fields of meta.__index
     local meta = field_of(w, value, "meta", 0)
     if(meta != null){
-      local index = field_of(
-        w, value_of_def(w, meta.path, meta.def, 0), "__index", 0
-      )
+      local mv = value_of_def(w, meta.path, meta.def, 0)
+      for(let local which in values({"__get", "__set"})){
+        local t = field_of(w, mv, which, 0)
+        if(t != null){
+          for(let local name in values(table_keys(w, value_of_def(w, t.path, t.def, 0)))){
+            if(out[name] == null){
+              out[name] = property_of(w, mv, name, 0)
+            }
+          }
+        }
+      }
+      local index = field_of(w, mv, "__index", 0)
       if(index != null){
         add_fields(value_of_def(w, index.path, index.def, 0), depth + 1)
       }
@@ -1267,7 +1425,16 @@ func methods.hover(w, path, pos){
       }
     }
     local sig = def.info and def.info.signature
-    if(sig != null and def.params != null){
+    if(def.kind == "property"){
+      if(def.type_shown != null){
+        signature = concat(signature, ": ", symbols.type_text(def.type_shown))
+      }
+      if(def.getter == null){
+        signature = concat(signature, " (write-only)")
+      } else if(def.setter == null){
+        signature = concat(signature, " (read-only)")
+      }
+    } else if(sig != null and def.params != null){
       // the typed signature: the name as above, the parameters as the doc
       // gives them (a method called with : without its first)
       local cut = str.index_of(signature, "(")

@@ -647,6 +647,96 @@ t.group("language server: names"){
     assert(type(none.result) == "json.null", "no hover is a null result")
     assert(str.index_of(lsp.encode(none), "\"result\":null") >= 0)
   }
+  t.test("properties: __get and __set, inherited along __index"){
+    local props_uri = lsp.path_to_uri(concat(dir, "/props.slang"))
+    local props = str.join({
+      "local getters = {}",
+      "local setters = {}",
+      "local base_meta = {__type: \"Base\", __get: {kind: func(self){ return \"base\" }}}",
+      "local base = {meta: base_meta}",
+      "// type Box",
+      "local meta = {__type: \"Box\", __index: base, __get: getters, __set: setters}",
+      "// size(self) -> int",
+      "// How big the box is.",
+      "func getters.size(b){ return b.n }",
+      "func setters.size(b, v){ b.n = v }",
+      "// twin(self) -> a box like this one",
+      "func getters.twin(b){ return {meta: meta, n: b.n} }",
+      "// copy(self) -> Box",
+      "func getters.copy(b){ return made_elsewhere(b) }",
+      "local box = {meta: meta, n: 1}",
+      "box.size = 2",
+      "print(box.size, box.kind, box.twin.size)",
+      "print(box.copy.size, box.twin.copy.kind)",
+      "",
+    }, "\n")
+    open_doc(s, props_uri, props)
+    local func at(word, nth){
+      local i = -1
+      for(local k = 0; k <= (nth or 0); k = k + 1){
+        i = str.index_of(props, word, i + 1)
+      }
+      local lc = str.line_col(props, i)
+      return {line: lc[0] - 1, character: lc[1] - 1}
+    }
+    local func asked(method, word, nth){
+      return s:handle(request(9, method, {
+        textDocument: {uri: props_uri}, position: at(word, nth)
+      }))[0].result
+    }
+    // hover: a property of the type, its type and doc
+    local h = asked("textDocument/hover", "size, box")
+    assert(str.index_of(h.contents.value, "property Box.size: int") >= 0, h.contents.value)
+    assert(str.index_of(h.contents.value, "How big the box is.") >= 0, h.contents.value)
+    // inherited from base's meta through __index; read-only
+    h = asked("textDocument/hover", "kind, box")
+    assert(str.index_of(h.contents.value, "property") >= 0 and
+      str.index_of(h.contents.value, "(read-only)") >= 0, h.contents.value)
+    // definition: the getter; a property's value is what its getter returns
+    local d = asked("textDocument/definition", "size", 3)
+    assert(len(d) == 1 and d[0].range.start.line == 8, string(d))
+    // through chains: what the code returns (twin), else what the doc
+    // declares (copy: Box)
+    for(let local use in values({"size)", "size, box.twin", "kind)"})){
+      d = asked("textDocument/definition", use)
+      assert(len(d) == 1, concat(use, " ", string(d)))
+      h = asked("textDocument/hover", use)
+      assert(str.index_of(h.contents.value, "property") >= 0, h.contents.value)
+    }
+    assert(asked("textDocument/definition", "size)")[0].range.start.line == 8)
+    // references: the uses through the setter and the getter, the getter
+    local r = s:handle(request(9, "textDocument/references", {
+      textDocument: {uri: props_uri}, position: at("size", 3),
+      context: {includeDeclaration: true},
+    }))[0].result
+    assert(len(r) == 5, string(r))
+    // completion lists the properties, the inherited one too; a property
+    // is followed into what its getter returns (box.twin.)
+    local func completed(extra){
+      local t2 = concat(props, extra)
+      s:handle(notify("textDocument/didChange", {
+        textDocument: {uri: props_uri, version: 2}, contentChanges: {{text: t2}},
+      }))
+      local lc = str.line_col(t2, len(t2))
+      local by = {}
+      for(let local i in values(s:handle(request(9, "textDocument/completion", {
+        textDocument: {uri: props_uri},
+        position: {line: lc[0] - 1, character: lc[1] - 1},
+      }))[0].result)){
+        by[i.label] = i
+      }
+      return by
+    }
+    for(let local extra in values({"box.", "box.twin.", "box.copy."})){
+      local by = completed(extra)
+      assert(by.size != null and by.size.kind == 10 and by.size.detail == "int",
+        concat(extra, " ", string(by)))
+      // (a Box known from a doc alone has no fields of its own)
+      assert(by.kind != null and by.twin != null and
+        (by.n != null or extra == "box.copy."), extra)
+    }
+    assert(completed("box:").size == null, "a property is not a method")
+  }
   t.test("hover on the last word of a file"){
     local tail_uri = lsp.path_to_uri(concat(dir, "/tail.slang"))
     local tail = "local buffer = {}\nreturn buffer"

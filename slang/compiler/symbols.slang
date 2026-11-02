@@ -57,10 +57,12 @@ local symbols = {}
 
 // A use of a name.
 // type Ref = {name: string, start: int, stop: int, def?: Def, write: bool,
-//   owner?: Def, invoke?: bool}
+//   owner?: Def | {receiver: table, fields: {}}, invoke?: bool}
 // [def]: what it resolved to; null for a global or field the file lacks
 // [write]: it is assigned
-// [owner]: a field's table, as for [Def]
+// [owner]: a field's table, as for [Def]; for a field read of an expression
+// (a.b.c, f().x) {receiver}, the expression's AST node, which only tools
+// that follow values can resolve
 // [invoke]: the field is called as a method (o:name())
 
 // A section divider and where its line starts.
@@ -935,6 +937,10 @@ func recorder.use(rec, name, token, def, write, value, statement){
   rec.at[ref.start] = ref
 }
 
+// the receivers whose fields are recorded as uses with the receiver as
+// their owner
+local chained_receivers = {Index: true, Call: true, Invoke: true}
+
 // a field read or written by name: o.name, o["name"], o:name(...)
 func recorder.field(rec, node, write, value, statement){
   local receiver = node.receiver
@@ -942,15 +948,29 @@ func recorder.field(rec, node, write, value, statement){
   if(node.type == "Invoke"){
     key = node.name
   }
-  if(receiver.type != "Identifier" or receiver.value == "_ENV" or key == null or
-    (key.type != "String" and key.type != "Identifier")){
+  if(key == null or (key.type != "String" and key.type != "Identifier")){
     return null
   }
   // o[name] is the field the variable names, not one called name
   if(key.type == "Identifier" and node.type == "Index" and not node.dotStyle){
     return null
   }
-  if(not in_source(rec, receiver.token) or not in_source(rec, key.token)){
+  if(not in_source(rec, key.token)){
+    return null
+  }
+  if(receiver.type != "Identifier"){
+    // a field of an expression (a.b.c, f().x): a use whose owner is that
+    // expression, for tools to follow
+    if(not write and chained_receivers[receiver.type]){
+      append(rec.chained, {
+        name: key.value, start: key.token.start, stop: key.token.stop,
+        owner: {receiver: receiver, fields: {}}, write: false,
+        invoke: node.type == "Invoke"
+      })
+    }
+    return null
+  }
+  if(receiver.value == "_ENV" or not in_source(rec, receiver.token)){
     return null
   }
   append(rec.fields, {
@@ -1075,7 +1095,7 @@ local func sorted(list){
 func symbols.analyse(block, source, origin){
   local rec = {
     source: source, defs: {}, refs: {}, fields: {}, at: {}, globals: {},
-    global_owners: {}
+    global_owners: {}, chained: {}
   }
   rec.meta = recorder_meta
   // a block that does not compile (an unfinished edit) still has the names
@@ -1124,6 +1144,9 @@ func symbols.analyse(block, source, origin){
         })
       }
     }
+  }
+  for(let local r in values(rec.chained)){
+    append(rec.refs, r)
   }
   for(let local def in values(rec.defs)){
     if(is_require(def.value)){

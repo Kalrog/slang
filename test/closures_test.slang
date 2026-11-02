@@ -75,4 +75,17 @@ test.group("closure test", func(){
     })(2, 3)
     assert(result == 5)
   })
+  test.test("a returned closure shares upvalues with its siblings", func(){
+    local func make(){
+      local a = 0
+      local func set(){ a = a + 1 }
+      return func(){
+        set()
+        return a
+      }
+    }
+    local f = make()
+    f()
+    assert(f() == 2)
+  })
 })

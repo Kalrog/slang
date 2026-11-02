@@ -27,6 +27,18 @@ t.group("isolates"){
     assert(inner:join() == inner:id())
   }
 
+  t.test("an isolate finds modules where its caller does: paths and packages"){
+    local saved = __PACKAGES.packages
+    __PACKAGES.packages = {demo: {dir: "/nowhere", paths: {"/nowhere"}, suffixes: {}, missing: false}}
+    local w = isolate.spawn(func(){
+      local p = __PACKAGES.packages
+      return {p.demo.dir, len(__PACKAGES.search_paths)}
+    })
+    __PACKAGES.packages = saved
+    local r = w:join()
+    assert(r[0] == "/nowhere" and r[1] == len(__PACKAGES.search_paths))
+  }
+
   t.test("channels carry values both ways"){
     local work = isolate.channel()
     local done = isolate.channel()

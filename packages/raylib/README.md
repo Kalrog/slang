@@ -44,6 +44,36 @@ dependencies: {raylib: {git: "<repository>", version: "^1.0"}}
 Inside the slang repository, use `{path: "../packages/raylib"}` instead, as
 `examples/breakout` does. Then run `slang get`.
 
+## Audio computed in slang: raylib/stream
+
+`require("raylib/stream")` plays sound computed in slang in isolates of its
+own (`slang/isolate`), so the program's frames, its collector and raylib's
+audio thread never wait for each other:
+
+```
+local stream = require("raylib/stream")
+local player = stream.play(func(freq){
+  local math = require("slang/math")      // runs in a new isolate
+  local phase = 0.0
+  return func(out, frames){               // called for every block
+    for(local i = 0; i < frames; i = i + 1){
+      out[i] = math.sin(phase * 2 * math.pi) * 0.2
+      phase = (phase + freq / 48000.0) % 1.0
+    }
+  }
+}, {args: {440.0}})
+player:stats().load                       // share of real time computing
+player:stop()
+```
+
+A render isolate calls the block function and fills a ring a little ahead
+of the device (`latency`, 1024 frames by default); raylib's stream callback
+runs in a second isolate and only copies from the ring. The callback is not
+where the sound is computed because raylib's audio thread runs slang about
+three times slower than an ordinary thread (macOS gives it a slow core).
+Parameters cross as shared buffers (`buffer.shared`) and events as
+channels, passed in `args`. `examples/synth` is a synthesizer built on it.
+
 ## In the browser
 
 The website's playground runs programs that use this package on a slang
@@ -88,9 +118,10 @@ to close (`window_should_close` is false), and raylib logs only errors.
 - **Callbacks** are slang functions: `set_audio_stream_callback(stream,
   func(buffer, frames){ ... })` fills audio from slang. raylib calls it
   from its audio thread; it runs while the program is in a raylib call
-  (every frame is many), one at a time with the rest of the program.
-  `SetTraceLogCallback` takes a `va_list`, which slang/ffi cannot pass:
-  not bound.
+  (every frame is many), one at a time with the rest of the program, so a
+  frame that draws for long makes the sound stutter. For sound that must
+  not, use `raylib/stream` (below). `SetTraceLogCallback` takes a
+  `va_list`, which slang/ffi cannot pass: not bound.
 
 - **Buffers** (`slang/buffer`) go where lists go, as their memory with no
   conversion: `draw_triangle_strip(points, color)` with `points` a buffer

@@ -20,6 +20,10 @@
 #   make breakout     run the breakout example (examples/breakout) on the raylib package
 #   make deckhand     run the deckhand heist game (examples/deckhand) on the raylib package
 #   make deckhand-test run deckhand's tests (no window: the deck, maps, world, every mission's solution)
+#   make synth        run the synthesizer (examples/synth) on raylib/stream
+#   make synth3d      the same synthesizer in 3D
+#   make synth-test   run the synthesizer's engine tests (no window, no audio device)
+#   make synth-mix    record every song of examples/synth part by part and mix it (WAVs in examples/synth/mixdown)
 #   make siege        run the siege catapult game (examples/siege) on the raylib and jolt packages
 #   make siege-test   run siege's tests (no window: structures stand, levels stand still, wrecking)
 #   make vscode       package the VS Code extension (editors/vscode) with the language server
@@ -36,7 +40,7 @@ COMPILER_SRC := $(wildcard slang/compiler/*.slang)
 SEED_DIR := boot/slang
 SEED_CORE_DIR := build/seed-core
 
-.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed seed-core fixpoint bench raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test siege siege-test clean doc \
+.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed seed-core fixpoint bench raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test synth synth3d synth-test synth-mix siege siege-test clean doc \
         vscode vscode-grammar
 
 all: build
@@ -98,6 +102,7 @@ test: build unit
 	  else echo "raylib is not installed: packages/raylib not tested"; fi
 	@if [ -n "$(BOX2D_H)" ]; then $(MAKE) box2d-test; \
 	  else echo "Box2D is not installed: packages/box2d not tested"; fi
+	@if [ -n "$(RAYLIB_H)" ]; then $(MAKE) synth-test; fi
 	@if [ -d "packages/jolt/lib/$(SLANG_PLATFORM)" ]; then $(MAKE) jolt-test && $(MAKE) siege-test; \
 	  else echo "no joltc for $(SLANG_PLATFORM): packages/jolt and examples/siege not tested"; fi
 
@@ -174,6 +179,18 @@ deckhand: build
 
 deckhand-test: build
 	cd examples/deckhand && ../../bin/slang test test
+
+synth: build
+	cd examples/synth && ../../bin/slang run main.slang
+
+synth3d: build
+	cd examples/synth && ../../bin/slang run main3d.slang
+
+synth-test: build
+	cd examples/synth && ../../bin/slang test test
+
+synth-mix: build
+	cd examples/synth && for s in songs/*.slang; do ../../bin/slang run mixdown.slang $$s || exit 1; done
 
 siege: build
 	bin/slang run examples/siege/main.slang

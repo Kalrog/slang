@@ -1343,7 +1343,12 @@ visit_statements = func(g, statements, from){
     }
     g:visit(s)
   }
-  g.asm:close_open_upvalues()
+  // a return closes every upvalue of the frame itself, after its value:
+  // closing here would give a closure made by the value (return func(){
+  // ... }) upvalues of its own instead of those its siblings share
+  if(final == null or final.type != "Return"){
+    g.asm:close_open_upvalues()
+  }
   if(final != null){
     g:visit(final)
   }

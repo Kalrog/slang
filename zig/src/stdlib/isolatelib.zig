@@ -628,6 +628,17 @@ fn threadMain(iso: *Isolate) void {
     iso.release();
 }
 
+/// What an isolate takes over from __PACKAGES of the VM that starts it, so
+/// that it finds modules where that one does: the search paths and the
+/// project's packages and dialect suffixes.
+const inherited = [_][]const u8{ "search_paths", "native_search_paths", "packages", "dialect_suffixes" };
+
+fn inherit(vm: *VM, vals: []const Value) void {
+    for (inherited, 0..) |name, i| {
+        if (vals[i] != .null) vm.packages.set(vm.gpa, vm.str(name), vals[i]);
+    }
+}
+
 /// Boots the VM, calls the function and serializes its result. The
 /// arguments are on the stack before anything can collect.
 fn run(vm: *VM, iso: *Isolate) Error!Message {
@@ -635,9 +646,8 @@ fn run(vm: *VM, iso: *Isolate) Error!Message {
     var vals: std.ArrayList(Value) = .empty;
     defer vals.deinit(vm.gpa);
     try decode(vm, &iso.start, &vals);
-    vm.packages.set(vm.gpa, vm.str("search_paths"), vals.items[0]);
-    vm.packages.set(vm.gpa, vm.str("native_search_paths"), vals.items[1]);
-    const res = try vm.call(vals.items[2], vals.items[3..]);
+    inherit(vm, vals.items);
+    const res = try vm.call(vals.items[inherited.len], vals.items[inherited.len + 1 ..]);
     return encode(vm, &.{res}) catch {
         var e = vm.takeError();
         defer e.deinit(vm.gpa);
@@ -699,11 +709,10 @@ pub fn printUnjoined(io: std.Io) void {
 /// VM cannot boot.
 pub fn newDriven(parent: *VM, v: Value) Error!*VM {
     if (!supported) return parent.raise("isolates are not available here (no threads)", .{});
-    var start = try encode(parent, &.{
-        parent.packages.getName("search_paths"),
-        parent.packages.getName("native_search_paths"),
-        v,
-    });
+    var start_vals: [inherited.len + 1]Value = undefined;
+    for (inherited, 0..) |name, i| start_vals[i] = parent.packages.getName(name);
+    start_vals[inherited.len] = v;
+    var start = try encode(parent, &start_vals);
     defer start.deinit();
     const vm = VM.create(shared, parent.io, parent.env);
     vm.args = parent.args;
@@ -724,10 +733,9 @@ fn setupDriven(vm: *VM, start: *const Message) Error!void {
     var vals: std.ArrayList(Value) = .empty;
     defer vals.deinit(vm.gpa);
     try decode(vm, start, &vals);
-    vm.packages.set(vm.gpa, vm.str("search_paths"), vals.items[0]);
-    vm.packages.set(vm.gpa, vm.str("native_search_paths"), vals.items[1]);
+    inherit(vm, vals.items);
     try vm.main.ensure(vm.main.top + 1);
-    vm.main.push(vals.items[2]);
+    vm.main.push(vals.items[inherited.len]);
 }
 
 /// slang_send and slang_trysend: v through the channel ch.
@@ -873,8 +881,7 @@ fn isoSpawn(th: *Thread, args: []Value) Error!Value {
     _ = try api.argFunction(th, args, 0, "f");
     var vals: std.ArrayList(Value) = .empty;
     defer vals.deinit(vm.gpa);
-    vals.append(vm.gpa, vm.packages.getName("search_paths")) catch oom();
-    vals.append(vm.gpa, vm.packages.getName("native_search_paths")) catch oom();
+    for (inherited) |name| vals.append(vm.gpa, vm.packages.getName(name)) catch oom();
     vals.appendSlice(vm.gpa, args) catch oom();
     const start = try encode(vm, vals.items);
 

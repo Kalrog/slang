@@ -29,3 +29,6 @@ examples/desktop/todos.db
 
 # the core seed (make seed-core)
 /build/
+
+# recordings made by examples/synth/mixdown.slang
+/examples/synth/mixdown/

@@ -110,3 +110,27 @@ t.group("raylib: names"){
       ))
   }
 }
+
+t.group("raylib/stream"){
+  t.test("a block function in an isolate feeds the device"){
+    local stream = require("raylib/stream")
+    local time = require("slang/time")
+    local player = stream.play(func(){
+      return func(out, frames){
+        out:fill(0.0)
+      }
+    })
+    time.sleep(0.3)
+    local r = pcall(func(){ return player:stats() })
+    local stopped = pcall(func(){ player:stop() })
+    if(r[0] == "err"){
+      // no audio device here: nothing more to see
+      local str = require("slang/string")
+      assert(str.index_of(r[1].message, "no audio device") >= 0, r[1].message)
+      return null
+    }
+    assert(stopped[0] == "ok", "stopped")
+    assert(r[1].playing and r[1].callbacks > 0, "played")
+    assert(r[1].load >= 0.0 and r[1].load < 1.0)
+  }
+}

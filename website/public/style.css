@@ -443,6 +443,11 @@ section.install pre.code { border: 2px solid var(--ink); box-shadow: 6px 6px 0 v
 .workbench.big .editor { box-shadow: 5px 5px 0 var(--shadow); }
 .workbench.big .ed-input { height: min(62vh, 40rem); max-height: none; }
 .workbench.big pre.output { max-height: 30rem; }
+.workbench.big pre.expanded-view {
+  height: min(62vh, 40rem);
+  max-height: none;
+  box-shadow: 5px 5px 0 var(--shadow);
+}
 .note { color: var(--muted); font-size: 0.9rem; }
 
 /* ---------------------------------------------------------------- siege */

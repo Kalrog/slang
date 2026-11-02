@@ -46,8 +46,8 @@ class Worker2 {
 let checker = null, runner = null;
 const check = (cmd, code, files) => (checker ||= new Worker2()).request(cmd, code, null, files);
 
-// the files an extension's page carries for its examples (the extension's
-// source), by path
+// the files a page carries for its code, by path: an extension's page its
+// examples' extension, the playground every extension
 const pageFiles = (() => {
   const el = document.getElementById("ext-files");
   return el ? JSON.parse(el.textContent) : null;
@@ -314,10 +314,12 @@ class Workbench {
   constructor(root) {
     this.root = root;
     this.prefix = root.dataset.prefix || "";
-    this.files = this.prefix ? pageFiles : null;
+    this.files = pageFiles;
     this.editor = new Editor(root.querySelector("[data-editor]"), this.prefix, this.files);
     this.expanded = root.querySelector("[data-expanded]");
-    this.expandedFor = this.editor.value;
+    // the code the expansion shown is of (none yet when it is made here)
+    this.expandedFor = this.expanded?.dataset.expanded === "lazy" ? null : this.editor.value;
+    this.tab = "code";
     for (const tab of root.querySelectorAll("[data-tab]")) {
       tab.addEventListener("click", () => this.show(tab.dataset.tab));
     }
@@ -357,6 +359,7 @@ class Workbench {
   // the Example / Expanded toggle: the expansion of the code as it is now
   async show(which) {
     if (!this.expanded) return;
+    this.tab = which;
     for (const tab of this.root.querySelectorAll("[data-tab]")) {
       tab.setAttribute("aria-selected", String(tab.dataset.tab === which));
     }
@@ -372,6 +375,8 @@ class Workbench {
       this.say("");
       return;
     }
+    // (the code changed meanwhile: its own expansion is on the way)
+    if (code !== this.editor.value) return;
     const text = r.stdout.replace(/\n+$/, "");
     const hl = await check("check", text);
     let tokens = [];
@@ -741,6 +746,7 @@ if (document.body.classList.contains("play") && benches.length) {
     if (!m) return;
     try {
       bench.editor.value = await unpack(m[1]);
+      bench.show(bench.tab);
     } catch {
       bench.say("that link holds no code");
     }
@@ -752,6 +758,8 @@ if (document.body.classList.contains("play") && benches.length) {
     if (bench.running) bench.stop();
     bench.removeStage();
     bench.editor.value = ex.code;
+    // the Expanded view, when open, follows the new code
+    bench.show(bench.tab);
     bench.output.classList.remove("shown");
     history.replaceState(null, "", location.pathname);
   });

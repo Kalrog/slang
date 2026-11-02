@@ -74,7 +74,8 @@ local func code_block(code){
 // makes live (data-editor), with a Run button and an output pane. Options:
 // format, reset and open (buttons); class; prefix, a line the code runs
 // after unseen (an extension statement); expanded, the code's expansion,
-// for an Example / Expanded toggle.
+// for an Example / Expanded toggle, or true for a Code / Expanded toggle
+// that expands in the browser when opened.
 local func editor(code, options){
   options = options or {}
   local tools = {
@@ -95,12 +96,17 @@ local func editor(code, options){
   }
   local tabs = ""
   if(options.expanded != null){
+    local lazy = options.expanded == true
     tabs = concat(
       "<div class=\"tabs\" role=\"tablist\">",
-      "<button role=\"tab\" aria-selected=\"true\" data-tab=\"code\">Example</button>",
+      "<button role=\"tab\" aria-selected=\"true\" data-tab=\"code\">",
+      lazy and "Code" or "Example",
+      "</button>",
       "<button role=\"tab\" aria-selected=\"false\" data-tab=\"expanded\">Expanded</button>",
-      "</div><pre class=\"code expanded-view\" data-expanded hidden><code>",
-      highlight(options.expanded),
+      "</div><pre class=\"code expanded-view\" data-expanded",
+      lazy and "=\"lazy\"" or "",
+      " hidden><code>",
+      lazy and "" or highlight(options.expanded),
       "</code></pre>",
     )
   }
@@ -135,7 +141,6 @@ local func editor(code, options){
 local NAV = {
   {key: "tour", href: "tour/", label: "Tour"},
   {key: "play", href: "play/", label: "Playground"},
-  {key: "siege", href: "siege/", label: "Siege"},
   {key: "docs", href: "docs/", label: "Docs"},
 }
 
@@ -357,6 +362,19 @@ local RAYLIB_EXAMPLES = {
   {title: "Tower: 3D physics (Jolt)", path: "examples/physics/tower.slang"},
 }
 
+// every extension in extensions/ by path, as the playground's VM finds
+// them next to main.slang
+local func extension_files(){
+  local files = {}
+  for(let local f in values(sorted(os.list_dir("extensions")))){
+    if(str.ends_with(f, ".slang")){
+      local path = concat("extensions/", f)
+      files[path] = os.read_file(path)
+    }
+  }
+  return files
+}
+
 local func build_playground(pages){
   local examples = {}
   for(let local p in values(pages)){
@@ -392,12 +410,19 @@ local func build_playground(pages){
     str.join(options, ""),
     "</select></label>",
     "<button class=\"btn ghost\" data-share>Share</button></div>",
-    editor(first.code, {format: true, class: "big"}),
+    editor(first.code, {format: true, class: "big", expanded: true}),
     "<p class=\"note\">Runs in your browser as WebAssembly. Modules that ",
     "need the operating system (files, processes, networking, the FFI) are ",
-    "not available here; everything else is the real slang.</p>",
+    "not available here; everything else is the real slang, and ",
+    "<code>extension \"extensions/html\"</code> and the other ",
+    "<a href=\"../docs/\">extensions</a> load as they do at home. ",
+    "Expanded shows the code after macros and extensions have run.</p>",
     "<script type=\"application/json\" id=\"examples\">",
     str.replace(json.encode(examples), "</", "<\\/"),
+    "</script>",
+    // the extensions' sources, for programs that load one
+    "<script type=\"application/json\" id=\"ext-files\">",
+    str.replace(json.encode(extension_files()), "</", "<\\/"),
     "</script>",
     "</main>",
   )
@@ -411,6 +436,8 @@ local func build_playground(pages){
 }
 
 // ------------------------------------------------------------ siege
+//
+// Not built for now (see the end of the file).
 
 // The game page: Siege (examples/siege) runs on the graphics VM as it
 // is, its files carried by the page (the font as base64); the sources
@@ -815,7 +842,8 @@ copy_assets()
 build_home()
 build_tour(pages)
 build_playground(pages)
-build_siege()
+// (the Siege page is off until the game is ready: build_siege() brings
+// it back, with its link in NAV and its section on the home page)
 local status = build_docs()
 print("website: ", out, "/index.html\n")
 os.exit(status)

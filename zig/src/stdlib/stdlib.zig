@@ -43,10 +43,10 @@ pub const Property = struct {
     set: ?NativeFn = null,
 };
 
-/// Makes meta the metatable of objects with methods and properties: its
-/// __index reads a property through its getter and otherwise finds the
-/// method, its __newindex writes a property through its setter (and
-/// raises for anything else: a native object has no fields of its own).
+/// Makes meta the metatable of objects with methods and properties: the
+/// methods in its __index table, the getters in __get and the setters in
+/// __set (a property without a setter is read-only); its __newindex
+/// raises for anything else (a native object has no fields of its own).
 pub fn setClass(vm: *VM, meta: *Table, methods: []const Native, props: []const Property) void {
     const m = makeModule(vm, methods);
     const getters = vm.newTable(0, props.len);
@@ -55,35 +55,20 @@ pub fn setClass(vm: *VM, meta: *Table, methods: []const Native, props: []const P
         if (p.get) |g| getters.set(vm.gpa, vm.str(p.name), .{ .function = vm.newNative(p.name, g, &.{}) });
         if (p.set) |f| setters.set(vm.gpa, vm.str(p.name), .{ .function = vm.newNative(p.name, f, &.{}) });
     }
-    meta.set(vm.gpa, vm.str("__index"), .{ .function = vm.newNative("__index", classIndex, &.{
-        .{ .table = m }, .{ .table = getters },
-    }) });
+    meta.set(vm.gpa, vm.str("__index"), .{ .table = m });
+    meta.set(vm.gpa, vm.str("__get"), .{ .table = getters });
+    meta.set(vm.gpa, vm.str("__set"), .{ .table = setters });
     meta.set(vm.gpa, vm.str("__newindex"), .{ .function = vm.newNative("__newindex", classNewIndex, &.{
-        .{ .table = getters }, .{ .table = setters }, .{ .table = m },
+        .{ .table = m },
     }) });
-}
-
-fn classIndex(th: *vm_mod.Thread, args: []Value) Error!Value {
-    const nv = th.currentClosure().nvals;
-    const key = if (args.len > 1) args[1] else Value.null;
-    const g = nv[1].table.get(key);
-    if (g != .null) return th.call(g, &.{args[0]});
-    return nv[0].table.get(key);
 }
 
 fn classNewIndex(th: *vm_mod.Thread, args: []Value) Error!Value {
     const nv = th.currentClosure().nvals;
     const key = if (args.len > 1) args[1] else Value.null;
-    const v = if (args.len > 2) args[2] else Value.null;
-    const s = nv[1].table.get(key);
-    if (s != .null) {
-        _ = try th.call(s, &.{ args[0], v });
-        return .null;
-    }
     const name = if (key == .string) key.string.bytes() else "?";
     const what = if (args[0] == .userdata) args[0].userdata.tname else args[0].typeName();
-    if (nv[0].table.get(key) != .null) return th.vm.raise("{s}.{s} is read-only", .{ what, name });
-    if (nv[2].table.get(key) != .null) return th.vm.raise("{s}.{s} is a method", .{ what, name });
+    if (nv[0].table.get(key) != .null) return th.vm.raise("{s}.{s} is a method", .{ what, name });
     return th.vm.raise("{s} has no field {s} to set", .{ what, name });
 }
 

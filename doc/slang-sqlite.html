@@ -61,6 +61,9 @@ db:close()</code></pre>
 <li><a href="#type-Row"><code>type Row</code></a></li>
 <li><a href="#type-RunResult"><code>type RunResult</code></a></li>
 <li><a href="#type-Database"><code>type Database</code></a></li>
+<li><a href="#Database.changes"><code>Database.changes</code></a></li>
+<li><a href="#Database.last_insert_rowid"><code>Database.last_insert_rowid</code></a></li>
+<li><a href="#Database.open"><code>Database.open</code></a></li>
 <li><a href="#Database:all"><code>Database:all</code></a></li>
 <li><a href="#Database:one"><code>Database:one</code></a></li>
 <li><a href="#Database:run"><code>Database:run</code></a></li>
@@ -108,6 +111,18 @@ db:close()</code></pre>
 <dl class="params"><dt><code>changes: int</code></dt><dd>the number of rows inserted, updated or deleted</dd><dt><code>last_insert_rowid: int</code></dt><dd>the rowid of the last inserted row</dd></dl>
 <h2 id="type-Database">type Database</h2>
 <p>An open database, from <a href="#open"><code>open</code></a>.</p>
+<div class="def" id="Database.changes"><h3><code>Database.changes: int (read-only)</code></h3>
+<p>The rows the last statement inserted, updated or deleted.</p>
+
+</div>
+<div class="def" id="Database.last_insert_rowid"><h3><code>Database.last_insert_rowid: int (read-only)</code></h3>
+<p>The rowid of the last inserted row.</p>
+
+</div>
+<div class="def" id="Database.open"><h3><code>Database.open: bool (read-only)</code></h3>
+<p>False once closed.</p>
+
+</div>
 <div class="def" id="Database:all"><h3><code>Database:all(q: <a href="#type-Query">Query</a> | string, values?: {any}) -> {<a href="#type-Row">Row</a>}</code></h3>
 <p>The rows a query returns. q is a query, or SQL text with values for its ? (as for all of these methods).</p>
 

@@ -58,6 +58,7 @@ async.await(async.write(conn, &quot;GET / HTTP/1.1\r\nHost: example.com\r\n\r\n&
 <li><a href="#type-Certificate"><code>type Certificate</code></a></li>
 <li><a href="#type-ConnectOptions"><code>type ConnectOptions</code></a></li>
 <li><a href="#type-Connection"><code>type Connection</code></a></li>
+<li><a href="#Connection.info"><code>Connection.info</code></a></li>
 <li><a href="#Connection:handshake"><code>Connection:handshake</code></a></li>
 <li><a href="#Connection:read_start"><code>Connection:read_start</code></a></li>
 <li><a href="#Connection:read_stop"><code>Connection:read_stop</code></a></li>
@@ -108,6 +109,10 @@ async.await(async.write(conn, &quot;GET / HTTP/1.1\r\nHost: example.com\r\n\r\n&
 <dl class="params"><dt><code>context?: <a href="#type-Context">Context</a></code></dt><dd>a context to use instead of one made from the options</dd><dt><code>server_name?: string</code></dt><dd>the name to ask for and verify (the host by default)</dd><dt><code>ca?: string</code></dt><dd></dd><dt><code>ca_file?: string</code></dt><dd></dd><dt><code>cert?: string</code></dt><dd></dd><dt><code>cert_file?: string</code></dt><dd></dd><dt><code>verify?: bool</code></dt><dd></dd><dt><code>alpn?: {string}</code></dt><dd></dd><dt><code>min_version?: string</code></dt><dd></dd></dl>
 <h2 id="type-Connection">type Connection</h2>
 <p>A TLS connection over a uv.tcp handle; type(conn) is &quot;tls.Connection&quot;. It also has the handle's getsockname, getpeername, nodelay, keepalive, is_closing, is_active, fileno, ref, unref and has_ref, which go to the TCP handle.</p>
+<div class="def" id="Connection.info"><h3><code>Connection.info: Info (read-only)</code></h3>
+<p>The protocol version, cipher, ALPN protocol, peer and server name.</p>
+
+</div>
 <div class="def" id="Connection:handshake"><h3><code>Connection:handshake() -> <a href="slang-async.html#type-Future">async.Future</a></code></h3>
 <p>A Future of the connection once the handshake is done (at once when it is); it fails with the handshake's error.</p>
 

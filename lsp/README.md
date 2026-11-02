@@ -24,7 +24,8 @@ grammar's keywords, module names in `require("...")`), `signatureHelp`,
 properties (the keys of a metatable's `__get` and `__set`, also along its
 `__index` chain: hover shows the getter's doc and its declared result as
 the property's type, definition goes to the getter, completion lists them
-and follows what the getter returns),
+and follows what the getter returns; a bare `// type Name` above a
+metatable is the type of the objects it is the meta of),
 lint warnings with the parse errors (unused locals, globals no project
 file defines, requires of missing modules, computed requires;
 `initializationOptions.lint: false` turns them off), `formatting` and

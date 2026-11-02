@@ -31,7 +31,6 @@ local os = require("slang/os")
 local math = require("slang/math")
 local str = require("slang/string")
 local names = require("box2d/names")
-local class_lib = require("slang/class")
 local snake = names.snake
 
 // ------------------------------------------------------------ the library
@@ -190,26 +189,6 @@ local classes = {}
 local wrap_result = null
 local wrap_callback = null
 
-// a class of wrapper: hand-written methods and properties ({get, set}),
-// and Box2D's b2<Prefix>_* functions along its chain for the rest
-local func define_class(name, chain, methods, properties){
-  local links = {}
-  for(let local prefix in values(chain)){
-    append(links, {prefix: prefix, snake: snake(prefix)})
-  }
-  local class = class_lib.new({
-    name: concat("box2d.", name),
-    methods: methods,
-    properties: properties,
-    resolve: func(key){
-      return classes.resolve(links, key)
-    },
-  })
-  class.links = links
-  class.name = name
-  return class
-}
-
 // the C function under a slang name, with defs laid over their defaults,
 // wrappers standing for their ids and slang functions given for Box2D's
 // callbacks seeing wrappers too
@@ -289,14 +268,93 @@ local func arity(decl){
   return len(decl.params) - 1
 }
 
-// a key of a class along its chain: a Box2D function of that name is a
-// method; get_<key> or is_<key> without arguments is the read side of a
-// property and set_<key> with one its write side (IsXEnabled pairs with
-// EnableX(bool) as x_enabled, IsEnabled with Enable/Disable as enabled);
-// those get_/set_ names themselves are gone, while getters and setters
-// that take more stay methods
-func classes.resolve(links, key){
-  for(let local pre in values({"get_", "is_", "set_"})){
+local accessor_prefixes = {"get_", "is_", "set_"}
+
+// the property key of a chain names, as {get?, set?}: each a function that
+// binds that side; null when neither, or when a Box2D function of that
+// name is a method. get_<key> or is_<key> without arguments reads it,
+// set_<key> with one writes it (IsXEnabled pairs with EnableX(bool) as
+// x_enabled, IsEnabled with Enable/Disable as enabled)
+func classes.property(links, key){
+  for(let local pre in values(accessor_prefixes)){
+    if(str.starts_with(key, pre)){
+      return null
+    }
+  }
+  if(find_c(links, key) != null){
+    return null
+  }
+  local r = {}
+  for(let local pre in values({"get_", "is_"})){
+    local g = find_c(links, concat(pre, key))
+    if(g != null and arity(g) == 0){
+      r.get = func(){ return bind_method(g, key) }
+      break
+    }
+  }
+  local set = find_c(links, concat("set_", key))
+  if(set != null and arity(set) == 1){
+    r.set = func(){ return bind_method(set, key) }
+  } else if(str.ends_with(key, "_enabled")){
+    local base = str.substring(key, 0, len(key) - 8)
+    local enable = find_c(links, concat("enable_", base))
+    if(enable != null and arity(enable) == 1){
+      r.set = func(){ return bind_method(enable, key) }
+    }
+  } else if(key == "enabled"){
+    local on = find_c(links, "enable")
+    local off = find_c(links, "disable")
+    if(on != null and off != null and arity(on) == 0){
+      r.set = func(){
+        local f_on = bind_method(on, "enable")
+        local f_off = bind_method(off, "disable")
+        return func(self, v){
+          if(v){ f_on(self) } else { f_off(self) }
+        }
+      }
+    }
+  }
+  if(r.get == null and r.set == null){
+    return null
+  }
+  return r
+}
+
+// the keys a chain has properties for
+func classes.property_keys(links){
+  local out = {}
+  local seen = {}
+  local func try(key){
+    if(not seen[key] and classes.property(links, key) != null){
+      seen[key] = true
+      append(out, key)
+    }
+  }
+  for(let local link in values(links)){
+    local head = concat(link.snake, "_")
+    for(let local name in keys(c_names)){
+      if(str.starts_with(name, head)){
+        local rest = str.substring(name, len(head))
+        for(let local pre in values(accessor_prefixes)){
+          if(str.starts_with(rest, pre)){
+            try(str.substring(rest, len(pre)))
+            break
+          }
+        }
+        if(rest == "enable"){
+          try("enabled")
+        }
+      }
+    }
+  }
+  return out
+}
+
+// a method of a chain: the Box2D function of that name; get_/is_ and set_
+// names that a property replaces are gone (they raise and say so), while
+// getters and setters that take more stay methods
+func classes.method(links, key){
+  for(let local pre in values(accessor_prefixes)){
     if(str.starts_with(key, pre)){
       local decl = find_c(links, key)
       if(decl == null){
@@ -305,53 +363,99 @@ func classes.resolve(links, key){
       local n = arity(decl)
       local name = str.substring(key, len(pre))
       if(pre == "set_" and n == 1){
-        return {gone: concat("assign the property (x.", name, " = v)")}
+        error("box2d: ", key, " is gone: assign the property (x.", name, " = v)")
       }
       if(pre != "set_" and n == 0){
-        return {gone: concat("read the property (x.", name, ")")}
+        error("box2d: ", key, " is gone: read the property (x.", name, ")")
       }
-      return {method: bind_method(decl, key)}
+      return bind_method(decl, key)
     }
   }
   local decl = find_c(links, key)
   if(decl != null){
-    return {method: bind_method(decl, key)}
+    return bind_method(decl, key)
   }
-  local r = {}
-  for(let local pre in values({"get_", "is_"})){
-    local g = find_c(links, concat(pre, key))
-    if(g != null and arity(g) == 0){
-      local f = bind_method(g, key)
-      r.get = func(self){ return f(self) }
-      break
-    }
+  return null
+}
+
+// an accessor, bound when first called (it then takes its place in table)
+local func lazy_accessor(table, key, bind){
+  return func(self, ...args){
+    local f = bind()
+    table[key] = f
+    return f(self, ...args)
   }
-  local set = find_c(links, concat("set_", key))
-  if(set != null and arity(set) == 1){
-    local f = bind_method(set, key)
-    r.set = func(self, v){ f(self, v) }
-  } else if(str.ends_with(key, "_enabled")){
-    local base = str.substring(key, 0, len(key) - 8)
-    local enable = find_c(links, concat("enable_", base))
-    if(enable != null and arity(enable) == 1){
-      local f = bind_method(enable, key)
-      r.set = func(self, v){ f(self, v) }
-    }
-  } else if(key == "enabled"){
-    local on = find_c(links, "enable")
-    local off = find_c(links, "disable")
-    if(on != null and off != null and arity(on) == 0){
-      local f_on = bind_method(on, "enable")
-      local f_off = bind_method(off, "disable")
-      r.set = func(self, v){
-        if(v){ f_on(self) } else { f_off(self) }
+}
+
+// the properties of a class's functions, except those it has methods,
+// getters or setters of by hand: done once the package's file has run
+// (hand-written ones are defined after their classes)
+local func add_properties(class){
+  local methods = class.methods
+  local getters = class.getters
+  local setters = class.setters
+  for(let local key in values(classes.property_keys(class.links))){
+    if(methods[key] == null and getters[key] == null and setters[key] == null){
+      local p = classes.property(class.links, key)
+      if(p.get != null){
+        getters[key] = lazy_accessor(getters, key, p.get)
+      }
+      if(p.set != null){
+        setters[key] = lazy_accessor(setters, key, p.set)
       }
     }
   }
-  if(r.get == null and r.set == null){
-    return null
+}
+classes.pending = {}
+classes.finished = false
+
+// a class of wrapper: hand-written methods, getters and setters, and
+// Box2D's b2<Prefix>_* functions along its chain for the rest: a property
+// for each getter and setter (bound when first used; a hand-written one
+// assigned later replaces it), a method for each other function (bound
+// when first looked up)
+local func define_class(name, chain, methods, getters, setters){
+  local links = {}
+  for(let local prefix in values(chain)){
+    append(links, {prefix: prefix, snake: snake(prefix)})
   }
-  return r
+  getters = getters or {}
+  setters = setters or {}
+  // the methods as found: the hand-written ones (which classes may
+  // share), then Box2D's; each looked up once and kept
+  local found = {}
+  local missing = {}
+  found.meta = {
+    __index: func(t, key){
+      if(type(key) != "string" or missing[key]){
+        return null
+      }
+      local f = methods[key] or classes.method(links, key)
+      if(f == null){
+        missing[key] = true
+        return null
+      }
+      set_raw(t, key, f)
+      return f
+    },
+  }
+  local class = {
+    name: name, links: links, methods: methods, getters: getters,
+    setters: setters
+  }
+  class.meta = {
+    __type: concat("box2d.", name),
+    __index: found,
+    __get: getters,
+    __set: setters,
+    __class: class,
+  }
+  if(classes.finished){
+    add_properties(class)
+  } else {
+    append(classes.pending, class)
+  }
+  return class
 }
 
 // A world: everything happens in one. Every world_* function of Box2D is
@@ -368,26 +472,29 @@ local World = define_class("World", {"World"}, world_methods)
 // type Body
 // [world]: the world it is in
 // [key]: an int, the same for the same body: key tables by it
-// [position]: Vec2: assigning moves the body (b2Body_SetTransform)
-// [rotation]: Rot: assigning turns the body
 local body_methods = {}
-// position and rotation are written through SetTransform (Box2D has no
-// setter of one alone)
-local body_properties = {
-  position: {
-    get: func(b){ return lib.b2Body_GetPosition(b.id) },
-    set: func(b, p){
-      lib.b2Body_SetTransform(b.id, p, lib.b2Body_GetRotation(b.id))
-    },
-  },
-  rotation: {
-    get: func(b){ return lib.b2Body_GetRotation(b.id) },
-    set: func(b, q){
-      lib.b2Body_SetTransform(b.id, lib.b2Body_GetPosition(b.id), q)
-    },
-  },
+local body_get = {}
+local body_set = {}
+
+// position(self) -> Vec2
+// Where the body is; assigning moves it (b2Body_SetTransform: Box2D has no
+// setter of the position alone).
+func body_get.position(b){
+  return lib.b2Body_GetPosition(b.id)
 }
-local Body = define_class("Body", {"Body"}, body_methods, body_properties)
+func body_set.position(b, p){
+  lib.b2Body_SetTransform(b.id, p, lib.b2Body_GetRotation(b.id))
+}
+
+// rotation(self) -> Rot
+// How the body is turned; assigning turns it.
+func body_get.rotation(b){
+  return lib.b2Body_GetRotation(b.id)
+}
+func body_set.rotation(b, q){
+  lib.b2Body_SetTransform(b.id, lib.b2Body_GetPosition(b.id), q)
+}
+local Body = define_class("Body", {"Body"}, body_methods, body_get, body_set)
 
 // A shape on a body: every shape_* function is a method or property
 // (shape.friction, shape:test_point(p), shape.aabb).
@@ -1309,5 +1416,12 @@ b2.meta = {
 b2.__classes = {World: World, Body: Body, Shape: Shape, Chain: Chain, Joint: joint_class("revolute")}
 b2.__joint_kinds = joint_kinds
 b2.__is_free = is_free
+
+// the classes' properties, now that every hand-written definition is in
+for(let local class in values(classes.pending)){
+  add_properties(class)
+}
+classes.pending = null
+classes.finished = true
 
 return b2

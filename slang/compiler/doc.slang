@@ -329,10 +329,111 @@ local func methods_of(index, table, type_name){
   return list
 }
 
+// the table a field of a meta holds (__index: methods, __get: {...}): the
+// local it names, or the field itself for a table literal
+local func table_of(index, f){
+  if(f == null or f.value == null){
+    return null
+  }
+  if(f.value.type == "Table"){
+    return f
+  }
+  if(f.value.type != "Identifier" or f.value.token == null){
+    return null
+  }
+  local r = index.by_start[f.value.token.start]
+  if(r != null and r.kind == null){
+    r = r.def
+  }
+  if(r == null or r.fields == null){
+    return null
+  }
+  return r
+}
+
+// whether a table definition is a meta: it has __index, __get or __set
+local func is_meta(d){
+  local f = d.fields or {}
+  return f.__index != null or f.__get != null or f.__set != null
+}
+
+// the properties of a meta: entries "Type.name: T" for the keys of its
+// __get and __set, documented by the getter (else the setter): its prose,
+// and its declared result (a setter's second parameter) as the type
+local func properties_of(index, meta, type_name){
+  local getters = table_of(index, meta.fields.__get)
+  local setters = table_of(index, meta.fields.__set)
+  local list = {}
+  local by = {}
+  for(let local d in values(index.defs)){
+    if(d.kind == "field" and d.owner != null and
+      (d.owner == getters or d.owner == setters)){
+      local p = by[d.name]
+      if(p == null){
+        p = {
+          name: concat(type_name, ".", d.name), start: d.start, method: false,
+          property: true, readable: false, writable: false, info: {items: {}}
+        }
+        by[d.name] = p
+        append(list, p)
+      }
+      local getter = d.owner == getters
+      if(getter){
+        p.readable = true
+      } else {
+        p.writable = true
+      }
+      // the getter's doc comes first
+      if(d.doc != null and (p.doc == null or getter)){
+        local sig = d.info.signature
+        p.doc = d.doc
+        p.info = {items: d.info.items, prose: d.info.prose}
+        p.type = null
+        if(sig != null){
+          p.info.prose = d.info.prose or (sig.result and sig.result.text)
+          if(getter and sig.result != null){
+            p.type = sig.result.type
+          } else if(not getter and len(sig.params) > 1){
+            p.type = sig.params[1].type
+          }
+        }
+      }
+    }
+  }
+  for(let local e in entries(by)){
+    local p = e[1]
+    local sig = concat(type_name, ".", e[0])
+    if(p.type != null){
+      sig = concat(sig, ": ", symbols.type_text(p.type))
+    }
+    if(not p.writable){
+      sig = concat(sig, " (read-only)")
+    } else if(not p.readable){
+      sig = concat(sig, " (write-only)")
+    }
+    p.signature = sig
+  }
+  return list
+}
+
+// the entries of a meta's type: its properties, then the methods of its
+// __index table
+local func meta_entries(index, meta, type_name){
+  local list = properties_of(index, meta, type_name)
+  local methods = table_of(index, meta.fields.__index)
+  if(methods != null){
+    for(let local e in values(methods_of(index, methods, type_name))){
+      append(list, e)
+    }
+  }
+  return list
+}
+
 // the types a file defines: those its doc comments declare (`type Name =
-// {...}` with its fields, `type Name` above the table of its methods), and
-// a table with __index and __type, the meta of a type whose methods are the
-// fields of the __index table; one section per type
+// {...}` with its fields, `type Name` above the table of its methods or
+// above its meta), and a table with __index, __get or __set and __type,
+// the meta of a type whose methods are the fields of the __index table
+// and whose properties the keys of __get and __set; one section per type
 local func type_sections(index){
   local out = {}
   local declared_tables = {}
@@ -349,7 +450,15 @@ local func type_sections(index){
     }
     if(t.table != null){
       declared_tables[t.table] = name
-      sec.defs = methods_of(index, t.table, name)
+      if(is_meta(t.table)){
+        local methods = table_of(index, t.table.fields.__index)
+        if(methods != null){
+          declared_tables[methods] = name
+        }
+        sec.defs = meta_entries(index, t.table, name)
+      } else {
+        sec.defs = methods_of(index, t.table, name)
+      }
     }
     by_name[name] = sec
     append(out, sec)
@@ -357,19 +466,13 @@ local func type_sections(index){
   for(let local d in values(index.defs)){
     local fields = d.fields or {}
     local t = fields.__type
-    local methods = fields.__index
-    if(d.kind != "field" and t != null and methods != null and
-      t.value != null and t.value.type == "String" and methods.value != null and
-      methods.value.type == "Identifier" and methods.value.token != null){
-      local r = index.by_start[methods.value.token.start]
-      local table = r
-      if(r != null and r.kind == null){
-        table = r.def
-      }
-      if(table != null and table.fields != null and
-        declared_tables[table] == null){
+    if(d.kind != "field" and t != null and is_meta(d) and
+      t.value != null and t.value.type == "String" and
+      declared_tables[d] == null){
+      local methods = table_of(index, fields.__index)
+      if(methods == null or declared_tables[methods] == null){
         local type_name = t.value.value
-        local list = methods_of(index, table, type_name)
+        local list = meta_entries(index, d, type_name)
         if(len(list) > 0 and by_name[type_name] != null){
           for(let local e in values(list)){
             append(by_name[type_name].defs, e)

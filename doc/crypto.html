@@ -65,6 +65,9 @@ crypto.hasher(&quot;sha256&quot;):update(&quot;a&quot;):update(&quot;bc&quot;):d
 <li><a href="#Hasher:update"><code>Hasher:update</code></a></li>
 <li><a href="#Hasher:digest"><code>Hasher:digest</code></a></li>
 <li><a href="#type-Key"><code>type Key</code></a></li>
+<li><a href="#Key.type"><code>Key.type</code></a></li>
+<li><a href="#Key.bits"><code>Key.bits</code></a></li>
+<li><a href="#Key.private"><code>Key.private</code></a></li>
 <li><a href="#Key:sign"><code>Key:sign</code></a></li>
 <li><a href="#Key:verify"><code>Key:verify</code></a></li>
 <li><a href="#Key:public_pem"><code>Key:public_pem</code></a></li>
@@ -150,6 +153,18 @@ crypto.hasher(&quot;sha256&quot;):update(&quot;a&quot;):update(&quot;bc&quot;):d
 </div>
 <h2 id="type-Key">type Key</h2>
 <p>A private or public key (RSA, EC, Ed25519, ...) from <a href="#private_key"><code>private_key</code></a>, <a href="#public_key"><code>public_key</code></a> or <a href="#generate_key"><code>generate_key</code></a>; type(key) is &quot;crypto.key&quot;.</p>
+<div class="def" id="Key.type"><h3><code>Key.type: string (read-only)</code></h3>
+<p>&quot;rsa&quot;, &quot;rsa-pss&quot;, &quot;ec&quot;, &quot;ed25519&quot;, &quot;ed448&quot; or &quot;other&quot;.</p>
+
+</div>
+<div class="def" id="Key.bits"><h3><code>Key.bits: int (read-only)</code></h3>
+<p>The size of the key in bits (521 for a P-521 key).</p>
+
+</div>
+<div class="def" id="Key.private"><h3><code>Key.private: bool (read-only)</code></h3>
+<p>Whether the key holds the private half.</p>
+
+</div>
 <div class="def" id="Key:sign"><h3><code>Key:sign(digest: string?, data: string, options?: <a href="#type-SignOptions">SignOptions</a>) -> string</code></h3>
 <p>The signature of data; needs a private key. Ed25519 ignores the digest (pass null).</p>
 

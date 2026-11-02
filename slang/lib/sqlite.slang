@@ -36,7 +36,6 @@
 
 local native = require("sqlite")
 local str = require("slang/string")
-local class = require("slang/class")
 local sqlite = {}
 
 // The native extension under this module: open(path) -> a connection with
@@ -195,31 +194,41 @@ local func resolve(q, values){
 
 // ------------------------------------------------------------ databases
 
+local db_methods = {}
+local db_get = {}
+
 // An open database, from [open].
 // type Database
 // [path]: the file it was opened from (or ":memory:")
-// [changes]: the rows the last statement inserted, updated or deleted
-// [last_insert_rowid]: the rowid of the last inserted row
-// [open]: false once closed
-local db_methods = {}
-local Database = class.new({
-  name: "sqlite.Database",
-  methods: db_methods,
-  properties: {
-    changes: {get: func(db){ return db.handle:changes() }},
-    last_insert_rowid: {get: func(db){ return db.handle:last_insert_rowid() }},
-    open: {get: func(db){ return db.handle:is_open() }},
-  },
-})
+local db_meta = {__type: "sqlite.Database", __index: db_methods, __get: db_get}
+
+// changes(self) -> int
+// The rows the last statement inserted, updated or deleted.
+func db_get.changes(db){
+  return db.handle:changes()
+}
+
+// last_insert_rowid(self) -> int
+// The rowid of the last inserted row.
+func db_get.last_insert_rowid(db){
+  return db.handle:last_insert_rowid()
+}
+
+// open(self) -> bool
+// False once closed.
+func db_get.open(db){
+  return db.handle:is_open()
+}
+
 local CACHE_SIZE = 64
 
 // open(path: string) -> Database
 // Opens a database file, created when missing; ":memory:" opens one in
 // memory. Raises when it cannot be opened.
 func sqlite.open(path){
-  return class.make(Database, {
-    handle: native.open(path), path: path, cache: {}, cached: 0
-  })
+  return {
+    meta: db_meta, handle: native.open(path), path: path, cache: {}, cached: 0
+  }
 }
 
 local func message_of(e){

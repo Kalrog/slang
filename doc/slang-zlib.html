@@ -58,6 +58,7 @@ c.done   // true</code></pre>
 <li><a href="#compressor"><code>compressor</code></a></li>
 <li><a href="#decompressor"><code>decompressor</code></a></li>
 <li><a href="#type-Stream"><code>type Stream</code></a></li>
+<li><a href="#Stream.done"><code>Stream.done</code></a></li>
 <li><a href="#Stream:push"><code>Stream:push</code></a></li>
 <li><a href="#Stream:flush"><code>Stream:flush</code></a></li>
 <li><a href="#Stream:finish"><code>Stream:finish</code></a></li>
@@ -88,6 +89,10 @@ c.done   // true</code></pre>
 </div>
 <h2 id="type-Stream">type Stream</h2>
 <p>A compressor or decompressor fed in chunks, from <a href="#compressor"><code>compressor</code></a> or <a href="#decompressor"><code>decompressor</code></a>.</p>
+<div class="def" id="Stream.done"><h3><code>Stream.done: bool (read-only)</code></h3>
+<p>Whether <a href="#Stream:finish"><code>Stream.finish</code></a> was called.</p>
+
+</div>
 <div class="def" id="Stream:push"><h3><code>Stream:push(chunk: string) -> string</code></h3>
 <p>Feeds a chunk; returns what is ready of the output (maybe &quot;&quot;).</p>
 

@@ -19,14 +19,22 @@
 // character.
 local m = {}
 
+local regex_methods = {}
+local regex_get = {}
+
 // A compiled pattern, from [compile]; type() of it is "regex", and
 // string(re) is "regex(<pattern>)".
 // type Regex
-// [pattern]: the source of the pattern
-// [group_names]: the name of each group by number: index 0 (the whole
-//   match) and unnamed groups are ""
-local regex_methods = {}
-local regex_meta = {__index: regex_methods, __type: "regex"}
+local regex_meta = {__index: regex_methods, __get: regex_get, __type: "regex"}
+
+// pattern(self) -> string
+// The source of the pattern.
+func regex_get.pattern(self){}
+
+// group_names(self) -> {string}
+// The name of each group by number: index 0 (the whole match) and unnamed
+// groups are "".
+func regex_get.group_names(self){}
 
 // A match, from [Regex.find] and [Regex.find_all].
 // type Match = {text: string, start: int, end: int, groups: {string},

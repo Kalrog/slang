@@ -17,14 +17,25 @@ local m = {}
 local hasher_methods = {}
 local hasher_meta = {__index: hasher_methods, __type: "crypto.hasher"}
 
+local key_methods = {}
+local key_get = {}
+
 // A private or public key (RSA, EC, Ed25519, ...) from [private_key],
 // [public_key] or [generate_key]; type(key) is "crypto.key".
 // type Key
-// [type]: "rsa", "rsa-pss", "ec", "ed25519", "ed448" or "other"
-// [bits]: the size of the key in bits (521 for a P-521 key)
-// [private]: whether the key holds the private half
-local key_methods = {}
-local key_meta = {__index: key_methods, __type: "crypto.key"}
+local key_meta = {__index: key_methods, __get: key_get, __type: "crypto.key"}
+
+// type(self) -> string
+// "rsa", "rsa-pss", "ec", "ed25519", "ed448" or "other".
+func key_get.type(self){}
+
+// bits(self) -> int
+// The size of the key in bits (521 for a P-521 key).
+func key_get.bits(self){}
+
+// private(self) -> bool
+// Whether the key holds the private half.
+func key_get.private(self){}
 
 // ------------------------------------------------------------ hashes and MACs
 

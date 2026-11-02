@@ -253,6 +253,7 @@ local func doc_block_above(i){
 
 local functions = {}
 local methods = {}
+local accessors = {}
 local fields = {}
 for(local i = 0; i < len(source); i = i + 1){
   local l = source[i]
@@ -276,6 +277,17 @@ for(local i = 0; i < len(source); i = i + 1){
       methods[table] = {}
     }
     append(methods[table], {name: name, params: params, lines: doc_block_above(i)})
+  } else if(str.starts_with(l, "func ") and
+    (str.index_of(l, "_get.") > 0 or str.index_of(l, "_set.") > 0)){
+    // a hand-written property: <class>_get.name, <class>_set.name
+    local dot = str.index_of(l, ".")
+    local table = str.substring(l, 5, dot)
+    local name = str.substring(l, dot + 1, str.index_of(l, "("))
+    local params = str.substring(l, str.index_of(l, "(") + 1, str.index_of(l, ")"))
+    if(accessors[table] == null){
+      accessors[table] = {}
+    }
+    append(accessors[table], {name: name, params: params, lines: doc_block_above(i)})
   } else if(str.starts_with(l, "jolt.") and str.index_of(l, " = ") > 0 and
     str.index_of(l, "jolt.__") != 0){
     local name = str.substring(l, 5, str.index_of(l, " = "))
@@ -384,7 +396,12 @@ for(let local name in values({
   } else {
     links = links_of(jolt.__classes[name])
   }
-  append(class_list, {name: name, links: links, table: concat(snake(name), "_methods")})
+  local base = snake(name)
+  append(class_list, {
+    name: name, links: links, table: concat(base, "_methods"),
+    get_table: concat(base, "_get"), set_table: concat(base, "_set"),
+    meta_table: concat(base, "_meta")
+  })
 }
 
 // whether a joltc function is a method of a link: its first parameter is
@@ -596,7 +613,7 @@ local func property_of(f, name, from){
       } else if(len(outs) > 1){
         t = concat("{", str.join(outs, ", "), "}")
       }
-      return {name: str.substring(name, len(pre)), get: t}
+      return {name: str.substring(name, len(pre)), get: t, f: f}
     }
   }
   for(let local pre in values({"set_is_", "set_"})){
@@ -608,18 +625,32 @@ local func property_of(f, name, from){
           t = slang_type(p.type, p.name)
         }
       }
-      return {name: str.substring(name, len(pre)), set: t}
+      return {name: str.substring(name, len(pre)), set: t, f: f}
     }
   }
   return null
 }
 
-// the classes: the type's comment block with its properties, its methods
-// table, the methods written by hand, then the generic ones
+// the C declaration of a joltc function, for a doc
+local func c_line(f){
+  local cparams = {}
+  for(let local p in values(f.params)){
+    append(cparams, cparam(p.type, p.name))
+  }
+  return concat("C: `", cparam(f.ret, f.name), "(", str.join(cparams, ", "), ")`")
+}
+
+// the classes: their methods, getters and setters tables, the type's
+// comment block above its meta, the methods and properties written by
+// hand, then the generic ones
 local method_count = 0
 local property_count = 0
 for(let local class in values(class_list)){
   line("// ------------------------------------------------------------ ", class.name)
+  line("")
+  line("local ", class.table, " = {}")
+  line("local ", class.get_table, " = {}")
+  line("local ", class.set_table, " = {}")
   line("")
   local block = type_blocks[class.name]
   if(block != null){
@@ -629,6 +660,9 @@ for(let local class in values(class_list)){
   } else {
     line("// type ", class.name)
   }
+  line("local ", class.meta_table, " = {__index: ", class.table, ", __get: ",
+    class.get_table, ", __set: ", class.set_table, "}")
+  line("")
   // the properties: getters without arguments and setters with one
   local props = {}
   local prop_order = {}
@@ -657,28 +691,55 @@ for(let local class in values(class_list)){
       }
       if(pr.get != null and have.get == null){
         have.get = pr.get
+        have.get_f = pr.f
       }
       if(pr.set != null and have.set == null){
         have.set = pr.set
+        have.set_f = pr.f
       }
+    }
+  }
+  // the hand-written properties replace generic ones of their names
+  local written = {}
+  for(let local which in values({class.get_table, class.set_table})){
+    for(let local a in values(accessors[which] or {})){
+      written[a.name] = true
+      for(let local l in values(a.lines)){
+        line(l)
+      }
+      line("func ", which, ".", a.name, "(", a.params, "){}")
+      line("")
+      property_count = property_count + 1
     }
   }
   for(let local pname in values(prop_order)){
     local pr = props[pname]
-    if(block != null and str.contains(str.join(block.lines, "\n"), concat("[", pname, "]"))){
+    if(written[pname]){
       continue
     }
-    local note = ""
-    if(pr.set == null){
-      note = " (read-only)"
-    } else if(pr.get == null){
-      note = " (write-only)"
+    if(pr.get != null){
+      comment(concat(pname, "(self) -> ", pr.get), true)
+      local d = doc_lines(pr.get_f.doc)
+      if(d.text != ""){
+        comment(d.text)
+      }
+      comment(c_line(pr.get_f))
+      line("func ", class.get_table, ".", pname, "(self){}")
     }
-    comment(concat("[", pname, "]: ", pr.get or pr.set, note), true)
+    if(pr.set != null){
+      comment(concat(pname, "(self, v: ", pr.set, ")"), true)
+      if(pr.get == null){
+        local d = doc_lines(pr.set_f.doc)
+        if(d.text != ""){
+          comment(d.text)
+        }
+      }
+      comment(c_line(pr.set_f))
+      line("func ", class.set_table, ".", pname, "(self, v){}")
+    }
+    line("")
     property_count = property_count + 1
   }
-  line("local ", class.table, " = {}")
-  line("")
   local have = {}
   for(let local md in values(methods[class.table] or {})){
     have[md.name] = true

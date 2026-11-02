@@ -14,7 +14,6 @@
 // Formats: "gzip", "zlib", "raw", and for inflating also "auto" (gzip or
 // zlib, told apart by the header). Errors read "zlib: ...". [c] is the
 // native extension under this module.
-local class = require("slang/class")
 
 local native = require("zlib")
 local zlib = {}
@@ -48,11 +47,21 @@ func zlib.inflate(data, options){
   return native.inflate(data, o.format, o.max_size)
 }
 
+local stream_methods = {}
+local stream_get = {}
+
 // A compressor or decompressor fed in chunks, from [compressor] or
 // [decompressor].
 // type Stream
-// [done]: whether [Stream.finish] was called
-local stream_methods = {}
+local stream_meta = {
+  __type: "zlib.Stream", __index: stream_methods, __get: stream_get
+}
+
+// done(self) -> bool
+// Whether [Stream.finish] was called.
+func stream_get.done(s){
+  return s.handle:is_done()
+}
 
 // push(chunk: string) -> string
 // Feeds a chunk; returns what is ready of the output (maybe "").
@@ -73,19 +82,11 @@ func stream_methods.finish(s){
   return s.handle:finish()
 }
 
-local Stream = class.new({
-  name: "zlib.Stream",
-  methods: stream_methods,
-  properties: {
-    done: {get: func(s){ return s.handle:is_done() }},
-  },
-})
-
 // compressor(options?: {format?: string, level?: int}) -> Stream
 // A stream that compresses what is pushed (options as for [deflate]).
 func zlib.compressor(options){
   local o = options or {}
-  return class.make(Stream, {handle: native.compressor(o.format, o.level)})
+  return {meta: stream_meta, handle: native.compressor(o.format, o.level)}
 }
 
 // decompressor(options?: {format?: string, max_size?: int}) -> Stream
@@ -93,7 +94,9 @@ func zlib.compressor(options){
 // max_size bounds the total output).
 func zlib.decompressor(options){
   local o = options or {}
-  return class.make(Stream, {handle: native.decompressor(o.format, o.max_size)})
+  return {
+    meta: stream_meta, handle: native.decompressor(o.format, o.max_size)
+  }
 }
 
 return zlib

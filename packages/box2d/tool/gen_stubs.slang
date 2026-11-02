@@ -268,9 +268,25 @@ local func params_of_doc(lines){
 
 local functions = {}
 local methods = {}
+local accessors = {}
 local fields = {}
 for(local i = 0; i < len(source); i = i + 1){
   local l = source[i]
+  if(str.starts_with(l, "func ") and
+    (str.index_of(l, "_get.") > 0 or str.index_of(l, "_set.") > 0)){
+    // a hand-written property: <class>_get.name, <class>_set.name
+    local dot = str.index_of(l, ".")
+    local table = str.substring(l, 5, dot)
+    if(accessors[table] == null){
+      accessors[table] = {}
+    }
+    append(accessors[table], {
+      name: str.substring(l, dot + 1, str.index_of(l, "(")),
+      params: str.substring(l, str.index_of(l, "(") + 1, str.index_of(l, ")")),
+      lines: doc_block_above(i),
+    })
+    continue
+  }
   if(str.starts_with(l, "func b2.")){
     local name = str.substring(l, 8, str.index_of(l, "("))
     local params = str.substring(l, str.index_of(l, "(") + 1, str.index_of(l, ")"))
@@ -365,7 +381,11 @@ for(let local e in entries(b2.__joint_kinds)){
   append(class_list[4].prefixes, e[1])
 }
 for(let local c in values(class_list)){
-  c.table = concat(snake(c.name), "_methods")
+  local base = snake(c.name)
+  c.table = concat(base, "_methods")
+  c.get_table = concat(base, "_get")
+  c.set_table = concat(base, "_set")
+  c.meta_table = concat(base, "_meta")
 }
 
 // whether a Box2D function is a method of a class: its first parameter is
@@ -522,32 +542,46 @@ local func property_of(f, name, all){
   local n = len(f.params) - 1
   for(let local pre in values({"get_", "is_"})){
     if(str.starts_with(name, pre) and n == 0){
-      return {name: str.substring(name, len(pre)), get: slang_type(f.ret, f.name)}
+      return {name: str.substring(name, len(pre)), get: slang_type(f.ret, f.name), f: f}
     }
   }
   if(n == 1){
     local t = slang_type(f.params[1].type, f.params[1].name)
     if(str.starts_with(name, "set_")){
-      return {name: str.substring(name, 4), set: t}
+      return {name: str.substring(name, 4), set: t, f: f}
     }
     // EnableX(bool) writes x_enabled (read by IsXEnabled)
     if(str.starts_with(name, "enable_") and all[concat("is_", str.substring(name, 7), "_enabled")]){
-      return {name: concat(str.substring(name, 7), "_enabled"), set: t}
+      return {name: concat(str.substring(name, 7), "_enabled"), set: t, f: f}
     }
   }
   // Enable() and Disable() write enabled (read by IsEnabled)
   if(n == 0 and (name == "enable" or name == "disable") and all.is_enabled){
-    return {name: "enabled", set: "bool"}
+    return {name: "enabled", set: "bool", f: f}
   }
   return null
 }
 
-// the classes: the type's comment block with its properties, its methods
-// table, the methods written by hand, then the generic ones
+// the C declaration of a Box2D function, for a doc
+local func c_line(f){
+  local cparams = {}
+  for(let local p in values(f.params)){
+    append(cparams, cparam(p.type, p.name))
+  }
+  return concat("C: `", cparam(f.ret, f.name), "(", str.join(cparams, ", "), ")`")
+}
+
+// the classes: their methods, getters and setters tables, the type's
+// comment block above its meta, the properties written by hand and the
+// generic ones, then the methods written by hand and the generic ones
 local method_count = 0
 local property_count = 0
 for(let local class in values(class_list)){
   line("// ------------------------------------------------------------ ", class.name)
+  line("")
+  line("local ", class.table, " = {}")
+  line("local ", class.get_table, " = {}")
+  line("local ", class.set_table, " = {}")
   line("")
   local block = type_blocks[class.name]
   if(block != null){
@@ -557,6 +591,9 @@ for(let local class in values(class_list)){
   } else {
     line("// type ", class.name)
   }
+  line("local ", class.meta_table, " = {__index: ", class.table, ", __get: ",
+    class.get_table, ", __set: ", class.set_table, "}")
+  line("")
   // the class's functions by slang name, then its properties
   local all = {}
   local order = {}
@@ -585,30 +622,61 @@ for(let local class in values(class_list)){
         props[pr.name] = entry
         append(prop_order, pr.name)
       }
-      entry.get = entry.get or pr.get
-      entry.set = entry.set or pr.set
+      if(pr.get != null and entry.get == null){
+        entry.get = pr.get
+        entry.get_f = pr.f
+      }
+      if(pr.set != null and entry.set == null){
+        entry.set = pr.set
+        entry.set_f = pr.f
+      }
     }
   }
-  local block_text = ""
-  if(block != null){
-    block_text = str.join(block.lines, "\n")
+  // the hand-written properties and methods replace generic ones of their
+  // names
+  local written = {}
+  for(let local md in values(methods[class.table] or {})){
+    written[md.name] = true
+  }
+  for(let local which in values({class.get_table, class.set_table})){
+    for(let local a in values(accessors[which] or {})){
+      written[a.name] = true
+      for(let local l in values(a.lines)){
+        line(l)
+      }
+      line("func ", which, ".", a.name, "(", a.params, "){}")
+      line("")
+      property_count = property_count + 1
+    }
   }
   for(let local pname in values(prop_order)){
     local pr = props[pname]
-    if(str.contains(block_text, concat("[", pname, "]"))){
+    if(written[pname]){
       continue
     }
-    local note = ""
-    if(pr.set == null){
-      note = " (read-only)"
-    } else if(pr.get == null){
-      note = " (write-only)"
+    if(pr.get != null){
+      comment(concat(pname, "(self) -> ", pr.get), true)
+      local d = doc_lines(pr.get_f.doc)
+      if(d.text != ""){
+        comment(d.text)
+      }
+      comment(c_line(pr.get_f))
+      line("func ", class.get_table, ".", pname, "(self){}")
     }
-    comment(concat("[", pname, "]: ", pr.get or pr.set, note), true)
+    if(pr.set != null){
+      comment(concat(pname, "(self, v: ", pr.set, ")"), true)
+      if(pr.get == null){
+        local d = doc_lines(pr.set_f.doc)
+        if(d.text != ""){
+          comment(d.text)
+        }
+      }
+      comment(c_line(pr.set_f))
+      line("func ", class.set_table, ".", pname, "(self, v){}")
+    }
+    line("")
     property_count = property_count + 1
   }
-  line("local ", class.table, " = {}")
-  line("")
   local own = {}
   for(let local md in values(methods[class.table] or {})){
     own[md.name] = true

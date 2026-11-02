@@ -3,11 +3,13 @@
 // A table's `meta` field is its metatable. `__index` gives a table
 // defaults, which makes classes: `v:len()` calls `v.len(v)`. Metamethods
 // overload operators (`__add`, `__eq`, ...), and `__tostring` decides how
-// a value prints. `__type` names a type for `type()` and patterns.
+// a value prints. `__type` names a type for `type()` and patterns. `__get`
+// and `__set` hold properties: keys that read and write through functions.
 local Vec = {}
 local vec_meta = {
   __index: Vec,
   __type: "Vec",
+  __get: {flipped: func(v) => Vec.new(v.y, v.x)},
   __add: func(a, b) => Vec.new(a.x + b.x, a.y + b.y),
   __tostring: func(v) => concat("(", v.x, ", ", v.y, ")"),
 }
@@ -19,7 +21,7 @@ func Vec.length(v){
 }
 
 local a = Vec.new(3, 4)
-print(a + Vec.new(1, 1), " ", a:length(), " ", type(a), "\n")
+print(a + Vec.new(1, 1), " ", a:length(), " ", a.flipped, " ", type(a), "\n")
 if(let 'Vec{x: local x} = a){
   print("a Vec with x = ", x, "\n")
 }

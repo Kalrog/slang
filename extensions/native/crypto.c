@@ -804,23 +804,20 @@ static void make_meta(slang_State *S, const char *type_name, const slang_Reg *me
     slang_settypemeta(S, type_name);
 }
 
-/* a key's properties (key.type, key.bits, key.private), then its methods
- * (the table in the upvalue) */
-static int key_index(slang_State *S) {
-    const char *name = slang_isstring(S, 2) ? slang_tostring(S, 2) : "";
-    if (strcmp(name, "type") == 0) return key_type(S);
-    if (strcmp(name, "bits") == 0) return key_bits(S);
-    if (strcmp(name, "private") == 0) return key_is_private(S);
-    slang_pushvalue(S, 2);
-    slang_rawget(S, slang_upvalueindex(1));
-    return 1;
-}
+/* a key's properties: key.type, key.bits, key.private */
+static const slang_Reg key_getters[] = {
+    {"type", key_type},
+    {"bits", key_bits},
+    {"private", key_is_private},
+    {NULL, NULL},
+};
 
 SLANG_EXTENSION(crypto) {
     slang_newtable(S);
     slang_newmodule(S, key_methods);
-    slang_pushcclosure(S, key_index, "__index", 1);
     slang_setfield(S, -2, "__index");
+    slang_newmodule(S, key_getters);
+    slang_setfield(S, -2, "__get");
     slang_pushstring(S, key_tname);
     slang_setfield(S, -2, "__type");
     slang_settypemeta(S, key_tname);

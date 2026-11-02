@@ -32,7 +32,6 @@
 // parameters a user turns, read by the block function at every block) cross
 // by reference; see slang/isolate and slang/buffer.
 local isolate = require("slang/isolate")
-local class = require("slang/class")
 local buffer = require("slang/buffer")
 local time = require("slang/time")
 
@@ -216,13 +215,17 @@ func player_methods.stop(player){
   self.render:join()
 }
 
-local Player = class.new({
-  name: "raylib.Player",
-  methods: player_methods,
-  properties: {
-    playing: {get: func(p){ return p.inner.state[4] == 1 }},
-  },
-})
+local player_get = {}
+
+// playing(self) -> bool
+// Whether the device plays (after the first blocks).
+func player_get.playing(p){
+  return p.inner.state[4] == 1
+}
+
+local player_meta = {
+  __type: "raylib.Player", __index: player_methods, __get: player_get
+}
 
 // play(setup: function, options?: Options) -> Player
 // Starts a stream: setup(...options.args) runs in a new isolate and returns
@@ -271,7 +274,7 @@ func stream.play(setup, options){
     render_loop, setup, options.args or {}, cfg, samples, state, timing, wake
   )
   local pump = isolate.spawn(pump_loop, cfg, samples, state, wake, ctl)
-  return class.make(Player, {inner: {
+  return {meta: player_meta, inner: {
     render: render,
     pump: pump,
     ctl: ctl,
@@ -281,7 +284,7 @@ func stream.play(setup, options){
     last_rendered: 0,
     last_seconds: 0.0,
     stopped: false,
-  }})
+  }}
 }
 
 return stream

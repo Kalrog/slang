@@ -55,6 +55,9 @@ async.main(func(){
 <li><a href="#window"><code>window</code></a></li>
 <li><a href="#type-Options"><code>type Options</code></a></li>
 <li><a href="#type-Window"><code>type Window</code></a></li>
+<li><a href="#Window.title"><code>Window.title</code></a></li>
+<li><a href="#Window.html"><code>Window.html</code></a></li>
+<li><a href="#Window.open"><code>Window.open</code></a></li>
 <li><a href="#Window:bind"><code>Window:bind</code></a></li>
 <li><a href="#Window:on_message"><code>Window:on_message</code></a></li>
 <li><a href="#Window:send"><code>Window:send</code></a></li>
@@ -76,6 +79,18 @@ async.main(func(){
 <dl class="params"><dt><code>title?: string</code></dt><dd>&quot;slang&quot; by default</dd><dt><code>width?: int</code></dt><dd>900 by default</dd><dt><code>height?: int</code></dt><dd>640 by default</dd><dt><code>resizable?: bool</code></dt><dd>true by default</dd><dt><code>debug?: bool</code></dt><dd>enables the Web Inspector</dd><dt><code>url?: string</code></dt><dd>a page to load</dd><dt><code>html?: string</code></dt><dd>markup to show</dd><dt><code>app?: any</code></dt><dd>a slang/web app, served to the window over app:// with no socket</dd><dt><code>path?: string</code></dt><dd>the first page of the app, &quot;/&quot; by default</dd></dl>
 <h2 id="type-Window">type Window</h2>
 <p>A window. Its field closed is an <a href="slang-async.html#type-Future"><code>async.Future</code></a> that completes (with null) when the window closes.</p>
+<div class="def" id="Window.title"><h3><code>Window.title: string?</code></h3>
+<p>The window's title; assigning sets it.</p>
+
+</div>
+<div class="def" id="Window.html"><h3><code>Window.html: string (write-only)</code></h3>
+<p>Assigning replaces the page with this HTML.</p>
+
+</div>
+<div class="def" id="Window.open"><h3><code>Window.open: bool (read-only)</code></h3>
+<p>Whether the window is still open.</p>
+
+</div>
 <div class="def" id="Window:bind"><h3><code>Window:bind(name: string, f: function) -> <a href="#type-Window">Window</a></code></h3>
 <p>Makes the page's slang.call(name, ...args) call f(...args). The Promise resolves with f's result (f may return a Future, which is awaited) and rejects with the error message when f raises or nothing is bound as name. Returns the window, so calls chain.</p>
 

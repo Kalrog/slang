@@ -16,12 +16,17 @@
 // program that writes a bundled path still reads the bundled file there.
 local m = {}
 
+local file_methods = {}
+local file_get = {}
+
 // An open file, from [open]; type() of it is "file". It is closed when it
 // is collected.
 // type File
-// [name]: the path the file was opened with
-local file_methods = {}
-local file_meta = {__index: file_methods, __type: "file"}
+local file_meta = {__index: file_methods, __get: file_get, __type: "file"}
+
+// name(self) -> string
+// The path the file was opened with.
+func file_get.name(self){}
 
 // What [stat] gives back.
 // type FileInfo = {size: int, mtime: int, is_dir: bool, mode: int}

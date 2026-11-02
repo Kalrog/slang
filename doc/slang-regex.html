@@ -52,6 +52,8 @@ regex.compile(&quot;\\s*,\\s*&quot;):split(&quot;a , b,c&quot;)   // {&quot;a&qu
 <li><a href="#compile"><code>compile</code></a></li>
 <li><a href="#escape"><code>escape</code></a></li>
 <li><a href="#type-Regex"><code>type Regex</code></a></li>
+<li><a href="#Regex.pattern"><code>Regex.pattern</code></a></li>
+<li><a href="#Regex.group_names"><code>Regex.group_names</code></a></li>
 <li><a href="#Regex:matches"><code>Regex:matches</code></a></li>
 <li><a href="#Regex:match_at"><code>Regex:match_at</code></a></li>
 <li><a href="#Regex:find"><code>Regex:find</code></a></li>
@@ -70,6 +72,14 @@ regex.compile(&quot;\\s*,\\s*&quot;):split(&quot;a , b,c&quot;)   // {&quot;a&qu
 </div>
 <h2 id="type-Regex">type Regex</h2>
 <p>A compiled pattern, from <a href="#compile"><code>compile</code></a>; type() of it is &quot;regex&quot;, and string(re) is &quot;regex(&lt;pattern&gt;)&quot;.</p>
+<div class="def" id="Regex.pattern"><h3><code>Regex.pattern: string (read-only)</code></h3>
+<p>The source of the pattern.</p>
+
+</div>
+<div class="def" id="Regex.group_names"><h3><code>Regex.group_names: {string} (read-only)</code></h3>
+<p>The name of each group by number: index 0 (the whole match) and unnamed groups are &quot;&quot;.</p>
+
+</div>
 <div class="def" id="Regex:matches"><h3><code>Regex:matches(s: string) -> bool</code></h3>
 <p>Whether the pattern matches anywhere in s.</p>
 

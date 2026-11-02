@@ -22,7 +22,6 @@ local async = require("slang/async")
 local str = require("slang/string")
 local encoding = require("slang/encoding")
 local utf8 = require("slang/utf8")
-local class = require("slang/class")
 
 local ws = {}
 
@@ -102,22 +101,24 @@ local func close_payload(code, reason){
 
 // ------------------------------------------------------------ sockets
 
+local socket_methods = {}
+local socket_get = {}
+
 // An open WebSocket connection. Its fields: messages, an async.Stream of
 // the messages received (strings, text and binary alike) that ends when
 // the connection does; closed, an async.Future of the [CloseInfo] once the
 // connection is gone. A program may set on_pong, a function called with
 // the data of each pong (see [WebSocket.ping]).
 // type WebSocket
-// [open]: whether messages can still be sent: false once a close has
-//   begun
-local socket_methods = {}
-local Socket = class.new({
-  name: "ws.Socket",
-  methods: socket_methods,
-  properties: {
-    open: {get: func(s){ return s.state == "open" }},
-  },
-})
+local socket_meta = {
+  __type: "ws.Socket", __index: socket_methods, __get: socket_get
+}
+
+// open(self) -> bool
+// Whether messages can still be sent: false once a close has begun.
+func socket_get.open(s){
+  return s.state == "open"
+}
 
 // How a connection ended: the close code the other side sent (1005 when
 // none; 1006 when the connection dropped) or the one it was closed with.
@@ -132,10 +133,11 @@ local func new_socket(conn, rest, client, options){
   options = options or {}
   local c = async.controller(null)
   local closed = async.completer()
-  local s = class.make(Socket, {
-    conn: conn, client: client, messages: c.stream, closed: closed.future,
-    state: "open", max_message: options.max_message or 16 * 1024 * 1024
-  })
+  local s = {
+    meta: socket_meta, conn: conn, client: client, messages: c.stream,
+    closed: closed.future, state: "open",
+    max_message: options.max_message or 16 * 1024 * 1024
+  }
 
   local func write(data){
     return async.write(conn, data)

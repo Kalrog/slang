@@ -36,7 +36,6 @@
 local async = require("slang/async")
 local json = require("slang/json")
 local str = require("slang/string")
-local class = require("slang/class")
 
 local webview = {}
 
@@ -66,28 +65,41 @@ func webview.window_count(){
   return module().window_count()
 }
 
+local window_methods = {}
+local window_get = {}
+local window_set = {}
+
 // A window. Its field closed is an [async.Future] that completes (with
 // null) when the window closes.
 // type Window
-// [title]: the window's title; assigning sets it
-// [html]: assigning replaces the page with this HTML (write-only)
-// [open]: whether the window is still open
-local window_methods = {}
-local Window = class.new({
-  name: "webview.Window",
-  methods: window_methods,
-  properties: {
-    title: {
-      get: func(w){ return w.shown_title },
-      set: func(w, t){
-        w.handle:set_title(t)
-        w.shown_title = t
-      },
-    },
-    html: {set: func(w, html){ w.handle:set_html(html) }},
-    open: {get: func(w){ return w.handle:is_open() }},
-  },
-})
+local window_meta = {
+  __type: "webview.Window",
+  __index: window_methods,
+  __get: window_get,
+  __set: window_set,
+}
+
+// title(self) -> string?
+// The window's title; assigning sets it.
+func window_get.title(w){
+  return w.shown_title
+}
+func window_set.title(w, t){
+  w.handle:set_title(t)
+  w.shown_title = t
+}
+
+// html(self, html: string)
+// Assigning replaces the page with this HTML.
+func window_set.html(w, html){
+  w.handle:set_html(html)
+}
+
+// open(self) -> bool
+// Whether the window is still open.
+func window_get.open(w){
+  return w.handle:is_open()
+}
 
 local receive = null
 
@@ -148,13 +160,14 @@ func webview.window(options){
     opts.url = concat("app://localhost", options.path or "/")
   }
   local closed = async.completer()
-  local w = class.make(Window, {
+  local w = {
+    meta: window_meta,
     handle: n.window(opts),
     closed: closed.future,
     binds: {},
     handlers: {},
     shown_title: options.title,
-  })
+  }
   w.handle:on_close(func(){ closed.complete(null) })
   w.handle:on_message(func(text){ receive(w, text) })
   if(options.app != null){

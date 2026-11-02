@@ -21,7 +21,6 @@ local ffi = require("slang/ffi")
 local os = require("slang/os")
 local str = require("slang/string")
 local buffer = require("slang/buffer")
-local class_lib = require("slang/class")
 local names = require("raylib/names")
 local snake = names.snake
 local is_count = names.is_count
@@ -199,21 +198,17 @@ local func class_of(type_name){
       }
     }
   }
-  local properties = {}
-  for(let local e in entries(getters)){
-    properties[e[0]] = {get: e[1]}
+  class = {
+    name: type_name, methods: methods, getters: getters, setters: setters,
+    sources: sources
   }
-  for(let local e in entries(setters)){
-    local p = properties[e[0]] or {}
-    p.set = e[1]
-    properties[e[0]] = p
+  class.meta = {
+    __type: concat("raylib.", type_name),
+    __index: methods,
+    __get: getters,
+    __set: setters,
+    __class: class,
   }
-  class = class_lib.new({
-    name: concat("raylib.", type_name),
-    methods: methods,
-    properties: properties,
-  })
-  class.sources = sources
   classes[type_name] = class
   return class
 }

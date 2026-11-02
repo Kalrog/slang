@@ -284,6 +284,22 @@ or function) and `__type` (a string or a function, used by `type()` and by
 `'Type{...}` patterns). Assigning `null` to a key removes it. Tables compare
 structurally with `==`.
 
+Properties read and write like fields but run functions: `__get` and `__set`
+are tables of getters and setters by key. They are looked up for keys the
+object does not hold itself, before `__index`, and are inherited along the
+`__index` chain; a key with a getter and no setter is read-only.
+```slang
+local Temperature = {}
+local temperature_meta = {
+    __index: Temperature,
+    __get: {fahrenheit: func(t) => t.celsius * 9 / 5 + 32},
+    __set: {fahrenheit: func(t, f){ t.celsius = (f - 32) * 5 / 9 }},
+}
+local t = {celsius: 20, meta: temperature_meta}
+t.fahrenheit        // 68.0
+t.fahrenheit = 212  // t.celsius is 100.0
+```
+
 Operators can be overloaded through the metatable as well:
 ```slang
 local Vec = {}

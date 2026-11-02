@@ -516,11 +516,21 @@ local func type_name_of(w, value){
   if(meta == null){
     return null
   }
-  local t = field_of(w, value_of_def(w, meta.path, meta.def, 1), "__type", 1)
-  if(t == null or t.def.value == null or t.def.value.type != "String"){
-    return null
+  local mv = value_of_def(w, meta.path, meta.def, 1)
+  local t = field_of(w, mv, "__type", 1)
+  if(t != null and t.def.value != null and t.def.value.type == "String"){
+    return t.def.value.value
   }
-  return t.def.value.value
+  // a meta that a doc declares a type above (`// type Name`)
+  if(mv != null and mv.def != null){
+    local f = w:file(mv.path)
+    for(let local e in entries(f and f.index.types or {})){
+      if(e[1].table == mv.def){
+        return e[0]
+      }
+    }
+  }
+  return null
 }
 
 // the parameter names of a Function node, or null
@@ -757,7 +767,8 @@ local func member_of(w, path, ref){
   if(found == null){
     return null
   }
-  found.type_name = type_name_of(w, value)
+  // the type a doc declares it as, else its meta's __type
+  found.type_name = value != null and value.type_name or type_name_of(w, value)
   return found
 }
 

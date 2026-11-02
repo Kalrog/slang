@@ -57,6 +57,7 @@ async.main(func(){
 <li><a href="#accept"><code>accept</code></a></li>
 <li><a href="#connect"><code>connect</code></a></li>
 <li><a href="#type-WebSocket"><code>type WebSocket</code></a></li>
+<li><a href="#WebSocket.open"><code>WebSocket.open</code></a></li>
 <li><a href="#WebSocket:send"><code>WebSocket:send</code></a></li>
 <li><a href="#WebSocket:send_binary"><code>WebSocket:send_binary</code></a></li>
 <li><a href="#WebSocket:ping"><code>WebSocket:ping</code></a></li>
@@ -79,6 +80,10 @@ async.main(func(){
 </div>
 <h2 id="type-WebSocket">type WebSocket</h2>
 <p>An open WebSocket connection. Its fields: messages, an async.Stream of the messages received (strings, text and binary alike) that ends when the connection does; closed, an async.Future of the <a href="#type-CloseInfo"><code>CloseInfo</code></a> once the connection is gone. A program may set on_pong, a function called with the data of each pong (see <a href="#WebSocket:ping"><code>WebSocket.ping</code></a>).</p>
+<div class="def" id="WebSocket.open"><h3><code>WebSocket.open: bool (read-only)</code></h3>
+<p>Whether messages can still be sent: false once a close has begun.</p>
+
+</div>
 <div class="def" id="WebSocket:send"><h3><code>WebSocket:send(text: string) -> <a href="slang-async.html#type-Future">async.Future</a></code></h3>
 <p>Sends a text message; completes when it is written. Fails when the socket is not open.</p>
 

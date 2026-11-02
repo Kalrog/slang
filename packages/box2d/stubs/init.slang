@@ -1820,37 +1820,162 @@ func m.replay_get_body_id(player, index){}
 
 // ------------------------------------------------------------ World
 
+local world_methods = {}
+local world_get = {}
+local world_set = {}
+
 // A world: everything happens in one. Every world_* function of Box2D is
 // a method or property (world:step(dt, sub_steps), world.gravity = g,
 // world:cast_ray_closest(origin, translation)); bodies and joints are
 // made through it.
 // type World
-// [valid]: bool (read-only)
-// [bounds]: AABB (read-only)
-// [body_events]: BodyEvents (read-only)
-// [sensor_events]: SensorEvents (read-only)
-// [contact_events]: ContactEvents (read-only)
-// [joint_events]: JointEvents (read-only)
-// [sleeping_enabled]: bool
-// [continuous_enabled]: bool
-// [restitution_threshold]: float
-// [restitution_iterations]: int
-// [restitution_propagation_enabled]: bool
-// [hit_event_threshold]: float
-// [gravity]: Vec2
-// [contact_recycle_distance]: float
-// [max_linear_speed]: float
-// [warm_starting_enabled]: bool
-// [awake_body_count]: int (read-only)
-// [profile]: Profile (read-only)
-// [counters]: Counters (read-only)
-// [max_capacity]: Capacity (read-only)
-// [user_data]: ffi.Pointer
-// [friction_callback]: function (write-only)
-// [restitution_callback]: function (write-only)
-// [worker_count]: int
-// [state_hash]: int (read-only)
-local world_methods = {}
+local world_meta = {__index: world_methods, __get: world_get, __set: world_set}
+
+// valid(self) -> bool
+// World id validation. Provides validation for up to 64K allocations.
+// C: `bool b2World_IsValid(b2WorldId id)`
+func world_get.valid(self){}
+
+// bounds(self) -> AABB
+// Call this to get the world bounds based on the union of all shape bounds.
+// C: `b2AABB b2World_GetBounds(b2WorldId worldId)`
+func world_get.bounds(self){}
+
+// sleeping_enabled(self) -> bool
+// Is body sleeping enabled?
+// C: `bool b2World_IsSleepingEnabled(b2WorldId worldId)`
+func world_get.sleeping_enabled(self){}
+// sleeping_enabled(self, v: bool)
+// C: `void b2World_EnableSleeping(b2WorldId worldId, bool flag)`
+func world_set.sleeping_enabled(self, v){}
+
+// continuous_enabled(self) -> bool
+// Is continuous collision enabled?
+// C: `bool b2World_IsContinuousEnabled(b2WorldId worldId)`
+func world_get.continuous_enabled(self){}
+// continuous_enabled(self, v: bool)
+// C: `void b2World_EnableContinuous(b2WorldId worldId, bool flag)`
+func world_set.continuous_enabled(self, v){}
+
+// restitution_threshold(self) -> float
+// Get the restitution speed threshold. Usually in meters per second.
+// C: `float b2World_GetRestitutionThreshold(b2WorldId worldId)`
+func world_get.restitution_threshold(self){}
+// restitution_threshold(self, v: float)
+// C: `void b2World_SetRestitutionThreshold(b2WorldId worldId, float value)`
+func world_set.restitution_threshold(self, v){}
+
+// restitution_iterations(self) -> int
+// Get the number of iterations used by the restitution solver.
+// C: `int b2World_GetRestitutionIterations(b2WorldId worldId)`
+func world_get.restitution_iterations(self){}
+// restitution_iterations(self, v: int)
+// C: `void b2World_SetRestitutionIterations(b2WorldId worldId, int iterations)`
+func world_set.restitution_iterations(self, v){}
+
+// restitution_propagation_enabled(self) -> bool
+// Is restitution propagation enabled?
+// C: `bool b2World_IsRestitutionPropagationEnabled(b2WorldId worldId)`
+func world_get.restitution_propagation_enabled(self){}
+// restitution_propagation_enabled(self, v: bool)
+// C: `void b2World_EnableRestitutionPropagation(b2WorldId worldId, bool flag)`
+func world_set.restitution_propagation_enabled(self, v){}
+
+// hit_event_threshold(self) -> float
+// Get the hit event speed threshold. Usually in meters per second.
+// C: `float b2World_GetHitEventThreshold(b2WorldId worldId)`
+func world_get.hit_event_threshold(self){}
+// hit_event_threshold(self, v: float)
+// C: `void b2World_SetHitEventThreshold(b2WorldId worldId, float value)`
+func world_set.hit_event_threshold(self, v){}
+
+// gravity(self) -> Vec2
+// Get the gravity vector
+// C: `b2Vec2 b2World_GetGravity(b2WorldId worldId)`
+func world_get.gravity(self){}
+// gravity(self, v: Vec2)
+// C: `void b2World_SetGravity(b2WorldId worldId, b2Vec2 gravity)`
+func world_set.gravity(self, v){}
+
+// contact_recycle_distance(self) -> float
+// Get the contact point recycling distance. Usually in meters.
+// C: `float b2World_GetContactRecycleDistance(b2WorldId worldId)`
+func world_get.contact_recycle_distance(self){}
+// contact_recycle_distance(self, v: float)
+// C: `void b2World_SetContactRecycleDistance(b2WorldId worldId, float
+// recycleDistance)`
+func world_set.contact_recycle_distance(self, v){}
+
+// max_linear_speed(self) -> float
+// Get the maximum linear speed. Usually in m/s.
+// C: `float b2World_GetMaxLinearSpeed(b2WorldId worldId)`
+func world_get.max_linear_speed(self){}
+// max_linear_speed(self, v: float)
+// C: `void b2World_SetMaxLinearSpeed(b2WorldId worldId, float
+// maximumLinearSpeed)`
+func world_set.max_linear_speed(self, v){}
+
+// warm_starting_enabled(self) -> bool
+// Is constraint warm starting enabled?
+// C: `bool b2World_IsWarmStartingEnabled(b2WorldId worldId)`
+func world_get.warm_starting_enabled(self){}
+// warm_starting_enabled(self, v: bool)
+// C: `void b2World_EnableWarmStarting(b2WorldId worldId, bool flag)`
+func world_set.warm_starting_enabled(self, v){}
+
+// awake_body_count(self) -> int
+// Get the number of awake bodies.
+// C: `int b2World_GetAwakeBodyCount(b2WorldId worldId)`
+func world_get.awake_body_count(self){}
+
+// profile(self) -> Profile
+// Get the current world performance profile
+// C: `b2Profile b2World_GetProfile(b2WorldId worldId)`
+func world_get.profile(self){}
+
+// counters(self) -> Counters
+// Get world counters and sizes
+// C: `b2Counters b2World_GetCounters(b2WorldId worldId)`
+func world_get.counters(self){}
+
+// max_capacity(self) -> Capacity
+// Get max capacity. This can be used with b2WorldDef to avoid run-time
+// allocations and copies
+// C: `b2Capacity b2World_GetMaxCapacity(b2WorldId worldId)`
+func world_get.max_capacity(self){}
+
+// user_data(self) -> ffi.Pointer
+// Get the user data pointer.
+// C: `void *b2World_GetUserData(b2WorldId worldId)`
+func world_get.user_data(self){}
+// user_data(self, v: ffi.Pointer)
+// C: `void b2World_SetUserData(b2WorldId worldId, void *userData)`
+func world_set.user_data(self, v){}
+
+// friction_callback(self, v: function)
+// Set the friction callback. Passing NULL resets to default.
+// C: `void b2World_SetFrictionCallback(b2WorldId worldId, function *callback)`
+func world_set.friction_callback(self, v){}
+
+// restitution_callback(self, v: function)
+// Set the restitution callback. Passing NULL resets to default.
+// C: `void b2World_SetRestitutionCallback(b2WorldId worldId, function
+// *callback)`
+func world_set.restitution_callback(self, v){}
+
+// worker_count(self) -> int
+// Get the worker count.
+// C: `int b2World_GetWorkerCount(b2WorldId worldId)`
+func world_get.worker_count(self){}
+// worker_count(self, v: int)
+// C: `void b2World_SetWorkerCount(b2WorldId worldId, int count)`
+func world_set.worker_count(self, v){}
+
+// state_hash(self) -> int
+// Compute a hash of the simulation state. Use this to detect desyncs, for
+// example in rollback resimulation.
+// C: `uint64_t b2World_GetStateHash(b2WorldId worldId)`
+func world_get.state_hash(self){}
 
 // destroy()
 // Frees the world with every body, shape and joint in it.
@@ -2130,44 +2255,236 @@ func world_methods.restore_from_snapshot(self, image, size){}
 
 // ------------------------------------------------------------ Body
 
+local body_methods = {}
+local body_get = {}
+local body_set = {}
+
 // A rigid body: every body_* function of Box2D is a method or property
 // (body.position, body.linear_velocity = v, body:apply_force(f, point,
 // wake)); shapes and chains are made on it.
 // type Body
 // [world]: the world it is in
 // [key]: an int, the same for the same body: key tables by it
-// [position]: Vec2: assigning moves the body (b2Body_SetTransform)
-// [rotation]: Rot: assigning turns the body
-// [valid]: bool (read-only)
-// [type]: int
-// [name]: string
-// [user_data]: ffi.Pointer
-// [transform]: Transform (read-only)
-// [linear_velocity]: Vec2
-// [angular_velocity]: float
-// [mass]: float (read-only)
-// [rotational_inertia]: float (read-only)
-// [local_center]: Vec2 (read-only)
-// [world_center]: Vec2 (read-only)
-// [mass_data]: MassData
-// [linear_damping]: float
-// [angular_damping]: float
-// [gravity_scale]: float
-// [awake]: bool
-// [sleeping_enabled]: bool
-// [sleep_threshold]: float
-// [safety_factor]: float
-// [enabled]: bool
-// [motion_locks]: MotionLocks
-// [bullet]: bool
-// [contact_recycling_enabled]: bool
-// [shape_count]: int (read-only)
-// [joint_count]: int (read-only)
-// [contact_capacity]: int (read-only)
-// [min_extent]: float (read-only)
-// [max_extent]: float (read-only)
-// [max_extent_from_origin]: float (read-only)
-local body_methods = {}
+local body_meta = {__index: body_methods, __get: body_get, __set: body_set}
+
+// position(self) -> Vec2
+// Where the body is; assigning moves it (b2Body_SetTransform: Box2D has no
+// setter of the position alone).
+func body_get.position(b){}
+
+// rotation(self) -> Rot
+// How the body is turned; assigning turns it.
+func body_get.rotation(b){}
+
+func body_set.position(b, p){}
+
+func body_set.rotation(b, q){}
+
+// valid(self) -> bool
+// Body identifier validation. A valid body exists in a world and is non-null.
+// This can be used to detect orphaned ids. Provides validation for up to 64K
+// allocations.
+// C: `bool b2Body_IsValid(b2BodyId id)`
+func body_get.valid(self){}
+
+// type(self) -> int
+// Get the body type: static, kinematic, or dynamic
+// C: `enum b2BodyType b2Body_GetType(b2BodyId bodyId)`
+func body_get.type(self){}
+// type(self, v: int)
+// C: `void b2Body_SetType(b2BodyId bodyId, enum b2BodyType type)`
+func body_set.type(self, v){}
+
+// name(self) -> string
+// Get the body name.
+// C: `const char *b2Body_GetName(b2BodyId bodyId)`
+func body_get.name(self){}
+// name(self, v: string)
+// C: `void b2Body_SetName(b2BodyId bodyId, const char *name)`
+func body_set.name(self, v){}
+
+// user_data(self) -> ffi.Pointer
+// Get the user data stored in a body
+// C: `void *b2Body_GetUserData(b2BodyId bodyId)`
+func body_get.user_data(self){}
+// user_data(self, v: ffi.Pointer)
+// C: `void b2Body_SetUserData(b2BodyId bodyId, void *userData)`
+func body_set.user_data(self, v){}
+
+// transform(self) -> Transform
+// Get the world transform of a body.
+// C: `b2Transform b2Body_GetTransform(b2BodyId bodyId)`
+func body_get.transform(self){}
+
+// linear_velocity(self) -> Vec2
+// Get the linear velocity of a body's center of mass. Usually in meters per
+// second.
+// C: `b2Vec2 b2Body_GetLinearVelocity(b2BodyId bodyId)`
+func body_get.linear_velocity(self){}
+// linear_velocity(self, v: Vec2)
+// C: `void b2Body_SetLinearVelocity(b2BodyId bodyId, b2Vec2 linearVelocity)`
+func body_set.linear_velocity(self, v){}
+
+// angular_velocity(self) -> float
+// Get the angular velocity of a body in radians per second
+// C: `float b2Body_GetAngularVelocity(b2BodyId bodyId)`
+func body_get.angular_velocity(self){}
+// angular_velocity(self, v: float)
+// C: `void b2Body_SetAngularVelocity(b2BodyId bodyId, float angularVelocity)`
+func body_set.angular_velocity(self, v){}
+
+// mass(self) -> float
+// Get the mass of the body, usually in kilograms
+// C: `float b2Body_GetMass(b2BodyId bodyId)`
+func body_get.mass(self){}
+
+// rotational_inertia(self) -> float
+// Get the rotational inertia of the body, usually in kg*m^2
+// C: `float b2Body_GetRotationalInertia(b2BodyId bodyId)`
+func body_get.rotational_inertia(self){}
+
+// local_center(self) -> Vec2
+// Get the center of mass position of the body in local space.
+// C: `b2Vec2 b2Body_GetLocalCenter(b2BodyId bodyId)`
+func body_get.local_center(self){}
+
+// world_center(self) -> Vec2
+// Get the center of mass position of the body in world space.
+// C: `b2Vec2 b2Body_GetWorldCenter(b2BodyId bodyId)`
+func body_get.world_center(self){}
+
+// mass_data(self) -> MassData
+// Get the mass data for a body
+// C: `b2MassData b2Body_GetMassData(b2BodyId bodyId)`
+func body_get.mass_data(self){}
+// mass_data(self, v: MassData)
+// C: `void b2Body_SetMassData(b2BodyId bodyId, b2MassData massData)`
+func body_set.mass_data(self, v){}
+
+// linear_damping(self) -> float
+// Get the current linear damping.
+// C: `float b2Body_GetLinearDamping(b2BodyId bodyId)`
+func body_get.linear_damping(self){}
+// linear_damping(self, v: float)
+// C: `void b2Body_SetLinearDamping(b2BodyId bodyId, float linearDamping)`
+func body_set.linear_damping(self, v){}
+
+// angular_damping(self) -> float
+// Get the current angular damping.
+// C: `float b2Body_GetAngularDamping(b2BodyId bodyId)`
+func body_get.angular_damping(self){}
+// angular_damping(self, v: float)
+// C: `void b2Body_SetAngularDamping(b2BodyId bodyId, float angularDamping)`
+func body_set.angular_damping(self, v){}
+
+// gravity_scale(self) -> float
+// Get the current gravity scale
+// C: `float b2Body_GetGravityScale(b2BodyId bodyId)`
+func body_get.gravity_scale(self){}
+// gravity_scale(self, v: float)
+// C: `void b2Body_SetGravityScale(b2BodyId bodyId, float gravityScale)`
+func body_set.gravity_scale(self, v){}
+
+// awake(self) -> bool
+// Returns true if this body is awake
+// C: `bool b2Body_IsAwake(b2BodyId bodyId)`
+func body_get.awake(self){}
+// awake(self, v: bool)
+// C: `void b2Body_SetAwake(b2BodyId bodyId, bool awake)`
+func body_set.awake(self, v){}
+
+// sleeping_enabled(self) -> bool
+// Returns true if sleeping is enabled for this body
+// C: `bool b2Body_IsSleepingEnabled(b2BodyId bodyId)`
+func body_get.sleeping_enabled(self){}
+// sleeping_enabled(self, v: bool)
+// C: `void b2Body_EnableSleeping(b2BodyId bodyId, bool enableSleep)`
+func body_set.sleeping_enabled(self, v){}
+
+// sleep_threshold(self) -> float
+// Get the sleep threshold, usually in meters per second.
+// C: `float b2Body_GetSleepThreshold(b2BodyId bodyId)`
+func body_get.sleep_threshold(self){}
+// sleep_threshold(self, v: float)
+// C: `void b2Body_SetSleepThreshold(b2BodyId bodyId, float sleepThreshold)`
+func body_set.sleep_threshold(self, v){}
+
+// safety_factor(self) -> float
+// Get the continuous collision safety factor. Non-dimensional.
+// C: `float b2Body_GetSafetyFactor(b2BodyId bodyId)`
+func body_get.safety_factor(self){}
+// safety_factor(self, v: float)
+// C: `void b2Body_SetSafetyFactor(b2BodyId bodyId, float safetyFactor)`
+func body_set.safety_factor(self, v){}
+
+// enabled(self) -> bool
+// Returns true if this body is enabled
+// C: `bool b2Body_IsEnabled(b2BodyId bodyId)`
+func body_get.enabled(self){}
+// enabled(self, v: bool)
+// C: `void b2Body_Disable(b2BodyId bodyId)`
+func body_set.enabled(self, v){}
+
+// motion_locks(self) -> MotionLocks
+// Get the motion locks for this body.
+// C: `b2MotionLocks b2Body_GetMotionLocks(b2BodyId bodyId)`
+func body_get.motion_locks(self){}
+// motion_locks(self, v: MotionLocks)
+// C: `void b2Body_SetMotionLocks(b2BodyId bodyId, b2MotionLocks locks)`
+func body_set.motion_locks(self, v){}
+
+// bullet(self) -> bool
+// Is this body a bullet?
+// C: `bool b2Body_IsBullet(b2BodyId bodyId)`
+func body_get.bullet(self){}
+// bullet(self, v: bool)
+// C: `void b2Body_SetBullet(b2BodyId bodyId, bool flag)`
+func body_set.bullet(self, v){}
+
+// contact_recycling_enabled(self) -> bool
+// Is contact recycling enabled on this body?
+// C: `bool b2Body_IsContactRecyclingEnabled(b2BodyId bodyId)`
+func body_get.contact_recycling_enabled(self){}
+// contact_recycling_enabled(self, v: bool)
+// C: `void b2Body_EnableContactRecycling(b2BodyId bodyId, bool flag)`
+func body_set.contact_recycling_enabled(self, v){}
+
+// world(self) -> World
+// Get the world that owns this body
+// C: `b2WorldId b2Body_GetWorld(b2BodyId bodyId)`
+func body_get.world(self){}
+
+// shape_count(self) -> int
+// Get the number of shapes on this body
+// C: `int b2Body_GetShapeCount(b2BodyId bodyId)`
+func body_get.shape_count(self){}
+
+// joint_count(self) -> int
+// Get the number of joints on this body
+// C: `int b2Body_GetJointCount(b2BodyId bodyId)`
+func body_get.joint_count(self){}
+
+// contact_capacity(self) -> int
+// Get the maximum capacity required for retrieving all the touching contacts on
+// a body
+// C: `int b2Body_GetContactCapacity(b2BodyId bodyId)`
+func body_get.contact_capacity(self){}
+
+// min_extent(self) -> float
+// The minimum distance from any point on the body shapes to the center of mass.
+// C: `float b2Body_GetMinExtent(b2BodyId bodyId)`
+func body_get.min_extent(self){}
+
+// max_extent(self) -> float
+// The maximum distance from any point on the body shapes to the center of mass.
+// C: `float b2Body_GetMaxExtent(b2BodyId bodyId)`
+func body_get.max_extent(self){}
+
+// max_extent_from_origin(self) -> float
+// The maximum distance from any point on the body shapes to the body origin.
+// Conservative.
+// C: `float b2Body_GetMaxExtentFromOrigin(b2BodyId bodyId)`
+func body_get.max_extent_from_origin(self){}
 
 // destroy()
 // Takes the body, its shapes and its joints out of the world.
@@ -2402,32 +2719,164 @@ func body_methods.compute_bounds(self){}
 
 // ------------------------------------------------------------ Shape
 
+local shape_methods = {}
+local shape_get = {}
+local shape_set = {}
+
 // A shape on a body: every shape_* function is a method or property
 // (shape.friction, shape:test_point(p), shape.aabb).
 // type Shape
 // [body]: the body it is on
 // [key]: an int, the same for the same shape
-// [valid]: bool (read-only)
-// [type]: int (read-only)
-// [world]: World (read-only)
-// [sensor]: bool (read-only)
-// [user_data]: ffi.Pointer
-// [density]: float (read-only)
-// [friction]: float
-// [restitution]: float
-// [user_material]: int
-// [surface_material]: SurfaceMaterial
-// [filter]: Filter
-// [circle]: Circle
-// [segment]: Segment
-// [chain_segment]: ChainSegment
-// [capsule]: Capsule
-// [polygon]: Polygon
-// [parent_chain]: Chain (read-only)
-// [contact_capacity]: int (read-only)
-// [sensor_capacity]: int (read-only)
-// [bounds]: AABB (read-only)
-local shape_methods = {}
+local shape_meta = {__index: shape_methods, __get: shape_get, __set: shape_set}
+
+// valid(self) -> bool
+// Shape identifier validation. Provides validation for up to 64K allocations.
+// C: `bool b2Shape_IsValid(b2ShapeId id)`
+func shape_get.valid(self){}
+
+// type(self) -> int
+// Get the type of a shape
+// C: `enum b2ShapeType b2Shape_GetType(b2ShapeId shapeId)`
+func shape_get.type(self){}
+
+// body(self) -> Body
+// Get the id of the body that a shape is attached to
+// C: `b2BodyId b2Shape_GetBody(b2ShapeId shapeId)`
+func shape_get.body(self){}
+
+// world(self) -> World
+// Get the world that owns this shape
+// C: `b2WorldId b2Shape_GetWorld(b2ShapeId shapeId)`
+func shape_get.world(self){}
+
+// sensor(self) -> bool
+// Returns true if the shape is a sensor. It is not possible to change a shape
+// from sensor to solid dynamically because this breaks the contract for sensor
+// events.
+// C: `bool b2Shape_IsSensor(b2ShapeId shapeId)`
+func shape_get.sensor(self){}
+
+// user_data(self) -> ffi.Pointer
+// Get the user data for a shape. This is useful when you get a shape id from an
+// event or query.
+// C: `void *b2Shape_GetUserData(b2ShapeId shapeId)`
+func shape_get.user_data(self){}
+// user_data(self, v: ffi.Pointer)
+// C: `void b2Shape_SetUserData(b2ShapeId shapeId, void *userData)`
+func shape_set.user_data(self, v){}
+
+// density(self) -> float
+// Get the density of a shape, usually in kg/m^2
+// C: `float b2Shape_GetDensity(b2ShapeId shapeId)`
+func shape_get.density(self){}
+
+// friction(self) -> float
+// Get the friction of a shape
+// C: `float b2Shape_GetFriction(b2ShapeId shapeId)`
+func shape_get.friction(self){}
+// friction(self, v: float)
+// C: `void b2Shape_SetFriction(b2ShapeId shapeId, float friction)`
+func shape_set.friction(self, v){}
+
+// restitution(self) -> float
+// Get the shape restitution
+// C: `float b2Shape_GetRestitution(b2ShapeId shapeId)`
+func shape_get.restitution(self){}
+// restitution(self, v: float)
+// C: `void b2Shape_SetRestitution(b2ShapeId shapeId, float restitution)`
+func shape_set.restitution(self, v){}
+
+// user_material(self) -> int
+// Get the user material identifier
+// C: `uint64_t b2Shape_GetUserMaterial(b2ShapeId shapeId)`
+func shape_get.user_material(self){}
+// user_material(self, v: int)
+// C: `void b2Shape_SetUserMaterial(b2ShapeId shapeId, uint64_t material)`
+func shape_set.user_material(self, v){}
+
+// surface_material(self) -> SurfaceMaterial
+// Get the shape surface material
+// C: `b2SurfaceMaterial b2Shape_GetSurfaceMaterial(b2ShapeId shapeId)`
+func shape_get.surface_material(self){}
+// surface_material(self, v: SurfaceMaterial)
+// C: `void b2Shape_SetSurfaceMaterial(b2ShapeId shapeId, const
+// b2SurfaceMaterial *surfaceMaterial)`
+func shape_set.surface_material(self, v){}
+
+// filter(self) -> Filter
+// Get the shape filter
+// C: `b2Filter b2Shape_GetFilter(b2ShapeId shapeId)`
+func shape_get.filter(self){}
+// filter(self, v: Filter)
+// C: `void b2Shape_SetFilter(b2ShapeId shapeId, b2Filter filter)`
+func shape_set.filter(self, v){}
+
+// circle(self) -> Circle
+// Get a copy of the shape's circle. Asserts the type is correct.
+// C: `b2Circle b2Shape_GetCircle(b2ShapeId shapeId)`
+func shape_get.circle(self){}
+// circle(self, v: Circle)
+// C: `void b2Shape_SetCircle(b2ShapeId shapeId, const b2Circle *circle)`
+func shape_set.circle(self, v){}
+
+// segment(self) -> Segment
+// Get a copy of the shape's line segment. Asserts the type is correct.
+// C: `b2Segment b2Shape_GetSegment(b2ShapeId shapeId)`
+func shape_get.segment(self){}
+// segment(self, v: Segment)
+// C: `void b2Shape_SetSegment(b2ShapeId shapeId, const b2Segment *segment)`
+func shape_set.segment(self, v){}
+
+// chain_segment(self) -> ChainSegment
+// Get a copy of the shape's chain segment. These come from chain shapes.
+// Asserts the type is correct.
+// C: `b2ChainSegment b2Shape_GetChainSegment(b2ShapeId shapeId)`
+func shape_get.chain_segment(self){}
+// chain_segment(self, v: ChainSegment)
+// C: `void b2Shape_SetChainSegment(b2ShapeId shapeId, const b2ChainSegment
+// *chainSegment)`
+func shape_set.chain_segment(self, v){}
+
+// capsule(self) -> Capsule
+// Get a copy of the shape's capsule. Asserts the type is correct.
+// C: `b2Capsule b2Shape_GetCapsule(b2ShapeId shapeId)`
+func shape_get.capsule(self){}
+// capsule(self, v: Capsule)
+// C: `void b2Shape_SetCapsule(b2ShapeId shapeId, const b2Capsule *capsule)`
+func shape_set.capsule(self, v){}
+
+// polygon(self) -> Polygon
+// Get a copy of the shape's convex polygon. Asserts the type is correct.
+// C: `b2Polygon b2Shape_GetPolygon(b2ShapeId shapeId)`
+func shape_get.polygon(self){}
+// polygon(self, v: Polygon)
+// C: `void b2Shape_SetPolygon(b2ShapeId shapeId, const b2Polygon *polygon)`
+func shape_set.polygon(self, v){}
+
+// parent_chain(self) -> Chain
+// Get the parent chain id if the shape type is a chain segment, otherwise
+// returns b2_nullChainId.
+// C: `b2ChainId b2Shape_GetParentChain(b2ShapeId shapeId)`
+func shape_get.parent_chain(self){}
+
+// contact_capacity(self) -> int
+// Get the maximum capacity required for retrieving all the touching contacts on
+// a shape
+// C: `int b2Shape_GetContactCapacity(b2ShapeId shapeId)`
+func shape_get.contact_capacity(self){}
+
+// sensor_capacity(self) -> int
+// Get the maximum capacity required for retrieving all the overlapped shapes on
+// a sensor shape. This returns 0 if the provided shape is not a sensor. Returns
+// the required capacity to get all the overlaps in b2Shape_GetSensorData
+// C: `int b2Shape_GetSensorCapacity(b2ShapeId shapeId)`
+func shape_get.sensor_capacity(self){}
+
+// bounds(self) -> AABB
+// Get the current world AABB
+// C: `b2AABB b2Shape_GetBounds(b2ShapeId shapeId)`
+func shape_get.bounds(self){}
 
 // destroy(update_body_mass?: bool)
 // Takes the shape off its body (and updates the body's mass, unless
@@ -2558,15 +3007,36 @@ func shape_methods.apply_wind(self, wind, drag, lift, wake){}
 
 // ------------------------------------------------------------ Chain
 
+local chain_methods = {}
+local chain_get = {}
+local chain_set = {}
+
 // A chain of segments on a body: every chain_* function is a method or
 // property.
 // type Chain
 // [body]: the body it is on
-// [world]: World (read-only)
-// [segment_count]: int (read-only)
-// [all_surface_materials]: SurfaceMaterial (write-only)
-// [valid]: bool (read-only)
-local chain_methods = {}
+local chain_meta = {__index: chain_methods, __get: chain_get, __set: chain_set}
+
+// world(self) -> World
+// Get the world that owns this chain shape
+// C: `b2WorldId b2Chain_GetWorld(b2ChainId chainId)`
+func chain_get.world(self){}
+
+// segment_count(self) -> int
+// Get the number of segments on this chain
+// C: `int b2Chain_GetSegmentCount(b2ChainId chainId)`
+func chain_get.segment_count(self){}
+
+// all_surface_materials(self, v: SurfaceMaterial)
+// Set the chain material on all segments.
+// C: `void b2Chain_SetAllSurfaceMaterials(b2ChainId chainId, const
+// b2SurfaceMaterial *material)`
+func chain_set.all_surface_materials(self, v){}
+
+// valid(self) -> bool
+// Chain identifier validation. Provides validation for up to 64K allocations.
+// C: `bool b2Chain_IsValid(b2ChainId id)`
+func chain_get.valid(self){}
 
 // destroy()
 // Takes the chain off its body.
@@ -2597,6 +3067,10 @@ func chain_methods.get_surface_material(self, segment_index){}
 
 // ------------------------------------------------------------ Joint
 
+local joint_methods = {}
+local joint_get = {}
+local joint_set = {}
+
 // A joint between two bodies: every joint_* function is a method or
 // property, and so are those of its kind (revolute_joint_set_motor_speed
 // is joint.motor_speed = s).
@@ -2604,52 +3078,327 @@ func chain_methods.get_surface_material(self, segment_index){}
 // [kind]: "distance", "filter", "motor", "mover", "pogo", "prismatic",
 //   "revolute", "weld" or "wheel"
 // [world]: the world it is in
-// [valid]: bool (read-only)
-// [type]: int (read-only)
-// [body_a]: Body (read-only)
-// [body_b]: Body (read-only)
-// [local_frame_a]: Transform
-// [local_frame_b]: Transform
-// [collide_connected]: bool
-// [user_data]: ffi.Pointer
-// [constraint_force]: Vec2 (read-only)
-// [constraint_torque]: float (read-only)
-// [linear_separation]: float (read-only)
-// [angular_separation]: float (read-only)
-// [force_threshold]: float
-// [torque_threshold]: float
-// [rest_length]: float
-// [spring_enabled]: bool
-// [spring_hertz]: float
-// [spring_damping_ratio]: float
-// [spring_force]: float (read-only)
-// [limit_enabled]: bool
-// [lower_limit]: float (read-only)
-// [upper_limit]: float (read-only)
-// [current_length]: float (read-only)
-// [motor_enabled]: bool
-// [target_motor_speed]: float
-// [max_motor_force]: float
-// [current_motor_force]: float (read-only)
-// [linear_velocity]: Vec2
-// [angular_velocity]: float
-// [max_velocity_force]: float
-// [max_velocity_torque]: float
-// [linear_hertz]: float
-// [linear_damping_ratio]: float
-// [angular_hertz]: float
-// [angular_damping_ratio]: float
-// [max_spring_force]: float
-// [max_spring_torque]: float
-// [current_speed]: float (read-only)
-// [impulse]: float (read-only)
-// [target_translation]: float
-// [current_translation]: float (read-only)
-// [target_angle]: float
-// [max_motor_torque]: float
-// [current_angle]: float (read-only)
-// [current_motor_torque]: float (read-only)
-local joint_methods = {}
+local joint_meta = {__index: joint_methods, __get: joint_get, __set: joint_set}
+
+// valid(self) -> bool
+// Joint identifier validation. Provides validation for up to 64K allocations.
+// C: `bool b2Joint_IsValid(b2JointId id)`
+func joint_get.valid(self){}
+
+// type(self) -> int
+// Get the joint type
+// C: `enum b2JointType b2Joint_GetType(b2JointId jointId)`
+func joint_get.type(self){}
+
+// body_a(self) -> Body
+// Get body A id on a joint
+// C: `b2BodyId b2Joint_GetBodyA(b2JointId jointId)`
+func joint_get.body_a(self){}
+
+// body_b(self) -> Body
+// Get body B id on a joint
+// C: `b2BodyId b2Joint_GetBodyB(b2JointId jointId)`
+func joint_get.body_b(self){}
+
+// world(self) -> World
+// Get the world that owns this joint
+// C: `b2WorldId b2Joint_GetWorld(b2JointId jointId)`
+func joint_get.world(self){}
+
+// local_frame_a(self) -> Transform
+// Get the local frame on bodyA
+// C: `b2Transform b2Joint_GetLocalFrameA(b2JointId jointId)`
+func joint_get.local_frame_a(self){}
+// local_frame_a(self, v: Transform)
+// C: `void b2Joint_SetLocalFrameA(b2JointId jointId, b2Transform localFrame)`
+func joint_set.local_frame_a(self, v){}
+
+// local_frame_b(self) -> Transform
+// Get the local frame on bodyB
+// C: `b2Transform b2Joint_GetLocalFrameB(b2JointId jointId)`
+func joint_get.local_frame_b(self){}
+// local_frame_b(self, v: Transform)
+// C: `void b2Joint_SetLocalFrameB(b2JointId jointId, b2Transform localFrame)`
+func joint_set.local_frame_b(self, v){}
+
+// collide_connected(self) -> bool
+// Is collision allowed between connected bodies?
+// C: `bool b2Joint_GetCollideConnected(b2JointId jointId)`
+func joint_get.collide_connected(self){}
+// collide_connected(self, v: bool)
+// C: `void b2Joint_SetCollideConnected(b2JointId jointId, bool shouldCollide)`
+func joint_set.collide_connected(self, v){}
+
+// user_data(self) -> ffi.Pointer
+// Get the user data on a joint
+// C: `void *b2Joint_GetUserData(b2JointId jointId)`
+func joint_get.user_data(self){}
+// user_data(self, v: ffi.Pointer)
+// C: `void b2Joint_SetUserData(b2JointId jointId, void *userData)`
+func joint_set.user_data(self, v){}
+
+// constraint_force(self) -> Vec2
+// Get the current constraint force for this joint. Usually in Newtons.
+// C: `b2Vec2 b2Joint_GetConstraintForce(b2JointId jointId)`
+func joint_get.constraint_force(self){}
+
+// constraint_torque(self) -> float
+// Get the current constraint torque for this joint. Usually in Newton * meters.
+// C: `float b2Joint_GetConstraintTorque(b2JointId jointId)`
+func joint_get.constraint_torque(self){}
+
+// linear_separation(self) -> float
+// Get the current linear separation error for this joint. Does not consider
+// admissible movement. Usually in meters.
+// C: `float b2Joint_GetLinearSeparation(b2JointId jointId)`
+func joint_get.linear_separation(self){}
+
+// angular_separation(self) -> float
+// Get the current angular separation error for this joint. Does not consider
+// admissible movement. Radians.
+// C: `float b2Joint_GetAngularSeparation(b2JointId jointId)`
+func joint_get.angular_separation(self){}
+
+// force_threshold(self) -> float
+// Get the force threshold for joint events (Newtons)
+// C: `float b2Joint_GetForceThreshold(b2JointId jointId)`
+func joint_get.force_threshold(self){}
+// force_threshold(self, v: float)
+// C: `void b2Joint_SetForceThreshold(b2JointId jointId, float threshold)`
+func joint_set.force_threshold(self, v){}
+
+// torque_threshold(self) -> float
+// Get the torque threshold for joint events (N-m)
+// C: `float b2Joint_GetTorqueThreshold(b2JointId jointId)`
+func joint_get.torque_threshold(self){}
+// torque_threshold(self, v: float)
+// C: `void b2Joint_SetTorqueThreshold(b2JointId jointId, float threshold)`
+func joint_set.torque_threshold(self, v){}
+
+// rest_length(self) -> float
+// Get the rest length of a distance joint
+// C: `float b2DistanceJoint_GetRestLength(b2JointId jointId)`
+func joint_get.rest_length(self){}
+// rest_length(self, v: float)
+// C: `void b2DistanceJoint_SetRestLength(b2JointId jointId, float length)`
+func joint_set.rest_length(self, v){}
+
+// spring_enabled(self) -> bool
+// Is the distance joint spring enabled?
+// C: `bool b2DistanceJoint_IsSpringEnabled(b2JointId jointId)`
+func joint_get.spring_enabled(self){}
+// spring_enabled(self, v: bool)
+// C: `void b2DistanceJoint_EnableSpring(b2JointId jointId, bool enableSpring)`
+func joint_set.spring_enabled(self, v){}
+
+// spring_hertz(self) -> float
+// Get the spring Hertz
+// C: `float b2DistanceJoint_GetSpringHertz(b2JointId jointId)`
+func joint_get.spring_hertz(self){}
+// spring_hertz(self, v: float)
+// C: `void b2DistanceJoint_SetSpringHertz(b2JointId jointId, float hertz)`
+func joint_set.spring_hertz(self, v){}
+
+// spring_damping_ratio(self) -> float
+// Get the spring damping ratio
+// C: `float b2DistanceJoint_GetSpringDampingRatio(b2JointId jointId)`
+func joint_get.spring_damping_ratio(self){}
+// spring_damping_ratio(self, v: float)
+// C: `void b2DistanceJoint_SetSpringDampingRatio(b2JointId jointId, float
+// dampingRatio)`
+func joint_set.spring_damping_ratio(self, v){}
+
+// spring_force(self) -> float
+// Get the current spring force.
+// C: `float b2DistanceJoint_GetSpringForce(b2JointId jointId)`
+func joint_get.spring_force(self){}
+
+// limit_enabled(self) -> bool
+// Is the distance joint limit enabled?
+// C: `bool b2DistanceJoint_IsLimitEnabled(b2JointId jointId)`
+func joint_get.limit_enabled(self){}
+// limit_enabled(self, v: bool)
+// C: `void b2DistanceJoint_EnableLimit(b2JointId jointId, bool enableLimit)`
+func joint_set.limit_enabled(self, v){}
+
+// lower_limit(self) -> float
+// Get the distance joint minimum length
+// C: `float b2DistanceJoint_GetLowerLimit(b2JointId jointId)`
+func joint_get.lower_limit(self){}
+
+// upper_limit(self) -> float
+// Get the distance joint maximum length
+// C: `float b2DistanceJoint_GetUpperLimit(b2JointId jointId)`
+func joint_get.upper_limit(self){}
+
+// current_length(self) -> float
+// Get the current length of a distance joint
+// C: `float b2DistanceJoint_GetCurrentLength(b2JointId jointId)`
+func joint_get.current_length(self){}
+
+// motor_enabled(self) -> bool
+// Is the distance joint motor enabled?
+// C: `bool b2DistanceJoint_IsMotorEnabled(b2JointId jointId)`
+func joint_get.motor_enabled(self){}
+// motor_enabled(self, v: bool)
+// C: `void b2DistanceJoint_EnableMotor(b2JointId jointId, bool enableMotor)`
+func joint_set.motor_enabled(self, v){}
+
+// target_motor_speed(self) -> float
+// Get the distance joint motor speed, usually in meters per second
+// C: `float b2DistanceJoint_GetTargetMotorSpeed(b2JointId jointId)`
+func joint_get.target_motor_speed(self){}
+// target_motor_speed(self, v: float)
+// C: `void b2DistanceJoint_SetTargetMotorSpeed(b2JointId jointId, float
+// motorSpeed)`
+func joint_set.target_motor_speed(self, v){}
+
+// max_motor_force(self) -> float
+// Get the distance joint maximum motor force, usually in newtons
+// C: `float b2DistanceJoint_GetMaxMotorForce(b2JointId jointId)`
+func joint_get.max_motor_force(self){}
+// max_motor_force(self, v: float)
+// C: `void b2DistanceJoint_SetMaxMotorForce(b2JointId jointId, float force)`
+func joint_set.max_motor_force(self, v){}
+
+// current_motor_force(self) -> float
+// Get the distance joint current motor force, usually in newtons
+// C: `float b2DistanceJoint_GetCurrentMotorForce(b2JointId jointId)`
+func joint_get.current_motor_force(self){}
+
+// linear_velocity(self) -> Vec2
+// Get the desired relative linear velocity in meters per second
+// C: `b2Vec2 b2MotorJoint_GetLinearVelocity(b2JointId jointId)`
+func joint_get.linear_velocity(self){}
+// linear_velocity(self, v: Vec2)
+// C: `void b2MotorJoint_SetLinearVelocity(b2JointId jointId, b2Vec2 velocity)`
+func joint_set.linear_velocity(self, v){}
+
+// angular_velocity(self) -> float
+// Get the desired relative angular velocity in radians per second
+// C: `float b2MotorJoint_GetAngularVelocity(b2JointId jointId)`
+func joint_get.angular_velocity(self){}
+// angular_velocity(self, v: float)
+// C: `void b2MotorJoint_SetAngularVelocity(b2JointId jointId, float velocity)`
+func joint_set.angular_velocity(self, v){}
+
+// max_velocity_force(self) -> float
+// Get the motor joint maximum force, usually in newtons
+// C: `float b2MotorJoint_GetMaxVelocityForce(b2JointId jointId)`
+func joint_get.max_velocity_force(self){}
+// max_velocity_force(self, v: float)
+// C: `void b2MotorJoint_SetMaxVelocityForce(b2JointId jointId, float maxForce)`
+func joint_set.max_velocity_force(self, v){}
+
+// max_velocity_torque(self) -> float
+// Get the motor joint maximum torque, usually in newton-meters
+// C: `float b2MotorJoint_GetMaxVelocityTorque(b2JointId jointId)`
+func joint_get.max_velocity_torque(self){}
+// max_velocity_torque(self, v: float)
+// C: `void b2MotorJoint_SetMaxVelocityTorque(b2JointId jointId, float
+// maxTorque)`
+func joint_set.max_velocity_torque(self, v){}
+
+// linear_hertz(self) -> float
+// Get the spring linear hertz stiffness
+// C: `float b2MotorJoint_GetLinearHertz(b2JointId jointId)`
+func joint_get.linear_hertz(self){}
+// linear_hertz(self, v: float)
+// C: `void b2MotorJoint_SetLinearHertz(b2JointId jointId, float hertz)`
+func joint_set.linear_hertz(self, v){}
+
+// linear_damping_ratio(self) -> float
+// Get the spring linear damping ratio.
+// C: `float b2MotorJoint_GetLinearDampingRatio(b2JointId jointId)`
+func joint_get.linear_damping_ratio(self){}
+// linear_damping_ratio(self, v: float)
+// C: `void b2MotorJoint_SetLinearDampingRatio(b2JointId jointId, float
+// damping)`
+func joint_set.linear_damping_ratio(self, v){}
+
+// angular_hertz(self) -> float
+// Get the spring angular hertz stiffness
+// C: `float b2MotorJoint_GetAngularHertz(b2JointId jointId)`
+func joint_get.angular_hertz(self){}
+// angular_hertz(self, v: float)
+// C: `void b2MotorJoint_SetAngularHertz(b2JointId jointId, float hertz)`
+func joint_set.angular_hertz(self, v){}
+
+// angular_damping_ratio(self) -> float
+// Get the spring angular damping ratio.
+// C: `float b2MotorJoint_GetAngularDampingRatio(b2JointId jointId)`
+func joint_get.angular_damping_ratio(self){}
+// angular_damping_ratio(self, v: float)
+// C: `void b2MotorJoint_SetAngularDampingRatio(b2JointId jointId, float
+// damping)`
+func joint_set.angular_damping_ratio(self, v){}
+
+// max_spring_force(self) -> float
+// Get the maximum spring force in newtons.
+// C: `float b2MotorJoint_GetMaxSpringForce(b2JointId jointId)`
+func joint_get.max_spring_force(self){}
+// max_spring_force(self, v: float)
+// C: `void b2MotorJoint_SetMaxSpringForce(b2JointId jointId, float maxForce)`
+func joint_set.max_spring_force(self, v){}
+
+// max_spring_torque(self) -> float
+// Get the maximum spring torque in newtons * meters
+// C: `float b2MotorJoint_GetMaxSpringTorque(b2JointId jointId)`
+func joint_get.max_spring_torque(self){}
+// max_spring_torque(self, v: float)
+// C: `void b2MotorJoint_SetMaxSpringTorque(b2JointId jointId, float maxTorque)`
+func joint_set.max_spring_torque(self, v){}
+
+// current_speed(self) -> float
+// Get the internal pogo velocity.
+// C: `float b2PogoJoint_GetCurrentSpeed(b2JointId jointId)`
+func joint_get.current_speed(self){}
+
+// impulse(self) -> float
+// Get the internal pogo impulse.
+// C: `float b2PogoJoint_GetImpulse(b2JointId jointId)`
+func joint_get.impulse(self){}
+
+// target_translation(self) -> float
+// Get the prismatic joint spring target translation, usually in meters
+// C: `float b2PrismaticJoint_GetTargetTranslation(b2JointId jointId)`
+func joint_get.target_translation(self){}
+// target_translation(self, v: float)
+// C: `void b2PrismaticJoint_SetTargetTranslation(b2JointId jointId, float
+// translation)`
+func joint_set.target_translation(self, v){}
+
+// current_translation(self) -> float
+// Get the current joint translation, usually in meters.
+// C: `float b2PrismaticJoint_GetCurrentTranslation(b2JointId jointId)`
+func joint_get.current_translation(self){}
+
+// target_angle(self) -> float
+// Get the revolute joint spring target angle, radians
+// C: `float b2RevoluteJoint_GetTargetAngle(b2JointId jointId)`
+func joint_get.target_angle(self){}
+// target_angle(self, v: float)
+// C: `void b2RevoluteJoint_SetTargetAngle(b2JointId jointId, float angle)`
+func joint_set.target_angle(self, v){}
+
+// max_motor_torque(self) -> float
+// Get the revolute joint maximum motor torque, usually in newton-meters
+// C: `float b2RevoluteJoint_GetMaxMotorTorque(b2JointId jointId)`
+func joint_get.max_motor_torque(self){}
+// max_motor_torque(self, v: float)
+// C: `void b2RevoluteJoint_SetMaxMotorTorque(b2JointId jointId, float torque)`
+func joint_set.max_motor_torque(self, v){}
+
+// current_angle(self) -> float
+// Get the revolute joint current angle in radians. This is the relative
+// rotation of the joint frames.
+// C: `float b2RevoluteJoint_GetCurrentAngle(b2JointId jointId)`
+func joint_get.current_angle(self){}
+
+// current_motor_torque(self) -> float
+// Get the revolute joint current motor torque, usually in newton-meters
+// C: `float b2RevoluteJoint_GetCurrentMotorTorque(b2JointId jointId)`
+func joint_get.current_motor_torque(self){}
 
 // destroy()
 // Takes the joint out of the world.

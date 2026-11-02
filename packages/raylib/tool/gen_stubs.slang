@@ -204,6 +204,28 @@ for(let local name in values(constants)){
   }
 }
 line("")
+// the resource types' tables and metas, before the functions that make
+// them (their methods and properties come at the end)
+local resource_list = {}
+for(let local e in entries(rl.__resource_words)){
+  append(resource_list, e[0])
+}
+for(let local type_name in values(resource_list)){
+  local base = snake(type_name)
+  line("local ", base, "_methods = {}")
+  line("local ", base, "_get = {}")
+  line("local ", base, "_set = {}")
+  line("")
+  comment(concat(
+    "A ", type_name, " is the struct as a table with the functions that ",
+    "take it first as methods, named without the type's word, and its ",
+    "getters without arguments and setters of one value as properties.",
+  ))
+  line("// type ", type_name)
+  line("local ", base, "_meta = {__index: ", base, "_methods, __get: ", base,
+    "_get, __set: ", base, "_set}")
+  line("")
+}
 line(
   "// ------------------------------------------------------------ functions",
 )
@@ -273,7 +295,15 @@ for(let local c_name in values(C.order)){
     )
     local body = ""
     if(ret.kind == "struct"){
-      body = concat(" return ", example(ret.original or ret), " ")
+      local value = example(ret.original or ret)
+      local rt = ret.original or ret
+      // a resource: its meta too
+      if(rl.__resource_words[rt.name] != null){
+        value = concat("{meta: ", snake(rt.name), "_meta, ", str.substring(value, 1))
+      } else if(rl.__resource_words[ret.name] != null){
+        value = concat("{meta: ", snake(ret.name), "_meta, ", str.substring(value, 1))
+      }
+      body = concat(" return ", value, " ")
     }
     line("func m.", name, "(", str.join(params, ", "), "){", body, "}")
     line("")
@@ -396,46 +426,42 @@ local class_count = 0
 for(let local e in entries(rl.__resource_words)){
   local type_name = e[0]
   local class = rl.__class_of(type_name)
-  local table = concat(snake(type_name), "_methods")
+  local base = snake(type_name)
+  local table = concat(base, "_methods")
+  local get_table = concat(base, "_get")
+  local set_table = concat(base, "_set")
   line("// ------------------------------------------------------------ ", type_name)
   line("")
-  comment(concat(
-    "A ", type_name, " is the struct as a table with the functions that ",
-    "take it first as methods, named without the type's word, and its ",
-    "getters without arguments and setters of one value as properties.",
-  ))
-  line("// type ", type_name)
   local key_list = {}
   for(let local k in keys(class.sources)){
     append(key_list, k)
   }
   require("slang/table").sort(key_list)
+  // the properties: a getter and a setter stub each side has
   for(let local k in values(key_list)){
     local src = class.sources[k]
     if(src.kind != "method"){
-      local readable = class.properties[k].get != null
-      local writable = class.properties[k].set != null
-      local t = "any"
-      if(readable){
-        local d = class.sources[k].decl
-        if(src.kind == "get"){
-          t = slang_type(d.ret)
+      local d = src.decl
+      local t = src.kind == "get" and slang_type(d.ret) or
+        slang_type(d.params[1].type)
+      if(class.getters[k] != null){
+        comment(concat(k, "(self) -> ", t), "// ")
+        if(src.kind == "get" and d.doc != ""){
+          comment(d.doc)
         }
+        comment(concat("C: ", d.name))
+        line("func ", get_table, ".", k, "(self){}")
       }
-      if(src.kind == "set"){
-        t = slang_type(src.decl.params[1].type)
+      if(class.setters[k] != null){
+        comment(concat(k, "(self, v: ", t, ")"), "// ")
+        if(src.kind == "set" and d.doc != ""){
+          comment(d.doc)
+        }
+        line("func ", set_table, ".", k, "(self, v){}")
       }
-      local note = ""
-      if(not writable){
-        note = " (read-only)"
-      } else if(not readable){
-        note = " (write-only)"
-      }
-      comment(concat("[", k, "]: ", t, note))
+      line("")
     }
   }
-  line("local ", table, " = {}")
-  line("")
   for(let local k in values(key_list)){
     local src = class.sources[k]
     if(src.kind == "method"){

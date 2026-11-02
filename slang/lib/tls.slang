@@ -60,7 +60,6 @@
 
 local async = require("slang/async")
 local os = require("slang/os")
-local class = require("slang/class")
 
 local tls = {}
 
@@ -113,21 +112,23 @@ func tls.self_signed(names, days){
 
 // ------------------------------------------------------------ connections
 
+local methods = {}
+local getters = {}
+
 // A TLS connection over a uv.tcp handle; type(conn) is "tls.Connection".
 // It also has the handle's getsockname, getpeername, nodelay, keepalive,
 // is_closing, is_active, fileno, ref, unref and has_ref, which go to the
 // TCP handle.
 // type Connection
-// [info]: the protocol version, cipher, ALPN protocol, peer and server
-//   name ([Info])
-local methods = {}
-local Connection = class.new({
-  name: "tls.Connection",
-  methods: methods,
-  properties: {
-    info: {get: func(t){ return t.session:info() }},
-  },
-})
+local connection_meta = {
+  __type: "tls.Connection", __index: methods, __get: getters
+}
+
+// info(self) -> Info
+// The protocol version, cipher, ALPN protocol, peer and server name.
+func getters.info(t){
+  return t.session:info()
+}
 
 // sends what the engine has for the network; cb(err) once it is written
 local func flush(t, cb){
@@ -265,7 +266,8 @@ local func connection(tcp, session){
     eof_told: false, pending: {}, waiting: {}
   }
   t.tcp_cb = func(err, chunk){ on_tcp(t, err, chunk) }
-  return class.make(Connection, t)
+  t.meta = connection_meta
+  return t
 }
 
 local client_context = null

@@ -38,7 +38,6 @@ local math = require("slang/math")
 local buffer = require("slang/buffer")
 local names = require("jolt/names")
 local path_lib = require("slang/path")
-local class_lib = require("slang/class")
 local snake = names.snake
 
 // ------------------------------------------------------------ the library
@@ -447,14 +446,76 @@ local func bind_method(found, key){
 
 local getter_prefixes = {"get_", "is_", "has_"}
 local setter_prefixes = {"set_", "set_is_"}
+local accessor_prefixes = {"get_", "is_", "has_", "set_"}
 
-// a key of a class along its chain: a joltc function of that name is a
-// method; get_<key>, is_<key> or has_<key> without arguments is the read
-// side of a property, set_<key> (set_is_<key>) with one its write side;
-// such get_/set_ names themselves are gone (the property replaces them),
+// the property key of a chain names: get_/is_/has_<key> without arguments
+// reads it, set_<key> (set_is_<key>) with one writes it, as {get?, set?}
+// (each {link, decl}); null when neither, or when a joltc function of
+// that name is a method
+func classes.property(links, key){
+  for(let local pre in values(accessor_prefixes)){
+    if(str.starts_with(key, pre)){
+      return null
+    }
+  }
+  if(find_c(links, key) != null){
+    return null
+  }
+  local r = {}
+  for(let local pre in values(getter_prefixes)){
+    local g = find_c(links, concat(pre, key))
+    if(g != null and arity(g) == 0){
+      r.get = g
+      break
+    }
+  }
+  for(let local pre in values(setter_prefixes)){
+    local s = find_c(links, concat(pre, key))
+    if(s != null and arity(s) == 1){
+      r.set = s
+      break
+    }
+  }
+  if(r.get == null and r.set == null){
+    return null
+  }
+  return r
+}
+
+// the keys a chain has properties for
+func classes.property_keys(links){
+  local out = {}
+  local seen = {}
+  for(let local link in values(links)){
+    local head = concat(link.snake, "_")
+    local tail = link.suffix != null and concat("_", link.suffix) or null
+    for(let local name in keys(c_names)){
+      if(str.starts_with(name, head)){
+        local rest = str.substring(name, len(head))
+        if(tail != null and str.ends_with(rest, tail)){
+          rest = str.substring(rest, 0, len(rest) - len(tail))
+        }
+        for(let local pre in values({"get_", "is_", "has_", "set_is_", "set_"})){
+          if(str.starts_with(rest, pre)){
+            local key = str.substring(rest, len(pre))
+            if(not seen[key] and classes.property(links, key) != null){
+              seen[key] = true
+              append(out, key)
+            }
+            break
+          }
+        }
+      }
+    }
+  }
+  return out
+}
+
+// a method of a chain: the joltc function of that name; get_/is_/has_ and
+// set_ names that a property replaces are gone (they raise and say so),
 // while getters and setters that take more stay methods
-func classes.resolve(links, key){
-  for(let local pre in values({"get_", "is_", "has_", "set_"})){
+func classes.method(links, key){
+  for(let local pre in values(accessor_prefixes)){
     if(str.starts_with(key, pre)){
       local found = find_c(links, key)
       if(found == null){
@@ -467,50 +528,66 @@ func classes.resolve(links, key){
         // (activation, say) it stays the full form
         local f = bind_method(found, key)
         local hint = concat("assign the property (x.", name, " = v)")
-        return {method: func(self, v, ...more){
+        return func(self, v, ...more){
           if(len(more) == 0){
             error("jolt: ", key, " with one value is gone: ", hint)
           }
           return f(self, v, ...more)
-        }}
+        }
       }
       if(pre != "set_" and n == 0){
-        return {gone: concat("read the property (x.", name, ")")}
+        error("jolt: ", key, " is gone: read the property (x.", name, ")")
       }
-      return {method: bind_method(found, key)}
+      return bind_method(found, key)
     }
   }
   local found = find_c(links, key)
   if(found != null){
-    return {method: bind_method(found, key)}
+    return bind_method(found, key)
   }
-  local r = {}
-  for(let local pre in values(getter_prefixes)){
-    local g = find_c(links, concat(pre, key))
-    if(g != null and arity(g) == 0){
-      local f = bind_method(g, key)
-      r.get = func(self){ return f(self) }
-      break
-    }
-  }
-  for(let local pre in values(setter_prefixes)){
-    local s = find_c(links, concat(pre, key))
-    if(s != null and arity(s) == 1){
-      local f = bind_method(s, key)
-      r.set = func(self, v){ f(self, v) }
-      break
-    }
-  }
-  if(r.get == null and r.set == null){
-    return null
-  }
-  return r
+  return null
 }
 
+// an accessor of a joltc function, bound when first called (it then takes
+// its place in table)
+local func lazy_accessor(table, key, found){
+  return func(self, ...args){
+    local f = bind_method(found, key)
+    table[key] = f
+    return f(self, ...args)
+  }
+}
+
+// the properties of a class's functions, except those it has methods,
+// getters or setters of by hand: done once the package's file has run
+// (hand-written ones are defined after their classes)
+local func add_properties(class){
+  local methods = class.methods
+  local getters = class.getters
+  local setters = class.setters
+  for(let local key in values(classes.property_keys(class.links))){
+    if(methods[key] == null and getters[key] == null and setters[key] == null){
+      local p = classes.property(class.links, key)
+      if(p.get != null){
+        getters[key] = lazy_accessor(getters, key, p.get)
+      }
+      if(p.set != null){
+        setters[key] = lazy_accessor(setters, key, p.set)
+      }
+    }
+  }
+}
+classes.pending = {}
+classes.finished = false
+
 // Every wrapper is {meta: class.meta, ...}: a Body has id and world, the
-// others ptr (and world where Jolt's things belong to one). properties
-// are hand-written ones ({get, set}).
-local func define_class(name, chain, methods, type_name, properties){
+// others ptr (and world where Jolt's things belong to one). getters and
+// setters are the hand-written properties, methods the hand-written
+// methods; the rest come from the joltc functions along the chain: a
+// property for each getter and setter (bound when first used), a method
+// for each other
+// function (bound when first looked up)
+local func define_class(name, chain, methods, type_name, getters, setters){
   local links = {}
   for(let local link in values(chain)){
     if(type(link) == "string"){
@@ -526,16 +603,43 @@ local func define_class(name, chain, methods, type_name, properties){
       suffix: link.suffix,
     })
   }
-  local class = class_lib.new({
-    name: type_name or concat("jolt.", name),
-    methods: methods,
-    properties: properties,
-    resolve: func(key){
-      return classes.resolve(links, key)
+  getters = getters or {}
+  setters = setters or {}
+  // the methods as found: the hand-written ones (which classes may
+  // share, and which may be defined after the class), then the joltc
+  // functions; each looked up once and kept
+  local found = {}
+  local missing = {}
+  found.meta = {
+    __index: func(t, key){
+      if(type(key) != "string" or missing[key]){
+        return null
+      }
+      local f = methods[key] or classes.method(links, key)
+      if(f == null){
+        missing[key] = true
+        return null
+      }
+      set_raw(t, key, f)
+      return f
     },
-  })
-  class.links = links
-  class.name = name
+  }
+  local class = {
+    name: name, links: links, methods: methods, getters: getters,
+    setters: setters
+  }
+  class.meta = {
+    __type: type_name or concat("jolt.", name),
+    __index: found,
+    __get: getters,
+    __set: setters,
+    __class: class,
+  }
+  if(classes.finished){
+    add_properties(class)
+  } else {
+    append(classes.pending, class)
+  }
   return class
 }
 
@@ -574,11 +678,9 @@ local BroadPhaseQuery = define_class("BroadPhaseQuery", {"BroadPhaseQuery"}, {})
 // type Body
 // [id]: Jolt's id of the body, an int: key tables by it
 // [world]: the world it is in
-// [shape]: its shape; assigning one gives the body that shape (its mass
-//   properties follow) and wakes it
-// [active]: whether it is awake; false puts it to sleep
 local body_methods = {}
-local body_properties = {}
+local body_get = {}
+local body_set = {}
 local Body = define_class("Body", {
   {
     prefix: "BodyInterface",
@@ -597,7 +699,7 @@ local Body = define_class("Body", {
       return {body_cptr(self)}
     },
   },
-}, body_methods, null, body_properties)
+}, body_methods, null, body_get, body_set)
 
 // the body's pointer, for the body_* functions and constraints (no lock:
 // for use between steps)
@@ -1985,32 +2087,33 @@ func body_methods.destroy(b){
   }
 }
 
-body_properties.active = {
-  get: func(b){
-    return lib.JPH_BodyInterface_IsActive(b.world.body_interface, b.id)
-  },
-  set: func(b, on){
-    if(on){
-      lib.JPH_BodyInterface_ActivateBody(b.world.body_interface, b.id)
-    } else {
-      lib.JPH_BodyInterface_DeactivateBody(b.world.body_interface, b.id)
-    }
-  },
+// active(self) -> bool
+// Whether the body is awake; assigning false puts it to sleep.
+func body_get.active(b){
+  return lib.JPH_BodyInterface_IsActive(b.world.body_interface, b.id)
+}
+func body_set.active(b, on){
+  if(on){
+    lib.JPH_BodyInterface_ActivateBody(b.world.body_interface, b.id)
+  } else {
+    lib.JPH_BodyInterface_DeactivateBody(b.world.body_interface, b.id)
+  }
 }
 
-body_properties.shape = {
-  get: func(b){
-    if(b.made_with != null){
-      return b.made_with
-    }
-    return shape_of(lib.JPH_BodyInterface_GetShape(b.world.body_interface, b.id))
-  },
-  set: func(b, shape){
-    lib.JPH_BodyInterface_SetShape(
-      b.world.body_interface, b.id, unwrap(shape), true, activation_of(true)
-    )
-    set_raw(b, "made_with", shape)
-  },
+// shape(self) -> Shape
+// The body's shape; assigning one gives the body that shape (its mass
+// properties follow) and wakes it.
+func body_get.shape(b){
+  if(b.made_with != null){
+    return b.made_with
+  }
+  return shape_of(lib.JPH_BodyInterface_GetShape(b.world.body_interface, b.id))
+}
+func body_set.shape(b, shape){
+  lib.JPH_BodyInterface_SetShape(
+    b.world.body_interface, b.id, unwrap(shape), true, activation_of(true)
+  )
+  set_raw(b, "made_with", shape)
 }
 
 // ------------------------------------------------------------ shapes
@@ -2447,5 +2550,12 @@ jolt.__classes = {
 jolt.__shape_chains = shape_chains
 jolt.__constraint_kinds = constraint_kinds
 jolt.__controller_classes = controller_classes
+
+// the classes' properties, now that every hand-written definition is in
+for(let local class in values(classes.pending)){
+  add_properties(class)
+}
+classes.pending = null
+classes.finished = true
 
 return jolt

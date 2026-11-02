@@ -103,6 +103,8 @@ print(res.status, res:header(&quot;location&quot;))</code></pre>
 <li><a href="#WebTestClient:delete"><code>WebTestClient:delete</code></a></li>
 <li><a href="#type-TestOptions"><code>type TestOptions</code></a></li>
 <li><a href="#type-TestResponse"><code>type TestResponse</code></a></li>
+<li><a href="#type-web.TestResponse"><code>type web.TestResponse</code></a></li>
+<li><a href="#web.TestResponse:header"><code>web.TestResponse:header</code></a></li>
 </ul>
 <h2>responses</h2>
 <div class="def" id="text"><h3><code>web.text(s: string, status?: int) -> <a href="slang-http.html#type-Response">http.Response</a></code></h3>
@@ -292,6 +294,12 @@ app:post(&quot;/login&quot;, func(req){
 <pre><code>type TestResponse = {status: int, headers: table, body: string, header: func(name: string): any}</code></pre>
 <p>What a test request gives: the app's response with the body collected.</p>
 <dl class="params"><dt><code>status: int</code></dt><dd></dd><dt><code>headers: table</code></dt><dd></dd><dt><code>body: string</code></dt><dd></dd><dt><code>header: func(name: string): any</code></dt><dd>a header by name in any case: res:header(&quot;location&quot;)</dd></dl>
+<h2 id="type-web.TestResponse">type web.TestResponse</h2>
+
+<div class="def" id="web.TestResponse:header"><h3><code>web.TestResponse:header(name)</code></h3>
+<p class="muted">No description.</p>
+
+</div>
 <p class="muted">slang/lib/web.slang</p>
 </body>
 </html>

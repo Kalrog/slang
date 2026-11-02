@@ -1,9 +1,8 @@
 // Property and method lookups: ns per operation, the loop's own time
 // taken off, best of three. Compares plain tables, __index tables (also
 // several levels deep), __get/__set properties, __index/__newindex
-// functions (slang/class) and accessor methods.
+// functions (as a class helper would write them) and accessor methods.
 local time = require("slang/time")
-local class = require("slang/class")
 
 local n = 5000000
 
@@ -58,17 +57,37 @@ local func chained(depth){
   return o
 }
 
-local Counter = class.new({
-  name: "bench.Counter",
-  methods: {m: func(self){ return 1 }},
-  properties: {
-    x: {
-      get: func(self){ return self.state_x },
-      set: func(self, v){ self.state_x = v },
-    },
+// properties through __index and __newindex functions, as a class helper
+// would make them
+local helper_methods = {m: func(self){ return 1 }}
+local helper_props = {
+  x: {
+    get: func(self){ return self.state_x },
+    set: func(self, v){ self.state_x = v },
   },
-})
-local helper = class.make(Counter, {state_x: 1})
+}
+local helper = {state_x: 1}
+helper.meta = {
+  __index: func(self, key){
+    local f = helper_methods[key]
+    if(f != null){
+      return f
+    }
+    local p = helper_props[key]
+    if(p != null){
+      return p.get(self)
+    }
+    return null
+  },
+  __newindex: func(self, key, v){
+    local p = helper_props[key]
+    if(p != null){
+      p.set(self, v)
+      return
+    }
+    set_raw(self, key, v)
+  },
+}
 
 // properties through __get and __set, methods through the __index table
 local with_get = {vx: 1}
@@ -119,7 +138,7 @@ row("method, __index table (o:m())", func(){
   local s = 0
   for(local i = 0; i < n; i = i + 1){ s = s + with_meta:m() }
 })
-row("method, slang/class (o:m())", func(){
+row("method, __index function (o:m())", func(){
   local s = 0
   for(local i = 0; i < n; i = i + 1){ s = s + helper:m() }
 })
@@ -127,7 +146,7 @@ row("getter method, __index table (o:get_x())", func(){
   local s = 0
   for(local i = 0; i < n; i = i + 1){ s = s + with_meta:get_x() }
 })
-row("property, slang/class (o.x)", func(){
+row("property, __index function (o.x)", func(){
   local s = 0
   for(local i = 0; i < n; i = i + 1){ s = s + helper.x }
 })
@@ -137,7 +156,7 @@ row("missing key, __index table (o.nope)", func(){
     if(with_meta.nope == null){ s = s + 1 }
   }
 })
-row("missing key, slang/class (o.nope)", func(){
+row("missing key, __index function (o.nope)", func(){
   local s = 0
   for(local i = 0; i < n; i = i + 1){
     if(helper.nope == null){ s = s + 1 }
@@ -212,7 +231,7 @@ row("own field, metatable with __newindex (o.x = v)", func(){
 row("setter method, __index table (o:set_x(v))", func(){
   for(local i = 0; i < n; i = i + 1){ with_meta:set_x(i) }
 })
-row("property, slang/class (o.x = v)", func(){
+row("property, __index function (o.x = v)", func(){
   for(local i = 0; i < n; i = i + 1){ helper.x = i }
 })
 local plain_meta = {__type: "bench.Plain"}

@@ -73,6 +73,7 @@ print(r.stdout)</code></pre>
 <li><a href="#cpu_count"><code>cpu_count</code></a></li>
 <li><a href="#platform"><code>platform</code></a></li>
 <li><a href="#type-File"><code>type File</code></a></li>
+<li><a href="#File.name"><code>File.name</code></a></li>
 <li><a href="#File:read"><code>File:read</code></a></li>
 <li><a href="#File:read_line"><code>File:read_line</code></a></li>
 <li><a href="#File:lines"><code>File:lines</code></a></li>
@@ -181,6 +182,10 @@ print(r.stdout)</code></pre>
 </div>
 <h2 id="type-File">type File</h2>
 <p>An open file, from <a href="#open"><code>open</code></a>; type() of it is &quot;file&quot;. It is closed when it is collected.</p>
+<div class="def" id="File.name"><h3><code>File.name: string (read-only)</code></h3>
+<p>The path the file was opened with.</p>
+
+</div>
 <div class="def" id="File:read"><h3><code>File:read(n?: int) -> string</code></h3>
 <p>The next n bytes, fewer at the end of the file, or the rest of the file when n is left out.</p>
 

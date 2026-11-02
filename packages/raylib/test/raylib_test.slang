@@ -90,6 +90,41 @@ t.group("raylib: structs that own memory"){
   }
 }
 
+t.group("raylib: resources are objects"){
+  t.test("an image's functions are its methods and properties"){
+    local img = rl.gen_image_color(4, 3, rl.RED)
+    assert(type(img) == "raylib.Image" and img.valid)
+    img:resize(8, 6)
+    assert(img.width == 8 and img.height == 6)
+    assert(img:get_color(0, 0).r == rl.RED.r)
+    local copy = img:copy()
+    copy:crop({0, 0, 2, 2})
+    assert(copy.width == 2 and img.width == 8)
+    assert(len(copy:load_colors()) == 4)
+    img.note = "mine"
+    assert(img.note == "mine")
+    copy:unload()
+    img:unload()
+  }
+  t.test("waves from samples; cameras with defaults; C's names"){
+    local samples = {}
+    for(local i = 0; i < 100; i = i + 1){
+      append(samples, i / 100)
+    }
+    local w = rl.wave({samples: samples, sample_rate: 8000})
+    assert(type(w) == "raylib.Wave" and w.frame_count == 100 and w.valid)
+    local again = w:copy()
+    assert(again.sample_rate == 8000)
+    again:unload()
+    w:unload()
+    local cam = rl.camera_3d({position: {0, 2, 5}})
+    assert(cam.up.y == 1 and cam.fovy == 45 and type(cam) == "raylib.Camera3D")
+    assert(near(rl.get_camera_matrix(cam).m5, rl.get_camera_matrix(cam).m5))
+    assert(rl.camera_2d().zoom == 1)
+    assert(rl.c.KEY_SPACE == 32 and rl.c.ColorToInt(rl.WHITE) == rl.color_to_int(rl.WHITE))
+  }
+}
+
 t.group("raylib: text"){
   t.test("strings in, strings out"){
     assert(rl.text_to_upper("abc") == "ABC")

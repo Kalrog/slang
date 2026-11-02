@@ -32,6 +32,7 @@
 // parameters a user turns, read by the block function at every block) cross
 // by reference; see slang/isolate and slang/buffer.
 local isolate = require("slang/isolate")
+local class = require("slang/class")
 local buffer = require("slang/buffer")
 local time = require("slang/time")
 
@@ -154,11 +155,13 @@ local func pump_loop(cfg, ring, state, wake, ctl){
 }
 
 // A playing stream, as play returns it. Methods are called with `:`.
-// type Player = {stats: func(): Stats, stop: func()}
-// [stats]: how the stream is doing since the last call to stats; raises
-//   the render isolate's error when the block function failed
+// type Player = {stats: func(): Stats, stop: func(), playing: bool}
+// [stats]: how the stream is doing since the last call to stats (it
+//   starts the next measuring window: load and peak are since then);
+//   raises the render isolate's error when the block function failed
 // [stop]: stops the stream, closes the audio device and ends both
 //   isolates; raises the render isolate's error when it failed
+// [playing]: whether the device plays (after the first blocks)
 //
 // type Stats = {load: float, peak: float, underruns: int,
 //   callbacks: int, playing: bool}
@@ -170,9 +173,9 @@ local func pump_loop(cfg, ring, state, wake, ctl){
 // [callbacks]: raylib's calls of the stream callback since the start
 // [playing]: whether the device plays (after the first blocks)
 local player_methods = {}
-local player_meta = {__index: player_methods}
 
-func player_methods.stats(self){
+func player_methods.stats(player){
+  local self = player.inner
   if(not self.pump:is_running() and not self.stopped){
     // raises when there is no audio device
     self.pump:join()
@@ -201,7 +204,8 @@ func player_methods.stats(self){
   }
 }
 
-func player_methods.stop(self){
+func player_methods.stop(player){
+  local self = player.inner
   if(self.stopped){
     return null
   }
@@ -210,6 +214,14 @@ func player_methods.stop(self){
   self.pump:join()
   self.render:join()
 }
+
+local Player = class.new({
+  name: "raylib.Player",
+  methods: player_methods,
+  properties: {
+    playing: {get: func(p){ return p.inner.state[4] == 1 }},
+  },
+})
 
 // play(setup: function, options?: Options) -> Player
 // Starts a stream: setup(...options.args) runs in a new isolate and returns
@@ -240,7 +252,7 @@ func stream.play(setup, options){
     ring = ring * 2
   }
   if(ring % block != 0){
-    error("raylib/stream: block must be a power of two")
+    error("raylib/stream: block must divide the ring (", ring, " frames): use a power of two")
   }
   local cfg = {
     sample_rate: options.sample_rate or 48000,
@@ -258,7 +270,7 @@ func stream.play(setup, options){
     render_loop, setup, options.args or {}, cfg, samples, state, timing, wake
   )
   local pump = isolate.spawn(pump_loop, cfg, samples, state, wake, ctl)
-  local p = {
+  return class.make(Player, {inner: {
     render: render,
     pump: pump,
     ctl: ctl,
@@ -268,9 +280,7 @@ func stream.play(setup, options){
     last_rendered: 0,
     last_seconds: 0.0,
     stopped: false,
-  }
-  p.meta = player_meta
-  return p
+  }})
 }
 
 return stream

@@ -20,6 +20,8 @@
 local ffi = require("slang/ffi")
 local os = require("slang/os")
 local str = require("slang/string")
+local buffer = require("slang/buffer")
+local class_lib = require("slang/class")
 local names = require("raylib/names")
 local snake = names.snake
 local is_count = names.is_count
@@ -70,6 +72,160 @@ if(os.exists(where.raymath)){
 }
 local lib = ffi.load(where.library, C)
 
+// ------------------------------------------------------------ classes
+
+// The resource types: what raylib loads and unloads. A value of one is the
+// struct as a table, with the type's functions as methods: those whose
+// first parameter is the type, named without the type's word
+// (DrawTexture(texture, ...) is texture:draw(...), ImageResize(&image, w,
+// h) image:resize(w, h), PlayMusicStream(music) music:play()). A getter
+// without arguments and a setter of one value are a property instead
+// (texture.valid, music.time_length, sound.volume = 0.5). Struct fields
+// stay fields. Vectors, colors, rectangles and matrices stay plain tables.
+// The words are the snake_case names the functions use, the longest
+// first.
+local resource_words = {
+  Image: {"image"},
+  Texture: {"texture"},
+  RenderTexture: {"render_texture"},
+  Font: {"font"},
+  Mesh: {"mesh"},
+  Model: {"model"},
+  ModelAnimation: {"model_animation"},
+  Shader: {"shader"},
+  Material: {"material"},
+  Wave: {"wave"},
+  Sound: {"sound"},
+  Music: {"music_stream", "music"},
+  AudioStream: {"audio_stream"},
+  Camera3D: {"camera_3d", "camera"},
+  Camera2D: {"camera_2d", "camera"},
+}
+
+// names that read better than the derived ones
+local method_names = {
+  LoadTextureFromImage: "to_texture",
+  LoadImageFromTexture: "to_image",
+  LoadModelFromMesh: "to_model",
+  LoadSoundFromWave: "to_sound",
+  LoadSoundAlias: "alias",
+  ImageFormat: "convert",
+  ImageMipmaps: "gen_mipmaps",
+  SetShapesTexture: "use_for_shapes",
+  SetWindowIcon: "use_as_window_icon",
+}
+
+local classes = {}
+local binding_of = null
+// written by hand: results raylib allocates become slang values (and are
+// freed), and void pointers take slang values
+local special = {}
+
+// the struct a parameter or result is (by value or through a pointer)
+local func struct_name(t){
+  if(t.kind == "struct"){
+    return t.name
+  }
+  if(t.kind == "ptr" and t.to != null and t.to.kind == "struct"){
+    return t.to.name
+  }
+  return null
+}
+
+// a function's name as a method of type: snake_case without the type's
+// word
+local func method_name(c_name, words){
+  if(method_names[c_name] != null){
+    return method_names[c_name]
+  }
+  local parts = str.split(snake(c_name), "_")
+  local s = concat("_", str.join(parts, "_"), "_")
+  for(let local w in values(words)){
+    local at = str.index_of(s, concat("_", w, "_"))
+    if(at >= 0){
+      s = concat(str.substring(s, 0, at), str.substring(s, at + len(w) + 1))
+      break
+    }
+  }
+  return str.trim(s, "_")
+}
+
+// the class of a resource type: its methods and properties from the
+// functions that take it first
+local func class_of(type_name){
+  local class = classes[type_name]
+  if(class != null){
+    return class
+  }
+  local words = resource_words[type_name]
+  local methods = {}
+  local getters = {}
+  local setters = {}
+  // what each key stands for, for the stubs: {decl, kind}
+  local sources = {}
+  for(let local c_name in values(C.order)){
+    local decl = C.functions[c_name]
+    local params = decl.params
+    // (a pointer and a count is a list of them, not one)
+    if(len(params) > 0 and struct_name(params[0].type) == type_name and
+      not (len(params) > 1 and is_count(params[1]))){
+      local name = method_name(c_name, words)
+      local n = len(decl.params) - 1
+      local f = null
+      local func bound(){
+        if(f == null){
+          f = special[snake(c_name)] or binding_of(decl, name)
+        }
+        return f
+      }
+      local method = func(self, ...args){
+        return bound()(self, ...args)
+      }
+      if(str.starts_with(name, "get_") and n == 0){
+        getters[str.substring(name, 4)] = method
+        sources[str.substring(name, 4)] = {decl: decl, kind: "get"}
+      } else if(str.starts_with(name, "is_") and n == 0){
+        getters[str.substring(name, 3)] = method
+        sources[str.substring(name, 3)] = {decl: decl, kind: "get"}
+      } else if(str.starts_with(name, "set_") and n == 1){
+        setters[str.substring(name, 4)] = method
+        local key = str.substring(name, 4)
+        if(sources[key] == null){
+          sources[key] = {decl: decl, kind: "set"}
+        }
+      } else if(methods[name] == null){
+        methods[name] = method
+        sources[name] = {decl: decl, kind: "method"}
+      }
+    }
+  }
+  local properties = {}
+  for(let local e in entries(getters)){
+    properties[e[0]] = {get: e[1]}
+  }
+  for(let local e in entries(setters)){
+    local p = properties[e[0]] or {}
+    p.set = e[1]
+    properties[e[0]] = p
+  }
+  class = class_lib.new({
+    name: concat("raylib.", type_name),
+    methods: methods,
+    properties: properties,
+  })
+  class.sources = sources
+  classes[type_name] = class
+  return class
+}
+
+// a struct result as slang sees it: a resource gets its class
+local func classed(v, type_name){
+  if(v != null and resource_words[type_name] != null){
+    v.meta = class_of(type_name).meta
+  }
+  return v
+}
+
 // ------------------------------------------------------------ wrappers
 
 // the function under its slang name: a pointer followed by its count takes
@@ -78,6 +234,15 @@ local lib = ffi.load(where.library, C)
 local func binding(decl, name){
   local f = ffi.bind(lib, decl, name)
   local params = decl.params
+  // a resource result gets its class
+  local ret_struct = null
+  if(decl.ret.kind == "struct" and resource_words[decl.ret.name] != null){
+    ret_struct = decl.ret.name
+    local plain = f
+    f = func(...args){
+      return classed(plain(...args), ret_struct)
+    }
+  }
   local counted = {}
   local merged = false
   for(local i = 0; i + 1 < len(params); i = i + 1){
@@ -126,6 +291,8 @@ local func binding(decl, name){
   }
 }
 
+binding_of = binding
+
 local rl = {}
 
 // the C name of each slang name
@@ -134,9 +301,7 @@ for(let local name in values(C.order)){
   c_names[snake(name)] = name
 }
 
-// written by hand: results raylib allocates become slang values (and are
-// freed), and void pointers take slang values
-local special = {}
+
 
 // load_file_text(file_name) -> the text of a file
 func special.load_file_text(file_name){
@@ -313,12 +478,225 @@ if(web_entry != null){
   lib.SetTraceLogLevel(C.constants.LOG_ERROR)
 }
 
+// ------------------------------------------------------------ made here
+
+// init_window(width: int, height: int, title: string) or
+//   init_window(options: {width?: int, height?: int, title?: string,
+//   msaa?: bool, resizable?: bool, vsync?: bool, highdpi?: bool,
+//   fullscreen?: bool, fps?: int})
+// Opens the window: with an options table, the config flags are set first
+// and fps is the target frame rate (800 by 450, "raylib", by default).
+func special.init_window(width, height, title){
+  if(type(width) != "table"){
+    lib.InitWindow(width, height, title)
+    return
+  }
+  local o = width
+  local flags = 0
+  local names_of = {
+    msaa: "FLAG_MSAA_4X_HINT",
+    resizable: "FLAG_WINDOW_RESIZABLE",
+    vsync: "FLAG_VSYNC_HINT",
+    highdpi: "FLAG_WINDOW_HIGHDPI",
+    fullscreen: "FLAG_FULLSCREEN_MODE",
+  }
+  for(let local e in entries(names_of)){
+    if(o[e[0]]){
+      flags = flags | C.constants[e[1]]
+    }
+  }
+  if(flags != 0){
+    lib.SetConfigFlags(flags)
+  }
+  lib.InitWindow(o.width or 800, o.height or 450, o.title or "raylib")
+  if(o.fps != null){
+    rl.set_target_fps(o.fps)
+  }
+}
+
+// camera_3d(options?: {position?: Vector3, target?: Vector3, up?: Vector3,
+//   fovy?: float, projection?: int}) -> Camera3D
+// A 3D camera: from {0, 10, 10} looking at the origin, y up, 45 degrees,
+// perspective, unless told otherwise.
+func rl.camera_3d(o){
+  o = o or {}
+  return classed({
+    position: o.position or {x: 0, y: 10, z: 10},
+    target: o.target or {x: 0, y: 0, z: 0},
+    up: o.up or {x: 0, y: 1, z: 0},
+    fovy: o.fovy or 45,
+    projection: o.projection or C.constants.CAMERA_PERSPECTIVE,
+  }, "Camera3D")
+}
+
+// camera_2d(options?: {offset?: Vector2, target?: Vector2,
+//   rotation?: float, zoom?: float}) -> Camera2D
+// A 2D camera (zoom 1 unless told otherwise).
+func rl.camera_2d(o){
+  o = o or {}
+  return classed({
+    offset: o.offset or {x: 0, y: 0},
+    target: o.target or {x: 0, y: 0},
+    rotation: o.rotation or 0,
+    zoom: o.zoom or 1,
+  }, "Camera2D")
+}
+
+// n elements of type t in memory raylib frees (with its mesh or wave),
+// filled from a list or a buffer
+local func raylib_memory(t, values){
+  local n = len(values)
+  local size = ffi.sizeof(t, C)
+  local b = buffer.wrap(lib.MemAlloc(n * size), n, t, C)
+  b:set(values)
+  return b
+}
+
+// mesh(options: {vertices: {float}, normals?: {float},
+//   texcoords?: {float}, texcoords2?: {float}, colors?: {int},
+//   tangents?: {float}, indices?: {int}, upload?: bool,
+//   dynamic?: bool}) -> Mesh
+// A mesh from lists (or buffers) of numbers: vertices three per vertex,
+// texcoords two, colors four (0..255), indices three per triangle (or
+// none: every three vertices are one). The numbers are copied into
+// memory the mesh owns (mesh:unload() frees it), and it is uploaded to the
+// GPU unless upload is false (dynamic: for update_buffer).
+func rl.mesh(o){
+  local what = "raylib.mesh"
+  if(o.vertices == null){
+    error(what, ": a mesh needs vertices")
+  }
+  local vertex_count = len(o.vertices) / 3
+  local mesh = {vertex_count: vertex_count, triangle_count: vertex_count / 3}
+  mesh.vertices = raylib_memory("float", o.vertices)
+  local optional = {
+    normals: "float",
+    texcoords: "float",
+    texcoords2: "float",
+    tangents: "float",
+    colors: "unsigned char",
+  }
+  for(let local e in entries(optional)){
+    if(o[e[0]] != null){
+      mesh[e[0]] = raylib_memory(e[1], o[e[0]])
+    }
+  }
+  if(o.indices != null){
+    mesh.indices = raylib_memory("unsigned short", o.indices)
+    mesh.triangle_count = len(o.indices) / 3
+  }
+  if(o.upload != false){
+    lib.UploadMesh(mesh, o.dynamic == true)
+  }
+  return classed(mesh, "Mesh")
+}
+
+// wave(options: {samples: {float}, sample_rate?: int,
+//   channels?: int}) -> Wave
+// Sound data from samples in -1..1 (interleaved when there are several
+// channels), as 16-bit samples in memory the wave owns; 44100 Hz, mono,
+// unless told otherwise. wave:to_sound() makes it a Sound.
+func rl.wave(o){
+  local samples = o.samples
+  local n = len(samples)
+  local data = buffer.wrap(lib.MemAlloc(n * 2), n, "short")
+  for(local i = 0; i < n; i = i + 1){
+    local v = samples[i]
+    if(v > 1){
+      v = 1
+    } else if(v < -1){
+      v = -1
+    }
+    data[i] = to_int(v * 32767)
+  }
+  local channels = o.channels or 1
+  return classed({
+    frame_count: n / channels,
+    sample_rate: o.sample_rate or 44100,
+    sample_size: 16,
+    channels: channels,
+    data: data,
+  }, "Wave")
+}
+
+// sound(options: {samples: {float}, sample_rate?: int,
+//   channels?: int}) -> Sound
+// A sound from samples as [wave] takes them (the wave is freed once the
+// sound has its copy). Needs the audio device (init_audio_device()).
+func rl.sound(o){
+  local w = rl.wave(o)
+  local snd = lib.LoadSoundFromWave(w)
+  lib.UnloadWave(w)
+  return classed(snd, "Sound")
+}
+
+local vector_uniforms = {
+  [2]: C.constants.SHADER_UNIFORM_VEC2,
+  [3]: C.constants.SHADER_UNIFORM_VEC3,
+  [4]: C.constants.SHADER_UNIFORM_VEC4,
+}
+
+// the uniform type of a value: a number is a float (an int an int), a
+// vector by its length
+local func uniform_type_of(value){
+  if(type(value) == "int"){
+    return C.constants.SHADER_UNIFORM_INT
+  }
+  if(type(value) == "double"){
+    return C.constants.SHADER_UNIFORM_FLOAT
+  }
+  local n = len(value)
+  if(n == 0){
+    n = 0
+    for(let local k in values({"x", "y", "z", "w"})){
+      if(value[k] != null){
+        n = n + 1
+      }
+    }
+    if(n == 0 and value.r != null){
+      n = 4
+    }
+  }
+  return vector_uniforms[n] or C.constants.SHADER_UNIFORM_FLOAT
+}
+
+// the locations of a shader's uniforms by name, by shader id
+local shader_locations = {}
+
+// set(name: string | int, value: any, uniform_type?: int)
+// Sets a uniform of the shader: name or a location; the type is inferred
+// (a float, an int, a vector of 2 to 4) unless given. Locations are looked
+// up once.
+local func shader_set(shader, name, value, uniform_type){
+  local loc = name
+  if(type(name) == "string"){
+    local cache = shader_locations[shader.id]
+    if(cache == null){
+      cache = {}
+      shader_locations[shader.id] = cache
+    }
+    loc = cache[name]
+    if(loc == null){
+      loc = lib.GetShaderLocation(shader, name)
+      cache[name] = loc
+    }
+  }
+  special.set_shader_value(shader, loc, value, uniform_type or uniform_type_of(value))
+}
+
 // ------------------------------------------------------------ the module
 
 for(let local e in entries(C.constants)){
   rl[e[0]] = e[1]
 }
 rl.version = C.constants.RAYLIB_VERSION
+class_of("Shader").methods.set = shader_set
+// Every raylib function and constant under its C name, for whoever knows
+// raylib's API as written: rl.c.DrawText("hi", 10, 10, 20, rl.c.RED).
+rl.c = ffi.c_layer(lib, "raylib.c")
+// for tool/gen_stubs.slang
+rl.__class_of = class_of
+rl.__resource_words = resource_words
 // the declarations, for slang/ffi: ffi.new("Vector2", 4, rl.decls)
 rl.decls = C
 

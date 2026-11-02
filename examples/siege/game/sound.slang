@@ -3,7 +3,6 @@
 // samples into memory raylib allocates. A sound plays at a volume and
 // pitch from the distance to the camera.
 local rl = require("raylib")
-local buffer = require("slang/buffer")
 local math = require("slang/math")
 local vec = require("game/vec")
 
@@ -18,21 +17,11 @@ m.volume = 1
 // a sound of seconds length from f(t: 0..1, i) -> sample in [-1, 1]
 local func make(seconds, f){
   local n = to_int(RATE * seconds)
-  local samples = buffer.wrap(rl.mem_alloc(n * 2), n, "short")
+  local samples = {}
   for(local i = 0; i < n; i = i + 1){
-    local s = vec.clamp(f(i / n, i), -1, 1)
-    samples[i] = to_int(s * 32000)
+    append(samples, vec.clamp(f(i / n, i), -1, 1) * 0.977)
   }
-  local wave = {
-    frame_count: n,
-    sample_rate: RATE,
-    sample_size: 16,
-    channels: 1,
-    data: samples,
-  }
-  local sound = rl.load_sound_from_wave(wave)
-  rl.unload_wave(wave)
-  return sound
+  return rl.sound({samples: samples, sample_rate: RATE})
 }
 
 // white noise through a one-pole low-pass: state kept between samples

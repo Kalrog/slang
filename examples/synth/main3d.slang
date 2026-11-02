@@ -17,7 +17,6 @@
 // the face, where panel.slang's 2D hit tests decide; keys and wheels are
 // boxes the ray may enter.
 local rl = require("raylib")
-local buffer = require("slang/buffer")
 local math = require("slang/math")
 local params = require("params")
 local panel = require("panel")
@@ -167,9 +166,6 @@ local func key_x(px){
 
 local models = {}
 local textures = {}
-// buffers a mesh of ours points into stay referenced as long as it is used
-local keep = {}
-
 local func shaded(mesh, texture){
   local model = rl.load_model_from_mesh(mesh)
   model.materials[0].shader = shader
@@ -182,29 +178,16 @@ local func shaded(mesh, texture){
 // the face: a quad in face pixels whose texture coordinates read the
 // render texture upside down (OpenGL keeps those bottom up)
 local func face_mesh(){
-  local vertices = buffer.new("float", 12)
-  local texcoords = buffer.new("float", 8)
-  local normals = buffer.new("float", 12)
-  local indices = buffer.new("unsigned short", 6)
   local x0 = FACE_X
   local x1 = FACE_X + FACE_W
   local y0 = FACE_Y
   local y1 = FACE_Y + FACE_H
-  vertices:set({x0, -y0, 0.0, x1, -y0, 0.0, x1, -y1, 0.0, x0, -y1, 0.0}, 0)
-  texcoords:set({0.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0}, 0)
-  normals:set({0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1}, 0)
-  indices:set({0, 2, 1, 0, 3, 2}, 0)
-  append(keep, {vertices, texcoords, normals, indices})
-  local mesh = {
-    vertex_count: 4,
-    triangle_count: 2,
-    vertices: vertices,
-    texcoords: texcoords,
-    normals: normals,
-    indices: indices,
-  }
-  rl.upload_mesh(mesh, false)
-  return mesh
+  return rl.mesh({
+    vertices: {x0, -y0, 0.0, x1, -y0, 0.0, x1, -y1, 0.0, x0, -y1, 0.0},
+    texcoords: {0.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0},
+    normals: {0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1},
+    indices: {0, 2, 1, 0, 3, 2},
+  })
 }
 
 // the render texture the face is drawn into, twice the window's pixels

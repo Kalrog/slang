@@ -10,9 +10,8 @@ through `slang/ffi`, and it reads raylib's own headers when it loads (about
 ```slang
 local rl = require("raylib")
 
-rl.init_window(800, 450, "hello")
-rl.set_target_fps(60)
-local camera = {offset: {400, 225}, target: {0, 0}, rotation: 0, zoom: 1}
+rl.init_window({width: 800, height: 450, title: "hello", fps: 60})
+local camera = rl.camera_2d({offset: {400, 225}})
 for(not rl.window_should_close()){
   rl.begin_drawing()
   rl.clear_background(rl.RAYWHITE)
@@ -91,9 +90,34 @@ to close (`window_should_close` is false), and raylib logs only errors.
   `rl.KEY_SPACE`, `rl.FLAG_WINDOW_RESIZABLE`, `rl.RAYWHITE`, `rl.PI`.
 - **Structs** are tables, read by field name or by position, so
   `{x: 1, y: 2}` and `{1, 2}` are the same `Vector2`. A color's alpha
-  defaults to 255. Results are tables with named fields. This includes
-  structs that own memory (`Image`, `Model`, `Shader`, `Sound`, ...): they
-  are values, as in C, and are freed with their `unload_*` function.
+  defaults to 255. Results are tables with named fields.
+- **Resources** (`Image`, `Texture`, `RenderTexture`, `Font`, `Mesh`,
+  `Model`, `ModelAnimation`, `Shader`, `Material`, `Wave`, `Sound`,
+  `Music`, `AudioStream`, `Camera3D`, `Camera2D`) are those tables with the
+  functions that take them first as methods, named without the type's
+  word: `texture:draw(x, y, tint)` is `DrawTexture`, `image:resize(w, h)`
+  `ImageResize`, `music:play()` `PlayMusicStream`, `camera:update(mode)`
+  `UpdateCamera`, `mesh:to_model()` `LoadModelFromMesh`. A getter without
+  arguments and a setter of one value are a property:
+  `music.time_length`, `texture.valid`, `sound.volume = 0.5`,
+  `texture.filter = rl.TEXTURE_FILTER_BILINEAR` (raylib's setters without
+  a getter are write-only). They are values, as in C, freed with their
+  `unload` method (`texture:unload()`, the same as `unload_texture`); the
+  GPU and the audio device need them freed before `close_window()` and
+  `close_audio_device()`. The flat functions stay: `rl.draw_texture(t, x,
+  y, tint)` is `t:draw(x, y, tint)`.
+- **Made in slang:**
+  - `rl.init_window({width, height, title, msaa, resizable, vsync,
+    highdpi, fullscreen, fps})` sets the config flags, opens the window
+    and sets the frame rate (`init_window(w, h, title)` works too).
+  - `rl.camera_3d({position, target, up, fovy, projection})` and
+    `rl.camera_2d({offset, target, rotation, zoom})` fill in defaults.
+  - `rl.mesh({vertices, normals, texcoords, colors, indices})` copies
+    lists (or buffers) of numbers into memory the mesh owns and uploads
+    it; `rl.wave({samples, sample_rate, channels})` and `rl.sound({...})`
+    make sound from samples in -1..1. No memory to allocate or keep alive.
+  - `shader:set(name, value, uniform_type?)` sets a uniform by name (its
+    location looked up once), the type inferred from the value.
 - **Pointer fields** reach into raylib's memory and write it in place, as in
   C:
   - `model.materials[0].maps[rl.MATERIAL_MAP_ALBEDO].texture = tex`
@@ -125,17 +149,13 @@ to close (`window_should_close` is false), and raylib logs only errors.
 
 - **Buffers** (`slang/buffer`) go where lists go, as their memory with no
   conversion: `draw_triangle_strip(points, color)` with `points` a buffer
-  of `Vector2`. `examples/terrain.slang` builds a mesh in buffers and
-  uploads it.
+  of `Vector2`. `examples/terrain.slang` builds a mesh with `rl.mesh`.
+- **C names:** `rl.c` holds every raylib function and constant under its C
+  name, for whoever knows raylib's API as written:
+  `rl.c.DrawText("hi", 10, 10, 20, rl.c.RED)`.
 
 `rl.decls` holds the declarations, for `slang/ffi` and `slang/buffer`:
-
-```slang
-local ffi = require("slang/ffi")
-local buffer = require("slang/buffer")
-local points = buffer.new("Vector2", 100, rl.decls)
-local pixels = ffi.cast(image.data, "Color", rl.decls)
-```
+`buffer.new("Vector2", 100, rl.decls)`.
 
 Wrong arguments are slang errors that say what was expected, for example
 `bad argument #1 to 'check_collision_recs' (Rectangle expected, got string)`.
@@ -157,7 +177,7 @@ names.slang         raylib's names in slang (snake_case)
 stubs/init.slang    generated: declarations and docs for tools
 tool/gen_stubs.slang
 test/raylib_test.slang
-examples/terrain.slang  a mesh built in slang buffers
+examples/terrain.slang  a mesh built in slang
 examples/cubes.slang    3D: a generated cube model drawn many times, an orbiting camera
 examples/sparks.slang   the mouse: particles that follow, spray and gather
 ```

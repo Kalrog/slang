@@ -116,6 +116,7 @@ em++ zig/zig-out-em/lib/slang.o "$CACHE/symbols.o" "$RAYLIB/web/libraylib.a" \
   --embed-file "$CACHE/empty@/usr/lib/libraylib.so" \
   --embed-file "packages/raylib/init.slang@/raylib/init.slang" \
   --embed-file "packages/raylib/names.slang@/raylib/names.slang" \
+  --embed-file "packages/raylib/stream.slang@/raylib/stream.slang" \
   --embed-file "packages/raylib/slang.project@/raylib/slang.project" \
   --embed-file "$BOX2D/include/box2d@/usr/include/box2d" \
   --embed-file "$CACHE/empty@/usr/lib/libbox2d.so" \

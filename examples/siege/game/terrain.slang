@@ -169,10 +169,6 @@ func m.smooth(t, cx, cz, radius, strength){
 
 // ------------------------------------------------------------ the mesh
 
-local func raylib_buffer(type, n, bytes_each){
-  return buffer.wrap(rl.mem_alloc(n * bytes_each), n, type)
-}
-
 // the color of the ground at a sample: by height over the water and by
 // slope, with a little noise so it is not flat
 local func ground_color(t, ix, iz, h, slope){
@@ -229,10 +225,10 @@ func m.build(t){
   local n = t.n
   local vertex_count = n * n
   local triangle_count = (n - 1) * (n - 1) * 2
-  local vertices = raylib_buffer("float", vertex_count * 3, 4)
-  local normals = raylib_buffer("float", vertex_count * 3, 4)
-  local colors = raylib_buffer("unsigned char", vertex_count * 4, 1)
-  local indices = raylib_buffer("unsigned short", triangle_count * 3, 2)
+  local vertices = buffer.new("float", vertex_count * 3)
+  local normals = buffer.new("float", vertex_count * 3)
+  local colors = buffer.new("unsigned char", vertex_count * 4)
+  local indices = buffer.new("unsigned short", triangle_count * 3)
   local h = t.heights
   local s = t.spacing
   for(local iz = 0; iz < n; iz = iz + 1){
@@ -283,16 +279,14 @@ func m.build(t){
       k = k + 6
     }
   }
-  local mesh = {
-    vertex_count: vertex_count,
-    triangle_count: triangle_count,
+  // (rl.mesh copies the buffers into memory the mesh owns)
+  local mesh = rl.mesh({
     vertices: vertices,
     normals: normals,
     colors: colors,
     indices: indices,
-  }
-  rl.upload_mesh(mesh, false)
-  t.model = rl.load_model_from_mesh(mesh)
+  })
+  t.model = mesh:to_model()
   t.built = t.version
   return t.model
 }

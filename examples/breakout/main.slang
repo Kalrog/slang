@@ -12,7 +12,6 @@
 local rl = require("raylib")
 local os = require("slang/os")
 local math = require("slang/math")
-local buffer = require("slang/buffer")
 
 local width = 800
 local height = 600
@@ -34,29 +33,19 @@ local game = {}
 // ------------------------------------------------------------ sound
 
 // A tone made in slang: a square wave sliding from one pitch to another
-// and fading out, written as 16-bit samples into memory raylib allocates
-// (unload_wave frees it), then made a sound.
+// and fading out, as samples in -1..1 that rl.sound makes a sound of.
 local func tone(from, to, seconds, volume){
   local rate = 22050
   local n = to_int(rate * seconds)
-  local samples = buffer.wrap(rl.mem_alloc(n * 2), n, "short")
+  local samples = {}
   local phase = 0
   for(local i = 0; i < n; i = i + 1){
     local t = i / n
     phase = phase + (from + (to - from) * t) / rate
     local square = phase % 1 < 0.5 and 1 or -1
-    samples[i] = to_int(square * volume * (1 - t) * 32767)
+    append(samples, square * volume * (1 - t))
   }
-  local wave = {
-    frame_count: n,
-    sample_rate: rate,
-    sample_size: 16,
-    channels: 1,
-    data: samples,
-  }
-  local sound = rl.load_sound_from_wave(wave)
-  rl.unload_wave(wave)
-  return sound
+  return rl.sound({samples: samples, sample_rate: rate})
 }
 
 // the sounds, or none when there is no audio device

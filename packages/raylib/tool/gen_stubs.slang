@@ -352,6 +352,132 @@ for(let local f in values(manual)){
   line("func m.", name, "(", f[2], "){", f[3], "}")
   line("")
 }
+// the constructors made in slang
+local made = {
+  {
+    "init_window(options: {width?: int, height?: int, title?: string, msaa?: bool, resizable?: bool, vsync?: bool, highdpi?: bool, fullscreen?: bool, fps?: int})",
+    "Opens the window from options (init_window(width, height, title) works too): the config flags are set first, fps is the target frame rate",
+  },
+  {
+    "camera_3d(options?: {position?: Vector3, target?: Vector3, up?: Vector3, fovy?: float, projection?: int}) -> Camera3D",
+    "A 3D camera: from {0, 10, 10} looking at the origin, y up, 45 degrees, perspective, unless told otherwise",
+  },
+  {
+    "camera_2d(options?: {offset?: Vector2, target?: Vector2, rotation?: float, zoom?: float}) -> Camera2D",
+    "A 2D camera (zoom 1 unless told otherwise)",
+  },
+  {
+    "mesh(options: {vertices: {float}, normals?: {float}, texcoords?: {float}, texcoords2?: {float}, colors?: {int}, tangents?: {float}, indices?: {int}, upload?: bool, dynamic?: bool}) -> Mesh",
+    "A mesh from lists (or buffers) of numbers, copied into memory the mesh owns and uploaded to the GPU unless upload is false",
+  },
+  {
+    "wave(options: {samples: {float}, sample_rate?: int, channels?: int}) -> Wave",
+    "Sound data from samples in -1..1, as 16-bit samples the wave owns (44100 Hz, mono by default)",
+  },
+  {
+    "sound(options: {samples: {float}, sample_rate?: int, channels?: int}) -> Sound",
+    "A sound from samples as wave takes them; needs the audio device",
+  },
+}
+for(let local f in values(made)){
+  comment(f[1])
+  comment(f[0], "//   ")
+  local name = str.substring(f[0], 0, str.index_of(f[0], "("))
+  local params = "options"
+  if(name == "init_window"){
+    params = "width, height, title"
+  }
+  line("func m.", name, "(", params, "){}")
+  line("")
+}
+
+// the resource types: their functions as methods and properties
+local class_count = 0
+for(let local e in entries(rl.__resource_words)){
+  local type_name = e[0]
+  local class = rl.__class_of(type_name)
+  local table = concat(snake(type_name), "_methods")
+  line("// ------------------------------------------------------------ ", type_name)
+  line("")
+  comment(concat(
+    "A ", type_name, " is the struct as a table with the functions that ",
+    "take it first as methods, named without the type's word, and its ",
+    "getters without arguments and setters of one value as properties.",
+  ))
+  line("// type ", type_name)
+  local key_list = {}
+  for(let local k in keys(class.sources)){
+    append(key_list, k)
+  }
+  require("slang/table").sort(key_list)
+  for(let local k in values(key_list)){
+    local src = class.sources[k]
+    if(src.kind != "method"){
+      local readable = class.properties[k].get != null
+      local writable = class.properties[k].set != null
+      local t = "any"
+      if(readable){
+        local d = class.sources[k].decl
+        if(src.kind == "get"){
+          t = slang_type(d.ret)
+        }
+      }
+      if(src.kind == "set"){
+        t = slang_type(src.decl.params[1].type)
+      }
+      local note = ""
+      if(not writable){
+        note = " (read-only)"
+      } else if(not readable){
+        note = " (write-only)"
+      }
+      comment(concat("[", k, "]: ", t, note))
+    }
+  }
+  line("local ", table, " = {}")
+  line("")
+  for(let local k in values(key_list)){
+    local src = class.sources[k]
+    if(src.kind == "method"){
+      local d = src.decl
+      local params = {}
+      local docs = {}
+      for(local i = 1; i < len(d.params); i = i + 1){
+        local p = d.params[i]
+        local pname = snake(p.name or concat("arg", string(i)))
+        if(p.type.kind == "ptr" and i + 1 < len(d.params) and names.is_count(d.params[i + 1])){
+          append(params, pname)
+          append(docs, concat(pname, ": list"))
+          i = i + 1
+        } else {
+          append(params, pname)
+          append(docs, concat(pname, ": ", slang_type(p.type)))
+        }
+      }
+      local sig = concat(k, "(", str.join(docs, ", "), ")")
+      if(d.ret.kind != "void"){
+        sig = concat(sig, " -> ", slang_type(d.ret))
+      }
+      if(d.doc != ""){
+        comment(d.doc)
+      }
+      comment(sig, "//   ")
+      comment(concat("C: ", d.name), "//   ")
+      line("func ", table, ".", k, "(", str.join({"self", ...params}, ", "), "){}")
+      line("")
+    }
+  }
+  class_count = class_count + 1
+}
+// written in slang
+line("// set(name: string | int, value: any, uniform_type?: int)")
+line("// Sets a uniform: by name (looked up once) or location; the type is")
+line("// inferred from the value unless given.")
+line("func shader_methods.set(self, name, value, uniform_type){}")
+line("")
+line("// Every raylib function and constant under its C name.")
+line("m.c = {}")
+line("")
 line("return m")
 os.write_file("stubs/init.slang", concat(str.join(out, "\n"), "\n"))
 print("stubs/init.slang: ", string(len(C.order)), " functions\n")

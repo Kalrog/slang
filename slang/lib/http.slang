@@ -25,7 +25,7 @@
 // accepts gzip, unless the response sets Content-Encoding or compress:
 // false (or the server option compress is false). Date is added.
 //
-// The client side: [connect] gives an [HttpClient] for several requests on
+// The client side: [connect] gives a [Client] for several requests on
 // one connection; [get] and [fetch] make one request each. Responses are
 // [ClientResponse]s. Clients say User-Agent: slang unless told otherwise,
 // ask for gzip and inflate it; chunked and connection-delimited responses
@@ -51,7 +51,7 @@ local func parser(kind, options){
 
 local func zlib_module(){
   if(zlib == null){
-    zlib = require("zlib")
+    zlib = require("slang/zlib")
   }
   return zlib
 }
@@ -192,7 +192,7 @@ local func normalize(res){
     headers: {},
     compress: res.compress,
   }
-  if(type(out.body) != "string" and type(out.body) != "Stream"){
+  if(type(out.body) != "string" and type(out.body) != "async.Stream"){
     out.body = string(out.body)
   }
   local has_type = false
@@ -255,7 +255,7 @@ local func should_gzip(req, res, options){
   if(not compressible(header_of(res.headers, "content-type"))){
     return false
   }
-  return type(res.body) == "Stream" or len(res.body) >= 1024
+  return type(res.body) == "async.Stream" or len(res.body) >= 1024
 }
 
 // the head of a response; length null means chunked
@@ -329,7 +329,7 @@ local func send(conn, req, res, keep_alive, options){
   if(type(res.body) == "string"){
     local body = res.body
     if(gzip){
-      body = zlib_module().deflate(body, "gzip")
+      body = zlib_module().deflate(body, {format: "gzip"})
     }
     local length = len(body)
     if(res.status == 204 or res.status == 304 or res.status < 200){
@@ -356,7 +356,7 @@ local func send(conn, req, res, keep_alive, options){
   if(head_only){
     return
   }
-  local z = gzip and zlib_module().compressor("gzip")
+  local z = gzip and zlib_module().compressor({format: "gzip"})
   local func put(data){
     if(len(data) == 0){
       return
@@ -392,7 +392,7 @@ local func send(conn, req, res, keep_alive, options){
 // runs the handler, turning errors into 500 responses; awaits a Future result
 local func respond(handler, req, options){
   local r = pcall(handler, req)
-  if(r[0] == "ok" and type(r[1]) == "Future"){
+  if(r[0] == "ok" and type(r[1]) == "async.Future"){
     r = pcall(async.await, r[1])
   }
   if(r[0] == "err"){
@@ -891,9 +891,9 @@ func http.clear_cookie(res, name, options){
 // ------------------------------------------------------------ client
 
 // A connection to an HTTP server, for requests one after another.
-// type HttpClient
+// type Client
 local client_methods = {}
-local client_meta = {__index: client_methods, __type: "HttpClient"}
+local client_meta = {__index: client_methods, __type: "http.Client"}
 
 // What a client request resolves to. Header names are lowercase.
 // type ClientResponse = {status: int, reason: string, version: string,
@@ -903,7 +903,7 @@ local client_meta = {__index: client_methods, __type: "HttpClient"}
 
 // connect(host: string, port: int,
 //         options?: {tls?: bool | table}) -> async.Future
-// A Future of an [HttpClient] connected to host:port.
+// A Future of a [Client] connected to host:port.
 // [options]: tls: true, or slang/tls's connect options (ca, verify, ...), makes it HTTPS
 //   local c = async.await(http.connect("example.com", 80))
 //   local res = async.await(c:request("GET", "/"))
@@ -952,17 +952,24 @@ local func client_event(c){
   return ev
 }
 
-// request(method: string, path: string, body?: string,
-//         headers?: {[string]: string},
-//         options?: {raw?: bool, max_size?: int}) -> async.Future
+// request(method: string, path: string, options?: {body?: string,
+//   headers?: {[string]: string}, raw?: bool, max_size?: int})
+//   -> async.Future
 // Sends a request and gives a Future of its [ClientResponse]. Wait for one
 // to finish before the next. Host, Accept-Encoding: gzip, User-Agent:
 // slang and Content-Length (with a body) are added unless headers has
 // them. Fails when the connection closes early or the response is
-// malformed, and once the server closed the connection.
+// malformed, and once the server closed the connection. request(method,
+// path, body, headers, options) works too.
 // [path]: the request target, with the query
-// [options]: raw: true keeps a gzipped body as it came; max_size limits the inflated body (256 MiB)
+// [raw]: true keeps a gzipped body as it came
+// [max_size]: the most bytes of an inflated body (256 MiB)
 func client_methods.request(c, method, path, body, headers, options){
+  if(type(body) == "table" and headers == null and options == null){
+    options = body
+    body = options.body
+    headers = options.headers
+  }
   options = options or {}
   return async.run(func(){
     if(c.closed){
@@ -1038,9 +1045,9 @@ func client_methods.request(c, method, path, body, headers, options){
     local encoding = str.lower(res.headers["content-encoding"] or "")
     if((encoding == "gzip" or encoding == "deflate") and len(res.body) > 0 and
       options.raw != true){
-      res.body = zlib_module().inflate(
-        res.body, "auto", options.max_size or 256 * 1024 * 1024
-      )
+      res.body = zlib_module().inflate(res.body, {
+        max_size: options.max_size or 256 * 1024 * 1024,
+      })
       res.compressed = encoding
     }
     return res
@@ -1054,16 +1061,25 @@ func client_methods.close(c){
   return async.close(c.conn)
 }
 
-// get(host: string, port: int, path: string) -> async.Future
-// A GET request on a connection of its own: a Future of the
-// [ClientResponse]. Plain HTTP only; see [fetch] for HTTPS.
-func http.get(host, port, path){
-  return async.run(func(){
-    local c = async.await(http.connect(host, port))
-    local res = async.await(c:request("GET", path, null, {Connection: "close"}))
-    async.await(c:close())
-    return res
-  })
+// get(url: string, options?: FetchOptions) -> async.Future
+// A GET request to an http:// or https:// URL on a connection of its own
+// ([fetch] with method "GET"): a Future of the [ClientResponse].
+// get(host, port, path) works too, for plain HTTP.
+//   local res = async.await(http.get("http://127.0.0.1:8080/health"))
+func http.get(url, port, path){
+  if(type(port) == "int"){
+    local host = url
+    if(str.index_of(host, ":") >= 0){
+      host = concat("[", host, "]")
+    }
+    return http.fetch(concat("http://", host, ":", string(port), path or "/"))
+  }
+  local o = {}
+  for(let local e in entries(port or {})){
+    o[e[0]] = e[1]
+  }
+  o.method = "GET"
+  return http.fetch(url, o)
 }
 
 // Options of [fetch]; every field is optional.
@@ -1220,7 +1236,7 @@ local func header_params(value){
 // A multipart body parser fed chunk by chunk, for streamed uploads.
 // type MultipartParser
 local multipart_methods = {}
-local multipart_meta = {__index: multipart_methods, __type: "MultipartParser"}
+local multipart_meta = {__index: multipart_methods, __type: "http.MultipartParser"}
 
 // What [MultipartParser.push] gives, in order: a part's head, its data in
 // pieces, its end; after the last part, the end.

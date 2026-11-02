@@ -32,7 +32,7 @@
 //
 //   local client = web.test(app)
 //   local res = async.await(client:post("/login", {form: {user: "ann"}}))
-//   print(res.status, res.header("location"))
+//   print(res.status, res:header("location"))
 local async = require("slang/async")
 local http = require("slang/http")
 local str = require("slang/string")
@@ -120,7 +120,7 @@ local func failure_of(e){
 // normalize(res) -> {status, headers, body} (plus upgraded and compress)
 local func normalize(res){
   local t = type(res)
-  if(t == "Html" or t == "HtmlList"){
+  if(t == "html.Node" or t == "html.List"){
     return web.html(res, 200)
   }
   local out = http.normalize(res)
@@ -137,7 +137,7 @@ local func normalize(res){
 // part as rest); middleware may add more (session, csrf_token).
 // type Request
 local request_methods = {}
-local request_meta = {__index: request_methods, __type: "Request"}
+local request_meta = {__index: request_methods, __type: "web.Request"}
 
 // query_params() -> {[string]: string}
 // The query string decoded (req.query is the raw text).
@@ -260,7 +260,7 @@ local func match(parts, route_parts){
 // (it prints to stderr by default).
 // type WebApp
 local app_methods = {}
-local app_meta = {__index: app_methods, __type: "WebApp"}
+local app_meta = {__index: app_methods, __type: "web.App"}
 
 // app(options?: table) -> WebApp
 // A new application with no routes.
@@ -383,7 +383,7 @@ func app_methods.stream_body(app, req){
 
 // runs a handler's result to a normalized response, awaiting a Future
 local func settle(result){
-  if(type(result) == "Future"){
+  if(type(result) == "async.Future"){
     result = async.await(result)
   }
   return normalize(result)
@@ -524,10 +524,10 @@ local types = {
   zip: "application/zip", gz: "application/gzip", tar: "application/x-tar"
 }
 
-// type_of(path: string) -> string
+// mime_type(path: string) -> string
 // The media type for the file's extension, like "text/css; charset=utf-8";
 // application/octet-stream when it is not known.
-func web.type_of(path){
+func web.mime_type(path){
   local dot = -1
   for(local i = len(path) - 1; i >= 0; i = i - 1){
     local c = str.char_at(path, i)
@@ -591,7 +591,7 @@ local func parse_range(header, size){
 // How [file] sends a file.
 // type FileOptions = {max_age?: int, type?: string, download?: string}
 // [max_age]: seconds browsers may cache it (Cache-Control); no-cache if not given
-// [type]: the Content-Type; by default from the extension ([type_of])
+// [type]: the Content-Type; by default from the extension ([mime_type])
 // [download]: a file name: Content-Disposition attachment
 
 // file(req: Request, path: string, options?: FileOptions) -> async.Future
@@ -627,7 +627,7 @@ func web.file(req, path, options){
       gzipped and "-gz" or "", "\""
     )
     local headers = {
-      ["Content-Type"]: options.type or web.type_of(path),
+      ["Content-Type"]: options.type or web.mime_type(path),
       ETag: etag,
       ["Last-Modified"]: time.http_date(mtime),
       ["Accept-Ranges"]: "bytes",
@@ -848,7 +848,7 @@ func web.csrf(options){
 // Domain is not looked at: the client talks to one app.
 // type WebTestClient
 local client_methods = {}
-local client_meta = {__index: client_methods, __type: "WebTestClient"}
+local client_meta = {__index: client_methods, __type: "web.TestClient"}
 
 // What a test request sends; every field is optional.
 // type TestOptions = {headers?: {[string]: string}, body?: string,
@@ -859,7 +859,20 @@ local client_meta = {__index: client_methods, __type: "WebTestClient"}
 // What a test request gives: the app's response with the body collected.
 // type TestResponse = {status: int, headers: table, body: string,
 //   header: func(name: string): any}
-// [header]: a header by name in any case; call it res.header(name)
+// [header]: a header by name in any case: res:header("location")
+local test_response_meta = {
+  __index: {
+    header: func(res, name){
+      for(let local e in entries(res.headers)){
+        if(str.lower(e[0]) == str.lower(name)){
+          return e[1]
+        }
+      }
+      return null
+    },
+  },
+  __type: "web.TestResponse",
+}
 
 // test(app: WebApp) -> WebTestClient
 // A test client for app.
@@ -958,18 +971,11 @@ func client_methods.request(client, method, path, options){
       req.body = null
     }
     local res = async.await(client.app:handle(req))
-    if(type(res.body) == "Stream"){
+    if(type(res.body) == "async.Stream"){
       res.body = str.join(async.await(res.body:collect()), "")
     }
     remember_cookies(client, res.headers)
-    res.header = func(name){
-      for(let local e in entries(res.headers)){
-        if(str.lower(e[0]) == str.lower(name)){
-          return e[1]
-        }
-      }
-      return null
-    }
+    res.meta = test_response_meta
     return res
   })
 }

@@ -39,3 +39,20 @@ t.group("bytes from buffers"){
     db:close()
   }
 }
+
+t.group("slang/zlib"){
+  t.test("options tables; a stream's done is a property"){
+    local z = require("slang/zlib")
+    local packed = z.deflate("hello hello hello", {format: "zlib", level: 9})
+    assert(z.inflate(packed) == "hello hello hello")
+    assert(z.inflate(z.deflate("x", {format: "raw"}), {format: "raw"}) == "x")
+    local c = z.compressor({format: "gzip"})
+    local out = concat(c:push("part one, "), c:push("part two"))
+    assert(not c.done)
+    out = concat(out, c:finish())
+    assert(c.done and type(c) == "zlib.Stream" and z.inflate(out) == "part one, part two")
+    local d = z.decompressor()
+    assert(concat(d:push(out), d:finish()) == "part one, part two")
+    assert(z.c == zlib)
+  }
+}

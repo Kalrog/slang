@@ -4,27 +4,29 @@
 //   local crypto = require("slang/crypto")
 //   local stored = crypto.hash_password("hunter2")
 //   crypto.verify_password("hunter2", stored)       // true
-//   local cookie = crypto.sign_value(secret, "user=42")
-//   crypto.unsign_value(secret, cookie)             // "user=42"
+//   local cookie = crypto.sign(secret, "user=42")
+//   crypto.verify_signed(secret, cookie)            // "user=42"
 //   crypto.hex("sha256", "abc")                     // "ba7816bf..."
+//   local key = crypto.generate_key("ec")
+//   key.type, key.bits, key.private                 // "ec", 256, true
 //
-// Everything the native module has is here too, under the same names:
-// [native.hash], [native.hmac], [native.equal], [native.random_bytes],
-// [native.hasher], [native.pbkdf2], [native.scrypt], [native.encrypt],
-// [native.decrypt], [native.private_key], [native.public_key],
-// [native.generate_key], [native.version] and the _async forms. Results
-// are raw byte strings; slang/encoding makes hex or base64 of them.
+// The native extension's functions are here too, under the same names:
+// hash, hmac, equal, random_bytes, hasher, pbkdf2, scrypt, encrypt,
+// decrypt, private_key, public_key, generate_key, version and the _async
+// forms; [c] is the extension itself. Results are raw byte strings;
+// slang/encoding makes hex or base64 of them.
 //
 // Password hashes use scrypt with n = 2^15, r = 8, p = 1 (32 MiB, the
 // OWASP recommendation) and a 16-byte salt; [verify_password] also accepts
 // "$pbkdf2-sha256$i=...$salt$hash". [seal] uses AES-256-GCM with a random
 // 12-byte iv and needs a 32-byte key.
 
-// A key, as [native.private_key], [native.public_key] and
-// [native.generate_key] make it.
+// A key, as private_key, public_key and generate_key make it: key.type,
+// key.bits and key.private, key:sign(...), key:verify(...),
+// key:public_pem().
 // type Key = native.Key
 
-// An incremental hasher, from [native.hasher].
+// An incremental hasher, from hasher.
 // type Hasher = native.Hasher
 
 local native = require("crypto")
@@ -35,6 +37,8 @@ local crypto = {}
 for(let local e in entries(native)){
   crypto[e[0]] = e[1]
 }
+// The native extension under this module (OpenSSL).
+crypto.c = native
 
 // hex(digest: string, data: string) -> string
 // The digest of data as lowercase hex.
@@ -172,18 +176,18 @@ local func mac(secret, value){
   return encoding.base64url.encode(native.hmac("sha256", secret, value))
 }
 
-// sign_value(secret: string, value: string) -> string
+// sign(secret: string, value: string) -> string
 // "value.mac": value with an HMAC-SHA256 of it under secret, base64url.
 // Anyone can read value; only who knows secret can make one that
-// [unsign_value] accepts.
-func crypto.sign_value(secret, value){
+// [verify_signed] accepts ([seal] hides the value too).
+func crypto.sign(secret, value){
   return concat(value, ".", mac(secret, value))
 }
 
-// unsign_value(secret: string, signed: string) -> string?
-// The value [sign_value] signed, or null when signed was not made with
-// secret or was changed.
-func crypto.unsign_value(secret, signed){
+// verify_signed(secret: string, signed: string) -> string?
+// The value [sign] signed, or null when signed was not made with secret
+// or was changed (a failed check, not an error).
+func crypto.verify_signed(secret, signed){
   if(type(signed) != "string"){
     return null
   }

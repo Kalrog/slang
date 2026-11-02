@@ -104,7 +104,7 @@ async func m.register(name, password){
   if(r[0] == "err"){
     return {error: "That name is taken."}
   }
-  return {user: {id: r[1].last_id, name: name}}
+  return {user: {id: r[1].last_insert_rowid, name: name}}
 }
 
 func m.start_session(res, user){
@@ -124,7 +124,7 @@ if(db:one(sql{ select id from users where name = 'demo' }) == null){
   local hash = crypto.hash_password("demo")
   local demo = db:run(
     sql{ insert into users(name, password) values ('demo', {hash}) },
-  ).last_id
+  ).last_insert_rowid
   db:run(sql{ update todos set user_id = {demo} where user_id is null })
   if(todos.active_count(demo) + len(todos.visible(demo, "done")) == 0){
     todos.add(demo, "write a web server in slang", true)

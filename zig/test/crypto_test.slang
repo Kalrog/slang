@@ -113,10 +113,10 @@ t.group("crypto binding"){
     }
     for(let local s in values(specs)){
       local k = native.generate_key(s[0], s[1])
-      assert(k:is_private() and k:type() == s[0])
+      assert(k.private and k.type == s[0])
       local sig = k:sign(s[2], "message", s[3])
       local pub = native.public_key(k:public_pem())
-      assert(not pub:is_private())
+      assert(not pub.private)
       assert(pub:verify(s[2], "message", sig, s[3]), concat(s[0], " verifies"))
       assert(
         not pub:verify(s[2], "massage", sig, s[3]),
@@ -177,14 +177,14 @@ t.group("slang/crypto"){
     })
   }
   t.test("signed values and sealed values"){
-    local signed = crypto.sign_value("key", "user.42")
-    assert(crypto.unsign_value("key", signed) == "user.42")
-    assert(crypto.unsign_value("other", signed) == null)
-    assert(crypto.unsign_value(
+    local signed = crypto.sign("key", "user.42")
+    assert(crypto.verify_signed("key", signed) == "user.42")
+    assert(crypto.verify_signed("other", signed) == null)
+    assert(crypto.verify_signed(
       "key",
       concat("user.43", str.substring(signed, 7)),
     ) == null)
-    assert(crypto.unsign_value("key", "nodot") == null and crypto.unsign_value(
+    assert(crypto.verify_signed("key", "nodot") == null and crypto.verify_signed(
         "key", null
       ) == null)
     local k = native.random_bytes(32)

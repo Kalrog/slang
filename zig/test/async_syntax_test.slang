@@ -17,7 +17,7 @@ t.group("async syntax"){
   t.test("async functions return futures and await unwraps them"){
     local r = a.main(func(){
       local f = double_later(21)
-      assert(type(f) == "Future")
+      assert(type(f) == "async.Future")
       local anon = async func(x){ return (await double_later(x)) + 1 }
       return {await f, await anon(1), await local_one()}
     })

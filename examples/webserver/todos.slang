@@ -15,7 +15,7 @@ func m.add(user, text, done){
   local r = db:run(
     sql{ insert into todos(text, done, user_id) values ({text}, {done == true}, {user}) },
   )
-  return m.find(user, r.last_id)
+  return m.find(user, r.last_insert_rowid)
 }
 
 func m.find(user, id){

@@ -78,14 +78,15 @@ t.group("webview"){
       w:eval("slang.send({from_eval: 6 * 7})")
       assert((await a.timeout(next.future, 5000, "no eval")).from_eval == 42)
       next = a.completer()
-      w:set_html("<script>slang.send({fresh: true})</script>")
+      w.html = "<script>slang.send({fresh: true})</script>"
       assert((await a.timeout(
         next.future, 5000, "no fresh page"
       )).fresh == true)
-      w:set_title("renamed")
+      w.title = "renamed"
+      assert(w.title == "renamed")
       w:close()
       await w.closed
-      assert(not w:is_open())
+      assert(not w.open)
       local r = pcall(func(){ w:navigate("about:blank") })
       assert(r[0] == "err" and str.index_of(r[1].message, "closed") >= 0)
     })
@@ -165,13 +166,13 @@ t.group("webview"){
     a.main(func(){
       local w1 = small({title: "one", html: "<p>one</p>"})
       local w2 = small({title: "two", html: "<p>two</p>"})
-      assert(require("webview").window_count() == 2)
+      assert(webview.window_count() == 2)
       w1:close()
       await w1 .closed
-      assert(require("webview").window_count() == 1 and w2:is_open())
+      assert(webview.window_count() == 1 and w2.open)
       w2:close()
       await w2 .closed
-      assert(require("webview").window_count() == 0)
+      assert(webview.window_count() == 0)
     })
   }
 }

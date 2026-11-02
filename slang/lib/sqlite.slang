@@ -4,7 +4,7 @@
 //
 //   local db = sqlite.open("todos.db")            // or ":memory:"
 //   db:exec("create table if not exists todos(id integer primary key, text text, done boolean)")
-//   db:run(sql{ insert into todos(text, done) values ({text}, {false}) })  // {changes, last_id}
+//   db:run(sql{ insert into todos(text, done) values ({text}, {false}) })  // {changes, last_insert_rowid}
 //   db:all(sql{ select * from todos where done = {done} })  // rows, tables by column name
 //   db:one(sql{ select * from todos where id = {id} })      // a row or null
 //   for(let {id: local id, text: local text} in db:each(sql{ select id, text from todos })){ ... }
@@ -18,7 +18,8 @@
 // Values are null, bools (stored as 0/1), ints, doubles and strings; a
 // column declared boolean reads back as true/false. Prepared statements
 // are cached per database by text. Errors raise "sqlite: ..." naming the
-// literal: "sqlite: no such table: todo (at views.slang:12)".
+// literal: "sqlite: no such table: todo (at views.slang:12)". [c] is the
+// native extension under it, for SQLite's statements one by one.
 
 // SQL text with its parameters, made by [query] (or a sql{ } literal).
 // type Query = {text: string, params: {any}, count: int, origin?: string}
@@ -29,13 +30,19 @@
 // type Row = {[string]: any}
 
 // What [Database.run] tells about a statement that changed rows.
-// type RunResult = {changes: int, last_id: int}
+// type RunResult = {changes: int, last_insert_rowid: int}
 // [changes]: the number of rows inserted, updated or deleted
-// [last_id]: the rowid of the last inserted row
+// [last_insert_rowid]: the rowid of the last inserted row
 
 local native = require("sqlite")
 local str = require("slang/string")
+local class = require("slang/class")
 local sqlite = {}
+
+// The native extension under this module: open(path) -> a connection with
+// exec, prepare, changes, last_insert_rowid; statements with bind, step,
+// row, reset, finalize.
+sqlite.c = native
 
 // version() -> string
 // The version of the SQLite library.
@@ -190,17 +197,29 @@ local func resolve(q, values){
 
 // An open database, from [open].
 // type Database
+// [path]: the file it was opened from (or ":memory:")
+// [changes]: the rows the last statement inserted, updated or deleted
+// [last_insert_rowid]: the rowid of the last inserted row
+// [open]: false once closed
 local db_methods = {}
-local db_meta = {__index: db_methods, __type: "sqlite.db"}
+local Database = class.new({
+  name: "sqlite.Database",
+  methods: db_methods,
+  properties: {
+    changes: {get: func(db){ return db.handle:changes() }},
+    last_insert_rowid: {get: func(db){ return db.handle:last_insert_rowid() }},
+    open: {get: func(db){ return db.handle:is_open() }},
+  },
+})
 local CACHE_SIZE = 64
 
 // open(path: string) -> Database
 // Opens a database file, created when missing; ":memory:" opens one in
 // memory. Raises when it cannot be opened.
 func sqlite.open(path){
-  return {
-    meta: db_meta, raw: native.open(path), path: path, cache: {}, cached: 0
-  }
+  return class.make(Database, {
+    handle: native.open(path), path: path, cache: {}, cached: 0
+  })
 }
 
 local func message_of(e){
@@ -241,7 +260,7 @@ local func statement(db, q){
     if(db.cached >= CACHE_SIZE){
       clear_cache(db)
     }
-    st = located(q, func(){ return db.raw:prepare(q.text) })
+    st = located(q, func(){ return db.handle:prepare(q.text) })
     db.cache[q.text] = st
     db.cached = db.cached + 1
   } else {
@@ -291,8 +310,8 @@ func db_methods.run(db, q, values){
     for(st:step()){}
   })
   local result = {
-    changes: db.raw:changes(),
-    last_id: db.raw:last_insert_rowid(),
+    changes: db.handle:changes(),
+    last_insert_rowid: db.handle:last_insert_rowid(),
   }
   st:reset()
   return result
@@ -305,7 +324,7 @@ func db_methods.run(db, q, values){
 // when the rows end (or when a loop left early is collected).
 func db_methods.each(db, q, values){
   q = resolve(q, values)
-  local st = located(q, func(){ return db.raw:prepare(q.text) })
+  local st = located(q, func(){ return db.handle:prepare(q.text) })
   located(q, func(){ st:bind_all(q.params, q.count) })
   local done = false
   return func(){
@@ -337,7 +356,7 @@ func db_methods.each(db, q, values){
 local func async_statement(db, q){
   local st = db.cache[q.text]
   if(st != null and st:is_busy()){
-    local fresh = located(q, func(){ return db.raw:prepare(q.text) })
+    local fresh = located(q, func(){ return db.handle:prepare(q.text) })
     located(q, func(){ fresh:bind_all(q.params, q.count) })
     return fresh
   }
@@ -380,7 +399,7 @@ func db_methods.one_async(db, q, values){
 // [Database.run] on the thread pool: a Future of a [RunResult].
 func db_methods.run_async(db, q, values){
   return query_async(db, resolve(q, values)):then(func(r){
-    return {changes: r.changes, last_id: r.last_insert_rowid}
+    return {changes: r.changes, last_insert_rowid: r.last_insert_rowid}
   })
 }
 
@@ -389,9 +408,9 @@ func db_methods.run_async(db, q, values){
 // changes, pragmas.
 func db_methods.exec(db, q){
   if(type(q) == "sqlite.query"){
-    located(q, func(){ db.raw:exec(q.text) })
+    located(q, func(){ db.handle:exec(q.text) })
   } else {
-    db.raw:exec(q)
+    db.handle:exec(q)
   }
   return null
 }
@@ -400,13 +419,13 @@ func db_methods.exec(db, q){
 // Runs f in a transaction: commits when it returns, rolls back and raises
 // the error again when it raises. Transactions do not nest.
 func db_methods.transaction(db, f){
-  db.raw:exec("begin")
+  db.handle:exec("begin")
   local r = pcall(f)
   if(r[0] == "err"){
-    db.raw:exec("rollback")
+    db.handle:exec("rollback")
     raise(r[1])
   }
-  db.raw:exec("commit")
+  db.handle:exec("commit")
   return r[1]
 }
 
@@ -415,7 +434,7 @@ func db_methods.transaction(db, f){
 // an _async query is running.
 func db_methods.close(db){
   clear_cache(db)
-  db.raw:close()
+  db.handle:close()
   return null
 }
 

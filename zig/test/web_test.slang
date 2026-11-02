@@ -41,7 +41,7 @@ t.group("web apps"){
       assert(a.await(c:get("/files/a/b/c")).body == "a/b/c")
       assert(a.await(c:get("/nothing")).status == 404)
       local m = a.await(c:delete("/items/7"))
-      assert(m.status == 405 and m.header("allow") == "GET, POST")
+      assert(m.status == 405 and m:header("allow") == "GET, POST")
       assert(
         a.await(c:request("HEAD", "/items/1")).status == 200,
         "HEAD runs the GET route",
@@ -73,7 +73,7 @@ t.group("web apps"){
     local c = web.test(app)
     run(func(){
       local r = a.await(c:get("/"))
-      assert(r.body == "tagged" and r.header("x-outer") == "200" and r.header(
+      assert(r.body == "tagged" and r:header("x-outer") == "200" and r:header(
           "content-type",
         ) == "text/plain; charset=utf-8")
     })
@@ -126,12 +126,12 @@ t.group("web apps"){
     local c = web.test(app)
     run(func(){
       local h = a.await(c:get("/html"))
-      assert(h.body == "<b>hi</b>" and h.header(
+      assert(h.body == "<b>hi</b>" and h:header(
           "content-type",
         ) == "text/html; charset=utf-8")
       assert(a.await(c:get("/json")).body == "{\"a\":[1,2]}")
       local g = a.await(c:get("/go"))
-      assert(g.status == 303 and g.header("location") == "/there")
+      assert(g.status == 303 and g:header("location") == "/there")
       assert(a.await(c:post("/form", {form: {name: "a b&c"}})).body == "a b&c")
     })
   }
@@ -143,18 +143,18 @@ t.group("web apps"){
       local r = a.await(c:get("/s/hello.txt"))
       assert(r.status == 200 and r.body == "hello, static world\n")
       assert(
-        r.header("content-type") == "text/plain; charset=utf-8" and
-          r.header("cache-control") == "public, max-age=60",
+        r:header("content-type") == "text/plain; charset=utf-8" and
+          r:header("cache-control") == "public, max-age=60",
       )
-      local etag = r.header("etag")
+      local etag = r:header("etag")
       assert(a.await(c:get("/s/hello.txt", {
         headers: {["If-None-Match"]: etag},
       })).status == 304)
       assert(a.await(c:get("/s/hello.txt", {
-        headers: {["If-Modified-Since"]: r.header("last-modified")},
+        headers: {["If-Modified-Since"]: r:header("last-modified")},
       })).status == 304)
       local p = a.await(c:get("/s/hello.txt", {headers: {Range: "bytes=7-12"}}))
-      assert(p.status == 206 and p.body == "static" and p.header(
+      assert(p.status == 206 and p.body == "static" and p:header(
           "content-range",
         ) == "bytes 7-12/20")
       assert(a.await(c:get("/s/hello.txt", {
@@ -169,8 +169,8 @@ t.group("web apps"){
       assert(a.await(c:get("/s/../web_test.slang")).status == 404)
       assert(a.await(c:get("/s/missing.txt")).status == 404)
       assert(
-        web.type_of("a/b.CSS") == "text/css; charset=utf-8" and
-          web.type_of("x") == "application/octet-stream",
+        web.mime_type("a/b.CSS") == "text/css; charset=utf-8" and
+          web.mime_type("x") == "application/octet-stream",
       )
     })
   }
@@ -237,7 +237,7 @@ t.group("sessions and CSRF"){
       assert(str.index_of(cookie, "\"n\"") < 0, "the client cannot read it")
       local unchanged = a.await(c:get("/look"))
       assert(
-        unchanged.body == "2" and unchanged.header("set-cookie") == null,
+        unchanged.body == "2" and unchanged:header("set-cookie") == null,
         "not saved when unchanged",
       )
       // (a different first character: the cookie starts with a random nonce)

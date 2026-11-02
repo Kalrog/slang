@@ -112,7 +112,7 @@ t.group("slang/sqlite"){
   t.test("run, all, one, each with sql literals"){
     local db = fresh()
     local r = db:run(sql{ insert into todos(text) values ({"four"}) })
-    assert(r == {changes: 1, last_id: 4}, concat("run ", r))
+    assert(r == {changes: 1, last_insert_rowid: 4}, concat("run ", r))
     local rows = db:all(
       sql{ select id, text, done from todos where done = {false} order by id },
     )
@@ -292,7 +292,7 @@ t.group("sqlite on the thread pool"){
       local r = await(db:run_async(
         sql{ insert into todos(text) values ({"four"}) },
       ))
-      assert(r.changes == 1 and r.last_id == 4)
+      assert(r.changes == 1 and r.last_insert_rowid == 4)
       assert(
         db:one(sql{ select count(*) as n from todos }).n == 4,
         "sync and async share the database",

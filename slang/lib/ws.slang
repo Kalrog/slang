@@ -3,7 +3,7 @@
 //   local async = require("slang/async")
 //   local ws = require("slang/ws")
 //   async.main(func(){
-//     local socket = async.await(ws.connect("127.0.0.1", 8080, "/live"))
+//     local socket = async.await(ws.connect("ws://127.0.0.1:8080/live"))
 //     async.await(socket:send("hello"))
 //     local m = async.await(socket.messages:next())
 //     if(not m.done){ print(m.value, "\n") }
@@ -22,13 +22,14 @@ local async = require("slang/async")
 local str = require("slang/string")
 local encoding = require("slang/encoding")
 local utf8 = require("slang/utf8")
+local class = require("slang/class")
 
 local ws = {}
 
 local GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 local func crypto(){
-  return require("crypto")
+  return require("slang/crypto")
 }
 
 local func accept_key(key){
@@ -107,8 +108,16 @@ local func close_payload(code, reason){
 // connection is gone. A program may set on_pong, a function called with
 // the data of each pong (see [WebSocket.ping]).
 // type WebSocket
+// [open]: whether messages can still be sent: false once a close has
+//   begun
 local socket_methods = {}
-local socket_meta = {__index: socket_methods, __type: "WebSocket"}
+local Socket = class.new({
+  name: "ws.Socket",
+  methods: socket_methods,
+  properties: {
+    open: {get: func(s){ return s.state == "open" }},
+  },
+})
 
 // How a connection ended: the close code the other side sent (1005 when
 // none; 1006 when the connection dropped) or the one it was closed with.
@@ -123,11 +132,10 @@ local func new_socket(conn, rest, client, options){
   options = options or {}
   local c = async.controller(null)
   local closed = async.completer()
-  local s = {
+  local s = class.make(Socket, {
     conn: conn, client: client, messages: c.stream, closed: closed.future,
     state: "open", max_message: options.max_message or 16 * 1024 * 1024
-  }
-  s.meta = socket_meta
+  })
 
   local func write(data){
     return async.write(conn, data)
@@ -338,12 +346,6 @@ local func new_socket(conn, rest, client, options){
   return s
 }
 
-// is_open() -> bool
-// Whether messages can still be sent: false once a close has begun.
-func socket_methods.is_open(s){
-  return s.state == "open"
-}
-
 local func send_frame(s, opcode, data){
   if(s.state != "open"){
     return async.failed("ws: the socket is not open")
@@ -426,12 +428,64 @@ func ws.accept(req, conn, rest, options){
   return new_socket(conn, rest, false, options)
 }
 
-// connect(host: string, port: int, path?: string,
-//         options?: Options) -> async.Future
-// Opens a WebSocket to host:port at path ("/"): a Future of the client
-// side [WebSocket]. It fails when the server does not accept the
-// handshake.
+// host, port and path of a ws:// or wss:// URL, and whether it is wss
+local func split_url(url){
+  local secure = str.starts_with(url, "wss://")
+  if(not secure and not str.starts_with(url, "ws://")){
+    error("ws.connect: a ws:// or wss:// URL expected: ", url)
+  }
+  local rest = str.substring(url, secure and 6 or 5)
+  local slash = str.index_of(rest, "/")
+  local authority = slash >= 0 and str.substring(rest, 0, slash) or rest
+  local path = slash >= 0 and str.substring(rest, slash) or "/"
+  local host = authority
+  local port = secure and 443 or 80
+  local port_text = null
+  if(str.starts_with(authority, "[")){
+    local close = str.index_of(authority, "]")
+    if(close < 0){
+      error("ws.connect: a ] expected in ", url)
+    }
+    host = str.substring(authority, 1, close)
+    if(str.starts_with(authority, ":", close + 1)){
+      port_text = str.substring(authority, close + 2)
+    }
+  } else {
+    local colon = str.index_of(authority, ":")
+    if(colon >= 0){
+      host = str.substring(authority, 0, colon)
+      port_text = str.substring(authority, colon + 1)
+    }
+  }
+  if(port_text != null){
+    port = to_int(port_text)
+    if(port == null){
+      error("ws.connect: a bad port in ", url)
+    }
+  }
+  return {host: host, port: port, path: path, secure: secure}
+}
+
+// connect(url: string, options?: Options) -> async.Future
+// Opens a WebSocket to a ws:// or wss:// URL: a Future of the client side
+// [WebSocket]; wss uses TLS (options.tls adds slang/tls's connect
+// options). It fails when the server does not accept the handshake.
+// connect(host, port, path?, options?) works too.
 func ws.connect(host, port, path, options){
+  if(type(port) != "int"){
+    local u = split_url(host)
+    local o = {}
+    for(let local e in entries(port or {})){
+      o[e[0]] = e[1]
+    }
+    if(u.secure and (o.tls == null or o.tls == false)){
+      o.tls = true
+    }
+    host = u.host
+    port = u.port
+    path = u.path
+    options = o
+  }
   return async.run(func(){
     local conn = null
     local secure = options != null and options.tls != null and

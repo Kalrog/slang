@@ -79,7 +79,7 @@ local unhandled = {}
 // catches is reported by [main].
 // type Future
 local future_methods = {}
-local future_meta = {__index: future_methods, __type: "Future"}
+local future_meta = {__index: future_methods, __type: "async.Future"}
 
 local func new_future(){
   local f = {
@@ -145,7 +145,7 @@ func future_methods.then(f, on_value, on_error){
     local r = pcall(handler, arg)
     if(r[0] == "err"){
       settle(out, "error", r[1])
-    } else if(type(r[1]) == "Future"){
+    } else if(type(r[1]) == "async.Future"){
       on_settled(r[1], func(g){
         if(g.state == "done"){
           settle(out, "done", g.value)
@@ -312,7 +312,7 @@ func async.timeout(f, ms, message){
 // raises its error. Raises when f is not a Future or when called outside
 // an async function ([run], [main]). A completed f returns at once.
 func async.await(f){
-  if(type(f) != "Future"){
+  if(type(f) != "async.Future"){
     error("await expects a Future, got ", type(f))
   }
   f.handled = true
@@ -451,7 +451,7 @@ func async.main(f){
 // second reader raises "the stream is already being read".
 // type Stream
 local stream_methods = {}
-local stream_meta = {__index: stream_methods, __type: "Stream"}
+local stream_meta = {__index: stream_methods, __type: "async.Stream"}
 
 // What [Stream.next] gives: {value: v}, or {done: true} at the end.
 // type Event = {value?: any, done?: bool}
@@ -590,7 +590,7 @@ func stream_methods.collect(s){
 // the methods of a pulled Stream (async.pull): next, collect and listen as
 // a controller's Stream has them
 local pull_methods = {}
-local pull_meta = {__index: pull_methods, __type: "Stream"}
+local pull_meta = {__index: pull_methods, __type: "async.Stream"}
 
 // pull(next_value: func(): any) -> Stream
 // A Stream that reads only when asked: each next() calls next_value(),
@@ -618,7 +618,7 @@ func pull_methods.next(s){
   local f = null
   if(r[0] == "err"){
     f = async.failed(r[1])
-  } else if(type(r[1]) == "Future"){
+  } else if(type(r[1]) == "async.Future"){
     f = r[1]
   } else {
     f = async.value(r[1])

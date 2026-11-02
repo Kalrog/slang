@@ -60,6 +60,7 @@
 
 local async = require("slang/async")
 local os = require("slang/os")
+local class = require("slang/class")
 
 local tls = {}
 
@@ -69,6 +70,17 @@ local func engine(){
     native = require("tls")
   }
   return native
+}
+
+// [c] is the native extension under this module (OpenSSL's engine:
+// context, session, self_signed), loaded when first used.
+tls.meta = {
+  __index: func(t, key){
+    if(key == "c"){
+      return engine()
+    }
+    return null
+  },
 }
 
 // context(options?: ContextOptions) -> Context
@@ -101,13 +113,21 @@ func tls.self_signed(names, days){
 
 // ------------------------------------------------------------ connections
 
-// A TLS connection over a uv.tcp handle; type(conn) is "TlsConnection".
+// A TLS connection over a uv.tcp handle; type(conn) is "tls.Connection".
 // It also has the handle's getsockname, getpeername, nodelay, keepalive,
 // is_closing, is_active, fileno, ref, unref and has_ref, which go to the
 // TCP handle.
 // type Connection
+// [info]: the protocol version, cipher, ALPN protocol, peer and server
+//   name ([Info])
 local methods = {}
-local meta = {__index: methods, __type: "TlsConnection"}
+local Connection = class.new({
+  name: "tls.Connection",
+  methods: methods,
+  properties: {
+    info: {get: func(t){ return t.session:info() }},
+  },
+})
 
 // sends what the engine has for the network; cb(err) once it is written
 local func flush(t, cb){
@@ -245,18 +265,22 @@ local func connection(tcp, session){
     eof_told: false, pending: {}, waiting: {}
   }
   t.tcp_cb = func(err, chunk){ on_tcp(t, err, chunk) }
-  t.meta = meta
-  return t
+  return class.make(Connection, t)
 }
 
 local client_context = null
 
-// client(tcp, server_name?: string, context?: Context) -> Connection
+// client(tcp, options?: {server_name?: string, context?: Context})
+//   -> Connection
 // A client connection over a connected uv.tcp handle; its handshake starts
-// at once.
+// at once. client(tcp, server_name, context) works too.
 // [server_name]: the name to ask for and verify (needed when verifying)
 // [context]: a shared default client context when null
 func tls.client(tcp, server_name, context){
+  if(type(server_name) == "table"){
+    context = server_name.context
+    server_name = server_name.server_name
+  }
   if(context == null){
     if(client_context == null){
       client_context = engine().context({})
@@ -323,12 +347,6 @@ func methods.handshake(t){
       append(t.waiting, func(err){ cb(err, t) })
     }
   })
-}
-
-// info() -> Info
-// The protocol version, cipher, ALPN protocol, peer and server name.
-func methods.info(t){
-  return t.session:info()
 }
 
 // read_start(cb: func(err: any, chunk: string?))

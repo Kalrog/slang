@@ -36,6 +36,7 @@
 local async = require("slang/async")
 local json = require("slang/json")
 local str = require("slang/string")
+local class = require("slang/class")
 
 local webview = {}
 
@@ -49,11 +50,46 @@ local func module(){
   return native
 }
 
+// [c] is the native extension under this module, loaded when first used.
+webview.meta = {
+  __index: func(t, key){
+    if(key == "c"){
+      return module()
+    }
+    return null
+  },
+}
+
+// window_count() -> int
+// How many windows are open.
+func webview.window_count(){
+  return module().window_count()
+}
+
 // A window. Its field closed is an [async.Future] that completes (with
 // null) when the window closes.
 // type Window
+// [title]: the window's title; assigning sets it
+// [html]: assigning replaces the page with this HTML (write-only)
+// [open]: whether the window is still open
 local window_methods = {}
-local window_meta = {__index: window_methods, __type: "Window"}
+local Window = class.new({
+  name: "webview.Window",
+  methods: window_methods,
+  properties: {
+    title: {
+      get: func(w){ return w.shown_title },
+      set: func(w, t){
+        w.handle:set_title(t)
+        w.shown_title = t
+      },
+    },
+    html: {set: func(w, html){ w.handle:set_html(html) }},
+    open: {get: func(w){ return w.handle:is_open() }},
+  },
+})
+
+local receive = null
 
 // an app:// request as a slang/web request
 local func web_request(r){
@@ -79,7 +115,7 @@ local func serve(app, request, task){
     local r = pcall(func(){
       local res = async.await(app:handle(web_request(request)))
       local body = res.body
-      if(type(body) == "Stream"){
+      if(type(body) == "async.Stream"){
         body = str.join(async.await(body:collect()), "")
       }
       task:respond(res.status, res.headers, body)
@@ -112,28 +148,26 @@ func webview.window(options){
     opts.url = concat("app://localhost", options.path or "/")
   }
   local closed = async.completer()
-  local w = {
-    native: n.window(opts),
+  local w = class.make(Window, {
+    handle: n.window(opts),
     closed: closed.future,
     binds: {},
     handlers: {},
-  }
-  w.meta = window_meta
-  w.native:on_close(func(){ closed.complete(null) })
-  w.native:on_message(func(text){ w:receive(text) })
+    shown_title: options.title,
+  })
+  w.handle:on_close(func(){ closed.complete(null) })
+  w.handle:on_message(func(text){ receive(w, text) })
   if(options.app != null){
-    w.native:on_request(func(request, task){
+    w.handle:on_request(func(request, task){
       serve(options.app, request, task)
     })
   }
   return w
 }
 
-// receive(text: string)
-// Handles a raw message from the page: a call to answer or a value for
-// the [Window.on_message] handlers. Used internally; text that is not a
-// JSON object is ignored.
-func window_methods.receive(w, text){
+// a raw message from the page: a call to answer or a value for the
+// on_message handlers; text that is not a JSON object is ignored
+receive = func(w, text){
   local r = pcall(json.decode, text)
   if(r[0] == "err" or type(r[1]) != "table"){
     return null
@@ -148,21 +182,21 @@ func window_methods.receive(w, text){
         }
         local args = m.args or {}
         local v = f(...args)
-        if(type(v) == "Future"){
+        if(type(v) == "async.Future"){
           v = async.await(v)
         }
         return v
       })
-      if(not w.native:is_open()){
+      if(not w.handle:is_open()){
         return null
       }
       if(res[0] == "ok"){
-        w.native:eval(concat(
+        w.handle:eval(concat(
           "slang._resolve(", string(m.id), ", true, ", json.encode(res[1]), ")"
         ))
       } else {
         local msg = res[1].message or string(res[1])
-        w.native:eval(concat(
+        w.handle:eval(concat(
           "slang._resolve(", string(m.id), ", false, ", json.encode(msg), ")"
         ))
       }
@@ -196,28 +230,19 @@ func window_methods.on_message(w, f){
 // Passes value to the page's slang.on(f) listeners; does nothing once the
 // window is closed.
 func window_methods.send(w, value){
-  if(w.native:is_open()){
-    w.native:eval(concat("slang._deliver(", json.encode(value), ")"))
+  if(w.handle:is_open()){
+    w.handle:eval(concat("slang._deliver(", json.encode(value), ")"))
   }
 }
 
 // navigate(url: string)
 // Loads url in the window.
-func window_methods.navigate(w, url){ w.native:navigate(url) }
-// set_html(html: string)
-// Replaces the page with html.
-func window_methods.set_html(w, html){ w.native:set_html(html) }
+func window_methods.navigate(w, url){ w.handle:navigate(url) }
 // eval(js: string)
 // Runs JavaScript in the page; its result is not returned.
-func window_methods.eval(w, js){ w.native:eval(js) }
-// set_title(t: string)
-// Sets the window's title.
-func window_methods.set_title(w, t){ w.native:set_title(t) }
+func window_methods.eval(w, js){ w.handle:eval(js) }
 // close()
 // Closes the window; its closed future completes.
-func window_methods.close(w){ w.native:close() }
-// is_open() -> bool
-// Whether the window is still open.
-func window_methods.is_open(w){ return w.native:is_open() }
+func window_methods.close(w){ w.handle:close() }
 
 return webview

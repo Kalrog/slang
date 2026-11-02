@@ -30,7 +30,7 @@ func m.record(req, status, ms){
   )
   local id = db:run(
     sql{ insert into requests(method, path, status, ms) values ({req.method}, {req.path}, {status}, {ms}) },
-  ).last_id
+  ).last_insert_rowid
   local entry = null
   for(let local f in keys(listeners)){
     entry = entry or db:one(

@@ -110,7 +110,7 @@ func m.install(app){
   // puts at the top of the table (hx-swap-oob)
   app:ws("/log/live", func(socket, req){
     local stop = log.subscribe(func(entry){
-      if(socket:is_open()){
+      if(socket.open){
         socket:send(html.render(<tbody hx-swap-oob="afterbegin:#log-rows">
           <views.LogRow entry={entry}/>
         </tbody>))

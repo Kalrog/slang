@@ -75,7 +75,7 @@ local func key_kind(key){
     return "hmac"
   }
   if(type(key) == "crypto.key"){
-    return key:type()
+    return key.type
   }
   error("jwt: a key must be a secret string or a crypto key, got ", type(key))
 }
@@ -86,7 +86,7 @@ local func default_alg(key){
   if(kind == "rsa"){ return "RS256" }
   if(kind == "ed25519"){ return "EdDSA" }
   if(kind == "ec"){
-    local bits = key:bits()
+    local bits = key.bits
     return bits == 384 and "ES384" or bits == 521 and "ES512" or "ES256"
   }
   error("jwt: no algorithm for a ", kind, " key")
@@ -99,7 +99,7 @@ local func algorithm(alg, key){
     error("jwt: unsupported algorithm ", alg)
   }
   local kind = key_kind(key)
-  if(kind != a.kind or (a.bits != null and key:bits() != a.bits)){
+  if(kind != a.kind or (a.bits != null and key.bits != a.bits)){
     error("jwt: the key does not fit ", alg)
   }
   return a
@@ -139,7 +139,7 @@ func jwt.sign(claims, key, options){
   if(a.kind == "hmac"){
     signature = crypto.hmac(a.digest, key, input)
   } else {
-    if(not key:is_private()){
+    if(not key.private){
       error("jwt: signing needs a private key")
     }
     signature = key:sign(a.digest, input, a.options)

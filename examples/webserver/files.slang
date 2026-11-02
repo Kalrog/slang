@@ -66,7 +66,7 @@ async func finish(user, f){
   local digest = encoding.hex.encode(f.hasher:digest())
   local id = db:run(sql{
     insert into files(user_id, name, type, size, sha256) values ({user}, {f.name}, {f.type}, {f.size}, {digest})
-  }).last_id
+  }).last_insert_rowid
   await a.fs.rename(f.tmp, m.path({id: id}))
   return m.find(user, id)
 }

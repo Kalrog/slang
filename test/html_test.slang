@@ -124,7 +124,7 @@ t.group("html templates"){
     )
     assert(r[1] == "<li></li>", r[1])
     assert(r[2] == "<a href=\"/\" id=\"k\" title=\"u\">x</a>", r[2])
-    assert(r[3] == "Html")
+    assert(r[3] == "html.Node")
     assert(r[4] == "<li>plain &amp; <b>bold</b></li>", r[4])
   }
   t.test("a mismatched closing tag is a located error"){

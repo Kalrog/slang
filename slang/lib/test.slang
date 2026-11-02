@@ -31,7 +31,7 @@ local str = require("slang/string")
 local indent = 0
 // the options of the run: {json, only}
 local options = {}
-local func indentStr(){
+local func indent_str(){
   local str = ""
   for(local i = 0; i < indent; i = i + 1) {
     str = concat(str, "  ")
@@ -75,7 +75,7 @@ func group.run(self, path){
   path = path or {}
   if(self.name != "root"){
     if(not options.json){
-      print(indentStr(), "Group: ", self.name, "\n")
+      print(indent_str(), "Group: ", self.name, "\n")
     }
     indent = indent + 1
   }
@@ -98,14 +98,14 @@ func group.run(self, path){
 }
 
 func group.count(self){
-  local succeded = 0
+  local succeeded = 0
   local failed = 0
   for(let local child in values(self.children)){
     local count = child:count()
-    succeded = succeded + count[0]
+    succeeded = succeeded + count[0]
     failed = failed + count[1]
   }
-  return {succeded, failed}
+  return {succeeded, failed}
 }
 
 local current = group.new("root")
@@ -114,7 +114,7 @@ local m = {}
 local test = {}
 
 func test.new(name, f){
-  local new = {name: name, f: f, succeded: false, ran: false, log: {}}
+  local new = {name: name, f: f, succeeded: false, ran: false, log: {}}
   new.meta = {__index: test}
   return new
 }
@@ -122,11 +122,11 @@ func test.new(name, f){
 func test.run(self, path){
   self.ran = true
   if(not options.json){
-    print(indentStr(), "Test: ", self.name)
+    print(indent_str(), "Test: ", self.name)
   }
   local r = pcall(self.f)
   if(let {"ok"} = r){
-    self.succeded = true
+    self.succeeded = true
     if(options.json){
       print(
         json.encode({
@@ -160,7 +160,7 @@ func test.run(self, path){
       return null
     }
     print(" Failed\n")
-    print(indentStr(), "  Error: ", message)
+    print(indent_str(), "  Error: ", message)
     if(type(e) == "table" and e.location){
       print(
         " @", e.location.origin, ":", e.location.line, ":", e.location.column
@@ -174,7 +174,7 @@ func test.count(self){
   if(not self.ran){
     return {0, 0}
   }
-  if(self.succeded){
+  if(self.succeeded){
     return {1, 0}
   } else {
     return {0, 1}
@@ -234,7 +234,7 @@ func m.run(opts){
     )
     return stats[1]
   }
-  print("Tests succeded: ", stats[0], "\n")
+  print("Tests succeeded: ", stats[0], "\n")
   print("Tests failed: ", stats[1], "\n")
   print("Total tests: ", total, "\n")
   if(stats[1] > 0){

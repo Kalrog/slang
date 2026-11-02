@@ -18,7 +18,7 @@
 // attribute out, true writes it bare (<input disabled>). Void elements
 // (br, img, input, meta, ...) get no end tag.
 
-// A node; type() of it is "Html", and string(node) renders it.
+// A node; type() of it is "html.Node", and string(node) renders it.
 // type Node = {tag?: string, attrs?: {[string]: any}, children?: {Content},
 //   raw?: string}
 // [tag]: the element's name; null for a fragment or raw markup
@@ -63,13 +63,13 @@ func html.escape(s){
   return str.join(parts, "")
 }
 
-local node_meta = {__type: "Html"}
+local node_meta = {__type: "html.Node"}
 func node_meta.__tostring(self){
   return html.render(self)
 }
 // The metatable that marks a list of children as trusted markup; type()
-// of such a list is "HtmlList".
-html.list = {__type: "HtmlList"}
+// of such a list is "html.List".
+html.list = {__type: "html.List"}
 
 // the void elements; `meta` is checked apart because t.meta is a table's
 // metatable, not a field
@@ -114,7 +114,7 @@ html.doctype = html.raw("<!DOCTYPE html>")
 // is_node(v) -> bool
 // Whether v is a [Node].
 func html.is_node(v){
-  return type(v) == "Html"
+  return type(v) == "html.Node"
 }
 
 // value(v) -> Content
@@ -128,7 +128,7 @@ func html.value(v){
   if(t == "string"){
     return html.escape(v)
   }
-  if(t == "Html" or t == "HtmlList"){
+  if(t == "html.Node" or t == "html.List"){
     return v
   }
   if(t == "null" or t == "bool"){
@@ -166,7 +166,7 @@ func html.write(out, v){
   local t = type(v)
   if(t == "string"){
     append(out, v)
-  } else if(t == "Html"){
+  } else if(t == "html.Node"){
     if(v.raw != null){
       append(out, v.raw)
       return null
@@ -186,7 +186,7 @@ func html.write(out, v){
     if(v.tag != null and not is_void(v.tag)){
       append(out, concat("</", v.tag, ">"))
     }
-  } else if(t == "table" or t == "HtmlList"){
+  } else if(t == "table" or t == "html.List"){
     for(local i = 0; i < len(v); i = i + 1){
       html.write(out, v[i])
     }

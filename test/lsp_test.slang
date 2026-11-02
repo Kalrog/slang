@@ -737,6 +737,54 @@ t.group("language server: names"){
     }
     assert(completed("box:").size == null, "a property is not a method")
   }
+  t.test("values the code gives later: self, the fields of objects, assignments"){
+    local later_uri = lsp.path_to_uri(concat(dir, "/later.slang"))
+    local src = str.join({
+      "local methods = {}",
+      "local getters = {}",
+      "// type Thing",
+      "local thing_meta = {__index: methods, __get: getters}",
+      "// size(self) -> int",
+      "func getters.size(t){ return t.n }",
+      "func methods.grow(t){ t.n = t.size + 1 }",
+      "func methods.make(t){ return {meta: thing_meta, n: 0, part: {weight: 2}} }",
+      "local game = {thing: null}",
+      "game.thing = methods.make(null)",
+      "local func use(options){",
+      "  options = options or {limit: 3}",
+      "  return options.limit",
+      "}",
+      "print(game.thing.size, game.thing.part.weight, use())",
+      "",
+    }, "\n")
+    open_doc(s, later_uri, src)
+    local func hover(word, nth){
+      local i = -1
+      for(local k = 0; k <= (nth or 0); k = k + 1){
+        i = str.index_of(src, word, i + 1)
+      }
+      local lc = str.line_col(src, i)
+      local h = s:handle(request(9, "textDocument/hover", {
+        textDocument: {uri: later_uri},
+        position: {line: lc[0] - 1, character: lc[1] - 1},
+      }))[0].result
+      return type(h) == "json.null" and "" or h.contents.value
+    }
+    // self in a method of the meta's tables: an object of it, with the
+    // fields the file gives its objects
+    local h = hover("size + 1")
+    assert(str.index_of(h, "property Thing.size: int") >= 0, h)
+    h = hover("n = t.size")
+    assert(str.index_of(h, "field Thing.n") >= 0, h)
+    // a field assigned after a null first value; through a chain
+    h = hover("size, game")
+    assert(str.index_of(h, "property Thing.size") >= 0, h)
+    h = hover("weight, use")
+    assert(str.index_of(h, "field weight") >= 0, concat("weight: ", h))
+    // a parameter assigned in its function
+    h = hover("limit\n}")
+    assert(str.index_of(h, "field limit") >= 0, h)
+  }
   t.test("hover on the last word of a file"){
     local tail_uri = lsp.path_to_uri(concat(dir, "/tail.slang"))
     local tail = "local buffer = {}\nreturn buffer"

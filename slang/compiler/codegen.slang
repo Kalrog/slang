@@ -1033,7 +1033,7 @@ local func record_use(g, name, token, write, value, statement){
     }
   }
   if(lv != null){
-    g.record:use(name, token, lv.def, write)
+    g.record:use(name, token, lv.def, write, value, statement)
   } else {
     g.record:use(name, token, null, write, value, statement)
   }

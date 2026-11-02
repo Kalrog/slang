@@ -57,9 +57,11 @@ local symbols = {}
 
 // A use of a name.
 // type Ref = {name: string, start: int, stop: int, def?: Def, write: bool,
-//   owner?: Def | {receiver: table, fields: {}}, invoke?: bool}
+//   owner?: Def | {receiver: table, fields: {}}, invoke?: bool,
+//   value?: table}
 // [def]: what it resolved to; null for a global or field the file lacks
 // [write]: it is assigned
+// [value]: the AST node a write assigns
 // [owner]: a field's table, as for [Def]; for a field read of an expression
 // (a.b.c, f().x) {receiver}, the expression's AST node, which only tools
 // that follow values can resolve
@@ -933,6 +935,9 @@ func recorder.use(rec, name, token, def, write, value, statement){
   }
   local r = name_range(rec, token)
   local ref = {name: name, start: r[0], stop: r[1], def: def, write: write}
+  if(write){
+    ref.value = value
+  }
   append(rec.refs, ref)
   rec.at[ref.start] = ref
 }
@@ -1120,7 +1125,7 @@ func symbols.analyse(block, source, origin){
           // a later assignment of a field is a use of the first
           append(rec.refs, {
             name: f.name, start: f.start, stop: f.stop,
-            def: owner.fields[f.name], owner: owner, write: true
+            def: owner.fields[f.name], owner: owner, write: true, value: f.value
           })
           remove(rec.defs, len(rec.defs) - 1)
         }

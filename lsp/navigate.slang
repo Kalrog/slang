@@ -473,7 +473,7 @@ field_of = func(w, value, name, depth){
       }
     }
   }
-  if(value.node != null and value.node.type == "Table"){
+  if(own == null and value.node != null and value.node.type == "Table"){
     for(let local fld in values(value.node.fields)){
       if(fld.type == "Field" and fld.key != null and
         fld.key.type == "String" and fld.key.value == name){
@@ -645,6 +645,204 @@ local func future_value(w, path, node, depth){
   return null
 }
 
+// the values later assignments give a definition (x = v, o.f = v after
+// the first), in the file it is in: AST nodes
+local func writes_of(w, path, def){
+  local f = w:file(path)
+  if(f == null){
+    return {}
+  }
+  local index = f.index
+  if(not index.writes_known){
+    index.writes_known = true
+    for(let local r in values(index.refs)){
+      if(r.write and r.def != null and r.value != null){
+        if(r.def.writes == null){
+          r.def.writes = {}
+        }
+        append(r.def.writes, r.value)
+      }
+    }
+  }
+  return def.writes or {}
+}
+
+// the meta a table is the __index, __get or __set table of, in the file it
+// is in (the definition of the table literal that holds the key, for an
+// inline one): {table def: meta def}
+local func metas_of(w, path){
+  local f = w:file(path)
+  if(f == null){
+    return {}
+  }
+  local index = f.index
+  if(index.metas == null){
+    // (keyed by the table's start: definitions are tables)
+    local out = {}
+    for(let local d in values(index.defs)){
+      if(d.kind != "field" and d.fields != null){
+        for(let local key in values({"__index", "__get", "__set"})){
+          local fld = d.fields[key]
+          if(fld != null and fld.value != null){
+            local t = null
+            if(fld.value.type == "Table"){
+              t = fld
+            } else if(fld.value.type == "Identifier" and fld.value.token != null){
+              t = index.by_start[fld.value.token.start]
+              if(t != null and t.kind == null){
+                // a use: what it resolved to
+                t = t.def
+              }
+            }
+            if(t != null and t.start != null and out[t.start] == null){
+              out[t.start] = d
+            }
+          }
+        }
+      }
+    }
+    index.metas = out
+  }
+  return index.metas
+}
+
+// the fields of a table literal no name holds, as definitions
+local func literal_fields(node){
+  local out = {}
+  for(let local fld in values(node.fields)){
+    if(fld.type == "Field" and fld.key != null and fld.key.type == "String" and
+      fld.key.value != "meta" and fld.key.token != null){
+      local key = fld.key.token
+      out[fld.key.value] = {
+        name: fld.key.value, kind: "field", start: key.start, stop: key.stop,
+        value: fld.value, fields: {}
+      }
+    }
+  }
+  return out
+}
+
+// the tables a file gives a meta ({meta: m, ...} or x.meta = m), by the
+// meta's start: definitions whose fields are those of its objects
+local func instances_of(w, path){
+  local f = w:file(path)
+  if(f == null){
+    return {}
+  }
+  local index = f.index
+  if(index.instances == null){
+    local out = {}
+    for(let local d in values(index.defs)){
+      local m = d.fields and d.fields.meta
+      if(m != null and m.value != null and m.value.type == "Identifier" and
+        m.value.token != null){
+        local t = index.by_start[m.value.token.start]
+        if(t != null and t.kind == null){
+          t = t.def
+        }
+        if(t != null and t.start != null){
+          if(out[t.start] == null){
+            out[t.start] = {}
+          }
+          append(out[t.start], d)
+        }
+      }
+    }
+    // and the table literals the file's functions return
+    for(let local d in values(index.defs)){
+      local fn = d.value
+      if(fn != null and fn.type == "Function"){
+        for(let local node in values(returns_of(fn.body, {}))){
+          if(node.type == "Table"){
+            for(let local fld in values(node.fields)){
+              if(fld.type == "Field" and fld.key != null and
+                fld.key.type == "String" and fld.key.value == "meta" and
+                fld.value != null and fld.value.type == "Identifier" and
+                fld.value.token != null){
+                local t = index.by_start[fld.value.token.start]
+                if(t != null and t.kind == null){
+                  t = t.def
+                }
+                if(t != null and t.start != null){
+                  if(out[t.start] == null){
+                    out[t.start] = {}
+                  }
+                  append(out[t.start], {fields: literal_fields(node)})
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    index.instances = out
+  }
+  return index.instances
+}
+
+// the function definition a parameter is the first parameter of, in its
+// file: {param start: def}
+local func first_params_of(w, path){
+  local f = w:file(path)
+  if(f == null){
+    return {}
+  }
+  local index = f.index
+  if(index.first_params == null){
+    local out = {}
+    for(let local d in values(index.defs)){
+      local fn = d.value
+      if(fn != null and fn.type == "Function" and len(fn.params or {}) > 0){
+        local p = fn.params[0]
+        if(p.token != null and p.token.start != null){
+          out[p.token.start] = d
+        }
+      }
+    }
+    index.first_params = out
+  }
+  return index.first_params
+}
+
+// What the first parameter of a method is (self): an object of the meta
+// whose __index, __get or __set table the function is a field of, or of
+// the type a doc declares above that table
+local func self_value(w, path, def){
+  local fn = first_params_of(w, path)[def.start]
+  if(fn == null or fn.kind != "field" or fn.owner == null or
+    fn.owner.start == null){
+    return null
+  }
+  local table = fn.owner
+  local meta = metas_of(w, path)[table.start]
+  local f = w:file(path)
+  if(meta != null){
+    // its fields: those of the tables the file makes objects of the meta
+    local fields = {}
+    for(let local o in values(instances_of(w, path)[meta.start] or {})){
+      for(let local e in entries(o.fields)){
+        if(fields[e[0]] == null){
+          fields[e[0]] = e[1]
+        }
+      }
+    }
+    fields.meta = meta
+    local v = {path: path, def: {name: def.name, kind: "local", fields: fields}}
+    for(let local e in entries(f.index.types or {})){
+      if(e[1].table == meta or e[1].table == table){
+        v.type_name = e[0]
+      }
+    }
+    return v
+  }
+  for(let local e in entries(f.index.types or {})){
+    if(e[1].table == table){
+      return {path: path, def: table, type_name: e[0]}
+    }
+  }
+  return null
+}
+
 value_of_def = func(w, path, def, depth){
   if(def == null or depth > MAX_DEPTH){
     return null
@@ -665,14 +863,41 @@ value_of_def = func(w, path, def, depth){
     return type_value(w, path, def.type, depth + 1)
   }
   if(def.kind == "parameter"){
+    // a method's self, else what the function assigns it (options =
+    // options or {})
+    local s = self_value(w, path, def)
+    if(s != null){
+      return s
+    }
+    for(let local node in values(writes_of(w, path, def))){
+      local later = value_of_node(w, path, node, depth + 1)
+      if(later != null){
+        return later
+      }
+    }
     return null
   }
   local v = def.value
-  if(v != null and v.type != "Table" and v.type != "Function"){
-    local followed = value_of_node(w, path, v, depth + 1)
-    if(followed != null){
-      return followed
+  if(v == null or (v.type != "Table" and v.type != "Function")){
+    if(v != null){
+      local followed = value_of_node(w, path, v, depth + 1)
+      if(followed != null){
+        return followed
+      }
     }
+    // what the code tells nothing of (null, a parameter) later
+    // assignments may
+    for(let local node in values(writes_of(w, path, def))){
+      local later = value_of_node(w, path, node, depth + 1)
+      if(later != null){
+        return later
+      }
+    }
+  }
+  if(v != null and v.type == "Table"){
+    // its literal too: a field of a literal no name holds has no fields
+    // of its own in the index
+    return {path: path, def: def, node: v}
   }
   return {path: path, def: def}
 }
@@ -772,14 +997,16 @@ local func member_of(w, path, ref){
   return found
 }
 
-// the property an assigned field definition sets (o.name = v where o's
-// meta has a setter or getter for name): {path, def, type_name}, or null
+// what an assigned field definition (o.name = v) sets when that is
+// defined elsewhere: a property of o's meta, or the field of what o is (a
+// method's self: the field its objects are made with): {path, def,
+// type_name}, or null
 local func assigned_property(w, path, def){
   if(not assigned(def) or def.owner == null or def.owner.global != null){
     return null
   }
   local found = member_of(w, path, {owner: def.owner, name: def.name})
-  if(found == null or found.def.kind != "property"){
+  if(found == null or found.def == def){
     return null
   }
   return found
@@ -844,7 +1071,7 @@ local func key_at(w, path, pos){
   if(def.kind == "global"){
     return {kind: "global", name: def.name}
   }
-  // an assignment of a property: the property, not a field
+  // an assignment of a property (or a field defined elsewhere): that
   local property = assigned_property(w, path, def)
   if(property != null){
     return {

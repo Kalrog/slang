@@ -25,7 +25,10 @@ properties (the keys of a metatable's `__get` and `__set`, also along its
 `__index` chain: hover shows the getter's doc and its declared result as
 the property's type, definition goes to the getter, completion lists them
 and follows what the getter returns; a bare `// type Name` above a
-metatable is the type of the objects it is the meta of),
+metatable is the type of the objects it is the meta of; what a name holds
+is followed through later assignments too, and the first parameter of a
+function in a meta's `__index`, `__get` or `__set` table is an object of
+that meta, with the fields the file makes its objects with),
 lint warnings with the parse errors (unused locals, globals no project
 file defines, requires of missing modules, computed requires;
 `initializationOptions.lint: false` turns them off), `formatting` and

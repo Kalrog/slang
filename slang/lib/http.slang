@@ -952,7 +952,7 @@ local func client_event(c){
   return ev
 }
 
-// request(method: string, path: string, options?: {body?: string,
+// request(method: string, path: string, options?: string | {body?: string,
 //   headers?: {[string]: string}, raw?: bool, max_size?: int})
 //   -> async.Future
 // Sends a request and gives a Future of its [ClientResponse]. Wait for one
@@ -960,7 +960,7 @@ local func client_event(c){
 // slang and Content-Length (with a body) are added unless headers has
 // them. Fails when the connection closes early or the response is
 // malformed, and once the server closed the connection. request(method,
-// path, body, headers, options) works too.
+// path, body, headers, options) works too (options a string is the body).
 // [path]: the request target, with the query
 // [raw]: true keeps a gzipped body as it came
 // [max_size]: the most bytes of an inflated body (256 MiB)

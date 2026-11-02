@@ -863,6 +863,45 @@ t.group("language server: names"){
       str.index_of(h, "The item at hand.") >= 0 and
       len(str.split(h, "current: Item")) == 2, h)
   }
+  t.test("lint: calls that do not fit the typed docs of what they call"){
+    local bad_uri = lsp.path_to_uri(concat(dir, "/bad_calls.slang"))
+    local src = str.join({
+      "// type Opts = {port: int, name?: string}",
+      "",
+      "// open(port: int, opts?: Opts, f?: func(x: int)) -> int",
+      "local func open(port, opts, f){ return port }",
+      "local p = \"80\"",
+      "local q = 80",
+      "q = \"changed\"",
+      "open(p)",
+      "open(80, {port: \"x\"})",
+      "open(80, null, 3)",
+      "open(80, {}, func(x){ return x }, 4)",
+      "open(q)",
+      "open(1, func(x){ return x })",
+      "open(2.0 + 1)",
+      "",
+    }, "\n")
+    local out = open_doc(s, bad_uri, src)
+    local messages = {}
+    for(let local m in values(out)){
+      if(m.method == "textDocument/publishDiagnostics"){
+        for(let local d in values(m.params.diagnostics)){
+          if(d.severity == 2){
+            append(messages, concat(string(d.range.start.line), " ", d.message))
+          }
+        }
+      }
+    }
+    assert(messages == {
+      "7 open's port: expected int, got a string",
+      "8 open's opts: field port: expected int, got a string",
+      "9 open's f: expected func(x: int), got an int",
+      "10 open takes 3 arguments, 4 given",
+      // (2.0 + 1 is folded to 3.0 as it is parsed)
+      "13 open's port: expected int, got a float",
+    }, str.join(messages, "\n"))
+  }
   t.test("hover on the last word of a file"){
     local tail_uri = lsp.path_to_uri(concat(dir, "/tail.slang"))
     local tail = "local buffer = {}\nreturn buffer"

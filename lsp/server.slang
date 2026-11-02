@@ -14,7 +14,8 @@
 // inlayHint (parameter names; initializationOptions.parameterHints:
 // "literals", "all" or "none"), completion (members, names in scope,
 // keywords, module names), signatureHelp, lint diagnostics (unused locals,
-// undefined globals, missing modules; initializationOptions.lint),
+// undefined globals, missing modules, calls that do not fit the typed docs
+// of what they call; initializationOptions.lint),
 // formatting and rangeFormatting (slang fmt's formatter), hover and
 // definition on extension syntax, slang.project keys (completion, hover,
 // checks), slang/expand (the expanded file), slang/tests (a test file's
@@ -501,6 +502,12 @@ lint = func(s, doc){
           SEVERITY.warning,
         ))
       }
+    }
+    // calls that do not fit the typed docs of what they call
+    for(let local c in values(nav_of(s):check_calls(doc.path, doc.ast))){
+      append(out, lint_diagnostic(
+        doc, c.start, c.stop, c.message, SEVERITY.warning
+      ))
     }
     for(let local pos in values(found.computed)){
       if(pos >= 0 and pos < len(text)){

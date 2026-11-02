@@ -935,6 +935,37 @@ local func loop_value(w, path, node, depth){
   return null
 }
 
+// what a call calls: {fn (its value), params (the typed doc's, without
+// the receiver of a method call), method}, or null
+local func callee_of(w, path, call, depth){
+  local fn = null
+  local method = false
+  if(call.type == "Call"){
+    fn = value_of_node(w, path, call.function, depth + 1)
+  } else if(call.type == "Invoke"){
+    local member = field_of(
+      w, value_of_node(w, path, call.receiver, depth + 1), call.name.value,
+      depth + 1
+    )
+    fn = member and value_of_def(w, member.path, member.def, depth + 1)
+    method = true
+  }
+  if(fn == null){
+    return null
+  }
+  local params = null
+  if(fn.fn_type != null){
+    params = fn.fn_type.params
+  } else if(fn.def != null and fn.def.info != null and
+    fn.def.info.signature != null){
+    params = fn.def.info.signature.params
+    if(method){
+      params = navigate.method_params(params, fn.def)
+    }
+  }
+  return {fn: fn, params: params, method: method}
+}
+
 // what the parameter of a function literal another function returns is,
 // from that function's doc: the parameter's type of the function type it
 // is declared to return (signed_in(...) -> web.Handler)
@@ -971,32 +1002,12 @@ local func callback_value(w, path, site, depth){
   if(site.returned_from != null){
     return returned_value(w, path, site, depth)
   }
-  local call = site.call
-  local fn = null
-  local method = false
-  if(call.type == "Call"){
-    fn = value_of_node(w, path, call.function, depth + 1)
-  } else if(call.type == "Invoke"){
-    local member = field_of(
-      w, value_of_node(w, path, call.receiver, depth + 1), call.name.value,
-      depth + 1
-    )
-    fn = member and value_of_def(w, member.path, member.def, depth + 1)
-    method = true
-  }
-  if(fn == null){
+  local callee = callee_of(w, path, site.call, depth + 1)
+  if(callee == null){
     return null
   }
-  local params = null
-  if(fn.fn_type != null){
-    params = fn.fn_type.params
-  } else if(fn.def != null and fn.def.info != null and
-    fn.def.info.signature != null){
-    params = fn.def.info.signature.params
-    if(method){
-      params = navigate.method_params(params, fn.def)
-    }
-  }
+  local fn = callee.fn
+  local params = callee.params
   local p = params and params[site.arg]
   if(p == null or p.type == null){
     return null
@@ -1774,6 +1785,323 @@ func navigate.doc_markdown(def){
     return null
   }
   return str.join(parts, "\n\n")
+}
+
+// ------------------------------------------------------------ checks
+//
+// Calls are checked against the typed docs of what they call: an argument
+// whose type is certain (a literal, or a local given one and never
+// assigned again) that does not fit the parameter's type, a table literal
+// whose fields do not fit a shape, and more arguments than the function
+// takes. Whatever is not certain is not reported.
+
+// the declaration of a type name (Name or mod.Name) seen from path:
+// {path, decl}, or null
+local decl_of = null
+decl_of = func(w, path, name, depth){
+  local f = w:file(path)
+  if(f == null or depth > MAX_DEPTH){
+    return null
+  }
+  local dot = str.index_of(name, ".")
+  if(dot > 0){
+    local head = str.substring(name, 0, dot)
+    for(let local d in values(f.index.defs)){
+      if(d.name == head and d.module != null){
+        local mp = compiler.module_path(d.module)
+        if(mp != null){
+          return decl_of(w, mp, str.substring(name, dot + 1), depth + 1)
+        }
+      }
+    }
+    return null
+  }
+  local decl = (f.index.types or {})[name]
+  if(decl == null){
+    return null
+  }
+  return {path: path, decl: decl}
+}
+
+local literal_kinds = {
+  String: "string", Int: "int", Double: "float", True: "bool",
+  False: "bool", Null: "null", Function: "function", Table: "table",
+}
+
+// what an expression certainly is: {kind, node} (kind a literal's: string,
+// int, float, bool, null, function or table), or null when that cannot be
+// told for sure
+local func certain_kind(w, path, node){
+  if(node == null){
+    return null
+  }
+  local k = literal_kinds[node.type]
+  if(k != null){
+    return {kind: k, node: node}
+  }
+  if(node.type == "Identifier" and node.token != null){
+    local f = w:file(path)
+    local d = f and f.index.by_start[node.token.start]
+    if(d != null and d.kind == null){
+      // a use: what it resolved to
+      d = d.def
+    }
+    if(d != null and d.kind == "local" and d.value != null and
+      literal_kinds[d.value.type] != null and len(writes_of(w, path, d)) == 0){
+      return {kind: literal_kinds[d.value.type], node: d.value}
+    }
+  }
+  return null
+}
+
+local builtin_kinds = {
+  string: true, int: true, float: true, bool: true, null: true,
+  function: true, table: true,
+}
+
+// why a value of kind (certain_kind's) does not fit type t (seen from
+// path): a message, or null when it fits or that cannot be told
+local type_misfit = null
+type_misfit = func(w, path, t, actual, depth){
+  if(t == null or actual == null or depth > MAX_DEPTH){
+    return null
+  }
+  local k = actual.kind
+  if(t.kind == "optional"){
+    if(k == "null"){
+      return null
+    }
+    return type_misfit(w, path, t.of, actual, depth + 1)
+  }
+  local expected = symbols.type_text(t)
+  local got = "got null"
+  if(k != "null"){
+    got = concat(k == "int" and "got an " or "got a ", k)
+  }
+  if(t.kind == "union"){
+    // a table may misfit a shape among the parts: that says more
+    local detail = null
+    for(let local part in values(t.of)){
+      local why = type_misfit(w, path, part, actual, depth + 1)
+      if(why == null){
+        return null
+      }
+      if(not str.starts_with(why, "expected ")){
+        detail = detail or why
+      }
+    }
+    return detail or concat("expected ", expected, ", ", got)
+  }
+  if(k == "int" and t.kind == "name" and t.name == "float"){
+    return null
+  }
+  if(t.kind == "func"){
+    return k != "function" and concat("expected ", expected, ", ", got) or null
+  }
+  if(t.kind == "list" or t.kind == "map"){
+    return k != "table" and concat("expected ", expected, ", ", got) or null
+  }
+  if(t.kind == "shape"){
+    if(k != "table"){
+      return concat("expected ", expected, ", ", got)
+    }
+    // the literal's fields the shape has
+    for(let local fld in values(actual.node.fields)){
+      if(fld.type == "Field" and fld.key != null and fld.key.type == "String"){
+        for(let local sf in values(t.fields)){
+          if(sf.name == fld.key.value){
+            local t2 = sf.type
+            if(sf.optional and t2 != null){
+              t2 = {kind: "optional", of: t2}
+            }
+            local why = type_misfit(
+              w, path, t2, certain_kind(w, path, fld.value), depth + 1
+            )
+            if(why != null){
+              return concat("field ", sf.name, ": ", why)
+            }
+          }
+        }
+      }
+    }
+    return null
+  }
+  if(t.kind != "name"){
+    return null
+  }
+  local name = t.name
+  if(name == "any"){
+    return null
+  }
+  if(builtin_kinds[name]){
+    return k != name and concat("expected ", expected, ", ", got) or null
+  }
+  // a declared type: what it stands for, or a type of tables (methods)
+  local found = decl_of(w, path, name, depth + 1)
+  if(found == null){
+    return null
+  }
+  if(found.decl.type != null){
+    local why = type_misfit(w, found.path, found.decl.type, actual, depth + 1)
+    if(why != null and str.starts_with(why, "expected ")){
+      return concat("expected ", expected, ", ", got)
+    }
+    return why
+  }
+  if(k != "table"){
+    return concat("expected ", expected, ", ", got)
+  }
+  return null
+}
+
+// the calls under a node, in source order
+local func calls_in(node, out){
+  // (nodes have a type of their own: not "table")
+  if(node == null or type(node) == "string"){
+    return out
+  }
+  local spec = ast.specs[node.type]
+  if(spec == null){
+    return out
+  }
+  if(node.type == "Call" or node.type == "Invoke"){
+    append(out, node)
+  }
+  for(let local field in values(spec)){
+    local child = node[field[0]]
+    if(child != null){
+      if(field[1] == "list"){
+        for(let local c in values(child)){
+          calls_in(c, out)
+        }
+      } else if(field[1] != "value"){
+        calls_in(child, out)
+      }
+    }
+  }
+  return out
+}
+
+// where a node's text starts and ends, as near as its token tells
+local func span_of(node){
+  local t = node.token
+  if(t == null or t.start == null){
+    return null
+  }
+  return {t.start, t.stop or t.start + 1}
+}
+
+// check_calls(path: string, block: table) -> {{start, stop, message}}
+// The calls in the file's AST that do not fit the typed docs of what they
+// call.
+func methods.check_calls(w, path, block){
+  local out = {}
+  local f = w:file(path)
+  if(f == null){
+    return out
+  }
+  for(let local call in values(calls_in(block, {}))){
+    local callee = null
+    if(call.token != null and call.token.buffer == f.text){
+      callee = callee_of(w, path, call, 0)
+    }
+    if(callee != null){
+      local name = call.type == "Invoke" and call.name.value or
+        callee_name(call.function) or "the function"
+      local spread = false
+      for(let local a in values(call.args)){
+        spread = spread or a.type == "Spread"
+      }
+      // the types: each argument against its parameter. With fewer or
+      // more arguments than the doc has parameters, an optional one may
+      // have been left out (a callback coming sooner), or the call is a
+      // form the doc does not show: only those before the first optional
+      // parameter are checked then
+      local params = callee.params or {}
+      local checked = len(call.args)
+      local fixed = len(params) > 0 and params[len(params) - 1].rest
+      local func optional_at(i){
+        local p = params[i]
+        return p != null and (p.optional or
+          (p.type != null and p.type.kind == "optional"))
+      }
+      if(len(call.args) > len(params) and not fixed){
+        for(local i = len(params) - 1; i >= 0; i = i - 1){
+          if(optional_at(i)){
+            checked = i
+          }
+        }
+      }
+      // fewer: an argument that misfits an optional parameter but fits a
+      // later one is taken as shifted, and the rest is not checked
+      local short = len(call.args) < len(params) and not fixed
+      local func shifted(i, actual){
+        if(not short or not optional_at(i) or actual == null){
+          return false
+        }
+        for(local j = i + 1; j < len(params); j = j + 1){
+          if(params[j].type != null and
+            type_misfit(w, callee.fn.path, params[j].type, actual, 0) == null){
+            return true
+          }
+        }
+        return false
+      }
+      for(local i = 0; i < checked and not spread; i = i + 1){
+        local p = params[i]
+        if(p != null and p.rest){
+          p = {name: p.name, type: p.type}
+        } else if(p == null and len(params) > 0 and params[len(params) - 1].rest){
+          p = params[len(params) - 1]
+        }
+        if(p != null and p.type != null){
+          local arg = call.args[i]
+          local t = p.type
+          if(p.optional){
+            t = {kind: "optional", of: t}
+          }
+          local actual = certain_kind(w, path, arg)
+          local why = type_misfit(w, callee.fn.path, t, actual, 0)
+          if(why != null and shifted(i, actual)){
+            break
+          }
+          local at = span_of(arg)
+          if(why != null and at != null){
+            append(out, {
+              start: at[0], stop: at[1],
+              message: concat(name, "'s ", p.name, ": ", why),
+            })
+          }
+        }
+      }
+      // the count: more than the function's code takes
+      local code = callee.fn.def and callee.fn.def.params
+      if(not spread and code != null and callee.fn.def.value != null and
+        callee.fn.def.value.type == "Function"){
+        local n = len(code)
+        local takes = n
+        if(callee.method){
+          takes = n - 1
+        }
+        local vararg = n > 0 and str.starts_with(code[n - 1], "...")
+        if(not vararg and len(call.args) > takes and takes >= 0){
+          local extra = call.args[takes]
+          local at = span_of(extra)
+          if(at != null){
+            append(out, {
+              start: at[0], stop: at[1],
+              message: concat(
+                name, " takes ", string(takes), " argument",
+                takes == 1 and "" or "s", ", ", string(len(call.args)),
+                " given"
+              ),
+            })
+          }
+        }
+      }
+    }
+  }
+  return out
 }
 
 // ------------------------------------------------------------ hover

@@ -137,7 +137,7 @@ peg.seq(
 <dl class="params"><dt><code>owner</code></dt><dd>the extension's name, kept in the mark (see <a href="#owner_at"><code>owner_at</code></a>)</dd></dl>
 </div>
 <div class="def" id="owner_at"><h3><code>format.owner_at(tree: table, pos: int) -> string?</code></h3>
-<p>The name of the extension whose syntax the lossless tree has at pos, or null for core syntax. Down from the root, an extension's mark names its owner; a formatted mark without one is core syntax again (what the extension was given, or an expression inside it).</p>
+<p>The name of the extension whose syntax the lossless tree has at pos, or null for core syntax. Down from the root, an extension's mark names its owner; a formatted mark without one is core syntax again (what the extension was given, or an expression inside it), and so is what a core rule an extension refers to parses (the body of an async function).</p>
 
 </div>
 <h2>documents</h2>

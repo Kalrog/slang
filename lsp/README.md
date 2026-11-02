@@ -37,8 +37,12 @@ field's first doc line `name: Type` declares its type, and `type Name =
 other.Type` above a table of methods is that type's fields with these
 methods),
 lint warnings with the parse errors (unused locals, globals no project
-file defines, requires of missing modules, computed requires;
-`initializationOptions.lint: false` turns them off), `formatting` and
+file defines, requires of missing modules, computed requires, calls that
+do not fit the typed doc of what they call: an argument whose type is
+certain, a literal or a local given one and never assigned again, that
+does not fit its parameter's type or a shape's field, and more arguments
+than the function takes; `initializationOptions.lint: false` turns them
+off), `formatting` and
 `rangeFormatting` (`slang fmt`'s formatter; a range formats the lines it
 touches), hover and definition on a `require` (the module's file, as
 `require` finds it, and its doc comment), hover and definition on

@@ -714,12 +714,38 @@ local func dialect_of(proj, path){
 // grammar_for(path) -> {grammar, dialect, project}: what a file at path
 // compiles with (its project, a package's or the program's, and its
 // dialect); grammar is null for a dialect with a compile function
+// whether a file is one of slang's own library sources or stubs (the
+// directories tools read them from), outside the project
+local func library_source(path){
+  local abs = compiler.absolute_path(path)
+  if(project.abs_dir == null){
+    project.abs_dir = compiler.absolute_path(project.dir)
+  }
+  if(str.starts_with(abs, concat(project.abs_dir, "/"))){
+    return false
+  }
+  for(let local key in values({"library_sources", "stub_sources"})){
+    for(let local dir in values(__PACKAGES[key] or {})){
+      if(str.starts_with(abs, concat(compiler.absolute_path(dir), "/"))){
+        return true
+      }
+    }
+  }
+  return false
+}
+
 local func grammar_for(path){
   local proj = project_of(path)
   local dialect = dialect_of(proj, path)
   local g = root
   if(proj != null){
     g = proj.grammar
+  }
+  if(proj == project and project != null and library_source(path)){
+    // slang's own library (its sources and stubs, as tools read them) is
+    // plain slang: the root as it was before the project's ambient
+    // extensions were applied to it
+    g = base or root
   }
   if(dialect != null){
     if(dialect.spec.compile != null){

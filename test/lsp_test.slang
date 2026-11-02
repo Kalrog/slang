@@ -785,6 +785,64 @@ t.group("language server: names"){
     h = hover("limit\n}")
     assert(str.index_of(h, "field limit") >= 0, h)
   }
+  t.test("doc types: lists, maps, function types, callbacks, annotations"){
+    local typed_uri = lsp.path_to_uri(concat(dir, "/doc_types.slang"))
+    local src = str.join({
+      "// type Item = {name: string, weight: int}",
+      "",
+      "// items() -> {Item}",
+      "local func items(){ return elsewhere() }",
+      "// lookup() -> {[string]: Item}",
+      "local func lookup(){ return elsewhere() }",
+      "// each(f: func(item: Item, i: int))",
+      "local func each(f){}",
+      "// maker: func(): Item",
+      "local maker = elsewhere()",
+      "// current: Item",
+      "// The item at hand.",
+      "local current = elsewhere()",
+      "for(let local it in values(items())){ print(it.weight) }",
+      "for(let local e in entries(lookup())){ print(e[1].name) }",
+      "for(let {local k, local v} in entries(lookup())){ print(v.name) }",
+      "print(items()[0].weight, lookup().any.name)",
+      "each(func(item, i){ print(item.weight) })",
+      "print(maker().weight, current.name)",
+      "",
+    }, "\n")
+    open_doc(s, typed_uri, src)
+    local func hover(word){
+      local i = str.index_of(src, word)
+      local lc = str.line_col(src, i)
+      local h = s:handle(request(9, "textDocument/hover", {
+        textDocument: {uri: typed_uri},
+        position: {line: lc[0] - 1, character: lc[1] - 1},
+      }))[0].result
+      return type(h) == "json.null" and "" or h.contents.value
+    }
+    local func is_item_field(word, field){
+      local h = hover(word)
+      assert(str.index_of(h, concat("field Item.", field)) >= 0,
+        concat(word, ": ", h))
+    }
+    // a loop over a list, an entry's value, a table pattern's part
+    is_item_field("weight) }\nfor", "weight")
+    is_item_field("name) }\nfor", "name")
+    is_item_field("name) }\nprint", "name")
+    // an element of a list, a value of a map
+    is_item_field("weight, lookup", "weight")
+    is_item_field("name)\neach", "name")
+    // a callback's parameter: its type as the callee's doc gives it
+    is_item_field("weight) })", "weight")
+    local h = hover("item, i")
+    assert(str.index_of(h, "parameter item: Item") >= 0, h)
+    // a function type's result; a local's declared type and its doc
+    is_item_field("weight, current", "weight")
+    is_item_field("name)\n", "name")
+    h = hover("current = ")
+    assert(str.index_of(h, "local current: Item") >= 0 and
+      str.index_of(h, "The item at hand.") >= 0 and
+      len(str.split(h, "current: Item")) == 2, h)
+  }
   t.test("hover on the last word of a file"){
     local tail_uri = lsp.path_to_uri(concat(dir, "/tail.slang"))
     local tail = "local buffer = {}\nreturn buffer"

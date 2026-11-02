@@ -28,7 +28,14 @@ and follows what the getter returns; a bare `// type Name` above a
 metatable is the type of the objects it is the meta of; what a name holds
 is followed through later assignments too, and the first parameter of a
 function in a meta's `__index`, `__get` or `__set` table is an object of
-that meta, with the fields the file makes its objects with),
+that meta, with the fields the file makes its objects with; doc types
+carry on through lists and maps (`x[i]`, `for(let local v in values(x))`,
+the entry pattern of `entries(x)`), function types (a call of a
+`func(): T` gives a T) and callbacks (a function literal passed where the
+callee's doc says `func(req: Request)` gets a Request); a local's or
+field's first doc line `name: Type` declares its type, and `type Name =
+other.Type` above a table of methods is that type's fields with these
+methods),
 lint warnings with the parse errors (unused locals, globals no project
 file defines, requires of missing modules, computed requires;
 `initializationOptions.lint: false` turns them off), `formatting` and

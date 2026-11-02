@@ -53,7 +53,8 @@ local symbols = {}
 // [module]: the name, when the value is require("name")
 // [fields]: the fields set on it by name: the first definition of each
 // [scope]: a local's block, function or loop; null at the top level
-// [type]: a parameter's, from its function's typed signature
+// [type]: a parameter's, from its function's typed signature; a local's
+//   or field's, from a first doc line `name: Type`
 
 // A use of a name.
 // type Ref = {name: string, start: int, stop: int, def?: Def, write: bool,
@@ -106,6 +107,8 @@ local symbols = {}
 // type TypeDecl = {name: string, type?: Type, start: int, stop: int,
 //   doc?: string, info: DocInfo, line_end: int, table?: Def}
 // [type]: null for a bare declaration
+// [table]: the table defined right below a bare declaration, or one of a
+//   type name (its methods, on top of that type's fields)
 // [start]: where the name starts (stop: past its end)
 // [doc]: the comments above and below the declaration line(s)
 // [info]: the doc read by [doc_info]: its items describe the fields
@@ -1092,6 +1095,39 @@ local func sorted(list){
   return tbl.sort(tbl.slice(list), func(a, b){ return a.start < b.start })
 }
 
+// A local's or field's doc may declare its type on its first line, as
+// `name: Type` (qualified or not: `m.count: int`); the rest is its doc.
+local func declared_type(def){
+  local doc = def.doc
+  if(doc == null){
+    return null
+  }
+  local nl = str.index_of(doc, "\n")
+  local first = nl >= 0 and str.substring(doc, 0, nl) or doc
+  local colon = str.index_of(first, ": ")
+  if(colon <= 0){
+    return null
+  }
+  local head = str.substring(first, 0, colon)
+  if(head != def.name and not str.ends_with(head, concat(".", def.name))){
+    return null
+  }
+  local t = symbols.parse_type(str.trim(str.substring(first, colon + 2)))
+  if(t == null){
+    return null
+  }
+  def.type = t
+  local rest = nl >= 0 and str.trim(str.substring(doc, nl + 1)) or ""
+  def.doc = len(rest) > 0 and rest or null
+  def.info = symbols.doc_info(def.doc, def.name)
+}
+
+// the types of the notation that are no declared type
+local builtin_types = {
+  string: true, int: true, float: true, bool: true, null: true, any: true,
+  function: true, table: true
+}
+
 // analyse(block: table, source: string, origin?: string) -> Index
 // The definitions and uses of a file. A block that does not compile (an
 // unfinished edit) still gives the names up to where it fails.
@@ -1162,6 +1198,9 @@ func symbols.analyse(block, source, origin){
       def.doc = symbols.doc_above(source, def.statement)
     }
     def.info = symbols.doc_info(def.doc, def.name)
+    if(def.kind != "parameter" and def.params == null){
+      declared_type(def)
+    }
   }
   // a name given to another (m.f = f): its parameters and doc are the other's
   for(let local def in values(rec.defs)){
@@ -1241,10 +1280,12 @@ func symbols.analyse(block, source, origin){
       }
     }
   }
-  // the declared types; a bare one is the table defined right below it
+  // the declared types; a bare one is the table defined right below it,
+  // and so is one that names another type (`type Request = http.Request`
+  // above a table of methods: that type's fields, these methods)
   local types = symbols.types(source)
   for(let local t in values(types)){
-    if(t.type == null){
+    if(t.type == null or (t.type.kind == "name" and not builtin_types[t.type.name])){
       // the statement on the line right after the comment block
       local at = t.line_end
       for(at < len(source) and str.char_at(source, at) == " "){

@@ -271,6 +271,11 @@ local value_of_def = null
 local value_of_node = null
 local field_of = null
 
+// a definition with no fields, for values known by their type alone
+local func no_fields(name){
+  return {name: name, kind: "local", fields: {}}
+}
+
 // What a declared type is, as a value: a type with methods is the table that
 // holds them; a shape is a table of its fields (each with its type, so
 // that req.headers. goes on); mod.Name is the type Name of the module the
@@ -290,6 +295,17 @@ local func type_value(w, path, t, depth){
       }
     }
     return null
+  }
+  // a list, a map, a function: values whose elements, values or results
+  // are of a type (see element_of and call_value)
+  if(t.kind == "list"){
+    return {path: path, def: no_fields("list"), list_of: t.of}
+  }
+  if(t.kind == "map"){
+    return {path: path, def: no_fields("map"), map_of: t.value}
+  }
+  if(t.kind == "func"){
+    return {path: path, def: no_fields("function"), fn_type: t}
   }
   if(t.kind == "shape"){
     local def = {name: "shape", kind: "local", fields: {}}
@@ -332,15 +348,30 @@ local func type_value(w, path, t, depth){
   }
   if(decl.table != null){
     local fields = decl.table.fields or {}
+    local v = {path: path, def: decl.table, type_name: name}
     if(fields.__index != null or fields.__get != null or fields.__set != null){
       // a metatable: the type is that of the objects it is the meta of
-      return {
-        path: path,
-        def: {name: name, kind: "local", fields: {meta: decl.table}},
-        type_name: name,
+      v.def = {name: name, kind: "local", fields: {meta: decl.table}}
+    }
+    if(decl.type != null){
+      // another type's fields under the table's (type Request =
+      // http.Request above its methods); each field kept where it is
+      local base = type_value(w, path, decl.type, depth + 1)
+      if(base != null and base.def != null and base.def.fields != null){
+        local merged = {}
+        for(let local e in entries(base.def.fields)){
+          if(base.path != path){
+            e[1].home = base.path
+          }
+          merged[e[0]] = e[1]
+        }
+        for(let local e in entries(v.def.fields)){
+          merged[e[0]] = e[1]
+        }
+        v.def = {name: name, kind: "local", fields: merged}
       }
     }
-    return {path: path, def: decl.table, type_name: name}
+    return v
   }
   local v = type_value(w, path, decl.type, depth + 1)
   if(v != null and v.def != null){
@@ -461,13 +492,20 @@ field_of = func(w, value, name, depth){
   if(value == null or depth > MAX_DEPTH){
     return null
   }
+  if(value.map_of != null){
+    // m.name of a map: one of its values
+    return {
+      path: value.path,
+      def: {name: name, kind: "field", type: value.map_of, fields: {}},
+    }
+  }
   // a field assigned (o.name = v) gives way to a property of that name: the
   // assignment ran its setter; one in the table literal is the object's own
   local own = null
   if(value.def != null and value.def.fields != null){
     local d = value.def.fields[name]
     if(d != null){
-      own = {path: value.path, def: d}
+      own = {path: d.home or value.path, def: d}
       if(not assigned(d)){
         return own
       }
@@ -563,6 +601,10 @@ local func function_of(value){
 // what a call of the function value returns: its declared result when its
 // doc gives one, else what its returns are
 local func call_value(w, fn, depth){
+  if(fn != null and fn.fn_type != null){
+    // a function type's result
+    return type_value(w, fn.path, fn.fn_type.returns, depth + 1)
+  }
   if(fn != null and fn.def != null and fn.def.info != null and
     fn.def.info.signature != null and fn.def.info.signature.result != null){
     local declared = type_value(
@@ -843,6 +885,101 @@ local func self_value(w, path, def){
   return null
 }
 
+// what an element of a value is: a list's or map's (by its type), or the
+// first of a list literal
+local func element_of(w, v, depth){
+  if(v == null or depth > MAX_DEPTH){
+    return null
+  }
+  if(v.list_of != null){
+    return type_value(w, v.path, v.list_of, depth + 1)
+  }
+  if(v.map_of != null){
+    return type_value(w, v.path, v.map_of, depth + 1)
+  }
+  if(v.node != null and v.node.type == "Table"){
+    for(let local fld in values(v.node.fields)){
+      if(fld.type == "Field" and fld.key == null){
+        return value_of_node(w, v.path, fld.value, depth + 1)
+      }
+    }
+  }
+  return null
+}
+
+// what a for-in loop binds: values(x) an element of x, entries(x) a pair
+// (part 1 the element), a part of a table pattern a field of the element
+local func loop_value(w, path, node, depth){
+  local it = node.iterator
+  if(it == null or it.type != "Call" or len(it.args) != 1){
+    return null
+  }
+  local how = callee_name(it.function)
+  local of = value_of_node(w, path, it.args[0], depth + 1)
+  if(how == "values"){
+    local e = element_of(w, of, depth + 1)
+    if(type(node.part) == "string"){
+      local f = field_of(w, e, node.part, depth + 1)
+      return f and value_of_def(w, f.path, f.def, depth + 1)
+    }
+    return e
+  }
+  if(how == "entries"){
+    if(node.part == 1){
+      return element_of(w, of, depth + 1)
+    }
+    if(node.part == null and of != null){
+      return {path: path, def: no_fields("entry"), entry_of: of}
+    }
+  }
+  return null
+}
+
+// what the parameter of a function literal passed as an argument is, from
+// the callee's doc: the parameter's type of the function type it is given
+// for (handler: func(req: Request): any)
+local func callback_value(w, path, site, depth){
+  local call = site.call
+  local fn = null
+  local method = false
+  if(call.type == "Call"){
+    fn = value_of_node(w, path, call.function, depth + 1)
+  } else if(call.type == "Invoke"){
+    local member = field_of(
+      w, value_of_node(w, path, call.receiver, depth + 1), call.name.value,
+      depth + 1
+    )
+    fn = member and value_of_def(w, member.path, member.def, depth + 1)
+    method = true
+  }
+  if(fn == null){
+    return null
+  }
+  local params = null
+  if(fn.fn_type != null){
+    params = fn.fn_type.params
+  } else if(fn.def != null and fn.def.info != null and
+    fn.def.info.signature != null){
+    params = fn.def.info.signature.params
+    if(method){
+      params = navigate.method_params(params, fn.def)
+    }
+  }
+  local p = params and params[site.arg]
+  if(p == null or p.type == null){
+    return null
+  }
+  local given = type_value(w, fn.path, p.type, depth + 1)
+  if(given == null or given.fn_type == null){
+    return null
+  }
+  local q = given.fn_type.params[site.index]
+  if(q == null or q.type == null){
+    return null
+  }
+  return type_value(w, given.path, q.type, depth + 1)
+}
+
 value_of_def = func(w, path, def, depth){
   if(def == null or depth > MAX_DEPTH){
     return null
@@ -863,11 +1000,17 @@ value_of_def = func(w, path, def, depth){
     return type_value(w, path, def.type, depth + 1)
   }
   if(def.kind == "parameter"){
-    // a method's self, else what the function assigns it (options =
-    // options or {})
+    // a method's self, a callback's parameter as the callee's doc types
+    // it, else what the function assigns it (options = options or {})
     local s = self_value(w, path, def)
     if(s != null){
       return s
+    }
+    if(def.value != null and def.value.type == "CallbackParam"){
+      local c = callback_value(w, path, def.value, depth + 1)
+      if(c != null){
+        return c
+      }
     }
     for(let local node in values(writes_of(w, path, def))){
       local later = value_of_node(w, path, node, depth + 1)
@@ -943,6 +1086,20 @@ value_of_node = func(w, path, node, depth){
       return future_value(w, path, node.args[0], depth + 1)
     }
     return call_value(w, value_of_node(w, path, callee, depth + 1), depth)
+  }
+  if(t == "LoopValue"){
+    return loop_value(w, path, node, depth + 1)
+  }
+  if(t == "Index" and node.index != null and node.index.type != "String"){
+    // x[i]: an element (of an entry: 0 its key, 1 its value)
+    local of = value_of_node(w, path, node.receiver, depth + 1)
+    if(of != null and of.entry_of != null){
+      if(node.index.type == "Int" and node.index.value == 1){
+        return element_of(w, of.entry_of, depth + 1)
+      }
+      return null
+    }
+    return element_of(w, of, depth + 1)
   }
   if(t == "Index" and node.index != null and node.index.type == "String"){
     local member = field_of(
@@ -1693,6 +1850,14 @@ func methods.hover(w, path, pos){
       }
     } else if(def.type != null){
       signature = concat(signature, ": ", symbols.type_text(def.type))
+    } else if((def.kind == "parameter" or def.kind == "local") and
+      def.params == null and def.module == null){
+      // the type it is found to have (a callback's parameter, self, a
+      // loop's element)
+      local v = value_of_def(w, d.path, def, 0)
+      if(v != null and v.type_name != null){
+        signature = concat(signature, ": ", v.type_name)
+      }
     }
     append(lines, concat("```slang\n", word, " ", signature, "\n```"))
     if(def.module != null){

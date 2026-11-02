@@ -1479,9 +1479,16 @@ local func emit_spread_list(g, items, token){
 
 // pushes the arguments and emits the call; `extra` arguments (the receiver
 // of a method call) are already on the stack
-local func emit_call_args(g, args, extra, token){
+// (with a recorder, a function literal passed as an argument learns where:
+// its parameters are recorded with a CallbackParam value, {call, arg,
+// index}, for tools that read the callee's doc)
+local func emit_call_args(g, args, extra, token, call){
   if(not has_spread(args)){
-    for(let local a in values(args)){
+    for(local i = 0; i < len(args); i = i + 1){
+      local a = args[i]
+      if(g.record != null and call != null and a.type == "Function"){
+        g.callback_site = {call: call, arg: i}
+      }
       g:visit(a)
     }
     g.asm:emit_call(len(args) + extra)
@@ -1628,13 +1635,20 @@ func visitors.Function(g, node){
   g.function_name = null
   append(parent.children, g.asm)
   g.asm:enter_scope(false)
-  for(let local param in values(params)){
+  local site = g.callback_site
+  g.callback_site = null
+  for(local i = 0; i < len(params); i = i + 1){
+    local param = params[i]
     local name = param.value
     if(str.starts_with(name, "...")){
       name = str.substring(name, 3)
     }
     g.asm:create_local(name)
-    record_local(g, name, param.token, "parameter")
+    local value = null
+    if(site != null){
+      value = {type: "CallbackParam", call: site.call, arg: site.arg, index: i}
+    }
+    record_local(g, name, param.token, "parameter", value)
   }
   g:visit(node.body)
   g.asm:leave_scope()
@@ -1646,7 +1660,7 @@ func visitors.Function(g, node){
 
 func visitors.Call(g, node){
   g:visit(node.function)
-  emit_call_args(g, node.args, 0, node.token)
+  emit_call_args(g, node.args, 0, node.token, node)
 }
 
 func visitors.Invoke(g, node){
@@ -1658,7 +1672,7 @@ func visitors.Invoke(g, node){
   g.asm:emit_load_constant(node.name.value)
   g.asm:emit_get_table()
   g.asm:emit_push(-2)
-  emit_call_args(g, node.args, 1, node.token)
+  emit_call_args(g, node.args, 1, node.token, node)
   g.asm:emit_move(-1)
 }
 
@@ -1691,10 +1705,41 @@ func visitors.For(g, node){
   g.asm:leave_scope()
 }
 
+// (with a recorder, the names a for-in pattern binds are recorded with a
+// LoopValue value, {iterator, part}: part is null for the value itself, the
+// index or key of a part a table pattern takes apart)
+local func loop_values(g, node){
+  if(g.record == null){
+    return null
+  }
+  local out = {}
+  local p = node.pattern
+  if(p.type == "VarPattern"){
+    out[p.name.token.start] = {type: "LoopValue", iterator: node.itterator}
+  } else if(p.type == "TablePattern"){
+    local i = 0
+    for(let local f in values(p.fields)){
+      if(f.type == "FieldPattern" and f.value.type == "VarPattern"){
+        local part = i
+        if(f.key != null and f.key.type == "String"){
+          part = f.key.value
+        } else {
+          i = i + 1
+        }
+        out[f.value.name.token.start] = {
+          type: "LoopValue", iterator: node.itterator, part: part
+        }
+      }
+    }
+  }
+  return out
+}
+
 func visitors.ForIn(g, node){
   g.asm:enter_scope(true)
   local scope = g.asm.scopes[len(g.asm.scopes) - 1]
   scope.label = node.label
+  g.loop_values = loop_values(g, node)
   g:visit(node.itterator)
   local loop_start = g.asm:next_instruction_index()
   local p = g.asm:start_pattern()
@@ -1707,6 +1752,7 @@ func visitors.ForIn(g, node){
   p:complete_check_step()
   g:visit(node.pattern)
   g.asm:end_pattern()
+  g.loop_values = null
   g:visit(node.body)
   // continue fetches the next value
   for(let local jump in values(scope.continue_jumps)){
@@ -1862,7 +1908,11 @@ func visitors.VarPattern(g, node){
   } else {
     if(node.isLocal){
       g.asm:create_local(node.name.value)
-      record_local(g, node.name.value, node.name.token, "local")
+      local value = null
+      if(g.loop_values != null and node.name.token != null){
+        value = g.loop_values[node.name.token.start]
+      }
+      record_local(g, node.name.value, node.name.token, "local", value)
       g.asm:emit_move(g.asm:get_local(node.name.value).register)
     } else if(g.asm:get_local(node.name.value) != null){
       // an existing name is assigned like `name = value`: a local first,

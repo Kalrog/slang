@@ -135,7 +135,7 @@ local func normalize(res){
 // A request as handlers and middleware see it: an [http.Request] with
 // these methods. The app adds params (the route's :name parts, and the *
 // part as rest); middleware may add more (session, csrf_token).
-// type Request
+// type Request = http.Request
 local request_methods = {}
 local request_meta = {__index: request_methods, __type: "web.Request"}
 

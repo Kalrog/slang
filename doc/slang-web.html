@@ -164,6 +164,7 @@ app:post(&quot;/login&quot;, func(req){
 
 </div>
 <h2 id="type-Request">type Request</h2>
+<pre><code>type Request = <a href="slang-http.html#type-Request">http.Request</a></code></pre>
 <p>A request as handlers and middleware see it: an <a href="slang-http.html#type-Request"><code>http.Request</code></a> with these methods. The app adds params (the route's :name parts, and the * part as rest); middleware may add more (session, csrf_token).</p>
 <div class="def" id="Request:query_params"><h3><code>Request:query_params() -> {[string]: string}</code></h3>
 <p>The query string decoded (req.query is the raw text).</p>

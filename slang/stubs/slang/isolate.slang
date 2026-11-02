@@ -28,10 +28,11 @@
 // (slang/buffer's shared) cross by reference: both sides use the same one.
 // Coroutines, other buffers and other userdata do not cross.
 //
-// Inside an isolate, slang/async and the uv module are the main program's
-// only for now (the uv loop is one per process); an isolate blocks on its
-// channels instead. slang/async's receive waits for a channel from the main
-// program's loop.
+// Every isolate has an event loop of its own: slang/async and the uv module
+// work in any of them (async.main in an isolate drives that isolate's
+// loop), and async.receive waits for a channel without blocking the loop.
+// Handles do not cross; what an isolate leaves open is closed when it ends,
+// and kill wakes an isolate waiting in its loop.
 //
 // The main program ending ends the process: isolates still running stop
 // with it, so join the ones whose work matters. An isolate's error nobody

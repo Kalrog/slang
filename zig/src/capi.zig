@@ -577,7 +577,8 @@ pub export fn slang_tostr(th: *Thread, idx: c_int) c_int {
 // ---- userdata ----
 
 pub export fn slang_newuserdata(th: *Thread, size: usize, tname: [*:0]const u8, fin: ?Finalizer) ?*anyopaque {
-    const u = th.vm.newUserdata(size, std.mem.span(tname), null);
+    const name = std.mem.span(tname);
+    const u = th.vm.newUserdata(size, name, th.vm.type_metas.getName(name).asTable());
     u.finalizer = fin;
     th.push(.{ .userdata = u });
     return u.data.ptr;
@@ -666,6 +667,52 @@ pub export fn slang_getref(th: *Thread, ref: c_int) void {
 
 pub export fn slang_unref(th: *Thread, ref: c_int) void {
     th.vm.unref(ref);
+}
+
+// ---- per-VM state for extensions ----
+
+pub export fn slang_settypemeta(th: *Thread, tname: [*:0]const u8) void {
+    const v = pop(th);
+    const key: Value = .{ .string = th.vm.newString(std.mem.span(tname)) };
+    th.vm.type_metas.set(th.vm.gpa, key, if (v.asTable() != null) v else .null);
+}
+
+pub export fn slang_gettypemeta(th: *Thread, tname: [*:0]const u8) c_int {
+    const v = th.vm.type_metas.getName(std.mem.span(tname));
+    th.push(v);
+    return @intFromBool(v != .null);
+}
+
+pub export fn slang_getextdata(th: *Thread, key: *const anyopaque) ?*anyopaque {
+    return th.vm.getExt(key);
+}
+
+pub export fn slang_setextdata(th: *Thread, key: *const anyopaque, data: ?*anyopaque, fin: ?Finalizer) void {
+    th.vm.setExt(key, data, fin);
+}
+
+pub export fn slang_oninterrupt(th: *Thread, f: ?Finalizer, data: ?*anyopaque) void {
+    const vm = th.vm;
+    vm.hooks_lock.lockUncancelable(vm.io);
+    defer vm.hooks_lock.unlock(vm.io);
+    if (f) |hook| {
+        vm.interrupt_hooks.append(vm.gpa, .{ .f = hook, .data = data }) catch oom();
+        return;
+    }
+    var i: usize = 0;
+    while (i < vm.interrupt_hooks.items.len) {
+        if (vm.interrupt_hooks.items[i].data == data) {
+            _ = vm.interrupt_hooks.orderedRemove(i);
+        } else i += 1;
+    }
+}
+
+pub export fn slang_onclose(th: *Thread, f: Finalizer, data: ?*anyopaque) void {
+    th.vm.close_hooks.append(th.vm.gpa, .{ .f = f, .data = data }) catch oom();
+}
+
+pub export fn slang_interrupted(th: *Thread) bool {
+    return th.vm.interrupt.load(.seq_cst);
 }
 
 // ---- modules ----

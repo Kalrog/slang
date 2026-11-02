@@ -19,6 +19,11 @@
 // it was closed is closed by its finalizer. Failing calls raise the same
 // kind of error text.
 //
+// Every VM has a loop of its own, so isolates (slang/isolate) run event
+// loops side by side; handles cannot cross between them, and what an
+// isolate leaves open is closed with its loop when it ends. Killing an
+// isolate wakes its loop: [run] raises "isolate killed".
+//
 // uv.c_api is a userdata holding the C API (slang_uv.h) through which other
 // extensions (sqlite, crypto) run work on libuv's thread pool.
 local m = {}

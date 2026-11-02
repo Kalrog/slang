@@ -12,13 +12,10 @@ const c = @import("slang");
 const Vec = extern struct { x: f64, y: f64 };
 
 const tname = "vec";
-var meta_ref: c_int = c.SLANG_REFNULL;
 
 fn pushVec(S: ?*c.slang_State, x: f64, y: f64) void {
     const p: *Vec = @ptrCast(@alignCast(c.slang_newuserdata(S, @sizeOf(Vec), tname, null)));
     p.* = .{ .x = x, .y = y };
-    c.slang_getref(S, meta_ref);
-    c.slang_setmetatable(S, -2);
 }
 
 fn checkVec(S: ?*c.slang_State, idx: c_int) ?*Vec {
@@ -116,7 +113,7 @@ export fn slang_open_vec(S: ?*c.slang_State) c_int {
     c.slang_newmodule(S, &meta);
     c.slang_pushstring(S, "vec");
     _ = c.slang_setfield(S, -2, "__type");
-    meta_ref = c.slang_ref(S);
+    c.slang_settypemeta(S, tname);
     c.slang_newmodule(S, &funcs);
     return 1;
 }

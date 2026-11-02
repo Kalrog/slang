@@ -363,3 +363,95 @@ t.group("uncaught errors"){
     assert(ticks == 3)
   }
 }
+
+t.group("async in isolates"){
+  t.test("isolates run event loops side by side"){
+    local isolate = require("slang/isolate")
+    local func ticker(n, ms){
+      local async = require("slang/async")
+      return async.main(func(){
+        local got = {}
+        for(local i = 1; i <= n; i = i + 1){
+          async.await(async.sleep(ms))
+          append(got, i)
+        }
+        return len(got)
+      })
+    }
+    local a = isolate.spawn(ticker, 5, 2)
+    local b = isolate.spawn(ticker, 3, 3)
+    local mine = async.main(func(){
+      await(async.sleep(4))
+      return "main"
+    })
+    assert(mine == "main" and a:join() == 5 and b:join() == 3)
+  }
+
+  t.test("a server in an isolate, a client in the main program"){
+    local isolate = require("slang/isolate")
+    local ports = isolate.channel()
+    local server = isolate.spawn(func(ports){
+      local async = require("slang/async")
+      return async.main(func(){
+        local s = async.serve("127.0.0.1", 0)
+        ports:send(s.server:getsockname().port)
+        local conn = async.await(s.connections:next()).value
+        local reader = async.reader(conn)
+        local chunk = async.await(reader:next())
+        async.await(async.write(conn, concat("echo: ", chunk.value)))
+        async.await(async.close(conn))
+        s.server:close()
+        return chunk.value
+      })
+    }, ports)
+    local reply = async.main(func(){
+      local port = await(async.receive(ports))
+      local conn = await(async.connect("127.0.0.1", port))
+      local reader = async.reader(conn)
+      await(async.write(conn, "hi"))
+      local chunk = await(reader:next())
+      await(async.close(conn))
+      return chunk.value
+    })
+    assert(reply == "echo: hi", reply)
+    assert(server:join() == "hi")
+  }
+
+  t.test("kill wakes an isolate waiting in its loop"){
+    local isolate = require("slang/isolate")
+    local time = require("slang/time")
+    local started = isolate.channel()
+    local w = isolate.spawn(func(started){
+      local async = require("slang/async")
+      async.main(func(){
+        started:send(true)
+        try { async.await(async.sleep(60000)) } catch(local e) { }
+        for(true){ }
+      })
+    }, started)
+    started:receive()
+    local t0 = time.clock()
+    w:kill()
+    assert(w:join() == null)
+    assert(time.clock() - t0 < 5)
+  }
+
+  t.test("what an isolate leaves open closes with it; channels it watched stay usable"){
+    local isolate = require("slang/isolate")
+    local ch = isolate.channel()
+    local w = isolate.spawn(func(ch){
+      local uv = require("uv")
+      local async = require("slang/async")
+      // a running timer, a listening socket, file work in flight and a
+      // watch on ch, left behind
+      uv.timer():start(60000, 0, func(){ })
+      for(local i = 0; i < 8; i = i + 1){ uv.fs_scandir(".", func(err, names){ }) }
+      local s = async.serve("127.0.0.1", 0)
+      async.receive(ch)
+      return s.server:getsockname().port
+    }, ch)
+    assert(w:join() > 0)
+    ch:send(1)
+    assert(ch:receive() == 1)
+  }
+}

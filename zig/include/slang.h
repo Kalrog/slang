@@ -201,7 +201,8 @@ SLANG_EXPORT int slang_tostr(slang_State *S, int idx);
 /* ---- userdata ---- */
 /* Pushes a new userdata with a zeroed block of size bytes; tname is the
  * type checked by slang_checkudata (compared by content), fin runs when the
- * collector frees the object. */
+ * collector frees the object. It gets the metatable slang_settypemeta set
+ * for tname in this VM, if any. */
 SLANG_EXPORT void *slang_newuserdata(slang_State *S, size_t size, const char *tname, slang_Finalizer fin);
 /* The block of the userdata at idx if it has the given type, else NULL. */
 SLANG_EXPORT void *slang_testudata(slang_State *S, int idx, const char *tname);
@@ -238,6 +239,48 @@ SLANG_EXPORT const char *slang_checkbytes(slang_State *S, int idx, size_t *len);
 SLANG_EXPORT int slang_ref(slang_State *S); /* pops */
 SLANG_EXPORT void slang_getref(slang_State *S, int ref); /* pushes */
 SLANG_EXPORT void slang_unref(slang_State *S, int ref);
+
+/* ---- per-VM state for extensions ----
+ *
+ * require opens an extension once in every VM that loads it, and an
+ * isolate (slang/isolate) is a VM of its own on another OS thread, while
+ * the extension's C statics are shared by all of them. So whatever belongs
+ * to one VM (a reference, a metatable, an event loop) must not live in a
+ * static: types register their metatable with slang_settypemeta, the rest
+ * goes in extension data.
+ *
+ * slang_settypemeta pops a table and makes it the metatable of the userdata
+ * of type tname that slang_newuserdata makes in this VM from then on;
+ * slang_gettypemeta pushes it and returns 1, or pushes null and returns 0.
+ *
+ * slang_setextdata keeps data for key in this VM (key: the address of a
+ * static of the extension's, so that keys never clash); fin(data) runs when
+ * the VM is closed, after every value of it is gone (userdata finalizers
+ * have run), in the reverse order of the first slang_setextdata of each
+ * key. Setting a key again replaces data and fin without running the old
+ * fin; NULL data removes the key. slang_getextdata returns the data or
+ * NULL.
+ *
+ * slang_onclose(S, f, data) registers f(data), run when the VM is closed
+ * but before its values are freed, the last registered first: where an
+ * extension stops what still works on its values (threads, I/O in flight)
+ * so that their finalizers do not pull memory from under it. No slang code
+ * runs at that point.
+ *
+ * slang_oninterrupt(S, f, data) registers f(data), called when the VM's
+ * isolate is killed, on the killing OS thread with a lock held: it must
+ * only wake what the VM waits on outside the interpreter (an event loop
+ * blocked in the kernel), which then returns; the next safe point raises
+ * "isolate killed". slang_oninterrupt(S, NULL, data) removes the hooks of
+ * data. Hooks are dropped when the VM closes, before extension data is
+ * finalized. slang_interrupted tells whether the VM is being killed. */
+SLANG_EXPORT void slang_settypemeta(slang_State *S, const char *tname);
+SLANG_EXPORT int slang_gettypemeta(slang_State *S, const char *tname);
+SLANG_EXPORT void *slang_getextdata(slang_State *S, const void *key);
+SLANG_EXPORT void slang_setextdata(slang_State *S, const void *key, void *data, slang_Finalizer fin);
+SLANG_EXPORT void slang_onclose(slang_State *S, slang_Finalizer f, void *data);
+SLANG_EXPORT void slang_oninterrupt(slang_State *S, slang_Finalizer f, void *data);
+SLANG_EXPORT bool slang_interrupted(slang_State *S);
 
 /* ---- modules ---- */
 /* Pushes a table holding the functions of the NULL-terminated list. */

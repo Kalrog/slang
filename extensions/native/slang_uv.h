@@ -5,7 +5,9 @@
  *
  * The VM is single-threaded: work functions run on a pool thread and must
  * not touch slang at all; only push runs on the loop thread, with the state
- * that runs uv.run(). An extension gets the API from require("uv").c_api:
+ * that runs uv.run(). Every VM (every isolate) has a loop of its own: the
+ * functions that take a state act on that state's loop. An extension gets
+ * the API from require("uv").c_api:
  *
  *   slang_getglobal(S, "require");
  *   slang_pushstring(S, "uv");
@@ -21,9 +23,10 @@
 #include "slang.h"
 
 /* 1: queue; 2: run, backend_fd, backend_timeout; 3: hold; 4: async_handle,
- * async_send. The struct only grows, so an extension built for an older
- * version works with a newer uv. */
-#define SLANG_UV_API_VERSION 4
+ * async_send; 5: backend_fd_of, backend_timeout_of, hold_of. The struct
+ * only grows, so an extension built for an older version works with a
+ * newer uv. */
+#define SLANG_UV_API_VERSION 5
 #define SLANG_UV_API_TNAME "uv.c_api"
 
 typedef struct slang_uv_api {
@@ -53,17 +56,10 @@ typedef struct slang_uv_api {
      * raised (the error is pending on S).
      */
     int (*run)(slang_State *S, int mode);
-    /* The loop's backend descriptor (kqueue/epoll) and the milliseconds
-     * until its next timer (-1: none), for waiting on it from another
-     * event loop, as a GUI's. */
+    /* Superseded by backend_fd_of, backend_timeout_of and hold_of: these
+     * act on the loop of the first VM that opened the extension. */
     int (*backend_fd)(void);
     int (*backend_timeout)(void);
-    /*
-     * hold(1) keeps the loop alive with nothing else to do, hold(0) lets it
-     * go. A GUI holds it while windows are open: a loop that is not alive
-     * polls no I/O at all, so a signal watcher that was unref'd (and what
-     * else does not keep the loop going) would never be heard.
-     */
     void (*hold)(int on);
     /*
      * The libuv handle of the uv.async handle (uv.async(cb)) at idx, or
@@ -75,6 +71,20 @@ typedef struct slang_uv_api {
      */
     void *(*async_handle)(slang_State *S, int idx);
     int (*async_send)(void *h);
+    /* The backend descriptor (kqueue/epoll) of S's loop and the
+     * milliseconds until its next timer (-1: none), for waiting on it from
+     * another event loop, as a GUI's. The descriptor stays the same for
+     * the life of the VM, so it may be read once and waited on from
+     * another thread. */
+    int (*backend_fd_of)(slang_State *S);
+    int (*backend_timeout_of)(slang_State *S);
+    /*
+     * hold_of(S, 1) keeps S's loop alive with nothing else to do, 0 lets it
+     * go. A GUI holds it while windows are open: a loop that is not alive
+     * polls no I/O at all, so a signal watcher that was unref'd (and what
+     * else does not keep the loop going) would never be heard.
+     */
+    void (*hold_of)(slang_State *S, int on);
 } slang_uv_api;
 
 /* The API in the uv.c_api userdata at idx, or NULL when it is missing or

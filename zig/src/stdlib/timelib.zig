@@ -31,10 +31,14 @@ const Error = vm_mod.Error;
 const api = vm_mod.api;
 const stdlib = @import("stdlib.zig");
 
+/// Process-wide: isolates open the module on their own threads.
 var process_start: ?std.Io.Timestamp = null;
+var start_lock: std.Io.Mutex = .init;
 
 pub fn module(vm: *VM) *Table {
+    start_lock.lockUncancelable(vm.io);
     if (process_start == null) process_start = std.Io.Clock.now(.awake, vm.io);
+    start_lock.unlock(vm.io);
     return stdlib.makeModule(vm, &.{
         .{ .name = "now", .f = timeNow },
         .{ .name = "now_ms", .f = timeNowMs },

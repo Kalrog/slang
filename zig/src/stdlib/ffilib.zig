@@ -353,17 +353,33 @@ fn newCallback(th: *Thread, f: Value, t: *Type) Error!*Callback {
 }
 
 /// The callbacks made for functions given directly to C, which live as long
-/// as the program: the same function and type give the same one.
-const LastingKey = struct { vm: usize, func: usize, ty: usize };
-var lasting: std.AutoHashMapUnmanaged(LastingKey, *Callback) = .empty;
-var lasting_lock: std.Io.Mutex = .init;
+/// as their VM (an isolate's end with it): the same function and type give
+/// the same one. Kept in the VM's extension data.
+const LastingKey = struct { func: usize, ty: usize };
+const Lasting = std.AutoHashMapUnmanaged(LastingKey, *Callback);
 const lasting_limit = 1000;
+var lasting_key: u8 = 0;
+
+fn lastingOf(vm: *VM) *Lasting {
+    if (vm.getExt(&lasting_key)) |p| return @ptrCast(@alignCast(p));
+    const l = std.heap.c_allocator.create(Lasting) catch oom();
+    l.* = .empty;
+    vm.setExt(&lasting_key, l, freeLasting);
+    return l;
+}
+
+fn freeLasting(data: ?*anyopaque) callconv(.c) void {
+    const l: *Lasting = @ptrCast(@alignCast(data.?));
+    var it = l.valueIterator();
+    while (it.next()) |cb| destroyCallback(cb.*);
+    l.deinit(std.heap.c_allocator);
+    std.heap.c_allocator.destroy(l);
+}
 
 fn lastingCallback(th: *Thread, f: Value, t: *Type) Error!usize {
     const vm = th.vm;
-    const key = LastingKey{ .vm = @intFromPtr(vm), .func = @intFromPtr(f.function), .ty = @intFromPtr(t) };
-    lasting_lock.lockUncancelable(vm.io);
-    defer lasting_lock.unlock(vm.io);
+    const key = LastingKey{ .func = @intFromPtr(f.function), .ty = @intFromPtr(t) };
+    const lasting = lastingOf(vm);
     if (lasting.get(key)) |cb| return cb.code;
     // each one lives for good: a function made anew on every pass of a
     // loop would make a new one each time
@@ -392,7 +408,10 @@ fn ffiCallback(th: *Thread, args: []Value) Error!Value {
 }
 
 fn freeCallback(data: ?*anyopaque) callconv(.c) void {
-    const cb = @as(*align(1) *Callback, @ptrCast(data.?)).*;
+    destroyCallback(@as(*align(1) *Callback, @ptrCast(data.?)).*);
+}
+
+fn destroyCallback(cb: *Callback) void {
     ffi_closure_free(cb.closure);
     cb.vm.gpa.free(cb.ffi_args);
     cb.vm.gpa.destroy(cb);

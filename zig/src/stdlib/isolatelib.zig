@@ -439,6 +439,17 @@ pub const Channel = struct {
         return m;
     }
 
+    /// Removes one waker of ctx (a uv async handle).
+    fn removeWaker(c: *Channel, io: std.Io, ctx: ?*anyopaque) void {
+        c.sync.lock(io);
+        defer c.sync.unlock(io);
+        for (c.wakers.items, 0..) |x, i| {
+            if (x.ctx != ctx) continue;
+            _ = c.wakers.orderedRemove(i);
+            return;
+        }
+    }
+
     /// After a change, with the lock held: blocked receivers and senders
     /// re-check, watching loops are woken.
     fn changed(c: *Channel, io: std.Io) void {
@@ -1082,6 +1093,35 @@ fn asyncWaker(th: *Thread, args: []Value) Error!Waker {
     return .{ .send = uv.async_send, .ctx = ptr };
 }
 
+/// The wakers a VM added to channels (which other isolates share and may
+/// keep): when the VM is destroyed, they leave the channels before the uv
+/// extension closes the loop they point into. Close hooks run last first,
+/// and uv's is registered before the first watch (asyncWaker requires uv).
+const Watches = struct {
+    io: std.Io,
+    items: std.ArrayList(struct { channel: *Channel, ctx: ?*anyopaque }) = .empty,
+};
+var watches_key: u8 = 0;
+
+fn watchesOf(vm: *VM) *Watches {
+    if (vm.getExt(&watches_key)) |p| return @ptrCast(@alignCast(p));
+    const ws = shared.create(Watches) catch oom();
+    ws.* = .{ .io = vm.io };
+    vm.setExt(&watches_key, ws, null);
+    vm.close_hooks.append(vm.gpa, .{ .f = dropWatches, .data = ws }) catch oom();
+    return ws;
+}
+
+fn dropWatches(data: ?*anyopaque) callconv(.c) void {
+    const ws: *Watches = @ptrCast(@alignCast(data.?));
+    for (ws.items.items) |w| {
+        w.channel.removeWaker(ws.io, w.ctx);
+        w.channel.release();
+    }
+    ws.items.deinit(shared);
+    shared.destroy(ws);
+}
+
 /// channel:watch(handle): handle (uv.async(cb)) is sent whenever the
 /// channel changes, so that cb, on the loop, can try_receive; it is sent
 /// at once when values are queued or the channel is closed. unwatch before
@@ -1089,6 +1129,9 @@ fn asyncWaker(th: *Thread, args: []Value) Error!Waker {
 fn chWatch(th: *Thread, args: []Value) Error!Value {
     const c = try argChannel(th, args, 0);
     const w = try asyncWaker(th, args);
+    const ws = watchesOf(th.vm);
+    c.retain();
+    ws.items.append(shared, .{ .channel = c, .ctx = w.ctx }) catch oom();
     c.sync.lock(th.vm.io);
     defer c.sync.unlock(th.vm.io);
     c.wakers.append(shared, w) catch oom();
@@ -1099,11 +1142,12 @@ fn chWatch(th: *Thread, args: []Value) Error!Value {
 fn chUnwatch(th: *Thread, args: []Value) Error!Value {
     const c = try argChannel(th, args, 0);
     const w = try asyncWaker(th, args);
-    c.sync.lock(th.vm.io);
-    defer c.sync.unlock(th.vm.io);
-    for (c.wakers.items, 0..) |x, i| {
-        if (x.ctx != w.ctx) continue;
-        _ = c.wakers.orderedRemove(i);
+    c.removeWaker(th.vm.io, w.ctx);
+    const ws = watchesOf(th.vm);
+    for (ws.items.items, 0..) |x, i| {
+        if (x.channel != c or x.ctx != w.ctx) continue;
+        _ = ws.items.orderedRemove(i);
+        c.release();
         break;
     }
     return .null;

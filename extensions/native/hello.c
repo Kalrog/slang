@@ -133,18 +133,32 @@ static int l_counter(slang_State *S) {
     return 1;
 }
 
-/* A userdata type: a growable byte buffer with a finalizer. */
+/* What belongs to one VM lives in its extension data, not in statics: the
+ * code is shared by every VM that requires the extension, isolates on
+ * other OS threads included (see slang_setextdata in slang.h). */
+typedef struct {
+    int finalized;   /* buffers collected */
+    int stored_ref;  /* the function store() keeps */
+} hello_state;
+
+static const char state_key = 0;
+
+static hello_state *state(slang_State *S) {
+    return slang_getextdata(S, &state_key);
+}
+
+/* A userdata type: a growable byte buffer with a finalizer. A finalizer
+ * gets no state, so the buffer knows its VM's counter. */
 typedef struct {
     char *data;
     size_t len;
+    int *finalized;
 } buffer;
-
-static int finalized = 0;
 
 static void buffer_finalize(void *p) {
     buffer *b = p;
     free(b->data);
-    finalized++;
+    (*b->finalized)++;
 }
 
 static int buffer_push(slang_State *S) {
@@ -178,34 +192,31 @@ static const slang_Reg buffer_methods[] = {
     {NULL, NULL},
 };
 
-static int buffer_meta_ref = SLANG_REFNULL;
 
 static int l_buffer(slang_State *S) {
     buffer *b = slang_newuserdata(S, sizeof(buffer), "hello.buffer", buffer_finalize);
     b->data = NULL;
     b->len = 0;
-    slang_getref(S, buffer_meta_ref);
-    slang_setmetatable(S, -2);
+    b->finalized = &state(S)->finalized;
     return 1;
 }
 
 static int l_finalized(slang_State *S) {
-    slang_pushint(S, finalized);
+    slang_pushint(S, state(S)->finalized);
     return 1;
 }
 
 /* stored(f): keeps a slang value alive in the registry and calls it later */
-static int stored_ref = SLANG_REFNULL;
-
 static int l_store(slang_State *S) {
-    if (stored_ref != SLANG_REFNULL) slang_unref(S, stored_ref);
+    hello_state *st = state(S);
+    if (st->stored_ref != SLANG_REFNULL) slang_unref(S, st->stored_ref);
     slang_pushvalue(S, 1);
-    stored_ref = slang_ref(S);
+    st->stored_ref = slang_ref(S);
     return 0;
 }
 
 static int l_call_stored(slang_State *S) {
-    slang_getref(S, stored_ref);
+    slang_getref(S, state(S)->stored_ref);
     slang_pushvalue(S, 1);
     if (slang_call(S, 1) != SLANG_OK) return SLANG_ERROR;
     return 1;
@@ -364,6 +375,12 @@ static const slang_Reg funcs[] = {
 };
 
 SLANG_EXTENSION(hello) {
+    if (state(S) == NULL) {
+        hello_state *st = calloc(1, sizeof(hello_state));
+        st->stored_ref = SLANG_REFNULL;
+        slang_setextdata(S, &state_key, st, free);
+    }
+
     /* the buffer metatable: methods through __index, a type name */
     slang_newtable(S);
     slang_newmodule(S, buffer_methods);
@@ -372,7 +389,7 @@ SLANG_EXTENSION(hello) {
     slang_setfield(S, -2, "__index");
     slang_pushstring(S, "buffer");
     slang_setfield(S, -2, "__type");
-    buffer_meta_ref = slang_ref(S);
+    slang_settypemeta(S, "hello.buffer");
 
     slang_newmodule(S, funcs);
     slang_pushstring(S, "1.0");

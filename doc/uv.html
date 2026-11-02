@@ -49,6 +49,7 @@ t:start(100, 0, func(){
 })
 uv.run()</code></pre>
 <p>Handles (<a href="#type-Timer"><code>Timer</code></a>, <a href="#type-Tcp"><code>Tcp</code></a>, <a href="#type-Pipe"><code>Pipe</code></a>, <a href="#type-Signal"><code>Signal</code></a>, <a href="#type-Process"><code>Process</code></a>, <a href="#type-Poll"><code>Poll</code></a>) are userdata with methods; every operation takes its callback last, and callbacks have the shape cb(err, value) with err a string like &quot;ECONNRESET: connection reset by peer&quot; or null. Callbacks run only from inside <a href="#run"><code>run</code></a>; an error raised in one stops the loop and comes out of <a href="#run"><code>run</code></a>. An active handle (a running timer, a listening or reading socket, a pending connect) keeps its userdata alive; a handle collected before it was closed is closed by its finalizer. Failing calls raise the same kind of error text.</p>
+<p>Every VM has a loop of its own, so isolates (slang/isolate) run event loops side by side; handles cannot cross between them, and what an isolate leaves open is closed with its loop when it ends. Killing an isolate wakes its loop: <a href="#run"><code>run</code></a> raises &quot;isolate killed&quot;.</p>
 <p>uv.c_api is a userdata holding the C API (slang_uv.h) through which other extensions (sqlite, crypto) run work on libuv's thread pool.</p>
 <ul class="toc">
 <li><a href="#run"><code>run</code></a></li>

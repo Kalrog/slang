@@ -50,6 +50,25 @@ pub const LibState = struct {
     channel_meta: ?*Table = null,
     isolate_meta: ?*Table = null,
     prng: ?std.Random.DefaultPrng = null,
+    /// vm.build_id(), computed once
+    build_id: ?[16]u8 = null,
+};
+
+/// Data a native extension keeps per VM (slang_setextdata): an extension is
+/// opened once in every VM that requires it, but its C statics are shared
+/// by all of them, isolates on other OS threads included.
+pub const ExtSlot = struct {
+    key: *const anyopaque,
+    data: ?*anyopaque,
+    fin: ?object.Finalizer,
+};
+
+/// A function an extension has run when the VM closes (slang_onclose) or
+/// its isolate is killed (slang_oninterrupt, on the killing OS thread, so
+/// that code blocked outside the interpreter, as an event loop, wakes up).
+pub const Hook = struct {
+    f: object.Finalizer,
+    data: ?*anyopaque,
 };
 
 pub const FfiCall = struct { th: *Thread, os: std.Thread.Id };
@@ -97,6 +116,18 @@ pub const VM = struct {
     next_ref: i64 = 1,
     /// Shared libraries opened for native extensions (never closed).
     libraries: std.ArrayList(std.DynLib) = .empty,
+    /// The extensions' data (slang_setextdata), finalized last to first
+    /// when the VM is destroyed, after every value is gone.
+    ext: std.ArrayList(ExtSlot) = .empty,
+    /// Metatables of userdata types made through the C API, by type name
+    /// (slang_settypemeta); kept alive by the registry.
+    type_metas: *Table,
+    /// Run when the VM is destroyed, last first, before its values are
+    /// freed (slang_onclose): extensions stop what works on them there.
+    close_hooks: std.ArrayList(Hook) = .empty,
+    /// Run by gc.interrupt; the lock is held while they run or change.
+    interrupt_hooks: std.ArrayList(Hook) = .empty,
+    hooks_lock: std.Io.Mutex = .init,
 
     /// All heap objects, for the collector.
     objects: ?*Object = null,
@@ -155,6 +186,7 @@ pub const VM = struct {
             .packages = undefined,
             .main = undefined,
             .registry = undefined,
+            .type_metas = undefined,
             // streaming: a positional writer rewrites offset 0 of a redirected file
             .stdout = std.Io.File.stdout().writerStreaming(io, out_buf),
             .stdin = std.Io.File.stdin().readerStreaming(io, in_buf),
@@ -166,6 +198,8 @@ pub const VM = struct {
         vm.globals = vm.newTable(0, 64);
         vm.packages = vm.newTable(0, 4);
         vm.registry = vm.newTable(0, 0);
+        vm.type_metas = vm.newTable(0, 0);
+        vm.registry.set(vm.gpa, .{ .table = vm.type_metas }, .{ .bool = true });
         vm.index_name = vm.newString("__index");
         vm.newindex_name = vm.newString("__newindex");
         vm.registry.set(vm.gpa, .{ .string = vm.index_name }, .{ .bool = true });
@@ -182,7 +216,17 @@ pub const VM = struct {
             p.finish();
             p.destroy();
         }
+        // (no kill reaches a VM being destroyed: the hooks go first)
+        vm.hooks_lock.lockUncancelable(vm.io);
+        vm.interrupt_hooks.clearAndFree(vm.gpa);
+        vm.hooks_lock.unlock(vm.io);
+        while (vm.close_hooks.pop()) |h| h.f(h.data);
+        vm.close_hooks.deinit(vm.gpa);
         gc.freeAll(vm);
+        while (vm.ext.pop()) |slot| {
+            if (slot.fin) |f| f(slot.data);
+        }
+        vm.ext.deinit(vm.gpa);
         vm.strings.deinit(vm.gpa);
         vm.line_cache.deinit(vm.gpa);
         vm.ref_free.deinit(vm.gpa);
@@ -194,6 +238,31 @@ pub const VM = struct {
         vm.backing.free(vm.stdout_buf);
         vm.backing.free(vm.stdin_buf);
         vm.backing.destroy(vm);
+    }
+
+    /// The extension data of key (slang_getextdata), or null.
+    pub fn getExt(vm: *VM, key: *const anyopaque) ?*anyopaque {
+        for (vm.ext.items) |slot| {
+            if (slot.key == key) return slot.data;
+        }
+        return null;
+    }
+
+    /// Keeps data for key until the VM is destroyed, then fin(data)
+    /// (slang_setextdata); null data removes the key.
+    pub fn setExt(vm: *VM, key: *const anyopaque, data: ?*anyopaque, fin: ?object.Finalizer) void {
+        for (vm.ext.items, 0..) |*slot, i| {
+            if (slot.key != key) continue;
+            if (data == null) {
+                _ = vm.ext.orderedRemove(i);
+            } else {
+                slot.data = data;
+                slot.fin = fin;
+            }
+            return;
+        }
+        if (data == null) return;
+        vm.ext.append(vm.gpa, .{ .key = key, .data = data, .fin = fin }) catch oom();
     }
 
     pub fn out(vm: *VM) *std.Io.Writer {

@@ -177,4 +177,21 @@ t.group("native extension driving isolates (C)", func(){
     }
     assert(got == {2, 4, 6, 8, 10}, concat("got ", got))
   })
+
+  t.test("an isolate opens the extensions anew: its metatables and references are its own", func(){
+    local isolate = require("slang/isolate")
+    hello.store(func(x){ return x * 10 })
+    local w = isolate.spawn(func(){
+      local hello = require("hello")
+      local vec = require("vec")
+      hello.store(func(x){ return x + 2 })
+      local b = hello.buffer()
+      b:push("x")
+      local got = b:get()
+      return {hello.call_stored(1), type(b), got, type(vec.new(1, 2) + vec.new(1, 1))}
+    })
+    assert(w:join() == {3, "buffer", "x", "vec"})
+    assert(hello.call_stored(1) == 10)
+    assert(type(hello.buffer()) == "buffer" and type(vec.new(0, 0)) == "vec")
+  })
 })

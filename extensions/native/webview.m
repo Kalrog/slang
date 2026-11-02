@@ -54,8 +54,6 @@ static NSEvent *wake_event = nil;
 
 static const char *window_tname = "webview.window";
 static const char *task_tname = "webview.task";
-static int window_meta_ref = SLANG_REFNULL;
-static int task_meta_ref = SLANG_REFNULL;
 
 struct window {
     NSWindow *win;
@@ -229,8 +227,6 @@ static void flush_events(void) {
             NSValue *key = [NSValue valueWithPointer:(const void *)t->task];
             if ([live_tasks[key] isEqual:@"stopped"]) t->stopped = 1;
             live_tasks[key] = [NSValue valueWithPointer:t];
-            slang_getref(run_S, task_meta_ref);
-            slang_setmetatable(run_S, -2);
             int task_idx = slang_gettop(run_S);
             if (begin_callback(w->on_request_ref)) {
                 push_request(run_S, [t->task request]);
@@ -385,6 +381,7 @@ static int watch_armed = 0;
 static int watch_timeout = -1;
 static int wake_pipe[2] = {-1, -1};
 static int watcher_started = 0;
+static int watch_backend = -1;   /* the main program's loop descriptor */
 
 static void uv_ready_on_main(void);
 
@@ -394,10 +391,10 @@ static void *watch(void *unused) {
         pthread_mutex_lock(&watch_mu);
         while (!watch_armed) pthread_cond_wait(&watch_cv, &watch_mu);
         int timeout = watch_timeout;
+        int backend = watch_backend;
         pthread_mutex_unlock(&watch_mu);
         /* select, not poll: macOS's poll does not report a kqueue
          * descriptor as readable (Electron waits on it the same way) */
-        int backend = uv_api->backend_fd();
         fd_set readable;
         FD_ZERO(&readable);
         FD_SET(backend, &readable);
@@ -419,7 +416,7 @@ static void *watch(void *unused) {
     return NULL;
 }
 
-static void arm_watcher(int timeout) {
+static void arm_watcher(int backend, int timeout) {
     if (!watcher_started) {
         pipe(wake_pipe);
         fcntl(wake_pipe[0], F_SETFL, O_NONBLOCK);
@@ -430,6 +427,7 @@ static void arm_watcher(int timeout) {
         watcher_started = 1;
     }
     pthread_mutex_lock(&watch_mu);
+    watch_backend = backend;
     watch_timeout = timeout;
     int was_armed = watch_armed;
     watch_armed = 1;
@@ -459,19 +457,22 @@ static const slang_uv_api *get_uv_api(slang_State *S) {
     slang_getfield(S, -1, "c_api");
     uv_api = slang_uv_get(S, -1);
     slang_settop(S, top);
-    if (uv_api == NULL) slang_error(S, "webview: the uv extension does not offer a compatible C API (version 3)");
+    if (uv_api == NULL) slang_error(S, "webview: the uv extension does not offer a compatible C API (version %d)", SLANG_UV_API_VERSION);
     return uv_api;
 }
 
 /* run_once() -> bool: waits for and handles one batch of events, Cocoa's
  * and libuv's; true while windows are open or libuv has work */
 static int l_run_once(slang_State *S) {
+    /* Cocoa runs on the main thread only: an isolate can use the module's
+     * types but not run windows */
+    if (![NSThread isMainThread]) return slang_error(S, "webview: run_once only works on the main thread");
     if (get_uv_api(S) == NULL) return SLANG_ERROR;
     if (run_S != NULL) return slang_error(S, "webview: run_once does not nest");
     ensure_app();
     /* open windows keep libuv's loop alive, so that it polls I/O (signals
      * included) even when nothing else holds it */
-    uv_api->hold(open_windows > 0);
+    uv_api->hold_of(S, open_windows > 0);
     run_S = S;
     callback_failed = 0;
     uv_failed = 0;
@@ -492,7 +493,7 @@ static int l_run_once(slang_State *S) {
                     if (e.type != NSEventTypeApplicationDefined || e.subtype != 0x51A6) [NSApp sendEvent:e];
                 }
             } else {
-                arm_watcher(uv_api->backend_timeout());
+                arm_watcher(uv_api->backend_fd_of(S), uv_api->backend_timeout_of(S));
                 NSEvent *e = [NSApp nextEventMatchingMask:NSEventMaskAny untilDate:[NSDate distantFuture]
                                                    inMode:NSDefaultRunLoopMode dequeue:YES];
                 if (e != nil && !(e.type == NSEventTypeApplicationDefined && e.subtype == 0x51A6)) [NSApp sendEvent:e];
@@ -618,8 +619,6 @@ static int l_window(slang_State *S) {
     window *w = calloc(1, sizeof(window));
     *box = w;
     w->self_ref = w->on_close_ref = w->on_message_ref = w->on_request_ref = SLANG_REFNULL;
-    slang_getref(S, window_meta_ref);
-    slang_setmetatable(S, -2);
     int idx = slang_gettop(S);
 
     @autoreleasepool {
@@ -784,18 +783,18 @@ static const slang_Reg funcs[] = {
     {NULL, NULL},
 };
 
-static int make_meta(slang_State *S, const char *type_name, const slang_Reg *methods) {
+static void make_meta(slang_State *S, const char *type_name, const slang_Reg *methods) {
     slang_newtable(S);
     slang_newmodule(S, methods);
     slang_setfield(S, -2, "__index");
     slang_pushstring(S, type_name);
     slang_setfield(S, -2, "__type");
-    return slang_ref(S);
+    slang_settypemeta(S, type_name);
 }
 
 SLANG_EXTENSION(webview) {
-    window_meta_ref = make_meta(S, window_tname, window_methods);
-    task_meta_ref = make_meta(S, task_tname, task_methods);
+    make_meta(S, window_tname, window_methods);
+    make_meta(S, task_tname, task_methods);
     slang_newmodule(S, funcs);
     return 1;
 }

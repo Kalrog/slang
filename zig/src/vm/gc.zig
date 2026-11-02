@@ -92,6 +92,10 @@ fn slowPoint(vm: *VM, th: *Thread) root.Error!void {
 pub fn interrupt(vm: *VM) void {
     vm.interrupt.store(true, .seq_cst);
     @atomicStore(usize, &vm.next_gc, 0, .seq_cst);
+    // what waits outside the interpreter (an event loop) is woken
+    vm.hooks_lock.lockUncancelable(vm.io);
+    defer vm.hooks_lock.unlock(vm.io);
+    for (vm.interrupt_hooks.items) |h| h.f(h.data);
 }
 
 const Marker = struct {

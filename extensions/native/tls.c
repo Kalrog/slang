@@ -58,8 +58,6 @@ typedef struct session {
 
 static const char *context_tname = "tls.context";
 static const char *session_tname = "tls.session";
-static int context_meta_ref = SLANG_REFNULL;
-static int session_meta_ref = SLANG_REFNULL;
 
 /* raises "tls: <what>: <openssl's reason>" and clears the error queue */
 static int tls_error(slang_State *S, const char *what) {
@@ -212,6 +210,14 @@ static void free_alpn(void *parent, void *ptr, CRYPTO_EX_DATA *ad, int idx, long
     free(ptr);
 }
 
+/* process-wide (OpenSSL's index), made once: isolates open the extension
+ * on their own threads */
+static CRYPTO_ONCE alpn_once = CRYPTO_ONCE_STATIC_INIT;
+
+static void init_alpn_index(void) {
+    alpn_index = SSL_CTX_get_ex_new_index(0, NULL, NULL, NULL, free_alpn);
+}
+
 /* context(options) */
 static int l_context(slang_State *S) {
     int server = opt_bool(S, 1, "server", 0);
@@ -220,8 +226,6 @@ static int l_context(slang_State *S) {
     context *c = slang_newuserdata(S, sizeof(context), context_tname, context_finalize);
     c->ctx = ctx;
     c->server = server;
-    slang_getref(S, context_meta_ref);
-    slang_setmetatable(S, -2);
 
     const char *min = opt_string(S, 1, "min_version", NULL);
     int version = TLS1_2_VERSION;
@@ -314,8 +318,6 @@ static int context_session(slang_State *S) {
     /* reading an empty input is "try again", not the end */
     BIO_set_mem_eof_return(s->in, -1);
     SSL_set_bio(ssl, s->in, s->out);
-    slang_getref(S, session_meta_ref);
-    slang_setmetatable(S, -2);
     if (c->server) {
         SSL_set_accept_state(ssl);
         return 1;
@@ -589,19 +591,19 @@ static const slang_Reg funcs[] = {
     {NULL, NULL},
 };
 
-static int make_meta(slang_State *S, const char *type_name, const slang_Reg *methods) {
+static void make_meta(slang_State *S, const char *type_name, const slang_Reg *methods) {
     slang_newtable(S);
     slang_newmodule(S, methods);
     slang_setfield(S, -2, "__index");
     slang_pushstring(S, type_name);
     slang_setfield(S, -2, "__type");
-    return slang_ref(S);
+    slang_settypemeta(S, type_name);
 }
 
 SLANG_EXTENSION(tls) {
-    if (alpn_index < 0) alpn_index = SSL_CTX_get_ex_new_index(0, NULL, NULL, NULL, free_alpn);
-    context_meta_ref = make_meta(S, context_tname, context_methods);
-    session_meta_ref = make_meta(S, session_tname, session_methods);
+    CRYPTO_THREAD_run_once(&alpn_once, init_alpn_index);
+    make_meta(S, context_tname, context_methods);
+    make_meta(S, session_tname, session_methods);
     slang_newmodule(S, funcs);
     return 1;
 }

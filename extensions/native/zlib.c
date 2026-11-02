@@ -33,7 +33,6 @@ typedef struct stream {
 } stream;
 
 static const char *stream_tname = "zlib.stream";
-static int stream_meta_ref = SLANG_REFNULL;
 
 static void stream_finalize(void *data) {
     stream *s = data;
@@ -111,8 +110,6 @@ static int run(slang_State *S, stream *s, const char *in, size_t len, int flush)
 
 static stream *new_stream(slang_State *S) {
     stream *s = slang_newuserdata(S, sizeof(stream), stream_tname, stream_finalize);
-    slang_getref(S, stream_meta_ref);
-    slang_setmetatable(S, -2);
     return s;
 }
 
@@ -253,7 +250,7 @@ SLANG_EXTENSION(zlib) {
     slang_setfield(S, -2, "__index");
     slang_pushstring(S, stream_tname);
     slang_setfield(S, -2, "__type");
-    stream_meta_ref = slang_ref(S);
+    slang_settypemeta(S, stream_tname);
     slang_newmodule(S, funcs);
     return 1;
 }

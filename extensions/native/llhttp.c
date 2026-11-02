@@ -70,7 +70,6 @@ typedef struct parser {
 } parser;
 
 static const char *parser_tname = "llhttp.parser";
-static int parser_meta_ref = SLANG_REFNULL;
 
 static void clear_headers(parser *ps) {
     for (int i = 0; i < ps->nheaders; i++) {
@@ -297,8 +296,6 @@ static int l_parser(slang_State *S) {
     ps->settings.on_message_complete = on_message_complete;
     llhttp_init(&ps->p, type, &ps->settings);
     ps->max_head = max_head > 0 ? (size_t)max_head : 0;
-    slang_getref(S, parser_meta_ref);
-    slang_setmetatable(S, -2);
     return 1;
 }
 
@@ -411,7 +408,7 @@ SLANG_EXTENSION(llhttp) {
     slang_setfield(S, -2, "__index");
     slang_pushstring(S, parser_tname);
     slang_setfield(S, -2, "__type");
-    parser_meta_ref = slang_ref(S);
+    slang_settypemeta(S, parser_tname);
     slang_newmodule(S, funcs);
     return 1;
 }

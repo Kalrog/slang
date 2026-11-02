@@ -49,8 +49,6 @@
 
 static const char *key_tname = "crypto.key";
 static const char *hasher_tname = "crypto.hasher";
-static int key_meta_ref = SLANG_REFNULL;
-static int hasher_meta_ref = SLANG_REFNULL;
 
 /* raises "crypto: <what>: <openssl's reason>" and clears the error queue */
 static int ssl_error(slang_State *S, const char *what) {
@@ -158,8 +156,6 @@ static int l_hasher(slang_State *S) {
     }
     hasher *h = slang_newuserdata(S, sizeof(hasher), hasher_tname, hasher_finalize);
     h->ctx = ctx;
-    slang_getref(S, hasher_meta_ref);
-    slang_setmetatable(S, -2);
     return 1;
 }
 
@@ -495,8 +491,6 @@ static void push_key(slang_State *S, EVP_PKEY *pkey, int is_private) {
     key *k = slang_newuserdata(S, sizeof(key), key_tname, key_finalize);
     k->pkey = pkey;
     k->is_private = is_private;
-    slang_getref(S, key_meta_ref);
-    slang_setmetatable(S, -2);
 }
 
 static key *check_key(slang_State *S, int idx) {
@@ -804,18 +798,18 @@ static const slang_Reg funcs[] = {
     {NULL, NULL},
 };
 
-static int make_meta(slang_State *S, const char *type_name, const slang_Reg *methods) {
+static void make_meta(slang_State *S, const char *type_name, const slang_Reg *methods) {
     slang_newtable(S);
     slang_newmodule(S, methods);
     slang_setfield(S, -2, "__index");
     slang_pushstring(S, type_name);
     slang_setfield(S, -2, "__type");
-    return slang_ref(S);
+    slang_settypemeta(S, type_name);
 }
 
 SLANG_EXTENSION(crypto) {
-    key_meta_ref = make_meta(S, key_tname, key_methods);
-    hasher_meta_ref = make_meta(S, hasher_tname, hasher_methods);
+    make_meta(S, key_tname, key_methods);
+    make_meta(S, hasher_tname, hasher_methods);
     slang_newmodule(S, funcs);
     return 1;
 }

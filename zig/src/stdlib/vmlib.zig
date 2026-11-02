@@ -231,11 +231,10 @@ fn vmFeatures(th: *Thread, args: []Value) Error!Value {
 /// build_id(): a hash of the embedded seed bytecode, as 16 hex digits; the
 /// bytecode cache keys on it so that a new compiler never serves entries
 /// compiled by an old one.
-var build_id_cache: ?[16]u8 = null;
-
 fn vmBuildId(th: *Thread, args: []Value) Error!Value {
     _ = args;
-    if (build_id_cache == null) {
+    const lib = &th.vm.lib;
+    if (lib.build_id == null) {
         var h = std.hash.Wyhash.init(0x5eed);
         for (th.vm.embedded) |f| {
             h.update(f.name);
@@ -244,7 +243,7 @@ fn vmBuildId(th: *Thread, args: []Value) Error!Value {
         const digest = h.final();
         var buf: [16]u8 = undefined;
         _ = std.fmt.bufPrint(&buf, "{x:0>16}", .{digest}) catch unreachable;
-        build_id_cache = buf;
+        lib.build_id = buf;
     }
-    return th.vm.str(&build_id_cache.?);
+    return th.vm.str(&lib.build_id.?);
 }

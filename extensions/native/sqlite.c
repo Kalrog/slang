@@ -53,8 +53,6 @@ struct stmt {
 
 static const char *db_tname = "sqlite.db";
 static const char *stmt_tname = "sqlite.stmt";
-static int db_meta_ref = SLANG_REFNULL;
-static int stmt_meta_ref = SLANG_REFNULL;
 
 /* ---- lifetime ---- */
 
@@ -149,8 +147,6 @@ static int l_open(slang_State *S) {
     d->users = 1;
     db **box = slang_newuserdata(S, sizeof(db *), db_tname, db_finalize);
     *box = d;
-    slang_getref(S, db_meta_ref);
-    slang_setmetatable(S, -2);
     return 1;
 }
 
@@ -192,8 +188,6 @@ static int db_prepare(slang_State *S) {
     }
     stmt **box = slang_newuserdata(S, sizeof(stmt *), stmt_tname, stmt_finalize);
     *box = s;
-    slang_getref(S, stmt_meta_ref);
-    slang_setmetatable(S, -2);
     return 1;
 }
 
@@ -578,18 +572,18 @@ static const slang_Reg funcs[] = {
     {NULL, NULL},
 };
 
-static int make_meta(slang_State *S, const char *type_name, const slang_Reg *methods) {
+static void make_meta(slang_State *S, const char *type_name, const slang_Reg *methods) {
     slang_newtable(S);
     slang_newmodule(S, methods);
     slang_setfield(S, -2, "__index");
     slang_pushstring(S, type_name);
     slang_setfield(S, -2, "__type");
-    return slang_ref(S);
+    slang_settypemeta(S, type_name);
 }
 
 SLANG_EXTENSION(sqlite) {
-    db_meta_ref = make_meta(S, db_tname, db_methods);
-    stmt_meta_ref = make_meta(S, stmt_tname, stmt_methods);
+    make_meta(S, db_tname, db_methods);
+    make_meta(S, stmt_tname, stmt_methods);
     slang_newmodule(S, funcs);
     return 1;
 }

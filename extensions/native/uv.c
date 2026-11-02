@@ -9,6 +9,11 @@
  *   t:start(100, 0, func(){ print("tick") t:close() })
  *   uv.run()
  *
+ * Every VM has a loop of its own, so isolates (slang/isolate) run event
+ * loops side by side; handles cannot cross between them, and when an
+ * isolate ends, what it left open is closed with its loop. Killing an
+ * isolate wakes its loop, and uv.run raises "isolate killed".
+ *
  * Callbacks run only from inside uv.run(); an error raised in one stops the
  * loop and comes out of uv.run(). An active handle (a running timer, a
  * listening or reading socket, a pending connect) keeps its userdata alive;
@@ -52,14 +57,31 @@ typedef struct handle {
     int reading;
 } handle;
 
-/* the state running the loop (callbacks enter the VM through it) and whether
- * a callback failed (the loop is stopping, further callbacks are skipped) */
-static slang_State *run_S = NULL;
-static int run_failed = 0;
+/* Every VM (every isolate, see slang/isolate) has a loop of its own, made
+ * when it opens the extension and kept in its extension data; libuv
+ * objects reach it through their loop's data. run_S is the state running
+ * the loop (callbacks enter the VM through it), run_failed whether a
+ * callback failed (the loop is stopping, further callbacks are skipped). */
+typedef struct uv_ctx {
+    uv_loop_t loop;
+    slang_State *run_S;
+    int run_failed;
+    uv_async_t hold;     /* keeps the loop alive for a GUI (api hold) */
+    uv_async_t wake;     /* sent when the isolate is killed */
+    int killed;          /* set by the wake (on the loop thread) */
+} uv_ctx;
 
-static uv_loop_t *loop(void) {
-    return uv_default_loop();
+static const char ctx_key = 0;
+
+static uv_ctx *get_ctx(slang_State *S) {
+    return slang_getextdata(S, &ctx_key);
 }
+
+static uv_loop_t *loop_of(slang_State *S) {
+    return &get_ctx(S)->loop;
+}
+
+#define CTX(loop_ptr) ((uv_ctx *)(loop_ptr)->data)
 
 static void push_uv_error(slang_State *S, int status) {
     slang_pushfstring(S, "%s: %s", uv_err_name(status), uv_strerror(status));
@@ -106,34 +128,35 @@ static void drop_ref(slang_State *S, int *ref) {
 }
 
 /* pushes the function of ref; false when there is none or the loop failed */
-static int begin_callback(int ref) {
-    if (run_S == NULL || run_failed || ref == SLANG_REFNULL) return 0;
-    slang_getref(run_S, ref);
+static int begin_callback(uv_ctx *cx, int ref) {
+    if (cx->run_S == NULL || cx->run_failed || ref == SLANG_REFNULL) return 0;
+    slang_getref(cx->run_S, ref);
     return 1;
 }
 
 /* calls the function pushed by begin_callback with nargs arguments */
-static void finish_callback(int nargs) {
-    if (slang_call(run_S, nargs) != SLANG_OK) {
-        run_failed = 1;
-        uv_stop(loop());
+static void finish_callback(uv_ctx *cx, int nargs) {
+    if (slang_call(cx->run_S, nargs) != SLANG_OK) {
+        cx->run_failed = 1;
+        uv_stop(&cx->loop);
         return;
     }
-    slang_pop(run_S, 1);
+    slang_pop(cx->run_S, 1);
 }
 
 static void on_close(uv_handle_t *uvh) {
+    uv_ctx *cx = CTX(uvh->loop);
     handle *h = (handle *)uvh;
     h->close_done = 1;
     if (h->collected) {
         free(h);
         return;
     }
-    if (run_S != NULL) {
-        if (begin_callback(h->close_ref)) finish_callback(0);
-        drop_ref(run_S, &h->close_ref);
-        drop_ref(run_S, &h->cb_ref);
-        release(run_S, h);
+    if (cx->run_S != NULL) {
+        if (begin_callback(cx, h->close_ref)) finish_callback(cx, 0);
+        drop_ref(cx->run_S, &h->close_ref);
+        drop_ref(cx->run_S, &h->cb_ref);
+        release(cx->run_S, h);
     }
 }
 
@@ -149,15 +172,13 @@ static void handle_finalize(void *data) {
     }
 }
 
-static handle *new_handle(slang_State *S, const char *tname, int meta_ref) {
+static handle *new_handle(slang_State *S, const char *tname) {
     handle *h = calloc(1, sizeof(handle));
     h->self_ref = SLANG_REFNULL;
     h->cb_ref = SLANG_REFNULL;
     h->close_ref = SLANG_REFNULL;
     handle **box = slang_newuserdata(S, sizeof(handle *), tname, handle_finalize);
     *box = h;
-    slang_getref(S, meta_ref);
-    slang_setmetatable(S, -2);
     return h;
 }
 
@@ -229,33 +250,42 @@ static int h_has_ref(slang_State *S) {
 
 /* ---- loop ---- */
 
+/* runs cx's loop through S: 1 when it has more to do, 0 when not,
+ * SLANG_ERROR when a callback raised or the isolate is being killed */
+static int run_loop(slang_State *S, uv_ctx *cx, uv_run_mode mode) {
+    cx->run_S = S;
+    cx->run_failed = 0;
+    int more = uv_run(&cx->loop, mode);
+    cx->run_S = NULL;
+    if (cx->run_failed) {
+        cx->run_failed = 0;
+        return SLANG_ERROR;
+    }
+    if (cx->killed || slang_interrupted(S)) return slang_error(S, "isolate killed");
+    return more != 0;
+}
+
 static int l_run(slang_State *S) {
     const char *mode_name = slang_optstring(S, 1, "default");
     uv_run_mode mode = UV_RUN_DEFAULT;
     if (strcmp(mode_name, "once") == 0) mode = UV_RUN_ONCE;
     else if (strcmp(mode_name, "nowait") == 0) mode = UV_RUN_NOWAIT;
     else if (strcmp(mode_name, "default") != 0) return slang_argerror(S, 1, "\"default\", \"once\" or \"nowait\" expected");
-    if (run_S != NULL) return slang_error(S, "uv.run is already running");
-    run_S = S;
-    run_failed = 0;
-    int more = uv_run(loop(), mode);
-    run_S = NULL;
-    if (run_failed) {
-        run_failed = 0;
-        return SLANG_ERROR; /* the callback's error is still pending */
-    }
+    uv_ctx *cx = get_ctx(S);
+    if (cx->run_S != NULL) return slang_error(S, "uv.run is already running");
+    int more = run_loop(S, cx, mode);
+    if (more == SLANG_ERROR) return SLANG_ERROR; /* the callback's error is still pending */
     slang_pushbool(S, more != 0);
     return 1;
 }
 
 static int l_stop(slang_State *S) {
-    (void)S;
-    uv_stop(loop());
+    uv_stop(loop_of(S));
     return 0;
 }
 
 static int l_now(slang_State *S) {
-    slang_pushint(S, (int64_t)uv_now(loop()));
+    slang_pushint(S, (int64_t)uv_now(loop_of(S)));
     return 1;
 }
 
@@ -265,7 +295,7 @@ static int l_hrtime(slang_State *S) {
 }
 
 static int l_loop_alive(slang_State *S) {
-    slang_pushbool(S, uv_loop_alive(loop()) != 0);
+    slang_pushbool(S, uv_loop_alive(loop_of(S)) != 0);
     return 1;
 }
 
@@ -276,21 +306,20 @@ static int l_version(slang_State *S) {
 
 /* ---- timers ---- */
 
-static int timer_meta_ref = SLANG_REFNULL;
-
 static int l_timer(slang_State *S) {
-    handle *h = new_handle(S, "uv.timer", timer_meta_ref);
-    uv_timer_init(loop(), &h->u.timer);
+    handle *h = new_handle(S, "uv.timer");
+    uv_timer_init(loop_of(S), &h->u.timer);
     return 1;
 }
 
 static void on_timer(uv_timer_t *t) {
+    uv_ctx *cx = CTX(t->loop);
     handle *h = (handle *)t;
-    if (begin_callback(h->cb_ref)) finish_callback(0);
-    if (run_S != NULL && !uv_is_active(&h->u.handle)) {
+    if (begin_callback(cx, h->cb_ref)) finish_callback(cx, 0);
+    if (cx->run_S != NULL && !uv_is_active(&h->u.handle)) {
         /* a one-shot timer fired: nothing keeps it alive any more */
-        drop_ref(run_S, &h->cb_ref);
-        release(run_S, h);
+        drop_ref(cx->run_S, &h->cb_ref);
+        release(cx->run_S, h);
     }
 }
 
@@ -352,11 +381,9 @@ static const slang_Reg timer_methods[] = {
 
 /* ---- tcp ---- */
 
-static int tcp_meta_ref = SLANG_REFNULL;
-
 static int l_tcp(slang_State *S) {
-    handle *h = new_handle(S, "uv.tcp", tcp_meta_ref);
-    uv_tcp_init(loop(), &h->u.tcp);
+    handle *h = new_handle(S, "uv.tcp");
+    uv_tcp_init(loop_of(S), &h->u.tcp);
     return 1;
 }
 
@@ -387,10 +414,11 @@ static int tcp_bind(slang_State *S) {
 }
 
 static void on_connection(uv_stream_t *server, int status) {
+    uv_ctx *cx = CTX(server->loop);
     handle *h = (handle *)server;
-    if (!begin_callback(h->cb_ref)) return;
-    if (status < 0) push_uv_error(run_S, status); else slang_pushnull(run_S);
-    finish_callback(1);
+    if (!begin_callback(cx, h->cb_ref)) return;
+    if (status < 0) push_uv_error(cx->run_S, status); else slang_pushnull(cx->run_S);
+    finish_callback(cx, 1);
 }
 
 /* server:listen(backlog, cb(err)) */
@@ -433,14 +461,15 @@ typedef struct {
 } connect_req;
 
 static void on_connect(uv_connect_t *req, int status) {
+    uv_ctx *cx = CTX(req->handle->loop);
     connect_req *c = (connect_req *)req;
-    if (begin_callback(c->cb_ref)) {
-        if (status < 0) push_uv_error(run_S, status); else slang_pushnull(run_S);
-        finish_callback(1);
+    if (begin_callback(cx, c->cb_ref)) {
+        if (status < 0) push_uv_error(cx->run_S, status); else slang_pushnull(cx->run_S);
+        finish_callback(cx, 1);
     }
-    if (run_S != NULL) {
-        drop_ref(run_S, &c->cb_ref);
-        release(run_S, c->h);
+    if (cx->run_S != NULL) {
+        drop_ref(cx->run_S, &c->cb_ref);
+        release(cx->run_S, c->h);
     }
     free(c);
 }
@@ -476,31 +505,32 @@ static void on_alloc(uv_handle_t *uvh, size_t suggested, uv_buf_t *buf) {
 
 /* read callback: cb(err, chunk); chunk is null at end of stream */
 static void on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
+    uv_ctx *cx = CTX(stream->loop);
     handle *h = (handle *)stream;
     if (nread == 0) {
         free(buf->base);
         return;
     }
-    if (begin_callback(h->cb_ref)) {
+    if (begin_callback(cx, h->cb_ref)) {
         if (nread > 0) {
-            slang_pushnull(run_S);
-            slang_pushlstring(run_S, buf->base, (size_t)nread);
+            slang_pushnull(cx->run_S);
+            slang_pushlstring(cx->run_S, buf->base, (size_t)nread);
         } else if (nread == UV_EOF) {
-            slang_pushnull(run_S);
-            slang_pushnull(run_S);
+            slang_pushnull(cx->run_S);
+            slang_pushnull(cx->run_S);
         } else {
-            push_uv_error(run_S, (int)nread);
-            slang_pushnull(run_S);
+            push_uv_error(cx->run_S, (int)nread);
+            slang_pushnull(cx->run_S);
         }
-        finish_callback(2);
+        finish_callback(cx, 2);
     }
     free(buf->base);
-    if (nread < 0 && run_S != NULL) {
+    if (nread < 0 && cx->run_S != NULL) {
         /* the stream ended: reading stops, nothing keeps the handle alive */
         uv_read_stop(stream);
         h->reading = 0;
-        drop_ref(run_S, &h->cb_ref);
-        release(run_S, h);
+        drop_ref(cx->run_S, &h->cb_ref);
+        release(cx->run_S, h);
     }
 }
 
@@ -545,14 +575,15 @@ typedef struct {
 } write_req;
 
 static void on_write(uv_write_t *req, int status) {
+    uv_ctx *cx = CTX(req->handle->loop);
     write_req *w = (write_req *)req;
-    if (begin_callback(w->cb_ref)) {
-        if (status < 0) push_uv_error(run_S, status); else slang_pushnull(run_S);
-        finish_callback(1);
+    if (begin_callback(cx, w->cb_ref)) {
+        if (status < 0) push_uv_error(cx->run_S, status); else slang_pushnull(cx->run_S);
+        finish_callback(cx, 1);
     }
-    if (run_S != NULL) {
-        drop_ref(run_S, &w->cb_ref);
-        drop_ref(run_S, &w->self_ref);
+    if (cx->run_S != NULL) {
+        drop_ref(cx->run_S, &w->cb_ref);
+        drop_ref(cx->run_S, &w->self_ref);
     }
     free(w->buf.base);
     free(w);
@@ -596,14 +627,15 @@ typedef struct {
 } shutdown_req;
 
 static void on_shutdown(uv_shutdown_t *req, int status) {
+    uv_ctx *cx = CTX(req->handle->loop);
     shutdown_req *s = (shutdown_req *)req;
-    if (begin_callback(s->cb_ref)) {
-        if (status < 0) push_uv_error(run_S, status); else slang_pushnull(run_S);
-        finish_callback(1);
+    if (begin_callback(cx, s->cb_ref)) {
+        if (status < 0) push_uv_error(cx->run_S, status); else slang_pushnull(cx->run_S);
+        finish_callback(cx, 1);
     }
-    if (run_S != NULL) {
-        drop_ref(run_S, &s->cb_ref);
-        drop_ref(run_S, &s->self_ref);
+    if (cx->run_S != NULL) {
+        drop_ref(cx->run_S, &s->cb_ref);
+        drop_ref(cx->run_S, &s->self_ref);
     }
     free(s);
 }
@@ -718,11 +750,9 @@ static int tcp_is_closing(slang_State *S) { return l_is_closing(S, "uv.tcp"); }
 
 /* ---- pipes (stdin/stdout and named pipes; the stream methods are shared) ---- */
 
-static int pipe_meta_ref = SLANG_REFNULL;
-
 static int l_pipe(slang_State *S) {
-    handle *h = new_handle(S, "uv.pipe", pipe_meta_ref);
-    uv_pipe_init(loop(), &h->u.pipe, 0);
+    handle *h = new_handle(S, "uv.pipe");
+    uv_pipe_init(loop_of(S), &h->u.pipe, 0);
     return 1;
 }
 
@@ -796,21 +826,22 @@ static void work_run(uv_work_t *req) {
 }
 
 static void work_after(uv_work_t *req, int status) {
+    uv_ctx *cx = CTX(req->loop);
     work_req *w = (work_req *)req;
-    if (begin_callback(w->cb_ref)) {
+    if (begin_callback(cx, w->cb_ref)) {
         int n = 2;
         if (status < 0) {
-            push_uv_error(run_S, status);
-            slang_pushnull(run_S);
+            push_uv_error(cx->run_S, status);
+            slang_pushnull(cx->run_S);
         } else {
-            n = w->push(run_S, w->data);
+            n = w->push(cx->run_S, w->data);
         }
-        finish_callback(n);
+        finish_callback(cx, n);
     }
     w->done(w->data);
-    if (run_S != NULL) {
-        drop_ref(run_S, &w->cb_ref);
-        drop_ref(run_S, &w->keep_ref);
+    if (cx->run_S != NULL) {
+        drop_ref(cx->run_S, &w->cb_ref);
+        drop_ref(cx->run_S, &w->keep_ref);
     }
     free(w);
 }
@@ -834,7 +865,7 @@ static int api_queue(slang_State *S, int cb_idx, int keep_idx,
         slang_pushvalue(S, keep_idx);
         w->keep_ref = slang_ref(S);
     }
-    int r = uv_queue_work(loop(), &w->req, work_run, work_after);
+    int r = uv_queue_work(loop_of(S), &w->req, work_run, work_after);
     if (r < 0) {
         drop_ref(S, &w->cb_ref);
         drop_ref(S, &w->keep_ref);
@@ -847,41 +878,39 @@ static int api_queue(slang_State *S, int cb_idx, int keep_idx,
 }
 
 static int api_run(slang_State *S, int mode) {
-    if (run_S != NULL) return 0;
-    run_S = S;
-    run_failed = 0;
-    int more = uv_run(loop(), mode == 2 ? UV_RUN_NOWAIT : mode == 1 ? UV_RUN_ONCE : UV_RUN_DEFAULT);
-    run_S = NULL;
-    if (run_failed) {
-        run_failed = 0;
-        return SLANG_ERROR;
-    }
-    return more != 0;
+    uv_ctx *cx = get_ctx(S);
+    if (cx->run_S != NULL) return 0;
+    return run_loop(S, cx, mode == 2 ? UV_RUN_NOWAIT : mode == 1 ? UV_RUN_ONCE : UV_RUN_DEFAULT);
 }
 
-static int api_backend_fd(void) { return uv_backend_fd(loop()); }
-static int api_backend_timeout(void) { return uv_backend_timeout(loop()); }
+static int api_backend_fd_of(slang_State *S) { return uv_backend_fd(loop_of(S)); }
+static int api_backend_timeout_of(slang_State *S) { return uv_backend_timeout(loop_of(S)); }
 
-static uv_async_t hold_handle;
-static int hold_ready = 0;
+static void api_hold_of(slang_State *S, int on) {
+    uv_ctx *cx = get_ctx(S);
+    if (on) uv_ref((uv_handle_t *)&cx->hold);
+    else uv_unref((uv_handle_t *)&cx->hold);
+}
+
+/* the version 2 and 3 functions, which name no state: the loop of the
+ * first VM that opened the extension (the main program's, normally) */
+static uv_ctx *first_ctx = NULL;
+
+static int api_backend_fd(void) { return first_ctx ? uv_backend_fd(&first_ctx->loop) : -1; }
+static int api_backend_timeout(void) { return first_ctx ? uv_backend_timeout(&first_ctx->loop) : -1; }
 
 static void api_hold(int on) {
-    if (!hold_ready) {
-        uv_async_init(loop(), &hold_handle, NULL);
-        uv_unref((uv_handle_t *)&hold_handle);
-        hold_ready = 1;
-    }
-    if (on) uv_ref((uv_handle_t *)&hold_handle);
-    else uv_unref((uv_handle_t *)&hold_handle);
+    if (first_ctx == NULL) return;
+    if (on) uv_ref((uv_handle_t *)&first_ctx->hold);
+    else uv_unref((uv_handle_t *)&first_ctx->hold);
 }
 
 /* ---- async handles: woken from other threads ---- */
 
-static int async_meta_ref = SLANG_REFNULL;
-
 static void on_async(uv_async_t *a) {
+    uv_ctx *cx = CTX(a->loop);
     handle *h = (handle *)a;
-    if (begin_callback(h->cb_ref)) finish_callback(0);
+    if (begin_callback(cx, h->cb_ref)) finish_callback(cx, 0);
 }
 
 /* async(cb): a handle whose cb runs on the loop after a wake (through the C
@@ -890,8 +919,8 @@ static void on_async(uv_async_t *a) {
 static int l_async(slang_State *S) {
     slang_checkfunction(S, 1);
     if (slang_failed(S)) return SLANG_ERROR;
-    handle *h = new_handle(S, "uv.async", async_meta_ref);
-    int r = uv_async_init(loop(), &h->u.async, on_async);
+    handle *h = new_handle(S, "uv.async");
+    int r = uv_async_init(loop_of(S), &h->u.async, on_async);
     if (r < 0) {
         h->closed = h->close_done = 1;
         push_uv_error(S, r);
@@ -923,7 +952,10 @@ static void *api_async_handle(slang_State *S, int idx) {
 
 static int api_async_send(void *h) { return uv_async_send((uv_async_t *)h); }
 
-static const slang_uv_api the_api = {SLANG_UV_API_VERSION, api_queue, api_run, api_backend_fd, api_backend_timeout, api_hold, api_async_handle, api_async_send};
+static const slang_uv_api the_api = {
+    SLANG_UV_API_VERSION, api_queue, api_run, api_backend_fd, api_backend_timeout, api_hold,
+    api_async_handle, api_async_send, api_backend_fd_of, api_backend_timeout_of, api_hold_of,
+};
 
 /* ---- file system: libuv's synchronous calls, run on the pool ---- */
 
@@ -1167,7 +1199,6 @@ static void fs_done(void *data) {
 static fs_job *new_job(int op) {
     fs_job *j = calloc(1, sizeof(fs_job));
     j->op = op;
-    j->loop = loop();
     j->offset = -1;
     return j;
 }
@@ -1189,6 +1220,7 @@ static int fs_queue(slang_State *S, fs_job *j) {
         fs_done(j);
         return SLANG_ERROR;
     }
+    j->loop = loop_of(S);
     return api_queue(S, slang_gettop(S), 0, fs_work, fs_push, fs_done, j);
 }
 
@@ -1295,23 +1327,24 @@ typedef struct {
 static void push_sockaddr(slang_State *S, const struct sockaddr_storage *addr);
 
 static void on_getaddrinfo(uv_getaddrinfo_t *req, int status, struct addrinfo *res) {
+    uv_ctx *cx = CTX(req->loop);
     gai_req *g = (gai_req *)req;
-    if (begin_callback(g->cb_ref)) {
+    if (begin_callback(cx, g->cb_ref)) {
         if (status < 0) {
-            push_uv_error(run_S, status);
-            slang_pushnull(run_S);
+            push_uv_error(cx->run_S, status);
+            slang_pushnull(cx->run_S);
         } else {
-            slang_pushnull(run_S);
-            slang_newtable(run_S);
+            slang_pushnull(cx->run_S);
+            slang_newtable(cx->run_S);
             for (struct addrinfo *ai = res; ai != NULL; ai = ai->ai_next) {
-                push_sockaddr(run_S, (const struct sockaddr_storage *)ai->ai_addr);
-                slang_append(run_S, -2);
+                push_sockaddr(cx->run_S, (const struct sockaddr_storage *)ai->ai_addr);
+                slang_append(cx->run_S, -2);
             }
         }
-        finish_callback(2);
+        finish_callback(cx, 2);
     }
     uv_freeaddrinfo(res);
-    if (run_S != NULL) drop_ref(run_S, &g->cb_ref);
+    if (cx->run_S != NULL) drop_ref(cx->run_S, &g->cb_ref);
     free(g);
 }
 
@@ -1344,7 +1377,7 @@ static int l_getaddrinfo(slang_State *S) {
     gai_req *g = calloc(1, sizeof(gai_req));
     slang_pushvalue(S, top);
     g->cb_ref = slang_ref(S);
-    int r = uv_getaddrinfo(loop(), &g->req, on_getaddrinfo, host, svc, &hints);
+    int r = uv_getaddrinfo(loop_of(S), &g->req, on_getaddrinfo, host, svc, &hints);
     if (r < 0) {
         drop_ref(S, &g->cb_ref);
         free(g);
@@ -1384,21 +1417,20 @@ static int check_signal(slang_State *S, int idx, int def) {
     return -1;
 }
 
-static int signal_meta_ref = SLANG_REFNULL;
-
 static int l_signal(slang_State *S) {
-    handle *h = new_handle(S, "uv.signal", signal_meta_ref);
-    uv_signal_init(loop(), &h->u.signal);
+    handle *h = new_handle(S, "uv.signal");
+    uv_signal_init(loop_of(S), &h->u.signal);
     return 1;
 }
 
 static void on_signal(uv_signal_t *sig, int signum) {
+    uv_ctx *cx = CTX(sig->loop);
     handle *h = (handle *)sig;
-    if (!begin_callback(h->cb_ref)) return;
-    slang_pushnull(run_S);
+    if (!begin_callback(cx, h->cb_ref)) return;
+    slang_pushnull(cx->run_S);
     const char *name = signal_name(signum);
-    if (name != NULL) slang_pushstring(run_S, name); else slang_pushint(run_S, signum);
-    finish_callback(2);
+    if (name != NULL) slang_pushstring(cx->run_S, name); else slang_pushint(cx->run_S, signum);
+    finish_callback(cx, 2);
 }
 
 /* signal:start(sig, cb(err, name)): sig is a number or a name like "SIGINT" */
@@ -1448,26 +1480,25 @@ static const slang_Reg signal_methods[] = {
 
 /* ---- processes ---- */
 
-static int process_meta_ref = SLANG_REFNULL;
-
 static void on_exit_cb(uv_process_t *p, int64_t status, int term_signal) {
+    uv_ctx *cx = CTX(p->loop);
     handle *h = (handle *)p;
-    if (begin_callback(h->cb_ref)) {
-        slang_pushnull(run_S);
-        slang_newtable(run_S);
-        slang_pushint(run_S, status);
-        slang_setfield(run_S, -2, "status");
+    if (begin_callback(cx, h->cb_ref)) {
+        slang_pushnull(cx->run_S);
+        slang_newtable(cx->run_S);
+        slang_pushint(cx->run_S, status);
+        slang_setfield(cx->run_S, -2, "status");
         if (term_signal != 0) {
             const char *name = signal_name(term_signal);
-            if (name != NULL) slang_pushstring(run_S, name); else slang_pushint(run_S, term_signal);
-            slang_setfield(run_S, -2, "signal");
+            if (name != NULL) slang_pushstring(cx->run_S, name); else slang_pushint(cx->run_S, term_signal);
+            slang_setfield(cx->run_S, -2, "signal");
         }
-        finish_callback(2);
+        finish_callback(cx, 2);
     }
-    if (run_S != NULL) {
+    if (cx->run_S != NULL) {
         /* the process is gone: the handle is only waiting to be closed */
-        drop_ref(run_S, &h->cb_ref);
-        release(run_S, h);
+        drop_ref(cx->run_S, &h->cb_ref);
+        release(cx->run_S, h);
     }
 }
 
@@ -1582,9 +1613,9 @@ static int l_spawn(slang_State *S) {
     opts.stdio_count = nstdio;
     opts.exit_cb = on_exit_cb;
 
-    handle *h = new_handle(S, "uv.process", process_meta_ref);
+    handle *h = new_handle(S, "uv.process");
     int proc_idx = slang_gettop(S);
-    int r = uv_spawn(loop(), &h->u.process, &opts);
+    int r = uv_spawn(loop_of(S), &h->u.process, &opts);
     free_strings(argv);
     free_strings(env);
     free(cwd);
@@ -1654,14 +1685,12 @@ static const slang_Reg process_methods[] = {
 
 /* ---- polling a foreign file descriptor ---- */
 
-static int poll_meta_ref = SLANG_REFNULL;
-
 /* poll(fd): watches a socket or pipe some other library owns (libpq) */
 static int l_poll(slang_State *S) {
     int64_t fd = slang_checkint(S, 1);
     if (slang_failed(S)) return SLANG_ERROR;
-    handle *h = new_handle(S, "uv.poll", poll_meta_ref);
-    int r = uv_poll_init(loop(), &h->u.poll, (int)fd);
+    handle *h = new_handle(S, "uv.poll");
+    int r = uv_poll_init(loop_of(S), &h->u.poll, (int)fd);
     if (r < 0) {
         /* not initialized: nothing to close */
         h->closed = 1;
@@ -1673,17 +1702,18 @@ static int l_poll(slang_State *S) {
 }
 
 static void on_poll(uv_poll_t *p, int status, int events) {
+    uv_ctx *cx = CTX(p->loop);
     handle *h = (handle *)p;
-    if (!begin_callback(h->cb_ref)) return;
+    if (!begin_callback(cx, h->cb_ref)) return;
     if (status < 0) {
-        push_uv_error(run_S, status);
-        slang_pushnull(run_S);
+        push_uv_error(cx->run_S, status);
+        slang_pushnull(cx->run_S);
     } else {
-        slang_pushnull(run_S);
+        slang_pushnull(cx->run_S);
         int rd = (events & UV_READABLE) != 0, wr = (events & UV_WRITABLE) != 0;
-        slang_pushstring(run_S, rd && wr ? "rw" : rd ? "r" : wr ? "w" : "");
+        slang_pushstring(cx->run_S, rd && wr ? "rw" : rd ? "r" : wr ? "w" : "");
     }
-    finish_callback(2);
+    finish_callback(cx, 2);
 }
 
 /* poll:start(events, cb(err, events)): events "r", "w" or "rw" */
@@ -1768,23 +1798,86 @@ static const slang_Reg funcs[] = {
     {NULL, NULL},
 };
 
-static int make_meta(slang_State *S, const char *type_name, const slang_Reg *methods) {
+static void make_meta(slang_State *S, const char *type_name, const slang_Reg *methods) {
     slang_newtable(S);
     slang_newmodule(S, methods);
     slang_setfield(S, -2, "__index");
     slang_pushstring(S, type_name);
     slang_setfield(S, -2, "__type");
-    return slang_ref(S);
+    slang_settypemeta(S, type_name);
+}
+
+/* ---- the loop of a VM ---- */
+
+static void on_wake(uv_async_t *a) {
+    uv_ctx *cx = CTX(a->loop);
+    cx->killed = 1;
+    uv_stop(&cx->loop);
+}
+
+/* the isolate is being killed (on the killing thread): the loop wakes */
+static void ctx_interrupt(void *data) {
+    uv_async_send(&((uv_ctx *)data)->wake);
+}
+
+static void close_walk(uv_handle_t *uvh, void *arg) {
+    uv_ctx *cx = arg;
+    if (uv_is_closing(uvh)) return;
+    /* (the userdata, not yet collected, frees the struct later) */
+    if (uvh == (uv_handle_t *)&cx->hold || uvh == (uv_handle_t *)&cx->wake) {
+        uv_close(uvh, NULL);
+        return;
+    }
+    handle *h = (handle *)uvh;
+    h->closed = 1;
+    uv_close(uvh, on_close);
+}
+
+/* the VM is closing, its values are still there: every handle is closed and
+ * the loop runs until the close callbacks and the work in flight are done
+ * (no slang runs: run_S is NULL), so that no pool thread still works on a
+ * value when it is freed; then the loop is closed. The handles' finalizers
+ * only free them afterwards. */
+static void ctx_close(void *data) {
+    uv_ctx *cx = data;
+    uv_ctx *self = cx;
+    __atomic_compare_exchange_n(&first_ctx, &self, NULL, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+    uv_walk(&cx->loop, close_walk, cx);
+    uv_run(&cx->loop, UV_RUN_DEFAULT);
+    uv_loop_close(&cx->loop);
+}
+
+static int open_ctx(slang_State *S) {
+    if (get_ctx(S) != NULL) return 0;
+    uv_ctx *cx = calloc(1, sizeof(uv_ctx));
+    int r = uv_loop_init(&cx->loop);
+    if (r < 0) {
+        free(cx);
+        push_uv_error(S, r);
+        return slang_raise(S);
+    }
+    cx->loop.data = cx;
+    uv_async_init(&cx->loop, &cx->hold, NULL);
+    uv_unref((uv_handle_t *)&cx->hold);
+    uv_async_init(&cx->loop, &cx->wake, on_wake);
+    uv_unref((uv_handle_t *)&cx->wake);
+    slang_setextdata(S, &ctx_key, cx, free);
+    slang_onclose(S, ctx_close, cx);
+    slang_oninterrupt(S, ctx_interrupt, cx);
+    uv_ctx *none = NULL;
+    __atomic_compare_exchange_n(&first_ctx, &none, cx, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+    return 0;
 }
 
 SLANG_EXTENSION(uv) {
-    timer_meta_ref = make_meta(S, "uv.timer", timer_methods);
-    tcp_meta_ref = make_meta(S, "uv.tcp", tcp_methods);
-    pipe_meta_ref = make_meta(S, "uv.pipe", pipe_methods);
-    signal_meta_ref = make_meta(S, "uv.signal", signal_methods);
-    process_meta_ref = make_meta(S, "uv.process", process_methods);
-    poll_meta_ref = make_meta(S, "uv.poll", poll_methods);
-    async_meta_ref = make_meta(S, "uv.async", async_methods);
+    if (open_ctx(S) != 0) return SLANG_ERROR;
+    make_meta(S, "uv.timer", timer_methods);
+    make_meta(S, "uv.tcp", tcp_methods);
+    make_meta(S, "uv.pipe", pipe_methods);
+    make_meta(S, "uv.signal", signal_methods);
+    make_meta(S, "uv.process", process_methods);
+    make_meta(S, "uv.poll", poll_methods);
+    make_meta(S, "uv.async", async_methods);
     slang_newmodule(S, funcs);
     const slang_uv_api **api = slang_newuserdata(S, sizeof(slang_uv_api *), SLANG_UV_API_TNAME, NULL);
     *api = &the_api;

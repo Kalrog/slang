@@ -339,19 +339,16 @@ func lsp.new(options){
     lint_globals: {}, lint_modules: {}
   }
   s.meta = meta
+  // every file under its own project (a folder may hold several)
+  compiler.workspace()
   return s
 }
 
-// the navigator, made at first need: the project's directory is its root
+// the navigator, made at first need: the workspace folder is its root
 // (else the working directory)
 local func nav_of(s){
   if(s.nav == null){
-    local root = s.root
-    local p = compiler.project()
-    if(p != null){
-      root = p.dir
-    }
-    s.nav = navigate.new({root: root or os.cwd()})
+    s.nav = navigate.new({root: s.root or os.cwd()})
     for(let local e in entries(s.documents)){
       local doc = e[1]
       s.nav:open(doc.path, doc.symbols_text or doc.text, doc.symbols)
@@ -527,8 +524,10 @@ lint = func(s, doc){
 // the diagnostics notification for a document, after highlighting it
 local func analyse(s, uri){
   local doc = s.documents[uri]
-  local r = pcall(compiler.highlight, doc.text, doc.path, {
-    find_project: true, symbols: true
+  local r = pcall(compiler.for_file, doc.path, func(){
+    return compiler.highlight(doc.text, doc.path, {
+      find_project: true, symbols: true
+    })
   })
   if(r[0] == "err"){
     local message = r[1]
@@ -599,6 +598,9 @@ local func project_notification(s){
 local handlers = {}
 
 handlers["initialize"] = func(s, id, params){
+  if(s.root == null and type(params.rootUri) == "string"){
+    s.root = lsp.uri_to_path(params.rootUri)
+  }
   local encodings = ((params.capabilities or {}).general or {}).positionEncodings or
     {}
   for(let local e in values(encodings)){
@@ -716,7 +718,9 @@ handlers["textDocument/semanticTokens/full"] = func(s, id, params){
 
 // the project file or an extension changed: forget the grammars and look again
 handlers["workspace/didChangeWatchedFiles"] = func(s, id, params){
-  compiler.reset()
+  // every project's grammar is made anew (an extension of any may have
+  // changed)
+  compiler.forget_project()
   s.lint_globals = {}
   s.lint_modules = {}
   if(s.nav != null){
@@ -2352,7 +2356,12 @@ func methods.handle(s, message){
     }
     return {}
   }
-  local r = pcall(h, s, id, message.params or {})
+  // under the project of the file the request is about
+  local params = message.params or {}
+  local td = params.textDocument
+  local uri = type(td) == "table" and td.uri or params.uri
+  local path = type(uri) == "string" and lsp.uri_to_path(uri) or null
+  local r = pcall(compiler.for_file, path, func(){ return h(s, id, params) })
   if(r[0] == "err"){
     local msg = r[1]
     if(type(msg) == "table"){ msg = msg.message }

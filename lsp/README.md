@@ -59,7 +59,14 @@ Names (`lsp/navigate.slang`) come from `slang/symbols`: codegen resolves
 the names of the parsed file as it would compile it and records what each
 one is. A field of a local bound to `require("name")` resolves into that
 module's file, found as `require` finds it (slang's own library from its
-sources). Globals and module fields are looked up across the project: the
-`.slang` files under the project directory that mention the name, analysed
-on first need and again when their text changes. While a project file is
+sources). Globals and module fields are looked up across the workspace:
+the `.slang` files under its folder that mention the name, analysed on
+first need and again when their text changes. While a project file is
 analysed, what its code prints goes to the log, not to the protocol.
+
+A folder may hold several projects: every file is analysed under the
+nearest `slang.project` above it (its ambient extensions, dialects,
+packages and search paths), and its `require`s resolve as that project's
+would (`compiler.for_file`, with the compiler in workspace mode); a file
+under none is plain slang, and so are slang's own library sources. A
+changed project file makes every project's grammar anew.

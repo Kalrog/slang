@@ -71,7 +71,10 @@ func methods.file(w, path){
   if(cached != null and cached.text == text){
     return cached
   }
-  local h = pcall(compiler.highlight, text, path, {symbols: true})
+  // (under the file's own project: its extensions)
+  local h = pcall(compiler.for_file, path, func(){
+    return compiler.highlight(text, path, {symbols: true})
+  })
   local index = null
   if(h[0] == "ok"){
     index = h[1].symbols
@@ -246,12 +249,19 @@ func methods.forget_files(w){
 
 // ------------------------------------------------------------ what a name is
 
-// the module file a definition's value was required from, or null
-local func module_file(def){
+// the file require(name) finds from a file at path: under that file's
+// project (its search paths and packages)
+local func module_path_in(path, name){
+  return compiler.for_file(path, func(){ return compiler.module_path(name) })
+}
+
+// the module file a definition's value (in the file at path) was required
+// from, or null
+local func module_file(path, def){
   if(def == null or def.module == null){
     return null
   }
-  return compiler.module_path(def.module)
+  return module_path_in(path, def.module)
 }
 
 // ------------------------------------------------------------ values
@@ -332,7 +342,7 @@ local func type_value(w, path, t, depth){
     local head = str.substring(name, 0, dot)
     for(let local d in values(f.index.defs)){
       if(d.name == head and d.module != null){
-        local mp = compiler.module_path(d.module)
+        local mp = module_path_in(path, d.module)
         if(mp != null){
           return type_value(
             w, mp, {kind: "name", name: str.substring(name, dot + 1)}, depth + 1
@@ -1028,7 +1038,7 @@ value_of_def = func(w, path, def, depth){
     return null
   }
   if(def.module != null){
-    return module_value(w, compiler.module_path(def.module), depth)
+    return module_value(w, module_path_in(path, def.module), depth)
   }
   // a property: what its getter returns
   if(def.kind == "property"){
@@ -1122,7 +1132,7 @@ value_of_node = func(w, path, node, depth){
     local callee = node.function
     if(callee.type == "Identifier" and callee.value == "require" and
       len(node.args) == 1 and node.args[0].type == "String"){
-      return module_value(w, compiler.module_path(node.args[0].value), depth)
+      return module_value(w, module_path_in(path, node.args[0].value), depth)
     }
     // await(f) and a.await(f): what the Future completes with
     if(callee_name(callee) == "await" and len(node.args) == 1){
@@ -1241,7 +1251,7 @@ local func key_at(w, path, pos){
       if(found.owner == null){
         return {kind: "global", name: found.name}
       }
-      local m = module_file(found.owner)
+      local m = module_file(path, found.owner)
       if(m != null){
         local mf = w:file(m)
         if(mf != null and mf.index.exports[found.name] != null){
@@ -1283,7 +1293,7 @@ local func key_at(w, path, pos){
     if(def.owner == f.index.returned){
       return {kind: "export", path: path, name: def.name}
     }
-    local m = module_file(def.owner)
+    local m = module_file(path, def.owner)
     if(m != null){
       return {kind: "export", path: m, name: def.name}
     }
@@ -1434,7 +1444,7 @@ local func matches_in(w, key, path, index, out, with_declaration){
         hit = true
       } else if(owner.module != null){
         if(required[owner.module] == null){
-          required[owner.module] = compiler.module_path(owner.module) or false
+          required[owner.module] = module_path_in(path, owner.module) or false
         }
         hit = required[owner.module] == key.path
       }
@@ -1693,7 +1703,7 @@ func methods.doc_definition(w, path, name){
     }
     for(let local d in values(f.index.defs)){
       if(d.name == head and d.module != null){
-        local mp = compiler.module_path(d.module)
+        local mp = module_path_in(path, d.module)
         if(mp != null){
           return w:doc_definition(mp, rest)
         }
@@ -1808,7 +1818,7 @@ decl_of = func(w, path, name, depth){
     local head = str.substring(name, 0, dot)
     for(let local d in values(f.index.defs)){
       if(d.name == head and d.module != null){
-        local mp = compiler.module_path(d.module)
+        local mp = module_path_in(path, d.module)
         if(mp != null){
           return decl_of(w, mp, str.substring(name, dot + 1), depth + 1)
         }

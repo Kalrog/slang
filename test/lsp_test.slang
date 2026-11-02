@@ -902,6 +902,37 @@ t.group("language server: names"){
       "13 open's port: expected int, got a float",
     }, str.join(messages, "\n"))
   }
+  t.test("several projects: each file under its own"){
+    // test/lsp_projects holds two projects
+    local pdir = compiler.absolute_path("test/lsp_projects")
+    local ps = lsp.new({})
+    ps:handle(request(1, "initialize", {
+      capabilities: {}, rootUri: lsp.path_to_uri(pdir)
+    }))
+    local func errors_of(sub){
+      local path = concat(pdir, "/", sub, "/main.slang")
+      local out = open_doc(ps, lsp.path_to_uri(path), os.read_file(path))
+      local n = 0
+      for(let local m in values(out)){
+        if(m.method == "textDocument/publishDiagnostics"){
+          for(let local d in values(m.params.diagnostics)){
+            if(d.severity == 1){
+              n = n + 1
+            }
+          }
+        }
+      }
+      return n
+    }
+    // switch is syntax in one and a name in the other, opened either way
+    // round and again
+    assert(errors_of("proj_switch") == 0, "proj_switch")
+    assert(errors_of("proj_plain") == 0, "proj_plain")
+    assert(errors_of("proj_switch") == 0, "proj_switch again")
+    // a project file changes: every project is made anew
+    ps:handle(notify("workspace/didChangeWatchedFiles", {changes: {}}))
+    assert(errors_of("proj_plain") == 0 and errors_of("proj_switch") == 0)
+  }
   t.test("hover on the last word of a file"){
     local tail_uri = lsp.path_to_uri(concat(dir, "/tail.slang"))
     local tail = "local buffer = {}\nreturn buffer"

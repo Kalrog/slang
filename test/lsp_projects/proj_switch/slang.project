@@ -1,0 +1,5 @@
+// a project of the language server tests: switch is ambient
+{
+  extensions: {"extensions/switch"},
+  search_paths: {"../../.."},
+}

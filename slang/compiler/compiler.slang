@@ -680,6 +680,148 @@ func compiler.project(){
   return project
 }
 
+// ------------------------------------------------------------ workspaces
+//
+// A program has one project. A tool that looks at files of many projects
+// at once (the language server, in a folder with several) keeps one
+// compiler state per project: the root grammar with that project's
+// ambient extensions, its packages, search paths and dialects. for_file
+// runs a function under the state of a file's project; outside it, the
+// state the tool started with is in effect (the one the tool itself runs
+// on).
+
+// the state in effect, and the workspace's states by project file ("" for
+// files under no project)
+local current_state = null
+local workspace_states = null
+local workspace_dirs = {}
+
+// (states are told apart by key: == compares tables by their contents)
+local func new_state(key){
+  return {
+    key: key, root: null, project: null, base: null, packages: {},
+    project_searched: true, project_misses: {}, dialect_grammars: {},
+    search_paths: default_search_paths, pkgs: {}, dialect_suffixes: {},
+  }
+}
+
+local func save_state(st){
+  st.root = root
+  st.project = project
+  st.base = base
+  st.packages = packages
+  st.project_searched = project_searched
+  st.project_misses = project_misses
+  st.dialect_grammars = dialect_grammars
+  st.search_paths = __PACKAGES.search_paths
+  st.pkgs = __PACKAGES.packages
+  st.dialect_suffixes = __PACKAGES.dialect_suffixes
+}
+
+local func load_state(st){
+  if(st.root == null){
+    st.root = new_grammar()
+  }
+  root = st.root
+  project = st.project
+  base = st.base
+  packages = st.packages
+  project_searched = st.project_searched
+  project_misses = st.project_misses
+  dialect_grammars = st.dialect_grammars
+  __PACKAGES.search_paths = st.search_paths
+  __PACKAGES.packages = st.pkgs
+  __PACKAGES.dialect_suffixes = st.dialect_suffixes
+}
+
+// switches to st, returning the state that was in effect
+local func use_state(st){
+  local was = current_state
+  if(was == null){
+    // the state the tool started with
+    was = new_state(null)
+  }
+  save_state(was)
+  load_state(st)
+  current_state = st
+  return was
+}
+
+// workspace()
+// Keeps a compiler state per project from now on, for [for_file].
+func compiler.workspace(){
+  if(workspace_states == null){
+    workspace_states = {}
+  }
+}
+
+// the project file a file belongs to: the nearest slang.project above it,
+// or "" for none (kept per directory)
+local func workspace_key(path){
+  local dir = dirname(compiler.absolute_path(path))
+  local key = workspace_dirs[dir]
+  if(key == null){
+    key = find_project(dir) or ""
+    workspace_dirs[dir] = key
+  }
+  return key
+}
+
+// for_file(path: string, f: function) -> any
+// What f() gives, run under the compiler state of path's project (made
+// when first needed: the project file loaded into a fresh root grammar);
+// without [workspace], f() as it is. The state in effect before comes
+// back afterwards, also when f raises.
+func compiler.for_file(path, f){
+  if(workspace_states == null or path == null){
+    return f()
+  }
+  local key = workspace_key(path)
+  local st = workspace_states[key]
+  local fresh = st == null
+  if(fresh){
+    st = new_state(key)
+    workspace_states[key] = st
+  }
+  if(current_state != null and current_state.key == key){
+    return f()
+  }
+  local was = use_state(st)
+  if(fresh and key != ""){
+    local r = pcall(compiler.load_project, key)
+    if(r[0] == "err"){
+      // a broken project file: its files are plain slang until it changes
+      st.root = new_grammar()
+      load_state(st)
+      explain("project ", key, " failed to load: ", r[1].message or r[1])
+    }
+  }
+  local r = pcall(f)
+  use_state(was)
+  if(r[0] == "err"){
+    raise(r[1])
+  }
+  return r[1]
+}
+
+// forget_project(path?: string)
+// Drops the workspace's state of the project file at path (all of them
+// without one): it is made anew from the file when next needed.
+func compiler.forget_project(path){
+  if(workspace_states == null){
+    return
+  }
+  workspace_dirs = {}
+  if(path == null){
+    if(current_state != null and current_state.key != null){
+      error("forget_project: a project is in effect")
+    }
+    workspace_states = {}
+    return
+  }
+  workspace_states[compiler.absolute_path(path)] = null
+}
+
 // the grammar of a dialect: the project's grammar plus the dialect's
 // extensions
 local func dialect_grammar(proj, suffix){

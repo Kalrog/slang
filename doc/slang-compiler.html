@@ -67,6 +67,9 @@ local h = compiler.highlight(source, &quot;main.slang&quot;, {symbols: true})</c
 <li><a href="#stub_path"><code>stub_path</code></a></li>
 <li><a href="#module_path"><code>module_path</code></a></li>
 <li><a href="#project"><code>project</code></a></li>
+<li><a href="#workspace"><code>workspace</code></a></li>
+<li><a href="#for_file"><code>for_file</code></a></li>
+<li><a href="#forget_project"><code>forget_project</code></a></li>
 <li><a href="#keywords"><code>keywords</code></a></li>
 <li><a href="#cache_root"><code>cache_root</code></a></li>
 <li><a href="#load_file"><code>load_file</code></a></li>
@@ -175,6 +178,19 @@ f()   // 42</code></pre>
 </div>
 <div class="def" id="project"><h3><code>compiler.project() -> <a href="#type-Project">Project</a>?</code></h3>
 <dl class="params"><dt>returns</dt><dd>the program's project in effect, or null</dd></dl>
+</div>
+<h2>workspaces</h2>
+<div class="def" id="workspace"><h3><code>compiler.workspace()</code></h3>
+<p>Keeps a compiler state per project from now on, for <a href="#for_file"><code>for_file</code></a>.</p>
+
+</div>
+<div class="def" id="for_file"><h3><code>compiler.for_file(path: string, f: function) -> any</code></h3>
+<p>What f() gives, run under the compiler state of path's project (made when first needed: the project file loaded into a fresh root grammar); without <a href="#workspace"><code>workspace</code></a>, f() as it is. The state in effect before comes back afterwards, also when f raises.</p>
+
+</div>
+<div class="def" id="forget_project"><h3><code>compiler.forget_project(path?: string)</code></h3>
+<p>Drops the workspace's state of the project file at path (all of them without one): it is made anew from the file when next needed.</p>
+
 </div>
 <div class="def" id="keywords"><h3><code>compiler.keywords(path: string) -> {string}</code></h3>
 <p>The words the grammar of a file at path reserves (its project's and dialect's extensions included), sorted. For a compile dialect, the root grammar's.</p>

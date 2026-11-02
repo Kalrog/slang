@@ -21,7 +21,8 @@
 //   mtime?: int, encoding?: string, path?: string}
 // [size]: the file's length
 // [stored_size]: what the bundle holds; smaller when gzipped
-// [mtime]: the source file's modification time at build time, in seconds
+// [mtime]: the source file's modification time at build time, in
+//   milliseconds
 // [encoding]: "gzip", or null when stored as it is
 // [path]: where the file is on disk, for one kept next to the executable
 

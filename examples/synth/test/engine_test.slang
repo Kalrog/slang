@@ -78,7 +78,7 @@ t.group("engine"){
     s.events:send({on: 48})
     local t0 = time.clock()
     render(s, 1.0)
-    local ns = (time.clock() - t0) / 48000 * 1e9
+    local ns = (time.clock() - t0) / 48000 * 1e6
     print(concat("    engine: ", to_int(ns), " ns per sample, ", to_int(ns * 48000 / 1e7), "% of a core at 48 kHz\n"))
   }
 }

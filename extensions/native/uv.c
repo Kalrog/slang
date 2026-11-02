@@ -1119,8 +1119,9 @@ static void fs_work(void *data) {
     uv_fs_req_cleanup(&r);
 }
 
-static double timespec_seconds(uv_timespec_t t) {
-    return (double)t.tv_sec + (double)t.tv_nsec / 1e9;
+/* milliseconds since the epoch, as slang's times are */
+static double timespec_ms(uv_timespec_t t) {
+    return (double)t.tv_sec * 1000 + (double)t.tv_nsec / 1e6;
 }
 
 static const char *dirent_type(int t) {
@@ -1152,11 +1153,11 @@ static int fs_push(slang_State *S, void *data) {
         slang_setfield(S, -2, "size");
         slang_pushint(S, (int64_t)j->st.st_mode);
         slang_setfield(S, -2, "mode");
-        slang_pushdouble(S, timespec_seconds(j->st.st_mtim));
+        slang_pushdouble(S, timespec_ms(j->st.st_mtim));
         slang_setfield(S, -2, "mtime");
-        slang_pushdouble(S, timespec_seconds(j->st.st_atim));
+        slang_pushdouble(S, timespec_ms(j->st.st_atim));
         slang_setfield(S, -2, "atime");
-        slang_pushdouble(S, timespec_seconds(j->st.st_ctim));
+        slang_pushdouble(S, timespec_ms(j->st.st_ctim));
         slang_setfield(S, -2, "ctime");
         slang_pushbool(S, (j->st.st_mode & S_IFMT) == S_IFREG);
         slang_setfield(S, -2, "is_file");

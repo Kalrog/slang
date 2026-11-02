@@ -473,7 +473,7 @@ func m.getaddrinfo(host, port, family, cb){}
 
 // ------------------------------------------------------------ files
 
-// What [fs_stat] gives. The times are in seconds since the Unix epoch.
+// What [fs_stat] gives. The times are in milliseconds since the Unix epoch.
 // type FileStat = {size: int, mode: int, mtime: float, atime: float,
 //   ctime: float, is_file: bool, is_dir: bool}
 // [mode]: the file type and permission bits (st_mode)

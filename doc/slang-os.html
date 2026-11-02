@@ -70,6 +70,7 @@ print(r.stdout)</code></pre>
 <li><a href="#write_stderr"><code>write_stderr</code></a></li>
 <li><a href="#exit"><code>exit</code></a></li>
 <li><a href="#exec"><code>exec</code></a></li>
+<li><a href="#cpu_count"><code>cpu_count</code></a></li>
 <li><a href="#platform"><code>platform</code></a></li>
 <li><a href="#type-File"><code>type File</code></a></li>
 <li><a href="#File:read"><code>File:read</code></a></li>
@@ -170,6 +171,10 @@ print(r.stdout)</code></pre>
 <p>Runs a program (argv[0], looked up on the PATH) in cwd (the current directory by default) and waits for it. Raises when it cannot be started. Blocking, for tools; slang/async's exec does not block.</p>
 
 </div>
+<div class="def" id="cpu_count"><h3><code>os.cpu_count() -> int</code></h3>
+<p>How many CPUs the machine runs threads on: how many isolates that compute can run at once (1 where there are no threads).</p>
+
+</div>
 <div class="def" id="platform"><h3><code>os.platform() -> string</code></h3>
 <p>&quot;&lt;os&gt;-&lt;arch&gt;&quot; of the running slang, as Zig names them (&quot;macos-aarch64&quot;, &quot;linux-x86_64&quot;): where packages keep their prebuilt native modules (lib/&lt;platform&gt;/).</p>
 
@@ -210,9 +215,9 @@ print(r.stdout)</code></pre>
 
 </div>
 <h2 id="type-FileInfo">type FileInfo</h2>
-<pre><code>type FileInfo = {size: int, mtime: float, is_dir: bool, mode: int}</code></pre>
+<pre><code>type FileInfo = {size: int, mtime: int, is_dir: bool, mode: int}</code></pre>
 <p>What <a href="#stat"><code>stat</code></a> gives back.</p>
-<dl class="params"><dt><code>size: int</code></dt><dd>the length in bytes</dd><dt><code>mtime: float</code></dt><dd>when it was last modified, in seconds since the epoch</dd><dt><code>is_dir: bool</code></dt><dd></dd><dt><code>mode: int</code></dt><dd>the permission bits, like 0o644 (420)</dd></dl>
+<dl class="params"><dt><code>size: int</code></dt><dd>the length in bytes</dd><dt><code>mtime: int</code></dt><dd>when it was last modified, in milliseconds since the epoch</dd><dt><code>is_dir: bool</code></dt><dd></dd><dt><code>mode: int</code></dt><dd>the permission bits, like 0o644 (420)</dd></dl>
 <h2 id="type-ExecResult">type ExecResult</h2>
 <pre><code>type ExecResult = {status: int, stdout: string, stderr: string}</code></pre>
 <p>What <a href="#exec"><code>exec</code></a> gives back.</p>

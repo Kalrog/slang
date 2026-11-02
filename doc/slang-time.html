@@ -40,17 +40,22 @@ details.expanded summary { cursor: pointer; color: var(--muted); }
 <body>
 <nav><a href="index.html">index</a></nav>
 <h1>slang/time</h1>
-<p>slang/time: wall-clock time as seconds since the Unix epoch, in UTC, built into the VM.</p>
+<p>slang/time: wall-clock time as milliseconds since the Unix epoch, in UTC, built into the VM.</p>
 <pre><code>local time = require(&quot;slang/time&quot;)
 local t = time.now()
 time.iso(t)                          // &quot;2026-10-31T17:30:52.123Z&quot;
 time.utc(t).year                     // 2026
-time.from_utc({year: 2026, month: 1, day: 1})   // 1767225600
-time.parse_http_date(&quot;Sun, 06 Nov 1994 08:49:37 GMT&quot;)   // 784111777</code></pre>
-<p>A time is a number of seconds: an int, or a double with a fraction of a second. There are no local time zones. Functions taking a time raise an error when it is out of range (beyond the year 9999).</p>
+time.from_utc({year: 2026, month: 1, day: 1})   // 1767225600000
+time.parse_http_date(&quot;Sun, 06 Nov 1994 08:49:37 GMT&quot;)   // 784111777000
+time.sleep(1 * time.minute + 5 * time.second)</code></pre>
+<p>A time is a number of milliseconds since the epoch and a duration a number of milliseconds: an int, or a double with a fraction of a millisecond. The constants <a href="#second"><code>second</code></a>, <a href="#minute"><code>minute</code></a> and the like make durations read well. There are no local time zones. Functions taking a time raise an error when it is out of range (beyond the year 9999).</p>
 <ul class="toc">
+<li><a href="#microsecond"><code>microsecond</code></a></li>
+<li><a href="#millisecond"><code>millisecond</code></a></li>
+<li><a href="#second"><code>second</code></a></li>
+<li><a href="#minute"><code>minute</code></a></li>
+<li><a href="#hour"><code>hour</code></a></li>
 <li><a href="#now"><code>now</code></a></li>
-<li><a href="#now_ms"><code>now_ms</code></a></li>
 <li><a href="#clock"><code>clock</code></a></li>
 <li><a href="#sleep"><code>sleep</code></a></li>
 <li><a href="#utc"><code>utc</code></a></li>
@@ -61,23 +66,39 @@ time.parse_http_date(&quot;Sun, 06 Nov 1994 08:49:37 GMT&quot;)   // 784111777</
 <li><a href="#parse_iso"><code>parse_iso</code></a></li>
 <li><a href="#type-Fields"><code>type Fields</code></a></li>
 </ul>
-<div class="def" id="now"><h3><code>time.now() -> float</code></h3>
-<p>The current time in seconds, with millisecond precision.</p>
+<div class="def" id="microsecond"><h3><code>time.microsecond</code></h3>
+<p>A microsecond in milliseconds (0.001).</p>
 
 </div>
-<div class="def" id="now_ms"><h3><code>time.now_ms() -> int</code></h3>
-<p>The current time in milliseconds.</p>
+<div class="def" id="millisecond"><h3><code>time.millisecond</code></h3>
+<p>A millisecond: the unit (1).</p>
+
+</div>
+<div class="def" id="second"><h3><code>time.second</code></h3>
+<p>A second in milliseconds (1000).</p>
+
+</div>
+<div class="def" id="minute"><h3><code>time.minute</code></h3>
+<p>A minute in milliseconds (60000).</p>
+
+</div>
+<div class="def" id="hour"><h3><code>time.hour</code></h3>
+<p>An hour in milliseconds (3600000).</p>
+
+</div>
+<div class="def" id="now"><h3><code>time.now() -> float</code></h3>
+<p>The current time in milliseconds since the epoch (with a fraction).</p>
 
 </div>
 <div class="def" id="clock"><h3><code>time.clock() -> float</code></h3>
-<p>Seconds since the program started, from a monotonic clock: for measuring.</p>
+<p>Milliseconds since the program started, from a monotonic clock: for measuring.</p>
 <pre><code>local t0 = time.clock()
 work()
-print(str.format(&quot;%.1f ms\n&quot;, (time.clock() - t0) * 1000))</code></pre>
+print(str.format(&quot;%.1f ms\n&quot;, time.clock() - t0))</code></pre>
 
 </div>
-<div class="def" id="sleep"><h3><code>time.sleep(seconds: int | float)</code></h3>
-<p>Blocks the program for that long; slang/async's sleep does not block.</p>
+<div class="def" id="sleep"><h3><code>time.sleep(ms: int | float)</code></h3>
+<p>Blocks the program for that many milliseconds; slang/async's sleep does not block.</p>
 
 </div>
 <h2>calendar</h2>
@@ -86,12 +107,12 @@ print(str.format(&quot;%.1f ms\n&quot;, (time.clock() - t0) * 1000))</code></pre
 
 </div>
 <div class="def" id="from_utc"><h3><code>time.from_utc(fields: <a href="#type-Fields">Fields</a>) -> int | float</code></h3>
-<p>The time of the fields year, month, day, hour, minute, second and ms (an int, or a double when there is a fraction of a second); weekday and yday are ignored. year is required; month and day default to 1, the rest to 0. Fields normalize, so {year: 2026, month: 13, day: 1} is January 2027 and adding 30 to day moves 30 days on.</p>
+<p>The time of the fields year, month, day, hour, minute, second and ms (an int, or a double when there is a fraction of a millisecond); weekday and yday are ignored. year is required; month and day default to 1, the rest to 0. Fields normalize, so {year: 2026, month: 13, day: 1} is January 2027 and adding 30 to day moves 30 days on.</p>
 
 </div>
 <h2>formats</h2>
 <div class="def" id="http_date"><h3><code>time.http_date(t: int | float) -> string</code></h3>
-<p>t as an HTTP date, &quot;Sun, 06 Nov 1994 08:49:37 GMT&quot;.</p>
+<p>t as an HTTP date, &quot;Sun, 06 Nov 1994 08:49:37 GMT&quot; (whole seconds).</p>
 
 </div>
 <div class="def" id="parse_http_date"><h3><code>time.parse_http_date(s: string) -> int?</code></h3>
@@ -103,7 +124,7 @@ print(str.format(&quot;%.1f ms\n&quot;, (time.clock() - t0) * 1000))</code></pre
 
 </div>
 <div class="def" id="parse_iso"><h3><code>time.parse_iso(s: string) -> int | float | null</code></h3>
-<p>The time of an ISO 8601 date (a double when it has a fraction), or null. Accepts RFC 3339 and the common forms: a date alone, &quot;T&quot; or a space before the time, seconds and fraction optional, and &quot;Z&quot;, &quot;+hh:mm&quot;, &quot;+hhmm&quot;, &quot;+hh&quot; or nothing (UTC) for the zone.</p>
+<p>The time of an ISO 8601 date (a double when it has a fraction of a millisecond), or null. Accepts RFC 3339 and the common forms: a date alone, &quot;T&quot; or a space before the time, seconds and fraction optional, and &quot;Z&quot;, &quot;+hh:mm&quot;, &quot;+hhmm&quot;, &quot;+hh&quot; or nothing (UTC) for the zone.</p>
 
 </div>
 <h2 id="type-Fields">type Fields</h2>

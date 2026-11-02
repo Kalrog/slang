@@ -62,6 +62,7 @@ libc.div(17, 5)                      // {quot: 3, rem: 2}</code></pre>
 <li><a href="#address"><code>address</code></a></li>
 <li><a href="#value"><code>value</code></a></li>
 <li><a href="#load"><code>load</code></a></li>
+<li><a href="#c_layer"><code>c_layer</code></a></li>
 <li><a href="#bind"><code>bind</code></a></li>
 <li><a href="#callback"><code>callback</code></a></li>
 <li><a href="#gc"><code>gc</code></a></li>
@@ -122,6 +123,10 @@ libc.div(17, 5)                      // {quot: 3, rem: 2}</code></pre>
 <div class="def" id="load"><h3><code>ffi.load(name: string?, decls: <a href="#type-Decls">Decls</a>, options?: <a href="#type-LoadOptions">LoadOptions</a>) -> <a href="#type-Library">Library</a></code></h3>
 <p>Loads a C library with the declarations of its functions. A library name (&quot;raylib&quot;) is libraylib.dylib or .so in options.paths, slang's native search paths, /opt/homebrew/lib, /usr/local/lib, /usr/lib, then wherever the system finds it. Raises &quot;ffi.load: ...&quot; with what each attempt said when it cannot load it.</p>
 <dl class="params"><dt><code>name</code></dt><dd>a path (with a / or a .), a library name, or null for the program</dd></dl>
+</div>
+<div class="def" id="c_layer"><h3><code>ffi.c_layer(lib: <a href="#type-Library">Library</a>, type_name?: string) -> table</code></h3>
+<p>The library under C's own names, for a package's <code>.c</code>: its functions (lib.Name) and the constants of its declarations (enum values, macros), so that whoever knows the C API can use it as written: <code>rl.c.DrawText(&quot;hi&quot;, 10, 10, 20, rl.c.RED)</code>. Functions bind on first use.</p>
+
 </div>
 <div class="def" id="bind"><h3><code>ffi.bind(lib: <a href="#type-Library">Library</a>, f: <a href="#type-FunctionDecl">FunctionDecl</a>, name?: string) -> function</code></h3>
 <p>The slang function calling the C function f declares (from decls.functions), bound to lib; lib.Name does the same for a declared name. Raises when the library lacks the symbol or a parameter's type cannot cross.</p>

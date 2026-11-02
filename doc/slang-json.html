@@ -55,7 +55,7 @@ print(json.encode({ok: true, items: {1, 2}}), &quot;\n&quot;) // {&quot;ok&quot;
 </ul>
 <h2>decoding</h2>
 <div class="def" id="decode"><h3><code>json.decode(text: string, origin?: string) -> any</code></h3>
-<p>The value of the JSON text. Raises &quot;invalid JSON in &lt;origin&gt; at line:col: ...&quot; on malformed input. Decoded arrays carry the <a href="#array"><code>array</code></a> mark, so they encode as arrays again even when empty.</p>
+<p>The value of the JSON text. Raises &quot;json: invalid JSON in &lt;origin&gt; at line:col: ...&quot; on malformed input. Decoded arrays carry the <a href="#array"><code>array</code></a> mark, so they encode as arrays again even when empty.</p>
 <dl class="params"><dt><code>origin</code></dt><dd>names the text in error messages (&quot;string&quot; by default)</dd></dl>
 </div>
 <h2>encoding</h2>

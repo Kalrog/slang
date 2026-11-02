@@ -19,12 +19,12 @@ t.group("isolates"){
     assert(isolate.available())
     local w = isolate.spawn(func(a, b){ return a + b }, 2, 3)
     assert(w:join() == 5)
-    assert(not w:is_running())
+    assert(not w.running)
     // a result can be joined again
     assert(w:join() == 5)
     assert(isolate.id() == 0)
     local inner = isolate.spawn(func(){ return require("slang/isolate").id() })
-    assert(inner:join() == inner:id())
+    assert(inner:join() == inner.id)
   }
 
   t.test("an isolate finds modules where its caller does: paths and packages"){
@@ -99,7 +99,7 @@ t.group("isolates"){
     raises(func(){ ch:send(null) }, "cannot send null")
     raises(func(){ ch:send(require("slang/thread").create(func(){})) }, "coroutine")
     raises(func(){ ch:send({b: require("slang/buffer").new("uint8_t", 4)}) }, "only buffer.shared")
-    assert(ch:len() == 0)
+    assert(ch.len == 0)
   }
 
   t.test("an error reaches join with its traceback"){
@@ -121,12 +121,12 @@ t.group("isolates"){
 
   t.test("try_send, try_receive and capacity"){
     local ch = isolate.channel({capacity: 2})
-    assert(ch:capacity() == 2)
-    assert(isolate.channel():capacity() == null)
+    assert(ch.capacity == 2)
+    assert(isolate.channel().capacity == null)
     assert(ch:try_receive() == null)
     assert(ch:try_send(1) and ch:try_send(2))
     assert(not ch:try_send(3))
-    assert(ch:len() == 2)
+    assert(ch.len == 2)
     assert(ch:try_receive() == 1)
     // a full channel blocks the sender until a receiver makes room
     ch:send(3)
@@ -145,7 +145,7 @@ t.group("isolates"){
     local ch = isolate.channel()
     ch:send("last")
     ch:close()
-    assert(ch:is_closed())
+    assert(ch.closed)
     raises(func(){ ch:send(1) }, "closed")
     assert(ch:receive() == "last")
     assert(ch:receive() == null)
@@ -174,7 +174,7 @@ t.group("isolates"){
   t.test("kill"){
     local busy = isolate.spawn(func(){ for(true){ } })
     busy:kill()
-    assert(not busy:is_running())
+    assert(not busy.running)
     assert(busy:join() == null)
     // a receive that waits is woken; try/catch cannot keep it alive
     local blocked = isolate.spawn(func(ch){
@@ -195,7 +195,7 @@ t.group("isolates"){
     local n = 1000
     local half = 500
     local b = buffer.shared("int32", n)
-    assert(b:is_shared() and not buffer.new("int32", 1):is_shared())
+    assert(b.shared and not buffer.new("int32", 1).shared)
     local func fill(part, from){
       for(local i = 0; i < len(part); i = i + 1){
         part[i] = from + i

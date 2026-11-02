@@ -31,9 +31,9 @@ local app = web.app()
 // every request is logged with its status and how long it took (an error
 // in a handler arrives here as the 500 slang/web made of it)
 app:use(func(req, next){
-  local t0 = time.now_ms()
+  local t0 = time.now()
   local res = next(req)
-  log.record(req, res.status, time.now_ms() - t0)
+  log.record(req, res.status, time.now() - t0)
   return res
 })
 

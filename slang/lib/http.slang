@@ -813,7 +813,7 @@ local func check_cookie_part(what, s){
 //   expires?: int, http_only?: bool, secure?: bool, same_site?: string}
 // [path]: "/" by default
 // [max_age]: seconds until it expires
-// [expires]: when it expires, in seconds since the epoch
+// [expires]: when it expires, in milliseconds since the epoch (time.now())
 // [http_only]: true by default: scripts cannot read it
 // [secure]: HTTPS only; set anyway when same_site is "None"
 // [same_site]: "Lax" (the default), "Strict" or "None"

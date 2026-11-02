@@ -17,7 +17,7 @@
  *   crypto.private_key(pem, [passphrase]), crypto.public_key(pem),
  *   crypto.generate_key("rsa", bits | "ec", curve | "ed25519") -> key
  *   key:sign(digest, data, [options]), key:verify(digest, data, signature,
- *   [options]), key:type(), key:bits(), key:is_private(), key:public_pem(),
+ *   [options]), key.type, key.bits, key.private, key:public_pem(),
  *   key:private_pem(), key:public_key()
  *
  * Digests are OpenSSL names ("sha1", "sha256", "sha384", "sha512",

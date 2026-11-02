@@ -597,7 +597,7 @@ uv.run()</code></pre>
 <dl class="params"><dt><code>status: int</code></dt><dd>the exit code</dd><dt><code>signal?: string | int</code></dt><dd>the signal that ended it (a name, or the number when it has none here); null when it exited</dd></dl>
 <h2 id="type-FileStat">type FileStat</h2>
 <pre><code>type FileStat = {size: int, mode: int, mtime: float, atime: float, ctime: float, is_file: bool, is_dir: bool}</code></pre>
-<p>What <a href="#fs_stat"><code>fs_stat</code></a> gives. The times are in seconds since the Unix epoch.</p>
+<p>What <a href="#fs_stat"><code>fs_stat</code></a> gives. The times are in milliseconds since the Unix epoch.</p>
 <dl class="params"><dt><code>size: int</code></dt><dd></dd><dt><code>mode: int</code></dt><dd>the file type and permission bits (st_mode)</dd><dt><code>mtime: float</code></dt><dd></dd><dt><code>atime: float</code></dt><dd></dd><dt><code>ctime: float</code></dt><dd></dd><dt><code>is_file: bool</code></dt><dd></dd><dt><code>is_dir: bool</code></dt><dd></dd></dl>
 <h2 id="type-DirEntry">type DirEntry</h2>
 <pre><code>type DirEntry = {name: string, type: string}</code></pre>

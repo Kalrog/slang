@@ -22,6 +22,9 @@ local m = {}
 // A compiled pattern, from [compile]; type() of it is "regex", and
 // string(re) is "regex(<pattern>)".
 // type Regex
+// [pattern]: the source of the pattern
+// [group_names]: the name of each group by number: index 0 (the whole
+//   match) and unnamed groups are ""
 local regex_methods = {}
 local regex_meta = {__index: regex_methods, __type: "regex"}
 
@@ -78,13 +81,5 @@ func regex_methods.replace(self, s, repl, n){}
 // last one the rest of s.
 func regex_methods.split(self, s, n){}
 
-// pattern() -> string
-// The source of the pattern.
-func regex_methods.pattern(self){}
-
-// group_names() -> {string}
-// The name of each group by number: index 0 (the whole match) and unnamed
-// groups are "".
-func regex_methods.group_names(self){}
 
 return m

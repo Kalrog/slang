@@ -3,7 +3,7 @@ local t = require("slang/test")
 local os = require("slang/os")
 local time = require("slang/time")
 
-local dir = concat(os.temp_dir(), "/slang-os-test-", string(time.now_ms()))
+local dir = concat(os.temp_dir(), "/slang-os-test-", string(to_int(time.now())))
 
 t.group("os"){
   t.setup(func(){

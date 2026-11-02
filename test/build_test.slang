@@ -22,7 +22,7 @@ t.group("build: requires"){
 
 local slang = os.executable()
 local scratch = concat(
-  os.getenv("TMPDIR") or "/tmp/", "/slang-build-test-", string(time.now_ms())
+  os.getenv("TMPDIR") or "/tmp/", "/slang-build-test-", string(to_int(time.now()))
 )
 
 local func sh(command, dir){

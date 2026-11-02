@@ -113,7 +113,8 @@ fn setDiskPath(vm: *VM, t: *Table, e: format.Entry) Error!void {
 
 /// stat(path): {is_file, is_dir, size, stored_size, mtime, encoding, path}
 /// of a bundled file or directory, or null. size is the file's own length,
-/// stored_size what the bundle holds; mtime is the source file's (seconds)
+/// stored_size what the bundle holds; mtime is the source file's
+/// (milliseconds)
 /// at build time; path is set for a file kept next to the executable.
 fn bStat(th: *Thread, args: []Value) Error!Value {
     const vm = th.vm;
@@ -129,7 +130,7 @@ fn bStat(th: *Thread, args: []Value) Error!Value {
             t.set(vm.gpa, vm.str("is_dir"), .{ .bool = false });
             t.set(vm.gpa, vm.str("size"), .{ .int = @intCast(e.raw_len) });
             t.set(vm.gpa, vm.str("stored_size"), .{ .int = @intCast(e.data.len) });
-            t.set(vm.gpa, vm.str("mtime"), .{ .int = e.mtime });
+            t.set(vm.gpa, vm.str("mtime"), .{ .int = @as(i64, e.mtime) * 1000 });
             t.set(vm.gpa, vm.str("encoding"), encodingValue(vm, e));
             if (e.external()) try setDiskPath(vm, t, e);
         },

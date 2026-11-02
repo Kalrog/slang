@@ -93,9 +93,6 @@ async.main(func(){
 <li><a href="#Stream:next"><code>Stream:next</code></a></li>
 <li><a href="#Stream:listen"><code>Stream:listen</code></a></li>
 <li><a href="#Stream:collect"><code>Stream:collect</code></a></li>
-<li><a href="#Stream:next"><code>Stream:next</code></a></li>
-<li><a href="#Stream:collect"><code>Stream:collect</code></a></li>
-<li><a href="#Stream:listen"><code>Stream:listen</code></a></li>
 <li><a href="#type-Event"><code>type Event</code></a></li>
 <li><a href="#type-Controller"><code>type Controller</code></a></li>
 <li><a href="#type-Address"><code>type Address</code></a></li>
@@ -103,6 +100,10 @@ async.main(func(){
 <li><a href="#type-Stat"><code>type Stat</code></a></li>
 <li><a href="#type-DirEntry"><code>type DirEntry</code></a></li>
 <li><a href="#type-Process"><code>type Process</code></a></li>
+<li><a href="#type-async.Stream"><code>type async.Stream</code></a></li>
+<li><a href="#async.Stream:next"><code>async.Stream:next</code></a></li>
+<li><a href="#async.Stream:collect"><code>async.Stream:collect</code></a></li>
+<li><a href="#async.Stream:listen"><code>async.Stream:listen</code></a></li>
 </ul>
 <h2>futures</h2>
 <div class="def" id="completer"><h3><code>async.completer() -> <a href="#type-Completer">Completer</a></code></h3>
@@ -276,18 +277,6 @@ print(r.status, r.stdout)</code></pre>
 <p>A Future of the list of all the values; it fails with the stream's error.</p>
 
 </div>
-<div class="def" id="Stream:next"><h3><code>Stream:next() -> <a href="#type-Future">Future</a></code></h3>
-<p>Calls the source once and gives a Future of the next <a href="#type-Event"><code>Event</code></a>.</p>
-
-</div>
-<div class="def" id="Stream:collect"><h3><code>Stream:collect() -> <a href="#type-Future">Future</a></code></h3>
-<p>A Future of the list of all the values.</p>
-
-</div>
-<div class="def" id="Stream:listen"><h3><code>Stream:listen(cb: func(err: any, value: any)) -> <a href="#type-Stream">Stream</a></code></h3>
-<p>Reads the stream with a callback, as <a href="#Stream:listen"><code>Stream.listen</code></a> does.</p>
-
-</div>
 <h2 id="type-Event">type Event</h2>
 <pre><code>type Event = {value?: any, done?: bool}</code></pre>
 <p>What <a href="#Stream:next"><code>Stream.next</code></a> gives: {value: v}, or {done: true} at the end.</p>
@@ -306,7 +295,7 @@ print(r.status, r.stdout)</code></pre>
 <dl class="params"><dt><code>server: any</code></dt><dd>the uv.tcp handle (server:getsockname().port is the port)</dd><dt><code>connections: <a href="#type-Stream">Stream</a></code></dt><dd>the accepted connections, as uv.tcp handles</dd><dt><code>close: func()</code></dt><dd>stops listening and ends connections</dd></dl>
 <h2 id="type-Stat">type Stat</h2>
 <pre><code>type Stat = {size: int, mode: int, mtime: float, atime: float, ctime: float, is_file: bool, is_dir: bool}</code></pre>
-<p>What fs.stat gives; times are seconds since the epoch.</p>
+<p>What fs.stat gives; times are milliseconds since the epoch.</p>
 <dl class="params"><dt><code>size: int</code></dt><dd></dd><dt><code>mode: int</code></dt><dd></dd><dt><code>mtime: float</code></dt><dd></dd><dt><code>atime: float</code></dt><dd></dd><dt><code>ctime: float</code></dt><dd></dd><dt><code>is_file: bool</code></dt><dd></dd><dt><code>is_dir: bool</code></dt><dd></dd></dl>
 <h2 id="type-DirEntry">type DirEntry</h2>
 <pre><code>type DirEntry = {name: string, type: string}</code></pre>
@@ -316,6 +305,20 @@ print(r.status, r.stdout)</code></pre>
 <pre><code>type Process = {process: any, pid: int, stdin?: any, stdout?: any, stderr?: any, pipes: {[int]: any}, exit: <a href="#type-Future">Future</a>, kill: func(sig?: string | int)}</code></pre>
 <p>A started program.</p>
 <dl class="params"><dt><code>process: any</code></dt><dd>the uv.process handle</dd><dt><code>pid: int</code></dt><dd></dd><dt><code>stdin?: any</code></dt><dd>the uv.pipe for fd 0 when stdio has &quot;pipe&quot; there</dd><dt><code>stdout?: any</code></dt><dd>the uv.pipe for fd 1, likewise</dd><dt><code>stderr?: any</code></dt><dd>the uv.pipe for fd 2, likewise</dd><dt><code>pipes: {[int]: any}</code></dt><dd>every pipe stdio asked for, by fd</dd><dt><code>exit: <a href="#type-Future">Future</a></code></dt><dd>{status, signal} when it ends (signal when a signal ended it)</dd><dt><code>kill: func(sig?: string | int)</code></dt><dd>sends a signal, a number or a name (&quot;SIGTERM&quot; by default)</dd></dl>
+<h2 id="type-async.Stream">type async.Stream</h2>
+
+<div class="def" id="async.Stream:next"><h3><code>async.Stream:next() -> <a href="#type-Future">Future</a></code></h3>
+<p>Calls the source once and gives a Future of the next <a href="#type-Event"><code>Event</code></a>.</p>
+
+</div>
+<div class="def" id="async.Stream:collect"><h3><code>async.Stream:collect() -> <a href="#type-Future">Future</a></code></h3>
+<p>A Future of the list of all the values.</p>
+
+</div>
+<div class="def" id="async.Stream:listen"><h3><code>async.Stream:listen(cb: func(err: any, value: any)) -> <a href="#type-Stream">Stream</a></code></h3>
+<p>Reads the stream with a callback, as <a href="#Stream:listen"><code>Stream.listen</code></a> does.</p>
+
+</div>
 <p class="muted">slang/lib/async.slang</p>
 </body>
 </html>

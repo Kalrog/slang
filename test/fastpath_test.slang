@@ -176,7 +176,7 @@ t.group("buffer elements"){
   t.test("methods and the length still work"){
     local b = buffer.new("int32", 4)
     b:fill(7)
-    assert(len(b) == 4 and b[3] == 7 and b:size() == 16)
+    assert(len(b) == 4 and b[3] == 7 and b.size == 16)
   }
 }
 

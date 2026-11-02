@@ -155,7 +155,7 @@ t.group("raylib/stream"){
         out:fill(0.0)
       }
     })
-    time.sleep(0.3)
+    time.sleep(300)
     local r = pcall(func(){ return player:stats() })
     local stopped = pcall(func(){ player:stop() })
     if(r[0] == "err"){

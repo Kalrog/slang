@@ -50,7 +50,7 @@ local func record_part(file, k, rate, block_size, out, stem_path){
     out:set(tmp, at)
   }
   require("wav").write(stem_path, {out}, rate)
-  return time.clock() - t0
+  return (time.clock() - t0) / 1000
 }
 
 // frames from..to-1 of every stem, panned and scaled, summed into left
@@ -176,7 +176,7 @@ for(let local p in values(parts)){
 }
 local left = buffer.shared("float", frames)
 local right = buffer.shared("float", frames)
-local slices = isolate.cpu_count()
+local slices = os.cpu_count()
 local size = to_int(frames / slices) + 1
 local mixers = {}
 for(local s = 0; s < slices; s = s + 1){
@@ -229,5 +229,5 @@ local mix_path = path.join(out_dir, concat(name, "-mix.wav"))
 wav.write(mix_path, {left, right}, RATE, 0.89 / peak)
 print(concat(
   "mix: ", mix_path, " (", to_int(frames / RATE), " s), all in ",
-  math.round((time.clock() - t0) * 10) / 10, " s\n"
+  math.round((time.clock() - t0) / 100) / 10, " s\n"
 ))

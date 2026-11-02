@@ -44,7 +44,7 @@ details.expanded summary { cursor: pointer; color: var(--muted); }
 <pre><code>local async = require(&quot;slang/async&quot;)
 local ws = require(&quot;slang/ws&quot;)
 async.main(func(){
-  local socket = async.await(ws.connect(&quot;127.0.0.1&quot;, 8080, &quot;/live&quot;))
+  local socket = async.await(ws.connect(&quot;ws://127.0.0.1:8080/live&quot;))
   async.await(socket:send(&quot;hello&quot;))
   local m = async.await(socket.messages:next())
   if(not m.done){ print(m.value, &quot;\n&quot;) }
@@ -57,7 +57,6 @@ async.main(func(){
 <li><a href="#accept"><code>accept</code></a></li>
 <li><a href="#connect"><code>connect</code></a></li>
 <li><a href="#type-WebSocket"><code>type WebSocket</code></a></li>
-<li><a href="#WebSocket:is_open"><code>WebSocket:is_open</code></a></li>
 <li><a href="#WebSocket:send"><code>WebSocket:send</code></a></li>
 <li><a href="#WebSocket:send_binary"><code>WebSocket:send_binary</code></a></li>
 <li><a href="#WebSocket:ping"><code>WebSocket:ping</code></a></li>
@@ -74,16 +73,12 @@ async.main(func(){
 <p>Completes the handshake of an upgrade request and gives the server side of the WebSocket. A request that is not a WebSocket handshake (GET, version 13, with a key) gets a 400 and accept raises.</p>
 <dl class="params"><dt><code>req</code></dt><dd>the slang/http request</dd><dt><code>conn</code></dt><dd>the connection on_upgrade handed over</dd><dt><code>rest</code></dt><dd>the bytes read past the request head</dd></dl>
 </div>
-<div class="def" id="connect"><h3><code>ws.connect(host: string, port: int, path?: string, options?: <a href="#type-Options">Options</a>) -> <a href="slang-async.html#type-Future">async.Future</a></code></h3>
-<p>Opens a WebSocket to host:port at path (&quot;/&quot;): a Future of the client side <a href="#type-WebSocket"><code>WebSocket</code></a>. It fails when the server does not accept the handshake.</p>
+<div class="def" id="connect"><h3><code>ws.connect(url: string, options?: <a href="#type-Options">Options</a>) -> <a href="slang-async.html#type-Future">async.Future</a></code></h3>
+<p>Opens a WebSocket to a ws:// or wss:// URL: a Future of the client side <a href="#type-WebSocket"><code>WebSocket</code></a>; wss uses TLS (options.tls adds slang/tls's connect options). It fails when the server does not accept the handshake. connect(host, port, path?, options?) works too.</p>
 
 </div>
 <h2 id="type-WebSocket">type WebSocket</h2>
 <p>An open WebSocket connection. Its fields: messages, an async.Stream of the messages received (strings, text and binary alike) that ends when the connection does; closed, an async.Future of the <a href="#type-CloseInfo"><code>CloseInfo</code></a> once the connection is gone. A program may set on_pong, a function called with the data of each pong (see <a href="#WebSocket:ping"><code>WebSocket.ping</code></a>).</p>
-<div class="def" id="WebSocket:is_open"><h3><code>WebSocket:is_open() -> bool</code></h3>
-<p>Whether messages can still be sent: false once a close has begun.</p>
-
-</div>
 <div class="def" id="WebSocket:send"><h3><code>WebSocket:send(text: string) -> <a href="slang-async.html#type-Future">async.Future</a></code></h3>
 <p>Sends a text message; completes when it is written. Fails when the socket is not open.</p>
 

@@ -30,7 +30,7 @@ t.group("packages: versions"){
 
 local slang = compiler.absolute_path("bin/slang")
 local scratch = concat(
-  os.getenv("TMPDIR") or "/tmp/", "/slang-pkg-test-", string(time.now_ms())
+  os.getenv("TMPDIR") or "/tmp/", "/slang-pkg-test-", string(to_int(time.now()))
 )
 
 local func sh(command, dir){

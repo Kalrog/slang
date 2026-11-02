@@ -803,30 +803,32 @@ fn argIsolate(th: *Thread, args: []Value, i: usize) Error!*Isolate {
 
 pub fn module(vm: *VM) *Table {
     const cm = vm.newTable(0, 3);
-    cm.set(vm.gpa, vm.str("__index"), .{ .table = stdlib.makeModule(vm, &.{
+    stdlib.setClass(vm, cm, &.{
         .{ .name = "send", .f = chSend },
         .{ .name = "receive", .f = chReceive },
         .{ .name = "try_send", .f = chTrySend },
         .{ .name = "try_receive", .f = chTryReceive },
         .{ .name = "close", .f = chClose },
-        .{ .name = "is_closed", .f = chIsClosed },
-        .{ .name = "len", .f = chLen },
-        .{ .name = "capacity", .f = chCapacity },
         .{ .name = "watch", .f = chWatch },
         .{ .name = "unwatch", .f = chUnwatch },
-    }) });
+    }, &.{
+        .{ .name = "closed", .get = chIsClosed },
+        .{ .name = "len", .get = chLen },
+        .{ .name = "capacity", .get = chCapacity },
+    });
     cm.set(vm.gpa, vm.str("__eq"), vm.nativeValue("channel.__eq", handleEq));
     cm.set(vm.gpa, vm.str("__type"), vm.str(channel_tname));
     vm.lib.channel_meta = cm;
     vm.registry.set(vm.gpa, vm.str("isolate_channel_meta"), .{ .table = cm });
 
     const im = vm.newTable(0, 3);
-    im.set(vm.gpa, vm.str("__index"), .{ .table = stdlib.makeModule(vm, &.{
+    stdlib.setClass(vm, im, &.{
         .{ .name = "join", .f = isoJoin },
         .{ .name = "kill", .f = isoKill },
-        .{ .name = "is_running", .f = isoIsRunning },
-        .{ .name = "id", .f = isoHandleId },
-    }) });
+    }, &.{
+        .{ .name = "running", .get = isoIsRunning },
+        .{ .name = "id", .get = isoHandleId },
+    });
     im.set(vm.gpa, vm.str("__eq"), vm.nativeValue("isolate.__eq", handleEq));
     im.set(vm.gpa, vm.str("__type"), vm.str(isolate_tname));
     vm.lib.isolate_meta = im;
@@ -838,7 +840,6 @@ pub fn module(vm: *VM) *Table {
         .{ .name = "channel", .f = isoChannel },
         .{ .name = "each", .f = isoEach },
         .{ .name = "id", .f = isoId },
-        .{ .name = "cpu_count", .f = isoCpuCount },
     });
 }
 
@@ -866,7 +867,8 @@ fn isoId(th: *Thread, args: []Value) Error!Value {
 }
 
 /// cpu_count() -> int: how many CPUs run threads (1 without threads).
-fn isoCpuCount(th: *Thread, args: []Value) Error!Value {
+/// os.cpu_count(): how many CPUs threads run on (1 without threads).
+pub fn isoCpuCount(th: *Thread, args: []Value) Error!Value {
     _ = th;
     _ = args;
     if (!supported) return .{ .int = 1 };

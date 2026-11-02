@@ -43,15 +43,16 @@ details.expanded summary { cursor: pointer; color: var(--muted); }
 <p>slang/sqlite: SQLite with an API that reads well, on the native <code>sqlite</code> extension. The sql{ ... } literals of extensions/sqlite make the queries; plain SQL text with a list of values works as well.</p>
 <pre><code>local db = sqlite.open(&quot;todos.db&quot;)            // or &quot;:memory:&quot;
 db:exec(&quot;create table if not exists todos(id integer primary key, text text, done boolean)&quot;)
-db:run(sql{ insert into todos(text, done) values ({text}, {false}) })  // {changes, last_id}
+db:run(sql{ insert into todos(text, done) values ({text}, {false}) })  // {changes, last_insert_rowid}
 db:all(sql{ select * from todos where done = {done} })  // rows, tables by column name
 db:one(sql{ select * from todos where id = {id} })      // a row or null
 for(let {id: local id, text: local text} in db:each(sql{ select id, text from todos })){ ... }
 db:transaction(func(){ ... })   // commits, or rolls back when the function raises
 db:all(&quot;select * from todos where id &gt; ?&quot;, {5})          // the same without the syntax
 db:close()</code></pre>
-<p>A query (<a href="#type-Query"><code>Query</code></a>) is SQL text with one ? per value, and the values. A value made with <a href="#list"><code>list</code></a> expands to ?, ?, ... and a value that is itself a query is spliced in with its parameters, so fragments compose safely. Values are null, bools (stored as 0/1), ints, doubles and strings; a column declared boolean reads back as true/false. Prepared statements are cached per database by text. Errors raise &quot;sqlite: ...&quot; naming the literal: &quot;sqlite: no such table: todo (at views.slang:12)&quot;.</p>
+<p>A query (<a href="#type-Query"><code>Query</code></a>) is SQL text with one ? per value, and the values. A value made with <a href="#list"><code>list</code></a> expands to ?, ?, ... and a value that is itself a query is spliced in with its parameters, so fragments compose safely. Values are null, bools (stored as 0/1), ints, doubles and strings; a column declared boolean reads back as true/false. Prepared statements are cached per database by text. Errors raise &quot;sqlite: ...&quot; naming the literal: &quot;sqlite: no such table: todo (at views.slang:12)&quot;. <a href="#c"><code>c</code></a> is the native extension under it, for SQLite's statements one by one.</p>
 <ul class="toc">
+<li><a href="#c"><code>c</code></a></li>
 <li><a href="#version"><code>version</code></a></li>
 <li><a href="#list"><code>list</code></a></li>
 <li><a href="#query"><code>query</code></a></li>
@@ -71,6 +72,10 @@ db:close()</code></pre>
 <li><a href="#Database:transaction"><code>Database:transaction</code></a></li>
 <li><a href="#Database:close"><code>Database:close</code></a></li>
 </ul>
+<div class="def" id="c"><h3><code>sqlite.c</code></h3>
+<p>The native extension under this module: open(path) -&gt; a connection with exec, prepare, changes, last_insert_rowid; statements with bind, step, row, reset, finalize.</p>
+
+</div>
 <div class="def" id="version"><h3><code>sqlite.version() -> string</code></h3>
 <p>The version of the SQLite library.</p>
 
@@ -98,9 +103,9 @@ db:close()</code></pre>
 <pre><code>type Row = {[string]: any}</code></pre>
 <p>A row: its values by column name.</p>
 <h2 id="type-RunResult">type RunResult</h2>
-<pre><code>type RunResult = {changes: int, last_id: int}</code></pre>
+<pre><code>type RunResult = {changes: int, last_insert_rowid: int}</code></pre>
 <p>What <a href="#Database:run"><code>Database.run</code></a> tells about a statement that changed rows.</p>
-<dl class="params"><dt><code>changes: int</code></dt><dd>the number of rows inserted, updated or deleted</dd><dt><code>last_id: int</code></dt><dd>the rowid of the last inserted row</dd></dl>
+<dl class="params"><dt><code>changes: int</code></dt><dd>the number of rows inserted, updated or deleted</dd><dt><code>last_insert_rowid: int</code></dt><dd>the rowid of the last inserted row</dd></dl>
 <h2 id="type-Database">type Database</h2>
 <p>An open database, from <a href="#open"><code>open</code></a>.</p>
 <div class="def" id="Database:all"><h3><code>Database:all(q: <a href="#type-Query">Query</a> | string, values?: {any}) -> {<a href="#type-Row">Row</a>}</code></h3>

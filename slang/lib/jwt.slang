@@ -108,7 +108,8 @@ local func algorithm(alg, key){
 local func b64(s){ return encoding.base64url.encode(s) }
 
 local func now(options){
-  return options.now or to_int(time.now())
+  // JWT times are seconds
+  return options.now or to_int(time.now() / 1000)
 }
 
 // sign(claims: Claims, key: string | crypto.Key,

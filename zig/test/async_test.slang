@@ -338,7 +338,7 @@ t.group("uncaught errors"){
     local w = isolate.spawn(func(ch){
       local time = require("slang/time")
       for(local i = 1; i <= 3; i = i + 1){
-        time.sleep(0.01)
+        time.sleep(10)
         ch:send(i)
       }
       ch:close()
@@ -433,7 +433,7 @@ t.group("async in isolates"){
     local t0 = time.clock()
     w:kill()
     assert(w:join() == null)
-    assert(time.clock() - t0 < 5)
+    assert(time.clock() - t0 < 5000)
   }
 
   t.test("what an isolate leaves open closes with it; channels it watched stay usable"){

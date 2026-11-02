@@ -372,14 +372,14 @@ func async.sleep(ms){
 // a uv async handle, which keeps the loop running while the receive waits.
 func async.receive(ch){
   local v = ch:try_receive()
-  if(v != null or ch:is_closed()){
+  if(v != null or ch.closed){
     return async.value(v)
   }
   local c = async.completer()
   local h = null
   h = loop_module().async(func(){
     local got = ch:try_receive()
-    if(got != null or ch:is_closed()){
+    if(got != null or ch.closed){
       ch:unwatch(h)
       h:close()
       c.complete(got)
@@ -870,7 +870,7 @@ async.fs = fs
 
 local bundle = require("slang/bundle")
 
-// What fs.stat gives; times are seconds since the epoch.
+// What fs.stat gives; times are milliseconds since the epoch.
 // type Stat = {size: int, mode: int, mtime: float, atime: float,
 //   ctime: float, is_file: bool, is_dir: bool}
 

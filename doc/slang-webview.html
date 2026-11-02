@@ -51,20 +51,21 @@ async.main(func(){
 <p>The page gets a global <code>slang</code> object: slang.call(name, ...args) returns a Promise of what the function bound as name returns, slang.send(value) passes value to <a href="#Window:on_message"><code>Window.on_message</code></a> handlers, and slang.on(f) registers f for the values <a href="#Window:send"><code>Window.send</code></a> pushes. Values cross as JSON.</p>
 <p>Opening a window makes slang/async's main loop wait on the window system and libuv together (async.set_driver), so servers, timers and files keep working while windows are open.</p>
 <ul class="toc">
+<li><a href="#window_count"><code>window_count</code></a></li>
 <li><a href="#window"><code>window</code></a></li>
 <li><a href="#type-Options"><code>type Options</code></a></li>
 <li><a href="#type-Window"><code>type Window</code></a></li>
-<li><a href="#Window:receive"><code>Window:receive</code></a></li>
 <li><a href="#Window:bind"><code>Window:bind</code></a></li>
 <li><a href="#Window:on_message"><code>Window:on_message</code></a></li>
 <li><a href="#Window:send"><code>Window:send</code></a></li>
 <li><a href="#Window:navigate"><code>Window:navigate</code></a></li>
-<li><a href="#Window:set_html"><code>Window:set_html</code></a></li>
 <li><a href="#Window:eval"><code>Window:eval</code></a></li>
-<li><a href="#Window:set_title"><code>Window:set_title</code></a></li>
 <li><a href="#Window:close"><code>Window:close</code></a></li>
-<li><a href="#Window:is_open"><code>Window:is_open</code></a></li>
 </ul>
+<div class="def" id="window_count"><h3><code>webview.window_count() -> int</code></h3>
+<p>How many windows are open.</p>
+
+</div>
 <div class="def" id="window"><h3><code>webview.window(options?: <a href="#type-Options">Options</a>) -> <a href="#type-Window">Window</a></code></h3>
 <p>Opens a window. Raises when the native webview module cannot be loaded (it exists only on macOS).</p>
 
@@ -75,10 +76,6 @@ async.main(func(){
 <dl class="params"><dt><code>title?: string</code></dt><dd>&quot;slang&quot; by default</dd><dt><code>width?: int</code></dt><dd>900 by default</dd><dt><code>height?: int</code></dt><dd>640 by default</dd><dt><code>resizable?: bool</code></dt><dd>true by default</dd><dt><code>debug?: bool</code></dt><dd>enables the Web Inspector</dd><dt><code>url?: string</code></dt><dd>a page to load</dd><dt><code>html?: string</code></dt><dd>markup to show</dd><dt><code>app?: any</code></dt><dd>a slang/web app, served to the window over app:// with no socket</dd><dt><code>path?: string</code></dt><dd>the first page of the app, &quot;/&quot; by default</dd></dl>
 <h2 id="type-Window">type Window</h2>
 <p>A window. Its field closed is an <a href="slang-async.html#type-Future"><code>async.Future</code></a> that completes (with null) when the window closes.</p>
-<div class="def" id="Window:receive"><h3><code>Window:receive(text: string)</code></h3>
-<p>Handles a raw message from the page: a call to answer or a value for the <a href="#Window:on_message"><code>Window.on_message</code></a> handlers. Used internally; text that is not a JSON object is ignored.</p>
-
-</div>
 <div class="def" id="Window:bind"><h3><code>Window:bind(name: string, f: function) -> <a href="#type-Window">Window</a></code></h3>
 <p>Makes the page's slang.call(name, ...args) call f(...args). The Promise resolves with f's result (f may return a Future, which is awaited) and rejects with the error message when f raises or nothing is bound as name. Returns the window, so calls chain.</p>
 
@@ -95,24 +92,12 @@ async.main(func(){
 <p>Loads url in the window.</p>
 
 </div>
-<div class="def" id="Window:set_html"><h3><code>Window:set_html(html: string)</code></h3>
-<p>Replaces the page with html.</p>
-
-</div>
 <div class="def" id="Window:eval"><h3><code>Window:eval(js: string)</code></h3>
 <p>Runs JavaScript in the page; its result is not returned.</p>
 
 </div>
-<div class="def" id="Window:set_title"><h3><code>Window:set_title(t: string)</code></h3>
-<p>Sets the window's title.</p>
-
-</div>
 <div class="def" id="Window:close"><h3><code>Window:close()</code></h3>
 <p>Closes the window; its closed future completes.</p>
-
-</div>
-<div class="def" id="Window:is_open"><h3><code>Window:is_open() -> bool</code></h3>
-<p>Whether the window is still open.</p>
 
 </div>
 <p class="muted">slang/lib/webview.slang</p>

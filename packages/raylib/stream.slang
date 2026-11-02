@@ -76,7 +76,8 @@ local func render_loop(setup, args, cfg, ring, state, timing, wake){
     }
     local t0 = time.clock()
     block(out, frames)
-    local dt = time.clock() - t0
+    // (seconds, as the load is a share of the audio time)
+    local dt = (time.clock() - t0) / 1000
     state:lock()
     local w = state[0]
     state:unlock()
@@ -141,8 +142,8 @@ local func pump_loop(cfg, ring, state, wake, ctl){
   })
   // start once the render isolate has filled the ring (or a second passed)
   local t0 = time.clock()
-  for(state[0] < cfg.latency - cfg.block and time.clock() - t0 < 1.0){
-    time.sleep(0.002)
+  for(state[0] < cfg.latency - cfg.block and time.clock() - t0 < 1000){
+    time.sleep(2)
   }
   rl.play_audio_stream(s)
   state[4] = 1
@@ -176,11 +177,11 @@ local player_methods = {}
 
 func player_methods.stats(player){
   local self = player.inner
-  if(not self.pump:is_running() and not self.stopped){
+  if(not self.pump.running and not self.stopped){
     // raises when there is no audio device
     self.pump:join()
   }
-  if(not self.render:is_running()){
+  if(not self.render.running){
     // raises the block function's error
     self.render:join()
   }

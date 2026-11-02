@@ -717,7 +717,7 @@ for(not rl.window_should_close() and not game.quit){
 }
 if(frame_limit != null and game.built != null){
   print("siege: ", frames, " frames, score ", game.built.w.score, ", ",
-    len(game.built.w.entities), " parts, ", to_int(frames / (time.clock() - started)),
+    len(game.built.w.entities), " parts, ", to_int(frames * 1000 / (time.clock() - started)),
     " frames/s\n")
 }
 destroy_built()

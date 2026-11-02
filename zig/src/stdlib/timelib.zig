@@ -39,9 +39,8 @@ pub fn module(vm: *VM) *Table {
     start_lock.lockUncancelable(vm.io);
     if (process_start == null) process_start = std.Io.Clock.now(.awake, vm.io);
     start_lock.unlock(vm.io);
-    return stdlib.makeModule(vm, &.{
+    const m = stdlib.makeModule(vm, &.{
         .{ .name = "now", .f = timeNow },
-        .{ .name = "now_ms", .f = timeNowMs },
         .{ .name = "clock", .f = timeClock },
         .{ .name = "sleep", .f = timeSleep },
         .{ .name = "utc", .f = timeUtc },
@@ -51,6 +50,13 @@ pub fn module(vm: *VM) *Table {
         .{ .name = "iso", .f = timeIso },
         .{ .name = "parse_iso", .f = timeParseIso },
     });
+    // durations are milliseconds: 5 * time.second
+    m.set(vm.gpa, vm.str("microsecond"), .{ .float = 0.001 });
+    m.set(vm.gpa, vm.str("millisecond"), .{ .int = 1 });
+    m.set(vm.gpa, vm.str("second"), .{ .int = 1000 });
+    m.set(vm.gpa, vm.str("minute"), .{ .int = 60_000 });
+    m.set(vm.gpa, vm.str("hour"), .{ .int = 3_600_000 });
+    return m;
 }
 
 // ------------------------------------------------------------ calendar
@@ -129,48 +135,45 @@ fn breakDown(t: f64) Broken {
     };
 }
 
-/// Seconds since the epoch, as an int when ms is 0.
-fn secondsValue(secs: i64, frac: f64) Value {
-    if (frac == 0) return .{ .int = secs };
-    return .{ .float = @as(f64, @floatFromInt(secs)) + frac };
+/// Milliseconds since the epoch from seconds and a fraction of one: an int
+/// when it is a whole number of milliseconds.
+fn msValue(secs: i64, frac: f64) Value {
+    const ms = frac * 1000;
+    if (ms == @round(ms)) return .{ .int = secs * 1000 + @as(i64, @intFromFloat(ms)) };
+    return .{ .float = @as(f64, @floatFromInt(secs)) * 1000 + ms };
 }
 
+/// A time argument (milliseconds since the epoch) as seconds.
 fn argTime(th: *Thread, args: []Value) Error!f64 {
     const t = try api.argNumber(th, args, 0, "t");
-    if (!std.math.isFinite(t) or @abs(t) > 253402300799) return th.vm.raise("time out of range: {d}", .{t});
-    return t;
+    if (!std.math.isFinite(t) or @abs(t) > 253402300799000) return th.vm.raise("time out of range: {d}", .{t});
+    return t / 1000;
 }
 
 // ------------------------------------------------------------ natives
 
+/// now(): milliseconds since the Unix epoch (with a fraction).
 fn timeNow(th: *Thread, args: []Value) Error!Value {
     _ = args;
     const now = std.Io.Clock.now(.real, th.vm.io);
-    const ms = @divFloor(now.nanoseconds, 1_000_000);
-    return .{ .float = @as(f64, @floatFromInt(ms)) / 1000 };
+    const us = @divFloor(now.nanoseconds, 1_000);
+    return .{ .float = @as(f64, @floatFromInt(us)) / 1000 };
 }
 
-/// now_ms(): milliseconds since the Unix epoch (int).
-pub fn timeNowMs(th: *Thread, args: []Value) Error!Value {
-    _ = args;
-    const now = std.Io.Clock.now(.real, th.vm.io);
-    return .{ .int = @intCast(@divTrunc(now.nanoseconds, 1_000_000)) };
-}
-
-/// clock(): seconds since the program started (monotonic, double).
+/// clock(): milliseconds since the program started (monotonic).
 pub fn timeClock(th: *Thread, args: []Value) Error!Value {
     _ = args;
     const now = std.Io.Clock.now(.awake, th.vm.io);
     const ns = process_start.?.durationTo(now).nanoseconds;
-    return .{ .float = @as(f64, @floatFromInt(ns)) / 1e9 };
+    return .{ .float = @as(f64, @floatFromInt(ns)) / 1e6 };
 }
 
-/// sleep(seconds): blocks the thread (slang/async's sleep does not).
+/// sleep(ms): blocks the thread (slang/async's sleep does not).
 fn timeSleep(th: *Thread, args: []Value) Error!Value {
-    const secs = try api.argNumber(th, args, 0, "seconds");
-    if (!(secs > 0)) return .null;
+    const ms = try api.argNumber(th, args, 0, "ms");
+    if (!(ms > 0)) return .null;
     th.vm.flush();
-    const ns: i96 = @intFromFloat(@min(secs, 1e9) * 1e9);
+    const ns: i96 = @intFromFloat(@min(ms, 1e12) * 1e6);
     std.Io.sleep(th.vm.io, .fromNanoseconds(ns), .awake) catch {};
     return .null;
 }
@@ -204,7 +207,7 @@ fn timeFromUtc(th: *Thread, args: []Value) Error!Value {
     const day_secs = (try field(th, t, "hour", 0)) * 3600 + (try field(th, t, "minute", 0)) * 60 +
         (try field(th, t, "second", 0)) + (try field(th, t, "ms", 0)) / 1000;
     const whole = @floor(day_secs);
-    return secondsValue(days * 86400 + @as(i64, @intFromFloat(whole)), day_secs - whole);
+    return msValue(days * 86400 + @as(i64, @intFromFloat(whole)), day_secs - whole);
 }
 
 const day_names = [_][]const u8{ "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
@@ -361,7 +364,7 @@ fn parseHttpDate(s: []const u8) ?i64 {
 
 fn timeParseHttpDate(th: *Thread, args: []Value) Error!Value {
     const s = try api.argString(th, args, 0, "str");
-    return if (parseHttpDate(s)) |t| .{ .int = t } else .null;
+    return if (parseHttpDate(s)) |t| .{ .int = t * 1000 } else .null;
 }
 
 const Iso = struct { secs: i64, frac: f64 };
@@ -418,5 +421,5 @@ fn parseIso(s: []const u8) ?Iso {
 fn timeParseIso(th: *Thread, args: []Value) Error!Value {
     const s = try api.argString(th, args, 0, "str");
     const r = parseIso(s) orelse return .null;
-    return secondsValue(r.secs, r.frac);
+    return msValue(r.secs, r.frac);
 }

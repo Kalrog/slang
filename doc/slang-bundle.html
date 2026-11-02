@@ -105,7 +105,7 @@ if(bundle.active()){
 <h2 id="type-Stat">type Stat</h2>
 <pre><code>type Stat = {is_file: bool, is_dir: bool, size?: int, stored_size?: int, mtime?: int, encoding?: string, path?: string}</code></pre>
 <p>A bundled file or directory, from <a href="#stat"><code>stat</code></a>. A directory has only is_file and is_dir.</p>
-<dl class="params"><dt><code>is_file: bool</code></dt><dd></dd><dt><code>is_dir: bool</code></dt><dd></dd><dt><code>size?: int</code></dt><dd>the file's length</dd><dt><code>stored_size?: int</code></dt><dd>what the bundle holds; smaller when gzipped</dd><dt><code>mtime?: int</code></dt><dd>the source file's modification time at build time, in seconds</dd><dt><code>encoding?: string</code></dt><dd>&quot;gzip&quot;, or null when stored as it is</dd><dt><code>path?: string</code></dt><dd>where the file is on disk, for one kept next to the executable</dd></dl>
+<dl class="params"><dt><code>is_file: bool</code></dt><dd></dd><dt><code>is_dir: bool</code></dt><dd></dd><dt><code>size?: int</code></dt><dd>the file's length</dd><dt><code>stored_size?: int</code></dt><dd>what the bundle holds; smaller when gzipped</dd><dt><code>mtime?: int</code></dt><dd>the source file's modification time at build time, in milliseconds</dd><dt><code>encoding?: string</code></dt><dd>&quot;gzip&quot;, or null when stored as it is</dd><dt><code>path?: string</code></dt><dd>where the file is on disk, for one kept next to the executable</dd></dl>
 <h2 id="type-Raw">type Raw</h2>
 <pre><code>type Raw = {data?: string, encoding?: string, path?: string}</code></pre>
 <p>A bundled file as stored, from <a href="#read_raw"><code>read_raw</code></a>: data and encoding, or path alone for a file kept next to the executable (slang build --dir).</p>

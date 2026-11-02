@@ -208,8 +208,6 @@ pub fn module(vm: *VM) *Table {
     vm.registry.set(vm.gpa, vm.str("ctypes_pointer_meta"), .{ .table = pm });
 
     const methods = stdlib.makeModule(vm, &.{
-        .{ .name = "size", .f = bufSize },
-        .{ .name = "type", .f = bufType },
         .{ .name = "slice", .f = bufSlice },
         .{ .name = "copy", .f = bufCopy },
         .{ .name = "fill", .f = bufFill },
@@ -219,7 +217,6 @@ pub fn module(vm: *VM) *Table {
         .{ .name = "to_string", .f = bufToString },
         .{ .name = "same", .f = bufSame },
         .{ .name = "pointer", .f = bufPointer },
-        .{ .name = "is_shared", .f = bufIsShared },
         .{ .name = "lock", .f = bufLock },
         .{ .name = "unlock", .f = bufUnlock },
     });
@@ -772,7 +769,14 @@ fn ctIsBuffer(th: *Thread, args: []Value) Error!Value {
 fn bufIndex(th: *Thread, args: []Value) Error!Value {
     const u = asBuffer(api.arg(args, 0)) orelse return .null;
     const key = api.arg(args, 1);
-    if (key == .string) return th.vm.lib.buffer_methods.?.get(key);
+    if (key == .string) {
+        // the properties: size (in bytes), type, shared
+        const name = key.string.bytes();
+        if (std.mem.eql(u8, name, "size")) return bufSize(th, args[0..1]);
+        if (std.mem.eql(u8, name, "type")) return bufType(th, args[0..1]);
+        if (std.mem.eql(u8, name, "shared")) return bufIsShared(th, args[0..1]);
+        return th.vm.lib.buffer_methods.?.get(key);
+    }
     const pl = (try place(th, u, key)) orelse return .null;
     return readPlace(th.vm, u, pl);
 }

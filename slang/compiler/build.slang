@@ -529,7 +529,7 @@ local func link_runtime(plan, natives){
   if(os.exists(out)){
     return out
   }
-  local tmp = concat(out, ".", string(time.now_ms()), ".tmp")
+  local tmp = concat(out, ".", string(to_int(time.now())), ".tmp")
   append(argv, "-o")
   append(argv, tmp)
   local r = os.exec(argv)

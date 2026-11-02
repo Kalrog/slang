@@ -49,8 +49,8 @@ local f = vm.load_proto(proto)</code></pre>
 <li><a href="#type-Prototype"><code>type Prototype</code></a></li>
 </ul>
 <h2>blocks, defer, try</h2>
-<div class="def" id="generate"><h3><code>codegen.generate(node: table, origin?: string, options?: {record?: table}) -> <a href="#type-Prototype">Prototype</a></code></h3>
-<p>Compiles an AST node (a chunk, usually) into the prototype of a function that runs it; it reaches globals through the upvalue _ENV. Raises on what cannot compile (break outside a loop, a variable declared twice, an unresolved unquote, ...). define, use and field methods (see record_local above and slang/symbols)</p>
+<div class="def" id="generate"><h3><code>codegen.generate(node: table, origin?: string, options?: {record?: table, core?: bool}) -> <a href="#type-Prototype">Prototype</a></code></h3>
+<p>Compiles an AST node (a chunk, usually) into the prototype of a function that runs it; it reaches globals through the upvalue _ENV. Raises on what cannot compile (break outside a loop, a variable declared twice, an unresolved unquote, ...). define, use and field methods (see record_local above and slang/symbols); core: true emits core instructions only, as for a VM without the fused profile (the default when vm.features() has no fused)</p>
 <dl class="params"><dt><code>origin</code></dt><dd>the name in locations and error messages; &quot;string&quot; by default</dd><dt><code>options</code></dt><dd>record, a recorder told of names as they are resolved, with</dd></dl>
 </div>
 <h2 id="type-Prototype">type Prototype</h2>

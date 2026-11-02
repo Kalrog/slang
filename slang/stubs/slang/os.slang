@@ -19,13 +19,14 @@ local m = {}
 // An open file, from [open]; type() of it is "file". It is closed when it
 // is collected.
 // type File
+// [name]: the path the file was opened with
 local file_methods = {}
 local file_meta = {__index: file_methods, __type: "file"}
 
 // What [stat] gives back.
-// type FileInfo = {size: int, mtime: float, is_dir: bool, mode: int}
+// type FileInfo = {size: int, mtime: int, is_dir: bool, mode: int}
 // [size]: the length in bytes
-// [mtime]: when it was last modified, in seconds since the epoch
+// [mtime]: when it was last modified, in milliseconds since the epoch
 // [mode]: the permission bits, like 0o644 (420)
 
 // ------------------------------------------------------------ files
@@ -178,6 +179,11 @@ func m.exit(code){}
 // directory by default) and waits for it. Raises when it cannot be
 // started. Blocking, for tools; slang/async's exec does not block.
 func m.exec(argv, cwd){}
+
+// cpu_count() -> int
+// How many CPUs the machine runs threads on: how many isolates that compute
+// can run at once (1 where there are no threads).
+func m.cpu_count(){}
 
 // platform() -> string
 // "<os>-<arch>" of the running slang, as Zig names them ("macos-aarch64",

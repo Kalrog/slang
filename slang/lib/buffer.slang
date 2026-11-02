@@ -25,16 +25,17 @@
 // casts and element pointers keep it alive).
 
 // A buffer: n elements of one C type in a row. Methods are called with
-// `:` (b:size()).
-// type Buffer = {size: func(): int, type: func(): ffi.Type,
+// `:` (b:slice(0, 4)); size, type and shared are properties (b.size).
+// type Buffer = {size: int, type: ffi.Type, shared: bool,
 //   slice: func(from?: int, to?: int): Buffer, copy: func(): Buffer,
 //   fill: func(v: any): Buffer, set: func(src: {any} | Buffer, at?: int): Buffer,
 //   cast: func(t: ffi.Type): Buffer, to_list: func(): {any},
 //   to_string: func(): string, same: func(other: any): bool,
-//   pointer: func(): ffi.Pointer, is_shared: func(): bool,
+//   pointer: func(): ffi.Pointer,
 //   lock: func(f?: func(): any): any, unlock: func()}
-// [size]: the size in bytes
+// [size]: the size in bytes (len(b) is the number of elements)
 // [type]: the element type
+// [shared]: whether the memory is shared between isolates ([shared])
 // [slice]: the elements from .. to - 1 (all by default), sharing the memory
 // [copy]: a new buffer with the same elements, in memory of its own
 // [fill]: sets every element to v; returns the buffer
@@ -44,7 +45,6 @@
 // [to_string]: the bytes as a string
 // [same]: whether other is a buffer of the same address, length and type
 // [pointer]: a pointer to the first element, keeping the memory alive
-// [is_shared]: whether the memory is shared between isolates ([shared])
 // [lock]: on a shared buffer, holds its mutex while f() runs and returns
 //   f's result (released when f raises too); without f, until [unlock]
 // [unlock]: releases the mutex lock() took

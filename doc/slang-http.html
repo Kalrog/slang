@@ -52,7 +52,7 @@ async.main(func(){
 })</code></pre>
 <p>A handler receives a <a href="#type-Request"><code>Request</code></a> and returns a string (200, text/plain), a <a href="#type-Response"><code>Response</code></a> table or a Future of either (an async function works as a handler); <a href="#serve"><code>serve</code></a> takes <a href="#type-ServeOptions"><code>ServeOptions</code></a>. The body is read whole first, up to max_body bytes (413 beyond), unless stream_body asks for a Stream. Chunked request bodies are de-chunked either way; Expect: 100-continue is answered; HEAD requests get the headers alone. An error the handler raises becomes a 500.</p>
 <p>A body that is a Stream is sent chunked as it comes (unless the headers give a Content-Length). Text-like bodies (text/*, JSON, JavaScript, XML, SVG) of 1 KiB or more, and text-like Streams, are gzipped when the client accepts gzip, unless the response sets Content-Encoding or compress: false (or the server option compress is false). Date is added.</p>
-<p>The client side: <a href="#connect"><code>connect</code></a> gives an <a href="#type-HttpClient"><code>HttpClient</code></a> for several requests on one connection; <a href="#get"><code>get</code></a> and <a href="#fetch"><code>fetch</code></a> make one request each. Responses are <a href="#type-ClientResponse"><code>ClientResponse</code></a>s. Clients say User-Agent: slang unless told otherwise, ask for gzip and inflate it; chunked and connection-delimited responses are read to their end.</p>
+<p>The client side: <a href="#connect"><code>connect</code></a> gives a <a href="#type-Client"><code>Client</code></a> for several requests on one connection; <a href="#get"><code>get</code></a> and <a href="#fetch"><code>fetch</code></a> make one request each. Responses are <a href="#type-ClientResponse"><code>ClientResponse</code></a>s. Clients say User-Agent: slang unless told otherwise, ask for gzip and inflate it; chunked and connection-delimited responses are read to their end.</p>
 <p>Also: multipart form bodies (<a href="#multipart"><code>multipart</code></a>, <a href="#multipart_parser"><code>multipart_parser</code></a>) and cookies (<a href="#cookies"><code>cookies</code></a>, <a href="#set_cookie"><code>set_cookie</code></a>).</p>
 <ul class="toc">
 <li><a href="#status_text"><code>status_text</code></a></li>
@@ -78,9 +78,9 @@ async.main(func(){
 <li><a href="#type-ServeOptions"><code>type ServeOptions</code></a></li>
 <li><a href="#type-Server"><code>type Server</code></a></li>
 <li><a href="#type-CookieOptions"><code>type CookieOptions</code></a></li>
-<li><a href="#type-HttpClient"><code>type HttpClient</code></a></li>
-<li><a href="#HttpClient:request"><code>HttpClient:request</code></a></li>
-<li><a href="#HttpClient:close"><code>HttpClient:close</code></a></li>
+<li><a href="#type-Client"><code>type Client</code></a></li>
+<li><a href="#Client:request"><code>Client:request</code></a></li>
+<li><a href="#Client:close"><code>Client:close</code></a></li>
 <li><a href="#type-ClientResponse"><code>type ClientResponse</code></a></li>
 <li><a href="#type-FetchOptions"><code>type FetchOptions</code></a></li>
 <li><a href="#type-MultipartParser"><code>type MultipartParser</code></a></li>
@@ -145,11 +145,12 @@ async.main(func(){
 </div>
 <h2>client</h2>
 <div class="def" id="connect"><h3><code>http.connect(host: string, port: int, options?: {tls?: bool | table}) -> <a href="slang-async.html#type-Future">async.Future</a></code></h3>
-<p>A Future of an <a href="#type-HttpClient"><code>HttpClient</code></a> connected to host:port.</p>
+<p>A Future of a <a href="#type-Client"><code>Client</code></a> connected to host:port.</p>
 <dl class="params"><dt><code>options</code></dt><dd>tls: true, or slang/tls's connect options (ca, verify, ...), makes it HTTPS local c = async.await(http.connect(&quot;example.com&quot;, 80)) local res = async.await(c:request(&quot;GET&quot;, &quot;/&quot;)) async.await(c:close())</dd></dl>
 </div>
-<div class="def" id="get"><h3><code>http.get(host: string, port: int, path: string) -> <a href="slang-async.html#type-Future">async.Future</a></code></h3>
-<p>A GET request on a connection of its own: a Future of the <a href="#type-ClientResponse"><code>ClientResponse</code></a>. Plain HTTP only; see <a href="#fetch"><code>fetch</code></a> for HTTPS.</p>
+<div class="def" id="get"><h3><code>http.get(url: string, options?: <a href="#type-FetchOptions">FetchOptions</a>) -> <a href="slang-async.html#type-Future">async.Future</a></code></h3>
+<p>A GET request to an http:// or https:// URL on a connection of its own (<a href="#fetch"><code>fetch</code></a> with method &quot;GET&quot;): a Future of the <a href="#type-ClientResponse"><code>ClientResponse</code></a>. get(host, port, path) works too, for plain HTTP.</p>
+<pre><code>local res = async.await(http.get(&quot;http://127.0.0.1:8080/health&quot;))</code></pre>
 
 </div>
 <div class="def" id="fetch"><h3><code>http.fetch(url: string, options?: <a href="#type-FetchOptions">FetchOptions</a>) -> <a href="slang-async.html#type-Future">async.Future</a></code></h3>
@@ -197,14 +198,14 @@ p:finish()</code></pre>
 <h2 id="type-CookieOptions">type CookieOptions</h2>
 <pre><code>type CookieOptions = {path?: string, domain?: string, max_age?: int, expires?: int, http_only?: bool, secure?: bool, same_site?: string}</code></pre>
 <p>How a cookie is set; every field is optional.</p>
-<dl class="params"><dt><code>path?: string</code></dt><dd>&quot;/&quot; by default</dd><dt><code>domain?: string</code></dt><dd></dd><dt><code>max_age?: int</code></dt><dd>seconds until it expires</dd><dt><code>expires?: int</code></dt><dd>when it expires, in seconds since the epoch</dd><dt><code>http_only?: bool</code></dt><dd>true by default: scripts cannot read it</dd><dt><code>secure?: bool</code></dt><dd>HTTPS only; set anyway when same_site is &quot;None&quot;</dd><dt><code>same_site?: string</code></dt><dd>&quot;Lax&quot; (the default), &quot;Strict&quot; or &quot;None&quot;</dd></dl>
-<h2 id="type-HttpClient">type HttpClient</h2>
+<dl class="params"><dt><code>path?: string</code></dt><dd>&quot;/&quot; by default</dd><dt><code>domain?: string</code></dt><dd></dd><dt><code>max_age?: int</code></dt><dd>seconds until it expires</dd><dt><code>expires?: int</code></dt><dd>when it expires, in milliseconds since the epoch (time.now())</dd><dt><code>http_only?: bool</code></dt><dd>true by default: scripts cannot read it</dd><dt><code>secure?: bool</code></dt><dd>HTTPS only; set anyway when same_site is &quot;None&quot;</dd><dt><code>same_site?: string</code></dt><dd>&quot;Lax&quot; (the default), &quot;Strict&quot; or &quot;None&quot;</dd></dl>
+<h2 id="type-Client">type Client</h2>
 <p>A connection to an HTTP server, for requests one after another.</p>
-<div class="def" id="HttpClient:request"><h3><code>HttpClient:request(method: string, path: string, body?: string, headers?: {[string]: string}, options?: {raw?: bool, max_size?: int}) -> <a href="slang-async.html#type-Future">async.Future</a></code></h3>
-<p>Sends a request and gives a Future of its <a href="#type-ClientResponse"><code>ClientResponse</code></a>. Wait for one to finish before the next. Host, Accept-Encoding: gzip, User-Agent: slang and Content-Length (with a body) are added unless headers has them. Fails when the connection closes early or the response is malformed, and once the server closed the connection.</p>
-<dl class="params"><dt><code>path</code></dt><dd>the request target, with the query</dd><dt><code>options</code></dt><dd>raw: true keeps a gzipped body as it came; max_size limits the inflated body (256 MiB)</dd></dl>
+<div class="def" id="Client:request"><h3><code>Client:request(method: string, path: string, options?: {body?: string, headers?: {[string]: string}, raw?: bool, max_size?: int}) -> <a href="slang-async.html#type-Future">async.Future</a></code></h3>
+<p>Sends a request and gives a Future of its <a href="#type-ClientResponse"><code>ClientResponse</code></a>. Wait for one to finish before the next. Host, Accept-Encoding: gzip, User-Agent: slang and Content-Length (with a body) are added unless headers has them. Fails when the connection closes early or the response is malformed, and once the server closed the connection. request(method, path, body, headers, options) works too.</p>
+<dl class="params"><dt><code>path</code></dt><dd>the request target, with the query</dd></dl>
 </div>
-<div class="def" id="HttpClient:close"><h3><code>HttpClient:close() -> <a href="slang-async.html#type-Future">async.Future</a></code></h3>
+<div class="def" id="Client:close"><h3><code>Client:close() -> <a href="slang-async.html#type-Future">async.Future</a></code></h3>
 <p>Closes the connection.</p>
 
 </div>

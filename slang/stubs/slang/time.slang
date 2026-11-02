@@ -1,16 +1,19 @@
-// slang/time: wall-clock time as seconds since the Unix epoch, in UTC,
-// built into the VM.
+// slang/time: wall-clock time as milliseconds since the Unix epoch, in
+// UTC, built into the VM.
 //
 //   local time = require("slang/time")
 //   local t = time.now()
 //   time.iso(t)                          // "2026-10-31T17:30:52.123Z"
 //   time.utc(t).year                     // 2026
-//   time.from_utc({year: 2026, month: 1, day: 1})   // 1767225600
-//   time.parse_http_date("Sun, 06 Nov 1994 08:49:37 GMT")   // 784111777
+//   time.from_utc({year: 2026, month: 1, day: 1})   // 1767225600000
+//   time.parse_http_date("Sun, 06 Nov 1994 08:49:37 GMT")   // 784111777000
+//   time.sleep(1 * time.minute + 5 * time.second)
 //
-// A time is a number of seconds: an int, or a double with a fraction of a
-// second. There are no local time zones. Functions taking a time raise an
-// error when it is out of range (beyond the year 9999).
+// A time is a number of milliseconds since the epoch and a duration a
+// number of milliseconds: an int, or a double with a fraction of a
+// millisecond. The constants [second], [minute] and the like make
+// durations read well. There are no local time zones. Functions taking a
+// time raise an error when it is out of range (beyond the year 9999).
 
 // The calendar fields of a time, in UTC. Months and days count from 1.
 // type Fields = {year: int, month: int, day: int, hour: int, minute: int,
@@ -20,25 +23,33 @@
 // [yday]: the day of the year, from 1
 local m = {}
 
+// A microsecond in milliseconds (0.001).
+m.microsecond = 0.001
+// A millisecond: the unit (1).
+m.millisecond = 1
+// A second in milliseconds (1000).
+m.second = 1000
+// A minute in milliseconds (60000).
+m.minute = 60000
+// An hour in milliseconds (3600000).
+m.hour = 3600000
+
 // now() -> float
-// The current time in seconds, with millisecond precision.
+// The current time in milliseconds since the epoch (with a fraction).
 func m.now(){}
 
-// now_ms() -> int
-// The current time in milliseconds.
-func m.now_ms(){}
-
 // clock() -> float
-// Seconds since the program started, from a monotonic clock: for
+// Milliseconds since the program started, from a monotonic clock: for
 // measuring.
 //   local t0 = time.clock()
 //   work()
-//   print(str.format("%.1f ms\n", (time.clock() - t0) * 1000))
+//   print(str.format("%.1f ms\n", time.clock() - t0))
 func m.clock(){}
 
-// sleep(seconds: int | float)
-// Blocks the program for that long; slang/async's sleep does not block.
-func m.sleep(seconds){}
+// sleep(ms: int | float)
+// Blocks the program for that many milliseconds; slang/async's sleep does
+// not block.
+func m.sleep(ms){}
 
 // ------------------------------------------------------------ calendar
 
@@ -48,8 +59,8 @@ func m.utc(t){}
 
 // from_utc(fields: Fields) -> int | float
 // The time of the fields year, month, day, hour, minute, second and ms (an
-// int, or a double when there is a fraction of a second); weekday and
-// yday are ignored. year is required; month and day default to 1, the
+// int, or a double when there is a fraction of a millisecond); weekday
+// and yday are ignored. year is required; month and day default to 1, the
 // rest to 0. Fields normalize, so {year: 2026, month: 13, day: 1} is
 // January 2027 and adding 30 to day moves 30 days on.
 func m.from_utc(fields){}
@@ -57,7 +68,7 @@ func m.from_utc(fields){}
 // ------------------------------------------------------------ formats
 
 // http_date(t: int | float) -> string
-// t as an HTTP date, "Sun, 06 Nov 1994 08:49:37 GMT".
+// t as an HTTP date, "Sun, 06 Nov 1994 08:49:37 GMT" (whole seconds).
 func m.http_date(t){}
 
 // parse_http_date(s: string) -> int?
@@ -71,10 +82,10 @@ func m.parse_http_date(s){}
 func m.iso(t){}
 
 // parse_iso(s: string) -> int | float | null
-// The time of an ISO 8601 date (a double when it has a fraction), or null.
-// Accepts RFC 3339 and the common forms: a date alone, "T" or a space
-// before the time, seconds and fraction optional, and "Z", "+hh:mm",
-// "+hhmm", "+hh" or nothing (UTC) for the zone.
+// The time of an ISO 8601 date (a double when it has a fraction of a
+// millisecond), or null. Accepts RFC 3339 and the common forms: a date
+// alone, "T" or a space before the time, seconds and fraction optional,
+// and "Z", "+hh:mm", "+hhmm", "+hh" or nothing (UTC) for the zone.
 func m.parse_iso(s){}
 
 return m

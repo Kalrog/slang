@@ -25,7 +25,7 @@ t.group("regex"){
     assert(r:find("x a=1 bb=22", 5).text == "bb=22", "from a position")
     assert(r:find("nothing") == null)
     assert(len(r:find_all("a=1 bb=22 c=x")) == 2)
-    assert(r:group_names() == {"", "key", ""})
+    assert(r.group_names == {"", "key", ""})
     local opt = regex.compile("a(x)?b"):find("ab")
     assert(opt.groups[1] == "" and opt.spans[1] == {-1, -1}, "an unmatched group")
     // leftmost-first, as Perl and Go

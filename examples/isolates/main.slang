@@ -63,13 +63,13 @@ local func render(workers){
 local func timed(workers){
   local t0 = time.clock()
   local pixels = render(workers)
-  local ms = (time.clock() - t0) * 1000
+  local ms = time.clock() - t0
   print(str.format("%2d worker(s): %7.1f ms\n", workers, ms))
   return {pixels: pixels, ms: ms}
 }
 
 local one = timed(1)
-local cpus = isolate.cpu_count()
+local cpus = os.cpu_count()
 local many = timed(cpus)
 print(str.format("speedup with %d isolates: %.1fx\n", cpus, one.ms / many.ms))
 assert(one.pixels == many.pixels, "both renders agree")

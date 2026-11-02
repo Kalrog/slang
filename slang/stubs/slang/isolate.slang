@@ -40,8 +40,7 @@
 // playground) there are no threads: available() is false and spawn raises.
 
 // An isolate, as spawn returns it; == compares which isolate.
-// type Isolate = {join: func(): any, kill: func(), is_running: func(): bool,
-//   id: func(): int}
+// type Isolate = {join: func(): any, kill: func(), running: bool, id: int}
 // [join]: waits for the isolate's function to return and gives its result
 //   (copied; again on every join), or raises its error, with the location
 //   and traceback where it was raised in the isolate. A killed isolate
@@ -49,7 +48,7 @@
 // [kill]: stops the isolate at its next safe point (a call, a loop, a
 //   channel it waits on; code inside a C call stops when it returns) and
 //   waits until it has; try and pcall do not catch the stop.
-// [is_running]: whether its function has not returned yet
+// [running]: whether its function has not returned yet
 // [id]: a number for the isolate, from 1
 
 // A channel: a queue of copied values between isolates (or within one);
@@ -57,8 +56,8 @@
 // capacity: send never blocks then.
 // type Channel = {send: func(v: any), receive: func(): any,
 //   try_send: func(v: any): bool, try_receive: func(): any,
-//   close: func(), is_closed: func(): bool, len: func(): int,
-//   capacity: func(): int, watch: func(h: any), unwatch: func(h: any)}
+//   close: func(), closed: bool, len: int, capacity: int?,
+//   watch: func(h: any), unwatch: func(h: any)}
 // [send]: copies v into the channel; blocks while a channel with a
 //   capacity is full; raises when the channel is closed. null cannot be
 //   sent: receive gives null for a closed channel.
@@ -66,10 +65,10 @@
 //   channel is closed and empty
 // [try_send]: like send, but returns false instead of blocking on a full
 //   channel
-// [try_receive]: the next value, or null when none is queued (is_closed
+// [try_receive]: the next value, or null when none is queued (closed
 //   tells whether more can come)
 // [close]: no more sends; what is queued can still be received
-// [is_closed]: whether close was called
+// [closed]: whether close was called
 // [len]: how many values are queued
 // [capacity]: the capacity, or null for an unbounded channel
 // [watch]: sends the uv async handle h (uv.async(cb)) whenever the channel
@@ -106,9 +105,5 @@ func m.each(ch){}
 // The running isolate's id; the main program's is 0.
 func m.id(){}
 
-// cpu_count() -> int
-// How many CPUs the machine runs threads on: how many isolates that compute
-// can run at once (1 where there are no threads).
-func m.cpu_count(){}
 
 return m

@@ -58,8 +58,6 @@ regex.compile(&quot;\\s*,\\s*&quot;):split(&quot;a , b,c&quot;)   // {&quot;a&qu
 <li><a href="#Regex:find_all"><code>Regex:find_all</code></a></li>
 <li><a href="#Regex:replace"><code>Regex:replace</code></a></li>
 <li><a href="#Regex:split"><code>Regex:split</code></a></li>
-<li><a href="#Regex:pattern"><code>Regex:pattern</code></a></li>
-<li><a href="#Regex:group_names"><code>Regex:group_names</code></a></li>
 <li><a href="#type-Match"><code>type Match</code></a></li>
 </ul>
 <div class="def" id="compile"><h3><code>regex.compile(pattern: string) -> <a href="#type-Regex">Regex</a></code></h3>
@@ -96,14 +94,6 @@ regex.compile(&quot;\\s*,\\s*&quot;):split(&quot;a , b,c&quot;)   // {&quot;a&qu
 </div>
 <div class="def" id="Regex:split"><h3><code>Regex:split(s: string, n?: int) -> {string}</code></h3>
 <p>The parts of s between the matches; with n &gt; 0 at most n parts, the last one the rest of s.</p>
-
-</div>
-<div class="def" id="Regex:pattern"><h3><code>Regex:pattern() -> string</code></h3>
-<p>The source of the pattern.</p>
-
-</div>
-<div class="def" id="Regex:group_names"><h3><code>Regex:group_names() -> {string}</code></h3>
-<p>The name of each group by number: index 0 (the whole match) and unnamed groups are &quot;&quot;.</p>
 
 </div>
 <h2 id="type-Match">type Match</h2>

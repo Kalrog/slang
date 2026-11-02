@@ -32,7 +32,7 @@ const Handle = struct {
 
 pub fn init(vm: *VM) void {
     const meta = vm.newTable(0, 2);
-    meta.set(vm.gpa, vm.str("__index"), .{ .table = stdlib.makeModule(vm, &.{
+    stdlib.setClass(vm, meta, &.{
         .{ .name = "read", .f = fileRead },
         .{ .name = "read_line", .f = fileReadLine },
         .{ .name = "lines", .f = fileLines },
@@ -41,11 +41,19 @@ pub fn init(vm: *VM) void {
         .{ .name = "write_bytes", .f = fileWriteBytes },
         .{ .name = "flush", .f = fileFlush },
         .{ .name = "close", .f = fileClose },
-    }) });
+    }, &.{
+        .{ .name = "name", .get = fileName },
+    });
     meta.set(vm.gpa, vm.str("__type"), vm.str("file"));
     vm.lib.file_meta = meta;
     // keep the metatable alive
     vm.registry.set(vm.gpa, vm.str("file_meta"), .{ .table = meta });
+}
+
+/// name: the path the file was opened with
+fn fileName(th: *Thread, args: []Value) Error!Value {
+    const u = args[0].asUserdata() orelse return .null;
+    return th.vm.str(u.as(Handle).path);
 }
 
 fn finalize(data: ?*anyopaque) callconv(.c) void {

@@ -9,7 +9,7 @@ local C = ffi.cdef("typedef struct { float x, y; } Vec2;")
 t.group("buffers"){
   t.test("elements, length and bounds"){
     local b = buffer.new("double", 4)
-    assert(len(b) == 4 and b:size() == 32 and b[3] == 0)
+    assert(len(b) == 4 and b.size == 32 and b[3] == 0)
     b[1] = 2.5
     b[2] = 3
     assert(b[1] == 2.5 and b[2] == 3.0)
@@ -25,8 +25,8 @@ t.group("buffers"){
     local bytes = buffer.from({255, 256, -1}, "unsigned char")
     assert(bytes:to_list() == {255, 0, 255})
     assert(buffer.from({70000}, "int16")[0] == 4464)
-    assert(buffer.new("int", 1):size() == 4)
-    assert(buffer.new("int64_t", 1):size() == 8)
+    assert(buffer.new("int", 1).size == 4)
+    assert(buffer.new("int64_t", 1).size == 8)
     assert(buffer.from({1.5}, "float")[0] == 1.5)
   }
   t.test("bulk: fill, set, slices share, copies do not"){
@@ -49,7 +49,7 @@ t.group("buffers"){
     local s = buffer.from_string("hi!")
     assert(len(s) == 3 and s[0] == 104 and s:to_string() == "hi!")
     local words = buffer.from({1, 2}, "uint16")
-    local as_bytes = words:cast(buffer.new("uint8", 0):type())
+    local as_bytes = words:cast(buffer.new("uint8", 0).type)
     assert(len(as_bytes) == 4)
     assert(buffer.from({1, 2}, "int") == buffer.from({1, 2}, "int32"))
     assert(buffer.from({1, 2}, "int") != buffer.from({1, 3}, "int"))

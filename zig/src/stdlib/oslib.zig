@@ -36,6 +36,7 @@ pub fn module(vm: *VM) *Table {
         .{ .name = "cwd", .f = osCwd },
         .{ .name = "executable", .f = osExecutable },
         .{ .name = "platform", .f = osPlatform },
+        .{ .name = "cpu_count", .f = @import("isolatelib.zig").isoCpuCount },
         .{ .name = "exec", .f = osExec },
         .{ .name = "exit", .f = osExit },
     });
@@ -142,7 +143,8 @@ fn osAppendFile(th: *Thread, args: []Value) Error!Value {
     return .null;
 }
 
-/// stat(path) -> {size, mtime, is_dir, mode} or null when nothing is there.
+/// stat(path) -> {size, mtime, is_dir, mode} or null when nothing is there
+/// (mtime in milliseconds since the epoch).
 fn osStat(th: *Thread, args: []Value) Error!Value {
     const vm = th.vm;
     const path = try api.argString(th, args, 0, "path");
@@ -160,8 +162,7 @@ fn osStat(th: *Thread, args: []Value) Error!Value {
     const st = std.Io.Dir.cwd().statFile(vm.io, path, .{}) catch return .null;
     const t = vm.newTable(0, 4);
     t.set(vm.gpa, vm.str("size"), .{ .int = @intCast(st.size) });
-    const ms = @divFloor(st.mtime.nanoseconds, 1_000_000);
-    t.set(vm.gpa, vm.str("mtime"), .{ .float = @as(f64, @floatFromInt(ms)) / 1000 });
+    t.set(vm.gpa, vm.str("mtime"), .{ .int = @intCast(@divFloor(st.mtime.nanoseconds, 1_000_000)) });
     t.set(vm.gpa, vm.str("is_dir"), .{ .bool = st.kind == .directory });
     const mode: i64 = if (@hasDecl(@TypeOf(st.permissions), "toMode")) @intCast(st.permissions.toMode() & 0o7777) else 0;
     t.set(vm.gpa, vm.str("mode"), .{ .int = mode });

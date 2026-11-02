@@ -67,7 +67,7 @@ html.render(page)   // &lt;ul class=&quot;names&quot;&gt;&lt;li&gt;Tom &amp;amp;
 
 </div>
 <div class="def" id="list"><h3><code>html.list</code></h3>
-<p>The metatable that marks a list of children as trusted markup; type() of such a list is &quot;HtmlList&quot;.</p>
+<p>The metatable that marks a list of children as trusted markup; type() of such a list is &quot;html.List&quot;.</p>
 
 </div>
 <div class="def" id="element"><h3><code>html.element(tag: string, attrs?: {[string]: any}, children?: {<a href="#type-Content">Content</a>}) -> <a href="#type-Node">Node</a></code></h3>
@@ -104,7 +104,7 @@ html.render(page)   // &lt;ul class=&quot;names&quot;&gt;&lt;li&gt;Tom &amp;amp;
 </div>
 <h2 id="type-Node">type Node</h2>
 <pre><code>type Node = {tag?: string, attrs?: {[string]: any}, children?: {<a href="#type-Content">Content</a>}, raw?: string}</code></pre>
-<p>A node; type() of it is &quot;Html&quot;, and string(node) renders it.</p>
+<p>A node; type() of it is &quot;html.Node&quot;, and string(node) renders it.</p>
 <dl class="params"><dt><code>tag?: string</code></dt><dd>the element's name; null for a fragment or raw markup</dd><dt><code>attrs?: {[string]: any}</code></dt><dd>the attributes by name</dd><dt><code>children?: {<a href="#type-Content">Content</a>}</code></dt><dd>trusted content, marked with <a href="#list"><code>list</code></a></dd><dt><code>raw?: string</code></dt><dd>markup written as it is</dd></dl>
 <h2 id="type-Content">type Content</h2>
 <pre><code>type Content = string | int | float | <a href="#type-Node">Node</a> | {<a href="#type-Content">Content</a>}</code></pre>

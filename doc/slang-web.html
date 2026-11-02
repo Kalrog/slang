@@ -56,7 +56,7 @@ async.main(func(){ async.await(app:listen(&quot;127.0.0.1&quot;, 8080).done) })<
 <p>Requests are slang/http's request tables with the methods of <a href="#type-Request"><code>Request</code></a> (query_params, cookie, form, json) and req.params. <a href="#test"><code>test</code></a> runs an app without a socket:</p>
 <pre><code>local client = web.test(app)
 local res = async.await(client:post(&quot;/login&quot;, {form: {user: &quot;ann&quot;}}))
-print(res.status, res.header(&quot;location&quot;))</code></pre>
+print(res.status, res:header(&quot;location&quot;))</code></pre>
 <ul class="toc">
 <li><a href="#text"><code>text</code></a></li>
 <li><a href="#html"><code>html</code></a></li>
@@ -64,7 +64,7 @@ print(res.status, res.header(&quot;location&quot;))</code></pre>
 <li><a href="#redirect"><code>redirect</code></a></li>
 <li><a href="#fail"><code>fail</code></a></li>
 <li><a href="#app"><code>app</code></a></li>
-<li><a href="#type_of"><code>type_of</code></a></li>
+<li><a href="#mime_type"><code>mime_type</code></a></li>
 <li><a href="#file"><code>file</code></a></li>
 <li><a href="#sessions"><code>sessions</code></a></li>
 <li><a href="#csrf"><code>csrf</code></a></li>
@@ -132,7 +132,7 @@ print(res.status, res.header(&quot;location&quot;))</code></pre>
 <dl class="params"><dt><code>options</code></dt><dd>kept as app.options; the app itself uses none</dd></dl>
 </div>
 <h2>static files</h2>
-<div class="def" id="type_of"><h3><code>web.type_of(path: string) -> string</code></h3>
+<div class="def" id="mime_type"><h3><code>web.mime_type(path: string) -> string</code></h3>
 <p>The media type for the file's extension, like &quot;text/css; charset=utf-8&quot;; application/octet-stream when it is not known.</p>
 
 </div>
@@ -249,7 +249,7 @@ app:post(&quot;/login&quot;, func(req){
 <h2 id="type-FileOptions">type FileOptions</h2>
 <pre><code>type FileOptions = {max_age?: int, type?: string, download?: string}</code></pre>
 <p>How <a href="#file"><code>file</code></a> sends a file.</p>
-<dl class="params"><dt><code>max_age?: int</code></dt><dd>seconds browsers may cache it (Cache-Control); no-cache if not given</dd><dt><code>type?: string</code></dt><dd>the Content-Type; by default from the extension (<a href="#type_of"><code>type_of</code></a>)</dd><dt><code>download?: string</code></dt><dd>a file name: Content-Disposition attachment</dd></dl>
+<dl class="params"><dt><code>max_age?: int</code></dt><dd>seconds browsers may cache it (Cache-Control); no-cache if not given</dd><dt><code>type?: string</code></dt><dd>the Content-Type; by default from the extension (<a href="#mime_type"><code>mime_type</code></a>)</dd><dt><code>download?: string</code></dt><dd>a file name: Content-Disposition attachment</dd></dl>
 <h2 id="type-SessionOptions">type SessionOptions</h2>
 <pre><code>type SessionOptions = {secret: string, name?: string, max_age?: int, secure?: bool}</code></pre>
 <p>What <a href="#sessions"><code>sessions</code></a> takes.</p>
@@ -291,7 +291,7 @@ app:post(&quot;/login&quot;, func(req){
 <h2 id="type-TestResponse">type TestResponse</h2>
 <pre><code>type TestResponse = {status: int, headers: table, body: string, header: func(name: string): any}</code></pre>
 <p>What a test request gives: the app's response with the body collected.</p>
-<dl class="params"><dt><code>status: int</code></dt><dd></dd><dt><code>headers: table</code></dt><dd></dd><dt><code>body: string</code></dt><dd></dd><dt><code>header: func(name: string): any</code></dt><dd>a header by name in any case; call it res.header(name)</dd></dl>
+<dl class="params"><dt><code>status: int</code></dt><dd></dd><dt><code>headers: table</code></dt><dd></dd><dt><code>body: string</code></dt><dd></dd><dt><code>header: func(name: string): any</code></dt><dd>a header by name in any case: res:header(&quot;location&quot;)</dd></dl>
 <p class="muted">slang/lib/web.slang</p>
 </body>
 </html>

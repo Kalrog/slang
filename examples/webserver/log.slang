@@ -10,10 +10,10 @@
 local db = require("db")
 local time = require("slang/time")
 local m = {}
-local started = time.now_ms()
+local started = time.now()
 
 func m.uptime(){
-  return to_int((time.now_ms() - started) / 100) / 10
+  return to_int((time.now() - started) / 100) / 10
 }
 
 local listeners = {}

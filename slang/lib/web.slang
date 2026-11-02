@@ -609,7 +609,8 @@ func web.file(req, path, options){
       return web.text("not found\n", 404)
     }
     local st = r[1]
-    local mtime = to_int(st.mtime)
+    // HTTP dates have whole seconds
+    local mtime = to_int(st.mtime / 1000) * 1000
     // a file bundled gzipped (slang build) goes as it is stored to a client
     // that takes gzip: another representation, so another tag (ranges are
     // of the file itself)
@@ -623,7 +624,7 @@ func web.file(req, path, options){
     local gzipped = stored != null and req.headers["range"] == null and
       http.accepts_gzip(req)
     local etag = concat(
-      "\"", string(st.size), "-", string(to_int(st.mtime * 1000)),
+      "\"", string(st.size), "-", string(to_int(st.mtime)),
       gzipped and "-gz" or "", "\""
     )
     local headers = {

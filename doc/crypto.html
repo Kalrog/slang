@@ -67,9 +67,6 @@ crypto.hasher(&quot;sha256&quot;):update(&quot;a&quot;):update(&quot;bc&quot;):d
 <li><a href="#type-Key"><code>type Key</code></a></li>
 <li><a href="#Key:sign"><code>Key:sign</code></a></li>
 <li><a href="#Key:verify"><code>Key:verify</code></a></li>
-<li><a href="#Key:type"><code>Key:type</code></a></li>
-<li><a href="#Key:bits"><code>Key:bits</code></a></li>
-<li><a href="#Key:is_private"><code>Key:is_private</code></a></li>
 <li><a href="#Key:public_pem"><code>Key:public_pem</code></a></li>
 <li><a href="#Key:private_pem"><code>Key:private_pem</code></a></li>
 <li><a href="#Key:public_key"><code>Key:public_key</code></a></li>
@@ -159,18 +156,6 @@ crypto.hasher(&quot;sha256&quot;):update(&quot;a&quot;):update(&quot;bc&quot;):d
 </div>
 <div class="def" id="Key:verify"><h3><code>Key:verify(digest: string?, data: string, signature: string, options?: <a href="#type-SignOptions">SignOptions</a>) -> bool</code></h3>
 <p>Whether signature is a valid signature of data; options as for <a href="#Key:sign"><code>Key.sign</code></a>.</p>
-
-</div>
-<div class="def" id="Key:type"><h3><code>Key:type() -> string</code></h3>
-<p>&quot;rsa&quot;, &quot;rsa-pss&quot;, &quot;ec&quot;, &quot;ed25519&quot;, &quot;ed448&quot; or &quot;other&quot;.</p>
-
-</div>
-<div class="def" id="Key:bits"><h3><code>Key:bits() -> int</code></h3>
-<p>The size of the key in bits (521 for a P-521 key).</p>
-
-</div>
-<div class="def" id="Key:is_private"><h3><code>Key:is_private() -> bool</code></h3>
-<p>Whether the key holds the private half.</p>
 
 </div>
 <div class="def" id="Key:public_pem"><h3><code>Key:public_pem() -> string</code></h3>

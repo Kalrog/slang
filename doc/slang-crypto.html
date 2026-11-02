@@ -44,25 +44,32 @@ details.expanded summary { cursor: pointer; color: var(--muted); }
 <pre><code>local crypto = require(&quot;slang/crypto&quot;)
 local stored = crypto.hash_password(&quot;hunter2&quot;)
 crypto.verify_password(&quot;hunter2&quot;, stored)       // true
-local cookie = crypto.sign_value(secret, &quot;user=42&quot;)
-crypto.unsign_value(secret, cookie)             // &quot;user=42&quot;
-crypto.hex(&quot;sha256&quot;, &quot;abc&quot;)                     // &quot;ba7816bf...&quot;</code></pre>
-<p>Everything the native module has is here too, under the same names: <a href="crypto.html#hash"><code>native.hash</code></a>, <a href="crypto.html#hmac"><code>native.hmac</code></a>, <a href="crypto.html#equal"><code>native.equal</code></a>, <a href="crypto.html#random_bytes"><code>native.random_bytes</code></a>, <a href="crypto.html#hasher"><code>native.hasher</code></a>, <a href="crypto.html#pbkdf2"><code>native.pbkdf2</code></a>, <a href="crypto.html#scrypt"><code>native.scrypt</code></a>, <a href="crypto.html#encrypt"><code>native.encrypt</code></a>, <a href="crypto.html#decrypt"><code>native.decrypt</code></a>, <a href="crypto.html#private_key"><code>native.private_key</code></a>, <a href="crypto.html#public_key"><code>native.public_key</code></a>, <a href="crypto.html#generate_key"><code>native.generate_key</code></a>, <a href="crypto.html#version"><code>native.version</code></a> and the _async forms. Results are raw byte strings; slang/encoding makes hex or base64 of them.</p>
+local cookie = crypto.sign(secret, &quot;user=42&quot;)
+crypto.verify_signed(secret, cookie)            // &quot;user=42&quot;
+crypto.hex(&quot;sha256&quot;, &quot;abc&quot;)                     // &quot;ba7816bf...&quot;
+local key = crypto.generate_key(&quot;ec&quot;)
+key.type, key.bits, key.private                 // &quot;ec&quot;, 256, true</code></pre>
+<p>The native extension's functions are here too, under the same names: hash, hmac, equal, random_bytes, hasher, pbkdf2, scrypt, encrypt, decrypt, private_key, public_key, generate_key, version and the _async forms; <a href="#c"><code>c</code></a> is the extension itself. Results are raw byte strings; slang/encoding makes hex or base64 of them.</p>
 <p>Password hashes use scrypt with n = 2^15, r = 8, p = 1 (32 MiB, the OWASP recommendation) and a 16-byte salt; <a href="#verify_password"><code>verify_password</code></a> also accepts &quot;$pbkdf2-sha256$i=...$salt$hash&quot;. <a href="#seal"><code>seal</code></a> uses AES-256-GCM with a random 12-byte iv and needs a 32-byte key.</p>
 <ul class="toc">
+<li><a href="#c"><code>c</code></a></li>
 <li><a href="#hex"><code>hex</code></a></li>
 <li><a href="#token"><code>token</code></a></li>
 <li><a href="#hash_password"><code>hash_password</code></a></li>
 <li><a href="#verify_password"><code>verify_password</code></a></li>
 <li><a href="#hash_password_async"><code>hash_password_async</code></a></li>
 <li><a href="#verify_password_async"><code>verify_password_async</code></a></li>
-<li><a href="#sign_value"><code>sign_value</code></a></li>
-<li><a href="#unsign_value"><code>unsign_value</code></a></li>
+<li><a href="#sign"><code>sign</code></a></li>
+<li><a href="#verify_signed"><code>verify_signed</code></a></li>
 <li><a href="#seal"><code>seal</code></a></li>
 <li><a href="#unseal"><code>unseal</code></a></li>
 <li><a href="#type-Key"><code>type Key</code></a></li>
 <li><a href="#type-Hasher"><code>type Hasher</code></a></li>
 </ul>
+<div class="def" id="c"><h3><code>crypto.c</code></h3>
+<p>The native extension under this module (OpenSSL).</p>
+
+</div>
 <div class="def" id="hex"><h3><code>crypto.hex(digest: string, data: string) -> string</code></h3>
 <p>The digest of data as lowercase hex.</p>
 
@@ -89,12 +96,12 @@ crypto.hex(&quot;sha256&quot;, &quot;abc&quot;)                     // &quot;ba7
 
 </div>
 <h2>signed and sealed values</h2>
-<div class="def" id="sign_value"><h3><code>crypto.sign_value(secret: string, value: string) -> string</code></h3>
-<p>&quot;value.mac&quot;: value with an HMAC-SHA256 of it under secret, base64url. Anyone can read value; only who knows secret can make one that <a href="#unsign_value"><code>unsign_value</code></a> accepts.</p>
+<div class="def" id="sign"><h3><code>crypto.sign(secret: string, value: string) -> string</code></h3>
+<p>&quot;value.mac&quot;: value with an HMAC-SHA256 of it under secret, base64url. Anyone can read value; only who knows secret can make one that <a href="#verify_signed"><code>verify_signed</code></a> accepts (<a href="#seal"><code>seal</code></a> hides the value too).</p>
 
 </div>
-<div class="def" id="unsign_value"><h3><code>crypto.unsign_value(secret: string, signed: string) -> string?</code></h3>
-<p>The value <a href="#sign_value"><code>sign_value</code></a> signed, or null when signed was not made with secret or was changed.</p>
+<div class="def" id="verify_signed"><h3><code>crypto.verify_signed(secret: string, signed: string) -> string?</code></h3>
+<p>The value <a href="#sign"><code>sign</code></a> signed, or null when signed was not made with secret or was changed (a failed check, not an error).</p>
 
 </div>
 <div class="def" id="seal"><h3><code>crypto.seal(key: string, text: string, aad?: string) -> string</code></h3>
@@ -107,10 +114,10 @@ crypto.hex(&quot;sha256&quot;, &quot;abc&quot;)                     // &quot;ba7
 </div>
 <h2 id="type-Key">type Key</h2>
 <pre><code>type Key = <a href="crypto.html#type-Key">native.Key</a></code></pre>
-<p>A key, as <a href="crypto.html#private_key"><code>native.private_key</code></a>, <a href="crypto.html#public_key"><code>native.public_key</code></a> and <a href="crypto.html#generate_key"><code>native.generate_key</code></a> make it.</p>
+<p>A key, as private_key, public_key and generate_key make it: key.type, key.bits and key.private, key:sign(...), key:verify(...), key:public_pem().</p>
 <h2 id="type-Hasher">type Hasher</h2>
 <pre><code>type Hasher = <a href="crypto.html#type-Hasher">native.Hasher</a></code></pre>
-<p>An incremental hasher, from <a href="crypto.html#hasher"><code>native.hasher</code></a>.</p>
+<p>An incremental hasher, from hasher.</p>
 <p class="muted">slang/lib/crypto.slang</p>
 </body>
 </html>

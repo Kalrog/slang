@@ -64,7 +64,6 @@ worker:join()                             // &quot;done&quot;</code></pre>
 <li><a href="#channel"><code>channel</code></a></li>
 <li><a href="#each"><code>each</code></a></li>
 <li><a href="#id"><code>id</code></a></li>
-<li><a href="#cpu_count"><code>cpu_count</code></a></li>
 <li><a href="#type-Isolate"><code>type Isolate</code></a></li>
 <li><a href="#type-Channel"><code>type Channel</code></a></li>
 </ul>
@@ -91,18 +90,14 @@ w:join()    // 144</code></pre>
 <p>The running isolate's id; the main program's is 0.</p>
 
 </div>
-<div class="def" id="cpu_count"><h3><code>isolate.cpu_count() -> int</code></h3>
-<p>How many CPUs the machine runs threads on: how many isolates that compute can run at once (1 where there are no threads).</p>
-
-</div>
 <h2 id="type-Isolate">type Isolate</h2>
-<pre><code>type Isolate = {join: func(): any, kill: func(), is_running: func(): bool, id: func(): int}</code></pre>
+<pre><code>type Isolate = {join: func(): any, kill: func(), running: bool, id: int}</code></pre>
 <p>An isolate, as spawn returns it; == compares which isolate.</p>
-<dl class="params"><dt><code>join: func(): any</code></dt><dd>waits for the isolate's function to return and gives its result (copied; again on every join), or raises its error, with the location and traceback where it was raised in the isolate. A killed isolate gives null.</dd><dt><code>kill: func()</code></dt><dd>stops the isolate at its next safe point (a call, a loop, a channel it waits on; code inside a C call stops when it returns) and waits until it has; try and pcall do not catch the stop.</dd><dt><code>is_running: func(): bool</code></dt><dd>whether its function has not returned yet</dd><dt><code>id: func(): int</code></dt><dd>a number for the isolate, from 1</dd></dl>
+<dl class="params"><dt><code>join: func(): any</code></dt><dd>waits for the isolate's function to return and gives its result (copied; again on every join), or raises its error, with the location and traceback where it was raised in the isolate. A killed isolate gives null.</dd><dt><code>kill: func()</code></dt><dd>stops the isolate at its next safe point (a call, a loop, a channel it waits on; code inside a C call stops when it returns) and waits until it has; try and pcall do not catch the stop.</dd><dt><code>running: bool</code></dt><dd>whether its function has not returned yet</dd><dt><code>id: int</code></dt><dd>a number for the isolate, from 1</dd></dl>
 <h2 id="type-Channel">type Channel</h2>
-<pre><code>type Channel = {send: func(v: any), receive: func(): any, try_send: func(v: any): bool, try_receive: func(): any, close: func(), is_closed: func(): bool, len: func(): int, capacity: func(): int, watch: func(h: any), unwatch: func(h: any)}</code></pre>
+<pre><code>type Channel = {send: func(v: any), receive: func(): any, try_send: func(v: any): bool, try_receive: func(): any, close: func(), closed: bool, len: int, capacity: int?, watch: func(h: any), unwatch: func(h: any)}</code></pre>
 <p>A channel: a queue of copied values between isolates (or within one); == compares which channel. A channel is unbounded unless made with a capacity: send never blocks then.</p>
-<dl class="params"><dt><code>send: func(v: any)</code></dt><dd>copies v into the channel; blocks while a channel with a capacity is full; raises when the channel is closed. null cannot be sent: receive gives null for a closed channel.</dd><dt><code>receive: func(): any</code></dt><dd>the next value, waiting until there is one; null once the channel is closed and empty</dd><dt><code>try_send: func(v: any): bool</code></dt><dd>like send, but returns false instead of blocking on a full channel</dd><dt><code>try_receive: func(): any</code></dt><dd>the next value, or null when none is queued (is_closed tells whether more can come)</dd><dt><code>close: func()</code></dt><dd>no more sends; what is queued can still be received</dd><dt><code>is_closed: func(): bool</code></dt><dd>whether close was called</dd><dt><code>len: func(): int</code></dt><dd>how many values are queued</dd><dt><code>capacity: func(): int</code></dt><dd>the capacity, or null for an unbounded channel</dd><dt><code>watch: func(h: any)</code></dt><dd>sends the uv async handle h (uv.async(cb)) whenever the channel changes, and at once when values are queued; how slang/async's receive wakes the loop. unwatch before closing h.</dd><dt><code>unwatch: func(h: any)</code></dt><dd>stops sending h</dd></dl>
+<dl class="params"><dt><code>send: func(v: any)</code></dt><dd>copies v into the channel; blocks while a channel with a capacity is full; raises when the channel is closed. null cannot be sent: receive gives null for a closed channel.</dd><dt><code>receive: func(): any</code></dt><dd>the next value, waiting until there is one; null once the channel is closed and empty</dd><dt><code>try_send: func(v: any): bool</code></dt><dd>like send, but returns false instead of blocking on a full channel</dd><dt><code>try_receive: func(): any</code></dt><dd>the next value, or null when none is queued (closed tells whether more can come)</dd><dt><code>close: func()</code></dt><dd>no more sends; what is queued can still be received</dd><dt><code>closed: bool</code></dt><dd>whether close was called</dd><dt><code>len: int</code></dt><dd>how many values are queued</dd><dt><code>capacity: int?</code></dt><dd>the capacity, or null for an unbounded channel</dd><dt><code>watch: func(h: any)</code></dt><dd>sends the uv async handle h (uv.async(cb)) whenever the channel changes, and at once when values are queued; how slang/async's receive wakes the loop. unwatch before closing h.</dd><dt><code>unwatch: func(h: any)</code></dt><dd>stops sending h</dd></dl>
 <p class="muted">slang/stubs/slang/isolate.slang</p>
 </body>
 </html>

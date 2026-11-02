@@ -33,16 +33,17 @@ pub const tname = "regex";
 
 pub fn module(vm: *VM) *Table {
     const meta = vm.newTable(0, 3);
-    meta.set(vm.gpa, vm.str("__index"), .{ .table = stdlib.makeModule(vm, &.{
+    stdlib.setClass(vm, meta, &.{
         .{ .name = "matches", .f = reMatches },
         .{ .name = "match_at", .f = reMatchAt },
         .{ .name = "find", .f = reFind },
         .{ .name = "find_all", .f = reFindAll },
         .{ .name = "replace", .f = reReplace },
         .{ .name = "split", .f = reSplit },
-        .{ .name = "pattern", .f = rePattern },
-        .{ .name = "group_names", .f = reGroupNames },
-    }) });
+    }, &.{
+        .{ .name = "pattern", .get = rePattern },
+        .{ .name = "group_names", .get = reGroupNames },
+    });
     meta.set(vm.gpa, vm.str("__type"), vm.str("regex"));
     vm.registry.set(vm.gpa, vm.str("regex_meta"), .{ .table = meta });
     return stdlib.makeModule(vm, &.{

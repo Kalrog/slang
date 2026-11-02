@@ -39,6 +39,9 @@ t.group("language server"){
   }
   t.test("uris decode"){
     assert(lsp.uri_to_path("file:///a/b%20c/d.slang") == "/a/b c/d.slang")
+    // another scheme (the expanded view): the path it names
+    assert(lsp.uri_to_path("slang-expanded:/a/d.expanded.slang") ==
+      "/a/d.expanded.slang")
   }
   t.test("initialize negotiates the position encoding"){
     local s = lsp.new()

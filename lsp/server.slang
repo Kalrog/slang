@@ -142,6 +142,14 @@ func lsp.uri_to_path(uri){
   local path = uri
   if(str.starts_with(path, "file://")){
     path = str.substring(path, 7)
+  } else {
+    // another scheme (the client's view of a file's expanded code,
+    // slang-expanded:/dir/x.expanded.slang): the path it names, next to
+    // the file it shows, so that it is under that file's project
+    local colon = str.index_of(path, ":/")
+    if(colon > 0 and not str.contains(str.substring(path, 0, colon), "/")){
+      path = str.substring(path, colon + 1)
+    }
   }
   local out = {}
   local i = 0
@@ -429,12 +437,15 @@ local func global_known(s, doc, name){
 
 // whether require(name) finds a module
 local func module_known(s, name){
-  local hit = s.lint_modules[name]
+  // (per project: what require finds depends on its search paths)
+  local p = compiler.project()
+  local key = concat(p and p.path or "", "\n", name)
+  local hit = s.lint_modules[key]
   if(hit == null){
     hit = __PACKAGES.preloaded[name] != null or vm.embedded(name) != null or
       compiler.module_path(name) != null or
       (pcall(__PACKAGES.native_file, name)[1] != null)
-    s.lint_modules[name] = hit
+    s.lint_modules[key] = hit
   }
   return hit
 }
@@ -559,6 +570,19 @@ local func analyse(s, uri){
     s.nav:open(doc.path, doc.symbols_text or doc.text, doc.symbols)
   }
   local diagnostics = lsp_diagnostics(doc.text, doc.diagnostics, s.encoding)
+  // a project file that failed to load: the file was read as plain slang
+  local pe = compiler.project_error(doc.path)
+  if(pe != null){
+    append(diagnostics, {
+      range: lsp.range_of(doc.text, 0, 0, s.encoding),
+      severity: 1,
+      source: "slang",
+      message: concat(
+        pe.path, " failed to load, so this file is read as plain slang: ",
+        pe.message
+      ),
+    })
+  }
   if(is_project_file(doc.path) and len(doc.diagnostics) == 0){
     for(let local d in values(project_lint(s, doc))){
       append(diagnostics, d)

@@ -1,6 +1,9 @@
 // async/await, the HTML templates and the sql{} literals are ambient in
 // every file of the server
 {
+  // the repository root, so that extensions/... resolves wherever slang
+  // runs from
+  search_paths: {"../.."},
   extensions: {
     "extensions/async",
     "extensions/html",

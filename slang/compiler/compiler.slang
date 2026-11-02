@@ -791,9 +791,11 @@ func compiler.for_file(path, f){
     local r = pcall(compiler.load_project, key)
     if(r[0] == "err"){
       // a broken project file: its files are plain slang until it changes
+      st.load_error = r[1].message or string(r[1])
+      st.project = null
       st.root = new_grammar()
       load_state(st)
-      explain("project ", key, " failed to load: ", r[1].message or r[1])
+      explain("project ", key, " failed to load: ", st.load_error)
     }
   }
   local r = pcall(f)
@@ -802,6 +804,21 @@ func compiler.for_file(path, f){
     raise(r[1])
   }
   return r[1]
+}
+
+// project_error(path: string) -> {path, message}?
+// Why the project of the file at path failed to load in the workspace
+// (its files are plain slang then), or null.
+func compiler.project_error(path){
+  if(workspace_states == null or path == null){
+    return null
+  }
+  local key = workspace_key(path)
+  local st = workspace_states[key]
+  if(st == null or st.load_error == null){
+    return null
+  }
+  return {path: key, message: st.load_error}
 }
 
 // forget_project(path?: string)
@@ -1053,7 +1070,8 @@ func compiler.load_main(path){
 // looks the project up for a file while none is loaded (directories
 // without one are remembered)
 local func find_project_for(path){
-  if(project != null){
+  // (a workspace's state has its project settled: for_file loaded it)
+  if(project != null or (current_state != null and current_state.key != null)){
     return null
   }
   local dir = dirname(path)

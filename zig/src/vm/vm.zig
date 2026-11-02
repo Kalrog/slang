@@ -146,6 +146,9 @@ pub const VM = struct {
     /// that metatable lookups compare pointers instead of bytes
     index_name: *String = undefined,
     newindex_name: *String = undefined,
+    /// "__get" and "__set": tables of property getters and setters
+    get_name: *String = undefined,
+    set_name: *String = undefined,
 
     /// Line starts of the string most recently passed to str.line_col
     /// (parsers call it once per token on the same buffer).
@@ -204,6 +207,10 @@ pub const VM = struct {
         vm.newindex_name = vm.newString("__newindex");
         vm.registry.set(vm.gpa, .{ .string = vm.index_name }, .{ .bool = true });
         vm.registry.set(vm.gpa, .{ .string = vm.newindex_name }, .{ .bool = true });
+        vm.get_name = vm.newString("__get");
+        vm.set_name = vm.newString("__set");
+        vm.registry.set(vm.gpa, .{ .string = vm.get_name }, .{ .bool = true });
+        vm.registry.set(vm.gpa, .{ .string = vm.set_name }, .{ .bool = true });
         vm.main = vm.newThread(null);
         vm.main.is_main = true;
         vm.main.status = .running;

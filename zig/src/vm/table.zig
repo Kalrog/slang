@@ -48,22 +48,28 @@ pub const Table = struct {
     ents: std.ArrayList(Entry) = .empty,
     index: Index = .empty,
     indexed: bool = false,
-    /// what this table has as a metatable (see hasNewindex); 0 is unknown
+    /// what this table has as a metatable (see metaFlags); 0 is unknown
     mflags: u8 = 0,
     dead: u32 = 0,
     meta: ?*Table = null,
 
     const mf_valid: u8 = 1;
-    const mf_newindex: u8 = 2;
+    pub const mf_newindex: u8 = 2;
+    pub const mf_get: u8 = 4;
+    pub const mf_set: u8 = 8;
 
-    /// Whether this table, used as a metatable, has a __newindex entry
-    /// (newindex is the VM's interned "__newindex"). Cached until a key is
+    /// What this table, used as a metatable, has of __newindex, __get and
+    /// __set (the VM's interned names), as mf_ bits. Cached until a key is
     /// added to or removed from the table.
-    pub inline fn hasNewindex(m: *Table, newindex: *String) bool {
+    pub inline fn metaFlags(m: *Table, newindex: *String, getter: *String, setter: *String) u8 {
         if (m.mflags & mf_valid == 0) {
-            m.mflags = mf_valid | (if (m.find(.{ .string = newindex }) != null) mf_newindex else 0);
+            var f: u8 = mf_valid;
+            if (m.find(.{ .string = newindex }) != null) f |= mf_newindex;
+            if (m.find(.{ .string = getter }) != null) f |= mf_get;
+            if (m.find(.{ .string = setter }) != null) f |= mf_set;
+            m.mflags = f;
         }
-        return m.mflags & mf_newindex != 0;
+        return m.mflags;
     }
 
     pub fn init(gpa: Allocator, narr: usize, nhash: usize) Table {

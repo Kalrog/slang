@@ -14,7 +14,7 @@ local func row(name, f){
   local t0 = time.clock()
   local r = f()
   local t1 = time.clock()
-  local ns = (t1 - t0) * 1000000000 / n
+  local ns = (t1 - t0) * 1000000 / n
   print(name, ": ", to_int(ns), " ns\n")
   return r
 }

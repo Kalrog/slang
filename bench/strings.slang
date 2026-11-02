@@ -15,5 +15,5 @@ for(let local s in values(back)){
 local t1 = time.clock()
 print(
   "strings: ", len(back), " parts, total length ", total, " in ",
-  (t1 - t0) * 1000, " ms\n"
+  (t1 - t0), " ms\n"
 )

@@ -29,5 +29,5 @@ for(let local v in values(list)){
 local t1 = time.clock()
 print(
   "tables: acc=", acc.x, ",", acc.y, " items=", len(list), " sum=", sum, " in ",
-  (t1 - t0) * 1000, " ms\n"
+  (t1 - t0), " ms\n"
 )

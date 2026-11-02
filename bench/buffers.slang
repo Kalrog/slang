@@ -12,7 +12,7 @@ local n = 1000000
 local func time(name, f){
   local t0 = clock()
   local r = f()
-  print(name, ": ", string(to_int((clock() - t0) * 1000)), " ms\n")
+  print(name, ": ", string(to_int((clock() - t0))), " ms\n")
   return r
 }
 

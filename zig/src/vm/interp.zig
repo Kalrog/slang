@@ -5,6 +5,7 @@ const Value = root.Value;
 const Table = root.Table;
 const String = root.String;
 const Thread = root.Thread;
+const thread_mod = @import("thread.zig");
 const Error = root.Error;
 const gc = @import("gc.zig");
 const ctypes = @import("../stdlib/ctypes.zig");
@@ -243,12 +244,18 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 var res = stack[top - 1];
                 const fn_idx = base - 1;
                 const prot = th.frames.items[fi].protected;
+                const dest = th.frames.items[fi].dest;
                 th.top = top;
                 th.popFrame();
                 th.top = fn_idx;
                 if (prot) res = okResult(th, res);
-                th.stack[fn_idx] = res;
-                th.top = fn_idx + 1;
+                if (dest == thread_mod.dest_push) {
+                    th.stack[fn_idx] = res;
+                    th.top = fn_idx + 1;
+                } else if (dest != thread_mod.dest_drop) {
+                    // a getter's result, into its caller's register
+                    th.stack[th.frames.items[th.frames.items.len - 1].base + dest] = res;
+                }
                 if (th.frames.items.len == stop_depth) return;
                 // the caller's frame, without leaving the switch (every
                 // frame above stop_depth is a slang frame: natives that
@@ -281,6 +288,40 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 const obj = stack[top - 3];
                 top -= 3;
                 if (setFast(vm, obj, key, val)) continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+                if (findSetter(vm, obj, key)) |f| {
+                    // a property: its setter, called as a call, its result
+                    // dropped
+                    stack[top] = f;
+                    stack[top + 1] = obj;
+                    stack[top + 2] = val;
+                    spill(trace, th, fi, pc, top + 3);
+                    const is_slang = th.precall(top, 2, false) catch |e| {
+                        try th.handleError(e, stop_depth);
+                        continue :outer;
+                    };
+                    const acc_dest: u16 = thread_mod.dest_drop;
+                    if (is_slang) {
+                        th.frames.items[th.frames.items.len - 1].dest = acc_dest;
+                        fi = th.frames.items.len - 1;
+                        const fr = th.frames.items[fi];
+                        proto = fr.cl.proto.?;
+                        code = proto.code;
+                        consts = proto.consts;
+                        base = fr.base;
+                        pc = fr.pc;
+                        top = th.top;
+                        stack = th.stack.ptr;
+                    } else {
+                        // a native accessor ran already: its result where it was
+                        top = th.top;
+                        stack = th.stack.ptr;
+                        if (acc_dest != thread_mod.dest_push) {
+                            top -= 1;
+                            if (acc_dest != thread_mod.dest_drop) stack[base + acc_dest] = stack[top];
+                        }
+                    }
+                    continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+                }
                 spill(trace, th, fi, pc, top);
                 th.setTable(obj, key, val) catch |e| {
                     try th.handleError(e, stop_depth);
@@ -294,11 +335,36 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 const key = stack[top - 1];
                 const obj = stack[top - 2];
                 top -= 1;
-                if (getFast(vm, obj, key)) |v| {
+                var getter: Value = .null;
+                if (getFastG(vm, obj, key, &getter)) |v| {
                     stack[top - 1] = v;
                     continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
                 }
                 top -= 1;
+                if (getter != .null) {
+                    const g = getter;
+                    // a property: its getter, called as a call instruction
+                    // calls (the result lands where obj was)
+                    stack[top] = g;
+                    stack[top + 1] = obj;
+                    spill(trace, th, fi, pc, top + 2);
+                    const is_slang = th.precall(top, 1, false) catch |e| {
+                        try th.handleError(e, stop_depth);
+                        continue :outer;
+                    };
+                    if (is_slang) {
+                        fi = th.frames.items.len - 1;
+                        const fr = th.frames.items[fi];
+                        proto = fr.cl.proto.?;
+                        code = proto.code;
+                        consts = proto.consts;
+                        base = fr.base;
+                        pc = fr.pc;
+                    }
+                    top = th.top;
+                    stack = th.stack.ptr;
+                    continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+                }
                 spill(trace, th, fi, pc, top);
                 const v = th.getTable(obj, key) catch |e| {
                     try th.handleError(e, stop_depth);
@@ -539,8 +605,51 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 const popped: usize = @intFromBool(bx == d.stack_operand);
                 const obj = if (popped != 0) stack[top - 1] else operandValue(th, fi, stack, base, consts, bx);
                 top -= popped;
-                if (getFast(vm, obj, key)) |v| {
+                var getter: Value = .null;
+                if (getFastG(vm, obj, key, &getter)) |v| {
                     storeDest(stack, base, &top, d.argA(ins), v);
+                    continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+                }
+                if (getter != .null) {
+                    const g = getter;
+                    // a property: its getter as a call, the result pushed
+                    // or put in the register A
+                    const a = d.argA(ins);
+                    th.top = top;
+                    th.ensure(top + 2) catch |e| {
+                        try th.handleError(e, stop_depth);
+                        continue :outer;
+                    };
+                    stack = th.stack.ptr;
+                    stack[top] = g;
+                    stack[top + 1] = obj;
+                    const dest: u16 = if (a == d.push_dest) thread_mod.dest_push else @intCast(a);
+                    spill(trace, th, fi, pc, top + 2);
+                    const is_slang = th.precall(top, 1, false) catch |e| {
+                        try th.handleError(e, stop_depth);
+                        continue :outer;
+                    };
+                    const acc_dest: u16 = dest;
+                    if (is_slang) {
+                        th.frames.items[th.frames.items.len - 1].dest = acc_dest;
+                        fi = th.frames.items.len - 1;
+                        const fr = th.frames.items[fi];
+                        proto = fr.cl.proto.?;
+                        code = proto.code;
+                        consts = proto.consts;
+                        base = fr.base;
+                        pc = fr.pc;
+                        top = th.top;
+                        stack = th.stack.ptr;
+                    } else {
+                        // a native accessor ran already: its result where it was
+                        top = th.top;
+                        stack = th.stack.ptr;
+                        if (acc_dest != thread_mod.dest_push) {
+                            top -= 1;
+                            if (acc_dest != thread_mod.dest_drop) stack[base + acc_dest] = stack[top];
+                        }
+                    }
                     continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
                 }
                 spill(trace, th, fi, pc, top);
@@ -576,6 +685,44 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 }
                 top -= popped;
                 if (setFast(vm, obj, key, val)) continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+                if (findSetter(vm, obj, key)) |f| {
+                    th.top = top;
+                    th.ensure(top + 3) catch |e| {
+                        try th.handleError(e, stop_depth);
+                        continue :outer;
+                    };
+                    stack = th.stack.ptr;
+                    stack[top] = f;
+                    stack[top + 1] = obj;
+                    stack[top + 2] = val;
+                    spill(trace, th, fi, pc, top + 3);
+                    const is_slang = th.precall(top, 2, false) catch |e| {
+                        try th.handleError(e, stop_depth);
+                        continue :outer;
+                    };
+                    const acc_dest: u16 = thread_mod.dest_drop;
+                    if (is_slang) {
+                        th.frames.items[th.frames.items.len - 1].dest = acc_dest;
+                        fi = th.frames.items.len - 1;
+                        const fr = th.frames.items[fi];
+                        proto = fr.cl.proto.?;
+                        code = proto.code;
+                        consts = proto.consts;
+                        base = fr.base;
+                        pc = fr.pc;
+                        top = th.top;
+                        stack = th.stack.ptr;
+                    } else {
+                        // a native accessor ran already: its result where it was
+                        top = th.top;
+                        stack = th.stack.ptr;
+                        if (acc_dest != thread_mod.dest_push) {
+                            top -= 1;
+                            if (acc_dest != thread_mod.dest_drop) stack[base + acc_dest] = stack[top];
+                        }
+                    }
+                    continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+                }
                 spill(trace, th, fi, pc, top);
                 th.setTable(obj, key, val) catch |e| {
                     try th.handleError(e, stop_depth);
@@ -748,6 +895,14 @@ inline fn storeDest(stack: [*]Value, base: usize, top: *usize, a: u32, v: Value)
 /// element, a userdata's method. Null when the generic path (getTable)
 /// must run.
 inline fn getFast(vm: *root.VM, obj: Value, key: Value) ?Value {
+    var getter: Value = .null;
+    return getFastG(vm, obj, key, &getter);
+}
+
+/// getFast that also tells, on a miss, the getter of the property it met
+/// (null when the miss is for another reason): found once, called by the
+/// instruction.
+inline fn getFastG(vm: *root.VM, obj: Value, key: Value, getter: *Value) ?Value {
     if (obj == .table) {
         const t = obj.table;
         const v = switch (key) {
@@ -757,14 +912,20 @@ inline fn getFast(vm: *root.VM, obj: Value, key: Value) ?Value {
         };
         if (v != .null or t.meta == null) return v;
         // a miss on a table with a metatable: walk __index tables inline,
-        // leaving functions to the slow path
-        return getChain(t, key, vm.index_name);
+        // leaving functions and properties (__get) to the slow path
+        return getChain(vm, t, key, getter);
     } else if (obj == .userdata and key == .int) {
         // an element of a buffer of scalars
         return ctypes.bufferGet(obj.userdata, key.int);
     } else if (obj == .userdata and key == .string) {
-        // a method of a userdata: its metatable's __index table
+        // a method of a userdata: its metatable's __index table (a
+        // property goes to the slow path)
         if (obj.userdata.meta) |m| {
+            const g = getterOf(vm, m, key);
+            if (g != .null) {
+                getter.* = g;
+                return null;
+            }
             const idx = m.getStr(vm.index_name);
             if (idx == .table) {
                 const v = idx.table.getStr(key.string);
@@ -779,15 +940,18 @@ inline fn getFast(vm: *root.VM, obj: Value, key: Value) ?Value {
 /// run.
 inline fn setFast(vm: *root.VM, obj: Value, key: Value, val: Value) bool {
     if (obj == .table and key == .string) {
-        // inline unless the store could go to a __newindex: the key is
-        // "meta", or the table has a metatable with __newindex and the key
-        // is new
+        // inline unless the store could go to a metamethod: the key is
+        // "meta", or the key is new and the metatable could have a setter
+        // or __newindex for it (see newKeyInline)
         const t = obj.table;
         const s = key.string;
-        if (!s.isMeta() and (if (t.meta) |m| !m.hasNewindex(vm.newindex_name) or t.replaceStr(s, val) else true)) {
-            t.setStr(vm.gpa, s, val);
-            return true;
+        if (s.isMeta()) return false;
+        if (t.meta) |m| {
+            if (t.replaceStr(s, val)) return true;
+            if (!newKeyInline(vm, m)) return false;
         }
+        t.setStr(vm.gpa, s, val);
+        return true;
     } else if (obj == .userdata and key == .int) {
         // an element of a buffer of scalars
         return ctypes.bufferSet(obj.userdata, key.int, val);
@@ -816,15 +980,79 @@ fn compareSlow(th: *Thread, comptime op: Op, a: Value, b: Value) Error!bool {
     return th.vm.raise("attempt to compare {s} {s} {s}", .{ a.typeName(), if (is_lt) "<" else "<=", b.typeName() });
 }
 
+/// What makes a store of a new key leave the inline path: the metatable
+/// has __newindex, __get or __set.
+const store_flags = Table.mf_newindex | Table.mf_get | Table.mf_set;
+
+/// Whether a new key of a table with metatable m is stored inline: m has
+/// no __newindex, __get or __set, and no __index table whose chain could
+/// hold an inherited setter or getter (the generic path walks it).
+inline fn newKeyInline(vm: *root.VM, m: *Table) bool {
+    if (m.metaFlags(vm.newindex_name, vm.get_name, vm.set_name) & store_flags != 0) return false;
+    return m.getStr(vm.index_name) != .table;
+}
+
+/// The setter of a property obj does not hold itself: from the __set of
+/// its metatable or, inherited, of the metatables along its __index
+/// tables; null when there is none, or a getter comes first (the generic
+/// path raises read-only).
+fn findSetter(vm: *root.VM, obj: Value, key: Value) ?Value {
+    var m: *Table = switch (obj) {
+        .table => |t| blk: {
+            if (t.get(key) != .null) return null;
+            break :blk t.meta orelse return null;
+        },
+        .userdata => |u| u.meta orelse return null,
+        else => return null,
+    };
+    var depth: usize = 0;
+    while (depth < 100) : (depth += 1) {
+        const flags = m.metaFlags(vm.newindex_name, vm.get_name, vm.set_name);
+        if (flags & Table.mf_set != 0) {
+            const st = m.getStr(vm.set_name);
+            if (st == .table) {
+                const f = st.table.get(key);
+                if (f != .null) return f;
+            }
+        }
+        if (flags & Table.mf_get != 0 and hasGetter(vm, m, key)) return null;
+        const idx = m.getStr(vm.index_name);
+        if (idx != .table) return null;
+        m = idx.table.meta orelse return null;
+    }
+    return null;
+}
+
+/// The getter for key in metatable m's __get table, or null.
+inline fn getterOf(vm: *root.VM, m: *Table, key: Value) Value {
+    if (m.metaFlags(vm.newindex_name, vm.get_name, vm.set_name) & Table.mf_get == 0) return .null;
+    const g = m.getStr(vm.get_name);
+    if (g != .table) return .null;
+    return g.table.get(key);
+}
+
+/// Whether metatable m has a getter for key in its __get table.
+inline fn hasGetter(vm: *root.VM, m: *Table, key: Value) bool {
+    if (m.metaFlags(vm.newindex_name, vm.get_name, vm.set_name) & Table.mf_get == 0) return false;
+    const g = m.getStr(vm.get_name);
+    return g == .table and g.table.get(key) != .null;
+}
+
 /// The __index chain over tables for a key t0 does not have: the value
 /// (null when the chain ends without one), or null when an __index
-/// function or anything else needs the generic path (getTable).
-inline fn getChain(t0: *Table, key: Value, index_name: *String) ?Value {
+/// function, a property or anything else needs the generic path
+/// (getTable).
+inline fn getChain(vm: *root.VM, t0: *Table, key: Value, getter: *Value) ?Value {
     var t = t0;
     var depth: usize = 0;
     while (depth < 100) : (depth += 1) {
         const m = t.meta orelse return .null;
-        const idx = m.getStr(index_name);
+        const g = getterOf(vm, m, key);
+        if (g != .null) {
+            getter.* = g;
+            return null;
+        }
+        const idx = m.getStr(vm.index_name);
         switch (idx) {
             .table => |n| t = n,
             .null => return .null,
@@ -846,6 +1074,12 @@ fn okResult(th: *Thread, v: Value) Value {
     t.append(th.vm.gpa, th.vm.str("ok"));
     t.pushSlot(th.vm.gpa, v);
     return .{ .table = t };
+}
+
+/// a value's type for an error: a userdata's own type name
+fn typeNameOf(v: Value) []const u8 {
+    if (v == .userdata) return v.userdata.tname;
+    return v.typeName();
 }
 
 fn keyDesc(buf: []u8, key: Value) []const u8 {
@@ -1090,6 +1324,12 @@ pub const ThreadOps = struct {
                 else => return .null,
             }
             const m = meta orelse return .null;
+            // a property: its getter, called with the object indexed
+            // first (also when the property is inherited)
+            if (hasGetter(th.vm, m, key)) {
+                const g = m.getStr(th.vm.get_name).table.get(key);
+                return th.call(g, &.{obj_});
+            }
             const idx = m.getStr(th.vm.index_name);
             switch (idx) {
                 .function => return th.call(idx, &.{ obj, key }),
@@ -1098,6 +1338,37 @@ pub const ThreadOps = struct {
             }
         }
         return th.vm.raise("__index chain too long", .{});
+    }
+
+    /// A store to a property: the setter of key in the __set tables along
+    /// the metatable chain (the metatable of obj, then of its __index
+    /// tables); true when one ran. A key with a getter but no setter is
+    /// read-only: raises.
+    fn setProperty(th: *Thread, meta: *Table, obj: Value, key: Value, val: Value) Error!bool {
+        const vm = th.vm;
+        var m = meta;
+        var depth: usize = 0;
+        while (depth < 100) : (depth += 1) {
+            const flags = m.metaFlags(vm.newindex_name, vm.get_name, vm.set_name);
+            if (flags & Table.mf_set != 0) {
+                const st = m.getStr(vm.set_name);
+                if (st == .table) {
+                    const f = st.table.get(key);
+                    if (f != .null) {
+                        _ = try th.call(f, &.{ obj, val });
+                        return true;
+                    }
+                }
+            }
+            if (flags & Table.mf_get != 0 and hasGetter(vm, m, key)) {
+                var buf: [256]u8 = undefined;
+                return vm.raise("property {s} of {s} is read-only", .{ keyDesc(&buf, key), typeNameOf(obj) });
+            }
+            const idx = m.getStr(vm.index_name);
+            if (idx != .table) return false;
+            m = idx.table.meta orelse return false;
+        }
+        return false;
     }
 
     /// Assignment with __newindex metamethods.
@@ -1110,6 +1381,7 @@ pub const ThreadOps = struct {
                     if (key == .null) return th.vm.raise("table index is null", .{});
                     const m = t.meta orelse return th.rawSet(t, key, val);
                     if (t.get(key) != .null) return th.rawSet(t, key, val);
+                    if (try ThreadOps.setProperty(th, m, obj_, key, val)) return;
                     const ni = m.getStr(th.vm.newindex_name);
                     switch (ni) {
                         .null => return th.rawSet(t, key, val),
@@ -1126,6 +1398,7 @@ pub const ThreadOps = struct {
                         if (try ctypes.fastSet(th, u, key.int, val)) return;
                     }
                     if (u.meta) |m| {
+                        if (try ThreadOps.setProperty(th, m, obj_, key, val)) return;
                         const ni = m.getStr(th.vm.newindex_name);
                         switch (ni) {
                             .function => {

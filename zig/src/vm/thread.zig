@@ -33,7 +33,14 @@ pub const Frame = struct {
     pc: u32,
     base: u32,
     protected: bool,
+    /// where the result goes when the frame returns: pushed where the
+    /// function was (dest_push), dropped (a setter's, dest_drop) or into
+    /// the caller's register dest (a getter's, for get_x)
+    dest: u16 = dest_push,
 };
+
+pub const dest_push: u16 = 0xFFFF;
+pub const dest_drop: u16 = 0xFFFE;
 
 /// A try (or a defer's protected region) in progress: an error raised while
 /// it is the innermost one goes to pc in frame `frame`, with the stack cut

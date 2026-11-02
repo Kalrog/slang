@@ -188,4 +188,4 @@ for(local i = 0; i < n; i = i + 1){
   local result = g:dijkstra("fix")
 }
 local t1 = time.clock()
-print("dijkstra x", n, ": ", (t1 - t0) * 1000, " ms\n")
+print("dijkstra x", n, ": ", (t1 - t0), " ms\n")

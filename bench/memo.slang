@@ -14,7 +14,7 @@ local func time(label){
   for(local i = 0; i < n; i = i + 1){
     compiler.parse(source, "sample")
   }
-  print(label, ": ", (clock() - t0) * 1000 / n, " ms/run\n")
+  print(label, ": ", (clock() - t0) / n, " ms/run\n")
 }
 
 time("base grammar")

@@ -13,7 +13,7 @@ local func row(name, f){
   local t0 = time.clock()
   f()
   local t1 = time.clock()
-  print(name, ": ", to_int((t1 - t0) * 1000000000 / n), " ns per sample\n")
+  print(name, ": ", to_int((t1 - t0) * 1000000 / n), " ns per sample\n")
 }
 
 // the sawtooth: a phase accumulator, locals only

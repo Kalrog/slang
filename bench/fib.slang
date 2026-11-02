@@ -9,4 +9,4 @@ local func fib(n){
 local t0 = time.clock()
 local r = fib(27)
 local t1 = time.clock()
-print("fib(27) = ", r, " in ", (t1 - t0) * 1000, " ms\n")
+print("fib(27) = ", r, " in ", (t1 - t0), " ms\n")

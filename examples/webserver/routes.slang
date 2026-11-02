@@ -55,6 +55,7 @@ local func with_todo(req, params, f){
   return f(t)
 }
 
+// install(app:web.WebApp): registers the routes on a slang/web app
 func m.install(app){
   // ---------------------------------------------------------- pages
   app:get("/", signed_in(func(req){

@@ -203,11 +203,15 @@ func format.extension(parser, owner){
 // The name of the extension whose syntax the lossless tree has at pos, or
 // null for core syntax. Down from the root, an extension's mark names its
 // owner; a formatted mark without one is core syntax again (what the
-// extension was given, or an expression inside it).
+// extension was given, or an expression inside it), and so is what a core
+// rule an extension refers to parses (the body of an async function).
 func format.owner_at(tree, pos){
   local owner = null
   local n = tree
   for(n != null){
+    if(n.owner == "core"){
+      owner = null
+    }
     for(let local data in values(peg.marks(n, format.layer))){
       if(data.owner != null){
         owner = data.owner

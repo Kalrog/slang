@@ -533,6 +533,22 @@ t.group("language server: names"){
         str.index_of(e.text, "print(1)") >= 0,
       e.text,
     )
+    // core code an extension embeds (an async function's body) is not
+    // the extension's syntax
+    local auri = lsp.path_to_uri(concat(dir, "/ext_async.slang"))
+    open_doc(
+      es, auri,
+      "extension \"extensions/async\"\nasync func f(){\n  return nothing_known\n}\n"
+    )
+    local func hover_at(line, character){
+      local r = es:handle(request(9, "textDocument/hover", {
+        textDocument: {uri: auri}, position: {line: line, character: character},
+      }))[0].result
+      return type(r) == "json.null" and "" or r.contents.value
+    }
+    assert(str.index_of(hover_at(1, 2), "extensions/async") >= 0)
+    h = hover_at(2, 12)
+    assert(str.index_of(h, "extension") < 0, h)
   }
   t.test("tests: the groups and tests of a test file"){
     local r = s:handle(request(9, "slang/tests", {

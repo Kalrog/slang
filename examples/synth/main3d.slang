@@ -10,8 +10,9 @@
 // Playing it is as in main.slang: drag knobs up and down (shift: finely),
 // the mouse wheel turns them too, double click resets, click switches,
 // click and glide over the keys, Z..M and Q..I on the computer keyboard.
-// Drag with the right button to look around, the mouse wheel off the
-// controls moves closer.
+// Up and down step through the premade patches (or click the arrows on the
+// strip). Drag with the right button to look around, the mouse wheel off
+// the controls moves closer.
 //
 // The mouse picks by rays: one that meets the panel becomes a position on
 // the face, where panel.slang's 2D hit tests decide; keys and wheels are
@@ -551,6 +552,13 @@ local func control_hit(ray){
   return best
 }
 
+// a click on the strip's patch buttons (on the face itself): true when the
+// ray met one
+local func strip_hit(ray){
+  local p = face_point(ray, 0.0)
+  return p != null and panel.press_strip(p.x, p.y)
+}
+
 // ------------------------------------------------------------ the camera
 
 local view = {yaw: 0.0, pitch: 0.55, distance: 14.0}
@@ -602,7 +610,7 @@ local func handle_mouse(){
     local i = control_hit(ray)
     if(i != null){
       panel.press(i, m.y)
-    } else {
+    } else if(not strip_hit(ray)){
       local n = key_hit(ray)
       if(n != null){
         panel.press_key(n)
@@ -678,7 +686,7 @@ local func draw_scene(){
 }
 
 local func draw_hud(){
-  panel.text("right drag: look around    wheel: closer    arrows: octave    space: all notes off",
+  panel.text("right drag: look around    wheel: closer    left/right: octave    up/down: patch    space: all notes off",
     16, H - 26, 10, colors.dim)
   panel.text(concat("OCTAVE C", to_int(panel.octave / 12) - 1), W - 110, H - 26, 10, colors.dim)
 }
@@ -720,6 +728,14 @@ local func pick_test(){
   for(let local wh in values(panel.wheels)){
     local at = rl.get_world_to_screen({x: wheel_x(wh), y: WHEEL_Y + WHEEL_R, z: WHEEL_Z}, camera)
     check("wheel", wh.index, control_hit(rl.get_screen_to_world_ray(at, camera)))
+  }
+  // the patch buttons: no control in front, the face's point back within
+  // a pixel
+  for(let local b in values(panel.patch_buttons)){
+    local ray = rl.get_screen_to_world_ray(rl.get_world_to_screen(on_face(b.x, b.y, 0.0), camera), camera)
+    check("patch button's control", null, control_hit(ray))
+    local p = face_point(ray, 0.0)
+    check("patch button", true, math.abs(p.x - b.x) < 1.0 and math.abs(p.y - b.y) < 1.0)
   }
   print("pick test: ", misses, " misses\n")
 }

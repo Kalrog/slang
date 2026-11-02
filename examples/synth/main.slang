@@ -12,7 +12,8 @@
 // a click. Keys: Z S X D C V G B H N J M , for one octave, Q 2 W 3 E R 5 T
 // 6 Y 7 U I for the next; left and right shift the octave, space lets go
 // of every note. The wheels left of the keyboard bend the pitch (it springs
-// back) and set the modulation.
+// back) and set the modulation. Up and down (or the arrows on the strip)
+// step through the premade patches of patches.slang.
 //
 // SYNTH_FRAMES=n quits after n frames, SYNTH_DEMO=1 plays a phrase by
 // itself (both for trying it without a player), SYNTH_SCREENSHOT=file.png
@@ -125,7 +126,7 @@ local func handle_mouse(){
     local i = panel.control_at(m.x, m.y) or wheel_at(m.x, m.y)
     if(i != null){
       panel.press(i, m.y)
-    } else {
+    } else if(not panel.press_strip(m.x, m.y)){
       local n = key_at(m.x, m.y)
       if(n != null){
         panel.press_key(n)

@@ -11,6 +11,7 @@ local buffer = require("slang/buffer")
 local math = require("slang/math")
 local os = require("slang/os")
 local params = require("params")
+local patches = require("patches")
 
 local panel = {}
 
@@ -187,6 +188,8 @@ func panel.play_song(){
     notes:send({song: s})
     status.state[0] = 1
     status.state[1] = 0
+    // the song sets a sound of its own
+    panel.patch = -1
   }
 }
 
@@ -212,6 +215,37 @@ func panel.next_song(){
 
 // the chosen song, for the strip, before anything plays
 chosen()
+
+// ------------------------------------------------------------ patches
+
+// the patch last chosen (patches.slang), -1 when a song set the sound;
+// the controls start at their defaults, which is the first, "Init"
+panel.patch = 0
+
+// select_patch(k): the controls take patch k's values
+func panel.select_patch(k){
+  local n = len(patches.list)
+  k = (k % n + n) % n
+  local vs = patches.values(k)
+  for(local i = 0; i < params.count; i = i + 1){
+    controls[i] = vs[i]
+  }
+  panel.patch = k
+}
+
+// next_patch(step): the patch step places on (from the first when a song
+// set the sound)
+func panel.next_patch(step){
+  if(panel.patch < 0){
+    if(step > 0){
+      panel.select_patch(0)
+    } else {
+      panel.select_patch(-1)
+    }
+  } else {
+    panel.select_patch(panel.patch + step)
+  }
+}
 
 // ------------------------------------------------------------ text
 
@@ -428,6 +462,49 @@ local func draw_scope(x, y, w, h){
 panel.STRIP_Y = params.bottom + 6
 panel.STRIP_H = 54
 
+// the patch's place on the strip: a button each side of its name
+local PATCH = {x: 940, w: 210, y: panel.STRIP_Y + 6, h: 20, button: 20}
+
+local func draw_patch(){
+  local b = PATCH
+  rl.draw_rectangle(b.x, b.y, b.w, b.h, {10, 10, 11})
+  for(let local side in values({{x: b.x, s: "<"}, {x: b.x + b.w - b.button, s: ">"}})){
+    rl.draw_rectangle(side.x + 1, b.y + 1, b.button - 2, b.h - 2, colors.skirt)
+    text_center(side.s, side.x + b.button / 2, b.y + 5, 10, colors.text)
+  }
+  local name = "song's sound"
+  local color = colors.dim
+  if(panel.patch >= 0){
+    name = concat("", panel.patch + 1, "  ", patches.list[panel.patch].name)
+    color = colors.orange
+  }
+  text_center(name, b.x + b.w / 2, b.y + 5, 10, color)
+}
+
+// press_strip(x, y) -> bool: a click at x, y of the face on the strip's
+// patch buttons steps the patch (false: not on them)
+func panel.press_strip(x, y){
+  local b = PATCH
+  if(y < b.y or y > b.y + b.h){
+    return false
+  }
+  if(x >= b.x and x <= b.x + b.button){
+    panel.next_patch(-1)
+    return true
+  }
+  if(x >= b.x + b.w - b.button and x <= b.x + b.w){
+    panel.next_patch(1)
+    return true
+  }
+  return false
+}
+
+// the middles of the two buttons, for the 3D pick test
+panel.patch_buttons = {
+  {x: PATCH.x + PATCH.button / 2, y: PATCH.y + PATCH.h / 2},
+  {x: PATCH.x + PATCH.w - PATCH.button / 2, y: PATCH.y + PATCH.h / 2},
+}
+
 local func draw_strip(){
   local y = panel.STRIP_Y
   local stats = panel.stats
@@ -466,6 +543,7 @@ local func draw_strip(){
   }
   text(concat("underruns ", stats.underruns), 940, y + 32, 10, color)
   text(concat("FPS ", rl.get_fps()), 1080, y + 32, 10, colors.dim)
+  draw_patch()
 }
 
 // draw_face(caps): the panel and the strip, x from 40 to W - 40 and y from
@@ -722,6 +800,12 @@ func panel.handle_keys(){
   }
   if(rl.is_key_pressed(rl.KEY_TAB)){
     panel.next_song()
+  }
+  if(rl.is_key_pressed(rl.KEY_UP)){
+    panel.next_patch(1)
+  }
+  if(rl.is_key_pressed(rl.KEY_DOWN)){
+    panel.next_patch(-1)
   }
 }
 

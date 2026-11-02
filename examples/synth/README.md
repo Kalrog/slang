@@ -30,10 +30,17 @@ Needs raylib (`brew install raylib`).
   contours, and releasing it goes back to the key still held.
 - **Wheels**: PITCH bends two semitones and springs back; MOD sets how much
   modulation goes where OSC MOD and FILTER MOD send it.
+- **Patches**: up and down, or the arrows at the right of the strip, step
+  through premade sounds: Init (the panel's defaults), Fat Bass, Pluck
+  Bass, Lead, Brass, Flute, Fifths, Slow Pad, Filter Sweep, Wobble, Zap and
+  Wind. A patch sets every control (those it does not name go to their
+  defaults); turn knobs from there. `patches.slang` holds them, written as
+  a song's `patch` is, so adding one is a few lines; Lead, Flute and Wobble
+  run osc 3 as an LFO that the MOD wheel sends to the pitch or the filter.
 
 The strip under the panel shows the output on an oscilloscope, the DSP load
-(the time spent computing samples over the time they last) and underruns
-(blocks the audio device found empty, heard as clicks).
+(the time spent computing samples over the time they last), underruns
+(blocks the audio device found empty, heard as clicks) and the patch.
 
 ## Songs
 
@@ -142,7 +149,8 @@ wheel off the controls moves closer.
   notes held, drawing the face, and what clicks, drags and keys do.
 - `params.slang` lists the controls. Their values live in a shared buffer
   (`buffer.shared`) that the panel writes and the engine reads at every
-  block; notes go to the engine through a channel.
+  block; notes go to the engine through a channel. A patch
+  (`patches.slang`) is the panel writing every control at once.
 
 `SYNTH_FRAMES=n` quits after n frames, `SYNTH_DEMO=1` plays a phrase by
 itself, `SYNTH_SCREENSHOT=file.png` saves the last frame.

@@ -80,4 +80,18 @@ for(local i = 0; i < len(params.list); i = i + 1){
 }
 params.count = len(params.list)
 
+// value(c, v) -> number | null: a control's value as a song or a patch
+// writes it: a number, or a rotary switch's label (null: no such label)
+func params.value(c, v){
+  if(type(v) == "string"){
+    for(local i = 0; i < len(c.labels or {}); i = i + 1){
+      if(c.labels[i] == v){
+        return i * 1.0
+      }
+    }
+    return null
+  }
+  return v * 1.0
+}
+
 return params

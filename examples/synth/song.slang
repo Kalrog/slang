@@ -53,17 +53,11 @@ local song = {}
 
 // a control's value from a song file: a number, or a rotary switch's label
 local func value_of(file, c, v){
-  if(type(v) == "string"){
-    if(c.labels != null){
-      for(local i = 0; i < len(c.labels); i = i + 1){
-        if(c.labels[i] == v){
-          return i * 1.0
-        }
-      }
-    }
+  local x = params.value(c, v)
+  if(x == null){
     error(concat(file, ": ", c.id, " has no position called ", v))
   }
-  return v * 1.0
+  return x
 }
 
 local func control(file, id){

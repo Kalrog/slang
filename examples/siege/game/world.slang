@@ -264,7 +264,7 @@ func World.position(w, e){
 }
 
 func World.velocity(w, e){
-  return e.body:get_linear_velocity()
+  return e.body.linear_velocity
 }
 
 // ------------------------------------------------------------ joints
@@ -525,7 +525,7 @@ func World.smash(w, e, at){
   }
   e.breaking = true
   local pos = e.pos
-  local v = e.body:get_linear_velocity()
+  local v = e.body.linear_velocity
   w:remove(e)
   particles.debris(pos, v, e.size, e.color, e.texture, e.kind)
   if(e.mat.explosive){
@@ -560,7 +560,7 @@ func World.explode(w, pos, radius, strength, source){
     }
     local p = e.pos
     if(not e.sleeping){
-      p = e.body:get_position()
+      p = e.body.position
     }
     local d = vec.distance(p, pos)
     if(d < radius){
@@ -608,7 +608,7 @@ local func impact(w, c, e1, e2){
 }
 
 local func contacts(w){
-  local events = w.jw:get_contact_events()
+  local events = w.jw:contact_events()
   // the first moments of a level are its parts settling: nothing breaks
   if(w.time < 1){
     return
@@ -673,7 +673,7 @@ func World.step(w, dt){
     if(e.fuse != null and not e.gone){
       e.fuse = e.fuse - dt
       if(e.fuse <= 0){
-        local p = e.body:get_position()
+        local p = e.body.position
         e.pos = p
         w:remove(e)
         w:explode(p, 8, 16, e)
@@ -685,19 +685,19 @@ func World.step(w, dt){
   // only the bodies awake after the step, from Jolt's own list: the
   // sleeping ones (most of a level, most of the time) cost nothing
   local moving = 0
-  for(let local b in values(w.jw:get_active_bodies())){
+  for(let local b in values(w.jw:active_bodies())){
     local e = w.by_id[b.id]
     if(e == null or e.gone or e.static){
       continue
     }
     e.sleeping = false
     e.stamp = w.frame
-    local p = e.body:get_position()
+    local p = e.body.position
     e.pos = p
     e.dirty = true
     // what visibly moves (awake bodies settle for a while before they
     // sleep): faster than a slow walk, a rolling stone faster still
-    local vel = e.body:get_linear_velocity()
+    local vel = e.body.linear_velocity
     local speed2 = vel.x * vel.x + vel.y * vel.y + vel.z * vel.z
     if(speed2 > 0.16 and (not e.projectile or speed2 > 1)){
       moving = moving + 1
@@ -789,7 +789,7 @@ func World.draw(w, options){
       }
     }
     if(e.dirty){
-      e.matrix = vec.jolt_matrix(e.body:get_world_transform(), e.size)
+      e.matrix = vec.jolt_matrix(e.body.world_transform, e.size)
       if(e.kind == "cylinder"){
         // the cylinder mesh stands on its base: half a height down its axis
         local mt = e.matrix

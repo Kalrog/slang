@@ -63,15 +63,22 @@ func names.constant(name){
   if(str.upper(rest) == rest){
     return rest
   }
-  // is_output(decl: FunctionDecl, i: int) -> bool
+  return names.snake(name)
+}
+
+// is_output(decl: FunctionDecl, i: int) -> bool
 // Whether parameter i of a joltc function is a result Jolt writes: a
 // pointer, not to const, to a struct with fields or to a number, that is
 // named result or out..., or belongs to a getter (Get, Is, Has, Calculate,
 // Determine, CastRay), or comes last in a math function; a getter's point
 // and localPosition are inputs.
 local inputs = {point: true, localPosition: true}
-local getters = {"Get", "Is", "Has", "Calculate", "Determine", "Decompose", "CastRay"}
-local math_prefixes = {"JPH_Quat_", "JPH_Vec3_", "JPH_Mat4_", "JPH_RayCast_", "JPH_RRayCast_"}
+local getters = {
+  "Get", "Is", "Has", "Calculate", "Determine", "Decompose", "CastRay"
+}
+local math_prefixes = {
+  "JPH_Quat_", "JPH_Vec3_", "JPH_Mat4_", "JPH_RayCast_", "JPH_RRayCast_"
+}
 func names.is_output(decl, i){
   local p = decl.params[i]
   local t = p.type
@@ -110,9 +117,6 @@ func names.is_output(decl, i){
     }
   }
   return false
-}
-
-return names.snake(name)
 }
 
 return names

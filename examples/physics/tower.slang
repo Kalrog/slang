@@ -139,7 +139,7 @@ for(not rl.window_should_close()){
   rl.draw_plane({0, 0, 0}, {60, 60}, {52, 56, 72})
   rl.draw_grid(30, 2)
   for(let local t in values(things)){
-    local m = jolt.mat4_to_matrix(t.body:get_world_transform())
+    local m = jolt.mat4_to_matrix(t.body.world_transform)
     local model = t.model
     model.transform = rl.matrix_multiply(
       rl.matrix_scale(t.size[0], t.size[1], t.size[2]),

@@ -1729,6 +1729,28 @@ func ffi.load(name, decls, options){
   return {meta: library_meta, handle: handle, decls: decls}
 }
 
+// c_layer(lib: Library, type_name?: string) -> table
+// The library under C's own names, for a package's `.c`: its functions
+// (lib.Name) and the constants of its declarations (enum values, macros),
+// so that whoever knows the C API can use it as written:
+// `rl.c.DrawText("hi", 10, 10, 20, rl.c.RED)`. Functions bind on first use.
+func ffi.c_layer(lib, type_name){
+  local constants = lib.decls.constants
+  local t = {}
+  t.meta = {
+    __index: func(self, name){
+      local f = lib[name]
+      if(f != null){
+        set_raw(self, name, f)
+        return f
+      }
+      return constants[name]
+    },
+    __type: type_name or "ffi.c",
+  }
+  return t
+}
+
 // bind(lib: Library, f: FunctionDecl, name?: string) -> function
 // The slang function calling the C function f declares (from
 // decls.functions), bound to lib; lib.Name does the same for a declared

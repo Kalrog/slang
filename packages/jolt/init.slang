@@ -13,17 +13,22 @@
 //   for(local i = 0; i < 60; i = i + 1){
 //     world:step(1 / 60)
 //   }
-//   print(ball:get_position(), "\n")
+//   print(ball.position, "\n")
 //   world:destroy()
 //
-// Jolt's things are slang values with methods: a [World], its [Body]s,
-// [Shape]s, [Constraint]s, [Vehicle]s and [Character]s, made from option
-// tables. A method is the joltc function of that name without the type's
-// prefix, in snake_case (body:get_position() is
-// JPH_BodyInterface_GetPosition), and results Jolt writes through pointers
-// are returned. What Jolt hands out is freed once nothing refers to it any
-// more, or by a destroy method where Jolt needs an order. README.md
-// describes how values map. [raw] holds every joltc function as it is.
+// Jolt's things are slang values with methods and properties: a [World],
+// its [Body]s, [Shape]s, [Constraint]s, [Vehicle]s and [Character]s, made
+// from option tables. A method is the joltc function of that name without
+// the type's prefix, in snake_case (body:add_force(f) is
+// JPH_BodyInterface_AddForce), and results Jolt writes through pointers
+// are returned. A getter without arguments and a setter of one value are
+// a property instead: body.position reads JPH_BodyInterface_GetPosition,
+// body.position = p calls SetPosition (waking the body; the method
+// set_position(p, activation) is the full form). What Jolt hands out is
+// freed once nothing refers to it any more, or by a destroy method where
+// Jolt needs an order. README.md describes how values map. [c] holds every
+// joltc function and constant under its C name, [raw] the same under slang
+// names.
 // JOLT_PREFIX names another joltc (a directory with include/joltc.h and
 // lib/libjoltc.*).
 local ffi = require("slang/ffi")
@@ -33,6 +38,7 @@ local math = require("slang/math")
 local buffer = require("slang/buffer")
 local names = require("jolt/names")
 local path_lib = require("slang/path")
+local class_lib = require("slang/class")
 local snake = names.snake
 
 // ------------------------------------------------------------ the library
@@ -352,58 +358,19 @@ local func activation_of(activate){
 
 // ------------------------------------------------------------ classes
 
-// A class of wrapper: its hand-written methods, and the joltc prefixes
-// its generic methods come from, each with the leading arguments the
-// object stands for (its pointer, unless lead says otherwise).
+// A class of wrapper: its hand-written methods and properties, and the
+// joltc prefixes its generic ones come from, each with the leading
+// arguments the object stands for (its pointer, unless lead says
+// otherwise).
 local classes = {}
 
 local wrap_result = null
 
-// Every wrapper is {meta: class.meta, ...}: a Body has id and world, the
-// others ptr (and world where Jolt's things belong to one).
-local func define_class(name, chain, methods, type_name){
-  local links = {}
-  for(let local link in values(chain)){
-    if(type(link) == "string"){
-      link = {prefix: link}
-    }
-    local l = {
-      prefix: link.prefix,
-      snake: snake(link.prefix),
-      lead: link.lead or func(self){
-        return {self.ptr}
-      },
-      count: link.count or 1,
-      suffix: link.suffix,
-    }
-    append(links, l)
-  }
-  local class = {
-    name: name,
-    links: links,
-    methods: methods,
-    cache: {},
-  }
-  class.meta = {
-    __index: func(self, key){
-      local m = methods[key]
-      if(m != null){
-        return m
-      }
-      local g = class.cache[key]
-      if(g == null){
-        g = classes.generic(class, key)
-        if(g == null){
-          return null
-        }
-        class.cache[key] = g
-      }
-      return g
-    },
-    __type: type_name or concat("jolt.", name),
-    __class: class,
-  }
-  return class
+// a parameter a generic method fills in itself when it is left out
+local func has_default(p){
+  local t = p.type
+  return p.name == "lockBodies" or p.name == "activationMode" or
+    (t.kind == "ptr" and t.to != null and t.to.name == "JPH_PhysicsSystem")
 }
 
 // an argument C's parameter p takes, when none was given
@@ -426,38 +393,150 @@ local func default_arg(self, p){
   return null
 }
 
-// the generic method key of a class: the first joltc function
-// <prefix>_<key> (or <prefix>_<key>_<suffix>) along the class's chain
-func classes.generic(class, key){
-  for(let local link in values(class.links)){
-    local c = c_names[concat(link.snake, "_", key)]
+// the first joltc function <prefix>_<name> (or <prefix>_<name>_<suffix>)
+// along a chain: {link, decl}, or null
+local func find_c(links, name){
+  for(let local link in values(links)){
+    local c = c_names[concat(link.snake, "_", name)]
     if(c == null and link.suffix != null){
-      c = c_names[concat(link.snake, "_", key, "_", link.suffix)]
+      c = c_names[concat(link.snake, "_", name, "_", link.suffix)]
     }
     if(c != null){
-      local decl = C.functions[c]
-      local f = raw_binding(decl, key)
-      local params = decl.params
-      local from = link.count
-      local lead = link.lead
-      return func(self, ...args){
-        local full = lead(self)
-        for(local i = from; i < len(params); i = i + 1){
-          local v = args[i - from]
-          if(v == null){
-            if(not names.is_output(decl, i)){
-              v = default_arg(self, params[i])
-            }
-          } else {
-            v = unwrap(v, params[i].type)
-          }
-          list_push(full, v)
-        }
-        return wrap_result(self, decl, f(...full))
-      }
+      return {link: link, decl: C.functions[c]}
     }
   }
   return null
+}
+
+// how many arguments a caller gives a generic method: its parameters
+// after those the object stands for, less results and defaults
+local func arity(found){
+  local params = found.decl.params
+  local n = 0
+  for(local i = found.link.count; i < len(params); i = i + 1){
+    if(not names.is_output(found.decl, i) and not has_default(params[i])){
+      n = n + 1
+    }
+  }
+  return n
+}
+
+// a joltc function as a method of the object
+local func bind_method(found, key){
+  local decl = found.decl
+  local f = raw_binding(decl, key)
+  local params = decl.params
+  local from = found.link.count
+  local lead = found.link.lead
+  return func(self, ...args){
+    local full = lead(self)
+    for(local i = from; i < len(params); i = i + 1){
+      local v = args[i - from]
+      if(v == null){
+        if(not names.is_output(decl, i)){
+          v = default_arg(self, params[i])
+        }
+      } else {
+        v = unwrap(v, params[i].type)
+      }
+      list_push(full, v)
+    }
+    return wrap_result(self, decl, f(...full))
+  }
+}
+
+local getter_prefixes = {"get_", "is_", "has_"}
+local setter_prefixes = {"set_", "set_is_"}
+
+// a key of a class along its chain: a joltc function of that name is a
+// method; get_<key>, is_<key> or has_<key> without arguments is the read
+// side of a property, set_<key> (set_is_<key>) with one its write side;
+// such get_/set_ names themselves are gone (the property replaces them),
+// while getters and setters that take more stay methods
+func classes.resolve(links, key){
+  for(let local pre in values({"get_", "is_", "has_", "set_"})){
+    if(str.starts_with(key, pre)){
+      local found = find_c(links, key)
+      if(found == null){
+        return null
+      }
+      local n = arity(found)
+      local name = str.substring(key, len(pre))
+      if(pre == "set_" and n == 1){
+        // the property replaces it; with the arguments it defaults
+        // (activation, say) it stays the full form
+        local f = bind_method(found, key)
+        local hint = concat("assign the property (x.", name, " = v)")
+        return {method: func(self, v, ...more){
+          if(len(more) == 0){
+            error("jolt: ", key, " with one value is gone: ", hint)
+          }
+          return f(self, v, ...more)
+        }}
+      }
+      if(pre != "set_" and n == 0){
+        return {gone: concat("read the property (x.", name, ")")}
+      }
+      return {method: bind_method(found, key)}
+    }
+  }
+  local found = find_c(links, key)
+  if(found != null){
+    return {method: bind_method(found, key)}
+  }
+  local r = {}
+  for(let local pre in values(getter_prefixes)){
+    local g = find_c(links, concat(pre, key))
+    if(g != null and arity(g) == 0){
+      local f = bind_method(g, key)
+      r.get = func(self){ return f(self) }
+      break
+    }
+  }
+  for(let local pre in values(setter_prefixes)){
+    local s = find_c(links, concat(pre, key))
+    if(s != null and arity(s) == 1){
+      local f = bind_method(s, key)
+      r.set = func(self, v){ f(self, v) }
+      break
+    }
+  }
+  if(r.get == null and r.set == null){
+    return null
+  }
+  return r
+}
+
+// Every wrapper is {meta: class.meta, ...}: a Body has id and world, the
+// others ptr (and world where Jolt's things belong to one). properties
+// are hand-written ones ({get, set}).
+local func define_class(name, chain, methods, type_name, properties){
+  local links = {}
+  for(let local link in values(chain)){
+    if(type(link) == "string"){
+      link = {prefix: link}
+    }
+    append(links, {
+      prefix: link.prefix,
+      snake: snake(link.prefix),
+      lead: link.lead or func(self){
+        return {self.ptr}
+      },
+      count: link.count or 1,
+      suffix: link.suffix,
+    })
+  }
+  local class = class_lib.new({
+    name: type_name or concat("jolt.", name),
+    methods: methods,
+    properties: properties,
+    resolve: func(key){
+      return classes.resolve(links, key)
+    },
+  })
+  class.links = links
+  class.name = name
+  return class
 }
 
 // ---- worlds
@@ -488,20 +567,27 @@ local BroadPhaseQuery = define_class("BroadPhaseQuery", {"BroadPhaseQuery"}, {})
 // ---- bodies
 
 // A rigid body in a world. Every body_interface_* function of joltc is a
-// method without its leading body interface and id (body:get_position()
-// is JPH_BodyInterface_GetPosition), and so is every body_* function; a
-// trailing Body is dropped (activate, deactivate, remove, is_added).
+// method or property without its leading body interface and id
+// (body.position is JPH_BodyInterface_GetPosition, body:add_impulse(i)
+// JPH_BodyInterface_AddImpulse), and so is every body_* function; a
+// trailing Body is dropped (activate, deactivate, remove, added).
 // type Body
 // [id]: Jolt's id of the body, an int: key tables by it
 // [world]: the world it is in
-// [shape]: the shape it was made with
+// [shape]: its shape; assigning one gives the body that shape (its mass
+//   properties follow) and wakes it
+// [active]: whether it is awake; false puts it to sleep
 local body_methods = {}
+local body_properties = {}
 local Body = define_class("Body", {
   {
     prefix: "BodyInterface",
     count: 2,
     suffix: "body",
     lead: func(self){
+      if(self.world.system == null){
+        error("jolt: a body of a destroyed world")
+      }
       return {self.world.body_interface, self.id}
     },
   },
@@ -511,11 +597,14 @@ local Body = define_class("Body", {
       return {body_cptr(self)}
     },
   },
-}, body_methods)
+}, body_methods, null, body_properties)
 
 // the body's pointer, for the body_* functions and constraints (no lock:
 // for use between steps)
 body_cptr = func(body){
+  if(body.world.system == null){
+    error("jolt: a body of a destroyed world")
+  }
   return lib.JPH_PhysicsSystem_GetBodyPtr(body.world.system, body.id)
 }
 
@@ -533,9 +622,9 @@ local func body_of(world, id){
 // ---- shapes
 
 // A collision shape, from [box] and the other shape functions. Every
-// shape_* function of joltc is a method, and so are those of its kind
-// (box_shape_get_half_extent is box:get_half_extent(); convex shapes
-// have set_density). One shape can serve many bodies; it is freed once
+// shape_* function of joltc is a method or property, and so are those of
+// its kind (box_shape_get_half_extent is box.half_extent; convex shapes
+// have density). One shape can serve many bodies; it is freed once
 // nothing refers to it.
 // type Shape
 // [kind]: "box", "sphere", "capsule", "cylinder", "tapered_capsule",
@@ -631,8 +720,10 @@ local func shape_options(shape, options, skip){
 
 // A constraint between two bodies (or one body and the world), from
 // [World.create_constraint]. Every constraint_* function of joltc is a
-// method, and so are the functions of its kind (hinge_constraint_set_limits
-// is hinge:set_limits()). It stays in the world until [Constraint.destroy].
+// method or property, and so are the functions of its kind
+// (hinge_constraint_set_limits is hinge:set_limits(min, max),
+// hinge_constraint_get_current_angle hinge.current_angle). It stays in the
+// world until [Constraint.destroy].
 // type Constraint
 // [kind]: "fixed", "distance", "point", "hinge", "slider", "cone",
 //   "swing_twist", "six_dof", "gear" or "vehicle"
@@ -677,16 +768,16 @@ local Vehicle = define_class("Vehicle", {"VehicleConstraint", "Constraint"},
   vehicle_methods)
 
 // One wheel of a [Vehicle]: wheel_get_angular_velocity is
-// wheel:get_angular_velocity(), and a wheeled vehicle's wheels have the
+// wheel.angular_velocity, and a wheeled vehicle's wheels have the
 // wheel_wv_* functions too (tracked ones wheel_tv_*).
 // type Wheel
 local WheelWV = define_class("Wheel", {"WheelWV", "Wheel"}, {}, "jolt.Wheel")
 local WheelTV = define_class("Wheel", {"WheelTV", "Wheel"}, {}, "jolt.Wheel")
 
 // The controller of a [Vehicle]: wheeled_vehicle_controller_* (and
-// motorcycle_controller_* or tracked_vehicle_controller_*) as methods:
-// set_driver_input(forward, right, brake, hand_brake), get_engine(),
-// get_transmission().
+// motorcycle_controller_* or tracked_vehicle_controller_*) as methods and
+// properties: set_driver_input(forward, right, brake, hand_brake),
+// forward_input, engine, transmission.
 // type Controller
 local controller_classes = {
   wheeled: define_class("Controller", {"WheeledVehicleController", "VehicleController"}, {}),
@@ -706,12 +797,12 @@ local controller_settings_prefixes = {
   tracked: {"TrackedVehicleControllerSettings"},
 }
 
-// The engine of a [Controller] (vehicle_engine_* as methods:
-// get_current_rpm()).
+// The engine of a [Controller] (vehicle_engine_* as methods and
+// properties: current_rpm).
 // type Engine
 local Engine = define_class("Engine", {"VehicleEngine"}, {})
-// The transmission of a [Controller] (vehicle_transmission_* as methods:
-// get_current_gear()).
+// The transmission of a [Controller] (vehicle_transmission_* as methods
+// and properties: current_gear).
 // type Transmission
 local Transmission = define_class("Transmission", {"VehicleTransmission"}, {})
 // A track of a tracked vehicle's [Controller] (vehicle_track_*).
@@ -726,8 +817,8 @@ local WheelSettings = define_class("WheelSettings", {
 // ---- characters
 
 // A character that walks on its own body ([World.create_character]), with
-// every character_* and character_base_* function as a method:
-// set_linear_velocity(v), get_position(), get_ground_state(),
+// every character_* and character_base_* function as a method or
+// property: linear_velocity, position, ground_state,
 // post_simulation(max_separation).
 // type Character
 local character_methods = {}
@@ -736,8 +827,8 @@ local Character = define_class("Character", {"Character", "CharacterBase"},
 
 // A virtual character, moved by its own update rather than the simulation
 // ([World.create_character_virtual]), with every character_virtual_* and
-// character_base_* function as a method: update(dt),
-// extended_update(dt, settings), set_linear_velocity(v).
+// character_base_* function as a method or property: update(dt),
+// extended_update(dt, settings), linear_velocity.
 // type CharacterVirtual
 local character_virtual_methods = {}
 local CharacterVirtual = define_class("CharacterVirtual", {
@@ -746,7 +837,7 @@ local CharacterVirtual = define_class("CharacterVirtual", {
 
 // ---- the rest: things with a Create and a Destroy, methods by prefix
 
-// The motion properties of a dynamic body ([Body.get_motion_properties]):
+// The motion properties of a dynamic body ([Body.motion_properties]):
 // motion_properties_* as methods.
 // type MotionProperties
 local MotionProperties = define_class("MotionProperties", {"MotionProperties"}, {})
@@ -966,7 +1057,7 @@ jolt.layers = layers
 // system with threads worker threads (by default one fewer than the
 // machine has cores). Free it with [World.destroy].
 // [contact_events]: true collects the contacts that begin and end in each
-//   step for [World.get_contact_events]; "all" also the ones that go on
+//   step for [World.contact_events]; "all" also the ones that go on
 func jolt.world(options){
   options = options or {}
   init()
@@ -1015,21 +1106,21 @@ func jolt.world(options){
     characters: {},
     meta: World.meta,
   }
-  world.narrow_phase = {
+  set_raw(world, "narrow_phase", {
     ptr: lib.JPH_PhysicsSystem_GetNarrowPhaseQuery(system),
     world: world,
     meta: NarrowPhaseQuery.meta,
-  }
-  world.broad_phase = {
+  })
+  set_raw(world, "broad_phase", {
     ptr: lib.JPH_PhysicsSystem_GetBroadPhaseQuery(system),
     world: world,
     meta: BroadPhaseQuery.meta,
-  }
+  })
   if(options.contact_events){
     local id = listen(world, options.contact_events == "all")
-    world.listener_id = id
-    world.listener = lib.JPH_ContactListener_Create(ffi.cast(id))
-    world.contacts = collecting[id].events
+    set_raw(world, "listener_id", id)
+    set_raw(world, "listener", lib.JPH_ContactListener_Create(ffi.cast(id)))
+    set_raw(world, "contacts", collecting[id].events)
     lib.JPH_PhysicsSystem_SetContactListener(system, world.listener)
   }
   return world
@@ -1064,13 +1155,13 @@ func world_methods.step(w, dt, collision_steps){
 // type Contact = {body1: Body, body2: Body, normal: Vec3, depth: float,
 //   points: {Vec3}, velocity1: Vec3, velocity2: Vec3}
 
-// get_contact_events() -> {added: {Contact}, persisted?: {Contact},
+// contact_events() -> {added: {Contact}, persisted?: {Contact},
 //   removed: {{body1: Body, body2: Body}}}
 // The contacts that began, went on (with contact_events "all") and ended
 // in the last step, for a world made with contact_events.
-func world_methods.get_contact_events(w){
+func world_methods.contact_events(w){
   if(w.contacts == null){
-    error("jolt: get_contact_events needs a world made with contact_events")
+    error("jolt: contact_events needs a world made with contact_events")
   }
   return w.contacts
 }
@@ -1172,7 +1263,7 @@ func world_methods.create_body(w, def){
     w.body_interface, settings, activation_of(activate)
   )
   release(settings, lib.JPH_BodyCreationSettings_Destroy)
-  local body = {id: id, world: w, shape: def.shape, meta: Body.meta}
+  local body = {id: id, world: w, made_with: def.shape, meta: Body.meta}
   w.bodies_by_id[id] = body
   return body
 }
@@ -1186,7 +1277,7 @@ func world_methods.get_body(w, id){
 // a buffer of body ids as large as the world allows, kept
 local func id_buffer(w){
   if(w.id_buffer == null){
-    w.id_buffer = buffer.new("unsigned int", w.max_bodies)
+    set_raw(w, "id_buffer", buffer.new("unsigned int", w.max_bodies))
   }
   return w.id_buffer
 }
@@ -1199,10 +1290,10 @@ local func bodies_from(w, ids, n){
   return out
 }
 
-// get_active_bodies() -> {Body}
+// active_bodies() -> {Body}
 // The bodies that are awake (the rest cost the simulation nothing).
-func world_methods.get_active_bodies(w){
-  check_world(w, "get_active_bodies")
+func world_methods.active_bodies(w){
+  check_world(w, "active_bodies")
   local rigid = constant("JPH_BodyType_Rigid")
   local n = lib.JPH_PhysicsSystem_GetNumActiveBodies(w.system, rigid)
   local ids = id_buffer(w)
@@ -1212,10 +1303,10 @@ func world_methods.get_active_bodies(w){
   return bodies_from(w, ids, n)
 }
 
-// get_bodies() -> {Body}
+// bodies() -> {Body}
 // Every body in the world.
-func world_methods.get_bodies(w){
-  check_world(w, "get_bodies")
+func world_methods.bodies(w){
+  check_world(w, "bodies")
   local n = lib.JPH_PhysicsSystem_GetNumBodies(w.system)
   local ids = id_buffer(w)
   if(n > 0){
@@ -1701,12 +1792,12 @@ func world_methods.create_vehicle(w, def){
     keep: keep,
     meta: Vehicle.meta,
   }
-  v.controller = {
+  set_raw(v, "controller", {
     ptr: lib.JPH_VehicleConstraint_GetController(p),
     vehicle: v,
     world: w,
     meta: controller_classes[kind].meta,
-  }
+  })
   local wheel_class = WheelWV
   if(kind == "tracked"){
     wheel_class = WheelTV
@@ -1894,24 +1985,32 @@ func body_methods.destroy(b){
   }
 }
 
-// get_shape() -> Shape
-// The body's shape.
-func body_methods.get_shape(b){
-  if(b.shape != null){
-    return b.shape
-  }
-  return shape_of(lib.JPH_BodyInterface_GetShape(b.world.body_interface, b.id))
+body_properties.active = {
+  get: func(b){
+    return lib.JPH_BodyInterface_IsActive(b.world.body_interface, b.id)
+  },
+  set: func(b, on){
+    if(on){
+      lib.JPH_BodyInterface_ActivateBody(b.world.body_interface, b.id)
+    } else {
+      lib.JPH_BodyInterface_DeactivateBody(b.world.body_interface, b.id)
+    }
+  },
 }
 
-// set_shape(shape: Shape, update_mass?: bool, activate?: bool)
-// Gives the body another shape (its mass properties follow unless
-// update_mass is false).
-func body_methods.set_shape(b, shape, update_mass, activate){
-  lib.JPH_BodyInterface_SetShape(
-    b.world.body_interface, b.id, unwrap(shape), update_mass != false,
-    activation_of(activate)
-  )
-  b.shape = shape
+body_properties.shape = {
+  get: func(b){
+    if(b.made_with != null){
+      return b.made_with
+    }
+    return shape_of(lib.JPH_BodyInterface_GetShape(b.world.body_interface, b.id))
+  },
+  set: func(b, shape){
+    lib.JPH_BodyInterface_SetShape(
+      b.world.body_interface, b.id, unwrap(shape), true, activation_of(true)
+    )
+    set_raw(b, "made_with", shape)
+  },
 }
 
 // ------------------------------------------------------------ shapes
@@ -2119,7 +2218,7 @@ func jolt.compound(parts){
   local shape = shape_from_settings(
     settings, lib.JPH_StaticCompoundShape_Create, "static_compound"
   )
-  shape.parts = parts
+  set_raw(shape, "parts", parts)
   return shape
 }
 
@@ -2134,7 +2233,7 @@ func jolt.mutable_compound(parts){
   local shape = shape_from_settings(
     settings, lib.JPH_MutableCompoundShape_Create, "mutable_compound"
   )
-  shape.parts = parts
+  set_raw(shape, "parts", parts)
   return shape
 }
 
@@ -2206,7 +2305,7 @@ func jolt.group_filter_table(sub_groups){
 }
 
 // skeleton() -> Skeleton
-// An empty skeleton: add_joint(name, parent?), get_joint_count(), ...
+// An empty skeleton: add_joint(name, parent?), joint_count, ...
 func jolt.skeleton(){
   init()
   return wrapper(Skeleton, lib.JPH_Skeleton_Create(), lib.JPH_Skeleton_Destroy)
@@ -2221,7 +2320,7 @@ func jolt.skeleton_pose(skeleton){
     lib.JPH_SkeletonPose_Destroy)
   if(skeleton != null){
     lib.JPH_SkeletonPose_SetSkeleton(pose.ptr, unwrap(skeleton))
-    pose.skeleton = skeleton
+    set_raw(pose, "skeleton", skeleton)
   }
   return pose
 }
@@ -2254,7 +2353,7 @@ func jolt.ragdoll_settings(skeleton){
     lib.JPH_RagdollSettings_Destroy)
   if(skeleton != null){
     lib.JPH_RagdollSettings_SetSkeleton(s.ptr, unwrap(skeleton))
-    s.skeleton = skeleton
+    set_raw(s, "skeleton", skeleton)
   }
   return s
 }
@@ -2325,6 +2424,10 @@ for(let local e in entries(C.constants)){
 }
 // the declarations, for slang/ffi (with [raw])
 jolt.decls = C
+// Every joltc function and constant under its C name, on pointers and ids
+// as C has them, for whoever knows joltc:
+// jolt.c.JPH_BodyInterface_GetLinearVelocity(bi, id, out).
+jolt.c = ffi.c_layer(lib, "jolt.c")
 jolt.raw = raw
 
 // what the stub generator reads: the classes and their chains

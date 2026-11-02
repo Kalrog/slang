@@ -20,7 +20,7 @@ local ball = world:create_body({
 for(local i = 0; i < 120; i = i + 1){
   world:step(1 / 60)
 }
-print(ball:get_position(), "\n")
+print(ball.position, "\n")
 world:destroy()
 ```
 
@@ -63,17 +63,17 @@ to fill and free.
   (`jolt.layers.non_moving` and `.moving`: static bodies do not collide
   with each other) and the broad phase tables. `world:step(dt)` advances
   it, `world:destroy()` frees it with everything in it. Every
-  `physics_system_*` function of joltc is a method: `world:get_gravity()`,
-  `world:set_gravity(v)`, `world:get_num_bodies()`.
+  `physics_system_*` function of joltc is a method or property:
+  `world.gravity = v`, `world.num_bodies`.
 - **Bodies:** `world:create_body(def)` takes `shape`, `position`,
   `rotation`, `motion` (`"static"`, `"kinematic"` or `"dynamic"`), `layer`,
   `activate` and `mass`; any other field names a creation setting, so
   `{friction: 0.2, linear_velocity: {1, 0, 0}}` sets both. It returns a
-  `Body`: every `body_interface_*` function of joltc is a method without
-  the interface and the id (`body:get_position()`,
-  `body:set_linear_velocity(v)`, `body:add_impulse(i)`, `body:activate()`,
-  `body:is_active()`), and so is every `body_*` function
-  (`body:get_motion_properties()`, `body:is_dynamic()`).
+  `Body`: every `body_interface_*` function of joltc is a method or
+  property without the interface and the id (`body.position`,
+  `body.linear_velocity = v`, `body:add_impulse(i)`, `body.active`), and
+  so is every `body_*` function (`body.motion_properties`,
+  `body.dynamic`).
   `body:destroy()` takes it out of the world. `body.id` is Jolt's id, an
   int to key tables by; `world:get_body(id)` finds the body again.
 - **Shapes:** `jolt.box(half_extent)`, `jolt.sphere(r)`,
@@ -85,8 +85,8 @@ to fill and free.
   `jolt.scaled(shape, s)`, `jolt.rotated_translated(shape, p, q)`,
   `jolt.offset_center_of_mass(shape, o)` and `jolt.empty()`. An option
   table may follow (`{density: 8000, convex_radius: 0.02}`). A shape's
-  `shape_*` functions and those of its kind are methods
-  (`shape:get_volume()`, `box:get_half_extent()`, `shape:set_density(d)`);
+  `shape_*` functions and those of its kind are methods and properties
+  (`shape.volume`, `box.half_extent`, `shape.density = d`);
   one shape can serve many bodies, and it is freed once nothing refers to
   it.
 - **Constraints:** `world:create_constraint(def)` with `type` (`"fixed"`,
@@ -94,8 +94,8 @@ to fill and free.
   `"swing_twist"`, `"six_dof"` or `"gear"`), `body1`, `body2` (left out:
   the world) and the fields of joltc's settings struct of that kind
   (`point1`, `hinge_axis1`, `limits_min`, ...). The constraint's functions
-  are methods (`hinge:set_limits(a, b)`, `hinge:set_motor_state(s)`,
-  `c:get_body1()`); `c:destroy()` removes it.
+  are methods and properties (`hinge:set_limits(a, b)`,
+  `hinge.motor_state = s`, `c.body1`); `c:destroy()` removes it.
 - **Vehicles:** `world:create_vehicle(def)` with the chassis `body`, its
   `wheels` (each the wheel settings' fields: `position`, `radius`, `width`,
   `suspension_min_length`, `suspension_spring`, `max_steer_angle`, ...),
@@ -103,12 +103,13 @@ to fill and free.
   `collision_tester` and the `controller` kind (`"wheeled"`,
   `"motorcycle"` or `"tracked"`). `vehicle:set_driver_input(forward, right,
   brake, hand_brake)` drives it, `vehicle:get_wheel_world_transform(i)`
-  places a wheel, `vehicle.wheels[i]:get_angular_velocity()` and
-  `vehicle.controller:get_engine():get_current_rpm()` read it.
+  places a wheel, `vehicle.wheels[i].angular_velocity` and
+  `vehicle.controller.engine.current_rpm` read it.
 - **Characters:** `world:create_character(def)` (on a body of its own) and
   `world:create_character_virtual(def)` (moved by `character:update(dt)`),
   with the fields of joltc's character settings; their functions are
-  methods (`get_ground_state()`, `set_linear_velocity(v)`).
+  methods and properties (`character.ground_state`,
+  `character.linear_velocity = v`).
 - **Queries:** `world:cast_ray(origin, direction)` is the first hit
   (`body`, `fraction`, `point`) or null; `world:collide_point(p)`,
   `world:cast_shape(shape, transform, direction)` and
@@ -117,21 +118,29 @@ to fill and free.
   joltc's query functions as methods.
 - **Contacts:** `jolt.world({contact_events: true})` collects the
   contacts that begin and end in each step, and
-  `world:get_contact_events()` returns them after `step`: `added` (each
+  `world:contact_events()` returns them after `step`: `added` (each
   with `body1`, `body2`, `normal`, `depth`, `points`, and `velocity1` and
   `velocity2`, the bodies' velocities as they hit) and `removed`;
   `contact_events: "all"` adds `persisted`, the contacts that go on. Jolt
   reports them from its worker threads; slang runs them one at a time.
+- **Properties:** a getter without arguments and a setter of one value
+  are one property: `JPH_BodyInterface_GetLinearVelocity` and
+  `SetLinearVelocity` are `body.linear_velocity`, and `Is`/`Has` getters
+  drop the prefix (`body.active`, `hinge.limits`). Assigning wakes the
+  body; the setter method with its activation argument is the full form
+  (`body:set_position(p, jolt.c.JPH_Activation_DontActivate)`). A property
+  without a setter raises when assigned; getters and setters that take
+  more arguments stay methods (`body:get_point_velocity(p)`).
 - **Names** lose joltc's `JPH_` prefix and the type's, and are snake_case:
-  `JPH_BodyInterface_GetPosition` is `body:get_position()`,
-  `JPH_HingeConstraint_SetLimits` is `hinge:set_limits()`. Struct fields
+  `JPH_BodyInterface_GetPosition` is `body.position`,
+  `JPH_HingeConstraint_SetLimits` is `hinge:set_limits(a, b)`. Struct fields
   too (`maxBodies` is `max_bodies`) and enum values
   (`JPH_MotionType_Dynamic` is `jolt.motion_type_dynamic`). Macros keep
   their case without the prefix: `jolt.DEFAULT_CONVEX_RADIUS`.
 - **Structs** are tables, by field name or by position: `{0, 1, 0}` is a
   `Vec3`, `{0, 0, 0, 1}` a `Quat` (x, y, z, w). Results are tables with
   named fields, and results Jolt writes through pointers are returned:
-  `body:get_position_and_rotation()` is `{position, rotation}`. Arguments
+  `body.position_and_rotation` is `{position, rotation}`. Arguments
   Jolt makes optional (filters, `lock_bodies`, an activation) may be left
   out.
 - **Math:** `jolt.quat`, `jolt.vec3` and `jolt.mat4` hold Jolt's
@@ -145,11 +154,13 @@ to fill and free.
   characters belong to their world and go with `world:destroy()`.
 - **The rest:** materials (`jolt.material`), curves (`jolt.linear_curve`),
   group filters, skeletons, poses, animations and ragdolls have
-  constructors and their joltc functions as methods. `jolt.raw` holds every
-  joltc function under its snake_case name, on pointers and ids as C has
-  them (`jolt.raw.body_interface_get_position(world.body_interface,
-  body.id)`), for the corners the objects do not cover: soft bodies, the
-  debug renderer, custom filters and listeners. Callbacks given to them
+  constructors and their joltc functions as methods. `jolt.c` holds every
+  joltc function and constant under its C name, on pointers and ids as C
+  has them (`jolt.c.JPH_BodyInterface_GetLinearVelocity(bi, id, out)`),
+  for whoever knows joltc and for the corners the objects do not cover:
+  soft bodies, the debug renderer, custom filters and listeners
+  (`jolt.raw` has the same functions under snake_case names, with results
+  returned). Callbacks given to them
   are slang functions (slang/ffi); Jolt calls them from its worker threads
   during `step`, where they should only read what they are given.
 

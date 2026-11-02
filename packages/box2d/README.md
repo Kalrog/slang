@@ -17,7 +17,7 @@ box:create_polygon_shape({density: 1, material: {friction: 0.6}}, b2.make_box(0.
 for(local i = 0; i < 60; i = i + 1){
   world:step(1 / 60, 4)
 }
-print(box:get_position(), "\n")   // {x: 0.0, y: 0.5}
+print(box.position, "\n")   // {x: 0.0, y: 0.5}
 world:destroy()
 ```
 
@@ -57,13 +57,12 @@ over Box2D's defaults.
 
 - **Worlds:** `b2.world(def)` makes one (`{gravity: {0, -10}}`);
   `world:step(dt, sub_steps)` advances it, `world:destroy()` frees it with
-  everything in it. Every `b2World_*` function is a method:
-  `world:set_gravity(g)`, `world:get_awake_body_count()`,
-  `world:explode(def)`.
+  everything in it. Every `b2World_*` function is a method or property:
+  `world.gravity = g`, `world.awake_body_count`, `world:explode(def)`.
 - **Bodies:** `world:create_body(def)` returns a `Body`; every `b2Body_*`
-  function is a method: `body:get_position()`,
-  `body:set_linear_velocity(v)`, `body:apply_force(f, point, wake)`,
-  `body:get_mass()`, `body:set_awake(true)`. `body:destroy()` takes it out
+  function is a method or property: `body.position`,
+  `body.linear_velocity = v`, `body:apply_force(f, point, wake)`,
+  `body.mass`, `body.awake = true`. `body:destroy()` takes it out
   of the world. `body.key` is an int, the same for the same body, to key
   tables by; `world:get_body(key)` finds it again.
 - **Shapes:** `body:create_circle_shape(def, circle)`,
@@ -72,18 +71,28 @@ over Box2D's defaults.
   on the body (`b2.make_box(hw, hh)`, `b2.make_polygon(hull, radius)`,
   `b2.compute_hull(points)` and the other geometry functions are the
   module's); `body:create_chain(def)` a `Chain`. Every `b2Shape_*`
-  function is a method: `shape:get_friction()`, `shape:test_point(p)`,
-  `shape:enable_sensor_events(true)`; `shape.body` is its body.
+  function is a method or property: `shape.friction`,
+  `shape:test_point(p)`, `shape.sensor_events_enabled = true`;
+  `shape.body` is its body.
 - **Joints:** `world:create_revolute_joint(def)` (and `distance`, `weld`,
   `prismatic`, `wheel`, `motor`, `mover`, `pogo`, `filter`) take the
   joint's def with `body_a` and `body_b` as the bodies themselves and
   Box2D's base fields (`local_frame_a`, `collide_connected`, ...) flat or
-  under `base`. Every `b2Joint_*` function is a method, and so are those
-  of the joint's kind: `joint:set_motor_speed(s)`,
-  `joint:enable_limit(true)`, `joint:get_body_a()`.
+  under `base`. Every `b2Joint_*` function is a method or property, and
+  so are those of the joint's kind: `joint.motor_speed = s`,
+  `joint.limit_enabled = true`, `joint.body_a`.
+- **Properties:** a getter without arguments and a setter of one value
+  are one property: `b2Body_GetLinearVelocity` and
+  `b2Body_SetLinearVelocity` are `body.linear_velocity`, `IsX`/`SetX` and
+  `IsXEnabled`/`EnableX` pairs drop the `is_` (`body.awake`,
+  `joint.limit_enabled`), `IsEnabled` with `Enable`/`Disable` is
+  `body.enabled`. A property without a setter raises when assigned;
+  getters and setters that take more arguments stay methods. Box2D has no
+  setter of a body's position alone: assigning `body.position` or
+  `body.rotation` calls `b2Body_SetTransform`.
 - **Names** lose Box2D's `b2` prefix and the type's, and are snake_case:
   `b2World_Step` is `world:step()`, `b2Body_GetPosition`
-  `body:get_position()`, `b2DefaultShapeDef` `b2.default_shape_def()`.
+  `body.position`, `b2DefaultShapeDef` `b2.default_shape_def()`.
   Struct fields too (`linearVelocity` is `linear_velocity`) and enum
   values (`b2_dynamicBody` is `b2.dynamic_body`). Macros keep their case
   without the prefix: `B2_DEFAULT_CATEGORY_BITS` is
@@ -98,14 +107,14 @@ over Box2D's defaults.
   keeps the material's other defaults), a def left out is the default, and
   a field the def does not have is an error. So is a query filter left
   out: `world:cast_ray_closest(origin, translation)`.
-- **Events** are lists of objects: `world:get_contact_events().begin_events`
+- **Events** are lists of objects: `world:contact_events().begin_events`
   (each with `shape_a` and `shape_b`), and the same for sensor
   (`sensor_shape`, `visitor_shape`), body move (`body`) and joint
   (`joint`) events. Read them after each `step`.
-- **Arrays Box2D fills** are lists: `body:get_shapes()`,
-  `body:get_joints()`, `body:get_contact_data()`,
-  `shape:get_contact_data()`, `shape:get_sensor_data()`,
-  `chain:get_segments()`.
+- **Arrays Box2D fills** are lists: `body:shapes()`,
+  `body:joints()`, `body:contact_data()`,
+  `shape:contact_data()`, `shape:sensor_data()`,
+  `chain:segments()`.
 - **The header's helpers** (Box2D defines its vector math inline, so it is
   not in the library) are the module's: `b2.make_rot`,
   `b2.rot_get_angle`, `b2.rotate_vector`, `b2.transform_point`, `b2.add`,
@@ -133,9 +142,11 @@ over Box2D's defaults.
 - **Memory:** Box2D's ids are values that only mean something while their
   world lives, so there is nothing for the collector to free: bodies,
   shapes and joints go with `destroy()` or with their world.
-- **Raw ids:** `b2.raw` holds every Box2D function under its snake_case
-  name, on the id structs as C has them (`b2.raw.body_get_position(
-  body.id)`), with defs laid over their defaults. `b2.body_of(id)`,
+- **C names:** `b2.c` holds every Box2D function and constant under its C
+  name, on the id structs as C has them (`b2.c.b2Body_GetPosition(
+  body.id)`, `b2.c.b2_dynamicBody`), for whoever knows Box2D's API;
+  `b2.raw` holds the same functions under snake_case names with defs laid
+  over their defaults. `b2.body_of(id)`,
   `b2.shape_of(id)` and `b2.joint_of(id)` turn a raw id back into the
   object; `b2.store_body_id(id)` is its key, `b2.is_null(id)` and
   `b2.id_equals(a, b)` are Box2D's `B2_IS_NULL` and `B2_ID_EQUALS`. User

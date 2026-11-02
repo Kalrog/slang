@@ -35,30 +35,30 @@ t.group("box2d: worlds and bodies"){
     assert(type(s.world) == "box2d.World" and type(s.box) == "box2d.Body")
     assert(type(s.shape) == "box2d.Shape" and s.shape.body == s.box)
     run(s.world, 120)
-    local p = s.box:get_position()
+    local p = s.box.position
     assert(near(p.x, 0, 0.02) and near(p.y, 0.5, 0.02), p)
-    assert(near(b2.rot_get_angle(s.box:get_rotation()), 0))
-    assert(s.box:get_world() == s.world and s.shape:get_body() == s.box)
+    assert(near(b2.rot_get_angle(s.box.rotation), 0))
+    assert(s.box.world == s.world and s.shape.body == s.box)
     s.world:destroy()
   }
   t.test("a def is laid over the defaults, nested tables too"){
     local s = scene({gravity: {0, 0}})
-    assert(s.world:get_gravity().y == 0)
+    assert(s.world.gravity.y == 0)
     run(s.world, 30)
     // no gravity: the box stays where it was made
-    assert(near(s.box:get_position().y, 4))
+    assert(near(s.box.position.y, 4))
     local body = s.world:create_body({
       type: b2.dynamic_body,
       linear_velocity: {2, 0},
       gravity_scale: 0,
     })
-    assert(body:get_linear_velocity().x == 2)
+    assert(body.linear_velocity.x == 2)
     local shape = body:create_circle_shape({material: {friction: 0.25}}, {
       center: {0, 0}, radius: 0.5
     })
-    assert(near(shape:get_friction(), 0.25))
+    assert(near(shape.friction, 0.25))
     // the rest of the material keeps its defaults
-    assert(shape:get_restitution() == 0)
+    assert(shape.restitution == 0)
     local r = pcall(s.world.create_body, s.world, {bounciness: 1})
     assert(r[0] == "err" and r[1].message == "box2d.create_body: b2BodyDef has no field bounciness",
       r[1].message)
@@ -68,11 +68,11 @@ t.group("box2d: worlds and bodies"){
     local s = scene()
     assert(s.world:get_body(s.box.key) == s.box)
     assert(s.world:get_shape(s.shape.key) == s.shape)
-    assert(s.box:is_valid())
+    assert(s.box.valid)
     s.box:destroy()
-    assert(not s.box:is_valid())
+    assert(not s.box.valid)
     assert(s.world:get_body(s.box.key) == null)
-    assert(s.world:get_awake_body_count() == 0)
+    assert(s.world.awake_body_count == 0)
     s.world:destroy()
     assert(s.world.id == null)
   }
@@ -96,19 +96,19 @@ t.group("box2d: joints"){
       enable_limit: true, lower_angle: -1, upper_angle: 1,
     })
     assert(type(joint) == "box2d.Joint" and joint.kind == "revolute")
-    assert(joint:get_body_a() == s.ground and joint:get_body_b() == bob)
-    assert(joint:is_limit_enabled() and near(joint:get_upper_limit(), 1))
+    assert(joint.body_a == s.ground and joint.body_b == bob)
+    assert(joint.limit_enabled and near(joint.upper_limit, 1))
     run(s.world, 120)
     // swinging on a 3 m arm: still about 3 m from the pivot
-    assert(near(b2.distance(bob:get_position(), {0, 4}), 3, 0.05), bob:get_position())
-    local joints = bob:get_joints()
+    assert(near(b2.distance(bob.position, {0, 4}), 3, 0.05), bob.position)
+    local joints = bob:joints()
     assert(len(joints) == 1 and joints[0] == joint)
     joint:destroy()
-    assert(len(bob:get_joints()) == 0)
+    assert(len(bob:joints()) == 0)
     local rope = s.world:create_distance_joint({
       body_a: s.ground, body_b: bob, length: 2, enable_spring: true, hertz: 2,
     })
-    assert(rope.kind == "distance" and near(rope:get_rest_length(), 2))
+    assert(rope.kind == "distance" and near(rope.rest_length, 2))
     s.world:destroy()
   }
 }
@@ -119,7 +119,7 @@ t.group("box2d: events and arrays are lists of objects"){
     local began = 0
     for(local i = 0; i < 120; i = i + 1){
       s.world:step(1 / 60, 4)
-      local ev = s.world:get_contact_events()
+      local ev = s.world:contact_events()
       began = began + len(ev.begin_events)
       for(let local e in values(ev.begin_events)){
         assert(e.shape_a == s.shape or e.shape_b == s.shape)
@@ -127,16 +127,16 @@ t.group("box2d: events and arrays are lists of objects"){
       }
     }
     assert(began == 1, began)
-    local moved = s.world:get_body_events().move_events
+    local moved = s.world:body_events().move_events
     assert(len(moved) >= 0)
     s.world:destroy()
   }
   t.test("a body's shapes and contacts"){
     local s = scene()
     run(s.world, 120)
-    local shapes = s.box:get_shapes()
+    local shapes = s.box:shapes()
     assert(len(shapes) == 1 and shapes[0] == s.shape)
-    local contacts = s.box:get_contact_data()
+    local contacts = s.box:contact_data()
     assert(len(contacts) == 1)
     assert(contacts[0].manifold.point_count == 2)
     assert(contacts[0].shape_a == s.shape or contacts[0].shape_b == s.shape)
@@ -239,7 +239,7 @@ t.group("box2d: callbacks see objects"){
     )
     run(s.world, 120)
     // the filter said no: it fell through the ground
-    assert(asked > 0 and box:get_position().y < -5)
+    assert(asked > 0 and box.position.y < -5)
     s.world:destroy()
   }
   t.test("debug draw: a def of functions"){

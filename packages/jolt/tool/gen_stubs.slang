@@ -559,9 +559,65 @@ for(let local f in values(functions)){
   line("func m.", f.name, "(", f.params, "){}")
   line("")
 }
-// the classes: the type's comment block, its methods table, the methods
-// written by hand, then the generic ones
+// a parameter a generic method fills in itself (as init.slang's
+// has_default)
+local func has_default(p){
+  local t = p.type
+  return p.name == "lockBodies" or p.name == "activationMode" or
+    (t.kind == "ptr" and t.to != null and t.to.name == "JPH_PhysicsSystem")
+}
+
+// the arguments a caller gives a generic method
+local func arity(f, from){
+  local n = 0
+  for(local i = from; i < len(f.params); i = i + 1){
+    if(not names.is_output(f, i) and not has_default(f.params[i])){
+      n = n + 1
+    }
+  }
+  return n
+}
+
+// the property a generic function is a side of, as init.slang's
+// classes.resolve decides: {name, get?: type, set?: type}, or null
+local func property_of(f, name, from){
+  local n = arity(f, from)
+  for(let local pre in values({"get_", "is_", "has_"})){
+    if(str.starts_with(name, pre) and n == 0){
+      local outs = {}
+      for(local i = from; i < len(f.params); i = i + 1){
+        if(names.is_output(f, i)){
+          append(outs, concat(snake(f.params[i].name), ": ", slang_type(f.params[i].type.to)))
+        }
+      }
+      local t = slang_type(f.ret, f.name)
+      if(len(outs) == 1){
+        t = str.substring(outs[0], str.index_of(outs[0], ": ") + 2)
+      } else if(len(outs) > 1){
+        t = concat("{", str.join(outs, ", "), "}")
+      }
+      return {name: str.substring(name, len(pre)), get: t}
+    }
+  }
+  for(let local pre in values({"set_is_", "set_"})){
+    if(str.starts_with(name, pre) and n == 1){
+      local t = "any"
+      for(local i = from; i < len(f.params); i = i + 1){
+        local p = f.params[i]
+        if(not names.is_output(f, i) and not has_default(p)){
+          t = slang_type(p.type, p.name)
+        }
+      }
+      return {name: str.substring(name, len(pre)), set: t}
+    }
+  }
+  return null
+}
+
+// the classes: the type's comment block with its properties, its methods
+// table, the methods written by hand, then the generic ones
 local method_count = 0
+local property_count = 0
 for(let local class in values(class_list)){
   line("// ------------------------------------------------------------ ", class.name)
   line("")
@@ -572,6 +628,54 @@ for(let local class in values(class_list)){
     }
   } else {
     line("// type ", class.name)
+  }
+  // the properties: getters without arguments and setters with one
+  local props = {}
+  local prop_order = {}
+  local prop_seen = {}
+  for(let local link in values(class.links)){
+    local prefix = concat(snake(link.prefix), "_")
+    for(let local c_name in values(C.order)){
+      local f = C.functions[c_name]
+      local sname = snake(c_name)
+      if(not str.starts_with(sname, prefix) or not method_of(f, link)){
+        continue
+      }
+      local name = str.substring(sname, len(prefix))
+      if(link.suffix != null and str.ends_with(name, concat("_", link.suffix))){
+        name = str.substring(name, 0, len(name) - len(link.suffix) - 1)
+      }
+      local pr = property_of(f, name, link.count)
+      if(pr == null){
+        continue
+      }
+      local have = props[pr.name]
+      if(have == null){
+        have = {name: pr.name}
+        props[pr.name] = have
+        append(prop_order, pr.name)
+      }
+      if(pr.get != null and have.get == null){
+        have.get = pr.get
+      }
+      if(pr.set != null and have.set == null){
+        have.set = pr.set
+      }
+    }
+  }
+  for(let local pname in values(prop_order)){
+    local pr = props[pname]
+    if(block != null and str.contains(str.join(block.lines, "\n"), concat("[", pname, "]"))){
+      continue
+    }
+    local note = ""
+    if(pr.set == null){
+      note = " (read-only)"
+    } else if(pr.get == null){
+      note = " (write-only)"
+    }
+    comment(concat("[", pname, "]: ", pr.get or pr.set, note), true)
+    property_count = property_count + 1
   }
   line("local ", class.table, " = {}")
   line("")
@@ -600,7 +704,7 @@ for(let local class in values(class_list)){
       if(link.suffix != null and str.ends_with(name, concat("_", link.suffix))){
         name = str.substring(name, 0, len(name) - len(link.suffix) - 1)
       }
-      if(have[name]){
+      if(have[name] or property_of(f, name, link.count) != null){
         continue
       }
       have[name] = true
@@ -612,5 +716,5 @@ for(let local class in values(class_list)){
 line("return m")
 os.write_file("stubs/init.slang", concat(str.join(out, "\n"), "\n"))
 print("stubs/init.slang: ", string(len(functions)), " functions, ",
-  string(method_count), " generic methods on ", string(len(class_list)),
-  " classes\n")
+  string(method_count), " generic methods and ", string(property_count),
+  " properties on ", string(len(class_list)), " classes\n")

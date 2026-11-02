@@ -103,9 +103,9 @@ for(not rl.window_should_close()){
   if(held != null){
     // pulled toward the pointer: its velocity points there, so letting go
     // throws it
-    local p = held.body:get_position()
-    held.body:set_linear_velocity(b2.mul_sv(12, b2.sub(mouse, p)))
-    held.body:set_awake(true)
+    local p = held.body.position
+    held.body.linear_velocity = b2.mul_sv(12, b2.sub(mouse, p))
+    held.body.awake = true
   }
 
   // fixed steps of 1/60 s, however fast frames come
@@ -120,8 +120,8 @@ for(not rl.window_should_close()){
   local floor = screen({x: -13.3, y: 0})
   rl.draw_rectangle(floor[0], floor[1], 26.6 * scale, 20, {60, 64, 82})
   for(let local t in values(things)){
-    local p = screen(t.body:get_position())
-    local angle = b2.rot_get_angle(t.body:get_rotation())
+    local p = screen(t.body.position)
+    local angle = b2.rot_get_angle(t.body.rotation)
     local color = t.color
     if(t == held){
       color = rl.WHITE

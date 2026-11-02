@@ -621,6 +621,11 @@ m.vec3 = {}
 // type Mat4Functions = {[string]: function}
 m.mat4 = {}
 
+// Every joltc function and constant under its C name, on pointers and ids
+// as C has them, for whoever knows joltc:
+// jolt.c.JPH_BodyInterface_GetLinearVelocity(bi, id, out).
+m.c = {}
+
 // ------------------------------------------------------------ functions
 
 // world(options?: {gravity?: Vec3, max_bodies?: int, max_body_pairs?: int,
@@ -630,7 +635,7 @@ m.mat4 = {}
 // system with threads worker threads (by default one fewer than the
 // machine has cores). Free it with [World.destroy].
 // [contact_events]: true collects the contacts that begin and end in each
-//   step for [World.get_contact_events]; "all" also the ones that go on
+//   step for [World.contact_events]; "all" also the ones that go on
 func m.world(options){}
 
 // box(half_extent: Vec3, options?: {convex_radius?: float,
@@ -739,7 +744,7 @@ func m.linear_curve(points){}
 func m.group_filter_table(sub_groups){}
 
 // skeleton() -> Skeleton
-// An empty skeleton: add_joint(name, parent?), get_joint_count(), ...
+// An empty skeleton: add_joint(name, parent?), joint_count, ...
 func m.skeleton(){}
 
 // skeleton_pose(skeleton?: Skeleton) -> SkeletonPose
@@ -780,6 +785,21 @@ func m.mat4_to_matrix(m){}
 // steps, its layer tables and its queries. Every body, constraint, vehicle
 // and character is made through it and freed with it ([World.destroy]).
 // type World
+// [physics_settings]: PhysicsSettings
+// [body_interface]: ffi.Pointer (read-only)
+// [body_interface_no_lock]: ffi.Pointer (read-only)
+// [body_lock_interface]: ffi.Pointer (read-only)
+// [body_lock_interface_no_lock]: ffi.Pointer (read-only)
+// [broad_phase_query]: ffi.Pointer (read-only)
+// [narrow_phase_query]: ffi.Pointer (read-only)
+// [narrow_phase_query_no_lock]: ffi.Pointer (read-only)
+// [contact_listener]: ffi.Pointer (write-only)
+// [body_activation_listener]: ffi.Pointer (write-only)
+// [sim_shape_filter]: ffi.Pointer (write-only)
+// [num_bodies]: int (read-only)
+// [max_bodies]: int (read-only)
+// [num_constraints]: int (read-only)
+// [gravity]: Vec3
 local world_methods = {}
 
 // step(dt: float, collision_steps?: int)
@@ -787,11 +807,11 @@ local world_methods = {}
 // (1 by default; one per 1/60 s is Jolt's advice).
 func world_methods.step(self, dt, collision_steps){}
 
-// get_contact_events() -> {added: {Contact}, persisted?: {Contact},
+// contact_events() -> {added: {Contact}, persisted?: {Contact},
 //   removed: {{body1: Body, body2: Body}}}
 // The contacts that began, went on (with contact_events "all") and ended
 // in the last step, for a world made with contact_events.
-func world_methods.get_contact_events(self){}
+func world_methods.contact_events(self){}
 
 // destroy()
 // Frees the world: its bodies, constraints, vehicles, characters and job
@@ -806,13 +826,13 @@ func world_methods.create_body(self, def){}
 // The body with Jolt's id (the one create_body returned for it).
 func world_methods.get_body(self, id){}
 
-// get_active_bodies() -> {Body}
+// active_bodies() -> {Body}
 // The bodies that are awake (the rest cost the simulation nothing).
-func world_methods.get_active_bodies(self){}
+func world_methods.active_bodies(self){}
 
-// get_bodies() -> {Body}
+// bodies() -> {Body}
 // Every body in the world.
-func world_methods.get_bodies(self){}
+func world_methods.bodies(self){}
 
 // cast_ray(origin: Vec3, direction: Vec3, filters?: QueryFilters) -> RayHit?
 // The first body a ray from origin along direction (its length is the
@@ -854,16 +874,6 @@ func world_methods.create_character(self, def){}
 // A virtual character: no body of its own, moved by its update.
 func world_methods.create_character_virtual(self, def){}
 
-// set_physics_settings(settings: PhysicsSettings)
-// C: `void JPH_PhysicsSystem_SetPhysicsSettings(JPH_PhysicsSystem *system,
-// JPH_PhysicsSettings *settings)`
-func world_methods.set_physics_settings(self, settings){}
-
-// get_physics_settings() -> PhysicsSettings
-// C: `void JPH_PhysicsSystem_GetPhysicsSettings(JPH_PhysicsSystem *system,
-// JPH_PhysicsSettings *result)`
-func world_methods.get_physics_settings(self, result){}
-
 // optimize_broad_phase()
 // C: `void JPH_PhysicsSystem_OptimizeBroadPhase(JPH_PhysicsSystem *system)`
 func world_methods.optimize_broad_phase(self){}
@@ -874,90 +884,15 @@ func world_methods.optimize_broad_phase(self){}
 // *system, float deltaTime, int collisionSteps, JPH_JobSystem *jobSystem)`
 func world_methods.update(self, delta_time, collision_steps, job_system){}
 
-// get_body_interface() -> ffi.Pointer
-// C: `JPH_BodyInterface *JPH_PhysicsSystem_GetBodyInterface(JPH_PhysicsSystem
-// *system)`
-func world_methods.get_body_interface(self){}
-
-// get_body_interface_no_lock() -> ffi.Pointer
-// C: `JPH_BodyInterface
-// *JPH_PhysicsSystem_GetBodyInterfaceNoLock(JPH_PhysicsSystem *system)`
-func world_methods.get_body_interface_no_lock(self){}
-
-// get_body_lock_interface() -> ffi.Pointer
-// C: `const JPH_BodyLockInterface *JPH_PhysicsSystem_GetBodyLockInterface(const
-// JPH_PhysicsSystem *system)`
-func world_methods.get_body_lock_interface(self){}
-
-// get_body_lock_interface_no_lock() -> ffi.Pointer
-// C: `const JPH_BodyLockInterface
-// *JPH_PhysicsSystem_GetBodyLockInterfaceNoLock(const JPH_PhysicsSystem
-// *system)`
-func world_methods.get_body_lock_interface_no_lock(self){}
-
-// get_broad_phase_query() -> ffi.Pointer
-// C: `const JPH_BroadPhaseQuery *JPH_PhysicsSystem_GetBroadPhaseQuery(const
-// JPH_PhysicsSystem *system)`
-func world_methods.get_broad_phase_query(self){}
-
-// get_narrow_phase_query() -> ffi.Pointer
-// C: `const JPH_NarrowPhaseQuery *JPH_PhysicsSystem_GetNarrowPhaseQuery(const
-// JPH_PhysicsSystem *system)`
-func world_methods.get_narrow_phase_query(self){}
-
-// get_narrow_phase_query_no_lock() -> ffi.Pointer
-// C: `const JPH_NarrowPhaseQuery
-// *JPH_PhysicsSystem_GetNarrowPhaseQueryNoLock(const JPH_PhysicsSystem
-// *system)`
-func world_methods.get_narrow_phase_query_no_lock(self){}
-
-// set_contact_listener(listener?: ffi.Pointer)
-// C: `void JPH_PhysicsSystem_SetContactListener(JPH_PhysicsSystem *system,
-// JPH_ContactListener *listener)`
-func world_methods.set_contact_listener(self, listener){}
-
-// set_body_activation_listener(listener?: ffi.Pointer)
-// C: `void JPH_PhysicsSystem_SetBodyActivationListener(JPH_PhysicsSystem
-// *system, JPH_BodyActivationListener *listener)`
-func world_methods.set_body_activation_listener(self, listener){}
-
-// set_sim_shape_filter(filter?: ffi.Pointer)
-// C: `void JPH_PhysicsSystem_SetSimShapeFilter(JPH_PhysicsSystem *system, const
-// JPH_SimShapeFilter *filter)`
-func world_methods.set_sim_shape_filter(self, filter){}
-
 // were_bodies_in_contact(body1: int, body2: int) -> bool
 // C: `bool JPH_PhysicsSystem_WereBodiesInContact(const JPH_PhysicsSystem
 // *system, uint32_t body1, uint32_t body2)`
 func world_methods.were_bodies_in_contact(self, body1, body2){}
 
-// get_num_bodies() -> int
-// C: `uint32_t JPH_PhysicsSystem_GetNumBodies(const JPH_PhysicsSystem *system)`
-func world_methods.get_num_bodies(self){}
-
 // get_num_active_bodies(type: int) -> int
 // C: `uint32_t JPH_PhysicsSystem_GetNumActiveBodies(const JPH_PhysicsSystem
 // *system, enum JPH_BodyType type)`
 func world_methods.get_num_active_bodies(self, type){}
-
-// get_max_bodies() -> int
-// C: `uint32_t JPH_PhysicsSystem_GetMaxBodies(const JPH_PhysicsSystem *system)`
-func world_methods.get_max_bodies(self){}
-
-// get_num_constraints() -> int
-// C: `uint32_t JPH_PhysicsSystem_GetNumConstraints(const JPH_PhysicsSystem
-// *system)`
-func world_methods.get_num_constraints(self){}
-
-// set_gravity(value: Vec3)
-// C: `void JPH_PhysicsSystem_SetGravity(JPH_PhysicsSystem *system, const
-// JPH_Vec3 *value)`
-func world_methods.set_gravity(self, value){}
-
-// get_gravity() -> Vec3
-// C: `void JPH_PhysicsSystem_GetGravity(JPH_PhysicsSystem *system, JPH_Vec3
-// *result)`
-func world_methods.get_gravity(self, result){}
 
 // add_constraint(constraint?: Constraint)
 // C: `void JPH_PhysicsSystem_AddConstraint(JPH_PhysicsSystem *system,
@@ -988,6 +923,16 @@ func world_methods.add_step_listener(self, listener){}
 // C: `void JPH_PhysicsSystem_RemoveStepListener(JPH_PhysicsSystem *system,
 // JPH_PhysicsStepListener *listener)`
 func world_methods.remove_step_listener(self, listener){}
+
+// get_bodies(count: int) -> int
+// C: `void JPH_PhysicsSystem_GetBodies(const JPH_PhysicsSystem *system,
+// uint32_t *ids, uint32_t count)`
+func world_methods.get_bodies(self, ids, count){}
+
+// get_active_bodies(type: int, count: int) -> int
+// C: `void JPH_PhysicsSystem_GetActiveBodies(const JPH_PhysicsSystem *system,
+// enum JPH_BodyType type, uint32_t *ids, uint32_t count)`
+func world_methods.get_active_bodies(self, type, ids, count){}
 
 // get_active_bodies_unsafe(type: int) -> ffi.Pointer
 // C: `const uint32_t *JPH_PhysicsSystem_GetActiveBodiesUnsafe(const
@@ -1043,28 +988,66 @@ func world_methods.update2(self, delta_time, collision_steps, temp_allocator, jo
 // ------------------------------------------------------------ Body
 
 // A rigid body in a world. Every body_interface_* function of joltc is a
-// method without its leading body interface and id (body:get_position()
-// is JPH_BodyInterface_GetPosition), and so is every body_* function; a
-// trailing Body is dropped (activate, deactivate, remove, is_added).
+// method or property without its leading body interface and id
+// (body.position is JPH_BodyInterface_GetPosition, body:add_impulse(i)
+// JPH_BodyInterface_AddImpulse), and so is every body_* function; a
+// trailing Body is dropped (activate, deactivate, remove, added).
 // type Body
 // [id]: Jolt's id of the body, an int: key tables by it
 // [world]: the world it is in
-// [shape]: the shape it was made with
+// [shape]: its shape; assigning one gives the body that shape (its mass
+//   properties follow) and wakes it
+// [active]: whether it is awake; false puts it to sleep
+// [added]: bool (read-only)
+// [body_type]: int (read-only)
+// [linear_velocity]: Vec3
+// [center_of_mass_position]: Vec3 (read-only)
+// [motion_type]: int
+// [restitution]: float
+// [friction]: float
+// [position]: Vec3
+// [rotation]: Quat
+// [position_and_rotation]: {position: Vec3, rotation: Quat} (read-only)
+// [collision_group]: CollisionGroup
+// [object_layer]: int
+// [world_transform]: Mat4 (read-only)
+// [center_of_mass_transform]: Mat4 (read-only)
+// [linear_and_angular_velocity]: {linear_velocity: Vec3, angular_velocity:
+//   Vec3} (read-only)
+// [angular_velocity]: Vec3
+// [motion_quality]: int
+// [inverse_inertia]: Mat4 (read-only)
+// [gravity_factor]: float
+// [use_manifold_reduction]: bool
+// [user_data]: int
+// [sensor]: bool
+// [rigid_body]: bool (read-only)
+// [soft_body]: bool (read-only)
+// [static]: bool (read-only)
+// [kinematic]: bool (read-only)
+// [dynamic]: bool (read-only)
+// [collide_kinematic_vs_non_dynamic]: bool
+// [apply_gyroscopic_force]: bool
+// [enhanced_internal_edge_removal]: bool
+// [broad_phase_layer]: int (read-only)
+// [allow_sleeping]: bool
+// [linear_velocity_clamped]: Vec3 (write-only)
+// [angular_velocity_clamped]: Vec3 (write-only)
+// [accumulated_force]: Vec3 (read-only)
+// [accumulated_torque]: Vec3 (read-only)
+// [in_broad_phase]: bool (read-only)
+// [collision_cache_invalid]: bool (read-only)
+// [inverse_center_of_mass_transform]: Mat4 (read-only)
+// [world_space_bounds]: AABox (read-only)
+// [motion_properties]: MotionProperties (read-only)
+// [motion_properties_unchecked]: MotionProperties (read-only)
+// [soft_body_vertex_count]: int (read-only)
 local body_methods = {}
 
 // destroy()
 // Removes the body from the world and frees it (its shape lives on while
 // something refers to it).
 func body_methods.destroy(self){}
-
-// get_shape() -> Shape
-// The body's shape.
-func body_methods.get_shape(self){}
-
-// set_shape(shape: Shape, update_mass?: bool, activate?: bool)
-// Gives the body another shape (its mass properties follow unless
-// update_mass is false).
-func body_methods.set_shape(self, shape, update_mass, activate){}
 
 // create_body_with_id(settings?: ffi.Pointer) -> Body
 // C: `JPH_Body *JPH_BodyInterface_CreateBodyWithID(JPH_BodyInterface
@@ -1097,82 +1080,6 @@ func body_methods.remove(self){}
 // *bodyInterface, uint32_t bodyID)`
 func body_methods.remove_and_destroy(self){}
 
-// is_added() -> bool
-// C: `bool JPH_BodyInterface_IsAdded(JPH_BodyInterface *bodyInterface, uint32_t
-// bodyID)`
-func body_methods.is_added(self){}
-
-// get_body_type() -> int
-// C: `enum JPH_BodyType JPH_BodyInterface_GetBodyType(JPH_BodyInterface
-// *bodyInterface, uint32_t bodyID)`
-func body_methods.get_body_type(self){}
-
-// set_linear_velocity(velocity: Vec3)
-// C: `void JPH_BodyInterface_SetLinearVelocity(JPH_BodyInterface
-// *bodyInterface, uint32_t bodyID, const JPH_Vec3 *velocity)`
-func body_methods.set_linear_velocity(self, velocity){}
-
-// get_linear_velocity() -> Vec3
-// C: `void JPH_BodyInterface_GetLinearVelocity(JPH_BodyInterface
-// *bodyInterface, uint32_t bodyID, JPH_Vec3 *velocity)`
-func body_methods.get_linear_velocity(self, velocity){}
-
-// get_center_of_mass_position() -> Vec3
-// C: `void JPH_BodyInterface_GetCenterOfMassPosition(JPH_BodyInterface
-// *bodyInterface, uint32_t bodyID, JPH_Vec3 *position)`
-func body_methods.get_center_of_mass_position(self, position){}
-
-// get_motion_type() -> int
-// C: `enum JPH_MotionType JPH_BodyInterface_GetMotionType(JPH_BodyInterface
-// *bodyInterface, uint32_t bodyID)`
-func body_methods.get_motion_type(self){}
-
-// set_motion_type(motion_type: int, activation_mode?: int)
-// C: `void JPH_BodyInterface_SetMotionType(JPH_BodyInterface *bodyInterface,
-// uint32_t bodyID, enum JPH_MotionType motionType, enum JPH_Activation
-// activationMode)`
-func body_methods.set_motion_type(self, motion_type, activation_mode){}
-
-// get_restitution() -> float
-// C: `float JPH_BodyInterface_GetRestitution(const JPH_BodyInterface
-// *bodyInterface, uint32_t bodyID)`
-func body_methods.get_restitution(self){}
-
-// set_restitution(restitution: float)
-// C: `void JPH_BodyInterface_SetRestitution(JPH_BodyInterface *bodyInterface,
-// uint32_t bodyID, float restitution)`
-func body_methods.set_restitution(self, restitution){}
-
-// get_friction() -> float
-// C: `float JPH_BodyInterface_GetFriction(const JPH_BodyInterface
-// *bodyInterface, uint32_t bodyID)`
-func body_methods.get_friction(self){}
-
-// set_friction(friction: float)
-// C: `void JPH_BodyInterface_SetFriction(JPH_BodyInterface *bodyInterface,
-// uint32_t bodyID, float friction)`
-func body_methods.set_friction(self, friction){}
-
-// set_position(position: Vec3, activation_mode?: int)
-// C: `void JPH_BodyInterface_SetPosition(JPH_BodyInterface *bodyInterface,
-// uint32_t bodyId, JPH_Vec3 *position, enum JPH_Activation activationMode)`
-func body_methods.set_position(self, position, activation_mode){}
-
-// get_position() -> Vec3
-// C: `void JPH_BodyInterface_GetPosition(JPH_BodyInterface *bodyInterface,
-// uint32_t bodyId, JPH_Vec3 *result)`
-func body_methods.get_position(self, result){}
-
-// set_rotation(rotation: Quat, activation_mode?: int)
-// C: `void JPH_BodyInterface_SetRotation(JPH_BodyInterface *bodyInterface,
-// uint32_t bodyId, JPH_Quat *rotation, enum JPH_Activation activationMode)`
-func body_methods.set_rotation(self, rotation, activation_mode){}
-
-// get_rotation() -> Quat
-// C: `void JPH_BodyInterface_GetRotation(JPH_BodyInterface *bodyInterface,
-// uint32_t bodyId, JPH_Quat *result)`
-func body_methods.get_rotation(self, result){}
-
 // set_position_and_rotation(position: Vec3, rotation: Quat, activation_mode?:
 //   int)
 // C: `void JPH_BodyInterface_SetPositionAndRotation(JPH_BodyInterface
@@ -1188,11 +1095,6 @@ func body_methods.set_position_and_rotation(self, position, rotation, activation
 // *rotation, enum JPH_Activation activationMode)`
 func body_methods.set_position_and_rotation_when_changed(self, position, rotation, activation_mode){}
 
-// get_position_and_rotation() -> {position: Vec3, rotation: Quat}
-// C: `void JPH_BodyInterface_GetPositionAndRotation(JPH_BodyInterface
-// *bodyInterface, uint32_t bodyId, JPH_Vec3 *position, JPH_Quat *rotation)`
-func body_methods.get_position_and_rotation(self, position, rotation){}
-
 // set_position_rotation_and_velocity(position: Vec3, rotation: Quat,
 //   linear_velocity: Vec3, angular_velocity: Vec3)
 // C: `void JPH_BodyInterface_SetPositionRotationAndVelocity(JPH_BodyInterface
@@ -1200,15 +1102,11 @@ func body_methods.get_position_and_rotation(self, position, rotation){}
 // JPH_Vec3 *linearVelocity, JPH_Vec3 *angularVelocity)`
 func body_methods.set_position_rotation_and_velocity(self, position, rotation, linear_velocity, angular_velocity){}
 
-// get_collision_group() -> CollisionGroup
-// C: `void JPH_BodyInterface_GetCollisionGroup(JPH_BodyInterface
-// *bodyInterface, uint32_t bodyId, JPH_CollisionGroup *result)`
-func body_methods.get_collision_group(self, result){}
-
-// set_collision_group(group: CollisionGroup)
-// C: `void JPH_BodyInterface_SetCollisionGroup(JPH_BodyInterface
-// *bodyInterface, uint32_t bodyId, const JPH_CollisionGroup *group)`
-func body_methods.set_collision_group(self, group){}
+// set_shape(shape: Shape, update_mass_properties: bool, activation_mode?: int)
+// C: `void JPH_BodyInterface_SetShape(JPH_BodyInterface *bodyInterface,
+// uint32_t bodyId, const JPH_Shape *shape, bool updateMassProperties, enum
+// JPH_Activation activationMode)`
+func body_methods.set_shape(self, shape, update_mass_properties, activation_mode){}
 
 // notify_shape_changed(previous_center_of_mass: Vec3, update_mass_properties:
 //   bool, activation_mode?: int)
@@ -1227,35 +1125,10 @@ func body_methods.activate(self){}
 // const uint32_t bodyId)`
 func body_methods.deactivate(self){}
 
-// is_active() -> bool
-// C: `bool JPH_BodyInterface_IsActive(const JPH_BodyInterface *bodyInterface,
-// const uint32_t bodyID)`
-func body_methods.is_active(self){}
-
 // reset_sleep_timer()
 // C: `void JPH_BodyInterface_ResetSleepTimer(JPH_BodyInterface *bodyInterface,
 // const uint32_t bodyID)`
 func body_methods.reset_sleep_timer(self){}
-
-// get_object_layer() -> int
-// C: `uint32_t JPH_BodyInterface_GetObjectLayer(JPH_BodyInterface
-// *bodyInterface, uint32_t bodyId)`
-func body_methods.get_object_layer(self){}
-
-// set_object_layer(layer: int)
-// C: `void JPH_BodyInterface_SetObjectLayer(JPH_BodyInterface *bodyInterface,
-// uint32_t bodyId, uint32_t layer)`
-func body_methods.set_object_layer(self, layer){}
-
-// get_world_transform() -> Mat4
-// C: `void JPH_BodyInterface_GetWorldTransform(JPH_BodyInterface
-// *bodyInterface, uint32_t bodyId, JPH_Mat4 *result)`
-func body_methods.get_world_transform(self, result){}
-
-// get_center_of_mass_transform() -> Mat4
-// C: `void JPH_BodyInterface_GetCenterOfMassTransform(JPH_BodyInterface
-// *bodyInterface, uint32_t bodyId, JPH_Mat4 *result)`
-func body_methods.get_center_of_mass_transform(self, result){}
 
 // move_kinematic(target_position: Vec3, target_rotation: Quat, delta_time:
 //   float)
@@ -1280,13 +1153,6 @@ func body_methods.apply_buoyancy_impulse(self, surface_position, surface_normal,
 // *angularVelocity)`
 func body_methods.set_linear_and_angular_velocity(self, linear_velocity, angular_velocity){}
 
-// get_linear_and_angular_velocity() -> {linear_velocity: Vec3,
-//   angular_velocity: Vec3}
-// C: `void JPH_BodyInterface_GetLinearAndAngularVelocity(JPH_BodyInterface
-// *bodyInterface, uint32_t bodyId, JPH_Vec3 *linearVelocity, JPH_Vec3
-// *angularVelocity)`
-func body_methods.get_linear_and_angular_velocity(self, linear_velocity, angular_velocity){}
-
 // add_linear_velocity(linear_velocity: Vec3)
 // C: `void JPH_BodyInterface_AddLinearVelocity(JPH_BodyInterface
 // *bodyInterface, uint32_t bodyId, JPH_Vec3 *linearVelocity)`
@@ -1298,16 +1164,6 @@ func body_methods.add_linear_velocity(self, linear_velocity){}
 // *bodyInterface, uint32_t bodyId, JPH_Vec3 *linearVelocity, JPH_Vec3
 // *angularVelocity)`
 func body_methods.add_linear_and_angular_velocity(self, linear_velocity, angular_velocity){}
-
-// set_angular_velocity(angular_velocity: Vec3)
-// C: `void JPH_BodyInterface_SetAngularVelocity(JPH_BodyInterface
-// *bodyInterface, uint32_t bodyId, JPH_Vec3 *angularVelocity)`
-func body_methods.set_angular_velocity(self, angular_velocity){}
-
-// get_angular_velocity() -> Vec3
-// C: `void JPH_BodyInterface_GetAngularVelocity(JPH_BodyInterface
-// *bodyInterface, uint32_t bodyId, JPH_Vec3 *angularVelocity)`
-func body_methods.get_angular_velocity(self, angular_velocity){}
 
 // get_point_velocity(point: Vec3) -> Vec3
 // C: `void JPH_BodyInterface_GetPointVelocity(JPH_BodyInterface *bodyInterface,
@@ -1349,62 +1205,6 @@ func body_methods.add_impulse2(self, impulse, point){}
 // *bodyInterface, uint32_t bodyId, JPH_Vec3 *angularImpulse)`
 func body_methods.add_angular_impulse(self, angular_impulse){}
 
-// set_motion_quality(quality: int)
-// C: `void JPH_BodyInterface_SetMotionQuality(JPH_BodyInterface *bodyInterface,
-// uint32_t bodyId, enum JPH_MotionQuality quality)`
-func body_methods.set_motion_quality(self, quality){}
-
-// get_motion_quality() -> int
-// C: `enum JPH_MotionQuality
-// JPH_BodyInterface_GetMotionQuality(JPH_BodyInterface *bodyInterface, uint32_t
-// bodyId)`
-func body_methods.get_motion_quality(self){}
-
-// get_inverse_inertia() -> Mat4
-// C: `void JPH_BodyInterface_GetInverseInertia(JPH_BodyInterface
-// *bodyInterface, uint32_t bodyId, JPH_Mat4 *result)`
-func body_methods.get_inverse_inertia(self, result){}
-
-// set_gravity_factor(value: float)
-// C: `void JPH_BodyInterface_SetGravityFactor(JPH_BodyInterface *bodyInterface,
-// uint32_t bodyId, float value)`
-func body_methods.set_gravity_factor(self, value){}
-
-// get_gravity_factor() -> float
-// C: `float JPH_BodyInterface_GetGravityFactor(JPH_BodyInterface
-// *bodyInterface, uint32_t bodyId)`
-func body_methods.get_gravity_factor(self){}
-
-// set_use_manifold_reduction(value: bool)
-// C: `void JPH_BodyInterface_SetUseManifoldReduction(JPH_BodyInterface
-// *bodyInterface, uint32_t bodyId, bool value)`
-func body_methods.set_use_manifold_reduction(self, value){}
-
-// get_use_manifold_reduction() -> bool
-// C: `bool JPH_BodyInterface_GetUseManifoldReduction(JPH_BodyInterface
-// *bodyInterface, uint32_t bodyId)`
-func body_methods.get_use_manifold_reduction(self){}
-
-// set_user_data(in_user_data: int)
-// C: `void JPH_BodyInterface_SetUserData(JPH_BodyInterface *bodyInterface,
-// uint32_t bodyId, uint64_t inUserData)`
-func body_methods.set_user_data(self, in_user_data){}
-
-// get_user_data() -> int
-// C: `uint64_t JPH_BodyInterface_GetUserData(JPH_BodyInterface *bodyInterface,
-// uint32_t bodyId)`
-func body_methods.get_user_data(self){}
-
-// set_is_sensor(value: bool)
-// C: `void JPH_BodyInterface_SetIsSensor(JPH_BodyInterface *bodyInterface,
-// uint32_t bodyId, bool value)`
-func body_methods.set_is_sensor(self, value){}
-
-// is_sensor() -> bool
-// C: `bool JPH_BodyInterface_IsSensor(JPH_BodyInterface *bodyInterface,
-// uint32_t bodyId)`
-func body_methods.is_sensor(self){}
-
 // get_material(sub_shape_id: int) -> Material
 // C: `const JPH_PhysicsMaterial
 // *JPH_BodyInterface_GetMaterial(JPH_BodyInterface *bodyInterface, uint32_t
@@ -1416,90 +1216,19 @@ func body_methods.get_material(self, sub_shape_id){}
 // *bodyInterface, uint32_t bodyId)`
 func body_methods.invalidate_contact_cache(self){}
 
-// get_id() -> int
-// C: `uint32_t JPH_Body_GetID(const JPH_Body *body)`
-func body_methods.get_id(self){}
-
-// is_rigid_body() -> bool
-// C: `bool JPH_Body_IsRigidBody(const JPH_Body *body)`
-func body_methods.is_rigid_body(self){}
-
-// is_soft_body() -> bool
-// C: `bool JPH_Body_IsSoftBody(const JPH_Body *body)`
-func body_methods.is_soft_body(self){}
-
-// is_static() -> bool
-// C: `bool JPH_Body_IsStatic(const JPH_Body *body)`
-func body_methods.is_static(self){}
-
-// is_kinematic() -> bool
-// C: `bool JPH_Body_IsKinematic(const JPH_Body *body)`
-func body_methods.is_kinematic(self){}
-
-// is_dynamic() -> bool
-// C: `bool JPH_Body_IsDynamic(const JPH_Body *body)`
-func body_methods.is_dynamic(self){}
-
 // can_be_kinematic_or_dynamic() -> bool
 // C: `bool JPH_Body_CanBeKinematicOrDynamic(const JPH_Body *body)`
 func body_methods.can_be_kinematic_or_dynamic(self){}
-
-// set_collide_kinematic_vs_non_dynamic(value: bool)
-// C: `void JPH_Body_SetCollideKinematicVsNonDynamic(JPH_Body *body, bool
-// value)`
-func body_methods.set_collide_kinematic_vs_non_dynamic(self, value){}
-
-// get_collide_kinematic_vs_non_dynamic() -> bool
-// C: `bool JPH_Body_GetCollideKinematicVsNonDynamic(const JPH_Body *body)`
-func body_methods.get_collide_kinematic_vs_non_dynamic(self){}
 
 // get_use_manifold_reduction_with_body(other?: Body) -> bool
 // C: `bool JPH_Body_GetUseManifoldReductionWithBody(const JPH_Body *body, const
 // JPH_Body *other)`
 func body_methods.get_use_manifold_reduction_with_body(self, other){}
 
-// set_apply_gyroscopic_force(value: bool)
-// C: `void JPH_Body_SetApplyGyroscopicForce(JPH_Body *body, bool value)`
-func body_methods.set_apply_gyroscopic_force(self, value){}
-
-// get_apply_gyroscopic_force() -> bool
-// C: `bool JPH_Body_GetApplyGyroscopicForce(const JPH_Body *body)`
-func body_methods.get_apply_gyroscopic_force(self){}
-
-// set_enhanced_internal_edge_removal(value: bool)
-// C: `void JPH_Body_SetEnhancedInternalEdgeRemoval(JPH_Body *body, bool value)`
-func body_methods.set_enhanced_internal_edge_removal(self, value){}
-
-// get_enhanced_internal_edge_removal() -> bool
-// C: `bool JPH_Body_GetEnhancedInternalEdgeRemoval(const JPH_Body *body)`
-func body_methods.get_enhanced_internal_edge_removal(self){}
-
 // get_enhanced_internal_edge_removal_with_body(other?: Body) -> bool
 // C: `bool JPH_Body_GetEnhancedInternalEdgeRemovalWithBody(const JPH_Body
 // *body, const JPH_Body *other)`
 func body_methods.get_enhanced_internal_edge_removal_with_body(self, other){}
-
-// get_broad_phase_layer() -> int
-// C: `uint8_t JPH_Body_GetBroadPhaseLayer(const JPH_Body *body)`
-func body_methods.get_broad_phase_layer(self){}
-
-// get_allow_sleeping() -> bool
-// C: `bool JPH_Body_GetAllowSleeping(JPH_Body *body)`
-func body_methods.get_allow_sleeping(self){}
-
-// set_allow_sleeping(allow_sleeping: bool)
-// C: `void JPH_Body_SetAllowSleeping(JPH_Body *body, bool allowSleeping)`
-func body_methods.set_allow_sleeping(self, allow_sleeping){}
-
-// set_linear_velocity_clamped(velocity: Vec3)
-// C: `void JPH_Body_SetLinearVelocityClamped(JPH_Body *body, const JPH_Vec3
-// *velocity)`
-func body_methods.set_linear_velocity_clamped(self, velocity){}
-
-// set_angular_velocity_clamped(velocity: Vec3)
-// C: `void JPH_Body_SetAngularVelocityClamped(JPH_Body *body, const JPH_Vec3
-// *velocity)`
-func body_methods.set_angular_velocity_clamped(self, velocity){}
 
 // get_point_velocity_com(point_relative_to_com: Vec3) -> Vec3
 // C: `void JPH_Body_GetPointVelocityCOM(JPH_Body *body, const JPH_Vec3
@@ -1510,14 +1239,6 @@ func body_methods.get_point_velocity_com(self, point_relative_to_com, velocity){
 // C: `void JPH_Body_AddForceAtPosition(JPH_Body *body, const JPH_Vec3 *force,
 // const JPH_Vec3 *position)`
 func body_methods.add_force_at_position(self, force, position){}
-
-// get_accumulated_force() -> Vec3
-// C: `void JPH_Body_GetAccumulatedForce(JPH_Body *body, JPH_Vec3 *force)`
-func body_methods.get_accumulated_force(self, force){}
-
-// get_accumulated_torque() -> Vec3
-// C: `void JPH_Body_GetAccumulatedTorque(JPH_Body *body, JPH_Vec3 *force)`
-func body_methods.get_accumulated_torque(self, force){}
 
 // reset_force()
 // C: `void JPH_Body_ResetForce(JPH_Body *body)`
@@ -1536,41 +1257,10 @@ func body_methods.reset_motion(self){}
 // *impulse, const JPH_Vec3 *position)`
 func body_methods.add_impulse_at_position(self, impulse, position){}
 
-// is_in_broad_phase() -> bool
-// C: `bool JPH_Body_IsInBroadPhase(JPH_Body *body)`
-func body_methods.is_in_broad_phase(self){}
-
-// is_collision_cache_invalid() -> bool
-// C: `bool JPH_Body_IsCollisionCacheInvalid(JPH_Body *body)`
-func body_methods.is_collision_cache_invalid(self){}
-
-// get_inverse_center_of_mass_transform() -> Mat4
-// C: `void JPH_Body_GetInverseCenterOfMassTransform(const JPH_Body *body,
-// JPH_Mat4 *result)`
-func body_methods.get_inverse_center_of_mass_transform(self, result){}
-
-// get_world_space_bounds() -> AABox
-// C: `void JPH_Body_GetWorldSpaceBounds(const JPH_Body *body, JPH_AABox
-// *result)`
-func body_methods.get_world_space_bounds(self, result){}
-
 // get_world_space_surface_normal(sub_shape_id: int, position: Vec3) -> Vec3
 // C: `void JPH_Body_GetWorldSpaceSurfaceNormal(const JPH_Body *body, uint32_t
 // subShapeID, const JPH_Vec3 *position, JPH_Vec3 *normal)`
 func body_methods.get_world_space_surface_normal(self, sub_shape_id, position, normal){}
-
-// get_motion_properties() -> MotionProperties
-// C: `JPH_MotionProperties *JPH_Body_GetMotionProperties(JPH_Body *body)`
-func body_methods.get_motion_properties(self){}
-
-// get_motion_properties_unchecked() -> MotionProperties
-// C: `JPH_MotionProperties *JPH_Body_GetMotionPropertiesUnchecked(JPH_Body
-// *body)`
-func body_methods.get_motion_properties_unchecked(self){}
-
-// get_soft_body_vertex_count() -> int
-// C: `uint32_t JPH_Body_GetSoftBodyVertexCount(const JPH_Body *body)`
-func body_methods.get_soft_body_vertex_count(self){}
 
 // get_soft_body_vertex_position(index: int) -> Vec3
 // C: `void JPH_Body_GetSoftBodyVertexPosition(const JPH_Body *body, uint32_t
@@ -1586,15 +1276,50 @@ func body_methods.get_soft_body_vertex_positions(self, out_positions, capacity, 
 // ------------------------------------------------------------ Shape
 
 // A collision shape, from [box] and the other shape functions. Every
-// shape_* function of joltc is a method, and so are those of its kind
-// (box_shape_get_half_extent is box:get_half_extent(); convex shapes
-// have set_density). One shape can serve many bodies; it is freed once
+// shape_* function of joltc is a method or property, and so are those of
+// its kind (box_shape_get_half_extent is box.half_extent; convex shapes
+// have density). One shape can serve many bodies; it is freed once
 // nothing refers to it.
 // type Shape
 // [kind]: "box", "sphere", "capsule", "cylinder", "tapered_capsule",
 //   "tapered_cylinder", "triangle", "convex_hull", "plane", "mesh",
 //   "height_field", "static_compound", "mutable_compound",
 //   "rotated_translated", "scaled", "offset_center_of_mass", "empty"
+// [type]: int (read-only)
+// [sub_type]: int (read-only)
+// [user_data]: int
+// [center_of_mass]: Vec3 (read-only)
+// [local_bounds]: AABox (read-only)
+// [sub_shape_id_bits_recursive]: int (read-only)
+// [world_space_bounds]: {center_of_mass_transform: Mat4, scale: Vec3, result:
+//   AABox} (read-only)
+// [inner_radius]: float (read-only)
+// [mass_properties]: MassProperties (read-only)
+// [volume]: float (read-only)
+// [density]: float
+// [half_extent]: Vec3 (read-only)
+// [convex_radius]: float (read-only)
+// [radius]: float (read-only)
+// [half_height_of_cylinder]: float (read-only)
+// [half_height]: float (read-only)
+// [top_radius]: float (read-only)
+// [bottom_radius]: float (read-only)
+// [vertex1]: Vec3 (read-only)
+// [vertex2]: Vec3 (read-only)
+// [vertex3]: Vec3 (read-only)
+// [num_points]: int (read-only)
+// [num_faces]: int (read-only)
+// [plane]: Plane (read-only)
+// [sample_count]: int (read-only)
+// [block_size]: int (read-only)
+// [min_height_value]: float (read-only)
+// [max_height_value]: float (read-only)
+// [num_sub_shapes]: int (read-only)
+// [position]: Vec3 (read-only)
+// [rotation]: Quat (read-only)
+// [inner_shape]: Shape (read-only)
+// [scale]: Vec3 (read-only)
+// [offset]: Vec3 (read-only)
 local shape_methods = {}
 
 // draw(renderer: ffi.Pointer, center_of_mass_transform: Mat4, scale: Vec3,
@@ -1609,52 +1334,9 @@ func shape_methods.draw(self, renderer, center_of_mass_transform, scale, color, 
 // C: `void JPH_Shape_Destroy(JPH_Shape *shape)`
 func shape_methods.destroy(self){}
 
-// get_type() -> int
-// C: `enum JPH_ShapeType JPH_Shape_GetType(const JPH_Shape *shape)`
-func shape_methods.get_type(self){}
-
-// get_sub_type() -> int
-// C: `enum JPH_ShapeSubType JPH_Shape_GetSubType(const JPH_Shape *shape)`
-func shape_methods.get_sub_type(self){}
-
-// get_user_data() -> int
-// C: `uint64_t JPH_Shape_GetUserData(const JPH_Shape *shape)`
-func shape_methods.get_user_data(self){}
-
-// set_user_data(user_data: int)
-// C: `void JPH_Shape_SetUserData(JPH_Shape *shape, uint64_t userData)`
-func shape_methods.set_user_data(self, user_data){}
-
 // must_be_static() -> bool
 // C: `bool JPH_Shape_MustBeStatic(const JPH_Shape *shape)`
 func shape_methods.must_be_static(self){}
-
-// get_center_of_mass() -> Vec3
-// C: `void JPH_Shape_GetCenterOfMass(const JPH_Shape *shape, JPH_Vec3 *result)`
-func shape_methods.get_center_of_mass(self, result){}
-
-// get_local_bounds() -> AABox
-// C: `void JPH_Shape_GetLocalBounds(const JPH_Shape *shape, JPH_AABox *result)`
-func shape_methods.get_local_bounds(self, result){}
-
-// get_sub_shape_id_bits_recursive() -> int
-// C: `uint32_t JPH_Shape_GetSubShapeIDBitsRecursive(const JPH_Shape *shape)`
-func shape_methods.get_sub_shape_id_bits_recursive(self){}
-
-// get_world_space_bounds() -> {center_of_mass_transform: Mat4, scale: Vec3,
-//   result: AABox}
-// C: `void JPH_Shape_GetWorldSpaceBounds(const JPH_Shape *shape, JPH_Mat4
-// *centerOfMassTransform, JPH_Vec3 *scale, JPH_AABox *result)`
-func shape_methods.get_world_space_bounds(self, center_of_mass_transform, scale, result){}
-
-// get_inner_radius() -> float
-// C: `float JPH_Shape_GetInnerRadius(const JPH_Shape *shape)`
-func shape_methods.get_inner_radius(self){}
-
-// get_mass_properties() -> MassProperties
-// C: `void JPH_Shape_GetMassProperties(const JPH_Shape *shape,
-// JPH_MassProperties *result)`
-func shape_methods.get_mass_properties(self, result){}
 
 // get_leaf_shape(sub_shape_id: int) -> Shape
 // C: `const JPH_Shape *JPH_Shape_GetLeafShape(const JPH_Shape *shape, uint32_t
@@ -1677,10 +1359,6 @@ func shape_methods.get_surface_normal(self, sub_shape_id, local_position, normal
 // subShapeID, const JPH_Vec3 *direction, const JPH_Vec3 *scale, const JPH_Mat4
 // *centerOfMassTransform, JPH_SupportingFace *outVertices)`
 func shape_methods.get_supporting_face(self, sub_shape_id, direction, scale, center_of_mass_transform, out_vertices){}
-
-// get_volume() -> float
-// C: `float JPH_Shape_GetVolume(const JPH_Shape *shape)`
-func shape_methods.get_volume(self){}
 
 // is_valid_scale(scale: Vec3) -> bool
 // C: `bool JPH_Shape_IsValidScale(const JPH_Shape *shape, const JPH_Vec3
@@ -1723,75 +1401,10 @@ func shape_methods.collide_point(self, point, shape_filter){}
 // void *userData, const JPH_ShapeFilter *shapeFilter)`
 func shape_methods.collide_point2(self, point, collector_type, callback, user_data, shape_filter){}
 
-// get_density() -> float
-// C: `float JPH_ConvexShape_GetDensity(const JPH_ConvexShape *shape)`
-func shape_methods.get_density(self){}
-
-// set_density(in_density: float)
-// C: `void JPH_ConvexShape_SetDensity(JPH_ConvexShape *shape, float inDensity)`
-func shape_methods.set_density(self, in_density){}
-
-// get_half_extent() -> Vec3
-// C: `void JPH_BoxShape_GetHalfExtent(const JPH_BoxShape *shape, JPH_Vec3
-// *halfExtent)`
-func shape_methods.get_half_extent(self, half_extent){}
-
-// get_convex_radius() -> float
-// C: `float JPH_BoxShape_GetConvexRadius(const JPH_BoxShape *shape)`
-func shape_methods.get_convex_radius(self){}
-
-// get_radius() -> float
-// C: `float JPH_SphereShape_GetRadius(const JPH_SphereShape *shape)`
-func shape_methods.get_radius(self){}
-
-// get_half_height_of_cylinder() -> float
-// C: `float JPH_CapsuleShape_GetHalfHeightOfCylinder(const JPH_CapsuleShape
-// *shape)`
-func shape_methods.get_half_height_of_cylinder(self){}
-
-// get_half_height() -> float
-// C: `float JPH_CylinderShape_GetHalfHeight(const JPH_CylinderShape *shape)`
-func shape_methods.get_half_height(self){}
-
-// get_top_radius() -> float
-// C: `float JPH_TaperedCapsuleShape_GetTopRadius(const JPH_TaperedCapsuleShape
-// *shape)`
-func shape_methods.get_top_radius(self){}
-
-// get_bottom_radius() -> float
-// C: `float JPH_TaperedCapsuleShape_GetBottomRadius(const
-// JPH_TaperedCapsuleShape *shape)`
-func shape_methods.get_bottom_radius(self){}
-
-// get_vertex1() -> Vec3
-// C: `void JPH_TriangleShape_GetVertex1(const JPH_TriangleShape *shape,
-// JPH_Vec3 *result)`
-func shape_methods.get_vertex1(self, result){}
-
-// get_vertex2() -> Vec3
-// C: `void JPH_TriangleShape_GetVertex2(const JPH_TriangleShape *shape,
-// JPH_Vec3 *result)`
-func shape_methods.get_vertex2(self, result){}
-
-// get_vertex3() -> Vec3
-// C: `void JPH_TriangleShape_GetVertex3(const JPH_TriangleShape *shape,
-// JPH_Vec3 *result)`
-func shape_methods.get_vertex3(self, result){}
-
-// get_num_points() -> int
-// C: `uint32_t JPH_ConvexHullShape_GetNumPoints(const JPH_ConvexHullShape
-// *shape)`
-func shape_methods.get_num_points(self){}
-
 // get_point(index: int) -> Vec3
 // C: `void JPH_ConvexHullShape_GetPoint(const JPH_ConvexHullShape *shape,
 // uint32_t index, JPH_Vec3 *result)`
 func shape_methods.get_point(self, index, result){}
-
-// get_num_faces() -> int
-// C: `uint32_t JPH_ConvexHullShape_GetNumFaces(const JPH_ConvexHullShape
-// *shape)`
-func shape_methods.get_num_faces(self){}
 
 // get_num_vertices_in_face(face_index: int) -> int
 // C: `uint32_t JPH_ConvexHullShape_GetNumVerticesInFace(const
@@ -1803,25 +1416,10 @@ func shape_methods.get_num_vertices_in_face(self, face_index){}
 // *shape, uint32_t faceIndex, uint32_t maxVertices, uint32_t *vertices)`
 func shape_methods.get_face_vertices(self, face_index, max_vertices, vertices){}
 
-// get_plane() -> Plane
-// C: `void JPH_PlaneShape_GetPlane(const JPH_PlaneShape *shape, JPH_Plane
-// *result)`
-func shape_methods.get_plane(self, result){}
-
 // get_triangle_user_data(id: int) -> int
 // C: `uint32_t JPH_MeshShape_GetTriangleUserData(const JPH_MeshShape *shape,
 // uint32_t id)`
 func shape_methods.get_triangle_user_data(self, id){}
-
-// get_sample_count() -> int
-// C: `uint32_t JPH_HeightFieldShape_GetSampleCount(const JPH_HeightFieldShape
-// *shape)`
-func shape_methods.get_sample_count(self){}
-
-// get_block_size() -> int
-// C: `uint32_t JPH_HeightFieldShape_GetBlockSize(const JPH_HeightFieldShape
-// *shape)`
-func shape_methods.get_block_size(self){}
 
 // get_position(x: int, y: int) -> Vec3
 // C: `void JPH_HeightFieldShape_GetPosition(const JPH_HeightFieldShape *shape,
@@ -1839,21 +1437,6 @@ func shape_methods.is_no_collision(self, x, y){}
 // *shape, const JPH_Vec3 *localPosition, JPH_Vec3 *outSurfacePosition, uint32_t
 // *outSubShapeID)`
 func shape_methods.project_onto_surface(self, local_position, out_surface_position, out_sub_shape_id){}
-
-// get_min_height_value() -> float
-// C: `float JPH_HeightFieldShape_GetMinHeightValue(const JPH_HeightFieldShape
-// *shape)`
-func shape_methods.get_min_height_value(self){}
-
-// get_max_height_value() -> float
-// C: `float JPH_HeightFieldShape_GetMaxHeightValue(const JPH_HeightFieldShape
-// *shape)`
-func shape_methods.get_max_height_value(self){}
-
-// get_num_sub_shapes() -> int
-// C: `uint32_t JPH_CompoundShape_GetNumSubShapes(const JPH_CompoundShape
-// *shape)`
-func shape_methods.get_num_sub_shapes(self){}
 
 // get_sub_shape(index: int, sub_shape?: ffi.Pointer) -> {position_com: Vec3,
 //   rotation: Quat, user_data: int}
@@ -1896,99 +1479,80 @@ func shape_methods.modify_shape2(self, index, position, rotation, new_shape){}
 // *shape)`
 func shape_methods.adjust_center_of_mass(self){}
 
-// get_rotation() -> Quat
-// C: `void JPH_RotatedTranslatedShape_GetRotation(const
-// JPH_RotatedTranslatedShape *shape, JPH_Quat *rotation)`
-func shape_methods.get_rotation(self, rotation){}
-
-// get_inner_shape() -> Shape
-// DecoratedShape
-// C: `const JPH_Shape *JPH_DecoratedShape_GetInnerShape(const
-// JPH_DecoratedShape *shape)`
-func shape_methods.get_inner_shape(self){}
-
-// get_scale() -> Vec3
-// C: `void JPH_ScaledShape_GetScale(const JPH_ScaledShape *shape, JPH_Vec3
-// *result)`
-func shape_methods.get_scale(self, result){}
-
-// get_offset() -> Vec3
-// C: `void JPH_OffsetCenterOfMassShape_GetOffset(const
-// JPH_OffsetCenterOfMassShape *shape, JPH_Vec3 *result)`
-func shape_methods.get_offset(self, result){}
-
 // ------------------------------------------------------------ Constraint
 
 // A constraint between two bodies (or one body and the world), from
 // [World.create_constraint]. Every constraint_* function of joltc is a
-// method, and so are the functions of its kind (hinge_constraint_set_limits
-// is hinge:set_limits()). It stays in the world until [Constraint.destroy].
+// method or property, and so are the functions of its kind
+// (hinge_constraint_set_limits is hinge:set_limits(min, max),
+// hinge_constraint_get_current_angle hinge.current_angle). It stays in the
+// world until [Constraint.destroy].
 // type Constraint
 // [kind]: "fixed", "distance", "point", "hinge", "slider", "cone",
 //   "swing_twist", "six_dof", "gear" or "vehicle"
 // [body1], [body2]: the bodies it joins
+// [type]: int (read-only)
+// [sub_type]: int (read-only)
+// [constraint_priority]: int
+// [num_velocity_steps_override]: int
+// [num_position_steps_override]: int
+// [enabled]: bool
+// [user_data]: int
+// [active]: bool (read-only)
+// [constraint_to_body1_matrix]: Mat4 (read-only)
+// [constraint_to_body2_matrix]: Mat4 (read-only)
+// [settings]: FixedConstraintSettings (read-only)
+// [total_lambda_position]: Vec3 (read-only)
+// [total_lambda_rotation]: Vec3 (read-only)
+// [min_distance]: float (read-only)
+// [max_distance]: float (read-only)
+// [limits_spring_settings]: SpringSettings
+// [local_space_point1]: Vec3 (read-only)
+// [local_space_point2]: Vec3 (read-only)
+// [local_space_hinge_axis1]: Vec3 (read-only)
+// [local_space_hinge_axis2]: Vec3 (read-only)
+// [local_space_normal_axis1]: Vec3 (read-only)
+// [local_space_normal_axis2]: Vec3 (read-only)
+// [current_angle]: float (read-only)
+// [max_friction_torque]: float
+// [motor_settings]: MotorSettings
+// [motor_state]: int
+// [target_angular_velocity]: float
+// [target_angle]: float
+// [limits_min]: float (read-only)
+// [limits_max]: float (read-only)
+// [limits]: bool (read-only)
+// [total_lambda_rotation_limits]: float (read-only)
+// [total_lambda_motor]: float (read-only)
+// [current_position]: float (read-only)
+// [max_friction_force]: float
+// [target_velocity]: float
+// [target_position]: float
+// [total_lambda_position_limits]: float (read-only)
+// [half_cone_angle]: float (write-only)
+// [cos_half_cone_angle]: float (read-only)
+// [normal_half_cone_angle]: float (read-only)
+// [total_lambda_twist]: float (read-only)
+// [total_lambda_swing_y]: float (read-only)
+// [total_lambda_swing_z]: float (read-only)
+// [total_lambda_motor_translation]: Vec3 (read-only)
+// [total_lambda_motor_rotation]: Vec3 (read-only)
+// [translation_limits_min]: Vec3 (read-only)
+// [translation_limits_max]: Vec3 (read-only)
+// [rotation_limits_min]: Vec3 (read-only)
+// [rotation_limits_max]: Vec3 (read-only)
+// [rotation_in_constraint_space]: Quat (read-only)
+// [target_velocity_cs]: Vec3
+// [target_angular_velocity_cs]: Vec3
+// [target_position_cs]: Vec3
+// [target_orientation_cs]: Quat
+// [target_orientation_bs]: Quat (write-only)
+// [total_lambda]: float (read-only)
 local constraint_methods = {}
 
 // destroy()
 // Removes the constraint from its world and frees it.
 func constraint_methods.destroy(self){}
-
-// get_type() -> int
-// C: `enum JPH_ConstraintType JPH_Constraint_GetType(const JPH_Constraint
-// *constraint)`
-func constraint_methods.get_type(self){}
-
-// get_sub_type() -> int
-// C: `enum JPH_ConstraintSubType JPH_Constraint_GetSubType(const JPH_Constraint
-// *constraint)`
-func constraint_methods.get_sub_type(self){}
-
-// get_constraint_priority() -> int
-// C: `uint32_t JPH_Constraint_GetConstraintPriority(const JPH_Constraint
-// *constraint)`
-func constraint_methods.get_constraint_priority(self){}
-
-// set_constraint_priority(priority: int)
-// C: `void JPH_Constraint_SetConstraintPriority(JPH_Constraint *constraint,
-// uint32_t priority)`
-func constraint_methods.set_constraint_priority(self, priority){}
-
-// get_num_velocity_steps_override() -> int
-// C: `uint32_t JPH_Constraint_GetNumVelocityStepsOverride(const JPH_Constraint
-// *constraint)`
-func constraint_methods.get_num_velocity_steps_override(self){}
-
-// set_num_velocity_steps_override(value: int)
-// C: `void JPH_Constraint_SetNumVelocityStepsOverride(JPH_Constraint
-// *constraint, uint32_t value)`
-func constraint_methods.set_num_velocity_steps_override(self, value){}
-
-// get_num_position_steps_override() -> int
-// C: `uint32_t JPH_Constraint_GetNumPositionStepsOverride(const JPH_Constraint
-// *constraint)`
-func constraint_methods.get_num_position_steps_override(self){}
-
-// set_num_position_steps_override(value: int)
-// C: `void JPH_Constraint_SetNumPositionStepsOverride(JPH_Constraint
-// *constraint, uint32_t value)`
-func constraint_methods.set_num_position_steps_override(self, value){}
-
-// get_enabled() -> bool
-// C: `bool JPH_Constraint_GetEnabled(const JPH_Constraint *constraint)`
-func constraint_methods.get_enabled(self){}
-
-// set_enabled(enabled: bool)
-// C: `void JPH_Constraint_SetEnabled(JPH_Constraint *constraint, bool enabled)`
-func constraint_methods.set_enabled(self, enabled){}
-
-// get_user_data() -> int
-// C: `uint64_t JPH_Constraint_GetUserData(const JPH_Constraint *constraint)`
-func constraint_methods.get_user_data(self){}
-
-// set_user_data(user_data: int)
-// C: `void JPH_Constraint_SetUserData(JPH_Constraint *constraint, uint64_t
-// userData)`
-func constraint_methods.set_user_data(self, user_data){}
 
 // notify_shape_changed(body_id: Body | int, delta_com: Vec3)
 // C: `void JPH_Constraint_NotifyShapeChanged(JPH_Constraint *constraint,
@@ -1998,10 +1562,6 @@ func constraint_methods.notify_shape_changed(self, body_id, delta_com){}
 // reset_warm_start()
 // C: `void JPH_Constraint_ResetWarmStart(JPH_Constraint *constraint)`
 func constraint_methods.reset_warm_start(self){}
-
-// is_active() -> bool
-// C: `bool JPH_Constraint_IsActive(const JPH_Constraint *constraint)`
-func constraint_methods.is_active(self){}
 
 // setup_velocity_constraint(delta_time: float)
 // C: `void JPH_Constraint_SetupVelocityConstraint(JPH_Constraint *constraint,
@@ -2023,68 +1583,10 @@ func constraint_methods.solve_velocity_constraint(self, delta_time){}
 // float deltaTime, float baumgarte)`
 func constraint_methods.solve_position_constraint(self, delta_time, baumgarte){}
 
-// get_body1() -> Body
-// JPH_TwoBodyConstraint
-// C: `JPH_Body *JPH_TwoBodyConstraint_GetBody1(const JPH_TwoBodyConstraint
-// *constraint)`
-func constraint_methods.get_body1(self){}
-
-// get_body2() -> Body
-// C: `JPH_Body *JPH_TwoBodyConstraint_GetBody2(const JPH_TwoBodyConstraint
-// *constraint)`
-func constraint_methods.get_body2(self){}
-
-// get_constraint_to_body1_matrix() -> Mat4
-// C: `void JPH_TwoBodyConstraint_GetConstraintToBody1Matrix(const
-// JPH_TwoBodyConstraint *constraint, JPH_Mat4 *result)`
-func constraint_methods.get_constraint_to_body1_matrix(self, result){}
-
-// get_constraint_to_body2_matrix() -> Mat4
-// C: `void JPH_TwoBodyConstraint_GetConstraintToBody2Matrix(const
-// JPH_TwoBodyConstraint *constraint, JPH_Mat4 *result)`
-func constraint_methods.get_constraint_to_body2_matrix(self, result){}
-
-// get_settings() -> FixedConstraintSettings
-// C: `void JPH_FixedConstraint_GetSettings(const JPH_FixedConstraint
-// *constraint, JPH_FixedConstraintSettings *settings)`
-func constraint_methods.get_settings(self, settings){}
-
-// get_total_lambda_position() -> Vec3
-// C: `void JPH_FixedConstraint_GetTotalLambdaPosition(const JPH_FixedConstraint
-// *constraint, JPH_Vec3 *result)`
-func constraint_methods.get_total_lambda_position(self, result){}
-
-// get_total_lambda_rotation() -> Vec3
-// C: `void JPH_FixedConstraint_GetTotalLambdaRotation(const JPH_FixedConstraint
-// *constraint, JPH_Vec3 *result)`
-func constraint_methods.get_total_lambda_rotation(self, result){}
-
 // set_distance(min_distance: float, max_distance: float)
 // C: `void JPH_DistanceConstraint_SetDistance(JPH_DistanceConstraint
 // *constraint, float minDistance, float maxDistance)`
 func constraint_methods.set_distance(self, min_distance, max_distance){}
-
-// get_min_distance() -> float
-// C: `float JPH_DistanceConstraint_GetMinDistance(JPH_DistanceConstraint
-// *constraint)`
-func constraint_methods.get_min_distance(self){}
-
-// get_max_distance() -> float
-// C: `float JPH_DistanceConstraint_GetMaxDistance(JPH_DistanceConstraint
-// *constraint)`
-func constraint_methods.get_max_distance(self){}
-
-// get_limits_spring_settings() -> SpringSettings
-// C: `void
-// JPH_DistanceConstraint_GetLimitsSpringSettings(JPH_DistanceConstraint
-// *constraint, JPH_SpringSettings *result)`
-func constraint_methods.get_limits_spring_settings(self, result){}
-
-// set_limits_spring_settings(settings: SpringSettings)
-// C: `void
-// JPH_DistanceConstraint_SetLimitsSpringSettings(JPH_DistanceConstraint
-// *constraint, JPH_SpringSettings *settings)`
-func constraint_methods.set_limits_spring_settings(self, settings){}
 
 // set_point1(space: int, value: Vec3)
 // C: `void JPH_PointConstraint_SetPoint1(JPH_PointConstraint *constraint, enum
@@ -2096,218 +1598,20 @@ func constraint_methods.set_point1(self, space, value){}
 // JPH_ConstraintSpace space, JPH_Vec3 *value)`
 func constraint_methods.set_point2(self, space, value){}
 
-// get_local_space_point1() -> Vec3
-// C: `void JPH_PointConstraint_GetLocalSpacePoint1(const JPH_PointConstraint
-// *constraint, JPH_Vec3 *result)`
-func constraint_methods.get_local_space_point1(self, result){}
-
-// get_local_space_point2() -> Vec3
-// C: `void JPH_PointConstraint_GetLocalSpacePoint2(const JPH_PointConstraint
-// *constraint, JPH_Vec3 *result)`
-func constraint_methods.get_local_space_point2(self, result){}
-
-// get_local_space_hinge_axis1() -> Vec3
-// C: `void JPH_HingeConstraint_GetLocalSpaceHingeAxis1(const
-// JPH_HingeConstraint *constraint, JPH_Vec3 *result)`
-func constraint_methods.get_local_space_hinge_axis1(self, result){}
-
-// get_local_space_hinge_axis2() -> Vec3
-// C: `void JPH_HingeConstraint_GetLocalSpaceHingeAxis2(const
-// JPH_HingeConstraint *constraint, JPH_Vec3 *result)`
-func constraint_methods.get_local_space_hinge_axis2(self, result){}
-
-// get_local_space_normal_axis1() -> Vec3
-// C: `void JPH_HingeConstraint_GetLocalSpaceNormalAxis1(const
-// JPH_HingeConstraint *constraint, JPH_Vec3 *result)`
-func constraint_methods.get_local_space_normal_axis1(self, result){}
-
-// get_local_space_normal_axis2() -> Vec3
-// C: `void JPH_HingeConstraint_GetLocalSpaceNormalAxis2(const
-// JPH_HingeConstraint *constraint, JPH_Vec3 *result)`
-func constraint_methods.get_local_space_normal_axis2(self, result){}
-
-// get_current_angle() -> float
-// C: `float JPH_HingeConstraint_GetCurrentAngle(JPH_HingeConstraint
-// *constraint)`
-func constraint_methods.get_current_angle(self){}
-
-// set_max_friction_torque(friction_torque: float)
-// C: `void JPH_HingeConstraint_SetMaxFrictionTorque(JPH_HingeConstraint
-// *constraint, float frictionTorque)`
-func constraint_methods.set_max_friction_torque(self, friction_torque){}
-
-// get_max_friction_torque() -> float
-// C: `float JPH_HingeConstraint_GetMaxFrictionTorque(JPH_HingeConstraint
-// *constraint)`
-func constraint_methods.get_max_friction_torque(self){}
-
-// set_motor_settings(settings: MotorSettings)
-// C: `void JPH_HingeConstraint_SetMotorSettings(JPH_HingeConstraint
-// *constraint, JPH_MotorSettings *settings)`
-func constraint_methods.set_motor_settings(self, settings){}
-
-// get_motor_settings() -> MotorSettings
-// C: `void JPH_HingeConstraint_GetMotorSettings(JPH_HingeConstraint
-// *constraint, JPH_MotorSettings *result)`
-func constraint_methods.get_motor_settings(self, result){}
-
-// set_motor_state(state: int)
-// C: `void JPH_HingeConstraint_SetMotorState(JPH_HingeConstraint *constraint,
-// enum JPH_MotorState state)`
-func constraint_methods.set_motor_state(self, state){}
-
-// get_motor_state() -> int
-// C: `enum JPH_MotorState JPH_HingeConstraint_GetMotorState(JPH_HingeConstraint
-// *constraint)`
-func constraint_methods.get_motor_state(self){}
-
-// set_target_angular_velocity(angular_velocity: float)
-// C: `void JPH_HingeConstraint_SetTargetAngularVelocity(JPH_HingeConstraint
-// *constraint, float angularVelocity)`
-func constraint_methods.set_target_angular_velocity(self, angular_velocity){}
-
-// get_target_angular_velocity() -> float
-// C: `float JPH_HingeConstraint_GetTargetAngularVelocity(JPH_HingeConstraint
-// *constraint)`
-func constraint_methods.get_target_angular_velocity(self){}
-
-// set_target_angle(angle: float)
-// C: `void JPH_HingeConstraint_SetTargetAngle(JPH_HingeConstraint *constraint,
-// float angle)`
-func constraint_methods.set_target_angle(self, angle){}
-
-// get_target_angle() -> float
-// C: `float JPH_HingeConstraint_GetTargetAngle(JPH_HingeConstraint
-// *constraint)`
-func constraint_methods.get_target_angle(self){}
-
 // set_limits(in_limits_min: float, in_limits_max: float)
 // C: `void JPH_HingeConstraint_SetLimits(JPH_HingeConstraint *constraint, float
 // inLimitsMin, float inLimitsMax)`
 func constraint_methods.set_limits(self, in_limits_min, in_limits_max){}
 
-// get_limits_min() -> float
-// C: `float JPH_HingeConstraint_GetLimitsMin(JPH_HingeConstraint *constraint)`
-func constraint_methods.get_limits_min(self){}
+// get_limits_min(axis: int) -> float
+// C: `float JPH_SixDOFConstraint_GetLimitsMin(JPH_SixDOFConstraint *constraint,
+// enum JPH_SixDOFConstraintAxis axis)`
+func constraint_methods.get_limits_min(self, axis){}
 
-// get_limits_max() -> float
-// C: `float JPH_HingeConstraint_GetLimitsMax(JPH_HingeConstraint *constraint)`
-func constraint_methods.get_limits_max(self){}
-
-// has_limits() -> bool
-// C: `bool JPH_HingeConstraint_HasLimits(JPH_HingeConstraint *constraint)`
-func constraint_methods.has_limits(self){}
-
-// get_total_lambda_rotation_limits() -> float
-// C: `float JPH_HingeConstraint_GetTotalLambdaRotationLimits(const
-// JPH_HingeConstraint *constraint)`
-func constraint_methods.get_total_lambda_rotation_limits(self){}
-
-// get_total_lambda_motor() -> float
-// C: `float JPH_HingeConstraint_GetTotalLambdaMotor(const JPH_HingeConstraint
-// *constraint)`
-func constraint_methods.get_total_lambda_motor(self){}
-
-// get_current_position() -> float
-// C: `float JPH_SliderConstraint_GetCurrentPosition(JPH_SliderConstraint
-// *constraint)`
-func constraint_methods.get_current_position(self){}
-
-// set_max_friction_force(friction_force: float)
-// C: `void JPH_SliderConstraint_SetMaxFrictionForce(JPH_SliderConstraint
-// *constraint, float frictionForce)`
-func constraint_methods.set_max_friction_force(self, friction_force){}
-
-// get_max_friction_force() -> float
-// C: `float JPH_SliderConstraint_GetMaxFrictionForce(JPH_SliderConstraint
-// *constraint)`
-func constraint_methods.get_max_friction_force(self){}
-
-// set_target_velocity(velocity: float)
-// C: `void JPH_SliderConstraint_SetTargetVelocity(JPH_SliderConstraint
-// *constraint, float velocity)`
-func constraint_methods.set_target_velocity(self, velocity){}
-
-// get_target_velocity() -> float
-// C: `float JPH_SliderConstraint_GetTargetVelocity(JPH_SliderConstraint
-// *constraint)`
-func constraint_methods.get_target_velocity(self){}
-
-// set_target_position(position: float)
-// C: `void JPH_SliderConstraint_SetTargetPosition(JPH_SliderConstraint
-// *constraint, float position)`
-func constraint_methods.set_target_position(self, position){}
-
-// get_target_position() -> float
-// C: `float JPH_SliderConstraint_GetTargetPosition(JPH_SliderConstraint
-// *constraint)`
-func constraint_methods.get_target_position(self){}
-
-// get_total_lambda_position_limits() -> float
-// C: `float JPH_SliderConstraint_GetTotalLambdaPositionLimits(const
-// JPH_SliderConstraint *constraint)`
-func constraint_methods.get_total_lambda_position_limits(self){}
-
-// set_half_cone_angle(half_cone_angle: float)
-// C: `void JPH_ConeConstraint_SetHalfConeAngle(JPH_ConeConstraint *constraint,
-// float halfConeAngle)`
-func constraint_methods.set_half_cone_angle(self, half_cone_angle){}
-
-// get_cos_half_cone_angle() -> float
-// C: `float JPH_ConeConstraint_GetCosHalfConeAngle(const JPH_ConeConstraint
-// *constraint)`
-func constraint_methods.get_cos_half_cone_angle(self){}
-
-// get_normal_half_cone_angle() -> float
-// C: `float
-// JPH_SwingTwistConstraint_GetNormalHalfConeAngle(JPH_SwingTwistConstraint
-// *constraint)`
-func constraint_methods.get_normal_half_cone_angle(self){}
-
-// get_total_lambda_twist() -> float
-// C: `float JPH_SwingTwistConstraint_GetTotalLambdaTwist(const
-// JPH_SwingTwistConstraint *constraint)`
-func constraint_methods.get_total_lambda_twist(self){}
-
-// get_total_lambda_swing_y() -> float
-// C: `float JPH_SwingTwistConstraint_GetTotalLambdaSwingY(const
-// JPH_SwingTwistConstraint *constraint)`
-func constraint_methods.get_total_lambda_swing_y(self){}
-
-// get_total_lambda_swing_z() -> float
-// C: `float JPH_SwingTwistConstraint_GetTotalLambdaSwingZ(const
-// JPH_SwingTwistConstraint *constraint)`
-func constraint_methods.get_total_lambda_swing_z(self){}
-
-// get_total_lambda_motor_translation() -> Vec3
-// C: `void JPH_SixDOFConstraint_GetTotalLambdaMotorTranslation(const
-// JPH_SixDOFConstraint *constraint, JPH_Vec3 *result)`
-func constraint_methods.get_total_lambda_motor_translation(self, result){}
-
-// get_total_lambda_motor_rotation() -> Vec3
-// C: `void JPH_SixDOFConstraint_GetTotalLambdaMotorRotation(const
-// JPH_SixDOFConstraint *constraint, JPH_Vec3 *result)`
-func constraint_methods.get_total_lambda_motor_rotation(self, result){}
-
-// get_translation_limits_min() -> Vec3
-// C: `void JPH_SixDOFConstraint_GetTranslationLimitsMin(const
-// JPH_SixDOFConstraint *constraint, JPH_Vec3 *result)`
-func constraint_methods.get_translation_limits_min(self, result){}
-
-// get_translation_limits_max() -> Vec3
-// C: `void JPH_SixDOFConstraint_GetTranslationLimitsMax(const
-// JPH_SixDOFConstraint *constraint, JPH_Vec3 *result)`
-func constraint_methods.get_translation_limits_max(self, result){}
-
-// get_rotation_limits_min() -> Vec3
-// C: `void JPH_SixDOFConstraint_GetRotationLimitsMin(const JPH_SixDOFConstraint
-// *constraint, JPH_Vec3 *result)`
-func constraint_methods.get_rotation_limits_min(self, result){}
-
-// get_rotation_limits_max() -> Vec3
-// C: `void JPH_SixDOFConstraint_GetRotationLimitsMax(const JPH_SixDOFConstraint
-// *constraint, JPH_Vec3 *result)`
-func constraint_methods.get_rotation_limits_max(self, result){}
+// get_limits_max(axis: int) -> float
+// C: `float JPH_SixDOFConstraint_GetLimitsMax(JPH_SixDOFConstraint *constraint,
+// enum JPH_SixDOFConstraintAxis axis)`
+func constraint_methods.get_limits_max(self, axis){}
 
 // is_fixed_axis(axis: int) -> bool
 // C: `bool JPH_SixDOFConstraint_IsFixedAxis(const JPH_SixDOFConstraint
@@ -2319,6 +1623,17 @@ func constraint_methods.is_fixed_axis(self, axis){}
 // *constraint, enum JPH_SixDOFConstraintAxis axis)`
 func constraint_methods.is_free_axis(self, axis){}
 
+// get_limits_spring_settings(axis: int) -> SpringSettings
+// C: `void JPH_SixDOFConstraint_GetLimitsSpringSettings(JPH_SixDOFConstraint
+// *constraint, JPH_SpringSettings *result, enum JPH_SixDOFConstraintAxis axis)`
+func constraint_methods.get_limits_spring_settings(self, result, axis){}
+
+// set_limits_spring_settings(settings: SpringSettings, axis: int)
+// C: `void JPH_SixDOFConstraint_SetLimitsSpringSettings(JPH_SixDOFConstraint
+// *constraint, JPH_SpringSettings *settings, enum JPH_SixDOFConstraintAxis
+// axis)`
+func constraint_methods.set_limits_spring_settings(self, settings, axis){}
+
 // set_max_friction(axis: int, in_friction: float)
 // C: `void JPH_SixDOFConstraint_SetMaxFriction(JPH_SixDOFConstraint
 // *constraint, enum JPH_SixDOFConstraintAxis axis, float inFriction)`
@@ -2329,66 +1644,27 @@ func constraint_methods.set_max_friction(self, axis, in_friction){}
 // *constraint, enum JPH_SixDOFConstraintAxis axis)`
 func constraint_methods.get_max_friction(self, axis){}
 
-// get_rotation_in_constraint_space() -> Quat
-// C: `void
-// JPH_SixDOFConstraint_GetRotationInConstraintSpace(JPH_SixDOFConstraint
-// *constraint, JPH_Quat *result)`
-func constraint_methods.get_rotation_in_constraint_space(self, result){}
+// get_motor_settings(axis: int) -> MotorSettings
+// C: `void JPH_SixDOFConstraint_GetMotorSettings(JPH_SixDOFConstraint
+// *constraint, enum JPH_SixDOFConstraintAxis axis, JPH_MotorSettings
+// *settings)`
+func constraint_methods.get_motor_settings(self, axis, settings){}
 
-// set_target_velocity_cs(in_velocity: Vec3)
-// C: `void JPH_SixDOFConstraint_SetTargetVelocityCS(JPH_SixDOFConstraint
-// *constraint, JPH_Vec3 *inVelocity)`
-func constraint_methods.set_target_velocity_cs(self, in_velocity){}
+// set_motor_state(axis: int, state: int)
+// C: `void JPH_SixDOFConstraint_SetMotorState(JPH_SixDOFConstraint *constraint,
+// enum JPH_SixDOFConstraintAxis axis, enum JPH_MotorState state)`
+func constraint_methods.set_motor_state(self, axis, state){}
 
-// get_target_velocity_cs() -> Vec3
-// C: `void JPH_SixDOFConstraint_GetTargetVelocityCS(JPH_SixDOFConstraint
-// *constraint, JPH_Vec3 *result)`
-func constraint_methods.get_target_velocity_cs(self, result){}
-
-// set_target_angular_velocity_cs(in_angular_velocity: Vec3)
-// C: `void JPH_SixDOFConstraint_SetTargetAngularVelocityCS(JPH_SixDOFConstraint
-// *constraint, JPH_Vec3 *inAngularVelocity)`
-func constraint_methods.set_target_angular_velocity_cs(self, in_angular_velocity){}
-
-// get_target_angular_velocity_cs() -> Vec3
-// C: `void JPH_SixDOFConstraint_GetTargetAngularVelocityCS(JPH_SixDOFConstraint
-// *constraint, JPH_Vec3 *result)`
-func constraint_methods.get_target_angular_velocity_cs(self, result){}
-
-// set_target_position_cs(in_position: Vec3)
-// C: `void JPH_SixDOFConstraint_SetTargetPositionCS(JPH_SixDOFConstraint
-// *constraint, JPH_Vec3 *inPosition)`
-func constraint_methods.set_target_position_cs(self, in_position){}
-
-// get_target_position_cs() -> Vec3
-// C: `void JPH_SixDOFConstraint_GetTargetPositionCS(JPH_SixDOFConstraint
-// *constraint, JPH_Vec3 *result)`
-func constraint_methods.get_target_position_cs(self, result){}
-
-// set_target_orientation_cs(in_orientation: Quat)
-// C: `void JPH_SixDOFConstraint_SetTargetOrientationCS(JPH_SixDOFConstraint
-// *constraint, JPH_Quat *inOrientation)`
-func constraint_methods.set_target_orientation_cs(self, in_orientation){}
-
-// get_target_orientation_cs() -> Quat
-// C: `void JPH_SixDOFConstraint_GetTargetOrientationCS(JPH_SixDOFConstraint
-// *constraint, JPH_Quat *result)`
-func constraint_methods.get_target_orientation_cs(self, result){}
-
-// set_target_orientation_bs(in_orientation: Quat)
-// C: `void JPH_SixDOFConstraint_SetTargetOrientationBS(JPH_SixDOFConstraint
-// *constraint, JPH_Quat *inOrientation)`
-func constraint_methods.set_target_orientation_bs(self, in_orientation){}
+// get_motor_state(axis: int) -> int
+// C: `enum JPH_MotorState
+// JPH_SixDOFConstraint_GetMotorState(JPH_SixDOFConstraint *constraint, enum
+// JPH_SixDOFConstraintAxis axis)`
+func constraint_methods.get_motor_state(self, axis){}
 
 // set_constraints(gear1?: Constraint, gear2?: Constraint)
 // C: `void JPH_GearConstraint_SetConstraints(JPH_GearConstraint *constraint,
 // const JPH_Constraint *gear1, const JPH_Constraint *gear2)`
 func constraint_methods.set_constraints(self, gear1, gear2){}
-
-// get_total_lambda() -> float
-// C: `float JPH_GearConstraint_GetTotalLambda(const JPH_GearConstraint
-// *constraint)`
-func constraint_methods.get_total_lambda(self){}
 
 // ------------------------------------------------------------ Vehicle
 
@@ -2399,6 +1675,23 @@ func constraint_methods.get_total_lambda(self){}
 // [body]: the chassis
 // [controller]: its [Controller]
 // [wheels]: its [Wheel]s, in the order they were given
+// [max_pitch_roll_angle]: float (write-only)
+// [vehicle_collision_tester]: ffi.Pointer (write-only)
+// [gravity_overridden]: bool (read-only)
+// [gravity_override]: Vec3 (read-only)
+// [local_forward]: Vec3 (read-only)
+// [local_up]: Vec3 (read-only)
+// [world_up]: Vec3 (read-only)
+// [vehicle_body]: Body (read-only)
+// [wheels_count]: int (read-only)
+// [type]: int (read-only)
+// [sub_type]: int (read-only)
+// [constraint_priority]: int
+// [num_velocity_steps_override]: int
+// [num_position_steps_override]: int
+// [enabled]: bool
+// [user_data]: int
+// [active]: bool (read-only)
 local vehicle_methods = {}
 
 // get_wheel(index: int) -> Wheel
@@ -2432,66 +1725,15 @@ func vehicle_methods.destroy(self){}
 // *constraint)`
 func vehicle_methods.as_physics_step_listener(self){}
 
-// set_max_pitch_roll_angle(max_pitch_roll_angle: float)
-// C: `void JPH_VehicleConstraint_SetMaxPitchRollAngle(JPH_VehicleConstraint
-// *constraint, float maxPitchRollAngle)`
-func vehicle_methods.set_max_pitch_roll_angle(self, max_pitch_roll_angle){}
-
-// set_vehicle_collision_tester(tester?: ffi.Pointer)
-// C: `void
-// JPH_VehicleConstraint_SetVehicleCollisionTester(JPH_VehicleConstraint
-// *constraint, const JPH_VehicleCollisionTester *tester)`
-func vehicle_methods.set_vehicle_collision_tester(self, tester){}
-
 // override_gravity(value: Vec3)
 // C: `void JPH_VehicleConstraint_OverrideGravity(JPH_VehicleConstraint
 // *constraint, const JPH_Vec3 *value)`
 func vehicle_methods.override_gravity(self, value){}
 
-// is_gravity_overridden() -> bool
-// C: `bool JPH_VehicleConstraint_IsGravityOverridden(const
-// JPH_VehicleConstraint *constraint)`
-func vehicle_methods.is_gravity_overridden(self){}
-
-// get_gravity_override() -> Vec3
-// C: `void JPH_VehicleConstraint_GetGravityOverride(const JPH_VehicleConstraint
-// *constraint, JPH_Vec3 *result)`
-func vehicle_methods.get_gravity_override(self, result){}
-
 // reset_gravity_override()
 // C: `void JPH_VehicleConstraint_ResetGravityOverride(JPH_VehicleConstraint
 // *constraint)`
 func vehicle_methods.reset_gravity_override(self){}
-
-// get_local_forward() -> Vec3
-// C: `void JPH_VehicleConstraint_GetLocalForward(const JPH_VehicleConstraint
-// *constraint, JPH_Vec3 *result)`
-func vehicle_methods.get_local_forward(self, result){}
-
-// get_local_up() -> Vec3
-// C: `void JPH_VehicleConstraint_GetLocalUp(const JPH_VehicleConstraint
-// *constraint, JPH_Vec3 *result)`
-func vehicle_methods.get_local_up(self, result){}
-
-// get_world_up() -> Vec3
-// C: `void JPH_VehicleConstraint_GetWorldUp(const JPH_VehicleConstraint
-// *constraint, JPH_Vec3 *result)`
-func vehicle_methods.get_world_up(self, result){}
-
-// get_vehicle_body() -> Body
-// C: `const JPH_Body *JPH_VehicleConstraint_GetVehicleBody(const
-// JPH_VehicleConstraint *constraint)`
-func vehicle_methods.get_vehicle_body(self){}
-
-// get_controller() -> Controller
-// C: `JPH_VehicleController
-// *JPH_VehicleConstraint_GetController(JPH_VehicleConstraint *constraint)`
-func vehicle_methods.get_controller(self){}
-
-// get_wheels_count() -> int
-// C: `uint32_t JPH_VehicleConstraint_GetWheelsCount(JPH_VehicleConstraint
-// *constraint)`
-func vehicle_methods.get_wheels_count(self){}
 
 // get_wheel_local_basis(wheel?: Wheel) -> {out_forward: Vec3, out_up: Vec3,
 //   out_right: Vec3}
@@ -2499,63 +1741,6 @@ func vehicle_methods.get_wheels_count(self){}
 // *constraint, const JPH_Wheel *wheel, JPH_Vec3 *outForward, JPH_Vec3 *outUp,
 // JPH_Vec3 *outRight)`
 func vehicle_methods.get_wheel_local_basis(self, wheel, out_forward, out_up, out_right){}
-
-// get_type() -> int
-// C: `enum JPH_ConstraintType JPH_Constraint_GetType(const JPH_Constraint
-// *constraint)`
-func vehicle_methods.get_type(self){}
-
-// get_sub_type() -> int
-// C: `enum JPH_ConstraintSubType JPH_Constraint_GetSubType(const JPH_Constraint
-// *constraint)`
-func vehicle_methods.get_sub_type(self){}
-
-// get_constraint_priority() -> int
-// C: `uint32_t JPH_Constraint_GetConstraintPriority(const JPH_Constraint
-// *constraint)`
-func vehicle_methods.get_constraint_priority(self){}
-
-// set_constraint_priority(priority: int)
-// C: `void JPH_Constraint_SetConstraintPriority(JPH_Constraint *constraint,
-// uint32_t priority)`
-func vehicle_methods.set_constraint_priority(self, priority){}
-
-// get_num_velocity_steps_override() -> int
-// C: `uint32_t JPH_Constraint_GetNumVelocityStepsOverride(const JPH_Constraint
-// *constraint)`
-func vehicle_methods.get_num_velocity_steps_override(self){}
-
-// set_num_velocity_steps_override(value: int)
-// C: `void JPH_Constraint_SetNumVelocityStepsOverride(JPH_Constraint
-// *constraint, uint32_t value)`
-func vehicle_methods.set_num_velocity_steps_override(self, value){}
-
-// get_num_position_steps_override() -> int
-// C: `uint32_t JPH_Constraint_GetNumPositionStepsOverride(const JPH_Constraint
-// *constraint)`
-func vehicle_methods.get_num_position_steps_override(self){}
-
-// set_num_position_steps_override(value: int)
-// C: `void JPH_Constraint_SetNumPositionStepsOverride(JPH_Constraint
-// *constraint, uint32_t value)`
-func vehicle_methods.set_num_position_steps_override(self, value){}
-
-// get_enabled() -> bool
-// C: `bool JPH_Constraint_GetEnabled(const JPH_Constraint *constraint)`
-func vehicle_methods.get_enabled(self){}
-
-// set_enabled(enabled: bool)
-// C: `void JPH_Constraint_SetEnabled(JPH_Constraint *constraint, bool enabled)`
-func vehicle_methods.set_enabled(self, enabled){}
-
-// get_user_data() -> int
-// C: `uint64_t JPH_Constraint_GetUserData(const JPH_Constraint *constraint)`
-func vehicle_methods.get_user_data(self){}
-
-// set_user_data(user_data: int)
-// C: `void JPH_Constraint_SetUserData(JPH_Constraint *constraint, uint64_t
-// userData)`
-func vehicle_methods.set_user_data(self, user_data){}
 
 // notify_shape_changed(body_id: Body | int, delta_com: Vec3)
 // C: `void JPH_Constraint_NotifyShapeChanged(JPH_Constraint *constraint,
@@ -2565,10 +1750,6 @@ func vehicle_methods.notify_shape_changed(self, body_id, delta_com){}
 // reset_warm_start()
 // C: `void JPH_Constraint_ResetWarmStart(JPH_Constraint *constraint)`
 func vehicle_methods.reset_warm_start(self){}
-
-// is_active() -> bool
-// C: `bool JPH_Constraint_IsActive(const JPH_Constraint *constraint)`
-func vehicle_methods.is_active(self){}
 
 // setup_velocity_constraint(delta_time: float)
 // C: `void JPH_Constraint_SetupVelocityConstraint(JPH_Constraint *constraint,
@@ -2593,99 +1774,31 @@ func vehicle_methods.solve_position_constraint(self, delta_time, baumgarte){}
 // ------------------------------------------------------------ Wheel
 
 // One wheel of a [Vehicle]: wheel_get_angular_velocity is
-// wheel:get_angular_velocity(), and a wheeled vehicle's wheels have the
+// wheel.angular_velocity, and a wheeled vehicle's wheels have the
 // wheel_wv_* functions too (tracked ones wheel_tv_*).
 // type Wheel
+// [settings]: WheelSettings (read-only)
+// [angular_velocity]: float
+// [rotation_angle]: float
+// [steer_angle]: float
+// [contact]: bool (read-only)
+// [contact_body_id]: Body | int (read-only)
+// [contact_sub_shape_id]: int (read-only)
+// [contact_position]: Vec3 (read-only)
+// [contact_point_velocity]: Vec3 (read-only)
+// [contact_normal]: Vec3 (read-only)
+// [contact_longitudinal]: Vec3 (read-only)
+// [contact_lateral]: Vec3 (read-only)
+// [suspension_length]: float (read-only)
+// [suspension_lambda]: float (read-only)
+// [longitudinal_lambda]: float (read-only)
+// [lateral_lambda]: float (read-only)
+// [hit_hard_point]: bool (read-only)
 local wheel_methods = {}
 
 // destroy()
 // C: `void JPH_Wheel_Destroy(JPH_Wheel *wheel)`
 func wheel_methods.destroy(self){}
-
-// get_settings() -> WheelSettings
-// C: `const JPH_WheelSettings *JPH_Wheel_GetSettings(const JPH_Wheel *wheel)`
-func wheel_methods.get_settings(self){}
-
-// get_angular_velocity() -> float
-// C: `float JPH_Wheel_GetAngularVelocity(const JPH_Wheel *wheel)`
-func wheel_methods.get_angular_velocity(self){}
-
-// set_angular_velocity(value: float)
-// C: `void JPH_Wheel_SetAngularVelocity(JPH_Wheel *wheel, float value)`
-func wheel_methods.set_angular_velocity(self, value){}
-
-// get_rotation_angle() -> float
-// C: `float JPH_Wheel_GetRotationAngle(const JPH_Wheel *wheel)`
-func wheel_methods.get_rotation_angle(self){}
-
-// set_rotation_angle(value: float)
-// C: `void JPH_Wheel_SetRotationAngle(JPH_Wheel *wheel, float value)`
-func wheel_methods.set_rotation_angle(self, value){}
-
-// get_steer_angle() -> float
-// C: `float JPH_Wheel_GetSteerAngle(const JPH_Wheel *wheel)`
-func wheel_methods.get_steer_angle(self){}
-
-// set_steer_angle(value: float)
-// C: `void JPH_Wheel_SetSteerAngle(JPH_Wheel *wheel, float value)`
-func wheel_methods.set_steer_angle(self, value){}
-
-// has_contact() -> bool
-// C: `bool JPH_Wheel_HasContact(const JPH_Wheel *wheel)`
-func wheel_methods.has_contact(self){}
-
-// get_contact_body_id() -> Body
-// C: `uint32_t JPH_Wheel_GetContactBodyID(const JPH_Wheel *wheel)`
-func wheel_methods.get_contact_body_id(self){}
-
-// get_contact_sub_shape_id() -> int
-// C: `uint32_t JPH_Wheel_GetContactSubShapeID(const JPH_Wheel *wheel)`
-func wheel_methods.get_contact_sub_shape_id(self){}
-
-// get_contact_position() -> Vec3
-// C: `void JPH_Wheel_GetContactPosition(const JPH_Wheel *wheel, JPH_Vec3
-// *result)`
-func wheel_methods.get_contact_position(self, result){}
-
-// get_contact_point_velocity() -> Vec3
-// C: `void JPH_Wheel_GetContactPointVelocity(const JPH_Wheel *wheel, JPH_Vec3
-// *result)`
-func wheel_methods.get_contact_point_velocity(self, result){}
-
-// get_contact_normal() -> Vec3
-// C: `void JPH_Wheel_GetContactNormal(const JPH_Wheel *wheel, JPH_Vec3
-// *result)`
-func wheel_methods.get_contact_normal(self, result){}
-
-// get_contact_longitudinal() -> Vec3
-// C: `void JPH_Wheel_GetContactLongitudinal(const JPH_Wheel *wheel, JPH_Vec3
-// *result)`
-func wheel_methods.get_contact_longitudinal(self, result){}
-
-// get_contact_lateral() -> Vec3
-// C: `void JPH_Wheel_GetContactLateral(const JPH_Wheel *wheel, JPH_Vec3
-// *result)`
-func wheel_methods.get_contact_lateral(self, result){}
-
-// get_suspension_length() -> float
-// C: `float JPH_Wheel_GetSuspensionLength(const JPH_Wheel *wheel)`
-func wheel_methods.get_suspension_length(self){}
-
-// get_suspension_lambda() -> float
-// C: `float JPH_Wheel_GetSuspensionLambda(const JPH_Wheel *wheel)`
-func wheel_methods.get_suspension_lambda(self){}
-
-// get_longitudinal_lambda() -> float
-// C: `float JPH_Wheel_GetLongitudinalLambda(const JPH_Wheel *wheel)`
-func wheel_methods.get_longitudinal_lambda(self){}
-
-// get_lateral_lambda() -> float
-// C: `float JPH_Wheel_GetLateralLambda(const JPH_Wheel *wheel)`
-func wheel_methods.get_lateral_lambda(self){}
-
-// has_hit_hard_point() -> bool
-// C: `bool JPH_Wheel_HasHitHardPoint(const JPH_Wheel *wheel)`
-func wheel_methods.has_hit_hard_point(self){}
 
 // apply_torque(torque: float, delta_time: float)
 // C: `void JPH_WheelWV_ApplyTorque(JPH_WheelWV *wheel, float torque, float
@@ -2695,10 +1808,28 @@ func wheel_methods.apply_torque(self, torque, delta_time){}
 // ------------------------------------------------------------ Controller
 
 // The controller of a [Vehicle]: wheeled_vehicle_controller_* (and
-// motorcycle_controller_* or tracked_vehicle_controller_*) as methods:
-// set_driver_input(forward, right, brake, hand_brake), get_engine(),
-// get_transmission().
+// motorcycle_controller_* or tracked_vehicle_controller_*) as methods and
+// properties: set_driver_input(forward, right, brake, hand_brake),
+// forward_input, engine, transmission.
 // type Controller
+// [forward_input]: float
+// [right_input]: float
+// [brake_input]: float
+// [hand_brake_input]: float
+// [wheel_speed_at_clutch]: float (read-only)
+// [engine]: Engine (read-only)
+// [transmission]: Transmission (read-only)
+// [constraint]: ffi.Pointer (read-only)
+// [wheel_base]: float (read-only)
+// [lean_controller_enabled]: bool (read-only)
+// [lean_steering_limit_enabled]: bool (read-only)
+// [lean_spring_constant]: float
+// [lean_spring_damping]: float
+// [lean_spring_integration_coefficient]: float
+// [lean_spring_integration_coefficient_decay]: float
+// [lean_smoothing_factor]: float
+// [left_ratio]: float
+// [right_ratio]: float
 local controller_methods = {}
 
 // set_driver_input(forward: float, right: float, brake: float, hand_brake:
@@ -2708,55 +1839,6 @@ local controller_methods = {}
 // *controller, float forward, float right, float brake, float handBrake)`
 func controller_methods.set_driver_input(self, forward, right, brake, hand_brake){}
 
-// set_forward_input(forward: float)
-// C: `void
-// JPH_WheeledVehicleController_SetForwardInput(JPH_WheeledVehicleController
-// *controller, float forward)`
-func controller_methods.set_forward_input(self, forward){}
-
-// get_forward_input() -> float
-// C: `float JPH_WheeledVehicleController_GetForwardInput(const
-// JPH_WheeledVehicleController *controller)`
-func controller_methods.get_forward_input(self){}
-
-// set_right_input(right_ratio: float)
-// C: `void
-// JPH_WheeledVehicleController_SetRightInput(JPH_WheeledVehicleController
-// *controller, float rightRatio)`
-func controller_methods.set_right_input(self, right_ratio){}
-
-// get_right_input() -> float
-// C: `float JPH_WheeledVehicleController_GetRightInput(const
-// JPH_WheeledVehicleController *controller)`
-func controller_methods.get_right_input(self){}
-
-// set_brake_input(brake_input: float)
-// C: `void
-// JPH_WheeledVehicleController_SetBrakeInput(JPH_WheeledVehicleController
-// *controller, float brakeInput)`
-func controller_methods.set_brake_input(self, brake_input){}
-
-// get_brake_input() -> float
-// C: `float JPH_WheeledVehicleController_GetBrakeInput(const
-// JPH_WheeledVehicleController *controller)`
-func controller_methods.get_brake_input(self){}
-
-// set_hand_brake_input(hand_brake_input: float)
-// C: `void
-// JPH_WheeledVehicleController_SetHandBrakeInput(JPH_WheeledVehicleController
-// *controller, float handBrakeInput)`
-func controller_methods.set_hand_brake_input(self, hand_brake_input){}
-
-// get_hand_brake_input() -> float
-// C: `float JPH_WheeledVehicleController_GetHandBrakeInput(const
-// JPH_WheeledVehicleController *controller)`
-func controller_methods.get_hand_brake_input(self){}
-
-// get_wheel_speed_at_clutch() -> float
-// C: `float JPH_WheeledVehicleController_GetWheelSpeedAtClutch(const
-// JPH_WheeledVehicleController *controller)`
-func controller_methods.get_wheel_speed_at_clutch(self){}
-
 // set_tire_max_impulse_callback(tire_max_impulse_callback?: function,
 //   user_data?: ffi.Pointer)
 // C: `void
@@ -2764,42 +1846,11 @@ func controller_methods.get_wheel_speed_at_clutch(self){}
 // *controller, function *tireMaxImpulseCallback, void *userData)`
 func controller_methods.set_tire_max_impulse_callback(self, tire_max_impulse_callback, user_data){}
 
-// get_engine() -> Engine
-// C: `const JPH_VehicleEngine *JPH_WheeledVehicleController_GetEngine(const
-// JPH_WheeledVehicleController *controller)`
-func controller_methods.get_engine(self){}
-
-// get_transmission() -> Transmission
-// C: `const JPH_VehicleTransmission
-// *JPH_WheeledVehicleController_GetTransmission(const
-// JPH_WheeledVehicleController *controller)`
-func controller_methods.get_transmission(self){}
-
-// get_constraint() -> ffi.Pointer
-// C: `const JPH_VehicleConstraint
-// *JPH_VehicleController_GetConstraint(JPH_VehicleController *controller)`
-func controller_methods.get_constraint(self){}
-
-// get_wheel_base() -> float
-// C: `float JPH_MotorcycleController_GetWheelBase(const
-// JPH_MotorcycleController *controller)`
-func controller_methods.get_wheel_base(self){}
-
-// is_lean_controller_enabled() -> bool
-// C: `bool JPH_MotorcycleController_IsLeanControllerEnabled(const
-// JPH_MotorcycleController *controller)`
-func controller_methods.is_lean_controller_enabled(self){}
-
 // enable_lean_controller(value: bool)
 // C: `void
 // JPH_MotorcycleController_EnableLeanController(JPH_MotorcycleController
 // *controller, bool value)`
 func controller_methods.enable_lean_controller(self, value){}
-
-// is_lean_steering_limit_enabled() -> bool
-// C: `bool JPH_MotorcycleController_IsLeanSteeringLimitEnabled(const
-// JPH_MotorcycleController *controller)`
-func controller_methods.is_lean_steering_limit_enabled(self){}
 
 // enable_lean_steering_limit(value: bool)
 // C: `void
@@ -2807,114 +1858,24 @@ func controller_methods.is_lean_steering_limit_enabled(self){}
 // *controller, bool value)`
 func controller_methods.enable_lean_steering_limit(self, value){}
 
-// get_lean_spring_constant() -> float
-// C: `float JPH_MotorcycleController_GetLeanSpringConstant(const
-// JPH_MotorcycleController *controller)`
-func controller_methods.get_lean_spring_constant(self){}
-
-// set_lean_spring_constant(value: float)
-// C: `void
-// JPH_MotorcycleController_SetLeanSpringConstant(JPH_MotorcycleController
-// *controller, float value)`
-func controller_methods.set_lean_spring_constant(self, value){}
-
-// get_lean_spring_damping() -> float
-// C: `float JPH_MotorcycleController_GetLeanSpringDamping(const
-// JPH_MotorcycleController *controller)`
-func controller_methods.get_lean_spring_damping(self){}
-
-// set_lean_spring_damping(value: float)
-// C: `void
-// JPH_MotorcycleController_SetLeanSpringDamping(JPH_MotorcycleController
-// *controller, float value)`
-func controller_methods.set_lean_spring_damping(self, value){}
-
-// get_lean_spring_integration_coefficient() -> float
-// C: `float JPH_MotorcycleController_GetLeanSpringIntegrationCoefficient(const
-// JPH_MotorcycleController *controller)`
-func controller_methods.get_lean_spring_integration_coefficient(self){}
-
-// set_lean_spring_integration_coefficient(value: float)
-// C: `void
-// JPH_MotorcycleController_SetLeanSpringIntegrationCoefficient(JPH_MotorcycleController
-// *controller, float value)`
-func controller_methods.set_lean_spring_integration_coefficient(self, value){}
-
-// get_lean_spring_integration_coefficient_decay() -> float
-// C: `float
-// JPH_MotorcycleController_GetLeanSpringIntegrationCoefficientDecay(const
-// JPH_MotorcycleController *controller)`
-func controller_methods.get_lean_spring_integration_coefficient_decay(self){}
-
-// set_lean_spring_integration_coefficient_decay(value: float)
-// C: `void
-// JPH_MotorcycleController_SetLeanSpringIntegrationCoefficientDecay(JPH_MotorcycleController
-// *controller, float value)`
-func controller_methods.set_lean_spring_integration_coefficient_decay(self, value){}
-
-// get_lean_smoothing_factor() -> float
-// C: `float JPH_MotorcycleController_GetLeanSmoothingFactor(const
-// JPH_MotorcycleController *controller)`
-func controller_methods.get_lean_smoothing_factor(self){}
-
-// set_lean_smoothing_factor(value: float)
-// C: `void
-// JPH_MotorcycleController_SetLeanSmoothingFactor(JPH_MotorcycleController
-// *controller, float value)`
-func controller_methods.set_lean_smoothing_factor(self, value){}
-
 // get_track(side: int) -> Track
 // C: `const JPH_VehicleTrack *JPH_TrackedVehicleController_GetTrack(const
 // JPH_TrackedVehicleController *controller, enum JPH_TrackSide side)`
 func controller_methods.get_track(self, side){}
 
-// get_left_ratio() -> float
-// C: `float JPH_TrackedVehicleController_GetLeftRatio(const
-// JPH_TrackedVehicleController *controller)`
-func controller_methods.get_left_ratio(self){}
-
-// set_left_ratio(value: float)
-// C: `void
-// JPH_TrackedVehicleController_SetLeftRatio(JPH_TrackedVehicleController
-// *controller, float value)`
-func controller_methods.set_left_ratio(self, value){}
-
-// get_right_ratio() -> float
-// C: `float JPH_TrackedVehicleController_GetRightRatio(const
-// JPH_TrackedVehicleController *controller)`
-func controller_methods.get_right_ratio(self){}
-
-// set_right_ratio(value: float)
-// C: `void
-// JPH_TrackedVehicleController_SetRightRatio(JPH_TrackedVehicleController
-// *controller, float value)`
-func controller_methods.set_right_ratio(self, value){}
-
 // ------------------------------------------------------------ Engine
 
-// The engine of a [Controller] (vehicle_engine_* as methods:
-// get_current_rpm()).
+// The engine of a [Controller] (vehicle_engine_* as methods and
+// properties: current_rpm).
 // type Engine
+// [current_rpm]: float
+// [angular_velocity]: float (read-only)
 local engine_methods = {}
 
 // clamp_rpm()
 // VehicleEngine
 // C: `void JPH_VehicleEngine_ClampRPM(JPH_VehicleEngine *engine)`
 func engine_methods.clamp_rpm(self){}
-
-// get_current_rpm() -> float
-// C: `float JPH_VehicleEngine_GetCurrentRPM(const JPH_VehicleEngine *engine)`
-func engine_methods.get_current_rpm(self){}
-
-// set_current_rpm(rpm: float)
-// C: `void JPH_VehicleEngine_SetCurrentRPM(JPH_VehicleEngine *engine, float
-// rpm)`
-func engine_methods.set_current_rpm(self, rpm){}
-
-// get_angular_velocity() -> float
-// C: `float JPH_VehicleEngine_GetAngularVelocity(const JPH_VehicleEngine
-// *engine)`
-func engine_methods.get_angular_velocity(self){}
 
 // get_torque(acceleration: float) -> float
 // C: `float JPH_VehicleEngine_GetTorque(const JPH_VehicleEngine *engine, float
@@ -2937,16 +1898,15 @@ func engine_methods.allow_sleep(self){}
 
 // ------------------------------------------------------------ Transmission
 
-// The transmission of a [Controller] (vehicle_transmission_* as methods:
-// get_current_gear()).
+// The transmission of a [Controller] (vehicle_transmission_* as methods
+// and properties: current_gear).
 // type Transmission
+// [mode]: int (write-only)
+// [current_gear]: int (read-only)
+// [clutch_friction]: float (read-only)
+// [switching_gear]: bool (read-only)
+// [current_ratio]: float (read-only)
 local transmission_methods = {}
-
-// set_mode(mode: int)
-// VehicleTransmission
-// C: `void JPH_VehicleTransmission_SetMode(JPH_VehicleTransmission
-// *transmission, enum JPH_TransmissionMode mode)`
-func transmission_methods.set_mode(self, mode){}
 
 // set(current_gear: int, clutch_friction: float)
 // C: `void JPH_VehicleTransmission_Set(JPH_VehicleTransmission *transmission,
@@ -2960,26 +1920,6 @@ func transmission_methods.set(self, current_gear, clutch_friction){}
 // canShiftUp)`
 func transmission_methods.update(self, delta_time, current_rpm, forward_input, can_shift_up){}
 
-// get_current_gear() -> int
-// C: `int JPH_VehicleTransmission_GetCurrentGear(const JPH_VehicleTransmission
-// *transmission)`
-func transmission_methods.get_current_gear(self){}
-
-// get_clutch_friction() -> float
-// C: `float JPH_VehicleTransmission_GetClutchFriction(const
-// JPH_VehicleTransmission *transmission)`
-func transmission_methods.get_clutch_friction(self){}
-
-// is_switching_gear() -> bool
-// C: `bool JPH_VehicleTransmission_IsSwitchingGear(const
-// JPH_VehicleTransmission *transmission)`
-func transmission_methods.is_switching_gear(self){}
-
-// get_current_ratio() -> float
-// C: `float JPH_VehicleTransmission_GetCurrentRatio(const
-// JPH_VehicleTransmission *transmission)`
-func transmission_methods.get_current_ratio(self){}
-
 // allow_sleep() -> bool
 // C: `bool JPH_VehicleTransmission_AllowSleep(const JPH_VehicleTransmission
 // *transmission)`
@@ -2989,253 +1929,72 @@ func transmission_methods.allow_sleep(self){}
 
 // A track of a tracked vehicle's [Controller] (vehicle_track_*).
 // type Track
+// [angular_velocity]: float
+// [driven_wheel]: int (read-only)
+// [inertia]: float (read-only)
+// [angular_damping]: float (read-only)
+// [max_brake_torque]: float (read-only)
+// [differential_ratio]: float (read-only)
 local track_methods = {}
-
-// get_angular_velocity() -> float
-// C: `float JPH_VehicleTrack_GetAngularVelocity(const JPH_VehicleTrack *track)`
-func track_methods.get_angular_velocity(self){}
-
-// set_angular_velocity(velocity: float)
-// C: `void JPH_VehicleTrack_SetAngularVelocity(JPH_VehicleTrack *track, float
-// velocity)`
-func track_methods.set_angular_velocity(self, velocity){}
-
-// get_driven_wheel() -> int
-// C: `uint32_t JPH_VehicleTrack_GetDrivenWheel(const JPH_VehicleTrack *track)`
-func track_methods.get_driven_wheel(self){}
-
-// get_inertia() -> float
-// C: `float JPH_VehicleTrack_GetInertia(const JPH_VehicleTrack *track)`
-func track_methods.get_inertia(self){}
-
-// get_angular_damping() -> float
-// C: `float JPH_VehicleTrack_GetAngularDamping(const JPH_VehicleTrack *track)`
-func track_methods.get_angular_damping(self){}
-
-// get_max_brake_torque() -> float
-// C: `float JPH_VehicleTrack_GetMaxBrakeTorque(const JPH_VehicleTrack *track)`
-func track_methods.get_max_brake_torque(self){}
-
-// get_differential_ratio() -> float
-// C: `float JPH_VehicleTrack_GetDifferentialRatio(const JPH_VehicleTrack
-// *track)`
-func track_methods.get_differential_ratio(self){}
 
 // ------------------------------------------------------------ WheelSettings
 
 // The settings a [Wheel] was made with (wheel_settings_* as methods).
 // type WheelSettings
+// [inertia]: float
+// [angular_damping]: float
+// [max_steer_angle]: float
+// [longitudinal_friction]: LinearCurve
+// [lateral_friction]: LinearCurve
+// [max_brake_torque]: float
+// [max_hand_brake_torque]: float
+// [position]: Vec3
+// [suspension_force_point]: Vec3
+// [suspension_direction]: Vec3
+// [steering_axis]: Vec3
+// [wheel_up]: Vec3
+// [wheel_forward]: Vec3
+// [suspension_min_length]: float
+// [suspension_max_length]: float
+// [suspension_preload_length]: float
+// [suspension_spring]: SpringSettings
+// [radius]: float
+// [width]: float
+// [enable_suspension_force_point]: bool
 local wheel_settings_methods = {}
-
-// get_inertia() -> float
-// C: `float JPH_WheelSettingsWV_GetInertia(const JPH_WheelSettingsWV
-// *settings)`
-func wheel_settings_methods.get_inertia(self){}
-
-// set_inertia(value: float)
-// C: `void JPH_WheelSettingsWV_SetInertia(JPH_WheelSettingsWV *settings, float
-// value)`
-func wheel_settings_methods.set_inertia(self, value){}
-
-// get_angular_damping() -> float
-// C: `float JPH_WheelSettingsWV_GetAngularDamping(const JPH_WheelSettingsWV
-// *settings)`
-func wheel_settings_methods.get_angular_damping(self){}
-
-// set_angular_damping(value: float)
-// C: `void JPH_WheelSettingsWV_SetAngularDamping(JPH_WheelSettingsWV *settings,
-// float value)`
-func wheel_settings_methods.set_angular_damping(self, value){}
-
-// get_max_steer_angle() -> float
-// C: `float JPH_WheelSettingsWV_GetMaxSteerAngle(const JPH_WheelSettingsWV
-// *settings)`
-func wheel_settings_methods.get_max_steer_angle(self){}
-
-// set_max_steer_angle(value: float)
-// C: `void JPH_WheelSettingsWV_SetMaxSteerAngle(JPH_WheelSettingsWV *settings,
-// float value)`
-func wheel_settings_methods.set_max_steer_angle(self, value){}
-
-// get_longitudinal_friction() -> LinearCurve
-// C: `const JPH_LinearCurve *JPH_WheelSettingsWV_GetLongitudinalFriction(const
-// JPH_WheelSettingsWV *settings)`
-func wheel_settings_methods.get_longitudinal_friction(self){}
-
-// set_longitudinal_friction(value?: LinearCurve)
-// C: `void JPH_WheelSettingsWV_SetLongitudinalFriction(JPH_WheelSettingsWV
-// *settings, const JPH_LinearCurve *value)`
-func wheel_settings_methods.set_longitudinal_friction(self, value){}
-
-// get_lateral_friction() -> LinearCurve
-// C: `const JPH_LinearCurve *JPH_WheelSettingsWV_GetLateralFriction(const
-// JPH_WheelSettingsWV *settings)`
-func wheel_settings_methods.get_lateral_friction(self){}
-
-// set_lateral_friction(value?: LinearCurve)
-// C: `void JPH_WheelSettingsWV_SetLateralFriction(JPH_WheelSettingsWV
-// *settings, const JPH_LinearCurve *value)`
-func wheel_settings_methods.set_lateral_friction(self, value){}
-
-// get_max_brake_torque() -> float
-// C: `float JPH_WheelSettingsWV_GetMaxBrakeTorque(const JPH_WheelSettingsWV
-// *settings)`
-func wheel_settings_methods.get_max_brake_torque(self){}
-
-// set_max_brake_torque(value: float)
-// C: `void JPH_WheelSettingsWV_SetMaxBrakeTorque(JPH_WheelSettingsWV *settings,
-// float value)`
-func wheel_settings_methods.set_max_brake_torque(self, value){}
-
-// get_max_hand_brake_torque() -> float
-// C: `float JPH_WheelSettingsWV_GetMaxHandBrakeTorque(const JPH_WheelSettingsWV
-// *settings)`
-func wheel_settings_methods.get_max_hand_brake_torque(self){}
-
-// set_max_hand_brake_torque(value: float)
-// C: `void JPH_WheelSettingsWV_SetMaxHandBrakeTorque(JPH_WheelSettingsWV
-// *settings, float value)`
-func wheel_settings_methods.set_max_hand_brake_torque(self, value){}
 
 // destroy()
 // C: `void JPH_WheelSettings_Destroy(JPH_WheelSettings *settings)`
 func wheel_settings_methods.destroy(self){}
 
-// get_position() -> Vec3
-// C: `void JPH_WheelSettings_GetPosition(const JPH_WheelSettings *settings,
-// JPH_Vec3 *result)`
-func wheel_settings_methods.get_position(self, result){}
-
-// set_position(value: Vec3)
-// C: `void JPH_WheelSettings_SetPosition(JPH_WheelSettings *settings, const
-// JPH_Vec3 *value)`
-func wheel_settings_methods.set_position(self, value){}
-
-// get_suspension_force_point() -> Vec3
-// C: `void JPH_WheelSettings_GetSuspensionForcePoint(const JPH_WheelSettings
-// *settings, JPH_Vec3 *result)`
-func wheel_settings_methods.get_suspension_force_point(self, result){}
-
-// set_suspension_force_point(value: Vec3)
-// C: `void JPH_WheelSettings_SetSuspensionForcePoint(JPH_WheelSettings
-// *settings, const JPH_Vec3 *value)`
-func wheel_settings_methods.set_suspension_force_point(self, value){}
-
-// get_suspension_direction() -> Vec3
-// C: `void JPH_WheelSettings_GetSuspensionDirection(const JPH_WheelSettings
-// *settings, JPH_Vec3 *result)`
-func wheel_settings_methods.get_suspension_direction(self, result){}
-
-// set_suspension_direction(value: Vec3)
-// C: `void JPH_WheelSettings_SetSuspensionDirection(JPH_WheelSettings
-// *settings, const JPH_Vec3 *value)`
-func wheel_settings_methods.set_suspension_direction(self, value){}
-
-// get_steering_axis() -> Vec3
-// C: `void JPH_WheelSettings_GetSteeringAxis(const JPH_WheelSettings *settings,
-// JPH_Vec3 *result)`
-func wheel_settings_methods.get_steering_axis(self, result){}
-
-// set_steering_axis(value: Vec3)
-// C: `void JPH_WheelSettings_SetSteeringAxis(JPH_WheelSettings *settings, const
-// JPH_Vec3 *value)`
-func wheel_settings_methods.set_steering_axis(self, value){}
-
-// get_wheel_up() -> Vec3
-// C: `void JPH_WheelSettings_GetWheelUp(const JPH_WheelSettings *settings,
-// JPH_Vec3 *result)`
-func wheel_settings_methods.get_wheel_up(self, result){}
-
-// set_wheel_up(value: Vec3)
-// C: `void JPH_WheelSettings_SetWheelUp(JPH_WheelSettings *settings, const
-// JPH_Vec3 *value)`
-func wheel_settings_methods.set_wheel_up(self, value){}
-
-// get_wheel_forward() -> Vec3
-// C: `void JPH_WheelSettings_GetWheelForward(const JPH_WheelSettings *settings,
-// JPH_Vec3 *result)`
-func wheel_settings_methods.get_wheel_forward(self, result){}
-
-// set_wheel_forward(value: Vec3)
-// C: `void JPH_WheelSettings_SetWheelForward(JPH_WheelSettings *settings, const
-// JPH_Vec3 *value)`
-func wheel_settings_methods.set_wheel_forward(self, value){}
-
-// get_suspension_min_length() -> float
-// C: `float JPH_WheelSettings_GetSuspensionMinLength(const JPH_WheelSettings
-// *settings)`
-func wheel_settings_methods.get_suspension_min_length(self){}
-
-// set_suspension_min_length(value: float)
-// C: `void JPH_WheelSettings_SetSuspensionMinLength(JPH_WheelSettings
-// *settings, float value)`
-func wheel_settings_methods.set_suspension_min_length(self, value){}
-
-// get_suspension_max_length() -> float
-// C: `float JPH_WheelSettings_GetSuspensionMaxLength(const JPH_WheelSettings
-// *settings)`
-func wheel_settings_methods.get_suspension_max_length(self){}
-
-// set_suspension_max_length(value: float)
-// C: `void JPH_WheelSettings_SetSuspensionMaxLength(JPH_WheelSettings
-// *settings, float value)`
-func wheel_settings_methods.set_suspension_max_length(self, value){}
-
-// get_suspension_preload_length() -> float
-// C: `float JPH_WheelSettings_GetSuspensionPreloadLength(const
-// JPH_WheelSettings *settings)`
-func wheel_settings_methods.get_suspension_preload_length(self){}
-
-// set_suspension_preload_length(value: float)
-// C: `void JPH_WheelSettings_SetSuspensionPreloadLength(JPH_WheelSettings
-// *settings, float value)`
-func wheel_settings_methods.set_suspension_preload_length(self, value){}
-
-// get_suspension_spring() -> SpringSettings
-// C: `void JPH_WheelSettings_GetSuspensionSpring(const JPH_WheelSettings
-// *settings, JPH_SpringSettings *result)`
-func wheel_settings_methods.get_suspension_spring(self, result){}
-
-// set_suspension_spring(spring_settings: SpringSettings)
-// C: `void JPH_WheelSettings_SetSuspensionSpring(JPH_WheelSettings *settings,
-// JPH_SpringSettings *springSettings)`
-func wheel_settings_methods.set_suspension_spring(self, spring_settings){}
-
-// get_radius() -> float
-// C: `float JPH_WheelSettings_GetRadius(const JPH_WheelSettings *settings)`
-func wheel_settings_methods.get_radius(self){}
-
-// set_radius(value: float)
-// C: `void JPH_WheelSettings_SetRadius(JPH_WheelSettings *settings, float
-// value)`
-func wheel_settings_methods.set_radius(self, value){}
-
-// get_width() -> float
-// C: `float JPH_WheelSettings_GetWidth(const JPH_WheelSettings *settings)`
-func wheel_settings_methods.get_width(self){}
-
-// set_width(value: float)
-// C: `void JPH_WheelSettings_SetWidth(JPH_WheelSettings *settings, float
-// value)`
-func wheel_settings_methods.set_width(self, value){}
-
-// get_enable_suspension_force_point() -> bool
-// C: `bool JPH_WheelSettings_GetEnableSuspensionForcePoint(const
-// JPH_WheelSettings *settings)`
-func wheel_settings_methods.get_enable_suspension_force_point(self){}
-
-// set_enable_suspension_force_point(value: bool)
-// C: `void JPH_WheelSettings_SetEnableSuspensionForcePoint(JPH_WheelSettings
-// *settings, bool value)`
-func wheel_settings_methods.set_enable_suspension_force_point(self, value){}
-
 // ------------------------------------------------------------ Character
 
 // A character that walks on its own body ([World.create_character]), with
-// every character_* and character_base_* function as a method:
-// set_linear_velocity(v), get_position(), get_ground_state(),
+// every character_* and character_base_* function as a method or
+// property: linear_velocity, position, ground_state,
 // post_simulation(max_separation).
 // type Character
+// [linear_velocity]: Vec3
+// [body_id]: Body | int (read-only)
+// [position_and_rotation]: {position: Vec3, rotation: Quat} (read-only)
+// [position]: Vec3
+// [rotation]: Quat
+// [center_of_mass_position]: Vec3 (read-only)
+// [world_transform]: Mat4 (read-only)
+// [layer]: int
+// [cos_max_slope_angle]: float (read-only)
+// [max_slope_angle]: float (write-only)
+// [up]: Vec3
+// [shape]: Shape (read-only)
+// [ground_state]: int (read-only)
+// [supported]: bool (read-only)
+// [ground_position]: Vec3 (read-only)
+// [ground_normal]: Vec3 (read-only)
+// [ground_velocity]: Vec3 (read-only)
+// [ground_material]: Material (read-only)
+// [ground_body_id]: Body | int (read-only)
+// [ground_sub_shape_id]: int (read-only)
+// [ground_user_data]: int (read-only)
 local character_methods = {}
 
 // destroy()
@@ -3272,17 +2031,6 @@ func character_methods.post_simulation(self, max_separation_distance, lock_bodie
 // JPH_Vec3 *linearVelocity, JPH_Vec3 *angularVelocity, bool lockBodies)`
 func character_methods.set_linear_and_angular_velocity(self, linear_velocity, angular_velocity, lock_bodies){}
 
-// get_linear_velocity() -> Vec3
-// C: `void JPH_Character_GetLinearVelocity(JPH_Character *character, JPH_Vec3
-// *result)`
-func character_methods.get_linear_velocity(self, result){}
-
-// set_linear_velocity(value: Vec3, lock_bodies?: bool)
-// = true
-// C: `void JPH_Character_SetLinearVelocity(JPH_Character *character, const
-// JPH_Vec3 *value, bool lockBodies)`
-func character_methods.set_linear_velocity(self, value, lock_bodies){}
-
 // add_linear_velocity(value: Vec3, lock_bodies?: bool)
 // = true
 // C: `void JPH_Character_AddLinearVelocity(JPH_Character *character, const
@@ -3295,17 +2043,6 @@ func character_methods.add_linear_velocity(self, value, lock_bodies){}
 // *value, bool lockBodies)`
 func character_methods.add_impulse(self, value, lock_bodies){}
 
-// get_body_id() -> Body
-// C: `uint32_t JPH_Character_GetBodyID(const JPH_Character *character)`
-func character_methods.get_body_id(self){}
-
-// get_position_and_rotation(lock_bodies?: bool) -> {position: Vec3, rotation:
-//   Quat}
-// = true
-// C: `void JPH_Character_GetPositionAndRotation(JPH_Character *character,
-// JPH_Vec3 *position, JPH_Quat *rotation, bool lockBodies)`
-func character_methods.get_position_and_rotation(self, position, rotation, lock_bodies){}
-
 // set_position_and_rotation(position: Vec3, rotation: Quat, activation_mode?:
 //   int, lock_bodies?: bool)
 // = true
@@ -3314,300 +2051,63 @@ func character_methods.get_position_and_rotation(self, position, rotation, lock_
 // activationMode, bool lockBodies)`
 func character_methods.set_position_and_rotation(self, position, rotation, activation_mode, lock_bodies){}
 
-// get_position(lock_bodies?: bool) -> Vec3
-// = true
-// C: `void JPH_Character_GetPosition(JPH_Character *character, JPH_Vec3
-// *position, bool lockBodies)`
-func character_methods.get_position(self, position, lock_bodies){}
-
-// set_position(position: Vec3, activation_mode?: int, lock_bodies?: bool)
-// = true
-// C: `void JPH_Character_SetPosition(JPH_Character *character, const JPH_Vec3
-// *position, enum JPH_Activation activationMode, bool lockBodies)`
-func character_methods.set_position(self, position, activation_mode, lock_bodies){}
-
-// get_rotation(lock_bodies?: bool) -> Quat
-// = true
-// C: `void JPH_Character_GetRotation(JPH_Character *character, JPH_Quat
-// *rotation, bool lockBodies)`
-func character_methods.get_rotation(self, rotation, lock_bodies){}
-
-// set_rotation(rotation: Quat, activation_mode?: int, lock_bodies?: bool)
-// = true
-// C: `void JPH_Character_SetRotation(JPH_Character *character, const JPH_Quat
-// *rotation, enum JPH_Activation activationMode, bool lockBodies)`
-func character_methods.set_rotation(self, rotation, activation_mode, lock_bodies){}
-
-// get_center_of_mass_position(lock_bodies?: bool) -> Vec3
-// = true
-// C: `void JPH_Character_GetCenterOfMassPosition(JPH_Character *character,
-// JPH_Vec3 *result, bool lockBodies)`
-func character_methods.get_center_of_mass_position(self, result, lock_bodies){}
-
-// get_world_transform(lock_bodies?: bool) -> Mat4
-// = true
-// C: `void JPH_Character_GetWorldTransform(JPH_Character *character, JPH_Mat4
-// *result, bool lockBodies)`
-func character_methods.get_world_transform(self, result, lock_bodies){}
-
-// get_layer() -> int
-// C: `uint32_t JPH_Character_GetLayer(const JPH_Character *character)`
-func character_methods.get_layer(self){}
-
-// set_layer(value: int, lock_bodies?: bool)
-// = true
-// C: `void JPH_Character_SetLayer(JPH_Character *character, uint32_t value,
-// bool lockBodies)`
-func character_methods.set_layer(self, value, lock_bodies){}
-
 // set_shape(shape: Shape, max_penetration_depth: float, lock_bodies?: bool)
 // = true
 // C: `void JPH_Character_SetShape(JPH_Character *character, const JPH_Shape
 // *shape, float maxPenetrationDepth, bool lockBodies)`
 func character_methods.set_shape(self, shape, max_penetration_depth, lock_bodies){}
 
-// get_cos_max_slope_angle() -> float
-// C: `float JPH_CharacterBase_GetCosMaxSlopeAngle(JPH_CharacterBase
-// *character)`
-func character_methods.get_cos_max_slope_angle(self){}
-
-// set_max_slope_angle(max_slope_angle: float)
-// C: `void JPH_CharacterBase_SetMaxSlopeAngle(JPH_CharacterBase *character,
-// float maxSlopeAngle)`
-func character_methods.set_max_slope_angle(self, max_slope_angle){}
-
-// get_up() -> Vec3
-// C: `void JPH_CharacterBase_GetUp(JPH_CharacterBase *character, JPH_Vec3
-// *result)`
-func character_methods.get_up(self, result){}
-
-// set_up(value: Vec3)
-// C: `void JPH_CharacterBase_SetUp(JPH_CharacterBase *character, const JPH_Vec3
-// *value)`
-func character_methods.set_up(self, value){}
-
 // is_slope_too_steep(value: Vec3) -> bool
 // C: `bool JPH_CharacterBase_IsSlopeTooSteep(JPH_CharacterBase *character,
 // const JPH_Vec3 *value)`
 func character_methods.is_slope_too_steep(self, value){}
 
-// get_shape() -> Shape
-// C: `const JPH_Shape *JPH_CharacterBase_GetShape(JPH_CharacterBase
-// *character)`
-func character_methods.get_shape(self){}
-
-// get_ground_state() -> int
-// C: `enum JPH_GroundState JPH_CharacterBase_GetGroundState(JPH_CharacterBase
-// *character)`
-func character_methods.get_ground_state(self){}
-
-// is_supported() -> bool
-// C: `bool JPH_CharacterBase_IsSupported(JPH_CharacterBase *character)`
-func character_methods.is_supported(self){}
-
-// get_ground_position() -> Vec3
-// C: `void JPH_CharacterBase_GetGroundPosition(JPH_CharacterBase *character,
-// JPH_Vec3 *position)`
-func character_methods.get_ground_position(self, position){}
-
-// get_ground_normal() -> Vec3
-// C: `void JPH_CharacterBase_GetGroundNormal(JPH_CharacterBase *character,
-// JPH_Vec3 *normal)`
-func character_methods.get_ground_normal(self, normal){}
-
-// get_ground_velocity() -> Vec3
-// C: `void JPH_CharacterBase_GetGroundVelocity(JPH_CharacterBase *character,
-// JPH_Vec3 *velocity)`
-func character_methods.get_ground_velocity(self, velocity){}
-
-// get_ground_material() -> Material
-// C: `const JPH_PhysicsMaterial
-// *JPH_CharacterBase_GetGroundMaterial(JPH_CharacterBase *character)`
-func character_methods.get_ground_material(self){}
-
-// get_ground_body_id() -> Body
-// C: `uint32_t JPH_CharacterBase_GetGroundBodyId(JPH_CharacterBase *character)`
-func character_methods.get_ground_body_id(self){}
-
-// get_ground_sub_shape_id() -> int
-// C: `uint32_t JPH_CharacterBase_GetGroundSubShapeId(JPH_CharacterBase
-// *character)`
-func character_methods.get_ground_sub_shape_id(self){}
-
-// get_ground_user_data() -> int
-// C: `uint64_t JPH_CharacterBase_GetGroundUserData(JPH_CharacterBase
-// *character)`
-func character_methods.get_ground_user_data(self){}
-
 // ------------------------------------------------------------ CharacterVirtual
 
 // A virtual character, moved by its own update rather than the simulation
 // ([World.create_character_virtual]), with every character_virtual_* and
-// character_base_* function as a method: update(dt),
-// extended_update(dt, settings), set_linear_velocity(v).
+// character_base_* function as a method or property: update(dt),
+// extended_update(dt, settings), linear_velocity.
 // type CharacterVirtual
+// [id]: int (read-only)
+// [listener]: ffi.Pointer (write-only)
+// [character_vs_character_collision]: ffi.Pointer (write-only)
+// [linear_velocity]: Vec3
+// [position]: Vec3
+// [rotation]: Quat
+// [world_transform]: Mat4 (read-only)
+// [center_of_mass_transform]: Mat4 (read-only)
+// [mass]: float
+// [max_strength]: float
+// [penetration_recovery_speed]: float
+// [enhanced_internal_edge_removal]: bool
+// [character_padding]: float (read-only)
+// [max_num_hits]: int
+// [hit_reduction_cos_max_angle]: float
+// [max_hits_exceeded]: bool (read-only)
+// [shape_offset]: Vec3
+// [user_data]: int
+// [inner_body_id]: Body | int (read-only)
+// [inner_body_shape]: Shape (write-only)
+// [num_active_contacts]: int (read-only)
+// [cos_max_slope_angle]: float (read-only)
+// [max_slope_angle]: float (write-only)
+// [up]: Vec3
+// [shape]: Shape (read-only)
+// [ground_state]: int (read-only)
+// [supported]: bool (read-only)
+// [ground_position]: Vec3 (read-only)
+// [ground_normal]: Vec3 (read-only)
+// [ground_velocity]: Vec3 (read-only)
+// [ground_material]: Material (read-only)
+// [ground_body_id]: Body | int (read-only)
+// [ground_sub_shape_id]: int (read-only)
+// [ground_user_data]: int (read-only)
 local character_virtual_methods = {}
 
 // destroy()
 // Frees the character.
 func character_virtual_methods.destroy(self){}
-
-// get_id() -> int
-// C: `uint32_t JPH_CharacterVirtual_GetID(const JPH_CharacterVirtual
-// *character)`
-func character_virtual_methods.get_id(self){}
-
-// set_listener(listener?: ffi.Pointer)
-// C: `void JPH_CharacterVirtual_SetListener(JPH_CharacterVirtual *character,
-// JPH_CharacterContactListener *listener)`
-func character_virtual_methods.set_listener(self, listener){}
-
-// set_character_vs_character_collision(character_vs_character_collision?:
-//   ffi.Pointer)
-// C: `void
-// JPH_CharacterVirtual_SetCharacterVsCharacterCollision(JPH_CharacterVirtual
-// *character, JPH_CharacterVsCharacterCollision
-// *characterVsCharacterCollision)`
-func character_virtual_methods.set_character_vs_character_collision(self, character_vs_character_collision){}
-
-// get_linear_velocity() -> Vec3
-// C: `void JPH_CharacterVirtual_GetLinearVelocity(JPH_CharacterVirtual
-// *character, JPH_Vec3 *velocity)`
-func character_virtual_methods.get_linear_velocity(self, velocity){}
-
-// set_linear_velocity(velocity: Vec3)
-// C: `void JPH_CharacterVirtual_SetLinearVelocity(JPH_CharacterVirtual
-// *character, const JPH_Vec3 *velocity)`
-func character_virtual_methods.set_linear_velocity(self, velocity){}
-
-// get_position() -> Vec3
-// C: `void JPH_CharacterVirtual_GetPosition(JPH_CharacterVirtual *character,
-// JPH_Vec3 *position)`
-func character_virtual_methods.get_position(self, position){}
-
-// set_position(position: Vec3)
-// C: `void JPH_CharacterVirtual_SetPosition(JPH_CharacterVirtual *character,
-// const JPH_Vec3 *position)`
-func character_virtual_methods.set_position(self, position){}
-
-// get_rotation() -> Quat
-// C: `void JPH_CharacterVirtual_GetRotation(JPH_CharacterVirtual *character,
-// JPH_Quat *rotation)`
-func character_virtual_methods.get_rotation(self, rotation){}
-
-// set_rotation(rotation: Quat)
-// C: `void JPH_CharacterVirtual_SetRotation(JPH_CharacterVirtual *character,
-// const JPH_Quat *rotation)`
-func character_virtual_methods.set_rotation(self, rotation){}
-
-// get_world_transform() -> Mat4
-// C: `void JPH_CharacterVirtual_GetWorldTransform(JPH_CharacterVirtual
-// *character, JPH_Mat4 *result)`
-func character_virtual_methods.get_world_transform(self, result){}
-
-// get_center_of_mass_transform() -> Mat4
-// C: `void JPH_CharacterVirtual_GetCenterOfMassTransform(JPH_CharacterVirtual
-// *character, JPH_Mat4 *result)`
-func character_virtual_methods.get_center_of_mass_transform(self, result){}
-
-// get_mass() -> float
-// C: `float JPH_CharacterVirtual_GetMass(JPH_CharacterVirtual *character)`
-func character_virtual_methods.get_mass(self){}
-
-// set_mass(value: float)
-// C: `void JPH_CharacterVirtual_SetMass(JPH_CharacterVirtual *character, float
-// value)`
-func character_virtual_methods.set_mass(self, value){}
-
-// get_max_strength() -> float
-// C: `float JPH_CharacterVirtual_GetMaxStrength(JPH_CharacterVirtual
-// *character)`
-func character_virtual_methods.get_max_strength(self){}
-
-// set_max_strength(value: float)
-// C: `void JPH_CharacterVirtual_SetMaxStrength(JPH_CharacterVirtual *character,
-// float value)`
-func character_virtual_methods.set_max_strength(self, value){}
-
-// get_penetration_recovery_speed() -> float
-// C: `float
-// JPH_CharacterVirtual_GetPenetrationRecoverySpeed(JPH_CharacterVirtual
-// *character)`
-func character_virtual_methods.get_penetration_recovery_speed(self){}
-
-// set_penetration_recovery_speed(value: float)
-// C: `void
-// JPH_CharacterVirtual_SetPenetrationRecoverySpeed(JPH_CharacterVirtual
-// *character, float value)`
-func character_virtual_methods.set_penetration_recovery_speed(self, value){}
-
-// get_enhanced_internal_edge_removal() -> bool
-// C: `bool
-// JPH_CharacterVirtual_GetEnhancedInternalEdgeRemoval(JPH_CharacterVirtual
-// *character)`
-func character_virtual_methods.get_enhanced_internal_edge_removal(self){}
-
-// set_enhanced_internal_edge_removal(value: bool)
-// C: `void
-// JPH_CharacterVirtual_SetEnhancedInternalEdgeRemoval(JPH_CharacterVirtual
-// *character, bool value)`
-func character_virtual_methods.set_enhanced_internal_edge_removal(self, value){}
-
-// get_character_padding() -> float
-// C: `float JPH_CharacterVirtual_GetCharacterPadding(JPH_CharacterVirtual
-// *character)`
-func character_virtual_methods.get_character_padding(self){}
-
-// get_max_num_hits() -> int
-// C: `uint32_t JPH_CharacterVirtual_GetMaxNumHits(JPH_CharacterVirtual
-// *character)`
-func character_virtual_methods.get_max_num_hits(self){}
-
-// set_max_num_hits(value: int)
-// C: `void JPH_CharacterVirtual_SetMaxNumHits(JPH_CharacterVirtual *character,
-// uint32_t value)`
-func character_virtual_methods.set_max_num_hits(self, value){}
-
-// get_hit_reduction_cos_max_angle() -> float
-// C: `float
-// JPH_CharacterVirtual_GetHitReductionCosMaxAngle(JPH_CharacterVirtual
-// *character)`
-func character_virtual_methods.get_hit_reduction_cos_max_angle(self){}
-
-// set_hit_reduction_cos_max_angle(value: float)
-// C: `void JPH_CharacterVirtual_SetHitReductionCosMaxAngle(JPH_CharacterVirtual
-// *character, float value)`
-func character_virtual_methods.set_hit_reduction_cos_max_angle(self, value){}
-
-// get_max_hits_exceeded() -> bool
-// C: `bool JPH_CharacterVirtual_GetMaxHitsExceeded(JPH_CharacterVirtual
-// *character)`
-func character_virtual_methods.get_max_hits_exceeded(self){}
-
-// get_shape_offset() -> Vec3
-// C: `void JPH_CharacterVirtual_GetShapeOffset(JPH_CharacterVirtual *character,
-// JPH_Vec3 *result)`
-func character_virtual_methods.get_shape_offset(self, result){}
-
-// set_shape_offset(value: Vec3)
-// C: `void JPH_CharacterVirtual_SetShapeOffset(JPH_CharacterVirtual *character,
-// const JPH_Vec3 *value)`
-func character_virtual_methods.set_shape_offset(self, value){}
-
-// get_user_data() -> int
-// C: `uint64_t JPH_CharacterVirtual_GetUserData(const JPH_CharacterVirtual
-// *character)`
-func character_virtual_methods.get_user_data(self){}
-
-// set_user_data(value: int)
-// C: `void JPH_CharacterVirtual_SetUserData(JPH_CharacterVirtual *character,
-// uint64_t value)`
-func character_virtual_methods.set_user_data(self, value){}
-
-// get_inner_body_id() -> Body
-// C: `uint32_t JPH_CharacterVirtual_GetInnerBodyID(const JPH_CharacterVirtual
-// *character)`
-func character_virtual_methods.get_inner_body_id(self){}
 
 // cancel_velocity_towards_steep_slopes(desired_velocity: Vec3, velocity: Vec3)
 // C: `void
@@ -3684,16 +2184,6 @@ func character_virtual_methods.update_ground_velocity(self){}
 // JPH_ShapeFilter *shapeFilter)`
 func character_virtual_methods.set_shape(self, shape, max_penetration_depth, layer, system, body_filter, shape_filter){}
 
-// set_inner_body_shape(shape?: Shape)
-// C: `void JPH_CharacterVirtual_SetInnerBodyShape(JPH_CharacterVirtual
-// *character, const JPH_Shape *shape)`
-func character_virtual_methods.set_inner_body_shape(self, shape){}
-
-// get_num_active_contacts() -> int
-// C: `uint32_t JPH_CharacterVirtual_GetNumActiveContacts(JPH_CharacterVirtual
-// *character)`
-func character_virtual_methods.get_num_active_contacts(self){}
-
 // get_active_contact(index: int) -> CharacterContact
 // C: `void JPH_CharacterVirtual_GetActiveContact(JPH_CharacterVirtual
 // *character, uint32_t index, JPH_CharacterContact *result)`
@@ -3714,78 +2204,10 @@ func character_virtual_methods.has_collided_with(self, other){}
 // *character, const JPH_CharacterVirtual *other)`
 func character_virtual_methods.has_collided_with_character(self, other){}
 
-// get_cos_max_slope_angle() -> float
-// C: `float JPH_CharacterBase_GetCosMaxSlopeAngle(JPH_CharacterBase
-// *character)`
-func character_virtual_methods.get_cos_max_slope_angle(self){}
-
-// set_max_slope_angle(max_slope_angle: float)
-// C: `void JPH_CharacterBase_SetMaxSlopeAngle(JPH_CharacterBase *character,
-// float maxSlopeAngle)`
-func character_virtual_methods.set_max_slope_angle(self, max_slope_angle){}
-
-// get_up() -> Vec3
-// C: `void JPH_CharacterBase_GetUp(JPH_CharacterBase *character, JPH_Vec3
-// *result)`
-func character_virtual_methods.get_up(self, result){}
-
-// set_up(value: Vec3)
-// C: `void JPH_CharacterBase_SetUp(JPH_CharacterBase *character, const JPH_Vec3
-// *value)`
-func character_virtual_methods.set_up(self, value){}
-
 // is_slope_too_steep(value: Vec3) -> bool
 // C: `bool JPH_CharacterBase_IsSlopeTooSteep(JPH_CharacterBase *character,
 // const JPH_Vec3 *value)`
 func character_virtual_methods.is_slope_too_steep(self, value){}
-
-// get_shape() -> Shape
-// C: `const JPH_Shape *JPH_CharacterBase_GetShape(JPH_CharacterBase
-// *character)`
-func character_virtual_methods.get_shape(self){}
-
-// get_ground_state() -> int
-// C: `enum JPH_GroundState JPH_CharacterBase_GetGroundState(JPH_CharacterBase
-// *character)`
-func character_virtual_methods.get_ground_state(self){}
-
-// is_supported() -> bool
-// C: `bool JPH_CharacterBase_IsSupported(JPH_CharacterBase *character)`
-func character_virtual_methods.is_supported(self){}
-
-// get_ground_position() -> Vec3
-// C: `void JPH_CharacterBase_GetGroundPosition(JPH_CharacterBase *character,
-// JPH_Vec3 *position)`
-func character_virtual_methods.get_ground_position(self, position){}
-
-// get_ground_normal() -> Vec3
-// C: `void JPH_CharacterBase_GetGroundNormal(JPH_CharacterBase *character,
-// JPH_Vec3 *normal)`
-func character_virtual_methods.get_ground_normal(self, normal){}
-
-// get_ground_velocity() -> Vec3
-// C: `void JPH_CharacterBase_GetGroundVelocity(JPH_CharacterBase *character,
-// JPH_Vec3 *velocity)`
-func character_virtual_methods.get_ground_velocity(self, velocity){}
-
-// get_ground_material() -> Material
-// C: `const JPH_PhysicsMaterial
-// *JPH_CharacterBase_GetGroundMaterial(JPH_CharacterBase *character)`
-func character_virtual_methods.get_ground_material(self){}
-
-// get_ground_body_id() -> Body
-// C: `uint32_t JPH_CharacterBase_GetGroundBodyId(JPH_CharacterBase *character)`
-func character_virtual_methods.get_ground_body_id(self){}
-
-// get_ground_sub_shape_id() -> int
-// C: `uint32_t JPH_CharacterBase_GetGroundSubShapeId(JPH_CharacterBase
-// *character)`
-func character_virtual_methods.get_ground_sub_shape_id(self){}
-
-// get_ground_user_data() -> int
-// C: `uint64_t JPH_CharacterBase_GetGroundUserData(JPH_CharacterBase
-// *character)`
-func character_virtual_methods.get_ground_user_data(self){}
 
 // ------------------------------------------------------------ NarrowPhaseQuery
 
@@ -3958,61 +2380,23 @@ func broad_phase_query_methods.collide_point(self, point, callback, user_data, b
 
 // ------------------------------------------------------------ MotionProperties
 
-// The motion properties of a dynamic body ([Body.get_motion_properties]):
+// The motion properties of a dynamic body ([Body.motion_properties]):
 // motion_properties_* as methods.
 // type MotionProperties
+// [allowed_dofs]: int (read-only)
+// [linear_damping]: float
+// [angular_damping]: float
+// [inverse_mass_unchecked]: float (read-only)
+// [inverse_mass]: float (write-only)
+// [inverse_inertia_diagonal]: Vec3 (read-only)
+// [inertia_rotation]: Quat (read-only)
 local motion_properties_methods = {}
-
-// get_allowed_dofs() -> int
-// C: `enum JPH_AllowedDOFs JPH_MotionProperties_GetAllowedDOFs(const
-// JPH_MotionProperties *properties)`
-func motion_properties_methods.get_allowed_dofs(self){}
-
-// set_linear_damping(damping: float)
-// C: `void JPH_MotionProperties_SetLinearDamping(JPH_MotionProperties
-// *properties, float damping)`
-func motion_properties_methods.set_linear_damping(self, damping){}
-
-// get_linear_damping() -> float
-// C: `float JPH_MotionProperties_GetLinearDamping(const JPH_MotionProperties
-// *properties)`
-func motion_properties_methods.get_linear_damping(self){}
-
-// set_angular_damping(damping: float)
-// C: `void JPH_MotionProperties_SetAngularDamping(JPH_MotionProperties
-// *properties, float damping)`
-func motion_properties_methods.set_angular_damping(self, damping){}
-
-// get_angular_damping() -> float
-// C: `float JPH_MotionProperties_GetAngularDamping(const JPH_MotionProperties
-// *properties)`
-func motion_properties_methods.get_angular_damping(self){}
 
 // set_mass_properties(allowed_dofs: int, mass_properties: MassProperties)
 // C: `void JPH_MotionProperties_SetMassProperties(JPH_MotionProperties
 // *properties, enum JPH_AllowedDOFs allowedDOFs, const JPH_MassProperties
 // *massProperties)`
 func motion_properties_methods.set_mass_properties(self, allowed_dofs, mass_properties){}
-
-// get_inverse_mass_unchecked() -> float
-// C: `float JPH_MotionProperties_GetInverseMassUnchecked(JPH_MotionProperties
-// *properties)`
-func motion_properties_methods.get_inverse_mass_unchecked(self){}
-
-// set_inverse_mass(inverse_mass: float)
-// C: `void JPH_MotionProperties_SetInverseMass(JPH_MotionProperties
-// *properties, float inverseMass)`
-func motion_properties_methods.set_inverse_mass(self, inverse_mass){}
-
-// get_inverse_inertia_diagonal() -> Vec3
-// C: `void JPH_MotionProperties_GetInverseInertiaDiagonal(JPH_MotionProperties
-// *properties, JPH_Vec3 *result)`
-func motion_properties_methods.get_inverse_inertia_diagonal(self, result){}
-
-// get_inertia_rotation() -> Quat
-// C: `void JPH_MotionProperties_GetInertiaRotation(JPH_MotionProperties
-// *properties, JPH_Quat *result)`
-func motion_properties_methods.get_inertia_rotation(self, result){}
 
 // set_inverse_inertia(diagonal: Vec3, rot: Quat)
 // C: `void JPH_MotionProperties_SetInverseInertia(JPH_MotionProperties
@@ -4028,26 +2412,22 @@ func motion_properties_methods.scale_to_mass(self, mass){}
 
 // A physics material ([material]): physics_material_* as methods.
 // type Material
+// [debug_name]: string (read-only)
+// [debug_color]: int (read-only)
 local material_methods = {}
 
 // destroy()
 // C: `void JPH_PhysicsMaterial_Destroy(JPH_PhysicsMaterial *material)`
 func material_methods.destroy(self){}
 
-// get_debug_name() -> string
-// C: `const char *JPH_PhysicsMaterial_GetDebugName(const JPH_PhysicsMaterial
-// *material)`
-func material_methods.get_debug_name(self){}
-
-// get_debug_color() -> int
-// C: `uint32_t JPH_PhysicsMaterial_GetDebugColor(const JPH_PhysicsMaterial
-// *material)`
-func material_methods.get_debug_color(self){}
-
 // ------------------------------------------------------------ LinearCurve
 
 // A piecewise linear curve ([linear_curve]): linear_curve_* as methods.
 // type LinearCurve
+// [min_x]: float (read-only)
+// [max_x]: float (read-only)
+// [point_count]: int (read-only)
+// [points]: {points: Point, count: int} (read-only)
 local linear_curve_methods = {}
 
 // destroy()
@@ -4070,31 +2450,14 @@ func linear_curve_methods.add_point(self, x, y){}
 // C: `void JPH_LinearCurve_Sort(JPH_LinearCurve *curve)`
 func linear_curve_methods.sort(self){}
 
-// get_min_x() -> float
-// C: `float JPH_LinearCurve_GetMinX(const JPH_LinearCurve *curve)`
-func linear_curve_methods.get_min_x(self){}
-
-// get_max_x() -> float
-// C: `float JPH_LinearCurve_GetMaxX(const JPH_LinearCurve *curve)`
-func linear_curve_methods.get_max_x(self){}
-
 // get_value(x: float) -> float
 // C: `float JPH_LinearCurve_GetValue(const JPH_LinearCurve *curve, float x)`
 func linear_curve_methods.get_value(self, x){}
-
-// get_point_count() -> int
-// C: `uint32_t JPH_LinearCurve_GetPointCount(const JPH_LinearCurve *curve)`
-func linear_curve_methods.get_point_count(self){}
 
 // get_point(index: int) -> Point
 // C: `void JPH_LinearCurve_GetPoint(const JPH_LinearCurve *curve, uint32_t
 // index, JPH_Point *result)`
 func linear_curve_methods.get_point(self, index, result){}
-
-// get_points() -> {points: Point, count: int}
-// C: `void JPH_LinearCurve_GetPoints(const JPH_LinearCurve *curve, JPH_Point
-// *points, uint32_t *count)`
-func linear_curve_methods.get_points(self, points, count){}
 
 // ------------------------------------------------------------ GroupFilterTable
 
@@ -4134,6 +2497,7 @@ func group_filter_table_methods.can_collide(self, group1, group2){}
 // its joltc functions as methods; ragdoll_settings:create_ragdoll(world)
 // makes a [Ragdoll].
 // type Skeleton
+// [joint_count]: int (read-only)
 local skeleton_methods = {}
 
 // destroy()
@@ -4153,10 +2517,6 @@ func skeleton_methods.add_joint2(self, name, parent_index){}
 // C: `uint32_t JPH_Skeleton_AddJoint3(JPH_Skeleton *skeleton, const char *name,
 // const char *parentName)`
 func skeleton_methods.add_joint3(self, name, parent_name){}
-
-// get_joint_count() -> int
-// C: `int JPH_Skeleton_GetJointCount(const JPH_Skeleton *skeleton)`
-func skeleton_methods.get_joint_count(self){}
 
 // get_joint(index: int) -> SkeletonJoint
 // C: `void JPH_Skeleton_GetJoint(const JPH_Skeleton *skeleton, int index,
@@ -4180,35 +2540,14 @@ func skeleton_methods.are_joints_correctly_ordered(self){}
 // ------------------------------------------------------------ SkeletonPose
 
 // type SkeletonPose
+// [skeleton]: Skeleton
+// [root_offset]: Vec3
+// [joint_count]: int (read-only)
 local skeleton_pose_methods = {}
 
 // destroy()
 // C: `void JPH_SkeletonPose_Destroy(JPH_SkeletonPose *pose)`
 func skeleton_pose_methods.destroy(self){}
-
-// set_skeleton(skeleton?: Skeleton)
-// C: `void JPH_SkeletonPose_SetSkeleton(JPH_SkeletonPose *pose, const
-// JPH_Skeleton *skeleton)`
-func skeleton_pose_methods.set_skeleton(self, skeleton){}
-
-// get_skeleton() -> Skeleton
-// C: `const JPH_Skeleton *JPH_SkeletonPose_GetSkeleton(const JPH_SkeletonPose
-// *pose)`
-func skeleton_pose_methods.get_skeleton(self){}
-
-// set_root_offset(offset: Vec3)
-// C: `void JPH_SkeletonPose_SetRootOffset(JPH_SkeletonPose *pose, const
-// JPH_Vec3 *offset)`
-func skeleton_pose_methods.set_root_offset(self, offset){}
-
-// get_root_offset() -> Vec3
-// C: `void JPH_SkeletonPose_GetRootOffset(const JPH_SkeletonPose *pose,
-// JPH_Vec3 *result)`
-func skeleton_pose_methods.get_root_offset(self, result){}
-
-// get_joint_count() -> int
-// C: `int JPH_SkeletonPose_GetJointCount(const JPH_SkeletonPose *pose)`
-func skeleton_pose_methods.get_joint_count(self){}
 
 // get_joint_state(index: int) -> {out_translation: Vec3, out_rotation: Quat}
 // C: `void JPH_SkeletonPose_GetJointState(const JPH_SkeletonPose *pose, int
@@ -4256,26 +2595,14 @@ func skeleton_pose_methods.calculate_local_space_joint_matrices(self, out_matric
 // ------------------------------------------------------------ SkeletalAnimation
 
 // type SkeletalAnimation
+// [duration]: float (read-only)
+// [looping]: bool
+// [animated_joint_count]: int (read-only)
 local skeletal_animation_methods = {}
 
 // destroy()
 // C: `void JPH_SkeletalAnimation_Destroy(JPH_SkeletalAnimation *animation)`
 func skeletal_animation_methods.destroy(self){}
-
-// get_duration() -> float
-// C: `float JPH_SkeletalAnimation_GetDuration(const JPH_SkeletalAnimation
-// *animation)`
-func skeletal_animation_methods.get_duration(self){}
-
-// is_looping() -> bool
-// C: `bool JPH_SkeletalAnimation_IsLooping(const JPH_SkeletalAnimation
-// *animation)`
-func skeletal_animation_methods.is_looping(self){}
-
-// set_is_looping(looping: bool)
-// C: `void JPH_SkeletalAnimation_SetIsLooping(JPH_SkeletalAnimation *animation,
-// bool looping)`
-func skeletal_animation_methods.set_is_looping(self, looping){}
 
 // scale_joints(scale: float)
 // C: `void JPH_SkeletalAnimation_ScaleJoints(JPH_SkeletalAnimation *animation,
@@ -4286,11 +2613,6 @@ func skeletal_animation_methods.scale_joints(self, scale){}
 // C: `void JPH_SkeletalAnimation_Sample(const JPH_SkeletalAnimation *animation,
 // float time, JPH_SkeletonPose *pose)`
 func skeletal_animation_methods.sample(self, time, pose){}
-
-// get_animated_joint_count() -> int
-// C: `int JPH_SkeletalAnimation_GetAnimatedJointCount(const
-// JPH_SkeletalAnimation *animation)`
-func skeletal_animation_methods.get_animated_joint_count(self){}
 
 // add_animated_joint(joint_name?: string)
 // C: `void JPH_SkeletalAnimation_AddAnimatedJoint(JPH_SkeletalAnimation
@@ -4356,21 +2678,13 @@ func skeleton_mapper_methods.is_joint_translation_locked(self, joint2_index){}
 // ------------------------------------------------------------ RagdollSettings
 
 // type RagdollSettings
+// [skeleton]: Skeleton
+// [part_count]: int (read-only)
 local ragdoll_settings_methods = {}
 
 // destroy()
 // C: `void JPH_RagdollSettings_Destroy(JPH_RagdollSettings *settings)`
 func ragdoll_settings_methods.destroy(self){}
-
-// get_skeleton() -> Skeleton
-// C: `const JPH_Skeleton *JPH_RagdollSettings_GetSkeleton(const
-// JPH_RagdollSettings *character)`
-func ragdoll_settings_methods.get_skeleton(self){}
-
-// set_skeleton(skeleton?: Skeleton)
-// C: `void JPH_RagdollSettings_SetSkeleton(JPH_RagdollSettings *character,
-// JPH_Skeleton *skeleton)`
-func ragdoll_settings_methods.set_skeleton(self, skeleton){}
 
 // stabilize() -> bool
 // C: `bool JPH_RagdollSettings_Stabilize(JPH_RagdollSettings *settings)`
@@ -4405,11 +2719,6 @@ func ragdoll_settings_methods.calculate_constraint_index_to_body_idx_pair(self){
 // C: `void JPH_RagdollSettings_ResizeParts(JPH_RagdollSettings *settings, int
 // count)`
 func ragdoll_settings_methods.resize_parts(self, count){}
-
-// get_part_count() -> int
-// C: `int JPH_RagdollSettings_GetPartCount(const JPH_RagdollSettings
-// *settings)`
-func ragdoll_settings_methods.get_part_count(self){}
 
 // set_part_shape(part_index: int, shape?: Shape)
 // C: `void JPH_RagdollSettings_SetPartShape(JPH_RagdollSettings *settings, int
@@ -4458,6 +2767,13 @@ func ragdoll_settings_methods.create_ragdoll(self, system, collision_group, user
 // ------------------------------------------------------------ Ragdoll
 
 // type Ragdoll
+// [active]: bool (read-only)
+// [pose]: SkeletonPose (write-only)
+// [pose2]: {out_root_offset: Vec3, out_joint_matrices: Mat4} (read-only)
+// [body_count]: int (read-only)
+// [constraint_count]: int (read-only)
+// [root_transform]: {out_position: Vec3, out_rotation: Quat} (read-only)
+// [ragdoll_settings]: RagdollSettings (read-only)
 local ragdoll_methods = {}
 
 // destroy()
@@ -4482,20 +2798,9 @@ func ragdoll_methods.remove_from_physics_system(self, lock_bodies){}
 // C: `void JPH_Ragdoll_Activate(JPH_Ragdoll *ragdoll, bool lockBodies)`
 func ragdoll_methods.activate(self, lock_bodies){}
 
-// is_active(lock_bodies?: bool) -> bool
-// = true
-// C: `bool JPH_Ragdoll_IsActive(const JPH_Ragdoll *ragdoll, bool lockBodies)`
-func ragdoll_methods.is_active(self, lock_bodies){}
-
 // reset_warm_start()
 // C: `void JPH_Ragdoll_ResetWarmStart(JPH_Ragdoll *ragdoll)`
 func ragdoll_methods.reset_warm_start(self){}
-
-// set_pose(pose: SkeletonPose, lock_bodies?: bool)
-// = true
-// C: `void JPH_Ragdoll_SetPose(JPH_Ragdoll *ragdoll, const JPH_SkeletonPose
-// *pose, bool lockBodies)`
-func ragdoll_methods.set_pose(self, pose, lock_bodies){}
 
 // set_pose2(root_offset: Vec3, joint_matrices: Mat4, lock_bodies?: bool)
 // = true
@@ -4509,13 +2814,6 @@ func ragdoll_methods.set_pose2(self, root_offset, joint_matrices, lock_bodies){}
 // *outPose, bool lockBodies)`
 func ragdoll_methods.get_pose(self, out_pose, lock_bodies){}
 
-// get_pose2(lock_bodies?: bool) -> {out_root_offset: Vec3, out_joint_matrices:
-//   Mat4}
-// = true
-// C: `void JPH_Ragdoll_GetPose2(const JPH_Ragdoll *ragdoll, JPH_Vec3
-// *outRootOffset, JPH_Mat4 *outJointMatrices, bool lockBodies)`
-func ragdoll_methods.get_pose2(self, out_root_offset, out_joint_matrices, lock_bodies){}
-
 // drive_to_pose_using_motors(pose?: SkeletonPose)
 // C: `void JPH_Ragdoll_DriveToPoseUsingMotors(JPH_Ragdoll *ragdoll, const
 // JPH_SkeletonPose *pose)`
@@ -4528,40 +2826,22 @@ func ragdoll_methods.drive_to_pose_using_motors(self, pose){}
 // JPH_SkeletonPose *pose, float deltaTime, bool lockBodies)`
 func ragdoll_methods.drive_to_pose_using_kinematics(self, pose, delta_time, lock_bodies){}
 
-// get_body_count() -> int
-// C: `int JPH_Ragdoll_GetBodyCount(const JPH_Ragdoll *ragdoll)`
-func ragdoll_methods.get_body_count(self){}
-
 // get_body_id(body_index: int) -> Body
 // C: `uint32_t JPH_Ragdoll_GetBodyID(const JPH_Ragdoll *ragdoll, int
 // bodyIndex)`
 func ragdoll_methods.get_body_id(self, body_index){}
-
-// get_constraint_count() -> int
-// C: `int JPH_Ragdoll_GetConstraintCount(const JPH_Ragdoll *ragdoll)`
-func ragdoll_methods.get_constraint_count(self){}
 
 // get_constraint(constraint_index: int) -> Constraint
 // C: `JPH_TwoBodyConstraint *JPH_Ragdoll_GetConstraint(JPH_Ragdoll *ragdoll,
 // int constraintIndex)`
 func ragdoll_methods.get_constraint(self, constraint_index){}
 
-// get_root_transform(lock_bodies?: bool) -> {out_position: Vec3, out_rotation:
-//   Quat}
-// = true
-// C: `void JPH_Ragdoll_GetRootTransform(const JPH_Ragdoll *ragdoll, JPH_Vec3
-// *outPosition, JPH_Quat *outRotation, bool lockBodies)`
-func ragdoll_methods.get_root_transform(self, out_position, out_rotation, lock_bodies){}
-
-// get_ragdoll_settings() -> RagdollSettings
-// C: `const JPH_RagdollSettings *JPH_Ragdoll_GetRagdollSettings(const
-// JPH_Ragdoll *ragdoll)`
-func ragdoll_methods.get_ragdoll_settings(self){}
-
 // ------------------------------------------------------------ SoftBodySharedSettings
 
 // The shared settings of soft bodies ([soft_body_shared_settings]).
 // type SoftBodySharedSettings
+// [vertex_count]: int (read-only)
+// [face_count]: int (read-only)
 local soft_body_shared_settings_methods = {}
 
 // destroy()
@@ -4584,11 +2864,6 @@ func soft_body_shared_settings_methods.add_vertices(self, vertices, count){}
 // *settings, uint32_t index)`
 func soft_body_shared_settings_methods.remove_vertex(self, index){}
 
-// get_vertex_count() -> int
-// C: `uint32_t JPH_SoftBodySharedSettings_GetVertexCount(const
-// JPH_SoftBodySharedSettings *settings)`
-func soft_body_shared_settings_methods.get_vertex_count(self){}
-
 // get_vertex(index: int) -> SoftVertex?
 // C: `bool JPH_SoftBodySharedSettings_GetVertex(const
 // JPH_SoftBodySharedSettings *settings, uint32_t index, JPH_SoftVertex
@@ -4609,11 +2884,6 @@ func soft_body_shared_settings_methods.add_faces(self, faces, count){}
 // C: `bool JPH_SoftBodySharedSettings_RemoveFace(JPH_SoftBodySharedSettings
 // *settings, uint32_t index)`
 func soft_body_shared_settings_methods.remove_face(self, index){}
-
-// get_face_count() -> int
-// C: `uint32_t JPH_SoftBodySharedSettings_GetFaceCount(const
-// JPH_SoftBodySharedSettings *settings)`
-func soft_body_shared_settings_methods.get_face_count(self){}
 
 // get_face(index: int) -> SoftFace?
 // C: `bool JPH_SoftBodySharedSettings_GetFace(const JPH_SoftBodySharedSettings

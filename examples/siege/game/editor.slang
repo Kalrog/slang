@@ -400,7 +400,7 @@ local func settle(ed){
   w.events = {}
   w.sounds = {}
   for(let local e in values(w.entities)){
-    local both = e.body:get_position_and_rotation()
+    local both = e.body.position_and_rotation
     e.start = both.position
     e.pos = both.position
     e.q = both.rotation

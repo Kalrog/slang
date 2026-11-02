@@ -7,26 +7,31 @@
 //   local world = b2.world({gravity: {0, -10}})
 //   local ground = world:create_body({position: {0, -1}})
 //   ground:create_polygon_shape({}, b2.make_box(50, 1))
-//   local box = world:create_body({type: b2.dynamic_body, position: {0, 4}})
+//   local box = world:create_body({type: "dynamic", position: {0, 4}})
 //   box:create_polygon_shape({density: 1}, b2.make_box(0.5, 0.5))
 //   for(local i = 0; i < 60; i = i + 1){
 //     world:step(1 / 60, 4)
 //   }
-//   print(box:get_position(), "\n")
+//   print(box.position, "\n")
 //   world:destroy()
 //
-// Box2D's things are slang values with methods: a [World], its [Body]s,
-// their [Shape]s and [Chain]s, and [Joint]s. A method is the Box2D
-// function of that name without the type's prefix (body:get_position() is
-// b2Body_GetPosition), in snake_case; a def table is laid over Box2D's
-// defaults. README.md describes how values map. [raw] holds every Box2D
-// function as it is. BOX2D_PREFIX names the installation when it is not
-// in a usual place.
+// Box2D's things are slang values with methods and properties: a [World],
+// its [Body]s, their [Shape]s and [Chain]s, and [Joint]s. A method is the
+// Box2D function of that name without the type's prefix, in snake_case
+// (body:apply_force(f, point, wake) is b2Body_ApplyForce); a getter
+// without arguments and a setter of one value are a property instead
+// (body.linear_velocity reads b2Body_GetLinearVelocity, body.awake = true
+// calls b2Body_SetAwake, joint.limit_enabled = true b2..._EnableLimit). A
+// def table is laid over Box2D's defaults. README.md describes how values
+// map. [c] holds every Box2D function and constant under its C name, [raw]
+// the same under slang names. BOX2D_PREFIX names the installation when it
+// is not in a usual place.
 local ffi = require("slang/ffi")
 local os = require("slang/os")
 local math = require("slang/math")
 local str = require("slang/string")
 local names = require("box2d/names")
+local class_lib = require("slang/class")
 local snake = names.snake
 
 // ------------------------------------------------------------ the library
@@ -185,31 +190,23 @@ local classes = {}
 local wrap_result = null
 local wrap_callback = null
 
-local func define_class(name, chain, methods){
+// a class of wrapper: hand-written methods and properties ({get, set}),
+// and Box2D's b2<Prefix>_* functions along its chain for the rest
+local func define_class(name, chain, methods, properties){
   local links = {}
   for(let local prefix in values(chain)){
     append(links, {prefix: prefix, snake: snake(prefix)})
   }
-  local class = {name: name, links: links, methods: methods, cache: {}}
-  class.meta = {
-    __index: func(self, key){
-      local m = methods[key]
-      if(m != null){
-        return m
-      }
-      local g = class.cache[key]
-      if(g == null){
-        g = classes.generic(class, key)
-        if(g == null){
-          return null
-        }
-        class.cache[key] = g
-      }
-      return g
+  local class = class_lib.new({
+    name: concat("box2d.", name),
+    methods: methods,
+    properties: properties,
+    resolve: func(key){
+      return classes.resolve(links, key)
     },
-    __type: concat("box2d.", name),
-    __class: class,
-  }
+  })
+  class.links = links
+  class.name = name
   return class
 }
 
@@ -267,56 +264,149 @@ raw.meta = {
   __type: "box2d.raw",
 }
 
-// the generic method key of a class: the first Box2D function
-// b2<Prefix>_<Key> along the class's chain, called on the object's id
-func classes.generic(class, key){
-  for(let local link in values(class.links)){
-    local c = c_names[concat(link.snake, "_", key)]
+// the first Box2D function b2<Prefix>_<name> along a chain: its
+// declaration, or null
+local func find_c(links, name){
+  for(let local link in values(links)){
+    local c = c_names[concat(link.snake, "_", name)]
     if(c != null){
-      local decl = C.functions[c]
-      local f = raw_binding(decl, key)
-      return func(self, ...args){
-        return wrap_result(self, decl, f(self.id, ...args))
-      }
+      return C.functions[c]
     }
   }
   return null
 }
 
+// a Box2D function as a method, called on the object's id
+local func bind_method(decl, key){
+  local f = raw_binding(decl, key)
+  return func(self, ...args){
+    return wrap_result(self, decl, f(self.id, ...args))
+  }
+}
+
+// the arguments a method takes after the object
+local func arity(decl){
+  return len(decl.params) - 1
+}
+
+// a key of a class along its chain: a Box2D function of that name is a
+// method; get_<key> or is_<key> without arguments is the read side of a
+// property and set_<key> with one its write side (IsXEnabled pairs with
+// EnableX(bool) as x_enabled, IsEnabled with Enable/Disable as enabled);
+// those get_/set_ names themselves are gone, while getters and setters
+// that take more stay methods
+func classes.resolve(links, key){
+  for(let local pre in values({"get_", "is_", "set_"})){
+    if(str.starts_with(key, pre)){
+      local decl = find_c(links, key)
+      if(decl == null){
+        return null
+      }
+      local n = arity(decl)
+      local name = str.substring(key, len(pre))
+      if(pre == "set_" and n == 1){
+        return {gone: concat("assign the property (x.", name, " = v)")}
+      }
+      if(pre != "set_" and n == 0){
+        return {gone: concat("read the property (x.", name, ")")}
+      }
+      return {method: bind_method(decl, key)}
+    }
+  }
+  local decl = find_c(links, key)
+  if(decl != null){
+    return {method: bind_method(decl, key)}
+  }
+  local r = {}
+  for(let local pre in values({"get_", "is_"})){
+    local g = find_c(links, concat(pre, key))
+    if(g != null and arity(g) == 0){
+      local f = bind_method(g, key)
+      r.get = func(self){ return f(self) }
+      break
+    }
+  }
+  local set = find_c(links, concat("set_", key))
+  if(set != null and arity(set) == 1){
+    local f = bind_method(set, key)
+    r.set = func(self, v){ f(self, v) }
+  } else if(str.ends_with(key, "_enabled")){
+    local base = str.substring(key, 0, len(key) - 8)
+    local enable = find_c(links, concat("enable_", base))
+    if(enable != null and arity(enable) == 1){
+      local f = bind_method(enable, key)
+      r.set = func(self, v){ f(self, v) }
+    }
+  } else if(key == "enabled"){
+    local on = find_c(links, "enable")
+    local off = find_c(links, "disable")
+    if(on != null and off != null and arity(on) == 0){
+      local f_on = bind_method(on, "enable")
+      local f_off = bind_method(off, "disable")
+      r.set = func(self, v){
+        if(v){ f_on(self) } else { f_off(self) }
+      }
+    }
+  }
+  if(r.get == null and r.set == null){
+    return null
+  }
+  return r
+}
+
 // A world: everything happens in one. Every world_* function of Box2D is
-// a method (world:step(dt, sub_steps), world:set_gravity(g),
+// a method or property (world:step(dt, sub_steps), world.gravity = g,
 // world:cast_ray_closest(origin, translation)); bodies and joints are
 // made through it.
 // type World
 local world_methods = {}
 local World = define_class("World", {"World"}, world_methods)
 
-// A rigid body: every body_* function of Box2D is a method
-// (body:get_position(), body:set_linear_velocity(v), body:apply_force(f,
-// point, wake)); shapes and chains are made on it.
+// A rigid body: every body_* function of Box2D is a method or property
+// (body.position, body.linear_velocity = v, body:apply_force(f, point,
+// wake)); shapes and chains are made on it.
 // type Body
 // [world]: the world it is in
 // [key]: an int, the same for the same body: key tables by it
+// [position]: Vec2: assigning moves the body (b2Body_SetTransform)
+// [rotation]: Rot: assigning turns the body
 local body_methods = {}
-local Body = define_class("Body", {"Body"}, body_methods)
+// position and rotation are written through SetTransform (Box2D has no
+// setter of one alone)
+local body_properties = {
+  position: {
+    get: func(b){ return lib.b2Body_GetPosition(b.id) },
+    set: func(b, p){
+      lib.b2Body_SetTransform(b.id, p, lib.b2Body_GetRotation(b.id))
+    },
+  },
+  rotation: {
+    get: func(b){ return lib.b2Body_GetRotation(b.id) },
+    set: func(b, q){
+      lib.b2Body_SetTransform(b.id, lib.b2Body_GetPosition(b.id), q)
+    },
+  },
+}
+local Body = define_class("Body", {"Body"}, body_methods, body_properties)
 
-// A shape on a body: every shape_* function is a method
-// (shape:get_friction(), shape:test_point(p), shape:get_aabb()).
+// A shape on a body: every shape_* function is a method or property
+// (shape.friction, shape:test_point(p), shape.aabb).
 // type Shape
 // [body]: the body it is on
 // [key]: an int, the same for the same shape
 local shape_methods = {}
 local Shape = define_class("Shape", {"Shape"}, shape_methods)
 
-// A chain of segments on a body: every chain_* function is a method.
+// A chain of segments on a body: every chain_* function is a method or
+// property.
 // type Chain
 // [body]: the body it is on
 local chain_methods = {}
 local Chain = define_class("Chain", {"Chain"}, chain_methods)
 
-// A joint between two bodies: every joint_* function is a method, and so
-// are those of its kind (revolute_joint_set_motor_speed is
-// joint:set_motor_speed()).
+// A joint between two bodies: every joint_* function is a method or
+// property, and so are those of its kind (revolute_joint_set_motor_speed
+// is joint.motor_speed = s).
 // type Joint
 // [kind]: "distance", "filter", "motor", "mover", "pogo", "prismatic",
 //   "revolute", "weld" or "wheel"
@@ -394,7 +484,7 @@ local func shape_of(w, id){
   local s = w.shapes[key]
   if(s == null){
     s = {id: id, key: key, world: w, meta: Shape.meta}
-    s.body = body_of(w, lib.b2Shape_GetBody(id))
+    set_raw(s, "body", body_of(w, lib.b2Shape_GetBody(id)))
     w.shapes[key] = s
   }
   return s
@@ -559,11 +649,25 @@ func world_methods.destroy(w){
   w.joints = {}
 }
 
+local body_types = {
+  static: "b2_staticBody",
+  kinematic: "b2_kinematicBody",
+  dynamic: "b2_dynamicBody",
+}
+
 // create_body(def?: BodyDef) -> Body
-// A body from a def laid over Box2D's defaults: {type: b2.dynamic_body,
+// A body from a def laid over Box2D's defaults: {type: "dynamic",
 // position: {0, 4}, linear_velocity: {1, 0}} (static, at the origin, when
-// left out).
+// left out); type is "static", "kinematic" or "dynamic", or Box2D's
+// b2.dynamic_body and the like.
 func world_methods.create_body(w, def){
+  if(def != null and type(def.type) == "string"){
+    local c = body_types[def.type]
+    if(c == null){
+      error("box2d.create_body: type is \"static\", \"kinematic\" or \"dynamic\", got ", def.type)
+    }
+    def = {...def, type: C.constants[c]}
+  }
   local id = lib.b2CreateBody(w.id, def_of(def, C.types.b2BodyDef, "box2d.create_body"))
   local b = {id: id, key: store_id(id), world: w, meta: Body.meta}
   w.bodies[b.key] = b
@@ -719,34 +823,34 @@ local func events(ev, t, w){
 // type ContactHitEvent = {shape_a: Shape, shape_b: Shape,
 //   contact_id: ContactId, point: Vec2, normal: Vec2, approach_speed: float}
 
-// get_contact_events() -> {begin_events: {ContactTouchEvent},
+// contact_events() -> {begin_events: {ContactTouchEvent},
 //   end_events: {ContactTouchEvent}, hit_events: {ContactHitEvent}}
 // The contact events of the last step, as lists. A shape reports them when
 // its def has enable_contact_events (the default) and, for hits,
 // enable_hit_events.
-func world_methods.get_contact_events(w){
+func world_methods.contact_events(w){
   return events(lib.b2World_GetContactEvents(w.id), C.types.b2ContactEvents, w)
 }
 
-// get_sensor_events() -> {begin_events: {{sensor_shape: Shape,
+// sensor_events() -> {begin_events: {{sensor_shape: Shape,
 //   visitor_shape: Shape}}, end_events: {{sensor_shape: Shape,
 //   visitor_shape: Shape}}}
 // The sensor events of the last step, as lists.
-func world_methods.get_sensor_events(w){
+func world_methods.sensor_events(w){
   return events(lib.b2World_GetSensorEvents(w.id), C.types.b2SensorEvents, w)
 }
 
-// get_body_events() -> {move_events: {{body: Body, transform: Transform,
+// body_events() -> {move_events: {{body: Body, transform: Transform,
 //   fell_asleep: bool}}}
 // The bodies that moved in the last step, as a list.
-func world_methods.get_body_events(w){
+func world_methods.body_events(w){
   return events(lib.b2World_GetBodyEvents(w.id), C.types.b2BodyEvents, w)
 }
 
-// get_joint_events() -> {joint_events: {{joint: Joint}}}
+// joint_events() -> {joint_events: {{joint: Joint}}}
 // The joint events of the last step (joints past their force or torque
 // threshold), as a list.
-func world_methods.get_joint_events(w){
+func world_methods.joint_events(w){
   return events(lib.b2World_GetJointEvents(w.id), C.types.b2JointEvents, w)
 }
 
@@ -759,10 +863,10 @@ func body_methods.destroy(b){
   if(w.bodies[b.key] == null){
     return
   }
-  for(let local s in values(b:get_shapes())){
+  for(let local s in values(b:shapes())){
     w.shapes[s.key] = null
   }
-  for(let local j in values(b:get_joints())){
+  for(let local j in values(b:joints())){
     w.joints[j.key] = null
   }
   lib.b2DestroyBody(b.id)
@@ -840,19 +944,19 @@ local func contact_data(w, v){
   return wrap_struct(v, C.types.b2ContactData, w)
 }
 
-// get_shapes() -> {Shape}
+// shapes() -> {Shape}
 // The body's shapes.
-body_methods.get_shapes = array_getter(
+body_methods.shapes = array_getter(
   "b2Body_GetShapes", "b2Body_GetShapeCount", "b2ShapeId", shape_of
 )
-// get_joints() -> {Joint}
+// joints() -> {Joint}
 // The joints attached to the body.
-body_methods.get_joints = array_getter(
+body_methods.joints = array_getter(
   "b2Body_GetJoints", "b2Body_GetJointCount", "b2JointId", joint_of
 )
-// get_contact_data() -> {ContactData}
+// contact_data() -> {ContactData}
 // The body's touching contacts, each with shape_a, shape_b and manifold.
-body_methods.get_contact_data = array_getter(
+body_methods.contact_data = array_getter(
   "b2Body_GetContactData", "b2Body_GetContactCapacity", "b2ContactData",
   contact_data,
 )
@@ -862,24 +966,24 @@ body_methods.get_contact_data = array_getter(
 // destroy(update_body_mass?: bool)
 // Takes the shape off its body (and updates the body's mass, unless
 // told not to).
-func shape_methods.destroy(s){
+func shape_methods.destroy(s, update_body_mass){
   local w = s.world
   if(w.shapes[s.key] == null){
     return
   }
-  lib.b2DestroyShape(s.id, true)
+  lib.b2DestroyShape(s.id, update_body_mass != false)
   w.shapes[s.key] = null
 }
 
-// get_contact_data() -> {ContactData}
+// contact_data() -> {ContactData}
 // The shape's touching contacts.
-shape_methods.get_contact_data = array_getter(
+shape_methods.contact_data = array_getter(
   "b2Shape_GetContactData", "b2Shape_GetContactCapacity", "b2ContactData",
   contact_data,
 )
-// get_sensor_data() -> {Shape}
+// sensor_data() -> {Shape}
 // The shapes a sensor shape overlaps.
-shape_methods.get_sensor_data = array_getter(
+shape_methods.sensor_data = array_getter(
   "b2Shape_GetSensorData", "b2Shape_GetSensorCapacity", "b2ShapeId", shape_of
 )
 
@@ -896,9 +1000,9 @@ func chain_methods.destroy(c){
   w.chains[c.key] = null
 }
 
-// get_segments() -> {Shape}
+// segments() -> {Shape}
 // The segment shapes of the chain.
-chain_methods.get_segments = array_getter(
+chain_methods.segments = array_getter(
   "b2Chain_GetSegments", "b2Chain_GetSegmentCount", "b2ShapeId", shape_of
 )
 
@@ -1167,6 +1271,9 @@ b2.version = concat(
 )
 // the declarations, for slang/ffi (with [raw])
 b2.decls = C
+// Every Box2D function and constant under its C name, on ids and structs
+// as C has them, for whoever knows Box2D: b2.c.b2Body_GetPosition(id).
+b2.c = ffi.c_layer(lib, "box2d.c")
 b2.raw = raw
 
 // the free functions of Box2D's headers under their slang names: geometry

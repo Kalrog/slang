@@ -515,9 +515,37 @@ for(let local c_name in values(C.order)){
   emit_generic(generic_doc(f, c_name, name, 0), "m", name, false)
   free_count = free_count + 1
 }
-// the classes: the type's comment block, its methods table, the methods
-// written by hand, then the generic ones
+// the property a generic function is a side of, as init.slang's
+// classes.resolve decides ({name, get?: type, set?: type}, or null), from
+// the class's functions by slang name
+local func property_of(f, name, all){
+  local n = len(f.params) - 1
+  for(let local pre in values({"get_", "is_"})){
+    if(str.starts_with(name, pre) and n == 0){
+      return {name: str.substring(name, len(pre)), get: slang_type(f.ret, f.name)}
+    }
+  }
+  if(n == 1){
+    local t = slang_type(f.params[1].type, f.params[1].name)
+    if(str.starts_with(name, "set_")){
+      return {name: str.substring(name, 4), set: t}
+    }
+    // EnableX(bool) writes x_enabled (read by IsXEnabled)
+    if(str.starts_with(name, "enable_") and all[concat("is_", str.substring(name, 7), "_enabled")]){
+      return {name: concat(str.substring(name, 7), "_enabled"), set: t}
+    }
+  }
+  // Enable() and Disable() write enabled (read by IsEnabled)
+  if(n == 0 and (name == "enable" or name == "disable") and all.is_enabled){
+    return {name: "enabled", set: "bool"}
+  }
+  return null
+}
+
+// the classes: the type's comment block with its properties, its methods
+// table, the methods written by hand, then the generic ones
 local method_count = 0
+local property_count = 0
 for(let local class in values(class_list)){
   line("// ------------------------------------------------------------ ", class.name)
   line("")
@@ -528,6 +556,56 @@ for(let local class in values(class_list)){
     }
   } else {
     line("// type ", class.name)
+  }
+  // the class's functions by slang name, then its properties
+  local all = {}
+  local order = {}
+  for(let local prefix in values(class.prefixes)){
+    local sprefix = concat(snake(prefix), "_")
+    for(let local c_name in values(C.order)){
+      local f = C.functions[c_name]
+      local sname = snake(c_name)
+      if(str.starts_with(sname, sprefix) and method_of(f, class)){
+        local name = str.substring(sname, len(sprefix))
+        if(all[name] == null){
+          all[name] = f
+          append(order, name)
+        }
+      }
+    }
+  }
+  local props = {}
+  local prop_order = {}
+  for(let local name in values(order)){
+    local pr = property_of(all[name], name, all)
+    if(pr != null){
+      local entry = props[pr.name]
+      if(entry == null){
+        entry = {}
+        props[pr.name] = entry
+        append(prop_order, pr.name)
+      }
+      entry.get = entry.get or pr.get
+      entry.set = entry.set or pr.set
+    }
+  }
+  local block_text = ""
+  if(block != null){
+    block_text = str.join(block.lines, "\n")
+  }
+  for(let local pname in values(prop_order)){
+    local pr = props[pname]
+    if(str.contains(block_text, concat("[", pname, "]"))){
+      continue
+    }
+    local note = ""
+    if(pr.set == null){
+      note = " (read-only)"
+    } else if(pr.get == null){
+      note = " (write-only)"
+    }
+    comment(concat("[", pname, "]: ", pr.get or pr.set, note), true)
+    property_count = property_count + 1
   }
   line("local ", class.table, " = {}")
   line("")
@@ -553,7 +631,7 @@ for(let local class in values(class_list)){
         continue
       }
       local name = str.substring(sname, len(sprefix))
-      if(own[name]){
+      if(own[name] or property_of(f, name, all) != null){
         continue
       }
       own[name] = true
@@ -566,4 +644,5 @@ line("return m")
 os.write_file("stubs/init.slang", concat(str.join(out, "\n"), "\n"))
 print("stubs/init.slang: ", string(len(functions)), " functions written by hand, ",
   string(free_count), " free functions, ", string(method_count),
-  " generic methods on ", string(len(class_list)), " classes\n")
+  " generic methods and ", string(property_count), " properties on ",
+  string(len(class_list)), " classes\n")

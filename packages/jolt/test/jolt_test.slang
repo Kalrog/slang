@@ -38,18 +38,18 @@ t.group("jolt: worlds and bodies"){
   t.test("a ball falls, rests on the floor and goes to sleep"){
     local s = scene()
     assert(type(s.world) == "jolt.World" and type(s.ball) == "jolt.Body")
-    assert(s.ball:is_active())
+    assert(s.ball.active)
     run(s.world, 240)
-    local p = s.ball:get_position()
+    local p = s.ball.position
     assert(near(p.x, 0) and near(p.y, 0.5, 0.03) and near(p.z, 0), p)
-    assert(not s.ball:is_active())
-    assert(len(s.world:get_bodies()) == 2)
-    assert(len(s.world:get_active_bodies()) == 0)
+    assert(not s.ball.active)
+    assert(len(s.world:bodies()) == 2)
+    assert(len(s.world:active_bodies()) == 0)
     s.world:destroy()
   }
   t.test("several results come back as a table by name"){
     local s = scene()
-    local both = s.ball:get_position_and_rotation()
+    local both = s.ball.position_and_rotation
     assert(near(both.position.y, 3) and near(both.rotation.w, 1))
     s.world:destroy()
   }
@@ -64,11 +64,11 @@ t.group("jolt: worlds and bodies"){
       gravity_factor: 0,
       linear_damping: 0,
     })
-    assert(near(body:get_linear_velocity().x, 1))
-    assert(near(body:get_friction(), 0.1))
+    assert(near(body.linear_velocity.x, 1))
+    assert(near(body.friction, 0.1))
     run(s.world, 60)
     // no gravity: it moved one meter along x only
-    local p = body:get_position()
+    local p = body.position
     assert(near(p.x, 6, 0.02) and near(p.y, 5, 0.001), p)
     local r = pcall(s.world.create_body, s.world, {
       shape: jolt.sphere(1),
@@ -84,13 +84,13 @@ t.group("jolt: worlds and bodies"){
       shape: jolt.box({0.5, 0.5, 0.5}), position: {3, 1, 0}, motion: "dynamic",
       mass: 100,
     })
-    assert(near(1 / heavy:get_motion_properties():get_inverse_mass_unchecked(), 100))
-    assert(heavy:get_shape().kind == "box")
-    assert(heavy:get_shape():get_half_extent().x == 0.5)
+    assert(near(1 / heavy.motion_properties.inverse_mass_unchecked, 100))
+    assert(heavy.shape.kind == "box")
+    assert(heavy.shape.half_extent.x == 0.5)
     assert(s.world:get_body(heavy.id) == heavy)
-    assert(heavy:get_body_type() == jolt.body_type_rigid and heavy:is_dynamic())
+    assert(heavy.body_type == jolt.body_type_rigid and heavy.dynamic)
     heavy:destroy()
-    assert(len(s.world:get_bodies()) == 2)
+    assert(len(s.world:bodies()) == 2)
     s.world:destroy()
   }
   t.test("a destroyed world refuses"){
@@ -104,27 +104,27 @@ t.group("jolt: worlds and bodies"){
 t.group("jolt: shapes"){
   t.test("every kind, with density on the convex ones"){
     local box = jolt.box({1, 2, 3}, {convex_radius: 0.01, density: 500})
-    assert(near(box:get_convex_radius(), 0.01) and near(box:get_density(), 500))
-    assert(near(box:get_volume(), 48, 0.5))
-    assert(jolt.sphere(2):get_radius() == 2)
-    assert(jolt.capsule(1, 0.5):get_half_height_of_cylinder() == 1)
-    assert(jolt.cylinder(1, 0.5, {convex_radius: 0.02}):get_half_height() == 1)
-    assert(jolt.tapered_capsule(1, 0.5, 0.3):get_top_radius() == 0.5)
-    assert(near(jolt.tapered_cylinder(1, 0.5, 0.3):get_bottom_radius(), 0.3))
+    assert(near(box.convex_radius, 0.01) and near(box.density, 500))
+    assert(near(box.volume, 48, 0.5))
+    assert(jolt.sphere(2).radius == 2)
+    assert(jolt.capsule(1, 0.5).half_height_of_cylinder == 1)
+    assert(jolt.cylinder(1, 0.5, {convex_radius: 0.02}).half_height == 1)
+    assert(jolt.tapered_capsule(1, 0.5, 0.3).top_radius == 0.5)
+    assert(near(jolt.tapered_cylinder(1, 0.5, 0.3).bottom_radius, 0.3))
     assert(jolt.triangle({0, 0, 0}, {1, 0, 0}, {0, 1, 0}).kind == "triangle")
     local hull = jolt.convex_hull({
       {0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}, {1, 1, 1}
     })
-    assert(hull:get_num_points() == 5)
+    assert(hull.num_points == 5)
     local mesh = jolt.mesh({{v1: {0, 0, 0}, v2: {1, 0, 0}, v3: {0, 0, 1}}})
     assert(mesh.kind == "mesh" and mesh:must_be_static())
     local field = jolt.height_field({
       0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0
     }, {size: 4, scale: {2, 1, 2}})
-    assert(field:get_sample_count() == 4 and near(field:get_max_height_value(), 1))
-    assert(jolt.scaled(box, {2, 2, 2}):get_scale().x == 2)
-    assert(jolt.rotated_translated(box, {1, 0, 0}, {0, 0, 0, 1}):get_position().x == 1)
-    assert(jolt.offset_center_of_mass(box, {0, -1, 0}):get_offset().y == -1)
+    assert(field.sample_count == 4 and near(field.max_height_value, 1))
+    assert(jolt.scaled(box, {2, 2, 2}).scale.x == 2)
+    assert(jolt.rotated_translated(box, {1, 0, 0}, {0, 0, 0, 1}).position.x == 1)
+    assert(jolt.offset_center_of_mass(box, {0, -1, 0}).offset.y == -1)
     assert(jolt.empty().kind == "empty")
   }
   t.test("a compound of shapes"){
@@ -132,13 +132,13 @@ t.group("jolt: shapes"){
       {shape: jolt.box({1, 0.5, 1})},
       {shape: jolt.box({0.2, 0.2, 0.2}), position: {0, -0.7, 0}},
     })
-    assert(c.kind == "static_compound" and c:get_num_sub_shapes() == 2)
+    assert(c.kind == "static_compound" and c.num_sub_shapes == 2)
     local m = jolt.mutable_compound({{shape: jolt.sphere(1)}})
     m:add_shape({0, 2, 0}, {0, 0, 0, 1}, jolt.sphere(0.5), 0, 1)
-    assert(m:get_num_sub_shapes() == 2)
+    assert(m.num_sub_shapes == 2)
     local s = scene()
     local body = s.world:create_body({shape: c, position: {0, 2, 0}, motion: "dynamic"})
-    assert(body:get_shape() == c)
+    assert(body.shape == c)
     s.world:destroy()
   }
 }
@@ -185,20 +185,20 @@ t.group("jolt: constraints"){
       limits_min: -0.5, limits_max: 0.5,
     })
     assert(type(hinge) == "jolt.Constraint" and hinge.kind == "hinge")
-    assert(hinge:has_limits() and near(hinge:get_limits_max(), 0.5))
-    assert(hinge:get_body1() == a and hinge:get_body2() == b)
-    assert(s.world:get_num_constraints() == 1)
+    assert(hinge.limits and near(hinge.limits_max, 0.5))
+    assert(hinge.body1 == a and hinge.body2 == b)
+    assert(s.world.num_constraints == 1)
     local rope = s.world:create_constraint({
       type: "distance", body1: a,
       point1: {0, 5, 0}, point2: {0, 8, 0}, min_distance: 0, max_distance: 3,
     })
-    assert(near(rope:get_max_distance(), 3))
+    assert(near(rope.max_distance, 3))
     run(s.world, 120)
     // hanging from the rope: a stayed up, and b with it
-    assert(a:get_position().y > 4 and b:get_position().y > 3, b:get_position())
+    assert(a.position.y > 4 and b.position.y > 3, b.position)
     hinge:destroy()
     rope:destroy()
-    assert(s.world:get_num_constraints() == 0)
+    assert(s.world.num_constraints == 0)
     local r = pcall(s.world.create_constraint, s.world, {type: "rope", body1: a})
     assert(r[0] == "err")
     s.world:destroy()
@@ -233,16 +233,16 @@ t.group("jolt: vehicles"){
       anti_roll_bars: {{left_wheel: 0, right_wheel: 1, stiffness: 1000}},
       max_pitch_roll_angle: 1.2,
     })
-    assert(type(car) == "jolt.Vehicle" and car:get_wheels_count() == 4)
-    assert(car.body == chassis and car:get_vehicle_body() == chassis)
+    assert(type(car) == "jolt.Vehicle" and car.wheels_count == 4)
+    assert(car.body == chassis and car.vehicle_body == chassis)
     car:set_driver_input(1, 0, 0, 0)
     run(s.world, 120)
-    local p = chassis:get_position()
+    local p = chassis.position
     assert(p.z > 3, p)
-    assert(car.wheels[2]:get_angular_velocity() > 1)
-    assert(near(car:get_wheel(0):get_settings():get_radius(), 0.4))
-    assert(car.controller:get_engine():get_current_rpm() > 800)
-    assert(car.controller:get_transmission():get_current_gear() >= 1)
+    assert(car.wheels[2].angular_velocity > 1)
+    assert(near(car:get_wheel(0).settings.radius, 0.4))
+    assert(car.controller.engine.current_rpm > 800)
+    assert(car.controller.transmission.current_gear >= 1)
     local m = jolt.mat4_to_matrix(car:get_wheel_world_transform(0))
     assert(near(m.m13, p.y - 0.3, 0.5))
     car:destroy()
@@ -260,17 +260,17 @@ t.group("jolt: characters"){
       s.world:step(1 / 60)
       walker:post_simulation(0.05)
     }
-    assert(walker:get_ground_state() == jolt.ground_state_on_ground)
-    assert(near(walker:get_position().y, 0.8, 0.05))
+    assert(walker.ground_state == jolt.ground_state_on_ground)
+    assert(near(walker.position.y, 0.8, 0.05))
     local ghost = s.world:create_character_virtual({
       shape: jolt.capsule(0.5, 0.3), position: {-8, 1, 0},
     })
     for(local i = 0; i < 60; i = i + 1){
-      ghost:set_linear_velocity({1, -1, 0})
+      ghost.linear_velocity = {1, -1, 0}
       ghost:update(1 / 60)
       s.world:step(1 / 60)
     }
-    local p = ghost:get_position()
+    local p = ghost.position
     assert(p.x > -7.5 and near(p.y, 0.8, 0.05), p)
     walker:destroy()
     ghost:destroy()
@@ -284,7 +284,7 @@ t.group("jolt: contact events (callbacks from Jolt's threads)"){
     local added = {}
     for(local i = 0; i < 120; i = i + 1){
       s.world:step(1 / 60)
-      for(let local c in values(s.world:get_contact_events().added)){
+      for(let local c in values(s.world:contact_events().added)){
         append(added, c)
       }
     }
@@ -320,19 +320,19 @@ t.group("jolt: contact events (callbacks from Jolt's threads)"){
     local persisted = 0
     for(local i = 0; i < 90; i = i + 1){
       world:step(1 / 60)
-      local ev = world:get_contact_events()
+      local ev = world:contact_events()
       added = added + len(ev.added)
       persisted = persisted + len(ev.persisted)
     }
     assert(added >= 40 and persisted > added, added)
     // thrown apart: their contacts end
     for(local i = 0; i < len(bodies); i = i + 1){
-      bodies[i]:set_linear_velocity({(i % 8) - 4, 10 + i, 0})
+      bodies[i].linear_velocity = {(i % 8) - 4, 10 + i, 0}
     }
     local removed = 0
     for(local i = 0; i < 10; i = i + 1){
       world:step(1 / 60)
-      removed = removed + len(world:get_contact_events().removed)
+      removed = removed + len(world:contact_events().removed)
     }
     assert(removed >= 40, removed)
     world:destroy()
@@ -342,7 +342,7 @@ t.group("jolt: contact events (callbacks from Jolt's threads)"){
 t.group("jolt: helpers and the raw layer"){
   t.test("a body's transform as sixteen fields; the math namespaces"){
     local s = scene()
-    local m = jolt.mat4_to_matrix(s.ball:get_world_transform())
+    local m = jolt.mat4_to_matrix(s.ball.world_transform)
     assert(m.m0 == 1 and m.m5 == 1 and m.m10 == 1 and near(m.m13, 3))
     local q = jolt.quat.multiply({0, 0, 0, 1}, {0, 0.707, 0, 0.707})
     assert(near(q.y, 0.707))

@@ -41,7 +41,7 @@ local func moved(s){
   local n = 0
   for(let local e in values(s.parts)){
     if(not e.gone){
-      local d = vec.distance(e.body:get_position(), e.start)
+      local d = vec.distance(e.body.position, e.start)
       if(d > 0.15){
         n = n + 1
       }
@@ -125,7 +125,7 @@ t.group("siege: wrecking"){
     run(w, 120)
     assert(barrel.gone, "the barrel is still there")
     assert(w.score >= 1000, concat("score ", string(w.score)))
-    local p = crate.body:get_position()
+    local p = crate.body.position
     assert(vec.distance(p, crate.start) > 0.5, "the crate did not move")
     w:destroy()
   }

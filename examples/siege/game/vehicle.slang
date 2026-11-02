@@ -139,20 +139,20 @@ func Vehicle.blast(v, pos, radius, strength){
 
 // read(v): the chassis' and wheels' transforms after a step
 func Vehicle.read(v){
-  local jm = v.body:get_world_transform()
+  local jm = v.body.world_transform
   v.matrix = vec.jolt_matrix(jm, {x: 1, y: 1, z: 1})
   v.pos = {x: v.matrix.m12, y: v.matrix.m13, z: v.matrix.m14}
   local forward = vec.transform_direction(v.matrix, {x: 0, y: 0, z: 1})
   v.yaw = math.atan2(forward.x, forward.z)
   v.up = vec.transform_direction(v.matrix, {x: 0, y: 1, z: 0})
-  local vel = v.body:get_linear_velocity()
+  local vel = v.body.linear_velocity
   v.speed = vec.dot(vel, forward)
   for(local i = 0; i < 4; i = i + 1){
     v.wheel_matrices[i] = vec.jolt_matrix(
       v.vehicle:get_wheel_world_transform(i), {x: 1, y: 1, z: 1}
     )
   }
-  v.wheel_speed = v.vehicle:get_wheel(2):get_angular_velocity()
+  v.wheel_speed = v.vehicle:get_wheel(2).angular_velocity
 }
 
 // What the player does this frame.

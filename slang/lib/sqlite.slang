@@ -222,13 +222,47 @@ func db_get.open(db){
 
 local CACHE_SIZE = 64
 
-// open(path: string) -> Database
+// How [open] sets a database file up.
+// type OpenOptions = {journal?: string, synchronous?: string}
+// [journal]: SQLite's journal_mode, "wal" by default: readers do not wait
+// for a writer, and a commit appends to the log instead of rewriting pages
+// ("delete" is SQLite's own default)
+// [synchronous]: when SQLite waits for the disk, "normal" by default: with
+// WAL a commit survives a crash of the program, and only a power loss may
+// undo the last ones ("full" waits at every commit, as SQLite does by
+// default)
+
+local allowed = {
+  journal: {delete: true, truncate: true, persist: true, memory: true,
+    wal: true, off: true},
+  synchronous: {off: true, normal: true, full: true, extra: true},
+}
+
+// (the values go into a pragma, so only SQLite's own words are taken)
+local func check_option(name, v){
+  if(type(v) != "string" or allowed[name][v] != true){
+    error("sqlite.open: unknown ", name, " ", string(v))
+  }
+}
+
+// open(path: string, opts?: OpenOptions) -> Database
 // Opens a database file, created when missing; ":memory:" opens one in
-// memory. Raises when it cannot be opened.
-func sqlite.open(path){
-  return {
+// memory (the options are for files). Raises when it cannot be opened.
+func sqlite.open(path, opts){
+  local db = {
     @meta: db_meta, handle: native.open(path), path: path, cache: {}, cached: 0
   }
+  if(path != ":memory:" and path != ""){
+    local journal = (opts and opts.journal) or "wal"
+    local synchronous = (opts and opts.synchronous) or "normal"
+    check_option("journal", journal)
+    check_option("synchronous", synchronous)
+    db:exec(concat(
+      "pragma journal_mode = ", journal, "; pragma synchronous = ",
+      synchronous, ";"
+    ))
+  }
+  return db
 }
 
 local func message_of(e){

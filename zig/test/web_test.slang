@@ -174,6 +174,26 @@ t.group("web apps"){
       )
     })
   }
+  t.test("a small file is served from memory until it changes"){
+    local app = web.app()
+    app:static("/s", scratch)
+    local c = web.test(app)
+    local path = concat(scratch, "/cached.txt")
+    os.write_file(path, "first")
+    run(func(){
+      assert(a.await(c:get("/s/cached.txt")).body == "first")
+      assert(a.await(c:get("/s/cached.txt")).body == "first")
+      // another size: read again
+      os.write_file(path, "second version")
+      assert(a.await(c:get("/s/cached.txt")).body == "second version")
+      // the same size, another modification time: read again too
+      await a.sleep(20)
+      os.write_file(path, "third  version")
+      local r = a.await(c:get("/s/cached.txt"))
+      assert(r.body == "third  version", r.body)
+      assert(r:header("content-length") == "14")
+    })
+  }
   t.test("streamed request bodies reach routes that ask"){
     local app = web.app()
     app:post("/up", async func(req){

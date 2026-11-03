@@ -16,6 +16,24 @@ local func fresh(){
 }
 
 t.group("sqlite binding"){
+  t.test("a database file is opened in WAL mode unless asked otherwise"){
+    local os = require("slang/os")
+    local dir = concat(os.getenv("TMPDIR") or "/tmp/", "/slang-sqlite-open")
+    os.mkdir_all(dir)
+    local path = concat(dir, "/a.db")
+    local db = sqlite.open(path)
+    assert(db:one("pragma journal_mode")["journal_mode"] == "wal")
+    // 1: normal
+    assert(db:one("pragma synchronous")["synchronous"] == 1)
+    db:close()
+    db = sqlite.open(path, {journal: "delete", synchronous: "full"})
+    assert(db:one("pragma journal_mode")["journal_mode"] == "delete")
+    assert(db:one("pragma synchronous")["synchronous"] == 2)
+    db:close()
+    local r = pcall(sqlite.open, path, {journal: "wal; drop table x"})
+    assert(r[0] == "err" and str.contains(r[1].message, "unknown journal"))
+    assert(sqlite.open(":memory:"):one("pragma journal_mode")["journal_mode"] == "memory")
+  }
   t.test("statements bind, step and read rows"){
     local db = native.open(":memory:")
     db:exec(

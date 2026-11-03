@@ -594,12 +594,48 @@ local func parse_range(header, size){
 // [type]: the Content-Type; by default from the extension ([mime_type])
 // [download]: a file name: Content-Disposition attachment
 
+// Small files are kept in memory once read, by path, and served from there
+// while the file's size and modification time are what they were: a
+// request then costs one stat instead of opening, reading and closing the
+// file. Files over SMALL_FILE bytes are streamed every time, and the cache
+// stops taking files once it holds CACHE_BYTES.
+local SMALL_FILE = 64 * 1024
+local CACHE_BYTES = 8 * 1024 * 1024
+local file_cache = {}
+local file_cache_bytes = 0
+
+// the contents of a small file as st describes it, read once (null for a
+// file too large to keep)
+local func small_file(path, st){
+  if(st.size > SMALL_FILE){
+    return null
+  }
+  local c = file_cache[path]
+  if(c != null and c.size == st.size and c.mtime == st.mtime){
+    return c.data
+  }
+  local data = async.await(async.fs.read_file(path))
+  // (changed while it was read: served, not kept)
+  if(len(data) != st.size){
+    return data
+  }
+  if(c != null){
+    file_cache_bytes = file_cache_bytes - c.size
+    file_cache[path] = null
+  }
+  if(file_cache_bytes + st.size <= CACHE_BYTES){
+    file_cache[path] = {size: st.size, mtime: st.mtime, data: data}
+    file_cache_bytes = file_cache_bytes + st.size
+  }
+  return data
+}
+
 // file(req: Request, path: string, options?: FileOptions) -> async.Future
 // A Future of a response sending the file: 404 when it is not a file;
 // ETag and Last-Modified, 304 for conditional requests, a single byte
 // Range (206, 416). The body is streamed from disk (or the bundle of a
 // built program; a file bundled gzipped goes as it is to a client that
-// takes gzip).
+// takes gzip); a small file is kept in memory once read (see SMALL_FILE).
 //   app:get("/report", func(req){ return web.file(req, "out/report.pdf") })
 func web.file(req, path, options){
   options = options or {}
@@ -686,6 +722,11 @@ func web.file(req, path, options){
       headers["Content-Encoding"] = "gzip"
       headers["Content-Length"] = string(len(stored.data))
       return {status: 200, headers: headers, compress: false, body: stored.data}
+    }
+    local data = small_file(path, st)
+    if(data != null){
+      headers["Content-Length"] = string(len(data))
+      return {status: 200, headers: headers, body: data}
     }
     headers["Content-Length"] = string(st.size)
     return {status: 200, headers: headers, body: async.fs.read_stream(path)}

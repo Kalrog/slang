@@ -211,12 +211,9 @@ func asm.free_local(self, lv){
   if(lv.debug != null and lv.debug[3] < 0){
     lv.debug[3] = len(self.instructions)
   }
-  if(lv.previous != null){
-    self.locals[lv.name] = lv.previous
-  } else {
-    self.locals[lv.name] = null
-    self:free_register()
-  }
+  // a shadowed local (lv.previous) is visible again
+  self.locals[lv.name] = lv.previous
+  self:free_register()
 }
 
 func asm.enter_scope(self, breakable){
@@ -228,15 +225,18 @@ func asm.enter_scope(self, breakable){
 }
 
 func asm.leave_scope(self){
-  local to_free = {}
+  // every local of the scope, also those a later one of the same name
+  // shadows within it, innermost first
+  local names = {}
   for(let local name in keys(self.locals)){
-    local lv = self.locals[name]
-    if(lv.scope == self.scope){
-      append(to_free, lv)
-    }
+    append(names, name)
   }
-  for(let local lv in values(to_free)){
-    self:free_local(lv)
+  for(let local name in values(names)){
+    local lv = self.locals[name]
+    for(lv != null and lv.scope == self.scope){
+      self:free_local(lv)
+      lv = self.locals[name]
+    }
   }
   local leaving = remove(self.scopes, len(self.scopes) - 1)
   // a loop may say where a break lands (a for-in: on the pop of its iterator)
@@ -1204,10 +1204,11 @@ func visitors.Declaration(g, node){
     local name = left.value
     local existing = g.asm:get_local(name)
     if(node.is_local or existing != null){
-      if(node.is_local and existing != null){
+      // a local of an enclosing scope may be shadowed, one of this scope not
+      if(node.is_local and existing != null and existing.scope == g.asm.scope){
         error("Variable already declared: ", name, " ", position(left.token))
       }
-      if(existing == null){
+      if(node.is_local){
         g.asm:create_local(name)
         record_local(g, name, left.token, "local", node.right, node.token)
       } else {
@@ -1280,6 +1281,19 @@ local func copy_map(t){
   return out
 }
 
+local visit_statements = null
+
+// the body of an if, a loop, a function, a try or a defer, which opens the
+// scope itself: a loop body shares it with the loop variables, so that a
+// closure made in one iteration keeps that iteration's values
+local func visit_body(g, node){
+  if(node.type == "Block"){
+    visit_statements(g, node.statements, 0)
+  } else {
+    g:visit(node)
+  }
+}
+
 // emits a defer's cleanup code, compiled with the names visible at the
 // defer (a return in a nested block may shadow one of them)
 local func emit_cleanup(g, cleanup){
@@ -1290,7 +1304,7 @@ local func emit_cleanup(g, cleanup){
   g.defer_floors = floors
   append(floors, len(g.asm.scopes))
   g.asm:enter_scope(false)
-  g:visit(cleanup.body)
+  visit_body(g, cleanup.body)
   g.asm:leave_scope()
   remove(floors, len(floors) - 1)
   g.asm.locals = saved
@@ -1319,8 +1333,6 @@ local func handler_local(g){
   g.asm:emit_move(lv.register)
   return lv
 }
-
-local visit_statements = null
 
 // defer: the rest of the block (from index `from`) runs as a protected
 // region; the cleanup is emitted at its normal end, in its error handler
@@ -1378,8 +1390,11 @@ visit_statements = func(g, statements, from){
   }
 }
 
+// a block is a scope of its own: its locals end with it
 func visitors.Block(g, node){
+  g.asm:enter_scope(false)
   visit_statements(g, node.statements, 0)
+  g.asm:leave_scope()
 }
 
 // a defer that is a block's only or last statement guards nothing; one
@@ -1395,7 +1410,7 @@ func visitors.Try(g, node){
   local begin = g.asm:emit_try_begin(first)
   g.asm:enter_scope(false)
   g.asm.scopes[len(g.asm.scopes) - 1].handler = true
-  g:visit(node.body)
+  visit_body(g, node.body)
   g.asm:leave_scope()
   g.asm:emit_try_end()
   local done = g.asm:emit_jump()
@@ -1415,7 +1430,7 @@ func visitors.Try(g, node){
       )
     }
   }
-  g:visit(chain)
+  visit_body(g, chain)
   g.asm:leave_scope()
   g.asm:patch_jump(done)
 }
@@ -1649,13 +1664,13 @@ func visitors.If(g, node){
   g.asm:emit_test(false)
   local else_jump = g.asm:emit_jump()
   g.asm:enter_scope(false)
-  g:visit(node.thenBranch)
+  visit_body(g, node.thenBranch)
   g.asm:leave_scope()
   if(node.elseBranch != null){
     local skip = g.asm:emit_jump()
     g.asm:patch_jump(else_jump)
     g.asm:enter_scope(false)
-    g:visit(node.elseBranch)
+    visit_body(g, node.elseBranch)
     g.asm:leave_scope()
     g.asm:patch_jump(skip)
   } else {
@@ -1707,7 +1722,7 @@ func visitors.Function(g, node){
   }
   local outer_function = g.record_function
   g.record_function = node
-  g:visit(node.body)
+  visit_body(g, node.body)
   g.record_function = outer_function
   g.asm:leave_scope()
   g.asm:emit_load_constant(null)
@@ -1750,7 +1765,7 @@ func visitors.For(g, node){
   g:visit(node.condition)
   g.asm:emit_test(false)
   local loop_end = g.asm:emit_jump()
-  g:visit(node.body)
+  visit_body(g, node.body)
   // continue goes to the update
   for(let local jump in values(scope.continue_jumps)){
     g.asm:patch_jump(jump)
@@ -1811,7 +1826,7 @@ func visitors.ForIn(g, node){
   g:visit(node.pattern)
   g.asm:end_pattern()
   g.loop_values = null
-  g:visit(node.body)
+  visit_body(g, node.body)
   // continue fetches the next value
   for(let local jump in values(scope.continue_jumps)){
     g.asm:patch_jump(jump, loop_start)
@@ -2083,7 +2098,7 @@ func codegen.generate(node, origin, options){
   local parent = asm.new(null, origin or "string")
   parent:create_local("_ENV")
   g.asm = asm.new(parent)
-  g:visit(node)
+  visit_body(g, node)
   g.asm:emit_load_constant(null)
   g.asm:emit_return()
   return g.asm:assemble(fused)

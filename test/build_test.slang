@@ -66,7 +66,7 @@ write("app/main.slang", str.join({
   "print(os.read_file(\"words.txt\"))",
   "print(len(os.read_file(\"static/app.css\")), \" \", os.is_dir(\"static\"), \" \", str.join(os.list_dir(\"static\"), \",\"), \"\\n\")",
   "print(bundle.active(), \" \", bundle.stat(\"static/app.css\").encoding, \" \", os.exists(\"nothing\"), \"\\n\")",
-  "if(false){ require(concat(\"no\", \"where\")) }",
+  "if(len(args()) > 99){ require(concat(\"no\", \"where\")) }",
   "",
 }, "\n"))
 

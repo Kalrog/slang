@@ -83,12 +83,12 @@ local runtime_block = +{block:
     }
     return out
   }
+  return __def
 }
+// a block is a scope of its own, so the runtime is the whole body of the
+// function that builds it
 local runtime_expr = +{
-  (func(){
-    -{runtime_block}
-    return __def
-  })()
+  (-{ast.node("Function", {params: {}, body: runtime_block}, null)})()
 }
 
 // the unit's __def local, declared once per unit

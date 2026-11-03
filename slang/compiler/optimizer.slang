@@ -6,33 +6,62 @@
 // Operators on literals are computed when the result is certain to be the
 // run-time one: arithmetic and comparisons on numbers, + on strings,
 // string * int, bitwise operators on integers, not, - and ~ of literals.
-// Division and modulo by zero and negative shifts are left to run time.
+// Division and modulo by zero, negative shifts, non-finite doubles and
+// strings longer than MAX_STRING are left to run time. `and` and `or` with
+// a literal left side become one of their operands, an if (statement or
+// expression) with a literal condition becomes the branch it takes, and the
+// statements after a return, break, continue or throw are dropped.
 local ast = require("slang/ast")
 
 local optimizer = {}
 local visitors = {}
 
-local func visit(node){
-  local f = visitors[node.type]
-  if(f == null){
+// the longest string a fold may produce; longer ones are built at run time
+// instead of being stored in the compiled code
+local MAX_STRING = 4096
+
+local visit = null
+
+// the node itself when none of its children changed, otherwise a copy with
+// the visited children (the fields in ast.specs; quoted code is data and is
+// not looked into)
+local func visit_children(node){
+  local spec = ast.specs[node.type]
+  if(spec == null or node.type == "Quote" or node.type == "Unquote"){
     return node
   }
+  local fields = {}
+  local changed = false
+  for(let local field in values(spec)){
+    local name = field[0]
+    local child = node[name]
+    if(child != null and field[1] == "list"){
+      local out = {}
+      for(let local item in values(child)){
+        local v = visit(item)
+        changed = changed or v != item
+        append(out, v)
+      }
+      child = out
+    } else if(child != null and field[1] != "value"){
+      local v = visit(child)
+      changed = changed or v != child
+      child = v
+    }
+    fields[name] = child
+  }
+  if(not changed){
+    return node
+  }
+  return ast.node(node.type, fields, node.token)
+}
+
+visit = func(node){
+  local f = visitors[node.type]
+  if(f == null){
+    return visit_children(node)
+  }
   return f(node)
-}
-
-local func maybe(node){
-  if(node == null){
-    return null
-  }
-  return visit(node)
-}
-
-local func visit_list(list){
-  local out = {}
-  for(let local item in values(list)){
-    append(out, visit(item))
-  }
-  return out
 }
 
 local func value_of(node){
@@ -54,6 +83,19 @@ local func is_number(v){
   return t == "int" or t == "double"
 }
 
+// the literal for a folded value, or null when it is better left to run
+// time: inf and nan have no literal, a long string would bloat the code
+local func literal(token, v){
+  if(type(v) == "double" and v - v != 0){
+    return null
+  }
+  if(type(v) == "string" and len(v) > MAX_STRING){
+    return null
+  }
+  return ast.literal(token, v)
+}
+
+// the folded value of op on two literals, or null for no fold
 local func fold_binop(node, left, right){
   local a = value_of(left)
   local b = value_of(right)
@@ -62,186 +104,104 @@ local func fold_binop(node, left, right){
   local strings = type(a) == "string" and type(b) == "string"
   local token = node.token
   if(op == "+"){
-    if(numbers or strings){
-      return ast.literal(token, a + b)
+    if(numbers or (strings and len(a) + len(b) <= MAX_STRING)){
+      return literal(token, a + b)
     }
   } else if(op == "-"){
     if(numbers){
-      return ast.literal(token, a - b)
+      return literal(token, a - b)
     }
   } else if(op == "*"){
-    if(numbers or (type(a) == "string" and type(b) == "int")){
-      return ast.literal(token, a * b)
+    if(numbers){
+      return literal(token, a * b)
+    }
+    if(type(a) == "string" and type(b) == "int" and
+      (b <= 0 or len(a) <= MAX_STRING / b)){
+      return literal(token, a * b)
     }
   } else if(op == "/"){
     if(numbers and b != 0){
-      return ast.literal(token, a / b)
+      return literal(token, a / b)
     }
   } else if(op == "%"){
     if(numbers and b != 0){
-      return ast.literal(token, a % b)
+      return literal(token, a % b)
     }
   } else if(op == "=="){
-    return ast.literal(token, a == b)
+    return literal(token, a == b)
   } else if(op == "!="){
-    return ast.literal(token, a != b)
+    return literal(token, a != b)
   } else if(op == "<"){
     if(numbers){
-      return ast.literal(token, a < b)
+      return literal(token, a < b)
     }
   } else if(op == "<="){
     if(numbers){
-      return ast.literal(token, a <= b)
+      return literal(token, a <= b)
     }
   } else if(op == ">"){
     if(numbers){
-      return ast.literal(token, a > b)
+      return literal(token, a > b)
     }
   } else if(op == ">="){
     if(numbers){
-      return ast.literal(token, a >= b)
+      return literal(token, a >= b)
     }
   } else if(type(a) == "int" and type(b) == "int"){
     // bitwise operators on integers (the compiler runs on the same VM, so
     // folding gives exactly the run-time result; a negative shift amount is
     // a run-time error and is left alone)
     if(op == "&"){
-      return ast.literal(token, a & b)
+      return literal(token, a & b)
     } else if(op == "|"){
-      return ast.literal(token, a | b)
+      return literal(token, a | b)
     } else if(op == "~"){
-      return ast.literal(token, a ~ b)
+      return literal(token, a ~ b)
     } else if(op == "<<" and b >= 0){
-      return ast.literal(token, a << b)
+      return literal(token, a << b)
     } else if(op == ">>" and b >= 0){
-      return ast.literal(token, a >> b)
+      return literal(token, a >> b)
     }
   }
-  return ast.node("BinOp", {left: left, op: op, right: right}, token)
+  return null
 }
 
-func visitors.Assignment(n){
-  return ast.node("Assignment", {left: n.left, right: visit(n.right)}, n.token)
+// whether a statement ends the code after it in its block
+local func is_jump(node){
+  local t = node.type
+  return t == "Return" or t == "Break" or t == "Continue" or t == "Throw"
 }
 
 func visitors.BinOp(n){
   local left = visit(n.left)
   local right = visit(n.right)
-  if(ast.is_literal(left) and ast.is_literal(right)){
-    return fold_binop(n, left, right)
+  if(ast.is_literal(left)){
+    // `and` and `or` give one of their operands; which one only depends on
+    // whether the left one is truthy (anything but null and false)
+    local truthy = value_of(left) != null and value_of(left) != false
+    if(n.op == "and"){
+      if(truthy){
+        return right
+      }
+      return left
+    }
+    if(n.op == "or"){
+      if(truthy){
+        return left
+      }
+      return right
+    }
+    if(ast.is_literal(right)){
+      local folded = fold_binop(n, left, right)
+      if(folded != null){
+        return folded
+      }
+    }
+  }
+  if(left == n.left and right == n.right){
+    return n
   }
   return ast.node("BinOp", {left: left, op: n.op, right: right}, n.token)
-}
-
-func visitors.Block(n){
-  return ast.node("Block", {statements: visit_list(n.statements)}, n.token)
-}
-
-func visitors.Field(n){
-  return ast.node("Field", {key: maybe(n.key), value: visit(n.value)}, n.token)
-}
-
-func visitors.MetaField(n){
-  return ast.node("MetaField", {value: visit(n.value)}, n.token)
-}
-
-func visitors.Meta(n){
-  return ast.node("Meta", {receiver: visit(n.receiver)}, n.token)
-}
-
-func visitors.For(n){
-  return ast.node(
-    "For",
-    {
-      init: maybe(n.init), condition: visit(n.condition),
-      update: maybe(n.update), body: visit(n.body), label: n.label
-    }, n.token
-  )
-}
-
-func visitors.Call(n){
-  return ast.node(
-    "Call", {function: visit(n.function), args: visit_list(n.args)}, n.token
-  )
-}
-
-func visitors.Invoke(n){
-  return ast.node(
-    "Invoke",
-    {receiver: visit(n.receiver), name: n.name, args: visit_list(n.args)},
-    n.token,
-  )
-}
-
-func visitors.MatcherPattern(n){
-  return ast.node(
-    "MatcherPattern",
-    {matcher: maybe(n.matcher), type_name: n.type_name, sub: n.sub}, n.token
-  )
-}
-
-func visitors.LetStat(n){
-  return ast.node(
-    "LetStat", {pattern: n.pattern, right: visit(n.right)}, n.token
-  )
-}
-
-func visitors.Spread(n){
-  return ast.node("Spread", {value: visit(n.value)}, n.token)
-}
-
-func visitors.Function(n){
-  return ast.node("Function", {params: n.params, body: visit(n.body)}, n.token)
-}
-
-func visitors.CallStat(n){
-  return ast.node("CallStat", {call: visit(n.call)}, n.token)
-}
-
-func visitors.If(n){
-  return ast.node("If", {
-    condition: visit(n.condition),
-    thenBranch: visit(n.thenBranch),
-    elseBranch: maybe(n.elseBranch),
-  }, n.token)
-}
-
-func visitors.Index(n){
-  return ast.node(
-    "Index",
-    {receiver: visit(n.receiver), index: visit(n.index), dotStyle: n.dotStyle},
-    n.token,
-  )
-}
-
-func visitors.Try(n){
-  local catches = {}
-  for(let local c in values(n.catches)){
-    append(catches, ast.node(
-      "Catch", {pattern: c.pattern, body: visit(c.body)}, c.token
-    ))
-  }
-  return ast.node("Try", {body: visit(n.body), catches: catches}, n.token)
-}
-
-func visitors.Defer(n){
-  return ast.node("Defer", {body: visit(n.body)}, n.token)
-}
-
-func visitors.IfExpr(n){
-  return ast.node("IfExpr", {
-    condition: visit(n.condition),
-    thenValue: visit(n.thenValue),
-    elseValue: visit(n.elseValue),
-  }, n.token)
-}
-
-func visitors.Return(n){
-  return ast.node("Return", {value: maybe(n.value)}, n.token)
-}
-
-func visitors.Table(n){
-  return ast.node("Table", {fields: visit_list(n.fields)}, n.token)
 }
 
 func visitors.UnOp(n){
@@ -258,19 +218,72 @@ func visitors.UnOp(n){
       return ast.literal(n.token, ~v)
     }
   }
+  if(operand == n.operand){
+    return n
+  }
   return ast.node("UnOp", {op: n.op, operand: operand}, n.token)
 }
 
-func visitors.Declaration(n){
-  return ast.node(
-    "Declaration", {is_local: n.is_local, left: n.left, right: maybe(n.right)},
-    n.token
-  )
+func visitors.IfExpr(n){
+  local condition = visit(n.condition)
+  if(ast.is_literal(condition)){
+    local v = value_of(condition)
+    if(v != null and v != false){
+      return visit(n.thenValue)
+    }
+    return visit(n.elseValue)
+  }
+  return visit_children(n)
+}
+
+// an If with a literal condition becomes the branch it takes, as a Block
+// (a scope of its own, like the If was), or nothing when that branch is
+// missing
+func visitors.If(n){
+  local condition = visit(n.condition)
+  if(not ast.is_literal(condition)){
+    return visit_children(n)
+  }
+  local v = value_of(condition)
+  local branch = n.elseBranch
+  if(v != null and v != false){
+    branch = n.thenBranch
+  }
+  if(branch == null){
+    return ast.node("Block", {statements: {}}, n.token)
+  }
+  branch = visit(branch)
+  if(branch.type != "Block" and branch.type != "If"){
+    branch = ast.node("Block", {statements: {branch}}, n.token)
+  }
+  return branch
+}
+
+// the statements without the empty blocks of ifs that take no branch and
+// without the unreachable ones after a return, break, continue or throw
+func visitors.Block(n){
+  local statements = {}
+  local changed = false
+  for(let local s in values(n.statements)){
+    local v = visit(s)
+    changed = changed or v != s
+    if(v.type != "Block" or len(v.statements) > 0 or s.type != "If"){
+      append(statements, v)
+    }
+    if(is_jump(v)){
+      break
+    }
+  }
+  if(not changed and len(statements) == len(n.statements)){
+    return n
+  }
+  return ast.node("Block", {statements: statements}, n.token)
 }
 
 // optimize(node: table) -> table
-// node with its constant expressions folded. The result is a new tree
-// where something changed; nodes are not modified in place.
+// node with its constant expressions folded. Nodes are not modified in
+// place: a changed node is a copy, and an unchanged subtree is returned as
+// it is.
 func optimizer.optimize(node){
   return visit(node)
 }

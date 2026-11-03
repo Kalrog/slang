@@ -191,7 +191,7 @@ fn coreSame(th: *Thread, args: []Value) Error!Value {
 fn coreRemove(th: *Thread, args: []Value) Error!Value {
     const t = try api.argTable(th, args, 0, "list");
     const i = try api.argInt(th, args, 1, "index");
-    return t.removeShifting(i) orelse th.vm.raise("remove: index {d} is not in the list (length {d})", .{ i, t.arrayLen() });
+    return t.removeShifting(th.vm.gpa, i) orelse th.vm.raise("remove: index {d} is not in the list (length {d})", .{ i, t.arrayLen() });
 }
 
 /// A snapshot of the keys of t as an array table (iteration order).

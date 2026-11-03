@@ -347,6 +347,7 @@ pub const Table = struct {
             const k: Value = .{ .int = @intCast(t.arr.items.len) };
             const idx = t.find(k) orelse return;
             const v = t.takeEntry(gpa, idx);
+            t.wb(gpa, v);
             t.reserveArr(gpa, 1);
             t.arr.append(gpa, v) catch oom();
         }
@@ -360,8 +361,11 @@ pub const Table = struct {
 
     fn compact(t: *Table, gpa: Allocator) void {
         var w: usize = 0;
-        for (t.ents.items) |e| {
+        const black = t.obj.color == gc.black;
+        for (t.ents.items, 0..) |e, i| {
             if (e.key != .null) {
+                // (an entry moves down, perhaps past a partial scan)
+                if (black and w != i) t.wb2(gpa, e.key, e.val);
                 t.ents.items[w] = e;
                 w += 1;
             }
@@ -381,8 +385,13 @@ pub const Table = struct {
     /// Takes the element at list index i out of the array part, moving
     /// the later ones down (the global remove); null when i is not an
     /// index of the array part.
-    pub fn removeShifting(t: *Table, i: i64) ?Value {
+    pub fn removeShifting(t: *Table, gpa: Allocator, i: i64) ?Value {
         if (i < 0 or i >= t.arr.items.len) return null;
+        // (the later elements move down: past a partial scan's position,
+        // see gc.zig, so the barrier marks them)
+        if (t.obj.color == gc.black) {
+            for (t.arr.items[@intCast(i + 1)..]) |v| gc.tableBarrier(gpa, &t.obj, v);
+        }
         return t.arr.orderedRemove(@intCast(i));
     }
 
@@ -395,7 +404,10 @@ pub const Table = struct {
                 if (i >= 0 and i < t.arr.items.len) {
                     const at: usize = @intCast(i);
                     const v = t.arr.items[at];
-                    for (t.arr.items[at + 1 ..], at + 1..) |x, k| t.insertNew(gpa, .{ .int = @intCast(k) }, x);
+                    for (t.arr.items[at + 1 ..], at + 1..) |x, k| {
+                        t.wb(gpa, x);
+                        t.insertNew(gpa, .{ .int = @intCast(k) }, x);
+                    }
                     t.arr.shrinkRetainingCapacity(at);
                     return v;
                 }
@@ -559,7 +571,7 @@ test "array part and hash part" {
     // removing the last element shrinks the list; removeShifting shifts
     _ = t.remove(gpa, .{ .int = 5 });
     try std.testing.expectEqual(@as(usize, 5), t.arrayLen());
-    try std.testing.expectEqual(@as(i64, 10), t.removeShifting(0).?.int);
+    try std.testing.expectEqual(@as(i64, 10), t.removeShifting(gpa, 0).?.int);
     try std.testing.expectEqual(@as(i64, 11), t.getInt(0).int);
     try std.testing.expectEqual(@as(usize, 4), t.arrayLen());
     // float keys normalise

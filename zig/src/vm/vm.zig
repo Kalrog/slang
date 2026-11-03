@@ -142,10 +142,13 @@ pub const VM = struct {
     /// never grows and misses probe further and further (see compactStrings)
     strings_removed: usize = 0,
     bytes_allocated: usize = 0,
-    next_gc: usize = gc.initial_threshold,
+    next_gc: usize = gc.first_threshold,
     gc_running: bool = false,
     /// the collector between its steps (see gc.zig)
     gc_state: gc.State = .{},
+    /// bytes_allocated when the last cycle ended (gc:step starts a cycle
+    /// half way from there to the next one)
+    last_live: usize = 0,
     collections: usize = 0,
     /// The collector's settings (slang/vm's gc): the next collection when
     /// the live size has grown by gc_growth, never below gc_minimum bytes;

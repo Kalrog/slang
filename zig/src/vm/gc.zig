@@ -65,6 +65,11 @@ const Allocator = std.mem.Allocator;
 
 pub const initial_threshold: usize = 8 << 20;
 
+/// When a new VM's first cycle starts: in the GC-stress build as soon as
+/// for any later one (before, a program under 8 MB was never collected
+/// there at all).
+pub const first_threshold: usize = if (build_options.gc_stress) stress_step else initial_threshold;
+
 /// What slang/vm's on_collect registered: f(obj) runs once obj is
 /// unreachable.
 pub const Finalizer = struct { obj: Value, f: Value };
@@ -74,16 +79,17 @@ pub const stress_step: usize = 64 << 10;
 
 /// A cycle's steps run every step_bytes allocated (stress: every few KB);
 /// each marks step_bytes * step_mul / 16 slots (values scanned) or sweeps
-/// step_bytes * step_mul / 64 objects, so the collector stays ahead of the
-/// program.
+/// step_bytes * step_mul / 256 objects (freeing costs more than marking),
+/// so the collector stays ahead of the program and a step stays well
+/// under a millisecond.
 pub const step_bytes: usize = if (build_options.gc_stress) 4 << 10 else 128 << 10;
 pub const step_mul: usize = 4;
 const mark_budget: usize = if (build_options.gc_stress) 64 else step_bytes * step_mul / 16;
-const sweep_budget: usize = if (build_options.gc_stress) 64 else step_bytes * step_mul / 64;
+const sweep_budget: usize = if (build_options.gc_stress) 64 else step_bytes * step_mul / 256;
 
 /// Whether cycles run in steps; off, each cycle is done at once at the
 /// safe point that starts it (as a stop-the-world collector).
-pub const incremental = false;
+pub const incremental = true;
 
 /// Wraps the backing allocator and keeps vm.bytes_allocated exact.
 pub const CountingAllocator = struct {
@@ -186,11 +192,13 @@ pub const CountingAllocator = struct {
     /// Gives pooled blocks back to the backing allocator until the pools
     /// hold at most keep bytes (after a collection: what a burst of garbage
     /// left is not kept for good).
-    pub fn trim(self: *CountingAllocator, keep: usize) void {
+    pub fn trim(self: *CountingAllocator, keep: usize, max_blocks: usize) void {
         var c: usize = classes;
-        while (self.pooled > keep and c > 0) {
+        var left = max_blocks;
+        while (self.pooled > keep and c > 0 and left > 0) {
             c -= 1;
-            while (self.pooled > keep) {
+            while (self.pooled > keep and left > 0) {
+                left -= 1;
                 const b = self.pools[c] orelse break;
                 self.pools[c] = b.next;
                 self.pooled -= classSize(c);
@@ -202,7 +210,7 @@ pub const CountingAllocator = struct {
 
     /// Everything pooled goes back (the VM is destroyed).
     pub fn release(self: *CountingAllocator) void {
-        self.trim(0);
+        self.trim(0, std.math.maxInt(usize));
     }
 };
 
@@ -212,7 +220,9 @@ pub inline fn safePoint(vm: *VM, th: *Thread) root.Error!void {
     if (vm.bytes_allocated >= vm.next_gc) try slowPoint(vm, th);
 }
 
-fn slowPoint(vm: *VM, th: *Thread) root.Error!void {
+// (out of line: the fast path, one compare, is in every call and loop)
+noinline fn slowPoint(vm: *VM, th: *Thread) root.Error!void {
+    @branchHint(.cold);
     _ = th;
     if (vm.interrupt.load(.seq_cst)) return vm.raise("isolate killed", .{});
     step(vm);
@@ -249,6 +259,15 @@ pub const State = struct {
     threads: std.ArrayList(*Thread) = .empty,
     /// the link to the next object the sweep looks at
     sweep_at: ?*?*Object = null,
+    /// a large table scanned over several steps, and how far its list and
+    /// hash parts are scanned (an element that moves back past these is
+    /// marked by the barrier, see Table.removeShifting and compact)
+    partial: ?*Table = null,
+    partial_arr: usize = 0,
+    partial_ents: usize = 0,
+    /// the longest pause a step (or slang/vm's collect) made, in ns, since
+    /// slang/vm's gc.longest_step was last reset
+    longest_ns: u64 = 0,
 
     pub fn deinit(st: *State, gpa: Allocator) void {
         st.gray.deinit(gpa);
@@ -267,7 +286,12 @@ pub inline fn newColor(vm: *const VM) u8 {
 /// After storing v into holder: while marking, a value stored into a
 /// reached object is reached too.
 pub inline fn barrier(vm: *VM, holder: *Object, v: Value) void {
-    if (holder.color == black and vm.gc_state.phase == .mark) markValue(vm, v);
+    if (holder.color == black) barrierSlow(vm, v);
+}
+
+noinline fn barrierSlow(vm: *VM, v: Value) void {
+    @branchHint(.cold);
+    if (vm.gc_state.phase == .mark) markValue(vm, v);
 }
 
 /// The barrier for table.zig, which has the allocator, not the VM: the VM's
@@ -278,7 +302,7 @@ pub noinline fn tableBarrier(gpa: Allocator, holder: *Object, v: Value) void {
     if (gpa.vtable != &CountingAllocator.vtable) return;
     const c: *CountingAllocator = @ptrCast(@alignCast(gpa.ptr));
     const vm: *VM = @alignCast(@fieldParentPtr("counting", c));
-    barrier(vm, holder, v);
+    if (holder.color == black and vm.gc_state.phase == .mark) markValue(vm, v);
 }
 
 /// An interned string found again while sweeping may be dead and not yet
@@ -421,16 +445,58 @@ fn blacken(vm: *VM, o: *Object) usize {
     }
 }
 
+/// A table with more slots than this is scanned in parts, over steps.
+const large_table: usize = if (build_options.gc_stress) 32 else 4096;
+
+/// Scans the partial table for up to budget slots; the slots used.
+fn scanPartial(vm: *VM, budget: usize) usize {
+    const st = &vm.gc_state;
+    const t = st.partial.?;
+    var used: usize = 0;
+    // (the list part can grow while the hash part is scanned: fixList)
+    while (used < budget) {
+        if (st.partial_arr < t.arr.items.len) {
+            markValue(vm, t.arr.items[st.partial_arr]);
+            st.partial_arr += 1;
+            used += 1;
+        } else if (st.partial_ents < t.ents.items.len) {
+            const e = t.ents.items[st.partial_ents];
+            markValue(vm, e.key);
+            markValue(vm, e.val);
+            st.partial_ents += 1;
+            used += 2;
+        } else {
+            st.partial = null;
+            break;
+        }
+    }
+    return used;
+}
+
 /// Marks until the gray list is empty or budget slots are scanned; whether
 /// it is empty.
 fn markSome(vm: *VM, budget: usize) bool {
+    const st = &vm.gc_state;
     var left = budget;
-    const gray = &vm.gc_state.gray;
     while (left > 0) {
-        const o = gray.pop() orelse return true;
+        if (st.partial != null) {
+            left -|= scanPartial(vm, left);
+            continue;
+        }
+        const o = st.gray.pop() orelse return true;
+        if (o.kind == .table) {
+            const t: *Table = @alignCast(@fieldParentPtr("obj", o));
+            if (t.weak == .none and t.arr.items.len + 2 * t.ents.items.len > large_table) {
+                markTable(vm, t.meta);
+                st.partial = t;
+                st.partial_arr = 0;
+                st.partial_ents = 0;
+                continue;
+            }
+        }
         left -|= blacken(vm, o);
     }
-    return gray.items.len == 0;
+    return st.partial == null and st.gray.items.len == 0;
 }
 
 fn drain(vm: *VM) void {
@@ -617,10 +683,12 @@ fn sweepSome(vm: *VM, budget: usize) bool {
 
 fn finishCycle(vm: *VM) void {
     vm.gc_state.phase = .idle;
+    vm.last_live = vm.bytes_allocated;
     vm.compactStrings();
     // the pools keep what the next cycle's allocations will likely reuse:
-    // up to half the live size (and at least the minimum's worth)
-    vm.counting.trim(@max(vm.bytes_allocated / 2, vm.gc_minimum / 2));
+    // up to half the live size (and at least the minimum's worth); a few
+    // thousand blocks per cycle, so that this is no pause of its own
+    vm.counting.trim(@max(vm.bytes_allocated / 2, vm.gc_minimum / 2), 2048);
     vm.collections += 1;
 }
 
@@ -650,8 +718,44 @@ pub fn step(vm: *VM) void {
     if (vm.gc_running) return;
     vm.gc_running = true;
     defer vm.gc_running = false;
-    advance(vm, incremental);
+    const t0 = std.Io.Clock.now(.awake, vm.io);
+    // the GC-stress build alternates: a cycle at once (garbage freed
+    // early, what a native held without a root shows), then one in tiny
+    // steps (what a store without the barrier left shows, see verify)
+    const bounded = incremental and (!build_options.gc_stress or vm.collections % 2 == 1 or vm.gc_state.phase != .idle);
+    advance(vm, bounded);
+    measure(vm, t0);
     schedule(vm);
+}
+
+fn measure(vm: *VM, t0: std.Io.Timestamp) void {
+    const ns = t0.durationTo(std.Io.Clock.now(.awake, vm.io)).nanoseconds;
+    const n: u64 = if (ns > 0) @intCast(ns) else 0;
+    if (n > vm.gc_state.longest_ns) vm.gc_state.longest_ns = n;
+}
+
+/// slang/vm's gc:step(ms): collector work for up to ms (a program's idle
+/// time, a game's end of frame), in steps; a cycle starts here only once
+/// the heap has grown half way to the next automatic one. Whether a cycle
+/// is still running.
+pub fn stepFor(vm: *VM, ms: f64) bool {
+    if (vm.gc_running) return vm.gc_state.phase != .idle;
+    const st = &vm.gc_state;
+    if (st.phase == .idle) {
+        const last = vm.last_live;
+        if (vm.bytes_allocated < last + (vm.next_gc -| last) / 2) return false;
+    }
+    vm.gc_running = true;
+    defer vm.gc_running = false;
+    const t0 = std.Io.Clock.now(.awake, vm.io);
+    const budget: i96 = @intFromFloat(@max(ms, 0) * 1e6);
+    while (true) {
+        advance(vm, true);
+        if (st.phase == .idle) break;
+        if (t0.durationTo(std.Io.Clock.now(.awake, vm.io)).nanoseconds >= budget) break;
+    }
+    schedule(vm);
+    return st.phase != .idle;
 }
 
 /// slang/vm's collect(): a running cycle is finished, then a whole one runs,

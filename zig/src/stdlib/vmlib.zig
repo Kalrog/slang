@@ -117,13 +117,16 @@ fn vmWeak(th: *Thread, args: []Value) Error!Value {
 fn gcObject(vm: *VM) *Table {
     const meta = vm.newTable(0, 4);
     meta.set(vm.gpa, vm.str("__type"), vm.str("vm.Collector"));
-    stdlib.setClass(vm, meta, &.{}, &.{
+    stdlib.setClass(vm, meta, &.{
+        .{ .name = "step", .f = gcStep },
+    }, &.{
         .{ .name = "growth", .get = gcGrowth, .set = gcSetGrowth },
         .{ .name = "minimum", .get = gcMinimum, .set = gcSetMinimum },
         .{ .name = "automatic", .get = gcAutomatic, .set = gcSetAutomatic },
         .{ .name = "in_use", .get = gcInUse },
         .{ .name = "next", .get = gcNext },
         .{ .name = "collections", .get = gcCollections },
+        .{ .name = "longest_step", .get = gcLongestStep, .set = gcSetLongestStep },
     });
     const t = vm.newTable(0, 0);
     t.meta = meta;
@@ -185,6 +188,31 @@ fn gcNext(th: *Thread, args: []Value) Error!Value {
 fn gcCollections(th: *Thread, args: []Value) Error!Value {
     _ = args;
     return .{ .int = @intCast(th.vm.collections) };
+}
+
+/// step(self, ms): collector work for up to ms milliseconds now, in the
+/// steps the program would otherwise take while it allocates (a game's
+/// time left at the end of a frame); a cycle starts only once the heap has
+/// grown half way to the next automatic one. Whether a cycle still runs.
+fn gcStep(th: *Thread, args: []Value) Error!Value {
+    const ms = try api.argNumber(th, args, 1, "ms");
+    const running = gc.stepFor(th.vm, ms);
+    gc.runFinalizers(th.vm);
+    return .{ .bool = running };
+}
+
+/// longest_step: the longest pause an automatic step made, in ms, since it
+/// was set to 0 (any other value is refused)
+fn gcLongestStep(th: *Thread, args: []Value) Error!Value {
+    _ = args;
+    return .{ .float = @as(f64, @floatFromInt(th.vm.gc_state.longest_ns)) / 1e6 };
+}
+
+fn gcSetLongestStep(th: *Thread, args: []Value) Error!Value {
+    const v = try api.argNumber(th, args, 1, "longest_step");
+    if (v != 0) return th.vm.raise("vm: gc.longest_step can only be reset to 0, got {d}", .{v});
+    th.vm.gc_state.longest_ns = 0;
+    return .null;
 }
 
 /// load_proto(proto, [env]): turns a prototype table produced by the

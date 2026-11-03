@@ -39,6 +39,10 @@ t.group("collector: vm.collect and vm.gc"){
   t.test("collect runs a collection now"){
     local n = gc.collections
     vm.collect()
+    // (a cycle that was running is finished first: that counts too)
+    assert(gc.collections == n + 1 or gc.collections == n + 2, gc.collections)
+    n = gc.collections
+    vm.collect()
     assert(gc.collections == n + 1, gc.collections)
     assert(gc.in_use > 0)
   }
@@ -160,5 +164,92 @@ t.group("collector: on_collect, weak tables, keep"){
     half = null
     vm.collect()
     assert(freed)
+  }
+}
+
+// The collector marks in steps between which the program runs: values that
+// reach old objects while marking (stores, moved elements, closed
+// upvalues, coroutine stacks) must survive. The GC-stress build steps every
+// few KB and checks every cycle.
+t.group("collector: incremental marking"){
+  t.test("values moved and stored while marking survive"){
+    local big = {}
+    for(local i = 0; i < 200; i = i + 1){
+      big[i] = {n: i}
+    }
+    local keyed = {}
+    for(local i = 0; i < 200; i = i + 1){
+      keyed[concat("k", string(i))] = {n: i}
+    }
+    // closures over locals that are closed (the value leaves the stack)
+    local getters = {}
+    for(local i = 0; i < 50; i = i + 1){
+      local held = {n: i}
+      append(getters, func(){ return held })
+    }
+    // a coroutine whose stack holds a table between resumes
+    local thread = require("slang/thread")
+    local co = thread.create(func(){
+      local mine = {n: "co"}
+      for(local i = 0; i < 100; i = i + 1){
+        thread.yield(mine.n)
+      }
+    })
+    for(local round = 0; round < 40; round = round + 1){
+      // garbage, so that steps run in between
+      for(local j = 0; j < 200; j = j + 1){
+        local junk = {j, j, j}
+      }
+      // shift a list down, insert into it, delete hash keys (compaction)
+      remove(big, 0)
+      append(big, {n: 1000 + round})
+      keyed[concat("k", string(round))] = null
+      keyed[concat("new", string(round))] = {n: -round}
+      assert(thread.resume(co) == "co")
+    }
+    // the running cycle ends (in the GC-stress build: checked) and a whole
+    // one runs
+    vm.collect()
+    for(let local v in values(big)){
+      assert(type(v.n) == "int")
+    }
+    for(let local e in entries(keyed)){
+      assert(type(e[1].n) == "int")
+    }
+    for(local i = 0; i < 50; i = i + 1){
+      assert(getters[i]().n == i)
+    }
+    assert(len(big) == 200 and big[199].n == 1039)
+  }
+
+  t.test("step(ms) works on a cycle in a time budget"){
+    // nothing to do yet right after a collection
+    vm.collect()
+    assert(vm.gc:step(1) == false)
+    local keep = {}
+    local running = false
+    for(local round = 0; round < 200 and not running; round = round + 1){
+      for(local i = 0; i < 2000; i = i + 1){
+        keep[i] = {i}
+      }
+      running = vm.gc:step(0.01)
+    }
+    // a cycle started; steps finish it
+    local n = vm.gc.collections
+    for(local i = 0; i < 100000 and vm.gc:step(5); i = i + 1){}
+    assert(vm.gc.collections == n + 1, string(vm.gc.collections - n))
+    assert(len(keep) == 2000 and keep[1999][0] == 1999)
+  }
+
+  t.test("longest_step is measured and resets to 0"){
+    local junk = null
+    for(local i = 0; i < 20000; i = i + 1){
+      junk = {i, i}
+    }
+    assert(vm.gc.longest_step >= 0.0)
+    vm.gc.longest_step = 0
+    assert(vm.gc.longest_step == 0.0)
+    local r = pcall(func(){ vm.gc.longest_step = 5 })
+    assert(r[0] == "err")
   }
 }

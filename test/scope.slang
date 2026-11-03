@@ -21,23 +21,32 @@ test.group("scope test", func(){
     assert(x == null)
   })
   test.test("function scope", func(){
-    func test(){
+    func scoped(){
       local z = 5
       assert(z == 5)
     }
-    test()
+    scoped()
     assert(z == null)
   })
   test.test("nested function scope", func(){
-    func test(){
+    func outer(){
       local z = 5
       assert(z == 5)
-      func test2(){
+      func inner(){
         assert(z == 5)
       }
-      test2()
+      inner()
     }
-    test()
+    outer()
     assert(z == null)
+  })
+  test.test("func name sets a visible local, like name = func", func(){
+    local f = null
+    local g = func(){
+      func f(){ return "set" }
+    }
+    g()
+    assert(f() == "set")
+    assert(_ENV.f == null)
   })
 })

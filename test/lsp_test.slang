@@ -594,7 +594,7 @@ t.group("language server: names"){
       ))
     assert(first.range.start.line > r.tests[0].range.start.line)
   }
-  t.test("tests: those written inline with slang/inline_test"){
+  t.test("tests: those written inline with extensions/inline_test"){
     local r = s:handle(request(9, "slang/tests", {
       uri: lsp.path_to_uri(compiler.absolute_path("test/fixtures/inline_tests.slang")),
     }))[0].result

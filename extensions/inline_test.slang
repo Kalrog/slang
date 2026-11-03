@@ -1,6 +1,6 @@
-// slang/inline_test: tests next to the code they test, in the same file.
+// extensions/inline_test: tests next to the code they test, in the same file.
 //
-//   extension "slang/inline_test"
+//   extension "extensions/inline_test"
 //
 //   local func double(x){ return x * 2 }
 //

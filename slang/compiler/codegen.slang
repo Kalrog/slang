@@ -1262,6 +1262,16 @@ func visitors.Declaration(g, node){
       }
       return null
     }
+    // `func name(){}` where name is a local of an enclosing function sets
+    // it, as `name = func(){}` would
+    if(g.asm:get_upvalue(name) != null){
+      record_use(g, name, left.token, true, node.right, node.token)
+      if(node.right != null){
+        g:visit(node.right)
+        g.asm:emit_set_upvalue(g.asm:get_upvalue(name).index)
+      }
+      return null
+    }
     local right = node.right
     if(right == null){
       right = ast.node("Null", {}, left.token)

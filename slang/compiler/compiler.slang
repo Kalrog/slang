@@ -50,7 +50,7 @@ compiler.explain = os.getenv("SLANG_EXPLAIN") != null
 // Whether files are compiled for a test run: `slang test` sets it. Then the
 // files of the project under test (not its packages', not slang's library)
 // are parsed with testing on (see grammar's testing()), and extensions
-// such as slang/inline_test keep the code that only tests need.
+// such as extensions/inline_test keep the code that only tests need.
 compiler.testing = false
 
 local func join(parts){
@@ -82,9 +82,9 @@ local func run_block(block){
 // Runs the extension module [name] for the grammar being extended (see
 // [grammar]), once per grammar: a second load does nothing. A module file
 // on the search paths is compiled with [load_file] and run anew for each
-// grammar that loads it, and so is a module embedded in the interpreter
-// (slang/inline_test); anything else (a native module) is required, so it
-// runs once per program.
+// grammar that loads it, and so is a module embedded in the interpreter;
+// anything else (a native module) is required, so it runs once per
+// program.
 func compiler.load_extension(name){
   local g = unit_grammar()
   if(g:has_extension(name)){

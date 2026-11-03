@@ -164,13 +164,9 @@ func visitors.Declaration(w, n){
   if(n.is_local){
     w:declare(left.value, left, "local", n.right)
   } else {
-    // `func name(){}` and `name = value` as a declaration: a local of this
-    // function, else a global (codegen does not look at upvalues here,
-    // unlike an assignment)
-    local b = w:lookup(left.value)
-    if(b != null and b.function == w.function){
-      w:use(left.value, left, true)
-    }
+    // `func name(){}` and `name = value` as a declaration: like an
+    // assignment, a local (of this or an enclosing function), else a global
+    w:use(left.value, left, true)
   }
   if(n.right != null){
     w:visit(n.right)

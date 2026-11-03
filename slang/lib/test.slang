@@ -14,7 +14,7 @@
 // files, then calls [run_cli] with its arguments, which runs everything
 // registered and reports. Tests can also live in the file they test, as
 // `group(name){ ... }` and `test(name){ ... }` statements that only a test
-// run compiles (see slang/inline_test).
+// run compiles (see extensions/inline_test).
 //
 // With --json, [run] prints one JSON object per line instead of the
 // report: {event: "test", path, status, message, location} for each test

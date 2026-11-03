@@ -885,4 +885,26 @@ pub const Debugger = struct {
         d.terminated = true;
         _ = close(d.fd);
     }
+
+    /// Frees what the debugger holds (the VM is being destroyed).
+    pub fn destroy(d: *Debugger) void {
+        if (!d.terminated) _ = close(d.fd);
+        d.inbuf.deinit(d.gpa);
+        var bps = d.breakpoints.iterator();
+        while (bps.next()) |e| {
+            for (e.value_ptr.items) |bp| if (bp.condition) |c| d.gpa.free(c);
+            e.value_ptr.deinit(d.gpa);
+            d.gpa.free(e.key_ptr.*);
+        }
+        d.breakpoints.deinit(d.gpa);
+        var origins = d.origins.iterator();
+        while (origins.next()) |e| {
+            d.gpa.free(e.key_ptr.*);
+            d.gpa.free(e.value_ptr.*);
+        }
+        d.origins.deinit(d.gpa);
+        d.refs.deinit(d.gpa);
+        d.gpa.free(d.eval_error);
+        d.gpa.destroy(d);
+    }
 };

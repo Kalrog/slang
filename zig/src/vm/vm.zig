@@ -254,6 +254,10 @@ pub const VM = struct {
         if (vm.profiler) |p| p.destroy();
         if (vm.tracer) |t| t.destroy();
         if (vm.opstats) |s| s.destroy();
+        if (vm.debugger) |d| {
+            d.destroy();
+            vm.debugger = null;
+        }
         // (no kill reaches a VM being destroyed: the hooks go first)
         vm.hooks_lock.lockUncancelable(vm.io);
         vm.interrupt_hooks.clearAndFree(vm.gpa);

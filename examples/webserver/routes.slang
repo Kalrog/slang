@@ -15,10 +15,12 @@ local web = require("slang/web")
 local html = require("slang/html")
 local place = require("place")
 local encoding = require("slang/encoding")
+local http = require("slang/http")
 local m = {}
 
-// signed_in(handler): the handler for signed-in users; anyone else is sent
-// to /login (htmx is told to load that page instead of swapping a fragment)
+// signed_in(handler: web.Handler) -> web.Handler
+// The handler for signed-in users; anyone else is sent to /login (htmx is
+// told to load that page instead of swapping a fragment).
 local func signed_in(handler){
   return func(req, params){
     if(req.user != null){
@@ -45,7 +47,7 @@ local func filter_of(req){
   return filter or "all"
 }
 
-// with_todo(req, params, f): f(todo) for the :id of the route, if it is
+// with_todo(req: http.Request, params: http.Params, f: web.Handler) -> web.Response: f(todo) for the :id of the route, if it is
 // one of the user's, or a 404
 local func with_todo(req, params, f){
   local t = todos.find(req.user.id, to_int(params.id))

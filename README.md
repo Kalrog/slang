@@ -225,6 +225,10 @@ local all = {0, ...args, last: true}     // in table literals too: the spread ta
                                          // entries (array part and keys) are copied in
 local copy = {...args}
 ```
+A rest parameter keeps positions: `f(1, null, 3)` gives `{0: 1, 2: 3}` (a
+list holds no null, so the second index is a gap), and a call spreads
+every index up to the largest, a gap as null, so `g(...numbers)` passes
+`1, null, 3` on as they came.
 
 ### Functions
 ```slang
@@ -772,7 +776,7 @@ works too. The playground runs `slang run`, `slang fmt` and `slang highlight
 
 ## Standard library
 Globals: `print`, `args`, `assert`, `error`, `raise`, `pcall`, `compile`,
-`require`, `type`, `len`, `count`, `append`, `list_push`, `remove`, `keys`, `values`,
+`require`, `type`, `len`, `count`, `append`, `remove`, `same`, `keys`, `values`,
 `entries`, `concat`, `set_raw`, `get_raw`, `to_int`, `to_float`, `string`,
 `module`, `run`.
 

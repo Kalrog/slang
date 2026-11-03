@@ -217,7 +217,9 @@ fn callFunc(th: *Thread, args: []Value) Error!Value {
     const vm = th.vm;
     const f = th.currentClosure().nvals[0].userdata.as(*Func).*;
     const fixed = f.args.len;
-    if (args.len < fixed or (args.len > fixed and !f.variadic)) {
+    // a missing argument is null, as in a slang call (a NULL pointer; a
+    // number still has to be given)
+    if (args.len > fixed and !f.variadic) {
         return vm.raise("{s} takes {d} arguments, got {d}", .{ f.name, fixed, args.len });
     }
     // the argument blocks and the result live in the thread's scratch,
@@ -227,7 +229,7 @@ fn callFunc(th: *Thread, args: []Value) Error!Value {
     defer scratch.release(vm.gpa, mk);
     var conv = ctypes.Conv{ .th = th, .scratch = scratch, .fname = f.name };
     defer conv.writebacks.deinit(vm.gpa);
-    const total = args.len;
+    const total = @max(args.len, fixed);
     const values = scratch.array(vm.gpa, ?*anyopaque, total + 1);
     var types = f.args;
     var cif_ptr = &f.cif;
@@ -236,6 +238,7 @@ fn callFunc(th: *Thread, args: []Value) Error!Value {
         const ffi_types = scratch.array(vm.gpa, *FfiType, total + 1);
         for (0..total) |i| {
             types[i] = if (i < fixed) f.args[i] else try variadicType(vm, args[i]);
+            // (i >= fixed implies i < args.len: total is args.len here)
             ffi_types[i] = types[i].ffi;
         }
         const cif = &scratch.array(vm.gpa, Cif, 1)[0];
@@ -250,7 +253,8 @@ fn callFunc(th: *Thread, args: []Value) Error!Value {
         const mem = scratch.bytes(vm.gpa, size);
         @memset(mem[0..size], 0);
         conv.arg = i + 1;
-        try conv.toC(args[i], t, mem, i < fixed and f.writeback[i]);
+        const v: Value = if (i < args.len) args[i] else .null;
+        try conv.toC(v, t, mem, i < fixed and f.writeback[i]);
         values[i] = mem;
     }
     // integer results narrower than a register come back widened

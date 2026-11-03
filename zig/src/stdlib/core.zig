@@ -25,13 +25,13 @@ pub fn open(vm: *VM) void {
         .{ .name = "error", .f = coreError },
         stdlib.fast("len", coreLen),
         stdlib.fast("count", coreCount),
+        stdlib.fast("same", coreSame),
         stdlib.fast("type", coreType),
         stdlib.fast("set_raw", coreSetRaw),
         stdlib.fast("get_raw", coreGetRaw),
         stdlib.fast("to_int", coreToInt),
         stdlib.fast("to_float", coreToFloat),
         .{ .name = "string", .f = coreString },
-        stdlib.fast("list_push", coreListPush),
         .{ .name = "raise", .f = coreRaise },
     };
     for (core) |n| vm.setGlobal(n.name, n.value(vm));
@@ -161,18 +161,29 @@ fn coreAssert(th: *Thread, args: []Value) Error!Value {
     return th.vm.raiseMsg(if (msg.len == 0) "assertion failed" else msg);
 }
 
-/// append(t, v): t[len(t)] = v, the end of the list (null adds nothing)
+/// append(t, v): t[len(t)] = v, the end of the list; a list holds no null
 fn coreAppend(th: *Thread, args: []Value) Error!Value {
     const t = try api.argTable(th, args, 0, "table");
-    t.append(th.vm.gpa, api.arg(args, 1));
+    const v = api.arg(args, 1);
+    if (v == .null) return th.vm.raise("append: a list holds no null (t[i] = null leaves a gap)", .{});
+    t.append(th.vm.gpa, v);
     return .null;
 }
 
-/// list_push(t, v): appends v to the array part of t, keeping null slots.
-fn coreListPush(th: *Thread, args: []Value) Error!Value {
-    const t = try api.argTable(th, args, 0, "table");
-    t.pushSlot(th.vm.gpa, api.arg(args, 1));
-    return .null;
+/// same(a, b): whether a and b are the same value: the same table,
+/// function, userdata or coroutine (not equal contents, as == has it);
+/// other values compare as == does
+fn coreSame(th: *Thread, args: []Value) Error!Value {
+    _ = th;
+    const a = api.arg(args, 0);
+    const b = api.arg(args, 1);
+    if (a.heapObject()) |oa| {
+        if (a != .string) {
+            const ob = b.heapObject() orelse return .{ .bool = false };
+            return .{ .bool = oa == ob };
+        }
+    }
+    return .{ .bool = a.equals(b) };
 }
 
 /// remove(list, i): takes element i out of the list, moving the later ones
@@ -187,7 +198,7 @@ fn coreRemove(th: *Thread, args: []Value) Error!Value {
 fn keysOf(vm: *VM, t: *const Table) *Table {
     const keys = vm.newTable(t.len(), 0);
     var it = t.iterator();
-    while (it.next()) |e| keys.pushSlot(vm.gpa, e.key);
+    while (it.next()) |e| keys.append(vm.gpa, e.key);
     return keys;
 }
 
@@ -227,8 +238,8 @@ fn entriesNext(th: *Thread, args: []Value) Error!Value {
         cl.nvals[1] = .{ .int = @intCast(i + 1) };
         const k = keys.getInt(@intCast(i));
         const pair = th.vm.newTable(2, 0);
-        pair.pushSlot(th.vm.gpa, k);
-        pair.pushSlot(th.vm.gpa, cl.nvals[2].table.get(k));
+        pair.append(th.vm.gpa, k);
+        pair.append(th.vm.gpa, cl.nvals[2].table.get(k));
         return .{ .table = pair };
     }
     return .null;
@@ -248,8 +259,8 @@ fn bufferNext(th: *Thread, args: []Value) Error!Value {
         1 => return v,
         else => {
             const pair = th.vm.newTable(2, 0);
-            pair.pushSlot(th.vm.gpa, .{ .int = @intCast(i) });
-            pair.pushSlot(th.vm.gpa, v);
+            pair.append(th.vm.gpa, .{ .int = @intCast(i) });
+            pair.append(th.vm.gpa, v);
             return .{ .table = pair };
         },
     }

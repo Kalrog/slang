@@ -54,6 +54,7 @@ local px = buffer.wrap(img.data, 256 * 256 * 4, &quot;unsigned char&quot;)
 px.keep = img            // the image lives as long as px or img does</code></pre>
 <ul class="toc">
 <li><a href="#gc"><code>gc</code></a></li>
+<li><a href="#arg_count"><code>arg_count</code></a></li>
 <li><a href="#collect"><code>collect</code></a></li>
 <li><a href="#on_collect"><code>on_collect</code></a></li>
 <li><a href="#weak_keys"><code>weak_keys</code></a></li>
@@ -79,6 +80,13 @@ px.keep = img            // the image lives as long as px or img does</code></pr
 <pre><code>vm.gc.automatic = false
 run_audio_block()
 vm.gc.automatic = true</code></pre>
+
+</div>
+<div class="def" id="arg_count"><h3><code>vm.arg_count() -> int</code></h3>
+<p>How many arguments the function calling arg_count was given, trailing nulls included: f(1, null) gives 2. A rest parameter cannot tell (a list holds no null, so f(null) and f() give it the same empty table), this can.</p>
+<pre><code>func show(...args){
+  for(local i = 0; i &lt; vm.arg_count(); i = i + 1){ print(args[i]) }
+}</code></pre>
 
 </div>
 <div class="def" id="collect"><h3><code>vm.collect()</code></h3>

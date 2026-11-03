@@ -272,13 +272,13 @@ local func binding(decl, name){
     for(local i = 0; i < n; i = i + 1){
       local v = args[k]
       k = k + 1
-      list_push(full, v)
+      append(full, v)
       if(counted[i]){
         local count = 0
         if(v != null){
           count = len(v)
         }
-        list_push(full, count)
+        append(full, count)
         i = i + 1
       }
     }

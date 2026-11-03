@@ -40,10 +40,12 @@ local runtime_block = +{block:
   local __def = {}
   __def.no_match = {}
   local dispatcher_meta = {__type: "def"}
+  // a missing argument is null: a clause of n parameters takes up to n
+  // (the arguments up to the last that is not null, see table.span)
   func dispatcher_meta.__call(self, ...args){
-    local n = len(args)
+    local n = require("slang/table").span(args)
     for(let local c in values(self.clauses)){
-      if(n == c.n or (c.rest and n >= c.n)){
+      if(n <= c.n or c.rest){
         local r = c.f(args)
         if(r != __def.no_match){
           return r
@@ -75,8 +77,9 @@ local runtime_block = +{block:
   // rest(args, n) -> the arguments from index n on
   func __def.rest(args, n){
     local out = {}
-    for(local i = n; i < len(args); i = i + 1){
-      append(out, args[i])
+    local span = require("slang/table").span(args)
+    for(local i = n; i < span; i = i + 1){
+      out[i - n] = args[i]
     }
     return out
   }

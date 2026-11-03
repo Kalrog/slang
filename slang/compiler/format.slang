@@ -177,10 +177,10 @@ func format.uses_marks(parser){
       }
       if(not switches){
         if(p.target != null){
-          list_push(stack, p.target)
+          append(stack, p.target)
         }
         for(let local c in values(p.children or {})){
-          list_push(stack, c)
+          append(stack, c)
         }
       }
     }
@@ -491,12 +491,12 @@ func format.print(doc, width){
   local func emit(s){
     if(pending >= 0){
       if(pending > 0){
-        list_push(out, spaces(pending))
+        append(out, spaces(pending))
       }
       col = pending
       pending = -1
     }
-    list_push(out, s)
+    append(out, s)
     local nl = str.index_of(s, "\n")
     if(nl >= 0){
       // text spanning lines (a """ string, verbatim text): the column after
@@ -526,7 +526,7 @@ func format.print(doc, width){
   }
   local func newline(ind){
     trim_end()
-    list_push(out, "\n")
+    append(out, "\n")
     pending = ind
     col = ind
     line_ind = ind
@@ -904,7 +904,7 @@ local func flat_shallow_box(d, broken){
   if(t == null){
     local out = {}
     for(local i = 0; i < len(d); i = i + 1){
-      list_push(out, flat_shallow_box(d[i], broken))
+      append(out, flat_shallow_box(d[i], broken))
     }
     return out
   }
@@ -917,7 +917,7 @@ local func flat_shallow_box(d, broken){
   if(t == "fill"){
     local parts = {}
     for(local i = 0; i < len(d.parts); i = i + 1){
-      list_push(parts, flat_shallow_box(d.parts[i], broken))
+      append(parts, flat_shallow_box(d.parts[i], broken))
     }
     return {t: "fill", parts: parts}
   }
@@ -948,7 +948,7 @@ flat_shallow = func(d, broken){
   if(t == null){
     local out = {}
     for(local i = 0; i < len(d); i = i + 1){
-      list_push(out, flat_shallow(d[i], broken))
+      append(out, flat_shallow(d[i], broken))
     }
     return out
   }
@@ -1053,7 +1053,7 @@ local func gap_comments(text){
     if(j < 0){
       j = len(text)
     }
-    list_push(out, {start: i, stop: j})
+    append(out, {start: i, stop: j})
     i = str.index_of(text, "//", j)
   }
   return out
@@ -1178,8 +1178,8 @@ func formatter_methods.gap(self, a, b, kind, blank){
   local i = 0
   local first = comments[0]
   if(str.index_of(str.substring(text, 0, first.start), "\n") < 0){
-    list_push(parts, " ")
-    list_push(parts, rstrip(str.substring(text, first.start, first.stop)))
+    append(parts, " ")
+    append(parts, rstrip(str.substring(text, first.start, first.stop)))
     i = 1
   }
   local lines = {}
@@ -1191,27 +1191,27 @@ func formatter_methods.gap(self, a, b, kind, blank){
     }
     if(keep_blank and i > 0 and
       count_newlines(str.substring(text, from, c.start)) >= 2){
-      list_push(lines, HARDLINE)
+      append(lines, HARDLINE)
     } else if(keep_blank and i == 0 and blank and
       count_newlines(str.substring(text, 0, c.start)) >= 2){
-      list_push(lines, HARDLINE)
+      append(lines, HARDLINE)
     }
-    list_push(lines, HARDLINE)
-    list_push(lines, rstrip(str.substring(text, c.start, c.stop)))
+    append(lines, HARDLINE)
+    append(lines, rstrip(str.substring(text, c.start, c.stop)))
     i = i + 1
   }
   if(a.indent and not b.indent){
     // comments after the last line of an indented part (before a `}`)
-    list_push(parts, indent(lines))
+    append(parts, indent(lines))
   } else {
-    list_push(parts, lines)
+    append(parts, lines)
   }
-  list_push(parts, HARDLINE)
+  append(parts, HARDLINE)
   local rest = str.substring(text, comments[len(comments) - 1].stop)
   if(keep_blank and blank and count_newlines(rest) >= 2){
-    list_push(parts, HARDLINE)
+    append(parts, HARDLINE)
   }
-  list_push(parts, BREAK_PARENT)
+  append(parts, BREAK_PARENT)
   return parts
 }
 
@@ -1222,17 +1222,17 @@ func formatter_methods.join(self, pieces){
   for(local i = 0; i < len(pieces); i = i + 1){
     local p = pieces[i]
     if(p.virtual){
-      list_push(parts, p.doc)
+      append(parts, p.doc)
     } else {
       local gap = ""
       if(prev != null){
         gap = self:gap(prev, p)
       }
       if(p.indent){
-        list_push(parts, indent({gap, p.doc}))
+        append(parts, indent({gap, p.doc}))
       } else {
-        list_push(parts, gap)
-        list_push(parts, p.doc)
+        append(parts, gap)
+        append(parts, p.doc)
       }
       prev = p
     }
@@ -1257,9 +1257,9 @@ func formatter_methods.join_verbatim(self, pieces){
   local current_nest = -1
   local func close(){
     if(current_nest < 0){
-      list_push(segments, current)
+      append(segments, current)
     } else {
-      list_push(segments, nest(current_nest, {HARDLINE, current}))
+      append(segments, nest(current_nest, {HARDLINE, current}))
     }
   }
   local prev = null
@@ -1268,17 +1268,17 @@ func formatter_methods.join_verbatim(self, pieces){
     if(prev != null and not p.virtual){
       local text = str.substring(source, prev.last.stop, p.first.start)
       if(str.index_of(text, "\n") < 0){
-        list_push(current, text)
+        append(current, text)
       } else {
         local lines = str.split(text, "\n")
-        list_push(current, rstrip(lines[0]))
+        append(current, rstrip(lines[0]))
         close()
         for(local j = 1; j < len(lines) - 1; j = j + 1){
           local l = rstrip(lines[j])
           if(len(str.trim(l)) == 0){
-            list_push(segments, HARDLINE)
+            append(segments, HARDLINE)
           } else {
-            list_push(segments, nest(rel(l), {
+            append(segments, nest(rel(l), {
               HARDLINE,
               str.substring(l, leading_space(l)),
             }))
@@ -1289,7 +1289,7 @@ func formatter_methods.join_verbatim(self, pieces){
       }
     }
     // core code inside verbatim code breaks only where it must
-    list_push(current, {t: "flat", doc: p.doc})
+    append(current, {t: "flat", doc: p.doc})
     if(not p.virtual){
       prev = p
     }
@@ -1312,7 +1312,7 @@ local func unfill(d){
     // lines between them break with the list
     local parts = {}
     for(let local part in values(d.parts)){
-      list_push(parts, part.t == "line" and part or group(part))
+      append(parts, part.t == "line" and part or group(part))
     }
     return parts
   }
@@ -1322,7 +1322,7 @@ local func unfill(d){
       if(u != null){
         local out = {}
         for(local j = 0; j < len(d); j = j + 1){
-          list_push(out, i == j and u or d[j])
+          append(out, i == j and u or d[j])
         }
         return out
       }
@@ -1441,7 +1441,7 @@ func formatter_methods.build_node(self, n, m, mode){
     for(local i = 0; i < len(kids); i = i + 1){
       local k = self:build(kids[i], mode)
       if(k != null){
-        list_push(pieces, k)
+        append(pieces, k)
       }
     }
     local real = 0
@@ -1622,7 +1622,7 @@ func layout_api.parts(api, n){
     for(let local k in values(node.kids or {})){
       local m = api.f:marks(k)
       if(m.role != null or m.layout != null){
-        list_push(out, k)
+        append(out, k)
       } else {
         walk(k)
       }
@@ -1694,10 +1694,10 @@ local func infix_chain(n, out){
   if(n.p.form == "left" and left.p.form == "left" and left.p.level == n.p.level){
     infix_chain(left, out)
   } else {
-    list_push(out, left)
+    append(out, left)
   }
-  list_push(out, n.kids[1])
-  list_push(out, n.kids[2])
+  append(out, n.kids[1])
+  append(out, n.kids[2])
   return out
 }
 
@@ -1707,9 +1707,9 @@ local func postfix_chain(n, out){
   if(left.p.form == "postfix"){
     postfix_chain(left, out)
   } else {
-    list_push(out, left)
+    append(out, left)
   }
-  list_push(out, n.kids[1])
+  append(out, n.kids[1])
   return out
 }
 
@@ -1736,21 +1736,21 @@ func formatter_methods.build_operator(self, n){
     for(local i = 1; i < len(nodes); i = i + 2){
       local op = self:build(nodes[i], "formatted")
       local operand = self:build(nodes[i + 1], "formatted")
-      list_push(operands, operand)
+      append(operands, operand)
       local next = {}
       if(m.break_before){
-        list_push(parts, self:gap(prev, op, "line"))
-        list_push(next, op.doc)
-        list_push(next, self:gap(op, operand, "space"))
+        append(parts, self:gap(prev, op, "line"))
+        append(next, op.doc)
+        append(next, self:gap(op, operand, "space"))
       } else {
-        list_push(content, self:gap(prev, op, "space"))
-        list_push(content, op.doc)
-        list_push(parts, self:gap(op, operand, "line"))
+        append(content, self:gap(prev, op, "space"))
+        append(content, op.doc)
+        append(parts, self:gap(op, operand, "line"))
       }
-      list_push(next, operand.doc)
+      append(next, operand.doc)
       content = next
       // (len counts a list's named fields: the flag goes on a box)
-      list_push(parts, {t: "box", doc: content, hug: self:may_hug(operand)})
+      append(parts, {t: "box", doc: content, hug: self:may_hug(operand)})
       prev = operand
     }
     local rest = {t: "fill", parts: parts}
@@ -1771,7 +1771,7 @@ func formatter_methods.build_operator(self, n){
     local lead_call = false
     for(local i = 1; i < len(nodes); i = i + 1){
       local op = self:build(nodes[i], "formatted")
-      list_push(ops, op)
+      append(ops, op)
       // a method call: :name(...); one that takes a function counts twice
       // after a call, so that a.b(x):map(func(){ ... }) may break before
       // :map (w:map(func(){ ... }) does not)
@@ -1796,16 +1796,16 @@ func formatter_methods.build_operator(self, n){
     local prev = receiver
     for(let local op in values(ops)){
       if(calls >= 2 and str.byte_at(self.source, op.first.start) == 58){
-        list_push(rest, self:gap(prev, op, "softline"))
+        append(rest, self:gap(prev, op, "softline"))
       } else if(len(rest) == 0){
-        list_push(lead, self:gap(prev, op, "none"))
-        list_push(lead, op.doc)
+        append(lead, self:gap(prev, op, "none"))
+        append(lead, op.doc)
         prev = op
         continue
       } else {
-        list_push(rest, self:gap(prev, op, "none"))
+        append(rest, self:gap(prev, op, "none"))
       }
-      list_push(rest, op.doc)
+      append(rest, op.doc)
       prev = op
     }
     local doc = {lead, rest}
@@ -1881,7 +1881,7 @@ local func median(numbers){
   local sorted = {}
   for(let local x in values(numbers)){
     local i = len(sorted)
-    list_push(sorted, x)
+    append(sorted, x)
     for(i > 0 and sorted[i - 1] > x){
       sorted[i] = sorted[i - 1]
       i = i - 1
@@ -1932,7 +1932,7 @@ func formatter_methods.fill(self, pieces, kind){
       return null
     }
     if(w >= 0){
-      list_push(widths, w)
+      append(widths, w)
     }
   }
   if(median(widths) > FILL_WIDTH){
@@ -1949,17 +1949,17 @@ func formatter_methods.fill(self, pieces, kind){
       if(type(before) != "string"){
         return null
       }
-      list_push(content, before)
-      list_push(content, separator.doc)
-      list_push(parts, {t: "box", doc: content, hug: self:may_hug(e)})
+      append(content, before)
+      append(content, separator.doc)
+      append(parts, {t: "box", doc: content, hug: self:may_hug(e)})
       if(i + 2 < n){
         if(self:gap(separator, pieces[i + 2]) != LINE){
           return null
         }
-        list_push(parts, LINE)
+        append(parts, LINE)
       }
     } else {
-      list_push(parts, {t: "box", doc: content, hug: self:may_hug(e)})
+      append(parts, {t: "box", doc: content, hug: self:may_hug(e)})
     }
     i = i + 2
   }
@@ -2070,7 +2070,7 @@ func formatter_methods.build_unit(self, n){
   for(let local k in values(n.kids)){
     local piece = self:build(k, "formatted")
     if(piece != null){
-      list_push(pieces, piece)
+      append(pieces, piece)
     }
   }
   local source = self.source
@@ -2086,28 +2086,28 @@ func formatter_methods.build_unit(self, n){
     local from = 0
     if(i > 0){
       from = head_comments[i - 1].stop
-      list_push(parts, HARDLINE)
+      append(parts, HARDLINE)
       if(count_newlines(str.substring(head, from, c.start)) >= 2){
-        list_push(parts, HARDLINE)
+        append(parts, HARDLINE)
       }
     }
-    list_push(parts, rstrip(str.substring(head, c.start, c.stop)))
+    append(parts, rstrip(str.substring(head, c.start, c.stop)))
   }
   if(len(head_comments) > 0){
-    list_push(parts, HARDLINE)
+    append(parts, HARDLINE)
     if(count_newlines(str.substring(
       head,
       head_comments[len(head_comments) - 1].stop,
     )) >= 2){
-      list_push(parts, HARDLINE)
+      append(parts, HARDLINE)
     }
   }
   local prev = null
   for(let local p in values(pieces)){
     if(prev != null){
-      list_push(parts, self:gap(prev, p, "hardline", true))
+      append(parts, self:gap(prev, p, "hardline", true))
     }
-    list_push(parts, p.doc)
+    append(parts, p.doc)
     prev = p
   }
   // comments after the last statement
@@ -2122,14 +2122,14 @@ func formatter_methods.build_unit(self, n){
     local before = str.substring(tail, from, c.start)
     local nl = count_newlines(before)
     if(nl == 0 and i == 0){
-      list_push(parts, " ")
+      append(parts, " ")
     } else {
-      list_push(parts, HARDLINE)
+      append(parts, HARDLINE)
       if(nl >= 2){
-        list_push(parts, HARDLINE)
+        append(parts, HARDLINE)
       }
     }
-    list_push(parts, rstrip(str.substring(tail, c.start, c.stop)))
+    append(parts, rstrip(str.substring(tail, c.start, c.stop)))
   }
   return {doc: parts, first: pieces[0].first, last: prev.last}
 }
@@ -2140,7 +2140,7 @@ func formatter_methods.build_unit(self, n){
 local func tokens(f, n, out){
   if(n.kids == null){
     if(n.start != n.stop and not n.p.trivia and n.p.kind != "whitespace"){
-      list_push(out, f:text(n))
+      append(out, f:text(n))
     }
     return out
   }
@@ -2149,7 +2149,7 @@ local func tokens(f, n, out){
     return out
   }
   if(n.p.kind == "token" and n.p.category != null){
-    list_push(out, f:text(n))
+    append(out, f:text(n))
     return out
   }
   if(n.p.kind == "trim"){
@@ -2167,12 +2167,12 @@ local func comments_of(f, toks_tree){
   local func collect(n){
     if(n.kids == null){
       if(n.start != n.stop and not n.p.trivia and n.p.kind != "whitespace"){
-        list_push(leaves, n)
+        append(leaves, n)
       }
       return null
     }
     if(n.p.kind == "token" and n.p.category != null){
-      list_push(leaves, n)
+      append(leaves, n)
       return null
     }
     if(n.p.kind == "trim"){
@@ -2190,12 +2190,12 @@ local func comments_of(f, toks_tree){
     for(let local c in values(
       gap_comments(str.substring(f.source, at, l.start)),
     )){
-      list_push(out, rstrip(str.substring(f.source, at + c.start, at + c.stop)))
+      append(out, rstrip(str.substring(f.source, at + c.start, at + c.stop)))
     }
     at = l.stop
   }
   for(let local c in values(gap_comments(str.substring(f.source, at)))){
-    list_push(out, rstrip(str.substring(f.source, at + c.start, at + c.stop)))
+    append(out, rstrip(str.substring(f.source, at + c.start, at + c.stop)))
   }
   return out
 }
@@ -2381,7 +2381,7 @@ local func slang_files(os, path, out){
     }
   } else if(str.ends_with(path, ".slang") or
     str.ends_with(path, "slang.project")){
-    list_push(out, path)
+    append(out, path)
   }
   return out
 }
@@ -2401,7 +2401,7 @@ func format.main(arguments){
     } else if(a == "--stdout"){
       stdout = true
     } else {
-      list_push(paths, a)
+      append(paths, a)
     }
   }
   if(len(paths) == 0){

@@ -175,8 +175,11 @@ t.group("ffi: calls"){
         "bad argument #1 to 'ft_vec_add' (Vec2 expected, got string)",
       r[1].message,
     )
+    r = pcall(lib.ft_i32, 1, 2)
+    assert(r[1].message == "ft_i32 takes 1 arguments, got 2", r[1].message)
+    // a missing argument is null: an int still has to be given
     r = pcall(lib.ft_i32)
-    assert(r[1].message == "ft_i32 takes 1 arguments, got 0")
+    assert(r[0] == "err" and str.index_of(r[1].message, "null") >= 0, r[1].message)
     r = pcall(func(){ return lib.ft_missing })
     assert(r[0] == "err")
     assert(str.index_of(r[1].message, "not in the library") >= 0)

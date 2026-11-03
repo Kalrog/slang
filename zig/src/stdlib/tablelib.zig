@@ -27,6 +27,7 @@ pub fn module(vm: *VM) *Table {
         .{ .name = "sort", .f = tSort },
         .{ .name = "insert", .f = tInsert },
         .{ .name = "index_of", .f = tIndexOf },
+        stdlib.fast("span", tSpan),
         stdlib.fast("reverse", tReverse),
         stdlib.fast("slice", tSlice),
     });
@@ -43,7 +44,7 @@ fn keep(th: *Thread, v: Value) Error!void {
 fn keysOf(vm: *VM, t: *const Table) *Table {
     const out = vm.newTable(t.len(), 0);
     var it = t.iterator();
-    while (it.next()) |e| out.pushSlot(vm.gpa, e.key);
+    while (it.next()) |e| out.append(vm.gpa, e.key);
     return out;
 }
 
@@ -174,7 +175,7 @@ fn tSort(th: *Thread, args: []Value) Error!Value {
     const n = t.arr.items.len;
     if (n < 2) return .{ .table = t };
     const scratch = vm.newTable(n, 0);
-    for (t.arr.items) |v| scratch.pushSlot(vm.gpa, v);
+    for (t.arr.items) |v| scratch.append(vm.gpa, v);
     try keep(th, .{ .table = scratch });
     defer th.top -= 1;
     var ctx: SortCtx = .{ .th = th, .less = less };
@@ -204,6 +205,12 @@ fn tIndexOf(th: *Thread, args: []Value) Error!Value {
         if (try th.equal(t.arr.items[i], value)) return .{ .int = @intCast(i) };
     }
     return .{ .int = -1 };
+}
+
+/// span(t): one past the largest integer key, the positions a spread passes
+fn tSpan(th: *Thread, args: []Value) Error!Value {
+    const t = try api.argTable(th, args, 0, "t");
+    return .{ .int = @intCast(t.spreadLen()) };
 }
 
 fn tReverse(th: *Thread, args: []Value) Error!Value {

@@ -15,6 +15,7 @@
 //   - every script is a coroutine, and wait(s) yields it until the deck's
 //     clock has moved s seconds on
 local thread = require("slang/thread")
+local vm = require("slang/vm")
 local compiler = require("slang/compiler")
 local str = require("slang/string")
 local math = require("slang/math")
@@ -157,9 +158,11 @@ func deck.show(v){
   return string(v)
 }
 
-local func line_of(args){
+// n: how many arguments print was given (vm.arg_count: a null one is a
+// gap in args, a trailing one is not there at all)
+local func line_of(args, n){
   local parts = {}
-  for(local i = 0; i < len(args); i = i + 1){
+  for(local i = 0; i < n; i = i + 1){
     append(parts, deck.show(args[i]))
   }
   return str.join(parts, " ")
@@ -208,7 +211,7 @@ func Deck.builtins(self, network){
     }
   }
   env.print = func(...args){
-    d:out(line_of(args), "out")
+    d:out(line_of(args, vm.arg_count()), "out")
   }
   env.wait = func(seconds){
     if(type(seconds) != "int" and type(seconds) != "double"){

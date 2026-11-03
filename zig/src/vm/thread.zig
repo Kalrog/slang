@@ -37,6 +37,9 @@ pub const Frame = struct {
     /// function was (dest_push), dropped (a setter's, dest_drop) or into
     /// the caller's register dest (a getter's, for get_x)
     dest: u16 = dest_push,
+    /// how many arguments the call passed (slang/vm's arg_count): with
+    /// trailing nulls, which a rest parameter cannot hold
+    nargs: u32 = 0,
 };
 
 pub const dest_push: u16 = 0xFFFF;
@@ -319,8 +322,9 @@ pub const Thread = struct {
         try th.ensure(base + @max(nparams + 1, p.max_stack) + 8);
         if (nargs_ > nparams) {
             if (p.is_vararg) {
+                // the extra arguments by position: a null one is a gap
                 const extra = th.vm.newTable(nargs_ - nparams, 0);
-                extra.arr.appendSlice(th.vm.gpa, th.stack[base + nparams .. base + nargs_]) catch oom();
+                for (th.stack[base + nparams .. base + nargs_], 0..) |v, i| extra.set(th.vm.gpa, .{ .int = @intCast(i) }, v);
                 th.stack[base + nparams] = .{ .table = extra };
                 th.top = base + nparams + 1;
             } else {
@@ -340,6 +344,7 @@ pub const Thread = struct {
             th.top = need;
         }
         try th.pushFrame(cl, base, protected);
+        th.frames.items[th.frames.items.len - 1].nargs = @intCast(nargs_);
         return true;
     }
 
@@ -390,7 +395,7 @@ pub const Thread = struct {
     fn okResult(th: *Thread, v: Value) Value {
         const t = th.vm.newTable(2, 0);
         t.append(th.vm.gpa, th.vm.str("ok"));
-        t.pushSlot(th.vm.gpa, v);
+        t.append(th.vm.gpa, v);
         return .{ .table = t };
     }
 

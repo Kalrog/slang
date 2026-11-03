@@ -231,7 +231,7 @@ local func doc_block_above(i){
   local block = {}
   local j = i - 1
   for(j >= 0 and str.starts_with(source[j], "//")){
-    list_push(block, source[j])
+    append(block, source[j])
     j = j - 1
   }
   local lines = {}

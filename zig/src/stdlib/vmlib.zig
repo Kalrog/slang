@@ -29,6 +29,7 @@ pub fn module(vm: *VM) *Table {
         .{ .name = "load_native", .f = @import("../loader.zig").loadNative },
         .{ .name = "find_native", .f = @import("../loader.zig").findNative },
         .{ .name = "collect", .f = vmCollect },
+        stdlib.fast("arg_count", vmArgCount),
         .{ .name = "on_collect", .f = vmOnCollect },
         .{ .name = "weak_keys", .f = vmWeakKeys },
         .{ .name = "weak_values", .f = vmWeakValues },
@@ -39,6 +40,20 @@ pub fn module(vm: *VM) *Table {
 }
 
 // ------------------------------------------------------------ collector
+
+/// arg_count(): how many arguments the slang function calling it was
+/// given, trailing nulls included (a frameless native: the innermost frame
+/// is the caller's)
+fn vmArgCount(th: *Thread, args: []Value) Error!Value {
+    _ = args;
+    var i = th.frames.items.len;
+    while (i > 0) {
+        i -= 1;
+        const fr = th.frames.items[i];
+        if (fr.cl.proto != null) return .{ .int = @intCast(fr.nargs) };
+    }
+    return .{ .int = 0 };
+}
 
 /// collect(): a full collection now; what nothing refers to any more is
 /// freed (finalizers run) before it returns.

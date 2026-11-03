@@ -1,3 +1,4 @@
+local str = require("slang/string")
 local t = require("slang/test")
 local table = require("slang/table")
 
@@ -116,6 +117,32 @@ t.group("table"){
     local adults = table.from_entries(table.filter(table.entries(ages), func(e){ return e[1] >= 18 }))
     assert(adults == {ann: 20, cid: 40})
     assert(pcall(table.from_entries, {1})[0] == "err")
+  }
+  t.test("a list holds no null: gaps keep positions"){
+    local func pass(...a){ return a }
+    local func forward(...a){ return pass(...a) }
+    local a = forward(1, null, 3)
+    assert(a[0] == 1 and a[1] == null and a[2] == 3 and len(a) == 1, "a rest parameter keeps positions")
+    local func three(x, y, z){ return {x, y, z} }
+    local gappy = {"a"}
+    gappy[2] = "c"
+    local r = three(...gappy)
+    assert(r[0] == "a" and r[1] == null and r[2] == "c", "a spread passes a gap as null")
+    local e = pcall(append, {}, null)
+    assert(e[0] == "err" and str.index_of(e[1].message, "no null") >= 0, e[1].message)
+    local p = pcall(func(){ return null })
+    assert(p[0] == "ok" and p[1] == null and len(p) == 1)
+    // the arguments as they were passed, trailing nulls included
+    local vm = require("slang/vm")
+    local func counted(...rest){ return vm.arg_count() }
+    local func two(a, b){ return vm.arg_count() }
+    assert(counted() == 0 and counted(null) == 1 and counted(1, null, null) == 3)
+    assert(two(1) == 1 and two(1, 2) == 2)
+  }
+  t.test("same is identity, == compares contents"){
+    local x = {1}
+    assert(same(x, x) and not same(x, {1}) and x == {1})
+    assert(same("a", "a") and same(1, 1.0) and not same(1, 2) and not same(x, null))
   }
   t.test("insert, index_of, reverse, slice"){
     local l = {1, 3}

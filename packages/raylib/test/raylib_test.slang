@@ -59,9 +59,11 @@ t.group("raylib: structs are tables"){
         "bad argument #1 to 'check_collision_recs' (Rectangle expected, got string)",
       r[1].message,
     )
+    // a missing argument is null: a struct still has to be given
     r = pcall(rl.vector2_add, {1, 2})
     assert(
-      r[0] == "err" and r[1].message == "vector2_add takes 2 arguments, got 1",
+      r[0] == "err" and r[1].message == "bad argument #2 to 'vector2_add' (Vector2 expected, got null)",
+      r[1].message,
     )
   }
 }

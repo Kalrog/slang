@@ -2091,7 +2091,7 @@ local func install_core(g){
       if(hit != null){
         ctx.value = hit.node
         if(ctx.collect != null and hit.tree != null){
-          list_push(ctx.collect, hit.tree)
+          append(ctx.collect, hit.tree)
         }
         return hit.stop
       }
@@ -2530,7 +2530,7 @@ func grammar.comments(buffer, start, stop){
     if(j < 0 or j > stop){
       j = stop
     }
-    list_push(out, {category: "comment", start: i, stop: j})
+    append(out, {category: "comment", start: i, stop: j})
     i = str.index_of(buffer, "//", j)
   }
   return out
@@ -2580,7 +2580,7 @@ local func error_region(keywords){
           }
         }
         if(category != null){
-          list_push(out, {category: category, start: i, stop: j})
+          append(out, {category: category, start: i, stop: j})
         }
         i = j
       }
@@ -2661,8 +2661,8 @@ local func parse_top_level(g, source, origin, scoped, recover, tree){
           target = unit
         }
         if(tree){
-          list_push(trees, ctx.tree)
-          list_push(tree_values, parsed)
+          append(trees, ctx.tree)
+          tree_values[len(trees) - 1] = parsed
         }
         local node = target:run_extension(parsed, origin)
         emit(lin, statements, node)
@@ -2671,8 +2671,8 @@ local func parse_top_level(g, source, origin, scoped, recover, tree){
         q = parse_statement(lin, parsers.statement, ctx, pos)
         if(q >= 0){
           if(tree){
-            list_push(trees, ctx.tree)
-            list_push(tree_values, ctx.value)
+            append(trees, ctx.tree)
+            tree_values[len(trees) - 1] = ctx.value
           }
           emit(lin, statements, ctx.value)
           pos = q
@@ -2680,8 +2680,8 @@ local func parse_top_level(g, source, origin, scoped, recover, tree){
           q = parse_statement(lin, parsers.final, ctx, pos)
           if(q >= 0){
             if(tree){
-              list_push(trees, ctx.tree)
-              list_push(tree_values, ctx.value)
+              append(trees, ctx.tree)
+              tree_values[len(trees) - 1] = ctx.value
             }
             emit(lin, statements, ctx.value)
             pos = q
@@ -2699,15 +2699,15 @@ local func parse_top_level(g, source, origin, scoped, recover, tree){
       far_pos = stop
     }
     if(region == null or region.stop != pos){
-      list_push(lin.failures, {
+      append(lin.failures, {
         message: "end of input expected",
         pos: stop,
         far_pos: far_pos,
         far_message: ctx.far_msg or "end of input expected",
       })
       region = peg.leaf(error_region(unit.keywords), pos, pos)
-      list_push(trees, region)
-      list_push(tree_values, false)
+      append(trees, region)
+      tree_values[len(trees) - 1] = false
     }
     // the next line after the farthest failure
     local next = str.index_of(source, "\n", far_pos)
@@ -2732,8 +2732,8 @@ local func parse_top_level(g, source, origin, scoped, recover, tree){
     // trivia no token took (a file of nothing but comments)
     if(pos < stop){
       local rest = peg.leaf(g.default_trivia, pos, stop)
-      list_push(trees, rest)
-      list_push(tree_values, rest.value)
+      append(trees, rest)
+      tree_values[len(trees) - 1] = rest.value
     }
     lin.last_tree = peg.node(unit_parser, 0, stop, trees)
     lin.last_tree.value = tree_values

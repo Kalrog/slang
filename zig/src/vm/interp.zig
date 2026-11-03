@@ -424,20 +424,23 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                     try th.handleError(error.Slang, stop_depth);
                     continue :outer;
                 }
-                const items = list.table.arr.items;
+                // every index up to the largest: a gap is passed as null,
+                // so ...args forwards f(1, null, 3) as it came
+                const lt = list.table;
+                const spread_n = lt.spreadLen();
                 top -= 1;
                 spill(trace, th, fi, pc, top);
-                th.ensure(top + items.len + 8) catch |e| {
+                th.ensure(top + spread_n + 8) catch |e| {
                     try th.handleError(e, stop_depth);
                     continue :outer;
                 };
                 stack = th.stack.ptr;
-                for (items) |v| {
-                    stack[top] = v;
+                for (0..spread_n) |i| {
+                    stack[top] = lt.getInt(@intCast(i));
                     top += 1;
                 }
                 spill(trace, th, fi, pc, top);
-                const nargs = fixed + items.len;
+                const nargs = fixed + spread_n;
                 const fn_idx = top - nargs - 1;
                 const is_slang = th.precall(fn_idx, nargs, false) catch |e| {
                     try th.handleError(e, stop_depth);
@@ -1091,7 +1094,7 @@ inline fn absIndex(top: usize, base: usize, idx: i32) usize {
 fn okResult(th: *Thread, v: Value) Value {
     const t = th.vm.newTable(2, 0);
     t.append(th.vm.gpa, th.vm.str("ok"));
-    t.pushSlot(th.vm.gpa, v);
+    t.append(th.vm.gpa, v);
     return .{ .table = t };
 }
 

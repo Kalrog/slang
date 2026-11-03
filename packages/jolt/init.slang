@@ -110,7 +110,7 @@ local func raw_binding(decl, name){
   local outputs = {}
   for(local i = len(params) - 1; i >= 0; i = i - 1){
     if(names.is_output(decl, i)){
-      list_push(outputs, i)
+      append(outputs, i)
     }
   }
   if(len(outputs) == 0){
@@ -146,7 +146,7 @@ local func raw_binding(decl, name){
         v = ffi.new(params[i].type.to.c, 1, C)
         append(made, i)
       }
-      list_push(full, v)
+      full[i] = v
     }
     local r = f(...full)
     local count = len(made)
@@ -438,7 +438,7 @@ local func bind_method(found, key){
       } else {
         v = unwrap(v, params[i].type)
       }
-      list_push(full, v)
+      full[i] = v
     }
     return wrap_result(self, decl, f(...full))
   }

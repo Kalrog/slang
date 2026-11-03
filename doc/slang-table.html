@@ -62,6 +62,7 @@ tbl.sort(people, func(a, b){ return a.age &lt; b.age })</code></pre>
 <li><a href="#sort"><code>sort</code></a></li>
 <li><a href="#insert"><code>insert</code></a></li>
 <li><a href="#index_of"><code>index_of</code></a></li>
+<li><a href="#span"><code>span</code></a></li>
 <li><a href="#reverse"><code>reverse</code></a></li>
 <li><a href="#slice"><code>slice</code></a></li>
 </ul>
@@ -109,6 +110,11 @@ tbl.sort(items, func(a, b){ return a.price &gt; b.price })   // descending</code
 </div>
 <div class="def" id="index_of"><h3><code>table.index_of(t: {any}, value) -> int</code></h3>
 <p>The index of the first element of the list t that equals value (==), or -1.</p>
+
+</div>
+<div class="def" id="span"><h3><code>table.span(t: table) -> int</code></h3>
+<p>One past the largest integer key of t: how many positions positional data with gaps has, and how many values f(...t) passes. For a rest parameter, the number of arguments up to the last one that is not null.</p>
+<pre><code>tbl.span({0: &quot;a&quot;, 2: &quot;c&quot;})   // 3, while len is 1</code></pre>
 
 </div>
 <div class="def" id="reverse"><h3><code>table.reverse(t: {any}) -> {any}</code></h3>

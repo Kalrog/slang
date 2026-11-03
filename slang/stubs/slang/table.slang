@@ -80,6 +80,13 @@ func m.insert(t, i, v){}
 // -1.
 func m.index_of(t, value){}
 
+// span(t: table) -> int
+// One past the largest integer key of t: how many positions positional
+// data with gaps has, and how many values f(...t) passes. For a rest
+// parameter, the number of arguments up to the last one that is not null.
+//   tbl.span({0: "a", 2: "c"})   // 3, while len is 1
+func m.span(t){}
+
 // reverse(t: {any}) -> {any}
 // Reverses the list t in place and returns it.
 func m.reverse(t){}

@@ -346,18 +346,22 @@ pub const Table = struct {
         t.fixList(gpa);
     }
 
+    /// How many values spreading the table passes (f(...t)): one past its
+    /// largest integer key, the list and any indices after a gap.
+    pub fn spreadLen(t: *const Table) usize {
+        var n = t.arr.items.len;
+        if (t.ents.items.len == t.dead) return n;
+        for (t.ents.items) |e| {
+            if (e.key == .int and e.key.int >= 0 and @as(usize, @intCast(e.key.int)) >= n) n = @intCast(e.key.int + 1);
+        }
+        return n;
+    }
+
     /// Inserts v at list index i (0 to the list's length), moving the
     /// elements from i on up by one.
     pub fn insertAt(t: *Table, gpa: Allocator, i: usize, v: Value) void {
         t.arr.insert(gpa, i, v) catch oom();
         t.mflags = 0;
-        t.fixList(gpa);
-    }
-
-    /// Appends v to the array part even when it is null (sequence results of
-    /// the parser library need positional null entries).
-    pub fn pushSlot(t: *Table, gpa: Allocator, v: Value) void {
-        t.arr.append(gpa, v) catch oom();
         t.fixList(gpa);
     }
 

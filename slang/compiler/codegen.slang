@@ -336,7 +336,7 @@ func asm.index_of_constant(self, value){
   index = len(self.constants)
   self.constant_index[key] = index
   local entry = {kind}
-  list_push(entry, value)
+  entry[1] = value
   append(self.constants, entry)
   return index
 }

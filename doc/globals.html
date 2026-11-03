@@ -58,7 +58,7 @@ for(let local e in entries({a: 1, b: 2})){ print(e[0], &quot;=&quot;, e[1], &quo
 <li><a href="#to_float"><code>to_float</code></a></li>
 <li><a href="#to_int"><code>to_int</code></a></li>
 <li><a href="#append"><code>append</code></a></li>
-<li><a href="#list_push"><code>list_push</code></a></li>
+<li><a href="#same"><code>same</code></a></li>
 <li><a href="#remove"><code>remove</code></a></li>
 <li><a href="#keys"><code>keys</code></a></li>
 <li><a href="#values"><code>values</code></a></li>
@@ -130,11 +130,12 @@ count({}) == 0            // whether a map is empty</code></pre>
 </div>
 <h2>tables</h2>
 <div class="def" id="append"><h3><code>append(t: table, v: any)</code></h3>
-<p>Adds v at the end of the list of t (sets t[len(t)]); named keys stay as they are. A null v adds nothing (see <a href="#list_push"><code>list_push</code></a>).</p>
+<p>Adds v at the end of the list of t (sets t[len(t)]); named keys stay as they are. A list holds no null: appending null raises. To keep a position empty, set by index (t[i] = v): a null leaves a gap, which spreading (f(...t)) passes as null.</p>
 
 </div>
-<div class="def" id="list_push"><h3><code>list_push(t: table, v: any)</code></h3>
-<p>Adds v at the end of the list part of t, keeping a null v as a slot (<a href="#append"><code>append</code></a> and list literals stop at null).</p>
+<div class="def" id="same"><h3><code>same(a: any, b: any) -> bool</code></h3>
+<p>Whether a and b are the same value: the same table, function, userdata or coroutine, not two with equal contents (== compares tables by their contents). Other values compare as == does.</p>
+<pre><code>same({}, {})   // false, while {} == {} is true</code></pre>
 
 </div>
 <div class="def" id="remove"><h3><code>remove(list: {any}, i: int) -> any</code></h3>

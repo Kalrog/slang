@@ -212,7 +212,7 @@ local func raw_binding(decl, name){
       } else if(type(v) == "function" and t.kind == "ptr" and t.to.kind == "func"){
         v = wrap_callback(v, t.to)
       }
-      list_push(full, v)
+      full[i] = v
     }
     return f(...full)
   }
@@ -711,7 +711,7 @@ wrap_callback = func(f, sig){
       if(t.kind == "struct" and id_types[t.name] != null){
         v = wrap_id(t.name, v)
       }
-      list_push(out, v)
+      out[i] = v
     }
     return f(...out)
   }

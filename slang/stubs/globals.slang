@@ -103,13 +103,17 @@ func to_int(v){}
 
 // append(t: table, v: any)
 // Adds v at the end of the list of t (sets t[len(t)]); named keys stay as
-// they are. A null v adds nothing (see [list_push]).
+// they are. A list holds no null: appending null raises. To keep a
+// position empty, set by index (t[i] = v): a null leaves a gap, which
+// spreading (f(...t)) passes as null.
 func append(t, v){}
 
-// list_push(t: table, v: any)
-// Adds v at the end of the list part of t, keeping a null v as a slot
-// ([append] and list literals stop at null).
-func list_push(t, v){}
+// same(a: any, b: any) -> bool
+// Whether a and b are the same value: the same table, function, userdata
+// or coroutine, not two with equal contents (== compares tables by their
+// contents). Other values compare as == does.
+//   same({}, {})   // false, while {} == {} is true
+func same(a, b){}
 
 // remove(list: {any}, i: int) -> any
 // Takes the element at index i out of the list, moving the later elements

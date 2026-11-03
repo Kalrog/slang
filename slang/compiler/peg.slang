@@ -205,14 +205,14 @@ local func weave(p, ctx, start, stop, trees){
     local t = trees[i]
     if(t.start >= at and t.stop <= stop and t.stop > t.start){
       if(t.start > at){
-        list_push(kids, raw_leaf(p, ctx, at, t.start))
+        append(kids, raw_leaf(p, ctx, at, t.start))
       }
-      list_push(kids, t)
+      append(kids, t)
       at = t.stop
     }
   }
   if(at < stop){
-    list_push(kids, raw_leaf(p, ctx, at, stop))
+    append(kids, raw_leaf(p, ctx, at, stop))
   }
   return kids
 }
@@ -288,7 +288,7 @@ func peg.collect(ctx, pos, tree_path){
   local q = tree_path(ctx, pos)
   ctx.collect = list
   if(q >= 0){
-    list_push(list, ctx.tree)
+    append(list, ctx.tree)
   }
   return q
 }
@@ -569,7 +569,8 @@ local func seq_list(parsers){
         if(values == null){
           values = {}
         }
-        list_push(values, ctx.value)
+        // by position: a null value is a gap
+        values[i] = ctx.value
       }
       ctx.value = values or {}
       return pos
@@ -644,7 +645,7 @@ func peg.star(child){
       if(q < 0 or q == pos){
         break
       }
-      list_push(values, ctx.value)
+      append(values, ctx.value)
       pos = q
     }
     ctx.value = values
@@ -689,14 +690,14 @@ func peg.plus(child){
     if(q < 0){
       return -1
     }
-    list_push(values, ctx.value)
+    append(values, ctx.value)
     pos = q
     for(true){
       q = child:parse_on(ctx, pos)
       if(q < 0 or q == pos){
         break
       }
-      list_push(values, ctx.value)
+      append(values, ctx.value)
       pos = q
     }
     ctx.value = values
@@ -749,7 +750,7 @@ func peg.star_lazy(child, limit){
         if(q < 0){
           return -1
         }
-        list_push(values, ctx.value)
+        append(values, ctx.value)
         pos = q
       }
     },
@@ -782,7 +783,7 @@ local func separated(child, separator, at_least_one){
       ctx.value = {elements: elements, separators: separators}
       return pos
     }
-    list_push(elements, ctx.value)
+    append(elements, ctx.value)
     pos = q
     for(true){
       q = separator:parse_on(ctx, pos)
@@ -794,8 +795,8 @@ local func separated(child, separator, at_least_one){
       if(r < 0){
         break
       }
-      list_push(separators, sep)
-      list_push(elements, ctx.value)
+      append(separators, sep)
+      append(elements, ctx.value)
       pos = r
     }
     ctx.value = {elements: elements, separators: separators}
@@ -949,9 +950,9 @@ func peg.permute(child, ...indices){
       for(local i = 0; i < n; i = i + 1){
         local index = indices[i]
         if(index < 0){
-          list_push(out, list[len(list) + index])
+          append(out, list[len(list) + index])
         } else {
-          list_push(out, list[index])
+          append(out, list[index])
         }
       }
       ctx.value = out
@@ -1200,7 +1201,8 @@ local func resolve_ref(f, args){
     node = {}
     ref_cache[f] = node
   }
-  local n = len(args)
+  // by position: a null argument is a gap
+  local n = require("slang/table").span(args)
   for(local i = 0; i < n; i = i + 1){
     local key = args[i]
     if(key == null){
@@ -1809,13 +1811,14 @@ local func make_dispatch(entries, skip, memo){
     return d
   }
   local infos = {}
-  for(let local e in values(entries)){
-    local i = info_of(e.parser, memo, {})
+  for(local k = 0; k < len(entries); k = k + 1){
+    local i = info_of(entries[k].parser, memo, {})
     local first = i.first
     if(i.nullable){
       first = null
     }
-    list_push(infos, first)
+    // by entry: null (any byte) is a gap
+    infos[k] = first
   }
   local by_byte = {}
   local n = len(entries)
@@ -1830,7 +1833,7 @@ local func make_dispatch(entries, skip, memo){
         append(list, entries[i])
       }
     }
-    list_push(by_byte, list)
+    by_byte[b] = list
   }
   local at_end = {}
   for(local i = 0; i < n; i = i + 1){
@@ -2577,7 +2580,7 @@ local func nud_tree(w, e, ctx, pos, op, op_tree, start){
   }
   local kids = {op_tree}
   for(let local k in values(weave(e, ctx, op_tree.stop, r, trees))){
-    list_push(kids, k)
+    append(kids, k)
   }
   ctx.tree = node(e, start, r, kids)
   ctx.tree.value = ctx.value
@@ -2614,7 +2617,7 @@ local func led_tree(w, e, ctx, pos, left, left_tree, op, op_tree){
   }
   local kids = {left_tree, op_tree}
   for(let local k in values(weave(e, ctx, op_tree.stop, r, trees))){
-    list_push(kids, k)
+    append(kids, k)
   }
   ctx.tree = node(e, start, r, kids)
   ctx.tree.value = ctx.value
@@ -2755,8 +2758,8 @@ tree_kinds.seq = func(self, ctx, pos){
     if(pos < 0){
       return -1
     }
-    list_push(values, ctx.value)
-    list_push(trees, ctx.tree)
+    values[i] = ctx.value
+    trees[i] = ctx.tree
   }
   ctx.value = values
   ctx.tree = node(self, start, pos, trees)
@@ -2779,8 +2782,8 @@ local func repeat_tree(self, ctx, pos, at_least_one){
       break
     }
     first = false
-    list_push(values, ctx.value)
-    list_push(trees, ctx.tree)
+    append(values, ctx.value)
+    append(trees, ctx.tree)
     pos = q
   }
   ctx.value = values
@@ -2823,8 +2826,8 @@ tree_kinds.star_lazy = func(self, ctx, pos){
     if(q < 0){
       return -1
     }
-    list_push(values, ctx.value)
-    list_push(trees, ctx.tree)
+    append(values, ctx.value)
+    append(trees, ctx.tree)
     pos = q
   }
 }
@@ -2846,8 +2849,8 @@ tree_kinds.separated = func(self, ctx, pos){
     ctx.tree = node(self, pos, pos, trees)
     return pos
   }
-  list_push(elements, ctx.value)
-  list_push(trees, ctx.tree)
+  append(elements, ctx.value)
+  append(trees, ctx.tree)
   pos = q
   for(true){
     q = tparse(separator, ctx, pos)
@@ -2860,10 +2863,10 @@ tree_kinds.separated = func(self, ctx, pos){
     if(r < 0){
       break
     }
-    list_push(separators, sep)
-    list_push(elements, ctx.value)
-    list_push(trees, sep_tree)
-    list_push(trees, ctx.tree)
+    append(separators, sep)
+    append(elements, ctx.value)
+    append(trees, sep_tree)
+    append(trees, ctx.tree)
     pos = r
   }
   ctx.value = {elements: elements, separators: separators}
@@ -2896,9 +2899,9 @@ tree_kinds.permute = func(self, ctx, pos){
   local out = {}
   for(let local index in values(self.indices)){
     if(index < 0){
-      list_push(out, list[len(list) + index])
+      append(out, list[len(list) + index])
     } else {
-      list_push(out, list[index])
+      append(out, list[index])
     }
   }
   ctx.value = out
@@ -2963,7 +2966,7 @@ local func consume_tree(trimmer, ctx, pos, kids){
     if(q < 0 or q == pos){
       break
     }
-    list_push(kids, ctx.tree)
+    append(kids, ctx.tree)
     pos = q
     if(trimmer.single){
       break
@@ -2987,7 +2990,7 @@ tree_kinds.trim = func(self, ctx, pos){
   }
   local v = ctx.value
   local at = len(kids)
-  list_push(kids, ctx.tree)
+  append(kids, ctx.tree)
   q = consume_tree(self.children[2], ctx, q, kids)
   ctx.value = v
   local t = node(self, start, q, kids)
@@ -3038,10 +3041,10 @@ func peg.leaves(tree){
     if(t != null){
       local kids = t.kids
       if(kids == null){
-        list_push(out, t)
+        append(out, t)
       } else {
         for(local i = len(kids) - 1; i >= 0; i = i - 1){
-          list_push(stack, kids[i])
+          append(stack, kids[i])
         }
       }
     }
@@ -3055,7 +3058,7 @@ func peg.leaves(tree){
 func peg.text(tree, buffer){
   local parts = {}
   for(let local l in values(peg.leaves(tree))){
-    list_push(parts, str.substring(buffer, l.start, l.stop))
+    append(parts, str.substring(buffer, l.start, l.stop))
   }
   return str.join(parts, "")
 }
@@ -3140,7 +3143,7 @@ local pipeline_methods = {}
 local pipeline_meta = {__index: pipeline_methods, __type: "layer_pipeline"}
 
 local func add_op(self, op){
-  list_push(self.ops, op)
+  append(self.ops, op)
   return self
 }
 // map(f: func(value): any) -> Pipeline: replaces the value by f(value)
@@ -3238,10 +3241,10 @@ func peg.on(parser, layer, f){
   }
   local list = {}
   for(let local op in values(ops[layer] or {})){
-    list_push(list, op)
+    append(list, op)
   }
   for(let local op in values(pipe.ops)){
-    list_push(list, op)
+    append(list, op)
   }
   ops[layer] = list
   p.layer_ops = ops
@@ -3265,7 +3268,7 @@ func peg.marks(n, layer){
   if(ops != null and ops[layer] != null){
     for(let local op in values(ops[layer])){
       if(op.op == "mark"){
-        list_push(out, op.data)
+        append(out, op.data)
       }
     }
   }
@@ -3349,9 +3352,9 @@ local func node_value(n, kids, tags, buffer){
     local separators = {}
     for(local i = 0; i < len(n.kids); i = i + 1){
       if(i % 2 == 0){
-        list_push(elements, kids[i])
+        append(elements, kids[i])
       } else {
-        list_push(separators, kids[i])
+        append(separators, kids[i])
       }
     }
     return {elements: elements, separators: separators}
@@ -3366,7 +3369,7 @@ local func node_value(n, kids, tags, buffer){
     if(tags.select){
       local out = {}
       for(let local index in values(p.indices)){
-        list_push(out, at(kids[0], index))
+        append(out, at(kids[0], index))
       }
       return out
     }
@@ -3415,7 +3418,7 @@ local func apply_ops(n, v, ops, buffer){
     } else if(o == "permute"){
       local out = {}
       for(let local index in values(op.indices)){
-        list_push(out, at(v, index))
+        append(out, at(v, index))
       }
       v = out
     } else if(o == "flatten"){
@@ -3438,7 +3441,7 @@ local func evaluate(n, layer, tags, buffer, use_stored){
     local values = {}
     for(local i = 0; i < len(kids); i = i + 1){
       local r = evaluate(kids[i], layer, tags, buffer, use_stored)
-      list_push(values, r.value)
+      values[i] = r.value
       if(r.changed){
         changed = true
       }
@@ -3543,7 +3546,7 @@ func peg.highlights(tree, buffer, options){
     if(category != null and stop > start){
       local n = len(out)
       if(n == 0 or out[n - 1].stop <= start){
-        list_push(out, {category: category, start: start, stop: stop})
+        append(out, {category: category, start: start, stop: stop})
       }
     }
   }
@@ -3562,9 +3565,9 @@ func peg.highlights(tree, buffer, options){
     for(len(out) > mark){
       local s = remove(out, len(out) - 1)
       if(s.start >= stop){
-        list_push(after, s)
+        append(after, s)
       } else if(s.stop <= start){
-        list_push(out, s)
+        append(out, s)
         break
       }
     }

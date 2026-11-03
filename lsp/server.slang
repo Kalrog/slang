@@ -256,6 +256,123 @@ func lsp.range_of(text, start, stop, encoding){
   }
 }
 
+// The parser's categories, sharpened where the editor's TextMate grammar
+// says more (VS Code paints semantic tokens over it, so a plainer token
+// would hide what it shows): local, func, extension and global declare, true,
+// false and null are constants, and, or and not operators; a name before (
+// is a function (after func, the one defined); a string leaves its escapes
+// to the grammar.
+local declaration_words = {
+  ["local"]: true, ["func"]: true, ["extension"]: true, ["global"]: true
+}
+local constant_words = {["true"]: true, ["false"]: true, ["null"]: true}
+local operator_words = {["and"]: true, ["or"]: true, ["not"]: true}
+
+local func is_hex(c){
+  return c != "" and str.index_of("0123456789abcdefABCDEF", c) >= 0
+}
+
+// whether the next character after pos on its line, past blanks, is (
+local func before_call(text, pos){
+  for(pos < len(text)){
+    local c = str.char_at(text, pos)
+    if(c != " " and c != "\t"){
+      return c == "("
+    }
+    pos = pos + 1
+  }
+  return false
+}
+
+// escape_end(text, i, stop) -> where the escape at i (a backslash) ends:
+// \x41, \u{1F600} or a backslash and one character, as the grammar has it
+local func escape_end(text, i, stop){
+  local c = str.char_at(text, i + 1)
+  if(c == "x" and i + 3 < stop and is_hex(str.char_at(text, i + 2)) and
+    is_hex(str.char_at(text, i + 3))){
+    return i + 4
+  }
+  if(c == "u" and str.char_at(text, i + 2) == "{"){
+    local j = i + 3
+    for(j < stop and is_hex(str.char_at(text, j))){
+      j = j + 1
+    }
+    if(j > i + 3 and j < stop and str.char_at(text, j) == "}"){
+      return j + 1
+    }
+  }
+  return i + 2
+}
+
+// a "..." string token, in pieces around its escapes, onto out
+local func string_pieces(text, t, out){
+  local line = t.line
+  local from = t.start
+  local from_line = line
+  local i = t.start + 1
+  for(i < t.stop){
+    local c = str.char_at(text, i)
+    if(c == "\\" and i + 1 < t.stop and str.char_at(text, i + 1) != "\n"){
+      if(i > from){
+        append(out, {line: from_line, start: from, stop: i, category: t.category})
+      }
+      i = escape_end(text, i, t.stop)
+      from = i
+      from_line = line
+    } else {
+      if(c == "\n"){ line = line + 1 }
+      i = i + 1
+    }
+  }
+  if(t.stop > from){
+    append(out, {line: from_line, start: from, stop: t.stop, category: t.category})
+  }
+}
+
+// refine(text, tokens) -> the tokens with the categories above
+local func refine(text, tokens){
+  local out = {}
+  local defining = false
+  for(let local t in values(tokens)){
+    local c = t.category
+    local word = null
+    local name = c == "variable" or c == "identifier"
+    if(c == "keyword" or name or c == "punctuation"){
+      word = str.substring(text, t.start, t.stop)
+    }
+    if(c == "keyword"){
+      if(declaration_words[word]){
+        c = "keyword.declaration"
+      } else if(constant_words[word]){
+        c = "keyword.readonly"
+      } else if(operator_words[word]){
+        c = "operator"
+      }
+    } else if(name){
+      if(defining){
+        c = "function.declaration"
+      } else if(before_call(text, t.stop)){
+        c = "function"
+      }
+    }
+    // the name after func, a.b:c included, is the one defined
+    if(word == "func"){
+      defining = true
+    } else if(not (c == "function.declaration" or word == "." or word == ":")){
+      defining = false
+    }
+    if(c == "string" and str.char_at(text, t.start) == "\"" and
+      not str.starts_with(str.substring(text, t.start, t.stop), "\"\"\"")){
+      string_pieces(text, t, out)
+    } else if(c == t.category){
+      append(out, t)
+    } else {
+      append(out, {line: t.line, start: t.start, stop: t.stop, category: c})
+    }
+  }
+  return out
+}
+
 // semantic_tokens(text, tokens, encoding) -> the LSP data array: for every
 // token (split at line breaks) deltaLine, deltaStart, length, type, modifiers
 func lsp.semantic_tokens(text, tokens, encoding){
@@ -263,7 +380,7 @@ func lsp.semantic_tokens(text, tokens, encoding){
   local data = json.array({})
   local prev_line = 0
   local prev_char = 0
-  for(let local t in values(tokens)){
+  for(let local t in values(refine(text, tokens))){
     local cat = category_of(t.category)
     if(cat != null){
       local kind = cat.kind

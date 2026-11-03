@@ -133,6 +133,8 @@
       "language": "slang",
       "scopes": {
         "keyword": ["keyword.control.slang"],
+        "keyword.declaration": ["storage.type.slang"],
+        "keyword.readonly": ["constant.language.slang"],
         "variable": ["variable.other.slang"],
         "number": ["constant.numeric.slang"],
         "string": ["string.quoted.slang"],

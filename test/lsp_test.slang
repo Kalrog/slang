@@ -67,7 +67,7 @@ t.group("language server"){
         replies[0].params.diagnostics,
       ) == 0)
     local data = tokens_of(s, "file:///tmp/lsp_test/a.slang")
-    // local(keyword) x(variable) =(punct) 1(number) // note(comment) print(variable) ( x )
+    // local(keyword) x(variable) =(punct) 1(number) // note(comment) print(function) ( x )
     assert(
       data[0] == 0 and data[1] == 0 and data[2] == 5 and data[3] == 0,
       "first token: local at 0:0, length 5, keyword",
@@ -81,8 +81,8 @@ t.group("language server"){
       "the comment on the next line",
     )
     assert(
-      data[25] == 1 and data[26] == 0 and data[27] == 5 and data[28] == 1,
-      "print on line 3",
+      data[25] == 1 and data[26] == 0 and data[27] == 5 and data[28] == 18,
+      "print on line 3, a function",
     )
     // a change that breaks the file
     local changed = s:handle(notify("textDocument/didChange", {
@@ -151,6 +151,36 @@ t.group("language server"){
       data[20] == 1 and data[21] == 0 and data[22] == 1 and data[23] == 1,
       "y after it",
     )
+  }
+  t.test("tokens say as much as the TextMate grammar under them"){
+    local s = lsp.new()
+    local init = s:handle(request(1, "initialize", {capabilities: {}}))
+    local types = init[0].result.capabilities.semanticTokensProvider.legend.tokenTypes
+    local text = "func t.go(a){ return a and true }\nprint(\"a\\nb\")\n"
+    open_doc(s, "file:///tmp/lsp_test/r.slang", text)
+    local data = tokens_of(s, "file:///tmp/lsp_test/r.slang")
+    // "text type modifiers" of every token but punctuation, on one line each
+    local seen = {}
+    local starts = str.line_starts(text)
+    local line = 0
+    local char = 0
+    for(local i = 0; i < len(data); i = i + 5){
+      if(data[i] > 0){ char = 0 }
+      line = line + data[i]
+      char = char + data[i + 1]
+      local at = starts[line] + char
+      if(types[data[i + 3]] != "punctuation"){
+        append(seen, concat(
+          str.substring(text, at, at + data[i + 2]), " ", types[data[i + 3]],
+          " ", data[i + 4],
+        ))
+      }
+    }
+    assert(str.join(seen, "|") == str.join({
+      "func keyword 1", "t function 1", "go function 1", "a parameter 0",
+      "return keyword 0", "a variable 0", "and operator 0", "true keyword 4",
+      "print function 0", "\"a string 0", "b\" string 0",
+    }, "|"), str.join(seen, "|"))
   }
   t.test("an extension in the document is highlighted"){
     local s = lsp.new()
@@ -563,6 +593,18 @@ t.group("language server: names"){
         first.name, "literal requires"
       ))
     assert(first.range.start.line > r.tests[0].range.start.line)
+  }
+  t.test("tests: those written inline with slang/inline_test"){
+    local r = s:handle(request(9, "slang/tests", {
+      uri: lsp.path_to_uri(compiler.absolute_path("test/fixtures/inline_tests.slang")),
+    }))[0].result
+    local g = r.tests[0]
+    assert(g.kind == "group" and g.name == "inline tests", "the group")
+    // group("inline tests"){ is on line 14 (0-based 13)
+    assert(g.range.start.line == 13 and g.range.start.character == 0, "where")
+    assert(g.children[0].name == "see the module's locals", "its test")
+    assert(g.children[1].children[0].name == "runs too", "the nested group's")
+    assert(r.tests[1].kind == "test" and r.tests[1].name == "at the top of the module")
   }
   t.test("slang.project: keys completed, explained and checked"){
     local ps = lsp.new({root: dir})

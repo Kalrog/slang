@@ -53,6 +53,7 @@ for(let local e in entries({a: 1, b: 2})){ print(e[0], &quot;=&quot;, e[1], &quo
 <li><a href="#pcall"><code>pcall</code></a></li>
 <li><a href="#type"><code>type</code></a></li>
 <li><a href="#len"><code>len</code></a></li>
+<li><a href="#count"><code>count</code></a></li>
 <li><a href="#string"><code>string</code></a></li>
 <li><a href="#to_float"><code>to_float</code></a></li>
 <li><a href="#to_int"><code>to_int</code></a></li>
@@ -105,7 +106,14 @@ if(let {&quot;err&quot;, local e} = r){
 
 </div>
 <div class="def" id="len"><h3><code>len(v: string | table) -> int</code></h3>
-<p>The length of a string in bytes, or the number of entries of a table (list elements and other keys alike); a metatable's __len function decides instead when there is one. Raises an error for other values.</p>
+<p>The length of a string in bytes, or of a table's list: its elements at 0, 1, 2, ... up to the first index it does not have (named keys are not part of it, see <a href="#count"><code>count</code></a>). A metatable's __len function decides instead when there is one. Raises an error for other values.</p>
+<pre><code>len({&quot;a&quot;, &quot;b&quot;, x: 1})     // 2</code></pre>
+
+</div>
+<div class="def" id="count"><h3><code>count(t: table) -> int</code></h3>
+<p>The number of entries of a table: its list elements and its other keys.</p>
+<pre><code>count({&quot;a&quot;, &quot;b&quot;, x: 1})   // 3
+count({}) == 0            // whether a map is empty</code></pre>
 
 </div>
 <div class="def" id="string"><h3><code>string(v) -> string</code></h3>
@@ -122,7 +130,7 @@ if(let {&quot;err&quot;, local e} = r){
 </div>
 <h2>tables</h2>
 <div class="def" id="append"><h3><code>append(t: table, v: any)</code></h3>
-<p>Sets t[len(t)] to v, adding v at the end of a list. As <a href="#len"><code>len</code></a> counts every entry, use it on lists: on a table with other keys it does not add at the end of the list part (see <a href="#list_push"><code>list_push</code></a>).</p>
+<p>Adds v at the end of the list of t (sets t[len(t)]); named keys stay as they are. A null v adds nothing (see <a href="#list_push"><code>list_push</code></a>).</p>
 
 </div>
 <div class="def" id="list_push"><h3><code>list_push(t: table, v: any)</code></h3>

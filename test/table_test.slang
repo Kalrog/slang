@@ -6,7 +6,7 @@ t.group("table"){
     local held = {"C", "C#", "D", "E"}
     held[1] = null
     assert(held[0] == "C" and held[1] == null and held[2] == "D" and held[3] == "E")
-    assert(len(held) == 3)
+    assert(len(held) == 1 and count(held) == 3, "the list ends at the gap")
     held[1] = "C#"
     assert(held == {"C", "C#", "D", "E"}, "filled again, a list again")
     held[3] = null
@@ -89,6 +89,33 @@ t.group("table"){
     assert(sorted[0].n == 1 and sorted[1].n == 2)
     assert(table.contains({1, false}, false), "false is a value like any other")
     assert(table.keys({1, x: 2}) == {0, "x"})
+  }
+  t.test("len is the list, count every entry"){
+    local t = {"a", "b", x: 1}
+    assert(len(t) == 2 and count(t) == 3)
+    assert(len({x: 1}) == 0 and count({x: 1}) == 1 and count({}) == 0)
+    append(t, "c")
+    assert(t[2] == "c" and len(t) == 3, "append adds to the list")
+    local n = 0
+    for(let local v in values({1, false, 3})){
+      n = n + 1
+    }
+    assert(n == 3, "values goes on past false")
+    local matched = false
+    if(let local x = false){
+      matched = true
+    }
+    assert(matched, "a local pattern matches anything but null")
+  }
+  t.test("map, filter, fold take lists; maps go through entries"){
+    assert(table.map({1, 2, 3}, func(x){ if(x == 2){ return null } return x * 10 }) == {10, 30})
+    assert(table.filter({1, 2, 3, 4}, func(v){ return v % 2 == 0 }) == {2, 4})
+    assert(table.map({1, x: 5}, func(v){ return v }) == {1}, "named keys are not the list")
+    assert(table.entries({"a", x: 1}) == {{0, "a"}, {"x", 1}})
+    local ages = {ann: 20, bob: 12, cid: 40}
+    local adults = table.from_entries(table.filter(table.entries(ages), func(e){ return e[1] >= 18 }))
+    assert(adults == {ann: 20, cid: 40})
+    assert(pcall(table.from_entries, {1})[0] == "err")
   }
   t.test("insert, index_of, reverse, slice"){
     local l = {1, 3}

@@ -1539,7 +1539,8 @@ pub const ThreadOps = struct {
             if (f == .function) return th.call(f, &.{v});
         }
         return switch (v) {
-            .table => |t| .{ .int = @intCast(t.len()) },
+            // the list: 0, 1, 2, ... up to the first missing index
+            .table => |t| .{ .int = @intCast(t.arrayLen()) },
             .string => |s| .{ .int = @intCast(s.len) },
             else => th.vm.raise("len requires a table or string", .{}),
         };

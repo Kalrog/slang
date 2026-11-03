@@ -1961,6 +1961,10 @@ func visitors.VarPattern(g, node){
       p:decrease_stack_height()
       return null
     }
+    // anything but null matches (false too: for-in goes on past it)
+    g:visit(ast.node("Null", {}, node.token))
+    g.asm:emit_binop("==")
+    g.asm:emit_unop("not")
     p:decrease_stack_height()
     p:test_missmatch(false)
   } else {

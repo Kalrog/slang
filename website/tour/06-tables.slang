@@ -2,8 +2,9 @@
 //
 // The table is slang's one data structure. Its list part is indexed from
 // 0; named keys make it a record or a map, and `[expr]: value` computes a
-// key. `len` counts the entries, `append` adds to the end, `keys` and
-// `values` iterate.
+// key. `len` is the length of the list part, `count` the number of all
+// entries, `append` adds to the end of the list, `keys` and `values`
+// iterate over everything.
 //
 // Tables compare by value with `==`, and assigning `null` removes a key
 // (only that key: the others keep their indices); `remove(list, i)` takes

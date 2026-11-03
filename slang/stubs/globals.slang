@@ -70,10 +70,18 @@ func pcall(f, ...args){}
 func type(v){}
 
 // len(v: string | table) -> int
-// The length of a string in bytes, or the number of entries of a table
-// (list elements and other keys alike); a metatable's __len function
-// decides instead when there is one. Raises an error for other values.
+// The length of a string in bytes, or of a table's list: its elements at
+// 0, 1, 2, ... up to the first index it does not have (named keys are not
+// part of it, see [count]). A metatable's __len function decides instead
+// when there is one. Raises an error for other values.
+//   len({"a", "b", x: 1})     // 2
 func len(v){}
+
+// count(t: table) -> int
+// The number of entries of a table: its list elements and its other keys.
+//   count({"a", "b", x: 1})   // 3
+//   count({}) == 0            // whether a map is empty
+func count(t){}
 
 // string(v) -> string
 // v rendered as a string, through its __tostring metamethod when it has
@@ -94,9 +102,8 @@ func to_int(v){}
 // ------------------------------------------------------------ tables
 
 // append(t: table, v: any)
-// Sets t[len(t)] to v, adding v at the end of a list. As [len] counts
-// every entry, use it on lists: on a table with other keys it does not
-// add at the end of the list part (see [list_push]).
+// Adds v at the end of the list of t (sets t[len(t)]); named keys stay as
+// they are. A null v adds nothing (see [list_push]).
 func append(t, v){}
 
 // list_push(t: table, v: any)

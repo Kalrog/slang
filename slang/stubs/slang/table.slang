@@ -7,13 +7,17 @@
 //   tbl.sort({"b", "c", "a"})                                     // {"a", "b", "c"}
 //   tbl.sort(people, func(a, b){ return a.age < b.age })
 //
-// [contains], [map], [filter], [fold] and [keys] go over every entry of a
-// table in the order of `keys` (list indices first, then the other keys)
-// and keep keys as they are: [map] and [filter] build tables with the
-// same keys, so filtering a list can leave gaps in its indices. The other
-// functions work on a table's list: its elements at 0, 1, 2, ... up to the
-// first index it does not have (named keys are not part of it). remove(t,
-// i) (a global) is the inverse of [insert].
+// Most functions work on a table's list: its elements at 0, 1, 2, ... up
+// to the first index it does not have (named keys are not part of it, as
+// for len). [map] and [filter] give new dense lists. [contains], [keys]
+// and [entries] go over every entry, in the order of the global `keys`
+// (list indices first, then the other keys). A map is transformed through
+// its entries:
+//
+//   local adults = tbl.from_entries(tbl.filter(tbl.entries(ages),
+//     func(e){ return e[1] >= 18 }))
+//
+// remove(t, i) (a global) is the inverse of [insert].
 //
 // Values compare as == compares them (numbers across ints and doubles,
 // tables by their contents, __eq). A function given to one of these may
@@ -24,26 +28,38 @@ local m = {}
 // Whether some value of t equals value (==).
 func m.contains(t, value){}
 
-// map(t: table, f: func(v: any): any) -> table
-// A new table with f(v) for each value v of t, under the same key (a null
-// result leaves the key out).
-func m.map(t, f){}
+// map(list: {any}, f: func(v: any): any) -> {any}
+// A new list of f(v) for each element v of list, in order; a null result
+// is left out (so map can filter too).
+//   tbl.map({1, 2, 3}, func(x){ return x * x })   // {1, 4, 9}
+func m.map(list, f){}
 
-// filter(t: table, f: func(v: any): any) -> table
-// A new table with the entries of t whose value f accepts (returns
-// neither null nor false), under the same keys.
-//   tbl.filter({a: 1, b: 2}, func(v){ return v > 1 })   // {b: 2}
-func m.filter(t, f){}
+// filter(list: {any}, f: func(v: any): any) -> {any}
+// A new list of the elements of list that f accepts (returns neither null
+// nor false), in order.
+//   tbl.filter({1, 2, 3, 4}, func(v){ return v % 2 == 0 })   // {2, 4}
+func m.filter(list, f){}
 
-// fold(t: table, init, f: func(acc: any, v: any): any) -> any
-// Combines the values of t into one, from init: acc = f(acc, v) for each
-// value in order, then returns acc.
+// fold(list: {any}, init, f: func(acc: any, v: any): any) -> any
+// Combines the elements of list into one, from init: acc = f(acc, v) for
+// each element in order, then returns acc.
 //   tbl.fold({1, 2, 3}, 0, func(a, v){ return a + v })   // 6
-func m.fold(t, init, f){}
+func m.fold(list, init, f){}
 
 // keys(t: table) -> {any}
 // The keys of t as a list, in the order of the global `keys`.
 func m.keys(t){}
+
+// entries(t: table) -> {{any}}
+// The entries of t as a list of {key, value} pairs, in the order of the
+// global `keys`.
+//   tbl.entries({"a", x: 1})   // {{0, "a"}, {"x", 1}}
+func m.entries(t){}
+
+// from_entries(list: {{any}}) -> table
+// A table of the {key, value} pairs of list (a later pair wins over an
+// earlier one with the same key): the inverse of [entries].
+func m.from_entries(list){}
 
 // sort(t: {any}, less?: func(a: any, b: any): bool) -> {any}
 // Sorts the list t in place and returns it. The order is stable: equal

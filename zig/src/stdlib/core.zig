@@ -24,6 +24,7 @@ pub fn open(vm: *VM) void {
         .{ .name = "concat", .f = coreConcat },
         .{ .name = "error", .f = coreError },
         stdlib.fast("len", coreLen),
+        stdlib.fast("count", coreCount),
         stdlib.fast("type", coreType),
         stdlib.fast("set_raw", coreSetRaw),
         stdlib.fast("get_raw", coreGetRaw),
@@ -160,9 +161,10 @@ fn coreAssert(th: *Thread, args: []Value) Error!Value {
     return th.vm.raiseMsg(if (msg.len == 0) "assertion failed" else msg);
 }
 
+/// append(t, v): t[len(t)] = v, the end of the list (null adds nothing)
 fn coreAppend(th: *Thread, args: []Value) Error!Value {
     const t = try api.argTable(th, args, 0, "table");
-    t.set(th.vm.gpa, .{ .int = @intCast(t.len()) }, api.arg(args, 1));
+    t.append(th.vm.gpa, api.arg(args, 1));
     return .null;
 }
 
@@ -323,6 +325,12 @@ fn coreRaise(th: *Thread, args: []Value) Error!Value {
 
 fn coreLen(th: *Thread, args: []Value) Error!Value {
     return th.len(api.arg(args, 0));
+}
+
+/// count(t): the number of entries of a table, its list and named keys
+fn coreCount(th: *Thread, args: []Value) Error!Value {
+    const t = try api.argTable(th, args, 0, "t");
+    return .{ .int = @intCast(t.len()) };
 }
 
 fn coreType(th: *Thread, args: []Value) Error!Value {

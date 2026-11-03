@@ -22,6 +22,8 @@ pub fn module(vm: *VM) *Table {
         .{ .name = "filter", .f = tFilter },
         .{ .name = "fold", .f = tFold },
         .{ .name = "keys", .f = tKeys },
+        .{ .name = "entries", .f = tEntries },
+        .{ .name = "from_entries", .f = tFromEntries },
         .{ .name = "sort", .f = tSort },
         .{ .name = "insert", .f = tInsert },
         .{ .name = "index_of", .f = tIndexOf },
@@ -63,24 +65,22 @@ fn tContains(th: *Thread, args: []Value) Error!Value {
 
 const Each = enum { map, filter };
 
-/// map and filter: a new table under the same keys
+/// map and filter: over the list (as long as it is while f runs: f may
+/// change it), into a new dense list
 fn mapOrFilter(th: *Thread, args: []Value, comptime what: Each) Error!Value {
     const vm = th.vm;
-    const t = try api.argTable(th, args, 0, "t");
+    const t = try api.argTable(th, args, 0, "list");
     const f: Value = .{ .function = try api.argFunction(th, args, 1, "f") };
-    const out = vm.newTable(0, 0);
+    const out = vm.newTable(t.arr.items.len, 0);
     try keep(th, .{ .table = out });
     defer th.top -= 1;
-    const ks = keysOf(vm, t);
-    try keep(th, .{ .table = ks });
-    defer th.top -= 1;
-    for (0..ks.arr.items.len) |i| {
-        const k = ks.arr.items[i];
-        const v = t.get(k);
+    var i: usize = 0;
+    while (i < t.arr.items.len) : (i += 1) {
+        const v = t.arr.items[i];
         const r = try th.call(f, &.{v});
         switch (what) {
-            .map => out.set(vm.gpa, k, r),
-            .filter => if (r.truthy()) out.set(vm.gpa, k, v),
+            .map => out.append(vm.gpa, r),
+            .filter => if (r.truthy()) out.append(vm.gpa, v),
         }
     }
     return .{ .table = out };
@@ -95,15 +95,12 @@ fn tFilter(th: *Thread, args: []Value) Error!Value {
 }
 
 fn tFold(th: *Thread, args: []Value) Error!Value {
-    const vm = th.vm;
-    const t = try api.argTable(th, args, 0, "t");
+    const t = try api.argTable(th, args, 0, "list");
     var acc = api.arg(args, 1);
     const f: Value = .{ .function = try api.argFunction(th, args, 2, "f") };
-    const ks = keysOf(vm, t);
-    try keep(th, .{ .table = ks });
-    defer th.top -= 1;
-    for (0..ks.arr.items.len) |i| {
-        acc = try th.call(f, &.{ acc, t.get(ks.arr.items[i]) });
+    var i: usize = 0;
+    while (i < t.arr.items.len) : (i += 1) {
+        acc = try th.call(f, &.{ acc, t.arr.items[i] });
     }
     return acc;
 }
@@ -111,6 +108,37 @@ fn tFold(th: *Thread, args: []Value) Error!Value {
 fn tKeys(th: *Thread, args: []Value) Error!Value {
     const t = try api.argTable(th, args, 0, "t");
     return .{ .table = keysOf(th.vm, t) };
+}
+
+/// entries(t): the {key, value} pairs of t as a list, in iteration order
+fn tEntries(th: *Thread, args: []Value) Error!Value {
+    const vm = th.vm;
+    const t = try api.argTable(th, args, 0, "t");
+    const out = vm.newTable(t.len(), 0);
+    try keep(th, .{ .table = out });
+    defer th.top -= 1;
+    var it = t.iterator();
+    while (it.next()) |e| {
+        const pair = vm.newTable(2, 0);
+        pair.append(vm.gpa, e.key);
+        pair.append(vm.gpa, e.val);
+        out.append(vm.gpa, .{ .table = pair });
+    }
+    return .{ .table = out };
+}
+
+/// from_entries(list): a table of the {key, value} pairs of the list
+fn tFromEntries(th: *Thread, args: []Value) Error!Value {
+    const vm = th.vm;
+    const list = try api.argTable(th, args, 0, "list");
+    const out = vm.newTable(0, list.arr.items.len);
+    for (list.arr.items, 0..) |p, i| {
+        const pair = p.asTable() orelse return vm.raise("table.from_entries: element {d} is not a {{key, value}} pair", .{i});
+        const k = pair.getInt(0);
+        if (k == .null) return vm.raise("table.from_entries: element {d} has no key", .{i});
+        out.set(vm.gpa, k, pair.getInt(1));
+    }
+    return .{ .table = out };
 }
 
 const SortCtx = struct {

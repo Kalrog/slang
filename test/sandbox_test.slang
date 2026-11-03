@@ -5,9 +5,9 @@ t.group("compile with an env"){
   t.test("globals are the env's, assignments stay in it"){
     assert(compile("return x * 2", "calc", {x: 21})() == 42)
     local env = {}
-    compile("count = 1\ncount = count + 1", "counter", env)()
-    assert(env.count == 2)
-    assert(count == null, "the program's globals are untouched")
+    compile("tally = 1\ntally = tally + 1", "counter", env)()
+    assert(env.tally == 2)
+    assert(tally == null, "the program's globals are untouched")
   }
   t.test("what the env does not hold is not there"){
     local f = compile("return require", "escape", {})

@@ -46,7 +46,10 @@ local squares = tbl.map({1, 2, 3}, func(x){ return x * x })   // {1, 4, 9}
 tbl.contains(squares, 4)                                      // true
 tbl.sort({&quot;b&quot;, &quot;c&quot;, &quot;a&quot;})                                     // {&quot;a&quot;, &quot;b&quot;, &quot;c&quot;}
 tbl.sort(people, func(a, b){ return a.age &lt; b.age })</code></pre>
-<p><a href="#contains"><code>contains</code></a>, <a href="#map"><code>map</code></a>, <a href="#filter"><code>filter</code></a>, <a href="#fold"><code>fold</code></a> and <a href="#keys"><code>keys</code></a> go over every entry of a table in the order of <code>keys</code> (list indices first, then the other keys) and keep keys as they are: <a href="#map"><code>map</code></a> and <a href="#filter"><code>filter</code></a> build tables with the same keys, so filtering a list can leave gaps in its indices. The other functions work on a table's list: its elements at 0, 1, 2, ... up to the first index it does not have (named keys are not part of it). remove(t, i) (a global) is the inverse of <a href="#insert"><code>insert</code></a>.</p>
+<p>Most functions work on a table's list: its elements at 0, 1, 2, ... up to the first index it does not have (named keys are not part of it, as for len). <a href="#map"><code>map</code></a> and <a href="#filter"><code>filter</code></a> give new dense lists. <a href="#contains"><code>contains</code></a>, <a href="#keys"><code>keys</code></a> and <a href="#entries"><code>entries</code></a> go over every entry, in the order of the global <code>keys</code> (list indices first, then the other keys). A map is transformed through its entries:</p>
+<pre><code>local adults = tbl.from_entries(tbl.filter(tbl.entries(ages),
+  func(e){ return e[1] &gt;= 18 }))</code></pre>
+<p>remove(t, i) (a global) is the inverse of <a href="#insert"><code>insert</code></a>.</p>
 <p>Values compare as == compares them (numbers across ints and doubles, tables by their contents, __eq). A function given to one of these may change the table it is working on; what it sees is the table as it is.</p>
 <ul class="toc">
 <li><a href="#contains"><code>contains</code></a></li>
@@ -54,6 +57,8 @@ tbl.sort(people, func(a, b){ return a.age &lt; b.age })</code></pre>
 <li><a href="#filter"><code>filter</code></a></li>
 <li><a href="#fold"><code>fold</code></a></li>
 <li><a href="#keys"><code>keys</code></a></li>
+<li><a href="#entries"><code>entries</code></a></li>
+<li><a href="#from_entries"><code>from_entries</code></a></li>
 <li><a href="#sort"><code>sort</code></a></li>
 <li><a href="#insert"><code>insert</code></a></li>
 <li><a href="#index_of"><code>index_of</code></a></li>
@@ -64,22 +69,32 @@ tbl.sort(people, func(a, b){ return a.age &lt; b.age })</code></pre>
 <p>Whether some value of t equals value (==).</p>
 
 </div>
-<div class="def" id="map"><h3><code>table.map(t: table, f: func(v: any): any) -> table</code></h3>
-<p>A new table with f(v) for each value v of t, under the same key (a null result leaves the key out).</p>
+<div class="def" id="map"><h3><code>table.map(list: {any}, f: func(v: any): any) -> {any}</code></h3>
+<p>A new list of f(v) for each element v of list, in order; a null result is left out (so map can filter too).</p>
+<pre><code>tbl.map({1, 2, 3}, func(x){ return x * x })   // {1, 4, 9}</code></pre>
 
 </div>
-<div class="def" id="filter"><h3><code>table.filter(t: table, f: func(v: any): any) -> table</code></h3>
-<p>A new table with the entries of t whose value f accepts (returns neither null nor false), under the same keys.</p>
-<pre><code>tbl.filter({a: 1, b: 2}, func(v){ return v &gt; 1 })   // {b: 2}</code></pre>
+<div class="def" id="filter"><h3><code>table.filter(list: {any}, f: func(v: any): any) -> {any}</code></h3>
+<p>A new list of the elements of list that f accepts (returns neither null nor false), in order.</p>
+<pre><code>tbl.filter({1, 2, 3, 4}, func(v){ return v % 2 == 0 })   // {2, 4}</code></pre>
 
 </div>
-<div class="def" id="fold"><h3><code>table.fold(t: table, init, f: func(acc: any, v: any): any) -> any</code></h3>
-<p>Combines the values of t into one, from init: acc = f(acc, v) for each value in order, then returns acc.</p>
+<div class="def" id="fold"><h3><code>table.fold(list: {any}, init, f: func(acc: any, v: any): any) -> any</code></h3>
+<p>Combines the elements of list into one, from init: acc = f(acc, v) for each element in order, then returns acc.</p>
 <pre><code>tbl.fold({1, 2, 3}, 0, func(a, v){ return a + v })   // 6</code></pre>
 
 </div>
 <div class="def" id="keys"><h3><code>table.keys(t: table) -> {any}</code></h3>
 <p>The keys of t as a list, in the order of the global <code>keys</code>.</p>
+
+</div>
+<div class="def" id="entries"><h3><code>table.entries(t: table) -> {{any}}</code></h3>
+<p>The entries of t as a list of {key, value} pairs, in the order of the global <code>keys</code>.</p>
+<pre><code>tbl.entries({&quot;a&quot;, x: 1})   // {{0, &quot;a&quot;}, {&quot;x&quot;, 1}}</code></pre>
+
+</div>
+<div class="def" id="from_entries"><h3><code>table.from_entries(list: {{any}}) -> table</code></h3>
+<p>A table of the {key, value} pairs of list (a later pair wins over an earlier one with the same key): the inverse of <a href="#entries"><code>entries</code></a>.</p>
 
 </div>
 <div class="def" id="sort"><h3><code>table.sort(t: {any}, less?: func(a: any, b: any): bool) -> {any}</code></h3>

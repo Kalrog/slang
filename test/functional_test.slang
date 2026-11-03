@@ -45,10 +45,7 @@ t.group("holes"){
       }
     """)
     assert(r[0] == {6, 7, 8}, concat("map ", r[0]))
-    assert(
-      len(r[1]) == 3 and r[1][2] == 3 and r[1][4] == 5,
-      concat("filter keeps keys: ", r[1]),
-    )
+    assert(r[1] == {3, 4, 5}, concat("filter gives a dense list: ", r[1]))
     assert(r[2] == 6, "fold with two holes")
     assert(r[3] == {"a", "b"}, "field access on a hole")
     assert(r[4] == {1, 2}, "a lone hole is the identity")

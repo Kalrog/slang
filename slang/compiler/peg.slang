@@ -1750,7 +1750,7 @@ func peg.place_memos(roots, named){
         }
         local shared = {}
         for(let local e in entries(alts)){
-          if(len(e[1]) > 1){
+          if(count(e[1]) > 1){
             shared[e[0]] = e[1]
           }
         }

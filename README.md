@@ -284,7 +284,9 @@ or function) and `__type` (a string or a function, used by `type()` and by
 `'Type{...}` patterns). Assigning `null` to a key removes that key and
 nothing else, a list index included (`list[2] = null` leaves `list[3]`
 where it is); `remove(list, i)` takes an element out of a list and moves
-the later ones down. Tables compare structurally with `==`.
+the later ones down. A table's list is its elements 0, 1, 2, ... up to the
+first missing index: `len(t)` is its length and `count(t)` the number of
+all entries, named keys included. Tables compare structurally with `==`.
 
 Properties read and write like fields but run functions: `__get` and `__set`
 are tables of getters and setters by key. They are looked up for keys the
@@ -770,7 +772,7 @@ works too. The playground runs `slang run`, `slang fmt` and `slang highlight
 
 ## Standard library
 Globals: `print`, `args`, `assert`, `error`, `raise`, `pcall`, `compile`,
-`require`, `type`, `len`, `append`, `list_push`, `remove`, `keys`, `values`,
+`require`, `type`, `len`, `count`, `append`, `list_push`, `remove`, `keys`, `values`,
 `entries`, `concat`, `set_raw`, `get_raw`, `to_int`, `to_float`, `string`,
 `module`, `run`.
 

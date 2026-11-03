@@ -61,11 +61,78 @@ local notes = isolate.channel()
 local scope = buffer.shared("float", 2049)
 // what the engine says about the song playing: state {playing, where,
 // how long}, the keys it holds
-local status = {state: buffer.shared("double", 4), keys: buffer.shared("uint8", 128)}
+local status = {state: buffer.shared("double", 4), keys: buffer.shared("uint8", 128), midi: true}
 local player = null
+
+// ------------------------------------------------------------ MIDI
+
+// A MIDI controller: the engine reads its notes in the render isolate
+// (status.midi); the panel reads the rest once a frame: the pitch bend and
+// the mod wheel (CC 1) move the wheels, and the controllers bound by MIDI
+// learn turn their knobs. F1 (or `) starts and ends learning: click a control,
+// move a knob on the controller, and they are bound (BACKSPACE unbinds the
+// control clicked). The bindings live in midi_map.json next to the
+// program. MIDI_INPUT=name picks the controller (else every one is heard).
+local midi_ctl = null
+local midi_map = null
+panel.learning = false
+// the pitch wheel springs back unless the controller holds it
+local bend_from_midi = false
+
+local func open_midi(){
+  local r = pcall(func(){
+    return require("midi").open(os.getenv("MIDI_INPUT"))
+  })
+  if(r[0] == "ok"){
+    midi_ctl = r[1]
+    local path = require("slang/path").join(__PACKAGES.search_paths[0], "midi_map.json")
+    midi_map = require("midi/map").load(path)
+  }
+}
+
+// a controller's value (0..127) as control id's value
+local func set_from_cc(id, value){
+  local i = params.index[id]
+  if(i == null){
+    return null
+  }
+  local c = params.list[i]
+  if(c.kind == "steps"){
+    controls[i] = math.floor(value / 127 * (len(c.labels) - 1) + 0.5)
+  } else if(c.kind == "switch"){
+    if(value >= 64){
+      controls[i] = 1
+    } else {
+      controls[i] = 0
+    }
+  } else {
+    controls[i] = value / 127
+  }
+}
+
+// handle_midi(): the controller's wheels and knobs, once a frame
+func panel.handle_midi(){
+  if(midi_ctl == null){
+    return null
+  }
+  for(let local m in values(midi_ctl:read())){
+    if(m.kind == "bend"){
+      controls[params.index.bend] = (m.value + 1) / 2
+      bend_from_midi = true
+    } else if(m.kind == "cc" and m.controller == 1){
+      controls[params.index.mod] = m.value / 127
+    } else if(m.kind == "cc"){
+      local target = midi_map:target(m)
+      if(target != null){
+        set_from_cc(target, m.value)
+      }
+    }
+  }
+}
 
 // start(): the sound starts playing (in two isolates of raylib/stream)
 func panel.start(){
+  open_midi()
   player = stream.play(func(controls, notes, scope, rate, status){
     local engine = require("engine")
     return engine.new(controls, notes, scope, rate, status)
@@ -355,6 +422,24 @@ local func draw_cap(cx, cy, r, angle){
   )
 }
 
+// a control's MIDI learn marks: its controller over it, a ring when it
+// waits for one
+local func draw_learn(c, r){
+  if(not panel.learning or midi_map == null){
+    return null
+  }
+  if(midi_map.armed == c.id){
+    rl.draw_circle_lines(to_int(c.x), to_int(c.y), r + 10, colors.orange)
+    rl.draw_circle_lines(to_int(c.x), to_int(c.y), r + 11, colors.orange)
+  }
+  local b = midi_map:binding(c.id)
+  if(b != null){
+    local w = measure(b, 9) + 8
+    rl.draw_rectangle(to_int(c.x - w / 2), to_int(c.y - r - 22), to_int(w), 13, colors.orange_dark)
+    text_center(b, c.x, c.y - r - 21, 9, colors.orange)
+  }
+}
+
 local func draw_knob(c, v, caps){
   local r = knob_radius(c)
   // the scale: eleven ticks, the middle one longer on a bipolar knob
@@ -372,6 +457,7 @@ local func draw_knob(c, v, caps){
   if(c.label != ""){
     text_center(c.label, c.x, c.y + r + 14.0, 10, colors.text)
   }
+  draw_learn(c, r)
   if(c.left != null){
     // what the two ends mean, a line under the label
     text(c.left, c.x - r - 18.0, c.y + r + 28.0, 10, colors.dim)
@@ -397,6 +483,7 @@ local func draw_steps(c, v, caps){
     draw_cap(c.x, c.y, r, step_angle(to_int(v), n))
   }
   text_center(c.label, c.x, c.y + r + 14.0, 10, colors.text)
+  draw_learn(c, r + 17)
 }
 
 // a rocker: the lit half is the side it is pressed to
@@ -417,6 +504,7 @@ local func draw_switch(c, v, caps){
   if(c.label != ""){
     text_center(c.label, c.x, c.y + 22.0, 10, colors.text)
   }
+  draw_learn(c, 17)
 }
 
 local func clamp_unit(v){
@@ -511,7 +599,10 @@ local func draw_strip(){
   rl.draw_rectangle(40, y, W - 80, panel.STRIP_H, colors.strip)
   text("slang", 60, y + 10, 20, colors.text)
   text("mini", 60 + measure("slang ", 20), y + 10, 20, colors.orange)
-  if(panel.song == null){
+  if(panel.learning){
+    text("MIDI LEARN: click a control, turn a knob", 178, y + 12, 10, colors.orange)
+    text("F1: done    BACKSPACE: unbind it", 178, y + 30, 10, colors.dim)
+  } else if(panel.song == null){
     text("analog-style monophonic synthesizer", 60, y + 34, 10, colors.dim)
   } else {
     local s = panel.song
@@ -663,6 +754,13 @@ local last_click = {index: -1, time: -1.0}
 // press(i, y): the mouse goes down on control i, at screen height y: a
 // switch flips, a double click resets, anything else starts to turn
 func panel.press(i, y){
+  if(panel.learning and midi_map != null){
+    midi_map:arm(params.list[i].id)
+    return null
+  }
+  if(i == params.index.bend){
+    bend_from_midi = false
+  }
   local c = params.list[i]
   local now = rl.get_time()
   if(last_click.index == i and now - last_click.time < 0.35 and c.kind != "switch"){
@@ -742,7 +840,7 @@ func panel.scroll(i, w){
 // spring(): the pitch wheel, let go, goes back to the middle
 func panel.spring(){
   for(let local wh in values(panel.wheels)){
-    if(wh.spring and (drag == null or drag.index != wh.index)){
+    if(wh.spring and not bend_from_midi and (drag == null or drag.index != wh.index)){
       local v = controls[wh.index]
       if(v != 0.5){
         local nv = v + (0.5 - v) * 0.35
@@ -800,6 +898,15 @@ func panel.handle_keys(){
   }
   if(rl.is_key_pressed(rl.KEY_TAB)){
     panel.next_song()
+  }
+  // MIDI learn
+  if((rl.is_key_pressed(rl.KEY_F1) or rl.is_key_pressed(rl.KEY_GRAVE)) and midi_map != null){
+    panel.learning = not panel.learning
+    midi_map:arm(null)
+  }
+  if(rl.is_key_pressed(rl.KEY_BACKSPACE) and panel.learning and midi_map.armed != null){
+    midi_map:clear(midi_map.armed)
+    midi_map:arm(null)
   }
   if(rl.is_key_pressed(rl.KEY_UP)){
     panel.next_patch(1)

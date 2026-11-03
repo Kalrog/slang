@@ -1,0 +1,5 @@
+{
+  name: "kernel",
+  // the package's own tests and examples require .kernel files
+  dialects: {[".kernel"]: {compile: "kernel/dialect"}},
+}

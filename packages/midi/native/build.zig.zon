@@ -1,0 +1,12 @@
+.{
+    .name = .midi_native,
+    .version = "0.1.0",
+    .fingerprint = 0xb7c90b1bf92a0d3f,
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "midi.c",
+    },
+}

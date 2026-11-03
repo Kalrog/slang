@@ -3,7 +3,7 @@ local buffer = require("slang/buffer")
 local isolate = require("slang/isolate")
 local params = require("params")
 local engine = require("engine")
-local midi = require("midi")
+local midi = require("midi/file")
 local song = require("song")
 
 // MIDI files, song files, and the engine playing a song (no window, no

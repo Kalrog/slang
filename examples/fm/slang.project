@@ -1,0 +1,9 @@
+{
+  name: "fm",
+  dependencies: {
+    raylib: {path: "../../packages/raylib"},
+    kernel: {path: "../../packages/kernel"},
+    midi: {path: "../../packages/midi"},
+  },
+  search_paths: {"."},
+}

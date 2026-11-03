@@ -749,6 +749,7 @@ for(not rl.window_should_close() and frame != panel.max_frames){
   place_camera()
   handle_mouse()
   panel.handle_keys()
+  panel.handle_midi()
   panel.demo(frame)
   panel.update_stats()
   draw_face()

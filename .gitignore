@@ -9,9 +9,16 @@
 examples/webserver/todos.db
 examples/webserver/uploads/
 examples/desktop/todos.db
+# MIDI learn's bindings, each player's own
+examples/synth/midi_map.json
+examples/fm/midi_map*.json
 /packages/*/lib/
 # jolt ships its prebuilt joltc (packages/jolt/tool/build.sh)
 !/packages/jolt/lib/
+# kernel ships its prebuilt interpreter (packages/kernel/tool/build.sh)
+!/packages/kernel/lib/
+# midi ships its prebuilt CoreMIDI module (packages/midi/tool/build.sh)
+!/packages/midi/lib/
 
 # built programs (slang build)
 /examples/webserver/webserver

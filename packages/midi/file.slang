@@ -1,7 +1,7 @@
-// Standard MIDI Files (formats 0 and 1, ticks per quarter note) read into
-// notes and a tempo map.
+// midi/file: Standard MIDI Files (formats 0 and 1, ticks per quarter
+// note) read into notes and a tempo map.
 //
-//   local midi = require("midi")
+//   local midi = require("midi/file")
 //   local m = midi.read("songs/prelude.mid")
 //   m.ppq                          // ticks per quarter note
 //   m.tempos                       // {{tick, seconds per quarter}}, sorted

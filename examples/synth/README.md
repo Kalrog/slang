@@ -42,6 +42,21 @@ The strip under the panel shows the output on an oscilloscope, the DSP load
 (the time spent computing samples over the time they last), underruns
 (blocks the audio device found empty, heard as clicks) and the patch.
 
+## A MIDI controller
+
+A controller plugged in before the synth starts plays it (macOS, through
+the midi package's CoreMIDI module; `MIDI_INPUT=name` picks one controller,
+else every one is heard). Its notes go straight to the engine, read every
+block in the render isolate, so they sound within a couple of milliseconds;
+its pitch bend and mod wheel (CC 1) move the wheels on screen.
+
+Its knobs turn the synth's by **MIDI learn**: F1 (or `` ` ``) starts it,
+click a control, turn a knob on the controller, and the two are bound;
+bound controls show their controller (`CC 74`) while learning, BACKSPACE
+unbinds the control clicked, F1 again ends it. The bindings are kept in
+`midi_map.json` next to the program. A knob moves a rotary switch through
+its positions and flips a switch at its middle.
+
 ## Songs
 
 The synth plays songs: **Enter** plays or stops the chosen one, **Tab**
@@ -76,8 +91,8 @@ return {
 }
 ```
 
-`midi.slang` reads Standard MIDI Files (formats 0 and 1): notes, the tempo
-map, track names. The song is sent to the engine whole, and the engine plays
+`midi/file` (in packages/midi) reads Standard MIDI Files (formats 0 and
+1): notes, the tempo map, track names. The song is sent to the engine whole, and the engine plays
 its notes and moves its controls in the render isolate, to 16 samples (a
 third of a millisecond), so a song's timing does not depend on the frames.
 

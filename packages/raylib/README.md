@@ -71,7 +71,9 @@ runs in a second isolate and only copies from the ring. The callback is not
 where the sound is computed because raylib's audio thread runs slang about
 three times slower than an ordinary thread (macOS gives it a slow core).
 Parameters cross as shared buffers (`buffer.shared`) and events as
-channels, passed in `args`. `examples/synth` is a synthesizer built on it.
+channels, passed in `args`. `examples/synth` is a synthesizer built on it,
+and `examples/fm` an FM synthesizer whose sound is computed by kernels
+(packages/kernel).
 
 ## In the browser
 

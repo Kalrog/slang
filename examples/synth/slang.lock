@@ -1,5 +1,6 @@
 // slang.lock: the packages this project uses, as slang get chose them.
 // Written by slang get and slang update; keep it with the project.
 {
+  ["midi"]: {path: "../../packages/midi"},
   ["raylib"]: {path: "../../packages/raylib"},
 }

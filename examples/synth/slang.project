@@ -2,6 +2,7 @@
   name: "synth",
   dependencies: {
     raylib: {path: "../../packages/raylib"},
+    midi: {path: "../../packages/midi"},
   },
   search_paths: {"."},
 }

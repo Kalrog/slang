@@ -20,6 +20,22 @@ local params = require("params")
 
 local engine = {}
 
+// a MIDI controller for the notes, when status asks for one (status.midi;
+// MIDI_INPUT=name picks the source, else every source is heard); null
+// when there is no MIDI here
+local func open_midi(status){
+  if(status == null or not status.midi){
+    return null
+  }
+  local r = pcall(func(){
+    return require("midi").open(require("slang/os").getenv("MIDI_INPUT"))
+  })
+  if(r[0] == "ok"){
+    return r[1]
+  }
+  return null
+}
+
 local P = params.index
 local LN2_12 = 0.6931471805599453 / 12.0
 local TWO_PI = 6.283185307179586
@@ -104,14 +120,15 @@ local func contour_time(x){
 }
 
 // new(p: Buffer, events: Channel, scope: Buffer?, sample_rate: int,
-//   status?: {state: Buffer, keys: Buffer}) -> block function
+//   status?: {state: Buffer, keys: Buffer, midi?: bool}) -> block function
 // p holds the controls (params.list order), events brings {on: note} and
 // {off: note} ({panic: true} lets go of everything), {song: s} (a song as
 // song.slang's load makes it: it plays from its start) and {stop_song:
 // true}; scope, when given, gets the samples (its last cell: where the
 // next one goes). status, when given, hears about the song: state[0] 1
 // while one plays, state[1] where it is and state[2] how long it is (in
-// seconds), keys[note] 1 while the song holds the note.
+// seconds), keys[note] 1 while the song (or a MIDI controller) holds the
+// note. With status.midi a MIDI controller plays notes too.
 func engine.new(p, events, scope, sample_rate, status){
   local sr = sample_rate * 1.0
   local held = {}
@@ -274,6 +291,24 @@ func engine.new(p, events, scope, sample_rate, status){
     }
   }
 
+  // a controller's notes, read every block: they sound a block after they
+  // are played, not a frame (the panel reads its knobs and wheels)
+  local midi_in = open_midi(status)
+  local func take_midi(){
+    if(midi_in == null){
+      return null
+    }
+    for(let local m in values(midi_in:read())){
+      if(m.kind == "note_on"){
+        note_on(m.note)
+        song_key(m.note, true)
+      } else if(m.kind == "note_off"){
+        note_off(m.note)
+        song_key(m.note, false)
+      }
+    }
+  }
+
   local func take_events(){
     for(true){
       local e = events:try_receive()
@@ -296,6 +331,7 @@ func engine.new(p, events, scope, sample_rate, status){
 
   return func(out, frames){
     take_events()
+    take_midi()
     if(playing != null){
       apply_curves()
     }

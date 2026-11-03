@@ -46,7 +46,7 @@
 local compiler = require("slang/compiler")
 local path = require("slang/path")
 local tbl = require("slang/table")
-local midi = require("midi")
+local midi = require("midi/file")
 local params = require("params")
 
 local song = {}

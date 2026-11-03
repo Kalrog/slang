@@ -16,6 +16,9 @@
 #   make raylib-test  run the raylib package's tests (packages/raylib; needs raylib installed)
 #   make box2d-test   run the box2d package's tests (packages/box2d; needs Box2D 3 installed)
 #   make jolt-test    run the jolt package's tests (packages/jolt; ships its own Jolt)
+#   make midi-test    run the midi package's tests (packages/midi; no device needed)
+#   make kernel-test  run the kernel package's tests (packages/kernel; ships its interpreter)
+#   make kernel-bench kernels against plain slang (sawtooth, FM operator chain, filter)
 #   make physics      run the physics examples (examples/physics: Box2D and Jolt, drawn with raylib)
 #   make breakout     run the breakout example (examples/breakout) on the raylib package
 #   make deckhand     run the deckhand heist game (examples/deckhand) on the raylib package
@@ -23,6 +26,9 @@
 #   make synth        run the synthesizer (examples/synth) on raylib/stream
 #   make synth3d      the same synthesizer in 3D
 #   make synth-test   run the synthesizer's engine tests (no window, no audio device)
+#   make fm           run the six-operator FM synthesizer (examples/fm) on the kernel and raylib packages
+#   make fm3d         the same FM synthesizer in 3D, with a hardware panel (display, encoders, buttons)
+#   make fm-test      run its tests (no window, no audio device: every patch of the bank)
 #   make synth-mix    record every song of examples/synth part by part and mix it (WAVs in examples/synth/mixdown)
 #   make siege        run the siege catapult game (examples/siege) on the raylib and jolt packages
 #   make siege-test   run siege's tests (no window: structures stand, levels stand still, wrecking)
@@ -40,7 +46,7 @@ COMPILER_SRC := $(wildcard slang/compiler/*.slang)
 SEED_DIR := boot/slang
 SEED_CORE_DIR := build/seed-core
 
-.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed seed-core fixpoint bench raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test synth synth3d synth-test synth-mix siege siege-test clean doc \
+.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed seed-core fixpoint bench raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test synth synth3d synth-test synth-mix siege siege-test midi-test kernel-test kernel-bench fm fm3d fm-test clean doc \
         vscode vscode-grammar
 
 all: build
@@ -105,6 +111,9 @@ test: build unit
 	@if [ -n "$(RAYLIB_H)" ]; then $(MAKE) synth-test; fi
 	@if [ -d "packages/jolt/lib/$(SLANG_PLATFORM)" ]; then $(MAKE) jolt-test && $(MAKE) siege-test; \
 	  else echo "no joltc for $(SLANG_PLATFORM): packages/jolt and examples/siege not tested"; fi
+	$(MAKE) midi-test
+	@if [ -d "packages/kernel/lib/$(SLANG_PLATFORM)" ]; then $(MAKE) kernel-test && $(MAKE) fm-test; \
+	  else echo "no kernel/vm for $(SLANG_PLATFORM): packages/kernel and examples/fm not tested"; fi
 
 test-gui: build
 	bin/slang test zig/test/gui
@@ -168,6 +177,16 @@ box2d-test: build
 jolt-test: build
 	cd packages/jolt && ../../bin/slang test test
 
+midi-test: build
+	cd packages/midi && ../../bin/slang test test
+
+# the kernel package ships its interpreter per platform (packages/kernel/tool/build.sh)
+kernel-test: build
+	cd packages/kernel && ../../bin/slang test test
+
+kernel-bench: build
+	cd packages/kernel && ../../bin/slang run bench/bench.slang
+
 physics: build
 	cd examples/physics && ../../bin/slang run boxes.slang && ../../bin/slang run tower.slang
 
@@ -188,6 +207,15 @@ synth3d: build
 
 synth-test: build
 	cd examples/synth && ../../bin/slang test test
+
+fm: build
+	cd examples/fm && ../../bin/slang run main.slang
+
+fm3d: build
+	cd examples/fm && ../../bin/slang run main3d.slang
+
+fm-test: build
+	cd examples/fm && ../../bin/slang test test
 
 synth-mix: build
 	cd examples/synth && for s in songs/*.slang; do ../../bin/slang run mixdown.slang $$s || exit 1; done

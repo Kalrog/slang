@@ -117,8 +117,12 @@ pub const Debugger = struct {
         const roots = vm.newTable(0, 4);
         vm.registry.set(vm.gpa, vm.str("debugger"), .{ .table = roots });
         d.* = .{ .vm = vm, .gpa = vm.gpa, .fd = fd, .roots = roots };
-        roots.set(vm.gpa, vm.str("eval"), try d.helper(eval_source));
-        roots.set(vm.gpa, vm.str("path"), try d.helper(path_source));
+        // (the helper first: compiling it collects, and a key string made
+        // before it would be held by nothing meanwhile)
+        const eval = try d.helper(eval_source);
+        roots.set(vm.gpa, vm.str("eval"), eval);
+        const path = try d.helper(path_source);
+        roots.set(vm.gpa, vm.str("path"), path);
         // the configuration: breakpoints, then configurationDone
         while (!d.configured and !d.terminated) {
             const msg = d.receive(true) orelse break;
@@ -829,6 +833,11 @@ pub const Debugger = struct {
     fn evaluate(d: *Debugger, th: *Thread, fi: usize, expression: []const u8) Error!Value {
         const vm = d.vm;
         const env = vm.newTable(0, 8);
+        // (the metatable before env is rooted: once it is stored, env may be
+        // reached, and a plain field write would miss the write barrier)
+        const meta = vm.newTable(0, 1);
+        meta.set(d.gpa, vm.str("__index"), .{ .table = vm.globals });
+        env.meta = meta;
         d.roots.set(d.gpa, vm.str("env"), .{ .table = env });
         defer d.roots.set(d.gpa, vm.str("env"), .null);
         var list: std.ArrayList(Named) = .empty;
@@ -836,9 +845,6 @@ pub const Debugger = struct {
         d.frameUpvalues(th, fi, &list);
         d.frameLocals(th, fi, &list);
         for (list.items) |e| env.set(d.gpa, vm.str(e.name), e.value);
-        const meta = vm.newTable(0, 1);
-        meta.set(d.gpa, vm.str("__index"), .{ .table = vm.globals });
-        env.meta = meta;
         const code = std.fmt.allocPrint(d.gpa, "return {s}", .{expression}) catch oom();
         defer d.gpa.free(code);
         const eval = d.roots.getName("eval");

@@ -1,5 +1,5 @@
 // a module with its tests inline (test/inline_test_test.slang loads it)
-extension "slang/inline_test"
+extension "extensions/inline_test"
 
 local m = {}
 

@@ -186,8 +186,10 @@ pub const VM = struct {
     driven: bool = false,
     driver: std.atomic.Value(std.Thread.Id) = .init(0),
     next_thread_id: u32 = 0,
-    /// SLANG_TRACE: print every instruction to stderr.
-    trace: bool = false,
+    /// SLANG_TRACE: every instruction printed to stderr (see trace.zig).
+    tracer: ?*root.Tracer = null,
+    /// SLANG_OPSTATS: the instructions counted (see trace.zig).
+    opstats: ?*root.OpStats = null,
     /// The sampling profiler, when one runs (see profile.zig).
     profiler: ?*root.Profiler = null,
     /// The debugger, when an editor debugs the program (see debug.zig).
@@ -238,10 +240,10 @@ pub const VM = struct {
         // the finalizers of what is still alive run while the VM still works
         gc.finalizeAll(vm);
         vm.flush();
-        if (vm.profiler) |p| {
-            p.finish();
-            p.destroy();
-        }
+        vm.finishTools();
+        if (vm.profiler) |p| p.destroy();
+        if (vm.tracer) |t| t.destroy();
+        if (vm.opstats) |s| s.destroy();
         // (no kill reaches a VM being destroyed: the hooks go first)
         vm.hooks_lock.lockUncancelable(vm.io);
         vm.interrupt_hooks.clearAndFree(vm.gpa);
@@ -300,6 +302,14 @@ pub const VM = struct {
 
     pub fn flush(vm: *VM) void {
         vm.stdout.interface.flush() catch {};
+    }
+
+    /// The program ends: the profile and the op stats are written, the
+    /// trace's last lines too (each only once).
+    pub fn finishTools(vm: *VM) void {
+        if (vm.profiler) |p| p.finish();
+        if (vm.opstats) |s| s.finish();
+        if (vm.tracer) |t| t.flush();
     }
 
     // Errors.

@@ -28,6 +28,8 @@ pub const api = @import("vm/api.zig");
 pub const gc = @import("vm/gc.zig");
 pub const Profiler = @import("vm/profile.zig").Profiler;
 pub const Debugger = @import("vm/debug.zig").Debugger;
+pub const Tracer = @import("vm/trace.zig").Tracer;
+pub const OpStats = @import("vm/trace.zig").OpStats;
 
 /// Allocation failure is fatal: a scripting VM cannot recover from it in any
 /// useful way, and threading OutOfMemory through every operation would make

@@ -519,7 +519,8 @@ pub const Isolate = struct {
     env: ?*std.process.Environ.Map,
     args: []const []const u8,
     embedded: []const vm_mod.EmbeddedFile,
-    trace: bool,
+    /// the parent's SLANG_TRACE mode, null when it does not trace
+    trace: ?[]const u8,
     profile_path: ?[]u8 = null,
 
     const State = enum { running, done, failed, killed };
@@ -586,7 +587,7 @@ fn threadMain(iso: *Isolate) void {
     vm.args = iso.args;
     vm.embedded = iso.embedded;
     vm.isolate = iso;
-    vm.trace = iso.trace;
+    if (iso.trace) |mode| vm.tracer = vm_mod.Tracer.create(vm.backing, io, mode);
     if (iso.profile_path) |p| vm.profiler = vm_mod.Profiler.create(vm.backing, io, p);
     stdlib.open(vm);
     iso.sync.lock(io);
@@ -898,7 +899,7 @@ fn isoSpawn(th: *Thread, args: []Value) Error!Value {
         .env = vm.env,
         .args = vm.args,
         .embedded = vm.embedded,
-        .trace = vm.trace,
+        .trace = if (vm.tracer) |t| (if (t.stack) "stack" else "1") else null,
         .profile_path = profile_path,
     };
     // one reference for the thread, one for the handle (newHandle)

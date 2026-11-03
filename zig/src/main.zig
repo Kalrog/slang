@@ -152,7 +152,8 @@ fn newVM(init: std.process.Init, args: []const []const u8) *VM {
     vm.embedded = &boot.embedded_files;
     stdlib.open(vm);
     stdlib.boot(vm) catch fail(vm);
-    vm.trace = init.environ_map.get("SLANG_TRACE") != null;
+    if (init.environ_map.get("SLANG_TRACE")) |mode| vm.tracer = vm_mod.Tracer.create(vm.backing, vm.io, mode);
+    if (init.environ_map.get("SLANG_OPSTATS") != null) vm.opstats = vm_mod.OpStats.create(vm.backing, vm.io);
     // SLANG_PROFILE=out.folded profiles any command (see vm/profile.zig)
     if (init.environ_map.get("SLANG_PROFILE")) |path| {
         vm.profiler = vm_mod.Profiler.create(vm.backing, vm.io, path);
@@ -180,7 +181,7 @@ fn ended(vm: *VM, code: u8) void {
 fn fail(vm: *VM) noreturn {
     vm.flush();
     // a profile of a run that failed is still a profile
-    if (vm.profiler) |p| p.finish();
+    vm.finishTools();
     ended(vm, 1);
     isolates.printUnjoined(vm.io);
     var e = vm.takeError();

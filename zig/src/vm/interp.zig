@@ -22,7 +22,7 @@ pub fn run(th: *Thread, stop_depth: usize) Error!void {
     // the trace check costs about 3% on call-heavy code when it sits in
     // every opcode, so the loop exists twice: with and without it (the
     // profiler and the debugger use the same hook)
-    if (th.vm.trace or th.vm.profiler != null or th.vm.debugger != null) return runImpl(th, stop_depth, true);
+    if (th.vm.tracer != null or th.vm.opstats != null or th.vm.profiler != null or th.vm.debugger != null) return runImpl(th, stop_depth, true);
     return runImpl(th, stop_depth, false);
 }
 
@@ -875,25 +875,8 @@ inline fn spill(comptime trace: bool, th: *Thread, fi: usize, pc: usize, top: us
 fn traceInstruction(th: *Thread, fi: usize, base: usize, pc: usize, ins: u32) void {
     if (th.vm.profiler) |p| p.check(th);
     if (th.vm.debugger) |dbg| dbg.check(th, fi, pc);
-    if (!th.vm.trace) return;
-    var buf: [512]u8 = undefined;
-    var w: std.Io.Writer = .fixed(&buf);
-    w.print("[{d}] base={d} top={d} pc={d}: ", .{ fi, base, th.top, pc }) catch {};
-    d.writeInstruction(&w, ins) catch {};
-    w.writeAll("  stack:") catch {};
-    var i = base;
-    while (i < th.top and i < base + 12) : (i += 1) {
-        w.writeByte(' ') catch {};
-        var vb: [40]u8 = undefined;
-        var vw: std.Io.Writer = .fixed(&vb);
-        root.format.writeValue(&vw, th.stack[i]) catch {};
-        w.writeAll(vw.buffered()) catch {};
-    }
-    w.writeByte('\n') catch {};
-    var eb: [64]u8 = undefined;
-    var ew = std.Io.File.stderr().writerStreaming(th.vm.io, &eb);
-    ew.interface.writeAll(w.buffered()) catch {};
-    ew.interface.flush() catch {};
+    if (th.vm.opstats) |s| s.record(th, fi, pc, ins);
+    if (th.vm.tracer) |t| t.instruction(th, fi, base, pc, ins);
 }
 
 /// A fused form's B or C operand when it is not the stack: a register, a

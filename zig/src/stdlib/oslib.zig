@@ -325,7 +325,7 @@ fn osExit(th: *Thread, args: []Value) Error!Value {
     // profile (slang run --profile)
     @import("../vm/gc.zig").finalizeAll(th.vm);
     th.vm.flush();
-    if (th.vm.profiler) |p| p.finish();
+    th.vm.finishTools();
     const code = api.argIntOr(args, 0, 0);
     if (th.vm.debugger) |d| d.finish(@truncate(@as(u64, @bitCast(code))));
     std.process.exit(@truncate(@as(u64, @bitCast(code))));

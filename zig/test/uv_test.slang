@@ -319,4 +319,33 @@ t.group("uv: files, names, processes, signals, poll"){
   t.test("the C API for other extensions is there"){
     assert(type(uv.c_api) == "userdata")
   }
+  t.test("udp datagrams go both ways"){
+    local a = uv.udp()
+    a:bind("127.0.0.1", 0)
+    local port = a:getsockname().port
+    local b = uv.udp()
+    b:bind("127.0.0.1", 0)
+    local got = {}
+    local echoed = {}
+    a:recv_start(func(err, data, from){
+      append(got, data)
+      a:send(concat("echo ", data), from.ip, from.port)
+      if(len(got) == 2){
+        a:close()
+      }
+    })
+    b:recv_start(func(err, data, from){
+      assert(from.port == port)
+      append(echoed, data)
+      if(len(echoed) == 2){
+        b:close()
+      }
+    })
+    b:send("one", "127.0.0.1", port)
+    b:send("two", "127.0.0.1", port)
+    assert(not uv.running())
+    uv.run()
+    assert(string(got) == string({"one", "two"}), string(got))
+    assert(string(echoed) == string({"echo one", "echo two"}), string(echoed))
+  }
 }

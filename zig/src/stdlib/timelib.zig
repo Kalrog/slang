@@ -2,8 +2,8 @@
 //!
 //!   now() -> seconds (float, millisecond precision)
 //!   now_ms() -> milliseconds (int)
-//!   clock() -> seconds since the program started (monotonic, for measuring)
-//!   sleep(seconds) -> blocks this thread
+//!   clock() -> ms since the program started (monotonic, for measuring)
+//!   sleep(ms) -> blocks this thread
 //!   utc(t) -> {year, month, day, hour, minute, second, ms, weekday, yday}
 //!   from_utc({year, month, day, hour, minute, second, ms}) -> seconds
 //!   http_date(t) -> "Sun, 06 Nov 1994 08:49:37 GMT"

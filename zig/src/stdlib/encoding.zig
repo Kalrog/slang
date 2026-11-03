@@ -7,6 +7,7 @@
 //!   url.encode(s)               url.decode(s) -> string or null
 //!   form.encode(s)              form.decode(s) -> string or null
 //!   query.encode(table)         query.decode(s) -> table
+//!   binary.encode(value)        binary.decode(s) -> value (raises)
 //!
 //! Strings are byte strings, so every encoder takes any bytes. Decoders
 //! return null on malformed input (untrusted input is the normal case).
@@ -15,6 +16,12 @@
 //! url is percent-encoding of a URI component (RFC 3986: everything but
 //! A-Z a-z 0-9 - . _ ~ is escaped); form is the same with a space as "+"
 //! (application/x-www-form-urlencoded).
+//!
+//! binary is a compact byte form of slang data (null, booleans, numbers,
+//! strings and tables of them) for files and the network: small ints take
+//! one byte, a float that a 32-bit float holds exactly takes five, and a
+//! table's metatable is left out. A value null is a fine result, so
+//! binary.decode raises on malformed input instead of returning null.
 
 const std = @import("std");
 const vm_mod = @import("../vm.zig");
@@ -34,6 +41,7 @@ pub fn module(vm: *VM) *Table {
     sub(vm, m, "url", urlEncode, urlDecode);
     sub(vm, m, "form", formEncode, formDecode);
     sub(vm, m, "query", queryEncode, queryDecode);
+    sub(vm, m, "binary", binaryEncode, binaryDecode);
     return m;
 }
 
@@ -298,4 +306,205 @@ fn appendEncoded(gpa: std.mem.Allocator, out: *std.ArrayList(u8), s: []const u8)
     const n = percentEncodedLen(s, true);
     const dest = out.addManyAsSlice(gpa, n) catch vm_mod.oom();
     _ = percentEncodeInto(dest, s, true);
+}
+
+// ------------------------------------------------------------ binary
+
+/// A value is one tag byte and its payload:
+///
+///   0 null, 1 false, 2 true, 3 int (zigzag varint), 4 f32, 5 f64 (little
+///   endian), 6 string (varint length, bytes), 7 table (varint n, n list
+///   elements, varint m, m key/value pairs); a tag from 32 up is the int
+///   tag - 32 (0 to 223).
+const BinTag = struct {
+    const null_ = 0;
+    const false_ = 1;
+    const true_ = 2;
+    const int = 3;
+    const f32_ = 4;
+    const f64_ = 5;
+    const string = 6;
+    const table = 7;
+    const small = 32;
+};
+
+/// Tables nested deeper than this are not encoded (and not decoded: the
+/// decoder recurses too, on input from anywhere).
+const binary_depth = 64;
+
+const BinEncoder = struct {
+    th: *Thread,
+    out: std.ArrayList(u8) = .empty,
+
+    fn byte(e: *BinEncoder, b: u8) void {
+        e.out.append(e.th.vm.gpa, b) catch vm_mod.oom();
+    }
+
+    fn varint(e: *BinEncoder, n: u64) void {
+        var x = n;
+        while (x >= 0x80) : (x >>= 7) e.byte(@as(u8, @truncate(x)) | 0x80);
+        e.byte(@truncate(x));
+    }
+
+    fn bytes(e: *BinEncoder, b: []const u8) void {
+        e.out.appendSlice(e.th.vm.gpa, b) catch vm_mod.oom();
+    }
+
+    fn value(e: *BinEncoder, v: Value, depth: u32) Error!void {
+        switch (v) {
+            .null => e.byte(BinTag.null_),
+            .bool => |b| e.byte(if (b) BinTag.true_ else BinTag.false_),
+            .int => |i| {
+                if (i >= 0 and i < 256 - BinTag.small) {
+                    e.byte(@intCast(i + BinTag.small));
+                } else {
+                    e.byte(BinTag.int);
+                    e.varint(@bitCast((i << 1) ^ (i >> 63)));
+                }
+            },
+            .float => |f| {
+                const narrow: f32 = @floatCast(f);
+                if (@as(f64, narrow) == f or std.math.isNan(f)) {
+                    e.byte(BinTag.f32_);
+                    var b: [4]u8 = undefined;
+                    std.mem.writeInt(u32, &b, @bitCast(narrow), .little);
+                    e.bytes(&b);
+                } else {
+                    e.byte(BinTag.f64_);
+                    var b: [8]u8 = undefined;
+                    std.mem.writeInt(u64, &b, @bitCast(f), .little);
+                    e.bytes(&b);
+                }
+            },
+            .string => |s| {
+                e.byte(BinTag.string);
+                e.varint(s.bytes().len);
+                e.bytes(s.bytes());
+            },
+            .table => |t| {
+                if (depth >= binary_depth) return e.th.vm.raise("encoding: cannot encode a table nested deeper than {d} levels", .{binary_depth});
+                e.byte(BinTag.table);
+                e.varint(t.arr.items.len);
+                for (t.arr.items) |x| try e.value(x, depth + 1);
+                var n: u64 = 0;
+                for (t.ents.items) |en| {
+                    if (en.key != .null and en.val != .null) n += 1;
+                }
+                e.varint(n);
+                for (t.ents.items) |en| {
+                    if (en.key == .null or en.val == .null) continue;
+                    try e.value(en.key, depth + 1);
+                    try e.value(en.val, depth + 1);
+                }
+            },
+            else => return e.th.vm.raise("encoding: cannot encode a {s} in binary", .{v.typeName()}),
+        }
+    }
+};
+
+/// binary.encode(value) -> string: value (null, booleans, numbers, strings
+/// and tables of them) in the binary form; raises for anything else.
+fn binaryEncode(th: *Thread, args: []Value) Error!Value {
+    var e: BinEncoder = .{ .th = th };
+    defer e.out.deinit(th.vm.gpa);
+    try e.value(api.arg(args, 0), 0);
+    return th.vm.str(e.out.items);
+}
+
+const BinDecoder = struct {
+    th: *Thread,
+    src: []const u8,
+    pos: usize = 0,
+
+    fn malformed(d: *BinDecoder) Error {
+        return d.th.vm.raise("encoding: malformed binary data at byte {d}", .{d.pos});
+    }
+
+    fn byte(d: *BinDecoder) Error!u8 {
+        if (d.pos >= d.src.len) return d.malformed();
+        d.pos += 1;
+        return d.src[d.pos - 1];
+    }
+
+    fn take(d: *BinDecoder, n: u64) Error![]const u8 {
+        if (n > d.src.len - d.pos) return d.malformed();
+        const b = d.src[d.pos..][0..@intCast(n)];
+        d.pos += @intCast(n);
+        return b;
+    }
+
+    fn varint(d: *BinDecoder) Error!u64 {
+        var n: u64 = 0;
+        var shift: u7 = 0;
+        while (true) {
+            const b = try d.byte();
+            if (shift > 63) return d.malformed();
+            n |= @as(u64, b & 0x7f) << @intCast(shift);
+            if (b < 0x80) return n;
+            shift += 7;
+        }
+    }
+
+    /// A count of things that each take at least one byte: more than are
+    /// left is malformed (and would allocate for nothing).
+    fn count(d: *BinDecoder) Error!usize {
+        const n = try d.varint();
+        if (n > d.src.len - d.pos) return d.malformed();
+        return @intCast(n);
+    }
+
+    fn value(d: *BinDecoder, depth: u32) Error!Value {
+        const vm = d.th.vm;
+        const tag = try d.byte();
+        if (tag >= BinTag.small) return .{ .int = tag - BinTag.small };
+        switch (tag) {
+            BinTag.null_ => return .null,
+            BinTag.false_ => return .{ .bool = false },
+            BinTag.true_ => return .{ .bool = true },
+            BinTag.int => {
+                const z = try d.varint();
+                return .{ .int = @bitCast((z >> 1) ^ (0 -% (z & 1))) };
+            },
+            BinTag.f32_ => {
+                const b = try d.take(4);
+                const f: f32 = @bitCast(std.mem.readInt(u32, b[0..4], .little));
+                return .{ .float = f };
+            },
+            BinTag.f64_ => {
+                const b = try d.take(8);
+                return .{ .float = @bitCast(std.mem.readInt(u64, b[0..8], .little)) };
+            },
+            BinTag.string => return vm.str(try d.take(try d.count())),
+            BinTag.table => {
+                if (depth >= binary_depth) return d.malformed();
+                const narr = try d.count();
+                const t = vm.newTable(narr, 0);
+                for (0..narr) |_| {
+                    const x = try d.value(depth + 1);
+                    // (lists hold no null)
+                    if (x == .null) return d.malformed();
+                    t.append(vm.gpa, x);
+                }
+                const nhash = try d.count();
+                for (0..nhash) |_| {
+                    const k = try d.value(depth + 1);
+                    const x = try d.value(depth + 1);
+                    if (k == .null or (k == .float and std.math.isNan(k.float))) return d.malformed();
+                    t.set(vm.gpa, k, x);
+                }
+                return .{ .table = t };
+            },
+            else => return d.malformed(),
+        }
+    }
+};
+
+/// binary.decode(s) -> value: the value binary.encode made s from; raises
+/// when s is not one whole value.
+fn binaryDecode(th: *Thread, args: []Value) Error!Value {
+    const src = try api.argString(th, args, 0, "str");
+    var d: BinDecoder = .{ .th = th, .src = src };
+    const v = try d.value(0);
+    if (d.pos != src.len) return d.malformed();
+    return v;
 }

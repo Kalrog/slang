@@ -147,4 +147,31 @@ t.group("string escapes"){
       "a string that is not UTF-8 escapes every high byte",
     )
   }
+  t.test("binary round trips slang data"){
+    local b = e.binary
+    local v = {
+      1, 223, 224, -1, 300, 9223372036854775807, -9223372036854775807 - 1,
+      1.5, 0.1, "", "text", true, false, {x: 1, y: {2, 3}, [7]: "seven"},
+    }
+    local back = b.decode(b.encode(v))
+    assert(string(back) == string(v), string(back))
+    assert(type(back[7]) == "double" and back[7] == 1.5)
+    assert(b.decode(b.encode(null)) == null)
+    assert(len(b.encode(7)) == 1, "a small int is one byte")
+    assert(len(b.encode(1.5)) == 5, "a float that fits 32 bits is five")
+    assert(len(b.encode(0.1)) == 9)
+  }
+  t.test("binary raises on what it cannot encode or decode"){
+    local b = e.binary
+    assert(pcall(b.encode, print)[0] == "err")
+    assert(pcall(b.encode, {f: print})[0] == "err")
+    for(let local bad in values({"", "\x07\x05", "\x06\x09ab", "\x03\xff", "\x21\x21", "\x07\x01\x00\x00", "\x1f"})){
+      assert(pcall(b.decode, bad)[0] == "err", e.hex.encode(bad))
+    }
+    local deep = {}
+    for(local i = 0; i < 100; i = i + 1){
+      deep = {deep}
+    }
+    assert(pcall(b.encode, deep)[0] == "err", "too deep")
+  }
 }

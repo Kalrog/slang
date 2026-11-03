@@ -49,4 +49,12 @@ m.form = {encode: func(s){}, decode: func(s){}}
 //   enc.query.decode("a=1&b=x+y%21&flag")    // {a: "1", b: "x y!", flag: ""}
 m.query = {encode: func(t){}, decode: func(s){}}
 
+// A compact byte form of slang data, for files and the network. encode(v)
+// takes null, booleans, numbers, strings and tables of them (metatables
+// are left out) and raises for anything else; small ints take one byte, a
+// float a 32-bit float holds exactly five. decode(s) gives the value back
+// and raises when s is not one whole value (null is a valid result).
+//   enc.binary.decode(enc.binary.encode({x: 1.5, tags: {"a"}}))  // {x: 1.5, tags: {"a"}}
+m.binary = {encode: func(v){}, decode: func(s){}}
+
 return m

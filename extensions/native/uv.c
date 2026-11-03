@@ -20,7 +20,7 @@
  * a handle that is collected before it was closed is closed by its finalizer.
  * slang/async builds Futures and Streams on top of this module.
  *
- * Handles: timer, tcp, pipe, signal (start(name, cb)), process (from
+ * Handles: timer, tcp, udp (bind, send, recv_start), pipe, signal (start(name, cb)), process (from
  * spawn(file, args, options, on_exit); pid, kill), poll (on a descriptor
  * another library owns) and async (async(cb): cb runs on the loop after a
  * wake from another thread, see slang_uv.h); every handle has close, is_active, is_closing,
@@ -42,6 +42,7 @@ typedef struct handle {
         uv_stream_t stream;
         uv_timer_t timer;
         uv_tcp_t tcp;
+        uv_udp_t udp;
         uv_pipe_t pipe;
         uv_signal_t signal;
         uv_process_t process;
@@ -212,7 +213,7 @@ static int l_is_active(slang_State *S, const char *tname) {
 
 /* ---- methods every handle has ---- */
 
-static const char *handle_tnames[] = {"uv.timer", "uv.tcp", "uv.pipe", "uv.signal", "uv.process", "uv.poll", "uv.async", NULL};
+static const char *handle_tnames[] = {"uv.timer", "uv.tcp", "uv.udp", "uv.pipe", "uv.signal", "uv.process", "uv.poll", "uv.async", NULL};
 
 static handle *check_any(slang_State *S, int idx) {
     for (int i = 0; handle_tnames[i] != NULL; i++) {
@@ -276,6 +277,13 @@ static int l_run(slang_State *S) {
     int more = run_loop(S, cx, mode);
     if (more == SLANG_ERROR) return SLANG_ERROR; /* the callback's error is still pending */
     slang_pushbool(S, more != 0);
+    return 1;
+}
+
+/* uv.running(): whether uv.run is running (a callback, or code called from
+ * one, may not run the loop again) */
+static int l_running(slang_State *S) {
+    slang_pushbool(S, get_ctx(S)->run_S != NULL);
     return 1;
 }
 
@@ -747,6 +755,184 @@ static int stream_fileno(slang_State *S) {
 static int tcp_close(slang_State *S) { return l_close(S, "uv.tcp"); }
 static int tcp_is_active(slang_State *S) { return l_is_active(S, "uv.tcp"); }
 static int tcp_is_closing(slang_State *S) { return l_is_closing(S, "uv.tcp"); }
+
+/* ---- udp ---- */
+
+static int l_udp(slang_State *S) {
+    handle *h = new_handle(S, "uv.udp");
+    uv_udp_init(loop_of(S), &h->u.udp);
+    return 1;
+}
+
+/* udp:bind(host, port, options?): options.reuse lets other sockets bind the
+ * same address (UV_UDP_REUSEADDR) */
+static int udp_bind(slang_State *S) {
+    handle *h = check_handle(S, 1, "uv.udp");
+    struct sockaddr_storage addr;
+    if (h == NULL || parse_addr(S, 2, 3, &addr) < 0) return SLANG_ERROR;
+    unsigned flags = 0;
+    if (slang_istable(S, 4)) {
+        slang_getfield(S, 4, "reuse");
+        if (slang_tobool(S, -1)) flags |= UV_UDP_REUSEADDR;
+        slang_pop(S, 1);
+    }
+    int r = uv_udp_bind(&h->u.udp, (const struct sockaddr *)&addr, flags);
+    if (r < 0) {
+        push_uv_error(S, r);
+        return slang_raise(S);
+    }
+    return 0;
+}
+
+typedef struct {
+    uv_udp_send_t req;
+    int self_ref;
+    uv_buf_t buf;
+} udp_send_req;
+
+static void on_udp_send(uv_udp_send_t *req, int status) {
+    (void)status;
+    uv_ctx *cx = CTX(req->handle->loop);
+    udp_send_req *u = (udp_send_req *)req;
+    if (cx->run_S != NULL) drop_ref(cx->run_S, &u->self_ref);
+    free(u->buf.base);
+    free(u);
+}
+
+/* udp:send(data, host, port): sends one datagram; it is sent right away
+ * when the socket can take it, else queued. Datagrams may be lost, so
+ * there is no callback; an address that cannot be reached raises. */
+static int udp_send(slang_State *S) {
+    handle *h = check_handle(S, 1, "uv.udp");
+    size_t len = 0;
+    const char *data = slang_checkbytes(S, 2, &len);
+    struct sockaddr_storage addr;
+    if (h == NULL || slang_failed(S) || parse_addr(S, 3, 4, &addr) < 0) return SLANG_ERROR;
+    if (h->closed) return slang_error(S, "udp socket is closed");
+    uv_buf_t buf = uv_buf_init((char *)data, (unsigned)len);
+    int r = uv_udp_try_send(&h->u.udp, &buf, 1, (const struct sockaddr *)&addr);
+    if (r >= 0) return 0;
+    if (r != UV_EAGAIN) {
+        push_uv_error(S, r);
+        return slang_raise(S);
+    }
+    udp_send_req *u = calloc(1, sizeof(udp_send_req));
+    u->buf.base = malloc(len > 0 ? len : 1);
+    memcpy(u->buf.base, data, len);
+    u->buf.len = len;
+    slang_pushvalue(S, 1);
+    u->self_ref = slang_ref(S);
+    r = uv_udp_send(&u->req, &h->u.udp, &u->buf, 1, (const struct sockaddr *)&addr, on_udp_send);
+    if (r < 0) {
+        drop_ref(S, &u->self_ref);
+        free(u->buf.base);
+        free(u);
+        push_uv_error(S, r);
+        return slang_raise(S);
+    }
+    return 0;
+}
+
+static void on_udp_recv(uv_udp_t *uvh, ssize_t nread, const uv_buf_t *buf, const struct sockaddr *addr, unsigned flags) {
+    (void)flags;
+    uv_ctx *cx = CTX(uvh->loop);
+    handle *h = (handle *)uvh;
+    /* nothing more to read now (an empty datagram has an address) */
+    if (nread == 0 && addr == NULL) {
+        free(buf->base);
+        return;
+    }
+    if (begin_callback(cx, h->cb_ref)) {
+        if (nread < 0) {
+            push_uv_error(cx->run_S, (int)nread);
+            slang_pushnull(cx->run_S);
+            slang_pushnull(cx->run_S);
+        } else {
+            slang_pushnull(cx->run_S);
+            slang_pushlstring(cx->run_S, buf->base, (size_t)nread);
+            push_sockaddr(cx->run_S, (const struct sockaddr_storage *)addr);
+        }
+        finish_callback(cx, 3);
+    }
+    free(buf->base);
+}
+
+/* udp:recv_start(cb(err, data, addr)): addr is {ip, port, family} */
+static int udp_recv_start(slang_State *S) {
+    handle *h = check_handle(S, 1, "uv.udp");
+    slang_checkfunction(S, 2);
+    if (h == NULL || slang_failed(S)) return SLANG_ERROR;
+    if (h->closed) return slang_error(S, "udp socket is closed");
+    drop_ref(S, &h->cb_ref);
+    slang_pushvalue(S, 2);
+    h->cb_ref = slang_ref(S);
+    retain(S, h, 1);
+    int r = uv_udp_recv_start(&h->u.udp, on_alloc, on_udp_recv);
+    if (r < 0) {
+        drop_ref(S, &h->cb_ref);
+        release(S, h);
+        push_uv_error(S, r);
+        return slang_raise(S);
+    }
+    h->reading = 1;
+    return 0;
+}
+
+static int udp_recv_stop(slang_State *S) {
+    handle *h = check_handle(S, 1, "uv.udp");
+    if (h == NULL) return SLANG_ERROR;
+    if (h->reading) {
+        uv_udp_recv_stop(&h->u.udp);
+        h->reading = 0;
+        drop_ref(S, &h->cb_ref);
+        release(S, h);
+    }
+    return 0;
+}
+
+static int udp_getsockname(slang_State *S) {
+    handle *h = check_handle(S, 1, "uv.udp");
+    if (h == NULL) return SLANG_ERROR;
+    struct sockaddr_storage addr;
+    int len = sizeof addr;
+    int r = uv_udp_getsockname(&h->u.udp, (struct sockaddr *)&addr, &len);
+    if (r < 0) {
+        push_uv_error(S, r);
+        return slang_raise(S);
+    }
+    push_sockaddr(S, &addr);
+    return 1;
+}
+
+/* udp:broadcast(on): whether datagrams may go to broadcast addresses */
+static int udp_broadcast(slang_State *S) {
+    handle *h = check_handle(S, 1, "uv.udp");
+    if (h == NULL) return SLANG_ERROR;
+    int r = uv_udp_set_broadcast(&h->u.udp, slang_tobool(S, 2));
+    if (r < 0) {
+        push_uv_error(S, r);
+        return slang_raise(S);
+    }
+    return 0;
+}
+
+static int udp_close(slang_State *S) { return l_close(S, "uv.udp"); }
+static int udp_is_active(slang_State *S) { return l_is_active(S, "uv.udp"); }
+static int udp_is_closing(slang_State *S) { return l_is_closing(S, "uv.udp"); }
+
+static const slang_Reg udp_methods[] = {
+    {"bind", udp_bind},
+    {"send", udp_send},
+    {"recv_start", udp_recv_start},
+    {"recv_stop", udp_recv_stop},
+    {"getsockname", udp_getsockname},
+    {"broadcast", udp_broadcast},
+    {"close", udp_close},
+    {"is_active", udp_is_active},
+    {"is_closing", udp_is_closing},
+    HANDLE_METHODS,
+    {NULL, NULL},
+};
 
 /* ---- pipes (stdin/stdout and named pipes; the stream methods are shared) ---- */
 
@@ -1770,12 +1956,14 @@ static const slang_Reg poll_methods[] = {
 static const slang_Reg funcs[] = {
     {"run", l_run},
     {"stop", l_stop},
+    {"running", l_running},
     {"now", l_now},
     {"hrtime", l_hrtime},
     {"loop_alive", l_loop_alive},
     {"version", l_version},
     {"timer", l_timer},
     {"tcp", l_tcp},
+    {"udp", l_udp},
     {"pipe", l_pipe},
     {"signal", l_signal},
     {"async", l_async},
@@ -1874,6 +2062,7 @@ SLANG_EXTENSION(uv) {
     if (open_ctx(S) != 0) return SLANG_ERROR;
     make_meta(S, "uv.timer", timer_methods);
     make_meta(S, "uv.tcp", tcp_methods);
+    make_meta(S, "uv.udp", udp_methods);
     make_meta(S, "uv.pipe", pipe_methods);
     make_meta(S, "uv.signal", signal_methods);
     make_meta(S, "uv.process", process_methods);

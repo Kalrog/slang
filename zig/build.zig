@@ -262,7 +262,7 @@ fn addNative(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.buil
 /// boot/slang at the repository root. It is copied into a generated module
 /// that embeds every file under its module name ("slang/compiler", ...).
 fn seedModule(b: *std.Build) *std.Build.Module {
-    const names = [_][]const u8{ "ast", "async", "buffer", "build", "codegen", "compiler", "crypto", "doc", "ffi", "format", "grammar", "html", "http", "json", "jwt", "optimizer", "resolve", "package", "path", "peg", "pkg", "sqlite", "std", "symbols", "test", "tls", "web", "webview", "ws", "zlib" };
+    const names = [_][]const u8{ "ast", "async", "buffer", "build", "codegen", "compiler", "crypto", "doc", "ffi", "format", "grammar", "html", "http", "json", "jwt", "net", "optimizer", "resolve", "package", "path", "peg", "pkg", "sqlite", "std", "symbols", "test", "tls", "web", "webview", "ws", "zlib" };
     const wf = b.addWriteFiles();
     var src: std.ArrayList(u8) = .empty;
     src.appendSlice(b.allocator, "pub const Entry = struct { name: []const u8, data: []const u8 };\npub const files = [_]Entry{\n") catch @panic("OOM");

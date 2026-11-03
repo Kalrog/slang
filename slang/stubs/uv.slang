@@ -9,7 +9,7 @@
 //   })
 //   uv.run()
 //
-// Handles ([Timer], [Tcp], [Pipe], [Signal], [Process], [Poll]) are
+// Handles ([Timer], [Tcp], [Udp], [Pipe], [Signal], [Process], [Poll]) are
 // userdata with methods; every operation takes its callback last, and
 // callbacks have the shape cb(err, value) with err a string like
 // "ECONNRESET: connection reset by peer" or null. Callbacks run only from
@@ -46,6 +46,11 @@ local timer_meta = {__index: timer_methods, __type: "uv.timer"}
 local tcp_methods = {}
 local tcp_meta = {__index: tcp_methods, __type: "uv.tcp"}
 
+// A UDP socket; type() of it is "uv.udp".
+// type Udp
+local udp_methods = {}
+local udp_meta = {__index: udp_methods, __type: "uv.udp"}
+
 // A pipe: stdin/stdout, a child's stdio or a named pipe; type() of it is
 // "uv.pipe".
 // type Pipe
@@ -80,6 +85,11 @@ local poll_meta = {__index: poll_methods, __type: "uv.poll"}
 // the loop is already running, or with the error a callback raised.
 // [mode]: "default" (run until nothing is active), "once" or "nowait"
 func m.run(mode){}
+
+// running() -> bool
+// Whether [run] is running: code called from a callback cannot run the
+// loop again.
+func m.running(){}
 
 // stop()
 // Makes the running [run] return soon.
@@ -230,6 +240,64 @@ func tcp_methods.unref(tcp){}
 // has_ref() -> bool
 // Whether the handle keeps [run] going.
 func tcp_methods.has_ref(tcp){}
+
+// ------------------------------------------------------------ udp
+
+// udp() -> Udp
+// A new UDP socket, not bound.
+func m.udp(){ return {@meta: udp_meta} }
+
+// bind(ip: string, port: int, options?: {reuse?: bool})
+// Binds the socket to an IPv4 or IPv6 address (not a host name); port 0
+// picks a free one ([Udp.getsockname] says which).
+// [reuse]: other sockets may bind the same address
+func udp_methods.bind(udp, ip, port, options){}
+
+// send(data: string, ip: string, port: int)
+// Sends one datagram (a copy of data), right away when the socket can take
+// it, else queued. Datagrams may be lost or arrive out of order, so there
+// is no callback.
+func udp_methods.send(udp, data, ip, port){}
+
+// recv_start(cb: func(err: Err, data: string?, from: Address?))
+// Starts receiving: cb(err, data, from) for each datagram.
+func udp_methods.recv_start(udp, cb){}
+
+// recv_stop()
+// Stops receiving.
+func udp_methods.recv_stop(udp){}
+
+// getsockname() -> Address
+// The local address of the socket.
+func udp_methods.getsockname(udp){}
+
+// broadcast(enable: bool)
+// Whether datagrams may go to broadcast addresses.
+func udp_methods.broadcast(udp, enable){}
+
+// close(cb?: func())
+// Closes the handle; cb() runs once it is closed.
+func udp_methods.close(udp, cb){}
+
+// is_active() -> bool
+// Whether the socket is receiving.
+func udp_methods.is_active(udp){}
+
+// is_closing() -> bool
+// Whether [Udp.close] was called.
+func udp_methods.is_closing(udp){}
+
+// ref()
+// Makes the handle keep [run] going again (the default).
+func udp_methods.ref(udp){}
+
+// unref()
+// Makes the handle no longer keep [run] going.
+func udp_methods.unref(udp){}
+
+// has_ref() -> bool
+// Whether the handle keeps [run] going.
+func udp_methods.has_ref(udp){}
 
 // ------------------------------------------------------------ pipes
 

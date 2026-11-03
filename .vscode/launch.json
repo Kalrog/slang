@@ -4,15 +4,18 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Slang: Run Current File",
-      "type": "lldb-dap",
+      "name": "Run Current File",
+      "type": "slang",
       "request": "launch",
-      "program": "${workspaceFolder}/zig/zig-out/bin/slang",
+      "program": "${file}",
       "cwd": "${workspaceFolder}",
-      "args": [
-        "run",
-        "${file}"
-      ]
+    },
+    {
+      "name": "Build Website",
+      "type": "slang",
+      "request": "launch",
+      "program": "${workspaceFolder}/website/build.slang",
+      "cwd": "${workspaceFolder}"
     }
   ]
 }

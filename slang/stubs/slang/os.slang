@@ -168,7 +168,10 @@ func m.getenv(name){}
 func m.write_stderr(text){}
 
 // exit(code?: int)
-// Flushes standard output and ends the process with code (0 by default).
+// Ends the process with code (0 by default), after what the end of a
+// program does: the finalizers of what is still alive run
+// (slang/vm's on_collect), standard output is flushed and the profile of
+// `slang run --profile` is written.
 func m.exit(code){}
 
 // ------------------------------------------------------------ programs

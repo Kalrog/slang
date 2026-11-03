@@ -320,7 +320,12 @@ fn osPlatform(th: *Thread, args: []Value) Error!Value {
 }
 
 fn osExit(th: *Thread, args: []Value) Error!Value {
+    // what the end of a program does, since the VM is not destroyed: the
+    // finalizers of what is still alive (vm.on_collect), the output, the
+    // profile (slang run --profile)
+    @import("../vm/gc.zig").finalizeAll(th.vm);
     th.vm.flush();
+    if (th.vm.profiler) |p| p.finish();
     const code = api.argIntOr(args, 0, 0);
     if (th.vm.debugger) |d| d.finish(@truncate(@as(u64, @bitCast(code))));
     std.process.exit(@truncate(@as(u64, @bitCast(code))));

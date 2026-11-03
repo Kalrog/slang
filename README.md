@@ -716,6 +716,9 @@ Code extension: a generated TextMate grammar for the core language plus
 the server's features in trusted workspaces, the tests in the test
 explorer, a view of a file's expanded code, commands to run a file, use a
 REPL, fetch packages and build (`make vscode` builds the `.vsix`).
+`editors/nvim` is the Neovim plugin (0.11 or newer): the same server,
+a syntax file, and `:Slang` to run, test, debug (nvim-dap), use the REPL,
+see the expanded code and build.
 `slang test --json` and `--only "group / test"` are what the test explorer
 runs.
 
@@ -803,7 +806,7 @@ packages/  packages kept with slang: packages/raylib (raylib through slang/ffi),
 examples/  example programs: examples/breakout on the raylib package, examples/physics (Box2D and Jolt drawn with raylib), examples/project (slang.project), examples/functional (|> and holes),
            examples/deckhand, a heist game on raylib whose maps are written in a DSL, examples/webserver and examples/desktop,
            examples/isolates (a Mandelbrot set rendered by one isolate per CPU)
-lsp/       the language server (highlighting and diagnostics from the real parser); editors/vscode is its VS Code client
+lsp/       the language server (highlighting and diagnostics from the real parser); editors/vscode is its VS Code client, editors/nvim its Neovim plugin
 ```
 
 The earlier implementations, the Go VM (the reference during the Zig port)

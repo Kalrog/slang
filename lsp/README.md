@@ -53,7 +53,8 @@ lossless tree), `slang.project` support
 {uri}` (the `t.group`/`t.test` calls of a test file, nested, with ranges),
 `didChangeWatchedFiles` (the grammars are reset),
 `shutdown`/`exit`, and a `slang/project` notification with the project's
-dialect suffixes. `editors/vscode` is the VS Code client.
+dialect suffixes. `editors/vscode` is the VS Code client, `editors/nvim`
+the Neovim plugin.
 
 Names (`lsp/navigate.slang`) come from `slang/symbols`: codegen resolves
 the names of the parsed file as it would compile it and records what each

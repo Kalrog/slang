@@ -1,0 +1,7 @@
+{
+  "name": "slang-nvim",
+  "description": "The VS Code extension's slang snippets, for snippet engines that load VS Code snippet packages (LuaSnip's from_vscode)",
+  "contributes": {
+    "snippets": [{ "language": "slang", "path": "./snippets/slang.json" }]
+  }
+}

@@ -19,7 +19,7 @@ local BOT_NAMES = {"Mop", "Smudge", "Blot", "Drip"}
 local func roster(s){
   local names = {}
   for(let local p in values(s.world.players)){
-    names[p.slot] = {name: p.name, bot: s.bots[p.slot] == true}
+    names[p.slot] = {name: p.name, bot: s.bots[p.slot] != null}
   }
   return names
 }
@@ -31,7 +31,7 @@ local func fill_bots(s){
   for(local slot = 0; slot < rules.MAX_PLAYERS; slot = slot + 1){
     if(s.world.players[slot] == null){
       rules.add_player(s.world, slot, BOT_NAMES[slot])
-      s.bots[slot] = true
+      s.bots[slot] = bots.mind(s.level)
     }
   }
 }
@@ -74,13 +74,14 @@ local func new_round(s){
   }
 }
 
-// start(options?: {port?: int, bots?: bool, simulate?: table, seed?: int, round?: int}) -> Server
+// start(options?: {port?: int, bots?: bool, level?: string, simulate?: table, seed?: int, round?: int}) -> Server
+// [level]: how well the bots play: "easy", "normal" (the default) or "hard"
 // [round]: the length of a round in ms (rules.ROUND)
 func server.start(options){
   options = options or {}
   local s = {
     @meta: meta, bots: {}, with_bots: options.bots != false, seed: options.seed or to_int(math.random() * 100000),
-    world: null, clock: 0, over_at: null, round: options.round,
+    world: null, clock: 0, over_at: null, round: options.round, level: options.level or "normal",
   }
   s.net = net.server({port: options.port or 0, protocol: protocol, max_peers: 8, simulate: options.simulate})
   s.port = s.net.port
@@ -135,7 +136,7 @@ local func step(s){
   for(let local slot in keys(s.bots)){
     local p = w.players[slot]
     if(p != null){
-      local plan = bots.think(w, slot)
+      local plan = bots.think(w, slot, s.bots[slot])
       p.input = plan.dir
       if(plan.drop){
         rules.drop(w, slot)

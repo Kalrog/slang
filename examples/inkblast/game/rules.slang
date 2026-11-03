@@ -46,6 +46,7 @@ rules.SPAWNS = {{1, 1}, {13, 9}, {13, 1}, {1, 9}}
 rules.DX = {0, 0, 1, 0, -1}
 rules.DY = {0, -1, 0, 1, 0}
 local OPPOSITE = {0, 3, 4, 1, 2}
+rules.OPPOSITE = OPPOSITE
 
 local func index(x, y){
   return y * rules.W + x
@@ -230,7 +231,7 @@ func rules.drop(w, slot){
     p.lens = p.lens - 1
     reach = LENS_REACH
   }
-  append(w.charges, {x: at[0], y: at[1], owner: slot, at: w.now + FUSE, reach: reach})
+  append(w.charges, {x: at[0], y: at[1], owner: slot, set: w.now, at: w.now + FUSE, reach: reach})
   p.out = p.out + 1
   append(w.events, {"drop", slot})
   return true

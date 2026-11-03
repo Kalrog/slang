@@ -7,9 +7,10 @@
 //   bin/slang run examples/inkblast/main.slang join 10.0.0.7  join a game
 //   bin/slang run examples/inkblast/main.slang server         serve without a window
 //
-// Options: --port n (7777), --name text, --no-bots, --round seconds
-// (90), and on a client
-// --lag ms and --loss 0.1 to play over a worse network than there is
+// Options: --port n (7777), --name text, --bots easy|normal|hard (how
+// well the bots play, normal by default), --no-bots, --round seconds (90),
+// and on a client --lag ms and --loss 0.1 to play over a worse network
+// than there is
 // (slang/net's simulate). Arrows or WASD move, space sets a charge,
 // escape quits.
 //
@@ -31,7 +32,7 @@ local render = require("game/render")
 local bots = require("game/bots")
 
 local func usage(){
-  print("usage: main.slang [join <address> | server] [--port n] [--name text] [--no-bots] [--round s] [--lag ms] [--loss p]\n")
+  print("usage: main.slang [join <address> | server] [--port n] [--name text] [--bots easy|normal|hard] [--no-bots] [--round s] [--lag ms] [--loss p]\n")
   os.exit(2)
 }
 
@@ -60,6 +61,11 @@ local func options(list){
       o.name = value()
     } else if(a == "--round"){
       o.round = to_int(value()) * 1000
+    } else if(a == "--bots"){
+      o.level = value()
+      if(bots.LEVELS[o.level] == null){
+        usage()
+      }
     } else if(a == "--no-bots"){
       o.bots = false
     } else if(a == "--lag"){
@@ -76,7 +82,7 @@ local func options(list){
 local o = options(args())
 
 if(o.mode == "server"){
-  local s = server.start({port: o.port, bots: o.bots, round: o.round})
+  local s = server.start({port: o.port, bots: o.bots, level: o.level, round: o.round})
   print("inkblast: serving on port ", s.port, "\n")
   s:run()
   return
@@ -85,7 +91,7 @@ if(o.mode == "server"){
 local host = null
 local address = o.address
 if(o.mode == "host"){
-  host = server.start({port: o.port, bots: o.bots, round: o.round})
+  host = server.start({port: o.port, bots: o.bots, level: o.level, round: o.round})
   address = "127.0.0.1"
   print("inkblast: hosting on port ", host.port, " (others join with: join <this machine's address>)\n")
 }
@@ -136,13 +142,14 @@ local func steering(){
   return held[len(held) - 1]
 }
 
-// autoplay: a bot plans on a world made from the client's view
+// autoplay: a bot plans for you (on the host's world)
+local mind = bots.mind("hard")
 local func autopilot(){
   local s = c.state
   if(s == null or c.slot == null or host == null){
     return
   }
-  local plan = bots.think(host.world, c.slot)
+  local plan = bots.think(host.world, c.slot, mind)
   c:steer(plan.dir)
   if(plan.drop){
     c:drop()

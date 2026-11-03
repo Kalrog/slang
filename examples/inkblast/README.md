@@ -16,9 +16,9 @@ bin/slang run examples/inkblast/main.slang server          # a server without a 
 ```
 
 Arrows or WASD move, space sets a charge, escape quits. Options:
-`--port n` (7777), `--name text`, `--no-bots`, `--round seconds`, and for a
-client `--lag ms` and `--loss 0.1` to play over a worse network than there
-is.
+`--port n` (7777), `--name text`, `--bots easy|normal|hard` (normal by
+default), `--no-bots`, `--round seconds`, and for a client `--lag ms` and
+`--loss 0.1` to play over a worse network than there is.
 
 ## How it is built
 
@@ -28,8 +28,11 @@ is.
 - `game/server.slang` steps the rules 30 times a second, applies what
   players send and broadcasts the state after every step. `game/bots.slang`
   plays the empty slots: it flees blasts that are coming (chains included),
-  sets charges only where it can get away, and goes for pickups, crates and
-  foreign floor.
+  picks a goal (a pickup, a spot for a charge, foreign floor) and keeps it
+  until it is reached, and sets a charge only where it can get away. Its
+  level makes it beatable: on normal it notices someone else's charge
+  380 ms late, waits 1.5 s between its own and goes for players only a
+  little; easy is slower still, hard reacts at once.
 - `game/client.slang` keeps the two newest states and draws players
   between them, so movement stays smooth whatever arrives when.
 - `game/protocol.slang` names the messages: the hello, welcome and roster

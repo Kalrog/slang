@@ -468,7 +468,9 @@ local func build_siege(){
   )
   files["slang.lock"] = "{[\"jolt\"]: {path: \"/jolt\"}, [\"raylib\"]: {path: \"/raylib\"}}"
   files["assets/Fredoka.ttf"] = {
-    b64: encoding.base64.encode(os.read_file(concat(dir, "/assets/Fredoka.ttf"))),
+    b64: encoding.base64 .encode(
+      os.read_file(concat(dir, "/assets/Fredoka.ttf")),
+    ),
   }
   // the sources are shown from the page's own copy, highlighted when
   // opened (the page carries each file once)
@@ -524,8 +526,12 @@ local func build_siege(){
     "as slang functions. The same files run on the desktop with ",
     "<code>make siege</code>.</p>",
     "<h2>The source</h2>",
-    "<p>", string(len(sources)), " files, as they are in ",
-    "<a href=\"", REPO, "/tree/main/examples/siege\">examples/siege</a>.</p>",
+    "<p>",
+    string(len(sources)),
+    " files, as they are in ",
+    "<a href=\"",
+    REPO,
+    "/tree/main/examples/siege\">examples/siege</a>.</p>",
     str.join(listing, ""),
     "</section>",
     "<script type=\"application/json\" id=\"game-files\">",
@@ -562,6 +568,7 @@ local GROUPS = {
       "slang/hash",
       "slang/json",
       "slang/std",
+      "slang/vm",
     },
   },
   {
@@ -579,6 +586,7 @@ local GROUPS = {
     title: "Async and the web",
     modules: {
       "slang/async",
+      "slang/isolate",
       "slang/http",
       "slang/web",
       "slang/ws",
@@ -587,6 +595,7 @@ local GROUPS = {
       "slang/jwt",
       "slang/sqlite",
       "slang/webview",
+      "slang/zlib",
     },
   },
   {

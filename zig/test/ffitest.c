@@ -37,6 +37,8 @@ const char *ft_greet(const char *name) {
 }
 
 Vec2 ft_vec_add(Vec2 a, Vec2 b) { return (Vec2){a.x + b.x, a.y + b.y}; }
+/* the same into memory the caller passes: nothing to allocate */
+void ft_vec_add_into(Vec2 *out, const Vec2 *a, const Vec2 *b) { out->x = a->x + b->x; out->y = a->y + b->y; }
 Mixed ft_mixed(double a, int8_t b, int64_t c) { return (Mixed){a, b, c}; }
 double ft_mixed_sum(Mixed m) { return m.a + m.b + (double)m.c; }
 

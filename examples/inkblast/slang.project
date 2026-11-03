@@ -1,0 +1,4 @@
+{
+  name: "inkblast",
+  dependencies: {raylib: {path: "../../packages/raylib"}},
+}

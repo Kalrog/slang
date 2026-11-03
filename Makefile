@@ -31,6 +31,8 @@
 #   make fm-test      run its tests (no window, no audio device: every patch of the bank)
 #   make synth-mix    record every song of examples/synth part by part and mix it (WAVs in examples/synth/mixdown)
 #   make siege        run the siege catapult game (examples/siege) on the raylib and jolt packages
+#   make inkblast     run the Inkblast party game (examples/inkblast): slang/net, bots, raylib
+#   make inkblast-test run Inkblast's tests (no window: the rules, a match over loopback)
 #   make siege-test   run siege's tests (no window: structures stand, levels stand still, wrecking)
 #   make vscode       package the VS Code extension (editors/vscode) with the language server
 #   make doc          regenerate doc/: HTML documentation of slang's library (slang doc)
@@ -46,7 +48,7 @@ COMPILER_SRC := $(wildcard slang/compiler/*.slang)
 SEED_DIR := boot/slang
 SEED_CORE_DIR := build/seed-core
 
-.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed seed-core fixpoint bench raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test synth synth3d synth-test synth-mix siege siege-test midi-test kernel-test kernel-bench fm fm3d fm-test clean doc \
+.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed seed-core fixpoint bench raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test inkblast inkblast-test synth synth3d synth-test synth-mix siege siege-test midi-test kernel-test kernel-bench fm fm3d fm-test clean doc \
         vscode vscode-grammar
 
 all: build
@@ -112,6 +114,7 @@ test: build unit
 	@if [ -d "packages/jolt/lib/$(SLANG_PLATFORM)" ]; then $(MAKE) jolt-test && $(MAKE) siege-test; \
 	  else echo "no joltc for $(SLANG_PLATFORM): packages/jolt and examples/siege not tested"; fi
 	$(MAKE) midi-test
+	$(MAKE) inkblast-test
 	@if [ -d "packages/kernel/lib/$(SLANG_PLATFORM)" ]; then $(MAKE) kernel-test && $(MAKE) fm-test; \
 	  else echo "no kernel/vm for $(SLANG_PLATFORM): packages/kernel and examples/fm not tested"; fi
 
@@ -198,6 +201,12 @@ deckhand: build
 
 deckhand-test: build
 	cd examples/deckhand && ../../bin/slang test test
+
+inkblast: build
+	cd examples/inkblast && ../../bin/slang run main.slang
+
+inkblast-test: build
+	cd examples/inkblast && ../../bin/slang test test
 
 synth: build
 	cd examples/synth && ../../bin/slang run main.slang

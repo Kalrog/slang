@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>slang/vm</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
+pre.ebnf { white-space: pre-wrap; border-left: 3px solid var(--link); }
+dl.syntax dd { margin: 0.2rem 0 0.8rem 0.2rem; }
+figure.example { margin: 1rem 0; }
+details.expanded summary { cursor: pointer; color: var(--muted); }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>slang/vm</h1>
+<p>slang/vm: the virtual machine itself, built into it: its collector, bytecode (what the compiler emits, loads and caches) and the upvalues of closures.</p>
+<pre><code>local vm = require(&quot;slang/vm&quot;)
+vm.collect()                       // a full collection now
+vm.gc.growth = 1.5                 // collect sooner as memory grows
+vm.gc.minimum = 64 * 1024 * 1024   // but not below 64 MiB in use
+print(vm.gc.in_use, &quot;\n&quot;)          // bytes the VM has allocated</code></pre>
+<p>The collector is a stop-the-world mark and sweep: a collection pauses the program for as long as it takes to visit everything alive. It runs on its own when the bytes in use reach <a href="#type-Collector"><code>Collector.next</code></a>, which is set after each collection from what was left alive. Programs that cannot afford a pause at an arbitrary moment (a game's frame, an audio block) turn the automatic collections off and call <a href="#collect"><code>collect</code></a> where a pause does no harm, or raise <a href="#type-Collector"><code>Collector.minimum</code></a> so that they come rarely. Each isolate is a VM of its own with a collector of its own: settings changed in one do not reach the others.</p>
+<ul class="toc">
+<li><a href="#gc"><code>gc</code></a></li>
+<li><a href="#collect"><code>collect</code></a></li>
+<li><a href="#load_bytecode"><code>load_bytecode</code></a></li>
+<li><a href="#load_bytes"><code>load_bytes</code></a></li>
+<li><a href="#to_bytes"><code>to_bytes</code></a></li>
+<li><a href="#load_proto"><code>load_proto</code></a></li>
+<li><a href="#embedded"><code>embedded</code></a></li>
+<li><a href="#build_id"><code>build_id</code></a></li>
+<li><a href="#features"><code>features</code></a></li>
+<li><a href="#disassemble"><code>disassemble</code></a></li>
+<li><a href="#get_upvalue"><code>get_upvalue</code></a></li>
+<li><a href="#set_upvalue"><code>set_upvalue</code></a></li>
+<li><a href="#upvalue_names"><code>upvalue_names</code></a></li>
+<li><a href="#load_native"><code>load_native</code></a></li>
+<li><a href="#find_native"><code>find_native</code></a></li>
+<li><a href="#type-Collector"><code>type Collector</code></a></li>
+</ul>
+<div class="def" id="gc"><h3><code>vm.gc</code></h3>
+<p>The collector of this VM: its settings and counters as properties of a <a href="#type-Collector"><code>Collector</code></a>. Setting a setting takes effect at once.</p>
+<pre><code>vm.gc.automatic = false
+run_audio_block()
+vm.gc.automatic = true</code></pre>
+
+</div>
+<div class="def" id="collect"><h3><code>vm.collect()</code></h3>
+<p>A full collection now: everything nothing refers to any more is freed, and the finalizers of what was freed (slang/ffi's gc, buffers' memory, files) run, before it returns.</p>
+
+</div>
+<div class="def" id="load_bytecode"><h3><code>vm.load_bytecode(path: string) -> function</code></h3>
+<p>The main function of a compiled .slb file.</p>
+
+</div>
+<div class="def" id="load_bytes"><h3><code>vm.load_bytes(bytes: string) -> function</code></h3>
+<p>The main function of compiled bytecode in a string (what <a href="#to_bytes"><code>to_bytes</code></a> gives).</p>
+
+</div>
+<div class="def" id="to_bytes"><h3><code>vm.to_bytes(f: function, strip?: bool) -> string</code></h3>
+<p>The bytecode of a slang function, for <a href="#load_bytes"><code>load_bytes</code></a> or a .slb file.</p>
+<dl class="params"><dt><code>strip</code></dt><dd>leave out the source locations and the names of the locals</dd></dl>
+</div>
+<div class="def" id="load_proto"><h3><code>vm.load_proto(proto: table, env?: table) -> function</code></h3>
+<p>A function from a prototype table as the compiler's code generator makes it ({code, locations, constants, upvalues, children, max_stack, nargs, is_vararg, name}).</p>
+<dl class="params"><dt><code>env</code></dt><dd>its globals; the VM's globals by default</dd></dl>
+</div>
+<div class="def" id="embedded"><h3><code>vm.embedded(name: string) -> function?</code></h3>
+<p>The main function of a module compiled into the interpreter (&quot;slang/json&quot;), run anew each time it is called; null when there is none by that name.</p>
+
+</div>
+<div class="def" id="build_id"><h3><code>vm.build_id() -> string</code></h3>
+<p>A hash of the interpreter's embedded library and compiler, as 16 hex digits: the bytecode cache keys on it, so a new compiler never loads what an old one compiled.</p>
+
+</div>
+<div class="def" id="features"><h3><code>vm.features() -> {[string]: bool}</code></h3>
+<p>The optional parts of the instruction set this VM runs ({fused: true}); the compiler emits the core instructions for what is missing. SLANG_ISA=core hides the fused ones.</p>
+
+</div>
+<div class="def" id="disassemble"><h3><code>vm.disassemble(f: function) -> string</code></h3>
+<p>A listing of a slang function's bytecode, its nested functions included.</p>
+
+</div>
+<div class="def" id="get_upvalue"><h3><code>vm.get_upvalue(f: function, name: string) -> any</code></h3>
+<p>The value of f's upvalue name; null when f has none by that name.</p>
+
+</div>
+<div class="def" id="set_upvalue"><h3><code>vm.set_upvalue(f: function, name: string, value: any)</code></h3>
+<p>Gives f's upvalue name a cell of its own holding value: other closures that shared the old cell keep it.</p>
+
+</div>
+<div class="def" id="upvalue_names"><h3><code>vm.upvalue_names(f: function) -> {string}</code></h3>
+<p>The names of f's upvalues, in order.</p>
+
+</div>
+<div class="def" id="load_native"><h3><code>vm.load_native(name: string, file?: string) -> any</code></h3>
+<p>The module of the native extension name (exporting slang_open_&lt;name&gt;), loaded from the native search paths, or null when there is no library for it. WebAssembly builds load no native code.</p>
+<dl class="params"><dt><code>file</code></dt><dd>the library to load instead of searching (a package's build)</dd></dl>
+</div>
+<div class="def" id="find_native"><h3><code>vm.find_native(name: string) -> string?</code></h3>
+<p>The library file <a href="#load_native"><code>load_native</code></a> would load for name from the native search paths, or null.</p>
+
+</div>
+<h2 id="type-Collector">type Collector</h2>
+<pre><code>type Collector = {growth: float, minimum: int, automatic: bool, in_use: int, next: int?, collections: int}</code></pre>
+<p>The collector of this VM, as <a href="#gc"><code>gc</code></a> has it.</p>
+<dl class="params"><dt><code>growth: float</code></dt><dd>the next automatic collection comes when the bytes in use reach this many times what the last one left alive; 2 by default, at least 1.1. Lower collects more often in smaller steps of the heap, higher less often with more memory in use.</dd><dt><code>minimum: int</code></dt><dd>the bytes in use below which no automatic collection runs; 8 MiB by default</dd><dt><code>automatic: bool</code></dt><dd>whether collections run on their own; true by default. While it is false nothing is freed until <a href="#collect"><code>collect</code></a> is called (or it is set back), so memory grows with every allocation.</dd><dt><code>in_use: int</code></dt><dd>the bytes the VM has allocated now (objects, tables, stacks, buffers it owns), garbage included; read-only</dd><dt><code>next: int?</code></dt><dd>the bytes in use at which the next automatic collection runs, null while [automatic] is false; read-only</dd><dt><code>collections: int</code></dt><dd>how many collections have run, automatic or not; read-only</dd></dl>
+<p class="muted">slang/stubs/slang/vm.slang</p>
+</body>
+</html>

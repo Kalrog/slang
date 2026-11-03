@@ -10,10 +10,11 @@ const Error = vm_mod.Error;
 const api = vm_mod.api;
 const stdlib = @import("stdlib.zig");
 const object = @import("../vm/object.zig");
+const gc = @import("../vm/gc.zig");
 
-/// slang/vm: access to closures, upvalues and bytecode.
+/// slang/vm: access to closures, upvalues and bytecode, and the collector.
 pub fn module(vm: *VM) *Table {
-    return stdlib.makeModule(vm, &.{
+    const m = stdlib.makeModule(vm, &.{
         .{ .name = "set_upvalue", .f = vmSetUpvalue },
         .{ .name = "get_upvalue", .f = vmGetUpvalue },
         .{ .name = "upvalue_names", .f = vmUpvalueNames },
@@ -27,7 +28,95 @@ pub fn module(vm: *VM) *Table {
         .{ .name = "load_proto", .f = vmLoadProto },
         .{ .name = "load_native", .f = @import("../loader.zig").loadNative },
         .{ .name = "find_native", .f = @import("../loader.zig").findNative },
+        .{ .name = "collect", .f = vmCollect },
     });
+    m.set(vm.gpa, vm.str("gc"), .{ .table = gcObject(vm) });
+    return m;
+}
+
+// ------------------------------------------------------------ collector
+
+/// collect(): a full collection now; what nothing refers to any more is
+/// freed (finalizers run) before it returns.
+fn vmCollect(th: *Thread, args: []Value) Error!Value {
+    _ = args;
+    gc.collect(th.vm);
+    return .null;
+}
+
+/// gc: the collector of this VM (each isolate has its own), with its
+/// settings and counters as properties.
+fn gcObject(vm: *VM) *Table {
+    const meta = vm.newTable(0, 4);
+    meta.set(vm.gpa, vm.str("__type"), vm.str("vm.Collector"));
+    stdlib.setClass(vm, meta, &.{}, &.{
+        .{ .name = "growth", .get = gcGrowth, .set = gcSetGrowth },
+        .{ .name = "minimum", .get = gcMinimum, .set = gcSetMinimum },
+        .{ .name = "automatic", .get = gcAutomatic, .set = gcSetAutomatic },
+        .{ .name = "in_use", .get = gcInUse },
+        .{ .name = "next", .get = gcNext },
+        .{ .name = "collections", .get = gcCollections },
+    });
+    const t = vm.newTable(0, 0);
+    t.meta = meta;
+    return t;
+}
+
+fn gcGrowth(th: *Thread, args: []Value) Error!Value {
+    _ = args;
+    return .{ .float = th.vm.gc_growth };
+}
+
+fn gcSetGrowth(th: *Thread, args: []Value) Error!Value {
+    const g = try api.argNumber(th, args, 1, "growth");
+    if (!(g >= 1.1) or std.math.isInf(g)) return th.vm.raise("vm: gc.growth must be a number of at least 1.1, got {d}", .{g});
+    th.vm.gc_growth = g;
+    gc.schedule(th.vm);
+    return .null;
+}
+
+fn gcMinimum(th: *Thread, args: []Value) Error!Value {
+    _ = args;
+    return .{ .int = @intCast(th.vm.gc_minimum) };
+}
+
+fn gcSetMinimum(th: *Thread, args: []Value) Error!Value {
+    const n = try api.argInt(th, args, 1, "minimum");
+    if (n < 0) return th.vm.raise("vm: gc.minimum must not be negative, got {d}", .{n});
+    th.vm.gc_minimum = @intCast(n);
+    gc.schedule(th.vm);
+    return .null;
+}
+
+fn gcAutomatic(th: *Thread, args: []Value) Error!Value {
+    _ = args;
+    return .{ .bool = th.vm.gc_automatic };
+}
+
+fn gcSetAutomatic(th: *Thread, args: []Value) Error!Value {
+    const v = api.arg(args, 1);
+    if (v != .bool) return api.argError(th, "automatic", 1, "bool", v);
+    th.vm.gc_automatic = v.bool;
+    gc.schedule(th.vm);
+    return .null;
+}
+
+fn gcInUse(th: *Thread, args: []Value) Error!Value {
+    _ = args;
+    return .{ .int = @intCast(th.vm.bytes_allocated) };
+}
+
+/// the bytes in use at which the next automatic collection runs; null
+/// while collections are not automatic
+fn gcNext(th: *Thread, args: []Value) Error!Value {
+    _ = args;
+    if (!th.vm.gc_automatic) return .null;
+    return .{ .int = @intCast(th.vm.next_gc) };
+}
+
+fn gcCollections(th: *Thread, args: []Value) Error!Value {
+    _ = args;
+    return .{ .int = @intCast(th.vm.collections) };
 }
 
 /// load_proto(proto, [env]): turns a prototype table produced by the

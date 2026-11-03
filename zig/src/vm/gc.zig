@@ -10,7 +10,9 @@
 //!
 //! The threshold is based on the bytes the VM has allocated through its
 //! counting allocator (objects, table storage, stacks): after a collection
-//! the next one happens when the live size has doubled.
+//! the next one happens when the live size has doubled (vm.gc_growth, at
+//! least vm.gc_minimum bytes), or never while vm.gc_automatic is off;
+//! slang/vm's gc sets them and collect() runs one at once.
 
 const std = @import("std");
 const build_options = @import("build_options");
@@ -192,12 +194,24 @@ pub fn collect(vm: *VM) void {
     sweep(vm);
     vm.compactStrings();
     vm.collections += 1;
-    vm.next_gc = if (build_options.gc_stress)
+    schedule(vm);
+}
+
+/// Sets the threshold of the next automatic collection from the settings
+/// and the live size: after a collection, and when the settings change.
+pub fn schedule(vm: *VM) void {
+    const next: usize = if (!vm.gc_automatic)
+        std.math.maxInt(usize)
+    else if (build_options.gc_stress)
         vm.bytes_allocated + stress_step
-    else
-        @max(initial_threshold, vm.bytes_allocated * 2);
-    // a kill that arrived during the collection keeps its zero
-    if (vm.interrupt.load(.seq_cst)) vm.next_gc = 0;
+    else blk: {
+        const grown = @as(f64, @floatFromInt(vm.bytes_allocated)) * vm.gc_growth;
+        const limit: f64 = @floatFromInt(std.math.maxInt(usize));
+        break :blk @max(vm.gc_minimum, if (grown >= limit) std.math.maxInt(usize) else @as(usize, @intFromFloat(grown)));
+    };
+    @atomicStore(usize, &vm.next_gc, next, .seq_cst);
+    // a kill that arrived meanwhile keeps its zero
+    if (vm.interrupt.load(.seq_cst)) @atomicStore(usize, &vm.next_gc, 0, .seq_cst);
 }
 
 fn sweep(vm: *VM) void {

@@ -140,6 +140,12 @@ pub const VM = struct {
     next_gc: usize = gc.initial_threshold,
     gc_running: bool = false,
     collections: usize = 0,
+    /// The collector's settings (slang/vm's gc): the next collection when
+    /// the live size has grown by gc_growth, never below gc_minimum bytes;
+    /// none on their own while gc_automatic is off (see gc.schedule)
+    gc_growth: f64 = 2.0,
+    gc_minimum: usize = gc.initial_threshold,
+    gc_automatic: bool = true,
     /// Values kept alive by the C API (slang_ref).
     registry: *Table,
     /// "__index" and "__newindex", interned and kept in the registry, so

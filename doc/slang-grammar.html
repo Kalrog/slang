@@ -87,6 +87,7 @@ unless(1 &gt; 2){
 <li><a href="#Grammar:token"><code>Grammar:token</code></a></li>
 <li><a href="#Grammar:tag"><code>Grammar:tag</code></a></li>
 <li><a href="#Grammar:unit_id"><code>Grammar:unit_id</code></a></li>
+<li><a href="#Grammar:testing"><code>Grammar:testing</code></a></li>
 <li><a href="#Grammar:origin"><code>Grammar:origin</code></a></li>
 <li><a href="#Grammar:unit_local"><code>Grammar:unit_local</code></a></li>
 <li><a href="#Grammar:error_at"><code>Grammar:error_at</code></a></li>
@@ -211,6 +212,10 @@ unless(1 &gt; 2){
 <p>A number identifying the parse of the current unit (a new one for every unit, nested compiles included), for per-unit state in an extension loaded once for a whole project.</p>
 
 </div>
+<div class="def" id="Grammar:testing"><h3><code>Grammar:testing() -> bool</code></h3>
+<p>Whether the unit being parsed is compiled for a test run: <code>slang test</code> compiles the files of the project under test so (not those of its packages or of slang's library), and editors analyse every file so. Code only tests need can compile to nothing otherwise.</p>
+
+</div>
 <div class="def" id="Grammar:origin"><h3><code>Grammar:origin() -> string?</code></h3>
 <dl class="params"><dt>returns</dt><dd>the name of the source being parsed (null outside a parse)</dd></dl>
 </div>
@@ -256,7 +261,7 @@ return {token: op, ast: +{-{async}.await(-{exp})}}</code></pre>
 <p>Runs a parsed extension statement (what the &quot;extension_statement&quot; rule produced) and returns the statement node to emit, or null; the parser of a unit calls it between top-level statements.</p>
 
 </div>
-<div class="def" id="Grammar:parse_source"><h3><code>Grammar:parse_source(source: string, origin: string, options?: {scoped?: bool, tree?: bool, recover?: bool, sandbox?: bool}) -> <a href="slang-ast.html#type-Node">ast.Node</a></code></h3>
+<div class="def" id="Grammar:parse_source"><h3><code>Grammar:parse_source(source: string, origin: string, options?: {scoped?: bool, tree?: bool, recover?: bool, sandbox?: bool, testing?: bool}) -> <a href="slang-ast.html#type-Node">ast.Node</a></code></h3>
 <p>Parses a unit to a Block node, one top-level statement at a time, running its unquotes and extension statements. Raises on failure; the details of a parse failure are in g.state.last_failure ({message, pos, far_pos, far_message}).</p>
 
 </div>

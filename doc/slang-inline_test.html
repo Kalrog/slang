@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>slang/inline_test</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
+pre.ebnf { white-space: pre-wrap; border-left: 3px solid var(--link); }
+dl.syntax dd { margin: 0.2rem 0 0.8rem 0.2rem; }
+figure.example { margin: 1rem 0; }
+details.expanded summary { cursor: pointer; color: var(--muted); }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>slang/inline_test</h1>
+<p class="summary">slang/inline_test: tests next to the code they test, in the same file.</p>
+<p class="use">Load it at the top of a file with <code>extension "slang/inline_test"</code>, or for every file of a project in <code>slang.project</code>: <code>extensions: {"slang/inline_test"}</code>. It changes the grammar of the files that load it only.</p>
+<h2 id="syntax">Syntax</h2>
+<dl class="syntax"><dt><pre class="ebnf"><code>statement ::= &quot;group&quot; &quot;(&quot; expr &quot;)&quot; block</code></pre></dt><dd>a new statement (inline_group)</dd><dt><pre class="ebnf"><code>statement ::= &quot;test&quot; &quot;(&quot; expr &quot;)&quot; block</code></pre></dt><dd>a new statement (inline_test)</dd><dt><pre class="ebnf"><code>statement ::= &quot;setup&quot; block</code></pre></dt><dd>a new statement (inline_setup)</dd><dt><pre class="ebnf"><code>statement ::= &quot;teardown&quot; block</code></pre></dt><dd>a new statement (inline_teardown)</dd></dl>
+<h2 id="use">How it works</h2>
+<figure class="example"><pre><code>extension &quot;slang/inline_test&quot;
+
+local func double(x){ return x * 2 }
+
+group(&quot;double&quot;){
+  test(&quot;doubles&quot;){
+    assert(double(21) == 42)
+  }
+}</code></pre><details class="expanded"><summary>Expanded</summary><pre><code>local func double(x){
+  return x * 2
+}</code></pre></details></figure>
+<p><code>group(name){ ... }</code>, <code>test(name){ ... }</code>, <code>setup{ ... }</code> and <code>teardown{ ... }</code> are statements that mean what slang/test's t.group, t.test, t.setup and t.teardown do, written without the module: a setup runs before each test and subgroup of the group it is in, a teardown after each. They are only there when the file is compiled for a test run (see the grammar's testing()): <code>slang test</code> compiles the files of the project under test so, and its packages' and slang's library files not. In any other compile (<code>slang run</code>, <code>slang build</code>, a require from a program) these statements compile to nothing, and so do the locals and helpers written inside them.</p>
+<p>The tests of a module register when the module is loaded in a test run: <code>slang test file.slang</code> runs the tests of that file (and those of the project's modules it requires), and a test file that requires a module runs the module's tests along with its own. A group or test at the top of a module joins the group being registered when it is required, so require modules at the top of a test file.</p>
+<p>The words group, test, setup and teardown stay usable as names; a call <code>test(x){ ... }</code> or <code>setup{ ... }</code> with a block, though, is this statement in a file that loads the extension.</p>
+<p class="muted">slang/lib/inline_test.slang</p>
+</body>
+</html>

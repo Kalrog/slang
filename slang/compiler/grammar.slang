@@ -607,6 +607,15 @@ func methods.unit_id(g){
   return g.state.unit_id
 }
 
+// testing() -> bool
+// Whether the unit being parsed is compiled for a test run: `slang test`
+// compiles the files of the project under test so (not those of its
+// packages or of slang's library), and editors analyse every file so.
+// Code only tests need can compile to nothing otherwise.
+func methods.testing(g){
+  return g.state.testing == true
+}
+
 // origin() -> string?: the name of the source being parsed (null outside a parse)
 func methods.origin(g){
   return g.state.origin
@@ -2732,7 +2741,7 @@ local func parse_top_level(g, source, origin, scoped, recover, tree){
 }
 
 // parse_source(source: string, origin: string, options?: {scoped?: bool,
-//   tree?: bool, recover?: bool, sandbox?: bool}) -> ast.Node
+//   tree?: bool, recover?: bool, sandbox?: bool, testing?: bool}) -> ast.Node
 // Parses a unit to a Block node, one top-level statement at a time,
 // running its unquotes and extension statements. Raises on failure; the
 // details of a parse failure are in g.state.last_failure ({message, pos,
@@ -2741,6 +2750,7 @@ local func parse_top_level(g, source, origin, scoped, recover, tree){
 // [tree]: leaves the lossless tree in g.state.last_tree (see peg.Tree): a node whose kids are the top-level statements; after a failure, those parsed before it
 // [recover]: implies tree; goes past statements that fail to parse, which become error regions in the tree; their failures are in g.state.failures
 // [sandbox]: no unquotes and no extension statements may run
+// [testing]: the unit is compiled for a test run (see [Grammar.testing]); a nested parse that does not say inherits it
 func methods.parse_source(g, source, origin, options){
   local lin = g.state
   local outer_origin = lin.origin
@@ -2756,6 +2766,10 @@ func methods.parse_source(g, source, origin, options){
   local outer_sandbox = lin.sandbox
   if(options != null and options.sandbox == true){
     lin.sandbox = true
+  }
+  local outer_testing = lin.testing
+  if(options != null and options.testing != null){
+    lin.testing = options.testing == true
   }
   lin.last_failure = null
   if(tree){
@@ -2776,6 +2790,7 @@ func methods.parse_source(g, source, origin, options){
   }
   lin.tree_parts = outer_parts
   lin.sandbox = outer_sandbox
+  lin.testing = outer_testing
   lin.origin = outer_origin
   lin.current = outer_current
   lin.unit_id = outer_unit_id

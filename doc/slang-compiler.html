@@ -48,6 +48,7 @@ local h = compiler.highlight(source, &quot;main.slang&quot;, {symbols: true})</c
 <p>Grammars are scoped: a file's extension statements end with the file. The root grammar is slang plus the ambient layer of the project file (slang.project: extensions loaded into every file, dialects selected by file suffix, search paths; see <a href="#type-Project"><code>Project</code></a>); <code>extension global</code> in the main file and changes made at run time also go to the root. A package's files compile under the package's own slang.project instead. Extensions get the grammar they extend with <a href="#grammar"><code>grammar</code></a>.</p>
 <ul class="toc">
 <li><a href="#explain"><code>explain</code></a></li>
+<li><a href="#testing"><code>testing</code></a></li>
 <li><a href="#load_extension"><code>load_extension</code></a></li>
 <li><a href="#grammar"><code>grammar</code></a></li>
 <li><a href="#reset"><code>reset</code></a></li>
@@ -69,6 +70,7 @@ local h = compiler.highlight(source, &quot;main.slang&quot;, {symbols: true})</c
 <li><a href="#project"><code>project</code></a></li>
 <li><a href="#workspace"><code>workspace</code></a></li>
 <li><a href="#for_file"><code>for_file</code></a></li>
+<li><a href="#project_error"><code>project_error</code></a></li>
 <li><a href="#forget_project"><code>forget_project</code></a></li>
 <li><a href="#keywords"><code>keywords</code></a></li>
 <li><a href="#cache_root"><code>cache_root</code></a></li>
@@ -99,8 +101,12 @@ local h = compiler.highlight(source, &quot;main.slang&quot;, {symbols: true})</c
 <p>Whether the compiler tells on stderr what it does: the project and its extensions, the extensions and rule changes of each unit, the packages. <code>slang run --explain</code> sets it; SLANG_EXPLAIN=1 does the same. It also turns on grammar warnings.</p>
 
 </div>
+<div class="def" id="testing"><h3><code>compiler.testing</code></h3>
+<p>Whether files are compiled for a test run: <code>slang test</code> sets it. Then the files of the project under test (not its packages', not slang's library) are parsed with testing on (see grammar's testing()), and extensions such as slang/inline_test keep the code that only tests need.</p>
+
+</div>
 <div class="def" id="load_extension"><h3><code>compiler.load_extension(name: string)</code></h3>
-<p>Runs the extension module <code>name</code> for the grammar being extended (see <a href="#grammar"><code>grammar</code></a>), once per grammar: a second load does nothing. A module file on the search paths is compiled with <a href="#load_file"><code>load_file</code></a> and run anew for each grammar that loads it; anything else (an embedded or native module) is required, so it runs once per program.</p>
+<p>Runs the extension module <code>name</code> for the grammar being extended (see <a href="#grammar"><code>grammar</code></a>), once per grammar: a second load does nothing. A module file on the search paths is compiled with <a href="#load_file"><code>load_file</code></a> and run anew for each grammar that loads it, and so is a module embedded in the interpreter (slang/inline_test); anything else (a native module) is required, so it runs once per program.</p>
 
 </div>
 <div class="def" id="grammar"><h3><code>compiler.grammar() -> table</code></h3>
@@ -187,6 +193,10 @@ f()   // 42</code></pre>
 <div class="def" id="for_file"><h3><code>compiler.for_file(path: string, f: function) -> any</code></h3>
 <p>What f() gives, run under the compiler state of path's project (made when first needed: the project file loaded into a fresh root grammar); without <a href="#workspace"><code>workspace</code></a>, f() as it is. The state in effect before comes back afterwards, also when f raises.</p>
 
+</div>
+<div class="def" id="project_error"><h3><code>compiler.project_error(path: string)</code></h3>
+<p>Why the project of the file at path failed to load in the workspace (its files are plain slang then), or null.</p>
+<dl class="params"><dt>returns</dt><dd>{path, message}?</dd></dl>
 </div>
 <div class="def" id="forget_project"><h3><code>compiler.forget_project(path?: string)</code></h3>
 <p>Drops the workspace's state of the project file at path (all of them without one): it is made anew from the file when next needed.</p>

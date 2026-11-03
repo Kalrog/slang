@@ -47,7 +47,7 @@ t.group(&quot;math&quot;){
     assert(1 + 1 == 2, &quot;1 + 1&quot;)
   }
 }</code></pre>
-<p>A test passes when its function returns and fails when it raises (a failed <code>assert</code> or any other error); the report shows the message and where it was raised. Registering only collects: <code>slang test</code> loads the test files, then calls <a href="#run_cli"><code>run_cli</code></a> with its arguments, which runs everything registered and reports.</p>
+<p>A test passes when its function returns and fails when it raises (a failed <code>assert</code> or any other error); the report shows the message and where it was raised. Registering only collects: <code>slang test</code> loads the test files, then calls <a href="#run_cli"><code>run_cli</code></a> with its arguments, which runs everything registered and reports. Tests can also live in the file they test, as <code>group(name){ ... }</code> and <code>test(name){ ... }</code> statements that only a test run compiles (see slang/inline_test).</p>
 <p>With --json, <a href="#run"><code>run</code></a> prints one JSON object per line instead of the report: {event: &quot;test&quot;, path, status, message, location} for each test that ran (status &quot;passed&quot; or &quot;failed&quot;; message and location when it failed), then {event: &quot;done&quot;, passed, failed}. With --only &quot;group / test&quot;, only the tests under that path run: a group's name, a test's, or the names from a top group down, joined by &quot; / &quot;.</p>
 <ul class="toc">
 <li><a href="#group"><code>group</code></a></li>

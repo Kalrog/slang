@@ -202,6 +202,10 @@ async function loadTests(controller: vscode.TestController, file: vscode.TestIte
     return item;
   };
   file.children.replace(r.tests.map((t) => make(t, file.id)));
+  // a file that is not a test file is listed while it has inline tests
+  if (r.tests.length === 0 && !isTestFile(file.uri)) {
+    controller.items.delete(file.id);
+  }
 }
 
 function testFile(controller: vscode.TestController, uri: vscode.Uri): vscode.TestItem {
@@ -217,6 +221,28 @@ function testFile(controller: vscode.TestController, uri: vscode.Uri): vscode.Te
 
 function isTestFile(uri: vscode.Uri): boolean {
   return uri.scheme === "file" && uri.fsPath.endsWith("test.slang");
+}
+
+const EXCLUDE = "**/{node_modules,zig-out,.zig-cache}/**";
+
+// the files that may have tests: the test files, and the files that load
+// slang/inline_test themselves or through their project's extensions
+async function filesWithTests(): Promise<vscode.Uri[]> {
+  const out = await vscode.workspace.findFiles("**/*test.slang", EXCLUDE);
+  const mentions = async (uri: vscode.Uri) =>
+    Buffer.from(await vscode.workspace.fs.readFile(uri)).toString("utf8").includes("slang/inline_test");
+  const projects: string[] = [];
+  for (const uri of await vscode.workspace.findFiles("**/slang.project", EXCLUDE)) {
+    if (await mentions(uri)) {
+      projects.push(path.dirname(uri.fsPath) + path.sep);
+    }
+  }
+  for (const uri of await vscode.workspace.findFiles("**/*.slang", EXCLUDE)) {
+    if (!isTestFile(uri) && (projects.some((p) => uri.fsPath.startsWith(p)) || (await mentions(uri)))) {
+      out.push(uri);
+    }
+  }
+  return out;
 }
 
 // the path of an item below its file, as slang test --only takes it
@@ -347,7 +373,7 @@ function startTests(context: vscode.ExtensionContext): void {
   context.subscriptions.push(controller);
   controller.resolveHandler = async (item) => {
     if (!item) {
-      for (const uri of await vscode.workspace.findFiles("**/*test.slang", "**/{node_modules,zig-out,.zig-cache}/**")) {
+      for (const uri of await filesWithTests()) {
         testFile(controller, uri);
       }
       return;
@@ -373,8 +399,9 @@ function startTests(context: vscode.ExtensionContext): void {
       args: only ? ["--only", only] : [],
     });
   });
+  // a test file, or any slang file: it may have inline tests
   const refresh = (doc: vscode.TextDocument) => {
-    if (isTestFile(doc.uri)) {
+    if (doc.languageId === "slang" && doc.uri.scheme === "file") {
       loadTests(controller, testFile(controller, doc.uri));
     }
   };

@@ -12,7 +12,9 @@
 // `assert` or any other error); the report shows the message and where it
 // was raised. Registering only collects: `slang test` loads the test
 // files, then calls [run_cli] with its arguments, which runs everything
-// registered and reports.
+// registered and reports. Tests can also live in the file they test, as
+// `group(name){ ... }` and `test(name){ ... }` statements that only a test
+// run compiles (see slang/inline_test).
 //
 // With --json, [run] prints one JSON object per line instead of the
 // report: {event: "test", path, status, message, location} for each test

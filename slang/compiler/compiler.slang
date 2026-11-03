@@ -47,6 +47,12 @@ local default_search_paths = __PACKAGES.search_paths
 // turns on grammar warnings.
 compiler.explain = os.getenv("SLANG_EXPLAIN") != null
 
+// Whether files are compiled for a test run: `slang test` sets it. Then the
+// files of the project under test (not its packages', not slang's library)
+// are parsed with testing on (see grammar's testing()), and extensions
+// such as slang/inline_test keep the code that only tests need.
+compiler.testing = false
+
 local func join(parts){
   local text = ""
   for(let local part in values(parts)){
@@ -76,8 +82,9 @@ local func run_block(block){
 // Runs the extension module [name] for the grammar being extended (see
 // [grammar]), once per grammar: a second load does nothing. A module file
 // on the search paths is compiled with [load_file] and run anew for each
-// grammar that loads it; anything else (an embedded or native module) is
-// required, so it runs once per program.
+// grammar that loads it, and so is a module embedded in the interpreter
+// (slang/inline_test); anything else (a native module) is required, so it
+// runs once per program.
 func compiler.load_extension(name){
   local g = unit_grammar()
   if(g:has_extension(name)){
@@ -87,6 +94,14 @@ func compiler.load_extension(name){
   local found = __PACKAGES.find_source(name)
   if(found != null){
     compiler.load_file(found.path, name)()
+    return
+  }
+  local embedded = null
+  if(vm.embedded != null){
+    embedded = vm.embedded(name)
+  }
+  if(embedded != null){
+    embedded()
     return
   }
   require(name)
@@ -940,8 +955,8 @@ func compiler.keywords(path){
 // Files loaded through load_file (require and `slang run`) are cached as
 // bytecode in $SLANG_CACHE_DIR (default ~/.cache/slang), keyed by origin,
 // path, content hash, the project key (the project file and the sources
-// of its ambient and dialect extensions) and the build id of the
-// compiler. A file is only cached when it was compiled with its project's
+// of its ambient and dialect extensions), the build id of the compiler
+// and whether it was compiled for a test run. A file is only cached when it was compiled with its project's
 // or a dialect's grammar as the project defines them and ran no code at
 // compile time, so caching can never change what a program does.
 // SLANG_NO_CACHE=1 disables the cache.
@@ -1017,6 +1032,8 @@ func compiler.load_file(path, origin){
     return f
   }
   local g = found.grammar
+  local testing = compiler.testing == true and found.project == project and
+    (project == null or not library_source(path))
   local cache_path = null
   if(not g.extended){
     local dir = get_cache_dir()
@@ -1027,7 +1044,7 @@ func compiler.load_file(path, origin){
       }
       cache_path = concat(
         dir, "/",
-        str.format("%x", hash.fnv1a(concat(origin, "\n", path, "\n", key or "", "\n", build_id))),
+        str.format("%x", hash.fnv1a(concat(origin, "\n", path, "\n", key or "", "\n", build_id, testing and "\ntest" or ""))),
         "-", str.format("%x", hash.fnv1a(source)), ".slb"
       )
       if(os.exists(cache_path)){
@@ -1038,7 +1055,7 @@ func compiler.load_file(path, origin){
   local state = root.state
   local outer_effects = state.compile_time_effects
   state.compile_time_effects = false
-  local node = g:parse_source(source, origin)
+  local node = g:parse_source(source, origin, {testing: testing})
   local f = vm.load_proto(codegen.generate(node, origin))
   if(cache_path != null and not state.compile_time_effects and not g.extended){
     pcall(os.write_file, cache_path, vm.to_bytes(f))
@@ -1144,7 +1161,8 @@ func compiler.highlight(source, path, options){
   local lin = root.state
   local text = concat(prefix, source)
   // a parse that goes past statements that fail (see parse_source)
-  local r = pcall(g.parse_source, g, text, path, {recover: true})
+  // compiled as for a test run, so that code only tests have is analysed
+  local r = pcall(g.parse_source, g, text, path, {recover: true, testing: true})
   local diagnostics = {}
   local func failure(f){
     local lc = str.line_col(source, position(f.far_pos))

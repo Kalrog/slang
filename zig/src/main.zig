@@ -281,7 +281,7 @@ fn runBundled(init: std.process.Init, b: *const bundle.Bundle) u8 {
 }
 
 /// Compiles and runs every *test.slang file in dir (or the one file given),
-/// then runs the collected tests with slang/test, which reads the options
+/// the project's files compiled for a test run (compiler.testing), then runs the collected tests with slang/test, which reads the options
 /// (--json, --only) from the arguments; the exit code is 1 when a test failed.
 fn runTests(init: std.process.Init, args: []const []const u8) u8 {
     var target: []const u8 = "./test";
@@ -295,6 +295,9 @@ fn runTests(init: std.process.Init, args: []const []const u8) u8 {
     }
     const vm = newVM(init, args);
     defer vm.destroy();
+    // the project's files compile with their tests (slang/inline_test)
+    const compiler = vm.call(vm.getGlobal("require"), &.{vm.str("slang/compiler")}) catch fail(vm);
+    compiler.table.set(vm.gpa, vm.str("testing"), .{ .bool = true });
     if (std.mem.endsWith(u8, target, ".slang")) {
         const cl = loadFile(vm, target);
         _ = vm.call(.{ .function = cl }, &.{}) catch fail(vm);

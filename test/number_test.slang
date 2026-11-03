@@ -82,3 +82,38 @@ t.group("number literals"){
     }
   }
 }
+
+t.group("character literals"){
+  t.test("a character is the int of its code point"){
+    assert('a' == 97 and 'A' == 65 and '0' == 48 and ' ' == 32)
+    assert(type('a') == "int")
+    assert(str.byte_at("{x}", 0) == '{' and str.byte_at("{x}", 2) == '}')
+    assert('é' == 233 and '€' == 8364)
+  }
+  t.test("escapes as in strings, and the quote"){
+    assert('\n' == 10 and '\t' == 9 and '\\' == 92 and '"' == 34)
+    assert('\'' == 39 and '\"' == 34)
+    assert('\x41' == 65 and '\xff' == 255 and '\u{e9}' == 233)
+  }
+  t.test("in patterns, next to matchers"){
+    local func kind(c){
+      if(let 'a' = c){
+        return "a"
+      }
+      return "other"
+    }
+    assert(kind('a') == "a" and kind(98) == "other")
+    local p = {x: 1}
+    p.@meta = {__type: "P"}
+    assert(let 'P{x: 1} = p)
+  }
+  t.test("one character or escape between the quotes"){
+    local func fails(source){
+      local r = pcall(compile, source, "chars")
+      assert(r[0] == "err", concat("should fail: ", source))
+    }
+    fails("return ''")
+    fails("return 'ab'")
+    fails("return '\\q'")
+  }
+}

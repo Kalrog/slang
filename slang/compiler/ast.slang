@@ -221,12 +221,12 @@ local func hex_value(literal, from, to){
   local v = 0
   for(local i = from; i < to; i = i + 1){
     local b = str.byte_at(literal, i)
-    if(b >= 48 and b <= 57){
-      v = v * 16 + b - 48
-    } else if(b >= 97 and b <= 102){
-      v = v * 16 + b - 87
-    } else if(b >= 65 and b <= 70){
-      v = v * 16 + b - 55
+    if(b >= '0' and b <= '9'){
+      v = v * 16 + b - '0'
+    } else if(b >= 'a' and b <= 'f'){
+      v = v * 16 + b - 'a' + 10
+    } else if(b >= 'A' and b <= 'F'){
+      v = v * 16 + b - 'A' + 10
     } else {
       return null
     }
@@ -248,7 +248,7 @@ func ast.resolve_escapes(literal){
   local start = 0
   local i = 0
   for(i < n){
-    if(str.byte_at(literal, i) == 92){
+    if(str.byte_at(literal, i) == '\\'){
       if(i > start){
         append(pieces, str.substring(literal, start, i))
       }
@@ -273,6 +273,8 @@ func ast.resolve_escapes(literal){
         append(pieces, "\\")
       } else if(c == "\""){
         append(pieces, "\"")
+      } else if(c == "'"){
+        append(pieces, "'")
       } else if(c == "x"){
         // \xHH: one byte
         local v = hex_value(literal, i + 1, i + 3)
@@ -799,8 +801,8 @@ local func is_name(s){
   if(len(s) == 0){ return false }
   for(local i = 0; i < len(s); i = i + 1){
     local b = str.byte_at(s, i)
-    local ok = (b >= 97 and b <= 122) or (b >= 65 and b <= 90) or b == 95 or
-      (i > 0 and b >= 48 and b <= 57)
+    local ok = (b >= 'a' and b <= 'z') or (b >= 'A' and b <= 'Z') or b == '_' or
+      (i > 0 and b >= '0' and b <= '9')
     if(not ok){ return false }
   }
   return true

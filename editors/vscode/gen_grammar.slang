@@ -79,6 +79,14 @@ local grammar = {
     },
     strings: {
       patterns: json.array({
+        // 'a', '\n', '\u{e9}': one character (a matcher's 'Name never closes)
+        {
+          name: "string.quoted.single.slang",
+          match: "'(?:(\\\\(?:x[0-9a-fA-F]{2}|u\\{[0-9a-fA-F]+\\}|.))|[^'\\\\\\n])'",
+          captures: {
+            ["1"]: {name: "constant.character.escape.slang"},
+          },
+        },
         {
           name: "string.quoted.triple.slang",
           begin: "\"\"\"",

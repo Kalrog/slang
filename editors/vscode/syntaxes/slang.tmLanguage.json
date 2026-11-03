@@ -43,6 +43,15 @@
     "strings": {
       "patterns": [
         {
+          "name": "string.quoted.single.slang",
+          "match": "'(?:(\\\\(?:x[0-9a-fA-F]{2}|u\\{[0-9a-fA-F]+\\}|.))|[^'\\\\\\n])'",
+          "captures": {
+            "1": {
+              "name": "constant.character.escape.slang"
+            }
+          }
+        },
+        {
           "name": "string.quoted.triple.slang",
           "begin": "\"\"\"",
           "end": "\"\"\""

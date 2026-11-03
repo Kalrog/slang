@@ -76,6 +76,7 @@
 local peg = require("slang/peg")
 local ast = require("slang/ast")
 local str = require("slang/string")
+local utf8 = require("slang/utf8")
 local regex = require("slang/regex")
 local fmt = require("slang/format")
 // slang's whitespace and comments, and the regex method as a function for
@@ -1342,6 +1343,42 @@ local func install_core(g){
       }),
   )
 
+  // A character literal: 'a', '\n', '\'', '\x41', '\u{e9}' is the int of
+  // its character, the code point (for ASCII the byte str.byte_at gives).
+  // Exactly one character or escape is between the quotes, so 'Name{...}
+  // (a matcher pattern) is never one.
+  local hex = peg.pattern("0-9a-fA-F")
+  local char_escape = peg.seq(peg.char("\\"), peg.choice(
+    peg.seq(peg.char("u"), peg.char("{"), hex:plus(), peg.char("}")),
+    peg.seq(peg.char("x"), hex, hex),
+    peg.pattern("nrtbfv"), peg.char("\\"), peg.char("'"), peg.char("\""),
+  ))
+  local char_body = peg.choice(
+    char_escape,
+    peg.seq(
+      peg.choice(peg.char("'"), peg.char("\\"), peg.char("\n")):forbid(),
+      peg.any(),
+    ),
+  )
+  define("char_literal", token(
+    peg.seq(peg.char("'"), char_body, peg.char("'"), number_end),
+    "char", "string",
+  ):map(func(t){
+    local text = str.trim(t.value)
+    local r = pcall(ast.resolve_escapes, str.substring(text, 1, len(text) - 1))
+    if(r[0] == "err"){
+      g:error_at(t, r[1].message or r[1])
+      return ast.node("Int", {value: 0}, t)
+    }
+    local s = r[1]
+    // (one byte: ASCII or a \x escape; else the code point of the UTF-8)
+    local v = str.byte_at(s, 0)
+    if(len(s) > 1){
+      v = utf8.code_at(s, 0)
+    }
+    return ast.node("Int", {value: v}, t)
+  }))
+
   define(
     "true_literal",
     tok("true"):map(func(t){ return ast.node("True", {}, t) }),
@@ -1475,10 +1512,10 @@ local func install_core(g){
     local i = pos - 1
     for(i >= 0){
       local b = str.byte_at(buf, i)
-      if(b == 10){
+      if(b == '\n'){
         return peg.fail(ctx, pos, "on the same line")
       }
-      if(b != 32 and b != 9 and b != 13){
+      if(b != ' ' and b != '\t' and b != '\r'){
         break
       }
       i = i - 1
@@ -1888,6 +1925,10 @@ local func install_core(g){
   // ------------------------------------------------------------ patterns
 
   define("slang_pattern", peg.choice(
+    // ('a' before 'Name: a matcher's quote never closes like this)
+    rule("char_literal"):map(func(exp){
+      return ast.node("ConstPattern", {value: exp}, exp.token)
+    }),
     rule("quoted_pattern"),
     rule("table_pattern"),
     rule("const_pattern"),
@@ -2168,6 +2209,7 @@ local func install_core(g){
   w:primary(rule("unquote"), "unquote", {aliases: {"-{}"}})
   w:primary(rule("quote"), "quote", {aliases: {"+{}"}})
   w:primary(rule("identifier"), "identifier", {aliases: {"id"}})
+  w:primary(rule("char_literal"), "charLiteral", {aliases: {"char"}})
   w:primary(rule("double_literal"), "doubleLiteral", {
     aliases: {"double", "float"},
   })
@@ -2476,7 +2518,7 @@ local func parse_statement(lin, parser, ctx, pos){
 local unit_parser = {kind: "unit"}
 
 local func is_space_byte(b){
-  return b == 32 or b == 9 or b == 10 or b == 13
+  return b == ' ' or b == '\t' or b == '\n' or b == '\r'
 }
 
 // where the slang trivia (whitespace, // comments) that buf[from, to) ends
@@ -2489,7 +2531,7 @@ local func trivia_start(buf, from, to){
       k = k - 1
     }
     local line = k
-    for(line > from and str.byte_at(buf, line - 1) != 10){
+    for(line > from and str.byte_at(buf, line - 1) != '\n'){
       line = line - 1
     }
     local comment = -1
@@ -2498,14 +2540,14 @@ local func trivia_start(buf, from, to){
     for(i < k - 1){
       local b = str.byte_at(buf, i)
       if(in_string){
-        if(b == 92){
+        if(b == '\\'){
           i = i + 1
-        } else if(b == 34){
+        } else if(b == '"'){
           in_string = false
         }
-      } else if(b == 34){
+      } else if(b == '"'){
         in_string = true
-      } else if(b == 47 and str.byte_at(buf, i + 1) == 47){
+      } else if(b == '/' and str.byte_at(buf, i + 1) == '/'){
         comment = i
         break
       }
@@ -2550,21 +2592,21 @@ local func error_region(keywords){
         local b = str.byte_at(buffer, i)
         local j = i + 1
         local category = null
-        if(b == 47 and str.byte_at(buffer, i + 1) == 47){
+        if(b == '/' and str.byte_at(buffer, i + 1) == '/'){
           j = str.index_of(buffer, "\n", i)
           if(j < 0 or j > stop){
             j = stop
           }
           category = "comment"
-        } else if(b == 34){
-          for(j < stop and str.byte_at(buffer, j) != 34 and
-            str.byte_at(buffer, j) != 10){
-            if(str.byte_at(buffer, j) == 92){
+        } else if(b == '"'){
+          for(j < stop and str.byte_at(buffer, j) != '"' and
+            str.byte_at(buffer, j) != '\n'){
+            if(str.byte_at(buffer, j) == '\\'){
               j = j + 1
             }
             j = j + 1
           }
-          if(j < stop and str.byte_at(buffer, j) == 34){
+          if(j < stop and str.byte_at(buffer, j) == '"'){
             j = j + 1
           }
           category = "string"

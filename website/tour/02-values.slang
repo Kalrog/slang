@@ -6,12 +6,15 @@
 //
 // `/` always gives a double, `+` also joins two strings and `*` repeats
 // one. `concat` joins anything into a string, `string` turns one value
-// into a string.
+// into a string. A character literal like `'a'` or `'\n'` is the int of
+// its character, handy next to `str.byte_at`.
+local str = require("slang/string")
 local values = {1, 2.5, "three", true, null}
 print(type(42), " ", type(2.5), " ", type("hi"), " ", type(values), "\n")
 print(7 / 2, " ", 7 % 2, " ", 2 ^ 10, "\n")
 print("ab" + "cd", " ", "ab" * 3, "\n")
 print(concat("one ", 1, " two ", 2.0), "\n")
+print('a', " ", str.byte_at("{x}", 0) == '{', "\n")
 if(0 and ""){
   print("0 and \"\" are true\n")
 }

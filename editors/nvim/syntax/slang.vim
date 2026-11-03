@@ -12,6 +12,8 @@ syn match slangComment "//.*$" contains=slangTodo,@Spell
 syn match slangEscape contained "\\\(x\x\x\|u{\x\+}\|.\)"
 syn region slangString start=+"+ skip=+\\.+ end=+"+ contains=slangEscape,@Spell
 syn region slangString start=+"""+ end=+"""+ contains=@Spell
+" 'a', '\n': a character (one, so a matcher's 'Name is not one)
+syn match slangCharacter "'\(\\\(x\x\x\|u{\x\+}\|.\)\|[^'\\]\)'" contains=slangEscape
 
 syn match slangNumber "\v<(0[xX]\x(_?\x)*|0[oO]\o(_?\o)*|0[bB][01](_?[01])*|\d(_?\d)*(\.\d(_?\d)*)?([eE][+-]?\d(_?\d)*)?)>"
 
@@ -35,6 +37,7 @@ hi def link slangTodo Todo
 hi def link slangComment Comment
 hi def link slangEscape SpecialChar
 hi def link slangString String
+hi def link slangCharacter Character
 hi def link slangNumber Number
 hi def link slangQuote Special
 hi def link slangCall Function

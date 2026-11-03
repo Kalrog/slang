@@ -119,24 +119,24 @@ local func lex(src, origin, first_line){
   local nl = true
   for(i < n){
     local ch = str.byte_at(src, i)
-    if(ch == 10){
+    if(ch == '\n'){
       line = line + 1
       nl = true
       i = i + 1
-    } else if(ch == 32 or ch == 9 or ch == 13){
+    } else if(ch == ' ' or ch == '\t' or ch == '\r'){
       i = i + 1
-    } else if(ch == 47 and str.byte_at(src, i + 1) == 47){
+    } else if(ch == '/' and str.byte_at(src, i + 1) == '/'){
       // a // comment, to the end of the line
-      for(i < n and str.byte_at(src, i) != 10){
+      for(i < n and str.byte_at(src, i) != '\n'){
         i = i + 1
       }
-    } else if(ch == 47 and str.byte_at(src, i + 1) == 42){
+    } else if(ch == '/' and str.byte_at(src, i + 1) == '*'){
       local close = str.index_of(src, "*/", i + 2)
       if(close < 0){
         fail(origin, line, "unclosed /* comment")
       }
       for(local k = i; k < close; k = k + 1){
-        if(str.byte_at(src, k) == 10){
+        if(str.byte_at(src, k) == '\n'){
           line = line + 1
           nl = true
         }

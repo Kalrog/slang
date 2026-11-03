@@ -99,10 +99,10 @@ func m.ext(p){
   local i = len(p) - 1
   for(i >= 0){
     local c = str.byte_at(p, i)
-    if(c == 47){
+    if(c == '/'){
       return ""
     }
-    if(c == 46){
+    if(c == '.'){
       return str.substring(p, i)
     }
     i = i - 1

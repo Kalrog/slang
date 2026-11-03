@@ -311,7 +311,7 @@ local func slug(name){
   for(local i = 0; i < len(name); i = i + 1){
     local c = str.lower(str.substring(name, i, i + 1))
     local b = str.byte_at(c, 0)
-    if((b >= 97 and b <= 122) or (b >= 48 and b <= 57)){
+    if((b >= 'a' and b <= 'z') or (b >= '0' and b <= '9')){
       append(out, c)
     } else if(len(out) > 0 and out[len(out) - 1] != "-"){
       append(out, "-")

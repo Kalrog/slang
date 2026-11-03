@@ -5,13 +5,13 @@ local str = require("slang/string")
 local names = {}
 
 local func is_upper(c){
-  return c != null and c >= 65 and c <= 90
+  return c != null and c >= 'A' and c <= 'Z'
 }
 local func is_lower(c){
-  return c != null and c >= 97 and c <= 122
+  return c != null and c >= 'a' and c <= 'z'
 }
 local func is_digit(c){
-  return c != null and c >= 48 and c <= 57
+  return c != null and c >= '0' and c <= '9'
 }
 
 // DrawCircle3D -> draw_circle_3d, Vector2Add -> vector2_add, DrawFPS ->
@@ -31,7 +31,7 @@ func names.snake(name){
         sep = true
       } else if(is_digit(prev)){
         // the D of 2D/3D stays with its digit
-        sep = not(c == 68 and not is_lower(next))
+        sep = not(c == 'D' and not is_lower(next))
       }
     } else if(i > 0 and is_digit(c) and not is_digit(prev)){
       // a dimension (3D) is a word of its own, other digits stay (Vector2)
@@ -39,7 +39,7 @@ func names.snake(name){
       for(is_digit(str.byte_at(name, j))){
         j = j + 1
       }
-      sep = str.byte_at(name, j) == 68 and
+      sep = str.byte_at(name, j) == 'D' and
         not is_lower(str.byte_at(name, j + 1))
     }
     if(sep){

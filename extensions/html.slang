@@ -105,7 +105,7 @@ local attr_name = peg.seq(
 
 local func is_component(name){
   local b = str.byte_at(name, 0)
-  return (b >= 65 and b <= 90) or str.index_of(name, ".") >= 0
+  return (b >= 'A' and b <= 'Z') or str.index_of(name, ".") >= 0
 }
 
 // the tag name as a token, highlighted by what it names

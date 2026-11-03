@@ -5,13 +5,13 @@ local str = require("slang/string")
 local names = {}
 
 local func is_upper(c){
-  return c != null and c >= 65 and c <= 90
+  return c != null and c >= 'A' and c <= 'Z'
 }
 local func is_lower(c){
-  return c != null and c >= 97 and c <= 122
+  return c != null and c >= 'a' and c <= 'z'
 }
 local func is_digit(c){
-  return c != null and c >= 48 and c <= 57
+  return c != null and c >= '0' and c <= '9'
 }
 
 // one camelCase word: GetPosition -> get_position, GetAABB -> get_aabb,
@@ -24,7 +24,7 @@ local func snake_word(name){
     local prev = str.byte_at(name, i - 1)
     local next = str.byte_at(name, i + 1)
     // an acronym's plural s stays with it: DOFs, not DO_Fs
-    local plural = next == 115 and not is_lower(str.byte_at(name, i + 2))
+    local plural = next == 's' and not is_lower(str.byte_at(name, i + 2))
     if(i > 0 and is_upper(c) and
       (is_lower(prev) or is_digit(prev) or
         (is_upper(prev) and is_lower(next) and not plural))){

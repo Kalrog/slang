@@ -701,7 +701,7 @@ local func is_ip(host){
   }
   for(local i = 0; i < len(host); i = i + 1){
     local b = str.byte_at(host, i)
-    if(b != 46 and (b < 48 or b > 57)){
+    if(b != '.' and (b < '0' or b > '9')){
       return false
     }
   }

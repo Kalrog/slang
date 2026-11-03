@@ -364,7 +364,7 @@ local func width_of(s){
 // the number of spaces and tabs s starts with
 local func leading_space(s){
   local i = 0
-  for(i < len(s) and (str.byte_at(s, i) == 32 or str.byte_at(s, i) == 9)){
+  for(i < len(s) and (str.byte_at(s, i) == ' ' or str.byte_at(s, i) == '\t')){
     i = i + 1
   }
   return i
@@ -1018,16 +1018,16 @@ local func stronger(a, b){
 }
 
 local func is_space(b){
-  return b == 32 or b == 9 or b == 10 or b == 13
+  return b == ' ' or b == '\t' or b == '\n' or b == '\r'
 }
 
 local func is_word_byte(b){
-  return (b >= 97 and b <= 122) or (b >= 65 and b <= 90) or
-    (b >= 48 and b <= 57) or b == 95
+  return (b >= 'a' and b <= 'z') or (b >= 'A' and b <= 'Z') or
+    (b >= '0' and b <= '9') or b == '_'
 }
 
 local func is_digit_byte(b){
-  return b != null and b >= 48 and b <= 57
+  return b != null and b >= '0' and b <= '9'
 }
 
 local func count_newlines(s){
@@ -1062,8 +1062,8 @@ local func gap_comments(text){
 local func rstrip(s){
   local e = len(s)
   for(e > 0 and
-    (str.byte_at(s, e - 1) == 32 or str.byte_at(s, e - 1) == 9 or
-      str.byte_at(s, e - 1) == 13)){
+    (str.byte_at(s, e - 1) == ' ' or str.byte_at(s, e - 1) == '\t' or
+      str.byte_at(s, e - 1) == '\r')){
     e = e - 1
   }
   return str.substring(s, 0, e)
@@ -1072,12 +1072,12 @@ local func rstrip(s){
 // the indentation of the source line holding pos
 local func line_indent(source, pos){
   local i = pos
-  for(i > 0 and str.byte_at(source, i - 1) != 10){
+  for(i > 0 and str.byte_at(source, i - 1) != '\n'){
     i = i - 1
   }
   local j = i
   for(j < len(source) and
-    (str.byte_at(source, j) == 32 or str.byte_at(source, j) == 9)){
+    (str.byte_at(source, j) == ' ' or str.byte_at(source, j) == '\t')){
     j = j + 1
   }
   return j - i
@@ -1155,7 +1155,7 @@ func formatter_methods.gap(self, a, b, kind, blank){
       return " "
     }
     if(kind == "brace"){
-      if(str.byte_at(self.source, b.first.start) == 123){
+      if(str.byte_at(self.source, b.first.start) == '{'){
         return ""
       }
       return " "
@@ -1776,13 +1776,13 @@ func formatter_methods.build_operator(self, n){
       // after a call, so that a.b(x):map(func(){ ... }) may break before
       // :map (w:map(func(){ ... }) does not)
       local b = str.byte_at(self.source, op.first.start)
-      if(b == 58){
+      if(b == ':'){
         calls = calls + 1
         local h = last_huggable(op.doc)
         if(h != null and h.huggable == "body" and lead_call){
           calls = calls + 1
         }
-      } else if(calls == 0 and b == 40){
+      } else if(calls == 0 and b == '('){
         lead_call = true
       }
     }
@@ -1795,7 +1795,7 @@ func formatter_methods.build_operator(self, n){
     local rest = {}
     local prev = receiver
     for(let local op in values(ops)){
-      if(calls >= 2 and str.byte_at(self.source, op.first.start) == 58){
+      if(calls >= 2 and str.byte_at(self.source, op.first.start) == ':'){
         append(rest, self:gap(prev, op, "softline"))
       } else if(len(rest) == 0){
         append(lead, self:gap(prev, op, "none"))
@@ -2233,7 +2233,7 @@ local func without_locations(s, path){
     local j = 0
     for(j < len(p) and
       (is_digit_byte(str.byte_at(p, j)) or
-        (str.byte_at(p, j) == 58 and is_digit_byte(str.byte_at(p, j + 1))))){
+        (str.byte_at(p, j) == ':' and is_digit_byte(str.byte_at(p, j + 1))))){
       j = j + 1
     }
     append(out, concat(marker, "L", str.substring(p, j)))

@@ -76,8 +76,8 @@ local func valid_name(name){
   for(local i = 0; i < len(name); i = i + 1){
     local b = str.byte_at(name, i)
     // a-z, A-Z, 0-9, _ and -
-    if(not(b >= 97 and b <= 122 or b >= 65 and b <= 90 or b >= 48 and b <= 57 or
-      b == 95 or b == 45)){
+    if(not(b >= 'a' and b <= 'z' or b >= 'A' and b <= 'Z' or b >= '0' and b <= '9' or
+      b == '_' or b == '-')){
       return false
     }
   }

@@ -797,11 +797,11 @@ func http.cookies(req){
 local func check_cookie_part(what, s){
   for(local i = 0; i < len(s); i = i + 1){
     local b = str.byte_at(s, i)
-    if(b <= 32 or b >= 127 or b == 34 or b == 44 or b == 59 or b == 92 or
-      (what == "name" and b == 61)){
+    if(b <= 32 or b >= 127 or b == '"' or b == ',' or b == ';' or b == '\\' or
+      (what == "name" and b == '=')){
       error(
         "http: a cookie ", what, " cannot contain ",
-        b == 32 and "a space" or concat("byte ", string(b)), ": ", s,
+        b == ' ' and "a space" or concat("byte ", string(b)), ": ", s,
         " (encode it, for example with base64url)"
       )
     }

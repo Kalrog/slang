@@ -182,12 +182,12 @@ func methods.project_files(w){
 }
 
 local func is_name_byte(b){
-  return b != null and (b == 95 or (b >= 48 and b <= 57) or
-    (b >= 65 and b <= 90) or (b >= 97 and b <= 122))
+  return b != null and (b == '_' or (b >= '0' and b <= '9') or
+    (b >= 'A' and b <= 'Z') or (b >= 'a' and b <= 'z'))
 }
 
 local func skip_spaces(text, i){
-  for(str.byte_at(text, i) == 32 or str.byte_at(text, i) == 9){
+  for(str.byte_at(text, i) == ' ' or str.byte_at(text, i) == '\t'){
     i = i + 1
   }
   return i
@@ -204,31 +204,31 @@ local func word_at(text, i, word){
 // statement (not `==`, not a field) or `func word(`
 local func defines_at(text, i, word){
   local before = str.byte_at(text, i - 1)
-  if(before == 46){
+  if(before == '.'){
     return false
   }
   local after = skip_spaces(text, i + len(word))
   local b = str.byte_at(text, after)
-  if(b == 40){
+  if(b == '('){
     // func word(
     local k = i - 1
-    for(k > 0 and (str.byte_at(text, k) == 32 or str.byte_at(text, k) == 9)){
+    for(k > 0 and (str.byte_at(text, k) == ' ' or str.byte_at(text, k) == '\t')){
       k = k - 1
     }
     return k >= 3 and str.substring(text, k - 3, k + 1) == "func"
   }
-  if(b != 61 or str.byte_at(text, after + 1) == 61){
+  if(b != '=' or str.byte_at(text, after + 1) == '='){
     return false
   }
   // `word = ...` starts a statement: after a line break, a brace, a
   // semicolon or a condition's parenthesis (never after local)
   local k = i - 1
-  for(k >= 0 and (str.byte_at(text, k) == 32 or str.byte_at(text, k) == 9)){
+  for(k >= 0 and (str.byte_at(text, k) == ' ' or str.byte_at(text, k) == '\t')){
     k = k - 1
   }
   local c = str.byte_at(text, k)
-  return k < 0 or c == 10 or c == 13 or c == 123 or c == 125 or c == 59 or
-    c == 41
+  return k < 0 or c == '\n' or c == '\r' or c == '{' or c == '}' or c == ';' or
+    c == ')'
 }
 
 // the project's files whose text has the word as a name of its own and,

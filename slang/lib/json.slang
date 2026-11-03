@@ -187,15 +187,15 @@ local func encode_string(s, out){
   for(local i = 0; i < n; i = i + 1){
     local b = str.byte_at(s, i)
     local rep = null
-    if(b == 34){
+    if(b == '"'){
       rep = "\\\""
-    } else if(b == 92){
+    } else if(b == '\\'){
       rep = "\\\\"
-    } else if(b == 10){
+    } else if(b == '\n'){
       rep = "\\n"
-    } else if(b == 13){
+    } else if(b == '\r'){
       rep = "\\r"
-    } else if(b == 9){
+    } else if(b == '\t'){
       rep = "\\t"
     } else if(b < 32){
       local hex = "0123456789abcdef"

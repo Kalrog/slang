@@ -131,9 +131,9 @@ func lsp.encode(message){
 
 local func hex_value(c){
   local b = str.byte_at(c, 0)
-  if(b >= 48 and b <= 57){ return b - 48 }
-  if(b >= 97 and b <= 102){ return b - 87 }
-  if(b >= 65 and b <= 70){ return b - 55 }
+  if(b >= '0' and b <= '9'){ return b - '0' }
+  if(b >= 'a' and b <= 'f'){ return b - 'a' + 10 }
+  if(b >= 'A' and b <= 'F'){ return b - 'A' + 10 }
   return 0
 }
 
@@ -155,7 +155,7 @@ func lsp.uri_to_path(uri){
   local i = 0
   local n = len(path)
   for(i < n){
-    if(str.byte_at(path, i) == 37 and i + 2 < n){
+    if(str.byte_at(path, i) == '%' and i + 2 < n){
       append(out, utf8.char(hex_value(str.char_at(path, i + 1)) * 16 + hex_value(
           str.char_at(path, i + 2),
         )))
@@ -175,9 +175,9 @@ func lsp.path_to_uri(path){
   local out = {"file://"}
   for(local i = 0; i < len(path); i = i + 1){
     local b = str.byte_at(path, i)
-    local safe = (b >= 48 and b <= 57) or (b >= 65 and b <= 90) or
-      (b >= 97 and b <= 122) or b == 47 or b == 45 or b == 46 or b == 95 or
-      b == 126
+    local safe = (b >= '0' and b <= '9') or (b >= 'A' and b <= 'Z') or
+      (b >= 'a' and b <= 'z') or b == '/' or b == '-' or b == '.' or b == '_' or
+      b == '~'
     if(safe){
       append(out, str.char_at(path, i))
     } else {
@@ -920,8 +920,8 @@ local func comment_ref_at(text, pos){
   }
   local func name_char(i){
     local b = str.byte_at(text, i)
-    return (b >= 48 and b <= 57) or (b >= 65 and b <= 90) or
-      (b >= 97 and b <= 122) or b == 95 or b == 46
+    return (b >= '0' and b <= '9') or (b >= 'A' and b <= 'Z') or
+      (b >= 'a' and b <= 'z') or b == '_' or b == '.'
   }
   local a = pos
   for(a > slash + 2 and name_char(a - 1)){
@@ -1564,8 +1564,8 @@ handlers["textDocument/inlayHint"] = func(s, id, params){
 // lookup) at the position the index of the last text that parsed has.
 
 local func is_word_byte(b){
-  return (b >= 48 and b <= 57) or (b >= 65 and b <= 90) or
-    (b >= 97 and b <= 122) or b == 95
+  return (b >= '0' and b <= '9') or (b >= 'A' and b <= 'Z') or
+    (b >= 'a' and b <= 'z') or b == '_'
 }
 
 // the start of the word that ends at pos
@@ -1606,21 +1606,21 @@ local func index_pos(doc, pos){
 // whether pos is in a comment or a string of its line
 local func in_comment_or_string(text, pos){
   local i = pos
-  for(i > 0 and str.byte_at(text, i - 1) != 10){
+  for(i > 0 and str.byte_at(text, i - 1) != '\n'){
     i = i - 1
   }
   local quoted = false
   for(i < pos){
     local b = str.byte_at(text, i)
     if(quoted){
-      if(b == 92){
+      if(b == '\\'){
         i = i + 1
-      } else if(b == 34){
+      } else if(b == '"'){
         quoted = false
       }
-    } else if(b == 34){
+    } else if(b == '"'){
       quoted = true
-    } else if(b == 47 and str.byte_at(text, i + 1) == 47){
+    } else if(b == '/' and str.byte_at(text, i + 1) == '/'){
       return true
     }
     i = i + 1
@@ -1649,7 +1649,7 @@ local func chain_before(text, start){
     }
     local name = str.substring(text, ws, p)
     local b = str.byte_at(name, 0)
-    if(b >= 48 and b <= 57){
+    if(b >= '0' and b <= '9'){
       return null
     }
     local rest = names
@@ -2081,25 +2081,25 @@ local func open_call(text, pos){
   local i = from
   for(i < pos){
     local b = str.byte_at(text, i)
-    if(b == 34){
+    if(b == '"'){
       i = i + 1
-      for(i < pos and str.byte_at(text, i) != 34){
-        if(str.byte_at(text, i) == 92){
+      for(i < pos and str.byte_at(text, i) != '"'){
+        if(str.byte_at(text, i) == '\\'){
           i = i + 1
         }
         i = i + 1
       }
-    } else if(b == 47 and str.byte_at(text, i + 1) == 47){
-      for(i < pos and str.byte_at(text, i) != 10){
+    } else if(b == '/' and str.byte_at(text, i + 1) == '/'){
+      for(i < pos and str.byte_at(text, i) != '\n'){
         i = i + 1
       }
-    } else if(b == 40 or b == 123 or b == 91){
-      append(stack, {at: i, paren: b == 40, commas: 0})
-    } else if(b == 41 or b == 125 or b == 93){
+    } else if(b == '(' or b == '{' or b == '['){
+      append(stack, {at: i, paren: b == '(', commas: 0})
+    } else if(b == ')' or b == '}' or b == ']'){
       if(len(stack) > 0){
         remove(stack, len(stack) - 1)
       }
-    } else if(b == 44 and len(stack) > 0){
+    } else if(b == ',' and len(stack) > 0){
       local top = stack[len(stack) - 1]
       top.commas = top.commas + 1
     }

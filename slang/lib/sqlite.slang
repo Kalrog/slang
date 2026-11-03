@@ -94,28 +94,28 @@ local func split_placeholders(text){
   local n = len(text)
   for(i < n){
     local c = str.byte_at(text, i)
-    if(c == 63){
+    if(c == '?'){
       append(pieces, str.substring(text, start, i))
       start = i + 1
       i = i + 1
-    } else if(c == 39 or c == 34 or c == 96){
+    } else if(c == '\'' or c == '"' or c == '`'){
       // '...', "..." and `...`, a doubled quote inside escaping it
       i = i + 1
       for(i < n and str.byte_at(text, i) != c){
         i = i + 1
       }
       i = i + 1
-    } else if(c == 91){
+    } else if(c == '['){
       // [name]
-      for(i < n and str.byte_at(text, i) != 93){
+      for(i < n and str.byte_at(text, i) != ']'){
         i = i + 1
       }
       i = i + 1
-    } else if(c == 45 and str.starts_with(text, "--", i)){
-      for(i < n and str.byte_at(text, i) != 10){
+    } else if(c == '-' and str.starts_with(text, "--", i)){
+      for(i < n and str.byte_at(text, i) != '\n'){
         i = i + 1
       }
-    } else if(c == 47 and str.starts_with(text, "/*", i)){
+    } else if(c == '/' and str.starts_with(text, "/*", i)){
       local close = str.index_of(text, "*/", i + 2)
       i = close < 0 and n or close + 2
     } else {

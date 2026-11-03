@@ -325,8 +325,8 @@ local func sections_of(source){
 // func(a: T, b?: U): R, (T).
 
 local func is_name_byte(b){
-  return (b >= 48 and b <= 57) or (b >= 65 and b <= 90) or
-    (b >= 97 and b <= 122) or b == 95
+  return (b >= '0' and b <= '9') or (b >= 'A' and b <= 'Z') or
+    (b >= 'a' and b <= 'z') or b == '_'
 }
 
 // how many more ( and { than ) and } a text has
@@ -334,9 +334,9 @@ local func bracket_depth(text){
   local d = 0
   for(local i = 0; i < len(text); i = i + 1){
     local b = str.byte_at(text, i)
-    if(b == 40 or b == 123){
+    if(b == '(' or b == '{'){
       d = d + 1
-    } else if(b == 41 or b == 125){
+    } else if(b == ')' or b == '}'){
       d = d - 1
     }
   }
@@ -681,11 +681,11 @@ local func parse_result(rest){
   local depth = 0
   for(local k = 0; k < len(rest) and colon < 0; k = k + 1){
     local b = str.byte_at(rest, k)
-    if(b == 40 or b == 91 or b == 123){
+    if(b == '(' or b == '[' or b == '{'){
       depth = depth + 1
-    } else if(b == 41 or b == 93 or b == 125){
+    } else if(b == ')' or b == ']' or b == '}'){
       depth = depth - 1
-    } else if(b == 58 and depth == 0){
+    } else if(b == ':' and depth == 0){
       colon = k
     }
   }
@@ -729,7 +729,7 @@ func symbols.doc_info(doc, name){
     local qualified = true
     for(local k = 0; k < len(before); k = k + 1){
       local b = str.byte_at(before, k)
-      if(not(is_name_byte(b) or b == 46 or b == 58)){
+      if(not(is_name_byte(b) or b == '.' or b == ':')){
         qualified = false
       }
     }
@@ -826,7 +826,7 @@ func symbols.types(source){
       local name = read_name(text, 5)
       local after = name != null and str.trim(str.substring(text, name.stop))
       if(name != null and (len(after) == 0 or str.starts_with(after, "=")) and
-        str.byte_at(name.name, 0) >= 65 and str.byte_at(name.name, 0) <= 90){
+        str.byte_at(name.name, 0) >= 'A' and str.byte_at(name.name, 0) <= 'Z'){
         local decl = {
           name: name.name, type: null,
           start: ls + str.index_of(str.substring(source, ls, le), name.name),

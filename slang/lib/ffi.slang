@@ -112,8 +112,8 @@ local func comment_text(body){
   for(let local l in values(str.split(body, "\n"))){
     local t = str.trim(l)
     local k = 0
-    for(k < len(t) and (str.byte_at(t, k) == 47 or str.byte_at(t, k) == 42 or
-      str.byte_at(t, k) == 33 or str.byte_at(t, k) == 60)){
+    for(k < len(t) and (str.byte_at(t, k) == '/' or str.byte_at(t, k) == '*' or
+      str.byte_at(t, k) == '!' or str.byte_at(t, k) == '<')){
       k = k + 1
     }
     t = str.trim(str.substring(t, k))
@@ -137,22 +137,22 @@ local func strip_comments(text){
   local line_has_code = false
   for(i < n){
     local c = str.byte_at(text, i)
-    if(c == 10){
+    if(c == '\n'){
       line = line + 1
       line_has_code = false
       i = i + 1
-    } else if(c == 34 or c == 39){
+    } else if(c == '"' or c == '\''){
       // a string or char literal: up to the unescaped closing quote
       local j = i + 1
-      for(j < n and str.byte_at(text, j) != c and str.byte_at(text, j) != 10){
-        if(str.byte_at(text, j) == 92){
+      for(j < n and str.byte_at(text, j) != c and str.byte_at(text, j) != '\n'){
+        if(str.byte_at(text, j) == '\\'){
           j = j + 1
         }
         j = j + 1
       }
       i = j + 1
       line_has_code = true
-    } else if(c == 47 and str.byte_at(text, i + 1) == 47){
+    } else if(c == '/' and str.byte_at(text, i + 1) == '/'){
       local j = str.index_of(text, "\n", i)
       if(j < 0){
         j = n
@@ -165,7 +165,7 @@ local func strip_comments(text){
       })
       start = j
       i = j
-    } else if(c == 47 and str.byte_at(text, i + 1) == 42){
+    } else if(c == '/' and str.byte_at(text, i + 1) == '*'){
       local j = str.index_of(text, "*/", i + 2)
       if(j < 0){
         j = n - 2
@@ -188,7 +188,7 @@ local func strip_comments(text){
       start = j + 2
       i = j + 2
     } else {
-      if(c != 32 and c != 9 and c != 13){
+      if(c != ' ' and c != '\t' and c != '\r'){
         line_has_code = true
       }
       i = i + 1
@@ -230,29 +230,29 @@ local func lex(text, line){
       local j = ident:match_at(text, i)
       append(out, {kind: "id", text: str.substring(text, i, j), line: line})
       i = j
-    } else if(c >= 48 and c <= 57 or
-      c == 46 and str.byte_at(text, i + 1) != null and
-        str.byte_at(text, i + 1) >= 48 and str.byte_at(text, i + 1) <= 57){
+    } else if(c >= '0' and c <= '9' or
+      c == '.' and str.byte_at(text, i + 1) != null and
+        str.byte_at(text, i + 1) >= '0' and str.byte_at(text, i + 1) <= '9'){
       local j = digits:match_at(text, i)
       // exponents: 1e-5
       for(j < n and
-        (str.byte_at(text, j) == 45 or str.byte_at(text, j) == 43) and
-        (str.byte_at(text, j - 1) == 101 or str.byte_at(text, j - 1) == 69) and
+        (str.byte_at(text, j) == '-' or str.byte_at(text, j) == '+') and
+        (str.byte_at(text, j - 1) == 'e' or str.byte_at(text, j - 1) == 'E') and
         not str.starts_with(text, "0x", i)){
         j = digits:match_at(text, j + 1)
       }
       append(out, {kind: "num", text: str.substring(text, i, j), line: line})
       i = j
-    } else if(c == 34 or c == 39){
+    } else if(c == '"' or c == '\''){
       local j = i + 1
       for(j < n and str.byte_at(text, j) != c){
-        if(str.byte_at(text, j) == 92){
+        if(str.byte_at(text, j) == '\\'){
           j = j + 1
         }
         j = j + 1
       }
       local kind = "str"
-      if(c == 39){
+      if(c == '\''){
         kind = "char"
       }
       append(out, {kind: kind, text: str.substring(text, i + 1, j), line: line})
@@ -282,10 +282,10 @@ local func hex_value(s){
   local x = 0
   for(local k = 0; k < len(s); k = k + 1){
     local c = str.byte_at(s, k)
-    local d = c - 48
-    if(c >= 97){
+    local d = c - '0'
+    if(c >= 'a'){
       d = c - 87
-    } else if(c >= 65){
+    } else if(c >= 'A'){
       d = c - 55
     }
     x = x * 16 + d
@@ -755,7 +755,7 @@ local func preprocess(text, defines){
         // NAME( with no space is a function-like macro
         local after = str.index_of(t, name, str.index_of(t, "define") + 6) +
           len(name)
-        if(str.byte_at(t, after) == 40){
+        if(str.byte_at(t, after) == '('){
           local params = {}
           local k = 3
           for(k < len(d) and d[k].text != ")"){
@@ -1376,7 +1376,7 @@ func ffi.header(path){
     }
     seen[file] = true
     local slash = len(file)
-    for(slash > 0 and str.byte_at(file, slash - 1) != 47){
+    for(slash > 0 and str.byte_at(file, slash - 1) != '/'){
       slash = slash - 1
     }
     local dir = str.substring(file, 0, slash)

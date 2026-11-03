@@ -41,8 +41,8 @@ local func escape(s){
 }
 
 local func is_ref_byte(b){
-  return (b >= 48 and b <= 57) or (b >= 65 and b <= 90) or
-    (b >= 97 and b <= 122) or b == 95 or b == 46 or b == 58
+  return (b >= '0' and b <= '9') or (b >= 'A' and b <= 'Z') or
+    (b >= 'a' and b <= 'z') or b == '_' or b == '.' or b == ':'
 }
 
 // [name] references in escaped prose: a link where resolve(name) gives one,
@@ -601,7 +601,7 @@ local func resolver(m, params){
       local module = links.aliases[head]
       if(module != null){
         local b = str.byte_at(rest, 0)
-        local anchor = (b >= 65 and b <= 90) and concat("type-", rest) or rest
+        local anchor = (b >= 'A' and b <= 'Z') and concat("type-", rest) or rest
         return concat(page_name(module), "#", anchor)
       }
     }

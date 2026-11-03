@@ -1,6 +1,6 @@
 //! The Zig-implemented part of the slang standard library: core globals and
 //! the native modules slang/vm, slang/os, slang/string, slang/math,
-//! slang/thread, slang/encoding and slang/time. The rest of the library is
+//! slang/table, slang/thread, slang/encoding and slang/time. The rest of the library is
 //! written in slang (see slang/lib) and loaded from the embedded seed
 //! bytecode.
 
@@ -149,6 +149,7 @@ pub fn open(vm: *VM) void {
     preload(vm, "slang/os", .{ .table = @import("oslib.zig").module(vm) });
     preload(vm, "slang/string", .{ .table = @import("stringlib.zig").module(vm) });
     preload(vm, "slang/math", .{ .table = @import("mathlib.zig").module(vm) });
+    preload(vm, "slang/table", .{ .table = @import("tablelib.zig").module(vm) });
     // C types and memory (slang/ffi's declarations, slang/buffer), always
     preload(vm, "slang/ctypes", .{ .table = @import("ctypes.zig").module(vm) });
     // calling C through libffi (slang/ffi); -Dffi=false builds without it

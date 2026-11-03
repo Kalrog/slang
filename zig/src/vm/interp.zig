@@ -1447,6 +1447,19 @@ pub const ThreadOps = struct {
         return th.vm.raise("__newindex chain too long", .{});
     }
 
+    /// slang's ==: numbers across int and float, __eq for tables and
+    /// userdata (which may run slang code), structural otherwise.
+    pub fn equal(th: *Thread, a: Value, b: Value) Error!bool {
+        if (a == .int and b == .int) return a.int == b.int;
+        return compareSlow(th, .eq, a, b);
+    }
+
+    /// slang's <: numbers, __lt, or the comparison error.
+    pub fn lessThan(th: *Thread, a: Value, b: Value) Error!bool {
+        if (a == .int and b == .int) return a.int < b.int;
+        return compareSlow(th, .lt, a, b);
+    }
+
     /// x.@meta = m: a table's metatable is a table or null; other values'
     /// metatables are not slang's to set
     pub fn setMeta(th: *Thread, obj: Value, m: Value) Error!void {

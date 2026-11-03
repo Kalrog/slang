@@ -40,13 +40,14 @@ details.expanded summary { cursor: pointer; color: var(--muted); }
 <body>
 <nav><a href="index.html">index</a></nav>
 <h1>slang/table</h1>
-<p>slang/table: helpers over tables and lists: sorting, searching, inserting, slicing, and map, filter, fold.</p>
+<p>slang/table: helpers over tables and lists, built into the VM: sorting, searching, inserting, slicing, and map, filter, fold.</p>
 <pre><code>local tbl = require(&quot;slang/table&quot;)
 local squares = tbl.map({1, 2, 3}, func(x){ return x * x })   // {1, 4, 9}
 tbl.contains(squares, 4)                                      // true
 tbl.sort({&quot;b&quot;, &quot;c&quot;, &quot;a&quot;})                                     // {&quot;a&quot;, &quot;b&quot;, &quot;c&quot;}
 tbl.sort(people, func(a, b){ return a.age &lt; b.age })</code></pre>
-<p><a href="#contains"><code>contains</code></a>, <a href="#map"><code>map</code></a>, <a href="#filter"><code>filter</code></a>, <a href="#fold"><code>fold</code></a> and <a href="#keys"><code>keys</code></a> go over every entry of a table in the order of <code>keys</code> (list indices first, then the other keys) and keep keys as they are: <a href="#map"><code>map</code></a> and <a href="#filter"><code>filter</code></a> build tables with the same keys, so filtering a list can leave gaps in its indices. The other functions work on lists: the elements at 0 to len(t) - 1. remove(t, i) (a global) is the inverse of <a href="#insert"><code>insert</code></a>.</p>
+<p><a href="#contains"><code>contains</code></a>, <a href="#map"><code>map</code></a>, <a href="#filter"><code>filter</code></a>, <a href="#fold"><code>fold</code></a> and <a href="#keys"><code>keys</code></a> go over every entry of a table in the order of <code>keys</code> (list indices first, then the other keys) and keep keys as they are: <a href="#map"><code>map</code></a> and <a href="#filter"><code>filter</code></a> build tables with the same keys, so filtering a list can leave gaps in its indices. The other functions work on a table's list: its elements at 0, 1, 2, ... up to the first index it does not have (named keys are not part of it). remove(t, i) (a global) is the inverse of <a href="#insert"><code>insert</code></a>.</p>
+<p>Values compare as == compares them (numbers across ints and doubles, tables by their contents, __eq). A function given to one of these may change the table it is working on; what it sees is the table as it is.</p>
 <ul class="toc">
 <li><a href="#contains"><code>contains</code></a></li>
 <li><a href="#map"><code>map</code></a></li>
@@ -64,7 +65,7 @@ tbl.sort(people, func(a, b){ return a.age &lt; b.age })</code></pre>
 
 </div>
 <div class="def" id="map"><h3><code>table.map(t: table, f: func(v: any): any) -> table</code></h3>
-<p>A new table with f(v) for each value v of t, under the same key.</p>
+<p>A new table with f(v) for each value v of t, under the same key (a null result leaves the key out).</p>
 
 </div>
 <div class="def" id="filter"><h3><code>table.filter(t: table, f: func(v: any): any) -> table</code></h3>
@@ -81,15 +82,14 @@ tbl.sort(people, func(a, b){ return a.age &lt; b.age })</code></pre>
 <p>The keys of t as a list, in the order of the global <code>keys</code>.</p>
 
 </div>
-<h2>lists</h2>
 <div class="def" id="sort"><h3><code>table.sort(t: {any}, less?: func(a: any, b: any): bool) -> {any}</code></h3>
-<p>Sorts the list t in place and returns it. The order is stable: equal elements keep their order. Without less, numbers sort ascending and strings byte by byte; a list mixing them needs a less function.</p>
+<p>Sorts the list t in place and returns it. The order is stable: equal elements keep their order. Without less, numbers sort ascending, strings byte by byte, and other values by their __lt; a list mixing numbers and strings needs a less function.</p>
 <pre><code>tbl.sort(words)
 tbl.sort(items, func(a, b){ return a.price &gt; b.price })   // descending</code></pre>
 
 </div>
 <div class="def" id="insert"><h3><code>table.insert(t: {any}, i: int, v: any)</code></h3>
-<p>Inserts v into the list t at index i (0 to len(t)), moving the elements from i on up by one.</p>
+<p>Inserts v into the list t at index i (0 to its length), moving the elements from i on up by one. v may not be null.</p>
 
 </div>
 <div class="def" id="index_of"><h3><code>table.index_of(t: {any}, value) -> int</code></h3>
@@ -101,9 +101,9 @@ tbl.sort(items, func(a, b){ return a.price &gt; b.price })   // descending</code
 
 </div>
 <div class="def" id="slice"><h3><code>table.slice(t: {any}, start?: int, end?: int) -> {any}</code></h3>
-<p>A new list of the elements of t from start (0 by default) up to, not including, end (len(t) by default). Negative positions count from the end; positions out of range are clamped.</p>
+<p>A new list of the elements of t from start (0 by default) up to, not including, end (its length by default). Negative positions count from the end; positions out of range are clamped.</p>
 
 </div>
-<p class="muted">slang/lib/table.slang</p>
+<p class="muted">slang/stubs/slang/table.slang</p>
 </body>
 </html>

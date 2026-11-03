@@ -72,6 +72,24 @@ t.group("table"){
       assert(many[i - 1] >= many[i], "descending with a less function")
     }
   }
+  t.test("callbacks may collect, raise, and compare with __lt"){
+    local vm = require("slang/vm")
+    // what map builds survives collections in its callback
+    local out = table.map({1, 2, 3}, func(x){
+      vm.collect()
+      return {x * 2}
+    })
+    assert(out == {{2}, {4}, {6}})
+    local r = pcall(table.sort, {3, 1, 2}, func(a, b){ error("no order") })
+    assert(r[0] == "err" and r[1].message == "no order", r[1].message)
+    r = pcall(table.sort, {1, "a"})
+    assert(r[0] == "err", "numbers and strings need a less function")
+    local v = {__lt: func(a, b){ return a.n < b.n }}
+    local sorted = table.sort({{n: 2, @meta: v}, {n: 1, @meta: v}})
+    assert(sorted[0].n == 1 and sorted[1].n == 2)
+    assert(table.contains({1, false}, false), "false is a value like any other")
+    assert(table.keys({1, x: 2}) == {0, "x"})
+  }
   t.test("insert, index_of, reverse, slice"){
     local l = {1, 3}
     table.insert(l, 1, 2)

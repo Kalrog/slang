@@ -346,6 +346,14 @@ pub const Table = struct {
         t.fixList(gpa);
     }
 
+    /// Inserts v at list index i (0 to the list's length), moving the
+    /// elements from i on up by one.
+    pub fn insertAt(t: *Table, gpa: Allocator, i: usize, v: Value) void {
+        t.arr.insert(gpa, i, v) catch oom();
+        t.mflags = 0;
+        t.fixList(gpa);
+    }
+
     /// Appends v to the array part even when it is null (sequence results of
     /// the parser library need positional null entries).
     pub fn pushSlot(t: *Table, gpa: Allocator, v: Value) void {

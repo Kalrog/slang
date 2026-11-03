@@ -799,6 +799,7 @@ fn bufNewIndex(th: *Thread, args: []Value) Error!Value {
     // keep: a value the buffer keeps alive (what owns the memory it wraps)
     if (key == .string and std.mem.eql(u8, key.string.bytes(), "keep")) {
         u.keep = api.arg(args, 2);
+        vm_mod.gc.barrier(th.vm, &u.obj, u.keep);
         return .null;
     }
     if (key != .int) return th.vm.raise("a buffer is indexed with ints, not {s}", .{key.typeName()});

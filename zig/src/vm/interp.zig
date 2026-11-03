@@ -379,7 +379,11 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
             .set_upvalue => {
                 const v = stack[top - 1];
                 top -= 1;
-                th.frames.items[fi].cl.upvals[d.argAx(ins)].set(v);
+                const u = th.frames.items[fi].cl.upvals[d.argAx(ins)];
+                u.set(v);
+                // a closed upvalue is an object of its own (open, the value
+                // is on a stack: rescanned)
+                if (u.th == null) gc.barrier(th.vm, &u.obj, v);
                 continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
             },
             .get_upvalue => {
@@ -952,7 +956,7 @@ inline fn setFast(vm: *root.VM, obj: Value, key: Value, val: Value) bool {
         const t = obj.table;
         const s = key.string;
         if (t.meta) |m| {
-            if (t.replaceStr(s, val)) return true;
+            if (t.replaceStr(vm.gpa, s, val)) return true;
             if (!newKeyInline(vm, m)) return false;
         }
         t.setStr(vm.gpa, s, val);
@@ -1451,7 +1455,10 @@ pub const ThreadOps = struct {
     pub fn setMeta(th: *Thread, obj: Value, m: Value) Error!void {
         const t = obj.asTable() orelse return th.vm.raise("cannot set the metatable of a {s} value", .{obj.typeName()});
         switch (m) {
-            .table => |mt| t.meta = mt,
+            .table => |mt| {
+                t.meta = mt;
+                gc.barrier(th.vm, &t.obj, m);
+            },
             .null => t.meta = null,
             else => return th.vm.raise("@meta must be a table or null, got {s}", .{m.typeName()}),
         }

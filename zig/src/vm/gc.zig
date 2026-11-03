@@ -1,6 +1,8 @@
-//! Memory management: a stop-the-world, non-moving mark and sweep collector.
+//! Memory management: a non-moving mark and sweep collector that works in
+//! steps (incremental), so that a collection never stops the program for
+//! the whole heap at once.
 //!
-//! Every heap object is linked into vm.objects. A collection runs only at
+//! Every heap object is linked into vm.objects. The collector runs only at
 //! interpreter safe points (calls, backward jumps, table and closure
 //! creation), never inside an allocation, so native code may hold object
 //! pointers freely between calls back into the VM. At a safe point every
@@ -8,20 +10,42 @@
 //! the registry and the main thread (and from there every thread stack,
 //! frame, open upvalue and suspended coroutine that is still referenced).
 //!
-//! The threshold is based on the bytes the VM has allocated through its
-//! counting allocator (objects, table storage, stacks): after a collection
-//! the next one happens when the live size has doubled (vm.gc_growth, at
-//! least vm.gc_minimum bytes), or never while vm.gc_automatic is off;
-//! slang/vm's gc sets them and collect() runs one at once.
+//! A cycle: when the bytes the VM has allocated through its counting
+//! allocator pass the threshold (the live size times vm.gc_growth, at least
+//! vm.gc_minimum, never while vm.gc_automatic is off), marking starts at the
+//! roots. Then a step runs every step_bytes allocated and marks in
+//! proportion to what was allocated, until nothing is left to mark; the
+//! atomic step marks the roots and every reached thread again (stacks
+//! change without a barrier), settles weak tables and finalizers and
+//! swaps the whites; sweeping frees the dead in steps too. slang/vm's
+//! collect() finishes a running cycle and runs a whole one at once.
+//!
+//! Colors: an object is black once reached (gray while it waits on the gray
+//! list to be scanned); unreached objects are one of two whites. New objects
+//! get the current white; the atomic step swaps the current white, so the
+//! sweep frees exactly what is still the old white and turns everything
+//! else, objects made during the sweep included, into the new one.
+//!
+//! The write barrier: while marking, storing a value into a black object
+//! marks the value (Dijkstra's insertion barrier), so a reached object never
+//! refers to an unreached one. Outside marking every object is white and the
+//! barrier is one compare. The stores that need it: every Table mutation
+//! (table.zig finds the VM through the counting allocator it is given),
+//! metatables, a buffer's keep, closed upvalues. A store into an object made
+//! since the last safe point needs none (it is white), nor do thread stacks
+//! (rescanned). The GC-stress build steps every few KB and checks after the
+//! atomic step that no black object refers to a white one.
 //!
 //! Finalizers (slang/vm's on_collect) and weak tables: a registered object
 //! keeps its finalizer alive only through itself (as an ephemeron does), so
-//! a finalizer that refers to its object does not keep it alive. After
-//! marking, weak entries whose key or value is unreachable are cleared;
+//! a finalizer that refers to its object does not keep it alive. In the
+//! atomic step, weak entries whose key or value is unreachable are cleared;
 //! then every unreachable registered object is kept for one more cycle with
 //! what it refers to, and its finalizer queued. The queued finalizers run
-//! once the collection is over (runFinalizers), on a thread of their own,
-//! so the code the collection interrupted is never touched.
+//! after that step (runFinalizers), on a thread of their own, so the code
+//! the collection interrupted is never touched. A value stored into a
+//! reached weak table while marking stays for that cycle (the barrier marks
+//! it); the next cycle clears it.
 
 const std = @import("std");
 const build_options = @import("build_options");
@@ -37,15 +61,29 @@ const Upvalue = root.Upvalue;
 const Userdata = root.Userdata;
 const Proto = root.Proto;
 const oom = root.oom;
+const Allocator = std.mem.Allocator;
 
 pub const initial_threshold: usize = 8 << 20;
 
 /// What slang/vm's on_collect registered: f(obj) runs once obj is
 /// unreachable.
 pub const Finalizer = struct { obj: Value, f: Value };
-/// In stress mode a collection runs as soon as this much has been
-/// allocated since the previous one.
+/// In stress mode a cycle starts as soon as this much has been allocated
+/// since the previous one ended.
 pub const stress_step: usize = 64 << 10;
+
+/// A cycle's steps run every step_bytes allocated (stress: every few KB);
+/// each marks step_bytes * step_mul / 16 slots (values scanned) or sweeps
+/// step_bytes * step_mul / 64 objects, so the collector stays ahead of the
+/// program.
+pub const step_bytes: usize = if (build_options.gc_stress) 4 << 10 else 128 << 10;
+pub const step_mul: usize = 4;
+const mark_budget: usize = if (build_options.gc_stress) 64 else step_bytes * step_mul / 16;
+const sweep_budget: usize = if (build_options.gc_stress) 64 else step_bytes * step_mul / 64;
+
+/// Whether cycles run in steps; off, each cycle is done at once at the
+/// safe point that starts it (as a stop-the-world collector).
+pub const incremental = false;
 
 /// Wraps the backing allocator and keeps vm.bytes_allocated exact.
 pub const CountingAllocator = struct {
@@ -85,7 +123,7 @@ pub const CountingAllocator = struct {
         return .{ .ptr = self, .vtable = &vtable };
     }
 
-    const vtable: std.mem.Allocator.VTable = .{
+    pub const vtable: std.mem.Allocator.VTable = .{
         .alloc = alloc,
         .resize = resize,
         .remap = remap,
@@ -177,7 +215,7 @@ pub inline fn safePoint(vm: *VM, th: *Thread) root.Error!void {
 fn slowPoint(vm: *VM, th: *Thread) root.Error!void {
     _ = th;
     if (vm.interrupt.load(.seq_cst)) return vm.raise("isolate killed", .{});
-    collect(vm);
+    step(vm);
     runFinalizers(vm);
 }
 
@@ -191,6 +229,67 @@ pub fn interrupt(vm: *VM) void {
     for (vm.interrupt_hooks.items) |h| h.f(h.data);
 }
 
+// ------------------------------------------------------------ the state
+
+pub const Phase = enum { idle, mark, sweep };
+
+/// The color of a reached object; 0 and 1 are the two whites.
+pub const black: u8 = 2;
+
+/// The collector between its steps.
+pub const State = struct {
+    phase: Phase = .idle,
+    /// the white new objects get (the other one is dead while sweeping)
+    white: u8 = 0,
+    /// reached objects whose references are not marked yet
+    gray: std.ArrayList(*Object) = .empty,
+    /// the weak-keyed tables reached, for converge
+    ephemerons: std.ArrayList(*Table) = .empty,
+    /// the threads reached, rescanned in the atomic step
+    threads: std.ArrayList(*Thread) = .empty,
+    /// the link to the next object the sweep looks at
+    sweep_at: ?*?*Object = null,
+
+    pub fn deinit(st: *State, gpa: Allocator) void {
+        st.gray.deinit(gpa);
+        st.ephemerons.deinit(gpa);
+        st.threads.deinit(gpa);
+    }
+};
+
+/// The color an object made now gets.
+pub inline fn newColor(vm: *const VM) u8 {
+    return vm.gc_state.white;
+}
+
+// ------------------------------------------------------------ the barrier
+
+/// After storing v into holder: while marking, a value stored into a
+/// reached object is reached too.
+pub inline fn barrier(vm: *VM, holder: *Object, v: Value) void {
+    if (holder.color == black and vm.gc_state.phase == .mark) markValue(vm, v);
+}
+
+/// The barrier for table.zig, which has the allocator, not the VM: the VM's
+/// allocator is its counting allocator, a field of the VM (other
+/// allocators are tables outside any VM, in tests).
+pub noinline fn tableBarrier(gpa: Allocator, holder: *Object, v: Value) void {
+    @branchHint(.cold);
+    if (gpa.vtable != &CountingAllocator.vtable) return;
+    const c: *CountingAllocator = @ptrCast(@alignCast(gpa.ptr));
+    const vm: *VM = @alignCast(@fieldParentPtr("counting", c));
+    barrier(vm, holder, v);
+}
+
+/// An interned string found again while sweeping may be dead and not yet
+/// swept: it lives on (the sweep keeps it).
+pub inline fn reviveString(vm: *VM, s: *String) void {
+    const st = &vm.gc_state;
+    if (st.phase == .sweep and s.obj.color == 1 - st.white) s.obj.color = st.white;
+}
+
+// ------------------------------------------------------------ marking
+
 /// Whether a weak table can lose an entry to this value: strings, numbers
 /// and the like are values, never collected out of one.
 fn collectable(v: Value) bool {
@@ -200,127 +299,162 @@ fn collectable(v: Value) bool {
 
 fn isMarked(v: Value) bool {
     const o = v.heapObject() orelse return true;
-    return o.marked;
+    return o.color == black;
 }
 
-const Marker = struct {
-    vm: *VM,
-    gray: std.ArrayList(*Object),
-    /// the weak-keyed tables reached, for converge
-    ephemerons: std.ArrayList(*Table) = .empty,
+fn markValue(vm: *VM, v: Value) void {
+    if (v.heapObject()) |o| markObject(vm, o);
+}
 
-    fn markValue(m: *Marker, v: Value) void {
-        if (v.heapObject()) |o| m.markObject(o);
+fn markObject(vm: *VM, o: *Object) void {
+    if (o.color == black) return;
+    o.color = black;
+    if (o.kind == .string) return; // leaf
+    vm.gc_state.gray.append(vm.gpa, o) catch oom();
+}
+
+fn markTable(vm: *VM, t: ?*Table) void {
+    if (t) |p| markObject(vm, &p.obj);
+}
+
+fn markRoots(vm: *VM) void {
+    markTable(vm, vm.globals);
+    markTable(vm, vm.packages);
+    markTable(vm, vm.registry);
+    markObject(vm, &vm.main.obj);
+    // a pending error's raised value
+    if (vm.err) |e| markValue(vm, e.value);
+    if (vm.ffi.pending) |e| markValue(vm, e.value);
+    var foreign = vm.ffi.foreign.valueIterator();
+    while (foreign.next()) |t| markObject(vm, &t.*.obj);
+    for (vm.ffi.calls.items) |c| markObject(vm, &c.th.obj);
+    if (vm.finalizer_thread) |t| markObject(vm, &t.obj);
+    for (vm.pending_finalizers.items) |p| {
+        markValue(vm, p.obj);
+        markValue(vm, p.f);
     }
+}
 
-    fn markObject(m: *Marker, o: *Object) void {
-        if (o.marked) return;
-        o.marked = true;
-        if (o.kind == .string) return; // leaf
-        m.gray.append(m.vm.gpa, o) catch oom();
-    }
+fn scanThread(vm: *VM, th: *Thread) usize {
+    for (th.stack[0..th.top]) |v| markValue(vm, v);
+    for (th.frames.items) |fr| markObject(vm, &fr.cl.obj);
+    for (th.open_upvals.items) |u| markObject(vm, &u.obj);
+    if (th.entry) |e| markObject(vm, &e.obj);
+    markValue(vm, th.yielded);
+    return th.top + th.frames.items.len + th.open_upvals.items.len;
+}
 
-    fn markTable(m: *Marker, t: ?*Table) void {
-        if (t) |p| m.markObject(&p.obj);
-    }
-
-    fn drain(m: *Marker) void {
-        while (m.gray.pop()) |o| m.blacken(o);
-    }
-
-    fn blacken(m: *Marker, o: *Object) void {
-        switch (o.kind) {
-            .string => {},
-            .table => {
-                const t: *Table = @alignCast(@fieldParentPtr("obj", o));
-                m.markTable(t.meta);
-                switch (t.weak) {
-                    .none => {
-                        for (t.arr.items) |v| m.markValue(v);
-                        for (t.ents.items) |e| {
-                            m.markValue(e.key);
-                            m.markValue(e.val);
+/// Marks what o refers to; the work done, in slots.
+fn blacken(vm: *VM, o: *Object) usize {
+    switch (o.kind) {
+        .string => return 1,
+        .table => {
+            const t: *Table = @alignCast(@fieldParentPtr("obj", o));
+            markTable(vm, t.meta);
+            switch (t.weak) {
+                .none => {
+                    for (t.arr.items) |v| markValue(vm, v);
+                    for (t.ents.items) |e| {
+                        markValue(vm, e.key);
+                        markValue(vm, e.val);
+                    }
+                },
+                // the values only when they cannot be collected
+                .values => {
+                    for (t.arr.items) |v| {
+                        if (!collectable(v)) markValue(vm, v);
+                    }
+                    for (t.ents.items) |e| {
+                        markValue(vm, e.key);
+                        if (!collectable(e.val)) markValue(vm, e.val);
+                    }
+                },
+                // a value once its key is alive (see converge)
+                .keys => {
+                    for (t.arr.items) |v| markValue(vm, v);
+                    for (t.ents.items) |e| {
+                        if (!collectable(e.key)) {
+                            markValue(vm, e.key);
+                            markValue(vm, e.val);
                         }
-                    },
-                    // the values only when they cannot be collected
-                    .values => {
-                        for (t.arr.items) |v| {
-                            if (!collectable(v)) m.markValue(v);
-                        }
-                        for (t.ents.items) |e| {
-                            m.markValue(e.key);
-                            if (!collectable(e.val)) m.markValue(e.val);
-                        }
-                    },
-                    // a value once its key is alive (see converge)
-                    .keys => {
-                        for (t.arr.items) |v| m.markValue(v);
-                        for (t.ents.items) |e| {
-                            if (!collectable(e.key)) {
-                                m.markValue(e.key);
-                                m.markValue(e.val);
-                            }
-                        }
-                        m.ephemerons.append(m.vm.gpa, t) catch oom();
-                    },
-                }
-            },
-            .closure => {
-                const c: *Closure = @alignCast(@fieldParentPtr("obj", o));
-                if (c.proto) |p| m.markObject(&p.obj);
-                for (c.upvals) |u| m.markObject(&u.obj);
-                if (c.name) |n| m.markObject(&n.obj);
-                for (c.nvals) |v| m.markValue(v);
-            },
-            .upvalue => {
-                const u: *Upvalue = @alignCast(@fieldParentPtr("obj", o));
-                if (u.th) |th| m.markObject(&th.obj) else m.markValue(u.v);
-            },
-            .userdata => {
-                const u: *Userdata = @alignCast(@fieldParentPtr("obj", o));
-                m.markTable(u.meta);
-                m.markValue(u.owner);
-                m.markValue(u.keep);
-            },
-            .proto => {
-                const p: *Proto = @alignCast(@fieldParentPtr("obj", o));
-                for (p.consts) |v| m.markValue(v);
-                for (p.upvals) |u| m.markObject(&u.name.obj);
-                for (p.locs) |l| m.markObject(&l.origin.obj);
-                for (p.locals) |l| m.markObject(&l.name.obj);
-                if (p.name) |n| m.markObject(&n.obj);
-                for (p.children) |c| m.markObject(&c.obj);
-            },
-            .thread => {
-                const th: *Thread = @alignCast(@fieldParentPtr("obj", o));
-                for (th.stack[0..th.top]) |v| m.markValue(v);
-                for (th.frames.items) |fr| m.markObject(&fr.cl.obj);
-                for (th.open_upvals.items) |u| m.markObject(&u.obj);
-                if (th.entry) |e| m.markObject(&e.obj);
-                m.markValue(th.yielded);
-            },
-        }
-    }
-
-    /// Marks until nothing new is reached through what only counts when
-    /// its holder is alive: the value of a weak key that is, and the
-    /// finalizer of a registered object that is.
-    fn converge(m: *Marker) void {
-        while (true) {
-            for (m.ephemerons.items) |t| {
-                for (t.ents.items) |e| {
-                    if (collectable(e.key) and isMarked(e.key) and !isMarked(e.val)) m.markValue(e.val);
-                }
+                    }
+                    vm.gc_state.ephemerons.append(vm.gpa, t) catch oom();
+                },
             }
-            var it = m.vm.finalizers.valueIterator();
-            while (it.next()) |f| {
-                if (isMarked(f.obj) and !isMarked(f.f)) m.markValue(f.f);
-            }
-            if (m.gray.items.len == 0) return;
-            m.drain();
-        }
+            return 1 + t.arr.items.len + 2 * t.ents.items.len;
+        },
+        .closure => {
+            const c: *Closure = @alignCast(@fieldParentPtr("obj", o));
+            if (c.proto) |p| markObject(vm, &p.obj);
+            for (c.upvals) |u| markObject(vm, &u.obj);
+            if (c.name) |n| markObject(vm, &n.obj);
+            for (c.nvals) |v| markValue(vm, v);
+            return 1 + c.upvals.len + c.nvals.len;
+        },
+        .upvalue => {
+            const u: *Upvalue = @alignCast(@fieldParentPtr("obj", o));
+            if (u.th) |th| markObject(vm, &th.obj) else markValue(vm, u.v);
+            return 1;
+        },
+        .userdata => {
+            const u: *Userdata = @alignCast(@fieldParentPtr("obj", o));
+            markTable(vm, u.meta);
+            markValue(vm, u.owner);
+            markValue(vm, u.keep);
+            return 1;
+        },
+        .proto => {
+            const p: *Proto = @alignCast(@fieldParentPtr("obj", o));
+            for (p.consts) |v| markValue(vm, v);
+            for (p.upvals) |u| markObject(vm, &u.name.obj);
+            for (p.locs) |l| markObject(vm, &l.origin.obj);
+            for (p.locals) |l| markObject(vm, &l.name.obj);
+            if (p.name) |n| markObject(vm, &n.obj);
+            for (p.children) |c| markObject(vm, &c.obj);
+            return 1 + p.consts.len + p.locs.len + p.locals.len + p.children.len;
+        },
+        .thread => {
+            const th: *Thread = @alignCast(@fieldParentPtr("obj", o));
+            vm.gc_state.threads.append(vm.gpa, th) catch oom();
+            return 1 + scanThread(vm, th);
+        },
     }
-};
+}
+
+/// Marks until the gray list is empty or budget slots are scanned; whether
+/// it is empty.
+fn markSome(vm: *VM, budget: usize) bool {
+    var left = budget;
+    const gray = &vm.gc_state.gray;
+    while (left > 0) {
+        const o = gray.pop() orelse return true;
+        left -|= blacken(vm, o);
+    }
+    return gray.items.len == 0;
+}
+
+fn drain(vm: *VM) void {
+    _ = markSome(vm, std.math.maxInt(usize));
+}
+
+/// Marks until nothing new is reached through what only counts when its
+/// holder is alive: the value of a weak key that is, and the finalizer of a
+/// registered object that is.
+fn converge(vm: *VM) void {
+    while (true) {
+        for (vm.gc_state.ephemerons.items) |t| {
+            for (t.ents.items) |e| {
+                if (collectable(e.key) and isMarked(e.key) and !isMarked(e.val)) markValue(vm, e.val);
+            }
+        }
+        var it = vm.finalizers.valueIterator();
+        while (it.next()) |f| {
+            if (isMarked(f.obj) and !isMarked(f.f)) markValue(vm, f.f);
+        }
+        if (vm.gc_state.gray.items.len == 0) return;
+        drain(vm);
+    }
+}
 
 /// Removes the entries of the weak tables reached whose weak key or value
 /// was not.
@@ -328,7 +462,7 @@ fn clearWeak(vm: *VM) void {
     var dead: std.ArrayList(Value) = .empty;
     defer dead.deinit(vm.gpa);
     for (vm.weak_tables.items) |t| {
-        if (!t.obj.marked) continue;
+        if (t.obj.color != black) continue;
         dead.clearRetainingCapacity();
         for (t.arr.items, 0..) |v, i| {
             if (t.weak == .values and collectable(v) and !isMarked(v)) dead.append(vm.gpa, .{ .int = @intCast(i) }) catch oom();
@@ -346,31 +480,18 @@ fn clearWeak(vm: *VM) void {
     }
 }
 
-pub fn collect(vm: *VM) void {
-    if (vm.gc_running) return;
-    vm.gc_running = true;
-    defer vm.gc_running = false;
-
-    var m: Marker = .{ .vm = vm, .gray = .empty };
-    defer m.gray.deinit(vm.gpa);
-    defer m.ephemerons.deinit(vm.gpa);
-    m.markTable(vm.globals);
-    m.markTable(vm.packages);
-    m.markTable(vm.registry);
-    m.markObject(&vm.main.obj);
-    // a pending error's raised value
-    if (vm.err) |e| m.markValue(e.value);
-    if (vm.ffi.pending) |e| m.markValue(e.value);
-    var foreign = vm.ffi.foreign.valueIterator();
-    while (foreign.next()) |t| m.markObject(&t.*.obj);
-    for (vm.ffi.calls.items) |c| m.markObject(&c.th.obj);
-    if (vm.finalizer_thread) |t| m.markObject(&t.obj);
-    for (vm.pending_finalizers.items) |p| {
-        m.markValue(p.obj);
-        m.markValue(p.f);
-    }
-    m.drain();
-    m.converge();
+/// The end of marking, in one go: what changed without a barrier (the
+/// roots, the stacks) is marked again, weak tables and finalizers are
+/// settled, and the whites swap.
+fn atomic(vm: *VM) void {
+    const st = &vm.gc_state;
+    markRoots(vm);
+    // (scanThread does not add to the list; threads reached now are
+    // scanned when they are blackened)
+    var i: usize = 0;
+    while (i < st.threads.items.len) : (i += 1) _ = scanThread(vm, st.threads.items[i]);
+    drain(vm);
+    converge(vm);
     clearWeak(vm);
 
     // the unreachable registered objects: kept for their finalizers
@@ -378,36 +499,169 @@ pub fn collect(vm: *VM) void {
     defer dying.deinit(vm.gpa);
     var it = vm.finalizers.iterator();
     while (it.next()) |e| {
-        if (!e.key_ptr.*.marked) dying.append(vm.gpa, e.key_ptr.*) catch oom();
+        if (e.key_ptr.*.color != black) dying.append(vm.gpa, e.key_ptr.*) catch oom();
     }
     for (dying.items) |o| {
         const f = vm.finalizers.fetchRemove(o).?.value;
         vm.pending_finalizers.append(vm.gpa, f) catch oom();
-        m.markValue(f.obj);
-        m.markValue(f.f);
+        markValue(vm, f.obj);
+        markValue(vm, f.f);
     }
     if (dying.items.len > 0) {
-        m.drain();
-        m.converge();
+        drain(vm);
+        converge(vm);
         // (weak tables reached only through what was kept)
         clearWeak(vm);
     }
     // the weak tables that go now
     var keep: usize = 0;
     for (vm.weak_tables.items) |t| {
-        if (t.obj.marked) {
+        if (t.obj.color == black) {
             vm.weak_tables.items[keep] = t;
             keep += 1;
         }
     }
     vm.weak_tables.shrinkRetainingCapacity(keep);
+    if (build_options.gc_stress) verify(vm);
 
-    sweep(vm);
+    st.threads.clearRetainingCapacity();
+    st.ephemerons.clearRetainingCapacity();
+    st.white = 1 - st.white;
+    st.phase = .sweep;
+    st.sweep_at = &vm.objects;
+}
+
+/// The GC-stress build's check after the atomic step: a reached object
+/// refers to reached objects only (a store that missed the barrier shows
+/// here, not as a crash much later).
+fn verify(vm: *VM) void {
+    var at = vm.objects;
+    while (at) |o| : (at = o.next) {
+        if (o.color != black) continue;
+        switch (o.kind) {
+            .string => {},
+            .table => {
+                const t: *Table = @alignCast(@fieldParentPtr("obj", o));
+                if (t.meta) |m| expect(o, &m.obj);
+                for (t.arr.items) |v| expectValue(o, v);
+                for (t.ents.items) |e| {
+                    expectValue(o, e.key);
+                    expectValue(o, e.val);
+                }
+            },
+            .closure => {
+                const c: *Closure = @alignCast(@fieldParentPtr("obj", o));
+                if (c.proto) |p| expect(o, &p.obj);
+                for (c.upvals) |u| expect(o, &u.obj);
+                for (c.nvals) |v| expectValue(o, v);
+            },
+            .upvalue => {
+                const u: *Upvalue = @alignCast(@fieldParentPtr("obj", o));
+                if (u.th) |th| expect(o, &th.obj) else expectValue(o, u.v);
+            },
+            .userdata => {
+                const u: *Userdata = @alignCast(@fieldParentPtr("obj", o));
+                if (u.meta) |m| expect(o, &m.obj);
+                expectValue(o, u.owner);
+                expectValue(o, u.keep);
+            },
+            .proto => {
+                const p: *Proto = @alignCast(@fieldParentPtr("obj", o));
+                for (p.consts) |v| expectValue(o, v);
+                for (p.children) |c| expect(o, &c.obj);
+            },
+            .thread => {
+                const th: *Thread = @alignCast(@fieldParentPtr("obj", o));
+                for (th.stack[0..th.top]) |v| expectValue(o, v);
+                for (th.frames.items) |fr| expect(o, &fr.cl.obj);
+                for (th.open_upvals.items) |u| expect(o, &u.obj);
+            },
+        }
+    }
+}
+
+fn expectValue(holder: *Object, v: Value) void {
+    if (v.heapObject()) |o| expect(holder, o);
+}
+
+fn expect(holder: *Object, o: *Object) void {
+    if (o.color != black) std.debug.panic("gc: a reached {t} refers to an unreached {t} (a store without the write barrier)", .{ holder.kind, o.kind });
+}
+
+// ------------------------------------------------------------ sweeping
+
+/// Frees up to budget dead objects (the old white) and gives survivors the
+/// new white; whether the sweep is done.
+fn sweepSome(vm: *VM, budget: usize) bool {
+    const st = &vm.gc_state;
+    const dead = 1 - st.white;
+    var link = st.sweep_at.?;
+    var left = budget;
+    while (link.*) |o| {
+        if (left == 0) {
+            st.sweep_at = link;
+            return false;
+        }
+        left -= 1;
+        if (o.color == dead) {
+            link.* = o.next;
+            freeObject(vm, o);
+        } else {
+            o.color = st.white;
+            link = &o.next;
+        }
+    }
+    st.sweep_at = null;
+    return true;
+}
+
+fn finishCycle(vm: *VM) void {
+    vm.gc_state.phase = .idle;
     vm.compactStrings();
     // the pools keep what the next cycle's allocations will likely reuse:
     // up to half the live size (and at least the minimum's worth)
     vm.counting.trim(@max(vm.bytes_allocated / 2, vm.gc_minimum / 2));
     vm.collections += 1;
+}
+
+// ------------------------------------------------------------ steps
+
+/// Does a step's work, or (budget null) everything up to the end of the
+/// cycle.
+fn advance(vm: *VM, bounded: bool) void {
+    const st = &vm.gc_state;
+    if (st.phase == .idle) {
+        st.phase = .mark;
+        markRoots(vm);
+    }
+    if (st.phase == .mark) {
+        if (!markSome(vm, if (bounded) mark_budget else std.math.maxInt(usize))) return;
+        atomic(vm);
+        if (bounded) return;
+    }
+    if (st.phase == .sweep and sweepSome(vm, if (bounded) sweep_budget else std.math.maxInt(usize))) {
+        finishCycle(vm);
+    }
+}
+
+/// The automatic step at a safe point: a cycle's next step (or the whole
+/// cycle when not incremental), then the next one scheduled.
+pub fn step(vm: *VM) void {
+    if (vm.gc_running) return;
+    vm.gc_running = true;
+    defer vm.gc_running = false;
+    advance(vm, incremental);
+    schedule(vm);
+}
+
+/// slang/vm's collect(): a running cycle is finished, then a whole one runs,
+/// so that everything unreachable now is gone.
+pub fn collect(vm: *VM) void {
+    if (vm.gc_running) return;
+    vm.gc_running = true;
+    defer vm.gc_running = false;
+    while (vm.gc_state.phase != .idle) advance(vm, false);
+    advance(vm, false);
     schedule(vm);
 }
 
@@ -416,6 +670,9 @@ pub fn collect(vm: *VM) void {
 pub fn schedule(vm: *VM) void {
     const next: usize = if (!vm.gc_automatic)
         std.math.maxInt(usize)
+    else if (vm.gc_state.phase != .idle)
+        // a cycle runs: its next step
+        vm.bytes_allocated + step_bytes
     else if (build_options.gc_stress)
         vm.bytes_allocated + stress_step
     else blk: {
@@ -426,19 +683,6 @@ pub fn schedule(vm: *VM) void {
     @atomicStore(usize, &vm.next_gc, next, .seq_cst);
     // a kill that arrived meanwhile keeps its zero
     if (vm.interrupt.load(.seq_cst)) @atomicStore(usize, &vm.next_gc, 0, .seq_cst);
-}
-
-fn sweep(vm: *VM) void {
-    var link: *?*Object = &vm.objects;
-    while (link.*) |o| {
-        if (o.marked) {
-            o.marked = false;
-            link = &o.next;
-        } else {
-            link.* = o.next;
-            freeObject(vm, o);
-        }
-    }
 }
 
 fn freeObject(vm: *VM, o: *Object) void {

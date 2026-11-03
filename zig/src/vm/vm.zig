@@ -144,6 +144,8 @@ pub const VM = struct {
     bytes_allocated: usize = 0,
     next_gc: usize = gc.initial_threshold,
     gc_running: bool = false,
+    /// the collector between its steps (see gc.zig)
+    gc_state: gc.State = .{},
     collections: usize = 0,
     /// The collector's settings (slang/vm's gc): the next collection when
     /// the live size has grown by gc_growth, never below gc_minimum bytes;
@@ -272,6 +274,7 @@ pub const VM = struct {
         vm.ffi.calls.deinit(vm.gpa);
         vm.ffi.foreign.deinit(vm.gpa);
         if (vm.lib.ctypes_arena) |*a| a.deinit();
+        vm.gc_state.deinit(vm.gpa);
         // the blocks the allocator pooled go back last (everything is freed)
         vm.counting.release();
         vm.backing.free(vm.stdout_buf);
@@ -439,6 +442,7 @@ pub const VM = struct {
     // only at interpreter safe points (see gc.zig), never inside these.
 
     fn link(vm: *VM, o: *Object) void {
+        o.color = gc.newColor(vm);
         o.next = vm.objects;
         vm.objects = o;
     }
@@ -473,7 +477,10 @@ pub const VM = struct {
     pub fn newString(vm: *VM, bytes: []const u8) *String {
         if (bytes.len <= String.intern_limit) {
             const gop = vm.strings.getOrPutAdapted(vm.gpa, bytes, InternBytesCtx{}) catch oom();
-            if (gop.found_existing) return gop.key_ptr.*;
+            if (gop.found_existing) {
+                gc.reviveString(vm, gop.key_ptr.*);
+                return gop.key_ptr.*;
+            }
             const s = vm.allocString(bytes);
             s.interned = true;
             s.hash_cache = String.hashBytes(bytes);

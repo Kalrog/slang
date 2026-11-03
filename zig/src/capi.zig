@@ -529,7 +529,10 @@ pub export fn slang_setmetatable(th: *Thread, idx: c_int) void {
     switch (target) {
         .table => |t| t.meta = m,
         .userdata => |u| u.meta = m,
-        else => {},
+        else => return,
+    }
+    if (m) |mt| {
+        if (target.heapObject()) |o| vm_mod.gc.barrier(th.vm, o, .{ .table = mt });
     }
 }
 

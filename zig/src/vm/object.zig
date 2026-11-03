@@ -10,7 +10,8 @@ const Error = @import("errors.zig").Error;
 pub const Object = struct {
     next: ?*Object = null,
     kind: ObjKind,
-    marked: bool = false,
+    /// the collector's color: 0 or 1 (a white), gc.black once reached
+    color: u8 = 0,
 };
 
 pub const ObjKind = enum(u8) { string, table, closure, upvalue, userdata, proto, thread };

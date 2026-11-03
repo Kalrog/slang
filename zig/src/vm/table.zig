@@ -4,6 +4,7 @@ const Value = @import("value.zig").Value;
 const String = @import("string.zig").String;
 const Object = @import("object.zig").Object;
 const oom = @import("../vm.zig").oom;
+const gc = @import("gc.zig");
 
 pub const Entry = struct {
     key: Value,
@@ -157,6 +158,20 @@ pub const Table = struct {
     }
 
     /// Frees the parts the table owns (not its block, see VM.newTable).
+    /// The write barrier (see gc.zig): after a value from outside is stored
+    /// into the table. One compare unless the collector is marking.
+    inline fn wb(t: *Table, gpa: Allocator, v: Value) void {
+        if (t.obj.color == gc.black) gc.tableBarrier(gpa, &t.obj, v);
+    }
+
+    /// The barrier for a key and a value, out of line: it runs only while
+    /// the collector marks.
+    noinline fn wb2(t: *Table, gpa: Allocator, key: Value, val: Value) void {
+        @branchHint(.cold);
+        gc.tableBarrier(gpa, &t.obj, key);
+        gc.tableBarrier(gpa, &t.obj, val);
+    }
+
     pub fn deinit(t: *Table, gpa: Allocator) void {
         if (!t.arrIsInline()) t.arr.deinit(gpa);
         if (!t.entsIsInline()) t.ents.deinit(gpa);
@@ -264,6 +279,7 @@ pub const Table = struct {
     }
 
     fn setInt(t: *Table, gpa: Allocator, i: i64, val: Value) void {
+        t.wb(gpa, val);
         const n: i64 = @intCast(t.arr.items.len);
         if (i >= 0 and i < n) {
             t.arr.items[@intCast(i)] = val;
@@ -286,9 +302,10 @@ pub const Table = struct {
 
     /// Overwrites the value of an existing string key; false when the key
     /// is absent (or the value is null, which changes the key set).
-    pub fn replaceStr(t: *Table, s: *String, val: Value) bool {
+    pub fn replaceStr(t: *Table, gpa: Allocator, s: *String, val: Value) bool {
         if (val == .null) return false;
         const idx = t.find(.{ .string = s }) orelse return false;
+        t.wb(gpa, val);
         t.ents.items[idx].val = val;
         return true;
     }
@@ -296,10 +313,13 @@ pub const Table = struct {
     /// Stores under a string key that is known to be absent a value that
     /// is not null: what filling a fresh table does.
     pub fn addFresh(t: *Table, gpa: Allocator, s: *String, val: Value) void {
+        t.wb(gpa, .{ .string = s });
+        t.wb(gpa, val);
         t.insertNew(gpa, .{ .string = s }, val);
     }
 
     fn setAny(t: *Table, gpa: Allocator, key: Value, val: Value) void {
+        if (t.obj.color == gc.black) t.wb2(gpa, key, val);
         if (t.find(key)) |idx| {
             t.ents.items[idx].val = val;
             return;
@@ -412,6 +432,7 @@ pub const Table = struct {
     /// Adds a value at the end of the array part (null is ignored).
     pub fn append(t: *Table, gpa: Allocator, v: Value) void {
         if (v == .null) return;
+        t.wb(gpa, v);
         t.reserveArr(gpa, 1);
         t.arr.append(gpa, v) catch oom();
         t.fixList(gpa);
@@ -431,6 +452,7 @@ pub const Table = struct {
     /// Inserts v at list index i (0 to the list's length), moving the
     /// elements from i on up by one.
     pub fn insertAt(t: *Table, gpa: Allocator, i: usize, v: Value) void {
+        t.wb(gpa, v);
         t.reserveArr(gpa, 1);
         t.arr.insert(gpa, i, v) catch oom();
         t.mflags = 0;
@@ -439,6 +461,7 @@ pub const Table = struct {
 
     /// Merges another table: array parts are concatenated, hash entries copied.
     pub fn addAll(t: *Table, gpa: Allocator, o: *const Table) void {
+        for (o.arr.items) |v| t.wb(gpa, v);
         t.reserveArr(gpa, o.arr.items.len);
         t.arr.appendSlice(gpa, o.arr.items) catch oom();
         for (o.ents.items) |e| {

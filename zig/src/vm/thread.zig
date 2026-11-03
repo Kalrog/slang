@@ -13,6 +13,7 @@ const Proto = object.Proto;
 const Error = root.Error;
 const Location = root.Location;
 const interp = @import("interp.zig");
+const gc = @import("gc.zig");
 
 /// Status of a coroutine.
 pub const Status = enum(u8) {
@@ -185,6 +186,8 @@ pub const Thread = struct {
         while (ups.items.len > 0 and ups.items[ups.items.len - 1].idx >= from) {
             const u = ups.pop().?;
             u.close();
+            // the value leaves the stack for the upvalue (see gc.zig)
+            gc.barrier(th.vm, &u.obj, u.v);
         }
     }
 

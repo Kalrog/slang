@@ -872,7 +872,11 @@ func source.function(self, node){
 
 func source.expr(self, node){
   local t = node.type
-  if(t == "Int" or t == "Double"){
+  if(t == "Int" and node.value == -9223372036854775807 - 1){
+    // its decimal form needs a minus that would apply to a literal out of
+    // range
+    self:add("0x8000_0000_0000_0000")
+  } else if(t == "Int" or t == "Double"){
     self:add(string(node.value))
   } else if(t == "String"){
     self:add(concat("\"", escape_string(node.value), "\""))

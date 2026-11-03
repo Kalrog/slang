@@ -161,7 +161,9 @@ t.group("native extension driving isolates (C)", func(){
     assert(hello.drive(func(i){ return i * i }, 10) == 285)
     local r = pcall(hello.drive, func(i){ raise("in the thread") }, 1)
     assert(r[0] == "err" and r[1].message == "drive: in the thread", r[1].message)
-    local y = 2
+    // (a table: a local that always holds a literal is compiled as that
+    // literal, so the function would not use a local of this one)
+    local y = {}
     assert(pcall(hello.drive, func(i){ return y }, 1)[0] == "err")
     local isolate = require("slang/isolate")
     local input = isolate.channel()

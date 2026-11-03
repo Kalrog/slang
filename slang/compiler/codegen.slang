@@ -11,6 +11,7 @@
 local ast = require("slang/ast")
 local str = require("slang/string")
 local vm = require("slang/vm")
+local optimizer = require("slang/optimizer")
 
 local codegen = {}
 
@@ -1096,6 +1097,46 @@ local func visit_logical_or(g, node){
   g.asm:patch_jump(done)
 }
 
+// visit_condition(g, node, sense) -> the jumps to patch: code that jumps
+// when the condition's truthiness is `sense` and falls through otherwise.
+// and, or and not become jumps instead of values, so each comparison in
+// them is a test of its own (which fuse turns into jlt/jleq/jeq/jtest).
+local visit_condition = null
+visit_condition = func(g, node, sense){
+  local t = node.type
+  if(t == "UnOp" and node.op == "not"){
+    return visit_condition(g, node.operand, not sense)
+  }
+  if(t == "BinOp" and (node.op == "and" or node.op == "or")){
+    // `and` jumping when false and `or` jumping when true jump on either
+    // side; otherwise the left side decides alone when it goes the other
+    // way, and that skips the right side
+    local either = (node.op == "and") != sense
+    if(either){
+      local jumps = visit_condition(g, node.left, sense)
+      for(let local j in values(visit_condition(g, node.right, sense))){
+        append(jumps, j)
+      }
+      return jumps
+    }
+    local skip = visit_condition(g, node.left, not sense)
+    local jumps = visit_condition(g, node.right, sense)
+    for(let local j in values(skip)){
+      g.asm:patch_jump(j)
+    }
+    return jumps
+  }
+  g:visit(node)
+  g.asm:emit_test(sense)
+  return {g.asm:emit_jump()}
+}
+
+local func patch_all(g, jumps){
+  for(let local j in values(jumps)){
+    g.asm:patch_jump(j)
+  }
+}
+
 func visitors.BinOp(g, node){
   local op = node.op
   if(op == "and"){
@@ -1442,12 +1483,10 @@ func visitors.Throw(g, node){
 
 // if(c){ a } else { b } as an expression: one value either way
 func visitors.IfExpr(g, node){
-  g:visit(node.condition)
-  g.asm:emit_test(false)
-  local else_jump = g.asm:emit_jump()
+  local else_jumps = visit_condition(g, node.condition, false)
   g:visit(node.thenValue)
   local skip = g.asm:emit_jump()
-  g.asm:patch_jump(else_jump)
+  patch_all(g, else_jumps)
   g:visit(node.elseValue)
   g.asm:patch_jump(skip)
 }
@@ -1660,21 +1699,19 @@ func visitors.LetStat(g, node){
 
 func visitors.If(g, node){
   g.asm:enter_scope(false)
-  g:visit(node.condition)
-  g.asm:emit_test(false)
-  local else_jump = g.asm:emit_jump()
+  local else_jumps = visit_condition(g, node.condition, false)
   g.asm:enter_scope(false)
   visit_body(g, node.thenBranch)
   g.asm:leave_scope()
   if(node.elseBranch != null){
     local skip = g.asm:emit_jump()
-    g.asm:patch_jump(else_jump)
+    patch_all(g, else_jumps)
     g.asm:enter_scope(false)
     visit_body(g, node.elseBranch)
     g.asm:leave_scope()
     g.asm:patch_jump(skip)
   } else {
-    g.asm:patch_jump(else_jump)
+    patch_all(g, else_jumps)
   }
   g.asm:leave_scope()
 }
@@ -1762,9 +1799,7 @@ func visitors.For(g, node){
     g:visit(node.init)
   }
   local loop_start = g.asm:next_instruction_index()
-  g:visit(node.condition)
-  g.asm:emit_test(false)
-  local loop_end = g.asm:emit_jump()
+  local exits = visit_condition(g, node.condition, false)
   visit_body(g, node.body)
   // continue goes to the update
   for(let local jump in values(scope.continue_jumps)){
@@ -1774,7 +1809,7 @@ func visitors.For(g, node){
     g:visit(node.update)
   }
   g.asm:emit_jump(loop_start)
-  g.asm:patch_jump(loop_end)
+  patch_all(g, exits)
   g.asm:leave_scope()
 }
 
@@ -2078,8 +2113,11 @@ func visitors.Unquote(g, node){
 // generate(node: table, origin?: string,
 //   options?: {record?: table, core?: bool}) -> Prototype
 // Compiles an AST node (a chunk, usually) into the prototype of a function
-// that runs it; it reaches globals through the upvalue _ENV. Raises on what cannot compile (break outside a loop, a variable
-// declared twice, an unresolved unquote, ...).
+// that runs it; it reaches globals through the upvalue _ENV. Locals that
+// always hold a literal are replaced by it first (slang/optimizer), unless
+// a recorder is told of the names: those are the names as written. Raises on what cannot compile
+// (break outside a loop, a variable declared twice, an unresolved
+// unquote, ...).
 // [origin]: the name in locations and error messages; "string" by default
 // [options]: record, a recorder told of names as they are resolved, with
 // define, use and field methods (see record_local above and slang/symbols);
@@ -2094,6 +2132,9 @@ func codegen.generate(node, origin, options){
     if(options.core){
       fused = false
     }
+  }
+  if(g.record == null){
+    node = optimizer.optimize(node, {constants: true})
   }
   local parent = asm.new(null, origin or "string")
   parent:create_local("_ENV")

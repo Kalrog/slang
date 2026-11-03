@@ -10,8 +10,12 @@
 // strings longer than MAX_STRING are left to run time. `and` and `or` with
 // a literal left side become one of their operands, an if (statement or
 // expression) with a literal condition becomes the branch it takes, and the
-// statements after a return, break, continue or throw are dropped.
+// statements after a return, break, continue or throw are dropped. A
+// local declared with a literal and never assigned again is replaced by
+// that literal where it is read (see resolve.constant), so its uses fold
+// too: `local DEBUG = false` makes `if(DEBUG){ ... }` disappear.
 local ast = require("slang/ast")
+local resolve = require("slang/resolve")
 
 local optimizer = {}
 local visitors = {}
@@ -21,6 +25,9 @@ local visitors = {}
 local MAX_STRING = 4096
 
 local visit = null
+
+// what slang/resolve found in the chunk being optimized
+local names = null
 
 // the node itself when none of its children changed, otherwise a copy with
 // the visited children (the fields in ast.specs; quoted code is data and is
@@ -280,11 +287,34 @@ func visitors.Block(n){
   return ast.node("Block", {statements: statements}, n.token)
 }
 
-// optimize(node: table) -> table
+// a read of a local that always holds a literal is that literal
+func visitors.Identifier(n){
+  if(names == null){
+    return n
+  }
+  local c = resolve.constant(names.refs[n])
+  if(c == null){
+    return n
+  }
+  return ast.literal(n.token, value_of(c))
+}
+
+// optimize(node: table, opts?: {constants?: bool}) -> table
 // node with its constant expressions folded. Nodes are not modified in
 // place: a changed node is a copy, and an unchanged subtree is returned as
 // it is.
-func optimizer.optimize(node){
+// [constants]: also replace the reads of locals that always hold a literal
+// (codegen does; the parser folds only, so that tools see every name)
+func optimizer.optimize(node, opts){
+  // (compile-time code may compile a chunk of its own meanwhile)
+  local outer = names
+  defer {
+    names = outer
+  }
+  names = null
+  if(opts != null and opts.constants){
+    names = resolve.analyse(node)
+  }
   return visit(node)
 }
 

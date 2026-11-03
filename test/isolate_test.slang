@@ -89,7 +89,8 @@ t.group("isolates"){
     local w = isolate.spawn(func(f){ return {f(21), f} }, double)
     local r = w:join()
     assert(r[0] == 42 and r[1](4) == 8)
-    local y = 1
+    // (a table: a local that always holds a literal is compiled as it)
+    local y = {}
     raises(func(){ isolate.spawn(func(){ return y }) }, "uses y")
     raises(func(){ isolate.spawn(print) }, "native function")
   }

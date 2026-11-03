@@ -84,6 +84,47 @@ t.group("optimizer"){
     assert(len(s) == 2 and s[1].type == "Return")
   }
 
+  t.test("a local that always holds a literal is replaced by it"){
+    local func body(f){
+      return optimizer.optimize(f, {constants: true}).body.statements
+    }
+    local s = body(+{func(){
+      local DEBUG = false
+      local n = 2
+      if(DEBUG){
+        print("debug")
+      }
+      return n * 3
+    }})
+    assert(len(s) == 3, string(len(s)))
+    assert(s[2].value.type == "Int" and s[2].value.value == 6)
+    // assigned again, captured and assigned, or bound by a pattern: kept
+    s = body(+{func(){
+      local a = 1
+      a = 2
+      local b = 1
+      local f = func(){ b = 3 }
+      local c = 1
+      let local c2 = c
+      return {a, b, c2}
+    }})
+    local fields = s[len(s) - 1].value.fields
+    assert(fields[0].value.type == "Identifier")
+    assert(fields[1].value.type == "Identifier")
+    assert(fields[2].value.type == "Identifier")
+    // a shadowing local is its own binding
+    s = body(+{func(x){
+      local k = 1
+      if(x){
+        local k = x
+        return k
+      }
+      return k
+    }})
+    assert(s[1].thenBranch.statements[1].value.type == "Identifier")
+    assert(s[2].value.type == "Int")
+  }
+
   t.test("a folded branch keeps its own scope"){
     local x = "outer"
     if(true){

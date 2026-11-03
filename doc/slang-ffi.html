@@ -140,7 +140,7 @@ libc.div(17, 5)                      // {quot: 3, rem: 2}</code></pre>
 
 </div>
 <div class="def" id="gc"><h3><code>ffi.gc(p: <a href="#type-Pointer">Pointer</a>, free: function?) -> <a href="#type-Pointer">Pointer</a></code></h3>
-<p>p, with what it points to freed by the C function free once nothing refers to p any more: free takes one pointer and returns nothing (a function of a loaded library, or <a href="#bind"><code>bind</code></a>'s). For memory C handed out (ffi.new's is slang's own and needs none). Null takes the finalizer away, for what was freed by hand; p is changed and returned.</p>
+<p>p, with what it points to freed by the C function free once nothing refers to p any more: free takes one pointer and returns nothing (a function of a loaded library, or <a href="#bind"><code>bind</code></a>'s). For memory C handed out (ffi.new's is slang's own and needs none). Null takes the finalizer away, for what was freed by hand; p is changed and returned. What is made from p (casts, offsets, field pointers, a buffer.wrap) keeps it alive, so the memory is not freed while any of it is in use.</p>
 <pre><code>local shape = ffi.gc(lib.JPH_BoxShape_Create(half, 0.05), lib.JPH_Shape_Destroy)</code></pre>
 
 </div>

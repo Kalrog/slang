@@ -79,8 +79,9 @@ worker_channel:send({image: image, from: 0, to: h / 2})</code></pre>
 
 </div>
 <div class="def" id="wrap"><h3><code>buffer.wrap(p: <a href="slang-ffi.html#type-Pointer">ffi.Pointer</a>, n: int, t?: string | <a href="slang-ffi.html#type-Type">ffi.Type</a>, decls?: <a href="slang-ffi.html#type-Decls">ffi.Decls</a>) -> <a href="#type-Buffer">Buffer</a></code></h3>
-<p>A buffer over n elements of memory C owns, without a copy: of the pointer's type, or of t (needed for a void pointer). It is valid only as long as C keeps the memory.</p>
-<pre><code>local vertices = buffer.wrap(mesh.vertices, mesh.vertex_count * 3)</code></pre>
+<p>A buffer over n elements of memory C owns, without a copy: of the pointer's type, or of t (needed for a void pointer). It is valid only as long as C keeps the memory. When the buffer should own it, give the pointer the library's free function with <a href="slang-ffi.html#gc"><code>ffi.gc</code></a> first: the buffer (and its slices, casts and element pointers) keep the pointer alive, so the memory is freed once the last of them is collected.</p>
+<pre><code>local vertices = buffer.wrap(mesh.vertices, mesh.vertex_count * 3)
+local samples = buffer.wrap(ffi.gc(lib.decode(file), lib.release), n)</code></pre>
 
 </div>
 <div class="def" id="is"><h3><code>buffer.is(v) -> bool</code></h3>

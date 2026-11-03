@@ -405,6 +405,21 @@ t.group("ffi: callbacks"){
     r = pcall(ffi.gc, lib.ft_alloc(1), func(p){})
     assert(r[0] == "err" and str.index_of(r[1].message, "C function") >= 0, r[1].message)
   }
+  t.test("ffi.gc: a buffer over the memory keeps it until the buffer goes"){
+    local buffer = require("slang/buffer")
+    local vm = require("slang/vm")
+    local before = lib.ft_freed()
+    // only the buffer's slice refers to the pointer
+    local b = buffer.wrap(ffi.gc(lib.ft_alloc(9), lib.ft_free), 1, "int")
+    b = b:slice(0, 1)
+    vm.collect()
+    assert(lib.ft_freed() == before, "freed while the buffer is alive")
+    assert(b[0] == 9, b[0])
+    b = null
+    vm.collect()
+    assert(lib.ft_freed() == before + 1, lib.ft_freed())
+  }
+
   // last: it uses up the program's callbacks
   t.test("a function made anew on each pass is caught, not leaked"){
     local r = null

@@ -132,9 +132,13 @@ func buffer.from_string(s){
 //   decls?: ffi.Decls) -> Buffer
 // A buffer over n elements of memory C owns, without a copy: of the
 // pointer's type, or of t (needed for a void pointer). It is valid only as
-// long as C keeps the memory.
+// long as C keeps the memory. When the buffer should own it, give the
+// pointer the library's free function with [ffi.gc] first: the buffer (and
+// its slices, casts and element pointers) keep the pointer alive, so the
+// memory is freed once the last of them is collected.
 //
 //   local vertices = buffer.wrap(mesh.vertices, mesh.vertex_count * 3)
+//   local samples = buffer.wrap(ffi.gc(lib.decode(file), lib.release), n)
 func buffer.wrap(p, n, t, decls){
   if(t == null){
     return ct.wrap(p, n)

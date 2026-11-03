@@ -1782,7 +1782,9 @@ func ffi.callback(t, f, decls){
 // refers to p any more: free takes one pointer and returns nothing (a
 // function of a loaded library, or [bind]'s). For memory C handed out
 // (ffi.new's is slang's own and needs none). Null takes the finalizer
-// away, for what was freed by hand; p is changed and returned.
+// away, for what was freed by hand; p is changed and returned. What is
+// made from p (casts, offsets, field pointers, a buffer.wrap) keeps it
+// alive, so the memory is not freed while any of it is in use.
 //
 //   local shape = ffi.gc(lib.JPH_BoxShape_Create(half, 0.05), lib.JPH_Shape_Destroy)
 func ffi.gc(p, free){

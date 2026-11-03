@@ -535,9 +535,12 @@ pub fn asPointer(v: Value) ?*Userdata {
     return u;
 }
 
-/// What keeps the memory of a pointer or buffer alive: its owner, or
-/// itself when it owns its memory.
+/// What keeps the memory of a pointer or buffer alive: itself when it owns
+/// its memory or ffi.gc frees it (so a view never outlives what it sees),
+/// else its owner.
 fn ownerOf(u: *Userdata) Value {
+    // a pointer ffi.gc frees stays alive while anything made from it is
+    if (u.finalizer == freePointer) return .{ .userdata = u };
     if (u.owner != .null) return u.owner;
     if (u.data.len > @sizeOf(Ptr)) return .{ .userdata = u };
     return .null;

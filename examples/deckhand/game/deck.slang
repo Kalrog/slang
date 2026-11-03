@@ -132,7 +132,7 @@ func deck.show(v){
     return string(math.round(v * 1000) / 1000)
   }
   if(t == "table"){
-    if(v.meta != null and v.meta.__tostring != null){
+    if(v.@meta != null and v.@meta.__tostring != null){
       return string(v)
     }
     local parts = {}
@@ -176,14 +176,14 @@ local func where(e){
 // ------------------------------------------------------------ the deck
 
 local Deck = {}
-// the metatable of every deck (not Deck.meta: that would be Deck's own)
+// the metatable of every deck (not Deck.@meta: that would be Deck's own)
 local deck_meta = {__index: Deck}
 
 // new() -> a deck: a clock, a log and the scripts it is running
 func deck.new(){
   return {
     now: 0.0, log: {}, scripts: {}, next_id: 1, steps: 0, generation: 0,
-    meta: deck_meta
+    @meta: deck_meta
   }
 }
 

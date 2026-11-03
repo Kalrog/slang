@@ -35,7 +35,7 @@ local stmt_meta = {__index: stmt_methods, __type: "sqlite.stmt"}
 // open(path: string) -> Database
 // Opens a database file, created when missing; ":memory:" opens a database
 // in memory. Raises when it cannot be opened.
-func m.open(path){ return {meta: db_meta} }
+func m.open(path){ return {@meta: db_meta} }
 
 // version() -> string
 // The version of the SQLite library ("3.46.0").
@@ -50,7 +50,7 @@ func db_methods.exec(db, sql){}
 // prepare(sql: string) -> Statement
 // A statement for the first statement in sql, with ? for its parameters;
 // raises when the text holds no statement.
-func db_methods.prepare(db, sql){ return {meta: stmt_meta} }
+func db_methods.prepare(db, sql){ return {@meta: stmt_meta} }
 
 // close()
 // Finalizes the statements and closes the database; raises while queries

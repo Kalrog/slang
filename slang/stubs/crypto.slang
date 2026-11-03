@@ -58,7 +58,7 @@ func m.equal(a, b){}
 
 // hasher(digest: string) -> Hasher
 // A hasher for incremental hashing.
-func m.hasher(digest){ return {meta: hasher_meta} }
+func m.hasher(digest){ return {@meta: hasher_meta} }
 
 // update(data: string) -> Hasher
 // Adds data; returns the hasher, so calls chain.
@@ -118,11 +118,11 @@ func m.decrypt(cipher, key, iv, sealed, aad){}
 
 // private_key(pem: string, passphrase?: string) -> Key
 // A key from a PEM private key (encrypted ones need the passphrase).
-func m.private_key(pem, passphrase){ return {meta: key_meta} }
+func m.private_key(pem, passphrase){ return {@meta: key_meta} }
 
 // public_key(pem: string) -> Key
 // A key from a PEM public key ("BEGIN PUBLIC KEY").
-func m.public_key(pem){ return {meta: key_meta} }
+func m.public_key(pem){ return {@meta: key_meta} }
 
 // generate_key(type: string, param?: int | string) -> Key
 // A new private key: ("rsa", [bits]) with bits 1024 to 16384 (2048 by
@@ -130,7 +130,7 @@ func m.public_key(pem){ return {meta: key_meta} }
 // ("ed25519").
 //
 //   local key = crypto.generate_key("ec", "P-384")
-func m.generate_key(type, param){ return {meta: key_meta} }
+func m.generate_key(type, param){ return {@meta: key_meta} }
 
 // sign(digest: string?, data: string, options?: SignOptions) -> string
 // The signature of data; needs a private key. Ed25519 ignores the digest
@@ -153,7 +153,7 @@ func key_methods.private_pem(key){}
 
 // public_key() -> Key
 // The public half as a key of its own.
-func key_methods.public_key(key){ return {meta: key_meta} }
+func key_methods.public_key(key){ return {@meta: key_meta} }
 
 // ------------------------------------------------------------ version
 

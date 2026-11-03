@@ -788,7 +788,7 @@ func m.get_clipboard_text(){}
 // Get clipboard image content
 //   get_clipboard_image() -> Image
 //   C: Image GetClipboardImage()
-func m.get_clipboard_image(){ return {meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.get_clipboard_image(){ return {@meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
 
 // Enable waiting for events on EndDrawing(), no automatic event polling
 //   enable_event_waiting()
@@ -928,12 +928,12 @@ func m.unload_vr_stereo_config(config){}
 // Load shader from files and bind default locations
 //   load_shader(vs_file_name: string, fs_file_name: string) -> Shader
 //   C: Shader LoadShader(const char *vsFileName, const char *fsFileName)
-func m.load_shader(vs_file_name, fs_file_name){ return {meta: shader_meta, id: 0, locs: null} }
+func m.load_shader(vs_file_name, fs_file_name){ return {@meta: shader_meta, id: 0, locs: null} }
 
 // Load shader from code strings and bind default locations
 //   load_shader_from_memory(vs_code: string, fs_code: string) -> Shader
 //   C: Shader LoadShaderFromMemory(const char *vsCode, const char *fsCode)
-func m.load_shader_from_memory(vs_code, fs_code){ return {meta: shader_meta, id: 0, locs: null} }
+func m.load_shader_from_memory(vs_code, fs_code){ return {@meta: shader_meta, id: 0, locs: null} }
 
 // Check if a shader is valid (loaded on GPU)
 //   is_shader_valid(shader: Shader) -> bool
@@ -1587,7 +1587,7 @@ func m.set_shapes_texture(texture, source){}
 // Get texture that is used for shapes drawing
 //   get_shapes_texture() -> Texture
 //   C: Texture GetShapesTexture()
-func m.get_shapes_texture(){ return {meta: texture_meta, id: 0, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.get_shapes_texture(){ return {@meta: texture_meta, id: 0, width: 0, height: 0, mipmaps: 0, format: 0} }
 
 // Get texture source rectangle that is used for shapes drawing
 //   get_shapes_texture_rectangle() -> Rectangle
@@ -2006,42 +2006,42 @@ func m.get_collision_rec(rec1, rec2){ return {x: 0, y: 0, width: 0, height: 0} }
 // Load image from file into CPU memory (RAM)
 //   load_image(file_name: string) -> Image
 //   C: Image LoadImage(const char *fileName)
-func m.load_image(file_name){ return {meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.load_image(file_name){ return {@meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
 
 // Load image from RAW file data
 //   load_image_raw(file_name: string, width: int, height: int, format: int,
 //      header_size: int) -> Image
 //   C: Image LoadImageRaw(const char *fileName, int width, int height, int
 //      format, int headerSize)
-func m.load_image_raw(file_name, width, height, format, header_size){ return {meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.load_image_raw(file_name, width, height, format, header_size){ return {@meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
 
 // Load image sequence from file (frames appended to image.data)
 //   load_image_anim(file_name: string, frames: pointer) -> Image
 //   C: Image LoadImageAnim(const char *fileName, int *frames)
-func m.load_image_anim(file_name, frames){ return {meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.load_image_anim(file_name, frames){ return {@meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
 
 // Load image sequence from memory buffer
 //   load_image_anim_from_memory(file_type: string, file_data: string, frames:
 //      pointer) -> Image
 //   C: Image LoadImageAnimFromMemory(const char *fileType, const unsigned char
 //      *fileData, int dataSize, int *frames)
-func m.load_image_anim_from_memory(file_type, file_data, frames){ return {meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.load_image_anim_from_memory(file_type, file_data, frames){ return {@meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
 
 // Load image from memory buffer, fileType refers to extension: i.e. '.png'
 //   load_image_from_memory(file_type: string, file_data: string) -> Image
 //   C: Image LoadImageFromMemory(const char *fileType, const unsigned char
 //      *fileData, int dataSize)
-func m.load_image_from_memory(file_type, file_data){ return {meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.load_image_from_memory(file_type, file_data){ return {@meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
 
 // Load image from GPU texture data
 //   load_image_from_texture(texture: Texture) -> Image
 //   C: Image LoadImageFromTexture(Texture texture)
-func m.load_image_from_texture(texture){ return {meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.load_image_from_texture(texture){ return {@meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
 
 // Load image from screen buffer and (screenshot)
 //   load_image_from_screen() -> Image
 //   C: Image LoadImageFromScreen()
-func m.load_image_from_screen(){ return {meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.load_image_from_screen(){ return {@meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
 
 // Check if an image is valid (data and parameters)
 //   is_image_valid(image: Image) -> bool
@@ -2073,7 +2073,7 @@ func m.export_image_as_code(image, file_name){}
 // Generate image: plain color
 //   gen_image_color(width: int, height: int, color: Color) -> Image
 //   C: Image GenImageColor(int width, int height, Color color)
-func m.gen_image_color(width, height, color){ return {meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.gen_image_color(width, height, color){ return {@meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
 
 // Generate image: linear gradient, direction in degrees [0..360], 0=Vertical
 // gradient
@@ -2081,77 +2081,77 @@ func m.gen_image_color(width, height, color){ return {meta: image_meta, data: nu
 //      Color, end: Color) -> Image
 //   C: Image GenImageGradientLinear(int width, int height, int direction, Color
 //      start, Color end)
-func m.gen_image_gradient_linear(width, height, direction, start, end){ return {meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.gen_image_gradient_linear(width, height, direction, start, end){ return {@meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
 
 // Generate image: radial gradient
 //   gen_image_gradient_radial(width: int, height: int, density: float, inner:
 //      Color, outer: Color) -> Image
 //   C: Image GenImageGradientRadial(int width, int height, float density, Color
 //      inner, Color outer)
-func m.gen_image_gradient_radial(width, height, density, inner, outer){ return {meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.gen_image_gradient_radial(width, height, density, inner, outer){ return {@meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
 
 // Generate image: square gradient
 //   gen_image_gradient_square(width: int, height: int, density: float, inner:
 //      Color, outer: Color) -> Image
 //   C: Image GenImageGradientSquare(int width, int height, float density, Color
 //      inner, Color outer)
-func m.gen_image_gradient_square(width, height, density, inner, outer){ return {meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.gen_image_gradient_square(width, height, density, inner, outer){ return {@meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
 
 // Generate image: checked
 //   gen_image_checked(width: int, height: int, checks_x: int, checks_y: int,
 //      col1: Color, col2: Color) -> Image
 //   C: Image GenImageChecked(int width, int height, int checksX, int checksY,
 //      Color col1, Color col2)
-func m.gen_image_checked(width, height, checks_x, checks_y, col1, col2){ return {meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.gen_image_checked(width, height, checks_x, checks_y, col1, col2){ return {@meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
 
 // Generate image: white noise
 //   gen_image_white_noise(width: int, height: int, factor: float) -> Image
 //   C: Image GenImageWhiteNoise(int width, int height, float factor)
-func m.gen_image_white_noise(width, height, factor){ return {meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.gen_image_white_noise(width, height, factor){ return {@meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
 
 // Generate image: perlin noise
 //   gen_image_perlin_noise(width: int, height: int, offset_x: int, offset_y:
 //      int, scale: float) -> Image
 //   C: Image GenImagePerlinNoise(int width, int height, int offsetX, int
 //      offsetY, float scale)
-func m.gen_image_perlin_noise(width, height, offset_x, offset_y, scale){ return {meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.gen_image_perlin_noise(width, height, offset_x, offset_y, scale){ return {@meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
 
 // Generate image: cellular algorithm, bigger tileSize means bigger cells
 //   gen_image_cellular(width: int, height: int, tile_size: int) -> Image
 //   C: Image GenImageCellular(int width, int height, int tileSize)
-func m.gen_image_cellular(width, height, tile_size){ return {meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.gen_image_cellular(width, height, tile_size){ return {@meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
 
 // Generate image: grayscale image from text data
 //   gen_image_text(width: int, height: int, text: string) -> Image
 //   C: Image GenImageText(int width, int height, const char *text)
-func m.gen_image_text(width, height, text){ return {meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.gen_image_text(width, height, text){ return {@meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
 
 // Create an image duplicate (useful for transformations)
 //   image_copy(image: Image) -> Image
 //   C: Image ImageCopy(Image image)
-func m.image_copy(image){ return {meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.image_copy(image){ return {@meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
 
 // Create an image from another image piece
 //   image_from_image(image: Image, rec: Rectangle) -> Image
 //   C: Image ImageFromImage(Image image, Rectangle rec)
-func m.image_from_image(image, rec){ return {meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.image_from_image(image, rec){ return {@meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
 
 // Create an image from a selected channel of another image (GRAYSCALE)
 //   image_from_channel(image: Image, selected_channel: int) -> Image
 //   C: Image ImageFromChannel(Image image, int selectedChannel)
-func m.image_from_channel(image, selected_channel){ return {meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.image_from_channel(image, selected_channel){ return {@meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
 
 // Create an image from text (default font)
 //   image_text(text: string, font_size: int, color: Color) -> Image
 //   C: Image ImageText(const char *text, int fontSize, Color color)
-func m.image_text(text, font_size, color){ return {meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.image_text(text, font_size, color){ return {@meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
 
 // Create an image from text (custom sprite font)
 //   image_text_ex(font: Font, text: string, font_size: float, spacing: float,
 //      tint: Color) -> Image
 //   C: Image ImageTextEx(Font font, const char *text, float fontSize, float
 //      spacing, Color tint)
-func m.image_text_ex(font, text, font_size, spacing, tint){ return {meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.image_text_ex(font, text, font_size, spacing, tint){ return {@meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
 
 // Convert image data to desired format
 //   image_format(image: Image (updated), new_format: int)
@@ -2460,22 +2460,22 @@ func m.image_draw_text_ex(dst, font, text, position, font_size, spacing, tint){}
 // Load texture from file into GPU memory (VRAM)
 //   load_texture(file_name: string) -> Texture
 //   C: Texture LoadTexture(const char *fileName)
-func m.load_texture(file_name){ return {meta: texture_meta, id: 0, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.load_texture(file_name){ return {@meta: texture_meta, id: 0, width: 0, height: 0, mipmaps: 0, format: 0} }
 
 // Load texture from image data
 //   load_texture_from_image(image: Image) -> Texture
 //   C: Texture LoadTextureFromImage(Image image)
-func m.load_texture_from_image(image){ return {meta: texture_meta, id: 0, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.load_texture_from_image(image){ return {@meta: texture_meta, id: 0, width: 0, height: 0, mipmaps: 0, format: 0} }
 
 // Load cubemap from image, multiple image cubemap layouts supported
 //   load_texture_cubemap(image: Image, layout: int) -> Texture
 //   C: Texture LoadTextureCubemap(Image image, int layout)
-func m.load_texture_cubemap(image, layout){ return {meta: texture_meta, id: 0, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.load_texture_cubemap(image, layout){ return {@meta: texture_meta, id: 0, width: 0, height: 0, mipmaps: 0, format: 0} }
 
 // Load texture for rendering (framebuffer)
 //   load_render_texture(width: int, height: int) -> RenderTexture
 //   C: RenderTexture LoadRenderTexture(int width, int height)
-func m.load_render_texture(width, height){ return {meta: render_texture_meta, id: 0, texture: {id: 0, width: 0, height: 0, mipmaps: 0, format: 0}, depth: {id: 0, width: 0, height: 0, mipmaps: 0, format: 0}} }
+func m.load_render_texture(width, height){ return {@meta: render_texture_meta, id: 0, texture: {id: 0, width: 0, height: 0, mipmaps: 0, format: 0}, depth: {id: 0, width: 0, height: 0, mipmaps: 0, format: 0}} }
 
 // Check if a texture is valid (loaded in GPU)
 //   is_texture_valid(texture: Texture) -> bool
@@ -2650,12 +2650,12 @@ func m.get_pixel_data_size(width, height, format){}
 // Get the default Font
 //   get_font_default() -> Font
 //   C: Font GetFontDefault()
-func m.get_font_default(){ return {meta: font_meta, base_size: 0, glyph_count: 0, glyph_padding: 0, texture: {id: 0, width: 0, height: 0, mipmaps: 0, format: 0}, recs: null, glyphs: null} }
+func m.get_font_default(){ return {@meta: font_meta, base_size: 0, glyph_count: 0, glyph_padding: 0, texture: {id: 0, width: 0, height: 0, mipmaps: 0, format: 0}, recs: null, glyphs: null} }
 
 // Load font from file into GPU memory (VRAM)
 //   load_font(file_name: string) -> Font
 //   C: Font LoadFont(const char *fileName)
-func m.load_font(file_name){ return {meta: font_meta, base_size: 0, glyph_count: 0, glyph_padding: 0, texture: {id: 0, width: 0, height: 0, mipmaps: 0, format: 0}, recs: null, glyphs: null} }
+func m.load_font(file_name){ return {@meta: font_meta, base_size: 0, glyph_count: 0, glyph_padding: 0, texture: {id: 0, width: 0, height: 0, mipmaps: 0, format: 0}, recs: null, glyphs: null} }
 
 // Load font from file with extended parameters, use NULL for codepoints and 0
 // for codepointCount to load the default character set, font size is provided
@@ -2663,12 +2663,12 @@ func m.load_font(file_name){ return {meta: font_meta, base_size: 0, glyph_count:
 //   load_font_ex(file_name: string, font_size: int, codepoints: list) -> Font
 //   C: Font LoadFontEx(const char *fileName, int fontSize, int *codepoints, int
 //      codepointCount)
-func m.load_font_ex(file_name, font_size, codepoints){ return {meta: font_meta, base_size: 0, glyph_count: 0, glyph_padding: 0, texture: {id: 0, width: 0, height: 0, mipmaps: 0, format: 0}, recs: null, glyphs: null} }
+func m.load_font_ex(file_name, font_size, codepoints){ return {@meta: font_meta, base_size: 0, glyph_count: 0, glyph_padding: 0, texture: {id: 0, width: 0, height: 0, mipmaps: 0, format: 0}, recs: null, glyphs: null} }
 
 // Load font from Image (XNA style)
 //   load_font_from_image(image: Image, key: Color, first_char: int) -> Font
 //   C: Font LoadFontFromImage(Image image, Color key, int firstChar)
-func m.load_font_from_image(image, key, first_char){ return {meta: font_meta, base_size: 0, glyph_count: 0, glyph_padding: 0, texture: {id: 0, width: 0, height: 0, mipmaps: 0, format: 0}, recs: null, glyphs: null} }
+func m.load_font_from_image(image, key, first_char){ return {@meta: font_meta, base_size: 0, glyph_count: 0, glyph_padding: 0, texture: {id: 0, width: 0, height: 0, mipmaps: 0, format: 0}, recs: null, glyphs: null} }
 
 // Load font from memory buffer, fileType refers to extension: i.e. '.ttf'
 //   load_font_from_memory(file_type: string, file_data: string, font_size: int,
@@ -2676,7 +2676,7 @@ func m.load_font_from_image(image, key, first_char){ return {meta: font_meta, ba
 //   C: Font LoadFontFromMemory(const char *fileType, const unsigned char
 //      *fileData, int dataSize, int fontSize, int *codepoints, int
 //      codepointCount)
-func m.load_font_from_memory(file_type, file_data, font_size, codepoints){ return {meta: font_meta, base_size: 0, glyph_count: 0, glyph_padding: 0, texture: {id: 0, width: 0, height: 0, mipmaps: 0, format: 0}, recs: null, glyphs: null} }
+func m.load_font_from_memory(file_type, file_data, font_size, codepoints){ return {@meta: font_meta, base_size: 0, glyph_count: 0, glyph_padding: 0, texture: {id: 0, width: 0, height: 0, mipmaps: 0, format: 0}, recs: null, glyphs: null} }
 
 // Check if a font is valid (font data loaded, WARNING: GPU texture not checked)
 //   is_font_valid(font: Font) -> bool
@@ -2695,7 +2695,7 @@ func m.load_font_data(file_data, font_size, codepoints, type){}
 //      padding: int, pack_method: int) -> Image
 //   C: Image GenImageFontAtlas(const GlyphInfo *glyphs, Rectangle * *glyphRecs,
 //      int glyphCount, int fontSize, int padding, int packMethod)
-func m.gen_image_font_atlas(glyphs, glyph_recs, font_size, padding, pack_method){ return {meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
+func m.gen_image_font_atlas(glyphs, glyph_recs, font_size, padding, pack_method){ return {@meta: image_meta, data: null, width: 0, height: 0, mipmaps: 0, format: 0} }
 
 // Unload font chars info data (RAM)
 //   unload_font_data(glyphs: list of GlyphInfo)
@@ -3061,12 +3061,12 @@ func m.draw_grid(slices, spacing){}
 // Load model from files (meshes and materials)
 //   load_model(file_name: string) -> Model
 //   C: Model LoadModel(const char *fileName)
-func m.load_model(file_name){ return {meta: model_meta, transform: {m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0, m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0}, mesh_count: 0, material_count: 0, meshes: null, materials: null, mesh_material: null, bone_count: 0, bones: null, bind_pose: null} }
+func m.load_model(file_name){ return {@meta: model_meta, transform: {m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0, m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0}, mesh_count: 0, material_count: 0, meshes: null, materials: null, mesh_material: null, bone_count: 0, bones: null, bind_pose: null} }
 
 // Load model from generated mesh (default material)
 //   load_model_from_mesh(mesh: Mesh) -> Model
 //   C: Model LoadModelFromMesh(Mesh mesh)
-func m.load_model_from_mesh(mesh){ return {meta: model_meta, transform: {m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0, m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0}, mesh_count: 0, material_count: 0, meshes: null, materials: null, mesh_material: null, bone_count: 0, bones: null, bind_pose: null} }
+func m.load_model_from_mesh(mesh){ return {@meta: model_meta, transform: {m0: 0, m4: 0, m8: 0, m12: 0, m1: 0, m5: 0, m9: 0, m13: 0, m2: 0, m6: 0, m10: 0, m14: 0, m3: 0, m7: 0, m11: 0, m15: 0}, mesh_count: 0, material_count: 0, meshes: null, materials: null, mesh_material: null, bone_count: 0, bones: null, bind_pose: null} }
 
 // Check if a model is valid (loaded in GPU, VAO/VBOs)
 //   is_model_valid(model: Model) -> bool
@@ -3202,58 +3202,58 @@ func m.export_mesh_as_code(mesh, file_name){}
 // Generate polygonal mesh
 //   gen_mesh_poly(sides: int, radius: float) -> Mesh
 //   C: Mesh GenMeshPoly(int sides, float radius)
-func m.gen_mesh_poly(sides, radius){ return {meta: mesh_meta, vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null, texcoords2: null, normals: null, tangents: null, colors: null, indices: null, anim_vertices: null, anim_normals: null, bone_ids: null, bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0, vbo_id: null} }
+func m.gen_mesh_poly(sides, radius){ return {@meta: mesh_meta, vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null, texcoords2: null, normals: null, tangents: null, colors: null, indices: null, anim_vertices: null, anim_normals: null, bone_ids: null, bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0, vbo_id: null} }
 
 // Generate plane mesh (with subdivisions)
 //   gen_mesh_plane(width: float, length: float, res_x: int, res_z: int) -> Mesh
 //   C: Mesh GenMeshPlane(float width, float length, int resX, int resZ)
-func m.gen_mesh_plane(width, length, res_x, res_z){ return {meta: mesh_meta, vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null, texcoords2: null, normals: null, tangents: null, colors: null, indices: null, anim_vertices: null, anim_normals: null, bone_ids: null, bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0, vbo_id: null} }
+func m.gen_mesh_plane(width, length, res_x, res_z){ return {@meta: mesh_meta, vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null, texcoords2: null, normals: null, tangents: null, colors: null, indices: null, anim_vertices: null, anim_normals: null, bone_ids: null, bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0, vbo_id: null} }
 
 // Generate cuboid mesh
 //   gen_mesh_cube(width: float, height: float, length: float) -> Mesh
 //   C: Mesh GenMeshCube(float width, float height, float length)
-func m.gen_mesh_cube(width, height, length){ return {meta: mesh_meta, vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null, texcoords2: null, normals: null, tangents: null, colors: null, indices: null, anim_vertices: null, anim_normals: null, bone_ids: null, bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0, vbo_id: null} }
+func m.gen_mesh_cube(width, height, length){ return {@meta: mesh_meta, vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null, texcoords2: null, normals: null, tangents: null, colors: null, indices: null, anim_vertices: null, anim_normals: null, bone_ids: null, bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0, vbo_id: null} }
 
 // Generate sphere mesh (standard sphere)
 //   gen_mesh_sphere(radius: float, rings: int, slices: int) -> Mesh
 //   C: Mesh GenMeshSphere(float radius, int rings, int slices)
-func m.gen_mesh_sphere(radius, rings, slices){ return {meta: mesh_meta, vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null, texcoords2: null, normals: null, tangents: null, colors: null, indices: null, anim_vertices: null, anim_normals: null, bone_ids: null, bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0, vbo_id: null} }
+func m.gen_mesh_sphere(radius, rings, slices){ return {@meta: mesh_meta, vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null, texcoords2: null, normals: null, tangents: null, colors: null, indices: null, anim_vertices: null, anim_normals: null, bone_ids: null, bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0, vbo_id: null} }
 
 // Generate half-sphere mesh (no bottom cap)
 //   gen_mesh_hemi_sphere(radius: float, rings: int, slices: int) -> Mesh
 //   C: Mesh GenMeshHemiSphere(float radius, int rings, int slices)
-func m.gen_mesh_hemi_sphere(radius, rings, slices){ return {meta: mesh_meta, vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null, texcoords2: null, normals: null, tangents: null, colors: null, indices: null, anim_vertices: null, anim_normals: null, bone_ids: null, bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0, vbo_id: null} }
+func m.gen_mesh_hemi_sphere(radius, rings, slices){ return {@meta: mesh_meta, vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null, texcoords2: null, normals: null, tangents: null, colors: null, indices: null, anim_vertices: null, anim_normals: null, bone_ids: null, bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0, vbo_id: null} }
 
 // Generate cylinder mesh
 //   gen_mesh_cylinder(radius: float, height: float, slices: int) -> Mesh
 //   C: Mesh GenMeshCylinder(float radius, float height, int slices)
-func m.gen_mesh_cylinder(radius, height, slices){ return {meta: mesh_meta, vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null, texcoords2: null, normals: null, tangents: null, colors: null, indices: null, anim_vertices: null, anim_normals: null, bone_ids: null, bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0, vbo_id: null} }
+func m.gen_mesh_cylinder(radius, height, slices){ return {@meta: mesh_meta, vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null, texcoords2: null, normals: null, tangents: null, colors: null, indices: null, anim_vertices: null, anim_normals: null, bone_ids: null, bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0, vbo_id: null} }
 
 // Generate cone/pyramid mesh
 //   gen_mesh_cone(radius: float, height: float, slices: int) -> Mesh
 //   C: Mesh GenMeshCone(float radius, float height, int slices)
-func m.gen_mesh_cone(radius, height, slices){ return {meta: mesh_meta, vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null, texcoords2: null, normals: null, tangents: null, colors: null, indices: null, anim_vertices: null, anim_normals: null, bone_ids: null, bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0, vbo_id: null} }
+func m.gen_mesh_cone(radius, height, slices){ return {@meta: mesh_meta, vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null, texcoords2: null, normals: null, tangents: null, colors: null, indices: null, anim_vertices: null, anim_normals: null, bone_ids: null, bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0, vbo_id: null} }
 
 // Generate torus mesh
 //   gen_mesh_torus(radius: float, size: float, rad_seg: int, sides: int) ->
 //      Mesh
 //   C: Mesh GenMeshTorus(float radius, float size, int radSeg, int sides)
-func m.gen_mesh_torus(radius, size, rad_seg, sides){ return {meta: mesh_meta, vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null, texcoords2: null, normals: null, tangents: null, colors: null, indices: null, anim_vertices: null, anim_normals: null, bone_ids: null, bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0, vbo_id: null} }
+func m.gen_mesh_torus(radius, size, rad_seg, sides){ return {@meta: mesh_meta, vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null, texcoords2: null, normals: null, tangents: null, colors: null, indices: null, anim_vertices: null, anim_normals: null, bone_ids: null, bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0, vbo_id: null} }
 
 // Generate trefoil knot mesh
 //   gen_mesh_knot(radius: float, size: float, rad_seg: int, sides: int) -> Mesh
 //   C: Mesh GenMeshKnot(float radius, float size, int radSeg, int sides)
-func m.gen_mesh_knot(radius, size, rad_seg, sides){ return {meta: mesh_meta, vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null, texcoords2: null, normals: null, tangents: null, colors: null, indices: null, anim_vertices: null, anim_normals: null, bone_ids: null, bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0, vbo_id: null} }
+func m.gen_mesh_knot(radius, size, rad_seg, sides){ return {@meta: mesh_meta, vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null, texcoords2: null, normals: null, tangents: null, colors: null, indices: null, anim_vertices: null, anim_normals: null, bone_ids: null, bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0, vbo_id: null} }
 
 // Generate heightmap mesh from image data
 //   gen_mesh_heightmap(heightmap: Image, size: Vector3) -> Mesh
 //   C: Mesh GenMeshHeightmap(Image heightmap, Vector3 size)
-func m.gen_mesh_heightmap(heightmap, size){ return {meta: mesh_meta, vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null, texcoords2: null, normals: null, tangents: null, colors: null, indices: null, anim_vertices: null, anim_normals: null, bone_ids: null, bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0, vbo_id: null} }
+func m.gen_mesh_heightmap(heightmap, size){ return {@meta: mesh_meta, vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null, texcoords2: null, normals: null, tangents: null, colors: null, indices: null, anim_vertices: null, anim_normals: null, bone_ids: null, bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0, vbo_id: null} }
 
 // Generate cubes-based map mesh from image data
 //   gen_mesh_cubicmap(cubicmap: Image, cube_size: Vector3) -> Mesh
 //   C: Mesh GenMeshCubicmap(Image cubicmap, Vector3 cubeSize)
-func m.gen_mesh_cubicmap(cubicmap, cube_size){ return {meta: mesh_meta, vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null, texcoords2: null, normals: null, tangents: null, colors: null, indices: null, anim_vertices: null, anim_normals: null, bone_ids: null, bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0, vbo_id: null} }
+func m.gen_mesh_cubicmap(cubicmap, cube_size){ return {@meta: mesh_meta, vertex_count: 0, triangle_count: 0, vertices: null, texcoords: null, texcoords2: null, normals: null, tangents: null, colors: null, indices: null, anim_vertices: null, anim_normals: null, bone_ids: null, bone_weights: null, bone_matrices: null, bone_count: 0, vao_id: 0, vbo_id: null} }
 
 // Load materials from model file
 //   load_materials(file_name: string, material_count: pointer) -> Material
@@ -3264,7 +3264,7 @@ func m.load_materials(file_name, material_count){}
 // Load default material (Supports: DIFFUSE, SPECULAR, NORMAL maps)
 //   load_material_default() -> Material
 //   C: Material LoadMaterialDefault()
-func m.load_material_default(){ return {meta: material_meta, shader: {id: 0, locs: null}, maps: null, params: {}} }
+func m.load_material_default(){ return {@meta: material_meta, shader: {id: 0, locs: null}, maps: null, params: {}} }
 
 // Check if a material is valid (shader assigned, map textures loaded in GPU)
 //   is_material_valid(material: Material) -> bool
@@ -3396,13 +3396,13 @@ func m.get_master_volume(){}
 // Load wave data from file
 //   load_wave(file_name: string) -> Wave
 //   C: Wave LoadWave(const char *fileName)
-func m.load_wave(file_name){ return {meta: wave_meta, frame_count: 0, sample_rate: 0, sample_size: 0, channels: 0, data: null} }
+func m.load_wave(file_name){ return {@meta: wave_meta, frame_count: 0, sample_rate: 0, sample_size: 0, channels: 0, data: null} }
 
 // Load wave from memory buffer, fileType refers to extension: i.e. '.wav'
 //   load_wave_from_memory(file_type: string, file_data: string) -> Wave
 //   C: Wave LoadWaveFromMemory(const char *fileType, const unsigned char
 //      *fileData, int dataSize)
-func m.load_wave_from_memory(file_type, file_data){ return {meta: wave_meta, frame_count: 0, sample_rate: 0, sample_size: 0, channels: 0, data: null} }
+func m.load_wave_from_memory(file_type, file_data){ return {@meta: wave_meta, frame_count: 0, sample_rate: 0, sample_size: 0, channels: 0, data: null} }
 
 // Checks if wave data is valid (data loaded and parameters)
 //   is_wave_valid(wave: Wave) -> bool
@@ -3412,18 +3412,18 @@ func m.is_wave_valid(wave){}
 // Load sound from file
 //   load_sound(file_name: string) -> Sound
 //   C: Sound LoadSound(const char *fileName)
-func m.load_sound(file_name){ return {meta: sound_meta, stream: {buffer: null, processor: null, sample_rate: 0, sample_size: 0, channels: 0}, frame_count: 0} }
+func m.load_sound(file_name){ return {@meta: sound_meta, stream: {buffer: null, processor: null, sample_rate: 0, sample_size: 0, channels: 0}, frame_count: 0} }
 
 // Load sound from wave data
 //   load_sound_from_wave(wave: Wave) -> Sound
 //   C: Sound LoadSoundFromWave(Wave wave)
-func m.load_sound_from_wave(wave){ return {meta: sound_meta, stream: {buffer: null, processor: null, sample_rate: 0, sample_size: 0, channels: 0}, frame_count: 0} }
+func m.load_sound_from_wave(wave){ return {@meta: sound_meta, stream: {buffer: null, processor: null, sample_rate: 0, sample_size: 0, channels: 0}, frame_count: 0} }
 
 // Create a new sound that shares the same sample data as the source sound, does
 // not own the sound data
 //   load_sound_alias(source: Sound) -> Sound
 //   C: Sound LoadSoundAlias(Sound source)
-func m.load_sound_alias(source){ return {meta: sound_meta, stream: {buffer: null, processor: null, sample_rate: 0, sample_size: 0, channels: 0}, frame_count: 0} }
+func m.load_sound_alias(source){ return {@meta: sound_meta, stream: {buffer: null, processor: null, sample_rate: 0, sample_size: 0, channels: 0}, frame_count: 0} }
 
 // Checks if a sound is valid (data loaded and buffers initialized)
 //   is_sound_valid(sound: Sound) -> bool
@@ -3503,7 +3503,7 @@ func m.set_sound_pan(sound, pan){}
 // Copy a wave to a new wave
 //   wave_copy(wave: Wave) -> Wave
 //   C: Wave WaveCopy(Wave wave)
-func m.wave_copy(wave){ return {meta: wave_meta, frame_count: 0, sample_rate: 0, sample_size: 0, channels: 0, data: null} }
+func m.wave_copy(wave){ return {@meta: wave_meta, frame_count: 0, sample_rate: 0, sample_size: 0, channels: 0, data: null} }
 
 // Crop a wave to defined frames range
 //   wave_crop(wave: Wave (updated), init_frame: int, final_frame: int)
@@ -3530,13 +3530,13 @@ func m.unload_wave_samples(samples){}
 // Load music stream from file
 //   load_music_stream(file_name: string) -> Music
 //   C: Music LoadMusicStream(const char *fileName)
-func m.load_music_stream(file_name){ return {meta: music_meta, stream: {buffer: null, processor: null, sample_rate: 0, sample_size: 0, channels: 0}, frame_count: 0, looping: false, ctx_type: 0, ctx_data: null} }
+func m.load_music_stream(file_name){ return {@meta: music_meta, stream: {buffer: null, processor: null, sample_rate: 0, sample_size: 0, channels: 0}, frame_count: 0, looping: false, ctx_type: 0, ctx_data: null} }
 
 // Load music stream from data
 //   load_music_stream_from_memory(file_type: string, data: string) -> Music
 //   C: Music LoadMusicStreamFromMemory(const char *fileType, const unsigned
 //      char *data, int dataSize)
-func m.load_music_stream_from_memory(file_type, data){ return {meta: music_meta, stream: {buffer: null, processor: null, sample_rate: 0, sample_size: 0, channels: 0}, frame_count: 0, looping: false, ctx_type: 0, ctx_data: null} }
+func m.load_music_stream_from_memory(file_type, data){ return {@meta: music_meta, stream: {buffer: null, processor: null, sample_rate: 0, sample_size: 0, channels: 0}, frame_count: 0, looping: false, ctx_type: 0, ctx_data: null} }
 
 // Checks if a music stream is valid (context and buffers initialized)
 //   is_music_valid(music: Music) -> bool
@@ -3613,7 +3613,7 @@ func m.get_music_time_played(music){}
 //      AudioStream
 //   C: AudioStream LoadAudioStream(unsigned int sampleRate, unsigned int
 //      sampleSize, unsigned int channels)
-func m.load_audio_stream(sample_rate, sample_size, channels){ return {meta: audio_stream_meta, buffer: null, processor: null, sample_rate: 0, sample_size: 0, channels: 0} }
+func m.load_audio_stream(sample_rate, sample_size, channels){ return {@meta: audio_stream_meta, buffer: null, processor: null, sample_rate: 0, sample_size: 0, channels: 0} }
 
 // Checks if an audio stream is valid (buffers initialized)
 //   is_audio_stream_valid(stream: AudioStream) -> bool

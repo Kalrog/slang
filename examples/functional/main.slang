@@ -59,7 +59,7 @@ def fact(0){ return 1 }
 def fact(n) when(n > 0){ return n * fact(n - 1) }
 show(fact(10), "fact")
 
-local Circle = {meta: {__type: "Circle"}, radius: 2}
+local Circle = {@meta: {__type: "Circle"}, radius: 2}
 def area('Circle{radius: r}){ return 3 * r * r }
 def area({w, h}){ return w * h }
 def area(_){ return "not a shape" }
@@ -86,7 +86,7 @@ show(greet("de", "welt"), "greet")
 // a matcher is any value with a __match metamethod: it answers null for
 // no match, or the value the rest of the pattern continues with
 local func matcher(f){
-  return {meta: {__match: func(self, v){ return f(v) }}}
+  return {@meta: {__match: func(self, v){ return f(v) }}}
 }
 local list = {
   // 'list.empty matches the empty list

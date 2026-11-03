@@ -11,7 +11,7 @@ local counter_meta = {__index: counter_methods, __type: "Counter"}
 
 // counter() -> a Counter at 0
 func util.counter(){
-  return {meta: counter_meta, n: 0}
+  return {@meta: counter_meta, n: 0}
 }
 
 // bump(by) -> the count after adding by

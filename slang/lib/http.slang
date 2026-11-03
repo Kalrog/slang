@@ -927,7 +927,7 @@ func http.connect(host, port, options){
       host: host, port: port, secure: secure, queue: {}, at: 0, eof: false,
       closed: false
     }
-    c.meta = client_meta
+    c.@meta = client_meta
     return c
   })
 }
@@ -1264,7 +1264,7 @@ func http.multipart_parser(boundary){
     error("http: a multipart body needs a boundary")
   }
   return {
-    meta: multipart_meta, first: concat("--", boundary),
+    @meta: multipart_meta, first: concat("--", boundary),
     delimiter: concat("\r\n--", boundary), buffer: "", state: "preamble",
     max_head: 16384
   }

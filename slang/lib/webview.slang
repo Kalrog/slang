@@ -50,7 +50,7 @@ local func module(){
 }
 
 // [c] is the native extension under this module, loaded when first used.
-webview.meta = {
+webview.@meta = {
   __index: func(t, key){
     if(key == "c"){
       return module()
@@ -161,7 +161,7 @@ func webview.window(options){
   }
   local closed = async.completer()
   local w = {
-    meta: window_meta,
+    @meta: window_meta,
     handle: n.window(opts),
     closed: closed.future,
     binds: {},

@@ -5,7 +5,9 @@
 // key. `len` counts the entries, `append` adds to the end, `keys` and
 // `values` iterate.
 //
-// Tables compare by value with `==`, and assigning `null` removes a key.
+// Tables compare by value with `==`, and assigning `null` removes a key
+// (only that key: the others keep their indices); `remove(list, i)` takes
+// an element out of a list and moves the later ones down.
 local fruits = {"apple", "pear"}
 append(fruits, "plum")
 print(fruits[0], " ", len(fruits), "\n")

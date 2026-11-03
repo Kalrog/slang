@@ -134,7 +134,7 @@ local func new_socket(conn, rest, client, options){
   local c = async.controller(null)
   local closed = async.completer()
   local s = {
-    meta: socket_meta, conn: conn, client: client, messages: c.stream,
+    @meta: socket_meta, conn: conn, client: client, messages: c.stream,
     closed: closed.future, state: "open",
     max_message: options.max_message or 16 * 1024 * 1024
   }

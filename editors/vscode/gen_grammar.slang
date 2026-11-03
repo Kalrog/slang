@@ -131,6 +131,8 @@ local grammar = {
           match: concat("\\b(", words(constants), ")\\b"),
         },
         {name: "keyword.operator.logical.slang", match: "\\b(and|or|not)\\b"},
+        // x.@meta and {@meta: m}: the metatable
+        {name: "keyword.other.meta.slang", match: "@meta\\b"},
       }),
     },
     functions: {

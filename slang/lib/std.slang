@@ -16,10 +16,10 @@ local vm = require("slang/vm")
 // enclosing globals; afterwards the table holds only its own definitions.
 func module(mfunc){
   local m = {}
-  m.meta = {__index: _ENV}
+  m.@meta = {__index: _ENV}
   vm.set_upvalue(mfunc, "_ENV", m)
   mfunc()
-  m.meta.__index = null
+  m.@meta.__index = null
   return m
 }
 
@@ -34,7 +34,7 @@ func __match(m, v){
   local f = null
   if(t != "null" and t != "string" and t != "int" and t != "double" and
     t != "bool" and t != "function"){
-    local meta = m.meta
+    local meta = m.@meta
     if(meta != null){
       f = meta.__match
     }

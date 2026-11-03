@@ -40,8 +40,18 @@ const Index = std.HashMapUnmanaged(Value, u32, KeyCtx, 80);
 const small_limit = 8;
 
 /// The slang table: an array part for keys 0..n-1 plus an insertion-ordered
-/// hash part. The key "meta" addresses the metatable. Storing null removes
-/// the key (and shifts the array part when the key is an array index).
+/// hash part. The metatable is not a key (slang's x.@meta reads it).
+/// Storing null removes the key and nothing else: the elements after a
+/// removed list index keep their keys (they move to the hash part, and
+/// back once the gap is filled). Only removeShifting (the global remove)
+/// moves list elements down.
+
+/// Which references a weak table (slang/vm's weak_keys, weak_values) does
+/// not keep alive: an entry goes once its key (an ephemeron: its value only
+/// stays alive through the key) or its value is collected. Strings, numbers
+/// and booleans are values, never collected out of a weak table.
+pub const Weak = enum(u8) { none, keys, values };
+
 pub const Table = struct {
     obj: Object,
     arr: std.ArrayList(Value) = .empty,
@@ -50,6 +60,7 @@ pub const Table = struct {
     indexed: bool = false,
     /// what this table has as a metatable (see metaFlags); 0 is unknown
     mflags: u8 = 0,
+    weak: Weak = .none,
     dead: u32 = 0,
     meta: ?*Table = null,
 
@@ -113,14 +124,12 @@ pub const Table = struct {
 
     pub fn getStr(t: *const Table, s: *String) Value {
         if (t.find(.{ .string = s })) |idx| return t.ents.items[idx].val;
-        if (s.isMeta()) return Value.fromTable(t.meta);
         return .null;
     }
 
     /// Lookup of a string key given as bytes (for natives).
     pub fn getName(t: *const Table, name: []const u8) Value {
         if (t.findBytes(name)) |idx| return t.ents.items[idx].val;
-        if (std.mem.eql(u8, name, "meta")) return Value.fromTable(t.meta);
         return .null;
     }
 
@@ -204,25 +213,20 @@ pub const Table = struct {
             _ = t.remove(gpa, .{ .string = s });
             return;
         }
-        if (s.isMeta()) {
-            t.meta = val.asTable();
-            return;
-        }
         t.setAny(gpa, .{ .string = s }, val);
     }
 
     /// Overwrites the value of an existing string key; false when the key
-    /// is absent (or is "meta", or the value is null, which both change the
-    /// key set).
+    /// is absent (or the value is null, which changes the key set).
     pub fn replaceStr(t: *Table, s: *String, val: Value) bool {
-        if (val == .null or s.isMeta()) return false;
+        if (val == .null) return false;
         const idx = t.find(.{ .string = s }) orelse return false;
         t.ents.items[idx].val = val;
         return true;
     }
 
-    /// Stores under a string key that is known to be absent (and not
-    /// "meta") a value that is not null: what filling a fresh table does.
+    /// Stores under a string key that is known to be absent a value that
+    /// is not null: what filling a fresh table does.
     pub fn addFresh(t: *Table, gpa: Allocator, s: *String, val: Value) void {
         t.insertNew(gpa, .{ .string = s }, val);
     }
@@ -284,22 +288,31 @@ pub const Table = struct {
         }
     }
 
-    /// Deletes a key and returns the removed value (null if absent).
+    /// Takes the element at list index i out of the array part, moving
+    /// the later ones down (the global remove); null when i is not an
+    /// index of the array part.
+    pub fn removeShifting(t: *Table, i: i64) ?Value {
+        if (i < 0 or i >= t.arr.items.len) return null;
+        return t.arr.orderedRemove(@intCast(i));
+    }
+
+    /// Deletes a key and returns the removed value (null if absent). Only
+    /// that key goes: removing a list index in the middle moves the
+    /// elements after it to the hash part under their own keys.
     pub fn remove(t: *Table, gpa: Allocator, key: Value) Value {
         switch (key) {
             .int => |i| {
                 if (i >= 0 and i < t.arr.items.len) {
-                    return t.arr.orderedRemove(@intCast(i));
+                    const at: usize = @intCast(i);
+                    const v = t.arr.items[at];
+                    for (t.arr.items[at + 1 ..], at + 1..) |x, k| t.insertNew(gpa, .{ .int = @intCast(k) }, x);
+                    t.arr.shrinkRetainingCapacity(at);
+                    return v;
                 }
                 return t.removeAny(gpa, key);
             },
-            .string => |s| {
+            .string => {
                 if (t.find(key)) |idx| return t.takeEntry(gpa, idx);
-                if (s.isMeta()) {
-                    const m = t.meta;
-                    t.meta = null;
-                    return Value.fromTable(m);
-                }
                 return .null;
             },
             .float => {
@@ -426,10 +439,21 @@ test "array part and hash part" {
     t.set(gpa, .{ .int = 4 }, .{ .int = 14 });
     try std.testing.expectEqual(@as(usize, 6), t.arrayLen());
     try std.testing.expectEqual(@as(i64, 15), t.getInt(5).int);
-    // removing from the array part shifts
+    // removing from the array part removes that key only
     _ = t.remove(gpa, .{ .int = 0 });
-    try std.testing.expectEqual(@as(i64, 11), t.getInt(0).int);
+    try std.testing.expectEqual(Value.null, t.getInt(0));
+    try std.testing.expectEqual(@as(i64, 11), t.getInt(1).int);
     try std.testing.expectEqual(@as(usize, 5), t.len());
+    try std.testing.expectEqual(@as(usize, 0), t.arrayLen());
+    // filling the gap makes it a list again
+    t.set(gpa, .{ .int = 0 }, .{ .int = 10 });
+    try std.testing.expectEqual(@as(usize, 6), t.arrayLen());
+    // removing the last element shrinks the list; removeShifting shifts
+    _ = t.remove(gpa, .{ .int = 5 });
+    try std.testing.expectEqual(@as(usize, 5), t.arrayLen());
+    try std.testing.expectEqual(@as(i64, 10), t.removeShifting(0).?.int);
+    try std.testing.expectEqual(@as(i64, 11), t.getInt(0).int);
+    try std.testing.expectEqual(@as(usize, 4), t.arrayLen());
     // float keys normalise
     try std.testing.expectEqual(@as(i64, 12), t.get(.{ .float = 1.0 }).int);
 }

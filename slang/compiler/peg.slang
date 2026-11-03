@@ -138,7 +138,7 @@ local func new_parser(parse_on, children, kind, fast){
     children: children or {},
     kind: kind or "custom",
   }
-  p.meta = parser_meta
+  p.@meta = parser_meta
   return p
 }
 
@@ -354,7 +354,7 @@ peg.token_meta = token_meta
 // A token for ctx's input, without a category.
 func peg.make_token(ctx, value, start, stop){
   return {
-    value: value, start: start, stop: stop, buffer: ctx.buffer, meta: token_meta
+    value: value, start: start, stop: stop, buffer: ctx.buffer, @meta: token_meta
   }
 }
 
@@ -2006,7 +2006,7 @@ func peg.walker(skip){
     skip: skip, levels: {}, primaries: {}, nuds: {}, leds: {},
     loopback: peg.settable(null), sealed: null
   }
-  w.meta = walker_meta
+  w.@meta = walker_meta
   return w
 }
 
@@ -2015,7 +2015,7 @@ local func new_level(w, name, aliases){
     walker: w, name: name, aliases: aliases or {}, wrappers: {}, prefixes: {},
     postfixes: {}, rights: {}, lefts: {}
   }
-  l.meta = level_meta
+  l.@meta = level_meta
   return l
 }
 
@@ -2523,7 +2523,7 @@ local func collecting_walker(w){
   local c = w.collecting
   if(c == null){
     c = {}
-    c.meta = {__index: w}
+    c.@meta = {__index: w}
     c.parse_at = func(self, ctx, pos, min_bp){
       if(ctx.collect == null){
         return w:parse_at(ctx, pos, min_bp)
@@ -3214,7 +3214,7 @@ func peg.on(parser, layer, f){
     error("on() takes a layer made with peg.layer")
   }
   local pipe = {ops: {}}
-  pipe.meta = pipeline_meta
+  pipe.@meta = pipeline_meta
   f(pipe)
   local p
   if(copyable[parser.kind]){
@@ -3222,7 +3222,7 @@ func peg.on(parser, layer, f){
     for(let local e in entries(parser)){
       p[e[0]] = e[1]
     }
-    p.meta = parser_meta
+    p.@meta = parser_meta
     // an id of its own: memos are kept by id, and the copy's nodes carry
     // other layer operations
     next_id = next_id + 1

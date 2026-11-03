@@ -6,7 +6,7 @@ t.group("metatables"){
 
     local bar = {type: "Bar", fooBar: 12}
 
-    bar.meta = {__index: foo}
+    bar.@meta = {__index: foo}
 
     assert(bar.bar == 42, "metatable get table (__index) correctly")
     assert(bar.fooBar == 12, "metatable get normal table value correctly")
@@ -17,7 +17,7 @@ t.group("metatables"){
 
     local bar = {type: "Bar", fooBar: 12}
 
-    bar.meta = {__index: foo}
+    bar.@meta = {__index: foo}
 
     if(not let {bar: 42} = bar){
       assert(false, "should never reach here")
@@ -27,7 +27,7 @@ t.group("metatables"){
   t.test("metatable __index set value"){
     local foo = {type: "Foo", bar: 42}
     local bar = {type: "Bar", fooBar: 12}
-    bar.meta = {__index: foo}
+    bar.@meta = {__index: foo}
     bar.bar = 12
     assert(bar.bar == 12, "metatable set table value correctly")
     assert(foo.bar == 42, "metatable set table value correctly")
@@ -36,7 +36,7 @@ t.group("metatables"){
   t.test("metatable __newindex"){
     local foo = {type: "Foo", bar: 42}
     local bar = {type: "Bar", fooBar: 12}
-    bar.meta = {__newindex: foo}
+    bar.@meta = {__newindex: foo}
     bar.bar = 12
     assert(foo.bar == 12, "metatable set table value correctly")
     bar.newField = 42
@@ -65,7 +65,7 @@ t.group("metatables"){
 
     local foo = {type: "Foo", bar: 42}
 
-    foo.meta = {__index: index}
+    foo.@meta = {__index: index}
 
     expect(null, null)
     assert(foo.bar == 42, "__index is only called when field is not found")
@@ -97,7 +97,7 @@ t.group("metatables"){
       )
     }
     local foo = {type: "Foo", bar: 42}
-    foo.meta = {__newindex: newindex}
+    foo.@meta = {__newindex: newindex}
     expect(null, null, null)
     foo.bar = 42
     assert(foo.bar == 42, "__newindex is only called when field is not found")
@@ -129,9 +129,9 @@ t.group("operator metamethods"){
     __tostring: func(a){ return concat("(", a.x, ", ", a.y, ")") },
     __len: func(a){ return 2 },
   }
-  func Vec.new(x, y){ return {x: x, y: y, meta: vec_meta} }
+  func Vec.new(x, y){ return {x: x, y: y, @meta: vec_meta} }
   func Vec.sqlen(self){ return self.x * self.x + self.y * self.y }
-  Vec.meta = {__call: func(self, x, y){ return Vec.new(x, y) }}
+  Vec.@meta = {__call: func(self, x, y){ return Vec.new(x, y) }}
 
   t.test("__call constructs through the type table"){
     local v = Vec(1, 2)
@@ -196,7 +196,7 @@ t.group("operator metamethods"){
     assert(r[0] == "err", "call")
   }
   t.test("errors inside metamethods propagate"){
-    local bad = {meta: {__add: func(a, b){ error("no adding") }}}
+    local bad = {@meta: {__add: func(a, b){ error("no adding") }}}
     local r = pcall(func(){ return bad + 1 })
     assert(r[0] == "err" and r[1].message == "no adding", "error propagates")
   }
@@ -213,7 +213,7 @@ t.group("metatable fast paths"){
   t.test("__newindex added to a metatable later is seen"){
     local m = {}
     local o = {a: 1}
-    o.meta = m
+    o.@meta = m
     o.b = 2
     assert(o.b == 2, "inline store without __newindex")
     local log = {}
@@ -229,33 +229,51 @@ t.group("metatable fast paths"){
   t.test("__newindex replaced by a table redirects"){
     local other = {}
     local o = {}
-    o.meta = {__newindex: func(){}}
+    o.@meta = {__newindex: func(){}}
     o.x = 1
     assert(o.x == null, "function first")
-    o.meta.__newindex = other
+    o.@meta.__newindex = other
     o.y = 2
     assert(o.y == null and other.y == 2, "then the table")
   }
   t.test("__index chains over tables"){
     local a = {deep: "a"}
-    local b = {meta: {__index: a}}
-    local c = {meta: {__index: b}}
-    local o = {meta: {__index: c}}
+    local b = {@meta: {__index: a}}
+    local c = {@meta: {__index: b}}
+    local o = {@meta: {__index: c}}
     assert(o.deep == "a", "three levels")
     assert(o.missing == null, "a miss at the end is null")
   }
   t.test("__index function in the middle of a chain"){
-    local b = {meta: {__index: func(tbl, k){ return concat("fn:", k) }}}
-    local o = {meta: {__index: b}}
+    local b = {@meta: {__index: func(tbl, k){ return concat("fn:", k) }}}
+    local o = {@meta: {__index: b}}
     assert(o.name == "fn:name", "the function answers")
   }
-  t.test("the key meta works when the string is built at run time"){
+  t.test("only @meta is the metatable: the key \"meta\" is data"){
     local o = {x: 1}
     local k = concat("me", "ta")
     o[k] = {__index: {y: 2}}
-    assert(o.y == 2, "set the metatable through a built key")
-    assert(o[k].__index.y == 2, "read it back through a built key")
-    o[k] = null
-    assert(o.y == null, "removed through a built key")
+    assert(o.y == null and o.@meta == null, "a built key is an ordinary field")
+    assert(o.meta.__index.y == 2 and o["meta"] == o.meta, "read back as one")
+    o.@meta = {__index: {y: 3}}
+    assert(o.y == 3 and o.meta.__index.y == 2, "both, side by side")
+    o.@meta = null
+    assert(o.y == null, "removed")
+    // data never sets a metatable (a decoded {"meta": ...} stays a field)
+    local json = require("slang/json")
+    local d = json.decode("{\"meta\": {\"__type\": \"Admin\"}}")
+    assert(type(d) == "table" and d.meta.__type == "Admin", type(d))
+    assert(json.encode(d) == "{\"meta\":{\"__type\":\"Admin\"}}")
   }
+  t.test("@meta in a literal, with spreads, and on other values"){
+    local m = {__type: "P"}
+    local p = {...{1, 2}, x: 1, @meta: m}
+    assert(type(p) == "P" and p[1] == 2 and p.x == 1)
+    assert((5).@meta == null and ("s").@meta == null)
+    local r = pcall(func(){ ("s").@meta = m })
+    assert(r[0] == "err" and r[1].message == "cannot set the metatable of a string value", r[1].message)
+    r = pcall(func(){ p.@meta = 3 })
+    assert(r[0] == "err" and r[1].message == "@meta must be a table or null, got int", r[1].message)
+  }
+
 }

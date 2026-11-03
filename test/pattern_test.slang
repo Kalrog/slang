@@ -59,7 +59,7 @@ test.group("pattern matching", func(){
     }
   }
   test.test("pattern matching with type"){
-    local value = {hello: "world", meta: {__type: "HelloWorld"}}
+    local value = {hello: "world", @meta: {__type: "HelloWorld"}}
     if(let 'HelloWorld{hello: local var} = value){
       assert(var == "world", "pattern should match")
     } else {

@@ -236,7 +236,7 @@ func compiler.generate(node, origin){
 //
 // With env the function's globals are env, not the program's: a
 // sandbox sees only what env holds, and its global assignments stay in
-// env (env.meta = {__index: ...} reads through to other globals). The
+// env (env.@meta = {__index: ...} reads through to other globals). The
 // source then may not run code while it is compiled: unquotes and
 // extension statements are errors, since they would run with the
 // compiler's globals. There are no CPU or memory limits.

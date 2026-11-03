@@ -50,7 +50,7 @@ func regex_get.group_names(self){}
 // Compiles a pattern; raises "regex: <problem> at offset <n> in
 // `<pattern>`" for a syntax error.
 func m.compile(pattern){
-  return {meta: regex_meta}
+  return {@meta: regex_meta}
 }
 
 // escape(s: string) -> string

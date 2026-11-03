@@ -238,7 +238,7 @@ rng_meta.__index = {
 }
 
 func m.random(seed){
-  return {state: (seed or 1) & 2147483647, meta: rng_meta}
+  return {state: (seed or 1) & 2147483647, @meta: rng_meta}
 }
 
 // smooth value noise in [−1, 1] over x, z: a few octaves of a hashed grid

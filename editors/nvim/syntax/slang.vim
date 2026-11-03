@@ -28,6 +28,8 @@ syn keyword slangException try catch defer
 syn keyword slangStorage local func extension global
 syn keyword slangConstant true false null
 syn keyword slangWordOperator and or not
+" x.@meta and {@meta: m}: the metatable
+syn match slangMeta "@meta\>"
 
 hi def link slangTodo Todo
 hi def link slangComment Comment
@@ -44,5 +46,6 @@ hi def link slangException Exception
 hi def link slangStorage StorageClass
 hi def link slangConstant Constant
 hi def link slangWordOperator Operator
+hi def link slangMeta Keyword
 
 let b:current_syntax = "slang"

@@ -17,6 +17,15 @@
 // does no harm, or raise [Collector.minimum] so that they come rarely.
 // Each isolate is a VM of its own with a collector of its own: settings
 // changed in one do not reach the others.
+//
+// [on_collect] runs a function once a value is collected (to free what a
+// C library gave it), and [weak_keys], [weak_values] and [weak] refer to
+// values without keeping them alive.
+//
+//   local img = rl.gen_image_perlin_noise(256, 256, 0, 0, 5)
+//   vm.on_collect(img, func(i){ rl.unload_image(i) })
+//   local px = buffer.wrap(img.data, 256 * 256 * 4, "unsigned char")
+//   px.keep = img            // the image lives as long as px or img does
 
 // The collector of this VM, as [gc] has it.
 // type Collector = {growth: float, minimum: int, automatic: bool,
@@ -51,8 +60,47 @@ m.gc = {
 // collect()
 // A full collection now: everything nothing refers to any more is freed,
 // and the finalizers of what was freed (slang/ffi's gc, buffers' memory,
-// files) run, before it returns.
+// files) run, before it returns, as do those of [on_collect] for what was
+// found unreachable.
 func m.collect(){}
+
+// on_collect(v: table | function, f: func(v: any)?)
+// Runs f(v) once v is no longer reachable: after the collection that finds
+// it so, on a thread of its own, never in the middle of other code. One
+// finalizer per value: calling on_collect again replaces it, and null
+// removes it (for a resource freed by hand). v may be a table, a userdata
+// (a buffer, a pointer), a function or a coroutine.
+//
+// f may refer to v (only v keeps f alive, not the other way round). v is
+// kept alive until f has run, and freed by a later collection unless f
+// made it reachable again; it is not finalized a second time. Weak tables
+// let go of v before f runs. An error in f is printed to stderr and does
+// not stop the program. When the VM ends (the program, an isolate), the
+// finalizers of everything still registered run.
+//   vm.on_collect(texture_image, func(i){ rl.unload_image(i) })
+func m.on_collect(v, f){}
+
+// weak_keys() -> table
+// A table whose keys do not keep their entries alive: an entry goes once
+// its key is collected, and its value is alive only as long as its key is
+// (a value that refers to its key does not keep it). For data about
+// objects that belong to someone else. Strings, numbers and booleans are
+// never collected: as keys, they keep their entries.
+func m.weak_keys(){}
+
+// weak_values() -> table
+// A table whose values do not keep their entries alive: an entry goes once
+// its value is collected. For caches. Strings, numbers and booleans are
+// never collected: as values, they stay. Removing an entry is removing a
+// key: the other list indices stay where they are.
+func m.weak_values(){}
+
+// weak(v: any) -> {value: any}
+// A weak reference: r.value is v while something else keeps v alive, and
+// null once it is collected (a [weak_values] table holding v as value).
+//   local r = vm.weak(window)
+//   if(r.value != null){ r.value:redraw() }
+func m.weak(v){}
 
 // load_bytecode(path: string) -> function
 // The main function of a compiled .slb file.

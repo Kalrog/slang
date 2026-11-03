@@ -1726,7 +1726,7 @@ func ffi.load(name, decls, options){
   need_core()
   options = options or {}
   local handle = open_library(name, options)
-  return {meta: library_meta, handle: handle, decls: decls}
+  return {@meta: library_meta, handle: handle, decls: decls}
 }
 
 // c_layer(lib: Library, type_name?: string) -> table
@@ -1737,7 +1737,7 @@ func ffi.load(name, decls, options){
 func ffi.c_layer(lib, type_name){
   local constants = lib.decls.constants
   local t = {}
-  t.meta = {
+  t.@meta = {
     __index: func(self, name){
       local f = lib[name]
       if(f != null){

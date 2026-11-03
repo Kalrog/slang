@@ -60,7 +60,7 @@ local func collect(node, found){
     return null
   }
   for(let local e in entries(node)){
-    if(e[0] != "token" and e[0] != "meta"){
+    if(e[0] != "token"){
       collect(e[1], found)
     }
   }

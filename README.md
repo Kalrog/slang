@@ -271,7 +271,7 @@ func vector.add(a, b) {
     return {x: a.x + b.x, y: a.y + b.y}
 }
 a = {x: 1, y: 2}
-a.meta = {__index: vector}
+a.@meta = {__index: vector}
 b = {x: 3, y: 4}
 a.add(a, b)
 // special shorthand for functions whose first argument is the table they are inside of
@@ -281,8 +281,10 @@ a:add(b)
 ```
 The metatable understands `__index` (table or function), `__newindex` (table
 or function) and `__type` (a string or a function, used by `type()` and by
-`'Type{...}` patterns). Assigning `null` to a key removes it. Tables compare
-structurally with `==`.
+`'Type{...}` patterns). Assigning `null` to a key removes that key and
+nothing else, a list index included (`list[2] = null` leaves `list[3]`
+where it is); `remove(list, i)` takes an element out of a list and moves
+the later ones down. Tables compare structurally with `==`.
 
 Properties read and write like fields but run functions: `__get` and `__set`
 are tables of getters and setters by key. They are looked up for keys the
@@ -295,7 +297,7 @@ local temperature_meta = {
     __get: {fahrenheit: func(t) => t.celsius * 9 / 5 + 32},
     __set: {fahrenheit: func(t, f){ t.celsius = (f - 32) * 5 / 9 }},
 }
-local t = {celsius: 20, meta: temperature_meta}
+local t = {celsius: 20, @meta: temperature_meta}
 t.fahrenheit        // 68.0
 t.fahrenheit = 212  // t.celsius is 100.0
 ```
@@ -312,8 +314,8 @@ local vec_meta = {
     __eq: func(a, b) => a.x == b.x and a.y == b.y,
     __tostring: func(a) => concat("(", a.x, ", ", a.y, ")"),
 }
-func Vec.new(x, y) { return {x: x, y: y, meta: vec_meta} }
-Vec.meta = {__call: func(self, x, y) => Vec.new(x, y)}   // Vec(1, 2)
+func Vec.new(x, y) { return {x: x, y: y, @meta: vec_meta} }
+Vec.@meta = {__call: func(self, x, y) => Vec.new(x, y)}   // Vec(1, 2)
 print(Vec(1, 2) + Vec(3, 4) * 2)                         // (7, 10)
 ```
 `__add`, `__sub`, `__mul`, `__div`, `__mod` and `__pow` are consulted when the
@@ -445,7 +447,7 @@ change the grammar.
 `compile(code, origin, env)` gives the compiled code its own globals, as
 Lua's `load` does: it sees only what the table `env` holds, and its global
 assignments land in `env` (functions it makes keep that env). An env with
-`meta: {__index: shared}` reads through to other values. Since unquotes
+`@meta: {__index: shared}` reads through to other values. Since unquotes
 and extension statements would run with the compiler's globals, a
 sandboxed source may not contain them. It is a sandbox for names, not for
 resources: there are no CPU or memory limits.

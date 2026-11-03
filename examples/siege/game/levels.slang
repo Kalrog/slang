@@ -75,7 +75,7 @@ func m.builder(name, seed){
     spawn_at: {x: 0, z: -30, yaw: 0},
     target_points: 3000,
     ammo_list: null,
-    meta: builder_meta,
+    @meta: builder_meta,
   }
 }
 

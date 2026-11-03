@@ -67,7 +67,7 @@ local runtime_block = +{block:
     local d = existing
     if(type(d) != "def"){
       d = {name: name, clauses: {}}
-      d.meta = dispatcher_meta
+      d.@meta = dispatcher_meta
     }
     append(d.clauses, {n: n, rest: has_rest, f: clause})
     return d

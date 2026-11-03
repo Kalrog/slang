@@ -94,7 +94,7 @@ row("closure per sample", func(){
 local osc = {}
 func osc.new(freq){
   local o = {phase: 0.0, inc: freq / rate}
-  o.meta = {__index: osc}
+  o.@meta = {__index: osc}
   return o
 }
 func osc.next(self){

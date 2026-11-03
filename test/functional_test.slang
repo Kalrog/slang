@@ -111,7 +111,7 @@ t.group("def"){
     local r = run("""
       def fact(0){ return 1 }
       def fact(n) when(n > 0){ return n * fact(n - 1) }
-      local Circle = {meta: {__type: "Circle"}, radius: 2}
+      local Circle = {@meta: {__type: "Circle"}, radius: 2}
       def area('Circle{radius: r}){ return 3 * r * r }
       def area({w, h}){ return w * h }
       def area(_){ return "other" }
@@ -147,7 +147,7 @@ t.group("def"){
   }
   t.test("matchers in parameters take lists apart"){
     local r = run("""
-      local func matcher(f){ return {meta: {__match: func(self, v){ return f(v) }}} }
+      local func matcher(f){ return {@meta: {__match: func(self, v){ return f(v) }}} }
       local list = {
         empty: matcher(=> len(_) == 0 and _ or null),
         cons: matcher(func(l){

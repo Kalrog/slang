@@ -64,7 +64,7 @@ t.group("isolates"){
 
   t.test("values are copied, with cycles, sharing and metatables"){
     local shape = {__index: {area: func(s){ return s.w * s.h }}}
-    local box = {w: 2, h: 3, meta: shape}
+    local box = {w: 2, h: 3, @meta: shape}
     local msg = {box: box, again: box, list: {1, 2.5, "three", true}}
     msg.self = msg
     local w = isolate.spawn(func(m){

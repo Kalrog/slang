@@ -207,7 +207,7 @@ func build_ast(ast){
         func name(){
           return -{build_ast(rule)}:map(func(result){
             if(_ENV.type(result) == "table"){
-              result.meta = {__type: -{{type: "String", value: name.value}}}
+              result.@meta = {__type: -{{type: "String", value: name.value}}}
             }
             return result
           })

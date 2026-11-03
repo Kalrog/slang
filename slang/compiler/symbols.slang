@@ -949,12 +949,15 @@ func recorder.use(rec, name, token, def, write, value, statement){
 // their owner
 local chained_receivers = {Index: true, Call: true, Invoke: true}
 
-// a field read or written by name: o.name, o["name"], o:name(...)
+// a field read or written by name: o.name, o["name"], o:name(...); o.@meta
+// is recorded as the field "@meta", which no name can be
 func recorder.field(rec, node, write, value, statement){
   local receiver = node.receiver
   local key = node.index
   if(node.type == "Invoke"){
     key = node.name
+  } else if(node.type == "Meta"){
+    key = {type: "String", value: "@meta", token: node.token}
   }
   if(key == null or (key.type != "String" and key.type != "Identifier")){
     return null
@@ -1039,11 +1042,22 @@ local func table_fields(rec, owner, value){
     return null
   }
   for(let local f in values(value.fields)){
-    if(f.type == "Field" and f.key != null and f.key.type == "String" and
-      in_source(rec, f.key.token)){
-      local def = new_def(rec, f.key.value, f.key.token, "field", f.value, null)
+    // @meta: m is the field "@meta" (see recorder.field)
+    local key = f.key
+    if(f.type == "MetaField" and f.token != null){
+      // the token of the word @meta, at the start of the field
+      local word = {}
+      for(let local e in entries(f.token)){
+        word[e[0]] = e[1]
+      }
+      word.stop = word.start + 5
+      key = {type: "String", value: "@meta", token: word}
+    }
+    if((f.type == "Field" or f.type == "MetaField") and key != null and
+      key.type == "String" and in_source(rec, key.token)){
+      local def = new_def(rec, key.value, key.token, "field", f.value, null)
       def.owner = owner
-      def.statement = f.key.token.start
+      def.statement = key.token.start
       if(owner.fields[def.name] == null){
         owner.fields[def.name] = def
       }
@@ -1138,7 +1152,7 @@ func symbols.analyse(block, source, origin){
     source: source, defs: {}, refs: {}, fields: {}, at: {}, globals: {},
     global_owners: {}, chained: {}
   }
-  rec.meta = recorder_meta
+  rec.@meta = recorder_meta
   // a block that does not compile (an unfinished edit) still has the names
   // recorded up to the failure
   pcall(codegen.generate, block, origin or "string", {record: rec})

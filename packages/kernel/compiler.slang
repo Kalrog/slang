@@ -205,7 +205,7 @@ local parser_methods = {}
 local parser_meta = {__index: parser_methods}
 
 local func new_parser(tokens, origin){
-  return {tokens: tokens, pos: 0, origin: origin, meta: parser_meta}
+  return {tokens: tokens, pos: 0, origin: origin, @meta: parser_meta}
 }
 
 func parser_methods.peek(self){
@@ -674,7 +674,7 @@ local func new_gen(unit, origin, name){
     loops: {},
     slots: 0,
     inline: {},
-    meta: gen_meta,
+    @meta: gen_meta,
   }
 }
 

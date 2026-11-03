@@ -66,6 +66,8 @@ local OP_CALL_SPREAD = 34
 local OP_TRY_BEGIN = 35
 local OP_TRY_END = 36
 local OP_THROW = 37
+local OP_GET_META = 38
+local OP_SET_META = 39
 
 // the fused forms (the VM's `fused` profile), numbered from 63 down; see
 // fuse below and zig/src/vm/disasm.zig
@@ -148,7 +150,7 @@ func asm.new(parent, origin, nargs, is_vararg){
     max_registers: 0,
     scope: 0,
   }
-  a.meta = asm_meta
+  a.@meta = asm_meta
   return a
 }
 
@@ -417,6 +419,17 @@ func asm.emit_set_table(self){
 
 func asm.emit_get_table(self){
   self:emit(OP_GET_TABLE)
+}
+
+// get_meta: the metatable of the value on top (x.@meta)
+func asm.emit_get_meta(self){
+  self:emit(OP_GET_META)
+}
+
+// set_meta: pops a value and the table under it and makes the value the
+// table's metatable (x.@meta = m)
+func asm.emit_set_meta(self){
+  self:emit(OP_SET_META)
 }
 
 func asm.emit_load_bool(self, value, jump){
@@ -944,7 +957,7 @@ func pattern_new(parent){
   local p = {
     step: "check", missmatch_jumps: {}, stack_increase: 0, parent: parent
   }
-  p.meta = pat_meta
+  p.@meta = pat_meta
   return p
 }
 
@@ -1148,7 +1161,7 @@ func visitors.Assignment(g, node){
   if(g.record != null){
     if(left.type == "Identifier"){
       record_use(g, left.value, left.token, true, node.right, node.token)
-    } else if(left.type == "Index"){
+    } else if(left.type == "Index" or left.type == "Meta"){
       g.record:field(left, true, node.right, node.token)
     }
   }
@@ -1175,6 +1188,10 @@ func visitors.Assignment(g, node){
     g:visit(left.index)
     g:visit(node.right)
     g.asm:emit_set_table()
+  } else if(left.type == "Meta"){
+    g:visit(left.receiver)
+    g:visit(node.right)
+    g.asm:emit_set_meta()
   } else {
     error("Invalid assignment target: ", ast.to_string(left))
   }
@@ -1520,7 +1537,27 @@ local func emit_call_args(g, args, extra, token, call){
   g.asm:emit_call_spread(fixed + extra)
 }
 
+// {..., @meta: m}: the table is built from its other fields, then given
+// its metatable
 func visitors.Table(g, node){
+  local metas = {}
+  local fields = {}
+  for(let local f in values(node.fields)){
+    if(f.type == "MetaField"){
+      append(metas, f)
+    } else {
+      append(fields, f)
+    }
+  }
+  if(len(metas) > 0){
+    g:visit(ast.node("Table", {fields: fields}, node.token))
+    for(let local f in values(metas)){
+      g.asm:emit_push(-1)
+      g:visit(f.value)
+      g.asm:emit_set_meta()
+    }
+    return null
+  }
   if(has_spread(node.fields)){
     emit_spread_list(g, node.fields, node.token)
     return null
@@ -1555,6 +1592,14 @@ func visitors.Index(g, node){
   g:visit(node.receiver)
   g:visit(node.index)
   g.asm:emit_get_table()
+}
+
+func visitors.Meta(g, node){
+  if(g.record != null){
+    g.record:field(node, false)
+  }
+  g:visit(node.receiver)
+  g.asm:emit_get_meta()
 }
 
 // the outer scope holds locals bound by the condition (let patterns); each
@@ -2023,7 +2068,7 @@ func visitors.Unquote(g, node){
 // profile (the default when vm.features() has no fused)
 func codegen.generate(node, origin, options){
   local g = {}
-  g.meta = gen_meta
+  g.@meta = gen_meta
   local fused = fuse_enabled
   if(options != null){
     g.record = options.record

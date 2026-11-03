@@ -116,7 +116,7 @@ func m.new(w, spawn){
     speed: 0,
     wheel_speed: 0,
     loaded: true,
-    meta: vehicle_meta,
+    @meta: vehicle_meta,
   }
   w.vehicle_id = body.id
   w.blast = func(pos, radius, strength){

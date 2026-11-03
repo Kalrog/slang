@@ -40,7 +40,7 @@ t.group("float arithmetic"){
   }
   t.test("metamethods still run for tables"){
     local v = {n: 2}
-    v.meta = {
+    v.@meta = {
       __add: func(a, b){ return (type(a) == "table" and a.n or a) + (type(b) == "table" and b.n or b) },
       __mul: func(a, b){ return a.n * b },
       __eq: func(a, b){ return true },
@@ -48,7 +48,7 @@ t.group("float arithmetic"){
     }
     assert(v + 1 == 3 and 1 + v == 3 and v * 3 == 6)
     local w = {n: 5}
-    w.meta = v.meta
+    w.@meta = v.@meta
     assert(v == w and v < w)
   }
   t.test("strings add and repeat"){
@@ -214,7 +214,7 @@ t.group("calls and returns"){
     }
     assert(va(1) == 0 and va(1, 2, 3) == 2)
     local callable = {}
-    callable.meta = {__call: func(self, x){ return x * 2 }}
+    callable.@meta = {__call: func(self, x){ return x * 2 }}
     assert(callable(21) == 42)
     local func early(){
       try {

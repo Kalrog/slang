@@ -119,7 +119,7 @@ local func wrapper_class(v){
   if(not str.starts_with(type(v), "box2d.")){
     return null
   }
-  return v.meta.__class
+  return v.@meta.__class
 }
 
 // a value as C takes it: a wrapper stands for its id
@@ -230,7 +230,7 @@ for(let local name in values(C.order)){
 // [decls] has the declarations.
 // type Raw = {[string]: function}
 local raw = {}
-raw.meta = {
+raw.@meta = {
   __index: func(t, name){
     local c = c_names[name]
     if(c == null){
@@ -425,7 +425,7 @@ local func define_class(name, chain, methods, getters, setters){
   // share), then Box2D's; each looked up once and kept
   local found = {}
   local missing = {}
-  found.meta = {
+  found.@meta = {
     __index: func(t, key){
       if(type(key) != "string" or missing[key]){
         return null
@@ -443,7 +443,7 @@ local func define_class(name, chain, methods, getters, setters){
     name: name, links: links, methods: methods, getters: getters,
     setters: setters
   }
-  class.meta = {
+  class.@meta = {
     __type: concat("box2d.", name),
     __index: found,
     __get: getters,
@@ -580,7 +580,7 @@ local func body_of(w, id){
   local key = store_id(id)
   local b = w.bodies[key]
   if(b == null){
-    b = {id: id, key: key, world: w, meta: Body.meta}
+    b = {id: id, key: key, world: w, @meta: Body.@meta}
     w.bodies[key] = b
   }
   return b
@@ -590,7 +590,7 @@ local func shape_of(w, id){
   local key = store_id(id)
   local s = w.shapes[key]
   if(s == null){
-    s = {id: id, key: key, world: w, meta: Shape.meta}
+    s = {id: id, key: key, world: w, @meta: Shape.@meta}
     set_raw(s, "body", body_of(w, lib.b2Shape_GetBody(id)))
     w.shapes[key] = s
   }
@@ -601,7 +601,7 @@ local func chain_of(w, id){
   local key = store_id(id)
   local c = w.chains[key]
   if(c == null){
-    c = {id: id, key: key, world: w, meta: Chain.meta}
+    c = {id: id, key: key, world: w, @meta: Chain.@meta}
     w.chains[key] = c
   }
   return c
@@ -614,7 +614,7 @@ local func joint_of(w, id, kind){
     if(kind == null){
       kind = kinds_by_type[lib.b2Joint_GetType(id)] or "unknown"
     }
-    j = {id: id, key: key, kind: kind, world: w, meta: joint_class(kind).meta}
+    j = {id: id, key: key, kind: kind, world: w, @meta: joint_class(kind).@meta}
     w.joints[key] = j
   }
   return j
@@ -735,7 +735,7 @@ func b2.world(def){
     shapes: {},
     chains: {},
     joints: {},
-    meta: World.meta,
+    @meta: World.@meta,
   }
   worlds[id.index1] = w
   return w
@@ -776,7 +776,7 @@ func world_methods.create_body(w, def){
     def = {...def, type: C.constants[c]}
   }
   local id = lib.b2CreateBody(w.id, def_of(def, C.types.b2BodyDef, "box2d.create_body"))
-  local b = {id: id, key: store_id(id), world: w, meta: Body.meta}
+  local b = {id: id, key: store_id(id), world: w, @meta: Body.@meta}
   w.bodies[b.key] = b
   return b
 }
@@ -806,7 +806,7 @@ local func create_joint(w, kind, def){
   local id = lib[concat("b2Create", prefix)](
     w.id, def_of(def, t, concat("box2d.create_", kind, "_joint"))
   )
-  local j = {id: id, key: store_id(id), kind: kind, world: w, meta: joint_class(kind).meta}
+  local j = {id: id, key: store_id(id), kind: kind, world: w, @meta: joint_class(kind).@meta}
   w.joints[j.key] = j
   return j
 }
@@ -982,7 +982,7 @@ func body_methods.destroy(b){
 
 local func create_shape(b, c_name, def, geometry, what){
   local id = lib[c_name](b.id, def_of(def, C.types.b2ShapeDef, what), geometry)
-  local s = {id: id, key: store_id(id), body: b, world: b.world, meta: Shape.meta}
+  local s = {id: id, key: store_id(id), body: b, world: b.world, @meta: Shape.@meta}
   b.world.shapes[s.key] = s
   return s
 }
@@ -1024,7 +1024,7 @@ func body_methods.create_chain_segment_shape(b, def, segment){
 // the body.
 func body_methods.create_chain(b, def){
   local id = lib.b2CreateChain(b.id, def_of(def, C.types.b2ChainDef, "box2d.create_chain"))
-  local c = {id: id, key: store_id(id), body: b, world: b.world, meta: Chain.meta}
+  local c = {id: id, key: store_id(id), body: b, world: b.world, @meta: Chain.@meta}
   b.world.chains[c.key] = c
   return c
 }
@@ -1400,7 +1400,7 @@ local func is_free(c_name){
   return true
 }
 
-b2.meta = {
+b2.@meta = {
   __index: func(t, name){
     local c = c_names[name]
     if(c == null or not is_free(c)){

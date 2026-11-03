@@ -129,8 +129,8 @@ if(let {&quot;err&quot;, local e} = r){
 <p>Adds v at the end of the list part of t, keeping a null v as a slot (<a href="#append"><code>append</code></a> and list literals stop at null).</p>
 
 </div>
-<div class="def" id="remove"><h3><code>remove(t: table, key) -> any</code></h3>
-<p>The value removed from t at key, or null. Removing a list index shifts the later elements down. Returns null when t is not a table.</p>
+<div class="def" id="remove"><h3><code>remove(list: {any}, i: int) -> any</code></h3>
+<p>Takes the element at index i out of the list, moving the later elements down by one, and returns it: the inverse of slang/table's insert. Raises when i is not an index of the list (0 to len - 1). To remove a key without moving anything, assign null: t[k] = null.</p>
 
 </div>
 <div class="def" id="keys"><h3><code>keys(t: table) -> function</code></h3>

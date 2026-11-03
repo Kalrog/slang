@@ -86,7 +86,7 @@ func stream_methods.finish(s){
 // A stream that compresses what is pushed (options as for [deflate]).
 func zlib.compressor(options){
   local o = options or {}
-  return {meta: stream_meta, handle: native.compressor(o.format, o.level)}
+  return {@meta: stream_meta, handle: native.compressor(o.format, o.level)}
 }
 
 // decompressor(options?: {format?: string, max_size?: int}) -> Stream
@@ -95,7 +95,7 @@ func zlib.compressor(options){
 func zlib.decompressor(options){
   local o = options or {}
   return {
-    meta: stream_meta, handle: native.decompressor(o.format, o.max_size)
+    @meta: stream_meta, handle: native.decompressor(o.format, o.max_size)
   }
 }
 

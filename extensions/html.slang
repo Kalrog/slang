@@ -247,7 +247,7 @@ local func part_token(token, part, offset){
   local start = token.start + offset
   return {
     value: part, start: start, stop: start + len(part), buffer: token.buffer,
-    meta: peg.token_meta
+    @meta: peg.token_meta
   }
 }
 
@@ -332,11 +332,7 @@ local func build(name, attrs, children, token){
     if(len(kids) > 0){
       // a trusted list (see slang/html): its text is not escaped again
       local marked = {
-        ast.node(
-          "Field",
-          {key: string_node("meta", token), value: runtime("list", token)},
-          token,
-        ),
+        ast.node("MetaField", {value: runtime("list", token)}, token),
       }
       for(local i = 0; i < len(kids); i = i + 1){
         append(marked, kids[i])

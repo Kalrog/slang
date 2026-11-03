@@ -3,7 +3,7 @@ local time = require("slang/time")
 local point = {}
 func point.new(x, y){
   local p = {x: x, y: y}
-  p.meta = {__index: point}
+  p.@meta = {__index: point}
   return p
 }
 func point.add(self, o){

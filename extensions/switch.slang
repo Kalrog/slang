@@ -39,7 +39,7 @@ func switch_statement.new(token, value, case_blocks){
     token: token,
     value: value,
     case_blocks: case_blocks,
-    meta: {__index: switch_statement},
+    @meta: {__index: switch_statement},
   }
   return obj
 }
@@ -96,7 +96,7 @@ func case_block.new(token, pattern, body){
     token: token,
     pattern: pattern,
     body: body,
-    meta: {__index: case_block},
+    @meta: {__index: case_block},
   }
   return obj
 }

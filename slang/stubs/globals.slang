@@ -104,10 +104,12 @@ func append(t, v){}
 // ([append] and list literals stop at null).
 func list_push(t, v){}
 
-// remove(t: table, key) -> any
-// The value removed from t at key, or null. Removing a list index shifts
-// the later elements down. Returns null when t is not a table.
-func remove(t, key){}
+// remove(list: {any}, i: int) -> any
+// Takes the element at index i out of the list, moving the later elements
+// down by one, and returns it: the inverse of slang/table's insert. Raises
+// when i is not an index of the list (0 to len - 1). To remove a key
+// without moving anything, assign null: t[k] = null.
+func remove(list, i){}
 
 // keys(t: table) -> function
 // An iterator over the keys of t: list indices first, then the other keys

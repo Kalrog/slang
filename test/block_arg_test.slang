@@ -102,7 +102,7 @@ test.group("same line"){
       append(self.items, x)
       return self
     }
-    b.meta = {__index: m}
+    b.@meta = {__index: m}
     b:add(1):add(2)
     assert(b.items == {1, 2})
   }

@@ -299,9 +299,9 @@ for(let local c_name in values(C.order)){
       local rt = ret.original or ret
       // a resource: its meta too
       if(rl.__resource_words[rt.name] != null){
-        value = concat("{meta: ", snake(rt.name), "_meta, ", str.substring(value, 1))
+        value = concat("{@meta: ", snake(rt.name), "_meta, ", str.substring(value, 1))
       } else if(rl.__resource_words[ret.name] != null){
-        value = concat("{meta: ", snake(ret.name), "_meta, ", str.substring(value, 1))
+        value = concat("{@meta: ", snake(ret.name), "_meta, ", str.substring(value, 1))
       }
       body = concat(" return ", value, " ")
     }

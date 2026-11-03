@@ -10,18 +10,8 @@ pub const String = struct {
     /// 0 means "not computed yet" (a real hash of 0 is simply recomputed).
     hash_cache: u64,
     interned: bool,
-    /// the string "meta", the key that addresses a table's metatable (set
-    /// when interned, so the check is a load instead of a byte compare)
-    is_meta: bool = false,
 
     pub const intern_limit = 40;
-
-    /// Whether this is the string "meta". Exact for interned strings; a
-    /// short string that was built rather than interned compares its bytes.
-    pub inline fn isMeta(s: *const String) bool {
-        if (s.interned) return s.is_meta;
-        return s.len == 4 and std.mem.eql(u8, s.bytes(), "meta");
-    }
 
     pub fn bytes(s: *const String) []const u8 {
         const base: [*]const u8 = @ptrCast(s);

@@ -52,12 +52,12 @@ local session_meta = {__index: session_methods, __type: "tls.session"}
 
 // context(options?: ContextOptions) -> Context
 // A context; raises "tls: ..." for a certificate or key it cannot load.
-func m.context(options){ return {meta: context_meta} }
+func m.context(options){ return {@meta: context_meta} }
 
 // session(hostname?: string) -> Session
 // A client session for hostname (a host name or an IP address; needed when
 // the context verifies), or a server session for a server context.
-func context_methods.session(ctx, hostname){ return {meta: session_meta} }
+func context_methods.session(ctx, hostname){ return {@meta: session_meta} }
 
 // ------------------------------------------------------------ sessions
 

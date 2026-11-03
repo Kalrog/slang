@@ -35,7 +35,7 @@ func map.load(path){
   if(os.exists(path)){
     bindings = json.decode(os.read_file(path), path)
   }
-  return {path: path, bindings: bindings, armed: null, meta: map_meta}
+  return {path: path, bindings: bindings, armed: null, @meta: map_meta}
 }
 
 func map_methods.save(self){

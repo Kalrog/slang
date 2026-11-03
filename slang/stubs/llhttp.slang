@@ -48,7 +48,7 @@ local parser_meta = {__index: parser_methods, __type: "llhttp.parser"}
 
 // parser(kind: string, options?: ParserOptions) -> Parser
 // A new parser of requests (kind "request") or responses ("response").
-func m.parser(kind, options){ return {meta: parser_meta} }
+func m.parser(kind, options){ return {@meta: parser_meta} }
 
 // version() -> string
 // The llhttp version as "major.minor.patch".

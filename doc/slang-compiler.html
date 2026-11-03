@@ -131,7 +131,7 @@ local h = compiler.highlight(source, &quot;main.slang&quot;, {symbols: true})</c
 </div>
 <div class="def" id="compile"><h3><code>compiler.compile(code: string | table, origin?: string, env?: table) -> function</code></h3>
 <p>Compiles source text or an AST table. Source text is parsed with the grammar of the unit that calls compile (an unquote sees the extensions of its file). Raises on a syntax error. This is the global <code>compile</code>.</p>
-<p>With env the function's globals are env, not the program's: a sandbox sees only what env holds, and its global assignments stay in env (env.meta = {__index: ...} reads through to other globals). The source then may not run code while it is compiled: unquotes and extension statements are errors, since they would run with the compiler's globals. There are no CPU or memory limits.</p>
+<p>With env the function's globals are env, not the program's: a sandbox sees only what env holds, and its global assignments stay in env (env.@meta = {__index: ...} reads through to other globals). The source then may not run code while it is compiled: unquotes and extension statements are errors, since they would run with the compiler's globals. There are no CPU or memory limits.</p>
 <pre><code>local f = compile(&quot;return x * 2&quot;, &quot;calc&quot;, {x: 21})
 f()   // 42</code></pre>
 

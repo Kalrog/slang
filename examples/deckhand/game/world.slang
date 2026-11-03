@@ -29,7 +29,7 @@ world.SPOT_TIME = 0.45
 world.SPOT_FADE = 0.6
 
 local World = {}
-// the metatable of every world (not World.meta: that would be World's own)
+// the metatable of every world (not World.@meta: that would be World's own)
 local world_meta = {__index: World}
 
 // ------------------------------------------------------------ helpers
@@ -123,7 +123,7 @@ func world.new(mission){
     player: {
       x: m.start.x * 1.0, z: m.start.z * 1.0, yaw: m.start.yaw, pitch: 0.0
     }, objects: {}, names: {}, has_dossier: false, spotted: 0.0, jacked: null,
-    deck: deck.new(), notes: {}, events: {}, handles: {}, meta: world_meta
+    deck: deck.new(), notes: {}, events: {}, handles: {}, @meta: world_meta
   }
   for(let local spec in values(m.objects)){
     local settings = null
@@ -404,7 +404,7 @@ func World.handle(self, o){
   }
   local w = self
   h = {
-    name: o.name, kind: o.kind, help: help[o.kind], meta: {
+    name: o.name, kind: o.kind, help: help[o.kind], @meta: {
       __tostring: func(_) => concat(
         o.name, " (", o.kind, ", ", w:status(o), ")"
       ),

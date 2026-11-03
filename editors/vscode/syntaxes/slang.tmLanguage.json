@@ -93,6 +93,10 @@
         {
           "name": "keyword.operator.logical.slang",
           "match": "\\b(and|or|not)\\b"
+        },
+        {
+          "name": "keyword.other.meta.slang",
+          "match": "@meta\\b"
         }
       ]
     },

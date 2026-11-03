@@ -44,14 +44,14 @@ func m.version(){}
 // A stream that compresses.
 // [format]: "gzip" (the default), "zlib" or "raw"
 // [level]: 0 to 9, 6 by default
-func m.compressor(format, level){ return {meta: stream_meta} }
+func m.compressor(format, level){ return {@meta: stream_meta} }
 
 // decompressor(format?: string, max_size?: int) -> Stream
 // A stream that decompresses. Raises once its total output goes over
 // max_size.
 // [format]: "auto" (the default), "gzip", "zlib" or "raw"
 // [max_size]: bounds the total output; 0 (the default) means no bound
-func m.decompressor(format, max_size){ return {meta: stream_meta} }
+func m.decompressor(format, max_size){ return {@meta: stream_meta} }
 
 // push(chunk: string) -> string
 // Feeds chunk and returns the output so far ("" is common). A

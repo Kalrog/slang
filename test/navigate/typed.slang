@@ -16,7 +16,7 @@ func server_methods.close(s){}
 // [port]: 0 picks a free one
 // [server]: the running server
 func typed.serve(port, handler){
-  return {meta: {__index: server_methods}}
+  return {@meta: {__index: server_methods}}
 }
 
 return typed

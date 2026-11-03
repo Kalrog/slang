@@ -506,7 +506,7 @@ func doc.module(name, path, source, index){
   local parts = str.split(name, "/")
   local short = parts[len(parts) - 1]
   for(let local d in values(index.defs)){
-    if(d.name == "meta"){
+    if(d.name == "@meta"){
       // a module's own metatable, not an export
       continue
     }

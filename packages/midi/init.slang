@@ -128,7 +128,7 @@ func midi.open(which){
       error(concat("midi: no input is called ", which, " (there are: ", str.join(names, ", "), ")"))
     }
   }
-  return {handle: native.open(index), words: buffer.new("uint32", 256), name: name, meta: input_meta}
+  return {handle: native.open(index), words: buffer.new("uint32", 256), name: name, @meta: input_meta}
 }
 
 return midi

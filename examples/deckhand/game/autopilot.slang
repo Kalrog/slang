@@ -21,7 +21,7 @@ local world = require("game/world")
 local autopilot = {}
 
 local Pilot = {}
-// the metatable of every pilot (not Pilot.meta: that would be Pilot's own)
+// the metatable of every pilot (not Pilot.@meta: that would be Pilot's own)
 local pilot_meta = {__index: Pilot}
 
 // walkable(w, x, z) -> whether the planner may route through a cell (doors
@@ -89,7 +89,7 @@ local func target_cell(w, target){
 func autopilot.new(w, steps){
   return {
     world: w, steps: steps, index: 0, route: null, waited: 0.0, stuck: 0.0,
-    done: false, failed: null, meta: pilot_meta
+    done: false, failed: null, @meta: pilot_meta
   }
 }
 

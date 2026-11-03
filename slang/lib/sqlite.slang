@@ -61,7 +61,7 @@ local list_meta = {__type: "sqlite.list"}
 //
 //   db:all(sql{ select * from todos where id in ({sqlite.list(ids)}) })
 func sqlite.list(items){
-  return {meta: list_meta, items: items}
+  return {@meta: list_meta, items: items}
 }
 
 local func needs_expansion(values, count){
@@ -138,7 +138,7 @@ func sqlite.query(text, values, origin, count){
   // literals pass how many values there are
   count = count or len(values)
   local q = {
-    meta: query_meta, text: text, params: values, count: count, origin: origin
+    @meta: query_meta, text: text, params: values, count: count, origin: origin
   }
   if(count == 0){
     return q
@@ -227,7 +227,7 @@ local CACHE_SIZE = 64
 // memory. Raises when it cannot be opened.
 func sqlite.open(path){
   return {
-    meta: db_meta, handle: native.open(path), path: path, cache: {}, cached: 0
+    @meta: db_meta, handle: native.open(path), path: path, cache: {}, cached: 0
   }
 }
 

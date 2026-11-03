@@ -141,6 +141,14 @@ func visitors.Field(n){
   return ast.node("Field", {key: maybe(n.key), value: visit(n.value)}, n.token)
 }
 
+func visitors.MetaField(n){
+  return ast.node("MetaField", {value: visit(n.value)}, n.token)
+}
+
+func visitors.Meta(n){
+  return ast.node("Meta", {receiver: visit(n.receiver)}, n.token)
+}
+
 func visitors.For(n){
   return ast.node(
     "For",

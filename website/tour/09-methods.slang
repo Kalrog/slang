@@ -14,7 +14,7 @@ local vec_meta = {
   __tostring: func(v) => concat("(", v.x, ", ", v.y, ")"),
 }
 func Vec.new(x, y){
-  return {x: x, y: y, meta: vec_meta}
+  return {x: x, y: y, @meta: vec_meta}
 }
 func Vec.length(v){
   return (v.x * v.x + v.y * v.y) ^ 0.5

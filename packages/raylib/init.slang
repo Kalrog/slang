@@ -202,7 +202,7 @@ local func class_of(type_name){
     name: type_name, methods: methods, getters: getters, setters: setters,
     sources: sources
   }
-  class.meta = {
+  class.@meta = {
     __type: concat("raylib.", type_name),
     __index: methods,
     __get: getters,
@@ -216,7 +216,7 @@ local func class_of(type_name){
 // a struct result as slang sees it: a resource gets its class
 local func classed(v, type_name){
   if(v != null and resource_words[type_name] != null){
-    v.meta = class_of(type_name).meta
+    v.@meta = class_of(type_name).@meta
   }
   return v
 }
@@ -696,7 +696,7 @@ rl.__resource_words = resource_words
 rl.decls = C
 
 // the functions are bound when first used
-rl.meta = {
+rl.@meta = {
   __index: func(t, name){
     local f = special[name]
     if(f == null){

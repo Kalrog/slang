@@ -48,6 +48,8 @@ pub const Op = enum(u6) {
     try_begin, // push a handler: on an error, pc += sbx, close upvalues >= a
     try_end, // pop the innermost handler
     throw, // raise pop()
+    get_meta, // push(meta of pop()): x.@meta, null for a value without one
+    set_meta, // m = pop(); t = pop(); t's metatable = m (a table or null)
 
     // The fused forms (the `fused` profile), numbered from 63 down so the
     // core can grow upward. B and C are operands (see `operand`); A is a
@@ -108,6 +110,8 @@ pub const Op = enum(u6) {
             .try_begin => "tryBegin",
             .try_end => "tryEnd",
             .throw => "throw",
+            .get_meta => "getMeta",
+            .set_meta => "setMeta",
             .add_x => "addX",
             .sub_x => "subX",
             .mul_x => "mulX",

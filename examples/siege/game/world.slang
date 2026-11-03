@@ -43,7 +43,7 @@ func m.new(t, options){
     shake: 0,
     sounds: {},
     paused: false,
-    meta: world_meta,
+    @meta: world_meta,
   }
   w.ground = jw:create_body({
     shape: terrain.shape(t),

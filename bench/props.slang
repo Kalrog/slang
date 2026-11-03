@@ -42,18 +42,18 @@ local methods = {
 }
 local plain = {x: 1}
 local with_meta = {x: 1}
-with_meta.meta = {__index: methods}
+with_meta.@meta = {__index: methods}
 
 // a chain of __index tables: the method on the last one
 local func chained(depth){
   local top = methods
   for(local d = 1; d < depth; d = d + 1){
     local level = {}
-    level.meta = {__index: top}
+    level.@meta = {__index: top}
     top = level
   }
   local o = {x: 1}
-  o.meta = {__index: top}
+  o.@meta = {__index: top}
   return o
 }
 
@@ -67,7 +67,7 @@ local helper_props = {
   },
 }
 local helper = {state_x: 1}
-helper.meta = {
+helper.@meta = {
   __index: func(self, key){
     local f = helper_methods[key]
     if(f != null){
@@ -91,7 +91,7 @@ helper.meta = {
 
 // properties through __get and __set, methods through the __index table
 local with_get = {vx: 1}
-with_get.meta = {
+with_get.@meta = {
   __index: methods,
   __get: {px: func(self){ return self.vx }},
   __set: {px: func(self, v){ self.vx = v }},
@@ -105,23 +105,23 @@ local func chained_get(depth, everywhere){
   local top_meta_get = {px: func(self){ return self.vx }}
   for(local d = 1; d < depth; d = d + 1){
     local level = {}
-    level.meta = {__index: top}
+    level.@meta = {__index: top}
     if(everywhere or d == 1){
-      level.meta.__get = d == 1 and top_meta_get or {other: func(self){ return 0 }}
+      level.@meta.__get = d == 1 and top_meta_get or {other: func(self){ return 0 }}
     }
     top = level
   }
   local o = {vx: 1}
-  o.meta = {__index: top}
+  o.@meta = {__index: top}
   if(depth == 1 or everywhere){
-    o.meta.__get = depth == 1 and top_meta_get or {other: func(self){ return 0 }}
+    o.@meta.__get = depth == 1 and top_meta_get or {other: func(self){ return 0 }}
   }
   return o
 }
 
 // an __newindex function that a store of an existing key never reaches
 local guarded = {x: 1}
-guarded.meta = {__index: methods, __newindex: func(t, k, v){ set_raw(t, k, v) }}
+guarded.@meta = {__index: methods, __newindex: func(t, k, v){ set_raw(t, k, v) }}
 
 // ------------------------------------------------------------ reads
 
@@ -239,14 +239,14 @@ local method_meta = {__index: methods}
 row("new object, then a new field, metatable without __index", func(){
   for(local i = 0; i < n; i = i + 1){
     local o = {}
-    o.meta = plain_meta
+    o.@meta = plain_meta
     o.x = i
   }
 })
 row("new object, then a new field, metatable with __index table", func(){
   for(local i = 0; i < n; i = i + 1){
     local o = {}
-    o.meta = method_meta
+    o.@meta = method_meta
     o.x = i
   }
 })

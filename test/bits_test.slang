@@ -65,7 +65,7 @@ t.group("bitwise operators"){
       __shr: func(a, b){ return "shr" },
       __bnot: func(a){ return "bnot" },
     }
-    local v = {meta: meta}
+    local v = {@meta: meta}
     assert(v & 1 == "band" and 1 | v == "bor" and v ~ v == "bxor")
     assert(v << 1 == "shl" and 1 >> v == "shr" and ~v == "bnot")
   }

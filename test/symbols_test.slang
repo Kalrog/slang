@@ -284,7 +284,7 @@ local box_methods = {}
 local box_meta = {__index: box_methods, __type: "Box"}
 
 // box(w) -> a Box
-func m.box(w){ return {meta: box_meta, w: w} }
+func m.box(w){ return {@meta: box_meta, w: w} }
 
 // area(b) -> the area
 func box_methods.area(b, scale){ return b.w * scale }

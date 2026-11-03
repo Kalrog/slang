@@ -113,6 +113,8 @@ pub const Userdata = struct {
     /// a value kept alive as long as the userdata is (the memory an
     /// ffi pointer points into)
     owner: Value = .null,
+    /// a value slang code asks to keep alive with it (a buffer's keep)
+    keep: Value = .null,
     kind: UserKind = .plain,
 
     pub fn as(u: *Userdata, comptime T: type) *T {

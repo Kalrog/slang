@@ -10,9 +10,9 @@ return func(classOrSuper, classOrNull){
     classdef = classOrSuper
   }
   local m = {super: super}
-  m.meta = {__index: _ENV}
+  m.@meta = {__index: _ENV}
   vm.set_upvalue(mfunc, "_ENV", m)
   classdef()
-  m.meta.__index = null
+  m.@meta.__index = null
   return m
 }

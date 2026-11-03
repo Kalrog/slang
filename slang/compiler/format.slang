@@ -1088,7 +1088,7 @@ local formatter_meta = {__index: formatter_methods}
 
 local func new_formatter(source){
   local f = {source: source, mark_cache: {}, soft_pending: false}
-  f.meta = formatter_meta
+  f.@meta = formatter_meta
   return f
 }
 
@@ -1673,7 +1673,7 @@ func formatter_methods.build_layout(self, n, m){
     return null
   }
   local api = {f: self}
-  api.meta = layout_api_meta
+  api.@meta = layout_api_meta
   local doc = m.layout(api, n)
   local out = {doc: {t: "box", doc: doc}, first: first, last: last, node: n}
   if(m.before != null){

@@ -31,7 +31,7 @@ row("loop alone", func(){
 local plain = {x: 1, y: 2}
 local point = {}
 local with_meta = {x: 1, y: 2}
-with_meta.meta = {__index: point}
+with_meta.@meta = {__index: point}
 local hashed = {a: 1, b: 2, c: 3, d: 4, e: 5, f: 6, g: 7, h: 8, i: 9, j: 10, x: 11}
 func point.get(self){
   return self.x

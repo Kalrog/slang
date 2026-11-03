@@ -260,7 +260,7 @@ local func invalidate(lin){
 
 local func new_grammar(lin, parent){
   local g = {state: lin, parent: parent, dirty: true, sealed: null}
-  g.meta = grammar_meta
+  g.@meta = grammar_meta
   if(parent == null){
     g.rule_table = {}
     g.rule_order = {}
@@ -716,7 +716,7 @@ local level_facade_meta = {
 // operators are added.
 func methods.expression(g){
   local e = {grammar: g}
-  e.meta = expression_meta
+  e.@meta = expression_meta
   return e
 }
 
@@ -738,7 +738,7 @@ local func walker_level(level){
 
 local func level_facade(e, level){
   local f = {registry: e, level: level}
-  f.meta = level_facade_meta
+  f.@meta = level_facade_meta
   return f
 }
 
@@ -1172,7 +1172,7 @@ local func install_core(g){
       }
       ctx.value = {
         value: s, start: start, stop: stop, buffer: buf, category: category,
-        meta: token_meta
+        @meta: token_meta
       }
       return match_at(space_re, buf, stop)
     }
@@ -1394,8 +1394,12 @@ local func install_core(g){
 
   // ------------------------------------------------------------ tables
 
-  // field: name: value | [key]: value | value
-  define("field", peg.choice(rule("spread"), peg.seq(peg.choice(
+  // field: name: value | [key]: value | @meta: value | value
+  define("field", peg.choice(rule("spread"), peg.seq(
+    ftok("@meta", null, "none", "keyword"), ftok(":", "none", "space"), rule("expr"),
+  ):token():map(func(t){
+    return ast.node("MetaField", {value: t.value[2]}, t)
+  }), peg.seq(peg.choice(
     peg.seq(rule("name"), ftok(":", "none", "space")):pick(0):map(func(n){
       return ast.node("String", {value: n.value}, n.token)
     }),
@@ -1754,7 +1758,7 @@ local func install_core(g){
     for(let local e in entries(v[3])){
       loop[e[0]] = e[1]
     }
-    loop.meta = v[3].meta
+    loop.@meta = v[3].@meta
     loop.label = v[1].value
     return loop
   }), {probe: ":outer: for(true){ break outer }"})
@@ -2191,6 +2195,14 @@ local func install_core(g){
   })
 
   w:level("indexAndCall", {aliases: {".", "[]", ":()"}})
+  // x.@meta: the metatable, never a field (x["meta"] is the field "meta")
+  w:postfix(
+    peg.seq(ftok(".", "none", "none"), tok("@meta", "keyword")),
+    "indexAndCall",
+    func(left, op){
+      return ast.node("Meta", {receiver: left}, op[1])
+    },
+  )
   w:postfix(
     peg.seq(ftok(".", "none", "none"), rule("name")),
     "indexAndCall",

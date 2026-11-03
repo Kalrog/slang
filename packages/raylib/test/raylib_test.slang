@@ -155,8 +155,16 @@ t.group("raylib/stream"){
         out:fill(0.0)
       }
     })
-    time.sleep(300)
-    local r = pcall(func(){ return player:stats() })
+    // some devices (a headset) take a while to start: up to 3 s for the
+    // first callbacks
+    local r = null
+    for(local waited = 0; waited < 3000; waited = waited + 100){
+      time.sleep(100)
+      r = pcall(func(){ return player:stats() })
+      if(r[0] == "err" or r[1].callbacks > 0){
+        break
+      }
+    }
     local stopped = pcall(func(){ player:stop() })
     if(r[0] == "err"){
       // no audio device here: nothing more to see

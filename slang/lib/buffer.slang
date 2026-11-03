@@ -26,7 +26,7 @@
 
 // A buffer: n elements of one C type in a row. Methods are called with
 // `:` (b:slice(0, 4)); size, type and shared are properties (b.size).
-// type Buffer = {size: int, type: ffi.Type, shared: bool,
+// type Buffer = {size: int, type: ffi.Type, shared: bool, keep: any,
 //   slice: func(from?: int, to?: int): Buffer, copy: func(): Buffer,
 //   fill: func(v: any): Buffer, set: func(src: {any} | Buffer, at?: int): Buffer,
 //   cast: func(t: ffi.Type): Buffer, to_list: func(): {any},
@@ -36,6 +36,9 @@
 // [size]: the size in bytes (len(b) is the number of elements)
 // [type]: the element type
 // [shared]: whether the memory is shared between isolates ([shared])
+// [keep]: a value the buffer keeps alive (and so do its slices, casts and
+//   element pointers): what owns the memory a [wrap]ped buffer sees, such
+//   as the image whose pixels it is; settable, null by default
 // [slice]: the elements from .. to - 1 (all by default), sharing the memory
 // [copy]: a new buffer with the same elements, in memory of its own
 // [fill]: sets every element to v; returns the buffer

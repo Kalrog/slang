@@ -47,9 +47,18 @@ vm.gc.growth = 1.5                 // collect sooner as memory grows
 vm.gc.minimum = 64 * 1024 * 1024   // but not below 64 MiB in use
 print(vm.gc.in_use, &quot;\n&quot;)          // bytes the VM has allocated</code></pre>
 <p>The collector is a stop-the-world mark and sweep: a collection pauses the program for as long as it takes to visit everything alive. It runs on its own when the bytes in use reach <a href="#type-Collector"><code>Collector.next</code></a>, which is set after each collection from what was left alive. Programs that cannot afford a pause at an arbitrary moment (a game's frame, an audio block) turn the automatic collections off and call <a href="#collect"><code>collect</code></a> where a pause does no harm, or raise <a href="#type-Collector"><code>Collector.minimum</code></a> so that they come rarely. Each isolate is a VM of its own with a collector of its own: settings changed in one do not reach the others.</p>
+<p><a href="#on_collect"><code>on_collect</code></a> runs a function once a value is collected (to free what a C library gave it), and <a href="#weak_keys"><code>weak_keys</code></a>, <a href="#weak_values"><code>weak_values</code></a> and <a href="#weak"><code>weak</code></a> refer to values without keeping them alive.</p>
+<pre><code>local img = rl.gen_image_perlin_noise(256, 256, 0, 0, 5)
+vm.on_collect(img, func(i){ rl.unload_image(i) })
+local px = buffer.wrap(img.data, 256 * 256 * 4, &quot;unsigned char&quot;)
+px.keep = img            // the image lives as long as px or img does</code></pre>
 <ul class="toc">
 <li><a href="#gc"><code>gc</code></a></li>
 <li><a href="#collect"><code>collect</code></a></li>
+<li><a href="#on_collect"><code>on_collect</code></a></li>
+<li><a href="#weak_keys"><code>weak_keys</code></a></li>
+<li><a href="#weak_values"><code>weak_values</code></a></li>
+<li><a href="#weak"><code>weak</code></a></li>
 <li><a href="#load_bytecode"><code>load_bytecode</code></a></li>
 <li><a href="#load_bytes"><code>load_bytes</code></a></li>
 <li><a href="#to_bytes"><code>to_bytes</code></a></li>
@@ -73,7 +82,27 @@ vm.gc.automatic = true</code></pre>
 
 </div>
 <div class="def" id="collect"><h3><code>vm.collect()</code></h3>
-<p>A full collection now: everything nothing refers to any more is freed, and the finalizers of what was freed (slang/ffi's gc, buffers' memory, files) run, before it returns.</p>
+<p>A full collection now: everything nothing refers to any more is freed, and the finalizers of what was freed (slang/ffi's gc, buffers' memory, files) run, before it returns, as do those of <a href="#on_collect"><code>on_collect</code></a> for what was found unreachable.</p>
+
+</div>
+<div class="def" id="on_collect"><h3><code>vm.on_collect(v: table | function, f: (func(v: any))?)</code></h3>
+<p>Runs f(v) once v is no longer reachable: after the collection that finds it so, on a thread of its own, never in the middle of other code. One finalizer per value: calling on_collect again replaces it, and null removes it (for a resource freed by hand). v may be a table, a userdata (a buffer, a pointer), a function or a coroutine.</p>
+<p>f may refer to v (only v keeps f alive, not the other way round). v is kept alive until f has run, and freed by a later collection unless f made it reachable again; it is not finalized a second time. Weak tables let go of v before f runs. An error in f is printed to stderr and does not stop the program. When the VM ends (the program, an isolate), the finalizers of everything still registered run.</p>
+<pre><code>vm.on_collect(texture_image, func(i){ rl.unload_image(i) })</code></pre>
+
+</div>
+<div class="def" id="weak_keys"><h3><code>vm.weak_keys() -> table</code></h3>
+<p>A table whose keys do not keep their entries alive: an entry goes once its key is collected, and its value is alive only as long as its key is (a value that refers to its key does not keep it). For data about objects that belong to someone else. Strings, numbers and booleans are never collected: as keys, they keep their entries.</p>
+
+</div>
+<div class="def" id="weak_values"><h3><code>vm.weak_values() -> table</code></h3>
+<p>A table whose values do not keep their entries alive: an entry goes once its value is collected. For caches. Strings, numbers and booleans are never collected: as values, they stay. Removing an entry is removing a key: the other list indices stay where they are.</p>
+
+</div>
+<div class="def" id="weak"><h3><code>vm.weak(v: any) -> {value: any}</code></h3>
+<p>A weak reference: r.value is v while something else keeps v alive, and null once it is collected (a <a href="#weak_values"><code>weak_values</code></a> table holding v as value).</p>
+<pre><code>local r = vm.weak(window)
+if(r.value != null){ r.value:redraw() }</code></pre>
 
 </div>
 <div class="def" id="load_bytecode"><h3><code>vm.load_bytecode(path: string) -> function</code></h3>

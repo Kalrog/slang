@@ -2,6 +2,25 @@ local t = require("slang/test")
 local table = require("slang/table")
 
 t.group("table"){
+  t.test("assigning null removes that key only, a list index too"){
+    local held = {"C", "C#", "D", "E"}
+    held[1] = null
+    assert(held[0] == "C" and held[1] == null and held[2] == "D" and held[3] == "E")
+    assert(len(held) == 3)
+    held[1] = "C#"
+    assert(held == {"C", "C#", "D", "E"}, "filled again, a list again")
+    held[3] = null
+    assert(held == {"C", "C#", "D"}, "the last one")
+  }
+  t.test("remove takes an element out of a list and shifts the rest"){
+    local l = {"a", "b", "c"}
+    assert(remove(l, 1) == "b" and l == {"a", "c"})
+    assert(remove(l, 1) == "c" and l == {"a"})
+    local r = pcall(remove, l, 5)
+    assert(r[0] == "err" and r[1].message == "remove: index 5 is not in the list (length 1)", r[1].message)
+    r = pcall(remove, {x: 1}, "x")
+    assert(r[0] == "err", "a key is removed with t.x = null")
+  }
   t.test("create table"){
     local t = {}
     assert(type(t) == "table", "Table should be a table")

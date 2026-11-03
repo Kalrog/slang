@@ -18,7 +18,7 @@ local graph = {}
 
 func new_graph(){
   local self = {nodes: {}, edges: {}}
-  self.meta = {__index: graph}
+  self.@meta = {__index: graph}
   return self
 }
 

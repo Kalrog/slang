@@ -100,9 +100,9 @@ t.group("fused instructions"){
       "m.__index = func(o, k){ log = log + concat(\"index \", k, \" \"); return func(self, x){ return x + 1 } }",
       "m.__newindex = func(o, k, v){ log = log + concat(\"newindex \", k, \" \") }",
       "local a = {}",
-      "a.meta = m",
+      "a.@meta = m",
       "local b = {}",
-      "b.meta = m",
+      "b.@meta = m",
       "local x = a + 1",
       "local y = 2 - a",
       "if(a < b){ log = log + \"yes \" }",
@@ -162,7 +162,7 @@ t.group("fused instructions"){
   t.test("a for loop whose limit is not a number compares in full"){
     same(lines(
       "local lim = {n: 3}",
-      "lim.meta = {__lt: func(a, b){ return a < b.n }}",
+      "lim.@meta = {__lt: func(a, b){ return a < b.n }}",
       "local s = \"\"",
       "for(local i = 0; i < lim; i = i + 1){ s = concat(s, i) }",
       "return s",

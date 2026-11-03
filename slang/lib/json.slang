@@ -104,7 +104,7 @@ local array = peg.seq(tok("["), value:star_separated(tok(",")), tok("]"))
   :pick(1)
   :map(func(s){
     local out = s.elements
-    out.meta = array_meta
+    out.@meta = array_meta
     return out
   })
 
@@ -155,19 +155,19 @@ func json.decode(text, origin){
 // A value that encodes as null, for a member that must be present (a
 // member set to slang null is left out). type() of it is "json.null".
 json.null = {}
-json.null.meta = {__type: "json.null"}
+json.null.@meta = {__type: "json.null"}
 
 // array(t: table) -> table
 // Marks t (setting its metatable) so that it encodes as a JSON array even
 // when empty, and returns it.
 //   json.encode({items: json.array({})})   // {"items":[]}
 func json.array(t){
-  t.meta = array_meta
+  t.@meta = array_meta
   return t
 }
 
 local func is_array(t){
-  if(t.meta == array_meta){
+  if(t.@meta == array_meta){
     return true
   }
   local n = 0
@@ -235,7 +235,7 @@ local func encode_value(v, out, indent, depth){
     append(out, string(v))
   } else if(t == "string"){
     encode_string(v, out)
-  } else if(t == "table" or type(v.meta) == "table"){
+  } else if(t == "table" or type(v.@meta) == "table"){
     local pad = ""
     local inner = ""
     local sep = ","

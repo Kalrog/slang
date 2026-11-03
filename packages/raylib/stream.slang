@@ -274,7 +274,7 @@ func stream.play(setup, options){
     render_loop, setup, options.args or {}, cfg, samples, state, timing, wake
   )
   local pump = isolate.spawn(pump_loop, cfg, samples, state, wake, ctl)
-  return {meta: player_meta, inner: {
+  return {@meta: player_meta, inner: {
     render: render,
     pump: pump,
     ctl: ctl,

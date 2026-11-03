@@ -200,8 +200,8 @@ func request_methods.json(req){
 }
 
 local func prepare(req){
-  if(type(req) == "table" and req.meta == null){
-    req.meta = request_meta
+  if(type(req) == "table" and req.@meta == null){
+    req.@meta = request_meta
   }
   return req
 }
@@ -270,7 +270,7 @@ func web.app(options){
     routes: {}, ws_routes: {}, middleware: {}, fallback: null,
     options: options or {}
   }
-  app.meta = app_meta
+  app.@meta = app_meta
   app.on_error = func(req, err){
     local os = require("slang/os")
     os.write_stderr(concat(
@@ -878,7 +878,7 @@ local test_response_meta = {
 // test(app: WebApp) -> WebTestClient
 // A test client for app.
 func web.test(app){
-  return {meta: client_meta, app: app, cookies: {}, cookie_paths: {}}
+  return {@meta: client_meta, app: app, cookies: {}, cookie_paths: {}}
 }
 
 local func remember_cookies(client, headers){
@@ -976,7 +976,7 @@ func client_methods.request(client, method, path, options){
       res.body = str.join(async.await(res.body:collect()), "")
     }
     remember_cookies(client, res.headers)
-    res.meta = test_response_meta
+    res.@meta = test_response_meta
     return res
   })
 }

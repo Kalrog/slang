@@ -45,7 +45,7 @@ func file_get.name(self){}
 //   f:write("hello\n")
 //   f:close()
 func m.open(path, mode){
-  return {meta: file_meta}
+  return {@meta: file_meta}
 }
 
 // read(n?: int) -> string

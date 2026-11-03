@@ -1,7 +1,7 @@
 // `'Name{...}`: a table literal with a type name, the same notation that
 // patterns use to match one.
 //
-// `'Point{x: 1, y: 2}` is `{x: 1, y: 2, meta: {__type: "Point"}}`: the
+// `'Point{x: 1, y: 2}` is `{x: 1, y: 2, @meta: {__type: "Point"}}`: the
 // table's metatable names its type, so type() returns "Point" and the
 // pattern `'Point{...}` matches it (patterns understand `'Name{...}`
 // without this extension). The name is an identifier; the braces hold an
@@ -18,9 +18,9 @@
 //     print("not a line\n")
 //   }
 //
-// The metatable is a new table with `__type` only: a `meta` field written
+// The metatable is a new table with `__type` only: an `@meta` field written
 // in the literal is replaced, so a typed table cannot also carry methods
-// this way. Set `p.meta.__index` afterwards to give it some.
+// this way. Set `p.@meta.__index` afterwards to give it some.
 local peg = require("slang/peg")
 
 local g = require("slang/compiler").grammar()
@@ -34,9 +34,7 @@ g
         local name = list[1]
         name = {type: "String", value: name.value}
         local table = list[2]
-        append(table.fields, {
-          type: "Field", key: +{"meta"}, value: +{{__type: -{name}}}
-        })
+        append(table.fields, {type: "MetaField", value: +{{__type: -{name}}}})
         return table
       }),
   )

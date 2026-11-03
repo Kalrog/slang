@@ -10,7 +10,7 @@ local func indentStr(){
 local group = {}
 func group.new(name){
   local new = {name: name, children: {}, setups: {}, teardowns: {}}
-  new.meta = {__index: group}
+  new.@meta = {__index: group}
   return new
 }
 
@@ -56,7 +56,7 @@ local test = {}
 
 func test.new(name, f){
   local new = {name: name, f: f, succeded: false}
-  new.meta = {__index: test}
+  new.@meta = {__index: test}
   return new
 }
 

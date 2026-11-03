@@ -73,7 +73,7 @@ local func engine(){
 
 // [c] is the native extension under this module (OpenSSL's engine:
 // context, session, self_signed), loaded when first used.
-tls.meta = {
+tls.@meta = {
   __index: func(t, key){
     if(key == "c"){
       return engine()
@@ -266,7 +266,7 @@ local func connection(tcp, session){
     eof_told: false, pending: {}, waiting: {}
   }
   t.tcp_cb = func(err, chunk){ on_tcp(t, err, chunk) }
-  t.meta = connection_meta
+  t.@meta = connection_meta
   return t
 }
 

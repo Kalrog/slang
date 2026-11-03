@@ -40,9 +40,11 @@ local specs = {
   Null: {},
   Table: {{"fields", "list"}},
   Field: {{"key", "node?"}, {"value", "node"}},
+  MetaField: {{"value", "node"}},
   Spread: {{"value", "node"}},
   Identifier: {{"value", "value"}},
   Index: {{"receiver", "node"}, {"index", "node"}, {"dotStyle", "value"}},
+  Meta: {{"receiver", "node"}},
   BinOp: {{"left", "node"}, {"op", "value"}, {"right", "node"}},
   UnOp: {{"op", "value"}, {"operand", "node"}},
   Function: {{"params", "list"}, {"body", "node"}},
@@ -111,7 +113,7 @@ func ast.node(type_name, fields, token){
   if(token != null){
     fields.token = token
   }
-  fields.meta = metas[type_name]
+  fields.@meta = metas[type_name]
   return fields
 }
 
@@ -131,10 +133,11 @@ func ast.is_statement(node){
 }
 
 // is_assignable(node: Node) -> bool
-// Whether node may be assigned to: an Identifier, an Index or an Unquote.
+// Whether node may be assigned to: an Identifier, an Index, a Meta (x.@meta)
+// or an Unquote.
 func ast.is_assignable(node){
   return node.type == "Identifier" or node.type == "Index" or
-    node.type == "Unquote"
+    node.type == "Meta" or node.type == "Unquote"
 }
 
 // is_literal(node: Node) -> bool
@@ -354,9 +357,9 @@ func ast.quote(node){
       append(fields, field_literal(token, name, enc))
     }
   }
-  append(fields, field_literal(token, "meta", table_node(token, {
+  append(fields, ast.node("MetaField", {value: table_node(token, {
     field_literal(token, "__type", ast.literal(token, node.type)),
-  })))
+  })}, token))
   return table_node(token, fields)
 }
 
@@ -438,7 +441,7 @@ func ast.decode(value){
     }
     if(value.type != null and specs[value.type] != null){
       // a plain table in node shape (e.g. {type: "Identifier", value: "x"})
-      value.meta = metas[value.type]
+      value.@meta = metas[value.type]
       return value
     }
     error("Invalid AST value: ", value)
@@ -495,7 +498,7 @@ local writer_meta = {__index: writer}
 
 func writer.new(){
   local w = {parts: {}, indent: 0}
-  w.meta = writer_meta
+  w.@meta = writer_meta
   return w
 }
 
@@ -544,6 +547,12 @@ func writer.visit(self, node){
       self:add(":")
     }
     self:visit(node.value)
+  } else if(t == "MetaField"){
+    self:add("@meta:")
+    self:visit(node.value)
+  } else if(t == "Meta"){
+    self:visit(node.receiver)
+    self:add(".@meta")
   } else if(t == "Identifier"){
     self:add(node.value)
   } else if(t == "Index"){
@@ -802,7 +811,7 @@ local source_meta = {__index: source}
 
 func source.new(){
   local w = {parts: {}, indent: 0}
-  w.meta = source_meta
+  w.@meta = source_meta
   return w
 }
 
@@ -912,6 +921,12 @@ func source.expr(self, node){
   } else if(t == "Spread"){
     self:add("...")
     self:operand(node.value, postfix_power)
+  } else if(t == "MetaField"){
+    self:add("@meta: ")
+    self:expr(node.value)
+  } else if(t == "Meta"){
+    self:operand(node.receiver, postfix_power)
+    self:add(".@meta")
   } else if(t == "Index"){
     self:operand(node.receiver, postfix_power)
     if(node.dotStyle and node.index.type == "String" and

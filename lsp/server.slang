@@ -463,7 +463,7 @@ func lsp.new(options){
     root: options.root, nav: null, parameter_hints: "literals", lint: true,
     lint_globals: {}, lint_modules: {}
   }
-  s.meta = meta
+  s.@meta = meta
   // every file under its own project (a folder may hold several)
   compiler.workspace()
   return s

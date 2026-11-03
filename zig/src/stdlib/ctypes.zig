@@ -539,8 +539,9 @@ pub fn asPointer(v: Value) ?*Userdata {
 /// its memory or ffi.gc frees it (so a view never outlives what it sees),
 /// else its owner.
 fn ownerOf(u: *Userdata) Value {
-    // a pointer ffi.gc frees stays alive while anything made from it is
-    if (u.finalizer == freePointer) return .{ .userdata = u };
+    // a pointer ffi.gc frees, and a buffer with a keep, stay alive while
+    // anything made from them is
+    if (u.finalizer == freePointer or u.keep != .null) return .{ .userdata = u };
     if (u.owner != .null) return u.owner;
     if (u.data.len > @sizeOf(Ptr)) return .{ .userdata = u };
     return .null;
@@ -773,8 +774,9 @@ fn bufIndex(th: *Thread, args: []Value) Error!Value {
     const u = asBuffer(api.arg(args, 0)) orelse return .null;
     const key = api.arg(args, 1);
     if (key == .string) {
-        // the properties: size (in bytes), type, shared
+        // the properties: size (in bytes), type, shared, keep
         const name = key.string.bytes();
+        if (std.mem.eql(u8, name, "keep")) return u.keep;
         if (std.mem.eql(u8, name, "size")) return bufSize(th, args[0..1]);
         if (std.mem.eql(u8, name, "type")) return bufType(th, args[0..1]);
         if (std.mem.eql(u8, name, "shared")) return bufIsShared(th, args[0..1]);
@@ -787,6 +789,11 @@ fn bufIndex(th: *Thread, args: []Value) Error!Value {
 fn bufNewIndex(th: *Thread, args: []Value) Error!Value {
     const u = asBuffer(api.arg(args, 0)) orelse return .null;
     const key = api.arg(args, 1);
+    // keep: a value the buffer keeps alive (what owns the memory it wraps)
+    if (key == .string and std.mem.eql(u8, key.string.bytes(), "keep")) {
+        u.keep = api.arg(args, 2);
+        return .null;
+    }
     if (key != .int) return th.vm.raise("a buffer is indexed with ints, not {s}", .{key.typeName()});
     const pl = (try place(th, u, key)).?;
     var conv = Conv{ .th = th };
@@ -1378,7 +1385,7 @@ fn load(comptime T: type, src: [*]const u8) T {
 fn fillTable(vm: *VM, t: *Type, src: [*]const u8, tbl: *Table, fresh: bool) void {
     for (t.fields) |f| {
         const v = fromC(vm, f.ty, src + f.offset, .null);
-        if (fresh and v != .null and !f.key.isMeta()) {
+        if (fresh and v != .null) {
             tbl.addFresh(vm.gpa, f.key, v);
         } else {
             tbl.setStr(vm.gpa, f.key, v);

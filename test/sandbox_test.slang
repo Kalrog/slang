@@ -26,7 +26,7 @@ t.group("compile with an env"){
   }
   t.test("an env with a meta reads through to other values"){
     local shared = {limit: 3}
-    local env = {meta: {__index: shared}}
+    local env = {@meta: {__index: shared}}
     assert(compile("return limit + 1", "read", env)() == 4)
     compile("limit = 9", "write", env)()
     assert(env.limit == 9 and shared.limit == 3)

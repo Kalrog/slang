@@ -379,6 +379,7 @@ pub const Thread = struct {
     pub const getTable = interp.ThreadOps.getTable;
     pub const setTable = interp.ThreadOps.setTable;
     pub const rawSet = interp.ThreadOps.rawSet;
+    pub const setMeta = interp.ThreadOps.setMeta;
     pub const typeOf = interp.ThreadOps.typeOf;
     pub const toString = interp.ThreadOps.toString;
     pub const renderString = interp.ThreadOps.renderString;

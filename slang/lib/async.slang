@@ -85,7 +85,7 @@ local func new_future(){
   local f = {
     state: "pending", value: null, error: null, waiters: {}, handled: false
   }
-  f.meta = future_meta
+  f.@meta = future_meta
   return f
 }
 
@@ -475,7 +475,7 @@ func async.controller(options){
     buffer: {}, done: false, error: null, pending: null, listener: null,
     paused: false, high_water: (options or {}).high_water or 16
   }
-  s.meta = stream_meta
+  s.@meta = stream_meta
   local c = {stream: s, on_pause: null, on_resume: null}
   local func deliver(){
     // a listener takes everything; a pending next() takes one event
@@ -601,7 +601,7 @@ local pull_meta = {__index: pull_methods, __type: "async.Stream"}
 //   local n = 0
 //   local s = async.pull(func(){ n = n + 1  return n <= 3 and n or null })
 func async.pull(next_value){
-  return {meta: pull_meta, source: next_value, done: false, busy: false}
+  return {@meta: pull_meta, source: next_value, done: false, busy: false}
 }
 
 // next() -> Future

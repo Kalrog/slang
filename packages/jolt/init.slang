@@ -184,7 +184,7 @@ for(let local name in values(C.order)){
 // what the objects do not cover; [decls] has the declarations.
 // type Raw = {[string]: function}
 local raw = {}
-raw.meta = {
+raw.@meta = {
   __index: func(t, name){
     local c = c_names[name]
     if(c == null){
@@ -242,7 +242,7 @@ local func wrapper_class(v){
   if(not str.starts_with(type(v), "jolt.")){
     return null
   }
-  return v.meta.__class
+  return v.@meta.__class
 }
 
 local body_cptr = null
@@ -580,7 +580,7 @@ local func add_properties(class){
 classes.pending = {}
 classes.finished = false
 
-// Every wrapper is {meta: class.meta, ...}: a Body has id and world, the
+// Every wrapper is {@meta: class.@meta, ...}: a Body has id and world, the
 // others ptr (and world where Jolt's things belong to one). getters and
 // setters are the hand-written properties, methods the hand-written
 // methods; the rest come from the joltc functions along the chain: a
@@ -610,7 +610,7 @@ local func define_class(name, chain, methods, type_name, getters, setters){
   // functions; each looked up once and kept
   local found = {}
   local missing = {}
-  found.meta = {
+  found.@meta = {
     __index: func(t, key){
       if(type(key) != "string" or missing[key]){
         return null
@@ -628,7 +628,7 @@ local func define_class(name, chain, methods, type_name, getters, setters){
     name: name, links: links, methods: methods, getters: getters,
     setters: setters
   }
-  class.meta = {
+  class.@meta = {
     __type: type_name or concat("jolt.", name),
     __index: found,
     __get: getters,
@@ -715,7 +715,7 @@ body_cptr = func(body){
 local func body_of(world, id){
   local b = world.bodies_by_id[id]
   if(b == null){
-    b = {id: id, world: world, meta: Body.meta}
+    b = {id: id, world: world, @meta: Body.@meta}
     world.bodies_by_id[id] = b
   }
   return b
@@ -783,7 +783,7 @@ local func shape_wrapper(p, kind, is_owned){
   if(is_owned){
     p = owned(p, lib.JPH_Shape_Destroy)
   }
-  return {ptr: p, kind: kind, meta: shape_class(kind).meta}
+  return {ptr: p, kind: kind, @meta: shape_class(kind).@meta}
 }
 
 // a shape Jolt handed back (not owned): its kind from Jolt
@@ -987,7 +987,7 @@ local func wrapper(class, p, destroy, world){
   if(destroy != null){
     p = owned(p, destroy)
   }
-  return {ptr: p, world: world, meta: class.meta}
+  return {ptr: p, world: world, @meta: class.@meta}
 }
 
 // what a joltc result of a pointer type becomes: by the struct's name
@@ -1039,7 +1039,7 @@ local result_wrappers = {
   JPH_TwoBodyConstraint: func(p, self){
     local world = self.world or self
     return world.constraints[ffi.address(p)] or
-      {ptr: p, world: world, kind: "unknown", meta: constraint_class("unknown").meta}
+      {ptr: p, world: world, kind: "unknown", @meta: constraint_class("unknown").@meta}
   },
 }
 result_wrappers.JPH_Constraint = result_wrappers.JPH_TwoBodyConstraint
@@ -1206,17 +1206,17 @@ func jolt.world(options){
     constraints: {},
     vehicles: {},
     characters: {},
-    meta: World.meta,
+    @meta: World.@meta,
   }
   set_raw(world, "narrow_phase", {
     ptr: lib.JPH_PhysicsSystem_GetNarrowPhaseQuery(system),
     world: world,
-    meta: NarrowPhaseQuery.meta,
+    @meta: NarrowPhaseQuery.@meta,
   })
   set_raw(world, "broad_phase", {
     ptr: lib.JPH_PhysicsSystem_GetBroadPhaseQuery(system),
     world: world,
-    meta: BroadPhaseQuery.meta,
+    @meta: BroadPhaseQuery.@meta,
   })
   if(options.contact_events){
     local id = listen(world, options.contact_events == "all")
@@ -1365,7 +1365,7 @@ func world_methods.create_body(w, def){
     w.body_interface, settings, activation_of(activate)
   )
   release(settings, lib.JPH_BodyCreationSettings_Destroy)
-  local body = {id: id, world: w, made_with: def.shape, meta: Body.meta}
+  local body = {id: id, world: w, made_with: def.shape, @meta: Body.@meta}
   w.bodies_by_id[id] = body
   return body
 }
@@ -1637,7 +1637,7 @@ func world_methods.create_constraint(w, def){
     kind: kind,
     body1: body1,
     body2: def.body2,
-    meta: constraint_class(kind).meta,
+    @meta: constraint_class(kind).@meta,
   })
 }
 
@@ -1892,13 +1892,13 @@ func world_methods.create_vehicle(w, def){
     listener: listener,
     wheels: {},
     keep: keep,
-    meta: Vehicle.meta,
+    @meta: Vehicle.@meta,
   }
   set_raw(v, "controller", {
     ptr: lib.JPH_VehicleConstraint_GetController(p),
     vehicle: v,
     world: w,
-    meta: controller_classes[kind].meta,
+    @meta: controller_classes[kind].@meta,
   })
   local wheel_class = WheelWV
   if(kind == "tracked"){
@@ -1910,7 +1910,7 @@ func world_methods.create_vehicle(w, def){
       index: i,
       vehicle: v,
       world: w,
-      meta: wheel_class.meta,
+      @meta: wheel_class.@meta,
     })
   }
   w.vehicles[ffi.address(p)] = v
@@ -2018,7 +2018,7 @@ func world_methods.create_character(w, def){
   if(p == null){
     error(what, ": Jolt could not make the character")
   }
-  local c = {ptr: p, world: w, shape: def.shape, added: false, meta: Character.meta}
+  local c = {ptr: p, world: w, shape: def.shape, added: false, @meta: Character.@meta}
   if(def.add != false){
     lib.JPH_Character_AddToPhysicsSystem(p, activation_of(true), true)
     c.added = true
@@ -2055,7 +2055,7 @@ func world_methods.create_character_virtual(w, def){
   if(p == null){
     error(what, ": Jolt could not make the character")
   }
-  local c = {ptr: p, world: w, shape: def.shape, meta: CharacterVirtual.meta}
+  local c = {ptr: p, world: w, shape: def.shape, @meta: CharacterVirtual.@meta}
   w.characters[ffi.address(p)] = c
   return c
 }
@@ -2493,7 +2493,7 @@ func jolt.mat4_to_matrix(m){
 // is JPH_Quat_Multiply with its result returned
 local func namespace(prefix){
   local t = {}
-  t.meta = {
+  t.@meta = {
     __index: func(self, key){
       local c = c_names[concat(prefix, "_", key)]
       if(c == null){

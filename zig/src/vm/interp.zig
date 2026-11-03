@@ -524,6 +524,26 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 try th.handleError(error.Slang, stop_depth);
                 continue :outer;
             },
+            .get_meta => {
+                const v = stack[top - 1];
+                stack[top - 1] = switch (v) {
+                    .table => |t| Value.fromTable(t.meta),
+                    .userdata => |u| Value.fromTable(u.meta),
+                    else => .null,
+                };
+                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+            },
+            .set_meta => {
+                const m = stack[top - 1];
+                const obj = stack[top - 2];
+                top -= 2;
+                th.setMeta(obj, m) catch |e| {
+                    spill(trace, th, fi, pc, top);
+                    try th.handleError(e, stop_depth);
+                    continue :outer;
+                };
+                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+            },
             // ---- the fused forms (see disasm.zig): each does what its core
             // sequence does, with the same errors at the same location
             inline .add_x, .sub_x, .mul_x, .div_x, .mod_x => |op| {
@@ -940,12 +960,11 @@ inline fn getFastG(vm: *root.VM, obj: Value, key: Value, getter: *Value) ?Value 
 /// run.
 inline fn setFast(vm: *root.VM, obj: Value, key: Value, val: Value) bool {
     if (obj == .table and key == .string) {
-        // inline unless the store could go to a metamethod: the key is
-        // "meta", or the key is new and the metatable could have a setter
-        // or __newindex for it (see newKeyInline)
+        // inline unless the store could go to a metamethod: the key is new
+        // and the metatable could have a setter or __newindex for it (see
+        // newKeyInline)
         const t = obj.table;
         const s = key.string;
-        if (s.isMeta()) return false;
         if (t.meta) |m| {
             if (t.replaceStr(s, val)) return true;
             if (!newKeyInline(vm, m)) return false;
@@ -1428,15 +1447,18 @@ pub const ThreadOps = struct {
         return th.vm.raise("__newindex chain too long", .{});
     }
 
-    pub fn rawSet(th: *Thread, t: *Table, key: Value, val: Value) Error!void {
-        if (key == .string and key.string.isMeta()) {
-            switch (val) {
-                .table => |m| t.meta = m,
-                .null => t.meta = null,
-                else => return th.vm.raise("meta must be a table, got {s}", .{val.typeName()}),
-            }
-            return;
+    /// x.@meta = m: a table's metatable is a table or null; other values'
+    /// metatables are not slang's to set
+    pub fn setMeta(th: *Thread, obj: Value, m: Value) Error!void {
+        const t = obj.asTable() orelse return th.vm.raise("cannot set the metatable of a {s} value", .{obj.typeName()});
+        switch (m) {
+            .table => |mt| t.meta = mt,
+            .null => t.meta = null,
+            else => return th.vm.raise("@meta must be a table or null, got {s}", .{m.typeName()}),
         }
+    }
+
+    pub fn rawSet(th: *Thread, t: *Table, key: Value, val: Value) Error!void {
         t.set(th.vm.gpa, key, val);
     }
 

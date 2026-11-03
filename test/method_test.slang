@@ -16,7 +16,7 @@ local vector = {add: vectorAdd, sub: vectorSub}
 
 func createVector(x, y){
   local self = {x: x, y: y}
-  self.meta = {__index: vector}
+  self.@meta = {__index: vector}
   return self
 }
 

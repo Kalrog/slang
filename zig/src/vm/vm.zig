@@ -146,6 +146,17 @@ pub const VM = struct {
     gc_growth: f64 = 2.0,
     gc_minimum: usize = gc.initial_threshold,
     gc_automatic: bool = true,
+    /// what slang/vm's on_collect registered: each object's finalizer
+    finalizers: std.AutoHashMapUnmanaged(*Object, gc.Finalizer) = .empty,
+    /// the finalizers of objects found unreachable, waiting to run (after
+    /// the collection, see gc.runFinalizers); the objects are kept alive
+    /// until then
+    pending_finalizers: std.ArrayList(gc.Finalizer) = .empty,
+    /// every weak table, for the collector to clear
+    weak_tables: std.ArrayList(*Table) = .empty,
+    /// the thread finalizers run on (never the interrupted one)
+    finalizer_thread: ?*Thread = null,
+    running_finalizers: bool = false,
     /// Values kept alive by the C API (slang_ref).
     registry: *Table,
     /// "__index" and "__newindex", interned and kept in the registry, so
@@ -224,6 +235,8 @@ pub const VM = struct {
     }
 
     pub fn destroy(vm: *VM) void {
+        // the finalizers of what is still alive run while the VM still works
+        gc.finalizeAll(vm);
         vm.flush();
         if (vm.profiler) |p| {
             p.finish();
@@ -235,6 +248,9 @@ pub const VM = struct {
         vm.hooks_lock.unlock(vm.io);
         while (vm.close_hooks.pop()) |h| h.f(h.data);
         vm.close_hooks.deinit(vm.gpa);
+        vm.finalizers.deinit(vm.gpa);
+        vm.pending_finalizers.deinit(vm.gpa);
+        vm.weak_tables.deinit(vm.gpa);
         gc.freeAll(vm);
         while (vm.ext.pop()) |slot| {
             if (slot.fin) |f| f(slot.data);
@@ -432,7 +448,6 @@ pub const VM = struct {
             if (gop.found_existing) return gop.key_ptr.*;
             const s = vm.allocString(bytes);
             s.interned = true;
-            s.is_meta = std.mem.eql(u8, bytes, "meta");
             s.hash_cache = String.hashBytes(bytes);
             gop.key_ptr.* = s;
             return s;

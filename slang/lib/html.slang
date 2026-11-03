@@ -71,7 +71,7 @@ func node_meta.__tostring(self){
 // of such a list is "html.List".
 html.list = {__type: "html.List"}
 
-// the void elements; `meta` is checked apart because t.meta is a table's
+// the void elements; `meta` is checked apart because t.@meta is a table's
 // metatable, not a field
 local void = {
   area: true, base: true, br: true, col: true, embed: true, hr: true, img: true,
@@ -87,9 +87,9 @@ local func is_void(tag){
 // metatable is set to [list].
 func html.element(tag, attrs, children){
   if(children != null){
-    children.meta = html.list
+    children.@meta = html.list
   }
-  return {meta: node_meta, tag: tag, attrs: attrs, children: children}
+  return {@meta: node_meta, tag: tag, attrs: attrs, children: children}
 }
 
 // fragment(children?: {Content}) -> Node
@@ -97,15 +97,15 @@ func html.element(tag, attrs, children){
 // [element].
 func html.fragment(children){
   if(children != null){
-    children.meta = html.list
+    children.@meta = html.list
   }
-  return {meta: node_meta, children: children}
+  return {@meta: node_meta, children: children}
 }
 
 // raw(s: string) -> Node
 // A node that writes s as it is, unescaped.
 func html.raw(s){
-  return {meta: node_meta, raw: s}
+  return {@meta: node_meta, raw: s}
 }
 
 // The <!DOCTYPE html> node, to put before <html>.
@@ -142,7 +142,7 @@ func html.value(v){
     for(local i = 0; i < len(v); i = i + 1){
       append(out, html.value(v[i]))
     }
-    out.meta = html.list
+    out.@meta = html.list
     return out
   }
   return html.escape(string(v))

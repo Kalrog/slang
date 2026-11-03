@@ -43,7 +43,7 @@ func navigate.new(options){
     root: root, read: options.read or os.read_file, documents: {}, cache: {},
     files: null
   }
-  w.meta = meta
+  w.@meta = meta
   return w
 }
 
@@ -271,8 +271,8 @@ local func module_file(path, def){
 // table literal) or {path, node} (a table literal or a function that no
 // name holds). A name is what it was assigned; a call is what the
 // function's returns are (into other files, require included); a table's
-// methods are the fields of its meta's __index (`{meta: m}` in a literal,
-// or `x.meta = m`), and __type names its type. Anything else (parameters,
+// methods are the fields of its meta's __index (`{@meta: m}` in a literal,
+// or `x.@meta = m`), and __type names its type. Anything else (parameters,
 // natives without a stub, values that cannot be told) is no value: the
 // lookup gives nothing rather than a guess.
 local MAX_DEPTH = 24
@@ -320,7 +320,7 @@ local func type_value(w, path, t, depth){
   if(t.kind == "shape"){
     local def = {name: "shape", kind: "local", fields: {}}
     for(let local f in values(t.fields)){
-      if(f.name != "meta"){
+      if(f.name != "@meta"){
         def.fields[f.name] = {
           name: f.name, kind: "field", type: f.type, fields: {}
         }
@@ -361,7 +361,7 @@ local func type_value(w, path, t, depth){
     local v = {path: path, def: decl.table, type_name: name}
     if(fields.__index != null or fields.__get != null or fields.__set != null){
       // a metatable: the type is that of the objects it is the meta of
-      v.def = {name: name, kind: "local", fields: {meta: decl.table}}
+      v.def = {name: name, kind: "local", fields: {["@meta"]: decl.table}}
     }
     if(decl.type != null){
       // another type's fields under the table's (type Request =
@@ -523,10 +523,15 @@ field_of = func(w, value, name, depth){
   }
   if(own == null and value.node != null and value.node.type == "Table"){
     for(let local fld in values(value.node.fields)){
-      if(fld.type == "Field" and fld.key != null and
-        fld.key.type == "String" and fld.key.value == name){
+      // (@meta: m is the field "@meta")
+      local is_meta = name == "@meta" and fld.type == "MetaField"
+      if(is_meta or (fld.type == "Field" and fld.key != null and
+        fld.key.type == "String" and fld.key.value == name)){
         // a literal no name holds: its fields are not definitions
-        local key = fld.key.token
+        local key = fld.token
+        if(not is_meta){
+          key = fld.key.token
+        }
         return {
           path: value.path,
           def: {
@@ -537,10 +542,10 @@ field_of = func(w, value, name, depth){
       }
     }
   }
-  if(name == "meta" or meta_keys[name]){
+  if(name == "@meta" or meta_keys[name]){
     return own
   }
-  local meta = field_of(w, value, "meta", depth + 1)
+  local meta = field_of(w, value, "@meta", depth + 1)
   if(meta == null){
     return own
   }
@@ -560,7 +565,7 @@ field_of = func(w, value, name, depth){
 
 // the __type of a value's meta, or null
 local func type_name_of(w, value){
-  local meta = field_of(w, value, "meta", 0)
+  local meta = field_of(w, value, "@meta", 0)
   if(meta == null){
     return null
   }
@@ -763,7 +768,7 @@ local func literal_fields(node){
   local out = {}
   for(let local fld in values(node.fields)){
     if(fld.type == "Field" and fld.key != null and fld.key.type == "String" and
-      fld.key.value != "meta" and fld.key.token != null){
+      fld.key.value != "@meta" and fld.key.token != null){
       local key = fld.key.token
       out[fld.key.value] = {
         name: fld.key.value, kind: "field", start: key.start, stop: key.stop,
@@ -774,7 +779,7 @@ local func literal_fields(node){
   return out
 }
 
-// the tables a file gives a meta ({meta: m, ...} or x.meta = m), by the
+// the tables a file gives a meta ({@meta: m, ...} or x.@meta = m), by the
 // meta's start: definitions whose fields are those of its objects
 local func instances_of(w, path){
   local f = w:file(path)
@@ -785,7 +790,7 @@ local func instances_of(w, path){
   if(index.instances == null){
     local out = {}
     for(let local d in values(index.defs)){
-      local m = d.fields and d.fields.meta
+      local m = d.fields and d.fields["@meta"]
       if(m != null and m.value != null and m.value.type == "Identifier" and
         m.value.token != null){
         local t = index.by_start[m.value.token.start]
@@ -807,8 +812,7 @@ local func instances_of(w, path){
         for(let local node in values(returns_of(fn.body, {}))){
           if(node.type == "Table"){
             for(let local fld in values(node.fields)){
-              if(fld.type == "Field" and fld.key != null and
-                fld.key.type == "String" and fld.key.value == "meta" and
+              if(fld.type == "MetaField" and
                 fld.value != null and fld.value.type == "Identifier" and
                 fld.value.token != null){
                 local t = index.by_start[fld.value.token.start]
@@ -878,7 +882,7 @@ local func self_value(w, path, def){
         }
       }
     }
-    fields.meta = meta
+    fields["@meta"] = meta
     local v = {path: path, def: {name: def.name, kind: "local", fields: fields}}
     for(let local e in entries(f.index.types or {})){
       if(e[1].table == meta or e[1].table == table){
@@ -1583,7 +1587,7 @@ func methods.members(w, target){
     // (a key named meta would set out's metatable: it is the meta)
     if(value.def != null){
       for(let local e in entries(value.def.fields or {})){
-        if(e[0] != "meta" and out[e[0]] == null){
+        if(e[0] != "@meta" and out[e[0]] == null){
           // an assigned field may be a property's setter at work
           out[e[0]] = assigned(e[1]) and field_of(w, value, e[0], 0) or
             {path: value.path, def: e[1]}
@@ -1593,7 +1597,7 @@ func methods.members(w, target){
     if(value.node != null and value.node.type == "Table"){
       for(let local fld in values(value.node.fields)){
         if(fld.type == "Field" and fld.key != null and
-          fld.key.type == "String" and fld.key.value != "meta" and
+          fld.key.type == "String" and fld.key.value != "@meta" and
           out[fld.key.value] == null){
           local key = fld.key.token
           out[fld.key.value] = {
@@ -1609,7 +1613,7 @@ func methods.members(w, target){
     }
     // the properties: the keys of meta.__get and meta.__set; the methods:
     // the fields of meta.__index
-    local meta = field_of(w, value, "meta", 0)
+    local meta = field_of(w, value, "@meta", 0)
     if(meta != null){
       local mv = value_of_def(w, meta.path, meta.def, 0)
       for(let local which in values({"__get", "__set"})){

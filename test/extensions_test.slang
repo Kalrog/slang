@@ -65,7 +65,7 @@ switch(value){
 }
 assert(ran == true, "ran should be true")
 ran = false
-value = {age: 20, name: "bob",meta:{__type:"Person"}}
+value = {age: 20, name: "bob",@meta:{__type:"Person"}}
 switch(value){
   case 'Patient{age: 20}:
     assert(false, "case 'Patient{age: 20} should not be run")

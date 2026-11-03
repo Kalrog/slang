@@ -5,7 +5,7 @@ local peg = require("slang/peg")
 
 // a matcher is a table with a __match metamethod
 local func matcher(f){
-  return {meta: {__match: func(self, v){ return f(v) }}}
+  return {@meta: {__match: func(self, v){ return f(v) }}}
 }
 local func between(lo, hi){
   return matcher(func(v){
@@ -69,7 +69,7 @@ t.group("matchers"){
     )
   }
   t.test("type names with as"){
-    local p = {meta: {__type: "Point"}, x: 1}
+    local p = {@meta: {__type: "Point"}, x: 1}
     assert((let 'Point as {x: local x} = p) == true and x == 1)
     assert((let 'Point as local whole = p) == true and whole == p)
     assert((let 'Line as local l = p) == false)

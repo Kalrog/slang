@@ -13,6 +13,15 @@
 //! the next one happens when the live size has doubled (vm.gc_growth, at
 //! least vm.gc_minimum bytes), or never while vm.gc_automatic is off;
 //! slang/vm's gc sets them and collect() runs one at once.
+//!
+//! Finalizers (slang/vm's on_collect) and weak tables: a registered object
+//! keeps its finalizer alive only through itself (as an ephemeron does), so
+//! a finalizer that refers to its object does not keep it alive. After
+//! marking, weak entries whose key or value is unreachable are cleared;
+//! then every unreachable registered object is kept for one more cycle with
+//! what it refers to, and its finalizer queued. The queued finalizers run
+//! once the collection is over (runFinalizers), on a thread of their own,
+//! so the code the collection interrupted is never touched.
 
 const std = @import("std");
 const build_options = @import("build_options");
@@ -30,6 +39,10 @@ const Proto = root.Proto;
 const oom = root.oom;
 
 pub const initial_threshold: usize = 8 << 20;
+
+/// What slang/vm's on_collect registered: f(obj) runs once obj is
+/// unreachable.
+pub const Finalizer = struct { obj: Value, f: Value };
 /// In stress mode a collection runs as soon as this much has been
 /// allocated since the previous one.
 pub const stress_step: usize = 64 << 10;
@@ -88,6 +101,7 @@ fn slowPoint(vm: *VM, th: *Thread) root.Error!void {
     _ = th;
     if (vm.interrupt.load(.seq_cst)) return vm.raise("isolate killed", .{});
     collect(vm);
+    runFinalizers(vm);
 }
 
 /// Stops vm at its next safe point; called from another OS thread.
@@ -100,9 +114,23 @@ pub fn interrupt(vm: *VM) void {
     for (vm.interrupt_hooks.items) |h| h.f(h.data);
 }
 
+/// Whether a weak table can lose an entry to this value: strings, numbers
+/// and the like are values, never collected out of one.
+fn collectable(v: Value) bool {
+    const o = v.heapObject() orelse return false;
+    return o.kind != .string;
+}
+
+fn isMarked(v: Value) bool {
+    const o = v.heapObject() orelse return true;
+    return o.marked;
+}
+
 const Marker = struct {
     vm: *VM,
     gray: std.ArrayList(*Object),
+    /// the weak-keyed tables reached, for converge
+    ephemerons: std.ArrayList(*Table) = .empty,
 
     fn markValue(m: *Marker, v: Value) void {
         if (v.heapObject()) |o| m.markObject(o);
@@ -128,12 +156,37 @@ const Marker = struct {
             .string => {},
             .table => {
                 const t: *Table = @alignCast(@fieldParentPtr("obj", o));
-                for (t.arr.items) |v| m.markValue(v);
-                for (t.ents.items) |e| {
-                    m.markValue(e.key);
-                    m.markValue(e.val);
-                }
                 m.markTable(t.meta);
+                switch (t.weak) {
+                    .none => {
+                        for (t.arr.items) |v| m.markValue(v);
+                        for (t.ents.items) |e| {
+                            m.markValue(e.key);
+                            m.markValue(e.val);
+                        }
+                    },
+                    // the values only when they cannot be collected
+                    .values => {
+                        for (t.arr.items) |v| {
+                            if (!collectable(v)) m.markValue(v);
+                        }
+                        for (t.ents.items) |e| {
+                            m.markValue(e.key);
+                            if (!collectable(e.val)) m.markValue(e.val);
+                        }
+                    },
+                    // a value once its key is alive (see converge)
+                    .keys => {
+                        for (t.arr.items) |v| m.markValue(v);
+                        for (t.ents.items) |e| {
+                            if (!collectable(e.key)) {
+                                m.markValue(e.key);
+                                m.markValue(e.val);
+                            }
+                        }
+                        m.ephemerons.append(m.vm.gpa, t) catch oom();
+                    },
+                }
             },
             .closure => {
                 const c: *Closure = @alignCast(@fieldParentPtr("obj", o));
@@ -150,6 +203,7 @@ const Marker = struct {
                 const u: *Userdata = @alignCast(@fieldParentPtr("obj", o));
                 m.markTable(u.meta);
                 m.markValue(u.owner);
+                m.markValue(u.keep);
             },
             .proto => {
                 const p: *Proto = @alignCast(@fieldParentPtr("obj", o));
@@ -170,7 +224,50 @@ const Marker = struct {
             },
         }
     }
+
+    /// Marks until nothing new is reached through what only counts when
+    /// its holder is alive: the value of a weak key that is, and the
+    /// finalizer of a registered object that is.
+    fn converge(m: *Marker) void {
+        while (true) {
+            for (m.ephemerons.items) |t| {
+                for (t.ents.items) |e| {
+                    if (collectable(e.key) and isMarked(e.key) and !isMarked(e.val)) m.markValue(e.val);
+                }
+            }
+            var it = m.vm.finalizers.valueIterator();
+            while (it.next()) |f| {
+                if (isMarked(f.obj) and !isMarked(f.f)) m.markValue(f.f);
+            }
+            if (m.gray.items.len == 0) return;
+            m.drain();
+        }
+    }
 };
+
+/// Removes the entries of the weak tables reached whose weak key or value
+/// was not.
+fn clearWeak(vm: *VM) void {
+    var dead: std.ArrayList(Value) = .empty;
+    defer dead.deinit(vm.gpa);
+    for (vm.weak_tables.items) |t| {
+        if (!t.obj.marked) continue;
+        dead.clearRetainingCapacity();
+        for (t.arr.items, 0..) |v, i| {
+            if (t.weak == .values and collectable(v) and !isMarked(v)) dead.append(vm.gpa, .{ .int = @intCast(i) }) catch oom();
+        }
+        for (t.ents.items) |e| {
+            if (e.key == .null) continue; // a removed entry
+            const gone = switch (t.weak) {
+                .keys => collectable(e.key) and !isMarked(e.key),
+                .values => collectable(e.val) and !isMarked(e.val),
+                .none => false,
+            };
+            if (gone) dead.append(vm.gpa, e.key) catch oom();
+        }
+        for (dead.items) |k| _ = t.remove(vm.gpa, k);
+    }
+}
 
 pub fn collect(vm: *VM) void {
     if (vm.gc_running) return;
@@ -179,6 +276,7 @@ pub fn collect(vm: *VM) void {
 
     var m: Marker = .{ .vm = vm, .gray = .empty };
     defer m.gray.deinit(vm.gpa);
+    defer m.ephemerons.deinit(vm.gpa);
     m.markTable(vm.globals);
     m.markTable(vm.packages);
     m.markTable(vm.registry);
@@ -189,7 +287,43 @@ pub fn collect(vm: *VM) void {
     var foreign = vm.ffi.foreign.valueIterator();
     while (foreign.next()) |t| m.markObject(&t.*.obj);
     for (vm.ffi.calls.items) |c| m.markObject(&c.th.obj);
+    if (vm.finalizer_thread) |t| m.markObject(&t.obj);
+    for (vm.pending_finalizers.items) |p| {
+        m.markValue(p.obj);
+        m.markValue(p.f);
+    }
     m.drain();
+    m.converge();
+    clearWeak(vm);
+
+    // the unreachable registered objects: kept for their finalizers
+    var dying: std.ArrayList(*Object) = .empty;
+    defer dying.deinit(vm.gpa);
+    var it = vm.finalizers.iterator();
+    while (it.next()) |e| {
+        if (!e.key_ptr.*.marked) dying.append(vm.gpa, e.key_ptr.*) catch oom();
+    }
+    for (dying.items) |o| {
+        const f = vm.finalizers.fetchRemove(o).?.value;
+        vm.pending_finalizers.append(vm.gpa, f) catch oom();
+        m.markValue(f.obj);
+        m.markValue(f.f);
+    }
+    if (dying.items.len > 0) {
+        m.drain();
+        m.converge();
+        // (weak tables reached only through what was kept)
+        clearWeak(vm);
+    }
+    // the weak tables that go now
+    var keep: usize = 0;
+    for (vm.weak_tables.items) |t| {
+        if (t.obj.marked) {
+            vm.weak_tables.items[keep] = t;
+            keep += 1;
+        }
+    }
+    vm.weak_tables.shrinkRetainingCapacity(keep);
 
     sweep(vm);
     vm.compactStrings();
@@ -267,6 +401,50 @@ fn freeObject(vm: *VM, o: *Object) void {
             t.deinit();
             gpa.destroy(t);
         },
+    }
+}
+
+/// Runs the queued finalizers (after a collection, never during one), each
+/// on the VM's finalizer thread with its object as the argument. A
+/// finalizer that raises is reported on stderr and the others still run;
+/// one that runs while finalizers are running only adds to the queue. A
+/// kill stops them: the rest wait for the next collection.
+pub fn runFinalizers(vm: *VM) void {
+    if (vm.running_finalizers or vm.pending_finalizers.items.len == 0) return;
+    vm.running_finalizers = true;
+    defer vm.running_finalizers = false;
+    const th = vm.finalizer_thread orelse blk: {
+        const t = vm.newThread(null);
+        vm.finalizer_thread = t;
+        break :blk t;
+    };
+    while (vm.pending_finalizers.items.len > 0) {
+        if (vm.interrupt.load(.seq_cst)) return;
+        const p = vm.pending_finalizers.orderedRemove(0);
+        _ = th.call(p.f, &.{p.obj}) catch |e| {
+            if (e != error.Slang) continue;
+            var err = vm.takeError();
+            defer err.deinit(vm.gpa);
+            var eb: [256]u8 = undefined;
+            var ew = std.Io.File.stderr().writerStreaming(vm.io, &eb);
+            const w = &ew.interface;
+            w.print("error in a finalizer (vm.on_collect): {s}\n", .{err.message}) catch {};
+            if (err.loc) |l| w.print("  at {s}:{d}:{d}\n", .{ l.origin, l.line, l.column }) catch {};
+            w.flush() catch {};
+        };
+    }
+}
+
+/// At VM shutdown, before anything is freed: the finalizers of every object
+/// still registered (and of those their finalizers register, a few rounds
+/// deep).
+pub fn finalizeAll(vm: *VM) void {
+    var rounds: usize = 0;
+    while (rounds < 4 and (vm.finalizers.count() > 0 or vm.pending_finalizers.items.len > 0)) : (rounds += 1) {
+        var it = vm.finalizers.valueIterator();
+        while (it.next()) |f| vm.pending_finalizers.append(vm.gpa, f.*) catch oom();
+        vm.finalizers.clearRetainingCapacity();
+        runFinalizers(vm);
     }
 }
 

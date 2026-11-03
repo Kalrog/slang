@@ -292,7 +292,7 @@ for(local i = 0; i < len(source); i = i + 1){
     local params = str.substring(l, str.index_of(l, "(") + 1, str.index_of(l, ")"))
     append(functions, {name: name, params: params, lines: doc_block_above(i)})
   } else if(str.starts_with(l, "b2.") and str.index_of(l, " = ") > 0 and
-    not str.starts_with(l, "b2.__") and not str.starts_with(l, "b2.meta")){
+    not str.starts_with(l, "b2.__") and not str.starts_with(l, "b2.@meta")){
     local name = str.substring(l, 3, str.index_of(l, " = "))
     local block = doc_block_above(i)
     if(len(block) > 0){

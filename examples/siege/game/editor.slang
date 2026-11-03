@@ -58,7 +58,7 @@ func m.new(level, hooks){
     last_rebuild: 0,
     exit_asked: 0,
     seed: 1,
-    meta: editor_meta,
+    @meta: editor_meta,
   }
   ed:rebuild()
   return ed

@@ -737,7 +737,7 @@ pub const Debugger = struct {
             .globals => d.tableEntries(d.vm.globals, &list, &names),
             .value => |v| if (v.asTable()) |t| {
                 d.tableEntries(t, &list, &names);
-                if (t.meta) |m| list.append(d.gpa, .{ .name = "meta", .value = .{ .table = m } }) catch oom();
+                if (t.meta) |m| list.append(d.gpa, .{ .name = "@meta", .value = .{ .table = m } }) catch oom();
             },
         }
         const o = d.response(msg, true, null, true);

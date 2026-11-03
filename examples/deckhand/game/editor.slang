@@ -6,14 +6,14 @@ local str = require("slang/string")
 local editor = {}
 
 local Editor = {}
-// the metatable of every editor (not Editor.meta: that would be Editor's own)
+// the metatable of every editor (not Editor.@meta: that would be Editor's own)
 local editor_meta = {__index: Editor}
 
 // new() -> an empty editor
 func editor.new(){
   return {
     text: "", cursor: 0, history: {}, browsing: null, draft: "",
-    meta: editor_meta
+    @meta: editor_meta
   }
 }
 

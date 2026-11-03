@@ -292,7 +292,7 @@ for(local i = 0; i < len(source); i = i + 1){
     str.index_of(l, "jolt.__") != 0){
     local name = str.substring(l, 5, str.index_of(l, " = "))
     local block = doc_block_above(i)
-    if(len(block) > 0 and name != "meta"){
+    if(len(block) > 0 and name != "@meta"){
       append(fields, {name: name, lines: block})
     }
   }

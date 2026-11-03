@@ -105,7 +105,7 @@ func m.version(){}
 
 // timer() -> Timer
 // A new timer, not started.
-func m.timer(){ return {meta: timer_meta} }
+func m.timer(){ return {@meta: timer_meta} }
 
 // start(timeout: int, repeat: int?, cb: func())
 // Calls cb() after timeout milliseconds, then every repeat milliseconds
@@ -148,7 +148,7 @@ func timer_methods.has_ref(timer){}
 
 // tcp() -> Tcp
 // A new TCP socket, neither bound nor connected.
-func m.tcp(){ return {meta: tcp_meta} }
+func m.tcp(){ return {@meta: tcp_meta} }
 
 // bind(ip: string, port: int)
 // Binds the socket to an IPv4 or IPv6 address (not a host name).
@@ -236,7 +236,7 @@ func tcp_methods.has_ref(tcp){}
 // pipe() -> Pipe
 // A new pipe: for stdin/stdout ([Pipe.open]), a child's stdio ([spawn])
 // or an accepted connection.
-func m.pipe(){ return {meta: pipe_meta} }
+func m.pipe(){ return {@meta: pipe_meta} }
 
 // open(fd: int)
 // Takes over an existing file descriptor (0 for stdin, 1 for stdout).
@@ -291,7 +291,7 @@ func pipe_methods.has_ref(pipe){}
 
 // signal() -> Signal
 // A new signal watcher, not started.
-func m.signal(){ return {meta: signal_meta} }
+func m.signal(){ return {@meta: signal_meta} }
 
 // start(sig: int | string, cb: func(err: Err, name: string | int))
 // Watches for sig, a number or a name like "SIGINT"; cb(err, name) for
@@ -334,7 +334,7 @@ func signal_methods.has_ref(signal){}
 // extension sends it through the C API (slang_uv.h's async_send), and an
 // isolate's channel through [isolate.Channel.watch]. Several wakes before
 // cb runs make one call. It keeps [run] going until it is closed.
-func m.async(cb){ return {meta: async_meta} }
+func m.async(cb){ return {@meta: async_meta} }
 
 // close(cb?: func())
 // Closes the handle; cb() runs once it is closed.
@@ -380,7 +380,7 @@ func async_methods.has_ref(h){}
 // Starts file (looked up on the PATH) and calls cb when it exits. Raises
 // when the program cannot be started.
 // [args]: the arguments after the program name, or null
-func m.spawn(file, args, options, cb){ return {meta: process_meta} }
+func m.spawn(file, args, options, cb){ return {@meta: process_meta} }
 
 // kill(pid: int, sig?: int | string)
 // Sends sig (a number or a name, "SIGTERM" by default) to the process pid.
@@ -427,7 +427,7 @@ func process_methods.has_ref(process){}
 // poll(fd: int) -> Poll
 // A watcher of a socket or pipe that another library owns (a database
 // client, say), not started.
-func m.poll(fd){ return {meta: poll_meta} }
+func m.poll(fd){ return {@meta: poll_meta} }
 
 // start(events: string, cb: func(err: Err, events: string))
 // Watches for events "r", "w" or "rw"; cb(err, events) with the events

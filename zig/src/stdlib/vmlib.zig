@@ -29,6 +29,10 @@ pub fn module(vm: *VM) *Table {
         .{ .name = "load_native", .f = @import("../loader.zig").loadNative },
         .{ .name = "find_native", .f = @import("../loader.zig").findNative },
         .{ .name = "collect", .f = vmCollect },
+        .{ .name = "on_collect", .f = vmOnCollect },
+        .{ .name = "weak_keys", .f = vmWeakKeys },
+        .{ .name = "weak_values", .f = vmWeakValues },
+        .{ .name = "weak", .f = vmWeak },
     });
     m.set(vm.gpa, vm.str("gc"), .{ .table = gcObject(vm) });
     return m;
@@ -41,7 +45,56 @@ pub fn module(vm: *VM) *Table {
 fn vmCollect(th: *Thread, args: []Value) Error!Value {
     _ = args;
     gc.collect(th.vm);
+    gc.runFinalizers(th.vm);
     return .null;
+}
+
+/// on_collect(v, f): f(v) runs once v is unreachable, after the collection
+/// that found it so (one finalizer per object: a second call replaces the
+/// first, null removes it). v is kept alive until f has run and freed by a
+/// later collection, unless f made it reachable again.
+fn vmOnCollect(th: *Thread, args: []Value) Error!Value {
+    const vm = th.vm;
+    const v = api.arg(args, 0);
+    const o = v.heapObject() orelse return vm.raise("vm.on_collect: a {s} is not collected", .{v.typeName()});
+    switch (o.kind) {
+        .table, .userdata, .closure, .thread => {},
+        else => return vm.raise("vm.on_collect: a {s} is not collected", .{v.typeName()}),
+    }
+    const f = api.arg(args, 1);
+    if (f == .null) {
+        _ = vm.finalizers.remove(o);
+        return .null;
+    }
+    if (f != .function) return api.argError(th, "f", 1, "function", f);
+    vm.finalizers.put(vm.gpa, o, .{ .obj = v, .f = f }) catch oom();
+    return .null;
+}
+
+fn weakTable(vm: *VM, mode: @import("../vm/table.zig").Weak) *Table {
+    const t = vm.newTable(0, 0);
+    t.weak = mode;
+    vm.weak_tables.append(vm.gpa, t) catch oom();
+    return t;
+}
+
+/// weak_keys(): a table whose keys do not keep their entries alive
+fn vmWeakKeys(th: *Thread, args: []Value) Error!Value {
+    _ = args;
+    return .{ .table = weakTable(th.vm, .keys) };
+}
+
+/// weak_values(): a table whose values do not keep their entries alive
+fn vmWeakValues(th: *Thread, args: []Value) Error!Value {
+    _ = args;
+    return .{ .table = weakTable(th.vm, .values) };
+}
+
+/// weak(v): {value: v}, weakly
+fn vmWeak(th: *Thread, args: []Value) Error!Value {
+    const t = weakTable(th.vm, .values);
+    t.set(th.vm.gpa, th.vm.str("value"), api.arg(args, 0));
+    return .{ .table = t };
 }
 
 /// gc: the collector of this VM (each isolate has its own), with its

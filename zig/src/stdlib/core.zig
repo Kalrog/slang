@@ -173,9 +173,12 @@ fn coreListPush(th: *Thread, args: []Value) Error!Value {
     return .null;
 }
 
+/// remove(list, i): takes element i out of the list, moving the later ones
+/// down, and returns it (t[k] = null removes a key and moves nothing)
 fn coreRemove(th: *Thread, args: []Value) Error!Value {
-    const t = api.arg(args, 0).asTable() orelse return .null;
-    return t.remove(th.vm.gpa, api.arg(args, 1));
+    const t = try api.argTable(th, args, 0, "list");
+    const i = try api.argInt(th, args, 1, "index");
+    return t.removeShifting(i) orelse th.vm.raise("remove: index {d} is not in the list (length {d})", .{ i, t.arrayLen() });
 }
 
 /// A snapshot of the keys of t as an array table (iteration order).

@@ -266,6 +266,8 @@ pub const VM = struct {
         if (vm.ffi.pending) |*e| e.deinit(vm.gpa);
         vm.ffi.calls.deinit(vm.gpa);
         vm.ffi.foreign.deinit(vm.gpa);
+        // the blocks the allocator pooled go back last (everything is freed)
+        vm.counting.release();
         vm.backing.free(vm.stdout_buf);
         vm.backing.free(vm.stdin_buf);
         vm.backing.destroy(vm);
@@ -435,7 +437,17 @@ pub const VM = struct {
         vm.objects = o;
     }
 
+    /// A table sized for narr list elements and nhash entries: one block
+    /// holding the table and those parts when they are small (a literal's
+    /// size, see Table.initInline), else the table and parts of their own.
     pub fn newTable(vm: *VM, narr: usize, nhash: usize) *Table {
+        if (narr + nhash > 0 and narr <= Table.inline_max_arr and nhash <= Table.inline_max_ents) {
+            const mem = vm.gpa.alignedAlloc(u8, .of(Table), Table.allocSize(narr, nhash)) catch oom();
+            const t: *Table = @ptrCast(@alignCast(mem.ptr));
+            t.initInline(@intCast(narr), @intCast(nhash));
+            vm.link(&t.obj);
+            return t;
+        }
         const t = vm.gpa.create(Table) catch oom();
         t.* = Table.init(vm.gpa, narr, nhash);
         vm.link(&t.obj);

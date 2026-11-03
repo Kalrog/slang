@@ -61,8 +61,74 @@ pub const Table = struct {
     /// what this table has as a metatable (see metaFlags); 0 is unknown
     mflags: u8 = 0,
     weak: Weak = .none,
+    /// the list elements and entries the table's own block has room for
+    /// (see initInline): arr and ents start there and move to memory of
+    /// their own when they outgrow it
+    inline_arr: u16 = 0,
+    inline_ents: u16 = 0,
     dead: u32 = 0,
     meta: ?*Table = null,
+
+    /// The largest parts a table is allocated with in its own block: a
+    /// literal's size up to these (most are records and short lists).
+    pub const inline_max_arr = 16;
+    pub const inline_max_ents = 8;
+
+    /// The bytes of a table whose block holds narr list elements and nhash
+    /// entries after the Table itself.
+    pub fn allocSize(narr: usize, nhash: usize) usize {
+        return @sizeOf(Table) + narr * @sizeOf(Value) + nhash * @sizeOf(Entry);
+    }
+
+    fn inlineArr(t: *Table) [*]Value {
+        const base: [*]u8 = @ptrCast(t);
+        return @ptrCast(@alignCast(base + @sizeOf(Table)));
+    }
+
+    fn inlineEnts(t: *Table) [*]Entry {
+        const base: [*]u8 = @ptrCast(t);
+        return @ptrCast(@alignCast(base + @sizeOf(Table) + @as(usize, t.inline_arr) * @sizeOf(Value)));
+    }
+
+    /// A table in a block of allocSize(narr, nhash) bytes: its parts use
+    /// the room after it, so a literal of that size is one allocation.
+    pub fn initInline(t: *Table, narr: u16, nhash: u16) void {
+        t.* = .{ .obj = .{ .kind = .table }, .inline_arr = narr, .inline_ents = nhash };
+        t.arr = .initBuffer(t.inlineArr()[0..narr]);
+        t.ents = .initBuffer(t.inlineEnts()[0..nhash]);
+    }
+
+    /// Whether the table was made by initInline (its block is larger).
+    pub fn isInline(t: *const Table) bool {
+        return t.inline_arr > 0 or t.inline_ents > 0;
+    }
+
+    fn arrIsInline(t: *Table) bool {
+        return t.inline_arr > 0 and t.arr.items.ptr == t.inlineArr();
+    }
+
+    fn entsIsInline(t: *Table) bool {
+        return t.inline_ents > 0 and t.ents.items.ptr == t.inlineEnts();
+    }
+
+    /// Before anything that may grow arr by `extra`: a list part in the
+    /// table's block that would not fit moves to memory of its own (the
+    /// ArrayList would otherwise reallocate memory it does not own).
+    fn reserveArr(t: *Table, gpa: Allocator, extra: usize) void {
+        if (!t.arrIsInline() or t.arr.items.len + extra <= t.arr.capacity) return;
+        var own: std.ArrayList(Value) = .empty;
+        own.ensureTotalCapacity(gpa, @max(t.arr.items.len + extra, t.arr.capacity * 2)) catch oom();
+        own.appendSliceAssumeCapacity(t.arr.items);
+        t.arr = own;
+    }
+
+    fn reserveEnts(t: *Table, gpa: Allocator, extra: usize) void {
+        if (!t.entsIsInline() or t.ents.items.len + extra <= t.ents.capacity) return;
+        var own: std.ArrayList(Entry) = .empty;
+        own.ensureTotalCapacity(gpa, @max(t.ents.items.len + extra, t.ents.capacity * 2)) catch oom();
+        own.appendSliceAssumeCapacity(t.ents.items);
+        t.ents = own;
+    }
 
     const mf_valid: u8 = 1;
     pub const mf_newindex: u8 = 2;
@@ -90,9 +156,10 @@ pub const Table = struct {
         return t;
     }
 
+    /// Frees the parts the table owns (not its block, see VM.newTable).
     pub fn deinit(t: *Table, gpa: Allocator) void {
-        t.arr.deinit(gpa);
-        t.ents.deinit(gpa);
+        if (!t.arrIsInline()) t.arr.deinit(gpa);
+        if (!t.entsIsInline()) t.ents.deinit(gpa);
         t.index.deinit(gpa);
     }
 
@@ -201,6 +268,7 @@ pub const Table = struct {
         if (i >= 0 and i < n) {
             t.arr.items[@intCast(i)] = val;
         } else if (i == n) {
+            t.reserveArr(gpa, 1);
             t.arr.append(gpa, val) catch oom();
             t.fixList(gpa);
         } else {
@@ -243,6 +311,7 @@ pub const Table = struct {
     fn insertNew(t: *Table, gpa: Allocator, key: Value, val: Value) void {
         t.mflags = 0;
         const idx: u32 = @intCast(t.ents.items.len);
+        t.reserveEnts(gpa, 1);
         t.ents.append(gpa, .{ .key = key, .val = val }) catch oom();
         if (t.indexed) {
             t.index.put(gpa, key, idx) catch oom();
@@ -258,6 +327,7 @@ pub const Table = struct {
             const k: Value = .{ .int = @intCast(t.arr.items.len) };
             const idx = t.find(k) orelse return;
             const v = t.takeEntry(gpa, idx);
+            t.reserveArr(gpa, 1);
             t.arr.append(gpa, v) catch oom();
         }
     }
@@ -342,6 +412,7 @@ pub const Table = struct {
     /// Adds a value at the end of the array part (null is ignored).
     pub fn append(t: *Table, gpa: Allocator, v: Value) void {
         if (v == .null) return;
+        t.reserveArr(gpa, 1);
         t.arr.append(gpa, v) catch oom();
         t.fixList(gpa);
     }
@@ -360,6 +431,7 @@ pub const Table = struct {
     /// Inserts v at list index i (0 to the list's length), moving the
     /// elements from i on up by one.
     pub fn insertAt(t: *Table, gpa: Allocator, i: usize, v: Value) void {
+        t.reserveArr(gpa, 1);
         t.arr.insert(gpa, i, v) catch oom();
         t.mflags = 0;
         t.fixList(gpa);
@@ -367,6 +439,7 @@ pub const Table = struct {
 
     /// Merges another table: array parts are concatenated, hash entries copied.
     pub fn addAll(t: *Table, gpa: Allocator, o: *const Table) void {
+        t.reserveArr(gpa, o.arr.items.len);
         t.arr.appendSlice(gpa, o.arr.items) catch oom();
         for (o.ents.items) |e| {
             if (e.key == .null) continue;

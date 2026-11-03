@@ -51,6 +51,35 @@ pub const stress_step: usize = 64 << 10;
 pub const CountingAllocator = struct {
     backing: std.mem.Allocator,
     counter: *usize,
+    /// freed small blocks by size class (see class): handed out again
+    /// before the backing allocator is asked, so the tables, closures and
+    /// short strings a program makes and drops cost no malloc or free
+    pools: [classes]?*FreeBlock = @splat(null),
+    /// the bytes the pools hold
+    pooled: usize = 0,
+
+    /// Blocks of up to max_small bytes come in classes of granule bytes.
+    pub const granule = 16;
+    pub const max_small = 256;
+    const classes = max_small / granule;
+
+    const FreeBlock = struct { next: ?*FreeBlock };
+
+    /// The class of a block of len bytes and this alignment, or null for
+    /// one the pools do not take (large, or aligned beyond a granule).
+    /// The GC-stress build does without pools: a block freed too early
+    /// then reaches the checked allocator, which reports its later use.
+    const pooling = !build_options.gc_stress;
+
+    inline fn class(len: usize, alignment: std.mem.Alignment) ?usize {
+        if (!pooling) return null;
+        if (len == 0 or len > max_small or alignment.toByteUnits() > granule) return null;
+        return (len - 1) / granule;
+    }
+
+    inline fn classSize(c: usize) usize {
+        return (c + 1) * granule;
+    }
 
     pub fn allocator(self: *CountingAllocator) std.mem.Allocator {
         return .{ .ptr = self, .vtable = &vtable };
@@ -65,20 +94,39 @@ pub const CountingAllocator = struct {
 
     fn alloc(ctx: *anyopaque, len: usize, alignment: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
         const self: *CountingAllocator = @ptrCast(@alignCast(ctx));
-        const p = self.backing.vtable.alloc(self.backing.ptr, len, alignment, ret_addr);
+        const p = if (class(len, alignment)) |c| blk: {
+            if (self.pools[c]) |b| {
+                self.pools[c] = b.next;
+                self.pooled -= classSize(c);
+                break :blk @as([*]u8, @ptrCast(b));
+            }
+            // a whole class, so that the block can serve any size of it
+            break :blk self.backing.vtable.alloc(self.backing.ptr, classSize(c), .fromByteUnits(granule), ret_addr);
+        } else self.backing.vtable.alloc(self.backing.ptr, len, alignment, ret_addr);
         if (p != null) self.counter.* += len;
         return p;
     }
 
     fn resize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
         const self: *CountingAllocator = @ptrCast(@alignCast(ctx));
-        if (!self.backing.vtable.resize(self.backing.ptr, memory, alignment, new_len, ret_addr)) return false;
+        const old = class(memory.len, alignment);
+        const new = class(new_len, alignment);
+        if (old != null or new != null) {
+            // a pooled block can only change size within its class
+            if (old == null or new == null or old.? != new.?) return false;
+        } else if (!self.backing.vtable.resize(self.backing.ptr, memory, alignment, new_len, ret_addr)) {
+            return false;
+        }
         self.counter.* = self.counter.* + new_len - memory.len;
         return true;
     }
 
     fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
         const self: *CountingAllocator = @ptrCast(@alignCast(ctx));
+        if (class(memory.len, alignment) != null or class(new_len, alignment) != null) {
+            if (!resize(ctx, memory, alignment, new_len, ret_addr)) return null;
+            return memory.ptr;
+        }
         const p = self.backing.vtable.remap(self.backing.ptr, memory, alignment, new_len, ret_addr);
         if (p != null) self.counter.* = self.counter.* + new_len - memory.len;
         return p;
@@ -86,8 +134,37 @@ pub const CountingAllocator = struct {
 
     fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {
         const self: *CountingAllocator = @ptrCast(@alignCast(ctx));
-        self.backing.vtable.free(self.backing.ptr, memory, alignment, ret_addr);
         self.counter.* -= memory.len;
+        if (class(memory.len, alignment)) |c| {
+            const b: *FreeBlock = @ptrCast(@alignCast(memory.ptr));
+            b.next = self.pools[c];
+            self.pools[c] = b;
+            self.pooled += classSize(c);
+            return;
+        }
+        self.backing.vtable.free(self.backing.ptr, memory, alignment, ret_addr);
+    }
+
+    /// Gives pooled blocks back to the backing allocator until the pools
+    /// hold at most keep bytes (after a collection: what a burst of garbage
+    /// left is not kept for good).
+    pub fn trim(self: *CountingAllocator, keep: usize) void {
+        var c: usize = classes;
+        while (self.pooled > keep and c > 0) {
+            c -= 1;
+            while (self.pooled > keep) {
+                const b = self.pools[c] orelse break;
+                self.pools[c] = b.next;
+                self.pooled -= classSize(c);
+                const mem: [*]u8 = @ptrCast(b);
+                self.backing.vtable.free(self.backing.ptr, mem[0..classSize(c)], .fromByteUnits(granule), @returnAddress());
+            }
+        }
+    }
+
+    /// Everything pooled goes back (the VM is destroyed).
+    pub fn release(self: *CountingAllocator) void {
+        self.trim(0);
     }
 };
 
@@ -327,6 +404,9 @@ pub fn collect(vm: *VM) void {
 
     sweep(vm);
     vm.compactStrings();
+    // the pools keep what the next cycle's allocations will likely reuse:
+    // up to half the live size (and at least the minimum's worth)
+    vm.counting.trim(@max(vm.bytes_allocated / 2, vm.gc_minimum / 2));
     vm.collections += 1;
     schedule(vm);
 }
@@ -373,7 +453,12 @@ fn freeObject(vm: *VM, o: *Object) void {
         .table => {
             const t: *Table = @alignCast(@fieldParentPtr("obj", o));
             t.deinit(gpa);
-            gpa.destroy(t);
+            if (t.isInline()) {
+                const mem: [*]align(@alignOf(Table)) u8 = @ptrCast(t);
+                gpa.free(mem[0..Table.allocSize(t.inline_arr, t.inline_ents)]);
+            } else {
+                gpa.destroy(t);
+            }
         },
         .closure => {
             const c: *Closure = @alignCast(@fieldParentPtr("obj", o));

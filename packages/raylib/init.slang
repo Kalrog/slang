@@ -267,18 +267,20 @@ local func binding(decl, name){
   }
   local n = len(params)
   return func(...args){
+    // set by index: an argument left out is a null, which a list cannot
+    // hold (the spread passes the gap as null)
     local full = {}
     local k = 0
     for(local i = 0; i < n; i = i + 1){
       local v = args[k]
       k = k + 1
-      append(full, v)
+      full[i] = v
       if(counted[i]){
         local count = 0
         if(v != null){
           count = len(v)
         }
-        append(full, count)
+        full[i + 1] = count
         i = i + 1
       }
     }

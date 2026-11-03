@@ -52,6 +52,11 @@ pub const LibState = struct {
     prng: ?std.Random.DefaultPrng = null,
     /// vm.build_id(), computed once
     build_id: ?[16]u8 = null,
+    /// what slang/ctypes knows of C types (types, their names, fields and
+    /// libffi descriptors, signatures): types point at each other and
+    /// buffers at theirs without keeping a value alive, so they last as
+    /// long as the VM and go with it
+    ctypes_arena: ?std.heap.ArenaAllocator = null,
 };
 
 /// Data a native extension keeps per VM (slang_setextdata): an extension is
@@ -266,6 +271,7 @@ pub const VM = struct {
         if (vm.ffi.pending) |*e| e.deinit(vm.gpa);
         vm.ffi.calls.deinit(vm.gpa);
         vm.ffi.foreign.deinit(vm.gpa);
+        if (vm.lib.ctypes_arena) |*a| a.deinit();
         // the blocks the allocator pooled go back last (everything is freed)
         vm.counting.release();
         vm.backing.free(vm.stdout_buf);

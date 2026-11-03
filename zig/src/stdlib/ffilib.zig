@@ -80,7 +80,18 @@ const Func = struct {
     writeback: []bool,
     variadic: bool,
     name: []const u8,
+    gpa: std.mem.Allocator,
 };
+
+/// A function's binding goes with its holder (its types are the VM's).
+fn freeFunc(data: ?*anyopaque) callconv(.c) void {
+    const f = @as(*align(1) *Func, @ptrCast(data.?)).*;
+    f.gpa.free(f.args);
+    f.gpa.free(f.ffi_args);
+    f.gpa.free(f.writeback);
+    f.gpa.free(f.name);
+    f.gpa.destroy(f);
+}
 
 pub fn module(vm: *VM) *Table {
     ctypes.make_callback = lastingCallback;
@@ -166,11 +177,13 @@ fn ffiFunc(th: *Thread, args: []Value) Error!Value {
         .writeback = writeback,
         .variadic = variadic,
         .name = vm.gpa.dupe(u8, name) catch oom(),
+        .gpa = vm.gpa,
     };
     if (!variadic and ffi_prep_cif(&f.cif, default_abi, @intCast(n), ret.ffi, ffi_types.ptr) != FFI_OK) {
         return vm.raise("ffi.func: libffi cannot call {s}", .{name});
     }
     const holder = vm.newUserdataOf(*Func, f, func_tname, null);
+    holder.finalizer = freeFunc;
     holder.owner = .{ .userdata = sym };
     const cl = vm.newNative(name, callFunc, &.{.{ .userdata = holder }});
     return .{ .function = cl };

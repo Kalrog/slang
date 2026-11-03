@@ -233,8 +233,15 @@ pub fn module(vm: *VM) *Table {
     return m;
 }
 
+/// The allocator of type metadata: the VM's ctypes arena (see
+/// LibState.ctypes_arena), freed with the VM.
+fn typeArena(vm: *VM) std.mem.Allocator {
+    if (vm.lib.ctypes_arena == null) vm.lib.ctypes_arena = .init(vm.gpa);
+    return vm.lib.ctypes_arena.?.allocator();
+}
+
 fn newType(vm: *VM, t: Type) *Type {
-    const p = vm.gpa.create(Type) catch oom();
+    const p = typeArena(vm).create(Type) catch oom();
     p.* = t;
     return p;
 }
@@ -343,7 +350,7 @@ fn ctPointer(th: *Thread, args: []Value) Error!Value {
     const target = try optType(th, args, 0, "target");
     var t = scalar(.pointer, "void *", @sizeOf(usize), &d_ptr);
     t.elem = target;
-    if (target) |tt| t.name = std.fmt.allocPrint(vm.gpa, "{s} *", .{tt.name}) catch oom();
+    if (target) |tt| t.name = std.fmt.allocPrint(typeArena(vm), "{s} *", .{tt.name}) catch oom();
     return typeValue(vm, newType(vm, t));
 }
 
@@ -354,18 +361,18 @@ fn ctFunction(th: *Thread, args: []Value) Error!Value {
     const ret = try argType(th, args, 0, "ret");
     const list = try api.argTable(th, args, 1, "args");
     const n = list.arrayLen();
-    const types = vm.gpa.alloc(*Type, n) catch oom();
+    const types = typeArena(vm).alloc(*Type, n) catch oom();
     for (0..n) |i| {
         const a = asType(list.getInt(@intCast(i))) orelse return vm.raise("ffi: argument {d} of a function type has no type", .{i});
         if (!a.complete or a.kind == .void or a.kind == .array) return vm.raise("ffi: a callback cannot take a {s}", .{a.name});
         types[i] = a;
     }
     if (!ret.complete or ret.kind == .array) return vm.raise("ffi: a callback cannot return a {s}", .{ret.name});
-    const sig = vm.gpa.create(Signature) catch oom();
+    const sig = typeArena(vm).create(Signature) catch oom();
     sig.* = .{ .ret = ret, .args = types };
     var t = scalar(.function, "function", @sizeOf(usize), &d_ptr);
     t.sig = sig;
-    t.name = std.fmt.allocPrint(vm.gpa, "{s} (*)()", .{ret.name}) catch oom();
+    t.name = std.fmt.allocPrint(typeArena(vm), "{s} (*)()", .{ret.name}) catch oom();
     return typeValue(vm, newType(vm, t));
 }
 
@@ -375,16 +382,16 @@ fn ctArray(th: *Thread, args: []Value) Error!Value {
     const elem = try argType(th, args, 0, "elem");
     const n: usize = @intCast(@max(0, try api.argInt(th, args, 1, "n")));
     // libffi has no arrays: a struct of n elements has the same layout
-    const els = vm.gpa.alloc(?*FfiType, n + 1) catch oom();
+    const els = typeArena(vm).alloc(?*FfiType, n + 1) catch oom();
     for (0..n) |i| els[i] = elem.ffi;
     els[n] = null;
-    const f = vm.gpa.create(FfiType) catch oom();
+    const f = typeArena(vm).create(FfiType) catch oom();
     f.* = .{ .size = 0, .alignment = 0, .type = T_STRUCT, .elements = els.ptr };
     return typeValue(vm, newType(vm, .{
         .kind = .array,
         .size = elem.size * n,
         .alignment = elem.alignment,
-        .name = std.fmt.allocPrint(vm.gpa, "{s}[{d}]", .{ elem.name, n }) catch oom(),
+        .name = std.fmt.allocPrint(typeArena(vm), "{s}[{d}]", .{ elem.name, n }) catch oom(),
         .ffi = f,
         .elem = elem,
         .count = n,
@@ -420,13 +427,13 @@ fn pinKey(vm: *VM, name: []const u8) *String {
 fn ctStruct(th: *Thread, args: []Value) Error!Value {
     const vm = th.vm;
     const name = try api.argString(th, args, 0, "name");
-    const f = vm.gpa.create(FfiType) catch oom();
+    const f = typeArena(vm).create(FfiType) catch oom();
     f.* = .{ .size = 0, .alignment = 0, .type = T_STRUCT, .elements = null };
     return typeValue(vm, newType(vm, .{
         .kind = .@"struct",
         .size = 0,
         .alignment = 1,
-        .name = vm.gpa.dupe(u8, name) catch oom(),
+        .name = typeArena(vm).dupe(u8, name) catch oom(),
         .ffi = f,
         .complete = false,
     }));
@@ -442,8 +449,8 @@ fn ctDefine(th: *Thread, args: []Value) Error!Value {
     const list = try api.argTable(th, args, 1, "fields");
     if (t.kind != .@"struct") return vm.raise("ffi.define: {s} is not a struct", .{t.name});
     const n = list.arrayLen();
-    const fields = vm.gpa.alloc(Field, n) catch oom();
-    const els = vm.gpa.alloc(?*FfiType, n + 1) catch oom();
+    const fields = typeArena(vm).alloc(Field, n) catch oom();
+    const els = typeArena(vm).alloc(?*FfiType, n + 1) catch oom();
     var offset: usize = 0;
     var alignment: usize = 1;
     for (0..n) |i| {
@@ -459,7 +466,7 @@ fn ctDefine(th: *Thread, args: []Value) Error!Value {
         offset = std.mem.alignForward(usize, offset, ft.alignment);
         const def = pair.getInt(2);
         fields[i] = .{
-            .name = vm.gpa.dupe(u8, fname) catch oom(),
+            .name = typeArena(vm).dupe(u8, fname) catch oom(),
             .key = pinKey(vm, fname),
             .offset = offset,
             .ty = ft,

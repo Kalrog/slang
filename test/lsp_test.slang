@@ -153,7 +153,12 @@ t.group("language server"){
     )
   }
   t.test("tokens say as much as the TextMate grammar under them"){
-    local s = lsp.new()
+    // an empty workspace: the document's global t is looked for in the
+    // workspace's files, and the working directory (the repository) would
+    // have every file that assigns some t parsed
+    local root = concat(os.getenv("TMPDIR") or "/tmp/", "/slang-lsp-empty")
+    os.mkdir_all(root)
+    local s = lsp.new({root: root})
     local init = s:handle(request(1, "initialize", {capabilities: {}}))
     local types = init[0].result.capabilities.semanticTokensProvider.legend.tokenTypes
     local text = "func t.go(a){ return a and true }\nprint(\"a\\nb\")\n"

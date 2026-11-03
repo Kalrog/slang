@@ -181,9 +181,60 @@ func methods.project_files(w){
   return out
 }
 
-// the project's files whose text has the word (only they can use it; the
-// rest are not analysed)
-func methods.files_with(w, word){
+local func is_name_byte(b){
+  return b != null and (b == 95 or (b >= 48 and b <= 57) or
+    (b >= 65 and b <= 90) or (b >= 97 and b <= 122))
+}
+
+local func skip_spaces(text, i){
+  for(str.byte_at(text, i) == 32 or str.byte_at(text, i) == 9){
+    i = i + 1
+  }
+  return i
+}
+
+// whether the text has the word at i as a name of its own (not inside a
+// longer one), and where it ends
+local func word_at(text, i, word){
+  return not is_name_byte(str.byte_at(text, i - 1)) and
+    not is_name_byte(str.byte_at(text, i + len(word)))
+}
+
+// whether the word at i could define a global: `word = ...` starting a
+// statement (not `==`, not a field) or `func word(`
+local func defines_at(text, i, word){
+  local before = str.byte_at(text, i - 1)
+  if(before == 46){
+    return false
+  }
+  local after = skip_spaces(text, i + len(word))
+  local b = str.byte_at(text, after)
+  if(b == 40){
+    // func word(
+    local k = i - 1
+    for(k > 0 and (str.byte_at(text, k) == 32 or str.byte_at(text, k) == 9)){
+      k = k - 1
+    }
+    return k >= 3 and str.substring(text, k - 3, k + 1) == "func"
+  }
+  if(b != 61 or str.byte_at(text, after + 1) == 61){
+    return false
+  }
+  // `word = ...` starts a statement: after a line break, a brace, a
+  // semicolon or a condition's parenthesis (never after local)
+  local k = i - 1
+  for(k >= 0 and (str.byte_at(text, k) == 32 or str.byte_at(text, k) == 9)){
+    k = k - 1
+  }
+  local c = str.byte_at(text, k)
+  return k < 0 or c == 10 or c == 13 or c == 123 or c == 125 or c == 59 or
+    c == 41
+}
+
+// the project's files whose text has the word as a name of its own and,
+// with `defining`, in a place that can define it as a global: only they can
+// use it (or define it), the rest are not analysed
+local func files_where(w, word, defining){
   local out = {}
   for(let local p in values(w:project_files())){
     local doc = w.documents[p]
@@ -196,11 +247,32 @@ func methods.files_with(w, word){
         text = r[1]
       }
     }
-    if(text != null and str.index_of(text, word) >= 0){
-      append(out, p)
+    local i = -1
+    if(text != null){
+      i = str.index_of(text, word)
+    }
+    for(i >= 0){
+      if(word_at(text, i, word) and (not defining or defines_at(text, i, word))){
+        append(out, p)
+        break
+      }
+      i = str.index_of(text, word, i + 1)
     }
   }
   return out
+}
+
+// files_with(word: string) -> {string}
+// The project's files that have the word as a name (the files that may use it).
+func methods.files_with(w, word){
+  return files_where(w, word, false)
+}
+
+// files_defining(name: string) -> {string}
+// The project's files where name may be assigned as a global
+// (`name = ...`, `func name(`): those a definition can be in.
+func methods.files_defining(w, name){
+  return files_where(w, name, true)
 }
 
 // a path as hover shows it: "slang/http", "sqlite (native)", else
@@ -1338,7 +1410,7 @@ local func definition_of(w, key, from){
   if(builtin != null){
     return builtin
   }
-  for(let local p in values(w:files_with(key.name))){
+  for(let local p in values(w:files_defining(key.name))){
     local f = w:file(p)
     if(f != null and f.index.globals[key.name] != null){
       return {path: p, def: f.index.globals[key.name]}

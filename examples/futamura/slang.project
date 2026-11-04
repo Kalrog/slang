@@ -1,0 +1,5 @@
+{
+  name: "futamura",
+  // a .lisp file loads as its program, read by lisp.slang
+  dialects: {[".lisp"]: {compile: "lisp"}},
+}

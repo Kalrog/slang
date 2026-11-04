@@ -17,28 +17,23 @@
 //   print(adder(10)(5), "\n")                          // 15
 local peg = require("slang/peg")
 local g = require("slang/compiler").grammar()
-g
-  :expression()
-  :primary(
-    "lambda",
-    peg.seq(
-      g:token("|"),
-      g:rule("param"):star_seperated(g:token(",")):map(func(values){
-        return values.elements
-      }),
-      g:token("|"),
-      g:rule("expr"),
-    )
-      :map(func(results){
-        local params = results[1]
-        local expression = results[3]
-        return {
-          token: results[0],
-          ast: {
-            type: "Function",
-            params: params,
-            body: +{block: return -{expression}},
-          },
-        }
-      }),
-  )
+local fmt = require("slang/format")
+
+g:expression():primary("lambda", fmt.mark(peg.seq(
+  g:token("|", "lambda |", "punctuation"),
+  fmt.indent(g:rule("params"), "softline"),
+  fmt.trailing_comma(g:token(","):optional()),
+  fmt.gaps(g:token("|", "lambda |", "punctuation"), "softline"),
+  g:rule("expr"),
+), {group: true, before: "none"}):map(func(results){
+  local params = results[1]
+  local expression = results[4]
+  return {
+    token: results,
+    ast: {
+      type: "Function",
+      params: params,
+      body: +{block: return -{expression}},
+    },
+  }
+}))

@@ -155,8 +155,14 @@ t.group("slang fmt"){
     "an extension without marks keeps its layout, core code in it is formatted",
   ){
     formats(
+      "extension \"test/unmarked_ext\"\nlocal f = |a,  b|   a  +  b",
+      "extension \"test/unmarked_ext\"\nlocal f = |a,  b|   a + b\n",
+    )
+  }
+  t.test("the lambda shorthand is laid out by its marks"){
+    formats(
       "extension \"extensions/lambda_shorthand\"\nlocal f = |a,  b|   a  +  b",
-      "extension \"extensions/lambda_shorthand\"\nlocal f = |a,  b|   a + b\n",
+      "extension \"extensions/lambda_shorthand\"\nlocal f = |a, b| a + b\n",
     )
   }
   t.test("html templates: tags, attributes and code laid out"){

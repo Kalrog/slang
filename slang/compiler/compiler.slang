@@ -26,6 +26,7 @@ local vm = require("slang/vm")
 local os = require("slang/os")
 local str = require("slang/string")
 local hash = require("slang/hash")
+local hash_text = hash.fnv1a
 
 local compiler = {}
 local root = null
@@ -165,6 +166,12 @@ local func new_grammar(){
   peg.reset_refs()
   // warn and explain check compiler.explain when they are called, so that
   // `slang run --explain` can turn them on after boot
+  local pegc_mode = "lazy"
+  if(os.getenv("SLANG_PEGC") == "0"){
+    pegc_mode = "off"
+  } else if(os.getenv("SLANG_PEGC") == "1"){
+    pegc_mode = "always"
+  }
   local opts = {
     run_block: run_block,
     run_extension: run_extension,
@@ -172,8 +179,13 @@ local func new_grammar(){
     warn: warn,
     explain: explain_unit,
     memoize: os.getenv("SLANG_NO_MEMO") == null,
+    // generated parsers (slang/pegc, see slang/grammar): "lazy", "off", "always"
+    pegc: pegc_mode,
+    pegc_cache: func(source, hash){ return compiler.pegc_cache(source, hash) },
   }
-  return grammar.new(opts)
+  local g = grammar.new(opts)
+  g.generate = true
+  return g
 }
 
 root = new_grammar()
@@ -501,6 +513,7 @@ local func package_project(pkg){
   explain("package ", pkg.name, " ", pkg.version or "", " at ", pkg.dir)
   proj.key = apply_layer(g, proj.extensions, concat(path, "\n", source))
   g.cache_key = proj.key
+  g.generate = true
   return proj
 }
 
@@ -867,6 +880,7 @@ local func dialect_grammar(proj, suffix){
   dg.cache_key = apply_layer(
     dg, d.extensions or {}, concat(proj.key, "\n", suffix)
   )
+  dg.generate = true
   proj.dialect_grammars[suffix] = dg
   return dg
 }
@@ -1005,6 +1019,60 @@ local func get_cache_dir(){
     cache_dir = dir
   }
   return cache_dir
+}
+
+// a grammar of slang as it is, for sources the compiler makes itself (the
+// generated parsers): the root may carry a project's extensions or
+// changes made at run time, which must not reach them
+local pristine = null
+local func compile_pristine(source, origin){
+  if(pristine == null){
+    pristine = grammar.new({
+      run_block: run_block,
+      run_extension: run_extension,
+      optimize: optimizer.optimize,
+      memoize: os.getenv("SLANG_NO_MEMO") == null,
+      pegc: "off",
+    })
+  }
+  local node = pristine:parse_source(source, origin, {sandbox: true})
+  return vm.load_proto(codegen.generate(node, origin))
+}
+
+// the root grammar's generated parsers, shipped with the compiler as the
+// module slang/pegc_root ({hash, make}, see slang/seed_parsers.slang);
+// false once looked for and absent
+local shipped_parsers = null
+
+// pegc_cache(source: string, hash: string) -> function
+// The generated parser module of a grammar (slang/pegc's source, and the
+// hash of it), compiled: the one shipped with the compiler when it is
+// the same source, else from the bytecode cache when it holds it (keyed
+// by the hash and the build id), so a module is compiled once per
+// grammar and compiler build.
+func compiler.pegc_cache(source, hash){
+  if(shipped_parsers == null){
+    local r = pcall(require, "slang/pegc_root")
+    shipped_parsers = if(r[0] == "ok" and type(r[1]) == "table"){ r[1] } else { false }
+  }
+  if(shipped_parsers != false and shipped_parsers.hash == hash){
+    local shipped = shipped_parsers
+    return func(){ return shipped }
+  }
+  local dir = get_cache_dir()
+  if(dir == ""){
+    return compile_pristine(source, "pegc")
+  }
+  local path = concat(dir, "/pegc-", hash, "-", str.format("%x", hash_text(build_id)), ".slb")
+  if(os.exists(path)){
+    local r = pcall(vm.load_bytecode, path)
+    if(r[0] == "ok"){
+      return r[1]
+    }
+  }
+  local f = compile_pristine(source, "pegc")
+  pcall(os.write_file, path, vm.to_bytes(f))
+  return f
 }
 
 // load_file(path: string, origin?: string) -> function

@@ -166,6 +166,9 @@ peg.node = node
 // leaf(p, start: int, stop: int) -> Tree
 // A leaf of the tree (no kids), for the tree paths of custom parsers.
 peg.leaf = leaf
+// raw_leaf(p, ctx: Context, start: int, stop: int) -> Tree
+// A leaf of raw text (see below): what a parser without a tree path
+// consumed, its trailing trivia as a leaf of its own.
 
 // the tree paths by parser kind, filled in "the lossless tree" below
 local tree_kinds = {}
@@ -192,6 +195,7 @@ local func raw_leaf(p, ctx, start, stop){
   }
   return leaf(p, start, stop)
 }
+peg.raw_leaf = raw_leaf
 
 // The trees of what a parser without a tree path parses through others:
 // while it runs, ctx.collect is a list, and the parsers that can build a

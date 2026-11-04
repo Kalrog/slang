@@ -177,6 +177,9 @@ local func new_lineage(opts){
     // can keep state per unit even when it was loaded once for a project
     unit_counter: 0,
     unit_id: 0,
+    // the bytes parsed so far under the grammars that may generate their
+    // parsers (see maybe_generate)
+    parsed_bytes: 0,
     // the unit locals of the unit being parsed (g:unit_local): names by
     // key, and the declarations waiting to go before the current statement
     unit_locals: null,
@@ -191,6 +194,16 @@ local func resolve_rule(ref){
   local lin = ref.lineage
   lin.active:activate()
   local target = ref.target
+  if(target == null){
+    // a reference made after the active grammar sealed (the top-level
+    // loop's, on a first parse that happens inside a seal): its target now
+    local active = lin.active
+    if(active.generated != null){
+      target = active.generated[ref.rule_name]
+    }
+    target = target or active.sealed[ref.rule_name]
+    ref.target = target
+  }
   if(target == null){
     error("grammar rule ", ref.rule_name, " is not defined")
   }
@@ -929,8 +942,132 @@ func level_facade_methods.wrapper(self, left, right, callback){
 
 local func install(g){
   local sealed = g.sealed
+  local generated = g.generated
   for(let local e in entries(g.state.refs)){
-    e[1].target = sealed[e[0]]
+    local target = null
+    if(generated != null){ target = generated[e[0]] }
+    e[1].target = target or sealed[e[0]]
+  }
+}
+
+// ------------------------------------------------------------ generated parsers
+//
+// A grammar flagged `generate` (the root, a project's, a dialect's: not
+// the grammar a unit derives for its own extension statements) can have
+// its parsers compiled to slang by slang/pegc: one function per rule,
+// installed as the targets of the rule references, so that every parse
+// under the grammar runs them, the tree parse included. It happens
+// lazily, when a parse asks for the tree (the language server, the
+// formatter) or once the process has parsed more than
+// generation_threshold bytes under the grammar: the generated module is
+// compiled once per grammar (opts.pegc_cache keeps the bytecode, and the
+// compiler ships the root grammar's) and costs a few hundred
+// milliseconds uncached, which pays off after about half a megabyte of
+// source. SLANG_PEGC=0 turns it off, SLANG_PEGC=1 generates when the
+// grammar seals (opts.pegc "off" / "always").
+
+local generation_threshold = 128 * 1024
+local pegc = null
+local pegc_debug = null
+
+// the rule's generated functions as a parser: parse_on, parse_tree and
+// fast run the generated code; the sealed parser stays its child, for
+// the first-set analysis of grammars that derive from this one
+local func generated_target(g, name, module){
+  local parse = module.rules[name]
+  local tree = module.trees[name]
+  local fast = module.fasts[name]
+  local p = peg.custom(
+    func(self, ctx, pos){
+      local q = parse(ctx, pos)
+      if(q < 0){
+        // generated code keeps the farthest failure only; the last one
+        // (what peg.parse reports) is the farthest here
+        ctx.fail_pos = ctx.far_pos
+        ctx.fail_msg = ctx.far_msg
+      }
+      return q
+    },
+    func(self, ctx, pos){
+      return tree(ctx, pos)
+    },
+  )
+  if(fast != null){
+    p.fast = func(self, ctx, pos){
+      return fast(ctx, pos)
+    }
+  }
+  p.kind = "layer"
+  p.children = {g.sealed[name]}
+  p.generated = true
+  return p
+}
+
+// generates g's parsers now (g is sealed); on any failure the grammar
+// keeps its combinators
+local func generate_parsers(g){
+  local lin = g.state
+  g.generation_tried = true
+  if(pegc_debug == null){ pegc_debug = require("slang/os").getenv("SLANG_PEGC_DEBUG") != null }
+  if(pegc == null){
+    pegc = require("slang/pegc")
+  }
+  local r = pcall(func(){
+    local made = pegc.compile(g)
+    local compiled = null
+    if(lin.opts.pegc_cache != null){
+      local c = pcall(lin.opts.pegc_cache, made.source, made.hash)
+      if(c[0] == "err"){
+        if(pegc_debug){
+          // the source that did not compile, for a look
+          local os = require("slang/os")
+          local path = concat(os.getenv("TMPDIR") or "/tmp", "/pegc-failed-", string(lin.unit_counter), ".slang")
+          pcall(os.write_file, path, made.source)
+          os.write_stderr(concat("pegc: the generated source is in ", path, "\n"))
+        }
+        raise(c[1])
+      }
+      compiled = c[1]
+    }
+    local module = made:load(compiled)
+    local targets = {}
+    for(let local name in keys(module.rules)){
+      targets[name] = generated_target(g, name, module)
+    }
+    return targets
+  })
+  // compiling the module parsed under a grammar: this one is active again
+  lin.active = g
+  if(let {"ok", local targets} = r){
+    g.generated = targets
+  } else {
+    local message = concat("the grammar's parsers were not generated: ", r[1].message)
+    if(lin.opts.pegc == "always" or require("slang/os").getenv("SLANG_PEGC_DEBUG") != null){
+      // asked for explicitly: say what went wrong
+      require("slang/os").write_stderr(concat("pegc: ", message, "\n"))
+    } else if(lin.opts.warn != null){
+      lin.opts.warn(message, "pegc")
+    }
+  }
+  install(g)
+}
+
+// whether to generate now, before parsing source (tree: a tree parse)
+local func maybe_generate(g, source, tree){
+  local lin = g.state
+  if(pegc_debug == null){ pegc_debug = require("slang/os").getenv("SLANG_PEGC_DEBUG") != null }
+  if(not g.generate or g.generated != null or g.generation_tried or lin.opts.pegc == "off"){
+    if(pegc_debug and g.generate and g.generated == null){
+      require("slang/os").write_stderr(concat("pegc: not generating: tried ", string(g.generation_tried), " mode ", lin.opts.pegc, " dirty ", string(g.dirty), "\n"))
+    }
+    return
+  }
+  lin.parsed_bytes = lin.parsed_bytes + len(source)
+  if(tree or lin.opts.pegc == "always" or lin.parsed_bytes > generation_threshold){
+    if(pegc_debug){ require("slang/os").write_stderr(concat("pegc: generating (dirty ", string(g.dirty), ", bytes ", string(lin.parsed_bytes), ")\n")) }
+    g:activate()
+    generate_parsers(g)
+    if(pegc_debug){ require("slang/os").write_stderr(concat("pegc: generated ", string(g.generated != null), "\n")) }
   }
 }
 
@@ -953,6 +1090,10 @@ local func build_rule(g, entry){
 // order, each installed before the next is analysed, so first sets never
 // come from a stale definition.
 func methods.seal(g){
+  // generated parsers belong to the sealed grammar they came from: the
+  // references are installed with the combinators while this one seals
+  g.generated = null
+  g.generation_tried = false
   local sealed = {}
   local built = {}
   for(let local name in values(g.rule_order)){
@@ -995,6 +1136,9 @@ func methods.seal(g){
     g.memos = peg.place_memos(roots, named)
   }
   g.dirty = false
+  if(g.generate and g.state.opts.pegc == "always"){
+    generate_parsers(g)
+  }
 }
 
 // activate()
@@ -2831,6 +2975,7 @@ func methods.parse_source(g, source, origin, options){
     lin.failures = {}
   }
   local outer_parts = lin.tree_parts
+  maybe_generate(g, source, tree)
   lin.parse_depth = lin.parse_depth + 1
   local r = pcall(parse_top_level, g, source, origin, scoped, recover, tree)
   lin.parse_depth = lin.parse_depth - 1

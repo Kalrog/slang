@@ -136,6 +136,8 @@ seed: build
 	  echo "seed: $$f -> $(SEED_DIR)/$$n.slb"; \
 	done
 	cd zig && $(ZIG) build -Doptimize=ReleaseFast -p ..
+	bin/slang run slang/seed_parsers.slang $(SEED_DIR)/pegc_root.slb
+	cd zig && $(ZIG) build -Doptimize=ReleaseFast -p ..
 
 # the seed in core instructions (the compiler leaves out the fused forms)
 seed-core: build
@@ -159,6 +161,8 @@ fixpoint: build
 	    cmp $(SEED_CORE_DIR)/$$n.slb /tmp/slang-fixpoint/core/$$n.slb || { echo "fixpoint: core $$n differs"; exit 1; }; \
 	  fi; \
 	done
+	@bin/slang run slang/seed_parsers.slang /tmp/slang-fixpoint/pegc_root.slb > /dev/null || exit 1
+	@cmp $(SEED_DIR)/pegc_root.slb /tmp/slang-fixpoint/pegc_root.slb || { echo "fixpoint: root parsers differ"; exit 1; }
 	@echo "fixpoint: ok"
 
 bench: build

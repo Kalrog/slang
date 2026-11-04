@@ -518,6 +518,22 @@ applied: the core AST printed back as slang (unquotes executed, extension
 statements gone, constants folded). Parsing that output gives the same
 bytecode as the original.
 
+The combinators interpret the grammar; `slang/pegc` compiles it to slang,
+one function per rule, which the grammar installs as the targets of its
+rule references, so every parse runs them, the lossless tree included.
+It happens by itself for the root grammar and a project's grammars: at
+the first parse that asks for the tree (the language server, the
+formatter) or once a process has parsed more than 128 KB. The compiler
+ships the root grammar's module (`make seed` writes it with
+`slang/seed_parsers.slang`, `make fixpoint` checks it), and a project
+without extensions of its own gets that one; a grammar with extensions
+is compiled once and cached as bytecode in `~/.cache/slang`. Parsing
+is 2 to 2.5 times faster for it. A unit's own extension statements keep
+the combinators for that unit. `SLANG_PEGC=0` turns it off, `SLANG_PEGC=1`
+generates when a grammar seals, and `SLANG_PEGC_DEBUG=1` reports what
+is generated and why a grammar was not (a grammar whose walker has
+engine entries, say, stays on the combinators).
+
 An extension gets the grammar it extends with `require("slang/compiler").grammar()`
 and builds parsers with the combinators of `require("slang/peg")` (`seq`,
 `choice`, `star`, `plus`, `optional`, `map`, `token`, `ref`, ...). The grammar
@@ -813,7 +829,8 @@ extensions/ parser extensions written in slang; extensions/native are native one
 packages/  packages kept with slang: packages/raylib (raylib through slang/ffi), packages/box2d (2D physics), packages/jolt (3D physics)
 examples/  example programs: examples/breakout on the raylib package, examples/physics (Box2D and Jolt drawn with raylib), examples/project (slang.project), examples/functional (|> and holes),
            examples/deckhand, a heist game on raylib whose maps are written in a DSL, examples/webserver and examples/desktop,
-           examples/isolates (a Mandelbrot set rendered by one isolate per CPU)
+           examples/isolates (a Mandelbrot set rendered by one isolate per CPU), examples/futamura (a partial evaluator
+           for a slang subset: specialization, and an interpreter specialized to a program is a compiled program)
 lsp/       the language server (highlighting and diagnostics from the real parser); editors/vscode is its VS Code client, editors/nvim its Neovim plugin
 ```
 

@@ -39,3 +39,4 @@ examples/fm/midi_map*.json
 
 # recordings made by examples/synth/mixdown.slang
 /examples/synth/mixdown/
+examples/futamura/grammar_generated.slang

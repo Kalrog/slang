@@ -83,7 +83,7 @@ vm.gc.automatic = true</code></pre>
 
 </div>
 <div class="def" id="arg_count"><h3><code>vm.arg_count() -> int</code></h3>
-<p>How many arguments the function calling arg_count was given, trailing nulls included: f(1, null) gives 2. A rest parameter cannot tell (a list holds no null, so f(null) and f() give it the same empty table), this can.</p>
+<p>How many arguments the function calling arg_count was given, trailing nulls included: f(1, null) gives 2 (as len of a rest parameter does).</p>
 <pre><code>func show(...args){
   for(local i = 0; i &lt; vm.arg_count(); i = i + 1){ print(args[i]) }
 }</code></pre>

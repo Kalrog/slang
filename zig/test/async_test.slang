@@ -218,7 +218,9 @@ t.group("async: files, names, processes, signals"){
     async.main(func(){
       local s = async.serve("127.0.0.1", 0)
       local port = s.server:getsockname().port
-      s.connections:listen(func(err, conn){ if(conn != null){ conn:close() } })
+      s.connections:listen(func(err, conn){
+        if(conn != null and conn != stop){ conn:close() }
+      })
       local conn = await(async.connect("localhost", port))
       assert(type(conn) == "uv.tcp")
       conn:close()

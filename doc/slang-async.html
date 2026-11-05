@@ -173,13 +173,13 @@ async.await(c.stream:collect())   // {&quot;a&quot;}</code></pre>
 <dl class="params"><dt><code>options</code></dt><dd>high_water, the buffered values that call on_pause (16)</dd></dl>
 </div>
 <div class="def" id="pull"><h3><code>async.pull(next_value: func(): any) -> <a href="#type-Stream">Stream</a></code></h3>
-<p>A Stream that reads only when asked: each next() calls next_value(), which returns the next value, null at the end, or a Future of either; an error it raises (or its Future's) ends the stream with that error. Nothing is read ahead, so a slow reader slows the source (a file sent to a slow client is not read into memory first).</p>
+<p>A Stream that reads only when asked: each next() calls next_value(), which returns the next value (null is a value too), stop at the end, or a Future of either; an error it raises (or its Future's) ends the stream with that error. Nothing is read ahead, so a slow reader slows the source (a file sent to a slow client is not read into memory first).</p>
 <pre><code>local n = 0
-local s = async.pull(func(){ n = n + 1  return n &lt;= 3 and n or null })</code></pre>
+local s = async.pull(func(){ n = n + 1  return n &lt;= 3 and n or stop })</code></pre>
 
 </div>
 <div class="def" id="iterator"><h3><code>async.iterator(s: <a href="#type-Stream">Stream</a>) -> func(): any</code></h3>
-<p>A function that awaits and returns the stream's next value, or null at the end; what <code>await for</code> loops over. Call it in an async function. A for-in loop stops at the first null, so a null value in the stream ends the loop early.</p>
+<p>A function that awaits and returns the stream's next value, or stop at the end; what <code>await for</code> loops over. Call it in an async function.</p>
 
 </div>
 <h2>tcp adapters</h2>
@@ -270,7 +270,7 @@ print(r.status, r.stdout)</code></pre>
 
 </div>
 <div class="def" id="Stream:listen"><h3><code>Stream:listen(cb: func(err: any, value: any)) -> <a href="#type-Stream">Stream</a></code></h3>
-<p>Reads the stream with a callback: cb(null, value) for each value, then cb(null, null) at the end or cb(err, null) on an error. Returns the stream.</p>
+<p>Reads the stream with a callback: cb(null, value) for each value (null is a value too), then cb(null, stop) at the end or cb(err, null) on an error. Returns the stream.</p>
 
 </div>
 <div class="def" id="Stream:collect"><h3><code>Stream:collect() -> <a href="#type-Future">Future</a></code></h3>

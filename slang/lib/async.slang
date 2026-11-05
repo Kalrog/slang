@@ -491,7 +491,7 @@ func async.controller(options){
         s.listener(e, null)
       } else if(s.done and not s.finished){
         s.finished = true
-        s.listener(null, null)
+        s.listener(null, stop)
       }
     } else if(s.pending != null){
       if(len(s.buffer) > 0){
@@ -557,8 +557,9 @@ func stream_methods.next(s){
 }
 
 // listen(cb: func(err: any, value: any)) -> Stream
-// Reads the stream with a callback: cb(null, value) for each value, then
-// cb(null, null) at the end or cb(err, null) on an error. Returns the
+// Reads the stream with a callback: cb(null, value) for each value (null
+// is a value too), then cb(null, stop) at the end or cb(err, null) on an
+// error. Returns the
 // stream.
 func stream_methods.listen(s, cb){
   if(s.listener != null or s.pending != null){
@@ -578,7 +579,7 @@ func stream_methods.collect(s){
   s:listen(func(err, v){
     if(err != null){
       c.fail(err)
-    } else if(v == null){
+    } else if(v == stop){
       c.complete(out)
     } else {
       append(out, v)
@@ -672,7 +673,7 @@ func pull_methods.listen(s, cb){
     if(r[0] == "err"){
       cb(r[1], null)
     } else {
-      cb(null, null)
+      cb(null, stop)
     }
   })
   return s

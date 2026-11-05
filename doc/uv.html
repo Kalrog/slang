@@ -48,11 +48,12 @@ t:start(100, 0, func(){
   t:close()
 })
 uv.run()</code></pre>
-<p>Handles (<a href="#type-Timer"><code>Timer</code></a>, <a href="#type-Tcp"><code>Tcp</code></a>, <a href="#type-Pipe"><code>Pipe</code></a>, <a href="#type-Signal"><code>Signal</code></a>, <a href="#type-Process"><code>Process</code></a>, <a href="#type-Poll"><code>Poll</code></a>) are userdata with methods; every operation takes its callback last, and callbacks have the shape cb(err, value) with err a string like &quot;ECONNRESET: connection reset by peer&quot; or null. Callbacks run only from inside <a href="#run"><code>run</code></a>; an error raised in one stops the loop and comes out of <a href="#run"><code>run</code></a>. An active handle (a running timer, a listening or reading socket, a pending connect) keeps its userdata alive; a handle collected before it was closed is closed by its finalizer. Failing calls raise the same kind of error text.</p>
+<p>Handles (<a href="#type-Timer"><code>Timer</code></a>, <a href="#type-Tcp"><code>Tcp</code></a>, <a href="#type-Udp"><code>Udp</code></a>, <a href="#type-Pipe"><code>Pipe</code></a>, <a href="#type-Signal"><code>Signal</code></a>, <a href="#type-Process"><code>Process</code></a>, <a href="#type-Poll"><code>Poll</code></a>) are userdata with methods; every operation takes its callback last, and callbacks have the shape cb(err, value) with err a string like &quot;ECONNRESET: connection reset by peer&quot; or null. Callbacks run only from inside <a href="#run"><code>run</code></a>; an error raised in one stops the loop and comes out of <a href="#run"><code>run</code></a>. An active handle (a running timer, a listening or reading socket, a pending connect) keeps its userdata alive; a handle collected before it was closed is closed by its finalizer. Failing calls raise the same kind of error text.</p>
 <p>Every VM has a loop of its own, so isolates (slang/isolate) run event loops side by side; handles cannot cross between them, and what an isolate leaves open is closed with its loop when it ends. Killing an isolate wakes its loop: <a href="#run"><code>run</code></a> raises &quot;isolate killed&quot;.</p>
 <p>uv.c_api is a userdata holding the C API (slang_uv.h) through which other extensions (sqlite, crypto) run work on libuv's thread pool.</p>
 <ul class="toc">
 <li><a href="#run"><code>run</code></a></li>
+<li><a href="#running"><code>running</code></a></li>
 <li><a href="#stop"><code>stop</code></a></li>
 <li><a href="#now"><code>now</code></a></li>
 <li><a href="#hrtime"><code>hrtime</code></a></li>
@@ -60,6 +61,7 @@ uv.run()</code></pre>
 <li><a href="#version"><code>version</code></a></li>
 <li><a href="#timer"><code>timer</code></a></li>
 <li><a href="#tcp"><code>tcp</code></a></li>
+<li><a href="#udp"><code>udp</code></a></li>
 <li><a href="#pipe"><code>pipe</code></a></li>
 <li><a href="#signal"><code>signal</code></a></li>
 <li><a href="#async"><code>async</code></a></li>
@@ -112,6 +114,19 @@ uv.run()</code></pre>
 <li><a href="#Tcp:ref"><code>Tcp:ref</code></a></li>
 <li><a href="#Tcp:unref"><code>Tcp:unref</code></a></li>
 <li><a href="#Tcp:has_ref"><code>Tcp:has_ref</code></a></li>
+<li><a href="#type-Udp"><code>type Udp</code></a></li>
+<li><a href="#Udp:bind"><code>Udp:bind</code></a></li>
+<li><a href="#Udp:send"><code>Udp:send</code></a></li>
+<li><a href="#Udp:recv_start"><code>Udp:recv_start</code></a></li>
+<li><a href="#Udp:recv_stop"><code>Udp:recv_stop</code></a></li>
+<li><a href="#Udp:getsockname"><code>Udp:getsockname</code></a></li>
+<li><a href="#Udp:broadcast"><code>Udp:broadcast</code></a></li>
+<li><a href="#Udp:close"><code>Udp:close</code></a></li>
+<li><a href="#Udp:is_active"><code>Udp:is_active</code></a></li>
+<li><a href="#Udp:is_closing"><code>Udp:is_closing</code></a></li>
+<li><a href="#Udp:ref"><code>Udp:ref</code></a></li>
+<li><a href="#Udp:unref"><code>Udp:unref</code></a></li>
+<li><a href="#Udp:has_ref"><code>Udp:has_ref</code></a></li>
 <li><a href="#type-Pipe"><code>type Pipe</code></a></li>
 <li><a href="#Pipe:open"><code>Pipe:open</code></a></li>
 <li><a href="#Pipe:read_start"><code>Pipe:read_start</code></a></li>
@@ -169,6 +184,10 @@ uv.run()</code></pre>
 <p>Runs the event loop and returns whether there is more to do. Raises when the loop is already running, or with the error a callback raised.</p>
 <dl class="params"><dt><code>mode</code></dt><dd>&quot;default&quot; (run until nothing is active), &quot;once&quot; or &quot;nowait&quot;</dd></dl>
 </div>
+<div class="def" id="running"><h3><code>uv.running() -> bool</code></h3>
+<p>Whether <a href="#run"><code>run</code></a> is running: code called from a callback cannot run the loop again.</p>
+
+</div>
 <div class="def" id="stop"><h3><code>uv.stop()</code></h3>
 <p>Makes the running <a href="#run"><code>run</code></a> return soon.</p>
 
@@ -197,6 +216,11 @@ uv.run()</code></pre>
 <h2>tcp</h2>
 <div class="def" id="tcp"><h3><code>uv.tcp() -> <a href="#type-Tcp">Tcp</a></code></h3>
 <p>A new TCP socket, neither bound nor connected.</p>
+
+</div>
+<h2>udp</h2>
+<div class="def" id="udp"><h3><code>uv.udp() -> <a href="#type-Udp">Udp</a></code></h3>
+<p>A new UDP socket, not bound.</p>
 
 </div>
 <h2>pipes</h2>
@@ -406,6 +430,56 @@ uv.run()</code></pre>
 
 </div>
 <div class="def" id="Tcp:has_ref"><h3><code>Tcp:has_ref() -> bool</code></h3>
+<p>Whether the handle keeps <a href="#run"><code>run</code></a> going.</p>
+
+</div>
+<h2 id="type-Udp">type Udp</h2>
+<p>A UDP socket; type() of it is &quot;uv.udp&quot;.</p>
+<div class="def" id="Udp:bind"><h3><code>Udp:bind(ip: string, port: int, options?: {reuse?: bool})</code></h3>
+<p>Binds the socket to an IPv4 or IPv6 address (not a host name); port 0 picks a free one (<a href="#Udp:getsockname"><code>Udp.getsockname</code></a> says which).</p>
+
+</div>
+<div class="def" id="Udp:send"><h3><code>Udp:send(data: string, ip: string, port: int)</code></h3>
+<p>Sends one datagram (a copy of data), right away when the socket can take it, else queued. Datagrams may be lost or arrive out of order, so there is no callback.</p>
+
+</div>
+<div class="def" id="Udp:recv_start"><h3><code>Udp:recv_start(cb: func(err: <a href="#type-Err">Err</a>, data: string?, from: <a href="#type-Address">Address</a>?))</code></h3>
+<p>Starts receiving: cb(err, data, from) for each datagram.</p>
+
+</div>
+<div class="def" id="Udp:recv_stop"><h3><code>Udp:recv_stop()</code></h3>
+<p>Stops receiving.</p>
+
+</div>
+<div class="def" id="Udp:getsockname"><h3><code>Udp:getsockname() -> <a href="#type-Address">Address</a></code></h3>
+<p>The local address of the socket.</p>
+
+</div>
+<div class="def" id="Udp:broadcast"><h3><code>Udp:broadcast(enable: bool)</code></h3>
+<p>Whether datagrams may go to broadcast addresses.</p>
+
+</div>
+<div class="def" id="Udp:close"><h3><code>Udp:close(cb?: func())</code></h3>
+<p>Closes the handle; cb() runs once it is closed.</p>
+
+</div>
+<div class="def" id="Udp:is_active"><h3><code>Udp:is_active() -> bool</code></h3>
+<p>Whether the socket is receiving.</p>
+
+</div>
+<div class="def" id="Udp:is_closing"><h3><code>Udp:is_closing() -> bool</code></h3>
+<p>Whether <a href="#Udp:close"><code>Udp.close</code></a> was called.</p>
+
+</div>
+<div class="def" id="Udp:ref"><h3><code>Udp:ref()</code></h3>
+<p>Makes the handle keep <a href="#run"><code>run</code></a> going again (the default).</p>
+
+</div>
+<div class="def" id="Udp:unref"><h3><code>Udp:unref()</code></h3>
+<p>Makes the handle no longer keep <a href="#run"><code>run</code></a> going.</p>
+
+</div>
+<div class="def" id="Udp:has_ref"><h3><code>Udp:has_ref() -> bool</code></h3>
 <p>Whether the handle keeps <a href="#run"><code>run</code></a> going.</p>
 
 </div>

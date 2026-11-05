@@ -120,7 +120,7 @@ for(q:step()){ print(q:row().name, &quot;\n&quot;) }</code></pre>
 </div>
 <div class="def" id="Statement:bind_all"><h3><code>Statement:bind_all(values: {any}, count?: int) -> <a href="#type-Statement">Statement</a></code></h3>
 <p>Binds all parameters in order; returns the statement. Raises unless count equals the number of parameters.</p>
-<dl class="params"><dt><code>count</code></dt><dd>how many values (len(values)); a null value ends a list's length</dd></dl>
+<dl class="params"><dt><code>count</code></dt><dd>how many values; len(values) by default (null values count)</dd></dl>
 </div>
 <div class="def" id="Statement:step"><h3><code>Statement:step() -> bool</code></h3>
 <p>Runs the statement to its next row: true when a row is ready, false when the statement is done.</p>

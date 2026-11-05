@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>slang/pegc</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
+pre.ebnf { white-space: pre-wrap; border-left: 3px solid var(--link); }
+dl.syntax dd { margin: 0.2rem 0 0.8rem 0.2rem; }
+figure.example { margin: 1rem 0; }
+details.expanded summary { cursor: pointer; color: var(--muted); }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>slang/pegc</h1>
+<p>pegc: compiles a sealed peg grammar (slang/grammar) into slang source.</p>
+<pre><code>local pegc = require(&quot;slang/pegc&quot;)
+local c = pegc.compile(g)        // g: a grammar that has parsed (sealed)
+c.source                         // the generated parser as slang
+local parsers = c:load()         // {rules, trees, fasts}: by rule name
+parsers.rules.statement(ctx, 0)  // as parser:parse_on(ctx, 0)</code></pre>
+<p>The combinators of slang/peg interpret the grammar; this generates the code they would run for it, once. Every parser node reachable from the grammar's rules becomes straight-line code inlined into its parent, except nodes that are shared (several parents, rules, memoized nodes, dispatch candidates), which become functions. Each node is generated in the mode its parent needs: the value path, the fast path that only finds the end position (under flatten and lookaheads), or the tree path that also builds the lossless tree (ctx.tree, for the language server and the formatter). Actions (map, where), custom parsers, regexes and the walker's callbacks stay what they are and are called through a table of statics. The generated code keeps the context contract of slang/peg (ctx.value, the farthest failure, rule_memo, skip_from/skip_to), so it reports the same failures and builds the same ASTs; only peg's &quot;last failure&quot; (ctx.fail_pos, ctx.fail_msg), which the grammar's parse never reads, is not recorded.</p>
+<p>The grammar installs the generated parsers as the targets of its rule references (see slang/grammar), so every parse under a grammar that was generated runs them, the tree parse included.</p>
+<ul class="toc">
+<li><a href="#compile"><code>compile</code></a></li>
+<li><a href="#space_char"><code>space_char</code></a></li>
+</ul>
+<h2>entry point</h2>
+<div class="def" id="compile"><h3><code>pegc.compile(g, options)</code></h3>
+<p class="muted">No description.</p>
+
+</div>
+<div class="def" id="space_char"><h3><code>pegc.space_char</code></h3>
+<p>the regex of one whitespace character (peg.whitespace's)</p>
+
+</div>
+<p class="muted">slang/compiler/pegc.slang</p>
+</body>
+</html>

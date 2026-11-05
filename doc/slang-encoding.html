@@ -54,6 +54,7 @@ enc.url.decode(&quot;a%20b&quot;)                      // &quot;a b&quot;</code>
 <li><a href="#url"><code>url</code></a></li>
 <li><a href="#form"><code>form</code></a></li>
 <li><a href="#query"><code>query</code></a></li>
+<li><a href="#binary"><code>binary</code></a></li>
 <li><a href="#type-Codec"><code>type Codec</code></a></li>
 </ul>
 <div class="def" id="base64"><h3><code>encoding.base64</code></h3>
@@ -81,6 +82,11 @@ enc.url.decode(&quot;a%20b&quot;)                      // &quot;a b&quot;</code>
 <p>Form query strings. encode(t) writes the string, number and boolean fields of t in key order, so the result is stable; a list value repeats its key once per element, and null, false and other values are left out. decode(s?) gives the pairs as a table: a leading &quot;?&quot; is skipped, a repeated key keeps its last value, a pair that does not decode is skipped, and null gives {}.</p>
 <pre><code>enc.query.encode({b: &quot;x y!&quot;, a: 1})      // &quot;a=1&amp;b=x+y%21&quot;
 enc.query.decode(&quot;a=1&amp;b=x+y%21&amp;flag&quot;)    // {a: &quot;1&quot;, b: &quot;x y!&quot;, flag: &quot;&quot;}</code></pre>
+
+</div>
+<div class="def" id="binary"><h3><code>encoding.binary</code></h3>
+<p>A compact byte form of slang data, for files and the network. encode(v) takes null, booleans, numbers, strings and tables of them (metatables are left out) and raises for anything else; small ints take one byte, a float a 32-bit float holds exactly five. decode(s) gives the value back and raises when s is not one whole value (null is a valid result).</p>
+<pre><code>enc.binary.decode(enc.binary.encode({x: 1.5, tags: {&quot;a&quot;}}))  // {x: 1.5, tags: {&quot;a&quot;}}</code></pre>
 
 </div>
 <h2 id="type-Codec">type Codec</h2>

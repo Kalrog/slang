@@ -56,6 +56,7 @@ numbers:end():parse(&quot;1, x&quot;)         // {&quot;error&quot;, &quot;end o
 <ul class="toc">
 <li><a href="#node"><code>node</code></a></li>
 <li><a href="#leaf"><code>leaf</code></a></li>
+<li><a href="#raw_leaf"><code>raw_leaf</code></a></li>
 <li><a href="#parse_tree"><code>parse_tree</code></a></li>
 <li><a href="#collect"><code>collect</code></a></li>
 <li><a href="#sub"><code>sub</code></a></li>
@@ -193,6 +194,10 @@ numbers:end():parse(&quot;1, x&quot;)         // {&quot;error&quot;, &quot;end o
 </div>
 <div class="def" id="leaf"><h3><code>peg.leaf(p, start: int, stop: int) -> <a href="#type-Tree">Tree</a></code></h3>
 <p>A leaf of the tree (no kids), for the tree paths of custom parsers.</p>
+
+</div>
+<div class="def" id="raw_leaf"><h3><code>peg.raw_leaf(p, ctx, start, stop)</code></h3>
+<p>a leaf of raw text: what a parser without a tree path consumed. When the context knows where trivia starts (ctx.trivia_start(buffer, from, to) -&gt; position, set by a grammar), the whitespace and comments it ends with are a trivia leaf of their own: a node {raw: true} with the two leaves.</p>
 
 </div>
 <div class="def" id="parse_tree"><h3><code>peg.parse_tree(parser: <a href="#type-Parser">Parser</a>, ctx: <a href="#type-Context">Context</a>, pos: int) -> int</code></h3>

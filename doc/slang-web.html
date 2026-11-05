@@ -139,7 +139,7 @@ print(res.status, res:header(&quot;location&quot;))</code></pre>
 
 </div>
 <div class="def" id="file"><h3><code>web.file(req: <a href="#type-Request">Request</a>, path: string, options?: <a href="#type-FileOptions">FileOptions</a>) -> <a href="slang-async.html#type-Future">async.Future</a></code></h3>
-<p>A Future of a response sending the file: 404 when it is not a file; ETag and Last-Modified, 304 for conditional requests, a single byte Range (206, 416). The body is streamed from disk (or the bundle of a built program; a file bundled gzipped goes as it is to a client that takes gzip).</p>
+<p>A Future of a response sending the file: 404 when it is not a file; ETag and Last-Modified, 304 for conditional requests, a single byte Range (206, 416). The body is streamed from disk (or the bundle of a built program; a file bundled gzipped goes as it is to a client that takes gzip); a small file is kept in memory once read (see SMALL_FILE).</p>
 <pre><code>app:get(&quot;/report&quot;, func(req){ return web.file(req, &quot;out/report.pdf&quot;) })</code></pre>
 
 </div>

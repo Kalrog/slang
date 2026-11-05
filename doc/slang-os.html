@@ -164,7 +164,7 @@ print(r.stdout)</code></pre>
 
 </div>
 <div class="def" id="exit"><h3><code>os.exit(code?: int)</code></h3>
-<p>Flushes standard output and ends the process with code (0 by default).</p>
+<p>Ends the process with code (0 by default), after what the end of a program does: the finalizers of what is still alive run (slang/vm's on_collect), standard output is flushed and the profile of <code>slang run --profile</code> is written.</p>
 
 </div>
 <h2>programs</h2>

@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>slang/net</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
+pre.ebnf { white-space: pre-wrap; border-left: 3px solid var(--link); }
+dl.syntax dd { margin: 0.2rem 0 0.8rem 0.2rem; }
+figure.example { margin: 1rem 0; }
+details.expanded summary { cursor: pointer; color: var(--muted); }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>slang/net</h1>
+<p>slang/net: networking for games. A server and its clients exchange messages over UDP: named messages with a table of data each, sent reliably (resent until they arrive, in order), unreliably (fire and forget, for what is out of date soon anyway) or sequenced (unreliable, and an older one of the same name is dropped once a newer one arrived).</p>
+<pre><code>local net = require(&quot;slang/net&quot;)
+local server = net.server({port: 7777})
+server:on(&quot;connect&quot;, func(peer){ peer:send(&quot;welcome&quot;, {id: peer.id}) })
+server:on(&quot;move&quot;, func(peer, m){ players[peer.id].x = m.x })
+server:on(&quot;disconnect&quot;, func(peer, reason){ delete(players, peer.id) })
+
+local client = net.connect(&quot;127.0.0.1&quot;, 7777)
+client:on(&quot;welcome&quot;, func(m){ my_id = m.id })
+client:send(&quot;move&quot;, {x: 3}, {mode: &quot;unreliable&quot;})
+
+for(not rl.window_should_close()){
+  server:poll()      // receive, run the handlers, send what is queued
+  client:poll()
+  ...
+}</code></pre>
+<p>Nothing happens behind the program's back: messages arrive, handlers run and queued messages go out in <a href="#type-Server"><code>Server.poll</code></a> and <a href="#type-Client"><code>Client.poll</code></a>, which a game calls once per frame. A server without a frame loop calls <a href="#type-Server"><code>Server.run</code></a> instead. Code that runs inside slang/async (or uv.run) may poll too: the loop is running already, so poll only handles what arrived.</p>
+<p>A <a href="#type-Protocol"><code>Protocol</code></a> names the messages up front and the fields of each, so that a message travels as its number and its values without the field names; both sides must use the same one (a client with another is turned away). Without one, a message travels with its name and its whole table.</p>
+<p>Message data is anything slang/encoding's binary form takes: null, booleans, numbers, strings and tables of them. A reliable message may be large (it is split into packets); an unreliable one must fit in one packet (<a href="#max_unreliable"><code>max_unreliable</code></a> bytes encoded).</p>
+<p>options.simulate makes a host's network worse on purpose, to see how a game plays with lag and loss: every packet it sends or receives is delayed by latency ms plus up to jitter ms (so packets also overtake each other), and dropped with the probability loss.</p>
+<p>There is no encryption or authentication: anyone who can reach the port can connect, and a peer's messages are what it chose to send. Servers check what clients tell them.</p>
+<ul class="toc">
+<li><a href="#max_unreliable"><code>max_unreliable</code></a></li>
+<li><a href="#protocol"><code>protocol</code></a></li>
+<li><a href="#server"><code>server</code></a></li>
+<li><a href="#connect"><code>connect</code></a></li>
+<li><a href="#type-Protocol"><code>type Protocol</code></a></li>
+<li><a href="#type-Peer"><code>type Peer</code></a></li>
+<li><a href="#type-SendOptions"><code>type SendOptions</code></a></li>
+<li><a href="#type-Server"><code>type Server</code></a></li>
+<li><a href="#type-ServerOptions"><code>type ServerOptions</code></a></li>
+<li><a href="#type-Simulate"><code>type Simulate</code></a></li>
+<li><a href="#type-BroadcastOptions"><code>type BroadcastOptions</code></a></li>
+<li><a href="#type-RunOptions"><code>type RunOptions</code></a></li>
+<li><a href="#type-Client"><code>type Client</code></a></li>
+<li><a href="#type-ConnectOptions"><code>type ConnectOptions</code></a></li>
+<li><a href="#type-net.Peer"><code>type net.Peer</code></a></li>
+<li><a href="#net.Peer.rtt"><code>net.Peer.rtt</code></a></li>
+<li><a href="#net.Peer.loss"><code>net.Peer.loss</code></a></li>
+<li><a href="#net.Peer.connected"><code>net.Peer.connected</code></a></li>
+<li><a href="#net.Peer:send"><code>net.Peer:send</code></a></li>
+<li><a href="#net.Peer:disconnect"><code>net.Peer:disconnect</code></a></li>
+<li><a href="#type-net.Server"><code>type net.Server</code></a></li>
+<li><a href="#net.Server.protocol"><code>net.Server.protocol</code></a></li>
+<li><a href="#net.Server:on"><code>net.Server:on</code></a></li>
+<li><a href="#net.Server:broadcast"><code>net.Server:broadcast</code></a></li>
+<li><a href="#net.Server:poll"><code>net.Server:poll</code></a></li>
+<li><a href="#net.Server:flush"><code>net.Server:flush</code></a></li>
+<li><a href="#net.Server:run"><code>net.Server:run</code></a></li>
+<li><a href="#net.Server:close"><code>net.Server:close</code></a></li>
+<li><a href="#type-net.Client"><code>type net.Client</code></a></li>
+<li><a href="#net.Client.id"><code>net.Client.id</code></a></li>
+<li><a href="#net.Client.state"><code>net.Client.state</code></a></li>
+<li><a href="#net.Client.connected"><code>net.Client.connected</code></a></li>
+<li><a href="#net.Client.rtt"><code>net.Client.rtt</code></a></li>
+<li><a href="#net.Client.loss"><code>net.Client.loss</code></a></li>
+<li><a href="#net.Client:on"><code>net.Client:on</code></a></li>
+<li><a href="#net.Client:send"><code>net.Client:send</code></a></li>
+<li><a href="#net.Client:poll"><code>net.Client:poll</code></a></li>
+<li><a href="#net.Client:flush"><code>net.Client:flush</code></a></li>
+<li><a href="#net.Client:run"><code>net.Client:run</code></a></li>
+<li><a href="#net.Client:close"><code>net.Client:close</code></a></li>
+</ul>
+<div class="def" id="max_unreliable"><h3><code>net.max_unreliable</code></h3>
+<p>max_unreliable: the largest unreliable or sequenced message, encoded</p>
+
+</div>
+<h2>protocols</h2>
+<div class="def" id="protocol"><h3><code>net.protocol(definition: {name: string, messages: {string: {string} | string}}) -> <a href="#type-Protocol">Protocol</a></code></h3>
+<p>A protocol: definition.messages maps each message name to the list of its fields, or to &quot;any&quot; for a message whose data travels whole (a list, say, or a table whose keys vary). Fields that are null are left out.</p>
+<pre><code>net.protocol({name: &quot;arena&quot;, messages: {
+  move: {&quot;dx&quot;, &quot;dy&quot;}, chat: {&quot;text&quot;}, state: &quot;any&quot;,
+}})</code></pre>
+
+</div>
+<h2>servers</h2>
+<div class="def" id="server"><h3><code>net.server(options?: <a href="#type-ServerOptions">ServerOptions</a>) -> <a href="#type-Server">Server</a></code></h3>
+<p>A server, listening right away. Its handlers (<a href="#type-Server"><code>Server.on</code></a>) run in <a href="#type-Server"><code>Server.poll</code></a>: &quot;connect&quot; gets the <a href="#type-Peer"><code>Peer</code></a>, &quot;disconnect&quot; the peer and the reason, a message the peer and its data.</p>
+
+</div>
+<h2>clients</h2>
+<div class="def" id="connect"><h3><code>net.connect(host: string, port: int, options?: <a href="#type-ConnectOptions">ConnectOptions</a>) -> <a href="#type-Client">Client</a></code></h3>
+<p>A client connecting to a server; host is an IP address or a name to look up. Its handlers (<a href="#type-Client"><code>Client.on</code></a>) run in <a href="#type-Client"><code>Client.poll</code></a>: &quot;connect&quot; with nothing once the server accepted it, &quot;disconnect&quot; with the reason (when it could not connect too), a message with its data. Messages sent before it is connected wait.</p>
+
+</div>
+<h2 id="type-Protocol">type Protocol</h2>
+<pre><code>type Protocol = {name: string, signature: string}</code></pre>
+<p>The messages a server and its clients exchange: <a href="#protocol"><code>protocol</code></a> makes one.</p>
+<dl class="params"><dt><code>name: string</code></dt><dd>the name it was made with</dd><dt><code>signature: string</code></dt><dd>the name and every message with its fields, as text; a client is accepted only with the server's signature</dd></dl>
+<h2 id="type-Peer">type Peer</h2>
+<pre><code>type Peer = {id: int, address: string, ip: string, port: int, server: <a href="#type-Server">Server</a>, send: func(name: string, data?: any, options?: <a href="#type-SendOptions">SendOptions</a>), disconnect: func(reason?: string)}</code></pre>
+<p>A client as the server sees it. A program may keep its own fields on a peer (peer.player = ...), apart from these.</p>
+<dl class="params"><dt><code>id: int</code></dt><dd>a number the server gave it, from 1, not reused while the server runs</dd><dt><code>address: string</code></dt><dd>&quot;ip:port&quot;</dd><dt><code>ip: string</code></dt><dd></dd><dt><code>port: int</code></dt><dd></dd><dt><code>server: <a href="#type-Server">Server</a></code></dt><dd>the <a href="#type-Server"><code>Server</code></a> it is connected to</dd><dt><code>send: func(name: string, data?: any, options?: <a href="#type-SendOptions">SendOptions</a>)</code></dt><dd></dd><dt><code>disconnect: func(reason?: string)</code></dt><dd></dd></dl>
+<h2 id="type-SendOptions">type SendOptions</h2>
+<pre><code>type SendOptions = {mode?: string}</code></pre>
+<p>How a message goes. Reliable messages arrive once each, in the order they were sent; unreliable ones may not arrive, or twice never but out of order; sequenced ones like unreliable, minus any older than the newest of the same name that arrived.</p>
+<dl class="params"><dt><code>mode?: string</code></dt><dd>&quot;reliable&quot; (the default), &quot;unreliable&quot; or &quot;sequenced&quot;</dd></dl>
+<h2 id="type-Server">type Server</h2>
+<pre><code>type Server = {port: int, peers: {int: <a href="#type-Peer">Peer</a>}, protocol: <a href="#type-Protocol">Protocol</a>?, on: func(event: string, handler: function?), broadcast: func(name: string, data?: any, options?: <a href="#type-BroadcastOptions">BroadcastOptions</a>), poll: func(), flush: func(), run: func(options?: <a href="#type-RunOptions">RunOptions</a>), close: func()}</code></pre>
+<p>A server: <a href="#server"><code>server</code></a> makes one.</p>
+<dl class="params"><dt><code>port: int</code></dt><dd>the port it listens on (the one picked, for port 0)</dd><dt><code>peers: {int: <a href="#type-Peer">Peer</a>}</code></dt><dd>the connected clients by id; a program reads it, net changes it</dd><dt><code>protocol: <a href="#type-Protocol">Protocol</a>?</code></dt><dd>the <a href="#type-Protocol"><code>Protocol</code></a> of its options</dd><dt><code>on: func(event: string, handler: function?)</code></dt><dd></dd><dt><code>broadcast: func(name: string, data?: any, options?: <a href="#type-BroadcastOptions">BroadcastOptions</a>)</code></dt><dd></dd><dt><code>poll: func()</code></dt><dd></dd><dt><code>flush: func()</code></dt><dd></dd><dt><code>run: func(options?: <a href="#type-RunOptions">RunOptions</a>)</code></dt><dd></dd><dt><code>close: func()</code></dt><dd></dd></dl>
+<h2 id="type-ServerOptions">type ServerOptions</h2>
+<pre><code>type ServerOptions = {port?: int, host?: string, protocol?: <a href="#type-Protocol">Protocol</a>, max_peers?: int, timeout?: number, simulate?: <a href="#type-Simulate">Simulate</a>}</code></pre>
+<p>Options of <a href="#server"><code>server</code></a>.</p>
+<dl class="params"><dt><code>port?: int</code></dt><dd>the UDP port (0, the default, picks a free one)</dd><dt><code>host?: string</code></dt><dd>the address to listen on, &quot;0.0.0.0&quot; (every IPv4 one) by default</dd><dt><code>protocol?: <a href="#type-Protocol">Protocol</a></code></dt><dd>the messages; without one, names and whole tables travel</dd><dt><code>max_peers?: int</code></dt><dd>more clients are turned away (&quot;server full&quot;), 32 by default</dd><dt><code>timeout?: number</code></dt><dd>a client not heard from for this many ms is gone (5000)</dd><dt><code>simulate?: <a href="#type-Simulate">Simulate</a></code></dt><dd>a worse network, for testing</dd></dl>
+<h2 id="type-Simulate">type Simulate</h2>
+<pre><code>type Simulate = {latency?: number, jitter?: number, loss?: number}</code></pre>
+<p>The simulated network of options.simulate.</p>
+<dl class="params"><dt><code>latency?: number</code></dt><dd>ms added to every packet, each way</dd><dt><code>jitter?: number</code></dt><dd>up to this many ms more, at random</dd><dt><code>loss?: number</code></dt><dd>the probability that a packet is dropped, 0 to 1</dd></dl>
+<h2 id="type-BroadcastOptions">type BroadcastOptions</h2>
+<pre><code>type BroadcastOptions = {mode?: string, except?: <a href="#type-Peer">Peer</a>}</code></pre>
+<p>Options of <a href="#type-Server"><code>Server.broadcast</code></a>: <a href="#type-SendOptions"><code>SendOptions</code></a> and except.</p>
+<dl class="params"><dt><code>mode?: string</code></dt><dd></dd><dt><code>except?: <a href="#type-Peer">Peer</a></code></dt><dd>a peer that does not get it (the one who sent the news, say)</dd></dl>
+<h2 id="type-RunOptions">type RunOptions</h2>
+<pre><code>type RunOptions = {rate?: number, tick?: func(dt: number)}</code></pre>
+<p>Options of <a href="#type-Server"><code>Server.run</code></a> and <a href="#type-Client"><code>Client.run</code></a>.</p>
+<dl class="params"><dt><code>rate?: number</code></dt><dd>polls per second, 60 by default</dd><dt><code>tick?: func(dt: number)</code></dt><dd>runs after each poll with the ms since the one before</dd></dl>
+<h2 id="type-Client">type Client</h2>
+<pre><code>type Client = {id: int?, state: string, reason: string?, on: func(event: string, handler: function?), send: func(name: string, data?: any, options?: <a href="#type-SendOptions">SendOptions</a>), poll: func(), flush: func(), run: func(options?: <a href="#type-RunOptions">RunOptions</a>), close: func()}</code></pre>
+<p>A connection to a server: <a href="#connect"><code>connect</code></a> makes one.</p>
+<dl class="params"><dt><code>id: int?</code></dt><dd></dd><dt><code>state: string</code></dt><dd>&quot;connecting&quot;, &quot;connected&quot; or &quot;closed&quot;</dd><dt><code>reason: string?</code></dt><dd>why it closed, once it is closed</dd><dt><code>on: func(event: string, handler: function?)</code></dt><dd></dd><dt><code>send: func(name: string, data?: any, options?: <a href="#type-SendOptions">SendOptions</a>)</code></dt><dd></dd><dt><code>poll: func()</code></dt><dd></dd><dt><code>flush: func()</code></dt><dd></dd><dt><code>run: func(options?: <a href="#type-RunOptions">RunOptions</a>)</code></dt><dd></dd><dt><code>close: func()</code></dt><dd></dd></dl>
+<h2 id="type-ConnectOptions">type ConnectOptions</h2>
+<pre><code>type ConnectOptions = {protocol?: <a href="#type-Protocol">Protocol</a>, timeout?: number, simulate?: <a href="#type-Simulate">Simulate</a>}</code></pre>
+<p>Options of <a href="#connect"><code>connect</code></a>.</p>
+<dl class="params"><dt><code>protocol?: <a href="#type-Protocol">Protocol</a></code></dt><dd>the server's <a href="#type-Protocol"><code>Protocol</code></a></dd><dt><code>timeout?: number</code></dt><dd>ms without a word from the server before giving up (5000)</dd><dt><code>simulate?: <a href="#type-Simulate">Simulate</a></code></dt><dd>a worse network, for testing</dd></dl>
+<h2 id="type-net.Peer">type net.Peer</h2>
+
+<div class="def" id="net.Peer.rtt"><h3><code>net.Peer.rtt: number (read-only)</code></h3>
+<p>The round-trip time in ms, smoothed.</p>
+
+</div>
+<div class="def" id="net.Peer.loss"><h3><code>net.Peer.loss: number (read-only)</code></h3>
+<p>The part of the packets sent to it that were lost lately, 0 to 1.</p>
+
+</div>
+<div class="def" id="net.Peer.connected"><h3><code>net.Peer.connected: bool (read-only)</code></h3>
+<p>Whether it is still connected.</p>
+
+</div>
+<div class="def" id="net.Peer:send"><h3><code>net.Peer:send(name: string, data?: any, options?: <a href="#type-SendOptions">SendOptions</a>)</code></h3>
+<p>Queues a message for this peer; it goes out with the next poll.</p>
+
+</div>
+<div class="def" id="net.Peer:disconnect"><h3><code>net.Peer:disconnect(reason?: string)</code></h3>
+<p>Ends the connection: the client hears why, and the server's &quot;disconnect&quot; handler runs now.</p>
+
+</div>
+<h2 id="type-net.Server">type net.Server</h2>
+
+<div class="def" id="net.Server.protocol"><h3><code>net.Server.protocol: Protocol? (read-only)</code></h3>
+
+</div>
+<div class="def" id="net.Server:on"><h3><code>net.Server:on(event: string, handler: function?)</code></h3>
+<p>Sets the handler of an event (&quot;connect&quot;, &quot;disconnect&quot;) or a message name, replacing the one before; null removes it.</p>
+
+</div>
+<div class="def" id="net.Server:broadcast"><h3><code>net.Server:broadcast(name: string, data?: any, options?: <a href="#type-BroadcastOptions">BroadcastOptions</a>)</code></h3>
+<p>Queues a message for every connected peer (encoded once).</p>
+
+</div>
+<div class="def" id="net.Server:poll"><h3><code>net.Server:poll()</code></h3>
+<p>Handles what arrived (the handlers run), drops clients that timed out and sends what is queued. A game calls it once per frame.</p>
+
+</div>
+<div class="def" id="net.Server:flush"><h3><code>net.Server:flush()</code></h3>
+<p>Sends what is queued now, without waiting for the next <a href="#type-Server"><code>Server.poll</code></a>.</p>
+
+</div>
+<div class="def" id="net.Server:run"><h3><code>net.Server:run(options?: <a href="#type-RunOptions">RunOptions</a>)</code></h3>
+<p>Polls rate times a second until <a href="#type-Server"><code>Server.close</code></a>, for a server without a frame loop of its own. Outside slang/async it runs the event loop and returns once the server is closed; inside, it returns at once.</p>
+
+</div>
+<div class="def" id="net.Server:close"><h3><code>net.Server:close()</code></h3>
+<p>Tells every peer and stops listening; the &quot;disconnect&quot; handler runs for each.</p>
+
+</div>
+<h2 id="type-net.Client">type net.Client</h2>
+
+<div class="def" id="net.Client.id"><h3><code>net.Client.id: int? (read-only)</code></h3>
+<p>The id the server gave this client (<a href="#type-Peer"><code>Peer.id</code></a> there), once connected.</p>
+
+</div>
+<div class="def" id="net.Client.state"><h3><code>net.Client.state: string (read-only)</code></h3>
+
+</div>
+<div class="def" id="net.Client.connected"><h3><code>net.Client.connected: bool (read-only)</code></h3>
+
+</div>
+<div class="def" id="net.Client.rtt"><h3><code>net.Client.rtt: number (read-only)</code></h3>
+<p>The round-trip time to the server in ms, smoothed.</p>
+
+</div>
+<div class="def" id="net.Client.loss"><h3><code>net.Client.loss: number (read-only)</code></h3>
+<p>The part of the packets sent to the server that were lost lately, 0 to 1.</p>
+
+</div>
+<div class="def" id="net.Client:on"><h3><code>net.Client:on(event: string, handler: function?)</code></h3>
+<p>Sets the handler of an event (&quot;connect&quot;, &quot;disconnect&quot;) or a message name, replacing the one before; null removes it.</p>
+
+</div>
+<div class="def" id="net.Client:send"><h3><code>net.Client:send(name: string, data?: any, options?: <a href="#type-SendOptions">SendOptions</a>)</code></h3>
+<p>Queues a message for the server; it goes out with the next poll (once connected).</p>
+
+</div>
+<div class="def" id="net.Client:poll"><h3><code>net.Client:poll()</code></h3>
+<p>Handles what arrived (the handlers run) and sends what is queued. A game calls it once per frame.</p>
+
+</div>
+<div class="def" id="net.Client:flush"><h3><code>net.Client:flush()</code></h3>
+<p>Sends what is queued now, without waiting for the next <a href="#type-Client"><code>Client.poll</code></a>.</p>
+
+</div>
+<div class="def" id="net.Client:run"><h3><code>net.Client:run(options?: <a href="#type-RunOptions">RunOptions</a>)</code></h3>
+<p>Polls rate times a second until <a href="#type-Client"><code>Client.close</code></a> (a bot, a test). Outside slang/async it runs the event loop and returns once the client is closed; inside, it returns at once.</p>
+
+</div>
+<div class="def" id="net.Client:close"><h3><code>net.Client:close()</code></h3>
+<p>Tells the server (when connected) and closes the socket; the &quot;disconnect&quot; handler runs.</p>
+
+</div>
+<p class="muted">slang/lib/net.slang</p>
+</body>
+</html>

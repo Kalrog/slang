@@ -60,6 +60,9 @@ for(let local e in entries({a: 1, b: 2})){ print(e[0], &quot;=&quot;, e[1], &quo
 <li><a href="#append"><code>append</code></a></li>
 <li><a href="#same"><code>same</code></a></li>
 <li><a href="#remove"><code>remove</code></a></li>
+<li><a href="#delete"><code>delete</code></a></li>
+<li><a href="#has"><code>has</code></a></li>
+<li><a href="#stop"><code>stop</code></a></li>
 <li><a href="#keys"><code>keys</code></a></li>
 <li><a href="#values"><code>values</code></a></li>
 <li><a href="#entries"><code>entries</code></a></li>
@@ -106,7 +109,7 @@ if(let {&quot;err&quot;, local e} = r){
 
 </div>
 <div class="def" id="len"><h3><code>len(v: string | table) -> int</code></h3>
-<p>The length of a string in bytes, or of a table's list: its elements at 0, 1, 2, ... up to the first index it does not have (named keys are not part of it, see <a href="#count"><code>count</code></a>). A metatable's __len function decides instead when there is one. Raises an error for other values.</p>
+<p>The length of a string in bytes, or of a table's list: its elements at 0, 1, 2, ... up to the first index it does not have (an element may be null: {1, null, 3} has length 3; named keys are not part of it, see <a href="#count"><code>count</code></a>). A metatable's __len function decides instead when there is one. Raises an error for other values.</p>
 <pre><code>len({&quot;a&quot;, &quot;b&quot;, x: 1})     // 2</code></pre>
 
 </div>
@@ -130,7 +133,7 @@ count({}) == 0            // whether a map is empty</code></pre>
 </div>
 <h2>tables</h2>
 <div class="def" id="append"><h3><code>append(t: table, v: any)</code></h3>
-<p>Adds v at the end of the list of t (sets t[len(t)]); named keys stay as they are. A list holds no null: appending null raises. To keep a position empty, set by index (t[i] = v): a null leaves a gap, which spreading (f(...t)) passes as null.</p>
+<p>Adds v at the end of the list of t (sets t[len(t)]); named keys stay as they are. v may be null: a list holds null like any value.</p>
 
 </div>
 <div class="def" id="same"><h3><code>same(a: any, b: any) -> bool</code></h3>
@@ -139,7 +142,21 @@ count({}) == 0            // whether a map is empty</code></pre>
 
 </div>
 <div class="def" id="remove"><h3><code>remove(list: {any}, i: int) -> any</code></h3>
-<p>Takes the element at index i out of the list, moving the later elements down by one, and returns it: the inverse of slang/table's insert. Raises when i is not an index of the list (0 to len - 1). To remove a key without moving anything, assign null: t[k] = null.</p>
+<p>Takes the element at index i out of the list, moving the later elements down by one, and returns it: the inverse of slang/table's insert. Raises when i is not an index of the list (0 to len - 1). To take a key out without moving anything, use <a href="#delete"><code>delete</code></a>.</p>
+
+</div>
+<div class="def" id="delete"><h3><code>delete(t: table, key) -> any</code></h3>
+<p>Takes key out of t and returns the value it held (null when it was absent). Nothing moves: deleting a list index in the middle ends the list there (len(t) becomes that index), and the later elements keep their keys. Assigning null does not delete: t[k] = null stores null.</p>
+<pre><code>local t = {a: 1, b: 2}
+delete(t, &quot;a&quot;)   // 1; t is {b: 2}</code></pre>
+
+</div>
+<div class="def" id="has"><h3><code>has(t: table, key) -> bool</code></h3>
+<p>Whether t has key, without metamethods. A key may hold null: has({a: null}, &quot;a&quot;) is true, while reading t.a gives null either way.</p>
+
+</div>
+<div class="def" id="stop"><h3><code>stop</code></h3>
+<p>stop What an iterator function returns when it is done: a for-in loop ends there. null is an element like any other, so it cannot end a loop. type(stop) is &quot;stop&quot;.</p>
 
 </div>
 <div class="def" id="keys"><h3><code>keys(t: table) -> function</code></h3>

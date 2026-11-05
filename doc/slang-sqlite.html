@@ -74,6 +74,7 @@ db:close()</code></pre>
 <li><a href="#Database:exec"><code>Database:exec</code></a></li>
 <li><a href="#Database:transaction"><code>Database:transaction</code></a></li>
 <li><a href="#Database:close"><code>Database:close</code></a></li>
+<li><a href="#type-OpenOptions"><code>type OpenOptions</code></a></li>
 </ul>
 <div class="def" id="c"><h3><code>sqlite.c</code></h3>
 <p>The native extension under this module: open(path) -&gt; a connection with exec, prepare, changes, last_insert_rowid; statements with bind, step, row, reset, finalize.</p>
@@ -91,17 +92,17 @@ db:close()</code></pre>
 </div>
 <div class="def" id="query"><h3><code>sqlite.query(text: string, values?: {any}, origin?: string, count?: int) -> <a href="#type-Query">Query</a></code></h3>
 <p>A query of text with one ? per value; <a href="#list"><code>list</code></a> values and queries among the values are expanded into the text. Raises when the number of ? does not match (a ? in a string, a quoted name or a comment is not counted).</p>
-<dl class="params"><dt><code>origin</code></dt><dd>where the query comes from, added to its error messages</dd><dt><code>count</code></dt><dd>how many values (len(values)); a null value ends a list's length</dd></dl>
+<dl class="params"><dt><code>origin</code></dt><dd>where the query comes from, added to its error messages</dd><dt><code>count</code></dt><dd>how many values; len(values) by default (null values count)</dd></dl>
 </div>
 <h2>databases</h2>
-<div class="def" id="open"><h3><code>sqlite.open(path: string) -> <a href="#type-Database">Database</a></code></h3>
-<p>Opens a database file, created when missing; &quot;:memory:&quot; opens one in memory. Raises when it cannot be opened.</p>
+<div class="def" id="open"><h3><code>sqlite.open(path: string, opts?: <a href="#type-OpenOptions">OpenOptions</a>) -> <a href="#type-Database">Database</a></code></h3>
+<p>Opens a database file, created when missing; &quot;:memory:&quot; opens one in memory (the options are for files). Raises when it cannot be opened.</p>
 
 </div>
 <h2 id="type-Query">type Query</h2>
 <pre><code>type Query = {text: string, params: {any}, count: int, origin?: string}</code></pre>
 <p>SQL text with its parameters, made by <a href="#query"><code>query</code></a> (or a sql{ } literal).</p>
-<dl class="params"><dt><code>text: string</code></dt><dd></dd><dt><code>params: {any}</code></dt><dd></dd><dt><code>count: int</code></dt><dd>how many params there are (a null value ends a list's length)</dd><dt><code>origin?: string</code></dt><dd>where the literal is, for error messages (&quot;views.slang:12&quot;)</dd></dl>
+<dl class="params"><dt><code>text: string</code></dt><dd></dd><dt><code>params: {any}</code></dt><dd></dd><dt><code>count: int</code></dt><dd>how many params there are (len(params))</dd><dt><code>origin?: string</code></dt><dd>where the literal is, for error messages (&quot;views.slang:12&quot;)</dd></dl>
 <h2 id="type-Row">type Row</h2>
 <pre><code>type Row = {[string]: any}</code></pre>
 <p>A row: its values by column name.</p>
@@ -135,8 +136,8 @@ db:close()</code></pre>
 <p>Runs a statement to the end, ignoring rows: an insert, update or delete.</p>
 
 </div>
-<div class="def" id="Database:each"><h3><code>Database:each(q: <a href="#type-Query">Query</a> | string, values?: {any}) -> func(): <a href="#type-Row">Row</a>?</code></h3>
-<p>An iterator of the rows, for <code>for(let row in db:each(q))</code>, reading one row at a time. The loop has a statement of its own, so the loop's body may run any query, the same one included; the statement is finalized when the rows end (or when a loop left early is collected).</p>
+<div class="def" id="Database:each"><h3><code>Database:each(q: <a href="#type-Query">Query</a> | string, values?: {any}) -> func(): <a href="#type-Row">Row</a></code></h3>
+<p>An iterator of the rows (stop after the last), for <code>for(let local row in db:each(q))</code>, reading one row at a time. The loop has a statement of its own, so the loop's body may run any query, the same one included; the statement is finalized when the rows end (or when a loop left early is collected).</p>
 
 </div>
 <div class="def" id="Database:all_async"><h3><code>Database:all_async(q: <a href="#type-Query">Query</a> | string, values?: {any}) -> <a href="slang-async.html#type-Future">async.Future</a></code></h3>
@@ -163,6 +164,10 @@ db:close()</code></pre>
 <p>Finalizes the cached statements and closes the database; raises while an _async query is running.</p>
 
 </div>
+<h2 id="type-OpenOptions">type OpenOptions</h2>
+<pre><code>type OpenOptions = {journal?: string, synchronous?: string}</code></pre>
+<p>How <a href="#open"><code>open</code></a> sets a database file up. for a writer, and a commit appends to the log instead of rewriting pages (&quot;delete&quot; is SQLite's own default) WAL a commit survives a crash of the program, and only a power loss may undo the last ones (&quot;full&quot; waits at every commit, as SQLite does by default)</p>
+<dl class="params"><dt><code>journal?: string</code></dt><dd>SQLite's journal_mode, &quot;wal&quot; by default: readers do not wait</dd><dt><code>synchronous?: string</code></dt><dd>when SQLite waits for the disk, &quot;normal&quot; by default: with</dd></dl>
 <p class="muted">slang/lib/sqlite.slang</p>
 </body>
 </html>

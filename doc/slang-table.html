@@ -71,7 +71,7 @@ tbl.sort(people, func(a, b){ return a.age &lt; b.age })</code></pre>
 
 </div>
 <div class="def" id="map"><h3><code>table.map(list: {any}, f: func(v: any): any) -> {any}</code></h3>
-<p>A new list of f(v) for each element v of list, in order; a null result is left out (so map can filter too).</p>
+<p>A new list of f(v) for each element v of list, in order, a null result included (use <a href="#filter"><code>filter</code></a> to leave elements out).</p>
 <pre><code>tbl.map({1, 2, 3}, func(x){ return x * x })   // {1, 4, 9}</code></pre>
 
 </div>

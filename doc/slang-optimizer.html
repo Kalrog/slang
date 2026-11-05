@@ -42,12 +42,12 @@ details.expanded summary { cursor: pointer; color: var(--muted); }
 <h1>slang/optimizer</h1>
 <p>slang/optimizer: constant folding on the AST, applied by the grammar to every parsed chunk.</p>
 <pre><code>local node = optimizer.optimize(ast_node)   // 2 * 3 + x is 6 + x</code></pre>
-<p>Operators on literals are computed when the result is certain to be the run-time one: arithmetic and comparisons on numbers, + on strings, string * int, bitwise operators on integers, not, - and ~ of literals. Division and modulo by zero and negative shifts are left to run time.</p>
+<p>Operators on literals are computed when the result is certain to be the run-time one: arithmetic and comparisons on numbers, + on strings, string * int, bitwise operators on integers, not, - and ~ of literals. Division and modulo by zero, negative shifts, non-finite doubles and strings longer than MAX_STRING are left to run time. <code>and</code> and <code>or</code> with a literal left side become one of their operands, an if (statement or expression) with a literal condition becomes the branch it takes, and the statements after a return, break, continue or throw are dropped. A local declared with a literal and never assigned again is replaced by that literal where it is read (see resolve.constant), so its uses fold too: <code>local DEBUG = false</code> makes <code>if(DEBUG){ ... }</code> disappear.</p>
 <ul class="toc">
 <li><a href="#optimize"><code>optimize</code></a></li>
 </ul>
-<div class="def" id="optimize"><h3><code>optimizer.optimize(node: table) -> table</code></h3>
-<p>node with its constant expressions folded. The result is a new tree where something changed; nodes are not modified in place.</p>
+<div class="def" id="optimize"><h3><code>optimizer.optimize(node: table, opts?: {constants?: bool}) -> table</code></h3>
+<p>node with its constant expressions folded. Nodes are not modified in place: a changed node is a copy, and an unchanged subtree is returned as it is. (codegen does; the parser folds only, so that tools see every name)</p>
 
 </div>
 <p class="muted">slang/compiler/optimizer.slang</p>

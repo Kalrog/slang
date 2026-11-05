@@ -74,6 +74,7 @@ local h = compiler.highlight(source, &quot;main.slang&quot;, {symbols: true})</c
 <li><a href="#forget_project"><code>forget_project</code></a></li>
 <li><a href="#keywords"><code>keywords</code></a></li>
 <li><a href="#cache_root"><code>cache_root</code></a></li>
+<li><a href="#pegc_cache"><code>pegc_cache</code></a></li>
 <li><a href="#load_file"><code>load_file</code></a></li>
 <li><a href="#load_main"><code>load_main</code></a></li>
 <li><a href="#highlight"><code>highlight</code></a></li>
@@ -102,11 +103,11 @@ local h = compiler.highlight(source, &quot;main.slang&quot;, {symbols: true})</c
 
 </div>
 <div class="def" id="testing"><h3><code>compiler.testing</code></h3>
-<p>Whether files are compiled for a test run: <code>slang test</code> sets it. Then the files of the project under test (not its packages', not slang's library) are parsed with testing on (see grammar's testing()), and extensions such as slang/inline_test keep the code that only tests need.</p>
+<p>Whether files are compiled for a test run: <code>slang test</code> sets it. Then the files of the project under test (not its packages', not slang's library) are parsed with testing on (see grammar's testing()), and extensions such as extensions/inline_test keep the code that only tests need.</p>
 
 </div>
 <div class="def" id="load_extension"><h3><code>compiler.load_extension(name: string)</code></h3>
-<p>Runs the extension module <code>name</code> for the grammar being extended (see <a href="#grammar"><code>grammar</code></a>), once per grammar: a second load does nothing. A module file on the search paths is compiled with <a href="#load_file"><code>load_file</code></a> and run anew for each grammar that loads it, and so is a module embedded in the interpreter (slang/inline_test); anything else (a native module) is required, so it runs once per program.</p>
+<p>Runs the extension module <code>name</code> for the grammar being extended (see <a href="#grammar"><code>grammar</code></a>), once per grammar: a second load does nothing. A module file on the search paths is compiled with <a href="#load_file"><code>load_file</code></a> and run anew for each grammar that loads it, and so is a module embedded in the interpreter; anything else (a native module) is required, so it runs once per program.</p>
 
 </div>
 <div class="def" id="grammar"><h3><code>compiler.grammar() -> table</code></h3>
@@ -210,6 +211,10 @@ f()   // 42</code></pre>
 <div class="def" id="cache_root"><h3><code>compiler.cache_root() -> string?</code></h3>
 <p>$SLANG_CACHE_DIR, else ~/.cache/slang; null when neither that nor HOME is set.</p>
 <dl class="params"><dt>returns</dt><dd>where slang caches what it builds</dd></dl>
+</div>
+<div class="def" id="pegc_cache"><h3><code>compiler.pegc_cache(source: string, hash: string) -> function</code></h3>
+<p>The generated parser module of a grammar (slang/pegc's source, and the hash of it), compiled: the one shipped with the compiler when it is the same source, else from the bytecode cache when it holds it (keyed by the hash and the build id), so a module is compiled once per grammar and compiler build.</p>
+
 </div>
 <div class="def" id="load_file"><h3><code>compiler.load_file(path: string, origin?: string) -> function</code></h3>
 <p>Compiles a file as require and <code>slang run</code> do, through the bytecode cache. A file is compiled under its project's grammar (a package's for a file of a package) or that of its dialect, never the grammar of the file that loads it: a module means the same wherever it is loaded from. A file of a compile dialect is handed to the dialect's compile function.</p>

@@ -65,12 +65,15 @@ details.expanded summary { cursor: pointer; color: var(--muted); }
 <dt><a href="slang-json.html"><code>slang/json</code></a></dt><dd>slang/json: encode and decode JSON.</dd>
 <dt><a href="slang-jwt.html"><code>slang/jwt</code></a></dt><dd>slang/jwt: JSON Web Tokens (RFC 7519) over slang/crypto.</dd>
 <dt><a href="slang-math.html"><code>slang/math</code></a></dt><dd>slang/math: numeric functions and constants, built into the VM.</dd>
+<dt><a href="slang-net.html"><code>slang/net</code></a></dt><dd>slang/net: networking for games.</dd>
 <dt><a href="slang-optimizer.html"><code>slang/optimizer</code></a></dt><dd>slang/optimizer: constant folding on the AST, applied by the grammar to every parsed chunk.</dd>
 <dt><a href="slang-os.html"><code>slang/os</code></a></dt><dd>slang/os: files, the process and its environment, built into the VM.</dd>
 <dt><a href="slang-path.html"><code>slang/path</code></a></dt><dd>slang/path: slash-separated paths, as files and URLs use them (Go's path and path/filepath on Unix).</dd>
 <dt><a href="slang-peg.html"><code>slang/peg</code></a></dt><dd>slang/peg: parser combinators in the style of petitparser (PEG: ordered choice, no ambiguity), the expression walker extensions add operators with, and the lossless tree that highlighting and formatting read.</dd>
+<dt><a href="slang-pegc.html"><code>slang/pegc</code></a></dt><dd>pegc: compiles a sealed peg grammar (slang/grammar) into slang source.</dd>
 <dt><a href="slang-pkg.html"><code>slang/pkg</code></a></dt><dd>slang/pkg: packages: <code>slang get</code>, <code>slang update [name...]</code>, <code>slang deps</code>.</dd>
 <dt><a href="slang-regex.html"><code>slang/regex</code></a></dt><dd>slang/regex: regular expressions, built into the VM.</dd>
+<dt><a href="slang-resolve.html"><code>slang/resolve</code></a></dt><dd>slang/resolve: which declaration each name in a chunk refers to, and what is known about each local, before code is generated.</dd>
 <dt><a href="slang-sqlite.html"><code>slang/sqlite</code></a></dt><dd>slang/sqlite: SQLite with an API that reads well, on the native <code>sqlite</code> extension.</dd>
 <dt><a href="slang-std.html"><code>slang/std</code></a></dt><dd>slang/std: global functions written in slang: module, run and the matcher protocol behind 'm patterns.</dd>
 <dt><a href="slang-string.html"><code>slang/string</code></a></dt><dd>slang/string: functions on byte strings, built into the VM.</dd>
@@ -90,7 +93,5 @@ details.expanded summary { cursor: pointer; color: var(--muted); }
 <dt><a href="tls.html"><code>tls</code></a></dt><dd>tls: the native binding of OpenSSL 3's TLS (libssl) as an engine on memory buffers.</dd>
 <dt><a href="uv.html"><code>uv</code></a></dt><dd>uv: the native binding of libuv in the callback style of luv.</dd>
 <dt><a href="zlib.html"><code>zlib</code></a></dt><dd>zlib: the native binding of zlib (deflate and inflate in the gzip, zlib and raw formats), at once or as a stream.</dd></dl>
-<h2>Extensions</h2>
-<dl><dt><a href="slang-inline_test.html"><code>slang/inline_test</code></a></dt><dd>slang/inline_test: tests next to the code they test, in the same file.</dd></dl>
 </body>
 </html>

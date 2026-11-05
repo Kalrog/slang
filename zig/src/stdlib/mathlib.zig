@@ -110,14 +110,14 @@ fn mathAbs(th: *Thread, args: []Value) Error!Value {
     return switch (x) {
         .int => |i| .{ .int = if (i < 0) 0 -% i else i },
         .float => |f| .{ .float = @abs(f) },
-        else => th.vm.raise("Expected num for x got {s}", .{x.typeName()}),
+        else => th.vm.raiseKind("argument", "Expected num for x got {s}", .{x.typeName()}),
     };
 }
 
 fn mathMin(th: *Thread, args: []Value) Error!Value {
     var best: Value = .{ .float = std.math.inf(f64) };
     for (args, 0..) |a, i| {
-        if (!a.isNumber()) return th.vm.raise("Expected num for argument {d} got {s}", .{ i, a.typeName() });
+        if (!a.isNumber()) return th.vm.raiseKind("argument", "Expected num for argument {d} got {s}", .{ i, a.typeName() });
         if (a.asNumber() < best.asNumber()) best = a;
     }
     return best;
@@ -126,7 +126,7 @@ fn mathMin(th: *Thread, args: []Value) Error!Value {
 fn mathMax(th: *Thread, args: []Value) Error!Value {
     var best: Value = .{ .float = -std.math.inf(f64) };
     for (args, 0..) |a, i| {
-        if (!a.isNumber()) return th.vm.raise("Expected num for argument {d} got {s}", .{ i, a.typeName() });
+        if (!a.isNumber()) return th.vm.raiseKind("argument", "Expected num for argument {d} got {s}", .{ i, a.typeName() });
         if (a.asNumber() > best.asNumber()) best = a;
     }
     return best;
@@ -158,7 +158,7 @@ fn mathSign(th: *Thread, args: []Value) Error!Value {
     return switch (x) {
         .int => |i| .{ .int = std.math.sign(i) },
         .float => |f| .{ .float = if (std.math.isNan(f)) f else std.math.sign(f) },
-        else => th.vm.raise("sign: a number expected, got {s}", .{x.typeName()}),
+        else => th.vm.raiseKind("argument", "sign: a number expected, got {s}", .{x.typeName()}),
     };
 }
 
@@ -199,7 +199,7 @@ fn mathRandomInt(th: *Thread, args: []Value) Error!Value {
     const prng = ensurePrng(th);
     const lo = try api.argInt(th, args, 0, "lo");
     const hi = try api.argInt(th, args, 1, "hi");
-    if (hi < lo) return th.vm.raise("random_int: hi ({d}) is below lo ({d})", .{ hi, lo });
+    if (hi < lo) return th.vm.raiseKind("argument", "random_int: hi ({d}) is below lo ({d})", .{ hi, lo });
     return .{ .int = prng.random().intRangeAtMost(i64, lo, hi) };
 }
 

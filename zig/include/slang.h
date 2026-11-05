@@ -143,7 +143,12 @@ SLANG_EXPORT bool slang_failed(slang_State *S);
 /* ---- errors ---- */
 /* Records an error with a printf-style message; returns SLANG_ERROR. */
 SLANG_EXPORT int slang_error(slang_State *S, const char *fmt, ...);
-/* "bad argument #arg to 'fn' (msg)"; returns SLANG_ERROR. */
+/* slang_error with a kind, what slang code catches on (the error table's
+ * kind): "not_found", "argument", ... or the extension's own. */
+SLANG_EXPORT int slang_errorkind(slang_State *S, const char *kind,
+                                 const char *fmt, ...);
+/* "bad argument #arg to 'fn' (msg)", of kind "argument"; returns
+ * SLANG_ERROR. */
 SLANG_EXPORT int slang_argerror(slang_State *S, int arg, const char *msg);
 /* Pops an error value (an error table or a string) and makes it the
  * pending error; returns SLANG_ERROR. */

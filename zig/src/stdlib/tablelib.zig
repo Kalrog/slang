@@ -134,9 +134,9 @@ fn tFromEntries(th: *Thread, args: []Value) Error!Value {
     const list = try api.argTable(th, args, 0, "list");
     const out = vm.newTable(0, list.arr.items.len);
     for (list.arr.items, 0..) |p, i| {
-        const pair = p.asTable() orelse return vm.raise("table.from_entries: element {d} is not a {{key, value}} pair", .{i});
+        const pair = p.asTable() orelse return vm.raiseKind("argument", "table.from_entries: element {d} is not a {{key, value}} pair", .{i});
         const k = pair.getInt(0);
-        if (k == .null) return vm.raise("table.from_entries: element {d} has no key", .{i});
+        if (k == .null) return vm.raiseKind("argument", "table.from_entries: element {d} has no key", .{i});
         out.set(vm.gpa, k, pair.getInt(1));
     }
     return .{ .table = out };
@@ -191,8 +191,7 @@ fn tInsert(th: *Thread, args: []Value) Error!Value {
     const i = try api.argInt(th, args, 1, "i");
     const v = api.arg(args, 2);
     const n = t.arr.items.len;
-    if (i < 0 or i > n) return th.vm.raise("table.insert: index {d} out of range (length {d})", .{ i, n });
-    if (v == .null) return th.vm.raise("table.insert: null cannot be an element of a list", .{});
+    if (i < 0 or i > n) return th.vm.raiseKind("argument", "table.insert: index {d} out of range (length {d})", .{ i, n });
     t.insertAt(th.vm.gpa, @intCast(i), v);
     return .null;
 }

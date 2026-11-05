@@ -988,7 +988,7 @@ fn compareSlow(th: *Thread, comptime op: Op, a: Value, b: Value) Error!bool {
     }
     const f = metamethod(a, b, if (is_lt) "__lt" else "__le");
     if (f == .function) return (try th.call(f, &.{ a, b })).truthy();
-    return th.vm.raise("attempt to compare {s} {s} {s}", .{ a.typeName(), if (is_lt) "<" else "<=", b.typeName() });
+    return th.vm.raiseKind("type", "attempt to compare {s} {s} {s}", .{ a.typeName(), if (is_lt) "<" else "<=", b.typeName() });
 }
 
 /// What makes a store of a new key leave the inline path: the metatable
@@ -1197,8 +1197,8 @@ fn bnotSlow(th: *Thread, a: Value) Error!Value {
     if (exactInt(a)) |x| return .{ .int = ~x };
     const f = metamethod(a, .null, "__bnot");
     if (f == .function) return th.call(f, &.{a});
-    if (a == .float) return th.vm.raise("number has no integer representation in bitwise operation (~)", .{});
-    return th.vm.raise("attempt to perform bitwise operation (~) on a {s} value", .{a.typeName()});
+    if (a == .float) return th.vm.raiseKind("arithmetic", "number has no integer representation in bitwise operation (~)", .{});
+    return th.vm.raiseKind("type", "attempt to perform bitwise operation (~) on a {s} value", .{a.typeName()});
 }
 
 /// + - * / % ^ on two integers: null for a modulo by zero (an error).
@@ -1295,18 +1295,18 @@ pub const ThreadOps = struct {
     /// does not apply, the operands' metamethod is called instead.
     pub fn arithMeta(th: *Thread, op: Op, a: Value, b: Value) Error!Value {
         if (arith(th, op, a, b)) |r| return r;
-        if (op == .mod and a == .int and b == .int) return th.vm.raise("integer modulo by zero", .{});
+        if (op == .mod and a == .int and b == .int) return th.vm.raiseKind("arithmetic", "integer modulo by zero", .{});
         if (isBitOp(op) and a.isNumber() and b.isNumber()) {
-            if (exactInt(a) != null and exactInt(b) != null) return th.vm.raise("negative shift amount", .{});
-            return th.vm.raise("number has no integer representation in bitwise operation ({s})", .{op.symbol()});
+            if (exactInt(a) != null and exactInt(b) != null) return th.vm.raiseKind("arithmetic", "negative shift amount", .{});
+            return th.vm.raiseKind("arithmetic", "number has no integer representation in bitwise operation ({s})", .{op.symbol()});
         }
         const f = metamethod(a, b, arithMetaName(op));
         if (f == .function) return th.call(f, &.{ a, b });
         if (isBitOp(op)) {
-            if (a.kind() == b.kind()) return th.vm.raise("attempt to perform bitwise operation ({s}) on {s} values", .{ op.symbol(), a.typeName() });
-            return th.vm.raise("attempt to perform bitwise operation ({s}) on {s} and {s}", .{ op.symbol(), a.typeName(), b.typeName() });
+            if (a.kind() == b.kind()) return th.vm.raiseKind("type", "attempt to perform bitwise operation ({s}) on {s} values", .{ op.symbol(), a.typeName() });
+            return th.vm.raiseKind("type", "attempt to perform bitwise operation ({s}) on {s} and {s}", .{ op.symbol(), a.typeName(), b.typeName() });
         }
-        return th.vm.raise("attempt to perform arithmetic ({s}) on {s} and {s}", .{ op.symbol(), a.typeName(), b.typeName() });
+        return th.vm.raiseKind("type", "attempt to perform arithmetic ({s}) on {s} and {s}", .{ op.symbol(), a.typeName(), b.typeName() });
     }
 
     /// Indexing with __index metamethods.
@@ -1330,7 +1330,7 @@ pub const ThreadOps = struct {
                 },
                 .null => {
                     var buf: [256]u8 = undefined;
-                    return th.vm.raise("attempt to index a null value (key {s})", .{keyDesc(&buf, key)});
+                    return th.vm.raiseKind("type", "attempt to index a null value (key {s})", .{keyDesc(&buf, key)});
                 },
                 else => return .null,
             }
@@ -1373,7 +1373,7 @@ pub const ThreadOps = struct {
             }
             if (flags & Table.mf_get != 0 and hasGetter(vm, m, key)) {
                 var buf: [256]u8 = undefined;
-                return vm.raise("property {s} of {s} is read-only", .{ keyDesc(&buf, key), typeNameOf(obj) });
+                return vm.raiseKind("type", "property {s} of {s} is read-only", .{ keyDesc(&buf, key), typeNameOf(obj) });
             }
             const idx = m.getStr(vm.index_name);
             if (idx != .table) return false;
@@ -1389,7 +1389,7 @@ pub const ThreadOps = struct {
         while (depth < 100) : (depth += 1) {
             switch (obj) {
                 .table => |t| {
-                    if (key == .null) return th.vm.raise("table index is null", .{});
+                    if (key == .null) return th.vm.raiseKind("argument", "table index is null", .{});
                     const m = t.meta orelse return th.rawSet(t, key, val);
                     if (t.has(key)) return th.rawSet(t, key, val);
                     if (try ThreadOps.setProperty(th, m, obj_, key, val)) return;
@@ -1424,15 +1424,15 @@ pub const ThreadOps = struct {
                             else => return,
                         }
                     }
-                    return th.vm.raise("cannot set value on userdata", .{});
+                    return th.vm.raiseKind("type", "cannot set value on userdata", .{});
                 },
                 .null => {
                     var buf: [256]u8 = undefined;
-                    return th.vm.raise("attempt to index a null value (key {s})", .{keyDesc(&buf, key)});
+                    return th.vm.raiseKind("type", "attempt to index a null value (key {s})", .{keyDesc(&buf, key)});
                 },
                 else => {
                     var buf: [256]u8 = undefined;
-                    return th.vm.raise("attempt to index a {s} value (key {s})", .{ obj.typeName(), keyDesc(&buf, key) });
+                    return th.vm.raiseKind("type", "attempt to index a {s} value (key {s})", .{ obj.typeName(), keyDesc(&buf, key) });
                 },
             }
         }
@@ -1455,14 +1455,14 @@ pub const ThreadOps = struct {
     /// x.@meta = m: a table's metatable is a table or null; other values'
     /// metatables are not slang's to set
     pub fn setMeta(th: *Thread, obj: Value, m: Value) Error!void {
-        const t = obj.asTable() orelse return th.vm.raise("cannot set the metatable of a {s} value", .{obj.typeName()});
+        const t = obj.asTable() orelse return th.vm.raiseKind("type", "cannot set the metatable of a {s} value", .{obj.typeName()});
         switch (m) {
             .table => |mt| {
                 t.meta = mt;
                 gc.barrier(th.vm, &t.obj, m);
             },
             .null => t.meta = null,
-            else => return th.vm.raise("@meta must be a table or null, got {s}", .{m.typeName()}),
+            else => return th.vm.raiseKind("type", "@meta must be a table or null, got {s}", .{m.typeName()}),
         }
     }
 
@@ -1537,7 +1537,7 @@ pub const ThreadOps = struct {
             // the list: 0, 1, 2, ... up to the first missing index
             .table => |t| .{ .int = @intCast(t.arrayLen()) },
             .string => |s| .{ .int = @intCast(s.len) },
-            else => th.vm.raise("len requires a table or string", .{}),
+            else => th.vm.raiseKind("type", "len requires a table or string", .{}),
         };
     }
 };

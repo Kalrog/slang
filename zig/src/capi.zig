@@ -100,7 +100,7 @@ fn fnName(th: *Thread) []const u8 {
 /// Records an argument error unless one is already pending.
 fn argError(th: *Thread, idx: c_int, want: []const u8, got: Value) void {
     if (th.vm.err != null) return;
-    th.vm.setError("bad argument #{d} to '{s}' ({s} expected, got {s})", .{ idx, fnName(th), want, got.typeName() });
+    th.vm.setErrorKind("argument", "bad argument #{d} to '{s}' ({s} expected, got {s})", .{ idx, fnName(th), want, got.typeName() });
 }
 
 /// Runs a C function from the VM: the bridge installed as the native of
@@ -347,7 +347,7 @@ pub export fn slang_checkudata(th: *Thread, idx: c_int, tname: [*:0]const u8) ?*
     const want = std.mem.span(tname);
     if (v.asUserdata()) |u| {
         if (std.mem.eql(u8, u.tname, want)) return u.data.ptr;
-        if (th.vm.err == null) th.vm.setError("bad argument #{d} to '{s}' ({s} expected, got {s})", .{ idx, fnName(th), want, u.tname });
+        if (th.vm.err == null) th.vm.setErrorKind("argument", "bad argument #{d} to '{s}' ({s} expected, got {s})", .{ idx, fnName(th), want, u.tname });
         return null;
     }
     argError(th, idx, want, v);
@@ -385,8 +385,16 @@ pub export fn slang_error(th: *Thread, fmt: [*:0]const u8, ...) callconv(.c) c_i
     return err;
 }
 
+pub export fn slang_errorkind(th: *Thread, kind: [*:0]const u8, fmt: [*:0]const u8, ...) callconv(.c) c_int {
+    var ap = @cVaStart();
+    defer @cVaEnd(&ap);
+    th.vm.setErrorOwned(vformat(th.vm, fmt, &ap));
+    th.vm.err.?.kind = th.vm.gpa.dupe(u8, std.mem.span(kind)) catch oom();
+    return err;
+}
+
 pub export fn slang_argerror(th: *Thread, arg: c_int, msg: ?[*:0]const u8) c_int {
-    th.vm.setError("bad argument #{d} to '{s}' ({s})", .{ arg, fnName(th), span(msg) });
+    th.vm.setErrorKind("argument", "bad argument #{d} to '{s}' ({s})", .{ arg, fnName(th), span(msg) });
     return err;
 }
 

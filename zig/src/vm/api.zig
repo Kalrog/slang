@@ -15,8 +15,8 @@ pub fn arg(args: []Value, i: usize) Value {
 }
 
 pub fn argError(th: *Thread, name: []const u8, i: usize, want: []const u8, got: Value) Error {
-    if (name.len == 0) return th.vm.raise("Expected {s} for {d} got {s}", .{ want, i, got.typeName() });
-    return th.vm.raise("Expected {s} for {s} got {s}", .{ want, name, got.typeName() });
+    if (name.len == 0) return th.vm.raiseKind("argument", "Expected {s} for {d} got {s}", .{ want, i, got.typeName() });
+    return th.vm.raiseKind("argument", "Expected {s} for {s} got {s}", .{ want, name, got.typeName() });
 }
 
 pub fn argString(th: *Thread, args: []Value, i: usize, name: []const u8) Error![]const u8 {
@@ -80,7 +80,7 @@ pub fn argUserdata(th: *Thread, args: []Value, i: usize, name: []const u8, compt
     const v = arg(args, i);
     const u = v.asUserdata() orelse return argError(th, name, i, "userdata", v);
     if (!std.mem.eql(u8, u.tname, tname)) {
-        return th.vm.raise("Expected {s} for {s} got {s}", .{ tname, name, u.tname });
+        return th.vm.raiseKind("argument", "Expected {s} for {s} got {s}", .{ tname, name, u.tname });
     }
     return u.as(T);
 }

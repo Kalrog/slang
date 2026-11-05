@@ -148,3 +148,36 @@ func error.message(e){
 }
 
 error.meta.__tostring = error.message
+
+// error.kinds: the kinds the VM and the standard library raise, by name,
+// so that code raising or matching one does not spell the string:
+// raise(error.new(error.kinds.not_found, ...)), catch({kind:
+// ^error.kinds.not_found}). Reading a kind that is not here raises, so a
+// misspelt one fails where it is written. Libraries and programs may use
+// kinds of their own; these are the shared ones (see the stubs for what
+// each means).
+error.kinds = {
+  error: "error",
+  assertion: "assertion",
+  type: "type",
+  arithmetic: "arithmetic",
+  argument: "argument",
+  format: "format",
+  stack_overflow: "stack_overflow",
+  not_found: "not_found",
+  permission: "permission",
+  exists: "exists",
+  io: "io",
+  closed: "closed",
+  syntax: "syntax",
+  compile: "compile",
+  let: "let",
+  ["for"]: "for",
+}
+error.kinds.@meta = {
+  __index: func(kinds, name){
+    raise(error.new(
+      "argument", concat("error.kinds has no kind ", string(name))
+    ))
+  },
+}

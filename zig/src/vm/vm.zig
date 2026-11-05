@@ -351,6 +351,46 @@ pub const VM = struct {
         vm.setErrorOwned(msg);
     }
 
+    /// Records a slang error of a kind (what a program catches on: "type",
+    /// "argument", ...); the caller returns error.Slang.
+    pub fn setErrorKind(vm: *VM, kind: []const u8, comptime fmt: []const u8, args: anytype) void {
+        vm.setError(fmt, args);
+        vm.err.?.kind = vm.gpa.dupe(u8, kind) catch oom();
+    }
+
+    /// raise with a kind: the error table gets {kind, message, location,
+    /// stack}.
+    pub fn raiseKind(vm: *VM, kind: []const u8, comptime fmt: []const u8, args: anytype) Error {
+        vm.setErrorKind(kind, fmt, args);
+        return error.Slang;
+    }
+
+    /// The kind of an error from the operating system (a std error):
+    /// not_found, permission, exists, or io for anything else.
+    pub fn osKind(err: anyerror) []const u8 {
+        return switch (err) {
+            error.FileNotFound, error.NotDir => "not_found",
+            error.AccessDenied, error.PermissionDenied, error.ReadOnlyFileSystem => "permission",
+            error.PathAlreadyExists => "exists",
+            else => "io",
+        };
+    }
+
+    /// Raises an error from the operating system about path: {kind (see
+    /// osKind), message, path, code (the std error's name)}.
+    pub fn raiseOs(vm: *VM, err: anyerror, path: []const u8, comptime fmt: []const u8, args: anytype) Error {
+        const msg = std.fmt.allocPrint(vm.gpa, fmt, args) catch oom();
+        defer vm.gpa.free(msg);
+        const t = vm.newTable(0, 5);
+        t.set(vm.gpa, vm.str("kind"), vm.str(osKind(err)));
+        t.set(vm.gpa, vm.str("message"), vm.str(msg));
+        t.set(vm.gpa, vm.str("path"), vm.str(path));
+        t.set(vm.gpa, vm.str("code"), vm.str(@errorName(err)));
+        t.meta = vm.error_meta;
+        vm.setErrorFromValue(.{ .table = t });
+        return error.Slang;
+    }
+
     pub fn dupeZ(vm: *VM, bytes: []const u8) [:0]u8 {
         const z = vm.gpa.allocSentinel(u8, bytes.len, 0) catch oom();
         @memcpy(z, bytes);
@@ -386,6 +426,7 @@ pub const VM = struct {
                 };
             }
             if (t.getName("stack").asBytes()) |st| e.trace = vm.gpa.dupe(u8, st) catch oom();
+            if (t.getName("kind").asBytes()) |k| e.kind = vm.gpa.dupe(u8, k) catch oom();
             vm.setErrorFull(e);
             return;
         }
@@ -449,8 +490,9 @@ pub const VM = struct {
             }
             return e.value;
         }
-        const t = vm.newTable(0, 3);
+        const t = vm.newTable(0, 4);
         t.meta = vm.error_meta;
+        t.set(vm.gpa, vm.str("kind"), vm.str(e.kind orelse "error"));
         t.set(vm.gpa, vm.str("message"), vm.strValue(e.message));
         if (e.loc) |l| {
             const loc = vm.newTable(0, 3);

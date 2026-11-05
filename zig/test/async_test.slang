@@ -328,7 +328,7 @@ t.group("uncaught errors"){
       local out = concat(r.stdout, r.stderr)
       assert(str.index_of(
         out,
-        "error: let: the value does not match {age: 99}, got {age: 36}",
+        "error (let): let: the value does not match {age: 99}, got {age: 36}",
       ) >= 0, out)
       await(fs.write_file(
         p,
@@ -336,7 +336,7 @@ t.group("uncaught errors"){
       ))
       local r2 = await(async.exec("bin/slang", {"run", p}))
       local out2 = concat(r2 .stdout, r2 .stderr)
-      assert(str.index_of(out2, "error: bad input, got 42") >= 0, out2)
+      assert(str.index_of(out2, "error (x): bad input, got 42") >= 0, out2)
       await(fs.remove(p))
     })
   }

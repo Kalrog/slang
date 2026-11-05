@@ -15,7 +15,15 @@
 // What catch and [pcall] catch: a table, with the metatable error.meta.
 // type Error = {kind?: string, message: string, cause?: any,
 //   location?: {line: int, column: int, origin: string}, stack?: string}
-// [kind]: what a program catches on: catch({kind: "not_found"})
+// [kind]: what a program catches on: catch({kind: "not_found"}). The
+//   VM's: "error" (error(), raise of a string), "type" (an operation on
+//   values of the wrong type: arithmetic on a table, indexing null,
+//   calling a non-function), "arithmetic" (modulo by zero, bad shifts),
+//   "argument" (a function rejecting an argument), "format" (malformed
+//   input: a regex, a format string, binary data), "stack_overflow",
+//   "not_found", "permission", "exists" and "io" (the operating system,
+//   with path and code: the system's error name), "closed"; extensions
+//   and libraries add their own
 // [message]: the error's text
 // [cause]: the error this one wraps ([error.wrap])
 // [location]: where it was raised
@@ -75,6 +83,47 @@ func error.message(e){}
 // metatable gets it.
 error.meta = {}
 
+// The kinds the VM and the standard library raise, by name: use them to
+// raise (error.new(error.kinds.not_found, ...)) and to match, pinned
+// (catch({kind: ^error.kinds.not_found})). Reading a kind not listed
+// raises. Programs and libraries may add kinds of their own.
+error.kinds = {
+  // error(...) and raise of a string or a table without a kind
+  error: "error",
+  // assert failed
+  assertion: "assertion",
+  // an operation on a value of the wrong type: arithmetic on a table,
+  // indexing null, calling something that is not a function
+  type: "type",
+  // integer modulo by zero, a negative shift, a double with no integer
+  // value in a bitwise operation
+  arithmetic: "arithmetic",
+  // a function rejected an argument (its type or its value)
+  argument: "argument",
+  // malformed input: a regex, a format string, encoded data
+  format: "format",
+  // too many nested calls
+  stack_overflow: "stack_overflow",
+  // a file or directory that does not exist (with path and code)
+  not_found: "not_found",
+  // the operating system refused (with path and code)
+  permission: "permission",
+  // something to create already exists (with path and code)
+  exists: "exists",
+  // any other input or output failure (with path and code when known)
+  io: "io",
+  // a file, channel or connection that is closed
+  closed: "closed",
+  // code that does not parse (with location, and the source line as stack)
+  syntax: "syntax",
+  // code that parses but does not compile
+  compile: "compile",
+  // a let statement whose pattern does not match
+  let: "let",
+  // a for-in element that does not match the loop's pattern
+  ["for"]: "for",
+}
+
 // raise(value: any)
 // Raises value: an error made with [error.new] or [error.wrap], one that
 // was caught (raised again, it keeps its original location and stack), or
@@ -127,15 +176,18 @@ func count(t){}
 // one.
 func string(v){}
 
-// to_float(v: int | float | string) -> float
-// v as a double: ints converted, doubles as they are, strings parsed.
-// Raises an error for an invalid string or another type.
+// to_float(v: int | float | string) -> float?
+// v as a double: ints converted, doubles as they are, strings parsed
+// (null for a string that is not a number). Raises an "argument" error
+// for another type.
 func to_float(v){}
 
-// to_int(v: int | float | string) -> int
+// to_int(v: int | float | string) -> int?
 // v as an int: ints as they are, doubles truncated (saturating, NaN gives
-// 0), strings parsed as decimal or "0x" hex digits with an optional sign.
-// Raises an error for an invalid string or another type.
+// 0), strings parsed as decimal or "0x" hex digits with an optional sign
+// (null for a string that is not a number). Raises an "argument" error
+// for another type.
+//   local n = to_int(text) or 0
 func to_int(v){}
 
 // ------------------------------------------------------------ tables

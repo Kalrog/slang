@@ -1276,7 +1276,7 @@ fn reCompile(th: *Thread, args: []Value) Error!Value {
     const pattern = try api.argString(th, args, 0, "pattern");
     var err: CompileError = .{ .msg = "", .pos = 0 };
     const re = compile(vm.gpa, pattern, &err) orelse {
-        return vm.raise("regex: {s} at offset {d} in `{s}`", .{ err.msg, err.pos, pattern });
+        return vm.raiseKind("format", "regex: {s} at offset {d} in `{s}`", .{ err.msg, err.pos, pattern });
     };
     const meta = vm.registry.getName("regex_meta").asTable();
     const u = vm.newUserdataOf(Regex, re, tname, meta);
@@ -1520,7 +1520,7 @@ fn reReplace(th: *Thread, args: []Value) Error!Value {
                     // regex too, which reuses its scratch memory
                     const m = matchTable(c.th.vm, c.re, c.s, r);
                     const v = try c.th.call(c.repl, &.{m});
-                    const text = v.asBytes() orelse return c.th.vm.raise("replace: the function returned {s}, not a string", .{v.typeName()});
+                    const text = v.asBytes() orelse return c.th.vm.raiseKind("type", "replace: the function returned {s}, not a string", .{v.typeName()});
                     c.out.appendSlice(gpa, text) catch oom();
                 },
             }

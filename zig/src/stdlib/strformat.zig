@@ -54,7 +54,7 @@ pub fn format(th: *Thread, fmt: []const u8, first: usize, out: *List) Error!void
             continue;
         }
         i += 1;
-        if (i >= fmt.len) return th.vm.raise("format: the format ends with a lone %", .{});
+        if (i >= fmt.len) return th.vm.raiseKind("format", "format: the format ends with a lone %", .{});
         if (fmt[i] == '%') {
             out.append(gpa, '%') catch oom();
             i += 1;
@@ -86,17 +86,17 @@ pub fn format(th: *Thread, fmt: []const u8, first: usize, out: *List) Error!void
                 spec.prec = number(fmt, &i) orelse 0;
             }
         }
-        if (i >= fmt.len) return th.vm.raise("format: the format ends inside a verb", .{});
+        if (i >= fmt.len) return th.vm.raiseKind("format", "format: the format ends inside a verb", .{});
         spec.verb = fmt[i];
         i += 1;
-        if (argi >= th.nargs()) return th.vm.raise("format: no argument for %{c}", .{spec.verb});
+        if (argi >= th.nargs()) return th.vm.raiseKind("format", "format: no argument for %{c}", .{spec.verb});
         field.clearRetainingCapacity();
         const numeric = try verb(th, spec, argi, &field);
         argi += 1;
         pad(gpa, out, field.items, spec, numeric);
     }
     if (argi < th.nargs()) {
-        return th.vm.raise("format: {d} arguments but the format uses {d}", .{ th.nargs() - first, argi - first });
+        return th.vm.raiseKind("format", "format: {d} arguments but the format uses {d}", .{ th.nargs() - first, argi - first });
     }
 }
 
@@ -108,10 +108,10 @@ fn number(fmt: []const u8, i: *usize) ?usize {
 }
 
 fn countArg(th: *Thread, argi: *usize, what: []const u8) Error!usize {
-    if (argi.* >= th.nargs()) return th.vm.raise("format: no argument for the {s} *", .{what});
+    if (argi.* >= th.nargs()) return th.vm.raiseKind("format", "format: no argument for the {s} *", .{what});
     const v = th.arg(argi.*);
     argi.* += 1;
-    if (v != .int or v.int < 0) return th.vm.raise("format: the {s} * needs an int of 0 or more", .{what});
+    if (v != .int or v.int < 0) return th.vm.raiseKind("format", "format: the {s} * needs an int of 0 or more", .{what});
     return @intCast(v.int);
 }
 
@@ -196,12 +196,12 @@ fn verb(th: *Thread, spec: Spec, argi: usize, field: *List) Error!bool {
             try float(th, spec, x, spec.verb, field);
             return true;
         },
-        else => return th.vm.raise("format: unknown verb %{c}", .{spec.verb}),
+        else => return th.vm.raiseKind("format", "format: unknown verb %{c}", .{spec.verb}),
     }
 }
 
 fn bad(th: *Thread, v: u8, want: []const u8, got: Value) Error {
-    return th.vm.raise("format: %{c} needs {s}, got {s}", .{ v, want, got.typeName() });
+    return th.vm.raiseKind("format", "format: %{c} needs {s}, got {s}", .{ v, want, got.typeName() });
 }
 
 fn intOf(th: *Thread, v: u8, x: Value) Error!i64 {

@@ -146,7 +146,7 @@ fn msValue(secs: i64, frac: f64) Value {
 /// A time argument (milliseconds since the epoch) as seconds.
 fn argTime(th: *Thread, args: []Value) Error!f64 {
     const t = try api.argNumber(th, args, 0, "t");
-    if (!std.math.isFinite(t) or @abs(t) > 253402300799000) return th.vm.raise("time out of range: {d}", .{t});
+    if (!std.math.isFinite(t) or @abs(t) > 253402300799000) return th.vm.raiseKind("argument", "time out of range: {d}", .{t});
     return t / 1000;
 }
 
@@ -192,9 +192,9 @@ fn field(th: *Thread, t: *Table, name: []const u8, def: ?i64) Error!f64 {
     const v = t.getName(name);
     if (v == .null) {
         if (def) |d| return @floatFromInt(d);
-        return th.vm.raise("from_utc: {s} is required", .{name});
+        return th.vm.raiseKind("argument", "from_utc: {s} is required", .{name});
     }
-    if (!v.isNumber()) return th.vm.raise("from_utc: {s} must be a number, got {s}", .{ name, v.typeName() });
+    if (!v.isNumber()) return th.vm.raiseKind("argument", "from_utc: {s} must be a number, got {s}", .{ name, v.typeName() });
     return v.asNumber();
 }
 
@@ -215,7 +215,7 @@ const month_names = [_][]const u8{ "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Ju
 
 fn timeHttpDate(th: *Thread, args: []Value) Error!Value {
     const b = breakDown(@floor(try argTime(th, args)));
-    if (b.year < 0 or b.year > 9999) return th.vm.raise("http_date: year {d} out of range", .{b.year});
+    if (b.year < 0 or b.year > 9999) return th.vm.raiseKind("argument", "http_date: year {d} out of range", .{b.year});
     var buf: [32]u8 = undefined;
     const s = std.fmt.bufPrint(&buf, "{s}, {d:0>2} {s} {d:0>4} {d:0>2}:{d:0>2}:{d:0>2} GMT", .{
         day_names[@intCast(b.weekday)], @as(u64, @intCast(b.day)), month_names[@intCast(b.month - 1)],
@@ -227,7 +227,7 @@ fn timeHttpDate(th: *Thread, args: []Value) Error!Value {
 
 fn timeIso(th: *Thread, args: []Value) Error!Value {
     const b = breakDown(try argTime(th, args));
-    if (b.year < 0 or b.year > 9999) return th.vm.raise("iso: year {d} out of range", .{b.year});
+    if (b.year < 0 or b.year > 9999) return th.vm.raiseKind("argument", "iso: year {d} out of range", .{b.year});
     var buf: [32]u8 = undefined;
     var w: std.Io.Writer = .fixed(&buf);
     w.print("{d:0>4}-{d:0>2}-{d:0>2}T{d:0>2}:{d:0>2}:{d:0>2}", .{

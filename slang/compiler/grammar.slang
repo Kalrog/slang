@@ -1432,8 +1432,7 @@ local func install_core(g){
         prefix == "0b" and 1 or 0
     }
     if(bits == 0){
-      local r = pcall(to_int, concat(negative and "-" or "", s))
-      return r[0] == "ok" and r[1] or null
+      return to_int(concat(negative and "-" or "", s))
     }
     local v = 0
     for(local i = 2; i < len(s); i = i + 1){
@@ -2167,8 +2166,21 @@ local func install_core(g){
     rule("quoted_pattern"),
     rule("table_pattern"),
     rule("const_pattern"),
+    rule("pin_pattern"),
     rule("var_pattern"),
   ))
+
+  // ^expr: compares with the value of expr instead of binding a name
+  // (^x, ^error.kinds.not_found, ^(a + b)); a bare name binds
+  define("pin_pattern", peg.seq(
+    ftok("^", null, "none"),
+    peg.choice(
+      peg.seq(ftok("(", null, "none"), rule("expr"), ftok(")", "none")):pick(1),
+      rule("identifier_and_index"),
+    ),
+  ):map(func(v){
+    return ast.node("ConstPattern", {value: v[1]}, v[0])
+  }), {probe: "^x"})
 
   define("table_pattern", peg.seq(
     ftok("{", null, "none"),

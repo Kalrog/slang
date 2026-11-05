@@ -98,7 +98,7 @@ t.group("try and catch"){
   }
   t.test("errors from called functions, deep frames and natives are caught"){
     local func deep(n){
-      if(n == 0){ return to_int("not a number") }
+      if(n == 0){ return to_int({}) }
       return deep(n - 1)
     }
     local msg = null
@@ -107,7 +107,7 @@ t.group("try and catch"){
     } catch(local e) {
       msg = e.message
     }
-    assert(msg != null and str.index_of(msg, "not a number") >= 0, msg)
+    assert(msg != null and str.index_of(msg, "to_int requires") >= 0, msg)
     local m2 = null
     try {
       local x = null

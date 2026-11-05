@@ -72,7 +72,7 @@ func m.sort(t, less){}
 
 // insert(t: {any}, i: int, v: any)
 // Inserts v into the list t at index i (0 to its length), moving the
-// elements from i on up by one. v may not be null.
+// elements from i on up by one (v may be null).
 func m.insert(t, i, v){}
 
 // index_of(t: {any}, value) -> int

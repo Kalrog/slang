@@ -668,7 +668,17 @@ func writer.visit(self, node){
       self:visit(node.right)
     }
   } else if(t == "ConstPattern"){
-    self:visit(node.value)
+    // a value that is not a literal is pinned: ^x, ^(a + b)
+    if(ast.is_literal(node.value)){
+      self:visit(node.value)
+    } else if(node.value.type == "Identifier" or node.value.type == "Index"){
+      self:add("^")
+      self:visit(node.value)
+    } else {
+      self:add("^(")
+      self:visit(node.value)
+      self:add(")")
+    }
   } else if(t == "FieldPattern"){
     if(node.key != null){
       self:visit(node.key)
@@ -1061,7 +1071,17 @@ func source.pattern(self, node){
     self:add(node.name.value)
     if(node.canBeNull){ self:add("?") }
   } else if(t == "ConstPattern"){
-    self:expr(node.value)
+    // a value that is not a literal is pinned: ^x, ^(a + b)
+    if(ast.is_literal(node.value)){
+      self:expr(node.value)
+    } else if(node.value.type == "Identifier" or node.value.type == "Index"){
+      self:add("^")
+      self:expr(node.value)
+    } else {
+      self:add("^(")
+      self:expr(node.value)
+      self:add(")")
+    }
   } else if(t == "MatcherPattern"){
     self:add("'")
     if(node.matcher != null){

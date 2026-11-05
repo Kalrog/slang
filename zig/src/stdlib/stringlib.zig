@@ -91,7 +91,7 @@ fn strJoin(th: *Thread, args: []Value) Error!Value {
         const s = e.val.asBytes() orelse {
             const shown = vm_mod.format.valueToOwned(th.vm.gpa, e.val);
             defer th.vm.gpa.free(shown);
-            return th.vm.raise("expected string, got {s}", .{shown});
+            return th.vm.raiseKind("argument", "expected string, got {s}", .{shown});
         };
         if (!first) aw.writer.writeAll(sep) catch oom();
         first = false;
@@ -105,7 +105,7 @@ fn strSubstring(th: *Thread, args: []Value) Error!Value {
     const start = api.argIntOr(args, 1, 0);
     const end = api.argIntOr(args, 2, @intCast(s.len));
     if (start < 0 or end > s.len or start > end) {
-        return th.vm.raise("substring range {d}..{d} out of bounds for length {d}", .{ start, end, s.len });
+        return th.vm.raiseKind("argument", "substring range {d}..{d} out of bounds for length {d}", .{ start, end, s.len });
     }
     return th.vm.str(s[@intCast(start)..@intCast(end)]);
 }
@@ -414,7 +414,7 @@ fn strReplace(th: *Thread, args: []Value) Error!Value {
 fn strXor(th: *Thread, args: []Value) Error!Value {
     const src = try api.argString(th, args, 0, "data");
     const key = try api.argString(th, args, 1, "key");
-    if (key.len == 0) return th.vm.raise("xor: the key is empty", .{});
+    if (key.len == 0) return th.vm.raiseKind("argument", "xor: the key is empty", .{});
     const out = th.vm.newStringUninit(src.len);
     const bytes = out.mutableBytes();
     for (src, 0..) |b, i| bytes[i] = b ^ key[i % key.len];
@@ -436,7 +436,7 @@ fn strFormat(th: *Thread, args: []Value) Error!Value {
 fn strParseInt(th: *Thread, args: []Value) Error!Value {
     const s = try api.argString(th, args, 0, "str");
     var base = api.argIntOr(args, 1, 10);
-    if (base != 0 and (base < 2 or base > 36)) return th.vm.raise("parse_int: base {d} is not 0 or 2 to 36", .{base});
+    if (base != 0 and (base < 2 or base > 36)) return th.vm.raiseKind("argument", "parse_int: base {d} is not 0 or 2 to 36", .{base});
     var body = s;
     var neg = false;
     if (body.len > 0 and (body[0] == '-' or body[0] == '+')) {
@@ -540,7 +540,7 @@ fn strFromBytes(th: *Thread, args: []Value) Error!Value {
         if (v != .int or v.int < 0 or v.int > 255) {
             const shown = vm_mod.format.valueToOwned(th.vm.gpa, v);
             defer th.vm.gpa.free(shown);
-            return th.vm.raise("from_bytes: element {d} is not a byte value: {s}", .{ i, shown });
+            return th.vm.raiseKind("argument", "from_bytes: element {d} is not a byte value: {s}", .{ i, shown });
         }
         buf[i] = @intCast(v.int);
     }

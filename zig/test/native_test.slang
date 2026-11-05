@@ -47,6 +47,15 @@ t.group("native extension (C)", func(){
     assert(r[1].location.line == 44)
   })
 
+  t.test("errors have kinds: slang_errorkind, argument checks", func(){
+    local e = try { hello.missing("cheese") } catch(local e) { e }
+    assert(e.kind == "not_found" and e.message == "no cheese here", e.message)
+    local a = try { hello.greet(42) } catch(local e) { e }
+    assert(a.kind == "argument", a.kind)
+    local plain = try { hello.fail("x") } catch(local e) { e }
+    assert(plain.kind == "error")
+  })
+
   t.test("a native function can handle an error", func(){
     local ok = hello.try(func(){ return 5 })
     assert(ok[0] == "ok" and ok[1] == 5)

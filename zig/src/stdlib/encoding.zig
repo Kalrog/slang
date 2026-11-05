@@ -382,7 +382,7 @@ const BinEncoder = struct {
                 e.bytes(s.bytes());
             },
             .table => |t| {
-                if (depth >= binary_depth) return e.th.vm.raise("encoding: cannot encode a table nested deeper than {d} levels", .{binary_depth});
+                if (depth >= binary_depth) return e.th.vm.raiseKind("argument", "encoding: cannot encode a table nested deeper than {d} levels", .{binary_depth});
                 e.byte(BinTag.table);
                 e.varint(t.arr.items.len);
                 for (t.arr.items) |x| try e.value(x, depth + 1);
@@ -397,7 +397,7 @@ const BinEncoder = struct {
                     try e.value(en.val, depth + 1);
                 }
             },
-            else => return e.th.vm.raise("encoding: cannot encode a {s} in binary", .{v.typeName()}),
+            else => return e.th.vm.raiseKind("argument", "encoding: cannot encode a {s} in binary", .{v.typeName()}),
         }
     }
 };
@@ -417,7 +417,7 @@ const BinDecoder = struct {
     pos: usize = 0,
 
     fn malformed(d: *BinDecoder) Error {
-        return d.th.vm.raise("encoding: malformed binary data at byte {d}", .{d.pos});
+        return d.th.vm.raiseKind("format", "encoding: malformed binary data at byte {d}", .{d.pos});
     }
 
     fn byte(d: *BinDecoder) Error!u8 {

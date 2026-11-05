@@ -103,7 +103,7 @@ fn corePrint(th: *Thread, args: []Value) Error!Value {
     while (i < n) : (i += 1) {
         var buf: [48]u8 = undefined;
         const piece = try renderArg(th, th.arg(i), &buf, &pushed);
-        vm.out().writeAll(piece) catch return vm.raise("write error on stdout", .{});
+        vm.out().writeAll(piece) catch return vm.raiseKind("io", "write error on stdout", .{});
         if (std.mem.indexOfScalar(u8, piece, '\n') != null) newline = true;
     }
     th.top -= pushed;
@@ -170,7 +170,7 @@ fn coreAssert(th: *Thread, args: []Value) Error!Value {
     defer aw.deinit();
     try renderArgs(th, 1, &aw);
     const msg = aw.writer.buffered();
-    return th.vm.raiseMsg(if (msg.len == 0) "assertion failed" else msg);
+    return th.vm.raiseKind("assertion", "{s}", .{if (msg.len == 0) "assertion failed" else msg});
 }
 
 /// append(t, v): t[len(t)] = v, the end of the list (v may be null)
@@ -215,7 +215,7 @@ fn coreSame(th: *Thread, args: []Value) Error!Value {
 fn coreRemove(th: *Thread, args: []Value) Error!Value {
     const t = try api.argTable(th, args, 0, "list");
     const i = try api.argInt(th, args, 1, "index");
-    return t.removeShifting(th.vm.gpa, i) orelse th.vm.raise("remove: index {d} is not in the list (length {d})", .{ i, t.arrayLen() });
+    return t.removeShifting(th.vm.gpa, i) orelse th.vm.raiseKind("argument", "remove: index {d} is not in the list (length {d})", .{ i, t.arrayLen() });
 }
 
 /// A snapshot of the keys of t as an array table (iteration order).
@@ -308,7 +308,7 @@ fn iterTable(th: *Thread, args: []Value, name: []const u8) Error!*Table {
     return switch (a) {
         .null => th.vm.newTable(0, 0),
         .table => |t| t,
-        else => th.vm.raise("{s} expects a table, got {s}", .{ name, a.typeName() }),
+        else => th.vm.raiseKind("argument", "{s} expects a table, got {s}", .{ name, a.typeName() }),
     };
 }
 
@@ -333,12 +333,12 @@ fn coreConcat(th: *Thread, args: []Value) Error!Value {
         .table => {
             const out = vm.newTable(0, 0);
             for (args, 0..) |a, i| {
-                const t = a.asTable() orelse return vm.raise("concat: argument {d} is not a table", .{i});
+                const t = a.asTable() orelse return vm.raiseKind("argument", "concat: argument {d} is not a table", .{i});
                 out.addAll(vm.gpa, t);
             }
             return .{ .table = out };
         },
-        else => return vm.raise("concat requires a table or string", .{}),
+        else => return vm.raiseKind("argument", "concat requires a table or string", .{}),
     }
 }
 
@@ -411,10 +411,12 @@ fn coreToInt(th: *Thread, args: []Value) Error!Value {
                 base = 16;
                 body = body[2..];
             }
-            const n = parseIntStrict(body, base) orelse return th.vm.raise("FormatException: Invalid number: \"{s}\"", .{str});
+            // a string that is not a number gives null (a lookup that
+            // commonly fails, not an error)
+            const n = parseIntStrict(body, base) orelse return .null;
             return .{ .int = if (neg) 0 -% n else n };
         },
-        else => return th.vm.raise("to_int requires a number or a string, got {s}", .{a.typeName()}),
+        else => return th.vm.raiseKind("argument", "to_int requires a number or a string, got {s}", .{a.typeName()}),
     }
 }
 
@@ -426,10 +428,10 @@ fn coreToFloat(th: *Thread, args: []Value) Error!Value {
         .float => return a,
         .string => |s| {
             const str = std.mem.trim(u8, s.bytes(), " \t\r\n");
-            const f = std.fmt.parseFloat(f64, str) catch return th.vm.raise("to_float: not a number: \"{s}\"", .{s.bytes()});
+            const f = std.fmt.parseFloat(f64, str) catch return .null;
             return .{ .float = f };
         },
-        else => return th.vm.raise("to_float requires a number or a string, got {s}", .{a.typeName()}),
+        else => return th.vm.raiseKind("argument", "to_float requires a number or a string, got {s}", .{a.typeName()}),
     }
 }
 

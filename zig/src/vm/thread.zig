@@ -106,7 +106,7 @@ pub const Thread = struct {
     fn grow(th: *Thread, need: usize) Error!void {
         var n = th.stack.len * 2;
         while (n < need) n *= 2;
-        if (n > max_stack) return th.vm.raise("stack overflow", .{});
+        if (n > max_stack) return th.vm.raiseKind("stack_overflow", "stack overflow", .{});
         const old_len = th.stack.len;
         th.stack = th.vm.gpa.realloc(th.stack, n) catch oom();
         @memset(th.stack[old_len..], .null);
@@ -147,7 +147,7 @@ pub const Thread = struct {
     }
 
     fn pushFrame(th: *Thread, cl: *Closure, base: usize, protected: bool) Error!void {
-        if (th.frames.items.len >= max_frames) return th.vm.raise("stack overflow (too many nested calls)", .{});
+        if (th.frames.items.len >= max_frames) return th.vm.raiseKind("stack_overflow", "stack overflow (too many nested calls)", .{});
         th.frames.append(th.vm.gpa, .{ .cl = cl, .pc = 0, .base = @intCast(base), .protected = protected }) catch oom();
     }
 
@@ -279,7 +279,7 @@ pub const Thread = struct {
                         return th.precall(fn_idx, nargs_ + 1, protected);
                     }
                 }
-                return th.vm.raise("attempt to call a {s} value", .{f.typeName()});
+                return th.vm.raiseKind("type", "attempt to call a {s} value", .{f.typeName()});
             },
         };
         if (cl.special != .none) {

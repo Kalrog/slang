@@ -76,7 +76,7 @@ fn bRead(th: *Thread, args: []Value) Error!Value {
 
 pub fn readEntry(vm: *VM, e: format.Entry) Error!Value {
     const data = exe.current.?.read(vm.gpa, vm.io, e) catch |err| {
-        return vm.raise("cannot read bundled file {s}: {t}", .{ e.name, err });
+        return vm.raiseOs(err, e.name, "cannot read bundled file {s}: {t}", .{ e.name, err });
     };
     defer vm.gpa.free(data);
     return vm.str(data);
@@ -227,9 +227,9 @@ fn toolWriteExecutable(th: *Thread, args: []Value) Error!Value {
         defer if (owned) |o| gpa.free(o);
         const data = if (t.getName("data").asBytes()) |d| d else blk: {
             const file = t.getName("file").asBytes() orelse return vm.raise("write_executable: entry {s} has neither data nor file", .{name});
-            const st = std.Io.Dir.cwd().statFile(vm.io, file, .{}) catch |e| return vm.raise("cannot read {s}: {t}", .{ file, e });
+            const st = std.Io.Dir.cwd().statFile(vm.io, file, .{}) catch |e| return vm.raiseOs(e, file, "cannot read {s}: {t}", .{ file, e });
             opts.mtime = @intCast(@divTrunc(st.mtime.nanoseconds, std.time.ns_per_s));
-            owned = std.Io.Dir.cwd().readFileAlloc(vm.io, file, gpa, .unlimited) catch |e| return vm.raise("cannot read {s}: {t}", .{ file, e });
+            owned = std.Io.Dir.cwd().readFileAlloc(vm.io, file, gpa, .unlimited) catch |e| return vm.raiseOs(e, file, "cannot read {s}: {t}", .{ file, e });
             break :blk owned.?;
         };
         const e = w.add(kind, name, data, opts) catch |err| return vm.raise("bundle entry {s}: {t}", .{ name, err });
@@ -238,7 +238,7 @@ fn toolWriteExecutable(th: *Thread, args: []Value) Error!Value {
     const payload = w.finish() catch oom();
     defer gpa.free(payload);
 
-    const base = std.Io.Dir.cwd().readFileAlloc(vm.io, base_path, gpa, .unlimited) catch |e| return vm.raise("cannot read {s}: {t}", .{ base_path, e });
+    const base = std.Io.Dir.cwd().readFileAlloc(vm.io, base_path, gpa, .unlimited) catch |e| return vm.raiseOs(e, base_path, "cannot read {s}: {t}", .{ base_path, e });
     defer gpa.free(base);
     const image = exe.assemble(gpa, base, payload, identifier, signing) catch |e| return vm.raise("cannot build an executable from {s}: {t}", .{ base_path, e });
     defer gpa.free(image);
@@ -246,10 +246,10 @@ fn toolWriteExecutable(th: *Thread, args: []Value) Error!Value {
     const tmp = std.fmt.allocPrint(gpa, "{s}.tmp", .{out_path}) catch oom();
     defer gpa.free(tmp);
     const cwd = std.Io.Dir.cwd();
-    cwd.writeFile(vm.io, .{ .sub_path = tmp, .data = image }) catch |e| return vm.raise("cannot write {s}: {t}", .{ tmp, e });
-    cwd.setFilePermissions(vm.io, tmp, .fromMode(0o755), .{}) catch |e| return vm.raise("cannot make {s} executable: {t}", .{ tmp, e });
+    cwd.writeFile(vm.io, .{ .sub_path = tmp, .data = image }) catch |e| return vm.raiseOs(e, tmp, "cannot write {s}: {t}", .{ tmp, e });
+    cwd.setFilePermissions(vm.io, tmp, .fromMode(0o755), .{}) catch |e| return vm.raiseOs(e, tmp, "cannot make {s} executable: {t}", .{ tmp, e });
     // a new file, not new contents: macOS caches signatures per file
-    cwd.rename(tmp, cwd, out_path, vm.io) catch |e| return vm.raise("cannot write {s}: {t}", .{ out_path, e });
+    cwd.rename(tmp, cwd, out_path, vm.io) catch |e| return vm.raiseOs(e, out_path, "cannot write {s}: {t}", .{ out_path, e });
     return .{ .table = report };
 }
 
@@ -269,10 +269,10 @@ fn entryInfo(vm: *VM, e: format.Entry) Value {
 fn toolInspect(th: *Thread, args: []Value) Error!Value {
     const vm = th.vm;
     const path = try api.argString(th, args, 0, "path");
-    const image = std.Io.Dir.cwd().readFileAlloc(vm.io, path, vm.gpa, .unlimited) catch |e| return vm.raise("cannot read {s}: {t}", .{ path, e });
+    const image = std.Io.Dir.cwd().readFileAlloc(vm.io, path, vm.gpa, .unlimited) catch |e| return vm.raiseOs(e, path, "cannot read {s}: {t}", .{ path, e });
     defer vm.gpa.free(image);
     const payload = exe.find(image) orelse return .null;
-    const idx = format.Index.parse(payload) catch |e| return vm.raise("{s}: damaged bundle: {t}", .{ path, e });
+    const idx = format.Index.parse(payload) catch |e| return vm.raiseKind("format", "{s}: damaged bundle: {t}", .{ path, e });
     const t = vm.newTable(idx.count, 0);
     for (0..idx.count) |i| t.append(vm.gpa, entryInfo(vm, idx.entry(i)));
     return .{ .table = t };

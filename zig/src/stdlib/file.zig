@@ -89,7 +89,11 @@ pub fn osOpen(th: *Thread, args: []Value) Error!Value {
             if (cwd.createFile(vm.io, path, .{})) |f| f.close(vm.io) else |_| {}
         };
     }
-    const f = fopen(pathz, cmode) orelse return vm.raise("cannot open {s}", .{path});
+    const f = fopen(pathz, cmode) orelse {
+        // fopen does not say why: a stat that fails does (not_found, ...)
+        _ = std.Io.Dir.cwd().statFile(vm.io, path, .{}) catch |e| return vm.raiseOs(e, path, "cannot open {s}: {t}", .{ path, e });
+        return vm.raiseOs(error.AccessDenied, path, "cannot open {s}", .{path});
+    };
     const u = vm.newUserdataOf(Handle, .{ .vm = vm, .file = f, .path = vm.gpa.dupe(u8, path) catch oom() }, tname, vm.lib.file_meta);
     u.finalizer = finalize;
     u.to_string = toString;
@@ -103,7 +107,7 @@ fn handle(th: *Thread, args: []Value) Error!*Handle {
 fn readN(th: *Thread, args: []Value) Error![]u8 {
     const vm = th.vm;
     const h = try handle(th, args);
-    const f = h.file orelse return vm.raise("file {s} is closed", .{h.path});
+    const f = h.file orelse return vm.raiseKind("closed", "file {s} is closed", .{h.path});
     const n = api.argIntOr(args, 1, -1);
     var buf: std.ArrayList(u8) = .empty;
     errdefer buf.deinit(vm.gpa);
@@ -119,7 +123,7 @@ fn readN(th: *Thread, args: []Value) Error![]u8 {
         const k = fread(buf.items.ptr, 1, buf.items.len, f);
         buf.shrinkRetainingCapacity(k);
     }
-    if (ferror(f) != 0) return vm.raise("read error on {s}", .{h.path});
+    if (ferror(f) != 0) return vm.raiseKind("io", "read error on {s}", .{h.path});
     return buf.toOwnedSlice(vm.gpa) catch oom();
 }
 
@@ -140,27 +144,27 @@ fn fileReadBytes(th: *Thread, args: []Value) Error!Value {
 fn fileWrite(th: *Thread, args: []Value) Error!Value {
     const h = try handle(th, args);
     const s = try api.argString(th, args, 1, "str");
-    const f = h.file orelse return th.vm.raise("file {s} is closed", .{h.path});
-    if (fwrite(s.ptr, 1, s.len, f) != s.len) return th.vm.raise("write error on {s}", .{h.path});
+    const f = h.file orelse return th.vm.raiseKind("closed", "file {s} is closed", .{h.path});
+    if (fwrite(s.ptr, 1, s.len, f) != s.len) return th.vm.raiseKind("io", "write error on {s}", .{h.path});
     return .null;
 }
 
 fn fileWriteBytes(th: *Thread, args: []Value) Error!Value {
     const h = try handle(th, args);
     const t = try api.argTable(th, args, 1, "bytes");
-    const f = h.file orelse return th.vm.raise("file {s} is closed", .{h.path});
+    const f = h.file orelse return th.vm.raiseKind("closed", "file {s} is closed", .{h.path});
     var buf: std.ArrayList(u8) = .empty;
     defer buf.deinit(th.vm.gpa);
     var it = t.iterator();
     while (it.next()) |e| buf.append(th.vm.gpa, @truncate(@as(u64, @bitCast(e.val.asInt())))) catch oom();
-    if (fwrite(buf.items.ptr, 1, buf.items.len, f) != buf.items.len) return th.vm.raise("write error on {s}", .{h.path});
+    if (fwrite(buf.items.ptr, 1, buf.items.len, f) != buf.items.len) return th.vm.raiseKind("io", "write error on {s}", .{h.path});
     return .null;
 }
 
 /// The next line without its line ending, or null at the end of the file.
 fn readLine(th: *Thread, h: *Handle) Error!Value {
     const vm = th.vm;
-    const f = h.file orelse return vm.raise("file {s} is closed", .{h.path});
+    const f = h.file orelse return vm.raiseKind("closed", "file {s} is closed", .{h.path});
     var buf: std.ArrayList(u8) = .empty;
     defer buf.deinit(vm.gpa);
     var chunk: [4096]u8 = undefined;
@@ -170,7 +174,7 @@ fn readLine(th: *Thread, h: *Handle) Error!Value {
         buf.appendSlice(vm.gpa, piece) catch oom();
         if (piece.len > 0 and piece[piece.len - 1] == '\n') break;
     }
-    if (ferror(f) != 0) return vm.raise("read error on {s}", .{h.path});
+    if (ferror(f) != 0) return vm.raiseKind("io", "read error on {s}", .{h.path});
     if (buf.items.len == 0) return .null;
     return vm.str(std.mem.trimEnd(u8, buf.items, "\r\n"));
 }
@@ -195,8 +199,8 @@ fn fileLines(th: *Thread, args: []Value) Error!Value {
 
 fn fileFlush(th: *Thread, args: []Value) Error!Value {
     const h = try handle(th, args);
-    const f = h.file orelse return th.vm.raise("file {s} is closed", .{h.path});
-    if (fflush(f) != 0) return th.vm.raise("write error on {s}", .{h.path});
+    const f = h.file orelse return th.vm.raiseKind("closed", "file {s} is closed", .{h.path});
+    if (fflush(f) != 0) return th.vm.raiseKind("io", "write error on {s}", .{h.path});
     return .null;
 }
 

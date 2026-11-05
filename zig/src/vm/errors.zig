@@ -24,16 +24,29 @@ pub const SlangError = struct {
     /// as it is (with location and stack added when it has none), so an
     /// error keeps its fields. Marked by the collector while pending.
     value: Value = .null,
+    /// What a program catches on (the error table's kind): "type",
+    /// "argument", "not_found", ...; null is "error". For a raised table,
+    /// a copy of its kind, for printing.
+    kind: ?[]u8 = null,
 
     pub fn deinit(e: *SlangError, gpa: std.mem.Allocator) void {
         gpa.free(e.message);
         if (e.loc) |l| gpa.free(l.origin);
         if (e.trace) |t| gpa.free(t);
+        if (e.kind) |k| gpa.free(k);
         e.* = undefined;
     }
 
     pub fn write(e: *const SlangError, w: *std.Io.Writer) !void {
-        try w.print("error: {s}\n", .{e.message});
+        if (e.kind) |k| {
+            if (!std.mem.eql(u8, k, "error")) {
+                try w.print("error ({s}): {s}\n", .{ k, e.message });
+            } else {
+                try w.print("error: {s}\n", .{e.message});
+            }
+        } else {
+            try w.print("error: {s}\n", .{e.message});
+        }
         if (e.loc) |l| try w.print("  at {s}:{d}:{d}\n", .{ l.origin, l.line, l.column });
         // a compile error's trace is the program's line, or empty
         if (e.trace) |t| if (t.len > 0) try w.print("{s}\n", .{t});

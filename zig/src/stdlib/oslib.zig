@@ -64,7 +64,7 @@ fn osExec(th: *Thread, args: []Value) Error!Value {
     }
     vm.flush();
     const r = std.process.run(vm.gpa, vm.io, .{ .argv = argv, .cwd = cwd }) catch |e| {
-        return vm.raise("exec {s}: {t}", .{ argv[0], e });
+        return vm.raiseOs(e, argv[0], "exec {s}: {t}", .{ argv[0], e });
     };
     defer vm.gpa.free(r.stdout);
     defer vm.gpa.free(r.stderr);
@@ -82,7 +82,7 @@ fn osExec(th: *Thread, args: []Value) Error!Value {
 /// mkdir_all(path): creates the directory and its parents.
 fn osMkdirAll(th: *Thread, args: []Value) Error!Value {
     const path = try api.argString(th, args, 0, "path");
-    std.Io.Dir.cwd().createDirPath(th.vm.io, path) catch |e| return th.vm.raise("cannot create {s}: {t}", .{ path, e });
+    std.Io.Dir.cwd().createDirPath(th.vm.io, path) catch |e| return th.vm.raiseOs(e, path, "cannot create {s}: {t}", .{ path, e });
     return .null;
 }
 
@@ -113,7 +113,7 @@ fn osReadFile(th: *Thread, args: []Value) Error!Value {
         .dir => {},
     };
     const data = std.Io.Dir.cwd().readFileAlloc(vm.io, path, vm.gpa, .unlimited) catch |e| {
-        return vm.raise("cannot read {s}: {t}", .{ path, e });
+        return vm.raiseOs(e, path, "cannot read {s}: {t}", .{ path, e });
     };
     defer vm.gpa.free(data);
     return vm.str(data);
@@ -123,7 +123,7 @@ fn osWriteFile(th: *Thread, args: []Value) Error!Value {
     const path = try api.argString(th, args, 0, "path");
     const content = try api.argString(th, args, 1, "content");
     std.Io.Dir.cwd().writeFile(th.vm.io, .{ .sub_path = path, .data = content }) catch |e| {
-        return th.vm.raise("cannot write {s}: {t}", .{ path, e });
+        return th.vm.raiseOs(e, path, "cannot write {s}: {t}", .{ path, e });
     };
     return .null;
 }
@@ -134,12 +134,12 @@ fn osAppendFile(th: *Thread, args: []Value) Error!Value {
     const content = try api.argString(th, args, 1, "content");
     const cwd = std.Io.Dir.cwd();
     const f = cwd.openFile(vm.io, path, .{ .mode = .write_only }) catch |e| switch (e) {
-        error.FileNotFound => cwd.createFile(vm.io, path, .{}) catch |e2| return vm.raise("cannot write {s}: {t}", .{ path, e2 }),
-        else => return vm.raise("cannot write {s}: {t}", .{ path, e }),
+        error.FileNotFound => cwd.createFile(vm.io, path, .{}) catch |e2| return vm.raiseOs(e2, path, "cannot write {s}: {t}", .{ path, e2 }),
+        else => return vm.raiseOs(e, path, "cannot write {s}: {t}", .{ path, e }),
     };
     defer f.close(vm.io);
-    const st = f.stat(vm.io) catch |e| return vm.raise("cannot write {s}: {t}", .{ path, e });
-    f.writePositionalAll(vm.io, content, st.size) catch |e| return vm.raise("cannot write {s}: {t}", .{ path, e });
+    const st = f.stat(vm.io) catch |e| return vm.raiseOs(e, path, "cannot write {s}: {t}", .{ path, e });
+    f.writePositionalAll(vm.io, content, st.size) catch |e| return vm.raiseOs(e, path, "cannot write {s}: {t}", .{ path, e });
     return .null;
 }
 
@@ -175,8 +175,8 @@ fn osRemove(th: *Thread, args: []Value) Error!Value {
     const path = try api.argString(th, args, 0, "path");
     const cwd = std.Io.Dir.cwd();
     cwd.deleteFile(vm.io, path) catch |e| switch (e) {
-        error.IsDir => cwd.deleteDir(vm.io, path) catch |e2| return vm.raise("cannot remove {s}: {t}", .{ path, e2 }),
-        else => return vm.raise("cannot remove {s}: {t}", .{ path, e }),
+        error.IsDir => cwd.deleteDir(vm.io, path) catch |e2| return vm.raiseOs(e2, path, "cannot remove {s}: {t}", .{ path, e2 }),
+        else => return vm.raiseOs(e, path, "cannot remove {s}: {t}", .{ path, e }),
     };
     return .null;
 }
@@ -186,7 +186,7 @@ fn osRemove(th: *Thread, args: []Value) Error!Value {
 fn osRemoveAll(th: *Thread, args: []Value) Error!Value {
     const vm = th.vm;
     const path = try api.argString(th, args, 0, "path");
-    std.Io.Dir.cwd().deleteTree(vm.io, path) catch |e| return vm.raise("cannot remove {s}: {t}", .{ path, e });
+    std.Io.Dir.cwd().deleteTree(vm.io, path) catch |e| return vm.raiseOs(e, path, "cannot remove {s}: {t}", .{ path, e });
     return .null;
 }
 
@@ -246,7 +246,7 @@ fn osListDir(th: *Thread, args: []Value) Error!Value {
     const vm = th.vm;
     const path = try api.argString(th, args, 0, "path");
     if (bundle.resolve(path)) |h| if (h == .dir) return listBundledDir(vm, path);
-    const names = listDir(vm, path) catch |e| return vm.raise("cannot list {s}: {t}", .{ path, e });
+    const names = listDir(vm, path) catch |e| return vm.raiseOs(e, path, "cannot list {s}: {t}", .{ path, e });
     defer freeNames(vm, names);
     const t = vm.newTable(names.len, 0);
     for (names) |n| t.append(vm.gpa, vm.str(n));
@@ -284,7 +284,7 @@ fn osRename(th: *Thread, args: []Value) Error!Value {
     const from = try api.argString(th, args, 0, "from");
     const to = try api.argString(th, args, 1, "to");
     const cwd = std.Io.Dir.cwd();
-    cwd.rename(from, cwd, to, th.vm.io) catch |e| return th.vm.raise("cannot rename {s} to {s}: {t}", .{ from, to, e });
+    cwd.rename(from, cwd, to, th.vm.io) catch |e| return th.vm.raiseOs(e, from, "cannot rename {s} to {s}: {t}", .{ from, to, e });
     return .null;
 }
 
@@ -294,7 +294,7 @@ fn osCopyFile(th: *Thread, args: []Value) Error!Value {
     const from = try api.argString(th, args, 0, "from");
     const to = try api.argString(th, args, 1, "to");
     const cwd = std.Io.Dir.cwd();
-    cwd.copyFile(from, cwd, to, th.vm.io, .{}) catch |e| return th.vm.raise("cannot copy {s} to {s}: {t}", .{ from, to, e });
+    cwd.copyFile(from, cwd, to, th.vm.io, .{}) catch |e| return th.vm.raiseOs(e, from, "cannot copy {s} to {s}: {t}", .{ from, to, e });
     return .null;
 }
 

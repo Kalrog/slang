@@ -36,6 +36,13 @@ static int l_fail(slang_State *S) {
     return slang_error(S, "failed: %s", msg);
 }
 
+/* missing(name): raises an error of kind "not_found" */
+static int l_missing(slang_State *S) {
+    const char *name = slang_checkstring(S, 1);
+    if (slang_failed(S)) return SLANG_ERROR;
+    return slang_errorkind(S, "not_found", "no %s here", name);
+}
+
 /* apply(f, x): calls back into slang; errors propagate unchanged */
 static int l_apply(slang_State *S) {
     slang_checkfunction(S, 1);
@@ -359,6 +366,7 @@ static const slang_Reg funcs[] = {
     {"add", l_add},
     {"greet", l_greet},
     {"fail", l_fail},
+    {"missing", l_missing},
     {"apply", l_apply},
     {"try", l_try},
     {"sum", l_sum},

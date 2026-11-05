@@ -149,8 +149,8 @@ func grid.parse(rows, fail){
   return m
 }
 
-// parse_text(text) -> map, raising an error for a broken map (for tests and
-// maps made at run time)
+// parse_text(text) -> map, raising an error of kind format for a broken map
+// (for tests and maps made at run time)
 func grid.parse_text(text){
   local rows = {}
   for(let local line in values(str.split(text, "\n"))){
@@ -159,7 +159,7 @@ func grid.parse_text(text){
     }
   }
   return grid.parse(rows, func(row, message){
-    error("map: ", message)
+    raise(error.new(error.kinds.format, concat("map: ", message)))
   })
 }
 

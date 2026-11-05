@@ -7,10 +7,11 @@ local jwt = require("slang/jwt")
 local e = require("slang/encoding")
 local hex = e.hex.encode
 
+// the error f raises; its message must contain text
 local func fails_with(f, text){
-  local r = pcall(f)
-  assert(r[0] == "err", concat("should fail with ", text))
-  assert(str.index_of(r[1].message, text) >= 0, r[1].message)
+  local e = t.raises(f)
+  assert(str.index_of(e.message, text) >= 0, e.message)
+  return e
 }
 
 t.group("crypto binding"){
@@ -247,7 +248,8 @@ t.group("slang/jwt"){
   t.test("tokens that must not verify do not"){
     local rsa = native.generate_key("rsa")
     local hs = jwt.sign({a: 1}, "s")
-    fails_with(func(){ jwt.verify(hs, "t") }, "jwt: bad signature")
+    local bad = fails_with(func(){ jwt.verify(hs, "t") }, "jwt: bad signature")
+    assert(bad.kind == error.kinds.unauthorized and bad.reason == "signature", bad.kind)
     fails_with(func(){ jwt.verify(concat(hs, "x"), "s") }, "jwt: bad signature")
     fails_with(func(){
       jwt.verify("eyJhbGciOiJub25lIn0.eyJhIjoxfQ.", "s")
@@ -260,7 +262,8 @@ t.group("slang/jwt"){
     fails_with(func(){
       jwt.verify(confused, rsa:public_key(), {algs: {"HS256", "RS256"}})
     }, "the key does not fit HS256")
-    fails_with(func(){ jwt.verify("a.b", "s") }, "jwt: malformed token")
+    local malformed = fails_with(func(){ jwt.verify("a.b", "s") }, "jwt: malformed token")
+    assert(malformed.kind == error.kinds.format, malformed.kind)
     fails_with(func(){ jwt.verify("e30.e30.!!!", "s") }, "jwt: malformed token")
     fails_with(func(){
       jwt.verify(jwt.sign({}, "s", {not_before: 100}), "s")

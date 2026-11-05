@@ -5,7 +5,7 @@
 //
 //   def area('Circle{radius: r}){ return 3.14159 * r * r }
 //   def area({w, h}){ return w * h }
-//   def area(_){ error("not a shape") }
+//   def area(_){ raise(error.new(error.kinds.argument, "not a shape")) }
 //
 //   def sum(first, ...rest){ return first + sum(...rest) }
 //   def sum(){ return 0 }
@@ -13,7 +13,8 @@
 // Every parameter is a pattern (a bare name binds, `_` ignores, tables,
 // constants and matchers work as in `let`); the clauses of one name are
 // tried in definition order, the first whose patterns match, whose arity
-// fits and whose `when(...)` guard holds runs; none matching is an error.
+// fits and whose `when(...)` guard holds runs; none matching raises an
+// error of kind argument.
 // `local def` declares the name in the current scope. The guard takes
 // parentheses because an expression followed by `{` would be a call with
 // a block argument.
@@ -56,10 +57,10 @@ local runtime_block = +{block:
     for(local i = 0; i < n; i = i + 1){
       append(shown, string(args[i]))
     }
-    error(
+    raise(error.new(error.kinds.argument, concat(
       "no clause of ", self.name, " matches (",
       require("slang/string").join(shown, ", "), ")"
-    )
+    )))
   }
   func dispatcher_meta.__tostring(self){
     return concat("def ", self.name, " (", len(self.clauses), " clauses)")

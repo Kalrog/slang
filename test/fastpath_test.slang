@@ -20,8 +20,8 @@ t.group("float arithmetic"){
   t.test("integers wrap, modulo by zero raises, float modulo by zero is nan"){
     local big = 9223372036854775807
     assert(big + 1 < 0, "wraps")
-    local r = pcall(func(){ return 1 % 0 })
-    assert(r[0] == "err" and r[1].message == "integer modulo by zero", r[1].message)
+    local e = t.raises(func(){ return 1 % 0 })
+    assert(e.message == "integer modulo by zero", e.message)
     assert(math.is_nan(1.0 % 0), "float modulo by zero")
   }
   t.test("equality across kinds"){
@@ -35,8 +35,8 @@ t.group("float arithmetic"){
   t.test("comparisons across kinds"){
     assert(1 < 1.5 and 1.5 < 2 and 1 <= 1.0 and 2.0 <= 2)
     assert(not (2 < 1.5) and 3 > 2.5 and 2.5 >= 2.5)
-    local r = pcall(func(){ return 1 < "2" })
-    assert(r[0] == "err", "numbers and strings do not compare")
+    // numbers and strings do not compare
+    t.raises(func(){ return 1 < "2" })
   }
   t.test("metamethods still run for tables"){
     local v = {n: 2}
@@ -53,8 +53,8 @@ t.group("float arithmetic"){
   }
   t.test("strings add and repeat"){
     assert("a" + "b" == "ab" and "ab" * 2 == "abab" and "x" * 0 == "")
-    local r = pcall(func(){ return "a" + 1 })
-    assert(r[0] == "err", "a string and a number")
+    // a string and a number
+    t.raises(func(){ return "a" + 1 })
   }
 }
 
@@ -62,8 +62,8 @@ t.group("error lines after hot opcodes"){
   // the frame's pc is only stored before operations that can raise or
   // call, so a wrong line here would mean a store was skipped
   t.test("arithmetic on null after loads, moves and arithmetic"){
-    local probe = pcall(func(){ return null + 1 })
-    local r = pcall(func(){
+    local probe = t.raises(func(){ return null + 1 })
+    local e = t.raises(func(){
       local x = 1 + 2
       local y = x * 2.0
       local z = {}
@@ -71,20 +71,18 @@ t.group("error lines after hot opcodes"){
       local w = y < 10
       return z.a + null
     })
-    assert(r[0] == "err", "raised")
-    assert(r[1].location.line == probe[1].location.line + 7, concat("line ", r[1].location.line))
+    assert(e.location.line == probe.location.line + 7, concat("line ", e.location.line))
   }
   t.test("a native raising after hot opcodes"){
-    local probe = pcall(func(){ return null + 1 })
-    local r = pcall(func(){
+    local probe = t.raises(func(){ return null + 1 })
+    local e = t.raises(func(){
       local a = 1
       local b = a + 1
       local c = b * 2
       local d = c - 1
       return len(null)
     })
-    assert(r[0] == "err", "raised")
-    assert(r[1].location.line == probe[1].location.line + 6, concat("line ", r[1].location.line))
+    assert(e.location.line == probe.location.line + 6, concat("line ", e.location.line))
   }
   t.test("a throw inside a try after hot opcodes"){
     local caught = null
@@ -92,14 +90,14 @@ t.group("error lines after hot opcodes"){
       local a = 1.5
       local b = a + 1
       local c = b * 2
-      error(concat("thrown ", c))
+      raise(concat("thrown ", c))
     } catch(local e) {
       caught = e.message
     }
     assert(caught == "thrown 5.0", caught)
   }
   t.test("two frames, each after hot opcodes"){
-    local probe = pcall(func(){ return null + 1 })
+    local probe = t.raises(func(){ return null + 1 })
     local func inner(){
       local a = 2
       local b = a * 3.0
@@ -111,10 +109,9 @@ t.group("error lines after hot opcodes"){
       local c = inner()
       return c
     }
-    local r = pcall(outer)
-    assert(r[0] == "err", "raised")
-    assert(r[1].location.line == probe[1].location.line + 4, concat("line ", r[1].location.line))
-    assert(str.contains(r[1].stack, "inner") and str.contains(r[1].stack, "outer"), r[1].stack)
+    local e = t.raises(outer)
+    assert(e.location.line == probe.location.line + 4, concat("line ", e.location.line))
+    assert(str.contains(e.stack, "inner") and str.contains(e.stack, "outer"), e.stack)
   }
   t.test("a coroutine resumed after hot opcodes keeps its place"){
     local thread = require("slang/thread")
@@ -164,14 +161,12 @@ t.group("buffer elements"){
   }
   t.test("out of range and bad values raise as before"){
     local b = buffer.new("double", 2)
-    local r = pcall(func(){ return b[2] })
-    assert(r[0] == "err" and r[1].message == "buffer index 2 out of range (length 2)", r[1].message)
-    r = pcall(func(){ b[-1] = 1 })
-    assert(r[0] == "err" and r[1].message == "buffer index -1 out of range (length 2)", r[1].message)
-    r = pcall(func(){ b[0] = "x" })
-    assert(r[0] == "err", "a string is not a double")
-    r = pcall(func(){ b[0] = null })
-    assert(r[0] == "err", "null is not a double")
+    local e = t.raises(func(){ return b[2] })
+    assert(e.message == "buffer index 2 out of range (length 2)", e.message)
+    e = t.raises(func(){ b[-1] = 1 })
+    assert(e.message == "buffer index -1 out of range (length 2)", e.message)
+    t.raises(func(){ b[0] = "x" }) // a string is not a double
+    t.raises(func(){ b[0] = null }) // null is not a double
   }
   t.test("methods and the length still work"){
     local b = buffer.new("int32", 4)
@@ -184,22 +179,19 @@ t.group("natives without a frame"){
   t.test("results and errors are unchanged"){
     assert(len({1, 2, 3}) == 3 and len("abc") == 3 and type(1.5) == "double")
     assert(math.floor(2.5) == 2 and math.sqrt(16) == 4.0 and to_int("12") == 12)
-    local r = pcall(len, null)
-    assert(r[0] == "err", "len(null) raises")
-    r = pcall(math.floor, "x")
-    assert(r[0] == "err", "floor of a string raises")
+    t.raises(func(){ len(null) })
+    t.raises(func(){ math.floor("x") })
   }
   t.test("a native error names the native in the traceback"){
-    local r = pcall(func(){ return len(null) })
-    assert(str.contains(r[1].stack, "[native len]"), r[1].stack)
-    r = pcall(func(){ return math.sqrt("x") })
-    assert(str.contains(r[1].stack, "[native sqrt]"), r[1].stack)
+    local e = t.raises(func(){ return len(null) })
+    assert(str.contains(e.stack, "[native len]"), e.stack)
+    e = t.raises(func(){ return math.sqrt("x") })
+    assert(str.contains(e.stack, "[native sqrt]"), e.stack)
   }
   t.test("a frameless native in a method position and with too few arguments"){
     local o = {items: {1, 2}}
     assert(len(o.items) == 2)
-    local r = pcall(math.sqrt)
-    assert(r[0] == "err", "sqrt of nothing raises")
+    t.raises(math.sqrt) // sqrt of nothing raises
   }
 }
 

@@ -66,8 +66,8 @@ t.group("time"){
     assert(time.iso(time.from_utc({
       year: 2026, month: 1, day: 1, hour: -1
     })) == "2025-12-31T23:00:00Z")
-    local r = pcall(time.from_utc, {month: 1})
-    assert(r[0] == "err" and r[1].message == "from_utc: year is required")
+    local e = t.raises(func(){ time.from_utc({month: 1}) })
+    assert(e.message == "from_utc: year is required", e.message)
   }
   t.test("http_date formats RFC 1123"){
     assert(time.http_date(example) == "Sun, 06 Nov 1994 08:49:37 GMT")
@@ -100,8 +100,7 @@ t.group("time"){
     assert(time.iso(example) == "1994-11-06T08:49:37Z")
     assert(time.iso(example + 250) == "1994-11-06T08:49:37.250Z")
     assert(time.iso(-500) == "1969-12-31T23:59:59.500Z")
-    local r = pcall(time.iso, 99999999999999999)
-    assert(r[0] == "err")
+    t.raises(func(){ time.iso(99999999999999999) })
   }
   t.test("parse_iso reads RFC 3339 and the common ISO 8601 forms"){
     assert(time.parse_iso("1994-11-06T08:49:37Z") == example)

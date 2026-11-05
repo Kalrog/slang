@@ -33,7 +33,7 @@ bots.LEVELS = LEVELS
 func bots.mind(level){
   local l = LEVELS[level or "normal"]
   if(l == null){
-    error(concat("inkblast: no bot level ", string(level), " (easy, normal or hard)"))
+    raise(error.new(error.kinds.argument, concat("inkblast: no bot level ", string(level), " (easy, normal or hard)")))
   }
   return {level: l, goal: null, kind: null, since: 0, tried: {}, next_drop: 0}
 }

@@ -1,10 +1,6 @@
 local t = require("slang/test")
 local str = require("slang/string")
 
-local func message_of(result){
-  return result[1].message
-}
-
 t.group("extension statements"){
   t.test("an inline extension changes the grammar for the statements after it"){
     local run = compile("""
@@ -31,37 +27,40 @@ t.group("extension statements"){
     )
   }
   t.test("ordinary unquotes may not change the grammar"){
-    local r = pcall(compile, """
-      -{block:
-        local peg = require("slang/peg")
-        local g = require("slang/compiler").grammar()
-        g:statement("nope", g:keyword("nope"):map(func(token){
-          return {token: token, ast: +{stat: print("")}}
-        }))
-      }
-    """, "unquote mutation")
-    assert(r[0] == "err", "compile should fail")
+    local e = t.raises(func(){
+      compile("""
+        -{block:
+          local peg = require("slang/peg")
+          local g = require("slang/compiler").grammar()
+          g:statement("nope", g:keyword("nope"):map(func(token){
+            return {token: token, ast: +{stat: print("")}}
+          }))
+        }
+      """, "unquote mutation")
+    })
     assert(
-      str.index_of(message_of(r), "extension statement") >= 0,
-      concat("message: ", message_of(r)),
+      str.index_of(e.message, "extension statement") >= 0,
+      concat("message: ", e.message),
     )
   }
   t.test("extension statements are only allowed at the top level"){
-    local r = pcall(compile, """
-      func f(){
-        extension { }
-      }
-    """, "nested extension")
-    assert(r[0] == "err", "compile should fail")
+    t.raises(func(){
+      compile("""
+        func f(){
+          extension { }
+        }
+      """, "nested extension")
+    })
   }
   t.test("extension statements cannot run while a statement is being parsed"){
-    local r = pcall(compile, """
-      -{block: compile("extension { }", "nested unit")}
-    """, "extension from unquote")
-    assert(r[0] == "err", "compile should fail")
+    local e = t.raises(func(){
+      compile("""
+        -{block: compile("extension { }", "nested unit")}
+      """, "extension from unquote")
+    })
     assert(
-      str.index_of(message_of(r), "while a statement is being parsed") >= 0,
-      concat("message: ", message_of(r)),
+      str.index_of(e.message, "while a statement is being parsed") >= 0,
+      concat("message: ", e.message),
     )
   }
   t.test("an unquote runs once even when the parser backtracks across it"){
@@ -122,8 +121,10 @@ t.group("extension statements"){
       func u.shout(self){ return 5 }
       // the keyword is reserved in this unit (a compile from an unquote parses with the unit's grammar)
       -{block:
-        local r = pcall(compile, "local shout = 1", "keyword identifier")
-        assert(r[0] == "err", "but not a variable name")
+        // but not a variable name
+        require("slang/test").raises(func(){
+          compile("local shout = 1", "keyword identifier")
+        })
         return +{stat: print("")}
       }
       return t:loud(10) + t.shout + u:shout()
@@ -133,8 +134,8 @@ t.group("extension statements"){
       "shout is a keyword but still a field, a method and a pattern key",
     )
     // and not reserved outside it
-    local r = pcall(compile, "local shout = 1", "keyword identifier")
-    assert(r[0] == "ok", "the keyword ends with the unit that introduced it")
+    // the keyword ends with the unit that introduced it
+    compile("local shout = 1", "keyword identifier")
   }
   t.test("extensions can define their own extension statements"){
     local run = compile("""
@@ -156,14 +157,13 @@ t.group("extension statements"){
       return say == print
     """, "user extension statement")
     assert(run() == true, "say should stand for print")
-    local r = pcall(compile, """
-      func f(){
-        alias a b
-      }
-    """, "nested user extension statement")
-    assert(
-      r[0] == "err",
-      "extension statements defined by extensions are top-level only",
-    )
+    // extension statements defined by extensions are top-level only
+    t.raises(func(){
+      compile("""
+        func f(){
+          alias a b
+        }
+      """, "nested user extension statement")
+    })
   }
 }

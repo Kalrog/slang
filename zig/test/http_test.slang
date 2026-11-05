@@ -36,7 +36,7 @@ t.group("http"){
         if(req.path == "/async"){
           return a.sleep(1):then(func(_){ return "waited" })
         }
-        if(req.path == "/boom"){ error("handler failed") }
+        if(req.path == "/boom"){ raise("handler failed") }
         return {status: 404, body: "nope"}
       }, {on_error: func(req, err){ errors = errors + 1 }})
       local c = await(http.connect("127.0.0.1", s.port))
@@ -149,14 +149,9 @@ t.group("http cookies"){
         "t=v; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure; SameSite=None",
       "None needs Secure",
     )
-    local r = pcall(http.cookie, "sid", "a b")
-    assert(
-      r[0] == "err" and
-        str.index_of(r[1].message, "cannot contain a space") >= 0,
-      r[1].message,
-    )
-    local r2 = pcall(http.cookie, "a=b", "v")
-    assert(r2[0] == "err")
+    local e = t.raises(func(){ http.cookie("sid", "a b") }, "cannot contain a space")
+    assert(e.kind == error.kinds.argument, e.kind)
+    t.raises(func(){ http.cookie("a=b", "v") })
   }
   t.test("several cookies go out as several headers, with a Date"){
     local raw = a.main(func(){
@@ -285,17 +280,12 @@ t.group("llhttp and zlib bindings"){
     local last = c:finish()
     local d = zlib.decompressor()
     assert(d:push(concat(p1, p2, rest, last)) == "abcdef" and d:is_done())
-    local r1 = pcall(zlib.inflate, "not compressed")
-    assert(r1[0] == "err" and str.starts_with(r1[1].message, "zlib: "))
-    local r2 = pcall(zlib.inflate, str.substring(zlib.deflate(text), 0, 20))
-    assert(
-      r2[0] == "err" and
-        r2[1].message == "zlib: the compressed data is cut short",
-    )
-    local r3 = pcall(zlib.inflate, zlib.deflate(text), "auto", 100)
-    assert(
-      r3[0] == "err" and r3[1].message == "zlib: output larger than 100 bytes",
-    )
+    local e1 = t.raises(func(){ zlib.inflate("not compressed") })
+    assert(str.starts_with(e1.message, "zlib: "), e1.message)
+    local e2 = t.raises(func(){ zlib.inflate(str.substring(zlib.deflate(text), 0, 20)) })
+    assert(e2.message == "zlib: the compressed data is cut short", e2.message)
+    local e3 = t.raises(func(){ zlib.inflate(zlib.deflate(text), "auto", 100) })
+    assert(e3.message == "zlib: output larger than 100 bytes", e3.message)
   }
 }
 
@@ -565,11 +555,8 @@ t.group("http: streaming, compression, limits"){
       assert(v6 .body == concat("[::1]:", string(s6 .port)), v6 .body)
       s6 .close()
       await(s6 .done)
-      local bad = pcall(await, http.fetch("ftp://example.org/"))
-      assert(bad[0] == "err" and str.index_of(
-          bad[1].message,
-          "http:// or https://",
-        ) >= 0)
+      local bad = t.raises(func(){ await(http.fetch("ftp://example.org/")) }, "http:// or https://")
+      assert(bad.kind == error.kinds.argument, bad.kind)
       s.close()
       await(s.done)
     })
@@ -641,7 +628,7 @@ t.group("multipart"){
     ) == 2 and parts[1].data == "line one\r\n--Xy almost\r\n-XyZ nearly\r\nline two")
     local cut = http.multipart_parser("XyZ")
     cut:push(str.substring(body, 0, 60))
-    local r = pcall(func(){ cut:finish() })
-    assert(r[0] == "err" and str.index_of(r[1].message, "ended early") >= 0)
+    local e = t.raises(func(){ cut:finish() }, "ended early")
+    assert(e.kind == error.kinds.format, e.kind)
   }
 }

@@ -151,7 +151,7 @@ local v = 1 <> 2
     "an error raised by compile-time code is a diagnostic at its statement",
   ){
     local r = spell(
-      "local a = 1\n-{block: error(\"compile-time boom\")}\nlocal b = 2",
+      "local a = 1\n-{block: raise(\"compile-time boom\")}\nlocal b = 2",
     )
     assert(len(r.diagnostics) == 1)
     assert(r.diagnostics[0].line == 2, concat("line ", r.diagnostics[0].line))
@@ -254,8 +254,8 @@ t.group("json"){
     assert(json.decode("\"\\u00e9abc\"") == "\u{e9}abc")
     assert(json.decode("\"\\ud83d\\ude00!\"") == "\u{1f600}!")
     assert(json.decode("\"\\ud83d x\"") == "\u{fffd} x", "a lone surrogate")
-    assert(pcall(json.decode, "\"\\u12\"")[0] == "err")
-    assert(pcall(json.decode, "\"\\x\"")[0] == "err")
+    t.raises(func(){ json.decode("\"\\u12\"") }, error.kinds.format)
+    t.raises(func(){ json.decode("\"\\x\"") }, error.kinds.format)
   }
   t.test("encode and decode round trip"){
     local v = {
@@ -274,7 +274,6 @@ t.group("json"){
         } and back.empty == {})
     local pretty = json.encode({a: {1, 2}}, {indent: "  "})
     assert(pretty == "{\n  \"a\": [\n    1,\n    2\n  ]\n}", pretty)
-    local r = pcall(json.encode, {f: func(){}})
-    assert(r[0] == "err")
+    t.raises(func(){ json.encode({f: func(){}}) })
   }
 }

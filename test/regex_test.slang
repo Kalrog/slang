@@ -47,11 +47,11 @@ t.group("regex"){
     assert(regex.compile(regex.escape("1+1=2")):matches("1+1=2"))
   }
   t.test("errors and limits"){
-    local e = pcall(regex.compile, "a(b")
-    assert(e[0] == "err" and str.contains(e[1].message, "missing closing )"))
-    assert(pcall(regex.compile, "a**")[0] == "err")
-    assert(pcall(regex.compile, "\\1")[0] == "err", "no backreferences")
-    assert(pcall(regex.compile, "a{1001}")[0] == "err")
+    t.raises(func(){ regex.compile("a(b") }, "missing closing )")
+    t.raises(func(){ regex.compile("a**") })
+    // no backreferences
+    t.raises(func(){ regex.compile("\\1") })
+    t.raises(func(){ regex.compile("a{1001}") })
     // nested repetition stays linear
     local m = regex.compile("(a*)*$"):find(concat("a" * 40, "b"))
     assert(m.start == 41)

@@ -2,13 +2,8 @@
 // compiled under the root grammar; the project file supplies the ambient
 // layer and the dialects.
 local t = require("slang/test")
-local str = require("slang/string")
 local compiler = require("slang/compiler")
 local os = require("slang/os")
-
-local func message_of(result){
-  return result[1].message
-}
 
 local shout_extension = """
   extension {
@@ -25,9 +20,8 @@ t.group("grammar scoping"){
     global shouted = null
     compile(concat(shout_extension, "shout 1"), "unit one")()
     assert(shouted == 1, "the statement works in its unit")
-    local r = pcall(compile, "shout 2", "unit two")
-    assert(r[0] == "err", "and is unknown in the next unit")
-    assert(r[1].kind == "syntax", message_of(r))
+    // and is unknown in the next unit
+    t.raises(func(){ compile("shout 2", "unit two") }, "syntax")
   }
   t.test("compile from an unquote parses with the grammar of its unit"){
     global shouted = null
@@ -70,14 +64,13 @@ t.group("grammar scoping"){
       scope_inner == 1,
       "the extension's own inner statement ran when it loaded",
     )
-    local r = pcall(compile, """
-      extension "test/scope_ext"
-      inner 5
-    """, "inner leaks?")
-    assert(
-      r[0] == "err",
-      "the inner statement does not leak out of the extension file",
-    )
+    // the inner statement does not leak out of the extension file
+    t.raises(func(){
+      compile("""
+        extension "test/scope_ext"
+        inner 5
+      """, "inner leaks?")
+    })
   }
   t.test("an extension runs once per unit that loads it"){
     local source = """
@@ -92,9 +85,7 @@ t.group("grammar scoping"){
     assert(len(g:extensions()) == 0, "the root grammar did not load it")
   }
   t.test("extension global is only allowed in the main file"){
-    local r = pcall(compile, "extension global { }", "not main")
-    assert(r[0] == "err", "compile should fail")
-    assert(str.index_of(message_of(r), "main file") >= 0, message_of(r))
+    t.raises(func(){ compile("extension global { }", "not main") }, "main file")
   }
   t.test("the root grammar can still be changed at run time"){
     local peg = require("slang/peg")
@@ -108,8 +99,8 @@ t.group("grammar scoping"){
     compile("whisper 7", "after runtime change")()
     assert(whispered == 7, "a run-time change is global")
     compiler.reset()
-    local r = pcall(compile, "whisper 8", "after reset")
-    assert(r[0] == "err", "reset forgets it")
+    // reset forgets it
+    t.raises(func(){ compile("whisper 8", "after reset") })
   }
 }
 
@@ -157,20 +148,16 @@ t.group("project file"){
     compiler.reset()
     assert(compiler.project() == null, "reset forgets the project")
     assert(__PACKAGES.search_paths == paths, "and restores the search paths")
-    local r = pcall(compile, "return twice 1", "after reset")
-    assert(r[0] == "err" or r[1]() == null, "the ambient extension is gone")
+    local f = try { compile("return twice 1", "after reset") } catch { null }
+    assert(f == null or f() == null, "the ambient extension is gone")
     for(let local name in values({"data", "module", "plain"})){
       delete(__PACKAGES.preloaded, name)
     }
   }
   t.test("a dialect's compile function must return a function"){
     local json = require("extensions/json")
-    local r = pcall(json.decode, "{\"a\": }", "bad")
-    assert(r[0] == "err", "malformed json fails")
-    assert(
-      str.index_of(message_of(r), "invalid JSON in bad") >= 0,
-      message_of(r),
-    )
+    // malformed json fails
+    t.raises(func(){ json.decode("{\"a\": }", "bad") }, "invalid JSON in bad")
     assert(
       json.compile("[1, 2.5, -3, 1e2]", "numbers")() == {1, 2.5, -3, 100.0},
       "numbers",

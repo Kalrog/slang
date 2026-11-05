@@ -128,15 +128,14 @@ t.group("html templates"){
     assert(r[4] == "<li>plain &amp; <b>bold</b></li>", r[4])
   }
   t.test("a mismatched closing tag is a located error"){
-    local r = pcall(run, "local x = <div>\n  <p>hi</span></div>")
-    assert(r[0] == "err")
+    local e = t.raises(func(){ run("local x = <div>\n  <p>hi</span></div>") })
     assert(str.index_of(
-      r[1].message,
+      e.message,
       "</p> expected to close the <p> opened at 3:3",
-    ) >= 0, r[1].message)
+    ) >= 0, e.message)
     assert(
-      r[1].location.line == 3 and r[1].location.column == 10,
-      concat("location ", r[1].location),
+      e.location.line == 3 and e.location.column == 10,
+      concat("location ", e.location),
     )
   }
   t.test("templates are highlighted and expand to html calls"){

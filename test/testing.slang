@@ -27,7 +27,7 @@ func group.run(self){
     for(let local setup in values(self.setups)){
       setup()
     }
-    pcall(child.run, child)
+    try { child:run() } catch {}
 
     for(let local teardown in values(self.teardowns)){
       teardown()
@@ -62,18 +62,19 @@ func test.new(name, f){
 
 func test.run(self){
   print(indentStr(), "Test: ", self.name)
-  local r = pcall(self.f)
-  if(let {"ok"} = r){
-    print(" Passed\n")
-    self.succeded = true
-  } else if(let {"err", local e} = r){
+  try {
+    self.f()
+  } catch(local e) {
     print(" Failed\n")
     print(indentStr(), "  Error: ", e.message)
     if(e.location){
       print("@", e.location.line, ":", e.location.column)
     }
     print("\n")
+    return
   }
+  print(" Passed\n")
+  self.succeded = true
 }
 
 func test.count(self){

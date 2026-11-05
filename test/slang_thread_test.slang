@@ -204,12 +204,12 @@ t.group("threads"){
   t.test("error inside thread propagates to resume"){
     local thr = thread.create(func(){
       thread.yield(1)
-      error("boom")
+      raise("boom")
     })
     assert(thread.resume(thr) == 1, "first resume yields 1")
-    local r = pcall(thread.resume, thr)
-    assert(r[0] == "err", "error should propagate to the resumer")
-    assert(r[1].message == "boom", "error message should be kept")
+    // the error propagates to the resumer
+    local e = t.raises(func(){ thread.resume(thr) })
+    assert(e.message == "boom", "error message should be kept")
     assert(thread.state(thr) == "dead", "thread should be dead after an error")
     assert(thread.resume(thr) == null, "resuming a dead thread returns null")
   }

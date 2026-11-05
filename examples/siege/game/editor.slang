@@ -425,18 +425,20 @@ local func regenerate(ed){
 
 local func save(ed){
   local lv = ed:to_level()
-  local r = pcall(levels.save, lv)
-  if(r[0] == "ok"){
-    ed.level.file = r[1]
-    ed:say(concat("saved ", r[1]))
-    ed.dirty = false
-    if(web){
-      print("\n--- ", lv.name, " (levels/", levels.slug(lv.name), ".json) ---\n")
-      print(json.encode(lv), "\n")
-      ed:say("saved; its JSON is printed under the game: keep it as a file in levels/")
-    }
-  } else {
-    ed:say(concat("could not save: ", string(r[1].message or r[1])))
+  local file
+  try {
+    file = levels.save(lv)
+  } catch(local e) {
+    ed:say(concat("could not save: ", e.message))
+    return
+  }
+  ed.level.file = file
+  ed:say(concat("saved ", file))
+  ed.dirty = false
+  if(web){
+    print("\n--- ", lv.name, " (levels/", levels.slug(lv.name), ".json) ---\n")
+    print(json.encode(lv), "\n")
+    ed:say("saved; its JSON is printed under the game: keep it as a file in levels/")
   }
 }
 

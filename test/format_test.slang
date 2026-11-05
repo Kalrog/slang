@@ -221,8 +221,7 @@ t.group("slang fmt"){
     )
   }
   t.test("a file that does not parse is an error"){
-    local r = pcall(format.source, "local = ", "format_test")
-    assert(r[0] == "err", "an error")
+    t.raises(func(){ format.source("local = ", "format_test") })
   }
   t.test("a library file formats, and stays as it is formatted again"){
     local path = "extensions/switch.slang"

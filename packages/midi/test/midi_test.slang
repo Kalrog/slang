@@ -44,8 +44,7 @@ t.group("midi"){
     local input = midi.open()
     assert(len(input:read()) >= 0)
     input:close()
-    local r = pcall(func(){ midi.open("no such controller anywhere") })
-    assert(r[0] == "err")
+    t.raises(func(){ midi.open("no such controller anywhere") })
   }
   t.test("MIDI learn: arm, bind on the next controller, rebind, save"){
     local path = "test/_map.json"

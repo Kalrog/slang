@@ -137,7 +137,8 @@ func world.new(mission){
   if(mission.objects != null){
     for(let local name in keys(mission.objects)){
       if(w.objects[name] == null){
-        error("mission ", mission.name, ": the map has no ", name)
+        raise(error.new(error.kinds.not_found,
+          concat("mission ", mission.name, ": the map has no ", name)))
       }
     }
   }
@@ -146,10 +147,10 @@ func world.new(mission){
     if(o.kind == "port"){
       for(let local n in values(o.network)){
         if(w.objects[n] == null or w.objects[n].kind == "port"){
-          error(
+          raise(error.new(error.kinds.argument, concat(
             "mission ", mission.name, ": ", name, " reaches ", n,
             ", which is not an object"
-          )
+          )))
         }
       }
     }
@@ -317,7 +318,8 @@ func World.cone(self, cam, n){
 // object is resting (and the deck was told)
 func World.limited(self, o, seconds, verb){
   if(seconds != null and type(seconds) != "int" and type(seconds) != "double"){
-    error(o.name, ".", verb, "(seconds) needs a number")
+    raise(error.new(error.kinds.argument,
+      concat(o.name, ".", verb, "(seconds) needs a number")))
   }
   // the same slack the deck gives wait(): a script that waited exactly as
   // long as the object needs finds it ready

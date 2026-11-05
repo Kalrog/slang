@@ -58,7 +58,7 @@ local func mission_index(name){
       return i
     }
   }
-  error("no mission called ", name)
+  raise(error.new(error.kinds.not_found, concat("no mission called ", name)))
 }
 
 local func start(i){

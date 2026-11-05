@@ -3,9 +3,8 @@ local t = require("slang/test")
 local str = require("slang/string")
 
 local func fails_to_compile(source, text){
-  local r = pcall(compile, source, "src")
-  assert(r[0] == "err", concat("should not compile: ", source))
-  assert(str.index_of(r[1].message, text) >= 0, r[1].message)
+  local e = t.raises(func(){ compile(source, "src") })
+  assert(str.index_of(e.message, text) >= 0, e.message)
 }
 
 t.group("continue"){
@@ -54,10 +53,9 @@ t.group("continue"){
       } catch { }
     }
     // no try is left behind to catch this
-    local r = pcall(func(){ error("after the loop") })
-    assert(r[0] == "err")
+    t.raises(func(){ raise("after the loop") }, "after the loop")
     local caught = false
-    local r2 = pcall(func(){
+    t.raises(func(){
       for(local i = 0; i < 2; i = i + 1){
         try {
           continue
@@ -65,9 +63,9 @@ t.group("continue"){
           caught = true
         }
       }
-      error("outside")
-    })
-    assert(r2[0] == "err" and not caught)
+      raise("outside")
+    }, "outside")
+    assert(not caught)
   }
   t.test("continue outside a loop does not compile"){
     fails_to_compile("local x = 1\ncontinue", "continue outside of a loop")

@@ -3,31 +3,29 @@ local t = require("slang/test")
 local str = require("slang/string")
 
 local func fails_to_compile(source, text){
-  local r = pcall(compile, source, "src")
-  assert(r[0] == "err", concat("should not compile: ", source))
-  assert(str.index_of(r[1].message, text) >= 0, r[1].message)
+  t.raises(func(){ compile(source, "src") }, text)
 }
 
 t.group("raise"){
   t.test("a raised table comes back as it is, with where it was raised"){
     local raised = {kind: "not_found", path: "/x"}
-    local r = pcall(func(){ raise(raised) })
-    assert(r[1] == raised, "the same table")
-    assert(r[1].kind == "not_found" and r[1].path == "/x")
-    assert(r[1].location.line > 0 and type(r[1].stack) == "string")
+    local e = t.raises(func(){ raise(raised) })
+    assert(e == raised, "the same table")
+    assert(e.kind == "not_found" and e.path == "/x")
+    assert(e.location.line > 0 and type(e.stack) == "string")
   }
   t.test(
     "a re-raise keeps the first location; strings still become error tables",
   ){
     local first = null
-    local r = pcall(func(){
-      local inner = pcall(func(){ raise({kind: "deep"}) })
-      first = inner[1].location.line
-      raise(inner[1])
+    local r = t.raises(func(){
+      local inner = t.raises(func(){ raise({kind: "deep"}) })
+      first = inner.location.line
+      raise(inner)
     })
-    assert(r[1].kind == "deep" and r[1].location.line == first)
-    local s = pcall(func(){ raise("plain") })
-    assert(s[1].message == "plain")
+    assert(r.kind == "deep" and r.location.line == first)
+    local s = t.raises(func(){ raise("plain") })
+    assert(s.message == "plain")
     local e = pcall(func(){ error("built ", 42) })
     assert(e[1].message == "built 42")
   }
@@ -42,8 +40,7 @@ t.group("stack traces"){
     local func total(list){
       return shapes.area(list[0])
     }
-    local r = pcall(total, {{w: 2}})
-    local stack = r[1].stack
+    local stack = t.raises(func(){ total({{w: 2}}) }).stack
     assert(str.index_of(stack, "  at shapes.area (") >= 0, stack)
     assert(str.index_of(stack, "  at total (") >= 0, stack)
   }
@@ -54,7 +51,7 @@ t.group("try and catch"){
     local log = {}
     local func risky(kind){
       if(kind == "nf"){ raise({kind: "not_found", path: "/x"}) }
-      if(kind == "str"){ error("plain message") }
+      if(kind == "str"){ raise("plain message") }
       return "fine"
     }
     for(let local k in values({"nf", "str", "ok"})){
@@ -73,19 +70,19 @@ t.group("try and catch"){
   }
   t.test("a value no clause matches is raised again, unchanged"){
     local raised = {kind: "boom"}
-    local r = pcall(func(){
+    local e = t.raises(func(){
       try {
         raise(raised)
       } catch({kind: "other"}) {
         return "wrong"
       }
     })
-    assert(r[0] == "err" and r[1] == raised)
+    assert(e == raised)
   }
   t.test("catch without a pattern takes everything; catch(name) assigns"){
     local hit = false
     try {
-      error("x")
+      raise("x")
     } catch {
       hit = true
     }
@@ -138,11 +135,10 @@ t.group("try and catch"){
     }
     assert(count == 3)
     // after leaving trys by return and break, an error is not caught by them
-    local r = pcall(func(){
+    t.raises(func(){
       find({1}, 1)
-      error("outside")
-    })
-    assert(r[0] == "err" and str.index_of(r[1].message, "outside") >= 0)
+      raise("outside")
+    }, "outside")
   }
   t.test("nested trys, raising from a catch, pcall inside and outside"){
     local log = {}
@@ -178,7 +174,7 @@ t.group("try and catch"){
     try {
       local v = "captured"
       saved = func(){ return v }
-      error("leave")
+      raise("leave")
     } catch {}
     local other = "overwrite the slot"
     assert(saved() == "captured")
@@ -189,7 +185,7 @@ t.group("try and catch"){
     local co = thread.create(func(){
       try {
         thread.yield(1)
-        error("after the yield")
+        raise("after the yield")
       } catch(local e) {
         got = e.message
       }
@@ -238,7 +234,7 @@ t.group("defer"){
   }
   t.test("errors pass through after the defers ran"){
     local log = {}
-    local r = pcall(func(){
+    local e = t.raises(func(){
       defer append(log, "outer")
       {
         defer append(log, "inner")
@@ -246,7 +242,7 @@ t.group("defer"){
       }
     })
     assert(
-      r[1].kind == "boom" and log == {"inner", "outer"},
+      e.kind == "boom" and log == {"inner", "outer"},
       concat("log ", log),
     )
   }
@@ -267,7 +263,7 @@ t.group("defer"){
     try {
       defer {
         try {
-          error("in cleanup")
+          raise("in cleanup")
         } catch {
           append(log, "cleanup caught")
         }
@@ -276,7 +272,7 @@ t.group("defer"){
           append(log, i)
         }
       }
-      error("body")
+      raise("body")
     } catch(local e) {
       append(log, "caught body")
     }

@@ -3,12 +3,7 @@ local t = require("slang/test")
 local str = require("slang/string")
 
 local func fails_with(source, text){
-  local r = pcall(compile, source, "numbers")
-  assert(r[0] == "err", concat("should fail: ", source))
-  assert(
-    str.index_of(r[1].message, text) >= 0,
-    concat(source, ": ", r[1].message),
-  )
+  t.raises(func(){ compile(source, "numbers") }, text)
 }
 
 t.group("number literals"){
@@ -109,8 +104,7 @@ t.group("character literals"){
   }
   t.test("one character or escape between the quotes"){
     local func fails(source){
-      local r = pcall(compile, source, "chars")
-      assert(r[0] == "err", concat("should fail: ", source))
+      t.raises(func(){ compile(source, "chars") })
     }
     fails("return ''")
     fails("return 'ab'")

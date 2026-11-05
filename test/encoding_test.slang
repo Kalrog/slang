@@ -89,8 +89,7 @@ t.group("encoding"){
     assert(q["a&b"] == "c=d" and q["\u{e9}"] == "?")
   }
   t.test("argument errors"){
-    local r = pcall(e.base64.encode, 1)
-    assert(r[0] == "err")
+    t.raises(func(){ e.base64.encode(1) }, error.kinds.argument)
   }
 }
 
@@ -118,16 +117,15 @@ t.group("string escapes"){
     }
     local str = require("slang/string")
     for(let local c in values(cases)){
-      local r = pcall(
-        compile, concat("local a = 1\nlocal s = ", c[0], "\n"), "escapes"
-      )
-      assert(r[0] == "err", c[0])
+      local err = t.raises(func(){
+        compile(concat("local a = 1\nlocal s = ", c[0], "\n"), "escapes")
+      })
       assert(
-        str.index_of(r[1].message, c[1]) >= 0,
-        concat(c[0], ": ", r[1].message),
+        str.index_of(err.message, c[1]) >= 0,
+        concat(c[0], ": ", err.message),
       )
       assert(
-        r[1].location != null and r[1].location.line == 2,
+        err.location != null and err.location.line == 2,
         concat(c[0], " is located"),
       )
     }
@@ -163,15 +161,15 @@ t.group("string escapes"){
   }
   t.test("binary raises on what it cannot encode or decode"){
     local b = e.binary
-    assert(pcall(b.encode, print)[0] == "err")
-    assert(pcall(b.encode, {f: print})[0] == "err")
+    t.raises(func(){ b.encode(print) }, error.kinds.argument)
+    t.raises(func(){ b.encode({f: print}) }, error.kinds.argument)
     for(let local bad in values({"", "\x07\x05", "\x06\x09ab", "\x03\xff", "\x21\x21", "\x07\x01\x00\x00", "\x1f"})){
-      assert(pcall(b.decode, bad)[0] == "err", e.hex.encode(bad))
+      t.raises(func(){ b.decode(bad) }, error.kinds.format)
     }
     local deep = {}
     for(local i = 0; i < 100; i = i + 1){
       deep = {deep}
     }
-    assert(pcall(b.encode, deep)[0] == "err", "too deep")
+    t.raises(func(){ b.encode(deep) }, "deep")
   }
 }

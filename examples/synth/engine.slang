@@ -27,13 +27,9 @@ local func open_midi(status){
   if(status == null or not status.midi){
     return null
   }
-  local r = pcall(func(){
-    return require("midi").open(require("slang/os").getenv("MIDI_INPUT"))
-  })
-  if(r[0] == "ok"){
-    return r[1]
-  }
-  return null
+  return try {
+    require("midi").open(require("slang/os").getenv("MIDI_INPUT"))
+  } catch { null }
 }
 
 local P = params.index

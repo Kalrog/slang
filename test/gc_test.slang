@@ -67,15 +67,11 @@ t.group("collector: vm.collect and vm.gc"){
     assert(gc.next != null)
   }
   t.test("bad settings raise, counters are read-only"){
-    local func fails(f, part){
-      local r = pcall(f)
-      assert(r[0] == "err" and str.index_of(r[1].message, part) >= 0, r[1].message or "no error")
-    }
-    fails(func(){ gc.growth = 1 }, "at least 1.1")
-    fails(func(){ gc.minimum = -1 }, "negative")
-    fails(func(){ gc.automatic = 1 }, "bool")
-    fails(func(){ gc.in_use = 0 }, "read-only")
-    fails(func(){ gc.collections = 0 }, "read-only")
+    t.raises(func(){ gc.growth = 1 }, "at least 1.1")
+    t.raises(func(){ gc.minimum = -1 }, "negative")
+    t.raises(func(){ gc.automatic = 1 }, "bool")
+    t.raises(func(){ gc.in_use = 0 }, "read-only")
+    t.raises(func(){ gc.collections = 0 }, "read-only")
   }
 }
 
@@ -103,8 +99,7 @@ t.group("collector: on_collect, weak tables, keep"){
     b = null
     vm.collect()
     assert(log == {"second"}, str.join(log, ","))
-    local r = pcall(vm.on_collect, "text", func(){})
-    assert(r[0] == "err" and str.index_of(r[1].message, "not collected") >= 0)
+    t.raises(func(){ vm.on_collect("text", func(){}) }, "not collected")
   }
   t.test("an isolate runs its finalizers when it ends"){
     local isolate = require("slang/isolate")
@@ -249,7 +244,6 @@ t.group("collector: incremental marking"){
     assert(vm.gc.longest_step >= 0.0)
     vm.gc.longest_step = 0
     assert(vm.gc.longest_step == 0.0)
-    local r = pcall(func(){ vm.gc.longest_step = 5 })
-    assert(r[0] == "err")
+    t.raises(func(){ vm.gc.longest_step = 5 })
   }
 }

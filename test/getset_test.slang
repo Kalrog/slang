@@ -2,13 +2,6 @@
 // up only for keys an object does not hold, before __index, and inherited
 // along the __index chain
 local t = require("slang/test")
-local str = require("slang/string")
-
-local func raises(f, needle){
-  local r = pcall(f)
-  assert(r[0] == "err", "expected an error")
-  assert(str.contains(r[1].message, needle), r[1].message)
-}
 
 t.group("__get and __set"){
   t.test("a getter reads, a setter writes, methods still come from __index"){
@@ -33,7 +26,7 @@ t.group("__get and __set"){
   t.test("a getter without a setter is read-only"){
     local o = {}
     o.@meta = {__get: {id: func(self){ return 7 }}}
-    raises(func(){ o.id = 1 }, "property \"id\" of table is read-only")
+    t.raises(func(){ o.id = 1 }, "property \"id\" of table is read-only")
     assert(o.id == 7)
   }
   t.test("properties are inherited along __index tables"){
@@ -82,16 +75,15 @@ t.group("__get and __set"){
   t.test("errors in getters and setters reach the caller"){
     local o = {}
     o.@meta = {
-      __get: {bad: func(self){ error("no reading") }},
-      __set: {bad: func(self, v){ error("no writing") }},
+      __get: {bad: func(self){ raise("no reading") }},
+      __set: {bad: func(self, v){ raise("no writing") }},
     }
-    raises(func(){ return o.bad }, "no reading")
-    raises(func(){ o.bad = 1 }, "no writing")
-    local r = pcall(func(){
+    t.raises(func(){ return o.bad }, "no reading")
+    t.raises(func(){ o.bad = 1 }, "no writing")
+    t.raises(func(){
       local x = o.bad
       return x
     })
-    assert(r[0] == "err")
   }
   t.test("a getter may yield inside a coroutine"){
     local coroutine = require("slang/thread")

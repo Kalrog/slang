@@ -6,14 +6,6 @@ local str = require("slang/string")
 // requires itself, never locals of the code around it (so the tests'
 // workers start with require("slang/isolate")).
 
-local func raises(f, needle){
-  local r = pcall(f)
-  assert(r[0] == "err", "expected an error")
-  local msg = r[1].message
-  assert(str.contains(msg, needle), concat("unexpected error: ", msg))
-  return r[1]
-}
-
 t.group("isolates"){
   t.test("spawn and join"){
     assert(isolate.available())
@@ -91,15 +83,15 @@ t.group("isolates"){
     assert(r[0] == 42 and r[1](4) == 8)
     // (a table: a local that always holds a literal is compiled as it)
     local y = {}
-    raises(func(){ isolate.spawn(func(){ return y }) }, "uses y")
-    raises(func(){ isolate.spawn(print) }, "native function")
+    t.raises(func(){ isolate.spawn(func(){ return y }) }, "uses y")
+    t.raises(func(){ isolate.spawn(print) }, "native function")
   }
 
   t.test("what cannot be sent"){
     local ch = isolate.channel()
-    raises(func(){ ch:send(null) }, "cannot send null")
-    raises(func(){ ch:send(require("slang/thread").create(func(){})) }, "coroutine")
-    raises(func(){ ch:send({b: require("slang/buffer").new("uint8_t", 4)}) }, "only buffer.shared")
+    t.raises(func(){ ch:send(null) }, "cannot send null")
+    t.raises(func(){ ch:send(require("slang/thread").create(func(){})) }, "coroutine")
+    t.raises(func(){ ch:send({b: require("slang/buffer").new("uint8_t", 4)}) }, "only buffer.shared")
     assert(ch.len == 0)
   }
 
@@ -108,16 +100,16 @@ t.group("isolates"){
       local func deep(){ raise("boom") }
       deep()
     })
-    local e = raises(func(){ w:join() }, "boom")
+    local e = t.raises(func(){ w:join() }, "boom")
     assert(str.contains(e.stack, "deep"), e.stack)
     assert(e.location.line > 0)
     // a raised table keeps its fields
     local w2 = isolate.spawn(func(){ raise({message: "custom", code: 7}) })
-    local e2 = raises(func(){ w2:join() }, "custom")
+    local e2 = t.raises(func(){ w2:join() }, "custom")
     assert(e2.code == 7)
     // a result that cannot cross is an error
     local w3 = isolate.spawn(func(){ return require("slang/thread").create(func(){}) })
-    raises(func(){ w3:join() }, "coroutine")
+    t.raises(func(){ w3:join() }, "coroutine")
   }
 
   t.test("try_send, try_receive and capacity"){
@@ -139,7 +131,7 @@ t.group("isolates"){
     for(let local v in isolate.each(ch)){ append(got, v) }
     w:join()
     assert(len(got) == 19 and got[0] == 2 and got[18] == 20)
-    raises(func(){ isolate.channel({capacity: 0}) }, "capacity")
+    t.raises(func(){ isolate.channel({capacity: 0}) }, "capacity")
   }
 
   t.test("close"){
@@ -147,7 +139,7 @@ t.group("isolates"){
     ch:send("last")
     ch:close()
     assert(ch.closed)
-    raises(func(){ ch:send(1) }, "closed")
+    t.raises(func(){ ch:send(1) }, "closed")
     assert(ch:receive() == "last")
     assert(ch:receive() == null)
     assert(ch:try_receive() == null)
@@ -209,7 +201,7 @@ t.group("isolates"){
     for(local i = 0; i < n; i = i + 1){
       assert(b[i] == i)
     }
-    raises(func(){ buffer.shared("void *", 1) }, "not a number type")
+    t.raises(func(){ buffer.shared("void *", 1) }, "not a number type")
   }
 
   t.test("lock makes several writes one"){
@@ -226,9 +218,9 @@ t.group("isolates"){
     b:join()
     assert(counter[0] == 600, string(counter[0]))
     counter:lock()
-    raises(func(){ counter:lock() }, "holds the lock")
+    t.raises(func(){ counter:lock() }, "holds the lock")
     counter:unlock()
-    raises(func(){ counter:unlock() }, "not held")
-    raises(func(){ buffer.new("int", 1):lock() }, "not a shared buffer")
+    t.raises(func(){ counter:unlock() }, "not held")
+    t.raises(func(){ buffer.new("int", 1):lock() }, "not a shared buffer")
   }
 }

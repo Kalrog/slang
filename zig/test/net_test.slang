@@ -99,13 +99,13 @@ t.group("net"){
     server:close()
   }
   t.test("misuse raises"){
-    assert(pcall(net.protocol, {name: "x", messages: {connect: {"a"}}})[0] == "err")
+    t.raises(func(){ net.protocol({name: "x", messages: {connect: {"a"}}}) })
     local server = net.server({protocol: proto})
-    assert(pcall(func(){ server:on("nope", func(){}) })[0] == "err")
+    t.raises(func(){ server:on("nope", func(){}) })
     local client = net.connect("127.0.0.1", server.port, {protocol: proto})
-    assert(pcall(func(){ client:send("nope", {}) })[0] == "err")
-    assert(pcall(func(){ client:send("blob", "x" * 5000, {mode: "unreliable"}) })[0] == "err")
-    assert(pcall(func(){ client:send("blob", 1, {mode: "sideways"}) })[0] == "err")
+    t.raises(func(){ client:send("nope", {}) })
+    t.raises(func(){ client:send("blob", "x" * 5000, {mode: "unreliable"}) })
+    t.raises(func(){ client:send("blob", 1, {mode: "sideways"}) })
     client:close()
     server:close()
   }

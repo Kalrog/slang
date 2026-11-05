@@ -54,10 +54,9 @@ t.group("async syntax"){
     local r = a.main(func(){
       local failing = async func(){
         await a.sleep(1)
-        error("async boom")
+        raise("async boom")
       }
-      local caught = pcall(func(){ return await failing() })
-      return caught[1].message
+      return t.raises(func(){ return await failing() }).message
     })
     assert(str.index_of(r, "async boom") >= 0, r)
   }

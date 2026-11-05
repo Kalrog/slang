@@ -71,11 +71,9 @@ func app.start(map_file, defaults){
   player = stream.play(func(controls, events, scope, rate, status, options){
     return require("engine").new(controls, events, scope, rate, status, options)
   }, {args: {controls, events, scope, SAMPLE_RATE, status, {midi: true, keys: midi_keys}}, sample_rate: SAMPLE_RATE, block: 64})
-  local r = pcall(func(){
-    return require("midi").open(os.getenv("MIDI_INPUT"))
-  })
-  if(r[0] == "ok"){
-    midi_ctl = r[1]
+  // no MIDI here (no package, no input): play without
+  midi_ctl = try { require("midi").open(os.getenv("MIDI_INPUT")) } catch { null }
+  if(midi_ctl != null){
     local path = require("slang/path").join(__PACKAGES.search_paths[0], map_file)
     local fresh = not os.exists(path)
     app.map = require("midi/map").load(path)

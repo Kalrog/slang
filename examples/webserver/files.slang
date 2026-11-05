@@ -14,7 +14,6 @@ local http = require("slang/http")
 local crypto = require("slang/crypto")
 local encoding = require("slang/encoding")
 local os = require("slang/os")
-local str = require("slang/string")
 local db = require("db")
 local place = require("place")
 local m = {}
@@ -47,7 +46,8 @@ async func m.remove(user, id){
     return false
   }
   db:run(sql{ delete from files where id = {f.id} })
-  pcall(a.await, a.fs.remove(m.path(f)))
+  // the record is gone; a file that cannot be removed is only left over
+  try { await a.fs.remove(m.path(f)) } catch {}
   return true
 }
 
@@ -72,8 +72,9 @@ local async func finish(user, f){
 }
 
 local async func abandon(f){
-  pcall(a.await, a.fs.close(f.fd))
-  pcall(a.await, a.fs.remove(f.tmp))
+  // cleaning up after a failure: errors here would hide that one
+  try { await a.fs.close(f.fd) } catch {}
+  try { await a.fs.remove(f.tmp) } catch {}
 }
 
 async func m.receive(req){
@@ -85,7 +86,8 @@ async func m.receive(req){
   local saved = {}
   local current = null
   local total = 0
-  local r = pcall(func(){
+  local failure = null
+  try {
     await for(let local chunk in req.stream){
       for(let local e in values(parser:push(chunk))){
         if(e.type == "part"){
@@ -96,7 +98,7 @@ async func m.receive(req){
         } else if(e.type == "data" and current != null){
           total = total + len(e.data)
           if(total > m.max_upload){
-            error("too large")
+            raise(error.new(error.kinds.http, "too large", {status: 413}))
           }
           current.size = current.size + len(e.data)
           current.hasher:update(e.data)
@@ -108,15 +110,16 @@ async func m.receive(req){
       }
     }
     parser:finish()
-  })
-  if(r[0] == "err"){
+  } catch(local e) {
+    failure = e
+  }
+  if(failure != null){
     if(current != null){
       await abandon(current)
     }
-    local msg = r[1].message or string(r[1])
-    if(str.ends_with(msg, "too large")){
+    if(failure.kind == error.kinds.http){
       return {
-        status: 413,
+        status: failure.status,
         error: concat(
           "An upload can be at most ",
           string(to_int(m.max_upload / 1024 / 1024)),
@@ -124,7 +127,7 @@ async func m.receive(req){
         ),
       }
     }
-    return {status: 400, error: concat("The upload failed: ", msg)}
+    return {status: 400, error: concat("The upload failed: ", failure.message)}
   }
   return {saved: saved}
 }

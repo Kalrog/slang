@@ -14,17 +14,19 @@ local func load(source, core){
   return vm.load_proto(codegen.generate(node, "fused", {core: core}))
 }
 
-local func outcome(r){
-  if(r[0] == "ok"){
-    return concat("ok ", r[1])
+// runs f: "ok VALUE", or "err MESSAGE at line N"
+local func outcome(f){
+  local r = try { {value: f()} } catch(local e) { {error: e} }
+  if(r.error == null){
+    return concat("ok ", r.value)
   }
-  return concat("err ", r[1].message, " at line ", r[1].location.line)
+  return concat("err ", r.error.message, " at line ", r.error.location.line)
 }
 
 // the outcome of the program, the same compiled both ways
 local func same(source){
-  local fused = outcome(pcall(load(source, false)))
-  local core = outcome(pcall(load(source, true)))
+  local fused = outcome(load(source, false))
+  local core = outcome(load(source, true))
   assert(fused == core, concat("fused: ", fused, "\ncore:  ", core))
   return fused
 }

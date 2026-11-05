@@ -52,18 +52,17 @@ t.group("raylib: structs are tables"){
     assert(rl.check_collision_point_poly({5, 5}, points))
   }
   t.test("argument errors name what was expected"){
-    local r = pcall(rl.check_collision_recs, "x", {})
-    assert(r[0] == "err")
+    local e = t.raises(func(){ rl.check_collision_recs("x", {}) })
     assert(
-      r[1].message ==
+      e.message ==
         "bad argument #1 to 'check_collision_recs' (Rectangle expected, got string)",
-      r[1].message,
+      e.message,
     )
     // a missing argument is null: a struct still has to be given
-    r = pcall(rl.vector2_add, {1, 2})
+    e = t.raises(func(){ rl.vector2_add({1, 2}) })
     assert(
-      r[0] == "err" and r[1].message == "bad argument #2 to 'vector2_add' (Vector2 expected, got null)",
-      r[1].message,
+      e.message == "bad argument #2 to 'vector2_add' (Vector2 expected, got null)",
+      e.message,
     )
   }
 }
@@ -159,23 +158,24 @@ t.group("raylib/stream"){
     })
     // some devices (a headset) take a while to start: up to 3 s for the
     // first callbacks
-    local r = null
+    local stats = null
+    local failure = null
     for(local waited = 0; waited < 3000; waited = waited + 100){
       time.sleep(100)
-      r = pcall(func(){ return player:stats() })
-      if(r[0] == "err" or r[1].callbacks > 0){
+      try { stats = player:stats() } catch(local e) { failure = e }
+      if(failure != null or stats.callbacks > 0){
         break
       }
     }
-    local stopped = pcall(func(){ player:stop() })
-    if(r[0] == "err"){
+    if(failure != null){
+      try { player:stop() } catch {}
       // no audio device here: nothing more to see
       local str = require("slang/string")
-      assert(str.index_of(r[1].message, "no audio device") >= 0, r[1].message)
+      assert(str.index_of(failure.message, "no audio device") >= 0, failure.message)
       return null
     }
-    assert(stopped[0] == "ok", "stopped")
-    assert(r[1].playing and r[1].callbacks > 0, "played")
-    assert(r[1].load >= 0.0 and r[1].load < 1.0)
+    player:stop()
+    assert(stats.playing and stats.callbacks > 0, "played")
+    assert(stats.load >= 0.0 and stats.load < 1.0)
   }
 }

@@ -2,7 +2,6 @@
 local t = require("slang/test")
 local buffer = require("slang/buffer")
 local ffi = require("slang/ffi")
-local str = require("slang/string")
 
 local C = ffi.cdef("typedef struct { float x, y; } Vec2;")
 
@@ -14,12 +13,10 @@ t.group("buffers"){
     b[2] = 3
     assert(b[1] == 2.5 and b[2] == 3.0)
     assert(string(b) == "buffer<double>[4]" and type(b) == "buffer")
-    local r = pcall(func(){ return b[4] })
-    assert(r[1].message == "buffer index 4 out of range (length 4)")
-    r = pcall(func(){ b[-1] = 1 })
-    assert(r[0] == "err")
-    r = pcall(func(){ b[0] = "x" })
-    assert(str.index_of(r[1].message, "double expected, got string") >= 0)
+    local e = t.raises(func(){ return b[4] })
+    assert(e.message == "buffer index 4 out of range (length 4)")
+    t.raises(func(){ b[-1] = 1 })
+    t.raises(func(){ b[0] = "x" }, "double expected, got string")
   }
   t.test("types by C name or slang/ctypes name; values wrap to the type"){
     local bytes = buffer.from({255, 256, -1}, "unsigned char")
@@ -42,8 +39,8 @@ t.group("buffers"){
     assert(b:to_list() == {1, 0, 0, 7, 8})
     b:set(b:slice(3), 0)
     assert(b:to_list() == {7, 8, 0, 7, 8})
-    assert(pcall(func(){ b:set({1, 2, 3}, 4) })[0] == "err")
-    assert(pcall(func(){ return b:slice(2, 9) })[0] == "err")
+    t.raises(func(){ b:set({1, 2, 3}, 4) })
+    t.raises(func(){ return b:slice(2, 9) })
   }
   t.test("strings, casts, equality and identity"){
     local s = buffer.from_string("hi!")
@@ -81,7 +78,7 @@ t.group("buffers"){
       })
     local from = buffer.from({{x: 1, y: 1}, {2, 2}}, "Vec2", C)
     assert(from[1].y == 2)
-    assert(pcall(func(){ return vs.x })[1] == null, "string keys are methods")
+    assert(vs.x == null, "string keys are methods")
   }
   t.test("slices and views keep their memory alive"){
     local tail = buffer.new("int", 1000):slice(999)

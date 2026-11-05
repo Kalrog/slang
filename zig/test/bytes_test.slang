@@ -17,11 +17,11 @@ t.group("bytes from buffers"){
     // any element type: its bytes
     local ints = buffer.from({1, 2}, "int32")
     assert(crypto.hash("sha1", ints) == crypto.hash("sha1", ints:to_string()))
-    local r = pcall(zlib.deflate, {})
-    assert(r[0] == "err")
+    local e = t.raises(func(){ zlib.deflate({}) })
     assert(
-      r[1].message ==
+      e.message ==
         "bad argument #1 to 'deflate' (string or buffer expected, got table)",
+      e.message,
     )
   }
   t.test("sqlite binds a buffer as a blob"){

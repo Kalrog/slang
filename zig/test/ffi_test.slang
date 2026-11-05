@@ -116,10 +116,9 @@ t.group("ffi: declarations"){
     assert(D.types.B != null and D.functions.f != null)
   }
   t.test("bad declarations are located errors"){
-    local r = pcall(ffi.cdef, "int f(int x;")
-    assert(r[0] == "err")
-    assert(str.index_of(r[1].message, "ffi.cdef:") == 0, r[1].message)
-    assert(str.index_of(r[1].message, "line 1") >= 0, r[1].message)
+    local e = t.raises(func(){ ffi.cdef("int f(int x;") }, error.kinds.format)
+    assert(str.index_of(e.message, "ffi.cdef:") == 0, e.message)
+    assert(str.index_of(e.message, "line 1") >= 0, e.message)
   }
 }
 
@@ -168,21 +167,18 @@ t.group("ffi: calls"){
     assert(lib.ft_sum_ints(3, 1, 2, 3) == 6)
   }
   t.test("argument errors"){
-    local r = pcall(lib.ft_vec_add, "x", {})
-    assert(r[0] == "err")
+    local e = t.raises(func(){ lib.ft_vec_add("x", {}) })
     assert(
-      r[1].message ==
+      e.message ==
         "bad argument #1 to 'ft_vec_add' (Vec2 expected, got string)",
-      r[1].message,
+      e.message,
     )
-    r = pcall(lib.ft_i32, 1, 2)
-    assert(r[1].message == "ft_i32 takes 1 arguments, got 2", r[1].message)
+    e = t.raises(func(){ lib.ft_i32(1, 2) })
+    assert(e.message == "ft_i32 takes 1 arguments, got 2", e.message)
     // a missing argument is null: an int still has to be given
-    r = pcall(lib.ft_i32)
-    assert(r[0] == "err" and str.index_of(r[1].message, "null") >= 0, r[1].message)
-    r = pcall(func(){ return lib.ft_missing })
-    assert(r[0] == "err")
-    assert(str.index_of(r[1].message, "not in the library") >= 0)
+    t.raises(func(){ lib.ft_i32() }, "null")
+    e = t.raises(func(){ return lib.ft_missing }, "not in the library")
+    assert(e.kind == error.kinds.not_found, e.kind)
     assert(lib.no_such_function == null)
   }
 }
@@ -193,8 +189,7 @@ t.group("ffi: struct fields by key"){
   t.test("two fields of one name are refused"){
     // (a struct is defined when it is first used)
     local D = ffi.cdef("typedef struct { int a; int a; } Twice;")
-    local r = pcall(ffi.sizeof, "Twice", D)
-    assert(r[0] == "err" and str.contains(r[1].message, "two fields named a"), r[0] == "err" and r[1].message or "no error")
+    t.raises(func(){ ffi.sizeof("Twice", D) }, "two fields named a")
   }
   t.test("fields given positionally and by name"){
     assert(lib.ft_vec_add({x: 1, y: 2}, {3, 4}).x == 4)
@@ -203,8 +198,8 @@ t.group("ffi: struct fields by key"){
   t.test("a missing field is zero, a wrong value names the argument"){
     assert(lib.ft_vec_add({x: 1}, {}).x == 1)
     assert(lib.ft_vec_add({x: 1}, {}).y == 0)
-    local r = pcall(lib.ft_vec_add, {x: "a"}, {})
-    assert(r[0] == "err" and r[1].message == "bad argument #1 to 'ft_vec_add' (float expected, got string)", r[1].message)
+    local e = t.raises(func(){ lib.ft_vec_add({x: "a"}, {}) })
+    assert(e.message == "bad argument #1 to 'ft_vec_add' (float expected, got string)", e.message)
   }
 }
 
@@ -222,12 +217,11 @@ t.group("ffi: buffers"){
   }
   t.test("the element type must match, unless C takes bytes"){
     local buffer = require("slang/buffer")
-    local r = pcall(lib.ft_sum_vecs, buffer.new("float", 4), 2)
-    assert(r[0] == "err")
+    local e = t.raises(func(){ lib.ft_sum_vecs(buffer.new("float", 4), 2) })
     assert(
-      r[1].message ==
+      e.message ==
         "bad argument #1 to 'ft_sum_vecs' (Vec2 * expected, got a buffer of float: use b:cast)",
-      r[1].message,
+      e.message,
     )
     local floats = buffer.from({1, 2, 3, 4}, "float")
     assert(lib.ft_sum_vecs(floats:cast(ffi.type("Vec2", C)), 2) == 10)
@@ -280,9 +274,7 @@ t.group("ffi: memory"){
   }
   t.test("what cannot be stored in C memory is an error"){
     local nodes = ffi.new("Node", 1, C)
-    local r = pcall(func(){ nodes[0].next = {value: 1} })
-    assert(r[0] == "err")
-    assert(str.index_of(r[1].message, "use ffi.new") >= 0, r[1].message)
+    t.raises(func(){ nodes[0].next = {value: 1} }, "use ffi.new")
   }
 }
 
@@ -302,9 +294,7 @@ t.group("ffi: callbacks"){
     }, {1, 2})
     assert(v.x == 2 and v.y == 4 and seen == "scaled")
     // a string cannot be returned: C would keep a pointer into slang
-    local r = pcall(lib.ft_name_of, func(i){ return "x" }, 1)
-    assert(r[0] == "err")
-    assert(str.index_of(r[1].message, "bad result of a callback") >= 0, r[1].message)
+    t.raises(func(){ lib.ft_name_of(func(i){ return "x" }, 1) }, "bad result of a callback")
   }
   t.test("a callback kept by C, in a struct, is called later"){
     local total = 0
@@ -329,17 +319,19 @@ t.group("ffi: callbacks"){
     assert(lib.ft_apply(func(x){ return lib.ft_apply(inner, x) * 2 }, 4) == 10)
   }
   t.test("an error in a callback is raised when the C call returns"){
-    local r = pcall(lib.ft_apply, func(x){ error("bad ", x) }, 7)
-    assert(r[0] == "err" and r[1].message == "bad 7", r[1].message)
+    local e = t.raises(func(){ lib.ft_apply(func(x){ raise(concat("bad ", x)) }, 7) })
+    assert(e.message == "bad 7", e.message)
     // an error in a nested callback goes up through the outer one
-    r = pcall(lib.ft_apply, func(x){
-      return lib.ft_apply(func(y){ error("inner") }, x)
-    }, 1)
-    assert(r[0] == "err" and r[1].message == "inner")
+    e = t.raises(func(){
+      lib.ft_apply(func(x){
+        return lib.ft_apply(func(y){ raise("inner") }, x)
+      }, 1)
+    })
+    assert(e.message == "inner", e.message)
     // a callback can catch it
     assert(lib.ft_apply(func(x){
       try {
-        lib.ft_apply(func(y){ error("caught") }, x)
+        lib.ft_apply(func(y){ raise("caught") }, x)
       } catch(local e){
         return 99
       }
@@ -401,12 +393,9 @@ t.group("ffi: callbacks"){
     lib.ft_free(q)
     assert(lib.ft_freed() == before + 2)
     // slang's own memory, and functions of the wrong shape
-    local r = pcall(ffi.gc, ffi.new("int", 1, C), lib.ft_free)
-    assert(r[0] == "err" and str.index_of(r[1].message, "ffi.new") >= 0, r[1].message)
-    r = pcall(ffi.gc, lib.ft_alloc(1), lib.ft_next)
-    assert(r[0] == "err" and str.index_of(r[1].message, "one pointer") >= 0, r[1].message)
-    r = pcall(ffi.gc, lib.ft_alloc(1), func(p){})
-    assert(r[0] == "err" and str.index_of(r[1].message, "C function") >= 0, r[1].message)
+    t.raises(func(){ ffi.gc(ffi.new("int", 1, C), lib.ft_free) }, "ffi.new")
+    t.raises(func(){ ffi.gc(lib.ft_alloc(1), lib.ft_next) }, "one pointer")
+    t.raises(func(){ ffi.gc(lib.ft_alloc(1), func(p){}) }, "C function")
   }
   t.test("ffi.gc: a buffer over the memory keeps it until the buffer goes"){
     local buffer = require("slang/buffer")
@@ -425,14 +414,14 @@ t.group("ffi: callbacks"){
 
   // last: it uses up the program's callbacks
   t.test("a function made anew on each pass is caught, not leaked"){
-    local r = null
+    local failure = null
     for(local i = 0; i < 1100; i = i + 1){
-      r = pcall(lib.ft_apply, func(x){ return x }, i)
-      if(r[0] == "err"){
+      try { lib.ft_apply(func(x){ return x }, i) } catch(local e) { failure = e }
+      if(failure != null){
         break
       }
     }
-    assert(r[0] == "err")
-    assert(str.index_of(r[1].message, "ffi.callback") >= 0, r[1].message)
+    assert(failure != null, "no callback failed")
+    assert(str.index_of(failure.message, "ffi.callback") >= 0, failure.message)
   }
 }

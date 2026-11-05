@@ -33,7 +33,7 @@ macro unless(condition, body){
     return +{stat: if(not -{condition})-{real_body}}
   }
   print(condition,body,"\\n")
-  error("body must be a function")
+  raise(error.new(error.kinds.argument, "body must be a function"))
 }
 
 assert($hello() == "hello world", "$hello() should be hello world")
@@ -189,7 +189,7 @@ assert(:>l == rest(l), ":>l should be rest(l)")
 
 postfix _! before _unary_ (value){
   if (value == null){
-    error("null check used on null")
+    raise(error.new(error.kinds.type, "null check used on null"))
   }
   return value
 }

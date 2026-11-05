@@ -3,11 +3,10 @@ local t = require("slang/test")
 local str = require("slang/string")
 
 local func fails_with(source, text){
-  local r = pcall(compile(source, "bits"))
-  assert(r[0] == "err", concat("should fail: ", source))
+  local e = t.raises(compile(source, "bits"))
   assert(
-    str.index_of(r[1].message, text) >= 0,
-    concat(source, ": ", r[1].message),
+    str.index_of(e.message, text) >= 0,
+    concat(source, ": ", e.message),
   )
 }
 

@@ -22,6 +22,6 @@ t.group("path"){
     assert(path.rel("a/b", "a/c/d") == "../c/d")
     assert(path.rel("/a", "/a/b") == "b" and path.rel("/a/b", "/a/b") == ".")
     assert(path.rel("/", "/x") == "x" and path.rel(".", "a") == "a")
-    assert(pcall(path.rel, "/a", "b")[0] == "err")
+    t.raises(func(){ path.rel("/a", "b") })
   }
 }

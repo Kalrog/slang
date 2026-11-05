@@ -22,18 +22,16 @@ t.group("native extension (C)", func(){
   })
 
   t.test("argument errors are slang errors", func(){
-    local r = pcall(hello.add, "a", 2)
-    assert(r[0] == "err")
+    local e = t.raises(func(){ hello.add("a", 2) })
     assert(
-      r[1].message == "bad argument #1 to 'add' (number expected, got string)",
+      e.message == "bad argument #1 to 'add' (number expected, got string)",
     )
-    assert(r[1].location != null)
+    assert(e.location != null)
   })
 
   t.test("slang_error", func(){
-    local r = pcall(hello.fail, "boom")
-    assert(r[0] == "err")
-    assert(r[1].message == "failed: boom")
+    local e = t.raises(func(){ hello.fail("boom") })
+    assert(e.message == "failed: boom")
   })
 
   t.test("calling back into slang", func(){
@@ -41,10 +39,9 @@ t.group("native extension (C)", func(){
   })
 
   t.test("errors propagate through native frames with their location", func(){
-    local r = pcall(hello.apply, func(x){ error("inner ", x) }, 7)
-    assert(r[0] == "err")
-    assert(r[1].message == "inner 7")
-    assert(r[1].location.line == 44)
+    local e = t.raises(func(){ hello.apply(func(x){ raise(concat("inner ", x)) }, 7) })
+    assert(e.message == "inner 7")
+    assert(e.location.line == 42, e.location.line)
   })
 
   t.test("errors have kinds: slang_errorkind, argument checks", func(){
@@ -59,15 +56,15 @@ t.group("native extension (C)", func(){
   t.test("a native function can handle an error", func(){
     local ok = hello.try(func(){ return 5 })
     assert(ok[0] == "ok" and ok[1] == 5)
-    local failed = hello.try(func(){ error("nope") })
+    local failed = hello.try(func(){ raise("nope") })
     assert(failed[0] == "err" and failed[1] == "nope")
   })
 
   t.test("re-raising keeps the original location", func(){
-    local r = pcall(func(){ error("original") })
-    local r2 = pcall(hello.reraise, r[1])
-    assert(r2[1].message == "original")
-    assert(r2[1].location.line == r[1].location.line)
+    local e = t.raises(func(){ raise("original") })
+    local e2 = t.raises(func(){ hello.reraise(e) })
+    assert(e2.message == "original")
+    assert(e2.location.line == e.location.line)
   })
 
   t.test("table iteration", func(){
@@ -100,10 +97,9 @@ t.group("native extension (C)", func(){
       assert(b:get() == "abcd")
       assert(b:len() == 4)
       assert(type(b) == "buffer")
-      local r = pcall(hello.buffer().push, {}, "x")
-      assert(r[0] == "err")
+      local e = t.raises(func(){ hello.buffer().push({}, "x") })
       assert(
-        r[1].message ==
+        e.message ==
           "bad argument #1 to 'push' (hello.buffer expected, got table)",
       )
     }
@@ -119,14 +115,14 @@ t.group("native extension (C)", func(){
     assert(hello.buffer_sum(buffer.from({1, 2}, "double")) == 3)
     local r = hello.ramp(5)
     assert(len(r) == 5 and r[4] == 4 and r:to_list() == {0, 1, 2, 3, 4})
-    r = pcall(hello.buffer_sum, {1, 2})
+    local e = t.raises(func(){ hello.buffer_sum({1, 2}) })
     assert(
-      r[1].message ==
+      e.message ==
         "bad argument #1 to 'buffer_sum' (buffer expected, got table)",
     )
-    r = pcall(hello.buffer_sum, buffer.new("int", 2))
+    e = t.raises(func(){ hello.buffer_sum(buffer.new("int", 2)) })
     assert(
-      r[1].message ==
+      e.message ==
         "bad argument #1 to 'buffer_sum' (a buffer of float or double expected)",
     )
   })
@@ -160,20 +156,19 @@ t.group("native extension (Zig)", func(){
   })
 
   t.test("errors", func(){
-    local r = pcall(vec.new(1, 1).length, 5)
-    assert(r[0] == "err")
+    t.raises(func(){ vec.new(1, 1).length(5) })
   })
 })
 
 t.group("native extension driving isolates (C)", func(){
   t.test("an isolate driven from a thread the extension owns", func(){
     assert(hello.drive(func(i){ return i * i }, 10) == 285)
-    local r = pcall(hello.drive, func(i){ raise("in the thread") }, 1)
-    assert(r[0] == "err" and r[1].message == "drive: in the thread", r[1].message)
+    local e = t.raises(func(){ hello.drive(func(i){ raise("in the thread") }, 1) })
+    assert(e.message == "drive: in the thread", e.message)
     // (a table: a local that always holds a literal is compiled as that
     // literal, so the function would not use a local of this one)
     local y = {}
-    assert(pcall(hello.drive, func(i){ return y }, 1)[0] == "err")
+    t.raises(func(){ hello.drive(func(i){ return y }, 1) })
     local isolate = require("slang/isolate")
     local input = isolate.channel()
     local output = isolate.channel()

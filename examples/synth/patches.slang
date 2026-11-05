@@ -118,7 +118,7 @@ func patches.values(k){
   local def = patches.list[k]
   for(let local id in keys(def.patch)){
     if(params.index[id] == null){
-      error(concat("patch ", def.name, ": there is no control called ", id))
+      raise(error.new(error.kinds.not_found, concat("patch ", def.name, ": there is no control called ", id)))
     }
   }
   local out = {}
@@ -127,7 +127,7 @@ func patches.values(k){
     if(def.patch[c.id] != null){
       v = params.value(c, def.patch[c.id])
       if(v == null){
-        error(concat("patch ", def.name, ": ", c.id, " has no position called ", def.patch[c.id]))
+        raise(error.new(error.kinds.not_found, concat("patch ", def.name, ": ", c.id, " has no position called ", def.patch[c.id])))
       }
     }
     append(out, v)

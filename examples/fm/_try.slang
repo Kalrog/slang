@@ -31,7 +31,7 @@ for(local b = 0; b < blocks; b = b + 1){
   block(out, 64)
   for(local i = 0; i < 64; i = i + 1){
     local v = out[i]
-    if(v != v){ error("nan") }
+    if(v != v){ raise(error.new(error.kinds.arithmetic, "nan")) }
     if(v > peak){ peak = v } else if(-v > peak){ peak = -v }
   }
 }

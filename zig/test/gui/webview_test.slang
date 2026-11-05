@@ -32,7 +32,7 @@ t.group("webview"){
         ),
       })
       w:bind("add", func(x, y){ return x + y })
-      w:bind("fails", func(){ error("on purpose") })
+      w:bind("fails", func(){ raise("on purpose") })
       w:bind("later", async func(v){
         await a.sleep(20)
         return concat(v, "!")
@@ -87,8 +87,7 @@ t.group("webview"){
       w:close()
       await w.closed
       assert(not w.open)
-      local r = pcall(func(){ w:navigate("about:blank") })
-      assert(r[0] == "err" and str.index_of(r[1].message, "closed") >= 0)
+      t.raises(func(){ w:navigate("about:blank") }, "closed")
     })
   }
   t.test("a slang/web app is served over app:// with no socket"){

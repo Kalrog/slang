@@ -98,7 +98,7 @@ local func index_of(list, v){
       return i
     }
   }
-  error(concat("patch: ", string(v), " is not one of ", string(list)))
+  raise(error.new(error.kinds.argument, concat("patch: ", string(v), " is not one of ", string(list))))
 }
 
 // ratio -> coarse, fine: coarse 0 is 0.5, fine adds hundredths of coarse
@@ -111,7 +111,7 @@ local func ratio_fields(r){
   }
   local fine = math.round((r / base - 1) * 100)
   if(fine > 99){
-    error(concat("patch: ratio ", string(r), " cannot be written (fine ", string(fine), ")"))
+    raise(error.new(error.kinds.argument, concat("patch: ratio ", string(r), " cannot be written (fine ", string(fine), ")")))
   }
   return {coarse: to_int(coarse), fine: to_int(fine)}
 }
@@ -147,7 +147,7 @@ func patch.op(t){
       o[k] = index_of(patch.CURVES, v)
     } else {
       if(o[k] == null){
-        error(concat("patch: an operator has no field ", k))
+        raise(error.new(error.kinds.argument, concat("patch: an operator has no field ", k)))
       }
       o[k] = v
     }
@@ -186,7 +186,7 @@ func patch.voice(t){
       p.pl4 = v[1][3]
     } else {
       if(p[k] == null){
-        error(concat("patch: a voice has no field ", k))
+        raise(error.new(error.kinds.argument, concat("patch: a voice has no field ", k)))
       }
       p[k] = v
     }
@@ -203,11 +203,12 @@ func patch.voice(t){
   return p
 }
 
-// check(p): every field in its range (raises naming the patch and field)
+// check(p): every field in its range (raises an error of kind argument naming
+// the patch and field)
 func patch.check(p){
   local func in_range(where, f, v){
     if(type(v) != "int" or v < f.min or v > f.max){
-      error(concat("patch ", p.name, ": ", where, f.id, " is ", string(v), ", not ", string(f.min), "..", string(f.max)))
+      raise(error.new(error.kinds.argument, concat("patch ", p.name, ": ", where, f.id, " is ", string(v), ", not ", string(f.min), "..", string(f.max))))
     }
   }
   for(let local f in values(patch.VOICE_FIELDS)){

@@ -676,7 +676,7 @@ local Mix = {}
 local mix_meta = {__index: Mix}
 
 local func unsupported(node){
-  error("mix: ", node.type, " is not supported")
+  raise(error.new(error.kinds.unsupported, concat("mix: ", node.type, " is not supported")))
 }
 
 // lift(w) -> node: a wrapped value as residual code
@@ -699,9 +699,9 @@ func Mix.lift_value(self, v){
   }
   local path = self.paths[v]
   if(path != null){ return clone(path, {}) }
-  if(t == "function"){ error("mix: cannot put a function value into the residual program") }
+  if(t == "function"){ raise(error.new(error.kinds.unsupported, "mix: cannot put a function value into the residual program")) }
   if(t != "table" or v.@meta != null){
-    error("mix: cannot put a ", t, " with a metatable into the residual program")
+    raise(error.new(error.kinds.unsupported, concat("mix: cannot put a ", t, " with a metatable into the residual program")))
   }
   local fields = {}
   local n = len(v)
@@ -789,8 +789,8 @@ func Mix.expr(self, ctx, node){
   if(t == "UnOp"){
     local w = self:expr(ctx, node.operand)
     if(w.static){
-      local r = pcall(unops[node.op], w.value)
-      if(r[0] == "ok"){ return S(r[1]) }
+      // (an operation that raises stays in the residual, to raise at run time)
+      try { return S(unops[node.op](w.value)) } catch {}
     }
     return D(N("UnOp", {op: node.op, operand: self:lift(w)}))
   }
@@ -846,8 +846,7 @@ func Mix.binop(self, ctx, node){
   }
   local r = self:expr(ctx, node.right)
   if(l.static and r.static){
-    local res = pcall(binops[op], l.value, r.value)
-    if(res[0] == "ok"){ return S(res[1]) }
+    try { return S(binops[op](l.value, r.value)) } catch {}
   }
   return D(N("BinOp", {left: self:lift(l), op: op, right: self:lift(r)}))
 }
@@ -856,10 +855,10 @@ func Mix.index(self, ctx, node){
   local r = self:expr(ctx, node.receiver)
   local k = self:expr(ctx, node.index)
   if(r.static and k.static){
-    if(type(r.value) == "MixFunction"){ error("mix: indexing a program function") }
-    local res = pcall(func(t, k) => t[k], r.value, k.value)
-    if(res[0] == "ok"){
-      local v = res[1]
+    if(type(r.value) == "MixFunction"){ raise(error.new(error.kinds.unsupported, "mix: indexing a program function")) }
+    local res = try { {value: r.value[k.value]} } catch { null }
+    if(res != null){
+      local v = res.value
       if((type(v) == "table" or type(v) == "function") and self.paths[r.value] != null and self.paths[v] == null){
         self.paths[v] = N("Index", {receiver: self.paths[r.value], index: self:lift_value(k.value), dotStyle: is_name(k.value)})
       }
@@ -942,7 +941,7 @@ func Mix.closure(self, ctx, node){
   push_scope(ctx.env)
   local params = {}
   for(let local p in values(node.params)){
-    if(len(p.value) > 3 and p.value[0] == '.'){ error("mix: rest parameters are not supported") }
+    if(len(p.value) > 3 and p.value[0] == '.'){ raise(error.new(error.kinds.unsupported, "mix: rest parameters are not supported")) }
     declare(ctx.env, p.value, {static: false})
     append(params, ident(p.value))
   }
@@ -959,12 +958,12 @@ func Mix.closure(self, ctx, node){
 func Mix.call(self, ctx, node, as_statement){
   local f = node.function
   if(f.type == "Identifier" and f.value == "dynamic" and lookup(ctx.env, "dynamic") == null){
-    if(len(node.args) != 1){ error("mix: dynamic takes one argument") }
+    if(len(node.args) != 1){ raise(error.new(error.kinds.argument, "mix: dynamic takes one argument")) }
     return D(self:lift(self:expr(ctx, node.args[0])))
   }
   if(f.type == "Identifier" and f.value == "hint" and lookup(ctx.env, "hint") == null){
     // hint(name): names the specialization being made; nothing at run time
-    if(len(node.args) != 1){ error("mix: hint takes one argument") }
+    if(len(node.args) != 1){ raise(error.new(error.kinds.argument, "mix: hint takes one argument")) }
     local w = self:expr(ctx, node.args[0])
     if(w.static and type(w.value) == "string" and self.current_spec != null){ self.current_spec.hint = w.value }
     return S(null)
@@ -983,12 +982,11 @@ func Mix.call(self, ctx, node, as_statement){
       if(all_static){
         local vals = {}
         for(local i = 0; i < len(args); i = i + 1){ vals[i] = args[i].value }
-        local r = pcall(v, ...vals)
-        if(r[0] == "ok"){ return S(r[1]) }
+        try { return S(v(...vals)) } catch {}
       }
     } else if(v != error){
       // (error is a callable table: a call of it stays in the residual)
-      error("mix: calling a static ", type(v), " value")
+      raise(error.new(error.kinds.type, concat("mix: calling a static ", type(v), " value")))
     }
   }
   local lifted = {}
@@ -1000,7 +998,7 @@ func Mix.call(self, ctx, node, as_statement){
 
 func Mix.call_program_function(self, ctx, fn, args, as_statement){
   if(len(args) > len(fn.params)){
-    error("mix: ", fn.name, " takes ", len(fn.params), " arguments, called with ", len(args))
+    raise(error.new(error.kinds.argument, concat("mix: ", fn.name, " takes ", len(fn.params), " arguments, called with ", len(args))))
   }
   for(local i = len(args); i < len(fn.params); i = i + 1){ append(args, S(null)) }
   local spec = self:specialize_function(fn, args)
@@ -1149,7 +1147,7 @@ func Mix.specialize_function(self, fn, args){
   if(len(fn.specs) >= self.limit){
     local shown = {}
     for(let local a in values(args)){ append(shown, if(a.static){ string(a.value) } else { "?" }) }
-    error("mix: ", fn.name, " was specialized more than ", self.limit, " times (last: ", str.join(shown, ", "), "); one of its arguments should be dynamic")
+    raise(error.new(error.kinds.argument, concat("mix: ", fn.name, " was specialized more than ", self.limit, " times (last: ", str.join(shown, ", "), "); one of its arguments should be dynamic")))
   }
   local spec = {
     fn: fn, args: args, name: null, params: {}, body: null,
@@ -1160,7 +1158,7 @@ func Mix.specialize_function(self, fn, args){
   local out = {}
   for(local i = 0; i < len(fn.params); i = i + 1){
     local p = fn.params[i].value
-    if(len(p) > 3 and p[0] == '.'){ error("mix: rest parameters are not supported (", fn.name, ")") }
+    if(len(p) > 3 and p[0] == '.'){ raise(error.new(error.kinds.unsupported, concat("mix: rest parameters are not supported (", fn.name, ")"))) }
     local a = args[i]
     if(a == null or not a.static){
       declare(env, p, {static: false})
@@ -1249,7 +1247,7 @@ func Mix.statement(self, ctx, node){
     return "return"
   }
   if(t == "Break" or t == "Continue"){
-    if(node.label != null){ error("mix: labels are not supported") }
+    if(node.label != null){ raise(error.new(error.kinds.unsupported, "mix: labels are not supported")) }
     self:emit(ctx, N(t, {label: null}))
     return if(t == "Break"){ "break" } else { "continue" }
   }
@@ -1288,7 +1286,7 @@ func Mix.assignment(self, ctx, node){
     local name = left.value
     local b = lookup(ctx.env, name)
     if(b == null and self.globals[name] != null){
-      error("mix: assignment to ", name, ", a program function or a static")
+      raise(error.new(error.kinds.unsupported, concat("mix: assignment to ", name, ", a program function or a static")))
     }
     local w = self:expr(ctx, node.right)
     if(w.terminates){
@@ -1317,7 +1315,7 @@ func Mix.assignment(self, ctx, node){
   if(left.type == "Index"){
     local r = self:expr(ctx, left.receiver)
     if(r.static){
-      error("mix: a static table is read-only (", ast.to_source(left), "); build it at run time or wrap it in dynamic(...)")
+      raise(error.new(error.kinds.unsupported, concat("mix: a static table is read-only (", ast.to_source(left), "); build it at run time or wrap it in dynamic(...)")))
     }
     local k = self:expr(ctx, left.index)
     local key = self:lift(k)
@@ -1398,7 +1396,7 @@ func Mix.if_statement(self, ctx, node){
 }
 
 func Mix.for_statement(self, ctx, node){
-  if(node.label != null){ error("mix: labels are not supported") }
+  if(node.label != null){ raise(error.new(error.kinds.unsupported, "mix: labels are not supported")) }
   push_scope(ctx.env)
   local pre = {}      // init, and later the lifts before a residual loop
   local pre_ctx = {env: ctx.env, out: pre, loop_depth: ctx.loop_depth}
@@ -1844,12 +1842,12 @@ func Spec.load(self){
 
 // the functions a program block declares, by name
 local func program_functions(program){
-  if(type(program) != "Block"){ error("mix: the program must be a quoted block (+{block: ...})") }
+  if(type(program) != "Block"){ raise(error.new(error.kinds.argument, "mix: the program must be a quoted block (+{block: ...})")) }
   local fns = {}
   for(let local s in values(program.statements)){
     local ok = s.type == "Declaration" and s.left.type == "Identifier" and s.right != null and s.right.type == "Function"
     if(not ok){
-      error("mix: a program holds function declarations only, not ", ast.to_source(s))
+      raise(error.new(error.kinds.argument, concat("mix: a program holds function declarations only, not ", ast.to_source(s))))
     }
     fns[s.left.value] = {name: s.left.value, params: s.right.params, node: s.right, specs: {}, @meta: fn_meta}
   }
@@ -1863,11 +1861,11 @@ func mix.specialize(program, entry, args, options){
   args = args or {}
   local fns = program_functions(program)
   local fn = fns[entry]
-  if(fn == null){ error("mix: no function ", entry, " in the program") }
+  if(fn == null){ raise(error.new(error.kinds.not_found, concat("mix: no function ", entry, " in the program"))) }
   for(let local name in keys(args)){
     local found = false
     for(let local p in values(fn.params)){ if(p.value == name){ found = true } }
-    if(not found){ error("mix: ", entry, " has no parameter ", name) }
+    if(not found){ raise(error.new(error.kinds.not_found, concat("mix: ", entry, " has no parameter ", name))) }
   }
   local self = {
     globals: {}, statics: options.statics or {}, paths: {}, pure: {}, names: {},

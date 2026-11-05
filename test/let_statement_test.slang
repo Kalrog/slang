@@ -16,12 +16,10 @@ t.group("let statement"){
     assert(whole == 7)
   }
   t.test("raises when the value does not match"){
-    local r = pcall(func(){
+    local e = t.raises(func(){
       let {name: local name, age: 99} = {name: "Ada", age: 36}
       return name
     })
-    assert(r[0] == "err", "a mismatch is an error")
-    local e = r[1]
     assert(
       e.kind == "let" and str.index_of(e.message, "does not match") >= 0,
       e.message,
@@ -37,8 +35,7 @@ t.group("let statement"){
       caught = a
     }
     assert(caught == 1)
-    r = pcall(func(){ let 'Patient{} = {name: "x"} })
-    assert(r[0] == "err", "a type check that fails")
+    t.raises(func(){ let 'Patient{} = {name: "x"} }, "let")
   }
   t.test("the expression form is unchanged"){
     assert((let {a: 1} = {a: 1}) == true)

@@ -130,7 +130,7 @@ local func protected(b){
 func Builder.structure(b, kind, o){
   local builder = structures.builders[kind]
   if(builder == null){
-    error("no structure called ", kind)
+    raise(error.new(error.kinds.not_found, concat("no structure called ", kind)))
   }
   local radius = structures.footprint(kind, o)
   local base = o.base or terrain.height_at(b.t, o.x, o.z)
@@ -346,31 +346,32 @@ m.builtin = {"levels/meadow", "levels/harbor", "levels/hilltop", "levels/island"
 func m.all(){
   local out = {}
   for(let local name in values(m.builtin)){
-    local r = pcall(require, name)
-    if(r[0] == "ok"){
-      local level = r[1]
-      level.key = name
-      level.builtin = true
-      append(out, level)
-    } else {
-      os.write_stderr(concat("levels: ", name, ": ", string(r[1].message or r[1]), "\n"))
+    local level
+    try {
+      level = require(name)
+    } catch(local e) {
+      os.write_stderr(concat("levels: ", name, ": ", e.message, "\n"))
+      continue
+    }
+    level.key = name
+    level.builtin = true
+    append(out, level)
+  }
+  // no levels directory, or none to list (the browser): no saved levels
+  local dir = concat(m.dir, "/levels")
+  local listed = try { os.list_dir(dir) } catch { {} }
+  local files = {}
+  for(let local f in values(listed)){
+    if(str.ends_with(f, ".json")){
+      append(files, f)
     }
   }
-  local dir = concat(m.dir, "/levels")
-  local listed = pcall(os.list_dir, dir)
-  if(listed[0] == "ok"){
-    local files = {}
-    for(let local f in values(listed[1])){
-      if(str.ends_with(f, ".json")){
-        append(files, f)
-      }
-    }
-    for(let local f in values(files)){
-      local r = pcall(m.load, concat(dir, "/", f))
-      if(r[0] == "ok"){
-        r[1].key = f
-        append(out, r[1])
-      }
+  for(let local f in values(files)){
+    // a file that does not load (not JSON, say) is left out
+    local level = try { m.load(concat(dir, "/", f)) } catch { null }
+    if(level != null){
+      level.key = f
+      append(out, level)
     }
   }
   return out

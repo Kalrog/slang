@@ -72,13 +72,13 @@ func deck.guard(node){
 
 // a parse error as one short line: "syntax error at 1:13: expected ..."
 local func short_parse_error(e){
-  if(type(e) == "table" and e.location != null){
+  if(e.location != null){
     return concat(
       "syntax error at ", e.location.line, ":", e.location.column, ": ",
       e.message
     )
   }
-  return string(e)
+  return e.message
 }
 
 local func parse(code, origin){
@@ -90,28 +90,22 @@ local func parse(code, origin){
 func deck.compile(code, env, origin){
   origin = origin or "deck"
   local node
-  local r = pcall(parse, code, origin)
-  if(r[0] == "ok"){
-    node = r[1]
-    local stats = node.statements
-    if(len(stats) == 1 and stats[0].type == "CallStat"){
-      node.statements = {{type: "Return", value: stats[0].call}}
-    }
-  } else {
+  try {
+    node = parse(code, origin)
+  } catch(local e) {
     // not statements: maybe an expression (`door1.is_open()` parses either
     // way, `1 + 2` only this way)
-    local r2 = pcall(parse, concat("return ", code), origin)
-    if(r2[0] != "ok"){
-      return {error: short_parse_error(r[1])}
+    node = try { parse(concat("return ", code), origin) } catch { null }
+    if(node == null){
+      return {error: short_parse_error(e)}
     }
-    node = r2[1]
+  }
+  local stats = node.statements
+  if(len(stats) == 1 and stats[0].type == "CallStat"){
+    node.statements = {{type: "Return", value: stats[0].call}}
   }
   deck.guard(node)
-  local c = pcall(compile, node, origin, env)
-  if(c[0] != "ok"){
-    return {error: c[1].message}
-  }
-  return {fn: c[1]}
+  return try { {fn: compile(node, origin, env)} } catch(local e) { {error: e.message} }
 }
 
 // ------------------------------------------------------------ values
@@ -211,10 +205,10 @@ func Deck.builtins(self, network){
   }
   env.wait = func(seconds){
     if(type(seconds) != "int" and type(seconds) != "double"){
-      error("wait(seconds) needs a number")
+      raise(error.new(error.kinds.argument, "wait(seconds) needs a number"))
     }
     if(seconds < 0){
-      error("wait(seconds) cannot go back in time")
+      raise(error.new(error.kinds.argument, "wait(seconds) cannot go back in time"))
     }
     thread.yield({until: d.now + seconds})
   }
@@ -295,21 +289,27 @@ func Deck.step(self){
     if(s.wake <= self.now + 0.000001){
       self.steps = 0
       local generation = self.generation
-      local r = pcall(thread.resume, s.co)
+      local value = null
+      local failure = null
+      try {
+        value = thread.resume(s.co)
+      } catch(local e) {
+        failure = e
+      }
       if(self.generation != generation){
         // the script called stop(): the list it was in is gone
         return
       }
-      if(r[0] != "ok"){
-        self:out(concat("error: ", r[1].message, where(r[1])), "err")
+      if(failure != null){
+        self:out(concat("error: ", failure.message, where(failure)), "err")
         finished = true
       } else if(thread.state(s.co) == "dead"){
-        if(r[1] != null){
-          self:out(deck.show(r[1]), "out")
+        if(value != null){
+          self:out(deck.show(value), "out")
         }
         finished = true
-      } else if(type(r[1]) == "table" and r[1].until != null){
-        s.wake = r[1].until
+      } else if(type(value) == "table" and value.until != null){
+        s.wake = value.until
       } else {
         // a used up slice or a bare yield: again next frame
         s.wake = self.now

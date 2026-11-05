@@ -72,8 +72,7 @@ show(total(1, 2, 3, 4), "total")
 def greet("en", name){ return concat("hello ", name) }
 def greet("de", name){ return concat("hallo ", name) }
 show(greet("de", "welt"), "greet")
-// local failed = pcall(greet, "fr", "monde")
-// show(failed[1].message, "no clause")
+// show(try { greet("fr", "monde") } catch(local e) { e.message }, "no clause")
 
 // ------------------------------------------------------------ dijkstra
 //

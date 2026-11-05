@@ -67,7 +67,7 @@ t.group("fm"){
     o = patch.op({fixed: 440})
     // (fine steps are coarse: 440 Hz is 437)
     assert(o.mode == 1 and o.coarse == 2 and patch.frequency_text(o) == "437Hz", patch.frequency_text(o))
-    local msg = pcall(func(){ patch.voice({name: "X", feedback: 9}) })[1].message
+    local msg = t.raises(func(){ patch.voice({name: "X", feedback: 9}) }, error.kinds.argument).message
     assert(require("slang/string").contains(msg, "feedback is 9"), msg)
   }
   t.test("every patch of the bank sounds, stays in range, and ends"){

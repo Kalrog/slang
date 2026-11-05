@@ -25,7 +25,7 @@ t.group("os"){
     assert(not os.exists(p) and os.exists(concat(dir, "/b.txt")))
     os.remove(concat(dir, "/b.txt"))
     assert(not os.exists(concat(dir, "/b.txt")))
-    assert(pcall(os.remove, concat(dir, "/b.txt"))[0] == "err")
+    t.raises(func(){ os.remove(concat(dir, "/b.txt")) })
   }
   t.test("open"){
     local p = concat(dir, "/lines.txt")
@@ -44,7 +44,8 @@ t.group("os"){
     }
     assert(lines == {"one", "two", "three"})
     assert(os.open(p):read_bytes(3) == {111, 110, 101})
-    assert(pcall(os.open, concat(dir, "/missing.txt"))[0] == "err", "reading needs the file")
+    // reading needs the file
+    t.raises(func(){ os.open(concat(dir, "/missing.txt")) })
   }
   t.test("remove_all"){
     os.mkdir_all(concat(dir, "/x/y"))

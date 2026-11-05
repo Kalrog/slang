@@ -56,11 +56,11 @@ t.group("holes"){
       local func twice(f, x){ return f(f(x)) }
       local func inc(x){ return x + 1 }
       local nested = twice(_ + 1, 5)
-      local inner = pcall(func(){ return require("slang/table").map({1}, inc(_ * 10)) })
-      return {nested, inner[0]}
+      local inner = try { require("slang/table").map({1}, inc(_ * 10)) } catch { "raised" }
+      return {nested, inner}
     """)
     assert(r[0] == 7, "the function went to twice")
-    assert(r[1] == "err", "inc received a function, not a number")
+    assert(r[1] == "raised", "inc received a function, not a number")
   }
   t.test("=> claims every hole in its body"){
     local r = run("""
@@ -128,8 +128,7 @@ t.group("def"){
   t.test("no matching clause is an error that names the function"){
     local r = run("""
       def only_small(n) when(n < 10){ return n }
-      local r = pcall(only_small, 50)
-      return r[1].message
+      return try { only_small(50) } catch(local e) { e.message }
     """)
     assert(str.index_of(r, "no clause of only_small matches (50)") >= 0, r)
   }

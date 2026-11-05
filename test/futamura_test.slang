@@ -53,16 +53,14 @@ t.group("mix"){
       func g(){ local t = {a: 1} t.b = 2 return t }
       func h(){ local t = dynamic({a: 1}) t.b = 2 return t }
     }
-    let {"err", local e} = pcall(mix.specialize, p, "g", {})
-    assert(str.contains(e.message, "read-only"), e.message)
+    t.raises(func(){ mix.specialize(p, "g", {}) }, "read-only")
     assert(mix.specialize(p, "h", {}):load()().b == 2, "dynamic table")
   }
   t.test("runaway specialization is reported"){
     local p = +{block:
       func count(i, x){ if(x > i){ return count(i + 1, x) } return i }
     }
-    let {"err", local e} = pcall(mix.specialize, p, "count", {i: 0}, {limit: 10})
-    assert(str.contains(e.message, "specialized more than 10"), e.message)
+    t.raises(func(){ mix.specialize(p, "count", {i: 0}, {limit: 10}) }, "specialized more than 10")
   }
 }
 

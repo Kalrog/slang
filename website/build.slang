@@ -35,14 +35,17 @@ local func escape(s){
 local func highlight(code, prefix){
   prefix = prefix or ""
   compiler.reset()
-  local r = pcall(compiler.highlight, concat(prefix, code), "example.slang")
-  if(r[0] == "err"){
+  // code that does not parse is shown as it is
+  local h = try {
+    compiler.highlight(concat(prefix, code), "example.slang")
+  } catch { null }
+  if(h == null){
     return escape(code)
   }
   local parts = {}
   local shift = len(prefix)
   local pos = 0
-  for(let local tk in values(r[1].tokens)){
+  for(let local tk in values(h.tokens)){
     local t = {
       category: tk.category,
       start: tk.start - shift,

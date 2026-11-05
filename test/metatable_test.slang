@@ -185,25 +185,21 @@ t.group("operator metamethods"){
     assert(r[1].message == "(1, 2)", "error message")
   }
   t.test("tables without metamethods still raise errors"){
-    local r = pcall(func(){ return {} + 1 })
-    assert(r[0] == "err", "add")
-    r = pcall(func(){ return {} < {} })
-    assert(r[0] == "err", "compare")
+    t.raises(func(){ return {} + 1 }) // add
+    t.raises(func(){ return {} < {} }) // compare
     local empty = {}
-    r = pcall(func(){ return -empty })
-    assert(r[0] == "err", "negate")
-    r = pcall(func(){ return {}() })
-    assert(r[0] == "err", "call")
+    t.raises(func(){ return -empty }) // negate
+    t.raises(func(){ return {}() }) // call
   }
   t.test("errors inside metamethods propagate"){
-    local bad = {@meta: {__add: func(a, b){ error("no adding") }}}
-    local r = pcall(func(){ return bad + 1 })
-    assert(r[0] == "err" and r[1].message == "no adding", "error propagates")
+    local bad = {@meta: {__add: func(a, b){ raise("no adding") }}}
+    local e = t.raises(func(){ return bad + 1 })
+    assert(e.message == "no adding", "error propagates")
   }
   t.test("userdata metamethods"){
     // files are userdata with an __index metatable; they have no __add
-    local r = pcall(func(){ return require("slang/os").open("README.md", "r") + 1 })
-    assert(r[0] == "err", "no __add on files")
+    // no __add on files
+    t.raises(func(){ return require("slang/os").open("README.md", "r") + 1 })
   }
 }
 
@@ -270,10 +266,10 @@ t.group("metatable fast paths"){
     local p = {...{1, 2}, x: 1, @meta: m}
     assert(type(p) == "P" and p[1] == 2 and p.x == 1)
     assert((5).@meta == null and ("s").@meta == null)
-    local r = pcall(func(){ ("s").@meta = m })
-    assert(r[0] == "err" and r[1].message == "cannot set the metatable of a string value", r[1].message)
-    r = pcall(func(){ p.@meta = 3 })
-    assert(r[0] == "err" and r[1].message == "@meta must be a table or null, got int", r[1].message)
+    local e = t.raises(func(){ ("s").@meta = m })
+    assert(e.message == "cannot set the metatable of a string value", e.message)
+    e = t.raises(func(){ p.@meta = 3 })
+    assert(e.message == "@meta must be a table or null, got int", e.message)
   }
 
 }

@@ -85,20 +85,16 @@ t.group("matchers"){
   t.test("matchers in statements, loops and functions"){
     let 'between(1, 10) as local v = 3
     assert(v == 3)
-    local r = pcall(func(){ let 'between(1, 10) as local w = 11 })
-    assert(
-      r[0] == "err" and str.index_of(r[1].message, "does not match") >= 0,
-      r[1].message,
-    )
+    t.raises(func(){ let 'between(1, 10) as local w = 11 }, "does not match")
     local sum = 0
     for(let? '(number) as local n in values({"1", "2", "x", "4"})){
       sum = sum + n
     }
     assert(sum == 7, "let? skips the values that do not match")
-    local bad = pcall(func(){
+    local bad = t.raises(func(){
       for(let '(number) as local n in values({"1", "x"})){ }
     })
-    assert(bad[0] == "err" and bad[1].kind == "for")
+    assert(bad.kind == "for")
     local func classify(v){
       if(let 'between(0, 9) = v){ return "digit" }
       if(let '(number) = v){ return "numeric string" }
@@ -110,11 +106,7 @@ t.group("matchers"){
     )
   }
   t.test("something that is not a matcher is an error"){
-    local r = pcall(func(){ return (let '(42) = 1) })
-    assert(
-      r[0] == "err" and str.index_of(r[1].message, "__match") >= 0,
-      r[1].message,
-    )
+    t.raises(func(){ return (let '(42) = 1) }, "__match")
   }
   t.test("constant patterns at the top level leave the stack clean"){
     local x = 5

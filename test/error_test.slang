@@ -165,16 +165,16 @@ t.group("try expressions"){
   }
   t.test("inside other expressions, with temporaries on the stack"){
     local func f(a, b, c){ return concat(string(a), string(b), string(c)) }
-    assert(f(1, try { error("x") } catch(local e) { e.message }, 3) == "1x3")
+    assert(f(1, try { raise("x") } catch(local e) { e.message }, 3) == "1x3")
     local total = 10 + try { to_int("x") + 1 } catch { 5 } * 2
     assert(total == 20, string(total))
-    local list = {try { 1 } catch { 0 }, try { error("y") } catch { 2 }}
+    local list = {try { 1 } catch { 0 }, try { raise("y") } catch { 2 }}
     assert(list == {1, 2})
   }
   t.test("closures made in a clause keep its values"){
     local fs = {}
     for(local i = 0; i < 3; i = i + 1){
-      append(fs, try { error(string(i)) } catch(local e) { func(){ return e.message } })
+      append(fs, try { raise(string(i)) } catch(local e) { func(){ return e.message } })
     }
     local other = "reuse the registers"
     assert(fs[0]() == "0" and fs[2]() == "2")
@@ -192,10 +192,10 @@ t.group("raises"){
   t.test("returns the error, checks kind or message"){
     local e = t.raises(func(){ raise(error.new("closed", "the channel is closed")) }, "closed")
     assert(e.kind == "closed")
-    t.raises(func(){ error("a long message") }, "long")
+    t.raises(func(){ raise("a long message") }, "long")
     local returned = try { t.raises(func(){ return 1 }) } catch(local e) { e.message }
     assert(returned == "expected an error, but the function returned", returned)
-    local wrong = try { t.raises(func(){ error("x") }, "y") } catch(local e) { e.message }
+    local wrong = try { t.raises(func(){ raise("x") }, "y") } catch(local e) { e.message }
     assert(wrong == "expected an error with y, got: x", wrong)
   }
 }

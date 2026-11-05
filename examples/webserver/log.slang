@@ -37,7 +37,7 @@ func m.record(req, status, ms){
         sql{ select at, method, path, status, ms from requests where id = {id} },
       )
     // one listener failing (a socket gone) must not stop the others
-    pcall(f, entry)
+    try { f(entry) } catch {}
   }
 }
 

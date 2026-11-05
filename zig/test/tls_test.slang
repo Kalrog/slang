@@ -21,13 +21,12 @@ local func handshake(c, s){
       return
     }
   }
-  error("no handshake")
+  raise(error.new(error.kinds.protocol, "no handshake"))
 }
 
 local func fails_with(f, text){
-  local r = pcall(f)
-  assert(r[0] == "err", "it should have failed")
-  assert(str.index_of(r[1].message, text) >= 0, r[1].message)
+  local e = t.raises(f)
+  assert(str.index_of(e.message, text) >= 0, e.message)
 }
 
 t.group("tls"){
@@ -125,12 +124,7 @@ t.group("tls"){
       await(sock:send("x"))
       assert(await(sock.messages:next()).value == "echo x")
       await(sock:close())
-      local bad = pcall(await, http.fetch(concat(base, "/hello")))
-      assert(
-        bad[0] == "err" and
-          str.index_of(bad[1].message, "self-signed certificate") >= 0,
-        bad[1],
-      )
+      t.raises(func(){ await(http.fetch(concat(base, "/hello"))) }, "self-signed certificate")
       s.close()
       await(s.done)
     })

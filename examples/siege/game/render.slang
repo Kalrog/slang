@@ -196,7 +196,7 @@ func m.model(shape, texture){
   if(model == null){
     local mesh = meshes[shape]
     if(mesh == null){
-      error("no mesh called ", shape)
+      raise(error.new(error.kinds.not_found, concat("no mesh called ", shape)))
     }
     model = rl.load_model_from_mesh(mesh)
     model.materials[0].shader = shader

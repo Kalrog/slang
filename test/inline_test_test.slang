@@ -16,13 +16,16 @@ t.group("inline tests: modes"){
   }
   t.test("any other compile leaves them out"){
     compiler.testing = false
-    local r = pcall(func(){ return compiler.load_file(fixture)() })
-    compiler.testing = true
-    if(let {"err", local e} = r){
+    local mod = null
+    try {
+      mod = compiler.load_file(fixture)()
+    } catch(local e) {
+      compiler.testing = true
       raise(e)
     }
+    compiler.testing = true
     assert(INLINE_TEST_REGISTERED == 1, "nothing registered")
     assert(INLINE_TEARDOWNS == 2, "no teardown ran")
-    assert(r[1].double(3) == 6 and r[1].name == "a local named test", "the module")
+    assert(mod.double(3) == 6 and mod.name == "a local named test", "the module")
   }
 }

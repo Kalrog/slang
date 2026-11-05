@@ -102,22 +102,18 @@ t.group("uv"){
   }
   t.test("an error in a callback comes out of uv.run"){
     local timer = uv.timer()
-    timer:start(1, 0, func(){ error("boom in callback") })
-    local r = pcall(uv.run)
-    assert(r[0] == "err", "run should fail")
-    assert(str.index_of(r[1].message, "boom in callback") >= 0, r[1].message)
+    timer:start(1, 0, func(){ raise("boom in callback") })
+    t.raises(uv.run, "boom in callback")
     timer:close()
     uv.run()
   }
   t.test("argument errors are raised directly"){
     local timer = uv.timer()
-    local r = pcall(timer.start, timer, "soon", 0, func(){})
-    assert(r[0] == "err")
-    r = pcall(uv.run, "sometimes")
-    assert(r[0] == "err")
+    t.raises(func(){ timer:start("soon", 0, func(){}) })
+    t.raises(func(){ uv.run("sometimes") })
     local tcp = uv.tcp()
-    r = pcall(tcp.bind, tcp, "localhost", 80)
-    assert(r[0] == "err", "host names are not resolved")
+    // host names are not resolved
+    t.raises(func(){ tcp:bind("localhost", 80) })
     timer:close()
     tcp:close()
     uv.run()
@@ -126,8 +122,8 @@ t.group("uv"){
     local p = uv.pipe()
     assert(type(p) == "uv.pipe")
     assert(type(p.read_start) == "function" and type(p.write) == "function")
-    local r = pcall(p.open, p, 12345)
-    assert(r[0] == "err", "opening a bad descriptor fails")
+    // opening a bad descriptor fails
+    t.raises(func(){ p:open(12345) })
     p:close()
     uv.run()
   }
@@ -222,8 +218,7 @@ t.group("uv: files, names, processes, signals, poll"){
     })
     uv.run()
     assert(got == {11, "world", "", "closed"}, concat("got ", got))
-    local r = pcall(uv.fs_open, p, "q", func(){})
-    assert(r[0] == "err")
+    t.raises(func(){ uv.fs_open(p, "q", func(){}) })
   }
   t.test("getaddrinfo resolves names and reports failures"){
     local ok = null
@@ -268,15 +263,14 @@ t.group("uv: files, names, processes, signals, poll"){
     uv.run()
     assert(result.signal == "SIGTERM", concat("signal ", result.signal))
     p:close()
-    local r = pcall(uv.spawn, "/no/such/program", {}, null, func(){})
+    local e = t.raises(func(){ uv.spawn("/no/such/program", {}, null, func(){}) })
     assert(
-      r[0] == "err" and
-        r[1].message ==
-          "ENOENT: no such file or directory, spawn '/no/such/program'",
-      r[1].message,
+      e.message ==
+        "ENOENT: no such file or directory, spawn '/no/such/program'",
+      e.message,
     )
-    local r2 = pcall(func(){ p:kill("SIGNOPE") })
-    assert(r2[0] == "err")
+    assert(e.kind == error.kinds.not_found and e.code == "ENOENT", e.kind)
+    t.raises(func(){ p:kill("SIGNOPE") })
   }
   t.test("signals arrive by name; an unref'd handle does not hold the loop"){
     local got = null
@@ -316,8 +310,8 @@ t.group("uv: files, names, processes, signals, poll"){
     })
     uv.run()
     assert(events == "r")
-    local r = pcall(uv.poll, -1)
-    assert(r[0] == "err" and str.starts_with(r[1].message, "EBADF"))
+    local e = t.raises(func(){ uv.poll(-1) })
+    assert(str.starts_with(e.message, "EBADF"), e.message)
   }
   t.test("the C API for other extensions is there"){
     assert(type(uv.c_api) == "userdata")

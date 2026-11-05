@@ -128,7 +128,7 @@ m.order = {
 func m.get(name){
   local mat = m.materials[name]
   if(mat == null){
-    error("no material called ", name)
+    raise(error.new(error.kinds.not_found, concat("no material called ", name)))
   }
   return mat
 }

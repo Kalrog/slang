@@ -47,12 +47,19 @@ func m.user(req){
   if(token == null){
     return null
   }
-  local r = pcall(jwt.verify, token, secret)
-  if(r[0] == "err" or type(r[1].sub) != "int"){
+  // a forged, expired or malformed token is no session
+  local claims = try {
+    jwt.verify(token, secret)
+  } catch({kind: ^error.kinds.unauthorized}) {
+    null
+  } catch({kind: ^error.kinds.format}) {
+    null
+  }
+  if(claims == null or type(claims.sub) != "int"){
     return null
   }
   // a deleted account's sessions end with it
-  return db:one(sql{ select id, name from users where id = {r[1].sub} })
+  return db:one(sql{ select id, name from users where id = {claims.sub} })
 }
 
 async func m.check(name, password){
@@ -96,15 +103,16 @@ async func m.register(name, password){
   }
   local hash = await crypto.hash_password_async(password)
   // two registrations of one name can race past the check above
-  local r = pcall(func(){
-    return db:run(
-      sql{ insert into users(name, password) values ({name}, {hash}) },
-    )
-  })
-  if(r[0] == "err"){
+  // (the name's UNIQUE constraint refuses the second)
+  local r = try {
+    db:run(sql{ insert into users(name, password) values ({name}, {hash}) })
+  } catch({kind: ^error.kinds.database}) {
+    null
+  }
+  if(r == null){
     return {error: "That name is taken."}
   }
-  return {user: {id: r[1].last_insert_rowid, name: name}}
+  return {user: {id: r.last_insert_rowid, name: name}}
 }
 
 func m.start_session(res, user){

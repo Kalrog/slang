@@ -89,7 +89,7 @@ local func fail(origin, line, ...parts){
   for(let local p in values(parts)){
     msg = concat(msg, string(p))
   }
-  error(msg)
+  raise(error.new(error.kinds.compile, msg, {origin: origin, line: line}))
 }
 
 // ------------------------------------------------------------ the lexer
@@ -693,7 +693,7 @@ func gen_methods.line(self, line){
 func gen_methods.emit(self, op, a, b, c){
   local code = OP[op]
   if(code == null){
-    error(concat("kernel compiler: no opcode ", op))
+    raise(error.new(error.kinds.error, concat("kernel compiler: no opcode ", op)))
   }
   append(self.code, code | ((a or 0) << 8) | ((b or 0) << 16) | ((c or 0) << 24))
   return len(self.code) - 1

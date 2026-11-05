@@ -59,9 +59,9 @@ t.group("box2d: worlds and bodies"){
     assert(near(shape.friction, 0.25))
     // the rest of the material keeps its defaults
     assert(shape.restitution == 0)
-    local r = pcall(s.world.create_body, s.world, {bounciness: 1})
-    assert(r[0] == "err" and r[1].message == "box2d.create_body: b2BodyDef has no field bounciness",
-      r[1].message)
+    local e = t.raises(func(){ s.world:create_body({bounciness: 1}) })
+    assert(e.message == "box2d.create_body: b2BodyDef has no field bounciness",
+      e.message)
     s.world:destroy()
   }
   t.test("destroying, keys and finding things again"){

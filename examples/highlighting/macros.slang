@@ -10,7 +10,7 @@ macro unless(condition, body){
   if(let 'Function{body: local real_body} = body){
     return +{stat: if(not-{condition}) -{real_body}}
   }
-  error("unless needs a block")
+  raise(error.new(error.kinds.argument, "unless needs a block"))
 }
 
 print("twice 21 = ", $twice(21), "\n")

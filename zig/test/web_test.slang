@@ -87,16 +87,16 @@ t.group("web apps"){
     local logged = {}
     app.on_error = func(req, e){ append(logged, e.message) }
     app:get("/teapot", func(req){ web.fail(418, "short and stout") })
-    app:get("/boom", func(req){ error("kaput") })
+    app:get("/boom", func(req){ raise("kaput") })
     // a message that only looks like a failure is a 500
-    app:get("/mimic", func(req){ error("upstream said HTTP 404: gone") })
+    app:get("/mimic", func(req){ raise("upstream said HTTP 404: gone") })
     app:get("/async-fail", async func(req){
       await a.sleep(1)
       web.fail(409, "taken")
     })
     app:get("/async-boom", async func(req){
       await a.sleep(1)
-      error("later")
+      raise("later")
     })
     app.fallback = func(req){ return web.text("custom", 404) }
     local c = web.test(app)
@@ -273,7 +273,7 @@ t.group("sessions and CSRF"){
         "an emptied session is dropped",
       )
     })
-    assert(pcall(web.sessions, {secret: "short"})[0] == "err")
+    t.raises(func(){ web.sessions({secret: "short"}) })
   }
   t.test("unsafe requests need the token"){
     local app = web.app()
@@ -337,13 +337,10 @@ t.group("WebSockets"){
       assert(done.code == 4001)
       a.await(a.sleep(10))
       assert(closed_with == 4001, concat("server saw ", string(closed_with)))
-      local refused = pcall(
-        a.await,
-        ws.connect("127.0.0.1", s.port, "/nowhere"),
-      )
-      assert(refused[0] == "err" and str.index_of(
-          refused[1].message, "404"
-        ) >= 0)
+      local refused = t.raises(func(){
+        a.await(ws.connect("127.0.0.1", s.port, "/nowhere"))
+      }, "404")
+      assert(refused.kind == error.kinds.protocol, refused.kind)
       s.close()
       a.await(s.done)
     })
@@ -359,11 +356,7 @@ t.group("WebSockets"){
     app:ws("/s", func(sock, req){ sock:send("welcome") })
     run(func(){
       local s = app:listen("127.0.0.1", 0)
-      local r = pcall(a.await, ws.connect("127.0.0.1", s.port, "/s"))
-      assert(
-        r[0] == "err" and str.index_of(r[1].message, "401") >= 0,
-        r[1].message,
-      )
+      t.raises(func(){ a.await(ws.connect("127.0.0.1", s.port, "/s")) }, "401")
       local sock = a.await(ws.connect("127.0.0.1", s.port, "/s?key=ok"))
       assert(a.await(sock.messages:next()).value == "welcome")
       a.await(sock:close())

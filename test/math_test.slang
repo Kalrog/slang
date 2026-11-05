@@ -26,6 +26,6 @@ t.group("math"){
       assert(n >= -2 and n <= 2)
     }
     assert(math.random_int(3, 3) == 3)
-    assert(pcall(math.random_int, 2, 1)[0] == "err")
+    t.raises(func(){ math.random_int(2, 1) })
   }
 }

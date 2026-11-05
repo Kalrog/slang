@@ -211,7 +211,7 @@ func m.get(name){
   if(t == null){
     local maker = makers[name]
     if(maker == null){
-      error("no texture called ", name)
+      raise(error.new(error.kinds.not_found, concat("no texture called ", name)))
     }
     local size = sizes[name] or SIZE
     t = make(size, maker(size))

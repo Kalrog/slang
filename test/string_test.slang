@@ -32,7 +32,7 @@ t.group("string"){
     assert(str.xor(str.xor("bytes \x00\xff", "\x37\xfa"), "\x37\xfa") == "bytes \x00\xff")
     // RFC 6455, 5.7: "Hello" masked
     assert(str.xor("Hello", "\x37\xfa\x21\x3d") == "\x7f\x9f\x4d\x51\x58")
-    assert(pcall(str.xor, "x", "")[0] == "err")
+    t.raises(func(){ str.xor("x", "") })
     assert(str.to_bytes("hi") == {104, 105} and str.from_bytes({104, 105}) == "hi")
   }
   t.test("numbers"){
@@ -58,9 +58,9 @@ t.group("string"){
     assert(str.format("%*d|%-*s|", 4, 7, 3, "a") == "   7|a  |")
     assert(str.format("%.2s|%5s", "h\u{e9}llo", "\u{e9}") == "h\u{e9}|    \u{e9}", "characters, not bytes")
     assert(str.format("%d", 2.0) == "2", "a double without fraction")
-    assert(pcall(str.format, "%d", 2.5)[0] == "err")
-    assert(pcall(str.format, "%d")[0] == "err", "a missing argument")
-    assert(pcall(str.format, "%d", 1, 2)[0] == "err", "an extra argument")
-    assert(pcall(str.format, "%y", 1)[0] == "err", "an unknown verb")
+    t.raises(func(){ str.format("%d", 2.5) })
+    t.raises(func(){ str.format("%d") }) // a missing argument
+    t.raises(func(){ str.format("%d", 1, 2) }) // an extra argument
+    t.raises(func(){ str.format("%y", 1) }) // an unknown verb
   }
 }

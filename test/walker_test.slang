@@ -82,8 +82,7 @@ test.group("expression walker", func(){
 
   test.test("a misplaced level is an error"){
     local w = arithmetic()
-    local r = pcall(w.level, w, "bad", {after: "sum", before: "product"})
-    assert(r[0] == "err")
+    test.raises(func(){ w:level("bad", {after: "sum", before: "product"}) })
   }
 
   test.test("engine API: callbacks parse their own operands"){

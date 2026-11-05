@@ -11,9 +11,7 @@ map sample {
 }
 
 local func broken(text){
-  local r = pcall(grid.parse_text, text)
-  assert(r[0] == "err", "the map should be refused")
-  return r[1].message
+  return t.raises(func(){ grid.parse_text(text) }, error.kinds.format).message
 }
 
 t.group("grid"){
@@ -57,16 +55,16 @@ t.group("grid"){
     ) >= 0)
   }
   t.test("a broken map in the DSL is a compile error on its row"){
-    local r = pcall(
-      compile,
-      "extension \"dsl/map\"\nmap bad {\n  ####\n  #S$#\n  #E?#\n  ####\n}\n",
-      "bad_map",
-    )
-    assert(r[0] == "err")
+    local e = t.raises(func(){
+      compile(
+        "extension \"dsl/map\"\nmap bad {\n  ####\n  #S$#\n  #E?#\n  ####\n}\n",
+        "bad_map",
+      )
+    })
     assert(
-      require("slang/string").index_of(r[1].message, "row 3 column 3") >= 0,
-      r[1].message,
+      require("slang/string").index_of(e.message, "row 3 column 3") >= 0,
+      e.message,
     )
-    assert(r[1].location.line == 5, string(r[1].location.line))
+    assert(e.location.line == 5, string(e.location.line))
   }
 }

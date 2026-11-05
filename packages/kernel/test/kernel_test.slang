@@ -12,11 +12,12 @@ local func k(source){
 
 // the message of a raise, or null when f runs
 local func raises(f){
-  local r = pcall(f)
-  if(r[0] == "ok"){
-    return null
+  try {
+    f()
+  } catch(local e) {
+    return e.message
   }
-  return r[1].message
+  return null
 }
 
 local func near(a, b){

@@ -70,12 +70,14 @@ t.group("jolt: worlds and bodies"){
     // no gravity: it moved one meter along x only
     local p = body.position
     assert(near(p.x, 6, 0.02) and near(p.y, 5, 0.001), p)
-    local r = pcall(s.world.create_body, s.world, {
-      shape: jolt.sphere(1),
-      bounciness: 1,
+    local e = t.raises(func(){
+      s.world:create_body({
+        shape: jolt.sphere(1),
+        bounciness: 1,
+      })
     })
-    assert(r[0] == "err" and r[1].message == "jolt.create_body: no setter for bounciness",
-      r[1].message)
+    assert(e.message == "jolt.create_body: no setter for bounciness",
+      e.message)
     s.world:destroy()
   }
   t.test("mass, the shape and the body's id"){
@@ -96,8 +98,7 @@ t.group("jolt: worlds and bodies"){
   t.test("a destroyed world refuses"){
     local s = scene()
     s.world:destroy()
-    local r = pcall(s.world.step, s.world, 1 / 60)
-    assert(r[0] == "err")
+    t.raises(func(){ s.world:step(1 / 60) })
   }
 }
 
@@ -199,8 +200,7 @@ t.group("jolt: constraints"){
     hinge:destroy()
     rope:destroy()
     assert(s.world.num_constraints == 0)
-    local r = pcall(s.world.create_constraint, s.world, {type: "rope", body1: a})
-    assert(r[0] == "err")
+    t.raises(func(){ s.world:create_constraint({type: "rope", body1: a}) })
     s.world:destroy()
   }
 }

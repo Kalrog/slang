@@ -1,6 +1,5 @@
 // ...list in argument lists and table literals
 local t = require("slang/test")
-local str = require("slang/string")
 
 local func collect(...args){
   return args
@@ -62,15 +61,11 @@ t.group("spread"){
     assert({0, ...args} == {0, 1, 2})
   }
   t.test("spreading something that is not a list is an error"){
-    local r = pcall(func(){ return collect(...5) })
-    assert(
-      r[0] == "err" and str.index_of(r[1].message, "spread") >= 0,
-      r[1].message,
-    )
+    t.raises(func(){ return collect(...5) }, "spread")
   }
   t.test("...name is no longer an identifier outside parameters"){
-    local r = pcall(compile, "local x = ...y", "bad spread")
-    assert(r[0] == "err", "a spread outside an argument list does not parse")
+    // a spread outside an argument list does not parse
+    t.raises(func(){ compile("local x = ...y", "bad spread") })
     local f = compile(
       "local func f(a, ...rest){ return rest } return f(1, 2, 3)",
       "params",

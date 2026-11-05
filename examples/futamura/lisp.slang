@@ -61,7 +61,7 @@ func lisp.read(text){
     local items = {}
     for(true){
       skip()
-      if(pos >= n){ error("lisp: missing )") }
+      if(pos >= n){ raise(error.new(error.kinds.format, "lisp: missing )")) }
       if(str.byte_at(text, pos) == ')'){
         pos = pos + 1
         break
@@ -74,13 +74,13 @@ func lisp.read(text){
   }
   read_form = func(){
     skip()
-    if(pos >= n){ error("lisp: unexpected end of input") }
+    if(pos >= n){ raise(error.new(error.kinds.format, "lisp: unexpected end of input")) }
     local b = str.byte_at(text, pos)
     if(b == '('){
       pos = pos + 1
       return read_list()
     }
-    if(b == ')'){ error("lisp: unexpected ) at ", pos) }
+    if(b == ')'){ raise(error.new(error.kinds.format, concat("lisp: unexpected ) at ", pos))) }
     if(b == '\''){
       pos = pos + 1
       return quoted(read_form())
@@ -89,7 +89,7 @@ func lisp.read(text){
       local start = pos + 1
       pos = start
       for(pos < n and str.byte_at(text, pos) != '"'){ pos = pos + 1 }
-      if(pos >= n){ error("lisp: missing \"") }
+      if(pos >= n){ raise(error.new(error.kinds.format, "lisp: missing \"")) }
       pos = pos + 1
       return quoted(str.substring(text, start, pos - 1))
     }
@@ -164,7 +164,7 @@ lisp.interpreter = +{block:
   func params_of(def){ return cdr(car(cdr(def))) }
   func body_of(def){ return car(cdr(cdr(def))) }
   func lookup(program, name){
-    if(program == null){ error("lisp: undefined function ", name) }
+    if(program == null){ raise(error.new(error.kinds.not_found, concat("lisp: undefined function ", name))) }
     if(car(car(cdr(car(program)))) == name){ return car(program) }
     return lookup(cdr(program), name)
   }
@@ -203,7 +203,7 @@ lisp.interpreter = +{block:
     if(op == "-"){ return eval(program, car(args), env) - eval(program, car(cdr(args)), env) }
     if(op == "*"){ return eval(program, car(args), env) * eval(program, car(cdr(args)), env) }
     if(op == "<"){ return eval(program, car(args), env) < eval(program, car(cdr(args)), env) }
-    if(op == "error"){ error("lisp: ", eval(program, car(args), env)) }
+    if(op == "error"){ raise(error.new(error.kinds.error, concat("lisp: ", eval(program, car(args), env)))) }
     local def = lookup(program, op)
     return apply_def(program, def, bind(program, params_of(def), args, env))
   }

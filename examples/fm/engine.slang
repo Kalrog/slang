@@ -255,12 +255,9 @@ func engine.new(controls, events, scope, rate, status, options){
   local midi_in = null
   local midi_keys = null
   if(options != null and options.midi){
-    local r = pcall(func(){
-      return require("midi").open(require("slang/os").getenv("MIDI_INPUT"))
-    })
-    if(r[0] == "ok"){
-      midi_in = r[1]
-    }
+    midi_in = try {
+      require("midi").open(require("slang/os").getenv("MIDI_INPUT"))
+    } catch { null }
     midi_keys = options.keys
   }
 

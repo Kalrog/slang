@@ -191,7 +191,7 @@ local interpreter = +{block:
     } else if(kind == "print"){
       print(eval(stmt[1], vars))
     } else {
-      error("unknown statement ", kind)
+      raise(error.new(error.kinds.argument, concat("unknown statement ", kind)))
     }
   }
   func eval(e, vars){
@@ -207,7 +207,7 @@ local interpreter = +{block:
     if(op == "%"){ return a % b }
     if(op == ">"){ return a > b }
     if(op == "=="){ return a == b }
-    error("unknown operator ", op)
+    raise(error.new(error.kinds.argument, concat("unknown operator ", op)))
   }
 }
 

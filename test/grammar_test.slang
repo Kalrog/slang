@@ -76,10 +76,9 @@ test.group("grammar registry", func(){
 
   test.test("protected rules refuse modification"){
     local g = grammar.new({})
-    local r = pcall(g.modify, g, "quote", func(old){ return old })
-    assert(r[0] == "err")
+    local e = test.raises(func(){ g:modify("quote", func(old){ return old }) })
     assert(
-      r[1].message == "grammar rule quote is protected and cannot be modified",
+      e.message == "grammar rule quote is protected and cannot be modified",
     )
   }
 

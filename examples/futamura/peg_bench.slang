@@ -38,7 +38,7 @@ local func parse_all(source, stmt, last){
     ctx.rule_memo = {}
     local q = stmt(ctx, pos)
     if(q < 0){ q = last(ctx, pos) }
-    if(q < 0){ error("parse failed at ", pos, ": ", ctx.far_msg, " at ", ctx.far_pos) }
+    if(q < 0){ raise(error.new(error.kinds.syntax, concat("parse failed at ", pos, ": ", ctx.far_msg, " at ", ctx.far_pos))) }
     append(statements, ctx.value)
     pos = peg.space_end(source, q)
     if(str.byte_at(source, pos) == ';'){ pos = peg.space_end(source, pos + 1) }
@@ -69,7 +69,7 @@ local func parse_tree_all(source, parse){
   for(pos < len(source)){
     ctx.rule_memo = {}
     local q = parse(ctx, pos)
-    if(q < 0){ error("tree parse failed at ", pos, ": ", ctx.far_msg, " at ", ctx.far_pos) }
+    if(q < 0){ raise(error.new(error.kinds.syntax, concat("tree parse failed at ", pos, ": ", ctx.far_msg, " at ", ctx.far_pos))) }
     append(trees, {tree: ctx.tree, value: ctx.value})
     pos = peg.space_end(source, q)
     if(str.byte_at(source, pos) == ';'){ pos = peg.space_end(source, pos + 1) }

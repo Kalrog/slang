@@ -55,7 +55,7 @@ local song = {}
 local func value_of(file, c, v){
   local x = params.value(c, v)
   if(x == null){
-    error(concat(file, ": ", c.id, " has no position called ", v))
+    raise(error.new(error.kinds.not_found, concat(file, ": ", c.id, " has no position called ", v)))
   }
   return x
 }
@@ -63,7 +63,7 @@ local func value_of(file, c, v){
 local func control(file, id){
   local i = params.index[id]
   if(i == null){
-    error(concat(file, ": there is no control called ", id))
+    raise(error.new(error.kinds.not_found, concat(file, ": there is no control called ", id)))
   }
   return i
 }
@@ -193,7 +193,7 @@ local func part_def(file, def, part){
       }
     }
     if(found == null){
-      error(concat(file, ": there is no part called ", k))
+      raise(error.new(error.kinds.not_found, concat(file, ": there is no part called ", k)))
     }
     k = found
   }

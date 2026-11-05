@@ -118,7 +118,6 @@ t.group("world"){
     assert(w.deck.log[len(w.deck.log) - 1].kind == "err")
   }
   t.test("a mission naming objects the map lacks is refused"){
-    local r = pcall(make, corridor, {door9: {}})
-    assert(r[0] == "err")
+    t.raises(func(){ make(corridor, {door9: {}}) }, error.kinds.not_found)
   }
 }

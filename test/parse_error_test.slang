@@ -4,9 +4,7 @@ local str = require("slang/string")
 
 // the error compiling source raises
 local func error_of(source){
-  local r = pcall(compile, source, "src")
-  assert(r[0] == "err", concat("should not compile: ", source))
-  return r[1]
+  return t.raises(func(){ compile(source, "src") })
 }
 
 // asserts the error's message contains text and its location is line:column
@@ -70,7 +68,9 @@ t.group("parse errors"){
   t.test("the language server gets the same message and the notes"){
     local compiler = require("slang/compiler")
     local g = compiler.grammar()
-    pcall(g.parse_source, g, "local x = foo(\n  1,\n  2,\n\nlocal y = 3\n", "src", {recover: true})
+    try {
+      g:parse_source("local x = foo(\n  1,\n  2,\n\nlocal y = 3\n", "src", {recover: true})
+    } catch {}
     local f = g.state.failures[0]
     assert(f.far_message == "expected an expression or `)` after `,`", f.far_message)
     assert(len(f.notes) == 1, string(f.notes))
@@ -79,7 +79,7 @@ t.group("parse errors"){
     local compiler = require("slang/compiler")
     local g = compiler.grammar()
     local source = "local a = 1\nif(a == 1 && a == 2){\n  print(a)\n}\nlocal b = 2\n"
-    pcall(g.parse_source, g, source, "src", {recover: true})
+    try { g:parse_source(source, "src", {recover: true}) } catch {}
     local fs = g.state.failures
     assert(len(fs) == 1, string(fs))
   }

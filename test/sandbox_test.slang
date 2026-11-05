@@ -12,8 +12,7 @@ t.group("compile with an env"){
   t.test("what the env does not hold is not there"){
     local f = compile("return require", "escape", {})
     assert(f() == null)
-    local r = pcall(compile("print(1)", "print", {}))
-    assert(r[0] == "err")
+    t.raises(compile("print(1)", "print", {}))
   }
   t.test("functions made inside keep the env, wherever they are called"){
     local env = {base: 10}
@@ -32,24 +31,26 @@ t.group("compile with an env"){
     assert(env.limit == 9 and shared.limit == 3)
   }
   t.test("no code runs while a sandboxed source compiles"){
-    local r = pcall(compile, "return -{expr: +{expr: 1}}", "unquote", {})
-    assert(r[0] == "err")
+    local e = t.raises(func(){
+      compile("return -{expr: +{expr: 1}}", "unquote", {})
+    })
     assert(
-      r[1].message ==
+      e.message ==
         "compile-time code (an unquote) is not allowed in a sandboxed compile",
-      r[1].message,
+      e.message,
     )
-    r = pcall(compile, "extension \"x\"{ }\nreturn 1", "extension", {})
-    assert(r[0] == "err")
+    e = t.raises(func(){
+      compile("extension \"x\"{ }\nreturn 1", "extension", {})
+    })
     assert(
-      r[1].message ==
+      e.message ==
         "extension statements are not allowed in a sandboxed compile",
     )
     // the same source compiles without an env
     assert(compile("return -{expr: +{expr: 1}}", "unquote")() == 1)
   }
   t.test("env must be a table"){
-    local r = pcall(compile, "return 1", "x", "globals")
-    assert(r[1].message == "compile: env must be a table, got string")
+    local e = t.raises(func(){ compile("return 1", "x", "globals") })
+    assert(e.message == "compile: env must be a table, got string", e.message)
   }
 }

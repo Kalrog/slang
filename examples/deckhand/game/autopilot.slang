@@ -78,7 +78,7 @@ local func target_cell(w, target){
     }
     local o = w.objects[target]
     if(o == null){
-      error("autopilot: no target ", target)
+      raise(error.new(error.kinds.not_found, concat("autopilot: no target ", target)))
     }
     return {x: o.x, z: o.z}
   }
@@ -198,7 +198,7 @@ func Pilot.input(self, dt){
     }
     return {}
   }
-  error("autopilot: unknown step")
+  raise(error.new(error.kinds.argument, "autopilot: unknown step"))
 }
 
 // play(mission, steps, max_seconds) -> {world, pilot} after the steps ran

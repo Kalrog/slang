@@ -39,10 +39,10 @@ t.group("table"){
     local l = {"a", "b", "c"}
     assert(remove(l, 1) == "b" and l == {"a", "c"})
     assert(remove(l, 1) == "c" and l == {"a"})
-    local r = pcall(remove, l, 5)
-    assert(r[0] == "err" and r[1].message == "remove: index 5 is not in the list (length 1)", r[1].message)
-    r = pcall(remove, {x: 1}, "x")
-    assert(r[0] == "err", "a key is taken out with delete")
+    local e = t.raises(func(){ remove(l, 5) })
+    assert(e.message == "remove: index 5 is not in the list (length 1)", e.message)
+    // a key is taken out with delete
+    t.raises(func(){ remove({x: 1}, "x") })
   }
   t.test("create table"){
     local t = {}
@@ -103,10 +103,12 @@ t.group("table"){
       return {x * 2}
     })
     assert(out == {{2}, {4}, {6}})
-    local r = pcall(table.sort, {3, 1, 2}, func(a, b){ error("no order") })
-    assert(r[0] == "err" and r[1].message == "no order", r[1].message)
-    r = pcall(table.sort, {1, "a"})
-    assert(r[0] == "err", "numbers and strings need a less function")
+    local e = t.raises(func(){
+      table.sort({3, 1, 2}, func(a, b){ raise("no order") })
+    })
+    assert(e.message == "no order", e.message)
+    // numbers and strings need a less function
+    t.raises(func(){ table.sort({1, "a"}) })
     local v = {__lt: func(a, b){ return a.n < b.n }}
     local sorted = table.sort({{n: 2, @meta: v}, {n: 1, @meta: v}})
     assert(sorted[0].n == 1 and sorted[1].n == 2)
@@ -138,7 +140,7 @@ t.group("table"){
     local ages = {ann: 20, bob: 12, cid: 40}
     local adults = table.from_entries(table.filter(table.entries(ages), func(e){ return e[1] >= 18 }))
     assert(adults == {ann: 20, cid: 40})
-    assert(pcall(table.from_entries, {1})[0] == "err")
+    t.raises(func(){ table.from_entries({1}) })
   }
   t.test("lists hold null; a gap passes as null"){
     local func pass(...a){ return a }
@@ -173,7 +175,7 @@ t.group("table"){
     table.insert(l, 3, 4)
     table.insert(l, 0, 0)
     assert(l == {0, 1, 2, 3, 4})
-    assert(pcall(table.insert, l, 9, 1)[0] == "err")
+    t.raises(func(){ table.insert(l, 9, 1) })
     assert(table.index_of(l, 3) == 3 and table.index_of(l, 7) == -1)
     assert(table.reverse({1, 2, 3}) == {3, 2, 1} and table.reverse({}) == {})
     assert(table.slice(l, 1, 3) == {1, 2})

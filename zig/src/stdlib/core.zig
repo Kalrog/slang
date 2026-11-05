@@ -38,25 +38,12 @@ pub fn open(vm: *VM) void {
     };
     for (core) |n| vm.setGlobal(n.name, n.value(vm));
     vm.setGlobal("stop", .{ .userdata = vm.stop_value });
-    // error is a table, callable as error(...values): slang/std adds the
-    // library (error.new, error.wrap, ...); the call is native so that the
-    // error is located where error() is called, not in slang/std
+    // error is the error library, a table: slang/std adds its functions
+    // (error.new, error.wrap, ...); raise raises
     const err_lib = vm.newTable(0, 8);
-    const err_call = vm.newTable(0, 1);
-    err_call.set(vm.gpa, vm.str("__call"), .{ .function = vm.newNative("error", coreError, &.{}) });
-    err_lib.meta = err_call;
     err_lib.set(vm.gpa, vm.str("meta"), .{ .table = vm.error_meta });
     vm.setGlobal("error", .{ .table = err_lib });
     @import("file.zig").init(vm);
-
-    const pcall = vm.newNative("pcall", pcallNative, &.{});
-    pcall.special = .pcall;
-    vm.setGlobal("pcall", .{ .function = pcall });
-}
-
-fn pcallNative(th: *Thread, args: []Value) Error!Value {
-    _ = args;
-    return th.vm.raise("pcall must be called from slang", .{});
 }
 
 /// Renders every argument (through __tostring) into one buffer. Arguments
@@ -342,19 +329,9 @@ fn coreConcat(th: *Thread, args: []Value) Error!Value {
     }
 }
 
-/// error(...values), the __call of the error table: the values after the
-/// table itself, rendered and joined, as the message
-fn coreError(th: *Thread, args: []Value) Error!Value {
-    _ = args;
-    var aw: std.Io.Writer.Allocating = .init(th.vm.gpa);
-    defer aw.deinit();
-    try renderArgs(th, 1, &aw);
-    return th.vm.raiseMsg(aw.writer.buffered());
-}
-
-/// raise(err): raises an error again; err is an error table ({message,
-/// location, stack}, as produced by pcall) or a string. The original
-/// location and stack are kept.
+/// raise(value): raises value: an error table (one caught keeps its
+/// original location and stack), another table, or any other value (it
+/// becomes {message}).
 fn coreRaise(th: *Thread, args: []Value) Error!Value {
     th.vm.setErrorFromValue(api.arg(args, 0));
     return error.Slang;

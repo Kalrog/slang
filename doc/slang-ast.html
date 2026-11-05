@@ -71,7 +71,7 @@ print(ast.to_source(sum))        // 1 + x * 2</code></pre>
 
 </div>
 <div class="def" id="node"><h3><code>ast.node(type_name: string, fields: table, token?: table) -> <a href="#type-Node">Node</a></code></h3>
-<p>Makes fields a node of type type_name, in place, and returns it. Raises for an unknown node type; the fields are not checked against <a href="#specs"><code>specs</code></a>.</p>
+<p>Makes fields a node of type type_name, in place, and returns it. Raises an error of kind argument for an unknown node type; the fields are not checked against <a href="#specs"><code>specs</code></a>.</p>
 <pre><code>ast.node(&quot;Identifier&quot;, {value: &quot;x&quot;}, null)</code></pre>
 
 </div>
@@ -96,11 +96,11 @@ print(ast.to_source(sum))        // 1 + x * 2</code></pre>
 
 </div>
 <div class="def" id="literal"><h3><code>ast.literal(token: table?, value) -> <a href="#type-Node">Node</a></code></h3>
-<p>The node for a string, int, double, bool or null value; raises for any other type.</p>
+<p>The node for a string, int, double, bool or null value; raises an error of kind argument for any other type.</p>
 
 </div>
 <div class="def" id="resolve_escapes"><h3><code>ast.resolve_escapes(literal: string) -> string</code></h3>
-<p>The text of a string literal's body with its escape sequences replaced: \n \r \t \b \f \v \\ \&quot; and \xHH (a byte), \u{H...} (a code point, as UTF-8). Raises on any other escape.</p>
+<p>The text of a string literal's body with its escape sequences replaced: \n \r \t \b \f \v \\ \&quot; and \xHH (a byte), \u{H...} (a code point, as UTF-8). Raises an error of kind syntax on any other escape.</p>
 <pre><code>ast.resolve_escapes(&quot;a\\nb&quot;)   // &quot;a&quot;, a newline, &quot;b&quot;</code></pre>
 
 </div>
@@ -118,7 +118,7 @@ print(ast.to_source(sum))        // 1 + x * 2</code></pre>
 
 </div>
 <div class="def" id="decode"><h3><code>ast.decode(value: <a href="#type-Node">Node</a> | {token: table, ast: <a href="#type-Node">Node</a>} | null) -> <a href="#type-Node">Node</a>?</code></h3>
-<p>The node an extension's parser or callback produced: a node; a {token, ast} pair, whose token goes to every node of ast that has none (see <a href="#attach_token"><code>attach_token</code></a>); or a plain table in node shape, which gets its metatable. Raises for anything else.</p>
+<p>The node an extension's parser or callback produced: a node; a {token, ast} pair, whose token goes to every node of ast that has none (see <a href="#attach_token"><code>attach_token</code></a>); or a plain table in node shape, which gets its metatable. Raises an error of kind argument for anything else.</p>
 
 </div>
 <h2>to_string</h2>

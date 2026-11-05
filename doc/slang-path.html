@@ -95,7 +95,7 @@ path.rel(&quot;/a/b&quot;, &quot;/a/c/d&quot;)          // &quot;../c/d&quot;</c
 
 </div>
 <div class="def" id="rel"><h3><code>path.rel(from: string, to: string) -> string</code></h3>
-<p>A relative path that leads from the directory from to to, so that join(from, rel(from, to)) is clean(to). Raises when one is absolute and the other is not, or when from climbs above to with &quot;..&quot;.</p>
+<p>A relative path that leads from the directory from to to, so that join(from, rel(from, to)) is clean(to). Raises an error of kind argument when one is absolute and the other is not, or when from climbs above to with &quot;..&quot;.</p>
 <pre><code>path.rel(&quot;a/b&quot;, &quot;a/c/d&quot;)   // &quot;../c/d&quot;</code></pre>
 
 </div>

@@ -155,8 +155,6 @@ t.group("table"){
     local l = {}
     append(l, null)
     assert(len(l) == 1 and has(l, 0), "append takes null")
-    local p = pcall(func(){ return null })
-    assert(p[0] == "ok" and p[1] == null and len(p) == 2)
     // the arguments as they were passed, trailing nulls included
     local vm = require("slang/vm")
     local func counted(...rest){ return vm.arg_count() }

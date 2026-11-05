@@ -43,15 +43,15 @@ details.expanded summary { cursor: pointer; color: var(--muted); }
 <p>globals: the functions every slang program has without a require, built into the VM.</p>
 <pre><code>print(concat(&quot;args: &quot;, len(args()), &quot;\n&quot;))
 for(let local e in entries({a: 1, b: 2})){ print(e[0], &quot;=&quot;, e[1], &quot;\n&quot;) }</code></pre>
-<p>Errors are values: <a href="#error"><code>error</code></a> raises one, <a href="#pcall"><code>pcall</code></a> catches it as an <a href="#type-Error"><code>Error</code></a> table, <a href="#raise"><code>raise</code></a> passes it on. Tables are both lists (keys 0..n-1) and maps; <a href="#keys"><code>keys</code></a>, <a href="#values"><code>values</code></a> and <a href="#entries"><code>entries</code></a> iterate them with list indices first, then the other keys in insertion order. require, module and run are globals too, written in slang (slang/lib/package.slang and slang/std); compile is in slang/compiler/compiler.slang.</p>
+<p>Errors are tables: <a href="#raise"><code>raise</code></a> raises one, try/catch catches it as an <a href="#type-Error"><code>Error</code></a>, and the functions of <a href="#error"><code>error</code></a> make, wrap and recognise them. Tables are both lists (keys 0..n-1) and maps; <a href="#keys"><code>keys</code></a>, <a href="#values"><code>values</code></a> and <a href="#entries"><code>entries</code></a> iterate them with list indices first, then the other keys in insertion order. require, module and run are globals too, written in slang (slang/lib/package.slang and slang/std); compile is in slang/compiler/compiler.slang.</p>
 <ul class="toc">
 <li><a href="#print"><code>print</code></a></li>
 <li><a href="#args"><code>args</code></a></li>
 <li><a href="#assert"><code>assert</code></a></li>
 <li><a href="#error"><code>error</code></a></li>
 <li><a href="#raise"><code>raise</code></a></li>
-<li><a href="#pcall"><code>pcall</code></a></li>
 <li><a href="#type"><code>type</code></a></li>
+<li><a href="#raw_type"><code>raw_type</code></a></li>
 <li><a href="#len"><code>len</code></a></li>
 <li><a href="#count"><code>count</code></a></li>
 <li><a href="#string"><code>string</code></a></li>
@@ -86,26 +86,24 @@ for(let local e in entries({a: 1, b: 2})){ print(e[0], &quot;=&quot;, e[1], &quo
 <pre><code>assert(len(list) &gt; 0, &quot;empty list for &quot;, name)</code></pre>
 
 </div>
-<div class="def" id="error"><h3><code>error(...values)</code></h3>
-<p>Raises an error whose message is the values rendered and joined as <a href="#print"><code>print</code></a> does.</p>
-<pre><code>error(&quot;Package not found: &quot;, name)</code></pre>
+<div class="def" id="error"><h3><code>error</code></h3>
+<p>error The error library, a table (not a function): its functions make and recognise errors (written in slang/std); <a href="#raise"><code>raise</code></a> raises them.</p>
+<pre><code>raise(error.new(error.kinds.not_found, concat(&quot;no package &quot;, name)))</code></pre>
 
 </div>
-<div class="def" id="raise"><h3><code>raise(err: <a href="#type-Error">Error</a> | string)</code></h3>
-<p>Raises err again: an error table as <a href="#pcall"><code>pcall</code></a> gives it, or a string. An error table keeps its original location and stack.</p>
-
-</div>
-<div class="def" id="pcall"><h3><code>pcall(f: function, ...args) -> table</code></h3>
-<p>Calls f(...args) and catches what it raises: {&quot;ok&quot;, result} when it returns, {&quot;err&quot;, e} when it raises. e is an <a href="#type-Error"><code>Error</code></a>; when f raised a table, e is that table, with location and stack added.</p>
-<pre><code>local r = pcall(parse, text)
-if(let {&quot;err&quot;, local e} = r){
-  print(e.message, &quot;\n&quot;)
-}</code></pre>
+<div class="def" id="raise"><h3><code>raise(value: any)</code></h3>
+<p>Raises value: an error made with [error.new] or [error.wrap], one that was caught (raised again, it keeps its original location and stack), or any other value (a string becomes {message}).</p>
+<pre><code>raise(error.new(&quot;not_found&quot;, concat(&quot;no user &quot;, id), {id: id}))</code></pre>
 
 </div>
 <h2>values</h2>
 <div class="def" id="type"><h3><code>type(v) -> string</code></h3>
 <p>The type name of v: &quot;null&quot;, &quot;bool&quot;, &quot;int&quot;, &quot;double&quot;, &quot;string&quot;, &quot;table&quot;, &quot;function&quot;, &quot;thread&quot; or &quot;userdata&quot;. A table or userdata whose metatable has __type gets that value instead (or its result, when __type is a function called with v).</p>
+
+</div>
+<div class="def" id="raw_type"><h3><code>raw_type(v) -> string</code></h3>
+<p>The type name of v ignoring its metatable's __type: &quot;table&quot; for a table of any class, &quot;userdata&quot; for any userdata, as <a href="#type"><code>type</code></a> gives otherwise.</p>
+<pre><code>raw_type(error.new(&quot;x&quot;, &quot;y&quot;))   // &quot;table&quot;</code></pre>
 
 </div>
 <div class="def" id="len"><h3><code>len(v: string | table) -> int</code></h3>
@@ -123,12 +121,13 @@ count({}) == 0            // whether a map is empty</code></pre>
 <p>v rendered as a string, through its __tostring metamethod when it has one.</p>
 
 </div>
-<div class="def" id="to_float"><h3><code>to_float(v: int | float | string) -> float</code></h3>
-<p>v as a double: ints converted, doubles as they are, strings parsed. Raises an error for an invalid string or another type.</p>
+<div class="def" id="to_float"><h3><code>to_float(v: int | float | string) -> float?</code></h3>
+<p>v as a double: ints converted, doubles as they are, strings parsed (null for a string that is not a number). Raises an &quot;argument&quot; error for another type.</p>
 
 </div>
-<div class="def" id="to_int"><h3><code>to_int(v: int | float | string) -> int</code></h3>
-<p>v as an int: ints as they are, doubles truncated (saturating, NaN gives 0), strings parsed as decimal or &quot;0x&quot; hex digits with an optional sign. Raises an error for an invalid string or another type.</p>
+<div class="def" id="to_int"><h3><code>to_int(v: int | float | string) -> int?</code></h3>
+<p>v as an int: ints as they are, doubles truncated (saturating, NaN gives 0), strings parsed as decimal or &quot;0x&quot; hex digits with an optional sign (null for a string that is not a number). Raises an &quot;argument&quot; error for another type.</p>
+<pre><code>local n = to_int(text) or 0</code></pre>
 
 </div>
 <h2>tables</h2>
@@ -188,9 +187,9 @@ concat({1, 2}, {3})   // {1, 2, 3}</code></pre>
 
 </div>
 <h2 id="type-Error">type Error</h2>
-<pre><code>type Error = {message: string, location?: {line: int, column: int, origin: string}, stack?: string}</code></pre>
-<p>What <a href="#pcall"><code>pcall</code></a> catches.</p>
-<dl class="params"><dt><code>message: string</code></dt><dd>the error's text</dd><dt><code>location?: {line: int, column: int, origin: string}</code></dt><dd>where it was raised</dd><dt><code>stack?: string</code></dt><dd>the stack traceback as text</dd></dl>
+<pre><code>type Error = {kind?: string, message: string, cause?: any, location?: {line: int, column: int, origin: string}, stack?: string}</code></pre>
+<p>What catch catches: a table, with the metatable error.meta.</p>
+<dl class="params"><dt><code>kind?: string</code></dt><dd>what a program catches on: catch({kind: &quot;not_found&quot;}). The VM's: &quot;error&quot; (raise of a string), &quot;type&quot; (an operation on values of the wrong type: arithmetic on a table, indexing null, calling a non-function), &quot;arithmetic&quot; (modulo by zero, bad shifts), &quot;argument&quot; (a function rejecting an argument), &quot;format&quot; (malformed input: a regex, a format string, binary data), &quot;stack_overflow&quot;, &quot;not_found&quot;, &quot;permission&quot;, &quot;exists&quot; and &quot;io&quot; (the operating system, with path and code: the system's error name), &quot;closed&quot;; extensions and libraries add their own</dd><dt><code>message: string</code></dt><dd>the error's text</dd><dt><code>cause?: any</code></dt><dd>the error this one wraps ([error.wrap])</dd><dt><code>location?: {line: int, column: int, origin: string}</code></dt><dd>where it was raised</dd><dt><code>stack?: string</code></dt><dd>the stack traceback as text</dd></dl>
 <p class="muted">slang/stubs/globals.slang</p>
 </body>
 </html>

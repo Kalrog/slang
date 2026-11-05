@@ -1528,16 +1528,20 @@ local func lint(source, index){
       index.globals[r.name] == null and _ENV[r.name] == null and
       not str.starts_with(r.name, "__")){
       reported[r.name] = true
-      at(r.start, r.stop, concat(r.name, " is not defined"), "warning")
+      local message = concat(r.name, " is not defined")
+      if(r.name == "pcall"){
+        message = "pcall is not defined (slang catches errors with try/catch)"
+      }
+      at(r.start, r.stop, message, "warning")
     }
   }
-  // error(...) is going away (raise and the error library replace it):
-  // a call of the global error, not error.new and the like
+  // a call of the global error: it is the error library, not a function
+  // (raise raises); error.new and the like are not flagged
   for(let local r in values(index.refs)){
     if(r.name == "error" and r.def == null and r.owner == null and
       not r.write and written(r.start, r.stop, r.name) and
       byte_after_space(source, r.stop) == '('){
-      at(r.start, r.stop, "error(...) is going away: raise an error, raise(error.new(kind, message))", "warning")
+      at(r.start, r.stop, "error is the error library, not a function: raise(error.new(kind, message))", "warning")
     }
   }
   return out

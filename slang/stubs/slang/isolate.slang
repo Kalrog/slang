@@ -47,7 +47,7 @@
 //   gives null.
 // [kill]: stops the isolate at its next safe point (a call, a loop, a
 //   channel it waits on; code inside a C call stops when it returns) and
-//   waits until it has; try and pcall do not catch the stop.
+//   waits until it has; try does not catch the stop.
 // [running]: whether its function has not returned yet
 // [id]: a number for the isolate, from 1
 

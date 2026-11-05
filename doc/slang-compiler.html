@@ -115,7 +115,7 @@ local h = compiler.highlight(source, &quot;main.slang&quot;, {symbols: true})</c
 <dl class="params"><dt>returns</dt><dd>the grammar an extension extends</dd></dl>
 </div>
 <div class="def" id="reset"><h3><code>compiler.reset()</code></h3>
-<p>Starts over: a fresh root grammar, no project, no packages, the default search paths. Raises while a file is being parsed, unless called from an extension statement. Tools that look at many files (slang fmt, slang doc) reset before each, so one file's project never reaches the next.</p>
+<p>Starts over: a fresh root grammar, no project, no packages, the default search paths. Raises an error of kind state while a file is being parsed, unless called from an extension statement. Tools that look at many files (slang fmt, slang doc) reset before each, so one file's project never reaches the next.</p>
 
 </div>
 <div class="def" id="parse"><h3><code>compiler.parse(source: string, origin?: string) -> table</code></h3>
@@ -160,7 +160,7 @@ f()   // 42</code></pre>
 <dl class="params"><dt><code>version</code></dt><dd>as &quot;1.2.3&quot;</dd></dl>
 </div>
 <div class="def" id="read_table_file"><h3><code>compiler.read_table_file(path: string) -> table</code></h3>
-<p>Reads a file that is a slang table literal (slang.project, slang.lock). Raises when it is not one. It is compiled like any slang, so extensions in effect apply.</p>
+<p>Reads a file that is a slang table literal (slang.project, slang.lock). Raises an error of kind format when it is not one. It is compiled like any slang, so extensions in effect apply.</p>
 
 </div>
 <div class="def" id="packages"><h3><code>compiler.packages() -> {[string]: <a href="#type-Package">Package</a>}</code></h3>
@@ -168,7 +168,7 @@ f()   // 42</code></pre>
 
 </div>
 <div class="def" id="load_project"><h3><code>compiler.load_project(path: string) -> <a href="#type-Project">Project</a></code></h3>
-<p>Reads a project file and applies it: its packages (from slang.lock), search paths (the project's directory first, then its search_paths, then the defaults), dialects and the ambient extensions, loaded into the root grammar. Raises when a project is already loaded or the file is not a table literal.</p>
+<p>Reads a project file and applies it: its packages (from slang.lock), search paths (the project's directory first, then its search_paths, then the defaults), dialects and the ambient extensions, loaded into the root grammar. Raises an error of kind state when a project is already loaded, of kind format when the file is not a table literal.</p>
 
 </div>
 <div class="def" id="absolute_path"><h3><code>compiler.absolute_path(path: string) -> string</code></h3>

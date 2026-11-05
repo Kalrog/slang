@@ -109,7 +109,7 @@ async.main(func(){
 
 </div>
 <div class="def" id="normalize"><h3><code>http.normalize(res: string | <a href="#type-Response">Response</a>) -> <a href="#type-Response">Response</a></code></h3>
-<p>What a handler returned as a full <a href="#type-Response"><code>Response</code></a>: status (200 by default), headers (a copy, with Content-Type text/plain unless given), body (a string or a Stream; other values are turned into strings) and compress. Raises for anything but a string or a table.</p>
+<p>What a handler returned as a full <a href="#type-Response"><code>Response</code></a>: status (200 by default), headers (a copy, with Content-Type text/plain unless given), body (a string or a Stream; other values are turned into strings) and compress. Raises an error of kind type for anything but a string or a table.</p>
 
 </div>
 <div class="def" id="write_response"><h3><code>http.write_response(conn, req: <a href="#type-Request">Request</a>, res: string | <a href="#type-Response">Response</a>, options?: <a href="#type-ServeOptions">ServeOptions</a>) -> <a href="slang-async.html#type-Future">async.Future</a></code></h3>
@@ -131,7 +131,7 @@ async.main(func(){
 
 </div>
 <div class="def" id="cookie"><h3><code>http.cookie(name: string, value: string, options?: <a href="#type-CookieOptions">CookieOptions</a>) -> string</code></h3>
-<p>The Set-Cookie header value for a cookie. Raises when the name is empty or the name or value holds bytes a cookie cannot (spaces, quotes, commas, semicolons, backslashes, control or non-ASCII bytes; = in the name): encode such values first, for example with slang/encoding's base64url_encode.</p>
+<p>The Set-Cookie header value for a cookie. Raises (kind argument) when the name is empty or the name or value holds bytes a cookie cannot (spaces, quotes, commas, semicolons, backslashes, control or non-ASCII bytes; = in the name): encode such values first, for example with slang/encoding's base64url_encode.</p>
 
 </div>
 <div class="def" id="set_cookie"><h3><code>http.set_cookie(res: <a href="#type-Response">Response</a>, name: string, value: string, options?: <a href="#type-CookieOptions">CookieOptions</a>) -> <a href="#type-Response">Response</a></code></h3>
@@ -165,7 +165,7 @@ print(res.status, &quot; &quot;, len(res.body), &quot;\n&quot;)</code></pre>
 
 </div>
 <div class="def" id="multipart_parser"><h3><code>http.multipart_parser(boundary: string) -> <a href="#type-MultipartParser">MultipartParser</a></code></h3>
-<p>A parser for a multipart body with the boundary (see <a href="#multipart_boundary"><code>multipart_boundary</code></a>). Raises when the boundary is empty.</p>
+<p>A parser for a multipart body with the boundary (see <a href="#multipart_boundary"><code>multipart_boundary</code></a>). Raises (kind argument) when the boundary is empty.</p>
 <pre><code>local p = http.multipart_parser(http.multipart_boundary(req.headers[&quot;content-type&quot;]))
 for(true){
   local e = async.await(req.stream:next())
@@ -176,7 +176,7 @@ p:finish()</code></pre>
 
 </div>
 <div class="def" id="multipart"><h3><code>http.multipart(req: <a href="#type-Request">Request</a>) -> {<a href="#type-Part">Part</a>}</code></h3>
-<p>The parts of a request's multipart body, read whole. Raises when the request is not multipart or the body is malformed. For a streamed body use <a href="#multipart_parser"><code>multipart_parser</code></a>.</p>
+<p>The parts of a request's multipart body, read whole. Raises (kind format) when the request is not multipart or the body is malformed. For a streamed body use <a href="#multipart_parser"><code>multipart_parser</code></a>.</p>
 
 </div>
 <h2 id="type-Request">type Request</h2>
@@ -202,7 +202,7 @@ p:finish()</code></pre>
 <h2 id="type-Client">type Client</h2>
 <p>A connection to an HTTP server, for requests one after another.</p>
 <div class="def" id="Client:request"><h3><code>Client:request(method: string, path: string, options?: string | {body?: string, headers?: {[string]: string}, raw?: bool, max_size?: int}) -> <a href="slang-async.html#type-Future">async.Future</a></code></h3>
-<p>Sends a request and gives a Future of its <a href="#type-ClientResponse"><code>ClientResponse</code></a>. Wait for one to finish before the next. Host, Accept-Encoding: gzip, User-Agent: slang and Content-Length (with a body) are added unless headers has them. Fails when the connection closes early or the response is malformed, and once the server closed the connection. request(method, path, body, headers, options) works too (options a string is the body).</p>
+<p>Sends a request and gives a Future of its <a href="#type-ClientResponse"><code>ClientResponse</code></a>. Wait for one to finish before the next. Host, Accept-Encoding: gzip, User-Agent: slang and Content-Length (with a body) are added unless headers has them. Fails (kind closed) when the connection closes early and once the server closed the connection, (kind protocol) when the response is malformed. request(method, path, body, headers, options) works too (options a string is the body).</p>
 <dl class="params"><dt><code>path</code></dt><dd>the request target, with the query</dd></dl>
 </div>
 <div class="def" id="Client:close"><h3><code>Client:close() -> <a href="slang-async.html#type-Future">async.Future</a></code></h3>
@@ -220,11 +220,11 @@ p:finish()</code></pre>
 <h2 id="type-MultipartParser">type MultipartParser</h2>
 <p>A multipart body parser fed chunk by chunk, for streamed uploads.</p>
 <div class="def" id="MultipartParser:push"><h3><code>MultipartParser:push(chunk: string) -> {<a href="#type-MultipartEvent">MultipartEvent</a>}</code></h3>
-<p>Feeds the next chunk of the body; gives the events it completes (data is held back while it could be the start of a boundary). Raises when the body is malformed or a part's head is over 16 KiB.</p>
+<p>Feeds the next chunk of the body; gives the events it completes (data is held back while it could be the start of a boundary). Raises (kind format) when the body is malformed or a part's head is over 16 KiB.</p>
 
 </div>
 <div class="def" id="MultipartParser:finish"><h3><code>MultipartParser:finish() -> table</code></h3>
-<p>Says the body has ended; raises when it ended before the closing boundary.</p>
+<p>Says the body has ended; raises (kind format) when it ended before the closing boundary.</p>
 
 </div>
 <div class="def" id="MultipartParser:is_done"><h3><code>MultipartParser:is_done() -> bool</code></h3>

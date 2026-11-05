@@ -45,7 +45,7 @@ details.expanded summary { cursor: pointer; color: var(--muted); }
 local v = json.decode(&quot;{\&quot;name\&quot;: \&quot;slang\&quot;, \&quot;tags\&quot;: [1, 2]}&quot;)
 print(v.name, &quot; &quot;, v.tags[1], &quot;\n&quot;)                // slang 2
 print(json.encode({ok: true, items: {1, 2}}), &quot;\n&quot;) // {&quot;ok&quot;:true,&quot;items&quot;:[1,2]}</code></pre>
-<p>How values map: JSON objects are tables with string keys, arrays are lists, numbers are ints when they have no fraction or exponent, else doubles. JSON null is slang null both ways: a member that is null in the text is a key holding null ({&quot;a&quot;: null} decodes to {a: null}), an array keeps its nulls, and {result: null} encodes as {&quot;result&quot;:null}. When encoding, a table whose keys are 0..n-1 (or one marked with <a href="#array"><code>array</code></a>) is an array, any other table an object, which must have only string keys. An empty table encodes as {} unless marked with <a href="#array"><code>array</code></a>. Functions, NaN and the infinities cannot be encoded and raise an error.</p>
+<p>How values map: JSON objects are tables with string keys, arrays are lists, numbers are ints when they have no fraction or exponent, else doubles. JSON null is slang null both ways: a member that is null in the text is a key holding null ({&quot;a&quot;: null} decodes to {a: null}), an array keeps its nulls, and {result: null} encodes as {&quot;result&quot;:null}. When encoding, a table whose keys are 0..n-1 (or one marked with <a href="#array"><code>array</code></a>) is an array, any other table an object, which must have only string keys. An empty table encodes as {} unless marked with <a href="#array"><code>array</code></a>. Functions, NaN and the infinities cannot be encoded and raise an error of kind argument.</p>
 <ul class="toc">
 <li><a href="#decode"><code>decode</code></a></li>
 <li><a href="#null"><code>null</code></a></li>
@@ -55,7 +55,7 @@ print(json.encode({ok: true, items: {1, 2}}), &quot;\n&quot;) // {&quot;ok&quot;
 </ul>
 <h2>decoding</h2>
 <div class="def" id="decode"><h3><code>json.decode(text: string, origin?: string) -> any</code></h3>
-<p>The value of the JSON text. Raises &quot;json: invalid JSON in &lt;origin&gt; at line:col: ...&quot; on malformed input. Decoded arrays carry the <a href="#array"><code>array</code></a> mark, so they encode as arrays again even when empty.</p>
+<p>The value of the JSON text. Raises an error of kind format, &quot;json: invalid JSON in &lt;origin&gt; at line:col: ...&quot; with fields line and column, on malformed input. Decoded arrays carry the <a href="#array"><code>array</code></a> mark, so they encode as arrays again even when empty.</p>
 <dl class="params"><dt><code>origin</code></dt><dd>names the text in error messages (&quot;string&quot; by default)</dd></dl>
 </div>
 <h2>encoding</h2>

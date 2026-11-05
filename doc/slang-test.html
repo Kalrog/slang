@@ -54,6 +54,7 @@ t.group(&quot;math&quot;){
 <li><a href="#test"><code>test</code></a></li>
 <li><a href="#setup"><code>setup</code></a></li>
 <li><a href="#teardown"><code>teardown</code></a></li>
+<li><a href="#raises"><code>raises</code></a></li>
 <li><a href="#run"><code>run</code></a></li>
 <li><a href="#run_cli"><code>run_cli</code></a></li>
 <li><a href="#type-Options"><code>type Options</code></a></li>
@@ -72,6 +73,12 @@ t.group(&quot;math&quot;){
 </div>
 <div class="def" id="teardown"><h3><code>test.teardown(f: function)</code></h3>
 <p>Registers f to run after each test and subgroup of the current group, whether it passed or not.</p>
+
+</div>
+<div class="def" id="raises"><h3><code>test.raises(f: function, expected?: string) -> Error</code></h3>
+<p>Calls f and returns the error it raises; fails the test when f returns instead, or when expected is given and is neither the error's kind nor a part of its message.</p>
+<pre><code>local e = t.raises(func(){ to_int({}) }, &quot;argument&quot;)
+t.raises(func(){ json.decode(&quot;{&quot;) }, &quot;JSON value expected&quot;)</code></pre>
 
 </div>
 <div class="def" id="run"><h3><code>test.run(opts?: <a href="#type-Options">Options</a>) -> int</code></h3>

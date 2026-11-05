@@ -181,8 +181,6 @@ t.group("operator metamethods"){
     assert(string(v) == "(1, 2)", "string()")
     assert(concat("v = ", v) == "v = (1, 2)", "concat")
     assert(len(v) == 2, "len")
-    local r = pcall(error, v)
-    assert(r[1].message == "(1, 2)", "error message")
   }
   t.test("tables without metamethods still raise errors"){
     t.raises(func(){ return {} + 1 }) // add

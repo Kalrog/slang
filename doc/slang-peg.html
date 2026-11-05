@@ -54,6 +54,8 @@ numbers:end():parse(&quot;1, x&quot;)         // {&quot;error&quot;, &quot;end o
 <p>On success the parsed value is left in ctx.value. On failure the message and position are recorded in ctx.fail_msg / ctx.fail_pos (the last failure wins, like petitparser's choice), and the farthest failure in ctx.far_* (see <a href="#type-Context"><code>Context</code></a>). <a href="#custom"><code>custom</code></a> makes a parser from such a function.</p>
 <p>A parser can also build the lossless tree of what it parsed: peg.parse_tree(parser, ctx, pos) parses like parse_on and leaves the node of the parser in ctx.tree (a <a href="#type-Tree"><code>Tree</code></a>). A node without kids is a leaf and stands for the text it spans. Every character a parse consumes is covered by exactly one leaf, so joining the leaves gives back the input (<a href="#text"><code>text</code></a>). Parsing for a tree is a separate path (see &quot;the lossless tree&quot; below), so a parse without one costs nothing extra; a parser that has no tree path of its own becomes a leaf. <a href="#run"><code>run</code></a> with {tree: true} returns one; <a href="#evaluate"><code>evaluate</code></a> computes values from it in layers, <a href="#highlights"><code>highlights</code></a> the highlighter's spans.</p>
 <ul class="toc">
+<li><a href="#keep_expected"><code>keep_expected</code></a></li>
+<li><a href="#restore_expected"><code>restore_expected</code></a></li>
 <li><a href="#node"><code>node</code></a></li>
 <li><a href="#leaf"><code>leaf</code></a></li>
 <li><a href="#raw_leaf"><code>raw_leaf</code></a></li>
@@ -188,6 +190,14 @@ numbers:end():parse(&quot;1, x&quot;)         // {&quot;error&quot;, &quot;end o
 <li><a href="#Pipeline:mark"><code>Pipeline:mark</code></a></li>
 <li><a href="#type-Span"><code>type Span</code></a></li>
 </ul>
+<div class="def" id="keep_expected"><h3><code>peg.keep_expected(ctx: <a href="#type-Context">Context</a>) -> any</code></h3>
+<p>What restore_expected needs to undo the expectations code adds whose failures do not count (trivia: a comment is never what was expected); null when the parse does not collect.</p>
+
+</div>
+<div class="def" id="restore_expected"><h3><code>peg.restore_expected(ctx: <a href="#type-Context">Context</a>, kept: any)</code></h3>
+<p>Puts back the expectations keep_expected kept.</p>
+
+</div>
 <div class="def" id="node"><h3><code>peg.node(p, start: int, stop: int, kids: {<a href="#type-Tree">Tree</a>}) -> <a href="#type-Tree">Tree</a></code></h3>
 <p>A tree node, for the tree paths of custom parsers (see <a href="#custom"><code>custom</code></a>).</p>
 
@@ -466,7 +476,7 @@ w:build():end():parse(&quot;1 + 2 * 3&quot;)       // {&quot;ok&quot;, 7}</code>
 </div>
 <h2>layers</h2>
 <div class="def" id="layer"><h3><code>peg.layer(name: string, base: string) -> <a href="#type-Layer">Layer</a></code></h3>
-<p>A custom layer starting from the built-in layer base: &quot;text&quot;, &quot;raw&quot; or &quot;default&quot;. Raises for any other base.</p>
+<p>A custom layer starting from the built-in layer base: &quot;text&quot;, &quot;raw&quot; or &quot;default&quot;. Raises an error of kind argument for any other base.</p>
 
 </div>
 <div class="def" id="on"><h3><code>peg.on(parser: <a href="#type-Parser">Parser</a>, layer: <a href="#type-Layer">Layer</a>, f: func(v: <a href="#type-Pipeline">Pipeline</a>): <a href="#type-Pipeline">Pipeline</a>) -> <a href="#type-Parser">Parser</a></code></h3>
@@ -505,7 +515,7 @@ trivia: options.trivia(buffer, start, stop) -&gt; spans (comments) for the
 </div>
 <h2 id="type-Context">type Context</h2>
 <pre><code>type Context = {buffer: string, len: int, value: any, fail_pos: int, fail_msg?: string, far_pos: int, far_msg?: string, tree?: <a href="#type-Tree">Tree</a>, tree_on: bool}</code></pre>
-<p>The state of one parse, passed to every parse_on. Custom parsers read the input from it and leave their value in it.</p>
+<p>The state of one parse, passed to every parse_on. Custom parsers read the input from it and leave their value in it. message, for an error message that names all of them (a parse that collects runs only after a failure, see <a href="#keep_expected"><code>keep_expected</code></a>)</p>
 <dl class="params"><dt><code>buffer: string</code></dt><dd>the input</dd><dt><code>len: int</code></dt><dd>the length of the input in bytes</dd><dt><code>value: any</code></dt><dd>the value of the parser that succeeded last</dd><dt><code>fail_pos: int</code></dt><dd>where the last failure happened (-1: none yet)</dd><dt><code>fail_msg?: string</code></dt><dd>what the last failure expected</dd><dt><code>far_pos: int</code></dt><dd>the farthest position a failure happened at</dd><dt><code>far_msg?: string</code></dt><dd>the message of the farthest failure</dd><dt><code>tree?: <a href="#type-Tree">Tree</a></code></dt><dd>the node a tree path left (see <a href="#parse_tree"><code>parse_tree</code></a>)</dd><dt><code>tree_on: bool</code></dt><dd>whether this parse builds a tree</dd></dl>
 <h2 id="type-Tree">type Tree</h2>
 <pre><code>type Tree = {p: any, start: int, stop: int, kids?: {<a href="#type-Tree">Tree</a>}, value?: any}</code></pre>
@@ -640,7 +650,7 @@ trivia: options.trivia(buffer, start, stop) -&gt; spans (comments) for the
 <h2 id="type-Walker">type Walker</h2>
 <p>An expression walker (see <a href="#walker"><code>walker</code></a>): a Pratt parser for operators and primaries, registered by level.</p>
 <div class="def" id="Walker:level"><h3><code>Walker:level(name?: string, placement?: <a href="#type-Placement">Placement</a>) -> <a href="#type-Level">Level</a></code></h3>
-<p>A new precedence level. Levels form a total order, tightest first; without a placement the level is looser than all so far. A level of a name already in use replaces that level. Raises when a placement names a level that does not exist.</p>
+<p>A new precedence level. Levels form a total order, tightest first; without a placement the level is looser than all so far. A level of a name already in use replaces that level. Raises an error of kind not_found when a placement names a level that does not exist.</p>
 
 </div>
 <div class="def" id="Walker:primary"><h3><code>Walker:primary(parser: <a href="#type-Parser">Parser</a>, name?: string, placement?: <a href="#type-Placement">Placement</a>) -> <a href="#type-Walker">Walker</a></code></h3>

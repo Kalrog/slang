@@ -182,23 +182,16 @@ t.group("threads"){
       )
     }
   }
-  t.test("yield inside pcall"){
+  t.test("yield inside a try expression"){
     local thr = thread.create(func(){
-      local r = pcall(func(){
-        thread.yield("inside")
-        return "done"
-      })
-      return r
+      return try { thread.yield("inside") and "done" } catch { "failed" }
     })
     assert(
       thread.resume(thr) == "inside",
-      "yield inside a protected call should reach resume",
+      "yield inside a try should reach resume",
     )
-    local r = thread.resume(thr)
-    assert(
-      r[0] == "ok" and r[1] == "done",
-      "pcall should complete after the resume",
-    )
+    local r = thread.resume(thr, true)
+    assert(r == "done", "the try should complete after the resume")
     assert(thread.state(thr) == "dead", "thread should be dead")
   }
   t.test("error inside thread propagates to resume"){

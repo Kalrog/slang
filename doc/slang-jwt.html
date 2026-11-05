@@ -44,7 +44,7 @@ details.expanded summary { cursor: pointer; color: var(--muted); }
 <pre><code>local jwt = require(&quot;slang/jwt&quot;)
 local token = jwt.sign({sub: &quot;42&quot;}, secret, {expires_in: 3600})
 local claims = jwt.verify(token, secret)        // {sub: &quot;42&quot;, iat, exp}</code></pre>
-<p>A key is a secret string for HS256/384/512, or a <a href="slang-crypto.html#type-Key"><code>crypto.Key</code></a>: RSA for RS256/384/512 and PS256/384/512, EC for ES256/384/512, Ed25519 for EdDSA. The algorithm defaults to the one that fits the key (HS256, RS256, ES256/384/512 by curve, EdDSA), and <a href="#verify"><code>verify</code></a> accepts only that one unless told otherwise, so a token cannot pick a weaker algorithm. Errors raise &quot;jwt: ...&quot; (&quot;jwt: expired&quot;, &quot;jwt: bad signature&quot;, ...).</p>
+<p>A key is a secret string for HS256/384/512, or a <a href="slang-crypto.html#type-Key"><code>crypto.Key</code></a>: RSA for RS256/384/512 and PS256/384/512, EC for ES256/384/512, Ed25519 for EdDSA. The algorithm defaults to the one that fits the key (HS256, RS256, ES256/384/512 by curve, EdDSA), and <a href="#verify"><code>verify</code></a> accepts only that one unless told otherwise, so a token cannot pick a weaker algorithm. Errors raise &quot;jwt: ...&quot; (&quot;jwt: expired&quot;, &quot;jwt: bad signature&quot;, ...): a failed check is of kind unauthorized with a reason field, a malformed token of kind format, a key that does not fit of kind argument.</p>
 <ul class="toc">
 <li><a href="#sign"><code>sign</code></a></li>
 <li><a href="#decode"><code>decode</code></a></li>
@@ -55,16 +55,18 @@ local claims = jwt.verify(token, secret)        // {sub: &quot;42&quot;, iat, ex
 <li><a href="#type-Decoded"><code>type Decoded</code></a></li>
 </ul>
 <div class="def" id="sign"><h3><code>jwt.sign(claims: <a href="#type-Claims">Claims</a>, key: string | <a href="slang-crypto.html#type-Key">crypto.Key</a>, options?: <a href="#type-SignOptions">SignOptions</a>) -> string</code></h3>
-<p>A signed token with claims (copied; the options add to them). Raises when the key does not fit the algorithm, or is a public key.</p>
+<p>A signed token with claims (copied; the options add to them). Raises an error of kind argument when the key does not fit the algorithm, or is a public key, and of kind unsupported for an unknown algorithm.</p>
 
 </div>
 <div class="def" id="decode"><h3><code>jwt.decode(token: string) -> <a href="#type-Decoded">Decoded</a></code></h3>
-<p>The header and claims of a token, without checking the signature or anything else: never trust them. Raises &quot;jwt: malformed token&quot;.</p>
+<p>The header and claims of a token, without checking the signature or anything else: never trust them. Raises &quot;jwt: malformed token&quot;, of kind format.</p>
 
 </div>
 <div class="def" id="verify"><h3><code>jwt.verify(token: string, key: string | <a href="slang-crypto.html#type-Key">crypto.Key</a>, options?: <a href="#type-VerifyOptions">VerifyOptions</a>) -> <a href="#type-Claims">Claims</a></code></h3>
-<p>The claims of a token whose algorithm is accepted, whose signature is valid for key, which has not expired and is valid already (exp and nbf, when present), and whose iss and aud match the options that ask. Raises &quot;jwt: ...&quot; otherwise.</p>
-<pre><code>local r = pcall(jwt.verify, token, public_key, {algs: {&quot;RS256&quot;, &quot;PS256&quot;}})</code></pre>
+<p>The claims of a token whose algorithm is accepted, whose signature is valid for key, which has not expired and is valid already (exp and nbf, when present), and whose iss and aud match the options that ask. Otherwise raises &quot;jwt: ...&quot;: of kind format for a malformed token, of kind unauthorized with a reason field (&quot;algorithm&quot;, &quot;signature&quot;, &quot;expired&quot;, &quot;not_yet_valid&quot;, &quot;issuer&quot;, &quot;audience&quot;) when a check fails.</p>
+<pre><code>local claims = try {
+  jwt.verify(token, public_key, {algs: {&quot;RS256&quot;, &quot;PS256&quot;}})
+} catch({kind: ^error.kinds.unauthorized}) { null }</code></pre>
 
 </div>
 <h2 id="type-Claims">type Claims</h2>

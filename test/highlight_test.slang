@@ -232,10 +232,13 @@ local v = 1 <> 2
     // a parse error is all it reports
     assert(len(check("local x = (1 +\n")) > 0)
     assert(len(check("print(1)\n")) == 0)
-    // error(...) is going away; error.new and raise are not flagged
+    // calling error is a mistake (it is the error library); error.new and
+    // raise are not flagged
     local old = check("error(\"x\")\nraise(error.new(\"k\", \"m\"))\n")
     assert(len(old) == 1 and old[0].line == 1, string(old))
-    assert(str.index_of(old[0].message, "going away") >= 0, old[0].message)
+    assert(str.index_of(old[0].message, "not a function") >= 0, old[0].message)
+    local gone = check("pcall(print, 1)\n")
+    assert(len(gone) == 1 and str.index_of(gone[0].message, "try/catch") >= 0, string(gone))
   }
 }
 

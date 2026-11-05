@@ -124,7 +124,7 @@ print(res.status, res:header(&quot;location&quot;))</code></pre>
 
 </div>
 <div class="def" id="fail"><h3><code>web.fail(status: int, message?: string)</code></h3>
-<p>Raises an error the app answers with status and the message as text (the status's reason phrase by default), instead of a 500. on_error is not called for it.</p>
+<p>Raises an error of kind http (with status and text) that the app answers with status and the message as text (the status's reason phrase by default), instead of a 500. on_error is not called for it.</p>
 <pre><code>if(todo == null){ web.fail(404, &quot;no such todo&quot;) }</code></pre>
 
 </div>
@@ -145,7 +145,7 @@ print(res.status, res:header(&quot;location&quot;))</code></pre>
 </div>
 <h2>sessions</h2>
 <div class="def" id="sessions"><h3><code>web.sessions(options: <a href="#type-SessionOptions">SessionOptions</a>) -> <a href="#type-Middleware">Middleware</a></code></h3>
-<p>Sessions in a cookie: req.session is a table kept in an encrypted cookie (AES-GCM, so the client can read nothing and change nothing), saved when it changed (as JSON) and dropped when empty. Raises without a good secret, and when a session grows too large for a cookie.</p>
+<p>Sessions in a cookie: req.session is a table kept in an encrypted cookie (AES-GCM, so the client can read nothing and change nothing), saved when it changed (as JSON) and dropped when empty. Raises (kind argument) without a good secret, and when a session grows too large for a cookie.</p>
 <pre><code>app:use(web.sessions({secret: os.getenv(&quot;SESSION_SECRET&quot;)}))
 app:post(&quot;/login&quot;, func(req){
   req.session.user = req:form().user

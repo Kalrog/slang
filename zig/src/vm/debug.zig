@@ -531,7 +531,7 @@ pub const Debugger = struct {
         }
     }
 
-    /// An error is being raised: stop when no try or pcall will catch it.
+    /// An error is being raised: stop when no try will catch it.
     pub fn raised(d: *Debugger, th: *Thread) void {
         if (d.evaluating or d.terminated or !d.stop_uncaught or d.reported_error) return;
         if (caught(th)) return;
@@ -543,9 +543,7 @@ pub const Debugger = struct {
     }
 
     fn caught(th: *Thread) bool {
-        if (th.handlers.items.len > 0) return true;
-        for (th.frames.items) |fr| if (fr.protected) return true;
-        return false;
+        return th.handlers.items.len > 0;
     }
 
     fn stop(d: *Debugger, th: *Thread, reason: []const u8, text: ?[]const u8) void {

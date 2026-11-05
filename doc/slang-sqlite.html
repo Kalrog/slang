@@ -91,12 +91,12 @@ db:close()</code></pre>
 
 </div>
 <div class="def" id="query"><h3><code>sqlite.query(text: string, values?: {any}, origin?: string, count?: int) -> <a href="#type-Query">Query</a></code></h3>
-<p>A query of text with one ? per value; <a href="#list"><code>list</code></a> values and queries among the values are expanded into the text. Raises when the number of ? does not match (a ? in a string, a quoted name or a comment is not counted).</p>
+<p>A query of text with one ? per value; <a href="#list"><code>list</code></a> values and queries among the values are expanded into the text. Raises an error of kind argument when the number of ? does not match (a ? in a string, a quoted name or a comment is not counted).</p>
 <dl class="params"><dt><code>origin</code></dt><dd>where the query comes from, added to its error messages</dd><dt><code>count</code></dt><dd>how many values; len(values) by default (null values count)</dd></dl>
 </div>
 <h2>databases</h2>
 <div class="def" id="open"><h3><code>sqlite.open(path: string, opts?: <a href="#type-OpenOptions">OpenOptions</a>) -> <a href="#type-Database">Database</a></code></h3>
-<p>Opens a database file, created when missing; &quot;:memory:&quot; opens one in memory (the options are for files). Raises when it cannot be opened.</p>
+<p>Opens a database file, created when missing; &quot;:memory:&quot; opens one in memory (the options are for files). Raises an error of kind database when it cannot be opened, of kind argument for an unknown option value.</p>
 
 </div>
 <h2 id="type-Query">type Query</h2>
@@ -161,7 +161,7 @@ db:close()</code></pre>
 <dl class="params"><dt>returns</dt><dd>what f returns</dd></dl>
 </div>
 <div class="def" id="Database:close"><h3><code>Database:close()</code></h3>
-<p>Finalizes the cached statements and closes the database; raises while an _async query is running.</p>
+<p>Finalizes the cached statements and closes the database; raises an error of kind state while an _async query is running.</p>
 
 </div>
 <h2 id="type-OpenOptions">type OpenOptions</h2>

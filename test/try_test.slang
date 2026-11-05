@@ -25,9 +25,7 @@ t.group("raise"){
     })
     assert(r.kind == "deep" and r.location.line == first)
     local s = t.raises(func(){ raise("plain") })
-    assert(s.message == "plain")
-    local e = pcall(func(){ error("built ", 42) })
-    assert(e[1].message == "built 42")
+    assert(s.message == "plain" and s.kind == "error")
   }
 }
 
@@ -140,7 +138,7 @@ t.group("try and catch"){
       raise("outside")
     }, "outside")
   }
-  t.test("nested trys, raising from a catch, pcall inside and outside"){
+  t.test("nested trys, raising from a catch, a try inside a try"){
     local log = {}
     try {
       try {
@@ -153,16 +151,16 @@ t.group("try and catch"){
       append(log, "outer")
     }
     assert(log == {"inner", "outer"})
-    local r = pcall(func(){
+    local r = t.raises(func(){
       try {
         raise({a: 1})
       } catch({a: 2}) {}
     })
-    assert(r[1].a == 1)
+    assert(r.a == 1)
     local caught = null
     try {
-      local p = pcall(func(){ error("in pcall") })
-      assert(p[0] == "err")
+      local inner = try { raise("inner") } catch(local e) { e.message }
+      assert(inner == "inner")
       raise({after: true})
     } catch(local e) {
       caught = e

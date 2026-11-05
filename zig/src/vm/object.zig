@@ -25,9 +25,8 @@ pub const NativeFn = *const fn (th: *Thread, args: []Value) Error!Value;
 /// A function implemented against slang.h (see capi.zig).
 pub const CFunction = *const fn (th: *Thread) callconv(.c) c_int;
 
-/// pcall: the arguments are shifted and the call is protected.
 /// frameless: a native called without pushing a frame (see stdlib.Native).
-pub const Special = enum(u8) { none, pcall, frameless };
+pub const Special = enum(u8) { none, frameless };
 
 /// A callable value: a slang function (proto + captured upvalues) or a
 /// native function (with optional closed-over values in `nvals`).

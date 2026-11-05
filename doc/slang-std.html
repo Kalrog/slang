@@ -56,7 +56,7 @@ local big = run{ if(p.x &gt; 0){ return &quot;right&quot; } return &quot;left&qu
 
 </div>
 <div class="def" id="__match"><h3><code>__match(m, v) -> any</code></h3>
-<p>The matcher protocol behind 'm patterns: calls the __match metamethod of m with (m, v). Its result decides: null means v does not match; anything else is what the rest of the pattern sees. Raises an error when m has no __match metamethod (strings, numbers, functions and the like never do).</p>
+<p>The matcher protocol behind 'm patterns: calls the __match metamethod of m with (m, v). Its result decides: null means v does not match; anything else is what the rest of the pattern sees. Raises an error of kind type when m has no __match metamethod (strings, numbers, functions and the like never do).</p>
 
 </div>
 <div class="def" id="run"><h3><code>run(rfunc: function) -> any</code></h3>

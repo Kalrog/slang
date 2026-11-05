@@ -241,14 +241,12 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
             },
             .@"return" => {
-                var res = stack[top - 1];
+                const res = stack[top - 1];
                 const fn_idx = base - 1;
-                const prot = th.frames.items[fi].protected;
                 const dest = th.frames.items[fi].dest;
                 th.top = top;
                 th.popFrame();
                 th.top = fn_idx;
-                if (prot) res = okResult(th, res);
                 if (dest == thread_mod.dest_push) {
                     th.stack[fn_idx] = res;
                     th.top = fn_idx + 1;
@@ -295,7 +293,7 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                     stack[top + 1] = obj;
                     stack[top + 2] = val;
                     spill(trace, th, fi, pc, top + 3);
-                    const is_slang = th.precall(top, 2, false) catch |e| {
+                    const is_slang = th.precall(top, 2) catch |e| {
                         try th.handleError(e, stop_depth);
                         continue :outer;
                     };
@@ -348,7 +346,7 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                     stack[top] = g;
                     stack[top + 1] = obj;
                     spill(trace, th, fi, pc, top + 2);
-                    const is_slang = th.precall(top, 1, false) catch |e| {
+                    const is_slang = th.precall(top, 1) catch |e| {
                         try th.handleError(e, stop_depth);
                         continue :outer;
                     };
@@ -446,7 +444,7 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 spill(trace, th, fi, pc, top);
                 const nargs = fixed + spread_n;
                 const fn_idx = top - nargs - 1;
-                const is_slang = th.precall(fn_idx, nargs, false) catch |e| {
+                const is_slang = th.precall(fn_idx, nargs) catch |e| {
                     try th.handleError(e, stop_depth);
                     continue :outer;
                 };
@@ -476,7 +474,7 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 };
                 const nargs: usize = d.argBx(ins);
                 const fn_idx = top - nargs - 1;
-                const is_slang = th.precall(fn_idx, nargs, false) catch |e| {
+                const is_slang = th.precall(fn_idx, nargs) catch |e| {
                     try th.handleError(e, stop_depth);
                     continue :outer;
                 };
@@ -652,7 +650,7 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                     stack[top + 1] = obj;
                     const dest: u16 = if (a == d.push_dest) thread_mod.dest_push else @intCast(a);
                     spill(trace, th, fi, pc, top + 2);
-                    const is_slang = th.precall(top, 1, false) catch |e| {
+                    const is_slang = th.precall(top, 1) catch |e| {
                         try th.handleError(e, stop_depth);
                         continue :outer;
                     };
@@ -723,7 +721,7 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                     stack[top + 1] = obj;
                     stack[top + 2] = val;
                     spill(trace, th, fi, pc, top + 3);
-                    const is_slang = th.precall(top, 2, false) catch |e| {
+                    const is_slang = th.precall(top, 2) catch |e| {
                         try th.handleError(e, stop_depth);
                         continue :outer;
                     };
@@ -1078,13 +1076,6 @@ inline fn getChain(vm: *root.VM, t0: *Table, key: Value, getter: *Value) ?Value 
 inline fn absIndex(top: usize, base: usize, idx: i32) usize {
     if (idx < 0) return @intCast(@as(i64, @intCast(top)) + idx);
     return base + @as(usize, @intCast(idx));
-}
-
-fn okResult(th: *Thread, v: Value) Value {
-    const t = th.vm.newTable(2, 0);
-    t.append(th.vm.gpa, th.vm.str("ok"));
-    t.append(th.vm.gpa, v);
-    return .{ .table = t };
 }
 
 /// a value's type for an error: a userdata's own type name

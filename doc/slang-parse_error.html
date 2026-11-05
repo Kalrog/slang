@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>slang/parse_error</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
+pre.ebnf { white-space: pre-wrap; border-left: 3px solid var(--link); }
+dl.syntax dd { margin: 0.2rem 0 0.8rem 0.2rem; }
+figure.example { margin: 1rem 0; }
+details.expanded summary { cursor: pointer; color: var(--muted); }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>slang/parse_error</h1>
+<p>slang/parse_error: parse failures as messages people can read.</p>
+<p>A parse that fails knows the farthest position it reached and everything that was expected there (slang/grammar parses the statement again to collect it, see ctx.expected in slang/peg). describe turns that into a message, the position to report it at, notes at other positions and hints. The position is not always the farthest one: a bracket left open is reported where it was opened, a <code>}</code> that closes the wrong block where its indentation says a <code>}</code> is missing, an unclosed string where it starts, a missing <code>)</code> at the end of the line instead of at the start of the next one. The hints name what other languages write that slang does not (<code>&amp;&amp;</code>, <code>++</code>, <code>function</code>, <code>while</code>, ...).</p>
+<pre><code>local d = parse_error.describe(source, pos, {&quot;Expected: )&quot;})
+// {message: &quot;expected `)`, found `}`&quot;, pos: ..., notes: {...}, hints: {...}}</code></pre>
+<ul class="toc">
+<li><a href="#resume_at"><code>resume_at</code></a></li>
+<li><a href="#describe"><code>describe</code></a></li>
+<li><a href="#offset"><code>offset</code></a></li>
+<li><a href="#excerpt"><code>excerpt</code></a></li>
+<li><a href="#report"><code>report</code></a></li>
+<li><a href="#type-Diagnosis"><code>type Diagnosis</code></a></li>
+<li><a href="#type-Note"><code>type Note</code></a></li>
+</ul>
+<h2>brackets</h2>
+<div class="def" id="resume_at"><h3><code>parse_error.resume_at(source: string, start: int, far: int) -> int</code></h3>
+<p>Where a parse that recovers from a statement starting at start, which failed at far, should go on: the next line after far where the brackets the statement opened are closed again (so that the body of a block whose header failed is skipped with it); -1 when they never close.</p>
+
+</div>
+<h2>describe</h2>
+<div class="def" id="describe"><h3><code>parse_error.describe(source: string, pos: int, expected: {string}) -> <a href="#type-Diagnosis">Diagnosis</a></code></h3>
+<p>What a parse that failed at pos (its farthest failure) should say, given the messages of everything that was expected there.</p>
+
+</div>
+<div class="def" id="offset"><h3><code>parse_error.offset(source: string, line: int, column: int) -> int</code></h3>
+<p>The byte offset of a 1-based line and column.</p>
+
+</div>
+<div class="def" id="excerpt"><h3><code>parse_error.excerpt(source: string, pos: int) -> string</code></h3>
+<p>The line pos is on, numbered, with a caret under pos.</p>
+<pre><code>12 | local y = x +* 2
+   |              ^</code></pre>
+
+</div>
+<div class="def" id="report"><h3><code>parse_error.report(source: string, origin: string, d: <a href="#type-Diagnosis">Diagnosis</a>) -> table</code></h3>
+<p>The error to raise for d: {kind: &quot;syntax&quot;, message, location, stack}, where stack (what a command line prints after the location) is the excerpt, the hints and the notes.</p>
+
+</div>
+<h2 id="type-Diagnosis">type Diagnosis</h2>
+<pre><code>type Diagnosis = {message: string, pos: int, notes: {<a href="#type-Note">Note</a>}, hints: {string}}</code></pre>
+<p>What <a href="#describe"><code>describe</code></a> gives. type Note = {pos: int, message: string}</p>
+<dl class="params"><dt><code>message: string</code></dt><dd></dd><dt><code>pos: int</code></dt><dd>the byte offset to report the message at</dd><dt><code>notes: {<a href="#type-Note">Note</a>}</code></dt><dd></dd><dt><code>hints: {string}</code></dt><dd>suggestions, each a sentence</dd></dl>
+<h2 id="type-Note">type Note</h2>
+<pre><code>type Note = {pos: int, message: string}</code></pre>
+<p>What <a href="#describe"><code>describe</code></a> gives. type Diagnosis = {message: string, pos: int, notes: {Note}, hints: {string}}</p>
+<dl class="params"><dt><code>pos: int</code></dt><dd>the byte offset to report the message at</dd><dt><code>message: string</code></dt><dd></dd></dl>
+<p class="muted">slang/compiler/parse_error.slang</p>
+</body>
+</html>

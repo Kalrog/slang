@@ -49,9 +49,13 @@
     "prefix": "try",
     "body": ["try {", "\t$1", "} catch(local ${2:e}) {", "\t$0", "}"]
   },
-  "pcall": {
-    "prefix": "pcall",
-    "body": ["local ${1:r} = pcall(func(){", "\t$0", "})", "if(let {\"err\", local ${2:e}} = $1){", "\t", "}"]
+  "try expression": {
+    "prefix": "tryx",
+    "body": ["local ${1:v} = try { ${2:f()} } catch { ${3:null} }$0"]
+  },
+  "raise error": {
+    "prefix": "raise",
+    "body": ["raise(error.new(error.kinds.${1:argument}, ${2:\"message\"}))$0"]
   },
   "test group": {
     "prefix": "tgroup",

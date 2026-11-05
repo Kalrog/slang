@@ -53,7 +53,7 @@ async.main(func(){
   }
 })</code></pre>
 <p>The extension <code>extensions/async</code> adds <code>async func</code>, <code>await</code> and <code>await for</code> on top of this module.</p>
-<p>A <a href="#type-Future"><code>Future</code></a> completes once, with a value or an error (any value; errors raised inside async functions are the error tables pcall produces). A <a href="#type-Stream"><code>Stream</code></a> is a sequence of values ending with done or an error; its next() gives the next <a href="#type-Event"><code>Event</code></a> as a Future, listen() consumes it with a callback. A <a href="#type-Completer"><code>Completer</code></a> makes a Future, a <a href="#type-Controller"><code>Controller</code></a> a Stream.</p>
+<p>A <a href="#type-Future"><code>Future</code></a> completes once, with a value or an error (any value; errors raised inside async functions are error tables, see [error]). A <a href="#type-Stream"><code>Stream</code></a> is a sequence of values ending with done or an error; its next() gives the next <a href="#type-Event"><code>Event</code></a> as a Future, listen() consumes it with a callback. A <a href="#type-Completer"><code>Completer</code></a> makes a Future, a <a href="#type-Controller"><code>Controller</code></a> a Stream.</p>
 <p><a href="#await"><code>await</code></a> must be called from a coroutine started by <a href="#run"><code>run</code></a> or <a href="#main"><code>main</code></a> (an &quot;async function&quot;). It registers a waiter that reschedules the coroutine and yields; a completed Future returns immediately without yielding. Waiters run from the loop (a zero timer), never inside the code that completed the Future, so completing a Future never re-enters the completer.</p>
 <p>Handles (TCP connections, pipes, timers) are the native <code>uv</code> module's; <a href="#connect"><code>connect</code></a>, <a href="#serve"><code>serve</code></a> and <a href="#reader"><code>reader</code></a> turn them into Futures and Streams.</p>
 <ul class="toc">
@@ -135,12 +135,12 @@ return c.future</code></pre>
 
 </div>
 <div class="def" id="timeout"><h3><code>async.timeout(f: <a href="#type-Future">Future</a>, ms: int, message?: string) -> <a href="#type-Future">Future</a></code></h3>
-<p>A Future of f's value (or error), failing with <code>message</code> instead when f takes longer than ms milliseconds. f itself goes on; its late result is dropped. An error keeps only its message through raise, so tell a timeout by the message you chose.</p>
+<p>A Future of f's value (or error), failing with an error of kind timeout (and <code>message</code>) instead when f takes longer than ms milliseconds. f itself goes on; its late result is dropped.</p>
 <dl class="params"><dt><code>message</code></dt><dd>&quot;timed out after &lt;ms&gt; ms&quot; by default</dd></dl>
 </div>
 <h2>await and run</h2>
 <div class="def" id="await"><h3><code>async.await(f: <a href="#type-Future">Future</a>)</code></h3>
-<p>Waits for f, suspending the async function, and returns its value or raises its error. Raises when f is not a Future or when called outside an async function (<a href="#run"><code>run</code></a>, <a href="#main"><code>main</code></a>). A completed f returns at once.</p>
+<p>Waits for f, suspending the async function, and returns its value or raises its error. Raises an error of kind argument when f is not a Future, of kind state when called outside an async function (<a href="#run"><code>run</code></a>, <a href="#main"><code>main</code></a>). A completed f returns at once.</p>
 <dl class="params"><dt>returns</dt><dd>the value of f</dd></dl>
 </div>
 <div class="def" id="run"><h3><code>async.run(f: function) -> <a href="#type-Future">Future</a></code></h3>
@@ -213,7 +213,7 @@ local s = async.pull(func(){ n = n + 1  return n &lt;= 3 and n or stop })</code>
 </div>
 <h2>files</h2>
 <div class="def" id="fs"><h3><code>async.fs</code></h3>
-<p>The file system on libuv's thread pool; every function returns a Future. Errors read like &quot;ENOENT: no such file or directory, read_file 'x'&quot;.</p>
+<p>The file system on libuv's thread pool; every function returns a Future. Errors are libuv's error tables {kind, message, code, path}; a message reads like &quot;ENOENT: no such file or directory, read_file 'x'&quot;.</p>
 <pre><code>fs.read_file(path) -&gt; the contents    fs.write_file(path, data)
 fs.append_file(path, data)            fs.exists(path) -&gt; bool
 fs.stat(path) -&gt; {size, mode, mtime, atime, ctime, is_file, is_dir}
@@ -261,10 +261,10 @@ print(r.status, r.stdout)</code></pre>
 </div>
 <h2 id="type-Completer">type Completer</h2>
 <pre><code>type Completer = {future: <a href="#type-Future">Future</a>, complete: func(value: any), fail: func(error: any)}</code></pre>
-<p>The making side of a Future: call complete or fail once (a second call raises &quot;the future is already ...&quot;).</p>
+<p>The making side of a Future: call complete or fail once (a second call raises &quot;the future is already ...&quot;, of kind state).</p>
 <dl class="params"><dt><code>future: <a href="#type-Future">Future</a></code></dt><dd></dd><dt><code>complete: func(value: any)</code></dt><dd></dd><dt><code>fail: func(error: any)</code></dt><dd></dd></dl>
 <h2 id="type-Stream">type Stream</h2>
-<p>A sequence of values that ends with done or an error. Read it one way: <a href="#Stream:next"><code>Stream.next</code></a> (or <code>await for</code>), <a href="#Stream:listen"><code>Stream.listen</code></a> or <a href="#Stream:collect"><code>Stream.collect</code></a>; a second reader raises &quot;the stream is already being read&quot;.</p>
+<p>A sequence of values that ends with done or an error. Read it one way: <a href="#Stream:next"><code>Stream.next</code></a> (or <code>await for</code>), <a href="#Stream:listen"><code>Stream.listen</code></a> or <a href="#Stream:collect"><code>Stream.collect</code></a>; a second reader raises &quot;the stream is already being read&quot; (kind state).</p>
 <div class="def" id="Stream:next"><h3><code>Stream:next() -> <a href="#type-Future">Future</a></code></h3>
 <p>A Future of the next <a href="#type-Event"><code>Event</code></a>; it fails with the stream's error. One next() at a time; raises while another is pending or with a listener.</p>
 
@@ -283,7 +283,7 @@ print(r.status, r.stdout)</code></pre>
 <dl class="params"><dt><code>value?: any</code></dt><dd></dd><dt><code>done?: bool</code></dt><dd></dd></dl>
 <h2 id="type-Controller">type Controller</h2>
 <pre><code>type Controller = {stream: <a href="#type-Stream">Stream</a>, add: func(value: any), close: func(), fail: func(error: any), on_pause?: func(), on_resume?: func()}</code></pre>
-<p>The writing side of a Stream. add raises once the stream is closed; close and fail after the end do nothing.</p>
+<p>The writing side of a Stream. add raises (kind closed) once the stream is closed; close and fail after the end do nothing.</p>
 <dl class="params"><dt><code>stream: <a href="#type-Stream">Stream</a></code></dt><dd></dd><dt><code>add: func(value: any)</code></dt><dd></dd><dt><code>close: func()</code></dt><dd></dd><dt><code>fail: func(error: any)</code></dt><dd></dd><dt><code>on_pause?: func()</code></dt><dd>called when the buffer reaches the high-water mark: pause</dd><dt><code>on_resume?: func()</code></dt><dd>called when a reader has drained the buffer below it again</dd></dl>
 <h2 id="type-Address">type Address</h2>
 <pre><code>type Address = {ip: string, port: int, family: string}</code></pre>

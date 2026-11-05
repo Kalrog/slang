@@ -71,11 +71,11 @@ async.main(func(){
 </div>
 <h2>handshakes</h2>
 <div class="def" id="accept"><h3><code>ws.accept(req: table, conn, rest: string, options?: <a href="#type-Options">Options</a>) -> <a href="#type-WebSocket">WebSocket</a></code></h3>
-<p>Completes the handshake of an upgrade request and gives the server side of the WebSocket. A request that is not a WebSocket handshake (GET, version 13, with a key) gets a 400 and accept raises.</p>
+<p>Completes the handshake of an upgrade request and gives the server side of the WebSocket. A request that is not a WebSocket handshake (GET, version 13, with a key) gets a 400 and accept raises (kind protocol).</p>
 <dl class="params"><dt><code>req</code></dt><dd>the slang/http request</dd><dt><code>conn</code></dt><dd>the connection on_upgrade handed over</dd><dt><code>rest</code></dt><dd>the bytes read past the request head</dd></dl>
 </div>
 <div class="def" id="connect"><h3><code>ws.connect(url: string, options?: <a href="#type-Options">Options</a>) -> <a href="slang-async.html#type-Future">async.Future</a></code></h3>
-<p>Opens a WebSocket to a ws:// or wss:// URL: a Future of the client side <a href="#type-WebSocket"><code>WebSocket</code></a>; wss uses TLS (options.tls adds slang/tls's connect options). It fails when the server does not accept the handshake. connect(host, port, path?, options?) works too.</p>
+<p>Opens a WebSocket to a ws:// or wss:// URL: a Future of the client side <a href="#type-WebSocket"><code>WebSocket</code></a>; wss uses TLS (options.tls adds slang/tls's connect options). It fails (kind protocol) when the server does not accept the handshake. connect(host, port, path?, options?) works too.</p>
 
 </div>
 <h2 id="type-WebSocket">type WebSocket</h2>
@@ -85,7 +85,7 @@ async.main(func(){
 
 </div>
 <div class="def" id="WebSocket:send"><h3><code>WebSocket:send(text: string) -> <a href="slang-async.html#type-Future">async.Future</a></code></h3>
-<p>Sends a text message; completes when it is written. Fails when the socket is not open.</p>
+<p>Sends a text message; completes when it is written. Fails (kind closed) when the socket is not open.</p>
 
 </div>
 <div class="def" id="WebSocket:send_binary"><h3><code>WebSocket:send_binary(data: string) -> <a href="slang-async.html#type-Future">async.Future</a></code></h3>

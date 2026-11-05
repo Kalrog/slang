@@ -37,7 +37,7 @@
 // builtins (len, count, type, concat, string, ...) and whatever
 // options.pure lists, which are evaluated on static arguments.
 //
-// Calls of error and raise never return, so nothing after them is
+// Calls of raise never return, so nothing after them is
 // specialized. The residual code is tidied (a local read once, first,
 // is written where it is read; {a, b}[0] is a; {...{a: 1}, b: 2} is
 // {a: 1, b: 2}) and arity-raised: a residual function whose calls all
@@ -666,7 +666,7 @@ local builtins = {
   print: print, len: len, count: count, type: type, concat: concat, string: string,
   keys: keys, values: values, entries: entries, append: append, remove: remove,
   error: error, same: same, get_raw: get_raw, set_raw: set_raw, to_int: to_int,
-  to_float: to_float, assert: assert, raise: raise, pcall: pcall, require: require,
+  to_float: to_float, assert: assert, raise: raise, require: require,
   compile: compile,
 }
 
@@ -984,15 +984,14 @@ func Mix.call(self, ctx, node, as_statement){
         for(local i = 0; i < len(args); i = i + 1){ vals[i] = args[i].value }
         try { return S(v(...vals)) } catch {}
       }
-    } else if(v != error){
-      // (error is a callable table: a call of it stays in the residual)
+    } else {
       raise(error.new(error.kinds.type, concat("mix: calling a static ", type(v), " value")))
     }
   }
   local lifted = {}
   for(let local a in values(args)){ append(lifted, self:lift(a)) }
   local d = D(N("Call", {function: self:lift(fw), args: lifted}))
-  if(fw.static and (fw.value == error or fw.value == raise)){ d.terminates = true }
+  if(fw.static and fw.value == raise){ d.terminates = true }
   return d
 }
 

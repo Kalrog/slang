@@ -8,8 +8,8 @@ local func str_has(s, part){
 }
 
 t.group("errors"){
-  t.test("error() still raises; errors share a metatable"){
-    local e = t.raises(func(){ error("boom ", 42) }, "boom 42")
+  t.test("raise of a string gives an error of kind error; errors share a metatable"){
+    local e = t.raises(func(){ raise("boom 42") }, "boom 42")
     assert(e.@meta == error.meta and e.message == "boom 42")
     assert(e.location.line > 0)
     local raised = {kind: "mine"}
@@ -49,7 +49,8 @@ t.group("kinds"){
     assert(t.raises(func(){ local n = null  return n.x }).kind == "type")
     assert(t.raises(func(){ local n = 5  n() }).kind == "type")
     assert(t.raises(func(){ return 5 % 0 }).kind == "arithmetic")
-    assert(t.raises(func(){ error("plain") }).kind == "error")
+    assert(t.raises(func(){ raise("plain") }).kind == "error")
+    assert(t.raises(func(){ error("not callable") }).kind == "type", "error is a table")
     local func deep(){ return deep() + 1 }
     assert(t.raises(deep).kind == "stack_overflow")
   }
@@ -90,7 +91,7 @@ t.group("error.kinds"){
       t.raises(func(){ require("slang/regex").compile("(") }),
       t.raises(func(){ require("slang/os").read_file("/no/such/file") }),
       t.raises(func(){ assert(false) }),
-      t.raises(func(){ error("x") }),
+      t.raises(func(){ raise("x") }),
       t.raises(func(){ compile("local x = (", "src") }),
       t.raises(func(){ compile("break", "src") }),
       t.raises(func(){ let {a: 1} = {a: 2} }),

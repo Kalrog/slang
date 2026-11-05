@@ -33,7 +33,6 @@ pub const Frame = struct {
     cl: *Closure,
     pc: u32,
     base: u32,
-    protected: bool,
     /// where the result goes when the frame returns: pushed where the
     /// function was (dest_push), dropped (a setter's, dest_drop) or into
     /// the caller's register dest (a getter's, for get_x)
@@ -146,9 +145,9 @@ pub const Thread = struct {
         std.debug.assert(n > 0 and th.frames.items[n - 1].cl.proto == null);
     }
 
-    fn pushFrame(th: *Thread, cl: *Closure, base: usize, protected: bool) Error!void {
+    fn pushFrame(th: *Thread, cl: *Closure, base: usize) Error!void {
         if (th.frames.items.len >= max_frames) return th.vm.raiseKind("stack_overflow", "stack overflow (too many nested calls)", .{});
-        th.frames.append(th.vm.gpa, .{ .cl = cl, .pc = 0, .base = @intCast(base), .protected = protected }) catch oom();
+        th.frames.append(th.vm.gpa, .{ .cl = cl, .pc = 0, .base = @intCast(base) }) catch oom();
     }
 
     pub fn popFrame(th: *Thread) void {
@@ -217,7 +216,7 @@ pub const Thread = struct {
         try th.ensure(fn_idx + 1 + copy.len + 8);
         th.push(f);
         for (copy) |a| th.push(a);
-        const is_slang = th.precall(fn_idx, copy.len, false) catch |e| {
+        const is_slang = th.precall(fn_idx, copy.len) catch |e| {
             th.top = fn_idx;
             if (e == error.Yield) {
                 th.popFrame();
@@ -242,7 +241,7 @@ pub const Thread = struct {
     /// the result at fn_idx (top becomes fn_idx + 1). On failure the stack
     /// is cut back to fn_idx.
     pub fn callInPlace(th: *Thread, fn_idx: usize, nargs_: usize) Error!void {
-        const is_slang = th.precall(fn_idx, nargs_, false) catch |e| {
+        const is_slang = th.precall(fn_idx, nargs_) catch |e| {
             th.top = fn_idx;
             if (e == error.Yield) {
                 th.popFrame();
@@ -264,7 +263,7 @@ pub const Thread = struct {
     /// Native functions are executed immediately and their result replaces
     /// the callee slot; for slang functions a frame is pushed and true is
     /// returned.
-    pub fn precall(th: *Thread, fn_idx: usize, nargs_: usize, protected: bool) Error!bool {
+    pub fn precall(th: *Thread, fn_idx: usize, nargs_: usize) Error!bool {
         const f = th.stack[fn_idx];
         const cl: *Closure = switch (f) {
             .function => |c| c,
@@ -276,46 +275,29 @@ pub const Thread = struct {
                         th.push(.null);
                         std.mem.copyBackwards(Value, th.stack[fn_idx + 1 .. th.top], th.stack[fn_idx .. th.top - 1]);
                         th.stack[fn_idx] = c;
-                        return th.precall(fn_idx, nargs_ + 1, protected);
+                        return th.precall(fn_idx, nargs_ + 1);
                     }
                 }
                 return th.vm.raiseKind("type", "attempt to call a {s} value", .{f.typeName()});
             },
         };
-        if (cl.special != .none) {
-            if (cl.special == .pcall) {
-                if (nargs_ < 1) return th.vm.raise("pcall requires at least one argument", .{});
-                std.mem.copyForwards(Value, th.stack[fn_idx .. th.top - 1], th.stack[fn_idx + 1 .. th.top]);
-                th.top -= 1;
-                return th.precall(fn_idx, nargs_ - 1, true);
-            }
+        if (cl.special == .frameless) {
             // frameless, unless the profiler wants the frame to sample
-            if (th.vm.profiler == null) return th.callFrameless(cl, fn_idx, protected);
+            if (th.vm.profiler == null) return th.callFrameless(cl, fn_idx);
         }
         if (cl.native) |native| {
-            try th.pushFrame(cl, fn_idx + 1, protected);
+            try th.pushFrame(cl, fn_idx + 1);
             const res = native(th, th.stack[fn_idx + 1 .. th.top]) catch |e| {
                 if (e == error.Yield) return error.Yield;
                 th.fillError();
                 th.popFrame();
-                if (protected) {
-                    th.top = fn_idx;
-                    const r = th.errResult();
-                    th.push(r);
-                    return false;
-                }
                 return error.Slang;
             };
             // (sampled with the native's frame on the stack: its time is its own)
             if (th.vm.profiler) |prof| prof.check(th);
             th.popFrame();
             th.top = fn_idx;
-            if (protected) {
-                const r = th.okResult(res);
-                th.push(r);
-            } else {
-                th.push(res);
-            }
+            th.push(res);
             return false;
         }
         const p = cl.proto.?;
@@ -346,7 +328,7 @@ pub const Thread = struct {
             @memset(th.stack[th.top..need], .null);
             th.top = need;
         }
-        try th.pushFrame(cl, base, protected);
+        try th.pushFrame(cl, base);
         th.frames.items[th.frames.items.len - 1].nargs = @intCast(nargs_);
         return true;
     }
@@ -354,27 +336,16 @@ pub const Thread = struct {
     /// A native marked frameless: called on the arguments as they are on
     /// the stack, with a frame made up only for an error's traceback (or
     /// a yield, which the resume expects to pop).
-    fn callFrameless(th: *Thread, cl: *Closure, fn_idx: usize, protected: bool) Error!bool {
+    fn callFrameless(th: *Thread, cl: *Closure, fn_idx: usize) Error!bool {
         const res = cl.native.?(th, th.stack[fn_idx + 1 .. th.top]) catch |e| {
-            th.frames.append(th.vm.gpa, .{ .cl = cl, .pc = 0, .base = @intCast(fn_idx + 1), .protected = protected }) catch oom();
+            th.frames.append(th.vm.gpa, .{ .cl = cl, .pc = 0, .base = @intCast(fn_idx + 1) }) catch oom();
             if (e == error.Yield) return error.Yield;
             th.fillError();
             th.popFrame();
-            if (protected) {
-                th.top = fn_idx;
-                const r = th.errResult();
-                th.push(r);
-                return false;
-            }
             return error.Slang;
         };
         th.top = fn_idx;
-        if (protected) {
-            const r = th.okResult(res);
-            th.push(r);
-        } else {
-            th.push(res);
-        }
+        th.push(res);
         return false;
     }
 
@@ -395,20 +366,6 @@ pub const Thread = struct {
     pub const renderString = interp.ThreadOps.renderString;
     pub const len = interp.ThreadOps.len;
 
-    fn okResult(th: *Thread, v: Value) Value {
-        const t = th.vm.newTable(2, 0);
-        t.append(th.vm.gpa, th.vm.str("ok"));
-        t.append(th.vm.gpa, v);
-        return .{ .table = t };
-    }
-
-    fn errResult(th: *Thread) Value {
-        const e = th.vm.errorToValue();
-        const t = th.vm.newTable(2, 0);
-        t.append(th.vm.gpa, th.vm.str("err"));
-        t.append(th.vm.gpa, e);
-        return .{ .table = t };
-    }
 
     /// Completes the pending error with the current location and traceback
     /// if the creator did not set them.
@@ -471,8 +428,8 @@ pub const Thread = struct {
     }
 
     /// Deals with an error raised inside run: either transfers control to the
-    /// nearest protected call of this run loop (returns normally) or unwinds
-    /// the loop's frames and returns the error to the caller.
+    /// innermost try of this run loop (returns normally) or unwinds the
+    /// loop's frames and returns the error to the caller.
     pub fn handleError(th: *Thread, err: Error, stop_depth: usize) Error!void {
         if (err == error.Yield) {
             if (th.run_depth == 1 and !th.is_main) return error.Yield;
@@ -483,12 +440,10 @@ pub const Thread = struct {
         // an error nothing will catch stops the debugger before the unwinding
         if (th.vm.debugger) |dbg| dbg.raised(th);
         var i = th.frames.items.len;
-        // a killed isolate unwinds past every try and pcall
+        // a killed isolate unwinds past every try
         if (th.vm.interrupt.load(.monotonic)) i = stop_depth;
         while (i > stop_depth) {
             i -= 1;
-            // a try in this frame catches before the frame's own protection
-            // (a pcall of the function) does
             const hs = th.handlers.items;
             if (hs.len > 0 and hs[hs.len - 1].frame == i) {
                 const h = th.handlers.pop().?;
@@ -498,14 +453,6 @@ pub const Thread = struct {
                 th.frames.items[i].pc = h.pc;
                 const v = th.vm.errorToValue();
                 th.push(v);
-                return;
-            }
-            if (th.frames.items[i].protected) {
-                const fn_idx = th.frames.items[i].base - 1;
-                while (th.frames.items.len > i) th.popFrame();
-                th.top = fn_idx;
-                const r = th.errResult();
-                th.push(r);
                 return;
             }
         }
@@ -526,7 +473,7 @@ pub const Thread = struct {
                 try co.ensure(1 + args.len + 8);
                 co.push(.{ .function = co.entry.? });
                 for (args) |a| co.push(a);
-                const is_slang = co.precall(0, args.len, false) catch |e| return co.finish(e);
+                const is_slang = co.precall(0, args.len) catch |e| return co.finish(e);
                 if (!is_slang) return co.finish(null);
             },
             .suspended => {

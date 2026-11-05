@@ -155,11 +155,11 @@ unless(1 &gt; 2){
 
 </div>
 <div class="def" id="Grammar:define"><h3><code>Grammar:define(name: string, parser: <a href="slang-peg.html#type-Parser">peg.Parser</a>?, options?: <a href="#type-RuleOptions">RuleOptions</a>)</code></h3>
-<p>Registers a rule, replacing one of the same name. A rule may also be built at seal time: define(name, null, {build: func(g){ ... }}). Raises when changes are not allowed (see <a href="#Grammar:changes_allowed"><code>Grammar.changes_allowed</code></a>).</p>
+<p>Registers a rule, replacing one of the same name. A rule may also be built at seal time: define(name, null, {build: func(g){ ... }}). Raises an error of kind state when changes are not allowed (see <a href="#Grammar:changes_allowed"><code>Grammar.changes_allowed</code></a>).</p>
 
 </div>
 <div class="def" id="Grammar:modify"><h3><code>Grammar:modify(name: string, f: func(old: <a href="slang-peg.html#type-Parser">peg.Parser</a>): <a href="slang-peg.html#type-Parser">peg.Parser</a>)</code></h3>
-<p>Replaces the rule by f(old), where old is its current parser; replacing it outright is just not using old. Rules built at seal time (&quot;expr&quot;, &quot;statement&quot;) are wrapped after building, so f runs at seal time: create the tokens it uses before calling modify. Raises for an unknown or protected rule, and when f does not return a parser.</p>
+<p>Replaces the rule by f(old), where old is its current parser; replacing it outright is just not using old. Rules built at seal time (&quot;expr&quot;, &quot;statement&quot;) are wrapped after building, so f runs at seal time: create the tokens it uses before calling modify. Raises an error of kind not_found for an unknown rule, of kind argument for a protected rule and when f does not return a parser.</p>
 <pre><code>g:modify(&quot;identifier&quot;, func(old){
   return old:where(func(t){ return t.value != &quot;it&quot; }, &quot;not it&quot;)
 })</code></pre>
@@ -220,13 +220,13 @@ unless(1 &gt; 2){
 <dl class="params"><dt>returns</dt><dd>the name of the source being parsed (null outside a parse)</dd></dl>
 </div>
 <div class="def" id="Grammar:unit_local"><h3><code>Grammar:unit_local(key: string, expr: <a href="slang-ast.html#type-Node">ast.Node</a>) -> <a href="slang-ast.html#type-Node">ast.Node</a></code></h3>
-<p>An Identifier for a local of the unit being parsed, declared once per unit as <code>local &lt;name&gt; = expr</code>, before the top-level statement that first asked for it. For the code an extension generates in expression position, where it cannot declare anything: a runtime module is required once per unit instead of at every use. The name is <code>__</code> and key with every other character replaced by <code>_</code>. Raises outside a parse.</p>
+<p>An Identifier for a local of the unit being parsed, declared once per unit as <code>local &lt;name&gt; = expr</code>, before the top-level statement that first asked for it. For the code an extension generates in expression position, where it cannot declare anything: a runtime module is required once per unit instead of at every use. The name is <code>__</code> and key with every other character replaced by <code>_</code>. Raises an error of kind state outside a parse.</p>
 <pre><code>local async = g:unit_local(&quot;slang/async&quot;, +{require(&quot;slang/async&quot;)})
 return {token: op, ast: +{-{async}.await(-{exp})}}</code></pre>
 
 </div>
 <div class="def" id="Grammar:error_at"><h3><code>Grammar:error_at(token: <a href="slang-peg.html#type-Token">peg.Token</a>, ...message)</code></h3>
-<p>Raises a compile error located at token (a token as <a href="#Grammar:token"><code>Grammar.token</code></a> and <a href="#Grammar:keyword"><code>Grammar.keyword</code></a> produce, or any table with line and column), with the parts of message joined.</p>
+<p>Raises an error of kind compile located at token (a token as <a href="#Grammar:token"><code>Grammar.token</code></a> and <a href="#Grammar:keyword"><code>Grammar.keyword</code></a> produce, or any table with line and column), with the parts of message joined.</p>
 
 </div>
 <div class="def" id="Grammar:uniq_id"><h3><code>Grammar:uniq_id() -> <a href="slang-ast.html#type-Node">ast.Node</a></code></h3>

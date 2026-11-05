@@ -4,19 +4,18 @@
 //   print(concat("args: ", len(args()), "\n"))
 //   for(let local e in entries({a: 1, b: 2})){ print(e[0], "=", e[1], "\n") }
 //
-// Errors are tables: [error] raises one, try/catch (or [pcall]) catches
-// it as an [Error], [raise] passes it on, and the functions of [error]
-// make, wrap and recognise them. Tables are both lists (keys 0..n-1) and
+// Errors are tables: [raise] raises one, try/catch catches it as an
+// [Error], and the functions of [error] make, wrap and recognise them. Tables are both lists (keys 0..n-1) and
 // maps; [keys], [values] and [entries] iterate them with list indices
 // first, then the other keys in insertion order. require, module and run
 // are globals too, written in slang (slang/lib/package.slang and
 // slang/std); compile is in slang/compiler/compiler.slang.
 
-// What catch and [pcall] catch: a table, with the metatable error.meta.
+// What catch catches: a table, with the metatable error.meta.
 // type Error = {kind?: string, message: string, cause?: any,
 //   location?: {line: int, column: int, origin: string}, stack?: string}
 // [kind]: what a program catches on: catch({kind: "not_found"}). The
-//   VM's: "error" (error(), raise of a string), "type" (an operation on
+//   VM's: "error" (raise of a string), "type" (an operation on
 //   values of the wrong type: arithmetic on a table, indexing null,
 //   calling a non-function), "arithmetic" (modulo by zero, bad shifts),
 //   "argument" (a function rejecting an argument), "format" (malformed
@@ -50,12 +49,10 @@ func args(){}
 //   assert(len(list) > 0, "empty list for ", name)
 func assert(cond, ...message){}
 
-// error(...values)
-// The error library: its functions make and recognise errors (written in
-// slang/std); [raise] raises them. Called, it still raises an error whose
-// message is the values joined, but that is going away (the lint warns):
-// raise(error.new(kind, message)) instead.
-//   raise(error.new("not_found", concat("no package ", name)))
+// error
+// The error library, a table (not a function): its functions make and
+// recognise errors (written in slang/std); [raise] raises them.
+//   raise(error.new(error.kinds.not_found, concat("no package ", name)))
 global error = {}
 
 // error.new(kind: string, message: string, fields?: table) -> Error
@@ -88,7 +85,7 @@ error.meta = {}
 // (catch({kind: ^error.kinds.not_found})). Reading a kind not listed
 // raises. Programs and libraries may add kinds of their own.
 error.kinds = {
-  // error(...) and raise of a string or a table without a kind
+  // raise of a string, and errors no other kind fits
   error: "error",
   // assert failed
   assertion: "assertion",
@@ -151,16 +148,6 @@ error.kinds = {
 // any other value (a string becomes {message}).
 //   raise(error.new("not_found", concat("no user ", id), {id: id}))
 func raise(err){}
-
-// pcall(f: function, ...args) -> table
-// Calls f(...args) and catches what it raises: {"ok", result} when it
-// returns, {"err", e} when it raises. e is an [Error]; when f raised a
-// table, e is that table, with location and stack added.
-//   local r = pcall(parse, text)
-//   if(let {"err", local e} = r){
-//     print(e.message, "\n")
-//   }
-func pcall(f, ...args){}
 
 // ------------------------------------------------------------ values
 

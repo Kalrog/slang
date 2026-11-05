@@ -409,7 +409,7 @@ print(thread.resume(co, 5))  // 6
 print(thread.state(co))      // dead
 ```
 `yield` works from any slang function called inside the coroutine, including
-inside `pcall`, but not from inside a function that was called by a native
+inside a `try`, but not from inside a function that was called by a native
 function (for example a metamethod). An error inside a coroutine is raised
 in the resumer, and the coroutine is dead afterwards.
 
@@ -445,13 +445,35 @@ owns.
 
 ### Errors
 ```slang
-local r = pcall(func(a, b){ return a / b }, 1, 0)   // {"ok", value} or {"err", e}
-if (let {"err", local e} = pcall(error, "boom")) {
-    print(e.message, e.location.origin, e.location.line, e.stack)
+local os = require("slang/os")
+// raise raises any value; errors are made with error.new(kind, message, fields?)
+func load(path){
+    if(path == ""){ raise(error.new(error.kinds.argument, "an empty path")) }
+    return os.read_file(path)
 }
+// try/catch: the first clause whose pattern matches the error runs
+try {
+    print(load("/etc/missing"))
+} catch({kind: ^error.kinds.not_found, path: local p}) {
+    print("no file ", p, "\n")
+} catch(local e) {
+    print(e.kind, ": ", e.message, " at ", e.location.origin, ":", e.location.line, "\n")
+    raise(e)                       // passes it on, keeping where it was raised
+}
+// try is an expression too
+local config = try { load("config.json") } catch { "{}" }
+// context: wrap keeps the kind, and the cause
+try { load("") } catch(local e) { raise(error.wrap(e, "loading the config")) }
 ```
-Uncaught errors stop the program and print the message, the source position
-and a stack trace.
+An error is a table `{kind, message, cause?, location, stack, ...}`: `kind`
+is what a program catches on, from `error.kinds` (`not_found`, `argument`,
+`type`, `format`, `timeout`, ...; reading a kind that is not listed raises),
+and a raised table gets `location` and `stack`. `^expr` in a pattern compares
+with a value instead of binding a name. `error.is(e, kind)` looks through
+causes and `error.message(e)` joins the messages along them. `defer`
+runs code however a block is left. Uncaught errors stop the program and print
+`error (kind): message`, the source position and a stack trace; a parse error
+shows the line with a caret instead.
 
 ### Metaprogramming
 ```slang
@@ -763,7 +785,7 @@ runs.
 `slang run --debug PORT file` (or `SLANG_DEBUG=PORT` for any command)
 waits for a debugger on 127.0.0.1:PORT and speaks the Debug Adapter
 Protocol itself: breakpoints (conditions too), stepping, pause, a stop at
-errors no try or pcall catches (before the stack unwinds), the call stack,
+errors no try catches (before the stack unwinds), the call stack,
 locals, upvalues and globals, and evaluating any expression in the paused
 frame. It runs on the interpreter's hooked loop, so a program without a
 debugger pays nothing. The bytecode keeps the names of the locals for it
@@ -805,7 +827,7 @@ works too. The playground runs `slang run`, `slang fmt` and `slang highlight
 --check` (parse and compile errors, lint) in a web worker.
 
 ## Standard library
-Globals: `print`, `args`, `assert`, `error`, `raise`, `pcall`, `compile`,
+Globals: `print`, `args`, `assert`, `error` (the error library), `raise`, `compile`,
 `require`, `type`, `len`, `count`, `append`, `remove`, `same`, `keys`, `values`,
 `entries`, `concat`, `set_raw`, `get_raw`, `to_int`, `to_float`, `string`,
 `module`, `run`.

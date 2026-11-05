@@ -634,20 +634,23 @@ lint = func(s, doc){
       not reported[r.name] and written_at(text, r.start, r.stop, r.name) and
       not global_known(s, doc, r.name)){
       reported[r.name] = true
-      append(out, lint_diagnostic(doc, r.start, r.stop, concat(
-        r.name,
-        " is not defined (a global no file of the project assigns)",
-      ), SEVERITY.warning))
+      local message = concat(
+        r.name, " is not defined (a global no file of the project assigns)"
+      )
+      if(r.name == "pcall"){
+        message = "pcall is not defined (slang catches errors with try/catch)"
+      }
+      append(out, lint_diagnostic(doc, r.start, r.stop, message, SEVERITY.warning))
     }
   }
-  // error(...) is going away (raise and the error library replace it):
-  // a call of the global error, not error.new and the like
+  // a call of the global error: it is the error library, not a function
+  // (raise raises); error.new and the like are not flagged
   for(let local r in values(index.refs)){
     if(r.name == "error" and r.def == null and r.owner == null and
       not r.write and written_at(text, r.start, r.stop, r.name) and
       byte_after_space(text, r.stop) == '('){
       append(out, lint_diagnostic(
-        doc, r.start, r.stop, "error(...) is going away: raise an error, raise(error.new(kind, message))", SEVERITY.warning, {2}
+        doc, r.start, r.stop, "error is the error library, not a function: raise(error.new(kind, message))", SEVERITY.warning
       ))
     }
   }

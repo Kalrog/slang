@@ -150,7 +150,7 @@ local func new_socket(conn, rest, client, options){
     }
     s.state = "gone"
     c.close()
-    pcall(func(){ conn:close() })
+    try { conn:close() } catch {}
     closed.complete({code: code, reason: reason or ""})
   }
   s.finish = finish
@@ -188,7 +188,7 @@ local func new_socket(conn, rest, client, options){
     local parts = null
     local part_op = 0
     local size = 0
-    local r = pcall(func(){
+    local func read_frames(){
       for(s.state != "gone"){
         // a whole frame in buf[at..]? else read more
         local avail = len(buf) - at
@@ -289,13 +289,13 @@ local func new_socket(conn, rest, client, options){
                 // answer the close, then end
                 s.state = "closing"
                 local answer = code == 1005 and "" or close_payload(code, "")
-                pcall(async.await, write(frame(OP_CLOSE, answer, client)))
+                try { async.await(write(frame(OP_CLOSE, answer, client))) } catch {}
               }
               finish(code, reason)
               return null
             } else if(op == OP_PONG){
               if(s.on_pong != null){
-                pcall(s.on_pong, payload)
+                try { s.on_pong(payload) } catch {}
               }
             } else {
               fail(1002, "unknown control opcode")
@@ -339,25 +339,22 @@ local func new_socket(conn, rest, client, options){
           }
         }
       }
-    })
-    if(r[0] == "err"){
-      local e = r[1]
-      finish(1006, type(e) == "table" and e.message or string(e))
     }
+    try { read_frames() } catch(local e) { finish(1006, e.message) }
   })
   return s
 }
 
 local func send_frame(s, opcode, data){
   if(s.state != "open"){
-    return async.failed("ws: the socket is not open")
+    return async.failed(error.new(error.kinds.closed, "ws: the socket is not open"))
   }
   return async.write(s.conn, frame(opcode, data, s.client))
 }
 
 // send(text: string) -> async.Future
-// Sends a text message; completes when it is written. Fails when the
-// socket is not open.
+// Sends a text message; completes when it is written. Fails (kind
+// closed) when the socket is not open.
 func socket_methods.send(s, text){
   return send_frame(s, OP_TEXT, text)
 }
@@ -406,7 +403,7 @@ func socket_methods.close(s, code, reason){
 // accept(req: table, conn, rest: string, options?: Options) -> WebSocket
 // Completes the handshake of an upgrade request and gives the server side
 // of the WebSocket. A request that is not a WebSocket handshake (GET,
-// version 13, with a key) gets a 400 and accept raises.
+// version 13, with a key) gets a 400 and accept raises (kind protocol).
 // [req]: the slang/http request
 // [conn]: the connection on_upgrade handed over
 // [rest]: the bytes read past the request head
@@ -419,7 +416,7 @@ func ws.accept(req, conn, rest, options){
       body: "a WebSocket handshake was expected\n",
       headers: {["Sec-WebSocket-Version"]: "13"},
     })
-    error("ws: not a WebSocket handshake")
+    raise(error.new(error.kinds.protocol, "ws: not a WebSocket handshake"))
   }
   async.write(conn, concat(
     "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n",
@@ -434,7 +431,10 @@ func ws.accept(req, conn, rest, options){
 local func split_url(url){
   local secure = str.starts_with(url, "wss://")
   if(not secure and not str.starts_with(url, "ws://")){
-    error("ws.connect: a ws:// or wss:// URL expected: ", url)
+    raise(error.new(
+      error.kinds.argument, concat("ws.connect: a ws:// or wss:// URL expected: ", url),
+      {url: url},
+    ))
   }
   local rest = str.substring(url, secure and 6 or 5)
   local slash = str.index_of(rest, "/")
@@ -446,7 +446,9 @@ local func split_url(url){
   if(str.starts_with(authority, "[")){
     local close = str.index_of(authority, "]")
     if(close < 0){
-      error("ws.connect: a ] expected in ", url)
+      raise(error.new(
+        error.kinds.argument, concat("ws.connect: a ] expected in ", url), {url: url},
+      ))
     }
     host = str.substring(authority, 1, close)
     if(str.starts_with(authority, ":", close + 1)){
@@ -462,7 +464,9 @@ local func split_url(url){
   if(port_text != null){
     port = to_int(port_text)
     if(port == null){
-      error("ws.connect: a bad port in ", url)
+      raise(error.new(
+        error.kinds.argument, concat("ws.connect: a bad port in ", url), {url: url},
+      ))
     }
   }
   return {host: host, port: port, path: path, secure: secure}
@@ -471,7 +475,8 @@ local func split_url(url){
 // connect(url: string, options?: Options) -> async.Future
 // Opens a WebSocket to a ws:// or wss:// URL: a Future of the client side
 // [WebSocket]; wss uses TLS (options.tls adds slang/tls's connect
-// options). It fails when the server does not accept the handshake.
+// options). It fails (kind protocol) when the server does not accept the
+// handshake.
 // connect(host, port, path?, options?) works too.
 func ws.connect(host, port, path, options){
   if(type(port) != "int"){
@@ -520,7 +525,9 @@ func ws.connect(host, port, path, options){
     for(rest == null){
       local e = async.await(reader:next())
       if(e.done){
-        error("ws: the server closed the connection during the handshake")
+        raise(error.new(
+          error.kinds.closed, "ws: the server closed the connection during the handshake",
+        ))
       }
       for(let local ev in values(p:execute(e.value))){
         if(ev.type == "head"){
@@ -528,19 +535,23 @@ func ws.connect(host, port, path, options){
         } else if(ev.type == "upgrade"){
           rest = ev.rest
         } else if(ev.type == "error"){
-          error("ws: a malformed handshake answer: ", ev.reason)
+          raise(error.new(
+            error.kinds.protocol, concat("ws: a malformed handshake answer: ", ev.reason),
+          ))
         } else if(ev.type == "done" and head != null and head.status != 101){
           conn:close()
-          error(
+          raise(error.new(error.kinds.protocol, concat(
             "ws: the server answered ", string(head.status), " instead of 101"
-          )
+          ), {status: head.status}))
         }
       }
     }
     if(head.status != 101 or
       head.headers["sec-websocket-accept"] != accept_key(key)){
       conn:close()
-      error("ws: the server did not accept the WebSocket handshake")
+      raise(error.new(
+        error.kinds.protocol, "ws: the server did not accept the WebSocket handshake",
+      ))
     }
     // the reader has done its part; frames are read by the socket, starting
     // with whatever the reader already holds

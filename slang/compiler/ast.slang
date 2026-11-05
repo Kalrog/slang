@@ -105,11 +105,13 @@ for(let local name in keys(specs)){
 
 // node(type_name: string, fields: table, token?: table) -> Node
 // Makes fields a node of type type_name, in place, and returns it. Raises
-// for an unknown node type; the fields are not checked against [specs].
+// an error of kind argument for an unknown node type; the fields are not
+// checked against [specs].
 //   ast.node("Identifier", {value: "x"}, null)
 func ast.node(type_name, fields, token){
   if(metas[type_name] == null){
-    error("unknown AST node type: ", type_name)
+    raise(error.new(error.kinds.argument,
+      concat("unknown AST node type: ", type_name)))
   }
   fields.type = type_name
   if(token != null){
@@ -190,8 +192,8 @@ func ast.requires(node){
 }
 
 // literal(token: table?, value) -> Node
-// The node for a string, int, double, bool or null value; raises for any
-// other type.
+// The node for a string, int, double, bool or null value; raises an error
+// of kind argument for any other type.
 func ast.literal(token, value){
   local t = type(value)
   if(t == "string"){
@@ -212,7 +214,8 @@ func ast.literal(token, value){
   if(value == null){
     return ast.node("Null", {}, token)
   }
-  error("cannot make a literal from a ", t)
+  raise(error.new(error.kinds.argument,
+    concat("cannot make a literal from a ", t)))
 }
 
 // the value of the hex digits in literal[from, to), or null
@@ -239,7 +242,7 @@ local func hex_value(literal, from, to){
 // resolve_escapes(literal: string) -> string
 // The text of a string literal's body with its escape sequences replaced:
 // \n \r \t \b \f \v \\ \" and \xHH (a byte), \u{H...} (a code point,
-// as UTF-8). Raises on any other escape.
+// as UTF-8). Raises an error of kind syntax on any other escape.
 //   ast.resolve_escapes("a\\nb")   // "a", a newline, "b"
 func ast.resolve_escapes(literal){
   if(str.index_of(literal, "\\") < 0){
@@ -256,7 +259,8 @@ func ast.resolve_escapes(literal){
       }
       i = i + 1
       if(i >= n){
-        error("Invalid escape sequence at the end of the string")
+        raise(error.new(error.kinds.syntax,
+          "Invalid escape sequence at the end of the string"))
       }
       local c = str.char_at(literal, i)
       if(c == "n"){
@@ -281,7 +285,7 @@ func ast.resolve_escapes(literal){
         // \xHH: one byte
         local v = hex_value(literal, i + 1, i + 3)
         if(v == null){
-          error("\\x needs two hex digits")
+          raise(error.new(error.kinds.syntax, "\\x needs two hex digits"))
         }
         append(pieces, str.from_bytes({v}))
         i = i + 2
@@ -294,12 +298,14 @@ func ast.resolve_escapes(literal){
           v = hex_value(literal, i + 2, close)
         }
         if(v == null or v > 1114111 or (v >= 55296 and v <= 57343)){
-          error("\\u needs a code point in braces, like \\u{e9}")
+          raise(error.new(error.kinds.syntax,
+            "\\u needs a code point in braces, like \\u{e9}"))
         }
         append(pieces, utf8.char(v))
         i = close
       } else {
-        error("Invalid escape sequence \\", c)
+        raise(error.new(error.kinds.syntax,
+          concat("Invalid escape sequence \\", c)))
       }
       i = i + 1
       start = i
@@ -336,7 +342,8 @@ func ast.quote(node){
   }
   local spec = specs[node.type]
   if(spec == null){
-    error("cannot quote unknown node type: ", node.type)
+    raise(error.new(error.kinds.argument,
+      concat("cannot quote unknown node type: ", node.type)))
   }
   local token = node.token
   local fields = {}
@@ -409,7 +416,7 @@ func ast.attach_token(node, token){
   }
   local spec = specs[node.type]
   if(spec == null){
-    error("not an AST node: ", node)
+    raise(error.new(error.kinds.argument, concat("not an AST node: ", node)))
   }
   if(node.token == null){
     node.token = token
@@ -434,7 +441,7 @@ func ast.attach_token(node, token){
 // The node an extension's parser or callback produced: a node; a
 // {token, ast} pair, whose token goes to every node of ast that has none
 // (see [attach_token]); or a plain table in node shape, which gets its
-// metatable. Raises for anything else.
+// metatable. Raises an error of kind argument for anything else.
 func ast.decode(value){
   if(value == null){
     return null
@@ -448,10 +455,11 @@ func ast.decode(value){
       value.@meta = metas[value.type]
       return value
     }
-    error("Invalid AST value: ", value)
+    raise(error.new(error.kinds.argument, concat("Invalid AST value: ", value)))
   }
   if(specs[value.type] == null){
-    error("Invalid AST node type: ", value.type)
+    raise(error.new(error.kinds.argument,
+      concat("Invalid AST node type: ", value.type)))
   }
   return value
 }
@@ -795,7 +803,8 @@ func writer.visit(self, node){
     self:visit(node.ast)
     self:add("}")
   } else {
-    error("to_string: unknown node type ", t)
+    raise(error.new(error.kinds.argument,
+      concat("to_string: unknown node type ", t)))
   }
 }
 
@@ -1019,7 +1028,8 @@ func source.expr(self, node){
   } else if(t == "Unquote"){
     self:quoted("-{", node)
   } else {
-    error("to_source: not an expression: ", t)
+    raise(error.new(error.kinds.argument,
+      concat("to_source: not an expression: ", t)))
   }
 }
 
@@ -1102,7 +1112,8 @@ func source.pattern(self, node){
       self:pattern(node.sub)
     }
   } else {
-    error("to_source: not a pattern: ", t)
+    raise(error.new(error.kinds.argument,
+      concat("to_source: not a pattern: ", t)))
   }
 }
 
@@ -1259,7 +1270,8 @@ func source.statement(self, node){
   } else if(t == "Unquote"){
     self:quoted("-{", node)
   } else {
-    error("to_source: not a statement: ", t)
+    raise(error.new(error.kinds.argument,
+      concat("to_source: not a statement: ", t)))
   }
 }
 

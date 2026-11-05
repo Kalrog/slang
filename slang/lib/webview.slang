@@ -124,22 +124,25 @@ local func web_request(r){
 
 local func serve(app, request, task){
   async.run(func(){
-    local r = pcall(func(){
+    local failed = null
+    try {
       local res = async.await(app:handle(web_request(request)))
       local body = res.body
       if(type(body) == "async.Stream"){
         body = str.join(async.await(body:collect()), "")
       }
       task:respond(res.status, res.headers, body)
-    })
-    if(r[0] == "err"){
-      pcall(func(){
+    } catch(local e) {
+      failed = e
+    }
+    if(failed != null){
+      try {
         task:respond(
           500,
           {["Content-Type"]: "text/plain"},
-          concat("internal error: ", r[1].message or string(r[1])),
+          concat("internal error: ", failed.message),
         )
-      })
+      } catch {}
     }
   })
 }
@@ -181,34 +184,39 @@ func webview.window(options){
 // a raw message from the page: a call to answer or a value for the
 // on_message handlers; text that is not a JSON object is ignored
 receive = func(w, text){
-  local r = pcall(json.decode, text)
-  if(r[0] == "err" or type(r[1]) != "table"){
+  local m = try { json.decode(text) } catch { null }
+  if(type(m) != "table"){
     return null
   }
-  local m = r[1]
   if(m.type == "call"){
     local f = w.binds[m.name]
     async.run(func(){
-      local res = pcall(func(){
+      local v = null
+      local failed = null
+      try {
         if(f == null){
-          error(concat("no slang function is bound as ", string(m.name)))
+          raise(error.new(
+            error.kinds.not_found, concat("no slang function is bound as ", string(m.name)),
+            {name: m.name},
+          ))
         }
         local args = m.args or {}
-        local v = f(...args)
+        v = f(...args)
         if(type(v) == "async.Future"){
           v = async.await(v)
         }
-        return v
-      })
+      } catch(local e) {
+        failed = e
+      }
       if(not w.handle:is_open()){
         return null
       }
-      if(res[0] == "ok"){
+      if(failed == null){
         w.handle:eval(concat(
-          "slang._resolve(", string(m.id), ", true, ", json.encode(res[1]), ")"
+          "slang._resolve(", string(m.id), ", true, ", json.encode(v), ")"
         ))
       } else {
-        local msg = res[1].message or string(res[1])
+        local msg = failed.message
         w.handle:eval(concat(
           "slang._resolve(", string(m.id), ", false, ", json.encode(msg), ")"
         ))
@@ -216,7 +224,7 @@ receive = func(w, text){
     })
   } else if(m.type == "message"){
     for(let local h in values(w.handlers)){
-      pcall(h, m.data)
+      try { h(m.data) } catch {}
     }
   }
 }

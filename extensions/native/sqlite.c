@@ -106,7 +106,7 @@ static db *check_db(slang_State *S, int idx) {
     db **box = slang_checkudata(S, idx, db_tname);
     if (box == NULL) return NULL;
     if ((*box)->handle == NULL) {
-        slang_error(S, "sqlite: the database is closed");
+        slang_errorkind(S, "closed", "sqlite: the database is closed");
         return NULL;
     }
     return *box;
@@ -116,18 +116,18 @@ static stmt *check_stmt(slang_State *S, int idx) {
     stmt **box = slang_checkudata(S, idx, stmt_tname);
     if (box == NULL) return NULL;
     if ((*box)->handle == NULL) {
-        slang_error(S, "sqlite: the statement is finalized");
+        slang_errorkind(S, "closed", "sqlite: the statement is finalized");
         return NULL;
     }
     if ((*box)->busy) {
-        slang_error(S, "sqlite: the statement is in use by a query that has not finished");
+        slang_errorkind(S, "state", "sqlite: the statement is in use by a query that has not finished");
         return NULL;
     }
     return *box;
 }
 
 static int db_error(slang_State *S, sqlite3 *h) {
-    return slang_error(S, "sqlite: %s", sqlite3_errmsg(h));
+    return slang_errorkind(S, "database", "sqlite: %s", sqlite3_errmsg(h));
 }
 
 /* ---- database ---- */
@@ -138,7 +138,7 @@ static int l_open(slang_State *S) {
     sqlite3 *h = NULL;
     int rc = sqlite3_open_v2(path, &h, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, NULL);
     if (rc != SQLITE_OK) {
-        slang_error(S, "sqlite: cannot open %s: %s", path, h ? sqlite3_errmsg(h) : "out of memory");
+        slang_errorkind(S, "database", "sqlite: cannot open %s: %s", path, h ? sqlite3_errmsg(h) : "out of memory");
         if (h) sqlite3_close(h);
         return SLANG_ERROR;
     }
@@ -157,7 +157,7 @@ static int db_exec(slang_State *S) {
     if (sql == NULL) return SLANG_ERROR;
     char *err = NULL;
     if (sqlite3_exec(d->handle, sql, NULL, NULL, &err) != SQLITE_OK) {
-        slang_error(S, "sqlite: %s", err ? err : "error");
+        slang_errorkind(S, "database", "sqlite: %s", err ? err : "error");
         sqlite3_free(err);
         return SLANG_ERROR;
     }
@@ -172,7 +172,7 @@ static int db_prepare(slang_State *S) {
     if (sql == NULL) return SLANG_ERROR;
     sqlite3_stmt *h = NULL;
     if (sqlite3_prepare_v2(d->handle, sql, (int)len, &h, NULL) != SQLITE_OK) return db_error(S, d->handle);
-    if (h == NULL) return slang_error(S, "sqlite: no statement in the text");
+    if (h == NULL) return slang_errorkind(S, "argument", "sqlite: no statement in the text");
     stmt *s = calloc(1, sizeof(stmt));
     s->handle = h;
     s->owner = d;
@@ -194,7 +194,7 @@ static int db_prepare(slang_State *S) {
 static int db_close(slang_State *S) {
     db **box = slang_checkudata(S, 1, db_tname);
     if (box == NULL) return SLANG_ERROR;
-    if ((*box)->busy > 0) return slang_error(S, "sqlite: cannot close the database while queries are running");
+    if ((*box)->busy > 0) return slang_errorkind(S, "state", "sqlite: cannot close the database while queries are running");
     db_shutdown(*box);
     return 0;
 }
@@ -244,12 +244,12 @@ static int bind_value(slang_State *S, stmt *s, int i, int idx) {
             rc = sqlite3_bind_blob64(s->handle, i, bytes, (sqlite3_uint64)len, SQLITE_TRANSIENT);
             break;
         }
-        return slang_error(S, "sqlite: cannot bind a %s (parameter %d)", slang_typename(slang_type(S, idx)), i);
+        return slang_errorkind(S, "argument", "sqlite: cannot bind a %s (parameter %d)", slang_typename(slang_type(S, idx)), i);
     }
     default:
-        return slang_error(S, "sqlite: cannot bind a %s (parameter %d)", slang_typename(slang_type(S, idx)), i);
+        return slang_errorkind(S, "argument", "sqlite: cannot bind a %s (parameter %d)", slang_typename(slang_type(S, idx)), i);
     }
-    if (rc != SQLITE_OK) return slang_error(S, "sqlite: parameter %d: %s", i, sqlite3_errmsg(s->owner->handle));
+    if (rc != SQLITE_OK) return slang_errorkind(S, "database", "sqlite: parameter %d: %s", i, sqlite3_errmsg(s->owner->handle));
     return SLANG_OK;
 }
 
@@ -273,7 +273,7 @@ static int stmt_bind_all(slang_State *S) {
      * list's length) */
     int64_t n = slang_isint(S, 3) ? slang_toint(S, 3) : slang_rawlen(S, 2);
     int expected = sqlite3_bind_parameter_count(s->handle);
-    if (n != expected) return slang_error(S, "sqlite: %d parameter(s) expected, %d given", expected, (int)n);
+    if (n != expected) return slang_errorkind(S, "argument", "sqlite: %d parameter(s) expected, %d given", expected, (int)n);
     for (int64_t i = 0; i < n; i++) {
         slang_rawgeti(S, 2, i);
         int rc = bind_value(S, s, (int)i + 1, -1);
@@ -296,7 +296,7 @@ static int stmt_step(slang_State *S) {
         slang_pushbool(S, false);
         return 1;
     }
-    slang_error(S, "sqlite: %s", sqlite3_errmsg(s->owner->handle));
+    slang_errorkind(S, "database", "sqlite: %s", sqlite3_errmsg(s->owner->handle));
     sqlite3_reset(s->handle);
     return SLANG_ERROR;
 }
@@ -375,7 +375,7 @@ static int stmt_reset(slang_State *S) {
 static int stmt_finalize_m(slang_State *S) {
     stmt **box = slang_checkudata(S, 1, stmt_tname);
     if (box == NULL) return SLANG_ERROR;
-    if ((*box)->busy) return slang_error(S, "sqlite: the statement is in use by a query that has not finished");
+    if ((*box)->busy) return slang_errorkind(S, "state", "sqlite: the statement is in use by a query that has not finished");
     stmt_drop(*box);
     return 0;
 }
@@ -451,7 +451,13 @@ static void query_work(void *data) {
 static int query_push(slang_State *S, void *data) {
     query_job *j = data;
     if (j->err != NULL) {
+        /* the error as slang code catches it: {kind, message} */
+        slang_newtable(S);
+        int t = slang_gettop(S);
+        slang_pushstring(S, "database");
+        slang_setfield(S, t, "kind");
         slang_pushfstring(S, "sqlite: %s", j->err);
+        slang_setfield(S, t, "message");
         slang_pushnull(S);
         return 2;
     }
@@ -507,7 +513,7 @@ static const slang_uv_api *get_uv_api(slang_State *S) {
     slang_getfield(S, -1, "c_api");
     uv_api = slang_uv_get(S, -1);
     slang_settop(S, top);
-    if (uv_api == NULL) slang_error(S, "sqlite: the uv extension does not offer a compatible C API");
+    if (uv_api == NULL) slang_errorkind(S, "unsupported", "sqlite: the uv extension does not offer a compatible C API");
     return uv_api;
 }
 

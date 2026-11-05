@@ -87,12 +87,12 @@ local func find_joltc(){
       }
     }
   }
-  error(
+  raise(error.new(error.kinds.unsupported, concat(
     "jolt: no joltc for ",
     os.platform(),
     " (the package ships macOS and ",
     "Linux builds; tool/build.sh builds one, JOLT_PREFIX names another)",
-  )
+  ), {platform: os.platform()}))
 }
 
 local where = find_joltc()
@@ -222,7 +222,8 @@ local func release(p, destroy){
 local func struct_type(name){
   local t = C.types[name]
   if(t == null){
-    error("jolt: joltc.h has no ", name)
+    raise(error.new(error.kinds.not_found,
+      concat("jolt: joltc.h has no ", name), {name: name}))
   }
   return t
 }
@@ -278,7 +279,8 @@ fill = func(p, t, values, what){
         fill(p.base, base.type, {[k]: v}, what)
         continue
       }
-      error(what, ": ", t.name, " has no field ", k)
+      raise(error.new(error.kinds.argument,
+        concat(what, ": ", t.name, " has no field ", k)))
     }
     if(f.type.kind == "struct" and type(v) == "table" and not is_list(v)){
       fill(p[k], f.type, v, what)
@@ -319,7 +321,7 @@ local func apply_setters(p, prefixes, options, what, skip){
       }
     }
     if(c == null){
-      error(what, ": no setter for ", k)
+      raise(error.new(error.kinds.argument, concat(what, ": no setter for ", k)))
     }
     local decl = C.functions[c]
     local v = unwrap(e[1], decl.params[1].type)
@@ -530,13 +532,15 @@ func classes.method(links, key){
         local hint = concat("assign the property (x.", name, " = v)")
         return func(self, v, ...more){
           if(len(more) == 0){
-            error("jolt: ", key, " with one value is gone: ", hint)
+            raise(error.new(error.kinds.unsupported,
+              concat("jolt: ", key, " with one value is gone: ", hint)))
           }
           return f(self, v, ...more)
         }
       }
       if(pre != "set_" and n == 0){
-        error("jolt: ", key, " is gone: read the property (x.", name, ")")
+        raise(error.new(error.kinds.unsupported, concat(
+          "jolt: ", key, " is gone: read the property (x.", name, ")")))
       }
       return bind_method(found, key)
     }
@@ -688,7 +692,7 @@ local Body = define_class("Body", {
     suffix: "body",
     lead: func(self){
       if(self.world.system == null){
-        error("jolt: a body of a destroyed world")
+        raise(error.new(error.kinds.closed, "jolt: a body of a destroyed world"))
       }
       return {self.world.body_interface, self.id}
     },
@@ -705,7 +709,7 @@ local Body = define_class("Body", {
 // for use between steps)
 body_cptr = func(body){
   if(body.world.system == null){
-    error("jolt: a body of a destroyed world")
+    raise(error.new(error.kinds.closed, "jolt: a body of a destroyed world"))
   }
   return lib.JPH_PhysicsSystem_GetBodyPtr(body.world.system, body.id)
 }
@@ -803,7 +807,8 @@ local func shape_from_settings(settings, create, kind){
   local shape = shape_wrapper(create(settings), kind, true)
   release(settings, lib.JPH_ShapeSettings_Destroy)
   if(shape == null){
-    error("jolt: Jolt could not make the ", kind, " shape")
+    raise(error.new(error.kinds.argument,
+      concat("jolt: Jolt could not make the ", kind, " shape")))
   }
   return shape
 }
@@ -1230,7 +1235,8 @@ func jolt.world(options){
 
 local func check_world(w, what){
   if(w.system == null){
-    error("jolt: ", what, " on a destroyed world")
+    raise(error.new(error.kinds.closed,
+      concat("jolt: ", what, " on a destroyed world")))
   }
 }
 
@@ -1263,7 +1269,8 @@ func world_methods.step(w, dt, collision_steps){
 // in the last step, for a world made with contact_events.
 func world_methods.contact_events(w){
   if(w.contacts == null){
-    error("jolt: contact_events needs a world made with contact_events")
+    raise(error.new(error.kinds.state,
+      "jolt: contact_events needs a world made with contact_events"))
   }
   return w.contacts
 }
@@ -1329,7 +1336,8 @@ func world_methods.create_body(w, def){
   if(type(motion) == "string"){
     motion = motions[motion]
     if(motion == null){
-      error("jolt.create_body: motion is static, kinematic or dynamic")
+      raise(error.new(error.kinds.argument,
+        "jolt.create_body: motion is static, kinematic or dynamic"))
     }
   }
   local is_static = motion == motions.static
@@ -1341,7 +1349,7 @@ func world_methods.create_body(w, def){
     }
   }
   if(def.shape == null){
-    error("jolt.create_body: a body needs a shape")
+    raise(error.new(error.kinds.argument, "jolt.create_body: a body needs a shape"))
   }
   local settings = owned(lib.JPH_BodyCreationSettings_Create3(
     unwrap(def.shape), def.position or {0, 0, 0}, def.rotation or {0, 0, 0, 1},
@@ -1569,14 +1577,16 @@ local func with_locked(w, body1, body2, f){
   } else if(body2 != null){
     second = locks[0].body
   }
-  local r = pcall(f, locks[0].body, second)
+  local outcome = try { {value: f(locks[0].body, second)} } catch(local e) {
+    {error: e}
+  }
   for(local i = len(locks) - 1; i >= 0; i = i - 1){
     lib.JPH_BodyLockInterface_UnlockWrite(w.lock_interface, locks[i])
   }
-  if(r[0] == "err"){
-    error(r[1].message)
+  if(outcome.error != null){
+    raise(outcome.error)
   }
-  return r[1]
+  return outcome.value
 }
 
 local func register_constraint(w, c){
@@ -1608,11 +1618,13 @@ func world_methods.create_constraint(w, def){
   local kind = def.type
   local prefix = constraint_kinds[kind]
   if(prefix == null){
-    error("jolt.create_constraint: type is fixed, distance, point, hinge, ",
-      "slider, cone, swing_twist, six_dof or gear")
+    raise(error.new(error.kinds.argument, concat(
+      "jolt.create_constraint: type is fixed, distance, point, hinge, ",
+      "slider, cone, swing_twist, six_dof or gear")))
   }
   if(def.body1 == null){
-    error("jolt.create_constraint: a constraint needs body1")
+    raise(error.new(error.kinds.argument,
+      "jolt.create_constraint: a constraint needs body1"))
   }
   local settings_name = concat("JPH_", prefix, "Settings")
   local fields = {}
@@ -1628,7 +1640,8 @@ func world_methods.create_constraint(w, def){
     return create(settings, b1, b2)
   })
   if(p == null){
-    error("jolt.create_constraint: Jolt could not make the ", kind, " constraint")
+    raise(error.new(error.kinds.argument, concat(
+      "jolt.create_constraint: Jolt could not make the ", kind, " constraint")))
   }
   lib.JPH_PhysicsSystem_AddConstraint(w.system, p)
   return register_constraint(w, {
@@ -1740,8 +1753,9 @@ local func collision_tester(td){
       layer, td.convex_radius_fraction or 0.05
     )
   } else {
-    error("jolt.create_vehicle: collision_tester.type is ray, cast_sphere ",
-      "or cast_cylinder")
+    raise(error.new(error.kinds.argument, concat(
+      "jolt.create_vehicle: collision_tester.type is ray, cast_sphere ",
+      "or cast_cylinder")))
   }
   return owned(p, lib.JPH_VehicleCollisionTester_Destroy)
 }
@@ -1753,11 +1767,12 @@ func world_methods.create_vehicle(w, def){
   check_world(w, "create_vehicle")
   local body = def.body
   if(wrapper_class(body) == null or body.id == null){
-    error("jolt.create_vehicle: body must be a Body")
+    raise(error.new(error.kinds.argument, "jolt.create_vehicle: body must be a Body"))
   }
   local kind = def.controller or "wheeled"
   if(controller_classes[kind] == null){
-    error("jolt.create_vehicle: controller is wheeled, motorcycle or tracked")
+    raise(error.new(error.kinds.argument,
+      "jolt.create_vehicle: controller is wheeled, motorcycle or tracked"))
   }
   local keep = {}
   local what = "jolt.create_vehicle"
@@ -1765,7 +1780,7 @@ func world_methods.create_vehicle(w, def){
   local wheel_defs = def.wheels or {}
   local n = len(wheel_defs)
   if(n == 0){
-    error(what, ": a vehicle needs wheels")
+    raise(error.new(error.kinds.argument, concat(what, ": a vehicle needs wheels")))
   }
   local wheel_ptrs = ffi.new("JPH_WheelSettings *", n, C)
   for(local i = 0; i < n; i = i + 1){
@@ -1876,7 +1891,8 @@ func world_methods.create_vehicle(w, def){
     return lib.JPH_VehicleConstraint_Create(b1, vs)
   })
   if(p == null){
-    error(what, ": Jolt could not make the vehicle")
+    raise(error.new(error.kinds.argument,
+      concat(what, ": Jolt could not make the vehicle")))
   }
   local tester = collision_tester(def.collision_tester)
   lib.JPH_VehicleConstraint_SetVehicleCollisionTester(p, tester)
@@ -1996,7 +2012,7 @@ local func character_settings(name, def, what){
     }
   }
   if(fields.shape == null){
-    error(what, ": a character needs a shape")
+    raise(error.new(error.kinds.argument, concat(what, ": a character needs a shape")))
   }
   return new_settings(name, fields, what)
 }
@@ -2016,7 +2032,8 @@ func world_methods.create_character(w, def){
     def.user_data or 0, w.system
   )
   if(p == null){
-    error(what, ": Jolt could not make the character")
+    raise(error.new(error.kinds.argument,
+      concat(what, ": Jolt could not make the character")))
   }
   local c = {ptr: p, world: w, shape: def.shape, added: false, @meta: Character.@meta}
   if(def.add != false){
@@ -2053,7 +2070,8 @@ func world_methods.create_character_virtual(w, def){
     def.user_data or 0, w.system
   )
   if(p == null){
-    error(what, ": Jolt could not make the character")
+    raise(error.new(error.kinds.argument,
+      concat(what, ": Jolt could not make the character")))
   }
   local c = {ptr: p, world: w, shape: def.shape, @meta: CharacterVirtual.@meta}
   w.characters[ffi.address(p)] = c
@@ -2303,7 +2321,7 @@ func jolt.height_field(samples, options){
 local func add_sub_shapes(settings, children, what){
   for(let local c in values(children)){
     if(c.shape == null){
-      error(what, ": each part needs a shape")
+      raise(error.new(error.kinds.argument, concat(what, ": each part needs a shape")))
     }
     lib.JPH_CompoundShapeSettings_AddShape2(
       settings, c.position or {0, 0, 0}, c.rotation or {0, 0, 0, 1},

@@ -50,13 +50,18 @@
 static const char *key_tname = "crypto.key";
 static const char *hasher_tname = "crypto.hasher";
 
-/* raises "crypto: <what>: <openssl's reason>" and clears the error queue */
-static int ssl_error(slang_State *S, const char *what) {
+/* raises "crypto: <what>: <openssl's reason>" of a kind and clears the
+ * error queue */
+static int ssl_error_kind(slang_State *S, const char *kind, const char *what) {
     unsigned long e = ERR_get_error();
     char buf[256] = "unknown error";
     if (e != 0) ERR_error_string_n(e, buf, sizeof buf);
     ERR_clear_error();
-    return slang_error(S, "crypto: %s: %s", what, buf);
+    return slang_errorkind(S, kind, "crypto: %s: %s", what, buf);
+}
+
+static int ssl_error(slang_State *S, const char *what) {
+    return ssl_error_kind(S, "error", what);
 }
 
 static EVP_MD *fetch_md(slang_State *S, int idx) {
@@ -65,7 +70,7 @@ static EVP_MD *fetch_md(slang_State *S, int idx) {
     EVP_MD *md = EVP_MD_fetch(NULL, name, NULL);
     if (md == NULL) {
         ERR_clear_error();
-        slang_error(S, "crypto: unknown digest %s", name);
+        slang_errorkind(S, "argument", "crypto: unknown digest %s", name);
     }
     return md;
 }
@@ -163,7 +168,7 @@ static hasher *check_hasher(slang_State *S) {
     hasher *h = slang_checkudata(S, 1, hasher_tname);
     if (h == NULL) return NULL;
     if (h->done) {
-        slang_error(S, "crypto: the hasher has already given its digest");
+        slang_errorkind(S, "state", "crypto: the hasher has already given its digest");
         return NULL;
     }
     return h;
@@ -292,7 +297,7 @@ static kdf_job *scrypt_args(slang_State *S) {
     }
     if (n < 2 || (n & (n - 1)) != 0 || r < 1 || p < 1) {
         kdf_free(j);
-        slang_error(S, "crypto: scrypt: n must be a power of two above 1, r and p positive");
+        slang_errorkind(S, "argument", "crypto: scrypt: n must be a power of two above 1, r and p positive");
         return NULL;
     }
     j->n = (uint64_t)n;
@@ -305,7 +310,7 @@ static int kdf_sync(slang_State *S, kdf_job *j) {
     if (j == NULL) return SLANG_ERROR;
     kdf_run(j);
     if (!j->ok) {
-        slang_error(S, "%s", j->err);
+        slang_errorkind(S, "argument", "%s", j->err);
         kdf_free(j);
         return SLANG_ERROR;
     }
@@ -342,7 +347,7 @@ static const slang_uv_api *get_uv_api(slang_State *S) {
     slang_getfield(S, -1, "c_api");
     uv_api = slang_uv_get(S, -1);
     slang_settop(S, top);
-    if (uv_api == NULL) slang_error(S, "crypto: the uv extension does not offer a compatible C API");
+    if (uv_api == NULL) slang_errorkind(S, "unsupported", "crypto: the uv extension does not offer a compatible C API");
     return uv_api;
 }
 
@@ -388,13 +393,13 @@ static EVP_CIPHER_CTX *aead_init(slang_State *S, int encrypt) {
         return NULL;
     }
     if ((int)klen != EVP_CIPHER_get_key_length(c)) {
-        slang_error(S, "crypto: %s needs a %d-byte key, got %d bytes", EVP_CIPHER_get0_name(c),
+        slang_errorkind(S, "argument", "crypto: %s needs a %d-byte key, got %d bytes", EVP_CIPHER_get0_name(c),
                     EVP_CIPHER_get_key_length(c), (int)klen);
         EVP_CIPHER_free(c);
         return NULL;
     }
     if (ivlen < 8 || ivlen > 64) {
-        slang_error(S, "crypto: the iv must be 8 to 64 bytes (12 is usual), got %d", (int)ivlen);
+        slang_errorkind(S, "argument", "crypto: the iv must be 8 to 64 bytes (12 is usual), got %d", (int)ivlen);
         EVP_CIPHER_free(c);
         return NULL;
     }
@@ -506,7 +511,7 @@ static int l_private_key(slang_State *S) {
     BIO *bio = BIO_new_mem_buf(pem, (int)len);
     EVP_PKEY *pkey = PEM_read_bio_PrivateKey(bio, NULL, NULL, (void *)(pass ? pass : ""));
     BIO_free(bio);
-    if (pkey == NULL) return ssl_error(S, "private_key");
+    if (pkey == NULL) return ssl_error_kind(S, "format", "private_key");
     push_key(S, pkey, 1);
     return 1;
 }
@@ -519,7 +524,7 @@ static int l_public_key(slang_State *S) {
     BIO *bio = BIO_new_mem_buf(pem, (int)len);
     EVP_PKEY *pkey = PEM_read_bio_PUBKEY(bio, NULL, NULL, NULL);
     BIO_free(bio);
-    if (pkey == NULL) return ssl_error(S, "public_key");
+    if (pkey == NULL) return ssl_error_kind(S, "format", "public_key");
     push_key(S, pkey, 0);
     return 1;
 }
@@ -601,7 +606,7 @@ static int key_public_pem(slang_State *S) {
 static int key_private_pem(slang_State *S) {
     key *k = check_key(S, 1);
     if (k == NULL) return SLANG_ERROR;
-    if (!k->is_private) return slang_error(S, "crypto: private_pem: this is a public key");
+    if (!k->is_private) return slang_errorkind(S, "argument", "crypto: private_pem: this is a public key");
     BIO *bio = BIO_new(BIO_s_mem());
     if (!PEM_write_bio_PrivateKey(bio, k->pkey, NULL, NULL, 0, NULL, NULL)) {
         BIO_free(bio);
@@ -677,7 +682,7 @@ static int key_sign(slang_State *S) {
     size_t len = 0;
     const char *data = slang_checklstring(S, 3, &len);
     if (k == NULL || data == NULL) return SLANG_ERROR;
-    if (!k->is_private) return slang_error(S, "crypto: sign needs a private key");
+    if (!k->is_private) return slang_errorkind(S, "argument", "crypto: sign needs a private key");
     int pss, raw;
     sign_options(S, 4, &pss, &raw);
     EVP_MD_CTX *ctx = sign_ctx(S, k, 2, pss, 1);

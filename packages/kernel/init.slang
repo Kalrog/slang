@@ -32,11 +32,11 @@ local vm = require("kernel/vm")
 // the compiler and the interpreter must agree on the opcodes
 local names = vm.op_names()
 if(len(names) != len(compiler.OPS)){
-  error("kernel: the compiler and kernel/vm disagree on the opcodes (rebuild with tool/build.sh)")
+  raise(error.new(error.kinds.error, "kernel: the compiler and kernel/vm disagree on the opcodes (rebuild with tool/build.sh)"))
 }
 for(local i = 0; i < len(names); i = i + 1){
   if(names[i] != compiler.OPS[i]){
-    error(concat("kernel: opcode ", string(i), " is ", names[i], " in kernel/vm and ", compiler.OPS[i], " in the compiler (rebuild with tool/build.sh)"))
+    raise(error.new(error.kinds.error, concat("kernel: opcode ", string(i), " is ", names[i], " in kernel/vm and ", compiler.OPS[i], " in the compiler (rebuild with tool/build.sh)")))
   }
 }
 
@@ -64,11 +64,11 @@ local func struct_type(s){
   }
   ct.define(t, fields)
   if(ct.sizeof(t) != s.size){
-    error(concat("kernel: struct ", s.name, " is ", string(ct.sizeof(t)), " bytes in slang/ctypes and ", string(s.size), " in the compiler"))
+    raise(error.new(error.kinds.error, concat("kernel: struct ", s.name, " is ", string(ct.sizeof(t)), " bytes in slang/ctypes and ", string(s.size), " in the compiler")))
   }
   for(let local f in values(s.fields)){
     if(ct.offsetof(t, f.name) != f.offset){
-      error(concat("kernel: ", s.name, ".", f.name, " is at different offsets in slang/ctypes and the compiler"))
+      raise(error.new(error.kinds.error, concat("kernel: ", s.name, ".", f.name, " is at different offsets in slang/ctypes and the compiler")))
     }
   }
   return t

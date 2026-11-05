@@ -86,7 +86,7 @@ t.group("uv"){
     assert(str.join(replies, "") == "echo: hello", str.join(replies, "|"))
     assert(not uv.loop_alive())
   }
-  t.test("connection errors arrive as strings"){
+  t.test("connection errors arrive as error tables"){
     local client = uv.tcp()
     local got = null
     client:connect("127.0.0.1", 1, func(err){
@@ -95,8 +95,9 @@ t.group("uv"){
     })
     uv.run()
     assert(
-      type(got) == "string" and str.index_of(got, "ECONNREFUSED") == 0,
-      concat("error: ", got),
+      got.kind == "network" and got.code == "ECONNREFUSED" and
+        str.index_of(got.message, "ECONNREFUSED") == 0,
+      error.message(got),
     )
   }
   t.test("an error in a callback comes out of uv.run"){
@@ -170,7 +171,7 @@ t.group("uv: files, names, processes, signals, poll"){
                 )
                 uv.fs_unlink(concat(scratch, "/b.txt"), func(err){
                   uv.fs_stat(concat(scratch, "/b.txt"), func(err, st){
-                    append(log, concat("gone ", str.substring(err, 0, 6)))
+                    append(log, concat("gone ", err.code))
                   })
                 })
               })
@@ -193,11 +194,13 @@ t.group("uv: files, names, processes, signals, poll"){
     uv.fs_read_file(concat(scratch, "/missing"), func(err, data){ got = err })
     uv.run()
     assert(
-      got == concat(
+      got.message == concat(
         "ENOENT: no such file or directory, read_file '", scratch, "/missing'"
       ),
-      got,
+      got.message,
     )
+    assert(got.kind == "not_found" and got.code == "ENOENT")
+    assert(got.path == concat(scratch, "/missing"))
   }
   t.test("files: open, read and write at offsets, close"){
     local p = concat(scratch, "/c.txt")
@@ -231,7 +234,7 @@ t.group("uv: files, names, processes, signals, poll"){
     assert(
       ok[0].ip == "127.0.0.1" and ok[0].port == 8080 and ok[0].family == "ipv4",
     )
-    assert(str.starts_with(bad, "EAI_"), bad)
+    assert(str.starts_with(bad.code, "EAI_") and bad.kind == "network", bad.code)
   }
   t.test("spawn: pipes, exit status, environment, cwd"){
     local out = uv.pipe()

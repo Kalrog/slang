@@ -292,7 +292,16 @@ func asm.allocate_register(self){
   local register = self.used_registers
   self.used_registers = self.used_registers + 1
   if(self.used_registers > 255){
-    error("Too many registers")
+    // located at the code being generated, when it has a location yet
+    local fields = null
+    local n = len(self.locations)
+    if(n > 0){
+      local at = self.locations[n - 1]
+      fields = {
+        location: {origin: at[1], line: at[2], column: at[3]}, stack: "",
+      }
+    }
+    raise(error.new(error.kinds.compile, "Too many registers", fields))
   }
   if(self.used_registers > self.max_registers){
     self.max_registers = self.used_registers
@@ -302,7 +311,7 @@ func asm.allocate_register(self){
 
 func asm.free_register(self){
   if(self.used_registers == 0){
-    error("No registers to free")
+    raise(error.new(error.kinds.error, "No registers to free"))
   }
   self.used_registers = self.used_registers - 1
   return self.used_registers
@@ -328,7 +337,7 @@ func asm.index_of_constant(self, value){
     key = concat("b:", value)
     kind = "bool"
   } else {
-    error("Invalid constant: ", value)
+    raise(error.new(error.kinds.error, concat("Invalid constant: ", value)))
   }
   local index = self.constant_index[key]
   if(index != null){
@@ -381,7 +390,8 @@ func asm.emit_load_constant(self, value){
 func asm.emit_binop(self, op){
   local code = binops[op]
   if(code == null){
-    error("Unknown operator: \"", op, "\"")
+    raise(error.new(error.kinds.compile,
+      concat("Unknown operator: \"", op, "\"")))
   }
   self:emit(code)
 }
@@ -394,7 +404,7 @@ func asm.emit_unop(self, op){
   } else if(op == "~"){
     self:emit(OP_BNOT)
   } else {
-    error("Unknown operator: ", op)
+    raise(error.new(error.kinds.compile, concat("Unknown operator: ", op)))
   }
 }
 
@@ -501,7 +511,7 @@ func asm.emit_break(self){
     }
   }
   if(target == null){
-    error("Cannot break outside of a loop")
+    raise(error.new(error.kinds.compile, "Cannot break outside of a loop"))
   }
   append(target.break_jumps, self:emit_jump())
 }
@@ -964,7 +974,8 @@ func pattern_new(parent){
 
 func pat.complete_check_step(self){
   if(self.step != "check"){
-    error("Cannot complete check step after completing the assign step")
+    raise(error.new(error.kinds.error,
+      "Cannot complete check step after completing the assign step"))
   }
   self.step = "assign"
 }
@@ -1003,7 +1014,8 @@ func gen.visit(self, node){
   self.asm:set_location(node.token)
   local f = visitors[node.type]
   if(f == null){
-    error("codegen: unknown node type ", node.type)
+    raise(error.new(error.kinds.error,
+      concat("codegen: unknown node type ", node.type)))
   }
   f(self, node)
 }
@@ -1027,7 +1039,7 @@ local func compile_error(g, token, ...message){
   }
   local text = str.join(parts, "")
   if(token == null or token.line == null){
-    error(text)
+    raise(error.new(error.kinds.compile, text))
   }
   raise({
     kind: "compile",
@@ -1248,7 +1260,8 @@ func visitors.Assignment(g, node){
     g:visit(node.right)
     g.asm:emit_set_meta()
   } else {
-    error("Invalid assignment target: ", ast.to_string(left))
+    compile_error(g, left.token, "Invalid assignment target: ",
+      ast.to_string(left))
   }
 }
 
@@ -1330,7 +1343,8 @@ func visitors.Declaration(g, node){
     g:visit(node.right)
     g.asm:emit_set_table()
   } else {
-    error("Invalid assignment target: ", ast.to_string(left))
+    compile_error(g, left.token, "Invalid assignment target: ",
+      ast.to_string(left))
   }
 }
 

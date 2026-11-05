@@ -122,6 +122,27 @@ error.kinds = {
   let: "let",
   // a for-in element that does not match the loop's pattern
   ["for"]: "for",
+  // an operation the object's state does not allow now: a future that
+  // is already settled, a stream already being read, await outside an
+  // async function
+  state: "state",
+  // the other side broke a protocol: malformed HTTP, WebSocket or TLS
+  // data, a handshake refused
+  protocol: "protocol",
+  // an operation did not finish in time
+  timeout: "timeout",
+  // a feature this build or this library does not have
+  unsupported: "unsupported",
+  // a credential or signature did not verify: a token's signature, its
+  // expiry (with reason), a certificate
+  unauthorized: "unauthorized",
+  // the database reported an error (with code)
+  database: "database",
+  // an HTTP status to answer with (web.fail; with status)
+  http: "http",
+  // the network failed: a connection refused, reset or unreachable, a
+  // name that does not resolve (with code)
+  network: "network",
 }
 
 // raise(value: any)

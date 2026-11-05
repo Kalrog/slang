@@ -27,8 +27,8 @@ func module(mfunc){
 // The matcher protocol behind 'm patterns: calls the __match metamethod
 // of m with (m, v). Its result decides: null means v does not match;
 // anything else is what the rest of the pattern sees. Raises an error
-// when m has no __match metamethod (strings, numbers, functions and the
-// like never do).
+// of kind type when m has no __match metamethod (strings, numbers,
+// functions and the like never do).
 func __match(m, v){
   local t = type(m)
   local f = null
@@ -40,7 +40,8 @@ func __match(m, v){
     }
   }
   if(f == null){
-    error("'", t, " in a pattern: a matcher needs a __match metamethod")
+    raise(error.new(error.kinds.type,
+      concat("'", t, " in a pattern: a matcher needs a __match metamethod")))
   }
   return f(m, v)
 }
@@ -55,9 +56,8 @@ func run(rfunc){
 // ------------------------------------------------------------ errors
 //
 // error is the error library: its functions make and recognise errors,
-// and raise raises them (error(...values) still raises an error with the
-// values joined as its message, but is going away). An error is
-// a table {kind, message, cause?, location, stack, ...data}: kind is what
+// and raise raises them. An error is a table
+// {kind, message, cause?, location, stack, ...data}: kind is what
 // a program catches on (`catch({kind: "not_found"})`), message is for
 // people, cause the error it wraps; the VM adds location and stack where
 // it is raised. Errors have the metatable error.meta (a __tostring; no
@@ -173,6 +173,14 @@ error.kinds = {
   compile: "compile",
   let: "let",
   ["for"]: "for",
+  state: "state",
+  protocol: "protocol",
+  timeout: "timeout",
+  unsupported: "unsupported",
+  unauthorized: "unauthorized",
+  database: "database",
+  http: "http",
+  network: "network",
 }
 error.kinds.@meta = {
   __index: func(kinds, name){

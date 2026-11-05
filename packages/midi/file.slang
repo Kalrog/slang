@@ -20,7 +20,7 @@ local utf8 = require("slang/utf8")
 local midi = {}
 
 local func fail(path, why){
-  error(concat("midi: ", path, ": ", why))
+  raise(error.new(error.kinds.format, concat("midi: ", path, ": ", why), {path: path}))
 }
 
 // a reader over the bytes of the file

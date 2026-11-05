@@ -56,14 +56,16 @@ stdin:read_start(func(err, chunk){
     return
   }
   buffer = concat(buffer, chunk)
-  local r = pcall(lsp.frame, buffer)
-  if(r[0] == "err"){
-    log(concat("bad input: ", r[1].message or r[1]))
+  local framed = null
+  try {
+    framed = lsp.frame(buffer)
+  } catch(local e) {
+    log(concat("bad input: ", e.message))
     buffer = ""
     return
   }
-  buffer = r[1].rest
-  for(let local message in values(r[1].messages)){
+  buffer = framed.rest
+  for(let local message in values(framed.messages)){
     for(let local reply in values(server:handle(message))){
       send(reply)
     }

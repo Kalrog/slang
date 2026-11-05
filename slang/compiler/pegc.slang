@@ -119,7 +119,7 @@ func Gen.scan(self, roots){
       seen[p] = true
       for(let local c in values(children_of(p, self.grammar))){
         local t = target_of(c)
-        if(t == null){ error("pegc: unresolved reference in ", p.kind) }
+        if(t == null){ raise(error.new(error.kinds.error, concat("pegc: unresolved reference in ", p.kind))) }
         parents[t] = (parents[t] or 0) + 1
         append(stack, t)
       }
@@ -586,7 +586,7 @@ func Gen.emit_inline(self, p, mode, pos, r, v, t){
     self:resync()
     return
   }
-  error("pegc: cannot generate a ", k, " parser")
+  raise(error.new(error.kinds.unsupported, concat("pegc: cannot generate a ", k, " parser")))
 }
 
 // a keyword or punctuation token as the grammar's literal_token parses
@@ -1077,8 +1077,8 @@ func Gen.generate_walker(self, p, name, mode){
   local tree = mode == "tree"
   self:line(concat("// the expression walker: parse_at", if(tree){ "_tree" } else { "" }, "(ctx, pos, min_bp)"))
   local w = self.grammar.expression_walker
-  if(w == null or w.parser != p){ error("pegc: the expression parser is not the grammar's walker's") }
-  if(len(w.nuds) > 0 or len(w.leds) > 0){ error("pegc: engine entries (nud/led) are not supported") }
+  if(w == null or w.parser != p){ raise(error.new(error.kinds.error, "pegc: the expression parser is not the grammar's walker's")) }
+  if(len(w.nuds) > 0 or len(w.leds) > 0){ raise(error.new(error.kinds.unsupported, "pegc: engine entries (nud/led) are not supported")) }
   local sealed = w.sealed
   local nuds = sealed.nuds.all
   local leds = sealed.leds.all
@@ -1137,7 +1137,7 @@ func Gen.generate_walker(self, p, name, mode){
       append(lines, "return q")
       append(self.entry_fns, {name: fname, mode: mode, params: "ctx, pos", lines: lines})
     } else {
-      error("pegc: unknown nud kind ", e.kind)
+      raise(error.new(error.kinds.unsupported, concat("pegc: unknown nud kind ", e.kind)))
     }
   }
   local led_names = {}
@@ -1163,7 +1163,7 @@ func Gen.generate_walker(self, p, name, mode){
       if(tree){ append(lines, entry_node(e, "left_tree.start", "r", "{left_tree, op_tree, right_tree}")) }
       append(lines, "return r")
     } else {
-      error("pegc: unknown led form ", e.form)
+      raise(error.new(error.kinds.unsupported, concat("pegc: unknown led form ", e.form)))
     }
     append(self.entry_fns, {name: fname, mode: mode, params: "ctx, pos, left, left_tree", lines: lines})
   }
@@ -1330,7 +1330,7 @@ local func generate(g, options, tabled){
   for(let local name in keys(g.sealed)){
     local known = false
     for(let local n in values(rule_names)){ if(n == name){ known = true } }
-    if(not known){ error("pegc: the rule ", name, " is sealed but not in the grammar's rule order") }
+    if(not known){ raise(error.new(error.kinds.error, concat("pegc: the rule ", name, " is sealed but not in the grammar's rule order"))) }
   }
   self:scan(roots)
   // rules are named after themselves (an identifier made of the name)
@@ -1419,7 +1419,7 @@ local func generate(g, options, tabled){
     for(let local t in values(self.tables)){ if((t.mode == "tree") == group){ append(names, t.name) } }
     if(len(names) > 240 and not (group and self.tabled)){
       if(group){ return false }
-      error("pegc: ", len(names), " generated functions in one scope: more than a function's registers")
+      raise(error.new(error.kinds.unsupported, concat("pegc: ", len(names), " generated functions in one scope: more than a function's registers")))
     }
     if(group and self.tabled){
       append(out, concat(indent, "local G = {}"))
@@ -1473,7 +1473,7 @@ local func generate(g, options, tabled){
   // source it is the compiled form of (slang/seed_parsers.slang)
   result.embeddable = func(self){
     local marker = "return func(S, SPACE, TM, raw_leaf, parse_tree){"
-    if(not str.contains(self.source, marker)){ error("pegc: the module's entry was not found") }
+    if(not str.contains(self.source, marker)){ raise(error.new(error.kinds.error, "pegc: the module's entry was not found")) }
     return concat(
       "local M = {hash: ", quote(self.hash), "}\n",
       str.replace(self.source, marker, "M.make = func(S, SPACE, TM, raw_leaf, parse_tree){"),

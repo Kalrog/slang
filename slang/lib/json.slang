@@ -13,7 +13,7 @@
 // encoding, a table whose keys are 0..n-1 (or one marked with [array]) is
 // an array, any other table an object, which must have only string keys.
 // An empty table encodes as {} unless marked with [array]. Functions, NaN
-// and the infinities cannot be encoded and raise an error.
+// and the infinities cannot be encoded and raise an error of kind argument.
 local peg = require("slang/peg")
 local str = require("slang/string")
 local utf8 = require("slang/utf8")
@@ -133,19 +133,20 @@ value:set(peg.choice(
 local document = peg.seq(ws, value, ws, peg.end_of_input()):pick(1)
 
 // decode(text: string, origin?: string) -> any
-// The value of the JSON text. Raises "json: invalid JSON in <origin> at
-// line:col: ..." on malformed input. Decoded arrays carry the [array]
-// mark, so they encode as arrays again even when empty.
+// The value of the JSON text. Raises an error of kind format, "json:
+// invalid JSON in <origin> at line:col: ..." with fields line and column,
+// on malformed input. Decoded arrays carry the [array] mark, so they
+// encode as arrays again even when empty.
 // [origin]: names the text in error messages ("string" by default)
 func json.decode(text, origin){
   local r = peg.run(document, text)
   if(not r.ok){
     local lc = str.line_col(text, r.position)
-    error(
+    raise(error.new(error.kinds.format, concat(
       "json: invalid JSON in ", origin or "string", " at ", lc[0], ":", lc[1],
       ": ",
       r.message
-    )
+    ), {line: lc[0], column: lc[1]}))
   }
   return r.value
 }
@@ -231,7 +232,8 @@ local func encode_value(v, out, indent, depth){
     append(out, string(v))
   } else if(t == "double"){
     if(v != v or v == 1.0 / 0.0 or v == -1.0 / 0.0){
-      error("json: cannot encode ", v, " as JSON")
+      raise(error.new(error.kinds.argument,
+        concat("json: cannot encode ", v, " as JSON")))
     }
     append(out, string(v))
   } else if(t == "string"){
@@ -265,11 +267,11 @@ local func encode_value(v, out, indent, depth){
       local first = true
       for(let local e in entries(v)){
         if(type(e[0]) != "string"){
-          error(
+          raise(error.new(error.kinds.argument, concat(
             "json: cannot encode a table with a ",
             type(e[0]),
             " key as a JSON object",
-          )
+          )))
         }
         if(not first){ append(out, sep) }
         first = false
@@ -282,7 +284,8 @@ local func encode_value(v, out, indent, depth){
       append(out, "}")
     }
   } else {
-    error("json: cannot encode a ", t, " as JSON")
+    raise(error.new(error.kinds.argument,
+      concat("json: cannot encode a ", t, " as JSON")))
   }
 }
 

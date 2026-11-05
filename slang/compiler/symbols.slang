@@ -1161,7 +1161,7 @@ func symbols.analyse(block, source, origin){
   rec.@meta = recorder_meta
   // a block that does not compile (an unfinished edit) still has the names
   // recorded up to the failure
-  pcall(codegen.generate, block, origin or "string", {record: rec})
+  try { codegen.generate(block, origin or "string", {record: rec}) } catch {}
   // fields: definitions first, then the uses
   for(let local f in values(rec.fields)){
     if(f.write){

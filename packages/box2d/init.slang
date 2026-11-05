@@ -70,16 +70,17 @@ local func find_box2d(){
       }
     }
   }
-  error(
+  raise(error.new(error.kinds.not_found, concat(
     "Box2D 3 is not installed (brew install box2d, or your distribution's ",
     "box2d package), or BOX2D_PREFIX does not name where it is",
-  )
+  )))
 }
 
 local where = find_box2d()
 local C = ffi.cdef(ffi.header(where.header), {field_name: snake})
 if(C.functions.b2CreateWorld == null){
-  error("box2d: ", where.header, " is Box2D 2 (C++); the package needs Box2D 3")
+  raise(error.new(error.kinds.unsupported, concat(
+    "box2d: ", where.header, " is Box2D 2 (C++); the package needs Box2D 3")))
 }
 local lib = ffi.load(where.library, C)
 
@@ -155,7 +156,8 @@ overlay = func(base, over, t, what){
       continue
     }
     if(f == null and t != null){
-      error(what, ": ", t.name, " has no field ", k)
+      raise(error.new(error.kinds.argument,
+        concat(what, ": ", t.name, " has no field ", k)))
     }
     local b = base[k]
     if(wrapper_class(v) != null){
@@ -367,10 +369,12 @@ func classes.method(links, key){
       local n = arity(decl)
       local name = str.substring(key, len(pre))
       if(pre == "set_" and n == 1){
-        error("box2d: ", key, " is gone: assign the property (x.", name, " = v)")
+        raise(error.new(error.kinds.unsupported, concat(
+          "box2d: ", key, " is gone: assign the property (x.", name, " = v)")))
       }
       if(pre != "set_" and n == 0){
-        error("box2d: ", key, " is gone: read the property (x.", name, ")")
+        raise(error.new(error.kinds.unsupported, concat(
+          "box2d: ", key, " is gone: read the property (x.", name, ")")))
       }
       return bind_method(decl, key)
     }
@@ -775,7 +779,9 @@ func world_methods.create_body(w, def){
   if(def != null and type(def.type) == "string"){
     local c = body_types[def.type]
     if(c == null){
-      error("box2d.create_body: type is \"static\", \"kinematic\" or \"dynamic\", got ", def.type)
+      raise(error.new(error.kinds.argument, concat(
+        "box2d.create_body: type is \"static\", \"kinematic\" or \"dynamic\", got ",
+        def.type)))
     }
     def = {...def, type: C.constants[c]}
   }

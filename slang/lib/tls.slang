@@ -227,22 +227,26 @@ local func on_tcp(t, err, chunk){
   }
   if(chunk == null){
     if(not t.done){
-      fail(t, "tls: the connection closed during the handshake")
+      fail(t, error.new(
+        error.kinds.closed, "tls: the connection closed during the handshake",
+      ))
       return
     }
     t.eof = true
     deliver(t)
     return
   }
-  local r = pcall(advance, t, chunk)
-  if(r[0] == "err"){
-    fail(t, r[1])
+  local text = null
+  local failed = null
+  try { text = advance(t, chunk) } catch(local e) { failed = e }
+  if(failed != null){
+    fail(t, failed)
     return
   }
-  if(r[1] == null){
+  if(text == null){
     t.eof = true
-  } else if(len(r[1]) > 0){
-    append(t.received, r[1])
+  } else if(len(text) > 0){
+    append(t.received, text)
   }
   deliver(t)
   // past the handshake the network is read only for a reader
@@ -324,15 +328,19 @@ func tls.connect(host, port, options){
       context = tls.context(options)
     }
     local tcp = async.await(async.connect(host, port))
-    local r = pcall(func(){
+    local conn = null
+    local failed = null
+    try {
       local t = tls.client(tcp, options.server_name or host, context)
-      return async.await(t:handshake())
-    })
-    if(r[0] == "err"){
-      pcall(func(){ tcp:close() })
-      raise(r[1])
+      conn = async.await(t:handshake())
+    } catch(local e) {
+      failed = e
     }
-    return r[1]
+    if(failed != null){
+      try { tcp:close() } catch {}
+      raise(failed)
+    }
+    return conn
   })
 }
 
@@ -391,10 +399,11 @@ func methods.write(t, data, cb){
     append(t.pending, {data: data, cb: cb})
     return
   }
-  local r = pcall(func(){ t.session:write(data) })
-  if(r[0] == "err"){
+  local failed = null
+  try { t.session:write(data) } catch(local e) { failed = e }
+  if(failed != null){
     if(cb != null){
-      cb(r[1])
+      cb(failed)
     }
     return
   }
@@ -418,12 +427,12 @@ func methods.shutdown(t, cb){
 
 // close(cb?: function)
 // Closes the TCP handle; waiting writes and handshakes fail with
-// "tls: the connection is closed".
+// "tls: the connection is closed" (kind closed).
 func methods.close(t, cb){
   t.closed = true
   t.reading = false
   if(t.error == null){
-    t.error = "tls: the connection is closed"
+    t.error = error.new(error.kinds.closed, "tls: the connection is closed")
     local on_chunk = t.on_chunk
     t.on_chunk = null
     fail(t, t.error)

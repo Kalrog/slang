@@ -1300,25 +1300,28 @@ func doc.extension(name, path, index){
       append(ext.blocks, {kind: "prose", text: b.text})
     }
   }
-  local r = pcall(compiler.extension_grammar, name)
-  if(r[0] == "err"){
-    local e = r[1]
-    ext.error = type(e) == "table" and e.message or string(e)
-  } else {
-    local changes = grammar_changes(r[1].grammar, r[1].base, name)
+  local found = null
+  try {
+    found = compiler.extension_grammar(name)
+  } catch(local e) {
+    ext.error = e.message
+  }
+  if(found != null){
+    local changes = grammar_changes(found.grammar, found.base, name)
     ext.syntax = changes.syntax
     ext.keywords = changes.keywords
     ext.uses = changes.uses
   }
   for(let local ex in values(ext.examples)){
     compiler.reset()
-    local x = pcall(
-      compiler.expand,
-      concat("extension \"", name, "\"\n", ex.code),
-      "example.slang",
-    )
-    if(x[0] == "ok"){
-      ex.expanded = str.trim(x[1])
+    local expanded = try {
+      compiler.expand(
+        concat("extension \"", name, "\"\n", ex.code),
+        "example.slang",
+      )
+    } catch { null }
+    if(expanded != null){
+      ex.expanded = str.trim(expanded)
     }
   }
   return ext
@@ -1611,22 +1614,20 @@ func doc.collect(paths){
   for(let local path in values(files)){
     compiler.reset()
     local text = os.read_file(path)
-    local r = pcall(compiler.highlight, text, path, {
-      find_project: true, symbols: true
-    })
-    if(r[0] == "err"){
-      local e = r[1]
-      os.write_stderr(concat(
-        path, ": ", type(e) == "table" and e.message or e, "\n"
-      ))
+    local h = null
+    try {
+      h = compiler.highlight(text, path, {find_project: true, symbols: true})
+    } catch(local e) {
+      os.write_stderr(concat(path, ": ", e.message, "\n"))
       status = 1
-    } else {
+    }
+    if(h != null){
       local name = module_name(compiler, path)
       local m = null
-      if(is_extension(text, r[1].symbols)){
-        m = doc.extension(name, shown_path(compiler, path), r[1].symbols)
+      if(is_extension(text, h.symbols)){
+        m = doc.extension(name, shown_path(compiler, path), h.symbols)
       } else {
-        m = doc.module(name, shown_path(compiler, path), text, r[1].symbols)
+        m = doc.module(name, shown_path(compiler, path), text, h.symbols)
       }
       if(m != null){
         append(modules, m)

@@ -134,15 +134,17 @@ local protocol_meta = {__type: "net.Protocol", __index: protocol_methods}
 //   }})
 func net.protocol(definition){
   if(type(definition) != "table" or type(definition.name) != "string"){
-    error("net: a protocol needs a name")
+    raise(error.new(error.kinds.argument, "net: a protocol needs a name"))
   }
   local names = {}
   for(let local name in keys(definition.messages or {})){
     if(type(name) != "string"){
-      error("net: message names are strings")
+      raise(error.new(error.kinds.argument, "net: message names are strings"))
     }
     if(EVENTS[name]){
-      error(concat("net: \"", name, "\" is an event, not a message name"))
+      raise(error.new(
+        error.kinds.argument, concat("net: \"", name, "\" is an event, not a message name"),
+      ))
     }
     append(names, name)
   }
@@ -160,13 +162,15 @@ func net.protocol(definition){
     } else if(type(fields) == "table"){
       for(let local f in values(fields)){
         if(type(f) != "string"){
-          error(concat("net: the fields of ", name, " are strings"))
+          raise(error.new(error.kinds.argument, concat("net: the fields of ", name, " are strings")))
         }
       }
       p.fields[id] = fields
       append(parts, concat(name, "(", str.join(fields, ","), ")"))
     } else {
-      error(concat("net: message ", name, " needs a list of fields or \"any\""))
+      raise(error.new(
+        error.kinds.argument, concat("net: message ", name, " needs a list of fields or \"any\""),
+      ))
     }
   }
   p.signature = str.join(parts, ";")
@@ -177,13 +181,15 @@ func net.protocol(definition){
 local func pack(proto, name, data){
   if(proto == null){
     if(type(name) != "string"){
-      error("net: a message name is a string")
+      raise(error.new(error.kinds.argument, "net: a message name is a string"))
     }
     return {name, encode(data)}
   }
   local id = proto.ids[name]
   if(id == null){
-    error(concat("net: ", proto.name, " has no message ", string(name)))
+    raise(error.new(
+      error.kinds.argument, concat("net: ", proto.name, " has no message ", string(name)),
+    ))
   }
   local fields = proto.fields[id]
   if(fields == null){
@@ -207,11 +213,15 @@ local func unpack(proto, kind, bytes){
   if(type(bytes) != "string"){
     return null
   }
-  local r = pcall(decode, bytes)
-  if(r[0] != "ok"){
+  local data = null
+  local ok = false
+  try {
+    data = decode(bytes)
+    ok = true
+  } catch {}
+  if(not ok){
     return null
   }
-  local data = r[1]
   if(proto == null){
     if(type(kind) != "string" or EVENTS[kind]){
       return null
@@ -245,7 +255,7 @@ local func unpack(proto, kind, bytes){
 // simulated network and what arrived since the last poll.
 local func new_host(proto, options){
   if(proto != null and type(proto) != "net.Protocol"){
-    error("net: options.protocol must come from net.protocol")
+    raise(error.new(error.kinds.argument, "net: options.protocol must come from net.protocol"))
   }
   local h = {
     udp: uv.udp(), proto: proto, handlers: {}, inbox: {},
@@ -278,7 +288,7 @@ local func send_raw(h, data, ip, port){
     return
   }
   // (a datagram that cannot be sent is as good as lost)
-  pcall(func(){ h.udp:send(data, ip, port) })
+  try { h.udp:send(data, ip, port) } catch {}
 }
 
 local func send_packet(h, packet, ip, port){
@@ -346,13 +356,15 @@ local func pump(){
 
 local func on(h, event, handler){
   if(type(event) != "string"){
-    error("net: on(event, handler) needs an event or message name")
+    raise(error.new(
+      error.kinds.argument, "net: on(event, handler) needs an event or message name",
+    ))
   }
   if(handler != null and type(handler) != "function"){
-    error("net: a handler is a function")
+    raise(error.new(error.kinds.argument, "net: a handler is a function"))
   }
   if(h.proto != null and not EVENTS[event] and h.proto.ids[event] == null){
-    error(concat("net: ", h.proto.name, " has no message ", event))
+    raise(error.new(error.kinds.argument, concat("net: ", h.proto.name, " has no message ", event)))
   }
   h.handlers[event] = handler
 }
@@ -388,8 +400,10 @@ local func queue_packed(c, packed, mode){
     c.rid_next = c.rid_next + 1
   } else {
     if(len(data) > net.max_unreliable){
-      error(concat("net: an ", mode, " message must fit in a packet (", string(len(data)),
-        " bytes encoded, ", string(net.max_unreliable), " at most)"))
+      raise(error.new(error.kinds.argument, concat(
+        "net: an ", mode, " message must fit in a packet (", string(len(data)),
+        " bytes encoded, ", string(net.max_unreliable), " at most)"
+      ), {size: len(data)}))
     }
     append(if(mode == "unreliable"){ c.out_unrel } else { c.out_seq }, {kind, data})
   }
@@ -398,7 +412,9 @@ local func queue_packed(c, packed, mode){
 local func mode_of(options){
   local mode = options != null and options.mode or "reliable"
   if(not MODES[mode]){
-    error(concat("net: mode is \"reliable\", \"unreliable\" or \"sequenced\", not ", string(mode)))
+    raise(error.new(error.kinds.argument, concat(
+      "net: mode is \"reliable\", \"unreliable\" or \"sequenced\", not ", string(mode),
+    )))
   }
   return mode
 }
@@ -751,11 +767,10 @@ local func reject(h, reason, ip, port){
 }
 
 local func server_receive(h, data, ip, port, t){
-  local r = pcall(decode, data)
-  if(r[0] != "ok" or type(r[1]) != "table"){
+  local p = try { decode(data) } catch { null }
+  if(type(p) != "table"){
     return
   }
-  local p = r[1]
   local address = concat(ip, ":", string(port))
   local c = h.by_address[address]
   local kind = p[0]
@@ -1003,7 +1018,7 @@ func net.connect(host, port, options){
         return
       }
       if(err != null or len(addresses) == 0){
-        cl.failed = concat("net: cannot find ", host, if(err != null){ concat(": ", err) } else { "" })
+        cl.failed = concat("net: cannot find ", host, if(err != null){ concat(": ", err.message) } else { "" })
         return
       }
       start_client(cl, addresses[0].ip, port)
@@ -1034,11 +1049,10 @@ local func client_receive(cl, data, ip, port, t){
   if(ip != c.ip or port != c.port){
     return
   }
-  local r = pcall(decode, data)
-  if(r[0] != "ok" or type(r[1]) != "table"){
+  local p = try { decode(data) } catch { null }
+  if(type(p) != "table"){
     return
   }
-  local p = r[1]
   local kind = p[0]
   if(kind == DATA){
     if(c.state == "connected"){

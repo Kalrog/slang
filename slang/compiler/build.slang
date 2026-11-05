@@ -197,12 +197,17 @@ local func trace(plan){
       ))
       return
     }
-    local r = pcall(compiler.parse_plain, os.read_file(path), name)
-    if(r[0] == "err"){
+    local ok = false
+    local block = null
+    try {
+      block = compiler.parse_plain(os.read_file(path), name)
+      ok = true
+    } catch {}
+    if(not ok){
       warn(concat("cannot read ", path, ": what it requires is not known"))
       return
     }
-    for(let local q in values(ast.requires(r[1]).names)){
+    for(let local q in values(ast.requires(block).names)){
       visit(q.name, name)
     }
   }
@@ -213,7 +218,9 @@ local func trace(plan){
     seen[name] = true
     local c = classify(name)
     if(c == null){
-      error("module ", name, " not found (required at ", from, ")")
+      raise(error.new(error.kinds.not_found,
+        concat("module ", name, " not found (required at ", from, ")"),
+        {module: name}))
     }
     if(c.kind == "library"){
       library(name)
@@ -266,15 +273,16 @@ local func assets(plan){
   for(let local spec in values(plan.config.assets or {})){
     local path = type(spec) == "table" and spec.path or spec
     if(type(path) != "string"){
-      error("build.assets: a path or {path, compress} expected")
+      raise(error.new(error.kinds.format,
+        "build.assets: a path or {path, compress} expected"))
     }
     path = clean(path)
     if(str.starts_with(path, "/") or path == ".." or
       str.starts_with(path, "../")){
-      error(
+      raise(error.new(error.kinds.format, concat(
         "build.assets: ", path,
         " is outside the project (assets keep their paths relative to it)"
-      )
+      )))
     }
     local full = join(plan.root, path)
     local files = {}
@@ -288,7 +296,9 @@ local func assets(plan){
     } else if(os.exists(full)){
       files = {{rel: path, path: full}}
     } else {
-      error("build.assets: ", path, " not found in ", plan.root)
+      raise(error.new(error.kinds.not_found,
+        concat("build.assets: ", path, " not found in ", plan.root),
+        {path: full}))
     }
     for(let local f in values(files)){
       append(out, {
@@ -339,9 +349,14 @@ local func on_macos(){
 }
 
 local func codesign(identity, file){
-  local r = os.exec({"codesign", "--force", "--sign", identity, file})
+  local r = try {
+    os.exec({"codesign", "--force", "--sign", identity, file})
+  } catch(local e) {
+    raise(error.wrap(e, concat("codesign ", file)))
+  }
   if(r.status != 0){
-    error("codesign ", file, ": ", str.trim(r.stderr))
+    raise(error.new(error.kinds.error,
+      concat("codesign ", file, ": ", str.trim(r.stderr)), {status: r.status}))
   }
 }
 
@@ -401,8 +416,8 @@ local func static_dir(){
 }
 
 local func command_ok(argv){
-  local r = pcall(os.exec, argv)
-  return r[0] == "ok" and r[1].status == 0
+  local r = try { os.exec(argv) } catch { null }
+  return r != null and r.status == 0
 }
 
 // the linker command: build.linker ("zig cc", or a list), else cc, else zig cc
@@ -420,7 +435,8 @@ local func linker_of(plan){
   if(command_ok({"zig", "version"})){
     return {"zig", "cc"}
   }
-  error("no linker: install a C toolchain (cc) or zig, or build with --dir")
+  raise(error.new(error.kinds.not_found,
+    "no linker: install a C toolchain (cc) or zig, or build with --dir"))
 }
 
 // link_runtime(plan, natives) -> a slang runtime with the native extensions
@@ -429,11 +445,11 @@ local func linker_of(plan){
 local func link_runtime(plan, natives){
   local dir = static_dir()
   if(dir == null){
-    error(
+    raise(error.new(error.kinds.unsupported, concat(
       "the program needs native extensions (",
       str.join(natives, ", "),
       ") and this slang has no static libraries (lib/static): build it with --dir",
-    )
+    )))
   }
   local manifest = compiler.read_table_file(concat(dir, "/manifest.slang"))
   local whole = {}
@@ -467,10 +483,10 @@ local func link_runtime(plan, natives){
   for(let local name in values(natives)){
     local spec = manifest.natives[name]
     if(spec == null){
-      error(
+      raise(error.new(error.kinds.unsupported, concat(
         "native extension ", name, " (", plan.natives[name],
         ") has no static build to link: build it with --dir"
-      )
+      )))
     }
     take(spec)
   }
@@ -532,9 +548,13 @@ local func link_runtime(plan, natives){
   local tmp = concat(out, ".", string(to_int(time.now())), ".tmp")
   append(argv, "-o")
   append(argv, tmp)
-  local r = os.exec(argv)
+  local r = try { os.exec(argv) } catch(local e) {
+    raise(error.wrap(e, concat("linking failed: ", str.join(argv, " "))))
+  }
   if(r.status != 0){
-    error("linking failed: ", str.join(argv, " "), "\n", r.stderr)
+    raise(error.new(error.kinds.error,
+      concat("linking failed: ", str.join(argv, " "), "\n", r.stderr),
+      {status: r.status}))
   }
   os.rename(tmp, out)
   return out
@@ -606,7 +626,8 @@ local func plan_of(opts){
   }
   local config = manifest.build or {}
   if(type(config) != "table"){
-    error("build in slang.project must be a table")
+    raise(error.new(error.kinds.format,
+      "build in slang.project must be a table"))
   }
   local root = compiler.absolute_path(
     project != null and dirname(project) or ".",
@@ -615,13 +636,14 @@ local func plan_of(opts){
   if(main == null){
     main = join(root, config.main or "main.slang")
     if(config.main == null and not os.exists(main)){
-      error(
-        "nothing to build: give a file, or build: {main: ...} in slang.project",
-      )
+      raise(error.new(error.kinds.argument,
+        "nothing to build: give a file, or build: {main: ...} in slang.project"
+      ))
     }
   }
   if(not os.exists(main)){
-    error(main, " not found")
+    raise(error.new(error.kinds.not_found,
+      concat(main, " not found"), {path: main}))
   }
   main = compiler.absolute_path(main)
   if(project == null){
@@ -648,7 +670,7 @@ func build.main(arguments){
     os.write_stderr(USAGE)
     return 2
   }
-  local r = pcall(func(){
+  try {
     local plan = plan_of(opts)
     plan.dir = opts.dir
     trace(plan)
@@ -681,14 +703,10 @@ func build.main(arguments){
     }
     print("\n")
     return 0
-  })
-  if(let {"err", local e} = r){
-    os.write_stderr(concat(
-      "slang build: ", type(e) == "table" and e.message or string(e), "\n"
-    ))
+  } catch(local e) {
+    os.write_stderr(concat("slang build: ", error.message(e), "\n"))
     return 1
   }
-  return r[1]
 }
 
 return build

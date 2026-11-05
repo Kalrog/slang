@@ -26,11 +26,7 @@ local str = require("slang/string")
 local midi = {}
 
 // the native module, where the package has one for this platform
-local loaded = pcall(func(){ return require("midi/native") })
-local native = null
-if(loaded[0] == "ok"){
-  native = loaded[1]
-}
+local native = try { require("midi/native") } catch { null }
 
 // available() -> bool: whether this platform has MIDI input
 func midi.available(){
@@ -105,11 +101,12 @@ func input_methods.close(self){
 
 // open(which?: int | string) -> Input
 // Every source (which null), the source of an index, or the first whose
-// name contains which (ignoring case). Raises when there is none, or when
-// this platform has no MIDI input (see available).
+// name contains which (ignoring case). Raises an error of kind not_found
+// when there is none, of kind unsupported when this platform has no MIDI
+// input (see available).
 func midi.open(which){
   if(native == null){
-    error("midi: no MIDI input on this platform")
+    raise(error.new(error.kinds.unsupported, "midi: no MIDI input on this platform"))
   }
   local index = -1
   local name = "all"
@@ -125,7 +122,7 @@ func midi.open(which){
       }
     }
     if(index < 0){
-      error(concat("midi: no input is called ", which, " (there are: ", str.join(names, ", "), ")"))
+      raise(error.new(error.kinds.not_found, concat("midi: no input is called ", which, " (there are: ", str.join(names, ", "), ")"), {name: which}))
     }
   }
   return {handle: native.open(index), words: buffer.new("uint32", 256), name: name, @meta: input_meta}

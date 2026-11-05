@@ -54,10 +54,10 @@ local func find_raylib(){
       }
     }
   }
-  error(
+  raise(error.new(error.kinds.not_found, concat(
     "raylib is not installed (brew install raylib, or apt install ",
     "libraylib-dev), or RAYLIB_PREFIX does not name where it is",
-  )
+  )))
 }
 
 local where = find_raylib()
@@ -418,7 +418,8 @@ local func uniform_numbers(value, n, out){
 local func uniform_memory(list, uniform_type){
   local u = uniforms[uniform_type]
   if(u == null){
-    error("set_shader_value: unknown uniform type ", uniform_type)
+    raise(error.new(error.kinds.argument,
+      concat("set_shader_value: unknown uniform type ", uniform_type)))
   }
   local numbers = {}
   for(let local v in values(list)){
@@ -561,7 +562,7 @@ local func raylib_memory(t, values){
 func rl.mesh(o){
   local what = "raylib.mesh"
   if(o.vertices == null){
-    error(what, ": a mesh needs vertices")
+    raise(error.new(error.kinds.argument, concat(what, ": a mesh needs vertices")))
   }
   local vertex_count = len(o.vertices) / 3
   local mesh = {vertex_count: vertex_count, triangle_count: vertex_count / 3}

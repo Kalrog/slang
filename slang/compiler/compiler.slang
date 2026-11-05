@@ -112,19 +112,18 @@ func compiler.load_extension(name){
 // (codegen's {kind: "compile"}) gets the line it points at, the way a
 // parse error shows it (see slang/parse_error)
 local func generate_from(node, origin, source){
-  local r = pcall(codegen.generate, node, origin)
-  if(r[0] == "ok"){
-    return r[1]
+  try {
+    return codegen.generate(node, origin)
+  } catch(local e) {
+    if(e.kind == "compile" and e.stack == "" and e.location != null and
+      e.location.origin == (origin or "string")){
+      local parse_error = require("slang/parse_error")
+      e.stack = parse_error.excerpt(
+        source, parse_error.offset(source, e.location.line, e.location.column)
+      )
+    }
+    raise(e)
   }
-  local e = r[1]
-  if(type(e) == "table" and e.kind == "compile" and e.stack == "" and
-    e.location != null and e.location.origin == (origin or "string")){
-    local parse_error = require("slang/parse_error")
-    e.stack = parse_error.excerpt(
-      source, parse_error.offset(source, e.location.line, e.location.column)
-    )
-  }
-  raise(e)
 }
 
 // runs an extension statement: a String node names a file, a Block node is code
@@ -218,14 +217,14 @@ func compiler.grammar(){
 
 // reset()
 // Starts over: a fresh root grammar, no project, no packages, the default
-// search paths. Raises while a file is being parsed, unless called from an
-// extension statement. Tools that look at many files (slang fmt, slang
+// search paths. Raises an error of kind state while a file is being
+// parsed, unless called from an extension statement. Tools that look at many files (slang fmt, slang
 // doc) reset before each, so one file's project never reaches the next.
 func compiler.reset(){
   if(not root:changes_allowed()){
-    error(
-      "the grammar can only be reset at run time or from an extension statement",
-    )
+    raise(error.new(error.kinds.state,
+      "the grammar can only be reset at run time or from an extension statement"
+    ))
   }
   root = new_grammar()
   project = null
@@ -276,7 +275,8 @@ func compiler.generate(node, origin){
 func compiler.compile(code, origin, env){
   origin = origin or "string"
   if(env != null and type(env) != "table"){
-    error("compile: env must be a table, got ", type(env))
+    raise(error.new(error.kinds.argument,
+      concat("compile: env must be a table, got ", type(env))))
   }
   local node
   if(type(code) == "string"){
@@ -408,18 +408,21 @@ local func apply_layer(g, names, key){
   local outer_current = lin.current
   lin.current = g
   lin.ambient = true
-  local r = pcall(func(){
+  local failure = null
+  try {
     for(let local name in values(names)){
       key = concat(key, "\n", name, "\n", source_of(name))
       g:with_owner(name, func(){
         compiler.load_extension(name)
       })
     }
-  })
+  } catch(local e) {
+    failure = e
+  }
   lin.ambient = false
   lin.current = outer_current
-  if(let {"err", local e} = r){
-    raise(e)
+  if(failure != null){
+    raise(failure)
   }
   g.extended = false
   return key
@@ -446,12 +449,13 @@ func compiler.package_dir(name, version){
 
 // read_table_file(path: string) -> table
 // Reads a file that is a slang table literal (slang.project, slang.lock).
-// Raises when it is not one. It is compiled like any slang, so extensions
-// in effect apply.
+// Raises an error of kind format when it is not one. It is compiled like
+// any slang, so extensions in effect apply.
 func compiler.read_table_file(path){
   local t = compiler.compile(concat("return ", os.read_file(path)), path)()
   if(type(t) != "table"){
-    error(path, ": a table literal expected")
+    raise(error.new(error.kinds.format,
+      concat(path, ": a table literal expected"), {path: path}))
   }
   return t
 }
@@ -585,16 +589,18 @@ func compiler.packages(){
 // Reads a project file and applies it: its packages (from slang.lock),
 // search paths (the project's directory first, then its search_paths,
 // then the defaults), dialects and the ambient extensions, loaded into
-// the root grammar. Raises when a project is already loaded or the file
-// is not a table literal.
+// the root grammar. Raises an error of kind state when a project is
+// already loaded, of kind format when the file is not a table literal.
 func compiler.load_project(path){
   if(project != null){
-    error("a project file is already loaded: ", project.path)
+    raise(error.new(error.kinds.state,
+      concat("a project file is already loaded: ", project.path)))
   }
   local source = os.read_file(path)
   local p = compiler.compile(concat("return ", source), path)()
   if(type(p) != "table"){
-    error(path, ": a project file must be a table literal")
+    raise(error.new(error.kinds.format,
+      concat(path, ": a project file must be a table literal"), {path: path}))
   }
   local dir = dirname(path)
   project = {
@@ -841,22 +847,23 @@ func compiler.for_file(path, f){
   }
   local was = use_state(st)
   if(fresh and key != ""){
-    local r = pcall(compiler.load_project, key)
-    if(r[0] == "err"){
+    try {
+      compiler.load_project(key)
+    } catch(local e) {
       // a broken project file: its files are plain slang until it changes
-      st.load_error = r[1].message or string(r[1])
+      st.load_error = e.message
       st.project = null
       st.root = new_grammar()
       load_state(st)
       explain("project ", key, " failed to load: ", st.load_error)
     }
   }
-  local r = pcall(f)
+  local r = try { {ok: true, value: f()} } catch(local e) { {ok: false, error: e} }
   use_state(was)
-  if(r[0] == "err"){
-    raise(r[1])
+  if(not r.ok){
+    raise(r.error)
   }
-  return r[1]
+  return r.value
 }
 
 // project_error(path: string) -> {path, message}?
@@ -884,7 +891,8 @@ func compiler.forget_project(path){
   workspace_dirs = {}
   if(path == null){
     if(current_state != null and current_state.key != null){
-      error("forget_project: a project is in effect")
+      raise(error.new(error.kinds.state,
+        "forget_project: a project is in effect"))
     }
     workspace_states = {}
     return
@@ -1040,9 +1048,10 @@ local func get_cache_dir(){
   if(dir == null){
     return ""
   }
-  if(let {"ok"} = pcall(os.mkdir_all, dir)){
+  try {
+    os.mkdir_all(dir)
     cache_dir = dir
-  }
+  } catch {}
   return cache_dir
 }
 
@@ -1077,8 +1086,8 @@ local shipped_parsers = null
 // grammar and compiler build.
 func compiler.pegc_cache(source, hash){
   if(shipped_parsers == null){
-    local r = pcall(require, "slang/pegc_root")
-    shipped_parsers = if(r[0] == "ok" and type(r[1]) == "table"){ r[1] } else { false }
+    local m = try { require("slang/pegc_root") } catch { null }
+    shipped_parsers = if(type(m) == "table"){ m } else { false }
   }
   if(shipped_parsers != false and shipped_parsers.hash == hash){
     local shipped = shipped_parsers
@@ -1090,13 +1099,13 @@ func compiler.pegc_cache(source, hash){
   }
   local path = concat(dir, "/pegc-", hash, "-", str.format("%x", hash_text(build_id)), ".slb")
   if(os.exists(path)){
-    local r = pcall(vm.load_bytecode, path)
-    if(r[0] == "ok"){
-      return r[1]
+    local cached = try { vm.load_bytecode(path) } catch { null }
+    if(cached != null){
+      return cached
     }
   }
   local f = compile_pristine(source, "pegc")
-  pcall(os.write_file, path, vm.to_bytes(f))
+  try { os.write_file(path, vm.to_bytes(f)) } catch {}
   return f
 }
 
@@ -1116,11 +1125,11 @@ func compiler.load_file(path, origin){
     local m = require(dialect.spec.compile)
     local f = m.compile(source, origin)
     if(type(f) != "function"){
-      error(
+      raise(error.new(error.kinds.argument, concat(
         "the compile function of dialect ",
         dialect.suffix,
         " must return a function",
-      )
+      )))
     }
     return f
   }
@@ -1151,7 +1160,7 @@ func compiler.load_file(path, origin){
   local node = g:parse_source(source, origin, {testing: testing})
   local f = vm.load_proto(generate_from(node, origin, source))
   if(cache_path != null and not state.compile_time_effects and not g.extended){
-    pcall(os.write_file, cache_path, vm.to_bytes(f))
+    try { os.write_file(cache_path, vm.to_bytes(f)) } catch {}
   }
   state.compile_time_effects = outer_effects or state.compile_time_effects
   return f
@@ -1255,7 +1264,13 @@ func compiler.highlight(source, path, options){
   local text = concat(prefix, source)
   // a parse that goes past statements that fail (see parse_source)
   // compiled as for a test run, so that code only tests have is analysed
-  local r = pcall(g.parse_source, g, text, path, {recover: true, testing: true})
+  local parsed = null
+  local raised = null
+  try {
+    parsed = g:parse_source(text, path, {recover: true, testing: true})
+  } catch(local e) {
+    raised = e
+  }
   local diagnostics = {}
   // a parse failure (see slang/parse_error): the message with its hints,
   // and each note where it points
@@ -1278,23 +1293,20 @@ func compiler.highlight(source, path, options){
   for(let local f in values(lin.failures or {})){
     failure(f)
   }
-  if(r[0] == "err"){
-    local e = r[1]
+  if(raised != null){
+    local e = raised
     local f = lin.last_failure
     if(f != null){
       failure(f)
     } else {
       // an error raised by compile-time code: reported at the statement being parsed
       local lc = str.line_col(source, position(lin.phrase_pos))
-      local message = e
-      if(type(e) == "table"){
-        message = e.message
-        if(e.location != null){
-          message = concat(
-            message, " (at ", e.location.origin, ":", e.location.line, ":",
-            e.location.column, ")"
-          )
-        }
+      local message = e.message
+      if(e.location != null){
+        message = concat(
+          message, " (at ", e.location.origin, ":", e.location.line, ":",
+          e.location.column, ")"
+        )
       }
       append(diagnostics, {
         line: lc[0], column: lc[1], message: message, severity: "error"
@@ -1304,9 +1316,9 @@ func compiler.highlight(source, path, options){
   }
   local found = null
   local tree = null
-  if(options != null and options.symbols and r[0] == "ok" and shift == 0){
-    found = symbols.analyse(r[1], text, path)
-    tree = r[1]
+  if(options != null and options.symbols and raised == null and shift == 0){
+    found = symbols.analyse(parsed, text, path)
+    tree = parsed
   }
   local tokens = peg.highlights(lin.last_tree, text, {trivia: grammar.comments})
   lin.last_tree = null
@@ -1534,18 +1546,25 @@ local func lint(source, index){
 // the error compiling a parsed file gives, as a diagnostic (its message
 // ends in line:column), or null
 local func compile_diagnostic(block, path){
-  local r = pcall(codegen.generate, block, path)
-  if(r[0] == "ok"){
+  local e = null
+  try {
+    codegen.generate(block, path)
+  } catch(local raised) {
+    e = raised
+  }
+  if(e == null){
     return null
   }
-  local e = r[1]
-  if(type(e) == "table" and e.kind == "compile" and e.location != null){
+  // (a compile error without a location in the program is located in the
+  // compiler: it is reported at the start, as a message without one is)
+  if(e.kind == "compile" and e.location != null and
+    e.location.origin == (path or "string")){
     return {
       line: e.location.line, column: e.location.column, message: e.message,
       severity: "error",
     }
   }
-  local message = type(e) == "table" and e.message or string(e)
+  local message = e.message
   local line = 1
   local column = 1
   local space = len(message) - 1

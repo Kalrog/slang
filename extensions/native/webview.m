@@ -127,7 +127,7 @@ static int task_respond(slang_State *S) {
     size_t blen = 0;
     const char *body = slang_isstring(S, 4) ? slang_tolstring(S, 4, &blen) : "";
     if (t == NULL || slang_failed(S)) return SLANG_ERROR;
-    if (t->done) return slang_error(S, "webview: the request was answered already");
+    if (t->done) return slang_errorkind(S, "state", "webview: the request was answered already");
     t->done = 1;
     if (t->stopped || t->task == nil) return 0;
     NSMutableDictionary *headers = [NSMutableDictionary dictionary];
@@ -457,7 +457,7 @@ static const slang_uv_api *get_uv_api(slang_State *S) {
     slang_getfield(S, -1, "c_api");
     uv_api = slang_uv_get(S, -1);
     slang_settop(S, top);
-    if (uv_api == NULL) slang_error(S, "webview: the uv extension does not offer a compatible C API (version %d)", SLANG_UV_API_VERSION);
+    if (uv_api == NULL) slang_errorkind(S, "unsupported", "webview: the uv extension does not offer a compatible C API (version %d)", SLANG_UV_API_VERSION);
     return uv_api;
 }
 
@@ -466,9 +466,9 @@ static const slang_uv_api *get_uv_api(slang_State *S) {
 static int l_run_once(slang_State *S) {
     /* Cocoa runs on the main thread only: an isolate can use the module's
      * types but not run windows */
-    if (![NSThread isMainThread]) return slang_error(S, "webview: run_once only works on the main thread");
+    if (![NSThread isMainThread]) return slang_errorkind(S, "state", "webview: run_once only works on the main thread");
     if (get_uv_api(S) == NULL) return SLANG_ERROR;
-    if (run_S != NULL) return slang_error(S, "webview: run_once does not nest");
+    if (run_S != NULL) return slang_errorkind(S, "state", "webview: run_once does not nest");
     ensure_app();
     /* open windows keep libuv's loop alive, so that it polls I/O (signals
      * included) even when nothing else holds it */
@@ -604,7 +604,7 @@ static int opt_bool(slang_State *S, int idx, const char *name, int def) {
 
 static int l_window(slang_State *S) {
     if (!slang_istable(S, 1)) return slang_argerror(S, 1, "options table expected");
-    if (![NSThread isMainThread]) return slang_error(S, "webview: windows can only be made on the main thread");
+    if (![NSThread isMainThread]) return slang_errorkind(S, "state", "webview: windows can only be made on the main thread");
     if (get_uv_api(S) == NULL) return SLANG_ERROR;
     ensure_app();
     NSString *title = opt_string(S, 1, "title") ?: @"slang";
@@ -676,7 +676,7 @@ static window *check_window(slang_State *S) {
 static window *check_open(slang_State *S) {
     window *w = check_window(S);
     if (w != NULL && w->closed) {
-        slang_error(S, "webview: the window is closed");
+        slang_errorkind(S, "closed", "webview: the window is closed");
         return NULL;
     }
     return w;

@@ -62,22 +62,23 @@ func methods.file(w, path){
   if(doc != null and doc.index != null){
     return doc
   }
-  local r = pcall(w.read, path)
-  if(r[0] == "err"){
+  local text = try { w.read(path) } catch { null }
+  if(text == null){
     return null
   }
-  local text = r[1]
   local cached = w.cache[path]
   if(cached != null and cached.text == text){
     return cached
   }
   // (under the file's own project: its extensions)
-  local h = pcall(compiler.for_file, path, func(){
-    return compiler.highlight(text, path, {symbols: true})
-  })
+  local h = try {
+    compiler.for_file(path, func(){
+      return compiler.highlight(text, path, {symbols: true})
+    })
+  } catch { null }
   local index = null
-  if(h[0] == "ok"){
-    index = h[1].symbols
+  if(h != null){
+    index = h.symbols
   }
   if(index == null){
     return null
@@ -99,15 +100,15 @@ local func ignore_rules(dir, rules){
   if(not os.exists(path)){
     return rules
   }
-  local r = pcall(os.read_file, path)
-  if(r[0] == "err"){
+  local source = try { os.read_file(path) } catch { null }
+  if(source == null){
     return rules
   }
   local out = {}
   for(let local rule in values(rules)){
     append(out, rule)
   }
-  for(let local line in values(str.split(r[1], "\n"))){
+  for(let local line in values(str.split(source, "\n"))){
     local p = str.trim(line)
     if(len(p) > 0 and not str.starts_with(p, "#") and
       not str.starts_with(p, "!") and str.index_of(p, "*") < 0){
@@ -141,12 +142,12 @@ local func ignored(path, name, rules){
 }
 
 local func walk(dir, out, rules){
-  local r = pcall(os.list_dir, dir)
-  if(r[0] == "err"){
+  local names = try { os.list_dir(dir) } catch { null }
+  if(names == null){
     return null
   }
   rules = ignore_rules(dir, rules)
-  for(let local name in values(r[1])){
+  for(let local name in values(names)){
     local path = concat(dir, "/", name)
     if(not str.starts_with(name, ".") and skip_dirs[name] == null and
       not ignored(path, name, rules)){
@@ -250,10 +251,7 @@ local func files_where(w, word, defining){
     if(doc != null){
       text = doc.text
     } else {
-      local r = pcall(w.read, p)
-      if(r[0] == "ok"){
-        text = r[1]
-      }
+      text = try { w.read(p) } catch { null }
     }
     local i = -1
     if(text != null){

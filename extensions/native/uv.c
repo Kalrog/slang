@@ -84,8 +84,48 @@ static uv_loop_t *loop_of(slang_State *S) {
 
 #define CTX(loop_ptr) ((uv_ctx *)(loop_ptr)->data)
 
+/* the kind of a libuv error, as slang's error.kinds name it */
+static const char *uv_error_kind(int status) {
+    switch (status) {
+    case UV_ENOENT: case UV_ENOTDIR: return "not_found";
+    case UV_EACCES: case UV_EPERM: case UV_EROFS: return "permission";
+    case UV_EEXIST: return "exists";
+    case UV_ETIMEDOUT: case UV_EAI_AGAIN: return "timeout";
+    case UV_ECONNREFUSED: case UV_ECONNRESET: case UV_ECONNABORTED:
+    case UV_ENETUNREACH: case UV_ENETDOWN: case UV_EHOSTUNREACH:
+    case UV_EPIPE: case UV_EADDRINUSE: case UV_EADDRNOTAVAIL:
+    case UV_EAI_NONAME: case UV_EAI_FAIL: case UV_EAI_NODATA:
+        return "network";
+    case UV_EOF: return "closed";
+    case UV_ECANCELED: return "state";
+    default: return "io";
+    }
+}
+
+/* pushes an error table {kind, message, code, path?}: message is
+ * "CODE: text" and, with what, ", what" and the path */
+static void push_uv_error_at(slang_State *S, int status, const char *what, const char *path) {
+    slang_newtable(S);
+    int t = slang_gettop(S);
+    slang_pushstring(S, uv_error_kind(status));
+    slang_setfield(S, t, "kind");
+    if (what != NULL && path != NULL)
+        slang_pushfstring(S, "%s: %s, %s '%s'", uv_err_name(status), uv_strerror(status), what, path);
+    else if (what != NULL)
+        slang_pushfstring(S, "%s: %s, %s", uv_err_name(status), uv_strerror(status), what);
+    else
+        slang_pushfstring(S, "%s: %s", uv_err_name(status), uv_strerror(status));
+    slang_setfield(S, t, "message");
+    slang_pushstring(S, uv_err_name(status));
+    slang_setfield(S, t, "code");
+    if (path != NULL) {
+        slang_pushstring(S, path);
+        slang_setfield(S, t, "path");
+    }
+}
+
 static void push_uv_error(slang_State *S, int status) {
-    slang_pushfstring(S, "%s: %s", uv_err_name(status), uv_strerror(status));
+    push_uv_error_at(S, status, NULL, NULL);
 }
 
 /* ---- handle lifetime ---- */
@@ -273,7 +313,7 @@ static int l_run(slang_State *S) {
     else if (strcmp(mode_name, "nowait") == 0) mode = UV_RUN_NOWAIT;
     else if (strcmp(mode_name, "default") != 0) return slang_argerror(S, 1, "\"default\", \"once\" or \"nowait\" expected");
     uv_ctx *cx = get_ctx(S);
-    if (cx->run_S != NULL) return slang_error(S, "uv.run is already running");
+    if (cx->run_S != NULL) return slang_errorkind(S, "state", "uv.run is already running");
     int more = run_loop(S, cx, mode);
     if (more == SLANG_ERROR) return SLANG_ERROR; /* the callback's error is still pending */
     slang_pushbool(S, more != 0);
@@ -338,7 +378,7 @@ static int timer_start(slang_State *S) {
     int64_t repeat = slang_optint(S, 3, 0);
     slang_checkfunction(S, 4);
     if (slang_failed(S)) return SLANG_ERROR;
-    if (h->closed) return slang_error(S, "timer is closed");
+    if (h->closed) return slang_errorkind(S, "closed", "timer is closed");
     drop_ref(S, &h->cb_ref);
     slang_pushvalue(S, 4);
     h->cb_ref = slang_ref(S);
@@ -547,7 +587,7 @@ static int tcp_read_start(slang_State *S) {
     handle *h = check_stream(S, 1);
     slang_checkfunction(S, 2);
     if (h == NULL || slang_failed(S)) return SLANG_ERROR;
-    if (h->closed) return slang_error(S, "stream is closed");
+    if (h->closed) return slang_errorkind(S, "closed", "stream is closed");
     drop_ref(S, &h->cb_ref);
     slang_pushvalue(S, 2);
     h->cb_ref = slang_ref(S);
@@ -603,7 +643,7 @@ static int tcp_write(slang_State *S) {
     size_t len = 0;
     const char *data = slang_checkbytes(S, 2, &len);
     if (h == NULL || slang_failed(S)) return SLANG_ERROR;
-    if (h->closed) return slang_error(S, "stream is closed");
+    if (h->closed) return slang_errorkind(S, "closed", "stream is closed");
     write_req *w = calloc(1, sizeof(write_req));
     w->cb_ref = SLANG_REFNULL;
     w->buf.base = malloc(len > 0 ? len : 1);
@@ -808,7 +848,7 @@ static int udp_send(slang_State *S) {
     const char *data = slang_checkbytes(S, 2, &len);
     struct sockaddr_storage addr;
     if (h == NULL || slang_failed(S) || parse_addr(S, 3, 4, &addr) < 0) return SLANG_ERROR;
-    if (h->closed) return slang_error(S, "udp socket is closed");
+    if (h->closed) return slang_errorkind(S, "closed", "udp socket is closed");
     uv_buf_t buf = uv_buf_init((char *)data, (unsigned)len);
     int r = uv_udp_try_send(&h->u.udp, &buf, 1, (const struct sockaddr *)&addr);
     if (r >= 0) return 0;
@@ -862,7 +902,7 @@ static int udp_recv_start(slang_State *S) {
     handle *h = check_handle(S, 1, "uv.udp");
     slang_checkfunction(S, 2);
     if (h == NULL || slang_failed(S)) return SLANG_ERROR;
-    if (h->closed) return slang_error(S, "udp socket is closed");
+    if (h->closed) return slang_errorkind(S, "closed", "udp socket is closed");
     drop_ref(S, &h->cb_ref);
     slang_pushvalue(S, 2);
     h->cb_ref = slang_ref(S);
@@ -1160,6 +1200,7 @@ typedef struct fs_job {
     int64_t fd, offset;
     /* results */
     int failed;
+    int status;
     char err[600];
     int64_t result;
     uv_stat_t st;
@@ -1178,6 +1219,7 @@ static const char *fs_op_name(int op) {
 static int fs_failed(fs_job *j, int64_t r) {
     if (r >= 0) return 0;
     j->failed = 1;
+    j->status = (int)r;
     if (j->path != NULL)
         snprintf(j->err, sizeof j->err, "%s: %s, %s '%s'", uv_err_name((int)r), uv_strerror((int)r), fs_op_name(j->op), j->path);
     else
@@ -1323,7 +1365,7 @@ static const char *dirent_type(int t) {
 static int fs_push(slang_State *S, void *data) {
     fs_job *j = data;
     if (j->failed) {
-        slang_pushstring(S, j->err);
+        push_uv_error_at(S, j->status, fs_op_name(j->op), j->path);
         slang_pushnull(S);
         return 2;
     }
@@ -1627,7 +1669,7 @@ static int signal_start(slang_State *S) {
     int sig = check_signal(S, 2, -1);
     slang_checkfunction(S, 3);
     if (sig < 0 || slang_failed(S)) return SLANG_ERROR;
-    if (h->closed) return slang_error(S, "signal handle is closed");
+    if (h->closed) return slang_errorkind(S, "closed", "signal handle is closed");
     drop_ref(S, &h->cb_ref);
     slang_pushvalue(S, 3);
     h->cb_ref = slang_ref(S);
@@ -1808,7 +1850,7 @@ static int l_spawn(slang_State *S) {
     free(cwd);
     if (r < 0) {
         /* the handle is initialized even so; its finalizer closes it */
-        slang_pushfstring(S, "%s: %s, spawn '%s'", uv_err_name(r), uv_strerror(r), file);
+        push_uv_error_at(S, r, "spawn", file);
         return slang_raise(S);
     }
     slang_pushvalue(S, 4);
@@ -1913,7 +1955,7 @@ static int poll_start(slang_State *S) {
     if (strchr(ev, 'r')) events |= UV_READABLE;
     if (strchr(ev, 'w')) events |= UV_WRITABLE;
     if (events == 0) return slang_argerror(S, 2, "\"r\", \"w\" or \"rw\" expected");
-    if (h->closed) return slang_error(S, "poll handle is closed");
+    if (h->closed) return slang_errorkind(S, "closed", "poll handle is closed");
     drop_ref(S, &h->cb_ref);
     slang_pushvalue(S, 3);
     h->cb_ref = slang_ref(S);

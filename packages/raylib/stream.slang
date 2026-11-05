@@ -104,7 +104,7 @@ local func pump_loop(cfg, ring, state, wake, ctl){
   rl.init_audio_device()
   if(not rl.is_audio_device_ready()){
     wake:close()
-    error("raylib/stream: no audio device")
+    raise(error.new(error.kinds.not_found, "raylib/stream: no audio device"))
   }
   local s = rl.load_audio_stream(cfg.sample_rate, 32, ch)
   // raylib's audio thread calls this; it runs in this isolate, whose own
@@ -256,7 +256,7 @@ func stream.play(setup, options){
     ring = ring * 2
   }
   if(ring % block != 0){
-    error("raylib/stream: block must divide the ring (", ring, " frames): use a power of two")
+    raise(error.new(error.kinds.argument, concat("raylib/stream: block must divide the ring (", ring, " frames): use a power of two")))
   }
   local cfg = {
     sample_rate: options.sample_rate or 48000,

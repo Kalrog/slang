@@ -34,7 +34,9 @@ local func embedded_loader(name){
 // init; {path, suffix}, or false when the package has no such module
 local func package_source(pkg, name, rest){
   if(pkg.missing){
-    error("package ", name, " is not fetched: run `slang get` in the project")
+    raise(error.new(error.kinds.not_found, concat(
+      "package ", name, " is not fetched: run `slang get` in the project"),
+      {name: name}))
   }
   for(let local dir in values(pkg.paths)){
     local src = concat(dir, "/", rest, ".slang")
@@ -148,10 +150,10 @@ local func package_native(p, name){
     }
   }
   if(os.is_dir(lib)){
-    error(
+    raise(error.new(error.kinds.unsupported, concat(
       "package ", p.head, " has no native build of ", name, " for ", platform,
       " (looked in ", lib, "/", platform, ")"
-    )
+    ), {name: name, platform: platform}))
   }
   return null
 }
@@ -208,5 +210,6 @@ func require(name){
       return result[1]
     }
   }
-  error("Package not found: ", name)
+  raise(error.new(error.kinds.not_found, concat("Package not found: ", name),
+    {name: name}))
 }

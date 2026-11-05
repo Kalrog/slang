@@ -87,7 +87,7 @@ func group.run(self, path){
       for(let local setup in values(self.setups)){
         setup()
       }
-      pcall(child.run, child, cpath)
+      try { child.run(child, cpath) } catch {}
 
       for(let local teardown in values(self.teardowns)){
         teardown()
@@ -126,8 +126,15 @@ func test.run(self, path){
   if(not options.json){
     print(indent_str(), "Test: ", self.name)
   }
-  local r = pcall(self.f)
-  if(let {"ok"} = r){
+  local passed = false
+  local e = null
+  try {
+    self.f()
+    passed = true
+  } catch(local raised) {
+    e = raised
+  }
+  if(passed){
     self.succeeded = true
     if(options.json){
       print(
@@ -139,19 +146,16 @@ func test.run(self, path){
     } else {
       print(" Passed\n")
     }
-  } else if(let {"err", local e} = r){
-    local message = e
-    if(type(e) == "table"){
-      message = e.message
-    }
+  } else {
+    local message = error.message(e)
     if(options.json){
       local event = {
         event: "test",
         path: path or {self.name},
         status: "failed",
-        message: string(message),
+        message: message,
       }
-      if(type(e) == "table" and e.location){
+      if(e.location){
         event.location = {
           origin: e.location.origin,
           line: e.location.line,
@@ -163,7 +167,7 @@ func test.run(self, path){
     }
     print(" Failed\n")
     print(indent_str(), "  Error: ", message)
-    if(type(e) == "table" and e.location){
+    if(e.location){
       print(
         " @", e.location.origin, ":", e.location.line, ":", e.location.column
       )
@@ -234,11 +238,13 @@ func m.raises(f, expected){
     raised = e
   }
   if(returned){
-    error("expected an error, but the function returned")
+    raise(error.new(error.kinds.assertion,
+      "expected an error, but the function returned"))
   }
   if(expected != null and raised.kind != expected and
     str.index_of(error.message(raised), expected) < 0){
-    error("expected an error with ", expected, ", got: ", error.message(raised))
+    raise(error.new(error.kinds.assertion, concat(
+      "expected an error with ", expected, ", got: ", error.message(raised))))
   }
   return raised
 }

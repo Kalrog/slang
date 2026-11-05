@@ -272,7 +272,7 @@ func build_ast(ast){
     case 'EndOfInput{}:
       return +{peg.end_of_input()}
     case local any:
-      error("Unknown rule: ", any)
+      raise(error.new(error.kinds.syntax, concat("Unknown rule: ", any)))
   }
 }
 

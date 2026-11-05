@@ -9,7 +9,9 @@
 // EdDSA. The algorithm defaults to the one that fits the key (HS256,
 // RS256, ES256/384/512 by curve, EdDSA), and [verify] accepts only that
 // one unless told otherwise, so a token cannot pick a weaker algorithm.
-// Errors raise "jwt: ..." ("jwt: expired", "jwt: bad signature", ...).
+// Errors raise "jwt: ..." ("jwt: expired", "jwt: bad signature", ...):
+// a failed check is of kind unauthorized with a reason field, a malformed
+// token of kind format, a key that does not fit of kind argument.
 
 // A token's claims: any JSON object. The registered ones [sign] sets and
 // [verify] checks are below; times are seconds since the epoch.
@@ -77,7 +79,8 @@ local func key_kind(key){
   if(type(key) == "crypto.key"){
     return key.type
   }
-  error("jwt: a key must be a secret string or a crypto key, got ", type(key))
+  raise(error.new(error.kinds.argument, concat(
+    "jwt: a key must be a secret string or a crypto key, got ", type(key))))
 }
 
 local func default_alg(key){
@@ -89,18 +92,21 @@ local func default_alg(key){
     local bits = key.bits
     return bits == 384 and "ES384" or bits == 521 and "ES512" or "ES256"
   }
-  error("jwt: no algorithm for a ", kind, " key")
+  raise(error.new(error.kinds.argument,
+    concat("jwt: no algorithm for a ", kind, " key")))
 }
 
 // the algorithm entry for alg, checked against the key
 local func algorithm(alg, key){
   local a = algorithms[alg]
   if(a == null){
-    error("jwt: unsupported algorithm ", alg)
+    raise(error.new(error.kinds.unsupported,
+      concat("jwt: unsupported algorithm ", alg), {alg: alg}))
   }
   local kind = key_kind(key)
   if(kind != a.kind or (a.bits != null and key.bits != a.bits)){
-    error("jwt: the key does not fit ", alg)
+    raise(error.new(error.kinds.argument,
+      concat("jwt: the key does not fit ", alg), {alg: alg}))
   }
   return a
 }
@@ -114,8 +120,9 @@ local func now(options){
 
 // sign(claims: Claims, key: string | crypto.Key,
 //   options?: SignOptions) -> string
-// A signed token with claims (copied; the options add to them). Raises
-// when the key does not fit the algorithm, or is a public key.
+// A signed token with claims (copied; the options add to them). Raises an
+// error of kind argument when the key does not fit the algorithm, or is a
+// public key, and of kind unsupported for an unknown algorithm.
 func jwt.sign(claims, key, options){
   options = options or {}
   local alg = options.alg or default_alg(key)
@@ -141,7 +148,7 @@ func jwt.sign(claims, key, options){
     signature = crypto.hmac(a.digest, key, input)
   } else {
     if(not key.private){
-      error("jwt: signing needs a private key")
+      raise(error.new(error.kinds.argument, "jwt: signing needs a private key"))
     }
     signature = key:sign(a.digest, input, a.options)
   }
@@ -151,33 +158,34 @@ func jwt.sign(claims, key, options){
 // the three parts of a token, decoded: {header, claims, signature, input}
 local func split(token){
   if(type(token) != "string"){
-    error("jwt: malformed token")
+    raise(error.new(error.kinds.format, "jwt: malformed token"))
   }
   local parts = str.split(token, ".")
   if(len(parts) != 3){
-    error("jwt: malformed token")
+    raise(error.new(error.kinds.format, "jwt: malformed token"))
   }
   local header_text = encoding.base64url.decode(parts[0])
   local claims_text = encoding.base64url.decode(parts[1])
   local signature = encoding.base64url.decode(parts[2])
   if(header_text == null or claims_text == null or signature == null){
-    error("jwt: malformed token")
+    raise(error.new(error.kinds.format, "jwt: malformed token"))
   }
-  local r = pcall(func(){
-    return {json.decode(header_text), json.decode(claims_text)}
-  })
-  if(r[0] == "err" or type(r[1][0]) != "table" or type(r[1][1]) != "table"){
-    error("jwt: malformed token")
+  local parsed = try {
+    {json.decode(header_text), json.decode(claims_text)}
+  } catch { null }
+  if(parsed == null or type(parsed[0]) != "table" or type(parsed[1]) != "table"){
+    raise(error.new(error.kinds.format, "jwt: malformed token"))
   }
   return {
-    header: r[1][0], claims: r[1][1], signature: signature,
+    header: parsed[0], claims: parsed[1], signature: signature,
     input: concat(parts[0], ".", parts[1])
   }
 }
 
 // decode(token: string) -> Decoded
 // The header and claims of a token, without checking the signature or
-// anything else: never trust them. Raises "jwt: malformed token".
+// anything else: never trust them. Raises "jwt: malformed token", of kind
+// format.
 func jwt.decode(token){
   local t = split(token)
   return {header: t.header, claims: t.claims}
@@ -196,17 +204,23 @@ local func contains(list, v){
 //   options?: VerifyOptions) -> Claims
 // The claims of a token whose algorithm is accepted, whose signature is
 // valid for key, which has not expired and is valid already (exp and nbf,
-// when present), and whose iss and aud match the options that ask. Raises
-// "jwt: ..." otherwise.
+// when present), and whose iss and aud match the options that ask.
+// Otherwise raises "jwt: ...": of kind format for a malformed token, of
+// kind unauthorized with a reason field ("algorithm", "signature",
+// "expired", "not_yet_valid", "issuer", "audience") when a check fails.
 //
-//   local r = pcall(jwt.verify, token, public_key, {algs: {"RS256", "PS256"}})
+//   local claims = try {
+//     jwt.verify(token, public_key, {algs: {"RS256", "PS256"}})
+//   } catch({kind: ^error.kinds.unauthorized}) { null }
 func jwt.verify(token, key, options){
   options = options or {}
   local t = split(token)
   local accepted = options.algs or {options.alg or default_alg(key)}
   local alg = t.header.alg
   if(type(alg) != "string" or not contains(accepted, alg)){
-    error("jwt: algorithm ", string(alg), " not accepted")
+    raise(error.new(error.kinds.unauthorized,
+      concat("jwt: algorithm ", string(alg), " not accepted"),
+      {reason: "algorithm"}))
   }
   local a = algorithm(alg, key)
   local ok = false
@@ -216,27 +230,32 @@ func jwt.verify(token, key, options){
     ok = key:verify(a.digest, t.input, t.signature, a.options)
   }
   if(not ok){
-    error("jwt: bad signature")
+    raise(error.new(error.kinds.unauthorized, "jwt: bad signature",
+      {reason: "signature"}))
   }
   local c = t.claims
   local at = now(options)
   local leeway = options.leeway or 0
   if(c.exp != null and
     (type(c.exp) != "int" and type(c.exp) != "double" or at >= c.exp + leeway)){
-    error("jwt: expired")
+    raise(error.new(error.kinds.unauthorized, "jwt: expired",
+      {reason: "expired"}))
   }
   if(c.nbf != null and
     (type(c.nbf) != "int" and type(c.nbf) != "double" or at + leeway < c.nbf)){
-    error("jwt: not valid yet")
+    raise(error.new(error.kinds.unauthorized, "jwt: not valid yet",
+      {reason: "not_yet_valid"}))
   }
   if(options.issuer != null and c.iss != options.issuer){
-    error("jwt: wrong issuer")
+    raise(error.new(error.kinds.unauthorized, "jwt: wrong issuer",
+      {reason: "issuer"}))
   }
   if(options.audience != null){
     local aud = c.aud
     if(not(aud == options.audience or
       (type(aud) == "table" and contains(aud, options.audience)))){
-      error("jwt: wrong audience")
+      raise(error.new(error.kinds.unauthorized, "jwt: wrong audience",
+        {reason: "audience"}))
     }
   }
   return c

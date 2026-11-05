@@ -65,7 +65,7 @@ static int tls_error(slang_State *S, const char *what) {
     char buf[256] = "unknown error";
     if (e != 0) ERR_error_string_n(e, buf, sizeof buf);
     ERR_clear_error();
-    return slang_error(S, "tls: %s: %s", what, buf);
+    return slang_errorkind(S, "protocol", "tls: %s: %s", what, buf);
 }
 
 /* the string field name of the table at idx, or NULL */
@@ -178,7 +178,7 @@ static int alpn_wire(slang_State *S, int idx, unsigned char *out, int cap) {
         const char *name = slang_isstring(S, -1) ? slang_tolstring(S, -1, &len) : NULL;
         if (name == NULL || len == 0 || len > 255 || n + 1 + (int)len > cap) {
             slang_pop(S, 2);
-            slang_error(S, "tls: alpn: a list of protocol names expected");
+            slang_errorkind(S, "argument", "tls: alpn: a list of protocol names expected");
             return -1;
         }
         out[n++] = (unsigned char)len;
@@ -230,23 +230,23 @@ static int l_context(slang_State *S) {
     const char *min = opt_string(S, 1, "min_version", NULL);
     int version = TLS1_2_VERSION;
     if (min != NULL && strcmp(min, "1.3") == 0) version = TLS1_3_VERSION;
-    else if (min != NULL && strcmp(min, "1.2") != 0) return slang_error(S, "tls: min_version: \"1.2\" or \"1.3\" expected");
+    else if (min != NULL && strcmp(min, "1.2") != 0) return slang_errorkind(S, "argument", "tls: min_version: \"1.2\" or \"1.3\" expected");
     SSL_CTX_set_min_proto_version(ctx, version);
     SSL_CTX_set_mode(ctx, SSL_MODE_RELEASE_BUFFERS);
 
     size_t cert_len = 0, key_len = 0, ca_len = 0;
     const char *cert = opt_string(S, 1, "cert", &cert_len);
     const char *key = opt_string(S, 1, "key", &key_len);
-    if ((cert == NULL) != (key == NULL)) return slang_error(S, "tls: cert and key go together");
+    if ((cert == NULL) != (key == NULL)) return slang_errorkind(S, "argument", "tls: cert and key go together");
     if (cert != NULL && use_cert_and_key(S, ctx, cert, cert_len, key, key_len) != 0) return SLANG_ERROR;
-    if (server && cert == NULL) return slang_error(S, "tls: a server needs cert and key");
+    if (server && cert == NULL) return slang_errorkind(S, "argument", "tls: a server needs cert and key");
 
     int verify = opt_bool(S, 1, "verify", !server);
     const char *ca = opt_string(S, 1, "ca", &ca_len);
     if (verify) {
         if (ca != NULL) {
             if (add_pem_certs(SSL_CTX_get_cert_store(ctx), ca, ca_len) == 0)
-                return slang_error(S, "tls: ca: no certificates in the PEM text");
+                return slang_errorkind(S, "argument", "tls: ca: no certificates in the PEM text");
         } else {
             load_system_roots(ctx);
         }
@@ -330,7 +330,7 @@ static int context_session(slang_State *S) {
             if (!SSL_set_tlsext_host_name(ssl, host) || !SSL_set1_host(ssl, host)) return tls_error(S, "session");
         }
     } else if (SSL_CTX_get_verify_mode(c->ctx) & SSL_VERIFY_PEER) {
-        return slang_error(S, "tls: a client that verifies needs the server's host name");
+        return slang_errorkind(S, "argument", "tls: a client that verifies needs the server's host name");
     }
     return 1;
 }
@@ -343,10 +343,10 @@ static int check_result(slang_State *S, session *s, int r, const char *what) {
     long verify = SSL_get_verify_result(s->ssl);
     if (verify != X509_V_OK) {
         ERR_clear_error();
-        return slang_error(S, "tls: certificate verify failed: %s", X509_verify_cert_error_string(verify));
+        return slang_errorkind(S, "unauthorized", "tls: certificate verify failed: %s", X509_verify_cert_error_string(verify));
     }
     if (e == SSL_ERROR_SYSCALL && ERR_peek_error() == 0) {
-        return slang_error(S, "tls: %s: the connection ended unexpectedly", what);
+        return slang_errorkind(S, "closed", "tls: %s: the connection ended unexpectedly", what);
     }
     return tls_error(S, what);
 }
@@ -417,14 +417,14 @@ static int session_write(slang_State *S) {
     size_t len = 0;
     const char *data = slang_checkbytes(S, 2, &len);
     if (s == NULL || data == NULL) return SLANG_ERROR;
-    if (!s->done) return slang_error(S, "tls: write before the handshake completed");
+    if (!s->done) return slang_errorkind(S, "state", "tls: write before the handshake completed");
     size_t at = 0;
     while (at < len) {
         size_t n = len - at > 1 << 30 ? 1 << 30 : len - at;
         int r = SSL_write(s->ssl, data + at, (int)n);
         if (r <= 0) {
             if (check_result(S, s, r, "write") != 0) return SLANG_ERROR;
-            return slang_error(S, "tls: write: the session cannot send now");
+            return slang_errorkind(S, "state", "tls: write: the session cannot send now");
         }
         at += (size_t)r;
     }

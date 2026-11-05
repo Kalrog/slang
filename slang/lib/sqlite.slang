@@ -128,8 +128,9 @@ local func split_placeholders(text){
 
 // query(text: string, values?: {any}, origin?: string, count?: int) -> Query
 // A query of text with one ? per value; [list] values and queries among
-// the values are expanded into the text. Raises when the number of ? does
-// not match (a ? in a string, a quoted name or a comment is not counted).
+// the values are expanded into the text. Raises an error of kind argument
+// when the number of ? does not match (a ? in a string, a quoted name or a
+// comment is not counted).
 // [origin]: where the query comes from, added to its error messages
 // [count]: how many values; len(values) by default (null values count)
 func sqlite.query(text, values, origin, count){
@@ -143,10 +144,10 @@ func sqlite.query(text, values, origin, count){
   }
   local pieces = split_placeholders(text)
   if(len(pieces) != count + 1){
-    error(
+    raise(error.new(error.kinds.argument, concat(
       "sqlite: the query has ", len(pieces) - 1, " ? for ", count,
       " value(s); write {value} instead of ? (", origin or "sql", ")"
-    )
+    )))
   }
   if(not needs_expansion(values, count)){
     return q
@@ -239,13 +240,15 @@ local allowed = {
 // (the values go into a pragma, so only SQLite's own words are taken)
 local func check_option(name, v){
   if(type(v) != "string" or allowed[name][v] != true){
-    error("sqlite.open: unknown ", name, " ", string(v))
+    raise(error.new(error.kinds.argument,
+      concat("sqlite.open: unknown ", name, " ", string(v))))
   }
 }
 
 // open(path: string, opts?: OpenOptions) -> Database
 // Opens a database file, created when missing; ":memory:" opens one in
-// memory (the options are for files). Raises when it cannot be opened.
+// memory (the options are for files). Raises an error of kind database
+// when it cannot be opened, of kind argument for an unknown option value.
 func sqlite.open(path, opts){
   local db = {
     @meta: db_meta, handle: native.open(path), path: path, cache: {}, cached: 0
@@ -263,24 +266,26 @@ func sqlite.open(path, opts){
   return db
 }
 
-local func message_of(e){
-  if(type(e) == "table" and e.message != null){
-    return e.message
+// e located at the query's literal: its message ends in " (at <origin>)"
+// and its origin field says where
+local func at_origin(q, e){
+  if(q.origin == null){
+    return e
   }
-  return string(e)
+  // the extension's error is new each time: it is located in place
+  // (a wrap would repeat its message in error.message)
+  e.message = concat(e.message, " (at ", q.origin, ")")
+  e.origin = q.origin
+  return e
 }
 
 // runs f, locating an error at the query's literal
 local func located(q, f){
-  local r = pcall(f)
-  if(r[0] == "err"){
-    local msg = message_of(r[1])
-    if(q.origin != null){
-      msg = concat(msg, " (at ", q.origin, ")")
-    }
-    error(msg)
+  try {
+    return f()
+  } catch(local e) {
+    raise(at_origin(q, e))
   }
-  return r[1]
 }
 
 local func clear_cache(db){
@@ -410,15 +415,17 @@ local func async_statement(db, q){
 // binding fail it like errors running it
 local func query_async(db, q){
   local async = require("slang/async")
-  local r = pcall(async_statement, db, q)
-  if(r[0] == "err"){
-    return async.failed(r[1])
+  local st = null
+  try {
+    st = async_statement(db, q)
+  } catch(local e) {
+    return async.failed(e)
   }
-  local st = r[1]
   return async.wrap(func(cb){
     st:run_async(func(err, r){
-      if(err != null and q.origin != null){
-        err = concat(err, " (at ", q.origin, ")")
+      if(err != null){
+        // the extension reports a query's failure as {kind, message}
+        err = at_origin(q, err)
       }
       cb(err, r)
     })
@@ -463,18 +470,20 @@ func db_methods.exec(db, q){
 // the error again when it raises. Transactions do not nest.
 func db_methods.transaction(db, f){
   db.handle:exec("begin")
-  local r = pcall(f)
-  if(r[0] == "err"){
+  local v = null
+  try {
+    v = f()
+  } catch(local e) {
     db.handle:exec("rollback")
-    raise(r[1])
+    raise(e)
   }
   db.handle:exec("commit")
-  return r[1]
+  return v
 }
 
 // close()
-// Finalizes the cached statements and closes the database; raises while
-// an _async query is running.
+// Finalizes the cached statements and closes the database; raises an
+// error of kind state while an _async query is running.
 func db_methods.close(db){
   clear_cache(db)
   db.handle:close()

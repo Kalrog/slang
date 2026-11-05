@@ -2294,11 +2294,9 @@ local func format_text(text, path, options){
     }
     passes = passes + 1
     if(passes > 5){
-      raise({
-        message: concat(
-          "formatting ", path, " does not settle; the file was left as it is"
-        ),
-      })
+      raise(error.new(error.kinds.error, concat(
+        "formatting ", path, " does not settle; the file was left as it is"
+      ), {path: path}))
     }
     out = again
     out_tree = compiler.tree(out, path)
@@ -2311,32 +2309,26 @@ local func format_text(text, path, options){
   local after = tokens(g, out_tree, {})
   if(not same_list(before, after)){
     local i = first_difference(before, after)
-    raise({
-      message: concat(
-        "formatting ", path, " changed its tokens (", string(before[i]),
-        " became ", string(after[i]), " at token ", i,
-        "); the file was left as it is"
-      ),
-    })
+    raise(error.new(error.kinds.error, concat(
+      "formatting ", path, " changed its tokens (", string(before[i]),
+      " became ", string(after[i]), " at token ", i,
+      "); the file was left as it is"
+    ), {path: path}))
   }
   local meaning = without_locations(canonical(ast.to_source(tree.ast)), path)
   if(meaning != without_locations(canonical(ast.to_source(out_tree.ast)), path)){
-    raise({
-      message: concat(
-        "formatting ", path,
-        " changed what the code means; the file was left as it is"
-      ),
-    })
+    raise(error.new(error.kinds.error, concat(
+      "formatting ", path,
+      " changed what the code means; the file was left as it is"
+    ), {path: path}))
   }
   local c1 = comments_of(f, tree)
   local c2 = comments_of(g, out_tree)
   if(not same_list(c1, c2)){
-    raise({
-      message: concat(
-        "formatting ", path,
-        " lost or reordered comments; the file was left as it is"
-      ),
-    })
+    raise(error.new(error.kinds.error, concat(
+      "formatting ", path,
+      " lost or reordered comments; the file was left as it is"
+    ), {path: path}))
   }
   return out
 }
@@ -2421,17 +2413,16 @@ func format.main(arguments){
     // what one file's extensions and project changed must not reach the next
     compiler.reset()
     local text = os.read_file(path)
-    local r = pcall(format.source, text, path, {find_project: true})
-    if(r[0] == "err"){
-      local e = r[1]
-      local message = e
-      if(type(e) == "table"){
-        message = e.message
-      }
-      os.write_stderr(concat(path, ": ", message, "\n"))
+    local failed = false
+    local out = null
+    try {
+      out = format.source(text, path, {find_project: true})
+    } catch(local e) {
+      os.write_stderr(concat(path, ": ", e.message, "\n"))
       status = 1
-    } else if(r[1] != null){
-      local out = r[1]
+      failed = true
+    }
+    if(not failed and out != null){
       if(stdout){
         print(out)
       } else if(out != text){

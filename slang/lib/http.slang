@@ -103,13 +103,6 @@ http.status_text = {
   [504]: "Gateway Timeout",
 }
 
-local func message_of(e){
-  if(type(e) == "table" and e.message != null){
-    return e.message
-  }
-  return string(e)
-}
-
 // ------------------------------------------------------------ requests
 
 // What a handler receives. Header names are lowercase; a repeated header
@@ -184,7 +177,7 @@ local func normalize(res){
     res = {status: 200, body: res}
   }
   if(type(res) != "table"){
-    error("a handler must return a string or a response table")
+    raise(error.new(error.kinds.type, "a handler must return a string or a response table"))
   }
   local out = {
     status: res.status or 200,
@@ -391,27 +384,33 @@ local func send(conn, req, res, keep_alive, options){
 
 // runs the handler, turning errors into 500 responses; awaits a Future result
 local func respond(handler, req, options){
-  local r = pcall(handler, req)
-  if(r[0] == "ok" and type(r[1]) == "async.Future"){
-    r = pcall(async.await, r[1])
+  local res = null
+  local failed = null
+  try {
+    res = handler(req)
+    if(type(res) == "async.Future"){
+      res = async.await(res)
+    }
+  } catch(local e) {
+    failed = e
   }
-  if(r[0] == "err"){
+  if(failed != null){
     if(options.on_error != null){
-      options.on_error(req, r[1])
+      options.on_error(req, failed)
     }
     return normalize({
       status: 500,
-      body: concat("internal error: ", message_of(r[1])),
+      body: concat("internal error: ", failed.message),
     })
   }
-  return normalize(r[1])
+  return normalize(res)
 }
 
 // normalize(res: string | Response) -> Response
 // What a handler returned as a full [Response]: status (200 by default),
 // headers (a copy, with Content-Type text/plain unless given), body (a
 // string or a Stream; other values are turned into strings) and compress.
-// Raises for anything but a string or a table.
+// Raises an error of kind type for anything but a string or a table.
 http.normalize = normalize
 
 // write_response(conn, req: Request, res: string | Response,
@@ -422,7 +421,7 @@ http.normalize = normalize
 func http.write_response(conn, req, res, options){
   return async.run(func(){
     send(conn, req, normalize(res), false, options or {})
-    pcall(func(){ async.await(async.close(conn)) })
+    try { async.await(async.close(conn)) } catch {}
   })
 }
 
@@ -461,16 +460,21 @@ local func event_source(conn, options, state){
     }
     if(timeout != null and timeout > 0){
       timer = uv.timer()
-      timer:start(timeout, 0, func(){ finish(false, TIMEOUT) })
+      timer:start(timeout, 0, func(){
+        finish(false, error.new(error.kinds.timeout, TIMEOUT))
+      })
     }
-    state.cancel = func(){ finish(false, "http: the server is closing") }
+    state.cancel = func(){
+      finish(false, error.new(error.kinds.closed, "http: the server is closing"))
+    }
     src.reader:next():then(func(e){ finish(true, e) }, func(e){
       finish(false, e)
     })
     return async.await(c.future)
   }
   // next(timeout) -> the next event, null at the end of the input; raises
-  // TIMEOUT after timeout ms, or when the server closes
+  // TIMEOUT (kind timeout) after timeout ms, or (kind closed) when the
+  // server closes
   src.next = func(timeout){
     for(src.at >= len(src.queue)){
       if(src.eof){
@@ -504,7 +508,7 @@ local func handle_connection(conn, handler, options, server){
   local idle_timeout = options.idle_timeout or 5000
   local request_timeout = options.request_timeout or 30000
   local upgraded = false
-  local r = pcall(func(){
+  local func serve_requests(){
     for(not server.closing){
       state.idle = true
       local ev = src.next(idle_timeout)
@@ -567,7 +571,9 @@ local func handle_connection(conn, handler, options, server){
             local e = src.next(request_timeout)
             if(e == null){
               if(not discard){
-                c.fail("the connection closed in the middle of the body")
+                c.fail(error.new(
+                  error.kinds.closed, "the connection closed in the middle of the body",
+                ))
               }
               return false
             }
@@ -580,7 +586,9 @@ local func handle_connection(conn, handler, options, server){
             } else if(e.type == "upgrade"){
               upgrade_rest = e.rest
             } else if(e.type == "error"){
-              if(not discard){ c.fail(concat("bad request: ", e.reason)) }
+              if(not discard){
+                c.fail(error.new(error.kinds.protocol, concat("bad request: ", e.reason)))
+              }
               return false
             }
           }
@@ -590,8 +598,8 @@ local func handle_connection(conn, handler, options, server){
         if(paused != null){
           c.on_resume()
         }
-        local complete = pcall(async.await, pumped)
-        if(complete[0] == "err" or complete[1] != true){
+        local complete = try { async.await(pumped) } catch { false }
+        if(complete != true){
           keep = false
         }
       } else {
@@ -602,7 +610,9 @@ local func handle_connection(conn, handler, options, server){
         for(not ended){
           local e = src.next(request_timeout)
           if(e == null){
-            error("the connection closed in the middle of a request")
+            raise(error.new(
+              error.kinds.closed, "the connection closed in the middle of a request",
+            ))
           }
           if(e.type == "body"){
             size = size + len(e.data)
@@ -620,7 +630,7 @@ local func handle_connection(conn, handler, options, server){
               error_response(e.status, concat("bad request: ", e.reason)),
               false, options
             )
-            error("bad request")
+            raise(error.new(error.kinds.protocol, "bad request"))
           }
         }
         if(too_large){
@@ -662,18 +672,21 @@ local func handle_connection(conn, handler, options, server){
         break
       }
     }
-  })
-  if(r[0] == "err" and message_of(r[1]) == TIMEOUT and not state.idle){
-    pcall(func(){
+  }
+  local failed = null
+  try { serve_requests() } catch(local e) { failed = e }
+  if(failed != null and failed.kind == error.kinds.timeout and failed.message == TIMEOUT and
+    not state.idle){
+    try {
       send(
         conn, {method: "GET", headers: {}},
         error_response(408, "request timeout"), false, options
       )
-    })
+    } catch {}
   }
   delete(server.connections, state)
   if(not upgraded){
-    pcall(func(){ async.await(async.close(conn)) })
+    try { async.await(async.close(conn)) } catch {}
   }
 }
 
@@ -799,11 +812,11 @@ local func check_cookie_part(what, s){
     local b = str.byte_at(s, i)
     if(b <= 32 or b >= 127 or b == '"' or b == ',' or b == ';' or b == '\\' or
       (what == "name" and b == '=')){
-      error(
+      raise(error.new(error.kinds.argument, concat(
         "http: a cookie ", what, " cannot contain ",
         b == ' ' and "a space" or concat("byte ", string(b)), ": ", s,
         " (encode it, for example with base64url)"
-      )
+      )))
     }
   }
 }
@@ -819,7 +832,7 @@ local func check_cookie_part(what, s){
 // [same_site]: "Lax" (the default), "Strict" or "None"
 
 // cookie(name: string, value: string, options?: CookieOptions) -> string
-// The Set-Cookie header value for a cookie. Raises when the name is empty
+// The Set-Cookie header value for a cookie. Raises (kind argument) when the name is empty
 // or the name or value holds bytes a cookie cannot (spaces, quotes, commas,
 // semicolons, backslashes, control or non-ASCII bytes; = in the name):
 // encode such values first, for example with slang/encoding's
@@ -829,7 +842,7 @@ func http.cookie(name, value, options){
   check_cookie_part("name", name)
   check_cookie_part("value", value)
   if(name == ""){
-    error("http: a cookie needs a name")
+    raise(error.new(error.kinds.argument, "http: a cookie needs a name"))
   }
   local parts = {concat(name, "=", value), concat("Path=", options.path or "/")}
   if(options.domain != null){
@@ -958,8 +971,9 @@ local func client_event(c){
 // Sends a request and gives a Future of its [ClientResponse]. Wait for one
 // to finish before the next. Host, Accept-Encoding: gzip, User-Agent:
 // slang and Content-Length (with a body) are added unless headers has
-// them. Fails when the connection closes early or the response is
-// malformed, and once the server closed the connection. request(method,
+// them. Fails (kind closed) when the connection closes early and once the
+// server closed the connection, (kind protocol) when the response is
+// malformed. request(method,
 // path, body, headers, options) works too (options a string is the body).
 // [path]: the request target, with the query
 // [raw]: true keeps a gzipped body as it came
@@ -973,7 +987,9 @@ func client_methods.request(c, method, path, body, headers, options){
   options = options or {}
   return async.run(func(){
     if(c.closed){
-      error("http: the server closed this connection; connect again")
+      raise(error.new(
+        error.kinds.closed, "http: the server closed this connection; connect again",
+      ))
     }
     local host = c.host
     // an IPv6 address goes in brackets
@@ -1012,7 +1028,9 @@ func client_methods.request(c, method, path, body, headers, options){
     for(true){
       local e = client_event(c)
       if(e == null){
-        error("http: the connection closed before the response ended")
+        raise(error.new(
+          error.kinds.closed, "http: the connection closed before the response ended",
+        ))
       }
       if(e.type == "head"){
         // a 100 Continue is followed by the real response
@@ -1032,11 +1050,15 @@ func client_methods.request(c, method, path, body, headers, options){
           break
         }
       } else if(e.type == "error"){
-        error(concat("http: malformed response: ", e.reason))
+        raise(error.new(
+          error.kinds.protocol, concat("http: malformed response: ", e.reason),
+        ))
       } else if(e.type == "upgrade"){
         c.closed = true
         if(res == null){
-          error("http: the server switched protocols without a response")
+          raise(error.new(
+            error.kinds.protocol, "http: the server switched protocols without a response",
+          ))
         }
         break
       }
@@ -1100,7 +1122,10 @@ func http.fetch(url, options){
   return async.run(func(){
     local secure = str.starts_with(url, "https://")
     if(not secure and not str.starts_with(url, "http://")){
-      error("http.fetch: an http:// or https:// URL expected: ", url)
+      raise(error.new(
+        error.kinds.argument, concat("http.fetch: an http:// or https:// URL expected: ", url),
+        {url: url},
+      ))
     }
     local rest = str.substring(url, secure and 8 or 7)
     // the authority ends at the path, the query or the fragment
@@ -1130,7 +1155,9 @@ func http.fetch(url, options){
       // [::1]:8080, an IPv6 address
       local close = str.index_of(authority, "]")
       if(close < 0){
-        error("http.fetch: a ] expected in ", url)
+        raise(error.new(
+          error.kinds.argument, concat("http.fetch: a ] expected in ", url), {url: url},
+        ))
       }
       host = str.substring(authority, 1, close)
       if(str.starts_with(authority, ":", close + 1)){
@@ -1146,7 +1173,9 @@ func http.fetch(url, options){
     if(port_text != null){
       port = to_int(port_text)
       if(port == null){
-        error("http.fetch: a bad port in ", url)
+        raise(error.new(
+          error.kinds.argument, concat("http.fetch: a bad port in ", url), {url: url},
+        ))
       }
     }
     local headers = {Connection: "close"}
@@ -1156,14 +1185,20 @@ func http.fetch(url, options){
     local c = async.await(http.connect(host, port, {
       tls: secure and (options.tls or true) or null,
     }))
-    local r = pcall(async.await, c:request(
-      options.method or "GET", path, options.body, headers, options
-    ))
-    pcall(func(){ async.await(c:close()) })
-    if(r[0] == "err"){
-      raise(r[1])
+    local res = null
+    local failed = null
+    try {
+      res = async.await(c:request(
+        options.method or "GET", path, options.body, headers, options
+      ))
+    } catch(local e) {
+      failed = e
     }
-    return r[1]
+    try { async.await(c:close()) } catch {}
+    if(failed != null){
+      raise(failed)
+    }
+    return res
   })
 }
 
@@ -1251,7 +1286,7 @@ local multipart_meta = {__index: multipart_methods, __type: "http.MultipartParse
 
 // multipart_parser(boundary: string) -> MultipartParser
 // A parser for a multipart body with the boundary (see
-// [multipart_boundary]). Raises when the boundary is empty.
+// [multipart_boundary]). Raises (kind argument) when the boundary is empty.
 //   local p = http.multipart_parser(http.multipart_boundary(req.headers["content-type"]))
 //   for(true){
 //     local e = async.await(req.stream:next())
@@ -1261,7 +1296,7 @@ local multipart_meta = {__index: multipart_methods, __type: "http.MultipartParse
 //   p:finish()
 func http.multipart_parser(boundary){
   if(boundary == null or boundary == ""){
-    error("http: a multipart body needs a boundary")
+    raise(error.new(error.kinds.argument, "http: a multipart body needs a boundary"))
   }
   return {
     @meta: multipart_meta, first: concat("--", boundary),
@@ -1272,8 +1307,8 @@ func http.multipart_parser(boundary){
 
 // push(chunk: string) -> {MultipartEvent}
 // Feeds the next chunk of the body; gives the events it completes (data is
-// held back while it could be the start of a boundary). Raises when the
-// body is malformed or a part's head is over 16 KiB.
+// held back while it could be the start of a boundary). Raises (kind
+// format) when the body is malformed or a part's head is over 16 KiB.
 func multipart_methods.push(p, chunk){
   local events = {}
   p.buffer = concat(p.buffer, chunk)
@@ -1302,7 +1337,9 @@ func multipart_methods.push(p, chunk){
         break
       }
       if(two != "\r\n"){
-        error("http: malformed multipart body (no line break after a boundary)")
+        raise(error.new(
+          error.kinds.format, "http: malformed multipart body (no line break after a boundary)",
+        ))
       }
       p.buffer = str.substring(buf, 2)
       p.state = "head"
@@ -1310,7 +1347,7 @@ func multipart_methods.push(p, chunk){
       local i = str.index_of(buf, "\r\n\r\n")
       if(i < 0){
         if(len(buf) > p.max_head){
-          error("http: a multipart part head is too large")
+          raise(error.new(error.kinds.format, "http: a multipart part head is too large"))
         }
         break
       }
@@ -1365,11 +1402,11 @@ func multipart_methods.push(p, chunk){
 }
 
 // finish() -> {}
-// Says the body has ended; raises when it ended before the closing
-// boundary.
+// Says the body has ended; raises (kind format) when it ended before the
+// closing boundary.
 func multipart_methods.finish(p){
   if(p.state != "done"){
-    error("http: the multipart body ended early")
+    raise(error.new(error.kinds.format, "http: the multipart body ended early"))
   }
   return {}
 }
@@ -1387,13 +1424,13 @@ func multipart_methods.is_done(p){
 // [content_type]: text/plain when the part does not say
 
 // multipart(req: Request) -> {Part}
-// The parts of a request's multipart body, read whole. Raises when the
-// request is not multipart or the body is malformed. For a streamed body
+// The parts of a request's multipart body, read whole. Raises (kind
+// format) when the request is not multipart or the body is malformed. For a streamed body
 // use [multipart_parser].
 func http.multipart(req){
   local boundary = http.multipart_boundary(req.headers["content-type"])
   if(boundary == null){
-    error("http: the request is not multipart")
+    raise(error.new(error.kinds.format, "http: the request is not multipart"))
   }
   local p = http.multipart_parser(boundary)
   local parts = {}

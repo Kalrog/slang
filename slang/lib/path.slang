@@ -127,14 +127,16 @@ func m.abs(p){
 
 // rel(from: string, to: string) -> string
 // A relative path that leads from the directory from to to, so that
-// join(from, rel(from, to)) is clean(to). Raises when one is absolute and
-// the other is not, or when from climbs above to with "..".
+// join(from, rel(from, to)) is clean(to). Raises an error of kind argument
+// when one is absolute and the other is not, or when from climbs above to
+// with "..".
 //   path.rel("a/b", "a/c/d")   // "../c/d"
 func m.rel(from, to){
   from = m.clean(from)
   to = m.clean(to)
   if(m.is_abs(from) != m.is_abs(to)){
-    error("rel: ", from, " and ", to, " must both be absolute or both relative")
+    raise(error.new(error.kinds.argument,
+      concat("rel: ", from, " and ", to, " must both be absolute or both relative")))
   }
   if(from == to){
     return "."
@@ -154,7 +156,8 @@ func m.rel(from, to){
   local out = {}
   for(local k = i; k < len(a); k = k + 1){
     if(a[k] == ".."){
-      error("rel: cannot find a path from ", from, " to ", to)
+      raise(error.new(error.kinds.argument,
+        concat("rel: cannot find a path from ", from, " to ", to)))
     }
     append(out, "..")
   }

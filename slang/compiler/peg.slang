@@ -1272,7 +1272,8 @@ local func resolve_ref(f, args){
   if(target == null){
     target = f(args[0], args[1], args[2], args[3])
     if(target == null){
-      error("parser reference resolved to null")
+      raise(error.new(error.kinds.argument,
+        "parser reference resolved to null"))
     }
     node.__target = target
   }
@@ -1289,7 +1290,8 @@ local func resolve_ref(f, args){
 //   }
 func peg.ref(f, ...args){
   if(type(f) != "function"){
-    error("ref expects a function, got ", type(f))
+    raise(error.new(error.kinds.argument,
+      concat("ref expects a function, got ", type(f))))
   }
   local p = new_parser(
     func(self, ctx, pos){
@@ -2119,23 +2121,25 @@ local func place(list, entry, placement, what){
   } else if(placement.after != null){
     local i = index_of(list, placement.after)
     if(i < 0){
-      error(what, " ", placement.after, " not found")
+      raise(error.new(error.kinds.not_found,
+        concat(what, " ", placement.after, " not found")))
     }
     index = i + 1
   } else if(placement.before != null){
     local i = index_of(list, placement.before)
     if(i < 0){
-      error(what, " ", placement.before, " not found")
+      raise(error.new(error.kinds.not_found,
+        concat(what, " ", placement.before, " not found")))
     }
     index = i
   }
   if(placement.after != null and placement.before != null){
     local j = index_of(list, placement.before)
     if(j < index){
-      error(
+      raise(error.new(error.kinds.argument, concat(
         what, " ", entry.name, " cannot be after ", placement.after,
         " and before ", placement.before
-      )
+      )))
     }
   }
   local out = {}
@@ -2159,7 +2163,8 @@ local func resolve_level(w, level){
   }
   local i = level_index(w, level)
   if(i < 0){
-    error("expression level ", level, " not found")
+    raise(error.new(error.kinds.not_found,
+      concat("expression level ", level, " not found"), {level: level}))
   }
   return w.levels[i]
 }
@@ -2167,8 +2172,8 @@ local func resolve_level(w, level){
 // level(name?: string, placement?: Placement) -> Level
 // A new precedence level. Levels form a total order, tightest first;
 // without a placement the level is looser than all so far. A level of a
-// name already in use replaces that level. Raises when a placement names a
-// level that does not exist.
+// name already in use replaces that level. Raises an error of kind
+// not_found when a placement names a level that does not exist.
 func walker_methods.level(self, name, placement){
   placement = placement or {}
   local l = new_level(self, name, placement.aliases)
@@ -3179,11 +3184,12 @@ local builtin_layers = {
 
 // layer(name: string, base: string) -> Layer
 // A custom layer starting from the built-in layer base: "text", "raw" or
-// "default". Raises for any other base.
+// "default". Raises an error of kind argument for any other base.
 func peg.layer(name, base){
   local b = builtin_layers[base]
   if(b == null){
-    error("a layer starts from \"text\", \"raw\" or \"default\", not ", base)
+    raise(error.new(error.kinds.argument,
+      concat("a layer starts from \"text\", \"raw\" or \"default\", not ", base)))
   }
   return {name: name, base: base, tags: b.tags, custom: true}
 }
@@ -3267,7 +3273,8 @@ tree_kinds.layer = func(self, ctx, pos){
 //   local id = peg.word():plus():on(names, func(v){ return v:flatten() })
 func peg.on(parser, layer, f){
   if(type(layer) != "table" or not layer.custom){
-    error("on() takes a layer made with peg.layer")
+    raise(error.new(error.kinds.argument,
+      "on() takes a layer made with peg.layer"))
   }
   local pipe = {ops: {}}
   pipe.@meta = pipeline_meta
@@ -3532,7 +3539,8 @@ func peg.evaluate(tree, layer, buffer, options){
   if(type(layer) == "string"){
     local b = builtin_layers[layer]
     if(b == null){
-      error("no built-in layer ", layer)
+      raise(error.new(error.kinds.not_found,
+        concat("no built-in layer ", layer)))
     }
     if(layer == "default" and not replay){
       return tree.value

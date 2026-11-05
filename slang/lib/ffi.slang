@@ -36,8 +36,8 @@
 // A wrong declaration crashes the program as it would in C: the FFI calls
 // what it is told is there. Unions, bit fields and long double are not
 // supported yet. Builds made without libffi (-Dffi=false) have types and
-// memory but no calls: [load] raises there, and [available] says which it
-// is.
+// memory but no calls: [load] raises an error of kind unsupported there,
+// and [available] says which it is.
 
 // A C type: made by [type] from a name ("int", "Vector2 *", "float[4]"),
 // and given to [new], [sizeof], [cast] and slang/buffer. Types live as long
@@ -99,7 +99,8 @@ if(core_entry != null){
 
 local func need_core(){
   if(core == null){
-    error("slang was built without calls to C (zig build -Dffi=false)")
+    raise(error.new(error.kinds.unsupported,
+      "slang was built without calls to C (zig build -Dffi=false)"))
   }
 }
 
@@ -818,8 +819,8 @@ local qualifiers = {
 
 // cdef(text: string, options?: CdefOptions) -> Decls
 // Reads C declarations: the preprocessor runs, then typedefs, structs,
-// enums and function prototypes are parsed. Raises "ffi.cdef: ..." naming
-// the line for what it cannot parse.
+// enums and function prototypes are parsed. Raises "ffi.cdef: ..." (of
+// kind format) naming the line for what it cannot parse.
 //
 //   local C = ffi.cdef(os.read_file("mylib.h"), {defines: {MYLIB_API: ""}})
 func ffi.cdef(text, options){
@@ -874,7 +875,8 @@ func ffi.cdef(text, options){
     if(t != null){
       where = concat("line ", string(t.line), " at ", t.text)
     }
-    error("ffi.cdef: ", message, " (", where, ")")
+    raise(error.new(error.kinds.format,
+      concat("ffi.cdef: ", message, " (", where, ")")))
   }
   local func expect(text){
     if(not is(text)){
@@ -1457,7 +1459,7 @@ core_of = func(t, decls){
     }
     c = original.core
   } else if(k == "opaque"){
-    error(t.why)
+    raise(error.new(error.kinds.unsupported, t.why))
   } else if(k == "func"){
     c = function_core(t, decls)
   }
@@ -1471,17 +1473,15 @@ function_core = func(t, decls){
   if(t.variadic){
     return ct.pointer(null)
   }
-  local r = pcall(func(){
+  try {
     local args = {}
     for(let local p in values(t.params)){
       append(args, core_of(p.type, decls))
     }
     return ct["function"](core_of(t.ret, decls), args)
-  })
-  if(r[0] == "err"){
+  } catch {
     return ct.pointer(null)
   }
-  return r[1]
 }
 
 // ------------------------------------------------------------ types by name
@@ -1664,12 +1664,12 @@ local func open_library(name, options){
       }
     }
   }
-  error(
+  raise(error.new(error.kinds.not_found, concat(
     "ffi.load: cannot load the C library ",
     name,
     ": ",
     str.join(tried, "; "),
-  )
+  ), {name: name}))
 }
 
 // the slang function calling the C function f declares (name: what errors
@@ -1677,16 +1677,16 @@ local func open_library(name, options){
 local func bind(lib, f, decls, name){
   local sym = core.symbol(lib.handle, f.name)
   if(sym == null){
-    error("ffi: ", f.name, " is declared but not in the library")
+    raise(error.new(error.kinds.not_found,
+      concat("ffi: ", f.name, " is declared but not in the library"),
+      {name: f.name}))
   }
   local args = {}
   local writeback = {}
   for(let local p in values(f.params)){
-    local r = pcall(core_of, p.type, decls)
-    if(r[0] == "err"){
-      error("ffi: cannot call ", f.name, ": ", r[1].message)
-    }
-    append(args, r[1])
+    append(args, try { core_of(p.type, decls) } catch(local e) {
+      raise(error.wrap(e, concat("ffi: cannot call ", f.name)))
+    })
     // a pointer to something not const is copied back (out parameters)
     local t = p.type
     append(
@@ -1695,11 +1695,10 @@ local func bind(lib, f, decls, name){
         t.to.kind != "func",
     )
   }
-  local r = pcall(core_of, f.ret, decls)
-  if(r[0] == "err"){
-    error("ffi: cannot call ", f.name, ": ", r[1].message)
+  local ret = try { core_of(f.ret, decls) } catch(local e) {
+    raise(error.wrap(e, concat("ffi: cannot call ", f.name)))
   }
-  return core.func(sym, r[1], args, name or f.name, writeback, f.variadic)
+  return core.func(sym, ret, args, name or f.name, writeback, f.variadic)
 }
 
 local library_meta = {
@@ -1719,8 +1718,8 @@ local library_meta = {
 // Loads a C library with the declarations of its functions. A library
 // name ("raylib") is libraylib.dylib or .so in options.paths, slang's
 // native search paths, /opt/homebrew/lib, /usr/local/lib, /usr/lib, then
-// wherever the system finds it. Raises "ffi.load: ..." with what each
-// attempt said when it cannot load it.
+// wherever the system finds it. Raises "ffi.load: ..." (of kind
+// not_found) with what each attempt said when it cannot load it.
 // [name]: a path (with a / or a .), a library name, or null for the program
 func ffi.load(name, decls, options){
   need_core()
@@ -1754,8 +1753,8 @@ func ffi.c_layer(lib, type_name){
 // bind(lib: Library, f: FunctionDecl, name?: string) -> function
 // The slang function calling the C function f declares (from
 // decls.functions), bound to lib; lib.Name does the same for a declared
-// name. Raises when the library lacks the symbol or a parameter's type
-// cannot cross.
+// name. Raises an error of kind not_found when the library lacks the
+// symbol, of kind unsupported when a parameter's type cannot cross.
 // [name]: what errors call it (its C name by default)
 func ffi.bind(lib, f, name){
   need_core()

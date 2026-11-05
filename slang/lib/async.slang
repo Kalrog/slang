@@ -17,7 +17,7 @@
 // on top of this module.
 //
 // A [Future] completes once, with a value or an error (any value; errors
-// raised inside async functions are the error tables pcall produces). A
+// raised inside async functions are error tables, see [error]). A
 // [Stream] is a sequence of values ending with done or an error; its next()
 // gives the next [Event] as a Future, listen() consumes it with a callback.
 // A [Completer] makes a Future, a [Controller] a Stream.
@@ -91,7 +91,7 @@ local func new_future(){
 
 local func settle(f, state, v){
   if(f.state != "pending"){
-    error("the future is already ", f.state)
+    raise(error.new(error.kinds.state, concat("the future is already ", f.state)))
   }
   f.state = state
   if(state == "done"){
@@ -142,11 +142,11 @@ func future_methods.then(f, on_value, on_error){
       settle(out, f.state, arg)
       return
     }
-    local r = pcall(handler, arg)
-    if(r[0] == "err"){
-      settle(out, "error", r[1])
-    } else if(type(r[1]) == "async.Future"){
-      on_settled(r[1], func(g){
+    local r = try { {value: handler(arg)} } catch(local e) { {error: e} }
+    if(r.error != null){
+      settle(out, "error", r.error)
+    } else if(type(r.value) == "async.Future"){
+      on_settled(r.value, func(g){
         if(g.state == "done"){
           settle(out, "done", g.value)
         } else {
@@ -154,7 +154,7 @@ func future_methods.then(f, on_value, on_error){
         }
       })
     } else {
-      settle(out, "done", r[1])
+      settle(out, "done", r.value)
     }
   })
   return out
@@ -168,7 +168,7 @@ func future_methods.catch(f, on_error){
 }
 
 // The making side of a Future: call complete or fail once (a second call
-// raises "the future is already ...").
+// raises "the future is already ...", of kind state).
 // type Completer = {future: Future, complete: func(value: any),
 //   fail: func(error: any)}
 
@@ -210,15 +210,16 @@ func async.failed(e){
 //   local f = async.wrap(func(cb){ handle:write(data, cb) })
 func async.wrap(start){
   local c = async.completer()
-  local r = pcall(start, func(err, value){
-    if(err != null){
-      c.fail(err)
-    } else {
-      c.complete(value)
-    }
-  })
-  if(r[0] == "err"){
-    c.fail(r[1])
+  try {
+    start(func(err, value){
+      if(err != null){
+        c.fail(err)
+      } else {
+        c.complete(value)
+      }
+    })
+  } catch(local e) {
+    c.fail(e)
   }
   return c.future
 }
@@ -275,10 +276,9 @@ func async.race(futures){
 }
 
 // timeout(f: Future, ms: int, message?: string) -> Future
-// A Future of f's value (or error), failing with [message] instead when f
-// takes longer than ms milliseconds. f itself goes on; its late result is
-// dropped. An error keeps only its message through raise, so tell a
-// timeout by the message you chose.
+// A Future of f's value (or error), failing with an error of kind timeout
+// (and [message]) instead when f takes longer than ms milliseconds. f
+// itself goes on; its late result is dropped.
 // [message]: "timed out after <ms> ms" by default
 func async.timeout(f, ms, message){
   local c = async.completer()
@@ -288,7 +288,9 @@ func async.timeout(f, ms, message){
     timer:close()
     if(not settled){
       settled = true
-      c.fail(message or concat("timed out after ", string(ms), " ms"))
+      c.fail(error.new(
+        error.kinds.timeout, message or concat("timed out after ", string(ms), " ms"),
+      ))
     }
   })
   on_settled(f, func(f){
@@ -309,17 +311,20 @@ func async.timeout(f, ms, message){
 
 // await(f: Future) -> the value of f
 // Waits for f, suspending the async function, and returns its value or
-// raises its error. Raises when f is not a Future or when called outside
-// an async function ([run], [main]). A completed f returns at once.
+// raises its error. Raises an error of kind argument when f is not a
+// Future, of kind state when called outside an async function ([run],
+// [main]). A completed f returns at once.
 func async.await(f){
   if(type(f) != "async.Future"){
-    error("await expects a Future, got ", type(f))
+    raise(error.new(error.kinds.argument, concat("await expects a Future, got ", type(f))))
   }
   f.handled = true
   if(f.state == "pending"){
     local co = thread.current()
     if(running[co] == null){
-      error("await outside an async function (use async.run or async.main)")
+      raise(error.new(
+        error.kinds.state, "await outside an async function (use async.run or async.main)",
+      ))
     }
     on_settled(f, func(f){
       schedule(func(){ thread.resume(co) })
@@ -340,12 +345,12 @@ func async.run(f){
   local fut = new_future()
   local co = null
   co = thread.create(func(){
-    local r = pcall(f)
+    local r = try { {value: f()} } catch(local e) { {error: e} }
     delete(running, co)
-    if(r[0] == "ok"){
-      settle(fut, "done", r[1])
+    if(r.error == null){
+      settle(fut, "done", r.value)
     } else {
-      settle(fut, "error", r[1])
+      settle(fut, "error", r.error)
     }
   })
   running[co] = true
@@ -420,9 +425,10 @@ func async.main(f){
       more = uv.run("once")
     }
     if(not more and fut.state == "pending"){
-      error(
+      raise(error.new(
+        error.kinds.state,
         "async.main: the loop has nothing left to do but the main function has not finished",
-      )
+      ))
     }
   }
   if(len(unhandled) > 0){
@@ -430,11 +436,7 @@ func async.main(f){
     unhandled = {}
     for(let local g in values(bad)){
       if(not g.handled){
-        local msg = g.error
-        if(type(msg) == "table" and msg.message != null){
-          msg = msg.message
-        }
-        print("async: unhandled error in a future: ", msg, "\n")
+        print("async: unhandled error in a future: ", error.message(g.error), "\n")
       }
     }
   }
@@ -448,7 +450,7 @@ func async.main(f){
 
 // A sequence of values that ends with done or an error. Read it one way:
 // [Stream.next] (or `await for`), [Stream.listen] or [Stream.collect]; a
-// second reader raises "the stream is already being read".
+// second reader raises "the stream is already being read" (kind state).
 // type Stream
 local stream_methods = {}
 local stream_meta = {__index: stream_methods, __type: "async.Stream"}
@@ -456,7 +458,7 @@ local stream_meta = {__index: stream_methods, __type: "async.Stream"}
 // What [Stream.next] gives: {value: v}, or {done: true} at the end.
 // type Event = {value?: any, done?: bool}
 
-// The writing side of a Stream. add raises once the stream is closed;
+// The writing side of a Stream. add raises (kind closed) once the stream is closed;
 // close and fail after the end do nothing.
 // type Controller = {stream: Stream, add: func(value: any), close: func(),
 //   fail: func(error: any), on_pause?: func(), on_resume?: func()}
@@ -518,7 +520,7 @@ func async.controller(options){
   }
   s.deliver = deliver
   c.add = func(v){
-    if(s.done){ error("the stream is closed") }
+    if(s.done){ raise(error.new(error.kinds.closed, "the stream is closed")) }
     append(s.buffer, v)
     deliver()
     if(not s.paused and len(s.buffer) >= s.high_water and c.on_pause != null){
@@ -545,10 +547,10 @@ func async.controller(options){
 // next() at a time; raises while another is pending or with a listener.
 func stream_methods.next(s){
   if(s.pending != null){
-    error("the stream is already being read")
+    raise(error.new(error.kinds.state, "the stream is already being read"))
   }
   if(s.listener != null){
-    error("the stream has a listener")
+    raise(error.new(error.kinds.state, "the stream has a listener"))
   }
   local c = async.completer()
   s.pending = c
@@ -563,7 +565,7 @@ func stream_methods.next(s){
 // stream.
 func stream_methods.listen(s, cb){
   if(s.listener != null or s.pending != null){
-    error("the stream is already being read")
+    raise(error.new(error.kinds.state, "the stream is already being read"))
   }
   s.listener = cb
   s.deliver()
@@ -610,20 +612,15 @@ func async.pull(next_value){
 // Calls the source once and gives a Future of the next [Event].
 func pull_methods.next(s){
   if(s.busy){
-    error("the stream is already being read")
+    raise(error.new(error.kinds.state, "the stream is already being read"))
   }
   if(s.done){
     return async.value({done: true})
   }
   s.busy = true
-  local r = pcall(s.source)
-  local f = null
-  if(r[0] == "err"){
-    f = async.failed(r[1])
-  } else if(type(r[1]) == "async.Future"){
-    f = r[1]
-  } else {
-    f = async.value(r[1])
+  local f = try { s.source() } catch(local e) { async.failed(e) }
+  if(type(f) != "async.Future"){
+    f = async.value(f)
   }
   return f:then(
     func(v){
@@ -661,17 +658,20 @@ func pull_methods.collect(s){
 // Reads the stream with a callback, as [Stream.listen] does.
 func pull_methods.listen(s, cb){
   async.run(func(){
-    local r = pcall(func(){
+    local failed = null
+    try {
       for(true){
         local e = async.await(s:next())
         if(e.done){
-          return null
+          break
         }
         cb(null, e.value)
       }
-    })
-    if(r[0] == "err"){
-      cb(r[1], null)
+    } catch(local e) {
+      failed = e
+    }
+    if(failed != null){
+      cb(failed, null)
     } else {
       cb(null, stop)
     }
@@ -733,7 +733,9 @@ func async.connect(host, port){
     local func attempt(addrs, i, last_err){
       if(i >= len(addrs)){
         cb(
-          last_err or concat("cannot connect to ", host, ": no addresses"),
+          last_err or error.new(
+            error.kinds.network, concat("cannot connect to ", host, ": no addresses"),
+          ),
           null,
         )
         return
@@ -849,7 +851,8 @@ func async.serve(host, port, options){
 local fs = {}
 
 // The file system on libuv's thread pool; every function returns a Future.
-// Errors read like "ENOENT: no such file or directory, read_file 'x'".
+// Errors are libuv's error tables {kind, message, code, path}; a message
+// reads like "ENOENT: no such file or directory, read_file 'x'".
 //
 //   fs.read_file(path) -> the contents    fs.write_file(path, data)
 //   fs.append_file(path, data)            fs.exists(path) -> bool
@@ -962,9 +965,9 @@ func fs.list_dir(path){
       local dir = bundle.is_dir(concat(path, "/", name))
       append(out, {name: name, type: dir and "dir" or "file"})
     }
-    local disk = pcall(async.await, fs_call("fs_scandir", path))
-    if(disk[0] == "ok"){
-      for(let local e in values(disk[1])){
+    local disk = try { async.await(fs_call("fs_scandir", path)) } catch { null }
+    if(disk != null){
+      for(let local e in values(disk)){
         if(not seen[e.name]){
           append(out, e)
         }
@@ -1057,35 +1060,37 @@ func fs.read_stream(path, options){
       return stop
     }
     return async.run(func(){
-      local r = pcall(func(){
-        if(left != null and left <= 0){
-          return ""
+      local failed = null
+      local data = ""
+      try {
+        if(left == null or left > 0){
+          if(fd == null){
+            fd = async.await(fs.open(path, "r"))
+          }
+          local want = size
+          if(left != null and left < want){
+            want = left
+          }
+          data = async.await(fs.read(fd, want, offset))
+          offset = offset + len(data)
+          if(left != null){
+            left = left - len(data)
+          }
         }
-        if(fd == null){
-          fd = async.await(fs.open(path, "r"))
-        }
-        local want = size
-        if(left != null and left < want){
-          want = left
-        }
-        local data = async.await(fs.read(fd, want, offset))
-        offset = offset + len(data)
-        if(left != null){
-          left = left - len(data)
-        }
-        return data
-      })
-      if(r[0] == "err" or r[1] == ""){
+      } catch(local e) {
+        failed = e
+      }
+      if(failed != null or data == ""){
         finished = true
         if(fd != null){
-          pcall(async.await, fs.close(fd))
+          try { async.await(fs.close(fd)) } catch {}
         }
-        if(r[0] == "err"){
-          raise(r[1])
+        if(failed != null){
+          raise(failed)
         }
         return stop
       }
-      return r[1]
+      return data
     })
   })
 }
@@ -1205,9 +1210,10 @@ func async.exec(file, args, options){
   opts.input = null
   opts.stdio = {"pipe", "pipe", "pipe"}
   local p = null
-  local r = pcall(func(){ p = async.spawn(file, args, opts) })
-  if(r[0] == "err"){
-    return async.failed(r[1])
+  try {
+    p = async.spawn(file, args, opts)
+  } catch(local e) {
+    return async.failed(e)
   }
   if(input != null and input != ""){
     p.stdin:write(input)

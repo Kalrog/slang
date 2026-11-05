@@ -106,7 +106,7 @@ func lsp.frame(buffer){
       }
     }
     if(length < 0){
-      error("message without Content-Length")
+      raise(error.new(error.kinds.format, "message without Content-Length"))
     }
     local body_start = head_end + 4
     if(len(buffer) < body_start + length){
@@ -561,7 +561,7 @@ local func module_known(s, name){
   if(hit == null){
     hit = __PACKAGES.preloaded[name] != null or vm.embedded(name) != null or
       compiler.module_path(name) != null or
-      (pcall(__PACKAGES.native_file, name)[1] != null)
+      (try { __PACKAGES.native_file(name) } catch { null }) != null
     s.lint_modules[key] = hit
   }
   return hit
@@ -689,14 +689,18 @@ lint = func(s, doc){
 // the diagnostics notification for a document, after highlighting it
 local func analyse(s, uri){
   local doc = s.documents[uri]
-  local r = pcall(compiler.for_file, doc.path, func(){
-    return compiler.highlight(doc.text, doc.path, {
-      find_project: true, symbols: true
+  local h = null
+  local message = null
+  try {
+    h = compiler.for_file(doc.path, func(){
+      return compiler.highlight(doc.text, doc.path, {
+        find_project: true, symbols: true
+      })
     })
-  })
-  if(r[0] == "err"){
-    local message = r[1]
-    if(type(message) == "table"){ message = message.message }
+  } catch(local e) {
+    message = e.message
+  }
+  if(message != null){
     s.log(concat("highlight failed for ", uri, ": ", message))
     doc.tokens = {}
     doc.diagnostics = {
@@ -708,16 +712,16 @@ local func analyse(s, uri){
       },
     }
   } else {
-    doc.tokens = r[1].tokens
-    doc.diagnostics = r[1].diagnostics
+    doc.tokens = h.tokens
+    doc.diagnostics = h.diagnostics
     // while an edit does not parse, the symbols of the last text that did
     // stay (a recovered parse leaves out the statement being typed, its
     // locals with it); a file that never parsed takes what there is
-    local clean = len(r[1].diagnostics) == 0
-    if(r[1].symbols != null and (clean or doc.symbols == null)){
-      doc.symbols = r[1].symbols
+    local clean = len(h.diagnostics) == 0
+    if(h.symbols != null and (clean or doc.symbols == null)){
+      doc.symbols = h.symbols
       doc.symbols_text = doc.text
-      doc.ast = r[1].ast
+      doc.ast = h.ast
     }
   }
   if(s.nav != null){
@@ -745,15 +749,14 @@ local func analyse(s, uri){
   // the lint needs the index of this very text
   if(s.lint and len(doc.diagnostics) == 0 and doc.symbols_text == doc.text and
     not is_project_file(doc.path)){
-    local pr = pcall(lint, s, doc)
-    if(pr[0] == "ok"){
-      for(let local d in values(pr[1])){
-        append(diagnostics, d)
-      }
-    } else {
-      local message = pr[1]
-      if(type(message) == "table"){ message = message.message }
-      s.log(concat("lint failed for ", uri, ": ", message))
+    local found = {}
+    try {
+      found = lint(s, doc)
+    } catch(local e) {
+      s.log(concat("lint failed for ", uri, ": ", e.message))
+    }
+    for(let local d in values(found)){
+      append(diagnostics, d)
     }
   }
   return notification("textDocument/publishDiagnostics", {
@@ -1028,8 +1031,9 @@ local func extension_at(at){
   // for it again and again
   local doc = at.doc
   if(doc.tree_text != at.text){
-    local r = pcall(compiler.tree, at.text, doc.path, {find_project: true})
-    doc.tree = r[0] == "ok" and r[1] or false
+    doc.tree = (try {
+      compiler.tree(at.text, doc.path, {find_project: true})
+    } catch { null }) or false
     doc.tree_text = at.text
   }
   if(not doc.tree){
@@ -1328,11 +1332,13 @@ local func valid_name(name){
   if(type(name) != "string" or len(name) == 0){
     return false
   }
-  local r = pcall(compiler.parse, concat("local ", name, " = 1"), "rename")
-  if(r[0] == "err"){
+  local parsed = try {
+    compiler.parse(concat("local ", name, " = 1"), "rename")
+  } catch { null }
+  if(parsed == null){
     return false
   }
-  local st = r[1].statements
+  local st = parsed.statements
   return len(st) == 1 and st[0].type == "Declaration" and
     st[0].left.type == "Identifier" and st[0].left.value == name
 }
@@ -1749,11 +1755,13 @@ local PROJECT_PREFIX = "return "
 // the project file's table: {table, shift} (shift: the prefix's length), or
 // null when it does not parse
 local func project_table(text){
-  local r = pcall(compiler.parse, concat(PROJECT_PREFIX, text), "slang.project")
-  if(r[0] == "err"){
+  local parsed = try {
+    compiler.parse(concat(PROJECT_PREFIX, text), "slang.project")
+  } catch { null }
+  if(parsed == null){
     return null
   }
-  local st = r[1].statements or {}
+  local st = parsed.statements or {}
   if(len(st) != 1 or st[0].type != "Return" or st[0].value.type != "Table"){
     return null
   }
@@ -1950,11 +1958,11 @@ local func item_of(name, def, rank, method){
 
 // the .slang files under dir as module names (prefix/a/b), at most depth deep
 local func modules_in(dir, prefix, depth, out){
-  local r = pcall(os.list_dir, dir)
-  if(r[0] == "err" or depth < 0){
+  local names = try { os.list_dir(dir) } catch { null }
+  if(names == null or depth < 0){
     return out
   }
-  for(let local name in values(r[1])){
+  for(let local name in values(names)){
     if(not str.starts_with(name, ".") and name != "node_modules" and
       name != "zig-out"){
       local path = concat(dir, "/", name)
@@ -2339,16 +2347,17 @@ handlers["slang/tests"] = func(s, id, params){
     text = doc.symbols_text
     tree = doc.ast
   } else {
-    local r = pcall(os.read_file, path)
-    if(r[0] == "err"){
+    text = try { os.read_file(path) } catch { null }
+    if(text == null){
       return {response(id, {tests: json.array({})})}
     }
-    local h = pcall(compiler.highlight, r[1], path, {symbols: true})
-    if(h[0] == "err" or h[1].ast == null){
+    local h = try {
+      compiler.highlight(text, path, {symbols: true})
+    } catch { null }
+    if(h == null or h.ast == null){
       return {response(id, {tests: json.array({})})}
     }
-    text = r[1]
-    tree = h[1].ast
+    tree = h.ast
   }
   local func convert(list){
     local out = json.array({})
@@ -2374,15 +2383,13 @@ handlers["slang/expand"] = func(s, id, params){
   if(doc == null){
     return {response(id, {error: "the document is not open"})}
   }
-  local r = pcall(compiler.expand, doc.text, doc.path, {find_project: true})
-  if(r[0] == "err"){
-    local message = r[1]
-    if(type(message) == "table"){
-      message = message.message
-    }
-    return {response(id, {error: message})}
+  local expanded = null
+  try {
+    expanded = compiler.expand(doc.text, doc.path, {find_project: true})
+  } catch(local e) {
+    return {response(id, {error: e.message})}
   }
-  return {response(id, {text: r[1]})}
+  return {response(id, {text: expanded})}
 }
 
 // ------------------------------------------------------------ formatting
@@ -2397,12 +2404,14 @@ handlers["textDocument/formatting"] = func(s, id, params){
     return {response(id, json.array({}))}
   }
   local text = doc.text
-  local r = pcall(format.source, text, doc.path, {find_project: true})
-  if(r[0] == "err"){
-    local message = r[1]
-    if(type(message) == "table"){
-      message = message.message
-    }
+  local formatted = null
+  local message = null
+  try {
+    formatted = format.source(text, doc.path, {find_project: true})
+  } catch(local e) {
+    message = e.message
+  }
+  if(message != null){
     s.log(concat("formatting failed for ", doc.uri, ": ", message))
     local out = {response(id, json.array({}))}
     if(len(doc.diagnostics) == 0){
@@ -2413,7 +2422,6 @@ handlers["textDocument/formatting"] = func(s, id, params){
     }
     return out
   }
-  local formatted = r[1]
   if(formatted == null or formatted == text){
     return {response(id, json.array({}))}
   }
@@ -2431,12 +2439,12 @@ handlers["textDocument/formatting"] = func(s, id, params){
 // formatter joins and splits lines), and those lines of the result replace
 // the document's.
 local func line_tokens(text, path){
-  local h = pcall(compiler.highlight, text, path, {})
-  if(h[0] == "err" or len(h[1].diagnostics) > 0){
+  local h = try { compiler.highlight(text, path, {}) } catch { null }
+  if(h == null or len(h.diagnostics) > 0){
     return null
   }
   local out = {}
-  for(let local t in values(h[1].tokens)){
+  for(let local t in values(h.tokens)){
     local word = str.substring(text, t.start, t.stop)
     if(word != "," and word != ";"){
       append(out, {start: t.start, stop: t.stop, line: t.line - 1, text: word})
@@ -2451,11 +2459,12 @@ handlers["textDocument/rangeFormatting"] = func(s, id, params){
     return {response(id, json.array({}))}
   }
   local text = doc.text
-  local r = pcall(format.source, text, doc.path, {find_project: true})
-  if(r[0] == "err" or r[1] == null or r[1] == text){
+  local formatted = try {
+    format.source(text, doc.path, {find_project: true})
+  } catch { null }
+  if(formatted == null or formatted == text){
     return {response(id, json.array({}))}
   }
-  local formatted = r[1]
   local a = line_tokens(text, doc.path)
   local b = line_tokens(formatted, doc.path)
   if(a == null or b == null or len(a) != len(b) or len(a) == 0){
@@ -2539,17 +2548,15 @@ func methods.handle(s, message){
   local td = params.textDocument
   local uri = type(td) == "table" and td.uri or params.uri
   local path = type(uri) == "string" and lsp.uri_to_path(uri) or null
-  local r = pcall(compiler.for_file, path, func(){ return h(s, id, params) })
-  if(r[0] == "err"){
-    local msg = r[1]
-    if(type(msg) == "table"){ msg = msg.message }
-    s.log(concat("error handling ", method, ": ", msg))
+  try {
+    return compiler.for_file(path, func(){ return h(s, id, params) })
+  } catch(local e) {
+    s.log(concat("error handling ", method, ": ", e.message))
     if(id != null){
-      return {error_response(id, -32603, msg)}
+      return {error_response(id, -32603, e.message)}
     }
     return {}
   }
-  return r[1]
 }
 
 return lsp

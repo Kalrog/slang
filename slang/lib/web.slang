@@ -43,13 +43,6 @@ local bundle = require("slang/bundle")
 
 local web = {}
 
-local func message_of(e){
-  if(type(e) == "table" and e.message != null){
-    return e.message
-  }
-  return string(e)
-}
-
 // ------------------------------------------------------------ responses
 
 // text(s: string, status?: int) -> http.Response
@@ -95,26 +88,28 @@ func web.redirect(url, status){
 }
 
 // fail(status: int, message?: string)
-// Raises an error the app answers with status and the message as text
-// (the status's reason phrase by default), instead of a 500. on_error is
-// not called for it.
+// Raises an error of kind http (with status and text) that the app
+// answers with status and the message as text (the status's reason phrase
+// by default), instead of a 500. on_error is not called for it.
 //   if(todo == null){ web.fail(404, "no such todo") }
 func web.fail(status, message){
   message = message or http.status_text[status] or "error"
-  raise({
-    kind: "web.fail",
-    status: status,
-    text: message,
-    message: concat("HTTP ", string(status), ": ", message),
-  })
+  raise(error.new(
+    error.kinds.http, concat("HTTP ", string(status), ": ", message),
+    {status: status, text: message},
+  ))
 }
 
-// the status and message of an error from web.fail, or null
+// the status and message of an error from web.fail (or one wrapping it),
+// or null
 local func failure_of(e){
-  if(type(e) != "table" or e.kind != "web.fail"){
-    return null
+  for(type(e) == "table" and e.kind == error.kinds.http){
+    if(e.status != null){
+      return {status: e.status, message: e.text or e.message}
+    }
+    e = e.cause
   }
-  return {status: e.status, message: e.text}
+  return null
 }
 
 // normalize(res) -> {status, headers, body} (plus upgraded and compress)
@@ -192,11 +187,9 @@ func request_methods.form(req){
 // json() -> the decoded JSON body
 // Fails with 400 when the body is not JSON.
 func request_methods.json(req){
-  local r = pcall(json.decode, req.body or "")
-  if(r[0] == "err"){
+  return try { json.decode(req.body or "") } catch {
     web.fail(400, "the body is not JSON")
   }
-  return r[1]
 }
 
 local func prepare(req){
@@ -274,7 +267,7 @@ func web.app(options){
   app.on_error = func(req, err){
     local os = require("slang/os")
     os.write_stderr(concat(
-      "error handling ", req.method, " ", req.path, ": ", message_of(err), "\n"
+      "error handling ", req.method, " ", req.path, ": ", error.message(err), "\n"
     ))
   }
   return app
@@ -395,14 +388,14 @@ local func error_response(app, req, err){
     return web.text(concat(f.message, "\n"), f.status)
   }
   if(app.on_error != null){
-    pcall(app.on_error, req, err)
+    try { app.on_error(req, err) } catch {}
   }
   return web.text("internal error\n", 500)
 }
 
 local func dispatch(app, req){
   local found = find(app, req)
-  local r = pcall(func(){
+  local func route(){
     if(found == null){
       if(app.fallback != null){
         return settle(app.fallback(req))
@@ -416,11 +409,8 @@ local func dispatch(app, req){
     }
     req.params = found.params
     return settle(found.route.handler(req, found.params))
-  })
-  if(r[0] == "err"){
-    return error_response(app, req, r[1])
   }
-  return r[1]
+  return try { route() } catch(local e) { error_response(app, req, e) }
 }
 
 // runs the middleware chain from k with final as the innermost handler
@@ -441,11 +431,11 @@ local func chain(app, k, req, final){
 func app_methods.handle(app, req){
   prepare(req)
   return async.run(func(){
-    local r = pcall(chain, app, 0, req, func(r){ return dispatch(app, r) })
-    if(r[0] == "err"){
-      return error_response(app, req, r[1])
+    return try {
+      chain(app, 0, req, func(r){ return dispatch(app, r) })
+    } catch(local e) {
+      error_response(app, req, e)
     }
-    return r[1]
   })
 }
 
@@ -471,20 +461,24 @@ func app_methods.upgrade(app, req, conn, rest){
       ))
       return null
     }
-    local r = pcall(chain, app, 0, req, func(req){
+    local res = try { chain(app, 0, req, func(req){
       local ws = require("slang/ws")
       local socket = ws.accept(req, conn, rest, found.route.options)
       req.params = found.params
       async.run(func(){
-        local h = pcall(found.route.handler, socket, req, found.params)
-        if(h[0] == "err"){
-          if(app.on_error != null){ pcall(app.on_error, req, h[1]) }
+        local failed = null
+        try { found.route.handler(socket, req, found.params) } catch(local e) {
+          failed = e
+        }
+        if(failed != null){
+          if(app.on_error != null){
+            try { app.on_error(req, failed) } catch {}
+          }
           socket:close(1011, "internal error")
         }
       })
       return normalize({status: 101, upgraded: true, body: ""})
-    })
-    local res = r[0] == "ok" and r[1] or error_response(app, req, r[1])
+    }) } catch(local e) { error_response(app, req, e) }
     if(not res.upgraded){
       async.await(http.write_response(conn, req, res))
     }
@@ -640,11 +634,10 @@ local func small_file(path, st){
 func web.file(req, path, options){
   options = options or {}
   return async.run(func(){
-    local r = pcall(async.await, async.fs.stat(path))
-    if(r[0] == "err" or not r[1].is_file){
+    local st = try { async.await(async.fs.stat(path)) } catch { null }
+    if(st == null or not st.is_file){
       return web.text("not found\n", 404)
     }
-    local st = r[1]
     // HTTP dates have whole seconds
     local mtime = to_int(st.mtime / 1000) * 1000
     // a file bundled gzipped (slang build) goes as it is stored to a client
@@ -778,8 +771,9 @@ func app_methods.static(app, prefix, dir, options){
 // sessions(options: SessionOptions) -> Middleware
 // Sessions in a cookie: req.session is a table kept in an encrypted
 // cookie (AES-GCM, so the client can read nothing and change nothing),
-// saved when it changed (as JSON) and dropped when empty. Raises without
-// a good secret, and when a session grows too large for a cookie.
+// saved when it changed (as JSON) and dropped when empty. Raises (kind
+// argument) without a good secret, and when a session grows too large for
+// a cookie.
 //   app:use(web.sessions({secret: os.getenv("SESSION_SECRET")}))
 //   app:post("/login", func(req){
 //     req.session.user = req:form().user
@@ -788,7 +782,9 @@ func app_methods.static(app, prefix, dir, options){
 func web.sessions(options){
   options = options or {}
   if(type(options.secret) != "string" or len(options.secret) < 16){
-    error("web.sessions: a secret of at least 16 characters is needed")
+    raise(error.new(
+      error.kinds.argument, "web.sessions: a secret of at least 16 characters is needed",
+    ))
   }
   local crypto = require("slang/crypto")
   local key = crypto.hash("sha256", options.secret)
@@ -801,9 +797,9 @@ func web.sessions(options){
     if(sealed != null){
       local text = crypto.unseal(key, sealed, name)
       if(text != null){
-        local r = pcall(json.decode, text)
-        if(r[0] == "ok" and type(r[1]) == "table"){
-          session = r[1]
+        local decoded = try { json.decode(text) } catch { null }
+        if(type(decoded) == "table"){
+          session = decoded
           had = true
         }
       }
@@ -818,10 +814,10 @@ func web.sessions(options){
       } else {
         local value = crypto.seal(key, after, name)
         if(len(value) > 4000){
-          error(
+          raise(error.new(error.kinds.argument, concat(
             "web.sessions: the session is too large for a cookie (",
             string(len(value)), " bytes)"
-          )
+          ), {size: len(value)}))
         }
         http.set_cookie(res, name, value, {
           max_age: max_age,

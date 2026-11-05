@@ -122,9 +122,12 @@ func pkg.compatible(a, b){
 // ------------------------------------------------------------ git
 
 local func run(argv, cwd){
-  local r = os.exec(argv, cwd)
+  local r = try { os.exec(argv, cwd) } catch(local e) {
+    raise(error.wrap(e, str.join(argv, " ")))
+  }
   if(r.status != 0){
-    error(str.join(argv, " "), ": ", str.trim(r.stderr))
+    raise(error.new(error.kinds.error,
+      concat(str.join(argv, " "), ": ", str.trim(r.stderr)), {status: r.status}))
   }
   return r.stdout
 }
@@ -253,13 +256,14 @@ local name_re = regex.compile("^[a-z0-9_]+$")
 
 local func check_name(name, where){
   if(type(name) != "string" or not name_re:matches(name)){
-    error(
+    raise(error.new(error.kinds.format, concat(
       where, ": a package name is lowercase letters, digits and _: ",
       string(name)
-    )
+    )))
   }
   if(name == "slang"){
-    error(where, ": the name slang belongs to slang's own library")
+    raise(error.new(error.kinds.format,
+      concat(where, ": the name slang belongs to slang's own library")))
   }
 }
 
@@ -269,7 +273,8 @@ local func parse_manifest(text, origin){
   }
   local t = compiler.compile(concat("return ", text), origin)()
   if(type(t) != "table"){
-    error(origin, ": a table literal expected")
+    raise(error.new(error.kinds.format,
+      concat(origin, ": a table literal expected")))
   }
   return t
 }
@@ -283,10 +288,10 @@ local func requirements_of(manifest, dir, from, allow_path){
     check_name(name, from)
     if(spec.path != null){
       if(not allow_path){
-        error(
+        raise(error.new(error.kinds.format, concat(
           from, ": ", name,
           ": a package fetched with git cannot depend on a path"
-        )
+        )))
       }
       local path = spec.path
       if(not str.starts_with(path, "/")){
@@ -296,17 +301,18 @@ local func requirements_of(manifest, dir, from, allow_path){
     } else if(spec.git != null){
       local v = pkg.parse_version(spec.version or "0")
       if(v == null){
-        error(
+        raise(error.new(error.kinds.format, concat(
           from, ": ", name, ": a version like \"^1.2\" expected, not ",
           string(spec.version)
-        )
+        )))
       }
       append(out, {
         name: name, git: spec.git, min: v, from: from,
         asked: spec.version or "any"
       })
     } else {
-      error(from, ": ", name, ": {git: url, version} or {path} expected")
+      raise(error.new(error.kinds.format,
+        concat(from, ": ", name, ": {git: url, version} or {path} expected")))
     }
   }
   return out
@@ -333,10 +339,10 @@ local func pick(url, min, newest, refresh){
       break
     }
   }
-  error(
+  raise(error.new(error.kinds.not_found, concat(
     "no version of ", url, " stands in for ", min.text, " (tags v", min.text,
     " and up, same major)"
-  )
+  )))
 }
 
 // resolve(dir: string, manifest: table, lock: table,
@@ -363,24 +369,26 @@ func pkg.resolve(dir, manifest, lock, update){
     local existing = chosen[name]
     if(r.path != null){
       if(existing != null and existing.path != r.path){
-        error(
+        raise(error.new(error.kinds.error, concat(
           "package ", name, " is two packages: ", r.path, " (", r.from,
           ") and ", existing.path or existing.git
-        )
+        )))
       }
       if(existing == null){
         local m_path = concat(r.path, "/slang.project")
         if(not os.exists(r.path)){
-          error(r.from, ": ", name, ": no directory ", r.path)
+          raise(error.new(error.kinds.not_found,
+            concat(r.from, ": ", name, ": no directory ", r.path),
+            {path: r.path}))
         }
         local m = {}
         if(os.exists(m_path)){
           m = compiler.read_table_file(m_path)
         }
         if(m.name != null and m.name != name){
-          error(
+          raise(error.new(error.kinds.format, concat(
             r.from, ": ", r.path, " is the package ", m.name, ", not ", name
-          )
+          )))
         }
         chosen[name] = {
           name: name, path: r.path, dir: r.path, manifest: m, required: {}
@@ -392,10 +400,10 @@ func pkg.resolve(dir, manifest, lock, update){
       append(chosen[name].required, {from: r.from, asked: "path"})
     } else {
       if(existing != null and existing.git != r.git){
-        error(
+        raise(error.new(error.kinds.error, concat(
           "package ", name, " is two packages: ", r.git, " (", r.from, ") and ",
           existing.git or existing.path
-        )
+        )))
       }
       // the version slang.lock has raises the minimum, unless updating
       local l = lock[name]
@@ -408,10 +416,10 @@ func pkg.resolve(dir, manifest, lock, update){
       }
       local v = pick(r.git, r.min, updating(name), updating(name))
       if(existing != null and not pkg.compatible(existing.version, v)){
-        error(
+        raise(error.new(error.kinds.error, concat(
           "package ", name, " is wanted in two majors: ", existing.version.text,
           " and ", v.text, " (", r.from, "); one program cannot mix them"
-        )
+        )))
       }
       if(existing == null){
         existing = {name: name, git: r.git, version: v, required: {}}
@@ -430,10 +438,10 @@ func pkg.resolve(dir, manifest, lock, update){
           concat(name, "@", v.text, "/slang.project"),
         )
         if(m.name != name){
-          error(
+          raise(error.new(error.kinds.format, concat(
             r.git, " at ", v.tag, " is the package ", string(m.name), ", not ",
             name, " (its slang.project names it)"
-          )
+          )))
         }
         for(let local q in values(
           requirements_of(m, null, concat(name, " ", v.text), false),
@@ -519,12 +527,12 @@ local func install(dir, chosen, lock){
       local l = lock[name]
       if(l != null and l.git == c.git and l.version == c.version.text){
         if(l.hash != null and l.hash != c.hash){
-          error(
+          raise(error.new(error.kinds.unauthorized, concat(
             name, " ", c.version.text,
             ": its files are not the ones slang.lock ", "recorded (", l.hash,
             ", now ", c.hash, "); the tag may have moved, ", "or the cache (",
             dest, ") was changed"
-          )
+          ), {reason: "hash"}))
         }
       }
     }
@@ -623,7 +631,7 @@ func pkg.main(arguments){
     os.write_stderr("no slang.project here or in a directory above\n")
     return 1
   }
-  local r = pcall(func(){
+  try {
     if(command == "get"){
       report(pkg.get(dir, null))
       print("slang.lock written\n")
@@ -642,16 +650,10 @@ func pkg.main(arguments){
       return 2
     }
     return 0
-  })
-  if(r[0] == "err"){
-    local e = r[1]
-    os.write_stderr(concat(
-      "slang ", command, ": ", type(e) == "table" and e.message or string(e),
-      "\n"
-    ))
+  } catch(local e) {
+    os.write_stderr(concat("slang ", command, ": ", error.message(e), "\n"))
     return 1
   }
-  return r[1]
 }
 
 return pkg

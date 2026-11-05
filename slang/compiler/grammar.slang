@@ -205,7 +205,9 @@ local func resolve_rule(ref){
     ref.target = target
   }
   if(target == null){
-    error("grammar rule ", ref.rule_name, " is not defined")
+    raise(error.new(error.kinds.not_found,
+      concat("grammar rule ", ref.rule_name, " is not defined"),
+      {rule: ref.rule_name}))
   }
   return target
 }
@@ -335,18 +337,18 @@ func methods.changes_allowed(g){
 
 local func check_changes(g, what){
   if(not g:changes_allowed()){
-    error(
+    raise(error.new(error.kinds.state, concat(
       "the grammar can only be changed by an extension statement (extension \"file\" or extension { ... } at the top level); ",
       what,
       " was called from code running while a statement is being parsed",
-    )
+    )))
   }
   local lin = g.state
   if(lin.parse_depth > 0 and lin.current != null and g != lin.current){
-    error(
+    raise(error.new(error.kinds.state, concat(
       what,
       " was called on a grammar that is not the grammar of the unit being parsed (an extension loaded for another unit kept it); use the grammar passed to an apply function or require(\"slang/compiler\").grammar() at the time of the change, or extension global",
-    )
+    )))
   }
 }
 
@@ -385,7 +387,8 @@ func methods.rule(g, name){
 // define(name: string, parser: peg.Parser?, options?: RuleOptions)
 // Registers a rule, replacing one of the same name. A rule may also be
 // built at seal time: define(name, null, {build: func(g){ ... }}).
-// Raises when changes are not allowed (see [Grammar.changes_allowed]).
+// Raises an error of kind state when changes are not allowed (see
+// [Grammar.changes_allowed]).
 func methods.define(g, name, parser, options){
   check_changes(g, "define")
   options = options or {}
@@ -446,8 +449,9 @@ local func check_probe(g, entry){
 // Replaces the rule by f(old), where old is its current parser; replacing
 // it outright is just not using old. Rules built at seal time ("expr",
 // "statement") are wrapped after building, so f runs at seal time: create
-// the tokens it uses before calling modify. Raises for an unknown or
-// protected rule, and when f does not return a parser.
+// the tokens it uses before calling modify. Raises an error of kind
+// not_found for an unknown rule, of kind argument for a protected rule and
+// when f does not return a parser.
 //   g:modify("identifier", func(old){
 //     return old:where(func(t){ return t.value != "it" }, "not it")
 //   })
@@ -455,10 +459,13 @@ func methods.modify(g, name, f){
   check_changes(g, "modify")
   local entry = g.rule_table[name]
   if(entry == null){
-    error("grammar rule ", name, " is not defined")
+    raise(error.new(error.kinds.not_found,
+      concat("grammar rule ", name, " is not defined"), {rule: name}))
   }
   if(entry.protected){
-    error("grammar rule ", name, " is protected and cannot be modified")
+    raise(error.new(error.kinds.argument,
+      concat("grammar rule ", name, " is protected and cannot be modified"),
+      {rule: name}))
   }
   local owner = g.state.owner
   if(len(entry.history) > 0 and g.state.opts.warn != null){
@@ -487,7 +494,8 @@ func methods.modify(g, name, f){
   append(entry.bases, old)
   local new = f(old)
   if(not peg.is_parser(new)){
-    error("modify(", name, ") must return a parser")
+    raise(error.new(error.kinds.argument,
+      concat("modify(", name, ") must return a parser")))
   }
   if(g.state.opts.warn != null){
     check_shape(g, name, old, new)
@@ -568,12 +576,14 @@ func methods.with_owner(g, owner, f){
   local lin = g.state
   local outer = lin.owner
   lin.owner = owner
-  local r = pcall(f)
-  lin.owner = outer
-  if(let {"err", local e} = r){
-    raise(e)
+  local r = try { {ok: true, value: f()} } catch(local e) {
+    {ok: false, error: e}
   }
-  return r[1]
+  lin.owner = outer
+  if(not r.ok){
+    raise(r.error)
+  }
+  return r.value
 }
 
 // keyword(s: string) -> peg.Parser
@@ -642,13 +652,15 @@ local not_name = regex.compile("[^a-zA-Z0-9_]")
 // asked for it. For the code an extension generates in expression
 // position, where it cannot declare anything: a runtime module is
 // required once per unit instead of at every use. The name is `__` and
-// key with every other character replaced by `_`. Raises outside a parse.
+// key with every other character replaced by `_`. Raises an error of kind
+// state outside a parse.
 //   local async = g:unit_local("slang/async", +{require("slang/async")})
 //   return {token: op, ast: +{-{async}.await(-{exp})}}
 func methods.unit_local(g, key, expr){
   local locals = g.state.unit_locals
   if(locals == null){
-    error("unit_local is only available while a unit is being parsed")
+    raise(error.new(error.kinds.state,
+      "unit_local is only available while a unit is being parsed"))
   }
   local name = locals.names[key]
   local token = expr.token
@@ -664,7 +676,7 @@ func methods.unit_local(g, key, expr){
 }
 
 // error_at(token: peg.Token, ...message)
-// Raises a compile error located at token (a token as [Grammar.token] and
+// Raises an error of kind compile located at token (a token as [Grammar.token] and
 // [Grammar.keyword] produce, or any table with line and column), with the
 // parts of message joined.
 func methods.error_at(g, token, ...message){
@@ -680,7 +692,7 @@ func methods.error_at(g, token, ...message){
   for(let local part in values(message)){
     text = concat(text, part)
   }
-  raise({message: text, location: location})
+  raise(error.new(error.kinds.compile, text, {location: location}))
 }
 
 // uniq_id() -> ast.Node
@@ -696,7 +708,8 @@ func methods.uniq_id(g){
 local func decode_statement(value){
   local node = ast.decode(value)
   if(not ast.is_statement(node)){
-    error("expected a statement, got ", node)
+    raise(error.new(error.kinds.argument,
+      concat("expected a statement, got ", node)))
   }
   return node
 }
@@ -1020,36 +1033,40 @@ local func generate_parsers(g){
   if(pegc == null){
     pegc = require("slang/pegc")
   }
-  local r = pcall(func(){
+  local generated = null
+  local failure = null
+  try {
     local made = pegc.compile(g)
     local compiled = null
     if(lin.opts.pegc_cache != null){
-      local c = pcall(lin.opts.pegc_cache, made.source, made.hash)
-      if(c[0] == "err"){
+      try {
+        compiled = lin.opts.pegc_cache(made.source, made.hash)
+      } catch(local e) {
         if(pegc_debug){
           // the source that did not compile, for a look
           local os = require("slang/os")
           local path = concat(os.getenv("TMPDIR") or "/tmp", "/pegc-failed-", string(lin.unit_counter), ".slang")
-          pcall(os.write_file, path, made.source)
+          try { os.write_file(path, made.source) } catch {}
           os.write_stderr(concat("pegc: the generated source is in ", path, "\n"))
         }
-        raise(c[1])
+        raise(e)
       }
-      compiled = c[1]
     }
     local module = made:load(compiled)
     local targets = {}
     for(let local name in keys(module.rules)){
       targets[name] = generated_target(g, name, module)
     }
-    return targets
-  })
+    generated = targets
+  } catch(local e) {
+    failure = e
+  }
   // compiling the module parsed under a grammar: this one is active again
   lin.active = g
-  if(let {"ok", local targets} = r){
-    g.generated = targets
+  if(failure == null){
+    g.generated = generated
   } else {
-    local message = concat("the grammar's parsers were not generated: ", r[1].message)
+    local message = concat("the grammar's parsers were not generated: ", failure.message)
     if(lin.opts.pegc == "always" or require("slang/os").getenv("SLANG_PEGC_DEBUG") != null){
       // asked for explicitly: say what went wrong
       require("slang/os").write_stderr(concat("pegc: ", message, "\n"))
@@ -1085,7 +1102,8 @@ local func build_rule(g, entry){
   for(let local w in values(entry.wrappers)){
     p = w(p)
     if(not peg.is_parser(p)){
-      error("modify(", entry.name, ") must return a parser")
+      raise(error.new(error.kinds.argument,
+        concat("modify(", entry.name, ") must return a parser")))
     }
   }
   return p
@@ -1373,7 +1391,8 @@ local func install_core(g){
     if(peg.is_parser(source)){
       return source:flatten(name):token(category or name):trim(space)
     }
-    error("Invalid token source: ", source)
+    raise(error.new(error.kinds.argument,
+      concat("Invalid token source: ", source)))
   }
 
   local func tok(s, category){
@@ -1500,11 +1519,10 @@ local func install_core(g){
     "string_literal",
     peg.choice(rule("multiline_string"), rule("double_quoted_string"))
       :map(func(t){
-        local r = pcall(ast.resolve_escapes, t.value)
-        if(r[0] == "err"){
-          g:error_at(t, r[1].message or r[1])
+        local value = try { ast.resolve_escapes(t.value) } catch(local e) {
+          g:error_at(t, e.message)
         }
-        return ast.node("String", {value: r[1]}, t)
+        return ast.node("String", {value: value}, t)
       }),
   )
 
@@ -1530,12 +1548,11 @@ local func install_core(g){
     "char", "string",
   ):map(func(t){
     local text = str.trim(t.value)
-    local r = pcall(ast.resolve_escapes, str.substring(text, 1, len(text) - 1))
-    if(r[0] == "err"){
-      g:error_at(t, r[1].message or r[1])
-      return ast.node("Int", {value: 0}, t)
+    local s = try {
+      ast.resolve_escapes(str.substring(text, 1, len(text) - 1))
+    } catch(local e) {
+      g:error_at(t, e.message)
     }
-    local s = r[1]
     // (one byte: ASCII or a \x escape; else the code point of the UTF-8)
     local v = str.byte_at(s, 0)
     if(len(s) > 1){
@@ -1744,11 +1761,11 @@ local func install_core(g){
     local assignment = v[1]
     if(assignment != null){
       if(not ast.is_assignable(exp)){
-        error(
+        raise(error.new(error.kinds.compile, concat(
           "Invalid assignment: ",
           ast.to_string(exp),
           " is not an assignable expression",
-        )
+        )))
       }
       return ast.node(
         "Assignment", {left: exp, right: assignment[1]}, assignment[0]
@@ -1936,7 +1953,7 @@ local func install_core(g){
     if(n == 1){
       return ast.node("For", {condition: value(head[0]), body: body}, v[0])
     }
-    error("Invalid for loop")
+    raise(error.new(error.kinds.syntax, "Invalid for loop"))
   }), {probe: "for(local i = 0; i < 3; i = i + 1){ f(i) }"})
 
   // for(let PATTERN in iterator): the iterator is called until it returns
@@ -2413,12 +2430,13 @@ local func install_core(g){
       )
     }
     if(lin.sandbox){
-      error(
-        "compile-time code (an unquote) is not allowed in a sandboxed compile",
-      )
+      raise(error.new(error.kinds.compile,
+        "compile-time code (an unquote) is not allowed in a sandboxed compile"
+      ))
     }
     if(opts.run_block == null){
-      error("this grammar cannot execute unquotes")
+      raise(error.new(error.kinds.unsupported,
+        "this grammar cannot execute unquotes"))
     }
     lin.compile_time_effects = true
     local result = opts.run_block(node)
@@ -2692,21 +2710,23 @@ local func fail_parse(lin, ctx, origin, message, pos){
 local func with_changes_allowed(g, owner, f, a, b){
   local lin = g.state
   if(lin.statement_depth > 0){
-    error(
-      "extension statements cannot run from code that executes while a statement is being parsed",
-    )
+    raise(error.new(error.kinds.state,
+      "extension statements cannot run from code that executes while a statement is being parsed"
+    ))
   }
   lin.compile_time_effects = true
   lin.extension_depth = lin.extension_depth + 1
   local outer_owner = lin.owner
   lin.owner = owner
-  local r = pcall(f, a, b)
+  local r = try { {ok: true, value: f(a, b)} } catch(local e) {
+    {ok: false, error: e}
+  }
   lin.owner = outer_owner
   lin.extension_depth = lin.extension_depth - 1
-  if(let {"err", local e} = r){
-    raise(e)
+  if(not r.ok){
+    raise(r.error)
   }
-  return r[1]
+  return r.value
 }
 
 // run_extension(parsed: table, origin: string) -> ast.Node?
@@ -2716,11 +2736,13 @@ local func with_changes_allowed(g, owner, f, a, b){
 func methods.run_extension(g, parsed, origin){
   local opts = g.state.opts
   if(g.state.sandbox){
-    error("extension statements are not allowed in a sandboxed compile")
+    raise(error.new(error.kinds.compile,
+      "extension statements are not allowed in a sandboxed compile"))
   }
   if(parsed.builtin != null){
     if(opts.run_extension == null){
-      error("this grammar cannot run extension statements")
+      raise(error.new(error.kinds.unsupported,
+        "this grammar cannot run extension statements"))
     }
     local node = parsed.builtin
     local owner = concat(origin, ":", node.token.line)
@@ -2741,7 +2763,8 @@ func methods.run_extension(g, parsed, origin){
   }
   local node = ast.decode(result)
   if(not ast.is_statement(node)){
-    error("an extension statement must produce a statement, got ", node.type)
+    raise(error.new(error.kinds.argument,
+      concat("an extension statement must produce a statement, got ", node.type)))
   }
   return node
 }
@@ -2784,7 +2807,7 @@ local func expected_at(lin, ctx, parsers, pos){
   for(let local p in values({parsers.statement, parsers.final})){
     c.rule_memo = {}
     c.memo = {}
-    pcall(parse_with, p, c, pos)
+    try { parse_with(p, c, pos) } catch {}
   }
   lin.statement_depth = lin.statement_depth - 1
   lin.sandbox = outer_sandbox
@@ -2797,12 +2820,14 @@ local func expected_at(lin, ctx, parsers, pos){
 
 local func parse_statement(lin, parser, ctx, pos){
   lin.statement_depth = lin.statement_depth + 1
-  local r = pcall(parse_with, parser, ctx, pos)
-  lin.statement_depth = lin.statement_depth - 1
-  if(let {"err", local e} = r){
-    raise(e)
+  local r = try { {ok: true, value: parse_with(parser, ctx, pos)} } catch(local e) {
+    {ok: false, error: e}
   }
-  return r[1]
+  lin.statement_depth = lin.statement_depth - 1
+  if(not r.ok){
+    raise(r.error)
+  }
+  return r.value
 }
 
 // Grammar changes made by a unit end with the unit: the first extension
@@ -3152,9 +3177,13 @@ func methods.parse_source(g, source, origin, options){
   local outer_parts = lin.tree_parts
   maybe_generate(g, source, tree)
   lin.parse_depth = lin.parse_depth + 1
-  local r = pcall(parse_top_level, g, source, origin, scoped, recover, tree)
+  local r = try {
+    {ok: true, value: parse_top_level(g, source, origin, scoped, recover, tree)}
+  } catch(local e) {
+    {ok: false, error: e}
+  }
   lin.parse_depth = lin.parse_depth - 1
-  if(tree and r[0] == "err" and lin.tree_parts != null){
+  if(tree and not r.ok and lin.tree_parts != null){
     local parts = lin.tree_parts
     local stop = 0
     if(len(parts) > 0){
@@ -3174,26 +3203,28 @@ func methods.parse_source(g, source, origin, options){
   if(lin.parse_depth > 0 and outer_active != null and lin.active != outer_active){
     outer_active:activate()
   }
-  if(let {"err", local e} = r){
-    raise(e)
+  if(not r.ok){
+    raise(r.error)
   }
-  return r[1]
+  return r.value
 }
 
 // parse_repl(source: string) -> ast.Node
 // A chunk, or an expression wrapped in a Return. The REPL is one unit
 // spread over many lines: its extension statements are not scoped.
 func methods.parse_repl(g, source){
-  local r = pcall(g.parse_source, g, source, "repl", {scoped: false})
-  if(let {"ok", local block} = r){
-    return block
+  local failure = null
+  try {
+    return g:parse_source(source, "repl", {scoped: false})
+  } catch(local e) {
+    failure = e
   }
   g:activate()
   local exp = peg.run(rule_ref(g.state, "expr"):end(), source)
   if(exp.ok){
     return ast.node("Return", {value: exp.value}, exp.value.token)
   }
-  raise(r[1])
+  raise(failure)
 }
 
 // new(opts?: Options) -> Grammar

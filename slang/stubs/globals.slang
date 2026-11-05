@@ -4,17 +4,20 @@
 //   print(concat("args: ", len(args()), "\n"))
 //   for(let local e in entries({a: 1, b: 2})){ print(e[0], "=", e[1], "\n") }
 //
-// Errors are values: [error] raises one, [pcall] catches it as an [Error]
-// table, [raise] passes it on. Tables are both lists (keys 0..n-1) and
+// Errors are tables: [error] raises one, try/catch (or [pcall]) catches
+// it as an [Error], [raise] passes it on, and the functions of [error]
+// make, wrap and recognise them. Tables are both lists (keys 0..n-1) and
 // maps; [keys], [values] and [entries] iterate them with list indices
 // first, then the other keys in insertion order. require, module and run
 // are globals too, written in slang (slang/lib/package.slang and
 // slang/std); compile is in slang/compiler/compiler.slang.
 
-// What [pcall] catches.
-// type Error = {message: string, location?: {line: int, column: int,
-//   origin: string}, stack?: string}
+// What catch and [pcall] catch: a table, with the metatable error.meta.
+// type Error = {kind?: string, message: string, cause?: any,
+//   location?: {line: int, column: int, origin: string}, stack?: string}
+// [kind]: what a program catches on: catch({kind: "not_found"})
 // [message]: the error's text
+// [cause]: the error this one wraps ([error.wrap])
 // [location]: where it was raised
 // [stack]: the stack traceback as text
 
@@ -40,14 +43,43 @@ func args(){}
 func assert(cond, ...message){}
 
 // error(...values)
-// Raises an error whose message is the values rendered and joined as
-// [print] does.
-//   error("Package not found: ", name)
-func error(...values){}
+// The error library: its functions make and recognise errors (written in
+// slang/std); [raise] raises them. Called, it still raises an error whose
+// message is the values joined, but that is going away (the lint warns):
+// raise(error.new(kind, message)) instead.
+//   raise(error.new("not_found", concat("no package ", name)))
+global error = {}
 
-// raise(err: Error | string)
-// Raises err again: an error table as [pcall] gives it, or a string. An
-// error table keeps its original location and stack.
+// error.new(kind: string, message: string, fields?: table) -> Error
+// An error, not raised: raise(error.new(...)) raises it. fields are
+// copied into it.
+//   raise(error.new("not_found", concat("no user ", id), {id: id}))
+func error.new(kind, message, fields){}
+
+// error.wrap(cause: any, message: string, fields?: table) -> Error
+// An error that adds context to cause: cause becomes its cause, and its
+// kind is cause's unless fields give one.
+//   raise(error.wrap(e, concat("reading ", path)))
+func error.wrap(cause, message, fields){}
+
+// error.is(e: any, kind: string) -> bool
+// Whether e, or an error it wraps, has kind.
+func error.is(e, kind){}
+
+// error.message(e: any) -> string
+// The messages of e and the errors it wraps, outermost first, joined by
+// ": " (what string(e) gives).
+func error.message(e){}
+
+// The metatable of errors (__tostring); a raised table without a
+// metatable gets it.
+error.meta = {}
+
+// raise(value: any)
+// Raises value: an error made with [error.new] or [error.wrap], one that
+// was caught (raised again, it keeps its original location and stack), or
+// any other value (a string becomes {message}).
+//   raise(error.new("not_found", concat("no user ", id), {id: id}))
 func raise(err){}
 
 // pcall(f: function, ...args) -> table
@@ -68,6 +100,12 @@ func pcall(f, ...args){}
 // has __type gets that value instead (or its result, when __type is a
 // function called with v).
 func type(v){}
+
+// raw_type(v) -> string
+// The type name of v ignoring its metatable's __type: "table" for a table
+// of any class, "userdata" for any userdata, as [type] gives otherwise.
+//   raw_type(error.new("x", "y"))   // "table"
+func raw_type(v){}
 
 // len(v: string | table) -> int
 // The length of a string in bytes, or of a table's list: its elements at

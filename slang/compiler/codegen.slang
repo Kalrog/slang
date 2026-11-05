@@ -1016,11 +1016,25 @@ local func global_index(token, name){
   }, token)
 }
 
-local func position(token){
-  if(token == null){
-    return "?"
+// raises a compile error in the program at token: {kind: "compile",
+// message, location, stack}, so that it is reported at the program's line
+// rather than the compiler's (the stack is empty: the compiler that
+// generate runs in may put the line's text there, see slang/compiler)
+local func compile_error(g, token, ...message){
+  local parts = {}
+  for(let local m in values(message)){
+    append(parts, string(m))
   }
-  return concat("", token.line, ":", token.column)
+  local text = str.join(parts, "")
+  if(token == null or token.line == null){
+    error(text)
+  }
+  raise({
+    kind: "compile",
+    message: text,
+    location: {origin: g.asm.origin, line: token.line, column: token.column},
+    stack: "",
+  })
 }
 
 // With a recorder (generate's options.record, see slang/symbols), the
@@ -1246,13 +1260,13 @@ func visitors.Declaration(g, node){
     // that name is visible the name would read the local afterwards, so it
     // is an error rather than a global no one sees
     if(left.type != "Identifier"){
-      error("global declares a name, not ", ast.to_string(left), " ",
-        position(left.token))
+      compile_error(g, left.token, "global declares a name, not ",
+        ast.to_string(left))
     }
     local name = left.value
     if(g.asm:get_local(name) != null or g.asm:get_upvalue(name) != null){
-      error("global ", name, ": a local ", name, " is visible here ",
-        position(left.token))
+      compile_error(g, left.token, "global ", name, ": a local ", name,
+        " is visible here")
     }
     if(g.record != null){
       g.record:use(name, left.token, null, true, node.right, node.token, true)
@@ -1271,7 +1285,7 @@ func visitors.Declaration(g, node){
     if(node.is_local or existing != null){
       // a local of an enclosing scope may be shadowed, one of this scope not
       if(node.is_local and existing != null and existing.scope == g.asm.scope){
-        error("Variable already declared: ", name, " ", position(left.token))
+        compile_error(g, left.token, "Variable already declared: ", name)
       }
       if(node.is_local){
         g.asm:create_local(name)
@@ -1325,7 +1339,7 @@ local emit_exits = null
 
 func visitors.Return(g, node){
   if(g.defer_floors != null and len(g.defer_floors) > 0){
-    error("return is not allowed inside defer ", position(node.token))
+    compile_error(g, node.token, "return is not allowed inside defer")
   }
   if(node.value != null){
     if(g.record != null and node.value.type == "Function" and
@@ -1507,6 +1521,47 @@ func visitors.Try(g, node){
   }
   visit_body(g, chain)
   g.asm:leave_scope()
+  g.asm:patch_jump(done)
+}
+
+// try { value } catch(p1) { v1 } ...: one value either way; the clauses
+// are tried in order on the raised value as Try's are, and when none
+// matches it is raised again
+func visitors.TryExpr(g, node){
+  local first = g.asm.used_registers
+  local begin = g.asm:emit_try_begin(first)
+  g:visit(node.value)
+  g.asm:emit_try_end()
+  local done = g.asm:emit_jump()
+  g.asm:patch_try(begin)
+  g.asm:enter_scope(false)
+  handler_local(g)
+  local raised = ast.node("Identifier", {value: RAISED}, node.token)
+  local ends = {}
+  local caught_all = false
+  for(let local c in values(node.catches)){
+    g.asm:enter_scope(false)
+    local skip = null
+    if(c.pattern != null){
+      skip = visit_condition(
+        g, ast.node("Let", {pattern: c.pattern, right: raised}, c.token), false
+      )
+    }
+    g:visit(c.body)
+    g.asm:leave_scope()
+    append(ends, g.asm:emit_jump())
+    if(skip == null){
+      caught_all = true
+      break
+    }
+    patch_all(g, skip)
+  }
+  if(not caught_all){
+    g:visit(raised)
+    g.asm:emit_throw()
+  }
+  g.asm:leave_scope()
+  patch_all(g, ends)
   g.asm:patch_jump(done)
 }
 
@@ -1756,10 +1811,8 @@ func visitors.Function(g, node){
   local n = len(params)
   for(local i = 0; i < n - 1; i = i + 1){
     if(str.starts_with(params[i].value, "...")){
-      error(
-        "Vararg must be the last parameter but was found in ",
-        position(node.token),
-      )
+      compile_error(g, params[i].token or node.token,
+        "a rest parameter (...) must be the last parameter")
     }
   }
   local is_vararg = n > 0 and str.starts_with(params[n - 1].value, "...")
@@ -1803,6 +1856,16 @@ func visitors.Function(g, node){
 }
 
 func visitors.Call(g, node){
+  // `while(c){ ... }` reads as a call of a global while with a block: a
+  // loop written as in other languages, not a call anyone means
+  local f = node.function
+  local args = node.args
+  if(f.type == "Identifier" and f.value == "while" and len(args) > 0 and
+    args[len(args) - 1].type == "Function" and
+    g.asm:get_local("while") == null and g.asm:get_upvalue("while") == null){
+    compile_error(g, f.token,
+      "slang has no while loop: `for(condition){ ... }` loops while the condition holds")
+  }
   g:visit(node.function)
   emit_call_args(g, node.args, 0, node.token, node)
 }
@@ -2130,18 +2193,10 @@ local func loop_target(g, node, word){
     }
   }
   if(node.label != null){
-    error(
-      concat(
-        word, " ", node.label, ": no enclosing loop is labeled ", node.label,
-        " "
-      ),
-      position(node.token),
-    )
+    compile_error(g, node.token,
+      word, " ", node.label, ": no enclosing loop is labeled ", node.label)
   }
-  if(word == "break"){
-    error("Cannot break outside of a loop")
-  }
-  error(concat("continue outside of a loop "), position(node.token))
+  compile_error(g, node.token, word, " outside of a loop")
 }
 
 // a break or continue: the defers and trys between here and the loop are
@@ -2150,10 +2205,7 @@ local func leave_to_loop(g, node, word){
   local target = loop_target(g, node, word)
   local floors = g.defer_floors
   if(floors != null and len(floors) > 0 and target < floors[len(floors) - 1]){
-    error(
-      concat(word, " is not allowed to leave a defer "),
-      position(node.token),
-    )
+    compile_error(g, node.token, word, " is not allowed to leave a defer")
   }
   emit_exits(g, target + 1)
   // the loop's own scope too: a loop body's locals live there, and an
@@ -2181,7 +2233,7 @@ func visitors.Quote(g, node){
 }
 
 func visitors.Unquote(g, node){
-  error("Unquote was not resolved in parsing step: ", position(node.token))
+  compile_error(g, node.token, "an unquote outside of a quote is resolved while parsing; this one was not")
 }
 
 // generate(node: table, origin?: string,

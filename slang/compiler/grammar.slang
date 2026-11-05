@@ -977,8 +977,13 @@ local func generated_target(g, name, module){
   local parse = module.rules[name]
   local tree = module.trees[name]
   local fast = module.fasts[name]
+  local sealed = g.sealed[name]
   local p = peg.custom(
     func(self, ctx, pos){
+      if(ctx.expected != null){
+        // the generated code keeps the farthest failure only
+        return sealed:parse_on(ctx, pos)
+      }
       local q = parse(ctx, pos)
       if(q < 0){
         // generated code keeps the farthest failure only; the last one
@@ -994,11 +999,14 @@ local func generated_target(g, name, module){
   )
   if(fast != null){
     p.fast = func(self, ctx, pos){
+      if(ctx.expected != null){
+        return sealed:parse_on(ctx, pos)
+      }
       return fast(ctx, pos)
     }
   }
   p.kind = "layer"
-  p.children = {g.sealed[name]}
+  p.children = {sealed}
   p.generated = true
   return p
 }
@@ -1206,9 +1214,16 @@ local func trivia_skip(g){
     for(true){
       local far_pos = ctx.far_pos
       local far_msg = ctx.far_msg
+      local kept = null
+      if(ctx.expected != null){
+        kept = peg.keep_expected(ctx)
+      }
       local q = trivia:parse_on(ctx, pos)
       ctx.far_pos = far_pos
       ctx.far_msg = far_msg
+      if(kept != null){
+        peg.restore_expected(ctx, kept)
+      }
       if(q < 0 or q == pos){
         return pos
       }
@@ -1253,6 +1268,7 @@ local func install_core(g){
     ["break"]: true,
     ["continue"]: true,
     ["extension"]: true,
+    ["try"]: true,
   }
 
   // ------------------------------------------------------------ lexical
@@ -1309,6 +1325,11 @@ local func install_core(g){
         if(start > ctx.far_pos){
           ctx.far_pos = start
           ctx.far_msg = message
+          if(ctx.expected != null){
+            ctx.expected = {message}
+          }
+        } else if(start == ctx.far_pos and ctx.expected != null){
+          append(ctx.expected, message)
         }
         return -1
       }
@@ -1805,6 +1826,37 @@ local func install_core(g){
           "IfExpr", {condition: v[2], thenValue: v[5], elseValue: v[8]}, v[0]
         )
       }),
+  )
+
+  // try { a } catch(p) { b } ...: an expression; the value of a, or when a
+  // raises, of the first clause whose pattern matches what it raised (a
+  // clause without a pattern takes everything); none matching raises it
+  // again
+  define(
+    "try_expression",
+    peg.seq(
+      ftok("try", null, "space"),
+      ftok("{", null, "space"),
+      rule("expr"),
+      ftok("}", "space", "space"),
+      peg.seq(
+        ftok("catch", "space"),
+        peg.seq(
+          ftok("(", "none", "none"),
+          rule("slang_pattern"),
+          ftok(")", "none", "space"),
+        ):pick(1):optional(),
+        ftok("{", null, "space"),
+        rule("expr"),
+        ftok("}", "space"),
+      ):map(func(v){
+        return ast.node("Catch", {pattern: v[1], body: v[3]}, v[0])
+      }):plus(),
+    )
+      :map(func(v){
+        return ast.node("TryExpr", {value: v[2], catches: v[4]}, v[0])
+      }),
+    {probe: "try { f() } catch(local e) { g(e) }"},
   )
 
   define("if_statement", peg.seq(
@@ -2410,6 +2462,7 @@ local func install_core(g){
     aliases: {"list", "tableLiteral", "table"},
   })
   w:primary(rule("if_expression"), "ifExpression", {aliases: {"if"}})
+  w:primary(rule("try_expression"), "tryExpression", {aliases: {"try"}})
   w:primary(rule("function_expression"), "functionExpression", {
     aliases: {"function"},
   })
@@ -2573,32 +2626,53 @@ local func install_core(g){
 
 // ------------------------------------------------------------ parsing
 
-local func fail_message(ctx, origin, message, pos){
-  local lc = peg.line_col(ctx, pos)
-  local far_pos = ctx.far_pos
-  if(far_pos < 0){
-    far_pos = pos
+local parse_error = null
+
+// what to say about a parse that could not go on at pos: the farthest
+// failure, with everything expected there (lin.expected, see
+// expected_at), as slang/parse_error describes it
+local func diagnose(lin, ctx, pos){
+  if(parse_error == null){
+    parse_error = require("slang/parse_error")
   }
-  local far = peg.line_col(ctx, far_pos)
-  return concat(
-    "Failed to parse source: ", message, ":", origin, ":", lc[0], ":", lc[1],
-    " (farthest: ", ctx.far_msg or message, " at ", far[0], ":", far[1], ")"
-  )
+  local far = ctx.far_pos
+  if(far < pos){
+    far = pos
+  }
+  local expected = lin.expected
+  if(expected == null or len(expected) == 0){
+    expected = {ctx.far_msg or "end of input expected"}
+  }
+  lin.expected = null
+  return parse_error.describe(ctx.buffer, far, expected)
 }
 
-// raises a parse failure, leaving its details in lin.last_failure
+// a failure as lin.failures and lin.last_failure keep it ({message, pos,
+// far_pos, far_message} for older readers: both positions are the one
+// reported)
+local func failure_record(d){
+  return {
+    message: d.message, pos: d.pos, far_pos: d.pos, far_message: d.message,
+    notes: d.notes, hints: d.hints,
+  }
+}
+
+// raises a parse failure, leaving its details in lin.last_failure: a
+// {kind: "syntax"} error located where the failure is (see
+// slang/parse_error); "end of input expected" is described from the
+// farthest failure, other messages are reported as they are at pos
 local func fail_parse(lin, ctx, origin, message, pos){
-  local far_pos = ctx.far_pos
-  if(far_pos < 0){
-    far_pos = pos
+  local d = null
+  if(message == "end of input expected"){
+    d = diagnose(lin, ctx, pos)
+  } else {
+    if(parse_error == null){
+      parse_error = require("slang/parse_error")
+    }
+    d = {message: message, pos: pos, notes: {}, hints: {}}
   }
-  lin.last_failure = {
-    message: message,
-    pos: pos,
-    far_pos: far_pos,
-    far_message: ctx.far_msg or message,
-  }
-  error(fail_message(ctx, origin, message, pos))
+  lin.last_failure = failure_record(d)
+  raise(parse_error.report(ctx.buffer, origin, d))
 }
 
 // runs compile-time code with grammar changes allowed; only valid between
@@ -2680,6 +2754,33 @@ local func parse_with(parser, ctx, pos){
     return peg.parse_tree(parser, ctx, pos)
   }
   return parser:parse_on(ctx, pos)
+}
+
+// everything a statement at pos expected where it failed: the statement
+// is parsed again collecting the expectations at its farthest failure
+// (ctx.expected in slang/peg), sandboxed so that no compile-time code runs
+// twice; null when that parse does not fail where the first one did
+local func expected_at(lin, ctx, parsers, pos){
+  local c = peg.context(ctx.buffer)
+  c.trivia_start = ctx.trivia_start
+  c.expected = {}
+  local outer_sandbox = lin.sandbox
+  local outer_pending = lin.unit_locals.pending
+  lin.sandbox = true
+  lin.unit_locals.pending = {}
+  lin.statement_depth = lin.statement_depth + 1
+  for(let local p in values({parsers.statement, parsers.final})){
+    c.rule_memo = {}
+    c.memo = {}
+    pcall(parse_with, p, c, pos)
+  }
+  lin.statement_depth = lin.statement_depth - 1
+  lin.sandbox = outer_sandbox
+  lin.unit_locals.pending = outer_pending
+  if(c.far_pos != ctx.far_pos){
+    return null
+  }
+  return c.expected
 }
 
 local func parse_statement(lin, parser, ctx, pos){
@@ -2846,8 +2947,19 @@ local func parse_top_level(g, source, origin, scoped, recover, tree){
   // in the tree. (For highlighting: the tree, not the result, is what counts.)
   local stop = 0
   local region = null
+  // where the statement starts whose parse reached the farthest failure:
+  // a statement can succeed shorter than it tried (`local t` of `local t =
+  // {1, 2` and a missing `}`), and then its failure is the one to report
+  local far_start = 0
+  local last_far = -1
+  local last_pos = 0
   for(true){
     for(true){
+      if(ctx.far_pos > last_far){
+        far_start = last_pos
+      }
+      last_far = ctx.far_pos
+      last_pos = pos
       unit:activate()
       ctx.rule_memo = {}
       lin.phrase_pos = pos
@@ -2916,6 +3028,12 @@ local func parse_top_level(g, source, origin, scoped, recover, tree){
       }
     }
     stop = match_at(space_re, source, pos)
+    if(ctx.far_pos > last_far){
+      far_start = last_pos
+    }
+    if(stop < len(source)){
+      lin.expected = expected_at(lin, ctx, parsers, far_start)
+    }
     if(stop == len(source) or not recover){
       break
     }
@@ -2924,27 +3042,33 @@ local func parse_top_level(g, source, origin, scoped, recover, tree){
       far_pos = stop
     }
     if(region == null or region.stop != pos){
-      append(lin.failures, {
-        message: "end of input expected",
-        pos: stop,
-        far_pos: far_pos,
-        far_message: ctx.far_msg or "end of input expected",
-      })
+      append(lin.failures, failure_record(diagnose(lin, ctx, stop)))
       region = peg.leaf(error_region(unit.keywords), pos, pos)
       append(trees, region)
       tree_values[len(trees) - 1] = false
     }
-    // the next line after the farthest failure
-    local next = str.index_of(source, "\n", far_pos)
+    // the next line after the farthest failure where the brackets the
+    // statement opened are closed (a block whose header failed is skipped
+    // whole), or the next line when they are not
+    if(parse_error == null){
+      parse_error = require("slang/parse_error")
+    }
+    local next = parse_error.resume_at(source, far_start, far_pos)
     if(next < 0){
-      next = len(source)
-    } else {
-      next = next + 1
+      next = str.index_of(source, "\n", far_pos)
+      if(next < 0){
+        next = len(source)
+      } else {
+        next = next + 1
+      }
     }
     region.stop = next
     pos = next
     ctx.far_pos = -1
     ctx.far_msg = null
+    last_far = -1
+    last_pos = pos
+    far_start = pos
     if(pos >= len(source)){
       stop = pos
       break

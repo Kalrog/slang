@@ -83,6 +83,7 @@ local specs = {
   Defer: {{"body", "node"}},
   Throw: {{"value", "node"}},
   IfExpr: {{"condition", "node"}, {"thenValue", "node"}, {"elseValue", "node"}},
+  TryExpr: {{"value", "node"}, {"catches", "list"}},
 }
 // The fields of every node type, in order, as {name, kind} pairs:
 // `specs.BinOp` is {{"left", "node"}, {"op", "value"}, {"right", "node"}}.
@@ -743,6 +744,21 @@ func writer.visit(self, node){
     self:add("raise(")
     self:visit(node.value)
     self:add(")")
+  } else if(t == "TryExpr"){
+    self:add("try { ")
+    self:visit(node.value)
+    self:add(" }")
+    for(let local c in values(node.catches)){
+      self:add(" catch")
+      if(c.pattern != null){
+        self:add("(")
+        self:visit(c.pattern)
+        self:add(")")
+      }
+      self:add(" { ")
+      self:visit(c.body)
+      self:add(" }")
+    }
   } else if(t == "IfExpr"){
     self:add("if (")
     self:visit(node.condition)
@@ -891,6 +907,21 @@ func source.expr(self, node){
     self:add("null")
   } else if(t == "Identifier"){
     self:add(node.value)
+  } else if(t == "TryExpr"){
+    self:add("try { ")
+    self:expr(node.value)
+    self:add(" }")
+    for(let local c in values(node.catches)){
+      self:add(" catch")
+      if(c.pattern != null){
+        self:add("(")
+        self:pattern(c.pattern)
+        self:add(")")
+      }
+      self:add(" { ")
+      self:expr(c.body)
+      self:add(" }")
+    }
   } else if(t == "IfExpr"){
     self:add("if(")
     self:expr(node.condition)

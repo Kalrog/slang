@@ -179,6 +179,10 @@ pub const VM = struct {
     /// The global `stop`: what an iterator returns when it is done (null
     /// is an element like any other); kept in the registry
     stop_value: *Userdata = undefined,
+    /// The metatable of errors: errorToValue gives it to an error table,
+    /// and to a raised table that has none. slang/std fills it
+    /// (error.meta; no __type, so that {kind: ...} patterns match errors).
+    error_meta: *Table = undefined,
 
     /// Line starts of the string most recently passed to str.line_col
     /// (parsers call it once per token on the same buffer).
@@ -247,6 +251,8 @@ pub const VM = struct {
         stop_meta.set(vm.gpa, .{ .string = vm.newString("__type") }, .{ .string = vm.newString("stop") });
         vm.stop_value = vm.newUserdata(0, "stop", stop_meta);
         vm.registry.set(vm.gpa, .{ .userdata = vm.stop_value }, .{ .bool = true });
+        vm.error_meta = vm.newTable(0, 2);
+        vm.registry.set(vm.gpa, .{ .table = vm.error_meta }, .{ .bool = true });
         vm.main = vm.newThread(null);
         vm.main.is_main = true;
         vm.main.status = .running;
@@ -437,9 +443,14 @@ pub const VM = struct {
             if (raised.getName("stack") == .null) {
                 if (e.trace) |tr| raised.set(vm.gpa, vm.str("stack"), vm.strValue(tr));
             }
+            if (raised.meta == null) {
+                raised.meta = vm.error_meta;
+                gc.barrier(vm, &raised.obj, .{ .table = vm.error_meta });
+            }
             return e.value;
         }
         const t = vm.newTable(0, 3);
+        t.meta = vm.error_meta;
         t.set(vm.gpa, vm.str("message"), vm.strValue(e.message));
         if (e.loc) |l| {
             const loc = vm.newTable(0, 3);

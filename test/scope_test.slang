@@ -27,7 +27,7 @@ t.group("grammar scoping"){
     assert(shouted == 1, "the statement works in its unit")
     local r = pcall(compile, "shout 2", "unit two")
     assert(r[0] == "err", "and is unknown in the next unit")
-    assert(str.index_of(message_of(r), "Failed to parse") >= 0, message_of(r))
+    assert(r[1].kind == "syntax", message_of(r))
   }
   t.test("compile from an unquote parses with the grammar of its unit"){
     global shouted = null

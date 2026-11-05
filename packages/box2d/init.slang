@@ -328,7 +328,7 @@ func classes.property(links, key){
 func classes.property_keys(links){
   local out = {}
   local seen = {}
-  local func try(key){
+  local func consider(key){
     if(not seen[key] and classes.property(links, key) != null){
       seen[key] = true
       append(out, key)
@@ -341,12 +341,12 @@ func classes.property_keys(links){
         local rest = str.substring(name, len(head))
         for(let local pre in values(accessor_prefixes)){
           if(str.starts_with(rest, pre)){
-            try(str.substring(rest, len(pre)))
+            consider(str.substring(rest, len(pre)))
             break
           }
         }
         if(rest == "enable"){
-          try("enabled")
+          consider("enabled")
         }
       }
     }

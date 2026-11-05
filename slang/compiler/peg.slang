@@ -51,6 +51,9 @@
 // [far_msg]: the message of the farthest failure
 // [tree]: the node a tree path left (see [parse_tree])
 // [tree_on]: whether this parse builds a tree
+// [expected]: null, or a list: then every failure at far_pos adds its
+// message, for an error message that names all of them (a parse that
+// collects runs only after a failure, see [keep_expected])
 
 // A node of the lossless tree: what parser p matched from start to stop
 // (byte offsets, stop exclusive).
@@ -148,8 +151,35 @@ local func fail(ctx, pos, msg){
   if(pos > ctx.far_pos){
     ctx.far_pos = pos
     ctx.far_msg = msg
+    if(ctx.expected != null){
+      ctx.expected = {msg}
+    }
+  } else if(pos == ctx.far_pos and ctx.expected != null){
+    append(ctx.expected, msg)
   }
   return -1
+}
+
+// keep_expected(ctx: Context) -> any
+// What restore_expected needs to undo the expectations code adds whose
+// failures do not count (trivia: a comment is never what was expected);
+// null when the parse does not collect.
+func peg.keep_expected(ctx){
+  local e = ctx.expected
+  if(e == null){
+    return null
+  }
+  return {list: e, n: len(e)}
+}
+
+// restore_expected(ctx: Context, kept: any)
+// Puts back the expectations keep_expected kept.
+func peg.restore_expected(ctx, kept){
+  local e = kept.list
+  for(len(e) > kept.n){
+    remove(e, len(e) - 1)
+  }
+  ctx.expected = e
 }
 
 local func node(p, start, stop, kids){
@@ -386,6 +416,11 @@ func peg.string(s, message){
     if(pos > ctx.far_pos){
       ctx.far_pos = pos
       ctx.far_msg = msg
+      if(ctx.expected != null){
+        ctx.expected = {msg}
+      }
+    } else if(pos == ctx.far_pos and ctx.expected != null){
+      append(ctx.expected, msg)
     }
     return -1
   }, null, "string")
@@ -1063,9 +1098,16 @@ local func consume(trimmer, ctx, pos){
   if(trimmer.single){
     local far_pos = ctx.far_pos
     local far_msg = ctx.far_msg
+    local kept = null
+    if(ctx.expected != null){
+      kept = peg.keep_expected(ctx)
+    }
     local q = trimmer:parse_on(ctx, pos)
     ctx.far_pos = far_pos
     ctx.far_msg = far_msg
+    if(kept != null){
+      peg.restore_expected(ctx, kept)
+    }
     if(q < 0){
       return pos
     }
@@ -1086,6 +1128,10 @@ local func consume(trimmer, ctx, pos){
   local start = pos
   local far_pos = ctx.far_pos
   local far_msg = ctx.far_msg
+  local kept = null
+  if(ctx.expected != null){
+    kept = peg.keep_expected(ctx)
+  }
   for(true){
     local q = trimmer:parse_on(ctx, pos)
     if(q < 0 or q == pos){
@@ -1095,6 +1141,9 @@ local func consume(trimmer, ctx, pos){
   }
   ctx.far_pos = far_pos
   ctx.far_msg = far_msg
+  if(kept != null){
+    peg.restore_expected(ctx, kept)
+  }
   if(table != null){
     table[start] = pos
   }
@@ -2472,7 +2521,7 @@ func walker_methods.parse_at(self, ctx, pos, min_bp){
     }
   }
   if(q < 0){
-    if(not tried_primary){
+    if(not tried_primary or ctx.expected != null){
       return fail(ctx, pos, "expression expected")
     }
     return -1
@@ -2660,7 +2709,7 @@ func walker_methods.parse_at_tree(self, ctx, pos, min_bp){
     }
   }
   if(q < 0){
-    if(not tried_primary){
+    if(not tried_primary or ctx.expected != null){
       return fail(ctx, pos, "expression expected")
     }
     return -1

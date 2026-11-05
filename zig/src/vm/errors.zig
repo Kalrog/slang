@@ -35,6 +35,7 @@ pub const SlangError = struct {
     pub fn write(e: *const SlangError, w: *std.Io.Writer) !void {
         try w.print("error: {s}\n", .{e.message});
         if (e.loc) |l| try w.print("  at {s}:{d}:{d}\n", .{ l.origin, l.line, l.column });
-        if (e.trace) |t| try w.print("{s}\n", .{t});
+        // a compile error's trace is the program's line, or empty
+        if (e.trace) |t| if (t.len > 0) try w.print("{s}\n", .{t});
     }
 };

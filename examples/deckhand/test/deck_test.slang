@@ -77,7 +77,10 @@ t.group("deck"){
     local d = deck.new()
     assert(not d:run("door1.open(3", network()))
     assert(last(d).kind == "err")
-    assert(last(d).text == "syntax error at 1:13", last(d).text)
+    assert(
+      last(d).text == "syntax error at 1:11: this `(` is not closed",
+      last(d).text,
+    )
   }
   t.test("run time errors name the line"){
     local d = deck.new()

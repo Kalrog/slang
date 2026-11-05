@@ -108,6 +108,25 @@ func compiler.load_extension(name){
   require(name)
 }
 
+// codegen.generate for code whose source is known: a compile error
+// (codegen's {kind: "compile"}) gets the line it points at, the way a
+// parse error shows it (see slang/parse_error)
+local func generate_from(node, origin, source){
+  local r = pcall(codegen.generate, node, origin)
+  if(r[0] == "ok"){
+    return r[1]
+  }
+  local e = r[1]
+  if(type(e) == "table" and e.kind == "compile" and e.stack == "" and
+    e.location != null and e.location.origin == (origin or "string")){
+    local parse_error = require("slang/parse_error")
+    e.stack = parse_error.excerpt(
+      source, parse_error.offset(source, e.location.line, e.location.column)
+    )
+  }
+  raise(e)
+}
+
 // runs an extension statement: a String node names a file, a Block node is code
 local func run_extension(node, origin){
   if(node.type == "String"){
@@ -269,10 +288,16 @@ func compiler.compile(code, origin, env){
   } else {
     node = ast.decode(code)
   }
-  if(env != null){
-    return vm.load_proto(codegen.generate(node, origin), env)
+  local proto = null
+  if(type(code) == "string"){
+    proto = generate_from(node, origin, code)
+  } else {
+    proto = codegen.generate(node, origin)
   }
-  return vm.load_proto(codegen.generate(node, origin))
+  if(env != null){
+    return vm.load_proto(proto, env)
+  }
+  return vm.load_proto(proto)
 }
 
 // ------------------------------------------------------------ project file
@@ -1124,7 +1149,7 @@ func compiler.load_file(path, origin){
   local outer_effects = state.compile_time_effects
   state.compile_time_effects = false
   local node = g:parse_source(source, origin, {testing: testing})
-  local f = vm.load_proto(codegen.generate(node, origin))
+  local f = vm.load_proto(generate_from(node, origin, source))
   if(cache_path != null and not state.compile_time_effects and not g.extended){
     pcall(os.write_file, cache_path, vm.to_bytes(f))
   }
@@ -1232,15 +1257,21 @@ func compiler.highlight(source, path, options){
   // compiled as for a test run, so that code only tests have is analysed
   local r = pcall(g.parse_source, g, text, path, {recover: true, testing: true})
   local diagnostics = {}
+  // a parse failure (see slang/parse_error): the message with its hints,
+  // and each note where it points
   local func failure(f){
     local lc = str.line_col(source, position(f.far_pos))
+    local message = f.far_message
+    for(let local h in values(f.hints or {})){
+      message = concat(message, "\nhint: ", h)
+    }
     append(diagnostics, {
-      line: lc[0], column: lc[1], message: f.far_message, severity: "error"
+      line: lc[0], column: lc[1], message: message, severity: "error"
     })
-    if(f.far_pos != f.pos){
-      local at = str.line_col(source, position(f.pos))
+    for(let local n in values(f.notes or {})){
+      local at = str.line_col(source, position(n.pos))
       append(diagnostics, {
-        line: at[0], column: at[1], message: f.message, severity: "error"
+        line: at[0], column: at[1], message: n.message, severity: "information"
       })
     }
   }
@@ -1426,6 +1457,18 @@ func compiler.highlight_file(path){
   return compiler.highlight(os.read_file(path), path)
 }
 
+// the byte after pos and the spaces that follow it (-1 at the end)
+local func byte_after_space(text, pos){
+  for(pos < len(text) and (str.byte_at(text, pos) == ' ' or
+    str.byte_at(text, pos) == '\t')){
+    pos = pos + 1
+  }
+  if(pos >= len(text)){
+    return -1
+  }
+  return str.byte_at(text, pos)
+}
+
 // what compiles but is likely a mistake, in a file on its own: locals never
 // used, globals read that the file does not assign and slang does not have
 local func lint(source, index){
@@ -1476,6 +1519,15 @@ local func lint(source, index){
       at(r.start, r.stop, concat(r.name, " is not defined"), "warning")
     }
   }
+  // error(...) is going away (raise and the error library replace it):
+  // a call of the global error, not error.new and the like
+  for(let local r in values(index.refs)){
+    if(r.name == "error" and r.def == null and r.owner == null and
+      not r.write and written(r.start, r.stop, r.name) and
+      byte_after_space(source, r.stop) == '('){
+      at(r.start, r.stop, "error(...) is going away: raise an error, raise(error.new(kind, message))", "warning")
+    }
+  }
   return out
 }
 
@@ -1486,7 +1538,14 @@ local func compile_diagnostic(block, path){
   if(r[0] == "ok"){
     return null
   }
-  local message = type(r[1]) == "table" and r[1].message or string(r[1])
+  local e = r[1]
+  if(type(e) == "table" and e.kind == "compile" and e.location != null){
+    return {
+      line: e.location.line, column: e.location.column, message: e.message,
+      severity: "error",
+    }
+  }
+  local message = type(e) == "table" and e.message or string(e)
   local line = 1
   local column = 1
   local space = len(message) - 1

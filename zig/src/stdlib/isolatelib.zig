@@ -147,7 +147,9 @@ const Tag = enum(u8) { null, false, true, int, float, string, table, table_ref, 
 ///   value := tag payload
 ///   int i64, float f64, string (u32 len, bytes),
 ///   table (u32 narr, u32 nhash, u8 has_meta, [meta value], narr values,
-///          nhash key/value pairs): numbered in the order they appear,
+///          nhash key/value pairs): numbered in the order they appear;
+///          has_meta 2 is the errors' metatable, which becomes the
+///          receiving VM's own (vm.error_meta) rather than a copy,
 ///   table_ref u32 (a table seen before in this message: cycles, sharing),
 ///   function (u32 len, .slb bytes), ref u32 (an index into refs),
 ///   buffer (u32 ref, u64 byte offset, u64 count, string element type): a
@@ -234,8 +236,12 @@ const Encoder = struct {
         e.int(u32, @intCast(t.arr.items.len));
         e.int(u32, nhash);
         if (t.meta) |m| {
-            e.out.writer.writeByte(1) catch oom();
-            try e.table(m);
+            if (m == e.vm.error_meta) {
+                e.out.writer.writeByte(2) catch oom();
+            } else {
+                e.out.writer.writeByte(1) catch oom();
+                try e.table(m);
+            }
         } else {
             e.out.writer.writeByte(0) catch oom();
         }
@@ -339,7 +345,11 @@ const Decoder = struct {
                 const nhash = d.int(u32);
                 const tbl = vm.newTable(narr, nhash);
                 d.tables.append(vm.gpa, tbl) catch oom();
-                if (d.take(1)[0] != 0) tbl.meta = (try d.value()).asTable();
+                switch (d.take(1)[0]) {
+                    0 => {},
+                    2 => tbl.meta = vm.error_meta,
+                    else => tbl.meta = (try d.value()).asTable(),
+                }
                 for (0..narr) |_| tbl.append(vm.gpa, try d.value());
                 for (0..nhash) |_| {
                     const k = try d.value();

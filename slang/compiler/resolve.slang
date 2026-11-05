@@ -267,6 +267,18 @@ func visitors.Try(w, n){
   }
 }
 
+func visitors.TryExpr(w, n){
+  w:visit(n.value)
+  for(let local c in values(n.catches)){
+    w:enter()
+    if(c.pattern != null){
+      w:visit(c.pattern)
+    }
+    w:visit(c.body)
+    w:leave()
+  }
+}
+
 func visitors.VarPattern(w, n){
   local name = n.name.value
   if(n.isLocal){

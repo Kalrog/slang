@@ -218,6 +218,31 @@ func m.teardown(f){
   append(current.teardowns, f)
 }
 
+// raises(f: function, expected?: string) -> Error
+// Calls f and returns the error it raises; fails the test when f returns
+// instead, or when expected is given and is neither the error's kind nor
+// a part of its message.
+//   local e = t.raises(func(){ to_int({}) }, "argument")
+//   t.raises(func(){ json.decode("{") }, "JSON value expected")
+func m.raises(f, expected){
+  local raised = null
+  local returned = false
+  try {
+    f()
+    returned = true
+  } catch(local e) {
+    raised = e
+  }
+  if(returned){
+    error("expected an error, but the function returned")
+  }
+  if(expected != null and raised.kind != expected and
+    str.index_of(error.message(raised), expected) < 0){
+    error("expected an error with ", expected, ", got: ", error.message(raised))
+  }
+  return raised
+}
+
 // run(opts?: Options) -> int
 // Runs the registered tests, prints the report (or JSON lines) and
 // returns the number of tests that failed.

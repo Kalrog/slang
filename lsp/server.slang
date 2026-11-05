@@ -423,6 +423,9 @@ func lsp.semantic_tokens(text, tokens, encoding){
 }
 
 // diagnostics(text, list, encoding) -> LSP diagnostics
+// LSP's DiagnosticSeverity for the compiler's names
+local severities = {error: 1, warning: 2, information: 3, hint: 4}
+
 local func lsp_diagnostics(text, list, encoding){
   local starts = str.line_starts(text)
   local out = json.array({})
@@ -441,7 +444,7 @@ local func lsp_diagnostics(text, list, encoding){
         start: {line: line, character: char},
         ["end"]: {line: line, character: end_char},
       },
-      severity: 1,
+      severity: severities[d.severity] or 1,
       source: "slang",
       message: d.message,
     })
@@ -564,6 +567,18 @@ local func module_known(s, name){
   return hit
 }
 
+// the byte after pos and the spaces that follow it (-1 at the end)
+local func byte_after_space(text, pos){
+  for(pos < len(text) and (str.byte_at(text, pos) == ' ' or
+    str.byte_at(text, pos) == '\t')){
+    pos = pos + 1
+  }
+  if(pos >= len(text)){
+    return -1
+  }
+  return str.byte_at(text, pos)
+}
+
 lint = func(s, doc){
   local out = {}
   local index = doc.symbols
@@ -623,6 +638,17 @@ lint = func(s, doc){
         r.name,
         " is not defined (a global no file of the project assigns)",
       ), SEVERITY.warning))
+    }
+  }
+  // error(...) is going away (raise and the error library replace it):
+  // a call of the global error, not error.new and the like
+  for(let local r in values(index.refs)){
+    if(r.name == "error" and r.def == null and r.owner == null and
+      not r.write and written_at(text, r.start, r.stop, r.name) and
+      byte_after_space(text, r.stop) == '('){
+      append(out, lint_diagnostic(
+        doc, r.start, r.stop, "error(...) is going away: raise an error, raise(error.new(kind, message))", SEVERITY.warning, {2}
+      ))
     }
   }
   if(doc.ast != null){

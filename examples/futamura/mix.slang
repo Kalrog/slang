@@ -986,7 +986,8 @@ func Mix.call(self, ctx, node, as_statement){
         local r = pcall(v, ...vals)
         if(r[0] == "ok"){ return S(r[1]) }
       }
-    } else {
+    } else if(v != error){
+      // (error is a callable table: a call of it stays in the residual)
       error("mix: calling a static ", type(v), " value")
     }
   }

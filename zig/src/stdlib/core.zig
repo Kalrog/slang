@@ -24,11 +24,11 @@ pub fn open(vm: *VM) void {
         .{ .name = "values", .f = coreValues },
         .{ .name = "entries", .f = coreEntries },
         .{ .name = "concat", .f = coreConcat },
-        .{ .name = "error", .f = coreError },
         stdlib.fast("len", coreLen),
         stdlib.fast("count", coreCount),
         stdlib.fast("same", coreSame),
         stdlib.fast("type", coreType),
+        stdlib.fast("raw_type", coreRawType),
         stdlib.fast("set_raw", coreSetRaw),
         stdlib.fast("get_raw", coreGetRaw),
         stdlib.fast("to_int", coreToInt),
@@ -38,6 +38,15 @@ pub fn open(vm: *VM) void {
     };
     for (core) |n| vm.setGlobal(n.name, n.value(vm));
     vm.setGlobal("stop", .{ .userdata = vm.stop_value });
+    // error is a table, callable as error(...values): slang/std adds the
+    // library (error.new, error.wrap, ...); the call is native so that the
+    // error is located where error() is called, not in slang/std
+    const err_lib = vm.newTable(0, 8);
+    const err_call = vm.newTable(0, 1);
+    err_call.set(vm.gpa, vm.str("__call"), .{ .function = vm.newNative("error", coreError, &.{}) });
+    err_lib.meta = err_call;
+    err_lib.set(vm.gpa, vm.str("meta"), .{ .table = vm.error_meta });
+    vm.setGlobal("error", .{ .table = err_lib });
     @import("file.zig").init(vm);
 
     const pcall = vm.newNative("pcall", pcallNative, &.{});
@@ -333,11 +342,13 @@ fn coreConcat(th: *Thread, args: []Value) Error!Value {
     }
 }
 
+/// error(...values), the __call of the error table: the values after the
+/// table itself, rendered and joined, as the message
 fn coreError(th: *Thread, args: []Value) Error!Value {
     _ = args;
     var aw: std.Io.Writer.Allocating = .init(th.vm.gpa);
     defer aw.deinit();
-    try renderArgs(th, 0, &aw);
+    try renderArgs(th, 1, &aw);
     return th.vm.raiseMsg(aw.writer.buffered());
 }
 
@@ -361,6 +372,12 @@ fn coreCount(th: *Thread, args: []Value) Error!Value {
 
 fn coreType(th: *Thread, args: []Value) Error!Value {
     return th.typeOf(api.arg(args, 0));
+}
+
+/// raw_type(v): the type of v without its metatable's __type: "table"
+/// for a table of any class, "userdata" for any userdata
+fn coreRawType(th: *Thread, args: []Value) Error!Value {
+    return th.vm.str(api.arg(args, 0).typeName());
 }
 
 fn coreSetRaw(th: *Thread, args: []Value) Error!Value {

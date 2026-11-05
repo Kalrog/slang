@@ -70,19 +70,15 @@ func deck.guard(node){
 
 // ------------------------------------------------------------ compiling
 
-// "Failed to parse source: ...:deck:1:1 (farthest: "_" expected at 1:13)"
-// -> "syntax error at 1:13"
-local func short_parse_error(message){
-  local at = str.index_of(message, "expected at ")
-  if(at != null and at >= 0){
-    local pos = str.substring(message, at + 12)
-    local close = str.index_of(pos, ")")
-    if(close != null and close >= 0){
-      pos = str.substring(pos, 0, close)
-    }
-    return concat("syntax error at ", pos)
+// a parse error as one short line: "syntax error at 1:13: expected ..."
+local func short_parse_error(e){
+  if(type(e) == "table" and e.location != null){
+    return concat(
+      "syntax error at ", e.location.line, ":", e.location.column, ": ",
+      e.message
+    )
   }
-  return message
+  return string(e)
 }
 
 local func parse(code, origin){
@@ -106,7 +102,7 @@ func deck.compile(code, env, origin){
     // way, `1 + 2` only this way)
     local r2 = pcall(parse, concat("return ", code), origin)
     if(r2[0] != "ok"){
-      return {error: short_parse_error(r[1].message)}
+      return {error: short_parse_error(r[1])}
     }
     node = r2[1]
   }

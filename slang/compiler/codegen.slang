@@ -1881,6 +1881,11 @@ func visitors.ForIn(g, node){
   g.asm:enter_scope(true)
   local scope = g.asm.scopes[len(g.asm.scopes) - 1]
   scope.label = node.label
+  // the iterator returns stop when it is done (null is an element): the
+  // global, read once into a hidden local, compared by identity
+  local stop_lv = g.asm:create_local("(for stop)")
+  g:visit(global_index(node.token, "stop"))
+  g.asm:emit_move(stop_lv.register)
   g.loop_values = loop_values(g, node)
   g:visit(node.itterator)
   local loop_start = g.asm:next_instruction_index()
@@ -1888,6 +1893,11 @@ func visitors.ForIn(g, node){
   g.asm:emit_push(-1)
   g.asm:emit_call(0)
   p:increase_stack_height()
+  g.asm:emit_push(-1)
+  g.asm:emit_push(stop_lv.register)
+  g.asm:emit_binop("==")
+  g.asm:emit_test(true)
+  local stop_jump = g.asm:emit_jump()
   g.asm:emit_push(-1)
   p:increase_stack_height()
   g:visit(node.pattern)
@@ -1901,9 +1911,39 @@ func visitors.ForIn(g, node){
     g.asm:patch_jump(jump, loop_start)
   }
   g.asm:emit_jump(loop_start)
+  // stop: the value is still on the stack above the iterator
+  g.asm:patch_jump(stop_jump)
+  g.asm:emit_pop()
+  local stopped = g.asm:emit_jump()
+  // an element the pattern does not take: let? goes on with the next one,
+  // let raises (as the let statement does)
   p:close_missmatch_jumps()
+  if(node.skip){
+    g.asm:emit_jump(loop_start)
+  } else {
+    local token = node.token
+    local pattern_text = str.trim(ast.to_source(node.pattern))
+    local func field(name, text){
+      return ast.node("Field", {
+        key: ast.node("String", {value: name}, token),
+        value: ast.node("String", {value: text}, token),
+      }, token)
+    }
+    g:visit(ast.node("Table", {
+      fields: {
+        field("kind", "for"),
+        field("message", concat(
+          "for: an element does not match ", pattern_text,
+          " (write let? to skip such elements; a name? takes null)",
+        )),
+        field("pattern", pattern_text),
+      },
+    }, token))
+    g.asm:emit_throw()
+  }
   // a break lands here too: the iterator is still on the stack
   scope.break_target = g.asm:next_instruction_index()
+  g.asm:patch_jump(stopped, scope.break_target)
   g.asm:emit_pop()
   g.asm:leave_scope()
 }

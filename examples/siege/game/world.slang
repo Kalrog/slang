@@ -234,7 +234,7 @@ func World.remove(w, e){
     w:remove_joint(j)
   }
   e.body:destroy()
-  w.by_id[e.id] = null
+  delete(w.by_id, e.id)
   remove_from(w.entities, e)
   e.gone = true
 }

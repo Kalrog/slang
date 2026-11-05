@@ -70,7 +70,7 @@ func map_methods.clear(self, target){
     }
   }
   for(let local k in values(gone)){
-    self.bindings[k] = null
+    delete(self.bindings, k)
   }
   if(len(gone) > 0){
     self:save()

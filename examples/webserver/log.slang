@@ -20,7 +20,7 @@ local listeners = {}
 
 func m.subscribe(f){
   listeners[f] = true
-  return func(){ listeners[f] = null }
+  return func(){ delete(listeners, f) }
 }
 
 func m.record(req, status, ms){

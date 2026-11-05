@@ -7,13 +7,13 @@
 //
 // How values map: JSON objects are tables with string keys, arrays are
 // lists, numbers are ints when they have no fraction or exponent, else
-// doubles. JSON null is slang null, so a member that is null in the text
-// is simply absent from its table. When encoding, a table whose keys are
-// 0..n-1 (or one marked with [array]) is an array, any other table an
-// object, which must have only string keys. An empty table encodes as {}
-// unless marked with [array]. Use [null] for a member that must be there
-// as null: {result: json.null} encodes as {"result":null}. Functions,
-// NaN and the infinities cannot be encoded and raise an error.
+// doubles. JSON null is slang null both ways: a member that is null in the
+// text is a key holding null ({"a": null} decodes to {a: null}), an array
+// keeps its nulls, and {result: null} encodes as {"result":null}. When
+// encoding, a table whose keys are 0..n-1 (or one marked with [array]) is
+// an array, any other table an object, which must have only string keys.
+// An empty table encodes as {} unless marked with [array]. Functions, NaN
+// and the infinities cannot be encoded and raise an error.
 local peg = require("slang/peg")
 local str = require("slang/string")
 local utf8 = require("slang/utf8")
@@ -152,8 +152,9 @@ func json.decode(text, origin){
 
 // ------------------------------------------------------------ encoding
 
-// A value that encodes as null, for a member that must be present (a
-// member set to slang null is left out). type() of it is "json.null".
+// A value that encodes as null, from when a member set to null was left
+// out; plain null does that now, json.null is kept so that older code
+// still works. type() of it is "json.null".
 json.null = {}
 json.null.@meta = {__type: "json.null"}
 

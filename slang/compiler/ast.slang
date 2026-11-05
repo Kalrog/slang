@@ -67,7 +67,7 @@ local specs = {
   },
   ForIn: {
     {"pattern", "node"}, {"itterator", "node"}, {"body", "node"},
-    {"label", "value"}
+    {"label", "value"}, {"skip", "value"}
   },
   VarPattern: {{"isLocal", "value"}, {"canBeNull", "value"}, {"name", "node"}},
   TablePattern: {{"type_check", "value"}, {"fields", "list"}},
@@ -1174,7 +1174,7 @@ func source.statement(self, node){
     if(node.label != null){
       self:add(concat(":", node.label, ": "))
     }
-    self:add("for(let ")
+    self:add(if(node.skip){ "for(let? " } else { "for(let " })
     self:pattern(node.pattern)
     self:add(" in ")
     self:expr(node.itterator)

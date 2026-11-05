@@ -42,10 +42,13 @@ const small_limit = 8;
 
 /// The slang table: an array part for keys 0..n-1 plus an insertion-ordered
 /// hash part. The metatable is not a key (slang's x.@meta reads it).
-/// Storing null removes the key and nothing else: the elements after a
-/// removed list index keep their keys (they move to the hash part, and
-/// back once the gap is filled). Only removeShifting (the global remove)
-/// moves list elements down.
+/// A key is present or absent, and a present key may hold null: storing
+/// null stores it (the array part holds null like any value). remove
+/// (slang's delete) takes a key out and nothing else: the elements after a
+/// removed list index keep their keys (they move to the hash part, and back
+/// once the gap is filled). Only removeShifting (slang's remove) moves list
+/// elements down. The list is the keys 0..n-1 before the first absent one,
+/// always the array part.
 
 /// Which references a weak table (slang/vm's weak_keys, weak_values) does
 /// not keep alive: an entry goes once its key (an ephemeron: its value only
@@ -137,14 +140,15 @@ pub const Table = struct {
     pub const mf_set: u8 = 8;
 
     /// What this table, used as a metatable, has of __newindex, __get and
-    /// __set (the VM's interned names), as mf_ bits. Cached until a key is
-    /// added to or removed from the table.
+    /// __set (the VM's interned names), as mf_ bits (a field holding null
+    /// counts as none). Cached until a key is added to or removed from the
+    /// table, or one of these is set.
     pub inline fn metaFlags(m: *Table, newindex: *String, getter: *String, setter: *String) u8 {
         if (m.mflags & mf_valid == 0) {
             var f: u8 = mf_valid;
-            if (m.find(.{ .string = newindex }) != null) f |= mf_newindex;
-            if (m.find(.{ .string = getter }) != null) f |= mf_get;
-            if (m.find(.{ .string = setter }) != null) f |= mf_set;
+            if (m.getStr(newindex) != .null) f |= mf_newindex;
+            if (m.getStr(getter) != .null) f |= mf_get;
+            if (m.getStr(setter) != .null) f |= mf_set;
             m.mflags = f;
         }
         return m.mflags;
@@ -260,12 +264,25 @@ pub const Table = struct {
         return .null;
     }
 
-    /// Raw store. Storing null removes the key.
-    pub fn set(t: *Table, gpa: Allocator, key: Value, val: Value) void {
-        if (val == .null) {
-            _ = t.remove(gpa, key);
-            return;
+    /// Whether key is present (it may hold null).
+    pub fn has(t: *const Table, key: Value) bool {
+        switch (key) {
+            .int => |i| {
+                if (i >= 0 and i < t.arr.items.len) return true;
+                return t.find(key) != null;
+            },
+            .float => {
+                const k = normKey(key);
+                if (k == .int) return t.has(k);
+                return t.find(k) != null;
+            },
+            .null => return false,
+            else => return t.find(key) != null,
         }
+    }
+
+    /// Raw store; null is stored like any value (remove takes a key out).
+    pub fn set(t: *Table, gpa: Allocator, key: Value, val: Value) void {
         switch (key) {
             .int => |i| t.setInt(gpa, i, val),
             .string => |s| t.setStr(gpa, s, val),
@@ -293,25 +310,21 @@ pub const Table = struct {
     }
 
     pub fn setStr(t: *Table, gpa: Allocator, s: *String, val: Value) void {
-        if (val == .null) {
-            _ = t.remove(gpa, .{ .string = s });
-            return;
-        }
         t.setAny(gpa, .{ .string = s }, val);
     }
 
     /// Overwrites the value of an existing string key; false when the key
-    /// is absent (or the value is null, which changes the key set).
+    /// is absent.
     pub fn replaceStr(t: *Table, gpa: Allocator, s: *String, val: Value) bool {
-        if (val == .null) return false;
         const idx = t.find(.{ .string = s }) orelse return false;
         t.wb(gpa, val);
         t.ents.items[idx].val = val;
+        t.mflags = 0;
         return true;
     }
 
-    /// Stores under a string key that is known to be absent a value that
-    /// is not null: what filling a fresh table does.
+    /// Stores under a string key that is known to be absent: what filling
+    /// a fresh table does.
     pub fn addFresh(t: *Table, gpa: Allocator, s: *String, val: Value) void {
         t.wb(gpa, .{ .string = s });
         t.wb(gpa, val);
@@ -322,6 +335,8 @@ pub const Table = struct {
         if (t.obj.color == gc.black) t.wb2(gpa, key, val);
         if (t.find(key)) |idx| {
             t.ents.items[idx].val = val;
+            // (a metamethod field may have become null, or stopped being)
+            t.mflags = 0;
             return;
         }
         t.insertNew(gpa, key, val);
@@ -395,9 +410,9 @@ pub const Table = struct {
         return t.arr.orderedRemove(@intCast(i));
     }
 
-    /// Deletes a key and returns the removed value (null if absent). Only
-    /// that key goes: removing a list index in the middle moves the
-    /// elements after it to the hash part under their own keys.
+    /// Deletes a key (slang's delete) and returns the removed value (null
+    /// if absent). Only that key goes: removing a list index in the middle
+    /// moves the elements after it to the hash part under their own keys.
     pub fn remove(t: *Table, gpa: Allocator, key: Value) Value {
         switch (key) {
             .int => |i| {
@@ -441,9 +456,8 @@ pub const Table = struct {
         return t.arr.items.len;
     }
 
-    /// Adds a value at the end of the array part (null is ignored).
+    /// Adds a value (null too) at the end of the array part.
     pub fn append(t: *Table, gpa: Allocator, v: Value) void {
-        if (v == .null) return;
         t.wb(gpa, v);
         t.reserveArr(gpa, 1);
         t.arr.append(gpa, v) catch oom();
@@ -538,11 +552,29 @@ pub const Table = struct {
         }
         for (t.ents.items) |e| {
             if (e.key == .null) continue;
-            if (!o.get(e.key).equals(e.val)) return false;
+            if (!o.has(e.key) or !o.get(e.key).equals(e.val)) return false;
         }
         return true;
     }
 };
+
+test "null is a value" {
+    const gpa = std.testing.allocator;
+    var t = Table.init(gpa, 0, 0);
+    defer t.deinit(gpa);
+    t.set(gpa, .{ .int = 0 }, .{ .int = 1 });
+    t.set(gpa, .{ .int = 1 }, .null);
+    t.set(gpa, .{ .int = 2 }, .{ .int = 3 });
+    try std.testing.expectEqual(@as(usize, 3), t.arrayLen());
+    try std.testing.expect(t.has(.{ .int = 1 }));
+    try std.testing.expect(!t.has(.{ .int = 3 }));
+    // a key holding null is present and counted; remove takes it out
+    try std.testing.expectEqual(@as(usize, 3), t.len());
+    _ = t.remove(gpa, .{ .int = 2 });
+    try std.testing.expectEqual(@as(usize, 2), t.arrayLen());
+    t.append(gpa, .null);
+    try std.testing.expectEqual(@as(usize, 3), t.arrayLen());
+}
 
 test "array part and hash part" {
     const gpa = std.testing.allocator;

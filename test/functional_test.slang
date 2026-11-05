@@ -122,7 +122,8 @@ t.group("def"){
       r[0] == 120 and r[1] == 12 and r[2] == 20 and r[3] == "other",
       concat("results ", r),
     )
-    assert(r[4] == "hallo welt" and r[5] == {1} and r[6] == {1, 2})
+    // pair(1) takes the first clause: up to two arguments, b is null
+    assert(r[4] == "hallo welt" and r[5] == {1, null} and r[6] == {1, 2})
   }
   t.test("no matching clause is an error that names the function"){
     local r = run("""

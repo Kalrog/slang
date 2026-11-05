@@ -640,7 +640,7 @@ local func handle_connection(conn, handler, options, server){
         req.body = str.join(parts, "")
         if(upgrade_rest != null and options.on_upgrade != null){
           upgraded = true
-          server.connections[state] = null
+          delete(server.connections, state)
           // the new owner reads from here on; it gets what was already read
           conn:read_stop()
           for(let local chunk in values(src.reader.buffer)){
@@ -671,7 +671,7 @@ local func handle_connection(conn, handler, options, server){
       )
     })
   }
-  server.connections[state] = null
+  delete(server.connections, state)
   if(not upgraded){
     pcall(func(){ async.await(async.close(conn)) })
   }

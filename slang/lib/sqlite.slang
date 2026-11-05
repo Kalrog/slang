@@ -23,7 +23,7 @@
 
 // SQL text with its parameters, made by [query] (or a sql{ } literal).
 // type Query = {text: string, params: {any}, count: int, origin?: string}
-// [count]: how many params there are (a null value ends a list's length)
+// [count]: how many params there are (len(params))
 // [origin]: where the literal is, for error messages ("views.slang:12")
 
 // A row: its values by column name.
@@ -131,11 +131,9 @@ local func split_placeholders(text){
 // the values are expanded into the text. Raises when the number of ? does
 // not match (a ? in a string, a quoted name or a comment is not counted).
 // [origin]: where the query comes from, added to its error messages
-// [count]: how many values (len(values)); a null value ends a list's length
+// [count]: how many values; len(values) by default (null values count)
 func sqlite.query(text, values, origin, count){
   values = values or {}
-  // a null value ends a list literal's length, not its contents, so the
-  // literals pass how many values there are
   count = count or len(values)
   local q = {
     @meta: query_meta, text: text, params: values, count: count, origin: origin
@@ -360,8 +358,9 @@ func db_methods.run(db, q, values){
   return result
 }
 
-// each(q: Query | string, values?: {any}) -> func(): Row?
-// An iterator of the rows, for `for(let row in db:each(q))`, reading one
+// each(q: Query | string, values?: {any}) -> func(): Row
+// An iterator of the rows (stop after the last), for
+// `for(let local row in db:each(q))`, reading one
 // row at a time. The loop has a statement of its own, so the loop's body
 // may run any query, the same one included; the statement is finalized
 // when the rows end (or when a loop left early is collected).
@@ -372,7 +371,7 @@ func db_methods.each(db, q, values){
   local done = false
   return func(){
     if(done){
-      return null
+      return stop
     }
     local row = located(q, func(){
       if(st:step()){
@@ -383,6 +382,7 @@ func db_methods.each(db, q, values){
     if(row == null){
       done = true
       st:finalize()
+      return stop
     }
     return row
   }

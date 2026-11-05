@@ -45,7 +45,7 @@ local func free_slot(s){
   // a bot makes room
   for(local slot = 0; slot < rules.MAX_PLAYERS; slot = slot + 1){
     if(s.bots[slot]){
-      s.bots[slot] = null
+      delete(s.bots, slot)
       rules.remove_player(s.world, slot)
       return slot
     }

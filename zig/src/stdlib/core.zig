@@ -18,6 +18,8 @@ pub fn open(vm: *VM) void {
         .{ .name = "assert", .f = coreAssert },
         stdlib.fast("append", coreAppend),
         stdlib.fast("remove", coreRemove),
+        stdlib.fast("delete", coreDelete),
+        stdlib.fast("has", coreHas),
         .{ .name = "keys", .f = coreKeys },
         .{ .name = "values", .f = coreValues },
         .{ .name = "entries", .f = coreEntries },
@@ -35,6 +37,7 @@ pub fn open(vm: *VM) void {
         .{ .name = "raise", .f = coreRaise },
     };
     for (core) |n| vm.setGlobal(n.name, n.value(vm));
+    vm.setGlobal("stop", .{ .userdata = vm.stop_value });
     @import("file.zig").init(vm);
 
     const pcall = vm.newNative("pcall", pcallNative, &.{});
@@ -161,13 +164,25 @@ fn coreAssert(th: *Thread, args: []Value) Error!Value {
     return th.vm.raiseMsg(if (msg.len == 0) "assertion failed" else msg);
 }
 
-/// append(t, v): t[len(t)] = v, the end of the list; a list holds no null
+/// append(t, v): t[len(t)] = v, the end of the list (v may be null)
 fn coreAppend(th: *Thread, args: []Value) Error!Value {
     const t = try api.argTable(th, args, 0, "table");
-    const v = api.arg(args, 1);
-    if (v == .null) return th.vm.raise("append: a list holds no null (t[i] = null leaves a gap)", .{});
-    t.append(th.vm.gpa, v);
+    t.append(th.vm.gpa, api.arg(args, 1));
     return .null;
+}
+
+/// delete(t, k): takes key k out of t (a list index after it keeps its key:
+/// remove shifts, delete does not); the value it held, null when absent
+fn coreDelete(th: *Thread, args: []Value) Error!Value {
+    const t = try api.argTable(th, args, 0, "table");
+    return t.remove(th.vm.gpa, api.arg(args, 1));
+}
+
+/// has(t, k): whether t has key k (which may hold null), without
+/// metamethods
+fn coreHas(th: *Thread, args: []Value) Error!Value {
+    const t = try api.argTable(th, args, 0, "table");
+    return .{ .bool = t.has(api.arg(args, 1)) };
 }
 
 /// same(a, b): whether a and b are the same value: the same table,
@@ -187,7 +202,7 @@ fn coreSame(th: *Thread, args: []Value) Error!Value {
 }
 
 /// remove(list, i): takes element i out of the list, moving the later ones
-/// down, and returns it (t[k] = null removes a key and moves nothing)
+/// down, and returns it (delete takes a key out and moves nothing)
 fn coreRemove(th: *Thread, args: []Value) Error!Value {
     const t = try api.argTable(th, args, 0, "list");
     const i = try api.argInt(th, args, 1, "index");
@@ -203,46 +218,46 @@ fn keysOf(vm: *VM, t: *const Table) *Table {
 }
 
 // The iterators keep {keys snapshot, position, source table} in the native
-// closure's nvals.
+// closure's nvals, skip the keys deleted since the snapshot and return stop
+// at the end (null is an element like any other).
+
+/// The next key of the snapshot still in the source table, or null.
+fn nextKey(cl: *vm_mod.Closure) ?Value {
+    const keys = cl.nvals[0].table;
+    const src = cl.nvals[2].table;
+    var i: usize = @intCast(cl.nvals[1].int);
+    while (i < keys.arrayLen()) {
+        const k = keys.getInt(@intCast(i));
+        i += 1;
+        if (src.has(k)) {
+            cl.nvals[1] = .{ .int = @intCast(i) };
+            return k;
+        }
+    }
+    cl.nvals[1] = .{ .int = @intCast(i) };
+    return null;
+}
 
 fn keysNext(th: *Thread, args: []Value) Error!Value {
     _ = args;
-    const cl = th.currentClosure();
-    const keys = cl.nvals[0].table;
-    const i: usize = @intCast(cl.nvals[1].int);
-    if (i < keys.arrayLen()) {
-        cl.nvals[1] = .{ .int = @intCast(i + 1) };
-        return keys.getInt(@intCast(i));
-    }
-    return .null;
+    return nextKey(th.currentClosure()) orelse .{ .userdata = th.vm.stop_value };
 }
 
 fn valuesNext(th: *Thread, args: []Value) Error!Value {
     _ = args;
     const cl = th.currentClosure();
-    const keys = cl.nvals[0].table;
-    const i: usize = @intCast(cl.nvals[1].int);
-    if (i < keys.arrayLen()) {
-        cl.nvals[1] = .{ .int = @intCast(i + 1) };
-        return cl.nvals[2].table.get(keys.getInt(@intCast(i)));
-    }
-    return .null;
+    const k = nextKey(cl) orelse return .{ .userdata = th.vm.stop_value };
+    return cl.nvals[2].table.get(k);
 }
 
 fn entriesNext(th: *Thread, args: []Value) Error!Value {
     _ = args;
     const cl = th.currentClosure();
-    const keys = cl.nvals[0].table;
-    const i: usize = @intCast(cl.nvals[1].int);
-    if (i < keys.arrayLen()) {
-        cl.nvals[1] = .{ .int = @intCast(i + 1) };
-        const k = keys.getInt(@intCast(i));
-        const pair = th.vm.newTable(2, 0);
-        pair.append(th.vm.gpa, k);
-        pair.append(th.vm.gpa, cl.nvals[2].table.get(k));
-        return .{ .table = pair };
-    }
-    return .null;
+    const k = nextKey(cl) orelse return .{ .userdata = th.vm.stop_value };
+    const pair = th.vm.newTable(2, 0);
+    pair.append(th.vm.gpa, k);
+    pair.append(th.vm.gpa, cl.nvals[2].table.get(k));
+    return .{ .table = pair };
 }
 
 /// Iterating a buffer (slang/ctypes): nvals are the buffer, the next index
@@ -252,7 +267,7 @@ fn bufferNext(th: *Thread, args: []Value) Error!Value {
     const cl = th.currentClosure();
     const u = cl.nvals[0].userdata;
     const i: usize = @intCast(cl.nvals[1].int);
-    const v = (try ctypes.element(th, u, i)) orelse return .null;
+    const v = (try ctypes.element(th, u, i)) orelse return .{ .userdata = th.vm.stop_value };
     cl.nvals[1] = .{ .int = @intCast(i + 1) };
     switch (cl.nvals[2].int) {
         0 => return .{ .int = @intCast(i) },

@@ -274,7 +274,7 @@ local func clone(node, map){
   }
   if(node.type == "Function"){
     local inner = {...map}
-    for(let local p in values(node.params)){ inner[p.value] = null }
+    for(let local p in values(node.params)){ delete(inner, p.value) }
     local params = {}
     for(let local p in values(node.params)){ append(params, ident(p.value)) }
     return N("Function", {params: params, body: clone(node.body, inner)})
@@ -285,7 +285,7 @@ local func clone(node, map){
     for(let local s in values(node.statements)){
       append(stmts, clone(s, inner))
       if(s.type == "Declaration" and s.is_local and s.left.type == "Identifier"){
-        inner[s.left.value] = null
+        delete(inner, s.left.value)
       }
     }
     return N("Block", {statements: stmts, placeholder: node.placeholder})
@@ -294,7 +294,7 @@ local func clone(node, map){
     local inner = {...map}
     local init = clone(node.init, inner)
     if(node.init != null and node.init.type == "Declaration" and node.init.left.type == "Identifier"){
-      inner[node.init.left.value] = null
+      delete(inner, node.init.left.value)
     }
     return N("For", {
       init: init, condition: clone(node.condition, inner), update: clone(node.update, inner),
@@ -508,7 +508,7 @@ local func count_indexed_uses(node, name){
 
 // node becomes a copy of other, in place
 local func replace_node(node, other){
-  for(let local f in values(ast.specs[node.type])){ node[f[0]] = null }
+  for(let local f in values(ast.specs[node.type])){ delete(node, f[0]) }
   node.tag = null
   for(let local f in values(ast.specs[other.type])){ node[f[0]] = other[f[0]] }
   ast.node(other.type, node, null)
@@ -1750,7 +1750,7 @@ local func raise_arity_round(functions, entry){
     for(let local n in keys(declared)){ taken[n] = true }
     for(let local n in keys(used)){ taken[n] = true }
     for(local i = 0; i < len(fn.params); i = i + 1){
-      if(shapes[i].kind == "leaf"){ taken[fn.params[i]] = true } else { taken[fn.params[i]] = null }
+      if(shapes[i].kind == "leaf"){ taken[fn.params[i]] = true } else { delete(taken, fn.params[i]) }
     }
     local params = {}
     for(local i = 0; i < len(fn.params); i = i + 1){

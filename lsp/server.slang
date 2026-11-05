@@ -482,12 +482,8 @@ local func nav_of(s){
   return s.nav
 }
 
-// a response always has its result, null included (json.null: a member
-// set to null would be left out, and the client rejects that)
+// a response always has its result, null included (the key holds null)
 local func response(id, result){
-  if(result == null){
-    result = json.null
-  }
   return {jsonrpc: "2.0", id: id, result: result}
 }
 
@@ -853,7 +849,7 @@ handlers["textDocument/didClose"] = func(s, id, params){
   if(doc != null and s.nav != null){
     s.nav:close(doc.path)
   }
-  s.documents[uri] = null
+  delete(s.documents, uri)
   return {
     notification("textDocument/publishDiagnostics", {
       uri: uri,
@@ -1261,7 +1257,7 @@ local func outline(doc, encoding){
 // start is the server's own: LSP has no such member
 local func strip_starts(list){
   for(let local sym in values(list)){
-    sym.start = null
+    delete(sym, "start")
     if(sym.children != null){
       strip_starts(sym.children)
     }

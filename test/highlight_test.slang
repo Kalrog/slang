@@ -171,7 +171,7 @@ local v = 1 <> 2
     assert(len(j.tokens) == 0, "a compile dialect has no tokens")
     compiler.reset()
     for(let local name in values({"data", "module", "plain"})){
-      __PACKAGES.preloaded[name] = null
+      delete(__PACKAGES.preloaded, name)
     }
   }
   t.test("a project file is a table literal"){

@@ -1888,17 +1888,26 @@ local func install_core(g){
     error("Invalid for loop")
   }), {probe: "for(local i = 0; i < 3; i = i + 1){ f(i) }"})
 
+  // for(let PATTERN in iterator): the iterator is called until it returns
+  // stop; an element that does not match the pattern raises, as `let`
+  // does. for(let? PATTERN in iterator) skips such elements instead.
   define("for_in_loop", peg.seq(
     ftok("for", null, "none"),
     ftok("(", "none", "none"),
-    ftok("let", "none", "space"),
+    peg.choice(
+      ftok("let?", "none", "space", "keyword"),
+      ftok("let", "none", "space"),
+    ),
     rule("slang_pattern"),
     ftok("in", "space", "space"),
     rule("expr"),
     ftok(")", "none", "brace"),
     rule("statement"),
   ):map(func(v){
-    return ast.node("ForIn", {pattern: v[3], itterator: v[5], body: v[7]}, v[0])
+    return ast.node("ForIn", {
+      pattern: v[3], itterator: v[5], body: v[7],
+      skip: if(v[2].value == "let?"){ true } else { null },
+    }, v[0])
   }), {probe: "for(let local x in values(t)){ f(x) }"})
 
   define("function_definition_statement", peg.seq(

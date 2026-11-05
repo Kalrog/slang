@@ -203,7 +203,7 @@ t.group("collector: incremental marking"){
       // shift a list down, insert into it, delete hash keys (compaction)
       remove(big, 0)
       append(big, {n: 1000 + round})
-      keyed[concat("k", string(round))] = null
+      delete(keyed, concat("k", string(round)))
       keyed[concat("new", string(round))] = {n: -round}
       assert(thread.resume(co) == "co")
     }

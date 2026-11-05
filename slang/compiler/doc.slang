@@ -388,7 +388,7 @@ local func properties_of(index, meta, type_name){
         local sig = d.info.signature
         p.doc = d.doc
         p.info = {items: d.info.items, prose: d.info.prose}
-        p.type = null
+        delete(p, "type")
         if(sig != null){
           p.info.prose = d.info.prose or (sig.result and sig.result.text)
           if(getter and sig.result != null){
@@ -1029,7 +1029,7 @@ ebnf_of = func(p, ctx){
   } else {
     out = {text: concat("⟨", k, "⟩"), prec: 2}
   }
-  ctx.visiting[p] = null
+  delete(ctx.visiting, p)
   return out
 }
 
@@ -1068,7 +1068,7 @@ func doc.ebnf(parser, names, top){
   for(done < len(ctx.cycle_order)){
     local q = ctx.cycle_order[done]
     local name = ctx.cycles[q]
-    ctx.cycles[q] = null
+    delete(ctx.cycles, q)
     ctx.tops = {}
     ctx.tops[q] = true
     ctx.top = name

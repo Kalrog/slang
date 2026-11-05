@@ -62,8 +62,11 @@ t.group("sqlite binding"){
       concat("values ", q:values()),
     )
     assert(q:step() == true)
-    // nulls are absent from the row; an int bound to a real column comes back as a double
-    assert(q:row() == {id: 2, score: 2.0, ok: false}, concat("row ", q:row()))
+    // a NULL column holds null in the row; an int bound to a real column
+    // comes back as a double
+    assert(q:row() == {id: 2, name: null, score: 2.0, ok: false, data: null},
+      concat("row ", q:row()))
+    assert(q:values() == {2, null, 2.0, false, null}, concat("values ", q:values()))
     assert(q:step() == false)
     assert(q:parameter_count() == 0 and ins:parameter_count() == 4)
     local bad = pcall(func(){ return ins:bind_all({1}) })

@@ -402,7 +402,7 @@ t.group("http: streaming, compression, limits"){
             headers: {["Content-Type"]: "text/plain"},
             body: a.pull(func(){
               n = n + 1
-              return n <= 3 and concat("part ", string(n), "\n") or null
+              return n <= 3 and concat("part ", string(n), "\n") or stop
             }),
           }
         }

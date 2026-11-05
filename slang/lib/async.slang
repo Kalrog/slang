@@ -341,7 +341,7 @@ func async.run(f){
   local co = null
   co = thread.create(func(){
     local r = pcall(f)
-    running[co] = null
+    delete(running, co)
     if(r[0] == "ok"){
       settle(fut, "done", r[1])
     } else {
@@ -594,12 +594,13 @@ local pull_meta = {__index: pull_methods, __type: "async.Stream"}
 
 // pull(next_value: func(): any) -> Stream
 // A Stream that reads only when asked: each next() calls next_value(),
-// which returns the next value, null at the end, or a Future of either; an
-// error it raises (or its Future's) ends the stream with that error.
+// which returns the next value (null is a value too), stop at the end, or
+// a Future of either; an error it raises (or its Future's) ends the stream
+// with that error.
 // Nothing is read ahead, so a slow reader slows the source (a file sent to
 // a slow client is not read into memory first).
 //   local n = 0
-//   local s = async.pull(func(){ n = n + 1  return n <= 3 and n or null })
+//   local s = async.pull(func(){ n = n + 1  return n <= 3 and n or stop })
 func async.pull(next_value){
   return {@meta: pull_meta, source: next_value, done: false, busy: false}
 }
@@ -626,7 +627,7 @@ func pull_methods.next(s){
   return f:then(
     func(v){
       s.busy = false
-      if(v == null){
+      if(v == stop){
         s.done = true
         return {done: true}
       }
@@ -678,15 +679,13 @@ func pull_methods.listen(s, cb){
 }
 
 // iterator(s: Stream) -> func(): any
-// A function that awaits and returns the stream's next value, or null at
-// the end; what `await for` loops over. Call it in an async function. A
-// for-in loop stops at the first null, so a null value in the stream ends
-// the loop early.
+// A function that awaits and returns the stream's next value, or stop at
+// the end; what `await for` loops over. Call it in an async function.
 func async.iterator(s){
   return func(){
     local e = async.await(s:next())
     if(e.done){
-      return null
+      return stop
     }
     return e.value
   }
@@ -1013,17 +1012,17 @@ func fs.write(fd, data, offset){
 
 // a Stream of data from offset (length bytes, or to the end) in chunks
 local func memory_stream(data, size, offset, length){
-  local stop = len(data)
-  if(length != null and offset + length < stop){
-    stop = offset + length
+  local last = len(data)
+  if(length != null and offset + length < last){
+    last = offset + length
   }
   return async.pull(func(){
-    if(offset >= stop){
-      return null
+    if(offset >= last){
+      return stop
     }
     local to = offset + size
-    if(to > stop){
-      to = stop
+    if(to > last){
+      to = last
     }
     local chunk = str.substring(data, offset, to)
     offset = to
@@ -1054,7 +1053,7 @@ func fs.read_stream(path, options){
   local finished = false
   return async.pull(func(){
     if(finished){
-      return null
+      return stop
     }
     return async.run(func(){
       local r = pcall(func(){
@@ -1083,7 +1082,7 @@ func fs.read_stream(path, options){
         if(r[0] == "err"){
           raise(r[1])
         }
-        return null
+        return stop
       }
       return r[1]
     })

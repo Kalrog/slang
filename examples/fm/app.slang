@@ -115,7 +115,7 @@ func app.note_on(n, vel){
 func app.note_off(n){
   local c = held[n] or 0
   if(c <= 1){
-    held[n] = null
+    delete(held, n)
   } else {
     held[n] = c - 1
   }
@@ -193,7 +193,7 @@ func app.handle_keys(){
     }
     if(rl.is_key_released(k.key) and key_down[k.key] != null){
       app.note_off(key_down[k.key])
-      key_down[k.key] = null
+      delete(key_down, k.key)
     }
   }
   if(rl.is_key_pressed(rl.KEY_LEFT) and app.octave > 24){

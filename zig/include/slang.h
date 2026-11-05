@@ -100,6 +100,9 @@ SLANG_EXPORT const char *slang_typename(int type);
 
 /* ---- push ---- */
 SLANG_EXPORT void slang_pushnull(slang_State *S);
+/* stop: what an iterator function returns when it is done (null is an
+ * element like any other) */
+SLANG_EXPORT void slang_pushstop(slang_State *S);
 SLANG_EXPORT void slang_pushbool(slang_State *S, bool b);
 SLANG_EXPORT void slang_pushint(slang_State *S, int64_t i);
 SLANG_EXPORT void slang_pushdouble(slang_State *S, double d);

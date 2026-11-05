@@ -80,7 +80,7 @@ local func open_window(){
     changed()
   })
   w:bind("another", func(){ open_window() })
-  w.closed:then(func(_){ windows[w] = null })
+  w.closed:then(func(_){ delete(windows, w) })
   return w
 }
 

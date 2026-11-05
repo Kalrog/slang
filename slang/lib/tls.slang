@@ -170,7 +170,7 @@ local func fail(t, err){
 local func deliver(t){
   for(t.on_chunk != null and t.at < len(t.received)){
     local chunk = t.received[t.at]
-    t.received[t.at] = null
+    delete(t.received, t.at)
     t.at = t.at + 1
     t.on_chunk(null, chunk)
   }

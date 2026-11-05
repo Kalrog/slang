@@ -145,6 +145,10 @@ overlay = func(base, over, t, what){
   for(let local e in entries(over)){
     local k = e[0]
     local v = e[1]
+    // an option holding null is not given (`{gravity: maybe}`)
+    if(v == null){
+      continue
+    }
     local f = field_of(t, k)
     if(f == null and field_of(t, "base") != null and base.base != null){
       overlay(base.base, {[k]: v}, field_of(t, "base").type, what)
@@ -659,7 +663,7 @@ local func wrap_struct(v, t, w){
     if(f.type.kind == "struct" and id_types[tn] != null){
       local k = snake(f.name)
       local id = v[k]
-      v[k] = null
+      delete(v, k)
       local nk = str.join(str.split(k, "_id"), "")
       v[nk] = wrap_id(tn, id, w)
     }
@@ -748,7 +752,7 @@ func world_methods.destroy(w){
     return
   }
   lib.b2DestroyWorld(w.id)
-  worlds[w.id.index1] = null
+  delete(worlds, w.id.index1)
   w.id = null
   w.bodies = {}
   w.shapes = {}
@@ -796,11 +800,11 @@ local func create_joint(w, kind, def){
     // the bodies by their short names
     if(def.body_a != null){
       def.body_id_a = def.body_a
-      def.body_a = null
+      delete(def, "body_a")
     }
     if(def.body_b != null){
       def.body_id_b = def.body_b
-      def.body_b = null
+      delete(def, "body_b")
     }
   }
   local id = lib[concat("b2Create", prefix)](
@@ -971,13 +975,13 @@ func body_methods.destroy(b){
     return
   }
   for(let local s in values(b:shapes())){
-    w.shapes[s.key] = null
+    delete(w.shapes, s.key)
   }
   for(let local j in values(b:joints())){
-    w.joints[j.key] = null
+    delete(w.joints, j.key)
   }
   lib.b2DestroyBody(b.id)
-  w.bodies[b.key] = null
+  delete(w.bodies, b.key)
 }
 
 local func create_shape(b, c_name, def, geometry, what){
@@ -1079,7 +1083,7 @@ func shape_methods.destroy(s, update_body_mass){
     return
   }
   lib.b2DestroyShape(s.id, update_body_mass != false)
-  w.shapes[s.key] = null
+  delete(w.shapes, s.key)
 }
 
 // contact_data() -> {ContactData}
@@ -1104,7 +1108,7 @@ func chain_methods.destroy(c){
     return
   }
   lib.b2DestroyChain(c.id)
-  w.chains[c.key] = null
+  delete(w.chains, c.key)
 }
 
 // segments() -> {Shape}
@@ -1123,7 +1127,7 @@ func joint_methods.destroy(j){
     return
   }
   lib.b2DestroyJoint(j.id)
-  w.joints[j.key] = null
+  delete(w.joints, j.key)
 }
 
 // ------------------------------------------------------------ the module

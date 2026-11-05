@@ -621,7 +621,7 @@ local func small_file(path, st){
   }
   if(c != null){
     file_cache_bytes = file_cache_bytes - c.size
-    file_cache[path] = null
+    delete(file_cache, path)
   }
   if(file_cache_bytes + st.size <= CACHE_BYTES){
     file_cache[path] = {size: st.size, mtime: st.mtime, data: data}
@@ -947,8 +947,8 @@ local func remember_cookies(client, headers){
           }
         }
         if(gone){
-          client.cookies[cname] = null
-          client.cookie_paths[cname] = null
+          delete(client.cookies, cname)
+          delete(client.cookie_paths, cname)
         } else {
           client.cookies[cname] = value
           client.cookie_paths[cname] = path
@@ -1006,9 +1006,9 @@ func client_methods.request(client, method, path, options){
     if(client.app:stream_body(req)){
       local sent = false
       req.stream = async.pull(func(){
-        if(sent){ return null }
+        if(sent or body == ""){ return stop }
         sent = true
-        return body != "" and body or null
+        return body
       })
       req.body = null
     }

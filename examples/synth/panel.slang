@@ -181,7 +181,7 @@ func panel.note_on(n){
 func panel.note_off(n){
   local c = panel.sounding[n] or 0
   if(c <= 1){
-    panel.sounding[n] = null
+    delete(panel.sounding, n)
   } else {
     panel.sounding[n] = c - 1
   }
@@ -876,7 +876,7 @@ func panel.handle_keys(){
     }
     if(rl.is_key_released(k.key) and key_down[k.key] != null){
       panel.note_off(key_down[k.key])
-      key_down[k.key] = null
+      delete(key_down, k.key)
     }
   }
   if(rl.is_key_pressed(rl.KEY_LEFT) and panel.octave > 24){

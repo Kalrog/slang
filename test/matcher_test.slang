@@ -91,10 +91,14 @@ t.group("matchers"){
       r[1].message,
     )
     local sum = 0
-    for(let '(number) as local n in values({"1", "2", "x", "4"})){
+    for(let? '(number) as local n in values({"1", "2", "x", "4"})){
       sum = sum + n
     }
-    assert(sum == 3, "the loop stops at the first non-matching value")
+    assert(sum == 7, "let? skips the values that do not match")
+    local bad = pcall(func(){
+      for(let '(number) as local n in values({"1", "x"})){ }
+    })
+    assert(bad[0] == "err" and bad[1].kind == "for")
     local func classify(v){
       if(let 'between(0, 9) = v){ return "digit" }
       if(let '(number) = v){ return "numeric string" }

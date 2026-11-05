@@ -608,7 +608,7 @@ expand = func(tokens, macros, active){
       for(let local e in values(expand(m.body, macros, active))){
         append(out, {kind: e.kind, text: e.text, line: t.line})
       }
-      active[t.text] = null
+      delete(active, t.text)
       i = i + 1
     } else {
       local call = null
@@ -641,7 +641,7 @@ expand = func(tokens, macros, active){
         for(let local e in values(expand(body, macros, active))){
           append(out, {kind: e.kind, text: e.text, line: t.line})
         }
-        active[t.text] = null
+        delete(active, t.text)
         i = call.next
       }
     }
@@ -778,7 +778,7 @@ local func preprocess(text, defines){
           append(defined_order, {name: name, line: ln + 1})
         }
       } else if(active and word == "undef" and len(d) > 1){
-        macros[d[1].text] = null
+        delete(macros, d[1].text)
       }
       // #include, #pragma, #error, #line: nothing to do
     } else if(active and t != ""){
@@ -1529,7 +1529,7 @@ func ffi.type(name, decls){
     {into: decls, field_name: decls.field_name},
   )
   local t = probe.types.__ffi_type_probe
-  probe.types.__ffi_type_probe = null
+  delete(probe.types, "__ffi_type_probe")
   local result = core_of(t, decls)
   cache[name] = result
   return result

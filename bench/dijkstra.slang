@@ -36,7 +36,7 @@ func graph.dijkstra(graph, start){
   local prev = {}
   for(let local node in keys(graph.nodes)){
     dist[node] = 100000000
-    prev[node] = null
+    delete(prev, node)
   }
   dist[start] = 0
   queue_insert(start, 0)

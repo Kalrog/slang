@@ -921,6 +921,8 @@ inline fn getFastG(vm: *root.VM, obj: Value, key: Value, getter: *Value) ?Value 
             else => t.get(key),
         };
         if (v != .null or t.meta == null) return v;
+        // a key holding null is present: __index is for absent keys
+        if (t.has(key)) return .null;
         // a miss on a table with a metatable: walk __index tables inline,
         // leaving functions and properties (__get) to the slow path
         return getChain(vm, t, key, getter);
@@ -1008,7 +1010,7 @@ inline fn newKeyInline(vm: *root.VM, m: *Table) bool {
 fn findSetter(vm: *root.VM, obj: Value, key: Value) ?Value {
     var m: *Table = switch (obj) {
         .table => |t| blk: {
-            if (t.get(key) != .null) return null;
+            if (t.has(key)) return null;
             break :blk t.meta orelse return null;
         },
         .userdata => |u| u.meta orelse return null,
@@ -1068,7 +1070,7 @@ inline fn getChain(vm: *root.VM, t0: *Table, key: Value, getter: *Value) ?Value 
             else => return null,
         }
         const v = t.get(key);
-        if (v != .null) return v;
+        if (v != .null or t.has(key)) return v;
     }
     return null;
 }
@@ -1316,7 +1318,7 @@ pub const ThreadOps = struct {
             switch (obj) {
                 .table => |t| {
                     const raw = t.get(key);
-                    if (raw != .null) return raw;
+                    if (raw != .null or t.meta == null or t.has(key)) return raw;
                     meta = t.meta;
                 },
                 .userdata => |u| {
@@ -1389,7 +1391,7 @@ pub const ThreadOps = struct {
                 .table => |t| {
                     if (key == .null) return th.vm.raise("table index is null", .{});
                     const m = t.meta orelse return th.rawSet(t, key, val);
-                    if (t.get(key) != .null) return th.rawSet(t, key, val);
+                    if (t.has(key)) return th.rawSet(t, key, val);
                     if (try ThreadOps.setProperty(th, m, obj_, key, val)) return;
                     const ni = m.getStr(th.vm.newindex_name);
                     switch (ni) {

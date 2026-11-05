@@ -5,8 +5,9 @@
 // does not match. Patterns go into tables, check literal values, and
 // `'Type{...}` checks a type first.
 //
-// A `for(let pattern in iterator)` loop binds each value, and stops at the
-// first value that does not match.
+// A `for(let pattern in iterator)` loop binds each value until the
+// iterator returns `stop`; a value that does not match raises, as the
+// statement does, and `for(let? ...)` skips it instead. `name?` takes null.
 local patient = {name: "Ada", age: 36, tags: {"vip"}}
 
 if(let {name: local name, age: 36} = patient){

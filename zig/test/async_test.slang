@@ -285,11 +285,18 @@ t.group("async: race, timeout, pull streams"){
       local asked = 0
       local s = async.pull(func(){
         asked = asked + 1
-        return asked <= 3 and asked or null
+        return asked <= 3 and asked or stop
       })
       assert(asked == 0, "nothing is read before next()")
       assert(await(s:next()).value == 1 and asked == 1)
       assert(await(s:collect()) == {2, 3})
+      local items = {1, null, 3}
+      local i = -1
+      local with_null = async.pull(func(){
+        i = i + 1
+        return if(i < 3){ items[i] } else { stop }
+      })
+      assert(await(with_null:collect()) == {1, null, 3}, "null is a value")
       local p = concat(scratch, "/stream.txt")
       local data = ""
       for(local i = 0; i < 1000; i = i + 1){ data = concat(data, "0123456789") }

@@ -1513,7 +1513,7 @@ local func info_of(p, memo, visiting){
   } else if(p.first != null){
     r = {first: p.first, nullable: p.nullable == true}
   }
-  visiting[p] = null
+  delete(visiting, p)
   memo[p] = r
   return r
 }
@@ -1700,7 +1700,7 @@ local func leading_set(p, cache, visiting, memo){
     }
     add(p.target)
   }
-  visiting[p] = null
+  delete(visiting, p)
   cache[p] = out
   return out
 }

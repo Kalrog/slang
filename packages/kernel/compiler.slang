@@ -1513,7 +1513,7 @@ func gen_methods.inline_call(self, f, e, hint){
     self:move(self:const(ret_t, 0), ret_t, result.r, f.line)
   }
   self:statements(f.body)
-  self.inline[f.name] = null
+  delete(self.inline, f.name)
   self.ret = outer_ret
   self.loops = outer_loops
   self:place(done)

@@ -1164,7 +1164,7 @@ fn chUnwatch(th: *Thread, args: []Value) Error!Value {
 }
 
 /// each(channel) -> iterator: for(let local v in each(ch)) receives until
-/// the channel is closed (or a value is false).
+/// the channel is closed and empty (then the iterator returns stop).
 fn isoEach(th: *Thread, args: []Value) Error!Value {
     _ = try argChannel(th, args, 0);
     return .{ .function = th.vm.newNative("each", eachNext, &.{args[0]}) };
@@ -1173,5 +1173,14 @@ fn isoEach(th: *Thread, args: []Value) Error!Value {
 fn eachNext(th: *Thread, args: []Value) Error!Value {
     _ = args;
     const v = th.currentClosure().nvals[0];
-    return receiveValue(th, v.userdata.as(*Channel).*, true);
+    const c = v.userdata.as(*Channel).*;
+    switch (c.take(th, true)) {
+        .msg => |m| {
+            var msg = m;
+            defer msg.deinit();
+            return decodeOne(th.vm, &msg);
+        },
+        .empty, .closed => return .{ .userdata = th.vm.stop_value },
+        .killed => return killed(th.vm),
+    }
 }

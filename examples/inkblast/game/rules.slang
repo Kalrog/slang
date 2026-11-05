@@ -111,7 +111,7 @@ func rules.add_player(w, slot, name){
 }
 
 func rules.remove_player(w, slot){
-  w.players[slot] = null
+  delete(w.players, slot)
 }
 
 // where a player is drawn, in cells (fractions while moving)

@@ -78,7 +78,7 @@ func stmt_methods.bind(stmt, i, value){}
 // bind_all(values: {any}, count?: int) -> Statement
 // Binds all parameters in order; returns the statement. Raises unless
 // count equals the number of parameters.
-// [count]: how many values (len(values)); a null value ends a list's length
+// [count]: how many values; len(values) by default (null values count)
 func stmt_methods.bind_all(stmt, values, count){}
 
 // step() -> bool

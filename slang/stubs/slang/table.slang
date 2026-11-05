@@ -29,8 +29,8 @@ local m = {}
 func m.contains(t, value){}
 
 // map(list: {any}, f: func(v: any): any) -> {any}
-// A new list of f(v) for each element v of list, in order; a null result
-// is left out (so map can filter too).
+// A new list of f(v) for each element v of list, in order, a null result
+// included (use [filter] to leave elements out).
 //   tbl.map({1, 2, 3}, func(x){ return x * x })   // {1, 4, 9}
 func m.map(list, f){}
 

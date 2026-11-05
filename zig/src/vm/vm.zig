@@ -176,6 +176,9 @@ pub const VM = struct {
     /// "__get" and "__set": tables of property getters and setters
     get_name: *String = undefined,
     set_name: *String = undefined,
+    /// The global `stop`: what an iterator returns when it is done (null
+    /// is an element like any other); kept in the registry
+    stop_value: *Userdata = undefined,
 
     /// Line starts of the string most recently passed to str.line_col
     /// (parsers call it once per token on the same buffer).
@@ -240,6 +243,10 @@ pub const VM = struct {
         vm.set_name = vm.newString("__set");
         vm.registry.set(vm.gpa, .{ .string = vm.get_name }, .{ .bool = true });
         vm.registry.set(vm.gpa, .{ .string = vm.set_name }, .{ .bool = true });
+        const stop_meta = vm.newTable(0, 1);
+        stop_meta.set(vm.gpa, .{ .string = vm.newString("__type") }, .{ .string = vm.newString("stop") });
+        vm.stop_value = vm.newUserdata(0, "stop", stop_meta);
+        vm.registry.set(vm.gpa, .{ .userdata = vm.stop_value }, .{ .bool = true });
         vm.main = vm.newThread(null);
         vm.main.is_main = true;
         vm.main.status = .running;

@@ -3,15 +3,37 @@ local t = require("slang/test")
 local table = require("slang/table")
 
 t.group("table"){
-  t.test("assigning null removes that key only, a list index too"){
+  t.test("null is a value: assigning it stores it"){
     local held = {"C", "C#", "D", "E"}
     held[1] = null
+    assert(held[1] == null and has(held, 1) and len(held) == 4, "a list holds null")
+    assert(held == {"C", null, "D", "E"} and held != {"C", "D", "E"})
+    local o = {a: 1}
+    o.a = null
+    assert(has(o, "a") and count(o) == 1 and o == {a: null} and o != {})
+    assert({1, null, 3} == {1, null, 3} and len({1, null, 3}) == 3)
+  }
+  t.test("delete takes a key out without moving anything"){
+    local held = {"C", "C#", "D", "E"}
+    assert(delete(held, 1) == "C#")
     assert(held[0] == "C" and held[1] == null and held[2] == "D" and held[3] == "E")
-    assert(len(held) == 1 and count(held) == 3, "the list ends at the gap")
+    assert(not has(held, 1) and len(held) == 1 and count(held) == 3, "the list ends at the gap")
     held[1] = "C#"
     assert(held == {"C", "C#", "D", "E"}, "filled again, a list again")
-    held[3] = null
+    delete(held, 3)
     assert(held == {"C", "C#", "D"}, "the last one")
+    local o = {a: 1, b: 2}
+    assert(delete(o, "a") == 1 and o == {b: 2} and delete(o, "zz") == null)
+  }
+  t.test("a key holding null hides __index; an absent one does not"){
+    local class = {x: "default"}
+    local obj = {}
+    obj.@meta = {__index: class}
+    assert(obj.x == "default")
+    obj.x = null
+    assert(obj.x == null, "a present null shadows the class")
+    delete(obj, "x")
+    assert(obj.x == "default")
   }
   t.test("remove takes an element out of a list and shifts the rest"){
     local l = {"a", "b", "c"}
@@ -20,7 +42,7 @@ t.group("table"){
     local r = pcall(remove, l, 5)
     assert(r[0] == "err" and r[1].message == "remove: index 5 is not in the list (length 1)", r[1].message)
     r = pcall(remove, {x: 1}, "x")
-    assert(r[0] == "err", "a key is removed with t.x = null")
+    assert(r[0] == "err", "a key is taken out with delete")
   }
   t.test("create table"){
     local t = {}
@@ -109,7 +131,7 @@ t.group("table"){
     assert(matched, "a local pattern matches anything but null")
   }
   t.test("map, filter, fold take lists; maps go through entries"){
-    assert(table.map({1, 2, 3}, func(x){ if(x == 2){ return null } return x * 10 }) == {10, 30})
+    assert(table.map({1, 2, 3}, func(x){ if(x == 2){ return null } return x * 10 }) == {10, null, 30})
     assert(table.filter({1, 2, 3, 4}, func(v){ return v % 2 == 0 }) == {2, 4})
     assert(table.map({1, x: 5}, func(v){ return v }) == {1}, "named keys are not the list")
     assert(table.entries({"a", x: 1}) == {{0, "a"}, {"x", 1}})
@@ -118,20 +140,21 @@ t.group("table"){
     assert(adults == {ann: 20, cid: 40})
     assert(pcall(table.from_entries, {1})[0] == "err")
   }
-  t.test("a list holds no null: gaps keep positions"){
+  t.test("lists hold null; a gap passes as null"){
     local func pass(...a){ return a }
     local func forward(...a){ return pass(...a) }
     local a = forward(1, null, 3)
-    assert(a[0] == 1 and a[1] == null and a[2] == 3 and len(a) == 1, "a rest parameter keeps positions")
+    assert(a == {1, null, 3} and len(a) == 3, "a rest parameter keeps the nulls")
     local func three(x, y, z){ return {x, y, z} }
     local gappy = {"a"}
     gappy[2] = "c"
     local r = three(...gappy)
     assert(r[0] == "a" and r[1] == null and r[2] == "c", "a spread passes a gap as null")
-    local e = pcall(append, {}, null)
-    assert(e[0] == "err" and str.index_of(e[1].message, "no null") >= 0, e[1].message)
+    local l = {}
+    append(l, null)
+    assert(len(l) == 1 and has(l, 0), "append takes null")
     local p = pcall(func(){ return null })
-    assert(p[0] == "ok" and p[1] == null and len(p) == 1)
+    assert(p[0] == "ok" and p[1] == null and len(p) == 2)
     // the arguments as they were passed, trailing nulls included
     local vm = require("slang/vm")
     local func counted(...rest){ return vm.arg_count() }

@@ -45,7 +45,7 @@ for(let local e in entries(g.keywords)){
     other[w] = true
   }
 }
-other["in"] = null
+delete(other, "in")
 
 // keywords the grammar reserves beyond the classes above (none today)
 local other_pattern = null

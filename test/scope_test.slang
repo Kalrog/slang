@@ -48,7 +48,7 @@ t.group("grammar scoping"){
         // integers must be written #42 in this unit
         g:modify("int_literal", func(old){ return peg.seq(peg.string("#"), old):pick(1) })
       }
-      __PACKAGES.preloaded["test/scope_module"] = null
+      delete(__PACKAGES.preloaded, "test/scope_module")
       local m = require("test/scope_module")
       return m + #1
     """, "modified unit")
@@ -132,7 +132,7 @@ t.group("project file"){
       "then its search paths",
     )
     for(let local name in values({"data", "module", "plain"})){
-      __PACKAGES.preloaded[name] = null
+      delete(__PACKAGES.preloaded, name)
     }
     local result = compiler.load_main("test/project/main.slang")()
     assert(
@@ -160,7 +160,7 @@ t.group("project file"){
     local r = pcall(compile, "return twice 1", "after reset")
     assert(r[0] == "err" or r[1]() == null, "the ambient extension is gone")
     for(let local name in values({"data", "module", "plain"})){
-      __PACKAGES.preloaded[name] = null
+      delete(__PACKAGES.preloaded, name)
     }
   }
   t.test("a dialect's compile function must return a function"){

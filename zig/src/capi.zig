@@ -224,6 +224,11 @@ pub export fn slang_pushnull(th: *Thread) void {
     th.push(.null);
 }
 
+/// The value an iterator returns when it is done (slang's stop).
+pub export fn slang_pushstop(th: *Thread) void {
+    th.push(.{ .userdata = th.vm.stop_value });
+}
+
 pub export fn slang_pushbool(th: *Thread, b: bool) void {
     th.push(.{ .bool = b });
 }

@@ -71,8 +71,9 @@ func type(v){}
 
 // len(v: string | table) -> int
 // The length of a string in bytes, or of a table's list: its elements at
-// 0, 1, 2, ... up to the first index it does not have (named keys are not
-// part of it, see [count]). A metatable's __len function decides instead
+// 0, 1, 2, ... up to the first index it does not have (an element may be
+// null: {1, null, 3} has length 3; named keys are not part of it, see
+// [count]). A metatable's __len function decides instead
 // when there is one. Raises an error for other values.
 //   len({"a", "b", x: 1})     // 2
 func len(v){}
@@ -103,9 +104,7 @@ func to_int(v){}
 
 // append(t: table, v: any)
 // Adds v at the end of the list of t (sets t[len(t)]); named keys stay as
-// they are. A list holds no null: appending null raises. To keep a
-// position empty, set by index (t[i] = v): a null leaves a gap, which
-// spreading (f(...t)) passes as null.
+// they are. v may be null: a list holds null like any value.
 func append(t, v){}
 
 // same(a: any, b: any) -> bool
@@ -118,9 +117,29 @@ func same(a, b){}
 // remove(list: {any}, i: int) -> any
 // Takes the element at index i out of the list, moving the later elements
 // down by one, and returns it: the inverse of slang/table's insert. Raises
-// when i is not an index of the list (0 to len - 1). To remove a key
-// without moving anything, assign null: t[k] = null.
+// when i is not an index of the list (0 to len - 1). To take a key out
+// without moving anything, use [delete].
 func remove(list, i){}
+
+// delete(t: table, key) -> any
+// Takes key out of t and returns the value it held (null when it was
+// absent). Nothing moves: deleting a list index in the middle ends the
+// list there (len(t) becomes that index), and the later elements keep
+// their keys. Assigning null does not delete: t[k] = null stores null.
+//   local t = {a: 1, b: 2}
+//   delete(t, "a")   // 1; t is {b: 2}
+func delete(t, key){}
+
+// has(t: table, key) -> bool
+// Whether t has key, without metamethods. A key may hold null:
+// has({a: null}, "a") is true, while reading t.a gives null either way.
+func has(t, key){}
+
+// stop
+// What an iterator function returns when it is done: a for-in loop ends
+// there. null is an element like any other, so it cannot end a loop.
+// type(stop) is "stop".
+global stop
 
 // keys(t: table) -> function
 // An iterator over the keys of t: list indices first, then the other keys

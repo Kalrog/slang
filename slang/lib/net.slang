@@ -8,7 +8,7 @@
 //   local server = net.server({port: 7777})
 //   server:on("connect", func(peer){ peer:send("welcome", {id: peer.id}) })
 //   server:on("move", func(peer, m){ players[peer.id].x = m.x })
-//   server:on("disconnect", func(peer, reason){ players[peer.id] = null })
+//   server:on("disconnect", func(peer, reason){ delete(players, peer.id) })
 //
 //   local client = net.connect("127.0.0.1", 7777)
 //   client:on("welcome", func(m){ my_id = m.id })
@@ -412,11 +412,11 @@ local func acked(c, s, t){
   if(p == null){
     return
   }
-  c.sent[s] = null
+  delete(c.sent, s)
   c.rtt = c.rtt + (t - p.at - c.rtt) * 0.1
   c.loss = c.loss * 0.95
   for(let local rid in values(p.rids)){
-    c.out_rel[rid] = null
+    delete(c.out_rel, rid)
   }
   for(c.rel_first < c.rid_next and c.out_rel[c.rel_first] == null){
     c.rel_first = c.rel_first + 1
@@ -432,7 +432,7 @@ local func send_data(c, rel, unrel, seqd, rids, t){
   // packets that can no longer be acknowledged were lost
   for(c.sent_first < s - 32){
     if(c.sent[c.sent_first] != null){
-      c.sent[c.sent_first] = null
+      delete(c.sent, c.sent_first)
       c.loss = c.loss * 0.95 + 0.05
     }
     c.sent_first = c.sent_first + 1
@@ -593,7 +593,7 @@ local func on_data(c, p, t){
   }
   for(c.state == "connected" and c.in_buf[c.in_next] != null){
     local m = c.in_buf[c.in_next]
-    c.in_buf[c.in_next] = null
+    delete(c.in_buf, c.in_next)
     c.in_next = c.in_next + 1
     deliver_reliable(c, m)
   }
@@ -811,8 +811,8 @@ close_conn = func(c, reason, tell){
   }
   local handler = h.handlers.disconnect
   if(h.is_server){
-    h.by_address[c.address] = null
-    h.peers[c.peer.id] = null
+    delete(h.by_address, c.address)
+    delete(h.peers, c.peer.id)
     if(handler != null){
       handler(c.peer, reason)
     }

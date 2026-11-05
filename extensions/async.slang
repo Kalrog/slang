@@ -36,15 +36,16 @@
 // `await for(let pattern in stream) statement` runs the statement once per
 // value of an `async.Stream`, awaiting each one: it is a for-in loop over
 // `async.iterator(stream)`. Like any for-in loop it stops at the end of
-// the stream, at a null value, or at the first value that does not match
-// the pattern. A stream's error is raised from the loop.
+// the stream; a value that does not match the pattern raises, or is
+// skipped with `await for(let? ...)`. A stream's error is raised from the
+// loop.
 //
 //   local lib = require("slang/async")
 //   lib.main(func(){
 //     local n = 0
 //     local numbers = lib.pull(func(){
 //       n = n + 1
-//       return n <= 3 and n or null
+//       return n <= 3 and n or stop
 //     })
 //     await for(let local v in numbers){
 //       print("got ", v, "\n")
@@ -119,7 +120,8 @@ g
 g:statement(
   "awaitFor",
   peg.seq(
-    g:keyword("await"), g:token("for"), g:token("("), g:token("let"),
+    g:keyword("await"), g:token("for"), g:token("("),
+    peg.choice(g:token("let?", "let?", "keyword"), g:token("let")),
     g:rule("slang_pattern"), g:token("in"), g:rule("expr"), g:token(")"),
     g:rule("statement")
   )
@@ -127,9 +129,10 @@ g:statement(
       local iterator = +{require("slang/async").iterator(-{v[6]})}
       return {
         token: v[0],
-        ast: ast.node(
-          "ForIn", {pattern: v[4], itterator: iterator, body: v[8]}, v[0]
-        ),
+        ast: ast.node("ForIn", {
+          pattern: v[4], itterator: iterator, body: v[8],
+          skip: if(v[3].value == "let?"){ true } else { null },
+        }, v[0]),
       }
     }),
 )

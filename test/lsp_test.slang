@@ -254,7 +254,7 @@ t.group("language server"){
     assert(r[0].error.code == -32601)
     assert(len(s:handle(notify("textDocument/nothing", {}))) == 0)
     local down = s:handle(request(6, "shutdown", null))[0]
-    assert(type(down.result) == "json.null" and s.shutdown_requested)
+    assert(down.result == null and has(down, "result") and s.shutdown_requested)
     s:handle(notify("exit", null))
     assert(s.exited)
   }
@@ -599,7 +599,7 @@ t.group("language server: names"){
       local r = es:handle(request(9, "textDocument/hover", {
         textDocument: {uri: auri}, position: {line: line, character: character},
       }))[0].result
-      return type(r) == "json.null" and "" or r.contents.value
+      return r == null and "" or r.contents.value
     }
     assert(str.index_of(hover_at(1, 2), "extensions/async") >= 0)
     h = hover_at(2, 12)
@@ -727,7 +727,7 @@ t.group("language server: names"){
       textDocument: {uri: uri},
       position: pos("// navigate"),
     }))[0]
-    assert(type(none.result) == "json.null", "no hover is a null result")
+    assert(none.result == null and has(none, "result"), "no hover is a null result")
     assert(str.index_of(lsp.encode(none), "\"result\":null") >= 0)
   }
   t.test("properties: __get and __set, inherited along __index"){
@@ -851,7 +851,7 @@ t.group("language server: names"){
         textDocument: {uri: later_uri},
         position: {line: lc[0] - 1, character: lc[1] - 1},
       }))[0].result
-      return type(h) == "json.null" and "" or h.contents.value
+      return h == null and "" or h.contents.value
     }
     // self in a method of the meta's tables: an object of it, with the
     // fields the file gives its objects
@@ -902,7 +902,7 @@ t.group("language server: names"){
         textDocument: {uri: typed_uri},
         position: {line: lc[0] - 1, character: lc[1] - 1},
       }))[0].result
-      return type(h) == "json.null" and "" or h.contents.value
+      return h == null and "" or h.contents.value
     }
     local func is_item_field(word, field){
       local h = hover(word)

@@ -182,10 +182,12 @@ fn fileReadLine(th: *Thread, args: []Value) Error!Value {
 fn linesNext(th: *Thread, args: []Value) Error!Value {
     _ = args;
     const u = th.currentClosure().nvals[0].userdata;
-    return readLine(th, u.as(Handle));
+    const line = try readLine(th, u.as(Handle));
+    return if (line == .null) .{ .userdata = th.vm.stop_value } else line;
 }
 
-/// lines(): an iterator over the remaining lines of the file.
+/// lines(): an iterator over the remaining lines of the file (stop at the
+/// end).
 fn fileLines(th: *Thread, args: []Value) Error!Value {
     _ = try handle(th, args);
     return .{ .function = th.vm.newNative("lines", linesNext, &.{args[0]}) };

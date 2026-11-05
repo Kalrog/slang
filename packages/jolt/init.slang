@@ -1288,7 +1288,7 @@ func world_methods.destroy(w){
   lib.JPH_PhysicsSystem_Destroy(w.system)
   if(w.listener != null){
     lib.JPH_ContactListener_Destroy(w.listener)
-    collecting[w.listener_id] = null
+    delete(collecting, w.listener_id)
     w.listener = null
   }
   w.system = null
@@ -1648,7 +1648,7 @@ func constraint_methods.destroy(c){
     return
   }
   local w = c.world
-  w.constraints[ffi.address(c.ptr)] = null
+  delete(w.constraints, ffi.address(c.ptr))
   if(w.system != null){
     lib.JPH_PhysicsSystem_RemoveConstraint(w.system, c.ptr)
   }
@@ -1957,7 +1957,7 @@ func vehicle_methods.destroy(v){
     return
   }
   local w = v.world
-  w.vehicles[ffi.address(v.ptr)] = null
+  delete(w.vehicles, ffi.address(v.ptr))
   if(w.system != null){
     lib.JPH_PhysicsSystem_RemoveStepListener(w.system, v.listener)
     lib.JPH_PhysicsSystem_RemoveConstraint(w.system, v.ptr)
@@ -2034,7 +2034,7 @@ func character_methods.destroy(c){
     return
   }
   local w = c.world
-  w.characters[ffi.address(c.ptr)] = null
+  delete(w.characters, ffi.address(c.ptr))
   if(w.system != null and c.added){
     lib.JPH_Character_RemoveFromPhysicsSystem(c.ptr, true)
   }
@@ -2066,7 +2066,7 @@ func character_virtual_methods.destroy(c){
   if(c.ptr == null){
     return
   }
-  c.world.characters[ffi.address(c.ptr)] = null
+  delete(c.world.characters, ffi.address(c.ptr))
   lib.JPH_CharacterBase_Destroy(c.ptr)
   c.ptr = null
 }
@@ -2081,7 +2081,7 @@ func body_methods.destroy(b){
   if(w.bodies_by_id[b.id] == null){
     return
   }
-  w.bodies_by_id[b.id] = null
+  delete(w.bodies_by_id, b.id)
   if(w.system != null){
     lib.JPH_BodyInterface_RemoveAndDestroyBody(w.body_interface, b.id)
   }

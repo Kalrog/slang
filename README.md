@@ -232,10 +232,9 @@ local all = {0, ...args, last: true}     // in table literals too: the spread ta
                                          // entries (array part and keys) are copied in
 local copy = {...args}
 ```
-A rest parameter keeps positions: `f(1, null, 3)` gives `{0: 1, 2: 3}` (a
-list holds no null, so the second index is a gap), and a call spreads
-every index up to the largest, a gap as null, so `g(...numbers)` passes
-`1, null, 3` on as they came.
+A rest parameter keeps every argument: `f(1, null, 3)` gives `{1, null,
+3}` (a list holds null like any value), and a call spreads every index up
+to the largest, so `g(...numbers)` passes `1, null, 3` on as they came.
 
 ### Functions
 ```slang
@@ -292,12 +291,16 @@ a:add(b)
 ```
 The metatable understands `__index` (table or function), `__newindex` (table
 or function) and `__type` (a string or a function, used by `type()` and by
-`'Type{...}` patterns). Assigning `null` to a key removes that key and
-nothing else, a list index included (`list[2] = null` leaves `list[3]`
-where it is); `remove(list, i)` takes an element out of a list and moves
-the later ones down. A table's list is its elements 0, 1, 2, ... up to the
-first missing index: `len(t)` is its length and `count(t)` the number of
-all entries, named keys included. Tables compare structurally with `==`.
+`'Type{...}` patterns). `null` is a value like any other: `t.x = null`
+stores it, and the key stays (`has(t, "x")` is true; reading an absent key
+gives null as well). `delete(t, k)` takes a key out and nothing else, a
+list index included (`delete(list, 2)` leaves `list[3]` where it is);
+`remove(list, i)` takes an element out of a list and moves the later ones
+down. A table's list is its elements 0, 1, 2, ... up to the first absent
+index, nulls included (`{1, null, 3}` has length 3): `len(t)` is its
+length and `count(t)` the number of all entries, named keys included. A
+key holding null hides its metatable's `__index`, as an own property
+would. Tables compare structurally with `==`.
 
 Properties read and write like fields but run functions: `__get` and `__set`
 are tables of getters and setters by key. They are looked up for keys the
@@ -353,7 +356,11 @@ patients = {{name: "John", age: 30}, {name: "Jane", age: 40}}
 for(let {name: local name, age: local age} in values(patients)) {
     print(name, "is", age, "years old")
 }
-// loops stop when they encounter a value that does not match the pattern
+// an iterator returns stop when it is done (null is an element like any
+// other); an element that does not match the pattern raises, as a let
+// statement does, unless the loop says let? to skip it
+for(let? 'Point{x: local x} in values(shapes)) { print(x) }
+for(let local v? in values({1, null, 3})) { print(v) }   // v? takes null
 // a type can be matched with 'Type{...}, a nullable binding with name?
 // as a statement, let binds or raises when the value does not match
 let {name: local name, age: local age} = patient

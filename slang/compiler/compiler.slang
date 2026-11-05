@@ -864,7 +864,7 @@ func compiler.forget_project(path){
     workspace_states = {}
     return
   }
-  workspace_states[compiler.absolute_path(path)] = null
+  delete(workspace_states, compiler.absolute_path(path))
 }
 
 // the grammar of a dialect: the project's grammar plus the dialect's

@@ -59,9 +59,7 @@ m.gc = {
 
 // arg_count() -> int
 // How many arguments the function calling arg_count was given, trailing
-// nulls included: f(1, null) gives 2. A rest parameter cannot tell (a list
-// holds no null, so f(null) and f() give it the same empty table), this
-// can.
+// nulls included: f(1, null) gives 2 (as len of a rest parameter does).
 //   func show(...args){
 //     for(local i = 0; i < vm.arg_count(); i = i + 1){ print(args[i]) }
 //   }

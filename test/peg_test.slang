@@ -64,8 +64,7 @@ t.group("peg"){
       r[1][0] == null and r[1][1] == "b",
       "optional yields null and keeps positions",
     )
-    assert(len(r[1]) == 0 and require("slang/table").span(r[1]) == 2,
-      "a null value is a gap: the positions stay")
+    assert(len(r[1]) == 2, "the null is an element of the list")
   }
   t.test("star_lazy"){
     local p = peg.seq(

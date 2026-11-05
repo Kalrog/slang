@@ -52,7 +52,7 @@ func methods.open(w, path, text, index){
 }
 
 func methods.close(w, path){
-  w.documents[path] = null
+  delete(w.documents, path)
 }
 
 // a file's {path, text, index}: the open document, or the file analysed

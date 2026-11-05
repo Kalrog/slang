@@ -15,7 +15,7 @@ local func expr_runs_of(wrap_statement){
       })
     """
   }
-  expr_runs = 0
+  global expr_runs = 0
   local run = compile(concat("""
     extension {
       local peg = require("slang/peg")

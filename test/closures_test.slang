@@ -2,7 +2,7 @@ local test = require("slang/test")
 
 test.group("closure test", func(){
   test.test("simple function"){
-    func add(a, b){
+    local func add(a, b){
       return a + b
     }
     assert(add(1, 2) == 3)
@@ -14,7 +14,7 @@ test.group("closure test", func(){
     assert(add(3, 4) == 7)
   }
   test.test("closed upvalue", func(){
-    func counter(n){
+    local func counter(n){
       local v = 0
       return {
         inc: func(){
@@ -39,10 +39,10 @@ test.group("closure test", func(){
   })
   test.test("open upvalue", func(){
     local i = 0
-    func inc(){
+    local func inc(){
       i = i + 1
     }
-    func dec(){
+    local func dec(){
       i = i - 1
     }
 
@@ -56,7 +56,7 @@ test.group("closure test", func(){
     assert(i == 0, "i should be 0 while upvalue is not closed yet")
   })
   test.test("recursive function"){
-    func factorial(n){
+    local func factorial(n){
       if(n == 0){
         return 1
       }

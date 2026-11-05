@@ -310,7 +310,7 @@ t.group("language server: names"){
     local d = spots(ask("textDocument/definition", pos("greet(\"x")))
     assert(d == {"main.slang:4:11"}, str.join(d, " "))
     d = spots(ask("textDocument/definition", pos("counter", 1)))
-    assert(d == {"main.slang:7:0"}, str.join(d, " "))
+    assert(d == {"main.slang:7:7"}, str.join(d, " "))
     d = spots(ask("textDocument/definition", pos("double")))
     assert(d == {"util.slang:4:10"}, str.join(d, " "))
     // a built-in: its stub
@@ -535,6 +535,23 @@ t.group("language server: names"){
         "4:unused is never used",
         "2:nowhere is not defined (a global no file of the project assigns)",
         "2:module no/such not found",
+      }, str.join(got, " | "))
+  }
+  t.test("lint: globals start with an uppercase letter"){
+    local ls = lsp.new({root: dir})
+    ls:handle(request(1, "initialize", {capabilities: {}}))
+    local r = open_doc(
+      ls,
+      lsp.path_to_uri(concat(dir, "/lint_globals.slang")),
+      "local count = 1\ncuont = count + 1\nLimit = 10\nfunc helper(){ return Limit }\nfunc Main(){ helper() }\n_private = 2\nprint = print\nglobal meant = 1\nglobal func also(){ }\nlater = 3\nglobal later\n",
+    )
+    local got = {}
+    for(let local d in values(r[0].params.diagnostics)){
+      append(got, concat(string(d.severity), ":", d.message))
+    }
+    assert(got == {
+        "2:cuont is a global (globals start with an uppercase letter; is a local meant, or `global`?)",
+        "2:helper is a global (globals start with an uppercase letter; is a local meant, or `global`?)",
       }, str.join(got, " | "))
   }
   t.test("range formatting: only the lines of the selection change"){

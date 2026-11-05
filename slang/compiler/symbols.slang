@@ -41,7 +41,7 @@ local symbols = {}
 // type Def = {name: string, kind: string, start?: int, stop?: int,
 //   statement?: int, value?: table, doc?: string, info: DocInfo,
 //   params?: {string}, owner?: Def, module?: string, fields: {[string]: Def},
-//   scope?: {start: int, stop: int}, type?: Type}
+//   scope?: {start: int, stop: int}, type?: Type, explicit?: bool}
 // [kind]: "local", "parameter", "global" or "field"
 // [start]: where the name starts (stop: past its end); null when not in source
 // [statement]: where the statement that defines it starts (its doc is above)
@@ -55,6 +55,7 @@ local symbols = {}
 // [scope]: a local's block, function or loop; null at the top level
 // [type]: a parameter's, from its function's typed signature; a local's
 //   or field's, from a first doc line `name: Type`
+// [explicit]: a global the file declares with `global`
 
 // A use of a name.
 // type Ref = {name: string, start: int, stop: int, def?: Def, write: bool,
@@ -920,13 +921,18 @@ func recorder.define(rec, name, token, kind, value, statement){
   return new_def(rec, name, token, kind, value, statement)
 }
 
-func recorder.use(rec, name, token, def, write, value, statement){
+func recorder.use(rec, name, token, def, write, value, statement, explicit){
   if(name == "_ENV"){
     return null
   }
+  if(def == null and write and explicit and rec.globals[name] != null){
+    // a `global name` after the first assignment still declares it
+    rec.globals[name].explicit = true
+  }
   if(def == null and write and rec.globals[name] == null){
-    // the first assignment of a global defines it
+    // the first assignment of a global defines it; [explicit]: by `global`
     def = new_def(rec, name, token, "global", value, statement)
+    def.explicit = explicit == true
     rec.globals[name] = def
     if(def.start != null){
       rec.at[def.start] = def

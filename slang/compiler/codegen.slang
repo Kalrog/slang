@@ -1241,6 +1241,30 @@ func visitors.Assignment(g, node){
 func visitors.Declaration(g, node){
   local left = node.left
   name_next(g, left, node.right)
+  if(node.is_global){
+    // `global name = value`: the global, never a local; where a local of
+    // that name is visible the name would read the local afterwards, so it
+    // is an error rather than a global no one sees
+    if(left.type != "Identifier"){
+      error("global declares a name, not ", ast.to_string(left), " ",
+        position(left.token))
+    }
+    local name = left.value
+    if(g.asm:get_local(name) != null or g.asm:get_upvalue(name) != null){
+      error("global ", name, ": a local ", name, " is visible here ",
+        position(left.token))
+    }
+    if(g.record != null){
+      g.record:use(name, left.token, null, true, node.right, node.token, true)
+    }
+    if(node.right != null){
+      g:visit(ast.node(
+        "Assignment", {left: global_index(left.token, name), right: node.right},
+        left.token
+      ))
+    }
+    return null
+  }
   if(left.type == "Identifier"){
     local name = left.value
     local existing = g.asm:get_local(name)

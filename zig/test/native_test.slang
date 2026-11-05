@@ -130,7 +130,7 @@ t.group("native extension (C)", func(){
   })
 
   t.test("globals, type and len", func(){
-    some_global = {1, 2, 3}
+    global some_global = {1, 2, 3}
     assert(hello.describe_global("some_global") == "table of length 3")
     assert(hello.describe_global("print") == "function of length -1")
   })

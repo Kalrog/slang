@@ -5,7 +5,7 @@ local util = require("test/navigate/util")
 local func greet(name){
   return concat("hi ", name, util.double(2))
 }
-counter = 1
+global counter = 1
 print(greet("x"), counter, util.double(3))
 local c = util.counter()
 c:bump(2)

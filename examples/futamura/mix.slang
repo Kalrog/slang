@@ -1929,10 +1929,10 @@ func mix.load(program){
 
 // dynamic(x) -> x: marks x as unknown to mix; the identity at run time
 func mix.dynamic(x){ return x }
-dynamic = mix.dynamic
+global dynamic = mix.dynamic
 
 // hint(name): names the specialization mix is making; nothing at run time
 func mix.hint(name){ }
-hint = mix.hint
+global hint = mix.hint
 
 return mix

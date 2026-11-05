@@ -1,6 +1,6 @@
 //testing correct scoping
 
-func hello(){
+local func hello(){
   local x
   x = 5
 }
@@ -16,12 +16,13 @@ test.group("scope test", func(){
     assert(x == 5)
   })
   test.test("global scope", func(){
-    y = 5
-    assert(y == 5)
+    // an undeclared assignment makes a global
+    Y = 5
+    assert(Y == 5)
     assert(x == null)
   })
   test.test("function scope", func(){
-    func scoped(){
+    local func scoped(){
       local z = 5
       assert(z == 5)
     }
@@ -29,10 +30,10 @@ test.group("scope test", func(){
     assert(z == null)
   })
   test.test("nested function scope", func(){
-    func outer(){
+    local func outer(){
       local z = 5
       assert(z == 5)
-      func inner(){
+      local func inner(){
         assert(z == 5)
       }
       inner()

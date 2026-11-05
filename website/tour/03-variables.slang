@@ -7,7 +7,10 @@
 // letting two meanings of one name coexist.
 //
 // A name assigned without `local` is a global. Programs keep globals for
-// what really is global; modules use locals.
+// what really is global; modules use locals. Globals start with an
+// uppercase letter: the editor warns about a lowercase one, which is
+// usually a typo or a forgotten `local`. `global name = ...` declares one
+// on purpose, whatever its name.
 local count = 1
 {
   local inner = count + 1
@@ -16,5 +19,5 @@ local count = 1
 count = count + 10
 print("count ", count, "\n")
 
-greeting = "a global"
-print(greeting, "\n")
+Greeting = "a global"
+print(Greeting, "\n")

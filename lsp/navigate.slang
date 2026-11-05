@@ -201,11 +201,19 @@ local func word_at(text, i, word){
 }
 
 // whether the word at i could define a global: `word = ...` starting a
-// statement (not `==`, not a field) or `func word(`
+// statement (not `==`, not a field), `func word(` or `global word`
 local func defines_at(text, i, word){
   local before = str.byte_at(text, i - 1)
   if(before == '.'){
     return false
+  }
+  local g = i - 1
+  for(g > 0 and (str.byte_at(text, g) == ' ' or str.byte_at(text, g) == '\t')){
+    g = g - 1
+  }
+  if(g >= 5 and str.substring(text, g - 5, g + 1) == "global" and
+    (g == 5 or not is_name_byte(str.byte_at(text, g - 6)))){
+    return true
   }
   local after = skip_spaces(text, i + len(word))
   local b = str.byte_at(text, after)

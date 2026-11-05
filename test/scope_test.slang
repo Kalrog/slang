@@ -22,7 +22,7 @@ local shout_extension = """
 
 t.group("grammar scoping"){
   t.test("an extension statement's changes end with the unit"){
-    shouted = null
+    global shouted = null
     compile(concat(shout_extension, "shout 1"), "unit one")()
     assert(shouted == 1, "the statement works in its unit")
     local r = pcall(compile, "shout 2", "unit two")
@@ -30,7 +30,7 @@ t.group("grammar scoping"){
     assert(str.index_of(message_of(r), "Failed to parse") >= 0, message_of(r))
   }
   t.test("compile from an unquote parses with the grammar of its unit"){
-    shouted = null
+    global shouted = null
     compile(concat(shout_extension, """
       -{block:
         nested = compile("shout 3", "nested")
@@ -55,8 +55,8 @@ t.group("grammar scoping"){
     assert(run() == 43, "the module's plain integers still parse")
   }
   t.test("an extension file's own extension statements are scoped to it"){
-    shouted = null
-    scope_inner = null
+    global shouted = null
+    global scope_inner = null
     local run = compile("""
       extension "test/scope_ext"
       shout 4
@@ -85,7 +85,7 @@ t.group("grammar scoping"){
       extension "test/scope_ext"
       shout 6
     """
-    shouted = null
+    global shouted = null
     compile(source, "twice")()
     assert(shouted == 6)
     local g = compiler.grammar()
@@ -104,7 +104,7 @@ t.group("grammar scoping"){
         return {token: r[0], ast: +{stat: whispered = -{r[1]}}}
       })
     )
-    whispered = null
+    global whispered = null
     compile("whisper 7", "after runtime change")()
     assert(whispered == 7, "a run-time change is global")
     compiler.reset()

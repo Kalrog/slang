@@ -340,7 +340,7 @@ t.group("ffi: callbacks"){
     assert(lib.ft_apply(func(x){
       try {
         lib.ft_apply(func(y){ error("caught") }, x)
-      } catch(e){
+      } catch(local e){
         return 99
       }
     }, 1) == 99)

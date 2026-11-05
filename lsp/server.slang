@@ -511,9 +511,10 @@ local func is_project_file(path){
 // ------------------------------------------------------------ lint
 //
 // What compiles but is likely a mistake, for a document whose text parses:
-// a local never used, a global read but defined nowhere (not in the file,
-// not built in, not in the project), a require of a module that does not
-// exist, and a require of a computed name. Whether a global or a module
+// a local never used, a global named in lowercase (the convention: globals
+// start with an uppercase letter), a global read but defined nowhere (not
+// in the file, not built in, not in the project), a require of a module
+// that does not exist, and a require of a computed name. Whether a global or a module
 // exists is cached by name; the cache is cleared when a document's globals
 // change or the project does.
 
@@ -600,6 +601,20 @@ lint = func(s, doc){
         SEVERITY.hint,
         {1},
       ))
+    }
+  }
+  // globals start with an uppercase letter, so that one made by mistake (a
+  // typo, a missing `local`) stands out; a lowercase one declared with
+  // `global` is meant, and the globals of this VM (print, require, ...)
+  // are lowercase and are not made here
+  for(let local d in values(index.globals)){
+    local b = str.byte_at(d.name, 0)
+    if(b >= 'a' and b <= 'z' and not d.explicit and _ENV[d.name] == null and
+      written_at(text, d.start, d.stop, d.name)){
+      append(out, lint_diagnostic(doc, d.start, d.stop, concat(
+        d.name,
+        " is a global (globals start with an uppercase letter; is a local meant, or `global`?)",
+      ), SEVERITY.warning))
     }
   }
   local reported = {}

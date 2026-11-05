@@ -2,7 +2,7 @@
 local typed = require("test/navigate/typed")
 
 // handle(req: typed.Request) -> string
-func handle(req){
+local func handle(req){
   return req.path
 }
 local s = typed.serve(0, handle)

@@ -65,8 +65,8 @@ t.group("extension statements"){
     )
   }
   t.test("an unquote runs once even when the parser backtracks across it"){
-    unquote_runs = 0
-    stored = null
+    global unquote_runs = 0
+    global stored = null
     local run = compile("""
       extension {
         local peg = require("slang/peg")
@@ -90,7 +90,7 @@ t.group("extension statements"){
     assert(stored == 8, "the spliced value should be used")
   }
   t.test("compile-time code may still compute and splice code"){
-    computed = null
+    global computed = null
     local run = compile("""
       -{block:
         local n = 0

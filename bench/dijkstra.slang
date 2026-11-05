@@ -16,7 +16,7 @@ local func queue_pop(){
 }
 local graph = {}
 
-func new_graph(){
+local func new_graph(){
   local self = {nodes: {}, edges: {}}
   self.@meta = {__index: graph}
   return self

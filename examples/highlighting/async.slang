@@ -3,7 +3,7 @@
 extension "extensions/async"
 local a = require("slang/async")
 
-async func delayed(value, ms){
+local async func delayed(value, ms){
   await a.sleep(ms)
   return value
 }

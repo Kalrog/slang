@@ -1,21 +1,21 @@
 return module{
-  func add(a, b){
+  global func add(a, b){
     return a + b
   }
 
-  func returnTrue(){
+  global func returnTrue(){
     return true
   }
 
   local privateVar = 10
 
-  publicVar = 20
+  global publicVar = 20
 
-  func setPrivateVar(v){
+  global func setPrivateVar(v){
     privateVar = v
   }
 
-  func getPrivateVar(){
+  global func getPrivateVar(){
     return privateVar
   }
 

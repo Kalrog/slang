@@ -153,6 +153,13 @@ func visitors.Block(w, n){
 
 func visitors.Declaration(w, n){
   local left = n.left
+  if(n.is_global){
+    // `global name = value` names the global, never a local
+    if(n.right != null){
+      w:visit(n.right)
+    }
+    return null
+  }
   if(left.type != "Identifier"){
     // o.name = value, func o.name(){}
     w:visit(left)

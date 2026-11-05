@@ -1,4 +1,4 @@
-func never_eval(){
+local func never_eval(){
   assert(false, "should never reach here")
 }
 

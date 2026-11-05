@@ -6,7 +6,7 @@ test.group("for in loop", func(){
 
     local current = 1
 
-    for(let v in values(testTable)){
+    for(let local v in values(testTable)){
       assert(v == current, "value is not equal to current")
       current = current + 1
     }

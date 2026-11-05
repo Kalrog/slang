@@ -132,13 +132,20 @@ Buffers and `ffi.cdef` are in every build; only calling C needs libffi.
 ### Variables
 ```slang
 // are automatically declared when assigned to
-a = 1
-b = 2
+A = 1
+B = 2
 // are global by default
 if (true) {
-    c = 3
+    C = 3
 }
-print(a, b, c) // 1 2 3
+print(A, B, C) // 1 2 3
+// globals start with an uppercase letter by convention: the language
+// server (and `slang highlight --check`) warns about a lowercase one, which
+// is usually a typo or a missing `local`; `global` declares one on purpose
+global helper_count = 0
+global func helper(){ return helper_count }
+global helper_count     // declares it without assigning
+// global is an error where a local of that name is visible
 // can be declared as local
 if (true) {
     local d = 4

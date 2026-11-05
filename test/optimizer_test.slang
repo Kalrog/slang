@@ -2,6 +2,7 @@
 local t = require("slang/test")
 local ast = require("slang/ast")
 local optimizer = require("slang/optimizer")
+local str = require("slang/string")
 
 local optimize = optimizer.optimize
 
@@ -166,6 +167,30 @@ t.group("scopes"){
       append(fs, func(){ return i })
     }
     assert(fs[0]() == 0 and fs[2]() == 2)
+  }
+
+  t.test("global declares a global, from any depth"){
+    local func set(){
+      global global_test_value = "set"
+      global func global_test_func(){ return global_test_value }
+    }
+    set()
+    assert(_ENV.global_test_value == "set" and global_test_func() == "set")
+    global global_test_value
+    assert(global_test_value == "set", "a bare global keeps the value")
+    _ENV.global_test_value = null
+    _ENV.global_test_func = null
+  }
+
+  t.test("global where a local of the name is visible is an error"){
+    local r = pcall(compile, "local x = 1\nglobal x = 2", "global local")
+    assert(r[0] == "err" and
+      str.index_of(r[1].message, "a local x is visible") >= 0, r[1].message)
+    r = pcall(compile, "local x = 1\nfunc f(){ global x = 2 }", "global upvalue")
+    assert(r[0] == "err", "a captured local counts too")
+    r = pcall(compile, "global t.x = 1", "global field")
+    assert(r[0] == "err" and
+      str.index_of(r[1].message, "global declares a name") >= 0, r[1].message)
   }
 
   t.test("a bare block is a scope"){

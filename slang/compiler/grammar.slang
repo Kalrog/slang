@@ -1245,6 +1245,7 @@ local func install_core(g){
     ["func"]: true,
     ["return"]: true,
     ["local"]: true,
+    ["global"]: true,
     ["true"]: true,
     ["false"]: true,
     ["null"]: true,
@@ -1759,6 +1760,26 @@ local func install_core(g){
     {probe: "local x = 1"},
   )
 
+  // global name = expr: assigns the global name as an undeclared
+  // assignment does, but on purpose (the lint accepts a lowercase global
+  // declared this way); `global name` alone declares it without a value
+  define(
+    "global_declaration",
+    peg.seq(ftok("global", null, "space"), rule("expr"), peg.seq(
+      ftok("=", "space", "space"),
+      rule("expr"),
+    ):optional()):map(func(v){
+      local right = null
+      if(v[2] != null){
+        right = v[2][1]
+      }
+      return ast.node(
+        "Declaration", {is_global: true, left: v[1], right: right}, v[0]
+      )
+    }),
+    {probe: "global x = 1"},
+  )
+
   // if(c){ a } else { b }: an expression; else is required, and else if
   // chains
   define(
@@ -1881,14 +1902,22 @@ local func install_core(g){
   }), {probe: "for(let local x in values(t)){ f(x) }"})
 
   define("function_definition_statement", peg.seq(
-    ftok("local", null, "space"):optional(),
+    peg.choice(
+      ftok("local", null, "space"),
+      ftok("global", null, "space"),
+    ):optional(),
     ftok("func", null, "space"),
     rule("identifier_and_index"),
     rule("function_definition"),
   ):map(func(v){
-    return ast.node(
-      "Declaration", {is_local: v[0] != null, left: v[2], right: v[3]}, v[1]
-    )
+    // is_global only when set, so that other declarations (and their
+    // quotes) are what they were before `global` existed
+    local is_global = v[0] != null and v[0].value == "global"
+    return ast.node("Declaration", {
+      is_local: v[0] != null and not is_global,
+      is_global: if(is_global){ true } else { null },
+      left: v[2], right: v[3],
+    }, v[1])
   }), {probe: "func f(a, b){ return a }"})
 
   // let PATTERN = expr as a statement: binds, or raises when the value does
@@ -1955,6 +1984,7 @@ local func install_core(g){
 
   define("expression_or_statement", peg.choice(
     rule("local_declaration"),
+    rule("global_declaration"),
     rule("let_statement"),
     rule("if_statement"),
     rule("try_statement"),

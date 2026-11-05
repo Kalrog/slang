@@ -1,5 +1,8 @@
 local test = require("slang/test")
 
+// set before each test
+local test_value = null
+
 test.group("pattern matching", func(){
   test.setup(func(){
     test_value = {hello: "world", inner: {a: 1, b: 2}}
@@ -18,6 +21,9 @@ test.group("pattern matching", func(){
   })
   test.test("pattern matching with list", func(){
     local list = {1, 2, 3, 4, 5}
+    // a pattern assigns names that are not declared in it
+    local first = null
+    local second = null
     if(let {1, first, second, 4} = list){
       assert(first == 2)
       assert(second == 3)

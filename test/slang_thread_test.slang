@@ -66,7 +66,7 @@ t.group("threads"){
   }
   t.test("yield should return value passed to resume"){
     local summer = thread.create(func(v){
-      sum = v
+      local sum = v
       for(true){
         v = thread.yield(sum)
         sum = sum + v
@@ -162,12 +162,12 @@ t.group("threads"){
     print("return 2 worked\n")
   }
   t.test("thread yields in deeply nested call with loops"){
-    func counter(){
+    local func counter(){
       for(local i = 0; i < 10; i = i + 1){
         thread.yield(i)
       }
     }
-    func relay(){
+    local func relay(){
       for(local i = 0; i < 10; i = i + 1){
         counter()
       }

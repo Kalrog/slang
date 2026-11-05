@@ -1,3 +1,3 @@
-func add(a, b){
+local func add(a, b){
   return a + b
 }

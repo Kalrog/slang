@@ -54,8 +54,8 @@ t.group("quote"){
     print(statement)
   }
   t.test("unquote compile time execution"){
-    compileTimeRun = false
-    runTimeRun = false
+    global compileTimeRun = false
+    global runTimeRun = false
     local run = compile("""
     -{block:
       compileTimeRun = true 
@@ -70,8 +70,8 @@ t.group("quote"){
     assert(runTimeRun == true, "runTimeRun should be true")
   }
   t.test("add statement to parser"){
-    ranUnless = false
-    nRuns = 0
+    global ranUnless = false
+    global nRuns = 0
     local run = compile("""
       extension {
         local peg = require("slang/peg")
@@ -106,7 +106,7 @@ t.group("quote"){
     assert(nRuns == 1, "unquote should only run once")
   }
   t.test("add primitive expression to parser"){
-    value = 0
+    global value = 0
     local run = compile("""
       extension {
         local peg = require("slang/peg")
@@ -128,7 +128,7 @@ t.group("quote"){
     assert(value == 1, "value should be 1")
   }
   t.test("add postfix ++ to parser"){
-    value = 0
+    global value = 0
     local run = compile("""
       extension {
         local peg = require("slang/peg")
@@ -154,7 +154,7 @@ t.group("quote"){
     assert(value == 2, "value should be 2")
   }
   t.test("add infix <> for string concatenation"){
-    result = ""
+    global result = ""
     local run = compile("""
       extension {
         local peg = require("slang/peg")
@@ -174,8 +174,8 @@ t.group("quote"){
     assert(result == "hello world", "result should be hello world")
   }
   t.test("add lambda shorthand |x| "){
-    result = func(){ return 0 }
-    resultAst = nil
+    global result = func(){ return 0 }
+    global resultAst = nil
     local run = compile("""
     extension {
       local peg = require("slang/peg")
@@ -210,7 +210,7 @@ t.group("quote"){
     run()
     assert(result(1) == 2, "result should be 2")
     print(resultAst)
-    equivalent = +{func(x){ return x + 1 }}
+    local equivalent = +{func(x){ return x + 1 }}
     assert(
       resultAst == equivalent,
       "resultAst should be equivalent to long form",

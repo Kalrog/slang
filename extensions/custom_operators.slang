@@ -110,7 +110,7 @@ g:extension_statement(
       left: id,
       right: {type: "Function", params: params, body: body},
     }
-    func define_infix(group){
+    local func define_infix(group){
       if(direction == "left"){
         group:left(symbol, func(left, op, right){
           return {
@@ -173,7 +173,7 @@ g:extension_statement(
       left: id,
       right: {type: "Function", params: params, body: body},
     }
-    func define_prefix(group){
+    local func define_prefix(group){
       group:prefix(symbol, func(op, right){
         return {token: op, ast: {type: "Call", function: id, args: {right}}}
       })
@@ -229,7 +229,7 @@ g:extension_statement(
       left: id,
       right: {type: "Function", params: params, body: body},
     }
-    func define_postfix(group){
+    local func define_postfix(group){
       group:postfix(symbol, func(left, op){
         return {token: op, ast: {type: "Call", function: id, args: {left}}}
       })

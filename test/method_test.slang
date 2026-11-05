@@ -1,12 +1,15 @@
-func works(){
+// createVector is defined below, after the methods that call it
+local createVector
+
+local func works(){
   print("works")
 }
 
-func vectorAdd(v1, v2){
+local func vectorAdd(v1, v2){
   return createVector(v1 .x + v2 .x, v1 .y + v2 .y)
 }
 
-func vectorSub(v1, v2){
+local func vectorSub(v1, v2){
   print("works")
   works()
   return createVector(v1 .x - v2 .x, v1 .y - v2 .y)

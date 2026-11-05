@@ -4,7 +4,7 @@ local t = require("slang/test")
 local str = require("slang/string")
 local a = require("slang/async")
 
-async func double_later(x){
+async func DoubleLater(x){
   await a.sleep(1)
   return x * 2
 }
@@ -16,16 +16,16 @@ local async func local_one(){
 t.group("async syntax"){
   t.test("async functions return futures and await unwraps them"){
     local r = a.main(func(){
-      local f = double_later(21)
+      local f = DoubleLater(21)
       assert(type(f) == "async.Future")
-      local anon = async func(x){ return (await double_later(x)) + 1 }
+      local anon = async func(x){ return (await DoubleLater(x)) + 1 }
       return {await f, await anon(1), await local_one()}
     })
     assert(r == {42, 3, 1}, concat("results ", r))
   }
   t.test("await binds like a call"){
     local r = a.main(func(){
-      local t = {f: double_later}
+      local t = {f: DoubleLater}
       local v = await t.f(2) + await a.value(10) * 2
       return v
     })

@@ -4,6 +4,15 @@ local grammar = require("slang/grammar")
 local peg = require("slang/peg")
 local ast = require("slang/ast")
 
+// a reference to a rule by name, for readability in the tests below
+local func rule_name_free(g, name){
+  return g:rule(name)
+}
+
+local func str_starts(s, prefix){
+  return require("slang/string").starts_with(s, prefix)
+}
+
 // rule references follow the grammar that was activated last (the phrase
 // loop activates the grammar of each unit; here we do it by hand)
 local func parse(g, name, source){
@@ -162,12 +171,3 @@ test.group("grammar registry", func(){
     assert(compile("return 40 + 2", "reset")() == 42)
   }
 })
-
-// a reference to a rule by name, for readability in the test above
-func rule_name_free(g, name){
-  return g:rule(name)
-}
-
-func str_starts(s, prefix){
-  return require("slang/string").starts_with(s, prefix)
-}

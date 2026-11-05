@@ -57,7 +57,8 @@ local specs = {
   If: {{"condition", "node"}, {"thenBranch", "node"}, {"elseBranch", "node?"}},
   Return: {{"value", "node"}},
   Assignment: {{"left", "node"}, {"right", "node"}},
-  Declaration: {{"is_local", "value"}, {"left", "node"}, {"right", "node?"}},
+  Declaration: {{"is_local", "value"}, {"is_global", "value"}, {"left", "node"},
+    {"right", "node?"}},
   Break: {{"label", "value"}},
   Continue: {{"label", "value"}},
   For: {
@@ -657,7 +658,7 @@ func writer.visit(self, node){
   } else if(t == "Declaration"){
     if(node.is_local){
       self:add("local ")
-    } else {
+    } else if(node.is_global){
       self:add("global ")
     }
     self:visit(node.left)
@@ -1127,12 +1128,14 @@ func source.statement(self, node){
   } else if(t == "Declaration"){
     if(node.right != null and node.right.type == "Function"){
       if(node.is_local){ self:add("local ") }
+      if(node.is_global){ self:add("global ") }
       self:add("func ")
       self:expr(node.left)
       self:params(node.right.params)
       self:block(node.right.body)
     } else {
       if(node.is_local){ self:add("local ") }
+      if(node.is_global){ self:add("global ") }
       self:expr(node.left)
       if(node.right != null){
         self:add(" = ")

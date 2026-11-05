@@ -52,7 +52,7 @@ async func m.remove(user, id){
 }
 
 // a file part being written: {name, type, tmp, fd, hasher, size}
-async func begin(part){
+local async func begin(part){
   local tmp = concat(dir, "/tmp-", crypto.token(12))
   local fd = await a.fs.open(tmp, "w")
   return {
@@ -61,7 +61,7 @@ async func begin(part){
   }
 }
 
-async func finish(user, f){
+local async func finish(user, f){
   await a.fs.close(f.fd)
   local digest = encoding.hex.encode(f.hasher:digest())
   local id = db:run(sql{
@@ -71,7 +71,7 @@ async func finish(user, f){
   return m.find(user, id)
 }
 
-async func abandon(f){
+local async func abandon(f){
   pcall(a.await, a.fs.close(f.fd))
   pcall(a.await, a.fs.remove(f.tmp))
 }

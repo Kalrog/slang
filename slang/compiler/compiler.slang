@@ -1454,6 +1454,18 @@ local func lint(source, index){
       at(d.start, d.stop, concat(d.name, " is never used"), "hint")
     }
   }
+  // globals start with an uppercase letter, unless declared with `global`
+  // (the globals of this VM are lowercase and are not made here)
+  for(let local d in values(index.globals)){
+    local b = str.byte_at(d.name, 0)
+    if(b >= 'a' and b <= 'z' and not d.explicit and _ENV[d.name] == null and
+      written(d.start, d.stop, d.name)){
+      at(d.start, d.stop, concat(
+        d.name,
+        " is a global (globals start with an uppercase letter; is a local meant, or `global`?)",
+      ), "warning")
+    }
+  }
   local reported = {}
   for(let local r in values(index.refs)){
     if(r.def == null and r.owner == null and not r.write and

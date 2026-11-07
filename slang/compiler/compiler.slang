@@ -1157,7 +1157,21 @@ func compiler.load_file(path, origin){
   local state = root.state
   local outer_effects = state.compile_time_effects
   state.compile_time_effects = false
-  local node = g:parse_source(source, origin, {testing: testing})
+  local node = null
+  try {
+    node = g:parse_source(source, origin, {testing: testing})
+  } catch(local e) {
+    // an error compile-time code raised at a place in this file (an
+    // extension's g:error_at) shows that place, the way a parse error does
+    if(e.kind == "compile" and e.location != null and
+      e.location.origin == origin and e.location.line != null){
+      local parse_error = require("slang/parse_error")
+      e.stack = parse_error.excerpt(source, parse_error.offset(
+        source, e.location.line, e.location.column or 1
+      ))
+    }
+    raise(e)
+  }
   local f = vm.load_proto(generate_from(node, origin, source))
   if(cache_path != null and not state.compile_time_effects and not g.extended){
     try { os.write_file(cache_path, vm.to_bytes(f)) } catch {}
@@ -1299,10 +1313,15 @@ func compiler.highlight(source, path, options){
     if(f != null){
       failure(f)
     } else {
-      // an error raised by compile-time code: reported at the statement being parsed
+      // an error raised by compile-time code: reported where it says it is
+      // when that is in this file (an extension's g:error_at), else at the
+      // statement being parsed
       local lc = str.line_col(source, position(lin.phrase_pos))
       local message = e.message
-      if(e.location != null){
+      if(e.location != null and e.location.origin == path and
+        e.location.line != null){
+        lc = {e.location.line, e.location.column or 1}
+      } else if(e.location != null){
         message = concat(
           message, " (at ", e.location.origin, ":", e.location.line, ":",
           e.location.column, ")"

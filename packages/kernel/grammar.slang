@@ -35,12 +35,24 @@ local trivia = peg.custom(func(self, ctx, pos){
 })
 trivia.single = true
 trivia.trivia = true
+grammar.trivia = trivia
 
 local keywords = {
-  local: true, func: true, struct: true, use: true, ["if"]: true,
-  ["else"]: true, ["for"]: true, ["break"]: true, ["continue"]: true,
-  ["return"]: true, ["and"]: true, ["or"]: true, ["not"]: true,
-  ["true"]: true, ["false"]: true,
+  local: true,
+  func: true,
+  struct: true,
+  use: true,
+  ["if"]: true,
+  ["else"]: true,
+  ["for"]: true,
+  ["break"]: true,
+  ["continue"]: true,
+  ["return"]: true,
+  ["and"]: true,
+  ["or"]: true,
+  ["not"]: true,
+  ["true"]: true,
+  ["false"]: true,
 }
 grammar.keywords = keywords
 
@@ -106,10 +118,12 @@ local number = number_chars:token("number"):trim(trivia):map(func(t){
 
 // "text": a module name for use
 local string_chars = peg.seq(
-  peg.char("\""), peg.pattern("^\"\n"):star(), peg.char("\""),
+  peg.char("\""),
+  peg.pattern("^\"\n"):star(),
+  peg.char("\""),
 ):flatten("expected a string")
 local string_lit = string_chars:token("string"):trim(trivia):map(func(t){
-  return {value: str.substring(t.value, 1, len(t.value) - 1), line: t.line}
+  return {value: str.substring(t.value, 1, len(t.value) - 1), line: t.line, token: t}
 })
 
 // matches nothing, and only when no line break comes before the next
@@ -145,8 +159,9 @@ local func elements(sep_list){
 // float | Voice | float[] | float[64]
 local type_p = peg.seq(
   name("type"),
-  peg.seq(ftok("[", "none", "none"), number:optional(), ftok("]", "none"))
-    :optional(),
+  peg.seq(
+    ftok("[", "none", "none"), number:optional(), ftok("]", "none")
+  ):optional(),
 ):map(func(v){
   local t = v[0]
   if(v[1] == null){
@@ -194,16 +209,18 @@ local args = fmt.mark(
   peg.seq(
     same_line,
     tok("("),
-    fmt.indent(
-      fmt.mark(expr:star_separated(ftok(",", "none", "line")), {fill: true})
-        :map(elements),
-      "softline",
-    ),
+    fmt.indent(fmt.mark(expr:star_separated(ftok(",", "none", "line")), {
+      fill: true,
+    }):map(
+      elements,
+    ), "softline"),
     fmt.trailing_comma(tok(","):optional()),
     fmt.gaps(tok(")"), "softline"),
   ),
   {group: true, hug: true, huggable: "call", before: "none"},
-):pick(2)
+):pick(
+  2,
+)
 
 local w = peg.walker(peg.skip_space)
 w:primary(number, "number")
@@ -264,7 +281,12 @@ w:level("bitOr")
 w:left(op("|", "="), "bitOr", bin)
 w:level("compare")
 w:left(peg.choice(
-  op("<="), op(">="), op("!="), op("=="), op("<", "<="), op(">", ">="),
+  op("<="),
+  op(">="),
+  op("!="),
+  op("=="),
+  op("<", "<="),
+  op(">", ">="),
 ), "compare", bin)
 // `not` sits between and and the comparisons, as in Python
 w:level("not")
@@ -290,17 +312,16 @@ local func semicolon(){
 // { statements }, one a line
 local block = peg.seq(
   tok("{"),
-  fmt.indent(
-    fmt.mark(peg.seq(statement, semicolon()):pick(0), {
-      before: "hardline", blank: true,
-    }):star(),
-    "hardline",
-    "hardline",
-  ),
+  fmt.indent(fmt.mark(peg.seq(statement, semicolon()):pick(0), {
+    before: "hardline",
+    blank: true,
+  }):star(), "hardline", "hardline"),
   fmt.gaps(tok("}"), "hardline"),
 ):pick(1)
 
-local compound = {["+="]: "+", ["-="]: "-", ["*="]: "*", ["/="]: "/", ["%="]: "%"}
+local compound = {
+  ["+="]: "+", ["-="]: "-", ["*="]: "*", ["/="]: "/", ["%="]: "%"
+}
 
 // local name: type = value
 local local_stat = peg.seq(
@@ -309,13 +330,20 @@ local local_stat = peg.seq(
   type_mark:optional(),
   peg.seq(ftok("=", "space", "space"), expr):pick(1):optional(),
 ):map(func(v){
-  return {k: "local", name: v[1].value, type: type_of(v[2]), init: v[3], line: v[0].line}
+  return {
+    k: "local", name: v[1].value, type: type_of(v[2]), init: v[3],
+    line: v[0].line
+  }
 })
 
 // target = value, target += value, or a lone expression (a call; a for's
 // condition)
 local assign_op = peg.choice(
-  op("+="), op("-="), op("*="), op("/="), op("%="),
+  op("+="),
+  op("-="),
+  op("*="),
+  op("/="),
+  op("%="),
   op("=", "="),
 )
 local expr_stat = peg.seq(
@@ -337,46 +365,50 @@ local expr_stat = peg.seq(
 local simple = peg.choice(local_stat, expr_stat)
 
 local if_stat = peg.settable(null)
-if_stat:set(peg.seq(
-  ftok("if", null, "none"),
-  ftok("(", "none", "none"),
-  expr,
-  ftok(")", "none", "brace"),
-  fmt.gaps(block, "none"),
+if_stat:set(
   peg.seq(
-    ftok("else", "space", "space"),
-    peg.choice(if_stat, fmt.gaps(block, "none")),
-  ):pick(1):optional(),
-):map(func(v){
-  local other = v[5]
-  if(other != null and other.k == "if"){
-    other = {other}
-  }
-  return {k: "if", cond: v[2], body: v[4], other: other, line: v[0].line}
-}))
+    ftok("if", null, "none"),
+    ftok("(", "none", "none"),
+    expr,
+    ftok(")", "none", "brace"),
+    fmt.gaps(block, "none"),
+    peg.seq(
+      ftok("else", "space", "space"),
+      peg.choice(if_stat, fmt.gaps(block, "none")),
+    ):pick(1):optional(),
+  )
+    :map(func(v){
+      local other = v[5]
+      if(other != null and other.k == "if"){
+        other = {other}
+      }
+      return {k: "if", cond: v[2], body: v[4], other: other, line: v[0].line}
+    }),
+)
 
 // for(init; cond; update) with each part optional, or for(cond)
 local for_stat = peg.seq(
   ftok("for", null, "none"),
   ftok("(", "none", "none"),
-  peg.choice(
-    peg.seq(
-      simple:optional(),
-      ftok(";", "none", "space"),
-      expr:optional(),
-      ftok(";", "none", "space"),
-      simple:optional(),
-    ):map(func(v){
-      return {init: v[0], cond: v[2], update: v[4]}
-    }),
-    expr:map(func(e){ return {cond: e} }),
-  ),
+  peg.choice(peg.seq(
+    simple:optional(),
+    ftok(";", "none", "space"),
+    expr:optional(),
+    ftok(";", "none", "space"),
+    simple:optional(),
+  ):map(func(v){
+    return {init: v[0], cond: v[2], update: v[4]}
+  }), expr:map(func(e){ return {cond: e} })),
   ftok(")", "none", "brace"),
   fmt.gaps(block, "none"),
-):map(func(v){
-  local h = v[2]
-  return {k: "for", init: h.init, cond: h.cond, update: h.update, body: v[4], line: v[0].line}
-})
+)
+  :map(func(v){
+    local h = v[2]
+    return {
+      k: "for", init: h.init, cond: h.cond, update: h.update, body: v[4],
+      line: v[0].line
+    }
+  })
 
 local return_stat = peg.seq(tok("return"), expr:optional()):map(func(v){
   return {k: "return", value: v[1], line: v[0].line}
@@ -407,10 +439,14 @@ local struct_item = peg.seq(
   ftok("struct", null, "space"),
   name("type.declaration"),
   ftok("{", "space"),
-  fmt.indent(fmt.mark(field, {before: "hardline"}):star(), "hardline", "hardline"),
+  fmt.indent(
+    fmt.mark(field, {before: "hardline"}):star(), "hardline", "hardline"
+  ),
   fmt.gaps(tok("}"), "hardline"),
 ):map(func(v){
-  return {k: "struct", name: v[1].value, fields: v[3], line: v[0].line}
+  return {
+    k: "struct", name: v[1].value, fields: v[3], line: v[0].line, token: v[1]
+  }
 })
 
 local param = peg.seq(name("parameter"), type_mark):map(func(v){
@@ -420,16 +456,18 @@ local param = peg.seq(name("parameter"), type_mark):map(func(v){
 local params = fmt.mark(
   peg.seq(
     tok("("),
-    fmt.indent(
-      fmt.mark(param:star_separated(ftok(",", "none", "line")), {fill: true})
-        :map(elements),
-      "softline",
-    ),
+    fmt.indent(fmt.mark(param:star_separated(ftok(",", "none", "line")), {
+      fill: true,
+    }):map(
+      elements,
+    ), "softline"),
     fmt.trailing_comma(tok(","):optional()),
     fmt.gaps(tok(")"), "softline"),
   ),
   {group: true, before: "none"},
-):pick(1)
+):pick(
+  1,
+)
 
 // func name(params): type { body }: an entry point slang calls;
 // local func: a helper, inlined where it is called
@@ -442,8 +480,14 @@ local func_item = peg.seq(
   fmt.gaps(block, "space"),
 ):map(func(v){
   return {
-    k: "func", kernel: v[0] == null, name: v[2].value, params: v[3],
-    ret: type_of(v[4]), body: v[5], line: v[2].line,
+    k: "func",
+    kernel: v[0] == null,
+    name: v[2].value,
+    params: v[3],
+    ret: type_of(v[4]),
+    body: v[5],
+    line: v[2].line,
+    token: v[2],
   }
 })
 
@@ -455,12 +499,15 @@ local global_item = peg.seq(
   type_mark:optional(),
   peg.seq(ftok("=", "space", "space"), expr):pick(1):optional(),
 ):map(func(v){
-  return {k: "global", name: v[1].value, type: type_of(v[2]), init: v[3], line: v[1].line}
+  return {
+    k: "global", name: v[1].value, type: type_of(v[2]), init: v[3],
+    line: v[1].line
+  }
 })
 
 // use "module": the structs, constants and helpers of another kernel module
 local use_item = peg.seq(ftok("use", null, "space"), string_lit):map(func(v){
-  return {k: "use", module: v[1].value, line: v[0].line}
+  return {k: "use", module: v[1].value, line: v[0].line, token: v[1].token}
 })
 
 // one top-level item, with its optional `;`
@@ -486,13 +533,18 @@ func grammar.parse(source, origin, first_line){
   if(shift > 0){
     source = concat("\n" * shift, source)
   }
-  local r = peg.run(peg.seq(trivia:optional(), grammar.items):pick(1):end(), source)
+  local r = peg.run(
+    peg.seq(trivia:optional(), grammar.items):pick(1):end(),
+    source,
+  )
   if(not r.ok){
     local line = r.far_line or r.line
     local msg = r.far_message or r.message or "syntax error"
-    raise(error.new(error.kinds.compile,
+    raise(error.new(
+      error.kinds.compile,
       concat(origin, ":", string(line), ": ", msg),
-      {origin: origin, line: line}))
+      {origin: origin, line: line},
+    ))
   }
   return r.value
 }

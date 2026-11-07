@@ -1,0 +1,15 @@
+// a module other kernels use: a struct, a constant, a helper
+struct Point {
+  x: double,
+  y: double = 1,
+}
+
+local SCALE = 10
+
+local func norm1(p: Point): float {
+  return abs(p.x) + abs(p.y)
+}
+
+func size(p: Point): float {
+  return norm1(p) * SCALE
+}

@@ -24,6 +24,7 @@
 // the slang/ctypes type for using them directly. See README.md for the
 // language.
 local buffer = require("slang/buffer")
+local str = require("slang/string")
 local compiler = require("kernel/compiler")
 local ct = __PACKAGES.preloaded["slang/ctypes"][1]
 
@@ -35,11 +36,17 @@ local vm = require("kernel/vm")
 // the compiler and the interpreter must agree on the opcodes
 local names = vm.op_names()
 if(len(names) != len(compiler.OPS)){
-  raise(error.new(error.kinds.error, "kernel: the compiler and kernel/vm disagree on the opcodes (rebuild with tool/build.sh)"))
+  raise(error.new(
+    error.kinds.error,
+    "kernel: the compiler and kernel/vm disagree on the opcodes (rebuild with tool/build.sh)",
+  ))
 }
 for(local i = 0; i < len(names); i = i + 1){
   if(names[i] != compiler.OPS[i]){
-    raise(error.new(error.kinds.error, concat("kernel: opcode ", string(i), " is ", names[i], " in kernel/vm and ", compiler.OPS[i], " in the compiler (rebuild with tool/build.sh)")))
+    raise(error.new(error.kinds.error, concat(
+      "kernel: opcode ", string(i), " is ", names[i], " in kernel/vm and ",
+      compiler.OPS[i], " in the compiler (rebuild with tool/build.sh)"
+    )))
   }
 }
 
@@ -115,7 +122,10 @@ local func init_element(s, e, t){
   }
   for(let local entry in entries(t)){
     if(s.by_name[entry[0]] == null){
-      raise(error.new(error.kinds.argument, concat(s.name, " has no field ", string(entry[0]))))
+      raise(error.new(
+        error.kinds.argument,
+        concat(s.name, " has no field ", string(entry[0])),
+      ))
     }
     e[entry[0]] = entry[1]
   }
@@ -157,16 +167,24 @@ local func struct_value(s){
   }
   ct.define(t, fields)
   if(ct.sizeof(t) != s.size){
-    raise(error.new(error.kinds.error, concat("kernel: struct ", s.name, " is ", string(ct.sizeof(t)), " bytes in slang/ctypes and ", string(s.size), " in the compiler")))
+    raise(error.new(error.kinds.error, concat(
+      "kernel: struct ", s.name, " is ", string(ct.sizeof(t)),
+      " bytes in slang/ctypes and ", string(s.size), " in the compiler"
+    )))
   }
   local by_name = {}
   local defaulted = {}
   local out = {}
   for(let local f in values(s.fields)){
     if(ct.offsetof(t, f.name) != f.offset){
-      raise(error.new(error.kinds.error, concat("kernel: ", s.name, ".", f.name, " is at different offsets in slang/ctypes and the compiler")))
+      raise(error.new(error.kinds.error, concat(
+        "kernel: ", s.name, ".", f.name,
+        " is at different offsets in slang/ctypes and the compiler"
+      )))
     }
-    local field = {name: f.name, kind: f.kind, offset: f.offset, default: f.default}
+    local field = {
+      name: f.name, kind: f.kind, offset: f.offset, default: f.default
+    }
     append(out, field)
     by_name[f.name] = field
     if(f.default != null){
@@ -174,8 +192,13 @@ local func struct_value(s){
     }
   }
   return {
-    name: s.name, type: t, size: s.size, fields: out, by_name: by_name,
-    defaulted: defaulted, @meta: struct_meta,
+    name: s.name,
+    type: t,
+    size: s.size,
+    fields: out,
+    by_name: by_name,
+    defaulted: defaulted,
+    @meta: struct_meta,
   }
 }
 
@@ -186,6 +209,21 @@ local func struct_value(s){
 // its module's (see [state]).
 // type Kernel = func(...args): any
 func kernel.load(p, state){
+  local lines = p.lines
+  if(p.line_at != null){
+    // from kernel/syntax: positions packed, lines as "origin:line"
+    lines = {}
+    local pcs = buffer.from(p.line_pcs, "int32")
+    for(local i = 0; i < len(pcs); i = i + 1){
+      append(lines, pcs[i])
+      local loc = p.line_at[i]
+      local colon = len(loc) - 1
+      for(colon > 0 and str.char_at(loc, colon) != ":"){
+        colon = colon - 1
+      }
+      append(lines, str.parse_int(str.substring(loc, colon + 1), 10))
+    }
+  }
   local binds = null
   if(state != null){
     binds = buffer.from(p.binds or {}, "int64")
@@ -196,8 +234,13 @@ func kernel.load(p, state){
     buffer.from(p.fregs, "int32"),
     buffer.from(p.fvals, "double"),
     buffer.from(p.params, "int32"),
-    buffer.from(p.lines, "int32"),
-    p.ret, p.slots, p.name, p.origin, state, binds
+    buffer.from(lines, "int32"),
+    p.ret,
+    p.slots,
+    p.name,
+    p.origin,
+    state,
+    binds,
   )
 }
 
@@ -225,11 +268,19 @@ func kernel.state(unit){
 
 // module(unit) -> {[name]: Kernel | Struct}
 // The kernels and structs of a compiled unit by name: kernels to call,
-// structs as [Struct] values.
+// structs as [Struct] values (those of a module it uses are that module's,
+// which this requires).
 func kernel.module(unit){
   local m = {}
   for(let local s in values(unit.structs)){
     m[s.name] = struct_value(s)
+  }
+  // the structs of a used module are that module's
+  for(let local u in values(unit.uses or {})){
+    local used = require(u.module)
+    for(let local name in values(u.structs)){
+      m[name] = used[name]
+    }
   }
   local state = kernel.state(unit)
   for(let local p in values(unit.kernels)){

@@ -242,12 +242,13 @@ func gen_methods.fail(self, line, ...parts){
   fail(self.origin, line, ...parts)
 }
 
+// line(line): the code from here on is from line. An entry for every
+// call, even on the same line (compact keeps the last at a position): the
+// table's shape follows the code, not how the source is laid out
 func gen_methods.line(self, line){
-  if(line != self.last_line){
-    append(self.lines, len(self.code))
-    append(self.lines, line)
-    self.last_line = line
-  }
+  append(self.lines, len(self.code))
+  append(self.lines, line)
+  self.last_line = line
 }
 
 func gen_methods.emit(self, op, a, b, c){
@@ -1786,11 +1787,54 @@ local func layout_state(st){
   st.size = offset
 }
 
+// ---- use "module"
+
+// the declarations of kernel modules used, by file; the files being read
+// (a module that uses itself, directly or not, is an error)
+local used_cache = {}
+local using = {}
+
+// use_module(name, origin, line) -> the structs, constants and functions
+// of the kernel module name (a .kernel file found as require finds it)
+local func use_module(name, origin, line){
+  local find = __PACKAGES.find_source
+  local found = null
+  if(find != null){
+    found = find(name)
+  }
+  if(found == null){
+    fail(origin, line, "use: no kernel module ", name)
+  }
+  if(found.suffix == ".slang"){
+    fail(origin, line, "use: ", name, " is a slang file; use takes a kernel module (a .kernel file)")
+  }
+  local path = found.path
+  local source = require("slang/os").read_file(path)
+  local cached = used_cache[path]
+  if(cached != null and cached.source == source){
+    return cached.unit
+  }
+  if(using[path]){
+    fail(origin, line, "use: ", name, " uses itself")
+  }
+  using[path] = true
+  local unit = {structs: {}, consts: {}, funcs: {}, globals: {}}
+  try {
+    compiler.compile_items(grammar.parse(source, path), path, unit)
+  } catch(local e) {
+    delete(using, path)
+    raise(e)
+  }
+  delete(using, path)
+  used_cache[path] = {source: source, unit: unit}
+  return unit
+}
+
 // compile_items(items, origin, env?) -> Unit: env carries the structs,
 // constants and helpers of earlier pieces of the same file (inline kernels)
 func compiler.compile_items(items, origin, env){
   local unit = env or {structs: {}, consts: {}, funcs: {}, globals: {}}
-  local out = {kernels: {}, structs: {}}
+  local out = {kernels: {}, structs: {}, uses: {}}
   // a top-level local some function assigns is state, not a constant
   local state_names = {}
   for(let local item in values(items)){
@@ -1828,7 +1872,24 @@ func compiler.compile_items(items, origin, env){
         unit.consts[item.name] = c
       }
     } else if(item.k == "use"){
-      fail(origin, item.line, "use is not supported yet")
+      local used = use_module(item.module, origin, item.line)
+      local names = {}
+      for(let local e in entries(used.structs)){
+        check_free({name: e[0], line: item.line})
+        unit.structs[e[0]] = e[1]
+        append(names, e[0])
+      }
+      for(let local e in entries(used.consts)){
+        check_free({name: e[0], line: item.line})
+        unit.consts[e[0]] = e[1]
+      }
+      for(let local e in entries(used.funcs)){
+        if(not e[1].kernel){
+          check_free({name: e[0], line: item.line})
+          unit.funcs[e[0]] = e[1]
+        }
+      }
+      append(out.uses, {module: item.module, structs: names})
     }
   }
   if(unit.state != null){

@@ -248,6 +248,25 @@ t.group("language server"){
       "a parse error: no edits, no message",
     )
   }
+  t.test("a grammar dialect's file: tokens, diagnostics and formatting"){
+    local s = lsp.new()
+    s:handle(request(1, "initialize", {capabilities: {}}))
+    local uri = concat(
+      "file://", compiler.absolute_path("test/project"), "/numbers.sums"
+    )
+    local out = open_doc(s, uri, "a =  1\nb = =\n")
+    local diags = out[0].params.diagnostics
+    assert(len(diags) == 1 and diags[0].range.start.line == 1)
+    // a, =, 1 and the error region's words
+    assert(len(tokens_of(s, uri)) >= 15)
+    open_doc(s, uri, "a =  1\n")
+    local r = s:handle(request(7, "textDocument/formatting", {
+      textDocument: {uri: uri},
+      options: {tabSize: 2, insertSpaces: true},
+    }))
+    assert(r[0].result[0].newText == "a = 1\n")
+    compiler.reset()
+  }
   t.test("unknown methods, shutdown and exit"){
     local s = lsp.new()
     local r = s:handle(request(5, "textDocument/codeLens", {}))

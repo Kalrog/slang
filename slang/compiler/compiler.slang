@@ -308,7 +308,8 @@ func compiler.compile(code, origin, env){
 //   {
 //     extensions: {"extensions/custom_operators"},   // ambient, in order
 //     dialects: {[".json"]: {compile: "extensions/json"},
-//                [".hx"]: {extensions: {"ext/html"}}},
+//                [".hx"]: {extensions: {"ext/html"}},
+//                [".kernel"]: {grammar: "kernel/file"}},
 //     search_paths: {"src"},                         // relative to the file
 //     warnings: false,                               // or {["ext/a"]: false}
 //     name: "app", version: "1.0.0",                  // as a package
@@ -338,9 +339,13 @@ func compiler.compile(code, origin, env){
 // [package]: the package's name, for a package's project
 
 // A dialect of a project: files with its suffix compile differently. With
-// compile the file is not slang at all.
-// type Dialect = {compile?: string, extensions?: {string}}
-// [compile]: a module whose compile(source, origin) makes the file's function
+// grammar or compile the file is not slang at all.
+// type Dialect = {grammar?: string, compile?: string, extensions?: {string}}
+// [grammar]: a module that returns the language of the files (a
+//   grammar.FileGrammar): they are parsed, highlighted, formatted and
+//   compiled (and cached) as slang files are, with its parsers
+// [compile]: a module whose compile(source, origin) makes the file's
+//   function; the tools see nothing of such a file (no tokens, no tree)
 // [extensions]: extensions loaded on top of the project's for these files
 
 local func dirname(path){
@@ -633,7 +638,9 @@ func compiler.load_project(path){
     explain("  ambient extension ", name)
   }
   for(let local e in entries(project.dialects)){
-    if(e[1].compile != null){
+    if(e[1].grammar != null){
+      explain("  dialect ", e[0], ": the grammar of ", e[1].grammar)
+    } else if(e[1].compile != null){
       explain("  dialect ", e[0], ": compile with ", e[1].compile)
     } else {
       explain(
@@ -916,6 +923,24 @@ local func dialect_grammar(proj, suffix){
   local d = proj.dialects[suffix]
   dg = proj.grammar:derive()
   dg.dialect = suffix
+  if(d.grammar != null){
+    // a language of its own: the module's items instead of slang's statements
+    local file = require(d.grammar)
+    dg.file = file
+    local words = {}
+    for(let local w in values(file.keywords or {})){
+      words[w] = true
+    }
+    dg.keywords = words
+    local key = concat(proj.key, "\n", suffix, "\n", d.grammar, "\n", source_of(d.grammar))
+    for(let local name in values(file.sources or {})){
+      key = concat(key, "\n", name, "\n", source_of(name))
+    }
+    dg.cache_key = key
+    dg.extended = false
+    proj.dialect_grammars[suffix] = dg
+    return dg
+  }
   dg.cache_key = apply_layer(
     dg, d.extensions or {}, concat(proj.key, "\n", suffix)
   )
@@ -1257,6 +1282,26 @@ local func find_project_for(path){
 // [find_project]: look up the file's project while none is loaded
 // [symbols]: also analyse the names (highlight only)
 
+// dialect_kind(path: string, options?: ParseOptions) -> string?
+// How the project compiles a file at path when its suffix is a dialect's:
+// "grammar", "extensions" or "compile"; null for a plain slang file.
+func compiler.dialect_kind(path, options){
+  if(options != null and options.find_project){
+    find_project_for(path)
+  }
+  local d = grammar_for(path).dialect
+  if(d == null){
+    return null
+  }
+  if(d.spec.grammar != null){
+    return "grammar"
+  }
+  if(d.spec.compile != null){
+    return "compile"
+  }
+  return "extensions"
+}
+
 // highlight(source: string, path: string, options?: ParseOptions) -> Highlight
 // The tokens of source as the compiler would parse the file at path (its
 // project, its dialect), and its parse errors. Extension code runs as it
@@ -1349,7 +1394,9 @@ func compiler.highlight(source, path, options){
   }
   local found = null
   local tree = null
-  if(options != null and options.symbols and raised == null and shift == 0){
+  // (a grammar dialect's code is generated: its names are not the file's)
+  if(options != null and options.symbols and raised == null and shift == 0 and
+    g.file == null){
     found = symbols.analyse(parsed, text, path)
     tree = parsed
   }

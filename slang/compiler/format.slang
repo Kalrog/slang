@@ -1127,7 +1127,9 @@ func formatter_methods.safe_none(self, a, b){
   if(x == 47 and y == 47){
     return " "
   }
-  if(is_digit_byte(x) and y == 46){
+  // 1 .x is not the number 1.x (o1.x is a field of o1)
+  if(is_digit_byte(x) and y == 46 and
+    is_digit_byte(str.byte_at(self.source, a.last.start))){
     return " "
   }
   return ""
@@ -2363,24 +2365,27 @@ func format.source(text, path, options){
 
 // ------------------------------------------------------------ slang fmt
 
-local func slang_files(os, path, out){
+// the files to format: those named, and in directories slang files,
+// project files and the other files there ({path, searched}: a searched
+// file of another suffix is formatted only when it is a dialect's)
+local func slang_files(os, path, out, searched){
   if(os.is_dir(path)){
     local names = os.list_dir(path)
     for(let local name in values(names)){
       if(not str.starts_with(name, ".")){
-        slang_files(os, concat(path, "/", name), out)
+        slang_files(os, concat(path, "/", name), out, true)
       }
     }
-  } else if(str.ends_with(path, ".slang") or
-    str.ends_with(path, "slang.project")){
-    append(out, path)
+  } else {
+    append(out, {path: path, searched: searched == true})
   }
   return out
 }
 
 // main(arguments: {string}) -> int: the exit code
-// `slang fmt [--check] [--stdout] paths...`: formats .slang files and
-// slang.project files, directories searched. --check lists the files that
+// `slang fmt [--check] [--stdout] paths...`: formats .slang files,
+// slang.project files and files of the dialects that have a grammar
+// (directories searched). --check lists the files that
 // would change, --stdout prints the results; otherwise files are rewritten.
 func format.main(arguments){
   local os = require("slang/os")
@@ -2408,10 +2413,30 @@ func format.main(arguments){
   }
   local compiler = require("slang/compiler")
   local status = 0
-  for(let local path in values(files)){
+  for(let local file in values(files)){
+    local path = file.path
     // every file starts from slang's own grammar and finds its own project:
     // what one file's extensions and project changed must not reach the next
     compiler.reset()
+    local plain = str.ends_with(path, ".slang") or
+      str.ends_with(path, "slang.project")
+    local kind = null
+    if(not plain){
+      kind = compiler.dialect_kind(path, {find_project: true})
+    }
+    local skip = not plain and (kind == null or kind == "compile")
+    if(skip and file.searched){
+      continue
+    }
+    if(skip){
+      local why = "not a slang file nor one of a dialect of its project"
+      if(kind == "compile"){
+        why = "its dialect compiles it with a function: there is no grammar to format it with"
+      }
+      os.write_stderr(concat(path, ": not formatted: ", why, "\n"))
+      status = 1
+      continue
+    }
     local text = os.read_file(path)
     local failed = false
     local out = null

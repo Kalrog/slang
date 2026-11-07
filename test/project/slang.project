@@ -3,6 +3,7 @@
   dialects: {
     [".json"]: {compile: "extensions/json"},
     [".twice"]: {extensions: {"test/project_ext"}},
+    [".sums"]: {grammar: "test/sums_lang"},
   },
   search_paths: {"../.."},
 }

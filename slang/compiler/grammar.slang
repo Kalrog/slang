@@ -631,6 +631,30 @@ func methods.unit_id(g){
   return g.state.unit_id
 }
 
+// no_cache()
+// The unit being parsed depends on more than its source and grammar (an
+// extension read another file to compile it): its bytecode is not cached,
+// so that it is compiled again when that changes.
+func methods.no_cache(g){
+  g.state.compile_time_effects = true
+}
+
+// A grammar dialect's module (slang.project's {grammar: "module"}): the
+// language of whole files that are not slang, as slang/peg parsers. Files
+// of the dialect are parsed one item at a time, like slang's top-level
+// statements (an item that fails is an error region and the parse goes on
+// with recover), highlighted and formatted by the item parser's token
+// categories and format marks, and compiled from the block unit returns.
+// type FileGrammar = {item: peg.Parser,
+//   unit: func(items: {any}, g: Grammar): Code, keywords?: {string},
+//   sources?: {string}}
+// [item]: one top-level item of a file; its value is collected
+// [unit]: the file's code from its items' values, a Block node (g is the
+//   unit's grammar: g:origin(), g:unit_local, g:error_at, g:no_cache)
+// [keywords]: the words error regions highlight as keywords
+// [sources]: modules whose sources join the bytecode cache's key (those the
+//   compilation depends on)
+
 // testing() -> bool
 // Whether the unit being parsed is compiled for a test run: `slang test`
 // compiles the files of the project under test so (not those of its
@@ -2952,6 +2976,11 @@ local func error_region(keywords){
   }
 }
 
+// a parser that never matches (and records no failure)
+local never = peg.custom(func(self, ctx, pos){
+  return -1
+})
+
 local func parse_top_level(g, source, origin, scoped, recover, tree){
   local lin = g.state
   local tok_semicolon = fmt.drop(peg.ref(lin.token_fn, ";"):optional())
@@ -2962,6 +2991,13 @@ local func parse_top_level(g, source, origin, scoped, recover, tree){
       rule_ref(lin, "extension_statement"),
       tok_semicolon,
     ):pick(0),
+  }
+  // a grammar dialect (see [FileGrammar]): its items instead of slang's
+  // statements, made into the unit's block at the end
+  local file = g.file
+  local items = {}
+  if(file != null){
+    parsers = {statement: file.item, final: never, extension_statement: never}
   }
   local ctx = peg.context(source, {tree: tree})
   ctx.trivia_start = trivia_start
@@ -3048,7 +3084,11 @@ local func parse_top_level(g, source, origin, scoped, recover, tree){
             append(trees, ctx.tree)
             tree_values[len(trees) - 1] = ctx.value
           }
-          emit(lin, statements, ctx.value)
+          if(file != null){
+            append(items, ctx.value)
+          } else {
+            emit(lin, statements, ctx.value)
+          }
           pos = q
         } else {
           q = parse_statement(lin, parsers.final, ctx, pos)
@@ -3124,11 +3164,27 @@ local func parse_top_level(g, source, origin, scoped, recover, tree){
     lin.last_tree = peg.node(unit_parser, 0, stop, trees)
     lin.last_tree.value = tree_values
   }
-  local block = ast.node(
-    "Block",
-    {statements: statements},
-    peg.make_token(ctx, null, 0, pos),
-  )
+  local block = null
+  if(file != null){
+    // the dialect makes the unit (its unit_locals before its statements);
+    // not after a failure, when the items are not the whole file
+    if(len(lin.failures or {}) == 0){
+      block = ast.decode(file.unit(items, unit))
+      emit(lin, statements, null)
+      for(let local s in values(block.statements)){
+        append(statements, s)
+      }
+    }
+    block = ast.node(
+      "Block", {statements: statements}, peg.make_token(ctx, null, 0, pos)
+    )
+  } else {
+    block = ast.node(
+      "Block",
+      {statements: statements},
+      peg.make_token(ctx, null, 0, pos),
+    )
+  }
   if(lin.opts.optimize != null){
     block = lin.opts.optimize(block)
   }

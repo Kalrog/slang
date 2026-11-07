@@ -3,8 +3,8 @@
 {
   // ambient extensions: loaded into every file of the project, in order
   extensions: {"extensions/custom_operators"},
-  // file suffixes and how to load them: a compile function, or extensions
-  // the file is compiled with
+  // file suffixes and how to load them: extensions the file is compiled
+  // with, a grammar of its own ({grammar: "module"}), or a compile function
   dialects: {
     [".json"]: {compile: "extensions/json"},
   },

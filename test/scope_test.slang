@@ -111,7 +111,7 @@ t.group("project file"){
     local p = compiler.project()
     assert(p.extensions == {"test/project_ext"}, "extensions")
     assert(
-      __PACKAGES.dialect_suffixes == {".json", ".twice"},
+      __PACKAGES.dialect_suffixes == {".json", ".twice", ".sums"},
       "dialect suffixes",
     )
     assert(

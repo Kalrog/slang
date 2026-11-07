@@ -1734,7 +1734,7 @@ local PROJECT_KEYS = {
   name: "the project's name, as a package: what `require` names it by",
   version: "the project's version, as a package (\"1.2.3\")",
   extensions: "grammar extensions every file of the project uses, in order: `{\"extensions/async\"}`",
-  dialects: "file suffixes compiled differently: `{[\".json\"]: {compile: \"extensions/json\"}}` or `{[\".hx\"]: {extensions: {...}}}`",
+  dialects: "file suffixes compiled differently: slang with extensions `{[\".hx\"]: {extensions: {...}}}`, a language of its own `{[\".kernel\"]: {grammar: \"kernel/file\"}}`, or a compile function `{[\".json\"]: {compile: \"extensions/json\"}}`",
   search_paths: "directories (relative to the project) where `require` looks for modules",
   warnings: "`false` silences the extensions' warnings, or `{[\"ext/a\"]: false}` some of them",
   dependencies: "packages: `{json5: {git: \"https://...\", version: \"^1.2\"}, util: {path: \"../util\"}}` (`slang get` fetches them)",

@@ -174,6 +174,32 @@ local v = 1 <> 2
       delete(__PACKAGES.preloaded, name)
     }
   }
+  t.test("a grammar dialect: its own language, parsed, highlighted, formatted"){
+    compiler.load_project("test/project/slang.project")
+    local path = "test/project/numbers.sums"
+    assert(compiler.dialect_kind(path) == "grammar")
+    local r = spell("a = 1\nbee =   22\n", path)
+    assert(
+      str.join(r.spelled, " ") ==
+        "property:a operator:= number:1 property:bee operator:= number:22",
+      str.join(r.spelled, " "),
+    )
+    // a line that fails is a diagnostic; the lines after it still parse
+    local bad = compiler.highlight("a = 1\nb = =\nc = 3\n", path)
+    assert(len(bad.diagnostics) == 1 and bad.diagnostics[0].line == 2)
+    local last = bad.tokens[len(bad.tokens) - 1]
+    assert(last.line == 3 and last.category == "number")
+    assert(
+      require("slang/format").source("a=1\n\n  bee   = 22", path) ==
+        "a = 1\n\nbee = 22\n",
+    )
+    // it compiles to what its unit function makes of the items
+    local m = compiler.compile(
+      compiler.expand("a = 1\nbee = 22", path), "sums"
+    )()
+    assert(m.a == 1 and m.bee == 22)
+    compiler.reset()
+  }
   t.test("a project file is a table literal"){
     local r = spell(
       "// the project\n{\n  extensions: {\"a\"},\n}\n",

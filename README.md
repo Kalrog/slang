@@ -529,15 +529,21 @@ file or in a directory above it, a slang table literal:
   dialects: {
     [".json"]: {compile: "extensions/json"},          // require("config") loads config.json
     [".hx"]: {extensions: {"ext/html_templates"}},    // .hx files are slang plus these extensions
+    [".kernel"]: {grammar: "kernel/file"},            // .kernel files are a language of their own
   },
   search_paths: {"src"},                               // relative to the project file
   warnings: {["extensions/custom_operators"]: false},  // or false: grammar warnings off
 }
 ```
-A dialect is either a list of extensions the file is compiled with, or a
-module exporting `compile(source, origin)` that returns a function (see
-`extensions/json.slang`); `require` tries `name.slang` and then every dialect
-suffix. `slang run --explain file` prints the project file, the ambient
+A dialect is one of three kinds. A list of extensions: the file is slang
+compiled with them. A grammar: a module returning the language of the files
+as slang/peg parsers (`{item, unit}`: one top-level item, and the code made
+of the items; see `FileGrammar` in slang/grammar and `packages/kernel/
+file.slang`), so the files are parsed, highlighted, formatted and cached as
+slang files are. Or a module exporting `compile(source, origin)` that
+returns a function (see `extensions/json.slang`): editors and `slang fmt`
+see nothing of such a file. `require` tries `name.slang` and then every
+dialect suffix. `slang run --explain file` prints the project file, the ambient
 extensions and dialects, and for every unit compiled under extensions the
 extensions in effect and the rules they modified. `examples/project` is a
 small project using both.

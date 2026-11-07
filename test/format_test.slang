@@ -145,6 +145,9 @@ t.group("slang fmt"){
       "local w = -1\nlocal v = -x + not y\n",
     )
   }
+  t.test("a number keeps a space before a field, a name does not"){
+    formats("local a = o1.x + 1 .x", "local a = o1.x + 1 .x\n")
+  }
   t.test("an extension that marks its parsers is formatted"){
     formats(
       "extension \"extensions/switch\"\nlocal v = 1\nswitch (v)  {\n  case 1 :\n    f()    // one\n      g()\n  case 2:   h()\n}",

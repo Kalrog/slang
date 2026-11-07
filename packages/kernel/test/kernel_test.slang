@@ -236,6 +236,13 @@ t.group("kernel memory"){
     assert(out[3] == ((0 * 2 - 1) + (0 * 2 - 1) * 0.5) * 0.5)
     assert(osc.total(oscs) == 0.25)
   }
+  t.test("a .kernel file in an isolate (which loads the project's dialects)"){
+    local w = require("slang/isolate").spawn(func(){
+      local osc = require("test/osc")
+      return osc.total(osc.Osc:new({phase: 0.5, inc: 0.25}))
+    })
+    assert(w:join() == 0.75)
+  }
 }
 
 t.group("kernel state"){

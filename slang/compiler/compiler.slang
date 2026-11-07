@@ -236,6 +236,7 @@ func compiler.reset(){
   dialect_grammars = {}
   __PACKAGES.search_paths = default_search_paths
   __PACKAGES.dialect_suffixes = {}
+  __PACKAGES.project_file = null
 }
 
 // parse(source: string, origin?: string) -> table: the AST
@@ -610,6 +611,8 @@ func compiler.load_project(path){
   }
   project_searched = true
   base = root:derive()
+  // isolates the program starts load the same project (see grammar_for)
+  __PACKAGES.project_file = path
   register_packages(project, p)
   // modules resolve relative to the project file first
   local paths = {dir}
@@ -761,6 +764,7 @@ local func new_state(key){
     key: key, root: null, project: null, base: null, packages: {},
     project_searched: true, project_misses: {}, dialect_grammars: {},
     search_paths: default_search_paths, pkgs: {}, dialect_suffixes: {},
+    project_file: null,
   }
 }
 
@@ -775,6 +779,7 @@ local func save_state(st){
   st.search_paths = __PACKAGES.search_paths
   st.pkgs = __PACKAGES.packages
   st.dialect_suffixes = __PACKAGES.dialect_suffixes
+  st.project_file = __PACKAGES.project_file
 }
 
 local func load_state(st){
@@ -791,6 +796,7 @@ local func load_state(st){
   __PACKAGES.search_paths = st.search_paths
   __PACKAGES.packages = st.pkgs
   __PACKAGES.dialect_suffixes = st.dialect_suffixes
+  __PACKAGES.project_file = st.project_file
 }
 
 // switches to st, returning the state that was in effect
@@ -956,6 +962,14 @@ local func library_source(path){
 }
 
 local func grammar_for(path){
+  // an isolate's compiler starts without the project of the program that
+  // started it: it loads the project file it inherited (slang/isolate), so
+  // that its files compile as they do there (dialects, ambient extensions)
+  if(not project_searched and project == null and
+    __PACKAGES.project_file != null){
+    project_searched = true
+    compiler.load_project(__PACKAGES.project_file)
+  }
   local proj = project_of(path)
   local dialect = dialect_of(proj, path)
   local g = root

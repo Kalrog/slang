@@ -640,9 +640,10 @@ fn threadMain(iso: *Isolate) void {
 }
 
 /// What an isolate takes over from __PACKAGES of the VM that starts it, so
-/// that it finds modules where that one does: the search paths and the
-/// project's packages and dialect suffixes.
-const inherited = [_][]const u8{ "search_paths", "native_search_paths", "packages", "dialect_suffixes" };
+/// that it finds modules where that one does: the search paths, the
+/// project's packages and dialect suffixes, and the project file (its
+/// compiler loads it, so that files compile as they do there).
+const inherited = [_][]const u8{ "search_paths", "native_search_paths", "packages", "dialect_suffixes", "project_file" };
 
 fn inherit(vm: *VM, vals: []const Value) void {
     for (inherited, 0..) |name, i| {

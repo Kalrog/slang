@@ -181,10 +181,15 @@ local func struct_value(s){
 
 // ------------------------------------------------------------ modules
 
-// load(program) -> Kernel
-// A program as compiler.compile makes it, as a callable kernel.
+// load(program, state?) -> Kernel
+// A program as compiler.compile makes it, as a callable kernel; state is
+// its module's (see [state]).
 // type Kernel = func(...args): any
-func kernel.load(p){
+func kernel.load(p, state){
+  local binds = null
+  if(state != null){
+    binds = buffer.from(p.binds or {}, "int64")
+  }
   return vm.load(
     buffer.from(p.code, "uint32"),
     buffer.from(p.iconsts, "int64"),
@@ -192,8 +197,30 @@ func kernel.load(p){
     buffer.from(p.fvals, "double"),
     buffer.from(p.params, "int32"),
     buffer.from(p.lines, "int32"),
-    p.ret, p.slots, p.name, p.origin
+    p.ret, p.slots, p.name, p.origin, state, binds
   )
+}
+
+// state(unit) -> any
+// A new state for the kernels of a compiled unit (their top-level locals
+// that change), at its starting values; null when they keep none. The
+// kernels loaded with it share it; it lives as long as they do.
+func kernel.state(unit){
+  local st = unit.state
+  if(st == null){
+    return null
+  }
+  local bytes = buffer.new("uint8", st.size)
+  local views = {}
+  for(let local w in values(st.init)){
+    local view = views[w.kind]
+    if(view == null){
+      view = bytes:cast(ct.primitive(w.kind))
+      views[w.kind] = view
+    }
+    view[to_int(w.offset / ct.sizeof(ct.primitive(w.kind)))] = w.value
+  }
+  return vm.state(bytes)
 }
 
 // module(unit) -> {[name]: Kernel | Struct}
@@ -204,8 +231,9 @@ func kernel.module(unit){
   for(let local s in values(unit.structs)){
     m[s.name] = struct_value(s)
   }
+  local state = kernel.state(unit)
   for(let local p in values(unit.kernels)){
-    m[p.name] = kernel.load(p)
+    m[p.name] = kernel.load(p, state)
   }
   return m
 }

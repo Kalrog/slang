@@ -177,6 +177,11 @@ t.group("kernel memory"){
     m.step(ps)
     assert(ps[1].y == 13.0 and ps[1].n == 2 and ps[1].on == false and ps[0].n == 2)
     assert(m.first(ps) == 0.0)
+    // a struct value: an element, or one made with new
+    assert(m.first(ps[1]) == 13.0)
+    assert(m.first(m.P:new({y: 7})) == 7.0)
+    local other = k("struct Q { a: double }").Q:new()
+    assert(str.contains(raises(func(){ m.first(other) }), "argument 1 must be a value of its struct"))
     assert(m.P.size == 24 and require("slang/ctypes").sizeof(m.P.type) == 24)
   }
   t.test("struct values: new, array, defaults, kinds"){
@@ -233,6 +238,75 @@ t.group("kernel memory"){
   }
 }
 
+t.group("kernel state"){
+  t.test("top-level locals a function assigns are state the kernels share"){
+    local src = """
+      struct Lfo { phase: double, rate: double = 0.25 }
+      local HALF = 0.5                     // never assigned: a constant
+      local count = 0
+      local level: float = 1
+      local on: bool
+      local history: float[4]
+      local lfo: Lfo
+      local hits: Lfo[2]
+      local func bump(by: int){
+        count += by
+      }
+      func tick(x: float): int {
+        bump(1)
+        history[count % 4] = x * HALF
+        level = level * 2
+        on = not on
+        lfo.phase = lfo.phase + lfo.rate
+        hits[1].phase += 1
+        if(count > 100){
+          return -1                       // every return saves the state
+        }
+        return count
+      }
+      func read(i: int): float { return history[i] }
+      func state(): float {
+        local b = 0.0
+        if(on){
+          b = 1000
+        }
+        return level + b + lfo.phase * 100 + hits[1].phase * 10000 + hits[0].rate
+      }
+      func early(){
+        count = 200
+        return
+      }
+    """
+    local m = k(src)
+    assert(m.tick(2) == 1 and m.tick(4) == 2)
+    assert(m.read(1) == 1.0 and m.read(2) == 2.0)
+    // level 4, on false, lfo.phase 0.5, hits[1].phase 2, hits[0].rate 0.25
+    assert(m.state() == 4 + 0 + 50 + 20000 + 0.25)
+    m.early()
+    assert(m.tick(0) == -1)
+    // another module from the same source has a state of its own
+    local m2 = k(src)
+    assert(m2.tick(1) == 1)
+    // the state outlives the module table while a kernel holds it
+    local tick = m.tick
+    m = null
+    require("slang/vm").collect()
+    assert(tick(1) == -1)
+  }
+  t.test("state errors"){
+    local cases = {
+      {"local a: float[]\nfunc f(){ a[0] = 1 }", "needs a length"},
+      {"local x\nfunc f(){ x = 1 }", "x needs a type or a value"},
+      {"local a: float[2] = 1\nfunc f(){ }", "cannot have an initial value"},
+      {"local n = 1\nlocal n = 2", "n is already defined"},
+    }
+    for(let local c in values(cases)){
+      local msg = raises(func(){ k(c[0]) })
+      assert(msg != null and str.contains(msg, c[1]), concat(c[1], " <- ", string(msg)))
+    }
+  }
+}
+
 t.group("kernel helpers"){
   t.test("helpers are inlined: values, arrays, structs, early returns"){
     local m = k("""
@@ -257,8 +331,9 @@ t.group("kernel helpers"){
         return pick(sum(xs), 0, true) * 10 + pick(1, 2, false) + s.v
       }
     """)
-    local s = m.S:array(1)
+    local s = m.S:new()
     assert(m.run(buffer.from({1, 2}, "float"), s) == 30 + 2 + 2)
+    assert(s.v == 2.0)
   }
 }
 

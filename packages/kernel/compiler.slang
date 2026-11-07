@@ -231,6 +231,9 @@ local func new_gen(unit, origin, name){
     loops: {},
     slots: 0,
     inline: {},
+    // the module's state by name: scalars in registers, arrays and structs
+    // in slots (see bind_state)
+    globals: {},
     @meta: gen_meta,
   }
 }
@@ -393,7 +396,7 @@ func gen_methods.lookup(self, name){
       break
     }
   }
-  return null
+  return self.globals[name]
 }
 
 // ---- moves and conversions
@@ -1311,17 +1314,20 @@ func gen_methods.statement(self, s){
       return null
     }
     if(s.value == null){
+      self:save_state()
       self:emit("ret")
       return null
     }
     local v = self:expr(s.value, null)
     if(r.t == "float"){
       v = self:as_float(v, s.line)
+      self:save_state()
       self:emit("retf", v.r)
     } else {
       if(v.t != r.t){
         self:fail(s.line, "return needs a ", r.t, ", found ", v.t)
       }
+      self:save_state()
       self:emit("reti", v.r)
     }
     return null
@@ -1463,6 +1469,66 @@ func gen_methods.counting(self, s){
 
 // ------------------------------------------------------------ units
 
+// ---- the module's state
+
+// bind_state(line) -> {int}: the module's state in this kernel: a slot for
+// the scalars (loaded into registers here), one per array and struct; the
+// binds (slot, offset, count, stride) the VM fills those slots with
+func gen_methods.bind_state(self, line){
+  local st = self.unit.state
+  local binds = {}
+  local func bind(slot, offset, count, stride){
+    append(binds, slot)
+    append(binds, offset)
+    append(binds, count)
+    append(binds, stride)
+  }
+  if(st == null){
+    return binds
+  }
+  local zero = self:const("int", 0).r
+  if(len(st.scalars) > 0){
+    local slot = self.slots
+    self.slots = self.slots + 1
+    bind(slot, 0, 1, st.scalar_size)
+    local kernel_scope = self.scopes[0]
+    self.saved = {}
+    for(let local v in values(st.scalars)){
+      local file = reg_file(v.t)
+      local r = self:alloc(file)
+      // the register stays the variable's for the whole kernel
+      if(r + 1 > kernel_scope.top[file]){
+        kernel_scope.top[file] = r + 1
+      }
+      local place = {slot: slot, idx: zero, offset: v.offset, kind: v.kind}
+      self:load(place, {t: v.t, r: r})
+      self.globals[v.name] = {kind: "var", t: v.t, r: r}
+      append(self.saved, {place: place, t: v.t, r: r})
+    }
+  }
+  for(let local a in values(st.arrays)){
+    local slot = self.slots
+    self.slots = self.slots + 1
+    bind(slot, a.offset, a.count, a.stride)
+    self.globals[a.name] = {kind: "array", slot: slot, elem: a.elem}
+  }
+  for(let local x in values(st.structs)){
+    local slot = self.slots
+    self.slots = self.slots + 1
+    bind(slot, x.offset, 1, x.struct.size)
+    self.globals[x.name] = {kind: "ref", slot: slot, idx: zero, struct: x.struct}
+  }
+  return binds
+}
+
+// the scalars of the state back from their registers, before a return
+func gen_methods.save_state(self){
+  for(let local v in values(self.saved or {})){
+    self:emit(concat("st_", v.place.kind), v.place.slot, v.place.idx, v.r)
+    self:word(v.place.offset)
+  }
+}
+
 // compile_kernel(unit, item) -> program
 local func compile_kernel(unit, item, origin){
   local g = new_gen(unit, origin, item.name)
@@ -1510,13 +1576,15 @@ local func compile_kernel(unit, item, origin){
       g:declare(p.name, {kind: "var", t: t, r: r}, item.line)
     }
   }
+  local binds = g:bind_state(item.line)
   if(g.slots > 64){
-    g:fail(item.line, "a kernel takes at most 64 arrays")
+    g:fail(item.line, "a kernel takes at most 64 arrays (its own and the module's)")
   }
   g.ret = {t: ret_t}
   g:statements(item.body)
   // falling off the end returns nothing, or 0
   g:line(item.line)
+  g:save_state()
   if(ret_t == null){
     g:emit("ret")
   } else if(ret_t == "float"){
@@ -1551,6 +1619,7 @@ local func compile_kernel(unit, item, origin){
     fregs: fregs,
     fvals: fvals,
     params: flat_params,
+    binds: binds,
     nparams: len(item.params),
     ret: ret_code,
     slots: g.slots,
@@ -1574,31 +1643,201 @@ func compiler.compile(source, origin, first_line){
   return compiler.compile_items(items, origin, null)
 }
 
+// the names statements assign to (into out)
+local func assigned_names(list, out){
+  for(let? local s in values(list or {})){
+    if(s.k == "assign" and s.target.k == "name"){
+      out[s.target.name] = true
+    } else if(s.k == "if"){
+      assigned_names(s.body, out)
+      assigned_names(s.other, out)
+    } else if(s.k == "for"){
+      assigned_names(s.body, out)
+      assigned_names({s.init, s.update}, out)
+    }
+  }
+}
+
+local value_types = {int: true, float: true, double: true, bool: true}
+
+// a constant as a declared value type
+local func typed_const(c, ty, line, origin){
+  if(value_types[ty] == null){
+    fail(origin, line, "unknown type ", ty, " (a top-level local is int, float, bool, an array or a struct)")
+  }
+  local want = ty
+  if(ty == "double"){
+    want = "float"
+  }
+  if(want == "float" and c.t == "int"){
+    return {t: "float", value: c.value * 1.0}
+  }
+  if(c.t != want){
+    fail(origin, line, "a ", c.t, " is not a ", ty)
+  }
+  return c
+}
+
+local func align_to(n, a){
+  return to_int((n + a - 1) / a) * a
+}
+
+// the module state: scalars first (8 bytes each), then arrays and structs,
+// 16-byte aligned; init lists the writes that give it its starting values
+// ({offset, kind, value})
+local func new_state(){
+  return {scalars: {}, arrays: {}, structs: {}, init: {}, scalar_size: 0, size: 0, items: {}}
+}
+
+local func struct_defaults(st, base, init){
+  for(let local f in values(st.fields)){
+    if(f.default != null){
+      append(init, {offset: base + f.offset, kind: f.kind, value: f.default})
+    }
+  }
+}
+
+// add_state(unit, item, origin): a top-level local as part of the state
+local func add_state(unit, item, origin){
+  local st = unit.state
+  if(st == null){
+    st = new_state()
+    unit.state = st
+  }
+  append(st.items, item)
+  local ty = item.type
+  if(ty != null and type(ty) != "string"){
+    // an array of a fixed length, zeroed (structs at their defaults)
+    if(item.init != null){
+      fail(origin, item.line, "an array cannot have an initial value (", item.name, " starts zeroed)")
+    }
+    if(ty.size == null){
+      fail(origin, item.line, "an array of the state needs a length: ", item.name, ": ", ty.array, "[64]")
+    }
+    local count = const_eval(ty.size, unit.consts, origin)
+    if(count.t != "int" or count.value <= 0){
+      fail(origin, item.line, "the length of ", item.name, " must be a positive int")
+    }
+    local elem = ty.array
+    local stride = 0
+    if(KIND[elem] != null){
+      stride = KIND_SIZE[KIND[elem]]
+    } else if(unit.structs[elem] != null){
+      elem = unit.structs[elem]
+      stride = elem.size
+    } else {
+      fail(origin, item.line, "unknown array type ", elem, "[] for ", item.name)
+    }
+    append(st.arrays, {name: item.name, elem: elem, count: count.value, stride: stride})
+    return
+  }
+  if(ty != null and unit.structs[ty] != null){
+    if(item.init != null){
+      fail(origin, item.line, "a struct cannot have an initial value (", item.name, " starts at its defaults)")
+    }
+    append(st.structs, {name: item.name, struct: unit.structs[ty]})
+    return
+  }
+  // a scalar
+  local c = null
+  if(item.init != null){
+    c = const_eval(item.init, unit.consts, origin)
+    if(ty != null){
+      c = typed_const(c, ty, item.line, origin)
+    }
+  } else {
+    if(ty == null){
+      fail(origin, item.line, item.name, " needs a type or a value: local ", item.name, ": float")
+    }
+    if(ty == "bool"){
+      c = {t: "bool", value: false}
+    } else {
+      c = typed_const({t: "int", value: 0}, ty, item.line, origin)
+    }
+  }
+  local kind = {int: "int64", float: "double", bool: "bool"}[c.t]
+  append(st.scalars, {name: item.name, t: c.t, kind: kind, value: c.value})
+}
+
+// lays out a unit's state once its items are known
+local func layout_state(st){
+  local offset = 0
+  for(let local v in values(st.scalars)){
+    v.offset = offset
+    offset = offset + 8
+    append(st.init, {offset: v.offset, kind: v.kind, value: v.value})
+  }
+  st.scalar_size = offset
+  offset = align_to(offset, 16)
+  for(let local a in values(st.arrays)){
+    a.offset = offset
+    if(type(a.elem) != "string"){
+      for(local i = 0; i < a.count; i = i + 1){
+        struct_defaults(a.elem, a.offset + i * a.stride, st.init)
+      }
+    }
+    offset = align_to(offset + a.count * a.stride, 16)
+  }
+  for(let local x in values(st.structs)){
+    x.offset = offset
+    struct_defaults(x.struct, x.offset, st.init)
+    offset = align_to(offset + x.struct.size, 16)
+  }
+  st.size = offset
+}
+
 // compile_items(items, origin, env?) -> Unit: env carries the structs,
 // constants and helpers of earlier pieces of the same file (inline kernels)
 func compiler.compile_items(items, origin, env){
-  local unit = env or {structs: {}, consts: {}, funcs: {}}
+  local unit = env or {structs: {}, consts: {}, funcs: {}, globals: {}}
   local out = {kernels: {}, structs: {}}
+  // a top-level local some function assigns is state, not a constant
+  local state_names = {}
   for(let local item in values(items)){
-    local taken = unit.structs[item.name] != null or unit.consts[item.name] != null or unit.funcs[item.name] != null
-    if(taken and item.k != "func"){
-      fail(origin, item.line, item.name, " is already defined")
+    if(item.k == "func"){
+      assigned_names(item.body, state_names)
     }
+  }
+  local func check_free(item){
+    local n = item.name
+    if(unit.structs[n] != null or unit.consts[n] != null or unit.funcs[n] != null or unit.globals[n] != null){
+      fail(origin, item.line, n, " is already defined")
+    }
+  }
+  // the declarations first (in order: a declaration uses those before it),
+  // so that the state is laid out before a kernel is compiled
+  for(let local item in values(items)){
     if(item.k == "struct"){
+      check_free(item)
       local st = layout_struct(item, unit.structs, unit.consts, origin)
       unit.structs[item.name] = st
       append(out.structs, {name: st.name, size: st.size, fields: st.fields})
     } else if(item.k == "global"){
-      if(item.init == null or item.type != null){
-        fail(origin, item.line, "kernel state (", item.name, ") is not supported yet")
+      check_free(item)
+      local ty = item.type
+      local is_state = state_names[item.name] == true or item.init == null or
+        (ty != null and (type(ty) != "string" or unit.structs[ty] != null))
+      if(is_state){
+        add_state(unit, item, origin)
+        unit.globals[item.name] = true
+      } else {
+        local c = const_eval(item.init, unit.consts, origin)
+        if(ty != null){
+          c = typed_const(c, ty, item.line, origin)
+        }
+        unit.consts[item.name] = c
       }
-      unit.consts[item.name] = const_eval(item.init, unit.consts, origin)
     } else if(item.k == "use"){
       fail(origin, item.line, "use is not supported yet")
-    } else {
-      if(unit.funcs[item.name] != null){
-        fail(origin, item.line, item.name, " is already defined")
-      }
+    }
+  }
+  if(unit.state != null){
+    layout_state(unit.state)
+    out.state = {size: unit.state.size, init: unit.state.init}
+  }
+  for(let local item in values(items)){
+    if(item.k == "func"){
+      check_free(item)
       unit.funcs[item.name] = item
       if(item.kernel){
         append(out.kernels, compile_kernel(unit, item, origin))

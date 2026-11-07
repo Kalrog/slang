@@ -169,6 +169,45 @@ const P_STRUCT = 5;
 // ------------------------------------------------------------ programs
 
 const Param = struct { kind: i32, index: i32, elem: i32, size: i32 };
+/// a slot bound to a module's state: offset bytes into it, count elements
+/// of stride bytes
+const Bind = struct { slot: u8, offset: usize, count: usize, stride: usize };
+
+/// The state of a module (its kernels' globals): memory the programs of the
+/// module share, freed when the last of them and the slang value holding
+/// it are gone.
+const State = struct { refs: usize, mem: []align(16) u8 };
+const state_tname = "kernel.State";
+
+fn releaseState(st: *State) void {
+    st.refs -= 1;
+    if (st.refs == 0) {
+        gpa.free(st.mem);
+        gpa.destroy(st);
+    }
+}
+
+fn freeStateHolder(data: ?*anyopaque) callconv(.c) void {
+    const holder: *?*State = @ptrCast(@alignCast(data orelse return));
+    const st = holder.* orelse return;
+    releaseState(st);
+    holder.* = null;
+}
+
+/// state(init) -> a module's state: a copy of the bytes of init (a buffer
+/// or string) in memory aligned for any value
+fn newState(S: ?*c.slang_State) callconv(.c) c_int {
+    var n: usize = 0;
+    const bytes = c.slang_checkbytes(S, 1, &n) orelse return c.SLANG_ERROR;
+    const mem = gpa.alignedAlloc(u8, .@"16", @max(n, 16)) catch @panic("out of memory");
+    @memset(mem, 0);
+    @memcpy(mem[0..n], bytes[0..n]);
+    const st = gpa.create(State) catch @panic("out of memory");
+    st.* = .{ .refs = 1, .mem = mem };
+    const holder: *?*State = @ptrCast(@alignCast(c.slang_newuserdata(S, @sizeOf(?*State), state_tname, freeStateHolder)));
+    holder.* = st;
+    return 1;
+}
 const Const = struct { reg: u8, int: i64, float: f64 };
 
 pub const Program = struct {
@@ -179,6 +218,9 @@ pub const Program = struct {
     fconsts: []Const,
     params: []Param,
     lines: []i32,
+    /// the module state it shares (a reference counted), and its slots there
+    state: ?*State = null,
+    binds: []Bind = &.{},
     ret: i32,
     slots: usize,
     name: [:0]u8,
@@ -208,6 +250,8 @@ fn freeProgram(data: ?*anyopaque) callconv(.c) void {
     gpa.free(p.fconsts);
     gpa.free(p.params);
     gpa.free(p.lines);
+    gpa.free(p.binds);
+    if (p.state) |st| releaseState(st);
     gpa.free(p.name);
     gpa.free(p.origin);
     gpa.destroy(p);
@@ -239,10 +283,11 @@ fn dupeZ(s: [*c]const u8) [:0]u8 {
 }
 
 /// load(code, iconsts, fregs, fvals, params, lines, ret, slots, name,
-/// origin) -> program: buffers of uint32 code, int64 (register, value)
-/// pairs, int32 float registers, double float values, int32 parameter
-/// quadruples (kind, register or slot, element kind, element size) and
-/// int32 (pc, line) pairs.
+/// origin, state?, binds?) -> program: buffers of uint32 code, int64
+/// (register, value) pairs, int32 float registers, double float values,
+/// int32 parameter quadruples (kind, register or slot, element kind,
+/// element size) and int32 (pc, line) pairs; a module state (state()) and
+/// int64 quadruples (slot, offset, count, stride) of the slots bound in it.
 fn load(S: ?*c.slang_State) callconv(.c) c_int {
     const code = bufferArg(S, 1, u32, "code", "uint32") orelse return c.SLANG_ERROR;
     const iconsts = bufferArg(S, 2, i64, "iconsts", "int64") orelse return c.SLANG_ERROR;
@@ -259,6 +304,25 @@ fn load(S: ?*c.slang_State) callconv(.c) c_int {
         return c.slang_error(S, "kernel.load: malformed program");
     if (slots < 0 or slots > 64) return c.slang_error(S, "kernel.load: at most 64 arrays");
     if (code.len == 0) return c.slang_error(S, "kernel.load: no code");
+    var state: ?*State = null;
+    var bind_words: []i64 = &.{};
+    if (c.slang_gettop(S) >= 11 and c.slang_type(S, 11) != c.SLANG_TNULL) {
+        const holder: *?*State = @ptrCast(@alignCast(c.slang_checkudata(S, 11, state_tname) orelse return c.SLANG_ERROR));
+        state = holder.* orelse return c.slang_error(S, "kernel.load: the state was freed");
+        bind_words = bufferArg(S, 12, i64, "binds", "int64") orelse return c.SLANG_ERROR;
+        if (bind_words.len % 4 != 0) return c.slang_error(S, "kernel.load: malformed binds");
+        var k: usize = 0;
+        while (k < bind_words.len) : (k += 4) {
+            const slot = bind_words[k];
+            const offset = bind_words[k + 1];
+            const count = bind_words[k + 2];
+            const stride = bind_words[k + 3];
+            if (slot < 0 or slot >= slots or offset < 0 or count < 0 or stride <= 0 or stride > 4096)
+                return c.slang_error(S, "kernel.load: malformed binds");
+            const end = @as(u64, @intCast(offset)) + @as(u64, @intCast(count)) * @as(u64, @intCast(stride));
+            if (end > state.?.mem.len) return c.slang_error(S, "kernel.load: a bound slot leaves the state");
+        }
+    }
 
     // the code: known opcodes, whole instructions, jumps to instruction
     // starts, slots that exist, and no way to run off the end
@@ -304,6 +368,18 @@ fn load(S: ?*c.slang_State) callconv(.c) c_int {
     for (fregs) |r| {
         if (r < 0 or r > 255) return c.slang_error(S, "kernel.load: malformed constants");
     }
+    // every slot the code may use is filled: by a parameter or a bind
+    var covered: [64]bool = @splat(false);
+    for (0..params.len / 4) |k| {
+        if (params[k * 4] == P_ARRAY or params[k * 4] == P_STRUCT) covered[@intCast(params[k * 4 + 1])] = true;
+    }
+    {
+        var k: usize = 0;
+        while (k < bind_words.len) : (k += 4) covered[@intCast(bind_words[k])] = true;
+    }
+    for (0..@as(usize, @intCast(slots))) |k| {
+        if (!covered[k]) return c.slang_error(S, "kernel.load: slot %d is neither a parameter nor bound", @as(c_int, @intCast(k)));
+    }
 
     const p = gpa.create(Program) catch @panic("out of memory");
     p.* = .{
@@ -312,6 +388,7 @@ fn load(S: ?*c.slang_State) callconv(.c) c_int {
         .fconsts = gpa.alloc(Const, fregs.len) catch @panic("out of memory"),
         .params = gpa.alloc(Param, params.len / 4) catch @panic("out of memory"),
         .lines = gpa.dupe(i32, lines) catch @panic("out of memory"),
+        .binds = gpa.alloc(Bind, bind_words.len / 4) catch @panic("out of memory"),
         .ret = @intCast(ret),
         .slots = @intCast(slots),
         .name = dupeZ(name),
@@ -326,6 +403,18 @@ fn load(S: ?*c.slang_State) callconv(.c) c_int {
     for (p.params, 0..) |*q, i| {
         q.* = .{ .kind = params[i * 4], .index = params[i * 4 + 1], .elem = params[i * 4 + 2], .size = params[i * 4 + 3] };
     }
+    for (p.binds, 0..) |*b, i| {
+        b.* = .{
+            .slot = @intCast(bind_words[i * 4]),
+            .offset = @intCast(bind_words[i * 4 + 1]),
+            .count = @intCast(bind_words[i * 4 + 2]),
+            .stride = @intCast(bind_words[i * 4 + 3]),
+        };
+    }
+    if (state) |st| {
+        st.refs += 1;
+        p.state = st;
+    }
     // native code when the JIT is available and not switched off
     // (SLANG_KERNEL_JIT=0); the interpreter runs the program otherwise
     if (jit.available and !jitDisabled()) {
@@ -335,6 +424,7 @@ fn load(S: ?*c.slang_State) callconv(.c) c_int {
                 strides[@intCast(q.index)] = if (q.elem == STRUCT_KIND) @intCast(q.size) else @intCast(kind_sizes[@intCast(q.elem)]);
             }
         }
+        for (p.binds) |b| strides[b.slot] = @intCast(b.stride);
         p.jit = jit.compile(gpa, p, &strides) catch null;
     }
     const holder: *?*Program = @ptrCast(@alignCast(c.slang_newuserdata(S, @sizeOf(?*Program), tname, freeProgram)));
@@ -905,6 +995,14 @@ fn call(S: ?*c.slang_State) callconv(.c) c_int {
             else => {
                 var count: usize = 0;
                 var size: usize = 0;
+                if (q.kind == P_STRUCT) {
+                    // a struct value: a pointer to one element
+                    if (c.slang_topointer(S, idx, &size)) |ptr| {
+                        if (size != @as(usize, @intCast(q.size))) return argError(S, p, k, "a value of its struct");
+                        slots[at] = .{ .base = @ptrCast(ptr), .len = 1, .stride = size };
+                        continue;
+                    }
+                }
                 const ptr = c.slang_tobuffer(S, idx, &count, &size) orelse return argError(S, p, k, "a buffer");
                 const ty = std.mem.span(c.slang_buffertype(S, idx));
                 const elem: usize = @intCast(q.elem);
@@ -918,6 +1016,9 @@ fn call(S: ?*c.slang_State) callconv(.c) c_int {
                 slots[at] = .{ .base = @ptrCast(ptr), .len = count, .stride = size };
             },
         }
+    }
+    if (p.state) |st| {
+        for (p.binds) |b| slots[b.slot] = .{ .base = st.mem.ptr + b.offset, .len = b.count, .stride = b.stride };
     }
     var out: Outcome = .{};
     const r = if (p.jit) |j| j.func(&I, &F, &slots, &out) else exec(p.code.ptr, &I, &F, &slots, &out);
@@ -958,6 +1059,7 @@ const meta = [_]c.slang_Reg{
 const funcs = [_]c.slang_Reg{
     .{ .name = "load", .func = load },
     .{ .name = "op_names", .func = opNames },
+    .{ .name = "state", .func = newState },
     .{ .name = null, .func = null },
 };
 

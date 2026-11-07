@@ -115,17 +115,22 @@ rays (`FM_PICKTEST=1` checks every one). `FM_VIEW=yaw,pitch,distance` and
 
 - `algorithms.slang` writes the 32 algorithms as edges (`"2>1 4>3 6>5
   fb6"`) and lays them out for the diagram.
-- `dsp.slang` is the sound, as kernel source: a **control** kernel moves
-  every operator's envelope and the pitch envelope by a block's time (64
+- The sound is kernels (packages/kernel). `voice.kernel` holds the state
+  they share with slang: an operator, a voice, a block. `dsp.slang` has, in
+  a `kernel { }` block, the **control** kernel, which moves every
+  operator's envelope and the pitch envelope by a block's time (64
   samples) and works out each operator's phase increment and the amplitude
-  it ramps to by the block's end; a **render** kernel computes one voice:
-  there is one per algorithm, generated from its edges, so the routing is
-  fixed and an operator's input is plain additions; **finish** limits the
-  mix and fills the oscilloscope. The 34 kernels compile when the engine
-  starts, in about a tenth of a second.
+  it ramps to by the block's end, and **finish**, which limits the mix and
+  fills the oscilloscope. `render.kernel` has a **render** kernel per
+  algorithm, computing one voice: `tool/gen_render.slang` generates them
+  from the algorithms' edges (`make fm-gen`), so the routing is fixed and
+  an operator's input is plain additions. dsp.slang's kernels compile
+  with the file; the .kernel files when they are first required (about a
+  tenth of a second, when the engine starts).
 - `engine.slang` runs in raylib/stream's render isolate: per block it
   takes the events (notes, the pedal, patches), moves the LFO and calls the
-  kernels. Voices are a buffer of structs the kernels share with slang.
+  kernels. Voices are arrays of the kernels' structs (`Voice:array(16)`),
+  which slang reads and writes too.
 - `patch.slang` defines the parameters and how patches are written,
   `patches.slang` is the bank. `app.slang` is what both versions share
   (the sound, the patch being edited, the computer keyboard); `panel.slang`

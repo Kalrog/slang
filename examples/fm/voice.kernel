@@ -1,0 +1,37 @@
+// The state the FM kernels work on, shared by dsp.slang's kernels and the
+// generated render.kernel (both `use "voice"`). Units: phases in cycles
+// (0..1); envelope levels 0..99, 8 of them a doubling of gain.
+
+// one operator of one voice (six in a row per voice)
+struct OpState {
+  phase: double, inc: double, amp: double, damp: double,
+  base: double,            // the phase increment at the voice's pitch
+  fixed: int32,            // 1: a fixed frequency (pitch changes pass by)
+  level: double,           // the envelope, 0..99
+  stage: int32,            // 0..2 toward l1..l3, 3 held, 4 released, 5 done
+  r1: double, r2: double, r3: double, r4: double,   // speeds, levels/s
+  l1: double, l2: double, l3: double, l4: double,
+  offset: double,          // gain in octaves: level, velocity, key scaling
+  ams: double,             // gain in octaves the LFO takes at full depth
+  scale: double,           // 1 for a carrier, MOD for a modulator, 0 off
+  carrier: int32,
+}
+
+struct Voice {
+  active: int32, gate: int32, age: double,
+  y1: double, y2: double, fb: double,      // feedback: the last outputs
+  pitch: double, pstage: int32,            // the pitch envelope, 0..99
+  pr1: double, pr2: double, pr3: double, pr4: double,
+  pl1: double, pl2: double, pl3: double, pl4: double,
+}
+
+// what is the same for every voice in a block
+struct Block {
+  n: int32, dt: double,
+  bend: double,            // semitones
+  lfo: double,             // -1..1
+  lfo_am: double,          // 0..1
+  pmd: double,             // semitones at full LFO
+  amd: double,             // 0..1
+  delay: double,           // seconds before the LFO fades in
+}

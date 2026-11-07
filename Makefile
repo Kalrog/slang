@@ -19,6 +19,7 @@
 #   make midi-test    run the midi package's tests (packages/midi; no device needed)
 #   make kernel-test  run the kernel package's tests (packages/kernel; ships its interpreter)
 #   make kernel-bench kernels against plain slang (sawtooth, FM operator chain, filter)
+#   make fm-gen       regenerate examples/fm/render.kernel from its algorithms
 #   make physics      run the physics examples (examples/physics: Box2D and Jolt, drawn with raylib)
 #   make breakout     run the breakout example (examples/breakout) on the raylib package
 #   make deckhand     run the deckhand heist game (examples/deckhand) on the raylib package
@@ -48,7 +49,7 @@ COMPILER_SRC := $(wildcard slang/compiler/*.slang)
 SEED_DIR := boot/slang
 SEED_CORE_DIR := build/seed-core
 
-.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed seed-core fixpoint bench raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test inkblast inkblast-test synth synth3d synth-test synth-mix siege siege-test midi-test kernel-test kernel-bench fm fm3d fm-test clean doc \
+.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed seed-core fixpoint bench raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test inkblast inkblast-test synth synth3d synth-test synth-mix siege siege-test midi-test kernel-test kernel-bench fm fm3d fm-test fm-gen clean doc \
         vscode vscode-grammar
 
 all: build
@@ -229,6 +230,10 @@ fm3d: build
 
 fm-test: build
 	cd examples/fm && ../../bin/slang test test
+
+# regenerate examples/fm/render.kernel (one render kernel per algorithm)
+fm-gen: build
+	cd examples/fm && ../../bin/slang run tool/gen_render.slang
 
 synth-mix: build
 	cd examples/synth && for s in songs/*.slang; do ../../bin/slang run mixdown.slang $$s || exit 1; done

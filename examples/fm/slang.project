@@ -6,4 +6,6 @@
     midi: {path: "../../packages/midi"},
   },
   search_paths: {"."},
+  // voice.kernel and the generated render.kernel
+  dialects: {[".kernel"]: {compile: "kernel/dialect"}},
 }

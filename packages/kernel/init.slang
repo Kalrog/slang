@@ -4,7 +4,7 @@
 //
 //   // voice.kernel (with {dialects: {[".kernel"]: {compile:
 //   // "kernel/dialect"}}} in slang.project)
-//   kernel func saw(out: float[], n: int, phase: float, inc: float): float {
+//   func saw(out: float[], n: int, phase: float, inc: float): float {
 //     for(local i = 0; i < n; i += 1){
 //       phase = fract(phase + inc)
 //       out[i] = phase * 2 - 1
@@ -90,7 +90,7 @@ func kernel.module(unit){
 
 // compile(source: string, origin?: string) -> {[name]: Kernel | ffi.Type}
 // The kernels and structs of kernel source text.
-//   local k = kernel.compile("kernel func twice(x: int): int { return x * 2 }")
+//   local k = kernel.compile("func twice(x: int): int { return x * 2 }")
 //   k.twice(21)   // 42
 func kernel.compile(source, origin){
   return kernel.module(compiler.compile(source, origin or "kernel"))

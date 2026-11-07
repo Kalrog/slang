@@ -28,10 +28,10 @@ local func near(a, b){
 t.group("kernel values"){
   t.test("ints: floored division and modulo, wrapping, bits"){
     local m = k("""
-      kernel func div(a: int, b: int): int { return a / b }
-      kernel func mod(a: int, b: int): int { return a % b }
-      kernel func bits(a: int): int { return ((a << 4) | 3) ~ (a >> 1) & 255 }
-      kernel func wrap(a: int): int { return a + 1 }
+      func div(a: int, b: int): int { return a / b }
+      func mod(a: int, b: int): int { return a % b }
+      func bits(a: int): int { return ((a << 4) | 3) ~ (a >> 1) & 255 }
+      func wrap(a: int): int { return a + 1 }
     """)
     assert(m.div(7, 2) == 3 and m.div(-7, 2) == -4 and m.div(7, -2) == -4)
     assert(m.mod(-7, 3) == 2 and m.mod(7, -3) == -2 and m.mod(6, 3) == 0)
@@ -42,10 +42,10 @@ t.group("kernel values"){
   }
   t.test("floats: ints widen, int() truncates and saturates, % wraps"){
     local m = k("""
-      kernel func mix2(a: int, b: float): float { return a * b + 1 }
-      kernel func trunc2(x: float): int { return int(x) }
-      kernel func wrapf(x: float): float { return x % 1.0 }
-      kernel func pw(x: float): float { return 2 ^ x + pow(x, 2) }
+      func mix2(a: int, b: float): float { return a * b + 1 }
+      func trunc2(x: float): int { return int(x) }
+      func wrapf(x: float): float { return x % 1.0 }
+      func pw(x: float): float { return 2 ^ x + pow(x, 2) }
     """)
     assert(m.mix2(3, 0.5) == 2.5)
     assert(m.trunc2(-2.7) == -2 and m.trunc2(2.7) == 2)
@@ -55,9 +55,9 @@ t.group("kernel values"){
   }
   t.test("bools, comparisons, and NaN"){
     local m = k("""
-      kernel func between(x: float, lo: float, hi: float): bool { return x >= lo and x <= hi }
-      kernel func either(a: bool, b: bool): bool { return a or not b }
-      kernel func nan_lt(x: float): int {
+      func between(x: float, lo: float, hi: float): bool { return x >= lo and x <= hi }
+      func either(a: bool, b: bool): bool { return a or not b }
+      func nan_lt(x: float): int {
         if(x < 1.0){
           return 1
         } else if(not (x < 1.0)){
@@ -72,12 +72,12 @@ t.group("kernel values"){
   }
   t.test("builtins"){
     local m = k("""
-      kernel func f(x: float): float {
+      func f(x: float): float {
         return clamp(x, 0, 1) + mix(10, 20, 0.25) + step(0.5, x) + smoothstep(0, 1, 0.5) +
           abs(-x) + min(x, 2) + max(1, 2) + fract(1.25) + sign(-3.0) +
           select(x > 1, 100, 200) + sqrt(16) + floor(-0.5) + round(2.5)
       }
-      kernel func g(n: int): int { return abs(-n) + min(n, 3) + clamp(n, 0, 2) + sign(-n) }
+      func g(n: int): int { return abs(-n) + min(n, 3) + clamp(n, 0, 2) + sign(-n) }
     """)
     local x = 0.75
     local want = 0.75 + 12.5 + 1 + 0.5 + 0.75 + 0.75 + 2 + 0.25 - 1 + 200 + 4 - 1 + 3
@@ -89,7 +89,7 @@ t.group("kernel values"){
 t.group("kernel control"){
   t.test("loops in every direction, break and continue, nesting"){
     local m = k("""
-      kernel func sums(n: int): int {
+      func sums(n: int): int {
         local s = 0
         for(local i = 0; i < n; i += 1){ s += i }          // 0..n-1
         for(local i = n; i > 0; i -= 1){ s += 100 }        // n times
@@ -125,12 +125,12 @@ t.group("kernel control"){
 t.group("kernel memory"){
   t.test("arrays of every kind: read, write, len, and bounds"){
     local m = k("""
-      kernel func copy_f(src: float[], dst: double[]){
+      func copy_f(src: float[], dst: double[]){
         for(local i = 0; i < len(src); i += 1){
           dst[i] = src[i] * 2
         }
       }
-      kernel func ints(a: int8[], b: uint8[], c: int16[], d: uint32[], e: int64[], f: bool[]){
+      func ints(a: int8[], b: uint8[], c: int16[], d: uint32[], e: int64[], f: bool[]){
         a[0] = 200
         b[0] = -1
         c[0] = a[0] + b[0]
@@ -138,7 +138,7 @@ t.group("kernel memory"){
         e[0] = d[0]
         f[0] = c[0] > 0
       }
-      kernel func at(a: float[], i: int): float { return a[i] }
+      func at(a: float[], i: int): float { return a[i] }
     """)
     local src = buffer.from({1, 2, 3}, "float")
     local dst = buffer.new("double", 3)
@@ -160,7 +160,7 @@ t.group("kernel memory"){
   t.test("structs: fields, element names, a single struct, slang/ctypes layout"){
     local m = k("""
       struct P { x: float, n: int8, y: double, on: bool }
-      kernel func step(ps: P[]){
+      func step(ps: P[]){
         for(local i = 0; i < len(ps); i += 1){
           local p = ps[i]
           p.y = p.y + p.x
@@ -168,7 +168,7 @@ t.group("kernel memory"){
           p.on = not p.on
         }
       }
-      kernel func first(p: P): float { return p.y }
+      func first(p: P): float { return p.y }
     """)
     local ps = buffer.new(m.P, 2)
     ps[1].x = 1.5
@@ -199,21 +199,21 @@ t.group("kernel helpers"){
   t.test("helpers are inlined: values, arrays, structs, early returns"){
     local m = k("""
       struct S { v: double }
-      func pick(a: float, b: float, first: bool): float {
+      local func pick(a: float, b: float, first: bool): float {
         if(first){
           return a
         }
         return b
       }
-      func sum(xs: float[]): float {
+      local func sum(xs: float[]): float {
         local s = 0.0
         for(local i = 0; i < len(xs); i += 1){ s += xs[i] }
         return s
       }
-      func bump(s: S){
+      local func bump(s: S){
         s.v += 1
       }
-      kernel func run(xs: float[], s: S): float {
+      func run(xs: float[], s: S): float {
         bump(s)
         bump(s)
         return pick(sum(xs), 0, true) * 10 + pick(1, 2, false) + s.v
@@ -227,15 +227,15 @@ t.group("kernel helpers"){
 t.group("kernel errors"){
   t.test("the compiler names the line and what is wrong"){
     local cases = {
-      {"kernel func f(x: float): int { return x }", "test:1: return needs a int, found float"},
-      {"kernel func f(){ local x = 1\n x = 0.5 }", "test:2: a float does not become an int by itself"},
-      {"kernel func f(){ y = 1 }", "unknown name y"},
-      {"kernel func f(a: float[]){ a[0.5] = 1 }", "an index must be an int"},
-      {"func g(): int { return g() }\nkernel func f(): int { return g() }", "g calls itself"},
-      {"kernel func f(){ break }", "break outside a loop"},
-      {"kernel func f(x: int){ if(x){ } }", "a condition must be a bool"},
-      {"struct S { a: float }\nkernel func f(s: S){ s.b = 1 }", "S has no field b"},
-      {"kernel func f(){ local x = 1 + }", "expected an expression"},
+      {"func f(x: float): int { return x }", "test:1: return needs a int, found float"},
+      {"func f(){ local x = 1\n x = 0.5 }", "test:2: a float does not become an int by itself"},
+      {"func f(){ y = 1 }", "unknown name y"},
+      {"func f(a: float[]){ a[0.5] = 1 }", "an index must be an int"},
+      {"func g(): int { return g() }\nfunc f(): int { return g() }", "g calls itself"},
+      {"func f(){ break }", "break outside a loop"},
+      {"func f(x: int){ if(x){ } }", "a condition must be a bool"},
+      {"struct S { a: float }\nfunc f(s: S){ s.b = 1 }", "S has no field b"},
+      {"func f(){ local x = 1 + }", "expected an expression"},
     }
     for(let local c in values(cases)){
       local msg = raises(func(){ k(c[0]) })
@@ -243,7 +243,7 @@ t.group("kernel errors"){
     }
   }
   t.test("arguments are checked when a kernel is called"){
-    local m = k("kernel func f(a: float[], n: int, x: float){ }")
+    local m = k("func f(a: float[], n: int, x: float){ }")
     assert(str.contains(raises(func(){ m.f(buffer.new("double", 1), 1, 1) }), "argument 1 must be a buffer of float, got one of double"))
     assert(str.contains(raises(func(){ m.f(buffer.new("float", 1), 1.5, 1) }), "argument 2 must be an int"))
     assert(str.contains(raises(func(){ m.f(buffer.new("float", 1), 1) }), "takes 3 arguments, got 2"))

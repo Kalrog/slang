@@ -3,11 +3,11 @@ struct Osc { phase: double, inc: double, gain: float }
 
 local HALF = 0.5
 
-func wrap(x: float): float {
+local func wrap(x: float): float {
   return x - floor(x)
 }
 
-kernel func saws(out: float[], oscs: Osc[], n: int){
+func saws(out: float[], oscs: Osc[], n: int){
   for(local i = 0; i < n; i += 1){
     local s = 0.0
     for(local k = 0; k < len(oscs); k += 1){
@@ -19,6 +19,6 @@ kernel func saws(out: float[], oscs: Osc[], n: int){
   }
 }
 
-kernel func total(osc: Osc): float {
+func total(osc: Osc): float {
   return osc.phase + osc.inc
 }

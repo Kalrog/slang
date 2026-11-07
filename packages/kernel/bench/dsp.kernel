@@ -1,6 +1,6 @@
 // The kernels of bench.slang: each loop as bench.slang writes it in slang.
 
-kernel func saw(out: float[], n: int, phase: float, inc: float): float {
+func saw(out: float[], n: int, phase: float, inc: float): float {
   for(local i = 0; i < n; i += 1){
     phase += inc
     if(phase >= 1.0){
@@ -15,7 +15,7 @@ kernel func saw(out: float[], n: int, phase: float, inc: float): float {
 // FM voice's stack)
 struct Op { phase: double, inc: double, level: double }
 
-kernel func chain(out: float[], ops: Op[], n: int){
+func chain(out: float[], ops: Op[], n: int){
   for(local i = 0; i < n; i += 1){
     local m = 0.0
     for(local k = 5; k >= 0; k -= 1){
@@ -32,7 +32,7 @@ kernel func chain(out: float[], ops: Op[], n: int){
 }
 
 // a four-pole ladder low-pass, its state in st (y1..y4)
-kernel func ladder(io: float[], n: int, g: float, k: float, st: double[]){
+func ladder(io: float[], n: int, g: float, k: float, st: double[]){
   local y1 = st[0]
   local y2 = st[1]
   local y3 = st[2]

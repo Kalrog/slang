@@ -1,7 +1,8 @@
 // kernel/compiler: the kernel language to the bytecode of kernel/vm. It runs
 // when a .kernel file (or a slang file's inline kernels) is compiled: it
-// reads the source, checks its types and turns every `kernel func` into a
-// program, a table of plain lists that kernel.load makes callable.
+// reads the source (parsed by kernel/grammar), checks its types and turns
+// every entry point (`func`) into a program, a table of plain lists that
+// kernel.load makes callable.
 //
 //   local c = require("kernel/compiler")
 //   local unit = c.compile(source, "voice.kernel")
@@ -9,7 +10,7 @@
 //
 // The language (see README.md): slang's statements with types; int and
 // float (64-bit) values, bool; arrays and structs in buffers; helpers
-// (`func`) inlined where they are called.
+// (`local func`) inlined where they are called.
 //
 // The bytecode: 32-bit words `op | a << 8 | b << 16 | c << 24`, some with a
 // word after them (a jump's target, a load's offset). Two register files of
@@ -17,7 +18,7 @@
 // down, which the VM fills before it runs; locals and temporaries grow from
 // 0. Arrays are slots: a base, a length and an element size.
 local str = require("slang/string")
-local re = require("slang/regex")
+local grammar = require("kernel/grammar")
 
 local compiler = {}
 
@@ -92,462 +93,6 @@ local func fail(origin, line, ...parts){
   raise(error.new(error.kinds.compile, msg, {origin: origin, line: line}))
 }
 
-// ------------------------------------------------------------ the lexer
-
-local name_re = re.compile("[A-Za-z_][A-Za-z0-9_]*")
-local number_re = re.compile("0[xX][0-9a-fA-F_]+|0[bB][01_]+|[0-9][0-9_]*(\\.[0-9_]*)?([eE][+-]?[0-9]+)?|\\.[0-9][0-9_]*([eE][+-]?[0-9]+)?")
-// longest first
-local symbols = {
-  "+=", "-=", "*=", "/=", "%=", "==", "!=", "<=", ">=", "<<", ">>",
-  "+", "-", "*", "/", "%", "^", "&", "|", "~", "<", ">", "=", "(", ")",
-  "{", "}", "[", "]", ",", ".", ":", ";",
-}
-local keywords = {
-  kernel: true, func: true, local: true, struct: true, ["if"]: true,
-  ["else"]: true, ["for"]: true, ["break"]: true, ["continue"]: true,
-  ["return"]: true, ["and"]: true, ["or"]: true, ["not"]: true,
-  ["true"]: true, ["false"]: true,
-}
-
-// tokens: {kind ("name", "keyword", "int", "float", "op", "eof"), value,
-// line, nl (a newline came before it)}
-local func lex(src, origin, first_line){
-  local tokens = {}
-  local i = 0
-  local n = len(src)
-  local line = first_line or 1
-  local nl = true
-  for(i < n){
-    local ch = str.byte_at(src, i)
-    if(ch == '\n'){
-      line = line + 1
-      nl = true
-      i = i + 1
-    } else if(ch == ' ' or ch == '\t' or ch == '\r'){
-      i = i + 1
-    } else if(ch == '/' and str.byte_at(src, i + 1) == '/'){
-      // a // comment, to the end of the line
-      for(i < n and str.byte_at(src, i) != '\n'){
-        i = i + 1
-      }
-    } else if(ch == '/' and str.byte_at(src, i + 1) == '*'){
-      local close = str.index_of(src, "*/", i + 2)
-      if(close < 0){
-        fail(origin, line, "unclosed /* comment")
-      }
-      for(local k = i; k < close; k = k + 1){
-        if(str.byte_at(src, k) == '\n'){
-          line = line + 1
-          nl = true
-        }
-      }
-      i = close + 2
-    } else {
-      local e = name_re:match_at(src, i)
-      local kind = null
-      local value = null
-      if(e > i){
-        value = str.substring(src, i, e)
-        kind = "name"
-        if(keywords[value]){
-          kind = "keyword"
-        }
-      } else {
-        e = number_re:match_at(src, i)
-        if(e > i){
-          local text = str.substring(src, i, e)
-          local clean = str.join(str.split(text, "_"), "")
-          local is_hex = str.starts_with(clean, "0x") or str.starts_with(clean, "0X") or
-            str.starts_with(clean, "0b") or str.starts_with(clean, "0B")
-          if(not is_hex and (str.contains(clean, ".") or str.contains(clean, "e") or str.contains(clean, "E"))){
-            kind = "float"
-            value = str.to_number(clean) * 1.0
-          } else if(is_hex){
-            kind = "int"
-            value = str.parse_int(clean, 0)
-          } else {
-            kind = "int"
-            value = str.parse_int(clean, 10)
-          }
-          if(value == null){
-            fail(origin, line, "bad number ", text)
-          }
-        } else {
-          for(let local s in values(symbols)){
-            if(kind == null and str.starts_with(src, s, i)){
-              kind = "op"
-              value = s
-              e = i + len(s)
-            }
-          }
-          if(kind == null){
-            fail(origin, line, "unexpected character ", str.substring(src, i, i + 1))
-          }
-        }
-      }
-      append(tokens, {kind: kind, value: value, line: line, nl: nl})
-      nl = false
-      i = e
-    }
-  }
-  append(tokens, {kind: "eof", value: "end of file", line: line, nl: true})
-  return tokens
-}
-
-// ------------------------------------------------------------ the parser
-
-// The tree: expressions {k: "num" | "bool" | "name" | "bin" | "un" |
-// "call" | "index" | "field", line, ...}, statements {k: "local" |
-// "assign" | "expr" | "if" | "for" | "break" | "continue" | "return",
-// line, ...}, top-level {k: "struct" | "func" | "const", ...}.
-
-local parser_methods = {}
-local parser_meta = {__index: parser_methods}
-
-local func new_parser(tokens, origin){
-  return {tokens: tokens, pos: 0, origin: origin, @meta: parser_meta}
-}
-
-func parser_methods.peek(self){
-  return self.tokens[self.pos]
-}
-
-func parser_methods.next(self){
-  local t = self.tokens[self.pos]
-  if(t.kind != "eof"){
-    self.pos = self.pos + 1
-  }
-  return t
-}
-
-func parser_methods.is(self, value){
-  local t = self.tokens[self.pos]
-  return (t.kind == "op" or t.kind == "keyword") and t.value == value
-}
-
-func parser_methods.accept(self, value){
-  if(self:is(value)){
-    return self:next()
-  }
-  return null
-}
-
-func parser_methods.fail(self, ...parts){
-  fail(self.origin, self:peek().line, ...parts)
-}
-
-func parser_methods.expect(self, value){
-  if(not self:is(value)){
-    local t = self:peek()
-    self:fail("expected ", value, ", found ", t.value)
-  }
-  return self:next()
-}
-
-func parser_methods.name(self){
-  local t = self:peek()
-  if(t.kind != "name"){
-    self:fail("expected a name, found ", t.value)
-  }
-  return self:next().value
-}
-
-// a type: a name, or a name and [] (an array)
-func parser_methods.type(self){
-  local name = self:name()
-  if(self:accept("[")){
-    self:expect("]")
-    return {array: name}
-  }
-  return name
-}
-
-// binary operators by level, lowest first; ^ is right-associative and
-// above the unary minus
-local levels = {
-  {"or"},
-  {"and"},
-  {"==", "!=", "<", "<=", ">", ">="},
-  {"|"},
-  {"~"},
-  {"&"},
-  {"<<", ">>"},
-  {"+", "-"},
-  {"*", "/", "%"},
-}
-
-func parser_methods.expr(self){
-  return self:binary(0)
-}
-
-func parser_methods.binary(self, level){
-  if(level == 3){
-    // `not` sits between and and the comparisons, as in Python
-    local t = self:accept("not")
-    if(t != null){
-      return {k: "un", op: "not", e: self:binary(3), line: t.line}
-    }
-  }
-  if(level >= len(levels)){
-    return self:unary()
-  }
-  local left = self:binary(level + 1)
-  for(true){
-    local t = self:peek()
-    local found = false
-    if(t.kind == "op" or t.kind == "keyword"){
-      for(let local op in values(levels[level])){
-        if(t.value == op){
-          found = true
-        }
-      }
-    }
-    if(not found){
-      return left
-    }
-    self:next()
-    local right = self:binary(level + 1)
-    left = {k: "bin", op: t.value, l: left, r: right, line: t.line}
-  }
-}
-
-func parser_methods.unary(self){
-  local t = self:peek()
-  if(self:is("-") or self:is("~")){
-    self:next()
-    return {k: "un", op: t.value, e: self:unary(), line: t.line}
-  }
-  return self:power()
-}
-
-func parser_methods.power(self){
-  local base = self:postfix()
-  local t = self:accept("^")
-  if(t != null){
-    // right-associative; the exponent may have a sign
-    return {k: "bin", op: "^", l: base, r: self:unary(), line: t.line}
-  }
-  return base
-}
-
-func parser_methods.postfix(self){
-  local e = self:primary()
-  for(true){
-    local t = self:peek()
-    // ( and [ continue an expression only on its line (slang's rule)
-    if(self:is("(") and not t.nl){
-      if(e.k != "name"){
-        self:fail("only functions by name can be called")
-      }
-      self:next()
-      local args = {}
-      if(not self:is(")")){
-        append(args, self:expr())
-        for(self:accept(",")){
-          append(args, self:expr())
-        }
-      }
-      self:expect(")")
-      e = {k: "call", name: e.name, args: args, line: t.line}
-    } else if(self:is("[") and not t.nl){
-      self:next()
-      local index = self:expr()
-      self:expect("]")
-      e = {k: "index", e: e, index: index, line: t.line}
-    } else if(self:is(".")){
-      self:next()
-      e = {k: "field", e: e, name: self:name(), line: t.line}
-    } else {
-      return e
-    }
-  }
-}
-
-func parser_methods.primary(self){
-  local t = self:next()
-  if(t.kind == "int"){
-    return {k: "num", value: t.value, int: true, line: t.line}
-  }
-  if(t.kind == "float"){
-    return {k: "num", value: t.value, int: false, line: t.line}
-  }
-  if(t.kind == "name"){
-    return {k: "name", name: t.value, line: t.line}
-  }
-  if(t.kind == "keyword" and (t.value == "true" or t.value == "false")){
-    return {k: "bool", value: t.value == "true", line: t.line}
-  }
-  if(t.kind == "op" and t.value == "("){
-    local e = self:expr()
-    self:expect(")")
-    return e
-  }
-  fail(self.origin, t.line, "expected an expression, found ", t.value)
-}
-
-func parser_methods.block(self){
-  self:expect("{")
-  local body = {}
-  for(not self:is("}")){
-    if(self:peek().kind == "eof"){
-      self:fail("expected }")
-    }
-    append(body, self:statement())
-  }
-  self:expect("}")
-  return body
-}
-
-local compound = {["+="]: "+", ["-="]: "-", ["*="]: "*", ["/="]: "/", ["%="]: "%"}
-
-// a statement that is not a block: local, assignment, call
-func parser_methods.simple(self){
-  local t = self:peek()
-  if(self:accept("local")){
-    local name = self:name()
-    local ty = null
-    if(self:accept(":")){
-      ty = self:type()
-    }
-    local init = null
-    if(self:accept("=")){
-      init = self:expr()
-    }
-    return {k: "local", name: name, type: ty, init: init, line: t.line}
-  }
-  local target = self:expr()
-  local op = self:peek()
-  if(op.kind == "op" and (op.value == "=" or compound[op.value] != null)){
-    self:next()
-    local value = self:expr()
-    if(compound[op.value] != null){
-      value = {k: "bin", op: compound[op.value], l: target, r: value, line: op.line}
-    }
-    return {k: "assign", target: target, value: value, line: t.line}
-  }
-  // a lone expression: a call as a statement, or a for's condition (the
-  // code generator rejects others)
-  return {k: "expr", e: target, line: t.line}
-}
-
-func parser_methods.statement(self){
-  local t = self:peek()
-  local s = null
-  if(self:accept("if")){
-    self:expect("(")
-    local cond = self:expr()
-    self:expect(")")
-    local body = self:block()
-    local other = null
-    if(self:accept("else")){
-      if(self:is("if")){
-        // (bound first: {self:statement()} would be a field named self)
-        local nested = self:statement()
-        other = {nested}
-      } else {
-        other = self:block()
-      }
-    }
-    s = {k: "if", cond: cond, body: body, other: other, line: t.line}
-  } else if(self:accept("for")){
-    self:expect("(")
-    local init = null
-    local cond = null
-    local update = null
-    // for(cond) or for(init; cond; update)
-    local first = null
-    if(not self:is(";")){
-      first = self:simple()
-    }
-    if(self:accept(";")){
-      init = first
-      if(not self:is(";")){
-        cond = self:expr()
-      }
-      self:expect(";")
-      if(not self:is(")")){
-        update = self:simple()
-      }
-    } else if(first != null and first.k == "expr"){
-      cond = first.e
-    } else {
-      fail(self.origin, t.line, "for(...) takes a condition, or init; condition; update")
-    }
-    self:expect(")")
-    s = {k: "for", init: init, cond: cond, update: update, body: self:block(), line: t.line}
-  } else if(self:accept("break")){
-    s = {k: "break", line: t.line}
-  } else if(self:accept("continue")){
-    s = {k: "continue", line: t.line}
-  } else if(self:accept("return")){
-    local value = null
-    if(not self:is("}") and not self:peek().nl){
-      value = self:expr()
-    }
-    s = {k: "return", value: value, line: t.line}
-  } else {
-    s = self:simple()
-  }
-  self:accept(";")
-  return s
-}
-
-func parser_methods.params(self){
-  self:expect("(")
-  local params = {}
-  if(not self:is(")")){
-    for(true){
-      local name = self:name()
-      self:expect(":")
-      append(params, {name: name, type: self:type()})
-      if(not self:accept(",")){
-        break
-      }
-    }
-  }
-  self:expect(")")
-  return params
-}
-
-// the top level: structs, constants, helpers and kernels
-func parser_methods.unit(self){
-  local items = {}
-  for(self:peek().kind != "eof"){
-    local t = self:peek()
-    if(self:accept("struct")){
-      local name = self:name()
-      self:expect("{")
-      local fields = {}
-      for(not self:is("}")){
-        local fname = self:name()
-        self:expect(":")
-        append(fields, {name: fname, type: self:type(), line: self:peek().line})
-        if(not self:accept(",")){
-          self:accept(";")
-        }
-      }
-      self:expect("}")
-      append(items, {k: "struct", name: name, fields: fields, line: t.line})
-    } else if(self:accept("local")){
-      local name = self:name()
-      self:expect("=")
-      append(items, {k: "const", name: name, e: self:expr(), line: t.line})
-    } else {
-      local is_kernel = self:accept("kernel") != null
-      self:expect("func")
-      local name = self:name()
-      local params = self:params()
-      local ret = null
-      if(self:accept(":")){
-        ret = self:type()
-      }
-      append(items, {k: "func", kernel: is_kernel, name: name, params: params, ret: ret, body: self:block(), line: t.line})
-    }
-    self:accept(";")
-  }
-  return items
-}
-
 // ------------------------------------------------------------ constants
 
 local builtin_consts = {
@@ -610,7 +155,7 @@ local func const_eval(e, consts, origin){
 // ------------------------------------------------------------ structs
 
 // fields at their C offsets: {name, kind, struct?, offset}, size, align
-local func layout_struct(item, structs, origin){
+local func layout_struct(item, structs, consts, origin){
   local fields = {}
   local by_name = {}
   local offset = 0
@@ -630,6 +175,18 @@ local func layout_struct(item, structs, origin){
       fail(origin, f.line, "structs inside structs are not supported yet (", item.name, ".", f.name, ")")
     } else {
       fail(origin, f.line, "unknown field type ", f.type, " (a field is float, double, int8 .. uint64 or bool)")
+    }
+    if(f.default != null){
+      // a default: a constant of the field's value type
+      local d = const_eval(f.default, consts, origin)
+      local want = value_of_kind(entry.kind)
+      if(want == "float" and d.t == "int"){
+        d = {t: "float", value: d.value * 1.0}
+      }
+      if(d.t != want){
+        fail(origin, f.line, "the default of ", item.name, ".", f.name, " is a ", d.t, ", not a ", want)
+      }
+      entry.default = d.value
     }
     offset = to_int((offset + a - 1) / a) * a
     entry.offset = offset
@@ -2013,7 +1570,7 @@ local func compile_kernel(unit, item, origin){
 // "origin:line: message" on an error.
 func compiler.compile(source, origin, first_line){
   origin = origin or "kernel"
-  local items = new_parser(lex(source, origin, first_line), origin):unit()
+  local items = grammar.parse(source, origin, first_line)
   return compiler.compile_items(items, origin, null)
 }
 
@@ -2028,11 +1585,16 @@ func compiler.compile_items(items, origin, env){
       fail(origin, item.line, item.name, " is already defined")
     }
     if(item.k == "struct"){
-      local st = layout_struct(item, unit.structs, origin)
+      local st = layout_struct(item, unit.structs, unit.consts, origin)
       unit.structs[item.name] = st
       append(out.structs, {name: st.name, size: st.size, fields: st.fields})
-    } else if(item.k == "const"){
-      unit.consts[item.name] = const_eval(item.e, unit.consts, origin)
+    } else if(item.k == "global"){
+      if(item.init == null or item.type != null){
+        fail(origin, item.line, "kernel state (", item.name, ") is not supported yet")
+      }
+      unit.consts[item.name] = const_eval(item.init, unit.consts, origin)
+    } else if(item.k == "use"){
+      fail(origin, item.line, "use is not supported yet")
     } else {
       if(unit.funcs[item.name] != null){
         fail(origin, item.line, item.name, " is already defined")
@@ -2049,7 +1611,7 @@ func compiler.compile_items(items, origin, env){
 // parse(source, origin, first_line) -> the top-level items (for the
 // inline syntax, which compiles them with compile_items)
 func compiler.parse(source, origin, first_line){
-  return new_parser(lex(source, origin or "kernel", first_line), origin or "kernel"):unit()
+  return grammar.parse(source, origin or "kernel", first_line)
 }
 
 // disassemble(program) -> string: the code, one instruction a line

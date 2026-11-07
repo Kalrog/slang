@@ -10,7 +10,7 @@ look, made for one job.
 // osc.kernel
 struct Osc { phase: double, inc: double, gain: float }
 
-kernel func saws(out: float[], oscs: Osc[], n: int){
+func saws(out: float[], oscs: Osc[], n: int){
   for(local i = 0; i < n; i += 1){
     local s = 0.0
     for(local k = 0; k < len(oscs); k += 1){
@@ -66,9 +66,11 @@ gives the same table.
   abs floor ceil round trunc fract sign min max clamp mix step smoothstep
   tanh sinh cosh select(c, a, b) float(x) int(x) len(a)`, and `PI`, `TAU`,
   `E`.
-- **Functions**: `kernel func` are the entry points slang calls; `func` are
+- **Functions**: `func` are the entry points slang calls; `local func` are
   helpers, inlined where they are called (they cannot recurse) and taking
   arrays and structs by reference. A top-level `local` is a constant.
+- **Struct defaults**: a field may have a constant default
+  (`gain: float = 0.3`).
 - **Errors**: the compiler names the file and line of a mistake
   (`osc.kernel:12: a float does not become an int by itself: write int(x)`);
   a run raises for an index out of range or an int divided by zero, with

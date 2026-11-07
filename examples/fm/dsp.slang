@@ -64,14 +64,14 @@ struct Block {
 
 local control = """
 // an envelope's next stage, after reaching the target of stage s
-func next_stage(s: int): int {
+local func next_stage(s: int): int {
   if(s == 2){
     return 3
   }
   return s + 1
 }
 
-kernel func control(ops: OpState[], voices: Voice[], b: Block){
+func control(ops: OpState[], voices: Voice[], b: Block){
   local dt = b.dt
   local n = float(b.n)
   for(local v = 0; v < len(voices); v += 1){
@@ -178,7 +178,7 @@ kernel func control(ops: OpState[], voices: Voice[], b: Block){
   }
 }
 
-kernel func clear(out: float[], n: int){
+func clear(out: float[], n: int){
   for(local i = 0; i < n; i += 1){
     out[i] = 0
   }
@@ -186,7 +186,7 @@ kernel func clear(out: float[], n: int){
 
 // the mix through a soft limiter, and into the oscilloscope's ring (whose
 // last cell says where the next sample goes); returns the ring's position
-kernel func finish(out: float[], n: int, gain: float, scope: float[], at: int): int {
+func finish(out: float[], n: int, gain: float, scope: float[], at: int): int {
   local size = len(scope) - 1
   for(local i = 0; i < n; i += 1){
     local s = tanh(out[i] * gain)
@@ -212,7 +212,7 @@ local func render_source(a, number){
     }
     append(lines, s)
   }
-  add("kernel func render", number, "(out: float[], ops: OpState[], voices: Voice[], v: int, n: int){")
+  add("func render", number, "(out: float[], ops: OpState[], voices: Voice[], v: int, n: int){")
   add("  local b = v * 6")
   for(local k = 1; k <= 6; k = k + 1){
     add("  local o", k, " = ops[b + ", k - 1, "]")

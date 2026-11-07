@@ -85,7 +85,7 @@ row("sawtooth", func(){ phase = saw(out, N, phase, 0.001) }, func(){ kphase = ds
 local ph = buffer.new("double", 6)
 local inc = buffer.new("double", 6)
 local level = buffer.new("double", 6)
-local ops = buffer.new(dsp.Op, 6)
+local ops = dsp.Op:array(6)
 for(local i = 0; i < 6; i = i + 1){
   inc[i] = 0.01 * (i + 1)
   level[i] = 0.5

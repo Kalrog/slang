@@ -170,18 +170,56 @@ t.group("kernel memory"){
       }
       func first(p: P): float { return p.y }
     """)
-    local ps = buffer.new(m.P, 2)
+    local ps = m.P:array(2)
     ps[1].x = 1.5
     ps[1].y = 10
     m.step(ps)
     m.step(ps)
     assert(ps[1].y == 13.0 and ps[1].n == 2 and ps[1].on == false and ps[0].n == 2)
     assert(m.first(ps) == 0.0)
-    assert(require("slang/ctypes").sizeof(m.P) == 24)
+    assert(m.P.size == 24 and require("slang/ctypes").sizeof(m.P.type) == 24)
+  }
+  t.test("struct values: new, array, defaults, kinds"){
+    local m = k("""
+      struct V { pitch: double = 60, gate: int32, gain: float = 0.5 }
+      func sum(vs: V[]): float {
+        local s = 0.0
+        for(local i = 0; i < len(vs); i += 1){
+          s += vs[i].pitch * vs[i].gain + vs[i].gate
+        }
+        return s
+      }
+      func total(xs: float[], ns: int32[]): float {
+        local s = 0.0
+        for(local i = 0; i < len(xs); i += 1){ s += xs[i] }
+        for(local i = 0; i < len(ns); i += 1){ s += ns[i] }
+        return s
+      }
+    """)
+    local v = m.V:new({gate: 1})
+    assert(v.pitch == 60.0 and v.gate == 1 and v.gain == 0.5)
+    v.pitch = 64
+    assert(v.pitch == 64.0)
+    local vs = m.V:array(3)
+    assert(len(vs) == 3 and vs[2].pitch == 60.0 and vs[2].gain == 0.5)
+    assert(m.sum(vs) == 90.0)
+    vs[1] = {pitch: 10, gate: 2, gain: 1}
+    assert(m.sum(vs) == 30 + 12 + 30)
+    local listed = m.V:array({{gate: 3}, {pitch: 2, gain: 1}})
+    assert(len(listed) == 2 and listed[0].gate == 3 and listed[0].pitch == 60.0 and listed[1].pitch == 2.0)
+    local shared = m.V:array(2, {shared: true})
+    assert(shared.shared and shared[1].gain == 0.5)
+    assert(t.raises(func(){ m.V:new({pitc: 1}) }).message == "V has no field pitc")
+    assert(m.V.name == "V" and m.V.fields[0].name == "pitch" and m.V.fields[2].default == 0.5)
+    local xs = kernel.float:array({1, 2, 3})
+    local ns = kernel.int32:array(2)
+    ns[1] = 4
+    assert(m.total(xs, ns) == 10.0)
+    assert(len(kernel.double:array(5, {shared: true})) == 5)
   }
   t.test("a .kernel file through the dialect"){
     local osc = require("test/osc")
-    local oscs = buffer.new(osc.Osc, 2)
+    local oscs = osc.Osc:array(2)
     oscs[0].inc = 0.25
     oscs[0].gain = 1
     oscs[1].inc = 0.5
@@ -219,7 +257,7 @@ t.group("kernel helpers"){
         return pick(sum(xs), 0, true) * 10 + pick(1, 2, false) + s.v
       }
     """)
-    local s = buffer.new(m.S, 1)
+    local s = m.S:array(1)
     assert(m.run(buffer.from({1, 2}, "float"), s) == 30 + 2 + 2)
   }
 }

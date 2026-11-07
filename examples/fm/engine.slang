@@ -41,9 +41,9 @@ func engine.new(controls, events, scope, rate, status, options){
   local k = dsp.load()
   local sr = rate * 1.0
   local VOICES = engine.VOICES
-  local ops = buffer.new(k.OpState, VOICES * 6)
-  local voices = buffer.new(k.Voice, VOICES)
-  local blocks = buffer.new(k.Block, 1)
+  local ops = k.OpState:array(VOICES * 6)
+  local voices = k.Voice:array(VOICES)
+  local blocks = k.Block:array(1)
   // views of the elements, made once: writing through them allocates
   // nothing
   local op_at = {}

@@ -1,24 +1,27 @@
 // kernel: inner loops in a small typed language, run by an interpreter
 // without slang's tags and checks: numeric code over buffers (audio,
-// images, simulations) runs ten and more times faster than in slang.
+// images, simulations) runs several times faster than in slang.
 //
 //   // voice.kernel (with {dialects: {[".kernel"]: {compile:
 //   // "kernel/dialect"}}} in slang.project)
-//   func saw(out: float[], n: int, phase: float, inc: float): float {
-//     for(local i = 0; i < n; i += 1){
-//       phase = fract(phase + inc)
-//       out[i] = phase * 2 - 1
-//     }
-//     return phase
-//   }
+//   struct Osc { phase: double, inc: double, gain: float = 0.3 }
+//   func saws(out: float[], oscs: Osc[], n: int){ ... }
 //
 //   // main.slang
+//   local kernel = require("kernel")
 //   local voice = require("voice")
-//   local out = require("slang/buffer").new("float", 128)
-//   phase = voice.saw(out, 128, phase, 440 / 48000)
+//   local oscs = voice.Osc:array(4)              // four Osc, gain 0.3
+//   oscs[0].inc = 440 / 48000
+//   local out = kernel.float:array(128)
+//   voice.saws(out, oscs, 128)
 //
 // A kernel is called like a function: ints, floats and bools by value,
-// arrays and structs as buffers of their type. See README.md for the
+// arrays as arrays of their type, structs as struct values. A struct of a
+// module is a [Struct]: `Osc:new({inc: 0.01})` makes one, `Osc:array(n)`
+// an array of them. Arrays of numbers come from the kinds:
+// `kernel.float:array(n)`, `kernel.int32:array({1, 2, 3})`. Arrays are
+// slang/buffer buffers and struct values pointers into them: `Osc.type` is
+// the slang/ctypes type for using them directly. See README.md for the
 // language.
 local buffer = require("slang/buffer")
 local compiler = require("kernel/compiler")
@@ -40,6 +43,144 @@ for(local i = 0; i < len(names); i = i + 1){
   }
 }
 
+// ------------------------------------------------------------ arrays
+
+// the options of array(): {shared?: bool}
+// [shared]: memory isolates share (slang/isolate; see buffer.shared)
+// type ArrayOptions = {shared?: bool}
+
+local func new_buffer(t, n, options, is_struct){
+  if(options != null and options.shared == true){
+    if(is_struct){
+      // shared memory holds numbers: doubles (aligned for any field) seen
+      // as structs; the cast crosses isolates by reference too
+      local words = to_int((ct.sizeof(t) * n + 7) / 8)
+      return buffer.shared("double", words):cast(t):slice(0, n)
+    }
+    return buffer.shared(t, n)
+  }
+  return buffer.new(t, n)
+}
+
+// A kind of number for kernel arrays: kernel.float (32-bit), kernel.double,
+// kernel.int8 .. kernel.uint64, kernel.bool.
+// type Kind = {name: string, type: ffi.Type,
+//   array: func(src: int | {number}, options?: ArrayOptions): Buffer}
+// [name]: the kind's name, as kernels write it (float[])
+// [type]: its slang/ctypes type
+// [array]: n zeroed numbers, or the numbers of a list
+local kind_methods = {}
+local kind_meta = {__index: kind_methods, __type: "kernel.kind"}
+
+func kind_methods.array(self, src, options){
+  if(type(src) == "int"){
+    return new_buffer(self.type, src, options)
+  }
+  local b = new_buffer(self.type, len(src), options)
+  b:set(src)
+  return b
+}
+
+for(let local name in values(compiler.KINDS)){
+  kernel[name] = {name: name, type: ct.primitive(name), @meta: kind_meta}
+}
+
+// ------------------------------------------------------------ structs
+
+// A struct of a kernel module, as slang uses it.
+// type Struct = {name: string, type: ffi.Type, size: int,
+//   fields: {{name: string, kind: string, offset: int, default?: number}},
+//   new: func(fields?: table): any,
+//   array: func(src: int | {table}, options?: ArrayOptions): Buffer}
+// [name]: the struct's name in the kernel source
+// [type]: its slang/ctypes type (buffer.new(Osc.type, n) is an array)
+// [size]: its size in bytes
+// [fields]: its fields in order, with their kinds, offsets and defaults
+// [new]: one struct, its fields set to their defaults and then to fields:
+//   `Osc:new({inc: 0.01})`. The value reads and writes its fields
+//   (`o.phase`) and passes to a kernel's parameter of the struct.
+// [array]: n structs at their defaults, or one struct per table of a list
+//   (`Osc:array({{inc: 0.01}, {inc: 0.02}})`). An element (`oscs[1]`) is a
+//   struct value, and assigning a table to one sets its fields.
+local struct_methods = {}
+local struct_meta = {__index: struct_methods, __type: "kernel.struct"}
+
+// sets the defaults of struct s in element e, then the fields of t
+local func init_element(s, e, t){
+  for(let local f in values(s.defaulted)){
+    e[f.name] = f.default
+  }
+  if(t == null){
+    return
+  }
+  for(let local entry in entries(t)){
+    if(s.by_name[entry[0]] == null){
+      raise(error.new(error.kinds.argument, concat(s.name, " has no field ", string(entry[0]))))
+    }
+    e[entry[0]] = entry[1]
+  }
+}
+
+func struct_methods.new(self, fields){
+  local e = buffer.new(self.type, 1)[0]
+  init_element(self, e, fields)
+  return e
+}
+
+func struct_methods.array(self, src, options){
+  local list = null
+  local n = src
+  if(type(src) != "int"){
+    list = src
+    n = len(src)
+  }
+  local b = new_buffer(self.type, n, options, true)
+  if(list != null or len(self.defaulted) > 0){
+    for(local i = 0; i < n; i = i + 1){
+      local t = null
+      if(list != null){
+        t = list[i]
+      }
+      init_element(self, b[i], t)
+    }
+  }
+  return b
+}
+
+// a struct of a compiled unit as a Struct, laid out as the compiler laid it
+// out (checked against slang/ctypes)
+local func struct_value(s){
+  local t = ct.struct(s.name)
+  local fields = {}
+  for(let local f in values(s.fields)){
+    append(fields, {f.name, ct.primitive(f.kind)})
+  }
+  ct.define(t, fields)
+  if(ct.sizeof(t) != s.size){
+    raise(error.new(error.kinds.error, concat("kernel: struct ", s.name, " is ", string(ct.sizeof(t)), " bytes in slang/ctypes and ", string(s.size), " in the compiler")))
+  }
+  local by_name = {}
+  local defaulted = {}
+  local out = {}
+  for(let local f in values(s.fields)){
+    if(ct.offsetof(t, f.name) != f.offset){
+      raise(error.new(error.kinds.error, concat("kernel: ", s.name, ".", f.name, " is at different offsets in slang/ctypes and the compiler")))
+    }
+    local field = {name: f.name, kind: f.kind, offset: f.offset, default: f.default}
+    append(out, field)
+    by_name[f.name] = field
+    if(f.default != null){
+      append(defaulted, field)
+    }
+  }
+  return {
+    name: s.name, type: t, size: s.size, fields: out, by_name: by_name,
+    defaulted: defaulted, @meta: struct_meta,
+  }
+}
+
+// ------------------------------------------------------------ modules
+
 // load(program) -> Kernel
 // A program as compiler.compile makes it, as a callable kernel.
 // type Kernel = func(...args): any
@@ -55,32 +196,13 @@ func kernel.load(p){
   )
 }
 
-// a struct as a slang/ctypes type, laid out as the compiler laid it out
-local func struct_type(s){
-  local t = ct.struct(s.name)
-  local fields = {}
-  for(let local f in values(s.fields)){
-    append(fields, {f.name, ct.primitive(f.kind)})
-  }
-  ct.define(t, fields)
-  if(ct.sizeof(t) != s.size){
-    raise(error.new(error.kinds.error, concat("kernel: struct ", s.name, " is ", string(ct.sizeof(t)), " bytes in slang/ctypes and ", string(s.size), " in the compiler")))
-  }
-  for(let local f in values(s.fields)){
-    if(ct.offsetof(t, f.name) != f.offset){
-      raise(error.new(error.kinds.error, concat("kernel: ", s.name, ".", f.name, " is at different offsets in slang/ctypes and the compiler")))
-    }
-  }
-  return t
-}
-
-// module(unit) -> {[name]: Kernel | ffi.Type}
+// module(unit) -> {[name]: Kernel | Struct}
 // The kernels and structs of a compiled unit by name: kernels to call,
-// structs as types for slang/buffer (buffer.new(m.Op, 6)).
+// structs as [Struct] values.
 func kernel.module(unit){
   local m = {}
   for(let local s in values(unit.structs)){
-    m[s.name] = struct_type(s)
+    m[s.name] = struct_value(s)
   }
   for(let local p in values(unit.kernels)){
     m[p.name] = kernel.load(p)
@@ -88,7 +210,7 @@ func kernel.module(unit){
   return m
 }
 
-// compile(source: string, origin?: string) -> {[name]: Kernel | ffi.Type}
+// compile(source: string, origin?: string) -> {[name]: Kernel | Struct}
 // The kernels and structs of kernel source text.
 //   local k = kernel.compile("func twice(x: int): int { return x * 2 }")
 //   k.twice(21)   // 42

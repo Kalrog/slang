@@ -8,6 +8,7 @@
 //! ships it prebuilt; see README.md).
 
 const std = @import("std");
+const jit = @import("jit.zig");
 const c = @import("slang");
 
 const tname = "kernel.Program";
@@ -15,7 +16,7 @@ const tname = "kernel.Program";
 // ------------------------------------------------------------ opcodes
 
 // The order of compiler.slang's OPS (kernel.load compares the names).
-const Op = enum(u8) {
+pub const Op = enum(u8) {
     nop,
     movi,
     movf,
@@ -129,34 +130,34 @@ const op_count = @typeInfo(Op).@"enum".field_names.len;
 
 /// Whether an instruction has a word after it, and whether that word is a
 /// jump target.
-fn hasWord(op: Op) bool {
+pub fn hasWord(op: Op) bool {
     return switch (op) {
         .jmp, .jt, .jf, .jlti, .jlei, .jeqi, .jnei, .jltf, .jlef, .jeqf, .jnef, .jnltf, .jnlef, .addi_jlti, .addi_jlei, .addi_jgti, .addi_jgei, .seli, .self, .madf => true,
         else => isLoad(op) or isStore(op),
     };
 }
 
-fn isJump(op: Op) bool {
+pub fn isJump(op: Op) bool {
     return switch (op) {
         .jmp, .jt, .jf, .jlti, .jlei, .jeqi, .jnei, .jltf, .jlef, .jeqf, .jnef, .jnltf, .jnlef, .addi_jlti, .addi_jlei, .addi_jgti, .addi_jgei => true,
         else => false,
     };
 }
 
-fn isLoad(op: Op) bool {
+pub fn isLoad(op: Op) bool {
     const x = @intFromEnum(op);
     return x >= @intFromEnum(Op.ld_float) and x <= @intFromEnum(Op.ld_bool);
 }
 
-fn isStore(op: Op) bool {
+pub fn isStore(op: Op) bool {
     const x = @intFromEnum(op);
     return x >= @intFromEnum(Op.st_float) and x <= @intFromEnum(Op.st_bool);
 }
 
 // storage kinds, in compiler.KINDS order; 11 is an array of structs
 const kind_names = [_][]const u8{ "float", "double", "int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64", "bool" };
-const kind_sizes = [_]usize{ 4, 8, 1, 1, 2, 2, 4, 4, 8, 8, 1 };
-const STRUCT_KIND = 11;
+pub const kind_sizes = [_]usize{ 4, 8, 1, 1, 2, 2, 4, 4, 8, 8, 1 };
+pub const STRUCT_KIND = 11;
 
 // parameter kinds
 const P_INT = 1;
@@ -170,7 +171,9 @@ const P_STRUCT = 5;
 const Param = struct { kind: i32, index: i32, elem: i32, size: i32 };
 const Const = struct { reg: u8, int: i64, float: f64 };
 
-const Program = struct {
+pub const Program = struct {
+    /// its machine code when the JIT compiled it (see jit.zig)
+    jit: ?jit.Code = null,
     code: []u32,
     iconsts: []Const,
     fconsts: []Const,
@@ -182,7 +185,7 @@ const Program = struct {
     origin: [:0]u8,
 };
 
-const Slot = struct { base: [*]u8, len: u64, stride: u64 };
+pub const Slot = extern struct { base: [*]u8, len: u64, stride: u64 };
 
 const gpa = std.heap.c_allocator;
 
@@ -199,6 +202,7 @@ extern fn pow(x: f64, y: f64) f64;
 fn freeProgram(data: ?*anyopaque) callconv(.c) void {
     const holder: *?*Program = @ptrCast(@alignCast(data orelse return));
     const p = holder.* orelse return;
+    if (p.jit) |*j| jit.free(j);
     gpa.free(p.code);
     gpa.free(p.iconsts);
     gpa.free(p.fconsts);
@@ -322,35 +326,51 @@ fn load(S: ?*c.slang_State) callconv(.c) c_int {
     for (p.params, 0..) |*q, i| {
         q.* = .{ .kind = params[i * 4], .index = params[i * 4 + 1], .elem = params[i * 4 + 2], .size = params[i * 4 + 3] };
     }
+    // native code when the JIT is available and not switched off
+    // (SLANG_KERNEL_JIT=0); the interpreter runs the program otherwise
+    if (jit.available and !jitDisabled()) {
+        var strides: [64]u32 = @splat(0);
+        for (p.params) |q| {
+            if (q.kind == P_ARRAY or q.kind == P_STRUCT) {
+                strides[@intCast(q.index)] = if (q.elem == STRUCT_KIND) @intCast(q.size) else @intCast(kind_sizes[@intCast(q.elem)]);
+            }
+        }
+        p.jit = jit.compile(gpa, p, &strides) catch null;
+    }
     const holder: *?*Program = @ptrCast(@alignCast(c.slang_newuserdata(S, @sizeOf(?*Program), tname, freeProgram)));
     holder.* = p;
     return 1;
 }
 
+fn jitDisabled() bool {
+    const v = std.c.getenv("SLANG_KERNEL_JIT") orelse return false;
+    return std.mem.eql(u8, std.mem.span(v), "0");
+}
+
 // ------------------------------------------------------------ running
 
-const Fault = enum { none, index, divide };
+pub const Fault = enum(u8) { none, index, divide };
 
-const Outcome = struct { fault: Fault = .none, pc: u32 = 0, index: i64 = 0, len: u64 = 0 };
+pub const Outcome = extern struct { fault: Fault = .none, pc: u32 = 0, index: i64 = 0, len: u64 = 0 };
 
-inline fn ra(w: u32) u8 {
+pub inline fn ra(w: u32) u8 {
     return @truncate(w >> 8);
 }
-inline fn rb(w: u32) u8 {
+pub inline fn rb(w: u32) u8 {
     return @truncate(w >> 16);
 }
-inline fn rc(w: u32) u8 {
+pub inline fn rc(w: u32) u8 {
     return @truncate(w >> 24);
 }
 
-fn floorDiv(x: i64, y: i64) i64 {
+pub fn floorDiv(x: i64, y: i64) i64 {
     if (y == -1) return 0 -% x;
     const q = @divTrunc(x, y);
     if ((x - q * y != 0) and ((x < 0) != (y < 0))) return q - 1;
     return q;
 }
 
-fn floorMod(x: i64, y: i64) i64 {
+pub fn floorMod(x: i64, y: i64) i64 {
     if (y == -1) return 0;
     const r = x - @divTrunc(x, y) * y;
     if (r != 0 and ((r < 0) != (y < 0))) return r + y;
@@ -900,7 +920,7 @@ fn call(S: ?*c.slang_State) callconv(.c) c_int {
         }
     }
     var out: Outcome = .{};
-    const r = exec(p.code.ptr, &I, &F, &slots, &out);
+    const r = if (p.jit) |j| j.func(&I, &F, &slots, &out) else exec(p.code.ptr, &I, &F, &slots, &out);
     switch (out.fault) {
         .none => {},
         .index => return c.slang_error(S, "%s:%d: kernel %s: index %lld out of range (length %llu)", p.origin.ptr, lineOf(p, out.pc), p.name.ptr, @as(c_longlong, out.index), @as(c_ulonglong, out.len)),

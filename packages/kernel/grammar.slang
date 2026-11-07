@@ -476,16 +476,19 @@ local func_item = peg.seq(
   ftok("func", null, "space"),
   name("function.declaration"),
   params,
-  type_mark:optional(),
-  fmt.gaps(block, "space"),
+  // f(x){ as slang writes it; a space after a result type: f(x): int {
+  peg.choice(
+    peg.seq(type_mark, fmt.gaps(block, "space")),
+    fmt.gaps(block, "none"):map(func(b){ return {null, b} }),
+  ),
 ):map(func(v){
   return {
     k: "func",
     kernel: v[0] == null,
     name: v[2].value,
     params: v[3],
-    ret: type_of(v[4]),
-    body: v[5],
+    ret: type_of(v[4][0]),
+    body: v[4][1],
     line: v[2].line,
     token: v[2],
   }

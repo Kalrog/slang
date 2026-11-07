@@ -230,6 +230,11 @@ SLANG_EXPORT void *slang_checkbuffer(slang_State *S, int idx, size_t *count, siz
 /* The element type of the buffer at idx ("float", ...; "struct" for a
  * buffer of structs), or NULL when the value is not a buffer. */
 SLANG_EXPORT const char *slang_buffertype(slang_State *S, int idx);
+/* The address a typed pointer at idx (slang/ffi's ffi.Pointer: an element
+ * of a buffer of structs, b[i]) points to and the size of what it points
+ * to (may be NULL; 0 for void *), or NULL when the value is not a pointer.
+ * The memory is valid while the pointer is reachable. */
+SLANG_EXPORT void *slang_topointer(slang_State *S, int idx, size_t *size);
 /* Pushes a new buffer of count zeroed elements of a scalar type and returns
  * its memory for C to fill; NULL (an error recorded, nothing pushed) for an
  * unknown type. */

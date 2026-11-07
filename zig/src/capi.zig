@@ -625,6 +625,13 @@ pub export fn slang_checkbuffer(th: *Thread, idx: c_int, count: ?*usize, elem_si
     return slang_tobuffer(th, idx, count, elem_size);
 }
 
+pub export fn slang_topointer(th: *Thread, idx: c_int, size: ?*usize) ?*anyopaque {
+    const u = ctypes.asPointer(get(th, idx)) orelse return null;
+    const p = u.as(ctypes.Ptr);
+    if (size) |z| z.* = if (p.ty) |t| t.size else 0;
+    return @ptrFromInt(p.addr);
+}
+
 pub export fn slang_buffertype(th: *Thread, idx: c_int) ?[*:0]const u8 {
     const u = ctypes.asBuffer(get(th, idx)) orelse return null;
     const t = u.as(ctypes.Ptr).ty.?;

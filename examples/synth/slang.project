@@ -3,6 +3,7 @@
   dependencies: {
     raylib: {path: "../../packages/raylib"},
     midi: {path: "../../packages/midi"},
+    kernel: {path: "../../packages/kernel"},
   },
   search_paths: {"."},
 }

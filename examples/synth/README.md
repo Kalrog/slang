@@ -4,7 +4,9 @@ A monophonic analog-style synthesizer in the spirit of the classic
 three-oscillator keyboard synths: three oscillators and noise into a mixer,
 a 4-pole ladder filter with its own contour, a loudness contour, glide, and
 a mod wheel that sends osc 3 or noise to the pitch and the filter. The sound
-is computed in slang, sample by sample; the panel is drawn with raylib.
+is computed sample by sample, in plain slang or in a kernel (packages/kernel)
+that does the same to the bit: K switches between them while it plays. The
+panel is drawn with raylib.
 
 ```
 make synth            (or: cd examples/synth && slang run main.slang)
@@ -38,9 +40,12 @@ Needs raylib (`brew install raylib`).
   a song's `patch` is, so adding one is a few lines; Lead, Flute and Wobble
   run osc 3 as an LFO that the MOD wheel sends to the pitch or the filter.
 
-The strip under the panel shows the output on an oscilloscope, the DSP load
-(the time spent computing samples over the time they last), underruns
-(blocks the audio device found empty, heard as clicks) and the patch.
+The strip under the panel shows the output on an oscilloscope (and in its
+corner which implementation computes it, SLANG or KERNEL: **K** switches),
+the DSP load (the time spent computing samples over the time they last),
+underruns (blocks the audio device found empty, heard as clicks) and the
+patch. `SYNTH_ENGINE=kernel` starts with the kernel (also for
+`mixdown.slang`).
 
 ## A MIDI controller
 
@@ -150,11 +155,16 @@ wheel off the controls moves closer.
 
 ## How it is built
 
-- `engine.slang` is the voice. Every sample is plain slang arithmetic on
-  locals: band-limited (PolyBLEP) saw and pulse waves, a triangle, noise
-  from an LCG, two passes of the ladder filter per sample (it runs at twice
-  the rate) with a soft clip in its feedback. Pitch, the filter cutoff and
-  its contour change every 16 samples.
+- `engine.slang` is the voice: band-limited (PolyBLEP) saw and pulse waves,
+  a triangle, noise from an LCG, two passes of the ladder filter per sample
+  (it runs at twice the rate) with a soft clip in its feedback. Pitch, the
+  filter cutoff and its contour change every 16 samples. It is written
+  twice: as plain slang arithmetic on locals, and as a kernel in a
+  `kernel { }` block of the same file (its `render` does the control steps
+  and the samples; slang still reads the controls, the notes and the
+  song). The kernel keeps the voice in a struct, and switching copies it
+  across, so a note held goes on sounding. The engine test checks that
+  both, and an engine switched every few blocks, give the same samples.
 - It runs under `raylib/stream` (in packages/raylib): a render isolate calls
   the engine for blocks of 128 frames and keeps a ring buffer about 21 ms
   ahead of the audio device; raylib's audio callback runs in a second
@@ -172,7 +182,6 @@ itself, `SYNTH_SCREENSHOT=file.png` saves the last frame.
 
 ## How fast
 
-On an M2 Pro the engine computes a sample in about 0.7 to 0.9 µs (the
-engine test prints it), so the synth takes 4 to 7% of one core at 48 kHz.
-That is with the interpreter's fused instructions; heavier DSP (many voices,
-oversampling) is what typed kernels are planned for.
+On an M2 Pro the slang engine computes a sample in about 0.7 to 0.9 µs,
+the kernel in about 0.15 µs (the engine test prints both): the synth takes
+4 to 7% of one core at 48 kHz in slang and about 1% as a kernel.

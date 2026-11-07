@@ -60,8 +60,28 @@ local notes = isolate.channel()
 // the last samples, for the oscilloscope (the last cell: where the next goes)
 local scope = buffer.shared("float", 2049)
 // what the engine says about the song playing: state {playing, where,
-// how long}, the keys it holds
-local status = {state: buffer.shared("double", 4), keys: buffer.shared("uint8", 128), midi: true}
+// how long}, the keys it holds; and which implementation it renders with
+// (engine: 1 the kernel, 0 slang; K switches, SYNTH_ENGINE=kernel starts
+// with the kernel)
+local status = {
+  state: buffer.shared("double", 4),
+  keys: buffer.shared("uint8", 128),
+  midi: true,
+  engine: buffer.shared("double", 1),
+}
+if(os.getenv("SYNTH_ENGINE") == "kernel"){
+  status.engine[0] = 1
+}
+
+// kernel_on() -> bool: whether the sound is rendered by the kernel
+func panel.kernel_on(){
+  return status.engine[0] > 0.5
+}
+
+// switch_engine(): from slang to the kernel or back, while it plays
+func panel.switch_engine(){
+  status.engine[0] = 1 - status.engine[0]
+}
 local player = null
 
 // ------------------------------------------------------------ MIDI
@@ -152,6 +172,14 @@ local stats_at = -1.0
 local log = os.getenv("SYNTH_LOG") != null
 local log_at = 0.0
 
+local func engine_name(){
+  if(panel.kernel_on()){
+    return "KERNEL"
+  }
+  return "SLANG"
+}
+panel.engine_name = engine_name
+
 // update_stats(): twice a second, what the stream reports
 func panel.update_stats(){
   local now = rl.get_time()
@@ -164,7 +192,7 @@ func panel.update_stats(){
     print(concat("t=", to_int(now), " fps ", rl.get_fps(), " dsp ",
       to_int(panel.stats.load * 100), "% peak ", to_int(panel.stats.peak * 100),
       "% underruns ", panel.stats.underruns, " song ", to_int(status.state[1]),
-      " playing ", status.state[0], "\n"))
+      " playing ", status.state[0], " engine ", engine_name(), "\n"))
   }
 }
 
@@ -622,6 +650,8 @@ local func draw_strip(){
     }
   }
   draw_scope(450, y + 6, 360, 42)
+  // which implementation renders the sound (K switches)
+  text(concat(panel.engine_name(), " (K)"), 456, y + 9, 10, colors.dim)
   local load = concat("DSP ", math.floor(stats.load * 1000) / 10, "%")
   local peak = concat("peak ", math.floor(stats.peak * 1000) / 10, "%")
   text(load, 830, y + 8, 20, colors.text)
@@ -896,6 +926,10 @@ func panel.handle_keys(){
   }
   if(rl.is_key_pressed(rl.KEY_TAB)){
     panel.next_song()
+  }
+  // K: slang or the kernel renders the sound
+  if(rl.is_key_pressed(rl.KEY_K)){
+    panel.switch_engine()
   }
   // MIDI learn
   if((rl.is_key_pressed(rl.KEY_F1) or rl.is_key_pressed(rl.KEY_GRAVE)) and midi_map != null){

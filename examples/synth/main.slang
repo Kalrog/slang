@@ -14,6 +14,8 @@
 // of every note. The wheels left of the keyboard bend the pitch (it springs
 // back) and set the modulation. Up and down (or the arrows on the strip)
 // step through the premade patches of patches.slang.
+// K switches the sound between its two implementations: plain slang and a
+// kernel (engine.slang); SYNTH_ENGINE=kernel starts with the kernel.
 //
 // SYNTH_FRAMES=n quits after n frames, SYNTH_DEMO=1 plays a phrase by
 // itself (both for trying it without a player), SYNTH_SCREENSHOT=file.png

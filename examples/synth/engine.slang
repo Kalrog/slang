@@ -1,3 +1,4 @@
+extension "kernel/syntax"
 // The sound of the synth: a monophonic subtractive voice after the classic
 // three-oscillator design. It runs in the render isolate of raylib/stream:
 // engine.new returns the block function, which reads the controls from a
@@ -13,9 +14,17 @@
 // ignores the keyboard and with RANGE LO it is an LFO. The DECAY switch
 // lets a released key fade with the decay time, as on the original.
 //
-// Everything per sample is plain slang arithmetic on locals; pitch, the
-// filter's coefficient and its contour change every 16 samples.
+// It is written twice: in plain slang arithmetic on locals, and as a kernel
+// (packages/kernel) that does the same per control step and per sample,
+// to the bit. Pitch, the filter's coefficient and its contour change every
+// 16 samples; the controls, the notes and the song are slang's either way
+// (once a block, the song's events every 16 samples). status.engine (a
+// shared cell, 1: the kernel) switches between them while it plays, the
+// voice going on where it was; without one, SYNTH_ENGINE=kernel picks the
+// kernel.
 local math = require("slang/math")
+local os = require("slang/os")
+local kernel = require("kernel")
 local params = require("params")
 
 local engine = {}
@@ -115,8 +124,281 @@ local func contour_time(x){
   return 0.001 + x * x * x * 10.0
 }
 
+// ------------------------------------------------------------ the kernel
+
+kernel {
+  // the voice: what the slang version keeps in locals
+  struct Voice {
+    note: double = 60,
+    pitch: double = 60,
+    amp_stage: int32,
+    fenv_stage: int32,
+    p1: double,
+    p2: double,
+    p3: double,
+    o3: double,
+    noise: double,
+    seed: int64 = 12345,
+    amp: double,
+    fenv: double,
+    y1: double,
+    y2: double,
+    y3: double,
+    y4: double,
+    scope_at: int32,
+  }
+
+  // the controls of a block, as slang works them out from the knobs
+  struct Controls {
+    sr: double,
+    tune: double,
+    glide_c: double,
+    semis1: double,
+    semis2: double,
+    semis3: double,
+    wave1: int32,
+    wave2: int32,
+    wave3: int32,
+    track3: int32,
+    g1: double,
+    g2: double,
+    g3: double,
+    gn: double,
+    mod_mix: double,
+    osc_mod: double,
+    filter_mod: double,
+    cutoff_oct: double,
+    contour: double,
+    kbd: double,
+    k: double,
+    fa: double,
+    fd: double,
+    fs: double,
+    aa: double,
+    ad: double,
+    a_sus: double,
+    fr: double,
+    ar: double,
+    volume: double,
+    makeup: double,
+  }
+
+  local CONTROL = 16
+  local LN2 = 0.6931471805599453
+  local LN2_12 = 0.6931471805599453 / 12.0
+  local TWO_PI = 6.283185307179586
+
+  // PolyBLEP: the correction that takes the alias out of a jump at phase 0
+  local func blep(t: float, dt: float): float {
+    if(t < dt){
+      local x = t / dt
+      return x + x - x * x - 1.0
+    }
+    if(t > 1.0 - dt){
+      local x = (t - 1.0) / dt
+      return x * x + x + x + 1.0
+    }
+    return 0.0
+  }
+
+  // the width of WIDE and NARROW pulses (and of the square)
+  local func width(wave: int): float {
+    if(wave == 5){
+      return 0.12
+    }
+    if(wave == 4){
+      return 0.3
+    }
+    return 0.5
+  }
+
+  // one oscillator's sample, as shape() in slang below
+  local func shape(wave: int, p: float, dt: float, rev: bool): float {
+    if(wave == 2){
+      return 2.0 * p - 1.0 - blep(p, dt)
+    }
+    if(wave >= 3){
+      local w = width(wave)
+      local q = p - w
+      if(q < 0.0){
+        q += 1.0
+      }
+      local v = -1.0
+      if(p < w){
+        v = 1.0
+      }
+      return v + blep(p, dt) - blep(q, dt)
+    }
+    local x = abs(2.0 * p - 1.0)
+    local tri = 2.0 * x - 1.0
+    if(wave == 0){
+      return tri
+    }
+    local saw = 2.0 * p - 1.0 - blep(p, dt)
+    if(rev){
+      return -saw
+    }
+    return 0.5 * (tri + saw)
+  }
+
+  // a soft clip, tanh-like up to 3 and flat beyond
+  local func soft(x: float): float {
+    if(x > 3.0){
+      return 1.0
+    }
+    if(x < -3.0){
+      return -1.0
+    }
+    local x2 = x * x
+    return x * (27.0 + x2) / (27.0 + 9.0 * x2)
+  }
+
+  // out[from .. to - 1], a control step every CONTROL samples from `from`;
+  // the scope's ring as in slang (its last cell: where the next goes)
+  func render(
+    out: float[], from: int, to: int, v: Voice, c: Controls, scope: float[]
+  ){
+    local sr = c.sr
+    local note = v.note
+    local pitch = v.pitch
+    local amp_stage = v.amp_stage
+    local fenv_stage = v.fenv_stage
+    local p1 = v.p1
+    local p2 = v.p2
+    local p3 = v.p3
+    local o3 = v.o3
+    local noise = v.noise
+    local seed = v.seed
+    local amp = v.amp
+    local fenv = v.fenv
+    local y1 = v.y1
+    local y2 = v.y2
+    local y3 = v.y3
+    local y4 = v.y4
+    local scope_at = v.scope_at
+    local scope_n = len(scope) - 1
+    local g1 = c.g1
+    local g2 = c.g2
+    local g3 = c.g3
+    local gn = c.gn
+    local k = c.k
+    local aa = c.aa
+    local ad = c.ad
+    local a_sus = c.a_sus
+    local ar = c.ar
+    local makeup = c.makeup
+    local volume = c.volume
+    local i = from
+    for(i < to){
+      // ---- every CONTROL samples: pitch, modulation, the filter
+      pitch += (note - pitch) * c.glide_c
+      local m = o3 + (noise - o3) * c.mod_mix
+      local base = pitch - 69.0 + c.tune
+      local vib = m * c.osc_mod
+      local dt1 = 440.0 * exp((base + c.semis1 + vib) * LN2_12) / sr
+      local dt2 = 440.0 * exp((base + c.semis2 + vib) * LN2_12) / sr
+      local n3 = base
+      if(c.track3 == 0){
+        n3 = -9.0
+      }
+      local dt3 = 440.0 * exp((n3 + c.semis3) * LN2_12) / sr
+      if(fenv_stage == 1){
+        fenv += (1.3 - fenv) * c.fa
+        if(fenv >= 1.0){
+          fenv = 1.0
+          fenv_stage = 2
+        }
+      } else if(fenv_stage == 2){
+        fenv += (c.fs - fenv) * c.fd
+      } else {
+        fenv -= fenv * c.fr
+      }
+      local oct = c.cutoff_oct + c.contour * fenv + m * c.filter_mod +
+        c.kbd * (pitch - 60.0) / 12.0
+      local fc = min(20.0 * exp(oct * LN2), sr * 0.45)
+      // the filter runs at twice the rate
+      local g = 1.0 - exp(-TWO_PI * fc / (2.0 * sr))
+      local stop = min(i + CONTROL, to)
+      // ---- every sample
+      for(i < stop){
+        p1 += dt1
+        if(p1 >= 1.0){
+          p1 -= 1.0
+        }
+        p2 += dt2
+        if(p2 >= 1.0){
+          p2 -= 1.0
+        }
+        p3 += dt3
+        if(p3 >= 1.0){
+          p3 -= 1.0
+        }
+        o3 = shape(c.wave3, p3, dt3, true)
+        seed = (seed * 1103515245 + 12345) & 0x7fffffff
+        noise = seed / 1073741823.5 - 1.0
+        local x = g1 * shape(c.wave1, p1, dt1, false) +
+          g2 * shape(c.wave2, p2, dt2, false) + g3 * o3 + gn * noise
+        // the ladder: four one-poles, the emphasis feeding back the last
+        local u = soft(x - k * y4)
+        y1 += g * (u - y1)
+        y2 += g * (y1 - y2)
+        y3 += g * (y2 - y3)
+        y4 += g * (y3 - y4)
+        u = soft(x - k * y4)
+        y1 += g * (u - y1)
+        y2 += g * (y1 - y2)
+        y3 += g * (y2 - y3)
+        y4 += g * (y3 - y4)
+        if(amp_stage == 1){
+          amp += (1.3 - amp) * aa
+          if(amp >= 1.0){
+            amp = 1.0
+            amp_stage = 2
+          }
+        } else if(amp_stage == 2){
+          amp += (a_sus - amp) * ad
+        } else {
+          amp -= amp * ar
+        }
+        local s = soft(y4 * makeup * amp * volume * 1.5) * 0.66
+        out[i] = s
+        if(scope_n > 0){
+          scope[scope_at] = s
+          scope_at += 1
+          if(scope_at >= scope_n){
+            scope_at = 0
+          }
+        }
+        i += 1
+      }
+    }
+    if(scope_n > 0){
+      scope[scope_n] = scope_at
+    }
+    v.pitch = pitch
+    v.amp_stage = amp_stage
+    v.fenv_stage = fenv_stage
+    v.p1 = p1
+    v.p2 = p2
+    v.p3 = p3
+    v.o3 = o3
+    v.noise = noise
+    v.seed = seed
+    v.amp = amp
+    v.fenv = fenv
+    v.y1 = y1
+    v.y2 = y2
+    v.y3 = y3
+    v.y4 = y4
+    v.scope_at = scope_at
+  }
+}
+
+// ------------------------------------------------------------ the engine
+
 // new(p: Buffer, events: Channel, scope: Buffer?, sample_rate: int,
-//   status?: {state: Buffer, keys: Buffer, midi?: bool}) -> block function
+//   status?: {state: Buffer, keys: Buffer, midi?: bool, engine?: Buffer})
+//   -> block function
 // p holds the controls (params.list order), events brings {on: note} and
 // {off: note} ({panic: true} lets go of everything), {song: s} (a song as
 // song.slang's load makes it: it plays from its start) and {stop_song:
@@ -124,7 +406,10 @@ local func contour_time(x){
 // next one goes). status, when given, hears about the song: state[0] 1
 // while one plays, state[1] where it is and state[2] how long it is (in
 // seconds), keys[note] 1 while the song (or a MIDI controller) holds the
-// note. With status.midi a MIDI controller plays notes too.
+// note. With status.midi a MIDI controller plays notes too. status.engine
+// (a buffer of one double) says which implementation renders, read at
+// every block: 1 the kernel, 0 slang; without it SYNTH_ENGINE=kernel picks
+// the kernel, else slang.
 func engine.new(p, events, scope, sample_rate, status){
   local sr = sample_rate * 1.0
   local held = {}
@@ -325,6 +610,76 @@ func engine.new(p, events, scope, sample_rate, status){
     }
   }
 
+  // which implementation renders: status.engine at every block, else
+  // SYNTH_ENGINE once
+  local engine_cell = null
+  if(status != null){
+    engine_cell = status.engine
+  }
+  local env_kernel = os.getenv("SYNTH_ENGINE") == "kernel"
+  local func want_kernel(){
+    if(engine_cell != null){
+      return engine_cell[0] > 0.5
+    }
+    return env_kernel
+  }
+
+  // the kernel's voice and controls; the voice moves between them and the
+  // locals above when the implementation changes, so the sound goes on
+  local v = Voice:new()
+  local c = Controls:new({sr: sr})
+  local kernel_scope = scope or kernel.float:array(1)
+  local on_kernel = false
+
+  local func to_kernel(){
+    v.pitch = pitch
+    v.amp_stage = amp_stage
+    v.fenv_stage = fenv_stage
+    v.p1 = p1
+    v.p2 = p2
+    v.p3 = p3
+    v.o3 = o3
+    v.noise = noise_v
+    v.seed = seed
+    v.amp = amp
+    v.fenv = fenv
+    v.y1 = y1
+    v.y2 = y2
+    v.y3 = y3
+    v.y4 = y4
+    v.scope_at = scope_at
+  }
+
+  local func from_kernel(){
+    pitch = v.pitch
+    amp_stage = v.amp_stage
+    fenv_stage = v.fenv_stage
+    p1 = v.p1
+    p2 = v.p2
+    p3 = v.p3
+    o3 = v.o3
+    noise_v = v.noise
+    seed = v.seed
+    amp = v.amp
+    fenv = v.fenv
+    y1 = v.y1
+    y2 = v.y2
+    y3 = v.y3
+    y4 = v.y4
+    scope_at = v.scope_at
+  }
+
+  // the kernel renders out[from .. to - 1]; the notes stay slang's (the
+  // events change them between calls), the contours' stages go both ways
+  local func kernel_steps(out, from, to){
+    v.note = note
+    v.amp_stage = amp_stage
+    v.fenv_stage = fenv_stage
+    render(out, from, to, v, c, kernel_scope)
+    amp_stage = v.amp_stage
+    fenv_stage = v.fenv_stage
+  }
+
   return func(out, frames){
     take_events()
     take_midi()
@@ -377,104 +732,160 @@ func engine.new(p, events, scope, sample_rate, status){
     }
     local volume = p[P.volume] * p[P.volume] * 0.9
     local makeup = 1.0 + k * 0.35
-
-    local i = 0
-    for(i < frames){
-      // ---- every CONTROL samples: the song's notes, pitch, modulation,
-      // filter
-      if(playing != null){
-        song_events()
-        song_at = song_at + CONTROL
-      }
-      pitch = pitch + (note - pitch) * glide_c
-      local m = o3 + (noise_v - o3) * mod_mix
-      local base = pitch - 69.0 + tune
-      local vib = m * osc_mod
-      local dt1 = 440.0 * math.exp((base + semis1 + vib) * LN2_12) / sr
-      local dt2 = 440.0 * math.exp((base + semis2 + vib) * LN2_12) / sr
-      local n3 = base
-      if(not track3){
-        n3 = -9.0
-      }
-      local dt3 = 440.0 * math.exp((n3 + semis3) * LN2_12) / sr
-      if(fenv_stage == 1){
-        fenv = fenv + (1.3 - fenv) * fa
-        if(fenv >= 1.0){
-          fenv = 1.0
-          fenv_stage = 2
-        }
-      } else if(fenv_stage == 2){
-        fenv = fenv + (fs - fenv) * fd
+    if(want_kernel() != on_kernel){
+      if(on_kernel){
+        from_kernel()
       } else {
-        fenv = fenv - fenv * fr
+        to_kernel()
       }
-      local oct = cutoff_oct + contour * fenv + m * filter_mod +
-        kbd * (pitch - 60.0) / 12.0
-      local fc = 20.0 * math.exp(oct * 0.6931471805599453)
-      if(fc > sr * 0.45){
-        fc = sr * 0.45
-      }
-      // the filter runs at twice the rate
-      local g = 1.0 - math.exp(-TWO_PI * fc / (2.0 * sr))
-      local stop = i + CONTROL
-      if(stop > frames){
-        stop = frames
-      }
-      // ---- every sample
-      for(i < stop){
-        p1 = p1 + dt1
-        if(p1 >= 1.0){
-          p1 = p1 - 1.0
-        }
-        p2 = p2 + dt2
-        if(p2 >= 1.0){
-          p2 = p2 - 1.0
-        }
-        p3 = p3 + dt3
-        if(p3 >= 1.0){
-          p3 = p3 - 1.0
-        }
-        o3 = shape(wave3, p3, dt3, true)
-        seed = (seed * 1103515245 + 12345) & 0x7fffffff
-        noise_v = seed / 1073741823.5 - 1.0
-        local x = g1 * shape(wave1, p1, dt1, false) +
-          g2 * shape(wave2, p2, dt2, false) + g3 * o3 + gn * noise_v
-        // the ladder: four one-poles, the emphasis feeding back the last
-        local u = soft(x - k * y4)
-        y1 = y1 + g * (u - y1)
-        y2 = y2 + g * (y1 - y2)
-        y3 = y3 + g * (y2 - y3)
-        y4 = y4 + g * (y3 - y4)
-        u = soft(x - k * y4)
-        y1 = y1 + g * (u - y1)
-        y2 = y2 + g * (y1 - y2)
-        y3 = y3 + g * (y2 - y3)
-        y4 = y4 + g * (y3 - y4)
-        if(amp_stage == 1){
-          amp = amp + (1.3 - amp) * aa
-          if(amp >= 1.0){
-            amp = 1.0
-            amp_stage = 2
-          }
-        } else if(amp_stage == 2){
-          amp = amp + (a_sus - amp) * ad
-        } else {
-          amp = amp - amp * ar
-        }
-        local s = soft(y4 * makeup * amp * volume * 1.5) * 0.66
-        out[i] = s
-        if(scope_n > 0){
-          scope[scope_at] = s
-          scope_at = scope_at + 1
-          if(scope_at >= scope_n){
-            scope_at = 0
-          }
-        }
-        i = i + 1
-      }
+      on_kernel = not on_kernel
     }
-    if(scope_n > 0){
-      scope[scope_n] = scope_at
+
+    if(on_kernel){
+      // ---- the kernel: the controls into its struct, then the samples (a
+      // control step at a time while a song plays, its events between)
+      c.tune = tune
+      c.glide_c = glide_c
+      c.semis1 = semis1
+      c.semis2 = semis2
+      c.semis3 = semis3
+      c.wave1 = wave1
+      c.wave2 = wave2
+      c.wave3 = wave3
+      c.track3 = if(track3){ 1 } else { 0 }
+      c.g1 = g1
+      c.g2 = g2
+      c.g3 = g3
+      c.gn = gn
+      c.mod_mix = mod_mix
+      c.osc_mod = osc_mod
+      c.filter_mod = filter_mod
+      c.cutoff_oct = cutoff_oct
+      c.contour = contour
+      c.kbd = kbd
+      c.k = k
+      c.fa = fa
+      c.fd = fd
+      c.fs = fs
+      c.aa = aa
+      c.ad = ad
+      c.a_sus = a_sus
+      c.fr = fr
+      c.ar = ar
+      c.volume = volume
+      c.makeup = makeup
+      if(playing == null){
+        kernel_steps(out, 0, frames)
+      } else {
+        local i = 0
+        for(i < frames){
+          song_events()
+          song_at = song_at + CONTROL
+          local stop = math.min(i + CONTROL, frames)
+          kernel_steps(out, i, stop)
+          i = stop
+        }
+      }
+    } else {
+      // ---- slang
+      local i = 0
+      for(i < frames){
+        // ---- every CONTROL samples: the song's notes, pitch, modulation,
+        // filter
+        if(playing != null){
+          song_events()
+          song_at = song_at + CONTROL
+        }
+        pitch = pitch + (note - pitch) * glide_c
+        local m = o3 + (noise_v - o3) * mod_mix
+        local base = pitch - 69.0 + tune
+        local vib = m * osc_mod
+        local dt1 = 440.0 * math.exp((base + semis1 + vib) * LN2_12) / sr
+        local dt2 = 440.0 * math.exp((base + semis2 + vib) * LN2_12) / sr
+        local n3 = base
+        if(not track3){
+          n3 = -9.0
+        }
+        local dt3 = 440.0 * math.exp((n3 + semis3) * LN2_12) / sr
+        if(fenv_stage == 1){
+          fenv = fenv + (1.3 - fenv) * fa
+          if(fenv >= 1.0){
+            fenv = 1.0
+            fenv_stage = 2
+          }
+        } else if(fenv_stage == 2){
+          fenv = fenv + (fs - fenv) * fd
+        } else {
+          fenv = fenv - fenv * fr
+        }
+        local oct = cutoff_oct + contour * fenv + m * filter_mod +
+          kbd * (pitch - 60.0) / 12.0
+        local fc = 20.0 * math.exp(oct * 0.6931471805599453)
+        if(fc > sr * 0.45){
+          fc = sr * 0.45
+        }
+        // the filter runs at twice the rate
+        local g = 1.0 - math.exp(-TWO_PI * fc / (2.0 * sr))
+        local stop = i + CONTROL
+        if(stop > frames){
+          stop = frames
+        }
+        // ---- every sample
+        for(i < stop){
+          p1 = p1 + dt1
+          if(p1 >= 1.0){
+            p1 = p1 - 1.0
+          }
+          p2 = p2 + dt2
+          if(p2 >= 1.0){
+            p2 = p2 - 1.0
+          }
+          p3 = p3 + dt3
+          if(p3 >= 1.0){
+            p3 = p3 - 1.0
+          }
+          o3 = shape(wave3, p3, dt3, true)
+          seed = (seed * 1103515245 + 12345) & 0x7fffffff
+          noise_v = seed / 1073741823.5 - 1.0
+          local x = g1 * shape(wave1, p1, dt1, false) +
+            g2 * shape(wave2, p2, dt2, false) + g3 * o3 + gn * noise_v
+          // the ladder: four one-poles, the emphasis feeding back the last
+          local u = soft(x - k * y4)
+          y1 = y1 + g * (u - y1)
+          y2 = y2 + g * (y1 - y2)
+          y3 = y3 + g * (y2 - y3)
+          y4 = y4 + g * (y3 - y4)
+          u = soft(x - k * y4)
+          y1 = y1 + g * (u - y1)
+          y2 = y2 + g * (y1 - y2)
+          y3 = y3 + g * (y2 - y3)
+          y4 = y4 + g * (y3 - y4)
+          if(amp_stage == 1){
+            amp = amp + (1.3 - amp) * aa
+            if(amp >= 1.0){
+              amp = 1.0
+              amp_stage = 2
+            }
+          } else if(amp_stage == 2){
+            amp = amp + (a_sus - amp) * ad
+          } else {
+            amp = amp - amp * ar
+          }
+          local s = soft(y4 * makeup * amp * volume * 1.5) * 0.66
+          out[i] = s
+          if(scope_n > 0){
+            scope[scope_at] = s
+            scope_at = scope_at + 1
+            if(scope_at >= scope_n){
+              scope_at = 0
+            }
+          }
+          i = i + 1
+        }
+      }
+      if(scope_n > 0){
+        scope[scope_n] = scope_at
+      }
     }
     if(playing != null){
       if(song_state != null){

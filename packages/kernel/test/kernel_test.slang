@@ -222,7 +222,7 @@ t.group("kernel memory"){
     assert(m.total(xs, ns) == 10.0)
     assert(len(kernel.double:array(5, {shared: true})) == 5)
   }
-  t.test("a .kernel file through the dialect"){
+  t.test("a .kernel file through its grammar dialect"){
     local osc = require("test/osc")
     local oscs = osc.Osc:array(2)
     oscs[0].inc = 0.25

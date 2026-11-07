@@ -41,9 +41,11 @@ points (`func`) are locals after it. It is highlighted and formatted by
 the kernel grammar, like slang code around it.
 
 The same code also works in a `.kernel` file, a module of its own
-(`{dialects: {[".kernel"]: {compile: "kernel/dialect"}}}` in slang.project;
-`require("osc")` gives a table of its structs and entry points), and from
-a string: `require("kernel").compile(source)` gives the same table.
+(`{dialects: {[".kernel"]: {grammar: "kernel/file"}}}` in slang.project;
+`require("osc")` gives a table of its structs and entry points). Editors
+and `slang fmt` highlight and format it with the same grammar, and it is
+compiled and cached like a slang file. From a string,
+`require("kernel").compile(source)` gives the same table.
 
 ## Structs and arrays in slang
 
@@ -147,8 +149,9 @@ costs well under a microsecond, so call kernels per block, not per sample.
   `native/jit.zig` where it can, else with a threaded dispatch (one
   indirect branch per instruction handler).
 - `init.slang`: struct values, kinds, `kernel.module`, `kernel.compile`;
-  `syntax.slang`: `kernel { }` in slang files; `dialect.slang`: `.kernel`
-  files as modules.
+  `syntax.slang`: `kernel { }` in slang files; `file.slang`: `.kernel`
+  files as a grammar dialect; `lower.slang`: kernel items as slang code
+  (both).
 
 ## Building the native module
 

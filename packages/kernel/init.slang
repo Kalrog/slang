@@ -2,8 +2,8 @@
 // without slang's tags and checks: numeric code over buffers (audio,
 // images, simulations) runs several times faster than in slang.
 //
-//   // voice.kernel (with {dialects: {[".kernel"]: {compile:
-//   // "kernel/dialect"}}} in slang.project)
+//   // voice.kernel (with {dialects: {[".kernel"]: {grammar:
+//   // "kernel/file"}}} in slang.project)
 //   struct Osc { phase: double, inc: double, gain: float = 0.3 }
 //   func saws(out: float[], oscs: Osc[], n: int){ ... }
 //

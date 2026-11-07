@@ -123,7 +123,9 @@ local string_chars = peg.seq(
   peg.char("\""),
 ):flatten("expected a string")
 local string_lit = string_chars:token("string"):trim(trivia):map(func(t){
-  return {value: str.substring(t.value, 1, len(t.value) - 1), line: t.line, token: t}
+  return {
+    value: str.substring(t.value, 1, len(t.value) - 1), line: t.line, token: t
+  }
 })
 
 // matches nothing, and only when no line break comes before the next
@@ -430,24 +432,39 @@ local field = peg.seq(
   name("property.declaration"),
   type_mark,
   peg.seq(ftok("=", "space", "space"), expr):pick(1):optional(),
-  peg.choice(ftok(",", "none"), ftok(";", "none")):optional(),
 ):map(func(v){
   return {name: v[0].value, type: type_of(v[1]), default: v[2], line: v[0].line}
 })
 
+// struct Name { field, ... }: the fields separated by commas as a table's
+// are, and laid out as one is (on one line when it fits; a trailing comma
+// keeps them a field a line)
 local struct_item = peg.seq(
   ftok("struct", null, "space"),
   name("type.declaration"),
-  ftok("{", "space"),
-  fmt.indent(
-    fmt.mark(field, {before: "hardline"}):star(), "hardline", "hardline"
+  fmt.mark(
+    peg.seq(
+      tok("{"),
+      fmt.indent(fmt.mark(field:star_separated(ftok(",", "none", "line")), {
+        fill: true,
+      }):map(
+        elements,
+      ), "line"),
+      fmt.trailing_comma(tok(","):optional()),
+      fmt.gaps(tok("}"), "line"),
+    ),
+    {group: true},
   ),
-  fmt.gaps(tok("}"), "hardline"),
-):map(func(v){
-  return {
-    k: "struct", name: v[1].value, fields: v[3], line: v[0].line, token: v[1]
-  }
-})
+)
+  :map(func(v){
+    return {
+      k: "struct",
+      name: v[1].value,
+      fields: v[2][1],
+      line: v[0].line,
+      token: v[1],
+    }
+  })
 
 local param = peg.seq(name("parameter"), type_mark):map(func(v){
   return {name: v[0].value, type: type_of(v[1]), line: v[0].line}
@@ -481,18 +498,19 @@ local func_item = peg.seq(
     peg.seq(type_mark, fmt.gaps(block, "space")),
     fmt.gaps(block, "none"):map(func(b){ return {null, b} }),
   ),
-):map(func(v){
-  return {
-    k: "func",
-    kernel: v[0] == null,
-    name: v[2].value,
-    params: v[3],
-    ret: type_of(v[4][0]),
-    body: v[4][1],
-    line: v[2].line,
-    token: v[2],
-  }
-})
+)
+  :map(func(v){
+    return {
+      k: "func",
+      kernel: v[0] == null,
+      name: v[2].value,
+      params: v[3],
+      ret: type_of(v[4][0]),
+      body: v[4][1],
+      line: v[2].line,
+      token: v[2],
+    }
+  })
 
 // local name: type = value: a constant, or the kernels' state when a
 // function assigns it

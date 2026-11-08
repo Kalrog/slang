@@ -155,6 +155,9 @@ pub const Proto = struct {
     locs: []LocInfo = &.{},
     locals: []LocalVar = &.{},
     max_stack: u32 = 0,
+    /// The temporaries its code pushes above the registers at most (computed
+    /// from the code when it is loaded: disasm.maxTemps)
+    temps: u32 = 0,
     nargs: u32 = 0,
     is_vararg: bool = false,
     /// The name its definition gives the function (`f`, `m.f`), or null.

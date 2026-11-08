@@ -304,7 +304,7 @@ pub const Thread = struct {
         const base = fn_idx + 1;
         var nparams: usize = p.nargs;
         if (p.is_vararg) nparams -= 1;
-        try th.ensure(base + @max(nparams + 1, p.max_stack) + 8);
+        try th.ensure(base + @max(nparams + 1, p.max_stack) + p.temps + 8);
         if (nargs_ > nparams) {
             if (p.is_vararg) {
                 // the extra arguments by position: a null one is a gap

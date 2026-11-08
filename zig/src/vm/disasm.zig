@@ -373,7 +373,7 @@ fn annotateConstant(w: *Writer, c: root.Value) Writer.Error!void {
 }
 
 fn disasmProto(w: *Writer, p: *const Proto, indent: []const u8) Writer.Error!void {
-    try w.print("{s}function (nargs={d} vararg={} maxstack={d})\n", .{ indent, p.nargs, p.is_vararg, p.max_stack });
+    try w.print("{s}function (nargs={d} vararg={} maxstack={d} temps={d})\n", .{ indent, p.nargs, p.is_vararg, p.max_stack, p.temps });
     try w.print("{s}Instructions:\n", .{indent});
     for (p.code, 0..) |ins, i| {
         // the instruction, padded, then `; annotation`, then the location
@@ -459,4 +459,92 @@ fn writeQuoted(w: *Writer, s: []const u8) Writer.Error!void {
         }
     }
     try w.writeByte('"');
+}
+
+/// The most values a function's code has on the stack above its registers
+/// at once (its expression temporaries: a call's function and arguments,
+/// operands): the code is walked along its jumps with each instruction's
+/// effect on the top. A frame reserves these besides max_stack, because the
+/// interpreter writes its pushes without checking the stack's length.
+pub fn maxTemps(gpa: std.mem.Allocator, code: []const u32) u32 {
+    if (code.len == 0) return 0;
+    const depth = gpa.alloc(i32, code.len) catch return @intCast(code.len + 8);
+    defer gpa.free(depth);
+    @memset(depth, -1);
+    var work: std.ArrayList(u32) = .empty;
+    defer work.deinit(gpa);
+    var max: i32 = 0;
+    const visit = struct {
+        fn f(g: std.mem.Allocator, dp: []i32, wl: *std.ArrayList(u32), at: i64, dv: i32) void {
+            if (at < 0 or at >= dp.len) return;
+            const i: usize = @intCast(at);
+            const v = @max(dv, 0);
+            if (dp[i] >= v) return;
+            dp[i] = v;
+            wl.append(g, @intCast(i)) catch {};
+        }
+    }.f;
+    visit(gpa, depth, &work, 0, 0);
+    while (work.pop()) |idx| {
+        const i: i64 = idx;
+        const dv = depth[idx];
+        const ins = code[idx];
+        const op = opOf(ins);
+        const b = argB(ins);
+        const popped: i32 = @intFromBool(b == stack_operand);
+        const pushes: i32 = @intFromBool(argA(ins) == push_dest);
+        // the effect on the top, and where the code goes on
+        var delta: i32 = 0;
+        var next = true;
+        switch (op) {
+            .load_constant, .load_closure, .push, .new_table, .get_upvalue => delta = 1,
+            .load_bool => {
+                delta = 1;
+                if (argC(ins) != 0) {
+                    visit(gpa, depth, &work, i + 2, dv + 1);
+                    next = false;
+                }
+            },
+            .add, .sub, .mul, .div, .mod, .eq, .lt, .leq, .pow, .band, .bor, .bxor, .shl, .shr, .get_table, .move, .set_upvalue => delta = -1,
+            .neg, .not, .bnot, .type, .get_meta, .close_upvalues, .try_end, .move_x => delta = 0,
+            .pop => delta = -@as(i32, @intCast(argBx(ins))),
+            .set_table => delta = -3,
+            .set_meta => delta = -2,
+            .call => delta = -@as(i32, @intCast(argBx(ins))),
+            .call_spread => delta = -@as(i32, @intCast(argBx(ins))) - 1,
+            .@"return", .throw => next = false,
+            .@"test" => {
+                delta = -1;
+                visit(gpa, depth, &work, i + 2, dv - 1);
+            },
+            .jump => {
+                visit(gpa, depth, &work, i + 1 + argSBx(ins), dv);
+                next = false;
+            },
+            .try_begin => {
+                // the handler starts at the try's top with the error on it
+                visit(gpa, depth, &work, i + 1 + argSBx(ins), dv + 1);
+            },
+            .add_x, .sub_x, .mul_x, .div_x, .mod_x, .get_x => delta = pushes - popped,
+            .set_x => delta = -popped - pushes,
+            .self_x => delta = if (popped != 0) 2 else 3,
+            .jlt, .jleq, .jeq, .jtest, .for_loop => {
+                // the word after it is a jump, taken or skipped
+                const d2 = dv - (if (op == .jtest or op == .for_loop) 0 else popped);
+                if (i + 1 < code.len) {
+                    const off = argSBx(code[idx + 1]);
+                    visit(gpa, depth, &work, i + 2, d2);
+                    visit(gpa, depth, &work, i + 2 + off, d2);
+                    if (op == .for_loop) visit(gpa, depth, &work, i + 2 + off - 2, d2);
+                }
+                max = @max(max, d2);
+                next = false;
+            },
+            _ => {},
+        }
+        const after = dv + delta;
+        max = @max(max, @max(dv, after));
+        if (next) visit(gpa, depth, &work, i + 1, after);
+    }
+    return @intCast(max);
 }

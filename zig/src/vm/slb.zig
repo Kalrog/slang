@@ -185,6 +185,7 @@ const Reader = struct {
         const ncode = try r.count();
         p.code = gpa.alloc(u32, ncode) catch oom();
         for (p.code) |*c| c.* = try r.u32_();
+        p.temps = disasm.maxTemps(gpa, p.code);
         const nlocs = try r.count();
         p.locs = gpa.alloc(object.LocInfo, nlocs) catch oom();
         for (p.locs) |*l| {

@@ -11,6 +11,7 @@ const api = vm_mod.api;
 const stdlib = @import("stdlib.zig");
 const object = @import("../vm/object.zig");
 const gc = @import("../vm/gc.zig");
+const disasm = @import("../vm/disasm.zig");
 
 /// slang/vm: access to closures, upvalues and bytecode, and the collector.
 pub fn module(vm: *VM) *Table {
@@ -249,6 +250,7 @@ fn protoFromTable(th: *Thread, t: *Table, depth: usize) Error!*Proto {
         if (e.val != .int) return vm.raise("load_proto: instruction is not an int", .{});
         p.code[i] = @truncate(@as(u64, @bitCast(e.val.int)));
     }
+    p.temps = disasm.maxTemps(gpa, p.code);
     if (t.getName("locations").asTable()) |locs| {
         var list: std.ArrayList(object.LocInfo) = .empty;
         var lit = locs.iterator();

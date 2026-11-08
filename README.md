@@ -869,7 +869,7 @@ test/      the test suite (bin/slang test)
 bench/     benchmarks (make bench)
 extensions/ parser extensions written in slang; extensions/native are native ones
 packages/  packages kept with slang: packages/raylib (raylib through slang/ffi), packages/box2d (2D physics), packages/jolt (3D physics)
-examples/  example programs: examples/breakout on the raylib package, examples/physics (Box2D and Jolt drawn with raylib), examples/project (slang.project), examples/functional (|> and holes),
+examples/  example programs: examples/breakout on the raylib package, examples/physics (Box2D and Jolt drawn with raylib), examples/courier (deliveries by flying car through a procedural night city: Jolt, shaders, bloom), examples/modular (a pixel-art modular synthesizer: kernel + raylib), examples/live (live coding of music and visuals: patterns, shaders, an editor), examples/project (slang.project), examples/functional (|> and holes),
            examples/deckhand, a heist game on raylib whose maps are written in a DSL, examples/webserver and examples/desktop,
            examples/isolates (a Mandelbrot set rendered by one isolate per CPU), examples/futamura (a partial evaluator
            for a slang subset: specialization, and an interpreter specialized to a program is a compiled program)

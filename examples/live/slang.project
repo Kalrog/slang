@@ -1,0 +1,12 @@
+{
+  name: "live",
+  dependencies: {
+    raylib: {path: "../../packages/raylib"},
+    kernel: {path: "../../packages/kernel"},
+    midi: {path: "../../packages/midi"},
+  },
+  search_paths: {"."},
+  // the backtick pattern literals, in every file of the project (the
+  // pieces, the tests, and the editor's highlighting)
+  extensions: {"notation"},
+}

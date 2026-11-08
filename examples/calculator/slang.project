@@ -1,0 +1,6 @@
+{
+  name: "calculator",
+  dependencies: {
+    raylib: {path: "../../packages/raylib"},
+  },
+}

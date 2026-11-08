@@ -31,6 +31,15 @@
 #   make fm3d         the same FM synthesizer in 3D, with a hardware panel (display, encoders, buttons)
 #   make fm-test      run its tests (no window, no audio device: every patch of the bank)
 #   make synth-mix    record every song of examples/synth part by part and mix it (WAVs in examples/synth/mixdown)
+#   make modular      run the pixel-art modular synthesizer (examples/modular) on the kernel and raylib packages
+#   make modular-test run its tests (no window, no audio device: the rack, the kernel's modules, every patch)
+#   make modular-demos rewrite the patches that come with it (examples/modular/patches)
+#   make live         run the live coding environment for music and visuals (examples/live)
+#   make live-test    run its tests (no window, no audio device: the notation, the engine, every piece)
+#   make delve        run the Delve roguelike (examples/delve) on the raylib package
+#   make delve-test   run delve's tests (no window: sight, maps, rules, the autoplayer)
+#   make courier      run Courier, the flying-car delivery game (examples/courier) on raylib and jolt
+#   make courier-test run its tests (no window: the city, the car on Jolt, the traffic, the jobs)
 #   make siege        run the siege catapult game (examples/siege) on the raylib and jolt packages
 #   make inkblast     run the Inkblast party game (examples/inkblast): slang/net, bots, raylib
 #   make inkblast-test run Inkblast's tests (no window: the rules, a match over loopback)
@@ -49,7 +58,7 @@ COMPILER_SRC := $(wildcard slang/compiler/*.slang)
 SEED_DIR := boot/slang
 SEED_CORE_DIR := build/seed-core
 
-.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed seed-core fixpoint bench raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test inkblast inkblast-test synth synth3d synth-test synth-mix siege siege-test midi-test kernel-test kernel-bench fm fm3d fm-test fm-gen clean doc \
+.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed seed-core fixpoint bench raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test inkblast inkblast-test synth synth3d synth-test synth-mix modular modular-test modular-demos live live-test delve delve-test courier courier-test siege siege-test midi-test kernel-test kernel-bench fm fm3d fm-test fm-gen clean doc \
         vscode vscode-grammar
 
 all: build
@@ -112,12 +121,12 @@ test: build unit
 	@if [ -n "$(BOX2D_H)" ]; then $(MAKE) box2d-test; \
 	  else echo "Box2D is not installed: packages/box2d not tested"; fi
 	@if [ -n "$(RAYLIB_H)" ]; then $(MAKE) synth-test; fi
-	@if [ -d "packages/jolt/lib/$(SLANG_PLATFORM)" ]; then $(MAKE) jolt-test && $(MAKE) siege-test; \
+	@if [ -d "packages/jolt/lib/$(SLANG_PLATFORM)" ]; then $(MAKE) jolt-test && $(MAKE) siege-test && $(MAKE) courier-test; \
 	  else echo "no joltc for $(SLANG_PLATFORM): packages/jolt and examples/siege not tested"; fi
 	$(MAKE) midi-test
 	$(MAKE) inkblast-test
-	@if [ -d "packages/kernel/lib/$(SLANG_PLATFORM)" ]; then $(MAKE) kernel-test && $(MAKE) fm-test; \
-	  else echo "no kernel/vm for $(SLANG_PLATFORM): packages/kernel and examples/fm not tested"; fi
+	@if [ -d "packages/kernel/lib/$(SLANG_PLATFORM)" ]; then $(MAKE) kernel-test && $(MAKE) fm-test && $(MAKE) modular-test && $(MAKE) live-test; \
+	  else echo "no kernel/vm for $(SLANG_PLATFORM): packages/kernel, examples/fm, examples/modular and examples/live not tested"; fi
 
 test-gui: build
 	bin/slang test zig/test/gui
@@ -237,6 +246,33 @@ fm-gen: build
 
 synth-mix: build
 	cd examples/synth && for s in songs/*.slang; do ../../bin/slang run mixdown.slang $$s || exit 1; done
+
+modular: build
+	cd examples/modular && ../../bin/slang run main.slang
+
+modular-test: build
+	cd examples/modular && ../../bin/slang test test
+
+modular-demos: build
+	cd examples/modular && ../../bin/slang run tool/demos.slang
+
+live: build
+	cd examples/live && ../../bin/slang run main.slang pieces/first.slang
+
+live-test: build
+	cd examples/live && ../../bin/slang test test
+
+delve: build
+	bin/slang run examples/delve/main.slang
+
+delve-test: build
+	cd examples/delve && ../../bin/slang test test
+
+courier: build
+	bin/slang run examples/courier/main.slang
+
+courier-test: build
+	cd examples/courier && ../../bin/slang test test
 
 siege: build
 	bin/slang run examples/siege/main.slang

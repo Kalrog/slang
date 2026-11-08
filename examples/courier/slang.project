@@ -1,0 +1,8 @@
+{
+  name: "courier",
+  dependencies: {
+    raylib: {path: "../../packages/raylib"},
+    jolt: {path: "../../packages/jolt"},
+  },
+  search_paths: {"."},
+}

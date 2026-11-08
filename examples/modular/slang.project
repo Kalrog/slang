@@ -1,0 +1,11 @@
+{
+  name: "modular",
+  dependencies: {
+    raylib: {path: "../../packages/raylib"},
+    kernel: {path: "../../packages/kernel"},
+    midi: {path: "../../packages/midi"},
+  },
+  // ../fm for the FM module: its patch model (patch), bank (patches) and
+  // algorithms
+  search_paths: {".", "../fm"},
+}

@@ -14,8 +14,8 @@ local os = require("slang/os")
 
 local width = 800
 local height = 450
-rl.init_window(width, height, "sparks")
-rl.set_target_fps(60)
+rl.window.open(width, height, "sparks")
+rl.target_fps = 60
 
 local sparks = {}
 local hue = 30
@@ -40,23 +40,23 @@ local func spawn(x, y, speed){
 
 local frames = to_int(os.getenv("SPARKS_FRAMES") or "0")
 local frame = 0
-for(not rl.window_should_close()){
-  local dt = rl.get_frame_time()
-  local mouse = rl.get_mouse_position()
-  local moved = rl.get_mouse_delta()
-  hue = (hue + rl.get_mouse_wheel_move() * 15) % 360
+for(not rl.window.should_close){
+  local dt = rl.frame_time
+  local mouse = rl.mouse.position
+  local moved = rl.mouse.delta
+  hue = (hue + rl.mouse.wheel * 15) % 360
 
   // a trail as the mouse moves; a spray while the button is down
   local trail = to_int(math.min(8, (math.abs(moved.x) + math.abs(moved.y)) / 4))
   for(local i = 0; i < trail; i = i + 1){
     spawn(mouse.x, mouse.y, 60)
   }
-  if(rl.is_mouse_button_down(rl.MOUSE_BUTTON_LEFT)){
+  if(rl.mouse.down(rl.MOUSE_BUTTON_LEFT)){
     for(local i = 0; i < 12; i = i + 1){
       spawn(mouse.x, mouse.y, 320)
     }
   }
-  local pull = rl.is_mouse_button_down(rl.MOUSE_BUTTON_RIGHT)
+  local pull = rl.mouse.down(rl.MOUSE_BUTTON_RIGHT)
 
   // move, age, and keep the living ones
   local alive = {}
@@ -77,27 +77,27 @@ for(not rl.window_should_close()){
   }
   sparks = alive
 
-  rl.begin_drawing()
-  rl.clear_background({14, 14, 22})
-  for(let local s in values(sparks)){
-    local fade = 1 - s.age / s.life
-    local color = rl.color_from_hsv(s.hue % 360, 0.8, 1)
-    color.a = to_int(255 * fade)
-    rl.draw_circle_v({s.x, s.y}, 1 + 3 * fade, color)
+  rl.drawing{
+    rl.draw.clear({14, 14, 22})
+    for(let local s in values(sparks)){
+      local fade = 1 - s.age / s.life
+      local color = rl.color.from_hsv(s.hue % 360, 0.8, 1)
+      color.a = to_int(255 * fade)
+      rl.draw.circle_v({s.x, s.y}, 1 + 3 * fade, color)
+    }
+    rl.draw.circle_lines(mouse.x, mouse.y, 10, rl.color.from_hsv(hue, 0.6, 1))
+    rl.draw.text(
+      "move: trail   left: spray   right: pull   wheel: color", 12, 12, 18,
+      rl.LIGHTGRAY
+    )
+    rl.draw.text(
+      concat(string(len(sparks)), " sparks"), 12, height - 30, 18, rl.GRAY
+    )
   }
-  rl.draw_circle_lines(mouse.x, mouse.y, 10, rl.color_from_hsv(hue, 0.6, 1))
-  rl.draw_text(
-    "move: trail   left: spray   right: pull   wheel: color", 12, 12, 18,
-    rl.LIGHTGRAY
-  )
-  rl.draw_text(
-    concat(string(len(sparks)), " sparks"), 12, height - 30, 18, rl.GRAY
-  )
-  rl.end_drawing()
 
   frame = frame + 1
   if(frames > 0 and frame >= frames){
     break
   }
 }
-rl.close_window()
+rl.window.close()

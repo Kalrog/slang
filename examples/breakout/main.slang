@@ -52,8 +52,8 @@ local func tone(from, to, seconds, volume){
 local sounds = null
 
 local func make_sounds(){
-  rl.init_audio_device()
-  if(not rl.is_audio_device_ready()){
+  rl.audio.open()
+  if(not rl.audio.ready){
     return
   }
   sounds = {
@@ -73,7 +73,7 @@ local func make_sounds(){
 
 local func play(sound){
   if(sound != null){
-    rl.play_sound(sound)
+    sound:play()
   }
 }
 
@@ -158,15 +158,15 @@ local func update_paddle(dt){
       dir = -1
     } else if(game.ball.x > center + 4){ dir = 1 }
   } else {
-    if(rl.is_key_down(rl.KEY_LEFT) or rl.is_key_down(rl.KEY_A)){ dir = dir - 1 }
-    if(rl.is_key_down(rl.KEY_RIGHT) or rl.is_key_down(rl.KEY_D)){
+    if(rl.key.down(rl.KEY_LEFT) or rl.key.down(rl.KEY_A)){ dir = dir - 1 }
+    if(rl.key.down(rl.KEY_RIGHT) or rl.key.down(rl.KEY_D)){
       dir = dir + 1
     }
   }
   p.x = clamp(p.x + dir * p.speed * dt, 0, width - p.w)
   if(not game.ball.launched){
     game.ball.x = p.x + p.w / 2
-    if(autoplay or rl.is_key_pressed(rl.KEY_SPACE)){ launch() }
+    if(autoplay or rl.key.pressed(rl.KEY_SPACE)){ launch() }
   }
 }
 
@@ -249,7 +249,7 @@ local func bricks_left(){
 }
 
 local func update(dt){
-  if(rl.is_key_pressed(rl.KEY_R)){ new_game() }
+  if(rl.key.pressed(rl.KEY_R)){ new_game() }
   if(game.state != "playing"){ return }
   update_paddle(dt)
   update_ball(dt)
@@ -260,53 +260,53 @@ local func update(dt){
 }
 
 local func text_centered(s, y, size, color){
-  rl.draw_text(s, width / 2 - rl.measure_text(s, size) / 2, y, size, color)
+  rl.draw.text(s, width / 2 - rl.text.measure(s, size) / 2, y, size, color)
 }
 
 local func draw(){
-  rl.begin_drawing()
-  rl.clear_background(colors.background)
-  for(let local brick in values(game.bricks)){
-    if(brick.alive){
-      rl.draw_rectangle(brick.x, brick.y, brick.w, brick.h, brick.color)
+  rl.drawing{
+    rl.draw.clear(colors.background)
+    for(let local brick in values(game.bricks)){
+      if(brick.alive){
+        rl.draw.rectangle(brick.x, brick.y, brick.w, brick.h, brick.color)
+      }
+    }
+    local p = game.paddle
+    rl.draw.rectangle(p.x, p.y, p.w, p.h, colors.paddle)
+    rl.draw.circle(game.ball.x, game.ball.y, game.ball.r, colors.ball)
+
+    rl.draw.text(concat("Score ", game.score), 16, 16, 24, colors.text)
+    local lives = concat("Lives ", game.lives)
+    rl.draw.text(
+      lives, width - 16 - rl.text.measure(lives, 24), 16, 24, colors.text
+    )
+
+    if(game.state == "playing" and not game.ball.launched){
+      text_centered("Space to launch", height / 2 + 40, 24, colors.dim)
+    } else if(game.state == "won"){
+      text_centered("You win!", height / 2 - 20, 48, colors.ball)
+      text_centered("R to play again", height / 2 + 40, 24, colors.dim)
+    } else if(game.state == "lost"){
+      text_centered("Game over", height / 2 - 20, 48, colors.rows[0])
+      text_centered("R to play again", height / 2 + 40, 24, colors.dim)
     }
   }
-  local p = game.paddle
-  rl.draw_rectangle(p.x, p.y, p.w, p.h, colors.paddle)
-  rl.draw_circle(game.ball.x, game.ball.y, game.ball.r, colors.ball)
-
-  rl.draw_text(concat("Score ", game.score), 16, 16, 24, colors.text)
-  local lives = concat("Lives ", game.lives)
-  rl.draw_text(
-    lives, width - 16 - rl.measure_text(lives, 24), 16, 24, colors.text
-  )
-
-  if(game.state == "playing" and not game.ball.launched){
-    text_centered("Space to launch", height / 2 + 40, 24, colors.dim)
-  } else if(game.state == "won"){
-    text_centered("You win!", height / 2 - 20, 48, colors.ball)
-    text_centered("R to play again", height / 2 + 40, 24, colors.dim)
-  } else if(game.state == "lost"){
-    text_centered("Game over", height / 2 - 20, 48, colors.rows[0])
-    text_centered("R to play again", height / 2 + 40, 24, colors.dim)
-  }
-  rl.end_drawing()
 }
 
-rl.init_window(width, height, "Slang Breakout")
-rl.set_target_fps(60)
+rl.window.open(width, height, "Slang Breakout")
+rl.target_fps = 60
 make_sounds()
 new_game()
 
 local frame_limit = os.getenv("BREAKOUT_FRAMES")
 local frames = 0
-for(; not rl.window_should_close(); frames = frames + 1){
+for(; not rl.window.should_close; frames = frames + 1){
   if(frame_limit != null and frames >= to_int(frame_limit)){ break }
-  update(rl.get_frame_time())
+  update(rl.frame_time)
   draw()
 }
 if(sounds != null){
-  rl.close_audio_device()
+  rl.audio.close()
 }
-rl.close_window()
+rl.window.close()
 print("breakout: ", frames, " frames, score ", game.score, "\n")

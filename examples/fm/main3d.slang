@@ -106,27 +106,27 @@ void main(){
 
 local shader = null
 local locs = {}
-local light = rl.vector3_normalize({-0.35, 0.85, 0.55})
+local light = rl.vector3.normalize({-0.35, 0.85, 0.55})
 
 // ------------------------------------------------------------ matrices
 
 local func mul(...ms){
   local m = ms[0]
   for(local i = 1; i < len(ms); i = i + 1){
-    m = rl.matrix_multiply(m, ms[i])
+    m = rl.matrix.multiply(m, ms[i])
   }
   return m
 }
 
 local func T(x, y, z){
-  return rl.matrix_translate(x, y, z)
+  return rl.matrix.translate(x, y, z)
 }
 
 local func S(x, y, z){
-  return rl.matrix_scale(x, y, z)
+  return rl.matrix.scale(x, y, z)
 }
 
-local RX90 = rl.matrix_rotate_x(math.pi / 2)
+local RX90 = rl.matrix.rotate_x(math.pi / 2)
 
 // ------------------------------------------------------------ the scene's frame
 
@@ -145,12 +145,14 @@ local HINGE = {x: 0.0, y: 0.95, z: -0.35}
 // the face's frame: x right and y up in face pixels (a face y of py is
 // -py), z out of the face
 local panel_matrix = mul(
-  T(-CENTER, FACE_Y + FACE_H, 0), S(SCALE, SCALE, SCALE),
-  rl.matrix_rotate_x(-TILT), T(HINGE.x, HINGE.y, HINGE.z)
+  T(-CENTER, FACE_Y + FACE_H, 0),
+  S(SCALE, SCALE, SCALE),
+  rl.matrix.rotate_x(-TILT),
+  T(HINGE.x, HINGE.y, HINGE.z),
 )
 
 local func on_face(px, py, z){
-  return rl.vector3_transform({px, -py, z}, panel_matrix)
+  return rl.vector3.transform({px, -py, z}, panel_matrix)
 }
 
 // the keyboard, in world units
@@ -169,7 +171,7 @@ local func key_x(px){
 
 local models = {}
 local func shaded(mesh, texture){
-  local model = rl.load_model_from_mesh(mesh)
+  local model = mesh:to_model()
   model.materials[0].shader = shader
   if(texture != null){
     model.materials[0].maps[rl.MATERIAL_MAP_ALBEDO].texture = texture
@@ -197,14 +199,16 @@ local FACE_SCALE = 2
 local face_target = null
 
 local func setup(){
-  shader = rl.load_shader_from_memory(vertex_shader, fragment_shader)
-  for(let local name in values({"lightDir", "viewPos", "texScale", "shine", "grainAxis", "woodSeed", "glow"})){
-    locs[name] = rl.get_shader_location(shader, name)
+  shader = rl.shader({vertex: vertex_shader, fragment: fragment_shader})
+  for(let local name in values({
+    "lightDir", "viewPos", "texScale", "shine", "grainAxis", "woodSeed", "glow"
+  })){
+    locs[name] = shader:location(name)
   }
-  rl.set_shader_value(shader, locs.lightDir, light, rl.SHADER_UNIFORM_VEC3)
-  face_target = rl.load_render_texture(FACE_W * FACE_SCALE, FACE_H * FACE_SCALE)
-  models.cube = shaded(rl.gen_mesh_cube(1, 1, 1))
-  models.cylinder = shaded(rl.gen_mesh_cylinder(1, 1, 40))
+  shader:set_value(locs.lightDir, light, rl.SHADER_UNIFORM_VEC3)
+  face_target = rl.render_texture(FACE_W * FACE_SCALE, FACE_H * FACE_SCALE)
+  models.cube = shaded(rl.mesh.cube(1, 1, 1))
+  models.cylinder = shaded(rl.mesh.cylinder(1, 1, 40))
   models.face = shaded(face_mesh(), face_target.texture)
 }
 
@@ -213,8 +217,11 @@ local current = {scale: -1.0, shine: -1.0, axis: -1.0, seed: -1.0, glow: -1.0}
 local func uniform(name, v){
   if(current[name] != v){
     current[name] = v
-    local loc = {scale: locs.texScale, shine: locs.shine, axis: locs.grainAxis, seed: locs.woodSeed, glow: locs.glow}[name]
-    rl.set_shader_value(shader, loc, v, rl.SHADER_UNIFORM_FLOAT)
+    local loc = {
+      scale: locs.texScale, shine: locs.shine, axis: locs.grainAxis,
+      seed: locs.woodSeed, glow: locs.glow
+    }[name]
+    shader:set_value(loc, v, rl.SHADER_UNIFORM_FLOAT)
   }
 }
 
@@ -233,23 +240,25 @@ local func draw(model, matrix, color, shine, tex_scale, wood_board, glow){
     uniform("seed", 0.0)
   }
   model.transform = matrix
-  rl.draw_model(model, origin, 1, color)
+  model:draw(origin, 1, color)
 }
 
 // a box from corner a to corner b (world, unturned)
 local func box(a, b, model, color, shine, tex_scale, wood_board){
   draw(model, mul(
     S(b.x - a.x, b.y - a.y, b.z - a.z),
-    T((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2)
+    T((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2),
   ), color, shine, tex_scale, wood_board)
 }
 
 // a box in face pixels: x0..x1, y0..y1 (face y, down), z0..z1 off the face
-local func face_box(x0, x1, y0, y1, z0, z1, model, color, shine, tex_scale, wood_board, glow){
+local func face_box(
+  x0, x1, y0, y1, z0, z1, model, color, shine, tex_scale, wood_board, glow
+){
   draw(model, mul(
     S(x1 - x0, y1 - y0, z1 - z0),
     T((x0 + x1) / 2, -(y0 + y1) / 2, (z0 + z1) / 2),
-    panel_matrix
+    panel_matrix,
   ), color, shine, tex_scale, wood_board, glow)
 }
 
@@ -270,33 +279,73 @@ local ALONG_Z = 2.0
 local func draw_case(){
   local m = models.cube
   // the base under the keys and its front, grain along the width
-  box({x: -5.8, y: 0.0, z: -0.6}, {x: 5.8, y: 0.34, z: CASE_FRONT}, m, WHITE, WOOD_SHINE, 1.0, board(11, ALONG_X))
-  box({x: -5.6, y: 0.34, z: 2.82}, {x: 5.6, y: 0.44, z: CASE_FRONT}, m, WHITE, WOOD_SHINE, 1.0, board(12, ALONG_X))
+  box(
+    {x: -5.8, y: 0.0, z: -0.6}, {x: 5.8, y: 0.34, z: CASE_FRONT}, m, WHITE,
+    WOOD_SHINE, 1.0, board(11, ALONG_X)
+  )
+  box(
+    {x: -5.6, y: 0.34, z: 2.82}, {x: 5.6, y: 0.44, z: CASE_FRONT}, m, WHITE,
+    WOOD_SHINE, 1.0, board(12, ALONG_X)
+  )
   // the cheeks at both ends, a little proud of the base
   local seeds = {13, 14}
   local sides = {-1.0, 1.0}
   for(local k = 0; k < 2; k = k + 1){
     local x0 = sides[k] * 5.6
     local x1 = sides[k] * 6.05
-    box({x: math.min(x0, x1), y: 0.0, z: -0.9}, {x: math.max(x0, x1), y: 1.15, z: CASE_FRONT + 0.03}, m, WHITE, WOOD_SHINE, 1.0, board(seeds[k], ALONG_Z))
+    box(
+      {x: math.min(x0, x1), y: 0.0, z: -0.9},
+      {x: math.max(x0, x1), y: 1.15, z: CASE_FRONT + 0.03}, m, WHITE,
+      WOOD_SHINE, 1.0, board(seeds[k], ALONG_Z)
+    )
   }
   // the panel's cheeks and the top rail
-  face_box(-2, FACE_X - 3, FACE_Y - 18, FACE_Y + FACE_H + 60, -60, 14, m, WHITE, WOOD_SHINE, 1.0, board(15, ALONG_Y))
-  face_box(FACE_X + FACE_W + 3, hw.W + 2, FACE_Y - 18, FACE_Y + FACE_H + 60, -60, 14, m, WHITE, WOOD_SHINE, 1.0, board(16, ALONG_Y))
-  face_box(FACE_X - 3, FACE_X + FACE_W + 3, FACE_Y - 15, FACE_Y, -57, 8, m, WHITE, WOOD_SHINE, 1.0, board(17, ALONG_X))
+  face_box(
+    -2, FACE_X - 3, FACE_Y - 18, FACE_Y + FACE_H + 60, -60, 14, m, WHITE,
+    WOOD_SHINE, 1.0, board(15, ALONG_Y)
+  )
+  face_box(
+    FACE_X + FACE_W + 3, hw.W + 2, FACE_Y - 18, FACE_Y + FACE_H + 60, -60, 14,
+    m, WHITE, WOOD_SHINE, 1.0, board(16, ALONG_Y)
+  )
+  face_box(
+    FACE_X - 3, FACE_X + FACE_W + 3, FACE_Y - 15, FACE_Y, -57, 8, m, WHITE,
+    WOOD_SHINE, 1.0, board(17, ALONG_X)
+  )
   // the body behind the face, the face
-  face_box(FACE_X - 3, FACE_X + FACE_W + 3, FACE_Y, FACE_Y + FACE_H + 60, -57, -1, models.cube, {20, 20, 22}, 0.05)
+  face_box(
+    FACE_X - 3, FACE_X + FACE_W + 3, FACE_Y, FACE_Y + FACE_H + 60, -57, -1,
+    models.cube, {20, 20, 22}, 0.05
+  )
   draw(models.face, panel_matrix, WHITE, 0.08, 0.0)
   // the display's glass: a dark pane over it, a little in front, lit
   // from inside (glow), so that it reads as a screen
   local l = hw.LCD
-  face_box(l.x - 8, l.x + l.w + 8, l.y - 8, l.y - 4, 0, 3, models.cube, {12, 12, 12}, 0.1)
-  face_box(l.x - 8, l.x + l.w + 8, l.y + l.h + 4, l.y + l.h + 8, 0, 3, models.cube, {12, 12, 12}, 0.1)
-  face_box(l.x - 8, l.x - 4, l.y - 4, l.y + l.h + 4, 0, 3, models.cube, {12, 12, 12}, 0.1)
-  face_box(l.x + l.w + 4, l.x + l.w + 8, l.y - 4, l.y + l.h + 4, 0, 3, models.cube, {12, 12, 12}, 0.1)
+  face_box(
+    l.x - 8, l.x + l.w + 8, l.y - 8, l.y - 4, 0, 3, models.cube, {12, 12, 12},
+    0.1
+  )
+  face_box(
+    l.x - 8, l.x + l.w + 8, l.y + l.h + 4, l.y + l.h + 8, 0, 3, models.cube,
+    {12, 12, 12}, 0.1
+  )
+  face_box(
+    l.x - 8, l.x - 4, l.y - 4, l.y + l.h + 4, 0, 3, models.cube, {12, 12, 12},
+    0.1
+  )
+  face_box(
+    l.x + l.w + 4, l.x + l.w + 8, l.y - 4, l.y + l.h + 4, 0, 3, models.cube,
+    {12, 12, 12}, 0.1
+  )
   // the felt behind the keys, the plate the wheels sit in
-  box({x: key_x(hw.KEYS_X) - 0.02, y: 0.34, z: -0.05}, {x: 5.6, y: KEY_TOP + 0.08, z: KEY_BACK}, models.cube, {104, 40, 26}, 0.02)
-  box({x: -5.6, y: 0.34, z: -0.05}, {x: key_x(hw.KEYS_X) - 0.04, y: 0.4, z: 2.82}, models.cube, {16, 16, 17}, 0.15)
+  box(
+    {x: key_x(hw.KEYS_X) - 0.02, y: 0.34, z: -0.05},
+    {x: 5.6, y: KEY_TOP + 0.08, z: KEY_BACK}, models.cube, {104, 40, 26}, 0.02
+  )
+  box(
+    {x: -5.6, y: 0.34, z: -0.05}, {x: key_x(hw.KEYS_X) - 0.04, y: 0.4, z: 2.82},
+    models.cube, {16, 16, 17}, 0.15
+  )
 }
 
 // ------------------------------------------------------------ knobs and buttons
@@ -321,7 +370,7 @@ local func knob_angle(k){
   if(a == null or hw.held_knob() == k){
     a = target
   } else {
-    local dt = rl.get_frame_time()
+    local dt = rl.frame_time
     local step = (target - a) * (1 - math.exp(-dt * KNOB_EASE))
     local most = KNOB_SPEED * dt
     a = a + math.clamp(step, -most, most)
@@ -337,14 +386,20 @@ local func draw_knob(k){
   local f = hw.knob_fraction(app, k)
   local angle = knob_angle(k)
   local r = k.r
-  local place = mul(rl.matrix_rotate_z(-angle), T(k.x, -k.y, 0), panel_matrix)
+  local place = mul(rl.matrix.rotate_z(-angle), T(k.x, -k.y, 0), panel_matrix)
   if(k.kind == "volume"){
-    draw(models.cylinder, mul(S(r + 6.0, 4.0, r + 6.0), RX90, place), {58, 54, 52}, 0.3)
+    draw(
+      models.cylinder, mul(S(r + 6.0, 4.0, r + 6.0), RX90, place), {58, 54, 52},
+      0.3
+    )
     draw(models.cylinder, mul(S(r, 18.0, r), RX90, place), {18, 17, 17}, 0.2)
   } else {
     // an encoder: a knurled-looking ring and a lighter cap
     draw(models.cylinder, mul(S(r, 14.0, r), RX90, place), {26, 25, 25}, 0.25)
-    draw(models.cylinder, mul(S(r - 3, 2.0, r - 3), RX90, T(0, 0, 14.0), place), {64, 61, 60}, 0.35)
+    draw(
+      models.cylinder, mul(S(r - 3, 2.0, r - 3), RX90, T(0, 0, 14.0), place),
+      {64, 61, 60}, 0.35
+    )
   }
   // the pointer, dark on an encoder without a parameter
   local pointer = {245, 240, 230}
@@ -355,7 +410,10 @@ local func draw_knob(k){
   if(k.kind == "encoder"){
     top = 16.4
   }
-  draw(models.cube, mul(S(3.0, r * 0.7, 1.6), T(0, r * 0.5, top), place), pointer, 0.2)
+  draw(
+    models.cube, mul(S(3.0, r * 0.7, 1.6), T(0, r * 0.5, top), place), pointer,
+    0.2
+  )
 }
 
 // a button: a cap that goes down while held, and its LED
@@ -378,8 +436,13 @@ local func draw_button(b){
     cap = {52, 50, 50}
   }
   local place = mul(T(b.x, -b.y, 0), panel_matrix)
-  draw(models.cube, mul(S(b.w + 4, b.h + 4, 2), T(0, 0, 1), place), {10, 10, 10}, 0.05)
-  draw(models.cube, mul(S(b.w, b.h, height), T(0, 0, height / 2), place), cap, 0.25)
+  draw(
+    models.cube, mul(S(b.w + 4, b.h + 4, 2), T(0, 0, 1), place), {10, 10, 10},
+    0.05
+  )
+  draw(
+    models.cube, mul(S(b.w, b.h, height), T(0, 0, height / 2), place), cap, 0.25
+  )
   // the LED on the cap's right end
   local lit = hw.lit(app, b)
   local led = {70, 22, 14}
@@ -388,7 +451,11 @@ local func draw_button(b){
     led = {255, 96, 40}
     glow = 0.9
   }
-  draw(models.cube, mul(S(9, 5, 1.5), T(b.w / 2 - 9, b.h / 2 - 6, height + 0.6), place), led, 0.4, 1.0, null, glow)
+  draw(
+    models.cube,
+    mul(S(9, 5, 1.5), T(b.w / 2 - 9, b.h / 2 - 6, height + 0.6), place), led,
+    0.4, 1.0, null, glow
+  )
 }
 
 local func draw_controls(){
@@ -444,13 +511,19 @@ local func draw_keys(){
       angle = p * 0.1
     }
     local hinge_y = b.min.y
-    local size = {x: b.max.x - b.min.x, y: b.max.y - b.min.y, z: b.max.z - b.min.z}
-    local center = {x: (b.min.x + b.max.x) / 2, y: (b.min.y + b.max.y) / 2, z: (b.min.z + b.max.z) / 2}
+    local size = {
+      x: b.max.x - b.min.x, y: b.max.y - b.min.y, z: b.max.z - b.min.z
+    }
+    local center = {
+      x: (b.min.x + b.max.x) / 2,
+      y: (b.min.y + b.max.y) / 2,
+      z: (b.min.z + b.max.z) / 2,
+    }
     local m = mul(
       S(size.x, size.y, size.z),
       T(0, center.y - hinge_y, center.z - KEY_BACK),
-      rl.matrix_rotate_x(angle),
-      T(center.x, hinge_y, KEY_BACK)
+      rl.matrix.rotate_x(angle),
+      T(center.x, hinge_y, KEY_BACK),
     )
     if(k.black){
       draw(models.cube, m, {24, 24, 26}, 0.9)
@@ -473,7 +546,9 @@ local func wheel_box(wh){
   local x = wheel_x(wh)
   return {
     min: {x: x - WHEEL_WIDTH, y: 0.3, z: WHEEL_Z - WHEEL_R},
-    max: {x: x + WHEEL_WIDTH, y: WHEEL_Y + WHEEL_R + 0.05, z: WHEEL_Z + WHEEL_R},
+    max: {
+      x: x + WHEEL_WIDTH, y: WHEEL_Y + WHEEL_R + 0.05, z: WHEEL_Z + WHEEL_R
+    },
   }
 }
 
@@ -490,13 +565,25 @@ local func draw_wheels(){
   for(let local wh in values(hw.wheels)){
     local v = wheel_value(wh)
     local x = wheel_x(wh)
-    box({x: x - WHEEL_WIDTH / 2 - 0.05, y: 0.4, z: WHEEL_Z - 0.62},
-      {x: x + WHEEL_WIDTH / 2 + 0.05, y: 0.42, z: WHEEL_Z + 0.62},
-      models.cube, {4, 4, 4}, 0.0)
-    local turn = mul(rl.matrix_rotate_x((0.5 - v) * 1.4), T(x, WHEEL_Y, WHEEL_Z))
-    local side = mul(rl.matrix_rotate_z(math.pi / 2), T(WHEEL_WIDTH / 2, 0, 0))
-    draw(models.cylinder, mul(S(WHEEL_R, WHEEL_WIDTH, WHEEL_R), side, turn), {30, 30, 32}, 0.4)
-    draw(models.cube, mul(S(WHEEL_WIDTH + 0.01, 0.03, 0.06), T(0, WHEEL_R, 0), turn), {232, 118, 64}, 0.5)
+    box(
+      {x: x - WHEEL_WIDTH / 2 - 0.05, y: 0.4, z: WHEEL_Z - 0.62},
+      {x: x + WHEEL_WIDTH / 2 + 0.05, y: 0.42, z: WHEEL_Z + 0.62}, models.cube,
+      {4, 4, 4}, 0.0
+    )
+    local turn = mul(
+      rl.matrix.rotate_x((0.5 - v) * 1.4),
+      T(x, WHEEL_Y, WHEEL_Z),
+    )
+    local side = mul(rl.matrix.rotate_z(math.pi / 2), T(WHEEL_WIDTH / 2, 0, 0))
+    draw(
+      models.cylinder, mul(S(WHEEL_R, WHEEL_WIDTH, WHEEL_R), side, turn),
+      {30, 30, 32}, 0.4
+    )
+    draw(
+      models.cube,
+      mul(S(WHEEL_WIDTH + 0.01, 0.03, 0.06), T(0, WHEEL_R, 0), turn),
+      {232, 118, 64}, 0.5
+    )
   }
 }
 
@@ -516,7 +603,7 @@ local func face_point(ray, height){
   local o = on_face(0, 0, height)
   local u = sub(on_face(1, 0, height), o)
   local v = sub(on_face(0, 1, height), o)
-  local n = rl.vector3_cross_product(u, v)
+  local n = rl.vector3.cross_product(u, v)
   local denom = dot(ray.direction, n)
   if(math.abs(denom) < 0.000001){
     return null
@@ -623,11 +710,18 @@ if(view_env != null){
   view.pitch = str.to_number(parts[1])
   view.distance = str.to_number(parts[2])
   if(len(parts) >= 6){
-    target = {x: str.to_number(parts[3]), y: str.to_number(parts[4]), z: str.to_number(parts[5])}
+    target = {
+      x: str.to_number(parts[3]),
+      y: str.to_number(parts[4]),
+      z: str.to_number(parts[5]),
+    }
   }
 }
 local camera = {
-  position: {0, 0, 0}, target: target, up: {0, 1, 0}, fovy: 40,
+  position: {0, 0, 0},
+  target: target,
+  up: {0, 1, 0},
+  fovy: 40,
   projection: rl.CAMERA_PERSPECTIVE,
 }
 
@@ -646,11 +740,12 @@ local mouse_note = null
 local wheel_drag = null
 
 local func handle_mouse(){
-  local m = rl.get_mouse_position()
-  local ray = rl.get_screen_to_world_ray(m, camera)
+  local m = rl.mouse.position
+  local ray = rl.screen_to_world_ray(m, camera)
   local left = rl.MOUSE_BUTTON_LEFT
-  local shift = rl.is_key_down(rl.KEY_LEFT_SHIFT) or rl.is_key_down(rl.KEY_RIGHT_SHIFT)
-  if(rl.is_mouse_button_pressed(left)){
+  local shift = rl.key.down(rl.KEY_LEFT_SHIFT) or
+    rl.key.down(rl.KEY_RIGHT_SHIFT)
+  if(rl.mouse.pressed(left)){
     local c = control_hit(ray)
     if(c != null){
       hw.press(app, c, m.y, shift)
@@ -670,7 +765,7 @@ local func handle_mouse(){
       }
     }
   }
-  if(rl.is_mouse_button_down(left)){
+  if(rl.mouse.down(left)){
     hw.drag(app, m.y, shift)
     if(wheel_drag != null){
       local v = math.clamp(wheel_drag.value + (wheel_drag.y - m.y) / 150, 0, 1)
@@ -688,7 +783,7 @@ local func handle_mouse(){
       }
     }
   }
-  if(rl.is_mouse_button_released(left)){
+  if(rl.mouse.released(left)){
     hw.release()
     wheel_drag = null
     if(mouse_note != null){
@@ -696,7 +791,7 @@ local func handle_mouse(){
       mouse_note = null
     }
   }
-  local w = rl.get_mouse_wheel_move()
+  local w = rl.mouse.wheel
   if(w != 0.0){
     local c = control_hit(ray)
     if(c != null){
@@ -706,13 +801,14 @@ local func handle_mouse(){
     }
   }
   // the right button looks around
-  if(rl.is_mouse_button_down(rl.MOUSE_BUTTON_RIGHT)){
-    local d = rl.get_mouse_delta()
+  if(rl.mouse.down(rl.MOUSE_BUTTON_RIGHT)){
+    local d = rl.mouse.delta
     view.yaw = math.clamp(view.yaw - d.x * 0.005, -1.3, 1.3)
     view.pitch = math.clamp(view.pitch + d.y * 0.004, 0.1, 1.35)
   }
   // the pitch wheel springs back (unless the controller holds it)
-  if(not app.bend_from_midi and (wheel_drag == null or wheel_drag.wheel.index != engine.BEND)){
+  if(not app.bend_from_midi and
+    (wheel_drag == null or wheel_drag.wheel.index != engine.BEND)){
     local b = app.controls[engine.BEND]
     if(b != 0){
       local nb = b * 0.65
@@ -727,50 +823,65 @@ local func handle_mouse(){
 // ------------------------------------------------------------ the frame
 
 local face_camera = {
-  offset: {-FACE_X * FACE_SCALE, -FACE_Y * FACE_SCALE}, target: {0, 0},
-  rotation: 0, zoom: FACE_SCALE,
+  offset: {-FACE_X * FACE_SCALE, -FACE_Y * FACE_SCALE},
+  target: {0, 0},
+  rotation: 0,
+  zoom: FACE_SCALE,
 }
 
 local func draw_face(){
-  rl.begin_texture_mode(face_target)
-  rl.clear_background(hw.colors.panel)
-  rl.begin_mode_2d(face_camera)
-  hw.draw_face(app, false)
-  rl.end_mode_2d()
-  rl.end_texture_mode()
-  rl.gen_texture_mipmaps(face_target.texture)
-  rl.set_texture_filter(face_target.texture, rl.TEXTURE_FILTER_TRILINEAR)
+  rl.texture_mode(face_target){
+    rl.draw.clear(hw.colors.panel)
+    rl.mode_2d(face_camera){
+      hw.draw_face(app, false)
+    }
+  }
+  face_target.texture:gen_mipmaps()
+  face_target.texture.filter = rl.TEXTURE_FILTER_TRILINEAR
 }
 
 local func draw_scene(){
-  rl.set_shader_value(shader, locs.viewPos, camera.position, rl.SHADER_UNIFORM_VEC3)
+  shader:set_value(locs.viewPos, camera.position, rl.SHADER_UNIFORM_VEC3)
   current = {scale: -1.0, shine: -1.0, axis: -1.0, seed: -1.0, glow: -1.0}
-  rl.begin_mode_3d(camera)
-  // the desk, and a shadow under the synth
-  box({x: -80, y: -0.2, z: -60}, {x: 80, y: -0.01, z: 60}, models.cube, {36, 33, 31}, 0.03)
-  box({x: -6.4, y: -0.01, z: -1.4}, {x: 6.4, y: 0.0, z: 3.35}, models.cube, {12, 11, 11}, 0.0)
-  draw_case()
-  draw_controls()
-  draw_keys()
-  draw_wheels()
-  rl.end_mode_3d()
+  rl.mode_3d(camera){
+    // the desk, and a shadow under the synth
+    box(
+      {x: -80, y: -0.2, z: -60}, {x: 80, y: -0.01, z: 60}, models.cube,
+      {36, 33, 31}, 0.03
+    )
+    box(
+      {x: -6.4, y: -0.01, z: -1.4}, {x: 6.4, y: 0.0, z: 3.35}, models.cube,
+      {12, 11, 11}, 0.0
+    )
+    draw_case()
+    draw_controls()
+    draw_keys()
+    draw_wheels()
+  }
 }
 
 local func draw_hud(){
   if(app.learning){
-    gfx.text("MIDI LEARN: click a knob, then turn one on the controller    F1: done    BACKSPACE: unbind it",
-      16, H - 26, 10, {232, 118, 64})
+    gfx.text(
+      "MIDI LEARN: click a knob, then turn one on the controller    F1: done    BACKSPACE: unbind it",
+      16, H - 26, 10, {232, 118, 64}
+    )
   } else {
-    gfx.text("right drag: look around    wheel: closer    left/right: octave    up/down: patch    TAB: sustain    SPACE: all off    F1: MIDI learn",
-      16, H - 26, 10, {150, 142, 132})
+    gfx.text(
+      "right drag: look around    wheel: closer    left/right: octave    up/down: patch    TAB: sustain    SPACE: all off    F1: MIDI learn",
+      16, H - 26, 10, {150, 142, 132}
+    )
   }
-  gfx.text(concat("OCTAVE ", require("patch").note_name(app.octave)), W - 110, H - 26, 10, {150, 142, 132})
+  gfx.text(
+    concat("OCTAVE ", require("patch").note_name(app.octave)), W - 110, H - 26,
+    10, {150, 142, 132}
+  )
 }
 
-rl.set_config_flags(rl.FLAG_MSAA_4X_HINT)
-rl.init_window(W, H, "slang six 3D")
-rl.set_target_fps(60)
-rl.set_exit_key(rl.KEY_NULL)
+rl.config_flags = rl.FLAG_MSAA_4X_HINT
+rl.window.open(W, H, "slang six 3D")
+rl.target_fps = 60
+rl.window.exit_key = rl.KEY_NULL
 gfx.load_font()
 setup()
 // the knobs of many small controllers (an MPK mini's among them) send
@@ -790,15 +901,15 @@ if(os.getenv("FM_PICKTEST") != null){
   place_camera()
   local misses = 0
   for(let local c in values(hw.knobs)){
-    local at = rl.get_world_to_screen(on_face(c.x, c.y, 8.0), camera)
-    if(control_hit(rl.get_screen_to_world_ray(at, camera)) != c){
+    local at = rl.world_to_screen(on_face(c.x, c.y, 8.0), camera)
+    if(control_hit(rl.screen_to_world_ray(at, camera)) != c){
       misses = misses + 1
       print("pick test: ", c.kind, " ", c.index, "\n")
     }
   }
   for(let local c in values(hw.buttons)){
-    local at = rl.get_world_to_screen(on_face(c.x, c.y, 8.0), camera)
-    if(control_hit(rl.get_screen_to_world_ray(at, camera)) != c){
+    local at = rl.world_to_screen(on_face(c.x, c.y, 8.0), camera)
+    if(control_hit(rl.screen_to_world_ray(at, camera)) != c){
       misses = misses + 1
       print("pick test: ", c.kind, " ", c.index, "\n")
     }
@@ -806,7 +917,10 @@ if(os.getenv("FM_PICKTEST") != null){
   for(local i = 0; i < len(hw.keys); i = i + 1){
     local b = key_boxes[i]
     local top = {x: (b.min.x + b.max.x) / 2, y: b.max.y, z: b.max.z - 0.2}
-    local k = key_hit(rl.get_screen_to_world_ray(rl.get_world_to_screen(top, camera), camera))
+    local k = key_hit(rl.screen_to_world_ray(
+      rl.world_to_screen(top, camera),
+      camera,
+    ))
     if(k == null or k.note != hw.keys[i].note){
       misses = misses + 1
       print("pick test: key ", hw.keys[i].note, "\n")
@@ -817,24 +931,24 @@ if(os.getenv("FM_PICKTEST") != null){
 
 local frame = 0
 app.mark_start()
-for(not rl.window_should_close() and frame != app.max_frames){
+for(not rl.window.should_close and frame != app.max_frames){
   place_camera()
   handle_mouse()
   app.handle_keys()
   app.update(frame)
   draw_face()
-  rl.begin_drawing()
-  rl.clear_background({14, 13, 15})
-  rl.draw_rectangle_gradient_v(0, 0, W, H, {44, 42, 46}, {14, 13, 15})
-  draw_scene()
-  draw_hud()
-  rl.end_drawing()
+  rl.drawing{
+    rl.draw.clear({14, 13, 15})
+    rl.draw.rectangle_gradient_v(0, 0, W, H, {44, 42, 46}, {14, 13, 15})
+    draw_scene()
+    draw_hud()
+  }
   frame = frame + 1
   app.end_frame(frame)
 }
 
-rl.unload_render_texture(face_target)
-rl.unload_shader(shader)
+face_target:unload()
+shader:unload()
 gfx.unload_font()
 app.finish(frame)
-rl.close_window()
+rl.window.close()

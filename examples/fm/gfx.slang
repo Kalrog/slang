@@ -19,32 +19,32 @@ local font = null
 func gfx.load_font(){
   for(let local f in values(font_files)){
     if(font == null and os.exists(f)){
-      font = rl.load_font_ex(f, 48, null)
-      rl.gen_texture_mipmaps(font.texture)
-      rl.set_texture_filter(font.texture, rl.TEXTURE_FILTER_TRILINEAR)
+      font = rl.font(f, {size: 48})
+      font.texture:gen_mipmaps()
+      font.texture.filter = rl.TEXTURE_FILTER_TRILINEAR
     }
   }
 }
 
 func gfx.unload_font(){
   if(font != null){
-    rl.unload_font(font)
+    font:unload()
     font = null
   }
 }
 
 func gfx.measure(s, size){
   if(font == null){
-    return rl.measure_text(s, size)
+    return rl.text.measure(s, size)
   }
-  return rl.measure_text_ex(font, s, size * 1.3, 0.6).x
+  return font:measure(s, size * 1.3, 0.6).x
 }
 
 func gfx.text(s, x, y, size, color){
   if(font == null){
-    rl.draw_text(s, to_int(x), to_int(y), size, color)
+    rl.draw.text(s, to_int(x), to_int(y), size, color)
   } else {
-    rl.draw_text_ex(font, s, {x: x, y: y - size * 0.1}, size * 1.3, 0.6, color)
+    font:draw_text_ex(s, {x: x, y: y - size * 0.1}, size * 1.3, 0.6, color)
   }
 }
 
@@ -84,10 +84,7 @@ func gfx.draw_eg(rates, levels, x, y, w, h, start, color, thick){
   for(local i = 1; i < len(points); i = i + 1){
     local a = points[i - 1]
     local b = points[i]
-    rl.draw_line_ex(
-      {x: x + 1 + a[0] * scale, y: y + h - 2 - a[1] / 99 * (h - 4)},
-      {x: x + 1 + b[0] * scale, y: y + h - 2 - b[1] / 99 * (h - 4)},
-      thick or 1.5, color)
+    rl.draw.line_ex({x: x + 1 + a[0] * scale, y: y + h - 2 - a[1] / 99 * (h - 4)}, {x: x + 1 + b[0] * scale, y: y + h - 2 - b[1] / 99 * (h - 4)}, thick or 1.5, color)
   }
 }
 

@@ -26,13 +26,13 @@ hud.colors = colors
 // text with a shadow, readable on bright walls
 local func text(s, x, y, size, color){
   local d = if(size >= 40){ 3 } else { 2 }
-  rl.draw_text(s, to_int(x) + d, to_int(y) + d, size, {0, 0, 0, 170})
-  rl.draw_text(s, to_int(x), to_int(y), size, color)
+  rl.draw.text(s, to_int(x) + d, to_int(y) + d, size, {0, 0, 0, 170})
+  rl.draw.text(s, to_int(x), to_int(y), size, color)
 }
 
 local func centered(s, y, size, color){
-  local w = rl.get_screen_width()
-  text(s, w / 2 - rl.measure_text(s, size) / 2, y, size, color)
+  local w = rl.window.width
+  text(s, w / 2 - rl.text.measure(s, size) / 2, y, size, color)
 }
 hud.centered = centered
 
@@ -60,26 +60,26 @@ local func log_line(entry){
 
 // deck(w, ed, blink): the deck panel, when jacked in
 func hud.deck(w, ed, blink){
-  local sw = rl.get_screen_width()
-  local sh = rl.get_screen_height()
+  local sw = rl.window.width
+  local sh = rl.window.height
   local ph = to_int(sh * 0.46)
   local y0 = sh - ph
-  rl.draw_rectangle(0, y0, sw, ph, colors.panel)
-  rl.draw_rectangle(0, y0, sw, 2, colors.panel_edge)
+  rl.draw.rectangle(0, y0, sw, ph, colors.panel)
+  rl.draw.rectangle(0, y0, sw, 2, colors.panel_edge)
   local port = w.objects[w.jacked]
   local head = concat(
     "DECK // ", port.name, " // ", str.join(port.network, " ")
   )
   text(head, 16, y0 + 10, 20, colors.accent)
   local keys = "Enter run   Shift+Enter new line   Up/Down history   Ctrl+C stop   Esc unplug"
-  text(keys, sw - 16 - rl.measure_text(keys, 10), y0 + 15, 10, colors.dim)
+  text(keys, sw - 16 - rl.text.measure(keys, 10), y0 + 15, 10, colors.dim)
   // the input, at the bottom
   local size = 20
   local lh = 24
   local view = ed:lines()
   local input_lines = len(view.lines)
   local iy = sh - 14 - input_lines * lh
-  rl.draw_rectangle(8, iy - 8, sw - 16, input_lines * lh + 12, {
+  rl.draw.rectangle(8, iy - 8, sw - 16, input_lines * lh + 12, {
     20, 30, 24, 255
   })
   for(local i = 0; i < input_lines; i = i + 1){
@@ -89,8 +89,8 @@ func hud.deck(w, ed, blink){
   if(blink){
     local line = view.lines[view.line] or ""
     local before = concat("> ", str.substring(line, 0, view.column))
-    local cx = 16 + rl.measure_text(before, size)
-    rl.draw_rectangle(cx + 1, iy + view.line * lh, 10, size, colors.accent)
+    local cx = 16 + rl.text.measure(before, size)
+    rl.draw.rectangle(cx + 1, iy + view.line * lh, 10, size, colors.accent)
   }
   // the log, newest at the bottom, above the input
   local top = y0 + 40
@@ -108,7 +108,7 @@ func hud.deck(w, ed, blink){
   local running = w.deck:running()
   if(running > 0){
     local s = concat(string(running), " running")
-    text(s, sw - 16 - rl.measure_text(s, 20), y0 + 40, 20, colors.amber)
+    text(s, sw - 16 - rl.text.measure(s, 20), y0 + 40, 20, colors.amber)
   }
 }
 
@@ -119,7 +119,7 @@ local func deck_tail(w){
   if(running == 0){
     return
   }
-  local sh = rl.get_screen_height()
+  local sh = rl.window.height
   local log = w.deck.log
   local n = math.min(4, len(log))
   local y = sh - 20 - n * 18
@@ -133,15 +133,15 @@ local func deck_tail(w){
 
 // play(w, mission): crosshair, prompts, objective, alarm meter, notes
 func hud.play(w, mission){
-  local sw = rl.get_screen_width()
-  local sh = rl.get_screen_height()
+  local sw = rl.window.width
+  local sh = rl.window.height
   local objective = if(w.has_dossier){ "reach the exit" } else { "take the dossier" }
   text(mission.title, 16, 14, 20, colors.text)
   text(objective, 16, 38, 20, colors.dim)
   local t = clock(w.time)
-  text(t, sw - 16 - rl.measure_text(t, 20), 14, 20, colors.text)
+  text(t, sw - 16 - rl.text.measure(t, 20), 14, 20, colors.text)
   if(w.jacked == null){
-    rl.draw_circle(to_int(sw / 2), to_int(sh / 2), 2.5, {255, 255, 255, 200})
+    rl.draw.circle(to_int(sw / 2), to_int(sh / 2), 2.5, {255, 255, 255, 200})
     local port = w:port_in_reach()
     if(port != null){
       centered(
@@ -154,8 +154,8 @@ func hud.play(w, mission){
   if(w.spotted > 0.01){
     local bw = 260
     local x = sw / 2 - bw / 2
-    rl.draw_rectangle(to_int(x), 18, bw, 12, {60, 20, 20, 220})
-    rl.draw_rectangle(
+    rl.draw.rectangle(to_int(x), 18, bw, 12, {60, 20, 20, 220})
+    rl.draw.rectangle(
       to_int(x), 18, to_int(bw * math.min(1, w.spotted)), 12, colors.red
     )
     centered("SEEN", 36, 20, colors.red)
@@ -170,12 +170,12 @@ func hud.play(w, mission){
 // ------------------------------------------------------------ screens
 
 local func veil(color){
-  rl.draw_rectangle(0, 0, rl.get_screen_width(), rl.get_screen_height(), color)
+  rl.draw.rectangle(0, 0, rl.window.width, rl.window.height, color)
 }
 
 // title(missions, selected, best): the job list
 func hud.title(missions, selected, best){
-  local sh = rl.get_screen_height()
+  local sh = rl.window.height
   veil({8, 10, 16, 200})
   centered("DECKHAND", sh * 0.12, 80, colors.accent)
   centered("a heist game written in slang", sh * 0.12 + 86, 20, colors.dim)
@@ -199,8 +199,8 @@ func hud.title(missions, selected, best){
 
 // briefing(mission)
 func hud.briefing(mission){
-  local sh = rl.get_screen_height()
-  local sw = rl.get_screen_width()
+  local sh = rl.window.height
+  local sw = rl.window.width
   veil({8, 10, 16, 225})
   centered(mission.title, sh * 0.14, 50, colors.accent)
   local x = sw / 2 - 360
@@ -217,7 +217,7 @@ func hud.briefing(mission){
 
 // caught(w)
 func hud.caught(w){
-  local sh = rl.get_screen_height()
+  local sh = rl.window.height
   veil({120, 0, 0, 120})
   centered("ALARM", sh * 0.3, 80, colors.red)
   centered(w.reason or "", sh * 0.3 + 96, 30, colors.text)
@@ -226,7 +226,7 @@ func hud.caught(w){
 
 // complete(w, best)
 func hud.complete(w, best, last){
-  local sh = rl.get_screen_height()
+  local sh = rl.window.height
   veil({0, 40, 20, 150})
   centered("JOB DONE", sh * 0.3, 80, colors.accent)
   local line = concat("time ", clock(w.time))
@@ -244,7 +244,7 @@ func hud.complete(w, best, last){
 
 // paused()
 func hud.paused(){
-  local sh = rl.get_screen_height()
+  local sh = rl.window.height
   veil({0, 0, 0, 150})
   centered("PAUSED", sh * 0.35, 60, colors.text)
   centered("Esc resume   R restart   Q jobs", sh * 0.35 + 80, 20, colors.dim)

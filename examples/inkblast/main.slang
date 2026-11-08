@@ -111,9 +111,9 @@ if(os.getenv("INKBLAST_SHOT") != null){
   }
 }
 
-rl.set_config_flags(rl.FLAG_MSAA_4X_HINT)
-rl.init_window(render.WIDTH, render.HEIGHT, "Inkblast")
-rl.set_target_fps(60)
+rl.config_flags = rl.FLAG_MSAA_4X_HINT
+rl.window.open(render.WIDTH, render.HEIGHT, "Inkblast")
+rl.target_fps = 60
 render.init_sound()
 
 // the direction held: the newest key pressed wins while it is down
@@ -123,7 +123,7 @@ local KEYS = {
 local held = {}
 local func steering(){
   for(local d = 1; d <= 4; d = d + 1){
-    local down = rl.is_key_down(KEYS[d - 1][0]) or rl.is_key_down(KEYS[d - 1][1])
+    local down = rl.key.down(KEYS[d - 1][0]) or rl.key.down(KEYS[d - 1][1])
     local i = -1
     for(local j = 0; j < len(held); j = j + 1){
       if(held[j] == d){
@@ -159,11 +159,11 @@ local func autopilot(){
 local feed = {}
 local frames = 0
 local start = uv.hrtime()
-for(; not rl.window_should_close(); frames = frames + 1){
+for(; not rl.window.should_close; frames = frames + 1){
   if(frame_limit != null and frames >= to_int(frame_limit)){
     break
   }
-  local dt = rl.get_frame_time() * 1000
+  local dt = rl.frame_time * 1000
   if(host != null){
     host:update(dt)
   }
@@ -171,7 +171,7 @@ for(; not rl.window_should_close(); frames = frames + 1){
     autopilot()
   } else {
     c:steer(steering())
-    if(rl.is_key_pressed(rl.KEY_SPACE)){
+    if(rl.key.pressed(rl.KEY_SPACE)){
       c:drop()
     }
   }
@@ -198,7 +198,7 @@ for(; not rl.window_should_close(); frames = frames + 1){
   }
   render.draw(c, feed, time)
   if(shots[frames] != null){
-    rl.take_screenshot(shots[frames])
+    rl.window.screenshot(shots[frames])
   }
 }
 c:close()
@@ -208,5 +208,5 @@ if(host != null){
   host:close()
 }
 render.close_sound()
-rl.close_window()
+rl.window.close()
 print("inkblast: ", frames, " frames, ", c.status, "\n")

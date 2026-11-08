@@ -90,7 +90,7 @@ func Editor.to_level(ed){
 // resume(ed): back from a test: the world again
 func Editor.resume(ed){
   ed:rebuild()
-  rl.show_cursor()
+  rl.mouse.visible = true
 }
 
 func Editor.say(ed, text){
@@ -137,38 +137,38 @@ local func move_camera(ed, dt){
   local f = {x: math.sin(c.yaw), z: math.cos(c.yaw)}
   // (y up, looking along +z: the right-hand side is -x)
   local r = {x: -math.cos(c.yaw), z: math.sin(c.yaw)}
-  if(rl.is_key_down(rl.KEY_W) or rl.is_key_down(rl.KEY_UP)){
+  if(rl.key.down(rl.KEY_W) or rl.key.down(rl.KEY_UP)){
     c.target.x = c.target.x + f.x * speed
     c.target.z = c.target.z + f.z * speed
   }
-  if(rl.is_key_down(rl.KEY_S) or rl.is_key_down(rl.KEY_DOWN)){
+  if(rl.key.down(rl.KEY_S) or rl.key.down(rl.KEY_DOWN)){
     c.target.x = c.target.x - f.x * speed
     c.target.z = c.target.z - f.z * speed
   }
-  if(rl.is_key_down(rl.KEY_D) or rl.is_key_down(rl.KEY_RIGHT)){
+  if(rl.key.down(rl.KEY_D) or rl.key.down(rl.KEY_RIGHT)){
     c.target.x = c.target.x + r.x * speed
     c.target.z = c.target.z + r.z * speed
   }
-  if(rl.is_key_down(rl.KEY_A) or rl.is_key_down(rl.KEY_LEFT)){
+  if(rl.key.down(rl.KEY_A) or rl.key.down(rl.KEY_LEFT)){
     c.target.x = c.target.x - r.x * speed
     c.target.z = c.target.z - r.z * speed
   }
   local half = ed.built.t.half
   c.target.x = vec.clamp(c.target.x, -half, half)
   c.target.z = vec.clamp(c.target.z, -half, half)
-  if(rl.is_mouse_button_down(rl.MOUSE_BUTTON_RIGHT)){
-    local d = rl.get_mouse_delta()
+  if(rl.mouse.down(rl.MOUSE_BUTTON_RIGHT)){
+    local d = rl.mouse.delta
     c.yaw = c.yaw - d.x * 0.006
     c.pitch = vec.clamp(c.pitch + d.y * 0.004, 0.15, 1.45)
   }
-  c.distance = vec.clamp(c.distance - rl.get_mouse_wheel_move() * 2.5, 6, 90)
+  c.distance = vec.clamp(c.distance - rl.mouse.wheel * 2.5, 6, 90)
 }
 
 // ------------------------------------------------------------ picking
 
 // what the mouse points at: {point, entity?, ground: bool, decor?}
 local func pick(ed, camera){
-  local ray = rl.get_screen_to_world_ray(rl.get_mouse_position(), camera)
+  local ray = rl.screen_to_world_ray(rl.mouse.position, camera)
   local w = ed.built.w
   local hit = w:ray(ray.position, ray.direction, 600)
   if(hit == null){
@@ -193,7 +193,7 @@ local func apply_brush(ed, point, dt){
   local b = ed.brush
   local t = ed.built.t
   local amount = b.strength * dt * 6
-  if(rl.is_key_down(rl.KEY_LEFT_SHIFT) or rl.is_key_down(rl.KEY_RIGHT_SHIFT)){
+  if(rl.key.down(rl.KEY_LEFT_SHIFT) or rl.key.down(rl.KEY_RIGHT_SHIFT)){
     amount = -amount
   }
   if(b.mode == 0){
@@ -662,7 +662,7 @@ local func ring(t, cx, cz, radius, color){
     local z = cz + math.cos(a) * radius
     local p = {x: x, y: terrain.height_at(t, x, z) + 0.15, z: z}
     if(last != null){
-      rl.draw_line_3d(last, p, color)
+      rl.draw.line_3d(last, p, color)
     }
     last = p
   }
@@ -688,8 +688,8 @@ func Editor.frame(ed, dt){
   ed.time = ed.time + dt
   ed.status_age = ed.status_age + dt
   ed.exit_asked = ed.exit_asked - dt
-  local w = rl.get_screen_width()
-  local h = rl.get_screen_height()
+  local w = rl.window.width
+  local h = rl.window.height
   move_camera(ed, dt)
   local camera = camera_of(ed)
   local hit = pick(ed, camera)
@@ -699,54 +699,54 @@ func Editor.frame(ed, dt){
   local over = ui.over_last()
   // the world
   render.backdrop(camera, ed.time)
-  render.begin(camera)
-  render.terrain(ed.built.t)
-  ed.built.w:draw({selected: ed.selected, selected_group: ed.selected_group, joints: true, camera: camera})
-  if(ed.selected_decor != null){
-    local d = ed.selected_decor
-    ring(ed.built.t, d.x, d.z, 1.2, {255, 230, 120, 255})
-  }
-  if(ed.selected_joint != null){
-    render.sphere(ed.selected_joint.point, 0.3, {255, 230, 120, 255})
-  }
-  if(ed.joint.first != null){
-    render.sphere(ed.joint.first.pos, 0.25, {255, 120, 40, 255})
-  }
-  spawn_marker(ed)
-  if(hit != null and not over){
-    if(tool == "Terrain"){
-      ring(ed.built.t, hit.point.x, hit.point.z, ed.brush.radius, {255, 255, 255, 220})
-    } else if(tool == "Build"){
-      local b = ed.build
-      local kind = STRUCTURES[b.kind]
-      ring(ed.built.t, hit.point.x, hit.point.z, structures.footprint(kind, {
-        width: b.width, depth: b.depth, radius: b.radius, length: b.length
-      }), {255, 255, 255, 200})
-    } else if(tool == "Place" and (hit.entity == null or rl.is_key_down(rl.KEY_LEFT_SHIFT)) and
-      not (ed.selected != null and down)){
-      local spec = place_spec(ed, hit.point)
-      local color = materials.color(spec.material, 0)
-      local ghost = {color[0], color[1], color[2], 120}
-      if(spec.kind == "sphere"){
-        render.sphere(spec.pos, spec.size.x, ghost)
-      } else if(spec.kind == "cylinder"){
-        render.cylinder(spec.pos, vec.quat_yaw(spec.yaw), spec.size.x, spec.size.y, ghost)
-      } else {
-        render.box(spec.pos, vec.quat_yaw(spec.yaw), spec.size, ghost)
-      }
-    } else if(tool == "Decor"){
-      ring(ed.built.t, hit.point.x, hit.point.z, ed.decor.scale, {200, 255, 200, 200})
-    } else if(tool == "Spawn"){
-      ring(ed.built.t, hit.point.x, hit.point.z, 3, {255, 200, 80, 160})
+  render.scene(camera){
+    render.terrain(ed.built.t)
+    ed.built.w:draw({selected: ed.selected, selected_group: ed.selected_group, joints: true, camera: camera})
+    if(ed.selected_decor != null){
+      local d = ed.selected_decor
+      ring(ed.built.t, d.x, d.z, 1.2, {255, 230, 120, 255})
     }
+    if(ed.selected_joint != null){
+      render.sphere(ed.selected_joint.point, 0.3, {255, 230, 120, 255})
+    }
+    if(ed.joint.first != null){
+      render.sphere(ed.joint.first.pos, 0.25, {255, 120, 40, 255})
+    }
+    spawn_marker(ed)
+    if(hit != null and not over){
+      if(tool == "Terrain"){
+        ring(ed.built.t, hit.point.x, hit.point.z, ed.brush.radius, {255, 255, 255, 220})
+      } else if(tool == "Build"){
+        local b = ed.build
+        local kind = STRUCTURES[b.kind]
+        ring(ed.built.t, hit.point.x, hit.point.z, structures.footprint(kind, {
+          width: b.width, depth: b.depth, radius: b.radius, length: b.length
+        }), {255, 255, 255, 200})
+      } else if(tool == "Place" and (hit.entity == null or rl.key.down(rl.KEY_LEFT_SHIFT)) and
+        not (ed.selected != null and down)){
+        local spec = place_spec(ed, hit.point)
+        local color = materials.color(spec.material, 0)
+        local ghost = {color[0], color[1], color[2], 120}
+        if(spec.kind == "sphere"){
+          render.sphere(spec.pos, spec.size.x, ghost)
+        } else if(spec.kind == "cylinder"){
+          render.cylinder(spec.pos, vec.quat_yaw(spec.yaw), spec.size.x, spec.size.y, ghost)
+        } else {
+          render.box(spec.pos, vec.quat_yaw(spec.yaw), spec.size, ghost)
+        }
+      } else if(tool == "Decor"){
+        ring(ed.built.t, hit.point.x, hit.point.z, ed.decor.scale, {200, 255, 200, 200})
+      } else if(tool == "Spawn"){
+        ring(ed.built.t, hit.point.x, hit.point.z, 3, {255, 200, 80, 160})
+      }
+    }
+    render.water(ed.built.t, ed.time)
   }
-  render.water(ed.built.t, ed.time)
-  render.end()
 
   // the mouse on the world (not on the panel)
-  local pressed = rl.is_mouse_button_pressed(rl.MOUSE_BUTTON_LEFT)
-  local down = rl.is_mouse_button_down(rl.MOUSE_BUTTON_LEFT)
-  local shift = rl.is_key_down(rl.KEY_LEFT_SHIFT) or rl.is_key_down(rl.KEY_RIGHT_SHIFT)
+  local pressed = rl.mouse.pressed(rl.MOUSE_BUTTON_LEFT)
+  local down = rl.mouse.down(rl.MOUSE_BUTTON_LEFT)
+  local shift = rl.key.down(rl.KEY_LEFT_SHIFT) or rl.key.down(rl.KEY_RIGHT_SHIFT)
   // in the placing tools a click on a part selects it (shift: the tool
   // acts on it instead), and the selection drags along the mouse: over
   // the level of its own floor, up the ground where that is higher
@@ -763,9 +763,9 @@ func Editor.frame(ed, dt){
     if(not down){
       ed.drag = null
     } else if(ed.selected != null and not over){
-      local d = rl.get_mouse_delta()
+      local d = rl.mouse.delta
       if(d.x != 0 or d.y != 0){
-        local ray = rl.get_screen_to_world_ray(rl.get_mouse_position(), camera)
+        local ray = rl.screen_to_world_ray(rl.mouse.position, camera)
         if(ray.direction.y < -0.02){
           local t = (ed.drag.floor - ray.position.y) / ray.direction.y
           local p = vec.add(ray.position, vec.scale(ray.direction, t))
@@ -861,20 +861,20 @@ func Editor.frame(ed, dt){
   }
   // keys for the selection
   if(not ed.name_focused){
-    if(rl.is_key_pressed(rl.KEY_DELETE) or rl.is_key_pressed(rl.KEY_BACKSPACE) or rl.is_key_pressed(rl.KEY_X)){
+    if(rl.key.pressed(rl.KEY_DELETE) or rl.key.pressed(rl.KEY_BACKSPACE) or rl.key.pressed(rl.KEY_X)){
       delete_selection(ed)
     }
     if(ed.selected != null){
-      if(rl.is_key_pressed(rl.KEY_Q)){ turn_selection(ed, 0.2) }
-      if(rl.is_key_pressed(rl.KEY_E)){ turn_selection(ed, -0.2) }
-      if(rl.is_key_pressed(rl.KEY_R)){ lift_selection(ed, 0.25) }
-      if(rl.is_key_pressed(rl.KEY_F)){ lift_selection(ed, -0.25) }
-      if(rl.is_key_pressed(rl.KEY_D) and not rl.is_key_down(rl.KEY_LEFT_CONTROL)){
-        if(rl.is_key_down(rl.KEY_LEFT_SUPER) or rl.is_key_down(rl.KEY_LEFT_CONTROL) or rl.is_key_down(rl.KEY_LEFT_ALT)){
+      if(rl.key.pressed(rl.KEY_Q)){ turn_selection(ed, 0.2) }
+      if(rl.key.pressed(rl.KEY_E)){ turn_selection(ed, -0.2) }
+      if(rl.key.pressed(rl.KEY_R)){ lift_selection(ed, 0.25) }
+      if(rl.key.pressed(rl.KEY_F)){ lift_selection(ed, -0.25) }
+      if(rl.key.pressed(rl.KEY_D) and not rl.key.down(rl.KEY_LEFT_CONTROL)){
+        if(rl.key.down(rl.KEY_LEFT_SUPER) or rl.key.down(rl.KEY_LEFT_CONTROL) or rl.key.down(rl.KEY_LEFT_ALT)){
           duplicate_selection(ed)
         }
       }
-      if(rl.is_key_pressed(rl.KEY_G)){
+      if(rl.key.pressed(rl.KEY_G)){
         if(ed.selected_group != null){
           ed.selected_group = null
         } else {
@@ -882,7 +882,7 @@ func Editor.frame(ed, dt){
         }
       }
     }
-    if(rl.is_key_pressed(rl.KEY_ESCAPE)){
+    if(rl.key.pressed(rl.KEY_ESCAPE)){
       ed.selected = null
       ed.selected_group = null
       ed.selected_decor = null

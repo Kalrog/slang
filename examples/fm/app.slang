@@ -184,43 +184,43 @@ local key_down = {}
 // handle_keys(): notes, octave, patch, sustain, all notes off
 func app.handle_keys(){
   for(let local k in values(key_notes)){
-    if(rl.is_key_pressed(k.key) and key_down[k.key] == null){
+    if(rl.key.pressed(k.key) and key_down[k.key] == null){
       local n = app.octave + k.semis
       key_down[k.key] = n
       app.note_on(n, 100)
     }
-    if(rl.is_key_released(k.key) and key_down[k.key] != null){
+    if(rl.key.released(k.key) and key_down[k.key] != null){
       app.note_off(key_down[k.key])
       delete(key_down, k.key)
     }
   }
-  if(rl.is_key_pressed(rl.KEY_LEFT) and app.octave > 24){
+  if(rl.key.pressed(rl.KEY_LEFT) and app.octave > 24){
     app.octave = app.octave - 12
   }
-  if(rl.is_key_pressed(rl.KEY_RIGHT) and app.octave < 84){
+  if(rl.key.pressed(rl.KEY_RIGHT) and app.octave < 84){
     app.octave = app.octave + 12
   }
-  if(rl.is_key_pressed(rl.KEY_UP)){
+  if(rl.key.pressed(rl.KEY_UP)){
     app.choose((app.choice + 1) % len(bank))
   }
-  if(rl.is_key_pressed(rl.KEY_DOWN)){
+  if(rl.key.pressed(rl.KEY_DOWN)){
     app.choose((app.choice + len(bank) - 1) % len(bank))
   }
-  if(rl.is_key_pressed(rl.KEY_TAB)){
+  if(rl.key.pressed(rl.KEY_TAB)){
     events:send({sustain: true})
   }
-  if(rl.is_key_released(rl.KEY_TAB)){
+  if(rl.key.released(rl.KEY_TAB)){
     events:send({sustain: false})
   }
-  if((rl.is_key_pressed(rl.KEY_F1) or rl.is_key_pressed(rl.KEY_GRAVE)) and app.map != null){
+  if((rl.key.pressed(rl.KEY_F1) or rl.key.pressed(rl.KEY_GRAVE)) and app.map != null){
     app.learning = not app.learning
     app.map:arm(null)
   }
-  if(rl.is_key_pressed(rl.KEY_BACKSPACE) and app.learning and app.map.armed != null){
+  if(rl.key.pressed(rl.KEY_BACKSPACE) and app.learning and app.map.armed != null){
     app.map:clear(app.map.armed)
     app.map:arm(null)
   }
-  if(rl.is_key_pressed(rl.KEY_SPACE)){
+  if(rl.key.pressed(rl.KEY_SPACE)){
     key_down = {}
     held = {}
     events:send({panic: true})
@@ -251,7 +251,7 @@ if(os.getenv("FM_FRAMES") != null){
 app.screenshot = os.getenv("FM_SCREENSHOT")
 
 func app.mark_start(){
-  started = rl.get_time()
+  started = rl.time
 }
 
 // update(frame): once a frame, before drawing: the demo's notes, the
@@ -275,7 +275,7 @@ func app.update(frame){
     events:send({patch: app.patch})
     dirty = false
   }
-  local now = rl.get_time()
+  local now = rl.time
   if(now - stats_at > 0.5){
     stats_at = now
     app.stats = player:stats()
@@ -286,13 +286,13 @@ func app.update(frame){
 // end_frame(frame): after drawing (frame counted from 1): the screenshot
 func app.end_frame(frame){
   if(app.screenshot != null and frame == app.max_frames){
-    rl.take_screenshot(app.screenshot)
+    rl.window.screenshot(app.screenshot)
   }
 }
 
 // finish(frame): the sound stops; a counted run says how it went
 func app.finish(frame){
-  local seconds = rl.get_time() - started
+  local seconds = rl.time - started
   local stats = player:stats()
   player:stop()
   if(app.max_frames > 0){

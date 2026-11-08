@@ -136,7 +136,7 @@ local func start(level, options){
     hud.message(level.name, 2.5)
   }
   game.aim = {yaw: 0, pitch: 0.7}
-  rl.disable_cursor()
+  rl.mouse.locked = true
 }
 
 local func to_title(){
@@ -144,7 +144,7 @@ local func to_title(){
   game.editing = null
   game.screen = "title"
   game.levels = levels.all()
-  rl.enable_cursor()
+  rl.mouse.locked = false
   sound.stop_engine()
 }
 
@@ -154,8 +154,8 @@ local func update_camera(dt){
   local v = game.built.v
   local w = game.built.w
   local cam = game.cam
-  if(rl.is_mouse_button_down(rl.MOUSE_BUTTON_RIGHT)){
-    local d = rl.get_mouse_delta()
+  if(rl.mouse.down(rl.MOUSE_BUTTON_RIGHT)){
+    local d = rl.mouse.delta
     cam.yaw_offset = cam.yaw_offset - d.x * 0.006
     cam.pitch = vec.clamp(cam.pitch + d.y * 0.004, 0.12, 1.1)
   } else {
@@ -164,7 +164,7 @@ local func update_camera(dt){
       cam.yaw_offset = cam.yaw_offset * math.max(0, 1 - dt * 1.5)
     }
   }
-  cam.distance = vec.clamp(cam.distance - rl.get_mouse_wheel_move() * 0.8, 6, 22)
+  cam.distance = vec.clamp(cam.distance - rl.mouse.wheel * 0.8, 6, 22)
   // over the shoulder: behind, a little to the side, and high enough to
   // see the arc of a throw
   local yaw = v.yaw + v.arm_yaw * 0.35 + cam.yaw_offset - 0.35
@@ -214,7 +214,7 @@ local func update_camera(dt){
 
 local func key_down(...keys){
   for(let local k in values(keys)){
-    if(rl.is_key_down(k)){
+    if(rl.key.down(k)){
       return true
     }
   }
@@ -222,9 +222,9 @@ local func key_down(...keys){
 }
 
 local func player_input(dt){
-  local w = rl.get_screen_width()
-  local h = rl.get_screen_height()
-  local mouse = rl.get_mouse_position()
+  local w = rl.window.width
+  local h = rl.window.height
+  local mouse = rl.mouse.position
   local forward = 0
   local right = 0
   if(key_down(rl.KEY_W, rl.KEY_UP)){ forward = forward + 1 }
@@ -237,7 +237,7 @@ local func player_input(dt){
     right = -right
   }
   local handbrake = 0
-  if(rl.is_key_down(rl.KEY_SPACE)){
+  if(rl.key.down(rl.KEY_SPACE)){
     handbrake = 1
   }
   local brake = 0
@@ -251,13 +251,13 @@ local func player_input(dt){
   }
   // the mouse (captured) turns and lifts the arm: moving it right turns
   // right (a negative yaw here: +x is to the left of +z), up lifts
-  local delta = rl.get_mouse_delta()
-  if(not rl.is_mouse_button_down(rl.MOUSE_BUTTON_RIGHT)){
+  local delta = rl.mouse.delta
+  if(not rl.mouse.down(rl.MOUSE_BUTTON_RIGHT)){
     game.aim.yaw = vec.clamp(game.aim.yaw - delta.x * 0.0022, -vehicle.MAX_YAW, vehicle.MAX_YAW)
     game.aim.pitch = vec.clamp(game.aim.pitch - delta.y * 0.0018, vehicle.MIN_PITCH, vehicle.MAX_PITCH)
   }
-  local charging = rl.is_mouse_button_down(rl.MOUSE_BUTTON_LEFT) and not ui.over_ui() and
-    not rl.is_mouse_button_down(rl.MOUSE_BUTTON_RIGHT)
+  local charging = rl.mouse.down(rl.MOUSE_BUTTON_LEFT) and not ui.over_ui() and
+    not rl.mouse.down(rl.MOUSE_BUTTON_RIGHT)
   return {
     forward: forward,
     right: right,
@@ -338,24 +338,24 @@ local func update_play(dt){
   local w = b.w
   local v = b.v
   game.time = game.time + dt
-  if(rl.is_key_pressed(rl.KEY_ESCAPE)){
+  if(rl.key.pressed(rl.KEY_ESCAPE)){
     game.screen = "paused"
-    rl.enable_cursor()
+    rl.mouse.locked = false
     sound.stop_engine()
     return
   }
-  if(rl.is_key_pressed(rl.KEY_F1) or rl.is_key_pressed(rl.KEY_H)){
+  if(rl.key.pressed(rl.KEY_F1) or rl.key.pressed(rl.KEY_H)){
     game.help = not game.help
   }
   for(local i = 0; i < 4; i = i + 1){
-    if(rl.is_key_pressed(rl.KEY_ONE + i)){
+    if(rl.key.pressed(rl.KEY_ONE + i)){
       select_ammo(i)
     }
   }
-  if(rl.is_key_pressed(rl.KEY_TAB)){
+  if(rl.key.pressed(rl.KEY_TAB)){
     next_ammo()
   }
-  if(rl.is_key_pressed(rl.KEY_R)){
+  if(rl.key.pressed(rl.KEY_R)){
     v:reset()
     hud.message("back on its wheels", 1.5)
   }
@@ -425,7 +425,7 @@ local func update_play(dt){
         game.best[key] = w.score
       }
       game.screen = "cleared"
-      rl.enable_cursor()
+      rl.mouse.locked = false
       sound.stop_engine()
     }
   }
@@ -438,7 +438,7 @@ local func update_play(dt){
     if(game.settled_for > 2.5 or (ammo_left() == 0 and game.time - (game.last_shot or 0) > 12)){
       game.screen = "failed"
       sound.play("lost")
-      rl.enable_cursor()
+      rl.mouse.locked = false
       sound.stop_engine()
     }
   }
@@ -451,22 +451,22 @@ local func update_play(dt){
 local func draw_world(camera, options){
   local b = game.built
   render.backdrop(camera, game.time)
-  render.begin(camera)
-  render.terrain(b.t)
-  b.w:draw({...(options or {}), camera: camera})
-  if(b.v != null){
-    local a = null
-    if(len(game.ammo) > 0){
-      a = ammo.types[game.ammo[game.ammo_index].type]
+  render.scene(camera){
+    render.terrain(b.t)
+    b.w:draw({...(options or {}), camera: camera})
+    if(b.v != null){
+      local a = null
+      if(len(game.ammo) > 0){
+        a = ammo.types[game.ammo[game.ammo_index].type]
+      }
+      b.v:draw(a)
     }
-    b.v:draw(a)
+    particles.draw(b.t)
+    render.water(b.t, game.time)
+    if(options != null and options.after != null){
+      options.after()
+    }
   }
-  particles.draw(b.t)
-  render.water(b.t, game.time)
-  if(options != null and options.after != null){
-    options.after()
-  }
-  render.end()
 }
 
 local func draw_play(){
@@ -514,7 +514,7 @@ local backdrop = null
 local func title_backdrop(){
   local lv = game.levels[game.selected]
   if(lv == null){
-    rl.clear_background({30, 34, 44})
+    rl.draw.clear({30, 34, 44})
     return
   }
   if(backdrop == null or backdrop.level != lv){
@@ -524,7 +524,7 @@ local func title_backdrop(){
     }
     backdrop = {level: lv, built: levels.build(lv, {no_vehicle: true}), time: 0}
   }
-  backdrop.time = backdrop.time + rl.get_frame_time()
+  backdrop.time = backdrop.time + rl.frame_time
   local b = backdrop.built
   // a slow circle around the middle of the level
   local center = {x: 0, y: 0, z: 0}
@@ -545,11 +545,11 @@ local func title_backdrop(){
     projection: rl.CAMERA_PERSPECTIVE,
   }
   render.backdrop(camera, backdrop.time)
-  render.begin(camera)
-  render.terrain(b.t)
-  b.w:draw({camera: camera})
-  render.water(b.t, backdrop.time)
-  render.end()
+  render.scene(camera){
+    render.terrain(b.t)
+    b.w:draw({camera: camera})
+    render.water(b.t, backdrop.time)
+  }
 }
 
 local func drop_backdrop(){
@@ -575,7 +575,7 @@ local func open_editor(level){
     here: here,
   })
   game.screen = "editor"
-  rl.enable_cursor()
+  rl.mouse.locked = false
 }
 
 local func update_title(){
@@ -593,15 +593,15 @@ local func update_title(){
   } else if(r.edit != null){
     open_editor(levels.copy(game.levels[r.edit]))
   }
-  if(rl.is_key_pressed(rl.KEY_ENTER)){
+  if(rl.key.pressed(rl.KEY_ENTER)){
     drop_backdrop()
     game.index = game.selected
     start(game.levels[game.selected])
   }
-  if(rl.is_key_pressed(rl.KEY_DOWN)){
+  if(rl.key.pressed(rl.KEY_DOWN)){
     game.selected = (game.selected + 1) % len(game.levels)
   }
-  if(rl.is_key_pressed(rl.KEY_UP)){
+  if(rl.key.pressed(rl.KEY_UP)){
     game.selected = (game.selected + len(game.levels) - 1) % len(game.levels)
   }
 }
@@ -612,9 +612,9 @@ local func update_screens(){
   ui.begin()
   if(s == "paused"){
     local r = hud.paused(game.editor_test)
-    if(r.resume or rl.is_key_pressed(rl.KEY_ESCAPE)){
+    if(r.resume or rl.key.pressed(rl.KEY_ESCAPE)){
       game.screen = "play"
-      rl.disable_cursor()
+      rl.mouse.locked = true
     } else if(r.restart){
       start(game.level, {test: game.editor_test})
     } else if(r.edit){
@@ -629,13 +629,13 @@ local func update_screens(){
   } else if(s == "cleared"){
     local has_next = not game.editor_test and game.index + 1 < len(game.levels)
     local r = hud.cleared(game.built.w.score, game.level.target, has_next)
-    if(r.next or (rl.is_key_pressed(rl.KEY_ENTER) and has_next)){
+    if(r.next or (rl.key.pressed(rl.KEY_ENTER) and has_next)){
       game.index = game.index + 1
       game.selected = game.index
       start(game.levels[game.index])
     } else if(r.keep){
       game.screen = "play"
-      rl.disable_cursor()
+      rl.mouse.locked = true
     } else if(r.replay){
       start(game.level, {test: game.editor_test})
     } else if(r.levels){
@@ -649,7 +649,7 @@ local func update_screens(){
     }
   } else if(s == "failed"){
     local r = hud.failed(game.built.w.score, game.level.target)
-    if(r.retry or rl.is_key_pressed(rl.KEY_R) or rl.is_key_pressed(rl.KEY_ENTER)){
+    if(r.retry or rl.key.pressed(rl.KEY_R) or rl.key.pressed(rl.KEY_ENTER)){
       start(game.level, {test: game.editor_test})
     } else if(r.levels){
       if(game.editor_test){
@@ -665,10 +665,10 @@ local func update_screens(){
 
 // ------------------------------------------------------------ main
 
-rl.set_config_flags(rl.FLAG_MSAA_4X_HINT)
-rl.init_window(WIDTH, HEIGHT, "Siege")
-rl.set_exit_key(rl.KEY_NULL)
-rl.set_target_fps(60)
+rl.config_flags = rl.FLAG_MSAA_4X_HINT
+rl.window.open(WIDTH, HEIGHT, "Siege")
+rl.window.exit_key = rl.KEY_NULL
+rl.target_fps = 60
 render.init()
 hud.init()
 sound.init()
@@ -689,29 +689,29 @@ if(os.getenv("SIEGE_EDITOR") != null){
 
 local frames = 0
 local started = time.clock()
-for(not rl.window_should_close() and not game.quit){
+for(not rl.window.should_close and not game.quit){
   if(frame_limit != null and frames >= to_int(str.to_number(frame_limit))){
     break
   }
-  local dt = math.min(rl.get_frame_time(), 0.05)
-  rl.begin_drawing()
-  if(game.screen == "title"){
-    update_title()
-  } else if(game.screen == "play"){
-    ui.begin()
-    update_play(dt)
-    // (a screen that opened this frame is handled from the next one: the
-    // key that opened it must not close it again)
-    draw_play()
-  } else if(game.screen == "editor"){
-    ui.begin()
-    game.editing:frame(dt)
-  } else {
-    update_screens()
+  local dt = math.min(rl.frame_time, 0.05)
+  rl.drawing{
+    if(game.screen == "title"){
+      update_title()
+    } else if(game.screen == "play"){
+      ui.begin()
+      update_play(dt)
+      // (a screen that opened this frame is handled from the next one: the
+      // key that opened it must not close it again)
+      draw_play()
+    } else if(game.screen == "editor"){
+      ui.begin()
+      game.editing:frame(dt)
+    } else {
+      update_screens()
+    }
   }
-  rl.end_drawing()
   if(shots[frames] != null){
-    rl.take_screenshot(shots[frames])
+    rl.window.screenshot(shots[frames])
   }
   frames = frames + 1
 }
@@ -725,4 +725,4 @@ drop_backdrop()
 hud.unload()
 sound.close()
 render.unload()
-rl.close_window()
+rl.window.close()

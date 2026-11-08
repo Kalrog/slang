@@ -22,15 +22,14 @@ local messages = {}
 func m.init(){
   local path = concat(m.dir or ".", "/assets/Fredoka.ttf")
   if(os.exists(path)){
-    font = rl.load_font_ex(path, 64, null)
-    rl.set_texture_filter(font.texture, rl.TEXTURE_FILTER_BILINEAR)
+    font = rl.font(path, {size: 64, filter: rl.TEXTURE_FILTER_BILINEAR})
     ui.set_font(font)
   }
 }
 
 func m.unload(){
   if(font != null){
-    rl.unload_font(font)
+    font:unload()
     font = null
     ui.set_font(null)
   }
@@ -124,8 +123,8 @@ m.thousands = thousands
 // int, charge: float, charging: bool, level: Level, cleared: bool,
 // aim: {x, y} (the pointer), hint?: string}
 func m.play(state){
-  local w = rl.get_screen_width()
-  local h = rl.get_screen_height()
+  local w = rl.window.width
+  local h = rl.window.height
   // the score, top left
   local size = 44 + flash * 10
   ui.shadowed(24, 14, thousands(shown_score), size, {255, 236, 150})
@@ -178,7 +177,7 @@ func m.play(state){
     if(a.count <= 0){
       color = {24, 28, 40, 120}
     }
-    rl.draw_rectangle_rounded({x, by, bw, bh}, 0.25, 6, color)
+    rl.draw.rectangle_rounded({x, by, bw, bh}, 0.25, 6, color)
     local tc = {236, 238, 244}
     if(i == state.selected){
       tc = {30, 24, 12}
@@ -202,7 +201,7 @@ func m.play(state){
   }
   // the level's name, top right, a hint, and the frame rate
   ui.shadowed(w - 24 - ui.measure(state.level.name, 22), 14, state.level.name, 22, {230, 230, 240})
-  local fps = concat(string(rl.get_fps()), " fps")
+  local fps = concat(string(rl.fps), " fps")
   ui.shadowed(w - 24 - ui.measure(fps, 14), h - 26, fps, 14, {200, 204, 216, 160})
   if(state.hint != null){
     ui.shadowed(w - 24 - ui.measure(state.hint, 16), 42, state.hint, 16, {200, 204, 216})
@@ -221,7 +220,7 @@ func m.play(state){
 // ------------------------------------------------------------ screens
 
 local func dim(alpha){
-  rl.draw_rectangle(0, 0, rl.get_screen_width(), rl.get_screen_height(), {8, 10, 16, alpha or 150})
+  rl.draw.rectangle(0, 0, rl.window.width, rl.window.height, {8, 10, 16, alpha or 150})
 }
 
 local func title_text(w, y){
@@ -233,8 +232,8 @@ local func title_text(w, y){
 // title(levels, selected, best) -> {start?: int, editor?: bool, edit?:
 // int, selected: int, quit?: bool}: the title screen with the levels
 func m.title(levels, selected, best){
-  local w = rl.get_screen_width()
-  local h = rl.get_screen_height()
+  local w = rl.window.width
+  local h = rl.window.height
   dim(90)
   title_text(w, 40)
   local result = {selected: selected}
@@ -297,15 +296,15 @@ local func draw_stars(cx, y, n){
       color = {255, 204, 72}
     }
     local x = cx + (i - 1) * 54
-    rl.draw_poly({x, y}, 5, 20, -90, color)
-    rl.draw_poly({x, y}, 5, 11, 90, color)
+    rl.draw.poly({x, y}, 5, 20, -90, color)
+    rl.draw.poly({x, y}, 5, 11, 90, color)
   }
 }
 
 // cleared(score, target, has_next) -> {next?, replay?, levels?, keep?}
 func m.cleared(score, target, has_next){
-  local w = rl.get_screen_width()
-  local h = rl.get_screen_height()
+  local w = rl.window.width
+  local h = rl.window.height
   local r = {}
   local pw = 460
   local ph = 300
@@ -339,8 +338,8 @@ func m.cleared(score, target, has_next){
 
 // failed(score, target) -> {retry?, levels?}
 func m.failed(score, target){
-  local w = rl.get_screen_width()
-  local h = rl.get_screen_height()
+  local w = rl.window.width
+  local h = rl.window.height
   local r = {}
   local pw = 460
   local ph = 230
@@ -362,8 +361,8 @@ func m.failed(score, target){
 
 // paused(editing: bool) -> {resume?, restart?, edit?, levels?, back?}
 func m.paused(editing){
-  local w = rl.get_screen_width()
-  local h = rl.get_screen_height()
+  local w = rl.window.width
+  local h = rl.window.height
   local r = {}
   dim(120)
   local pw = 360
@@ -389,8 +388,8 @@ func m.paused(editing){
 
 // help(): the controls, over the game
 func m.help(){
-  local w = rl.get_screen_width()
-  local h = rl.get_screen_height()
+  local w = rl.window.width
+  local h = rl.window.height
   local lines = {
     "W A S D or the arrows: drive, space: handbrake",
     "the mouse aims: left and right turn the arm, up and down lift it",

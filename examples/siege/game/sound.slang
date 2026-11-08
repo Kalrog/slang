@@ -144,8 +144,8 @@ local func build(){
 
 // init(): the audio device and the sounds (none when there is no device)
 func m.init(){
-  rl.init_audio_device()
-  if(not rl.is_audio_device_ready()){
+  rl.audio.open()
+  if(not rl.audio.ready){
     return
   }
   sounds = build()
@@ -178,9 +178,9 @@ func m.play(name, pos, volume){
   if(v <= 0.01){
     return
   }
-  rl.set_sound_volume(sound, vec.clamp(v, 0, 1))
-  rl.set_sound_pitch(sound, 0.92 + rng:next() * 0.16)
-  rl.play_sound(sound)
+  sound.volume = vec.clamp(v, 0, 1)
+  sound.pitch = 0.92 + rng:next() * 0.16
+  sound:play()
 }
 
 // engine(speed, on): the engine's loop plays while driving, pitched up
@@ -192,22 +192,22 @@ func m.engine(throttle, speed){
   local s = sounds.engine
   if(throttle == 0 and math.abs(speed) < 0.5){
     if(sounds.engine_on){
-      rl.stop_sound(s)
+      s:stop()
       sounds.engine_on = false
     }
     return
   }
-  rl.set_sound_pitch(s, 0.8 + math.min(2, math.abs(speed) * 0.12) + math.abs(throttle) * 0.2)
-  rl.set_sound_volume(s, (0.25 + math.abs(throttle) * 0.25) * m.volume)
-  if(not rl.is_sound_playing(s)){
-    rl.play_sound(s)
+  s.pitch = 0.8 + math.min(2, math.abs(speed) * 0.12) + math.abs(throttle) * 0.2
+  s.volume = (0.25 + math.abs(throttle) * 0.25) * m.volume
+  if(not s.playing){
+    s:play()
   }
   sounds.engine_on = true
 }
 
 func m.stop_engine(){
   if(sounds != null and sounds.engine_on){
-    rl.stop_sound(sounds.engine)
+    sounds.engine:stop()
     sounds.engine_on = false
   }
 }
@@ -216,12 +216,12 @@ func m.close(){
   if(sounds != null){
     for(let local e in entries(sounds)){
       if(type(e[1]) == "table"){
-        rl.unload_sound(e[1])
+        e[1]:unload()
       }
     }
     sounds = null
   }
-  rl.close_audio_device()
+  rl.audio.close()
 }
 
 return m

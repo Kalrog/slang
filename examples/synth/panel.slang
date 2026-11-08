@@ -182,14 +182,14 @@ panel.engine_name = engine_name
 
 // update_stats(): twice a second, what the stream reports
 func panel.update_stats(){
-  local now = rl.get_time()
+  local now = rl.time
   if(now - stats_at > 0.5){
     stats_at = now
     panel.stats = player:stats()
   }
   if(log and now - log_at > 2.0){
     log_at = now
-    print(concat("t=", to_int(now), " fps ", rl.get_fps(), " dsp ",
+    print(concat("t=", to_int(now), " fps ", rl.fps, " dsp ",
       to_int(panel.stats.load * 100), "% peak ", to_int(panel.stats.peak * 100),
       "% underruns ", panel.stats.underruns, " song ", to_int(status.state[1]),
       " playing ", status.state[0], " engine ", engine_name(), "\n"))
@@ -356,16 +356,16 @@ local font = null
 func panel.load_font(){
   for(let local f in values(font_files)){
     if(font == null and os.exists(f)){
-      font = rl.load_font_ex(f, 48, null)
-      rl.gen_texture_mipmaps(font.texture)
-      rl.set_texture_filter(font.texture, rl.TEXTURE_FILTER_TRILINEAR)
+      font = rl.font(f, {size: 48})
+      font.texture:gen_mipmaps()
+      font.texture.filter = rl.TEXTURE_FILTER_TRILINEAR
     }
   }
 }
 
 func panel.unload_font(){
   if(font != null){
-    rl.unload_font(font)
+    font:unload()
     font = null
   }
 }
@@ -377,16 +377,16 @@ local func ttf_size(size){
 
 local func measure(s, size){
   if(font == null){
-    return rl.measure_text(s, size)
+    return rl.text.measure(s, size)
   }
-  return rl.measure_text_ex(font, s, ttf_size(size), 0.6).x
+  return font:measure(s, ttf_size(size), 0.6).x
 }
 
 func panel.text(s, x, y, size, color){
   if(font == null){
-    rl.draw_text(s, to_int(x), to_int(y), size, color)
+    rl.draw.text(s, to_int(x), to_int(y), size, color)
   } else {
-    rl.draw_text_ex(font, s, {x: x, y: y - size * 0.1}, ttf_size(size), 0.6, color)
+    font:draw_text_ex(s, {x: x, y: y - size * 0.1}, ttf_size(size), 0.6, color)
   }
 }
 local text = panel.text
@@ -439,13 +439,10 @@ local func polar(cx, cy, angle, r){
 }
 
 local func draw_cap(cx, cy, r, angle){
-  rl.draw_circle(to_int(cx), to_int(cy), r + 5.0, colors.skirt)
-  rl.draw_circle(to_int(cx), to_int(cy), r, colors.cap)
-  rl.draw_circle_lines(to_int(cx), to_int(cy), r, {70, 70, 72})
-  rl.draw_line_ex(
-    polar(cx, cy, angle, r * 0.25), polar(cx, cy, angle, r - 2.0), 3.0,
-    colors.pointer
-  )
+  rl.draw.circle(to_int(cx), to_int(cy), r + 5.0, colors.skirt)
+  rl.draw.circle(to_int(cx), to_int(cy), r, colors.cap)
+  rl.draw.circle_lines(to_int(cx), to_int(cy), r, {70, 70, 72})
+  rl.draw.line_ex(polar(cx, cy, angle, r * 0.25), polar(cx, cy, angle, r - 2.0), 3.0, colors.pointer)
 }
 
 // a control's MIDI learn marks: its controller over it, a ring when it
@@ -455,13 +452,13 @@ local func draw_learn(c, r){
     return null
   }
   if(midi_map.armed == c.id){
-    rl.draw_circle_lines(to_int(c.x), to_int(c.y), r + 10, colors.orange)
-    rl.draw_circle_lines(to_int(c.x), to_int(c.y), r + 11, colors.orange)
+    rl.draw.circle_lines(to_int(c.x), to_int(c.y), r + 10, colors.orange)
+    rl.draw.circle_lines(to_int(c.x), to_int(c.y), r + 11, colors.orange)
   }
   local b = midi_map:binding(c.id)
   if(b != null){
     local w = measure(b, 9) + 8
-    rl.draw_rectangle(to_int(c.x - w / 2), to_int(c.y - r - 22), to_int(w), 13, colors.orange_dark)
+    rl.draw.rectangle(to_int(c.x - w / 2), to_int(c.y - r - 22), to_int(w), 13, colors.orange_dark)
     text_center(b, c.x, c.y - r - 21, 9, colors.orange)
   }
 }
@@ -475,7 +472,7 @@ local func draw_knob(c, v, caps){
     if(c.bipolar and t == 5){
       outer = r + 15.0
     }
-    rl.draw_line_ex(polar(c.x, c.y, a, r + 7.0), polar(c.x, c.y, a, outer), 1.5, colors.dim)
+    rl.draw.line_ex(polar(c.x, c.y, a, r + 7.0), polar(c.x, c.y, a, outer), 1.5, colors.dim)
   }
   if(caps){
     draw_cap(c.x, c.y, r, knob_angle(v))
@@ -516,15 +513,15 @@ local func draw_steps(c, v, caps){
 local func draw_switch(c, v, caps){
   local x = to_int(c.x - 10)
   local y = to_int(c.y - 15)
-  rl.draw_rectangle(x - 2, y - 2, 24, 34, {8, 8, 8})
+  rl.draw.rectangle(x - 2, y - 2, 24, 34, {8, 8, 8})
   if(caps){
     local sc = panel.switch_colors(c)
     if(v > 0.5){
-      rl.draw_rectangle(x, y, 20, 15, sc[0])
-      rl.draw_rectangle(x, y + 15, 20, 15, sc[1])
+      rl.draw.rectangle(x, y, 20, 15, sc[0])
+      rl.draw.rectangle(x, y + 15, 20, 15, sc[1])
     } else {
-      rl.draw_rectangle(x, y, 20, 15, sc[1])
-      rl.draw_rectangle(x, y + 15, 20, 15, sc[0])
+      rl.draw.rectangle(x, y, 20, 15, sc[1])
+      rl.draw.rectangle(x, y + 15, 20, 15, sc[0])
     }
   }
   if(c.label != ""){
@@ -544,8 +541,8 @@ local func clamp_unit(v){
 }
 
 local func draw_scope(x, y, w, h){
-  rl.draw_rectangle(x, y, w, h, {10, 16, 12})
-  rl.draw_line(x, y + h / 2, x + w, y + h / 2, {30, 60, 40})
+  rl.draw.rectangle(x, y, w, h, {10, 16, 12})
+  rl.draw.line(x, y + h / 2, x + w, y + h / 2, {30, 60, 40})
   local n = 2048
   local at = to_int(scope[n])
   // a rising zero crossing, so that the wave stands still
@@ -565,7 +562,7 @@ local func draw_scope(x, y, w, h){
     local s = scope[(start + k + n * 4) % n]
     local py = to_int(y + h / 2 - clamp_unit(s * 1.4) * (h / 2 - 2))
     if(k > 0){
-      rl.draw_line(lastx, lasty, x + k, py, colors.scope)
+      rl.draw.line(lastx, lasty, x + k, py, colors.scope)
     }
     lastx = x + k
     lasty = py
@@ -581,9 +578,9 @@ local PATCH = {x: 940, w: 210, y: panel.STRIP_Y + 6, h: 20, button: 20}
 
 local func draw_patch(){
   local b = PATCH
-  rl.draw_rectangle(b.x, b.y, b.w, b.h, {10, 10, 11})
+  rl.draw.rectangle(b.x, b.y, b.w, b.h, {10, 10, 11})
   for(let local side in values({{x: b.x, s: "<"}, {x: b.x + b.w - b.button, s: ">"}})){
-    rl.draw_rectangle(side.x + 1, b.y + 1, b.button - 2, b.h - 2, colors.skirt)
+    rl.draw.rectangle(side.x + 1, b.y + 1, b.button - 2, b.h - 2, colors.skirt)
     text_center(side.s, side.x + b.button / 2, b.y + 5, 10, colors.text)
   }
   local name = "song's sound"
@@ -622,7 +619,7 @@ panel.patch_buttons = {
 local func draw_strip(){
   local y = panel.STRIP_Y
   local stats = panel.stats
-  rl.draw_rectangle(40, y, W - 80, panel.STRIP_H, colors.strip)
+  rl.draw.rectangle(40, y, W - 80, panel.STRIP_H, colors.strip)
   text("slang", 60, y + 10, 20, colors.text)
   text("mini", 60 + measure("slang ", 20), y + 10, 20, colors.orange)
   if(panel.learning){
@@ -661,7 +658,7 @@ local func draw_strip(){
     color = colors.warn
   }
   text(concat("underruns ", stats.underruns), 940, y + 32, 10, color)
-  text(concat("FPS ", rl.get_fps()), 1080, y + 32, 10, colors.dim)
+  text(concat("FPS ", rl.fps), 1080, y + 32, 10, colors.dim)
   draw_patch()
 }
 
@@ -669,12 +666,12 @@ local func draw_strip(){
 // params.top to the strip's end; caps: also the knobs' caps and the
 // rockers (the 3D synth makes those of its own)
 func panel.draw_face(caps){
-  rl.draw_rectangle(40, params.top, W - 80, params.bottom - params.top, colors.panel)
+  rl.draw.rectangle(40, params.top, W - 80, params.bottom - params.top, colors.panel)
   for(let local s in values(params.sections)){
     text_center(s.name, (s.from + s.to) / 2, params.top + 14, 10, colors.text)
-    rl.draw_line(s.from + 6, params.top + 30, s.to - 6, params.top + 30, colors.line)
+    rl.draw.line(s.from + 6, params.top + 30, s.to - 6, params.top + 30, colors.line)
     if(s.to < 1150){
-      rl.draw_line(s.to + 2, params.top + 10, s.to + 2, params.bottom - 10, colors.line)
+      rl.draw.line(s.to + 2, params.top + 10, s.to + 2, params.bottom - 10, colors.line)
     }
   }
   // the contours' headings, between the rows
@@ -790,7 +787,7 @@ func panel.press(i, y){
     bend_from_midi = false
   }
   local c = params.list[i]
-  local now = rl.get_time()
+  local now = rl.time
   if(last_click.index == i and now - last_click.time < 0.35 and c.kind != "switch"){
     controls[i] = c.default
   } else if(c.kind == "switch"){
@@ -813,7 +810,7 @@ func panel.drag(y){
     controls[drag.index] = clamp(math.floor(drag.value + dy / 28.0 + 0.5), 0, n - 1)
   } else {
     local scale = 1.0 / 200.0
-    if(rl.is_key_down(rl.KEY_LEFT_SHIFT) or rl.is_key_down(rl.KEY_RIGHT_SHIFT)){
+    if(rl.key.down(rl.KEY_LEFT_SHIFT) or rl.key.down(rl.KEY_RIGHT_SHIFT)){
       scale = 1.0 / 1000.0
     }
     if(c.kind == "wheel"){
@@ -897,53 +894,53 @@ local key_down = {}
 // handle_keys(): notes from the computer keyboard, the octave, space
 func panel.handle_keys(){
   for(let local k in values(key_notes)){
-    if(rl.is_key_pressed(k.key) and key_down[k.key] == null){
+    if(rl.key.pressed(k.key) and key_down[k.key] == null){
       local n = panel.octave + k.semis
       key_down[k.key] = n
       panel.note_on(n)
     }
-    if(rl.is_key_released(k.key) and key_down[k.key] != null){
+    if(rl.key.released(k.key) and key_down[k.key] != null){
       panel.note_off(key_down[k.key])
       delete(key_down, k.key)
     }
   }
-  if(rl.is_key_pressed(rl.KEY_LEFT) and panel.octave > 24){
+  if(rl.key.pressed(rl.KEY_LEFT) and panel.octave > 24){
     panel.octave = panel.octave - 12
   }
-  if(rl.is_key_pressed(rl.KEY_RIGHT) and panel.octave < 84){
+  if(rl.key.pressed(rl.KEY_RIGHT) and panel.octave < 84){
     panel.octave = panel.octave + 12
   }
-  if(rl.is_key_pressed(rl.KEY_SPACE)){
+  if(rl.key.pressed(rl.KEY_SPACE)){
     key_down = {}
     panel.all_off()
   }
-  if(rl.is_key_pressed(rl.KEY_ENTER) or rl.is_key_pressed(rl.KEY_KP_ENTER)){
+  if(rl.key.pressed(rl.KEY_ENTER) or rl.key.pressed(rl.KEY_KP_ENTER)){
     if(panel.song_playing()){
       panel.stop_song()
     } else {
       panel.play_song()
     }
   }
-  if(rl.is_key_pressed(rl.KEY_TAB)){
+  if(rl.key.pressed(rl.KEY_TAB)){
     panel.next_song()
   }
   // K: slang or the kernel renders the sound
-  if(rl.is_key_pressed(rl.KEY_K)){
+  if(rl.key.pressed(rl.KEY_K)){
     panel.switch_engine()
   }
   // MIDI learn
-  if((rl.is_key_pressed(rl.KEY_F1) or rl.is_key_pressed(rl.KEY_GRAVE)) and midi_map != null){
+  if((rl.key.pressed(rl.KEY_F1) or rl.key.pressed(rl.KEY_GRAVE)) and midi_map != null){
     panel.learning = not panel.learning
     midi_map:arm(null)
   }
-  if(rl.is_key_pressed(rl.KEY_BACKSPACE) and panel.learning and midi_map.armed != null){
+  if(rl.key.pressed(rl.KEY_BACKSPACE) and panel.learning and midi_map.armed != null){
     midi_map:clear(midi_map.armed)
     midi_map:arm(null)
   }
-  if(rl.is_key_pressed(rl.KEY_UP)){
+  if(rl.key.pressed(rl.KEY_UP)){
     panel.next_patch(1)
   }
-  if(rl.is_key_pressed(rl.KEY_DOWN)){
+  if(rl.key.pressed(rl.KEY_DOWN)){
     panel.next_patch(-1)
   }
 }
@@ -999,11 +996,11 @@ func panel.finish(frame){
 
 // mark_start(), mark_end(): the time the frames took, for finish
 func panel.mark_start(){
-  panel.started = rl.get_time()
+  panel.started = rl.time
 }
 
 func panel.mark_end(){
-  panel.seconds = rl.get_time() - panel.started
+  panel.seconds = rl.time - panel.started
 }
 
 return panel

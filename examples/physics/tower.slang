@@ -13,12 +13,12 @@ local jolt = require("jolt")
 local math = require("slang/math")
 local os = require("slang/os")
 
-rl.set_config_flags(rl.FLAG_MSAA_4X_HINT)
-rl.init_window(800, 450, "tower")
-rl.set_target_fps(60)
+rl.config_flags = rl.FLAG_MSAA_4X_HINT
+rl.window.open(800, 450, "tower")
+rl.target_fps = 60
 
-local cube = rl.load_model_from_mesh(rl.gen_mesh_cube(1, 1, 1))
-local sphere = rl.load_model_from_mesh(rl.gen_mesh_sphere(1, 12, 16))
+local cube = rl.model(rl.mesh.cube(1, 1, 1))
+local sphere = rl.model(rl.mesh.sphere(1, 12, 16))
 
 local world = jolt.world({gravity: {0, -9.81, 0}})
 world:create_body({
@@ -48,7 +48,7 @@ local func build(){
           position: {i - 1, 0.5 + level, j - 1},
           motion: "dynamic",
           friction: 0.6,
-        }, cube, {1, 1, 1}, rl.color_from_hsv(hue, 0.5, 0.95))
+        }, cube, {1, 1, 1}, rl.color.from_hsv(hue, 0.5, 0.95))
       }
     }
   }
@@ -65,7 +65,7 @@ local func clear(){
 // heavy (iron, not water): a ball knocks boxes over
 local ball_shape = jolt.sphere(0.35, {density: 8000})
 local func throw(camera){
-  local ray = rl.get_screen_to_world_ray(rl.get_mouse_position(), camera)
+  local ray = rl.screen_to_world_ray(rl.mouse.position, camera)
   local d = ray.direction
   local ball = add({
     shape: ball_shape,
@@ -73,7 +73,7 @@ local func throw(camera){
     motion: "dynamic",
     linear_velocity: {d.x * 30, d.y * 30, d.z * 30},
     restitution: 0.3,
-  }, sphere, {0.35, 0.35, 0.35}, rl.color_from_hsv(10, 0.7, 1))
+  }, sphere, {0.35, 0.35, 0.35}, rl.color.from_hsv(10, 0.7, 1))
   append(balls, ball)
   // the oldest balls go once there are many
   if(len(balls) > 30){
@@ -106,56 +106,56 @@ local frames = to_int(os.getenv("PHYSICS_FRAMES") or "0")
 local frame = 0
 local step = 1 / 60
 local pending = 0
-for(not rl.window_should_close()){
-  if(rl.is_mouse_button_down(rl.MOUSE_BUTTON_RIGHT)){
-    local delta = rl.get_mouse_delta()
+for(not rl.window.should_close){
+  if(rl.mouse.down(rl.MOUSE_BUTTON_RIGHT)){
+    local delta = rl.mouse.delta
     yaw = yaw - delta.x * 0.01
     pitch = math.max(0.05, math.min(1.4, pitch + delta.y * 0.01))
   }
-  distance = math.max(6, math.min(40, distance - rl.get_mouse_wheel_move()))
+  distance = math.max(6, math.min(40, distance - rl.mouse.wheel))
   camera.position = {
     math.cos(yaw) * math.cos(pitch) * distance,
     3 + math.sin(pitch) * distance,
     math.sin(yaw) * math.cos(pitch) * distance,
   }
-  if(rl.is_mouse_button_pressed(rl.MOUSE_BUTTON_LEFT)){
+  if(rl.mouse.pressed(rl.MOUSE_BUTTON_LEFT)){
     throw(camera)
   }
-  if(rl.is_key_pressed(rl.KEY_R)){
+  if(rl.key.pressed(rl.KEY_R)){
     clear()
     build()
   }
 
   // fixed steps of 1/60 s, however fast frames come
-  pending = math.min(pending + rl.get_frame_time(), 0.1)
+  pending = math.min(pending + rl.frame_time, 0.1)
   for(pending >= step){
     world:step(step)
     pending = pending - step
   }
 
-  rl.begin_drawing()
-  rl.clear_background({24, 26, 36})
-  rl.begin_mode_3d(camera)
-  rl.draw_plane({0, 0, 0}, {60, 60}, {52, 56, 72})
-  rl.draw_grid(30, 2)
-  for(let local t in values(things)){
-    local m = jolt.mat4_to_matrix(t.body.world_transform)
-    local model = t.model
-    model.transform = rl.matrix_multiply(
-      rl.matrix_scale(t.size[0], t.size[1], t.size[2]),
-      m,
+  rl.drawing{
+    rl.draw.clear({24, 26, 36})
+    rl.mode_3d(camera){
+      rl.draw.plane({0, 0, 0}, {60, 60}, {52, 56, 72})
+      rl.draw.grid(30, 2)
+      for(let local t in values(things)){
+        local m = jolt.mat4_to_matrix(t.body.world_transform)
+        local model = t.model
+        model.transform = rl.matrix.multiply(
+          rl.matrix.scale(t.size[0], t.size[1], t.size[2]),
+          m,
+        )
+        model:draw({0, 0, 0}, 1, t.color)
+        model:draw_wires({0, 0, 0}, 1, {0, 0, 0, 70})
+      }
+    }
+    rl.draw.text(
+      "click: throw a ball   right drag: walk around   R: rebuild", 12, 12, 18,
+      rl.LIGHTGRAY
     )
-    rl.draw_model(model, {0, 0, 0}, 1, t.color)
-    rl.draw_model_wires(model, {0, 0, 0}, 1, {0, 0, 0, 70})
+    rl.draw.text(concat(string(len(things)), " bodies"), 12, 36, 16, rl.GRAY)
+    rl.draw.fps(12, 420)
   }
-  rl.end_mode_3d()
-  rl.draw_text(
-    "click: throw a ball   right drag: walk around   R: rebuild", 12, 12, 18,
-    rl.LIGHTGRAY
-  )
-  rl.draw_text(concat(string(len(things)), " bodies"), 12, 36, 16, rl.GRAY)
-  rl.draw_fps(12, 420)
-  rl.end_drawing()
 
   frame = frame + 1
   if(frames > 0 and frame >= frames){
@@ -163,6 +163,6 @@ for(not rl.window_should_close()){
   }
 }
 world:destroy()
-rl.unload_model(cube)
-rl.unload_model(sphere)
-rl.close_window()
+cube:unload()
+sphere:unload()
+rl.window.close()

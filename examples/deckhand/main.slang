@@ -74,59 +74,58 @@ local func start(i){
   if(demo != null){
     game.pilot = autopilot.new(game.w, solutions[missions[i].name])
   } else {
-    rl.disable_cursor()
+    rl.mouse.locked = true
   }
 }
 
 local func to_menu(screen){
   game.screen = screen
-  rl.enable_cursor()
+  rl.mouse.locked = false
 }
 
 // ------------------------------------------------------------ the deck's keys
 
 local func pressed(key){
-  return rl.is_key_pressed(key) or rl.is_key_pressed_repeat(key)
+  return rl.key.pressed(key) or rl.key.pressed_repeat(key)
 }
 
 // drain(): forgets typed characters (the E that jacked in)
 local func drain(){
-  for(rl.get_char_pressed() > 0){ }
+  for(rl.key.next_char() > 0){ }
 }
 
 local func deck_keys(){
   local w = game.w
   local ed = game.ed
-  local ctrl = rl.is_key_down(rl.KEY_LEFT_CONTROL) or
-    rl.is_key_down(rl.KEY_RIGHT_CONTROL)
-  local cmd = rl.is_key_down(rl.KEY_LEFT_SUPER) or
-    rl.is_key_down(rl.KEY_RIGHT_SUPER)
-  local shift = rl.is_key_down(rl.KEY_LEFT_SHIFT) or
-    rl.is_key_down(rl.KEY_RIGHT_SHIFT)
-  if(rl.is_key_pressed(rl.KEY_ESCAPE)){
+  local ctrl = rl.key.down(rl.KEY_LEFT_CONTROL) or
+    rl.key.down(rl.KEY_RIGHT_CONTROL)
+  local cmd = rl.key.down(rl.KEY_LEFT_SUPER) or rl.key.down(rl.KEY_RIGHT_SUPER)
+  local shift = rl.key.down(rl.KEY_LEFT_SHIFT) or
+    rl.key.down(rl.KEY_RIGHT_SHIFT)
+  if(rl.key.pressed(rl.KEY_ESCAPE)){
     w:unjack()
     drain()
     return
   }
-  if((ctrl or cmd) and rl.is_key_pressed(rl.KEY_C)){
+  if((ctrl or cmd) and rl.key.pressed(rl.KEY_C)){
     w.deck:stop_all()
     drain()
     return
   }
-  if((ctrl or cmd) and rl.is_key_pressed(rl.KEY_V)){
-    local clip = rl.get_clipboard_text()
+  if((ctrl or cmd) and rl.key.pressed(rl.KEY_V)){
+    local clip = rl.clipboard.text
     if(clip != null){
       ed:insert(str.replace(clip, "\r", ""))
     }
     drain()
     return
   }
-  for(local c = rl.get_char_pressed(); c > 0; c = rl.get_char_pressed()){
+  for(local c = rl.key.next_char(); c > 0; c = rl.key.next_char()){
     if(c >= 32 and c < 127 and not ctrl and not cmd){
       ed:insert(utf8.char(c))
     }
   }
-  if(rl.is_key_pressed(rl.KEY_ENTER) or rl.is_key_pressed(rl.KEY_KP_ENTER)){
+  if(rl.key.pressed(rl.KEY_ENTER) or rl.key.pressed(rl.KEY_KP_ENTER)){
     if(shift){
       ed:insert("\n")
     } else {
@@ -148,20 +147,20 @@ local func deck_keys(){
 local func player_input(){
   local f = 0
   local s = 0
-  if(rl.is_key_down(rl.KEY_W) or rl.is_key_down(rl.KEY_UP)){ f = f + 1 }
-  if(rl.is_key_down(rl.KEY_S) or rl.is_key_down(rl.KEY_DOWN)){ f = f - 1 }
-  if(rl.is_key_down(rl.KEY_D)){ s = s + 1 }
-  if(rl.is_key_down(rl.KEY_A)){ s = s - 1 }
+  if(rl.key.down(rl.KEY_W) or rl.key.down(rl.KEY_UP)){ f = f + 1 }
+  if(rl.key.down(rl.KEY_S) or rl.key.down(rl.KEY_DOWN)){ f = f - 1 }
+  if(rl.key.down(rl.KEY_D)){ s = s + 1 }
+  if(rl.key.down(rl.KEY_A)){ s = s - 1 }
   local turn = 0
-  if(rl.is_key_down(rl.KEY_RIGHT)){ turn = turn + 2.2 * rl.get_frame_time() }
-  if(rl.is_key_down(rl.KEY_LEFT)){ turn = turn - 2.2 * rl.get_frame_time() }
-  local mouse = rl.get_mouse_delta()
+  if(rl.key.down(rl.KEY_RIGHT)){ turn = turn + 2.2 * rl.frame_time }
+  if(rl.key.down(rl.KEY_LEFT)){ turn = turn - 2.2 * rl.frame_time }
+  local mouse = rl.mouse.delta
   return {
     forward: f,
     strafe: s,
     turn: turn + mouse.x * MOUSE,
     look: -mouse.y * MOUSE,
-    use: rl.is_key_pressed(rl.KEY_E),
+    use: rl.key.pressed(rl.KEY_E),
   }
 }
 
@@ -200,7 +199,7 @@ local func update_play(dt){
   } else if(w.jacked != null){
     deck_keys()
   } else {
-    if(rl.is_key_pressed(rl.KEY_ESCAPE)){
+    if(rl.key.pressed(rl.KEY_ESCAPE)){
       to_menu("paused")
       return
     }
@@ -226,52 +225,52 @@ local func update_play(dt){
 local func update(dt){
   local s = game.screen
   if(s == "title"){
-    if(rl.is_key_pressed(rl.KEY_UP)){
+    if(rl.key.pressed(rl.KEY_UP)){
       game.selected = (game.selected + len(missions) - 1) % len(missions)
     }
-    if(rl.is_key_pressed(rl.KEY_DOWN)){
+    if(rl.key.pressed(rl.KEY_DOWN)){
       game.selected = (game.selected + 1) % len(missions)
     }
     for(local k = 0; k < len(missions) and k < 9; k = k + 1){
-      if(rl.is_key_pressed(rl.KEY_ONE + k)){
+      if(rl.key.pressed(rl.KEY_ONE + k)){
         game.selected = k
       }
     }
-    if(rl.is_key_pressed(rl.KEY_ENTER)){
+    if(rl.key.pressed(rl.KEY_ENTER)){
       game.screen = "briefing"
     }
-    if(rl.is_key_pressed(rl.KEY_ESCAPE)){
+    if(rl.key.pressed(rl.KEY_ESCAPE)){
       game.quit = true
     }
   } else if(s == "briefing"){
-    if(rl.is_key_pressed(rl.KEY_ENTER)){
+    if(rl.key.pressed(rl.KEY_ENTER)){
       start(game.selected)
     }
-    if(rl.is_key_pressed(rl.KEY_ESCAPE)){
+    if(rl.key.pressed(rl.KEY_ESCAPE)){
       game.screen = "title"
     }
   } else if(s == "play"){
     update_play(dt)
   } else if(s == "paused"){
-    if(rl.is_key_pressed(rl.KEY_ESCAPE)){
+    if(rl.key.pressed(rl.KEY_ESCAPE)){
       game.screen = "play"
-      rl.disable_cursor()
+      rl.mouse.locked = true
     }
-    if(rl.is_key_pressed(rl.KEY_R)){
+    if(rl.key.pressed(rl.KEY_R)){
       start(game.index)
     }
-    if(rl.is_key_pressed(rl.KEY_Q)){
+    if(rl.key.pressed(rl.KEY_Q)){
       game.screen = "title"
     }
   } else if(s == "caught"){
-    if(rl.is_key_pressed(rl.KEY_R)){
+    if(rl.key.pressed(rl.KEY_R)){
       start(game.index)
     }
-    if(rl.is_key_pressed(rl.KEY_ESCAPE)){
+    if(rl.key.pressed(rl.KEY_ESCAPE)){
       game.screen = "title"
     }
   } else if(s == "complete"){
-    if(rl.is_key_pressed(rl.KEY_ENTER)){
+    if(rl.key.pressed(rl.KEY_ENTER)){
       if(game.index + 1 < len(missions)){
         game.selected = game.index + 1
         game.screen = "briefing"
@@ -279,10 +278,10 @@ local func update(dt){
         game.screen = "title"
       }
     }
-    if(rl.is_key_pressed(rl.KEY_R)){
+    if(rl.key.pressed(rl.KEY_R)){
       start(game.index)
     }
-    if(rl.is_key_pressed(rl.KEY_ESCAPE)){
+    if(rl.key.pressed(rl.KEY_ESCAPE)){
       game.screen = "title"
     }
   }
@@ -294,65 +293,67 @@ local func update(dt){
 local backdrop = null
 
 local func draw(){
-  rl.begin_drawing()
-  local s = game.screen
-  if(game.w != null and s != "title" and s != "briefing"){
-    local cam = render.camera(game.w)
-    render.draw(game.w, game.level, cam)
-    render.labels(game.w, cam)
-    if(s == "play" or s == "paused"){
-      hud.play(game.w, missions[game.index])
-      if(game.w.jacked != null){
-        hud.deck(game.w, game.ed, math.floor(rl.get_time() * 2.5) % 2 == 0)
+  rl.drawing{
+    local s = game.screen
+    if(game.w != null and s != "title" and s != "briefing"){
+      local cam = render.camera(game.w)
+      render.draw(game.w, game.level, cam)
+      render.labels(game.w, cam)
+      if(s == "play" or s == "paused"){
+        hud.play(game.w, missions[game.index])
+        if(game.w.jacked != null){
+          hud.deck(game.w, game.ed, math.floor(rl.time * 2.5) % 2 == 0)
+        }
+      }
+      if(s == "paused"){
+        hud.paused()
+      } else if(s == "caught"){
+        hud.caught(game.w)
+      } else if(s == "complete"){
+        hud.complete(
+          game.w, game.previous_best, game.index + 1 >= len(missions)
+        )
+      }
+    } else {
+      if(backdrop == null){
+        local w = world.new(missions[0])
+        backdrop = {w: w, level: render.load(w)}
+      }
+      // a slow look around the first job
+      local p = backdrop.w.player
+      p.yaw = rl.time * 0.15
+      backdrop.w.time = rl.time
+      render.draw(backdrop.w, backdrop.level, render.camera(backdrop.w))
+      if(s == "title"){
+        hud.title(missions, game.selected, game.best)
+      } else {
+        hud.briefing(missions[game.selected])
       }
     }
-    if(s == "paused"){
-      hud.paused()
-    } else if(s == "caught"){
-      hud.caught(game.w)
-    } else if(s == "complete"){
-      hud.complete(game.w, game.previous_best, game.index + 1 >= len(missions))
-    }
-  } else {
-    if(backdrop == null){
-      local w = world.new(missions[0])
-      backdrop = {w: w, level: render.load(w)}
-    }
-    // a slow look around the first job
-    local p = backdrop.w.player
-    p.yaw = rl.get_time() * 0.15
-    backdrop.w.time = rl.get_time()
-    render.draw(backdrop.w, backdrop.level, render.camera(backdrop.w))
-    if(s == "title"){
-      hud.title(missions, game.selected, game.best)
-    } else {
-      hud.briefing(missions[game.selected])
-    }
   }
-  rl.end_drawing()
 }
 
 // ------------------------------------------------------------ main
 
-rl.set_config_flags(rl.FLAG_MSAA_4X_HINT)
-rl.init_window(width, height, "Deckhand")
-rl.set_exit_key(rl.KEY_NULL)
-rl.set_target_fps(60)
+rl.config_flags = rl.FLAG_MSAA_4X_HINT
+rl.window.open(width, height, "Deckhand")
+rl.window.exit_key = rl.KEY_NULL
+rl.target_fps = 60
 if(demo != null){
   start(mission_index(demo))
 }
 
 local frames = 0
 local outcome = "quit"
-for(; not rl.window_should_close() and not game.quit; frames = frames + 1){
+for(; not rl.window.should_close and not game.quit; frames = frames + 1){
   if(frame_limit != null and frames >= to_int(str.to_number(frame_limit))){
     break
   }
   // a long frame (a window drag) would let you walk through a closing door
-  update(math.min(rl.get_frame_time(), 0.05))
+  update(math.min(rl.frame_time, 0.05))
   draw()
   if(shots[frames] != null){
-    rl.take_screenshot(shots[frames])
+    rl.window.screenshot(shots[frames])
   }
   if(demo != null and game.screen != "play"){
     outcome = game.screen
@@ -364,7 +365,7 @@ for(; not rl.window_should_close() and not game.quit; frames = frames + 1){
     }
   }
 }
-rl.close_window()
+rl.window.close()
 if(demo != null){
   print("deckhand: ", frames, " frames, ", outcome, "\n")
 }

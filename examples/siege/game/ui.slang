@@ -40,10 +40,10 @@ func m.font(){
 
 // begin(): at the start of a frame, before any widget
 func m.begin(){
-  mouse = rl.get_mouse_position()
-  pressed = rl.is_mouse_button_pressed(rl.MOUSE_BUTTON_LEFT)
-  down = rl.is_mouse_button_down(rl.MOUSE_BUTTON_LEFT)
-  released = rl.is_mouse_button_released(rl.MOUSE_BUTTON_LEFT)
+  mouse = rl.mouse.position
+  pressed = rl.mouse.pressed(rl.MOUSE_BUTTON_LEFT)
+  down = rl.mouse.down(rl.MOUSE_BUTTON_LEFT)
+  released = rl.mouse.released(rl.MOUSE_BUTTON_LEFT)
   over_last = over
   over = false
 }
@@ -72,18 +72,18 @@ local func inside(x, y, w, h){
 // measure(text, size) -> width
 func m.measure(text, size){
   if(font != null){
-    return rl.measure_text_ex(font, text, size, size * 0.02).x
+    return font:measure(text, size, size * 0.02).x
   }
-  return rl.measure_text(text, size)
+  return rl.text.measure(text, size)
 }
 
 // text(x, y, text, size, color?)
 func m.text(x, y, text, size, color){
   color = color or m.colors.text
   if(font != null){
-    rl.draw_text_ex(font, text, {x, y}, size, size * 0.02, color)
+    font:draw_text_ex(text, {x, y}, size, size * 0.02, color)
   } else {
-    rl.draw_text(text, to_int(x), to_int(y), to_int(size), color)
+    rl.draw.text(text, to_int(x), to_int(y), to_int(size), color)
   }
 }
 
@@ -112,8 +112,8 @@ func m.shadowed_centered(cx, y, text, size, color){
 
 // panel(x, y, w, h, title?)
 func m.panel(x, y, w, h, title){
-  rl.draw_rectangle_rounded({x, y, w, h}, 0.08, 6, m.colors.panel)
-  rl.draw_rectangle_rounded_lines_ex({x, y, w, h}, 0.08, 6, 1.5, m.colors.panel_edge)
+  rl.draw.rectangle_rounded({x, y, w, h}, 0.08, 6, m.colors.panel)
+  rl.draw.rectangle_rounded_lines_ex({x, y, w, h}, 0.08, 6, 1.5, m.colors.panel_edge)
   if(inside(x, y, w, h)){
     over = true
   }
@@ -139,9 +139,9 @@ func m.button(x, y, w, h, label, options){
   if(options.color != null and not options.active){
     color = options.color
   }
-  rl.draw_rectangle_rounded({x, y, w, h}, 0.3, 6, color)
+  rl.draw.rectangle_rounded({x, y, w, h}, 0.3, 6, color)
   if(hover and down){
-    rl.draw_rectangle_rounded({x, y, w, h}, 0.3, 6, {255, 255, 255, 40})
+    rl.draw.rectangle_rounded({x, y, w, h}, 0.3, 6, {255, 255, 255, 40})
   }
   local size = options.size or 20
   local tc = m.colors.text
@@ -204,10 +204,10 @@ func m.slider(x, y, w, h, label, value, lo, hi, options){
       value = math.round(value / options.step) * options.step
     }
   }
-  rl.draw_rectangle_rounded({x, y, w, h}, 0.5, 6, m.colors.track)
+  rl.draw.rectangle_rounded({x, y, w, h}, 0.5, 6, m.colors.track)
   local t = (value - lo) / (hi - lo)
   if(t > 0){
-    rl.draw_rectangle_rounded({x, y, math.max(h, w * t), h}, 0.5, 6, m.colors.fill)
+    rl.draw.rectangle_rounded({x, y, math.max(h, w * t), h}, 0.5, 6, m.colors.fill)
   }
   local shown = string(math.round(value * 100) / 100)
   if(options.step != null and options.step >= 1){
@@ -245,15 +245,15 @@ func m.field(x, y, w, h, text, focused){
     focused = hover
   }
   if(focused){
-    for(local c = rl.get_char_pressed(); c > 0; c = rl.get_char_pressed()){
+    for(local c = rl.key.next_char(); c > 0; c = rl.key.next_char()){
       if(c >= 32 and c < 127 and len(text) < 24){
         text = concat(text, utf8.char(c))
       }
     }
-    if((rl.is_key_pressed(rl.KEY_BACKSPACE) or rl.is_key_pressed_repeat(rl.KEY_BACKSPACE)) and len(text) > 0){
+    if((rl.key.pressed(rl.KEY_BACKSPACE) or rl.key.pressed_repeat(rl.KEY_BACKSPACE)) and len(text) > 0){
       text = str.substring(text, 0, len(text) - 1)
     }
-    if(rl.is_key_pressed(rl.KEY_ENTER)){
+    if(rl.key.pressed(rl.KEY_ENTER)){
       focused = false
     }
   }
@@ -261,12 +261,12 @@ func m.field(x, y, w, h, text, focused){
   if(focused){
     color = {40, 46, 60, 255}
   }
-  rl.draw_rectangle_rounded({x, y, w, h}, 0.3, 6, color)
+  rl.draw.rectangle_rounded({x, y, w, h}, 0.3, 6, color)
   if(focused){
-    rl.draw_rectangle_rounded_lines_ex({x, y, w, h}, 0.3, 6, 1.5, m.colors.accent)
+    rl.draw.rectangle_rounded_lines_ex({x, y, w, h}, 0.3, 6, 1.5, m.colors.accent)
   }
   local shown = text
-  if(focused and math.floor(rl.get_time() * 2) % 2 == 0){
+  if(focused and math.floor(rl.time * 2) % 2 == 0){
     shown = concat(text, "_")
   }
   m.text(x + 10, y + (h - 18) / 2, shown, 18)
@@ -275,9 +275,9 @@ func m.field(x, y, w, h, text, focused){
 
 // bar(x, y, w, h, t, color): a filled bar (0..1)
 func m.bar(x, y, w, h, t, color){
-  rl.draw_rectangle_rounded({x, y, w, h}, 0.5, 6, m.colors.track)
+  rl.draw.rectangle_rounded({x, y, w, h}, 0.5, 6, m.colors.track)
   if(t > 0){
-    rl.draw_rectangle_rounded({x, y, math.max(h, w * math.min(1, t)), h}, 0.5, 6, color)
+    rl.draw.rectangle_rounded({x, y, math.max(h, w * math.min(1, t)), h}, 0.5, 6, color)
   }
 }
 

@@ -264,7 +264,7 @@ func panel.new(app){
   local func draw_algorithm(){
     local a = algorithms.get(p().algorithm)
     local boxes = op_boxes()
-    rl.draw_rectangle(ALG_X, EDIT_Y, ALG_W, 212, colors.face)
+    rl.draw.rectangle(ALG_X, EDIT_Y, ALG_W, 212, colors.face)
     text("ALGORITHM", ALG_X + 10, EDIT_Y + 8, 10, colors.dim)
     text(two(p().algorithm), ALG_X + ALG_W - 34, EDIT_Y + 6, 16, colors.accent)
     // connections: from a modulator's bottom to its target's top
@@ -272,7 +272,7 @@ func panel.new(app){
       for(let local m in values(a.mods[k])){
         local from = boxes[m]
         local to = boxes[k]
-        rl.draw_line_ex({x: from.x + BOX_W / 2, y: from.y + BOX_H}, {x: to.x + BOX_W / 2, y: to.y}, 2, colors.line)
+        rl.draw.line_ex({x: from.x + BOX_W / 2, y: from.y + BOX_H}, {x: to.x + BOX_W / 2, y: to.y}, 2, colors.line)
       }
     }
     // the output bar under the carriers
@@ -281,11 +281,11 @@ func panel.new(app){
     local hi = -10000
     for(let local c in values(a.carriers)){
       local b = boxes[c]
-      rl.draw_line_ex({x: b.x + BOX_W / 2, y: b.y + BOX_H}, {x: b.x + BOX_W / 2, y: bar_y}, 2, colors.line)
+      rl.draw.line_ex({x: b.x + BOX_W / 2, y: b.y + BOX_H}, {x: b.x + BOX_W / 2, y: bar_y}, 2, colors.line)
       lo = math.min(lo, b.x + BOX_W / 2)
       hi = math.max(hi, b.x + BOX_W / 2)
     }
-    rl.draw_line_ex({x: lo, y: bar_y}, {x: hi, y: bar_y}, 2, colors.line)
+    rl.draw.line_ex({x: lo, y: bar_y}, {x: hi, y: bar_y}, 2, colors.line)
     // the feedback loop: out of the source's right side, into the
     // destination's top
     local src = boxes[a.fb_from]
@@ -295,10 +295,10 @@ func panel.new(app){
     if(p().feedback == 0){
       col = colors.faint
     }
-    rl.draw_line_ex({x: src.x + BOX_W, y: src.y + BOX_H / 2}, {x: fx, y: src.y + BOX_H / 2}, 2, col)
-    rl.draw_line_ex({x: fx, y: src.y + BOX_H / 2}, {x: fx, y: dst.y - 6}, 2, col)
-    rl.draw_line_ex({x: fx, y: dst.y - 6}, {x: dst.x + BOX_W / 2, y: dst.y - 6}, 2, col)
-    rl.draw_line_ex({x: dst.x + BOX_W / 2, y: dst.y - 6}, {x: dst.x + BOX_W / 2, y: dst.y}, 2, col)
+    rl.draw.line_ex({x: src.x + BOX_W, y: src.y + BOX_H / 2}, {x: fx, y: src.y + BOX_H / 2}, 2, col)
+    rl.draw.line_ex({x: fx, y: src.y + BOX_H / 2}, {x: fx, y: dst.y - 6}, 2, col)
+    rl.draw.line_ex({x: fx, y: dst.y - 6}, {x: dst.x + BOX_W / 2, y: dst.y - 6}, 2, col)
+    rl.draw.line_ex({x: dst.x + BOX_W / 2, y: dst.y - 6}, {x: dst.x + BOX_W / 2, y: dst.y}, 2, col)
     for(local k = 1; k <= 6; k = k + 1){
       local b = boxes[k]
       local o = p().ops[k - 1]
@@ -311,7 +311,7 @@ func panel.new(app){
         fill = colors.cell
         fg = colors.faint
       }
-      rl.draw_rectangle(to_int(b.x), to_int(b.y), BOX_W, BOX_H, fill)
+      rl.draw.rectangle(to_int(b.x), to_int(b.y), BOX_W, BOX_H, fill)
       text_center(string(k), b.x + BOX_W / 2, b.y + 6, 12, fg)
     }
   }
@@ -332,7 +332,7 @@ func panel.new(app){
 
   local func draw_table(){
     local x0 = TABLE_X + 44
-    rl.draw_rectangle(TABLE_X, EDIT_Y, panel.W - 20 - TABLE_X, 212, colors.face)
+    rl.draw.rectangle(TABLE_X, EDIT_Y, panel.W - 20 - TABLE_X, 212, colors.face)
     // headings
     local x = x0
     for(let local id in values(columns)){
@@ -355,7 +355,7 @@ func panel.new(app){
       }
       text(concat("OP", string(i + 1)), TABLE_X + 8, y + 7, 12, color)
       local o = p().ops[i]
-      rl.draw_rectangle(to_int(x), y, 104, ROW_H - 4, colors.cell)
+      rl.draw.rectangle(to_int(x), y, 104, ROW_H - 4, colors.cell)
       local eg_color = colors.teal
       if(o.on == 0 or o.level == 0){
         eg_color = colors.faint
@@ -365,7 +365,7 @@ func panel.new(app){
   }
 
   local func draw_lfo(){
-    rl.draw_rectangle(TABLE_X, LFO_Y, panel.W - 20 - TABLE_X, 64, colors.face)
+    rl.draw.rectangle(TABLE_X, LFO_Y, panel.W - 20 - TABLE_X, 64, colors.face)
     text("LFO", TABLE_X + 8, LFO_Y + 28, 12, colors.text)
     local x = TABLE_X + 44
     for(let local id in values({"wave", "speed", "delay", "pmd", "amd", "lfo_sync", "pms"})){
@@ -396,22 +396,22 @@ func panel.new(app){
       text_center(str_tail(field_of[id].label), x + (CELL_W - 2) / 2, LFO_Y + 8, 8, colors.dim)
       x = x + CELL_W
     }
-    rl.draw_rectangle(to_int(x), LFO_Y + 22, 104, ROW_H - 4, colors.cell)
+    rl.draw.rectangle(to_int(x), LFO_Y + 22, 104, ROW_H - 4, colors.cell)
     // the pitch envelope around its middle line
-    rl.draw_line(to_int(x), LFO_Y + 22 + (ROW_H - 4) / 2, to_int(x) + 104, LFO_Y + 22 + (ROW_H - 4) / 2, colors.faint)
+    rl.draw.line(to_int(x), LFO_Y + 22 + (ROW_H - 4) / 2, to_int(x) + 104, LFO_Y + 22 + (ROW_H - 4) / 2, colors.faint)
     local q = p()
     draw_eg({q.pr1, q.pr2, q.pr3, q.pr4}, {q.pl1, q.pl2, q.pl3, q.pl4}, x, LFO_Y + 22, 104, ROW_H - 4, q.pl4, colors.teal)
   }
 
   local func draw_cells(){
-    local m = rl.get_mouse_position()
+    local m = rl.mouse.position
     for(let local c in values(cells)){
       local bg = colors.cell
       if((drag != null and drag.cell.x == c.x and drag.cell.y == c.y) or
         (drag == null and m.x >= c.x and m.x < c.x + c.w and m.y >= c.y and m.y < c.y + c.h)){
         bg = colors.cell_hot
       }
-      rl.draw_rectangle(to_int(c.x), to_int(c.y), to_int(c.w), to_int(c.h), bg)
+      rl.draw.rectangle(to_int(c.x), to_int(c.y), to_int(c.w), to_int(c.h), bg)
       local s = null
       if(c.show != null){
         s = c.show()
@@ -425,7 +425,7 @@ func panel.new(app){
       text_center(s, c.x + c.w / 2, c.y + 7, 10, color)
       if(app.learning){
         if(app.armed(c.target)){
-          rl.draw_rectangle_lines(to_int(c.x) - 1, to_int(c.y) - 1, to_int(c.w) + 2, to_int(c.h) + 2, colors.accent)
+          rl.draw.rectangle_lines(to_int(c.x) - 1, to_int(c.y) - 1, to_int(c.w) + 2, to_int(c.h) + 2, colors.accent)
         }
         local b = app.binding(c.target)
         if(b != null){
@@ -440,7 +440,7 @@ func panel.new(app){
 
   local func draw_scope(x, y, w, h){
     local scope = app.scope
-    rl.draw_rectangle(x, y, w, h, colors.lcd)
+    rl.draw.rectangle(x, y, w, h, colors.lcd)
     local n = len(scope) - 1
     local at = to_int(scope[n])
     local start = at - w - 1
@@ -459,7 +459,7 @@ func panel.new(app){
       local s = clamp(scope[(start + k + n * 4) % n] * 1.2, -1, 1)
       local py = to_int(y + h / 2 - s * (h / 2 - 2))
       if(k > 0){
-        rl.draw_line(lastx, lasty, x + k, py, colors.scope)
+        rl.draw.line(lastx, lasty, x + k, py, colors.scope)
       }
       lastx = x + k
       lasty = py
@@ -472,8 +472,8 @@ func panel.new(app){
     text("six-operator FM synthesizer", 20, HEADER_Y + 34, 9, colors.dim)
     // the display
     local lx = 230
-    rl.draw_rectangle(lx - 4, HEADER_Y - 4, 420, 56, {12, 12, 12})
-    rl.draw_rectangle(lx, HEADER_Y, 412, 48, colors.lcd)
+    rl.draw.rectangle(lx - 4, HEADER_Y - 4, 420, 56, {12, 12, 12})
+    rl.draw.rectangle(lx, HEADER_Y, 412, 48, colors.lcd)
     local name = app.patch.name
     if(app.edited){
       name = concat(name, " *")
@@ -489,12 +489,12 @@ func panel.new(app){
     if(s.underruns > 0){
       color = colors.warn
     }
-    text(concat("underruns ", string(s.underruns), "   FPS ", string(rl.get_fps())), 980, HEADER_Y + 26, 9, color)
+    text(concat("underruns ", string(s.underruns), "   FPS ", string(rl.fps)), 980, HEADER_Y + 26, 9, color)
     // the volume, a horizontal bar
     local v = app.controls[engine.VOLUME]
     text("VOLUME", 1160, HEADER_Y + 2, 9, colors.dim)
-    rl.draw_rectangle(1160, HEADER_Y + 20, 100, 10, colors.cell)
-    rl.draw_rectangle(1160, HEADER_Y + 20, to_int(100 * v), 10, colors.accent)
+    rl.draw.rectangle(1160, HEADER_Y + 20, 100, 10, colors.cell)
+    rl.draw.rectangle(1160, HEADER_Y + 20, to_int(100 * v), 10, colors.accent)
   }
 
   local func bank_rect(i){
@@ -513,7 +513,7 @@ func panel.new(app){
         fill = colors.button_on
         fg = {20, 16, 14}
       }
-      rl.draw_rectangle(to_int(r.x), to_int(r.y), to_int(r.w), r.h, fill)
+      rl.draw.rectangle(to_int(r.x), to_int(r.y), to_int(r.w), r.h, fill)
       text(string(i + 1), r.x + 4, r.y + 3, 9, fg)
       local name = app.bank[i].name
       // as much of the name as fits
@@ -551,14 +551,14 @@ func panel.new(app){
   }
 
   local func draw_keyboard(){
-    rl.draw_rectangle(10, KEYS_Y - 14, panel.W - 20, panel.H - KEYS_Y + 8, colors.face)
+    rl.draw.rectangle(10, KEYS_Y - 14, panel.W - 20, panel.H - KEYS_Y + 8, colors.face)
     for(let local k in values(keys)){
       if(not k.black){
         local color = colors.white_key
         if(app.held(k.note)){
           color = colors.white_down
         }
-        rl.draw_rectangle(to_int(k.x), KEYS_Y, to_int(k.w) - 1, WHITE_H, color)
+        rl.draw.rectangle(to_int(k.x), KEYS_Y, to_int(k.w) - 1, WHITE_H, color)
         if(k.note % 12 == 0){
           text_center(patch.note_name(k.note), k.x + k.w / 2, KEYS_Y + WHITE_H - 18, 9, colors.dim)
         }
@@ -570,25 +570,25 @@ func panel.new(app){
         if(app.held(k.note)){
           color = colors.black_down
         }
-        rl.draw_rectangle(to_int(k.x), KEYS_Y, to_int(k.w), BLACK_H, color)
+        rl.draw.rectangle(to_int(k.x), KEYS_Y, to_int(k.w), BLACK_H, color)
       }
     }
-    rl.draw_rectangle(KEYS_X, KEYS_Y - 4, panel.W - 20 - KEYS_X, 4, colors.accent_dark)
+    rl.draw.rectangle(KEYS_X, KEYS_Y - 4, panel.W - 20 - KEYS_X, 4, colors.accent_dark)
     for(let local wh in values(wheels)){
       local v = app.controls[wh.index]
       if(wh.index == engine.BEND){
         v = (v + 1) / 2
       }
       local y0 = KEYS_Y + 20
-      rl.draw_rectangle(wh.x - 4, y0 - 4, WHEEL_W + 8, WHEEL_H + 8, {10, 10, 10})
-      rl.draw_rectangle_gradient_v(wh.x, y0, WHEEL_W, WHEEL_H, {48, 46, 46}, {18, 18, 18})
+      rl.draw.rectangle(wh.x - 4, y0 - 4, WHEEL_W + 8, WHEEL_H + 8, {10, 10, 10})
+      rl.draw.rectangle_gradient_v(wh.x, y0, WHEEL_W, WHEEL_H, {48, 46, 46}, {18, 18, 18})
       local offset = v * 80.0
       for(local k = 0; k < 16; k = k + 1){
         local y = y0 + ((k * 14.0 + offset) % WHEEL_H)
-        rl.draw_line(wh.x + 2, to_int(y), wh.x + WHEEL_W - 2, to_int(y), {76, 72, 72})
+        rl.draw.line(wh.x + 2, to_int(y), wh.x + WHEEL_W - 2, to_int(y), {76, 72, 72})
       }
       local my = to_int(y0 + WHEEL_H - v * WHEEL_H)
-      rl.draw_rectangle(wh.x, my - 3, WHEEL_W, 6, colors.accent)
+      rl.draw.rectangle(wh.x, my - 3, WHEEL_W, 6, colors.accent)
       text_center(wh.label, wh.x + WHEEL_W / 2, y0 + WHEEL_H + 10, 9, colors.dim)
     }
     text_center(concat("OCTAVE ", patch.note_name(app.octave)), 74, KEYS_Y - 10, 9, colors.dim)
@@ -608,11 +608,11 @@ func panel.new(app){
   // handle_mouse(): clicks, drags and the wheel
   func self.handle_mouse(){
     build_cells()
-    local m = rl.get_mouse_position()
+    local m = rl.mouse.position
     local left = rl.MOUSE_BUTTON_LEFT
-    local fine = rl.is_key_down(rl.KEY_LEFT_SHIFT) or rl.is_key_down(rl.KEY_RIGHT_SHIFT)
+    local fine = rl.key.down(rl.KEY_LEFT_SHIFT) or rl.key.down(rl.KEY_RIGHT_SHIFT)
     local volume_hit = m.x >= 1160 and m.x <= 1260 and m.y >= HEADER_Y + 14 and m.y <= HEADER_Y + 36
-    if(rl.is_mouse_button_pressed(left) and app.learning){
+    if(rl.mouse.pressed(left) and app.learning){
       // MIDI learn: a click names what the next controller moves
       local c = cell_at(m.x, m.y)
       if(c != null){
@@ -620,9 +620,9 @@ func panel.new(app){
       } else if(volume_hit){
         app.learn("volume")
       }
-    } else if(rl.is_mouse_button_pressed(left)){
+    } else if(rl.mouse.pressed(left)){
       local c = cell_at(m.x, m.y)
-      local now = rl.get_time()
+      local now = rl.time
       if(c != null){
         local f = c.field
         if(f.kind == "bool" or f.kind == "enum"){
@@ -669,7 +669,7 @@ func panel.new(app){
         }
       }
     }
-    if(rl.is_mouse_button_down(left)){
+    if(rl.mouse.down(left)){
       if(drag != null){
         local f = drag.cell.field
         // pixels per step: small ranges take bigger steps
@@ -702,7 +702,7 @@ func panel.new(app){
         }
       }
     }
-    if(rl.is_mouse_button_released(left)){
+    if(rl.mouse.released(left)){
       drag = null
       wheel_drag = null
       if(mouse_note != null){
@@ -710,7 +710,7 @@ func panel.new(app){
         mouse_note = null
       }
     }
-    local w = rl.get_mouse_wheel_move()
+    local w = rl.mouse.wheel
     if(w != 0.0){
       local c = cell_at(m.x, m.y)
       if(c != null){
@@ -751,7 +751,7 @@ func panel.new(app){
   // draw(): the whole panel
   func self.draw(){
     build_cells()
-    rl.clear_background(colors.body)
+    rl.draw.clear(colors.body)
     draw_header()
     draw_bank()
     draw_algorithm()

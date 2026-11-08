@@ -13,13 +13,13 @@ local SIZE = 128
 // noise(size, scale, seed) -> a function (x, y) -> [-1, 1] over the pixel
 // grid, from an image of Perlin noise raylib makes (fast, in C)
 local func noise(size, scale, seed){
-  local image = rl.gen_image_perlin_noise(size, size, seed * 97, seed * 31, scale)
+  local image = rl.image.perlin_noise(size, size, seed * 97, seed * 31, scale)
   local px = buffer.wrap(image.data, size * size * 4, "unsigned char")
   local values = {}
   for(local i = 0; i < size * size; i = i + 1){
     append(values, px[i * 4] / 127.5 - 1)
   }
-  rl.unload_image(image)
+  image:unload()
   return values
 }
 
@@ -27,7 +27,7 @@ local func noise(size, scale, seed){
 // and y in [0, 1) and i the pixel's index, made a texture with mipmaps
 // that repeats mirrored (so the noise needs no seams)
 local func make(size, f){
-  local image = rl.gen_image_color(size, size, rl.WHITE)
+  local image = rl.image.color(size, size, rl.WHITE)
   local px = buffer.wrap(image.data, size * size * 4, "unsigned char")
   local k = 0
   local i = 0
@@ -42,11 +42,11 @@ local func make(size, f){
       i = i + 1
     }
   }
-  local texture = rl.load_texture_from_image(image)
-  rl.unload_image(image)
-  rl.gen_texture_mipmaps(texture)
-  rl.set_texture_filter(texture, rl.TEXTURE_FILTER_TRILINEAR)
-  rl.set_texture_wrap(texture, rl.TEXTURE_WRAP_MIRROR_REPEAT)
+  local texture = image:to_texture()
+  image:unload()
+  texture:gen_mipmaps()
+  texture.filter = rl.TEXTURE_FILTER_TRILINEAR
+  texture.wrap = rl.TEXTURE_WRAP_MIRROR_REPEAT
   return texture
 }
 
@@ -230,7 +230,7 @@ func m.all(){
 
 func m.unload(){
   for(let local e in entries(textures)){
-    rl.unload_texture(e[1])
+    e[1]:unload()
   }
   textures = {}
 }

@@ -32,7 +32,7 @@ local func terrain_mesh(){
       // the normal from the slopes around the vertex
       local dx = height(x + 1, z) - height(x - 1, z)
       local dz = height(x, z + 1) - height(x, z - 1)
-      local n = rl.vector3_normalize({-dx, 2, -dz})
+      local n = rl.vector3.normalize({-dx, 2, -dz})
       append(normals, n.x)
       append(normals, n.y)
       append(normals, n.z)
@@ -63,7 +63,7 @@ local func terrain_mesh(){
   })
 }
 
-rl.init_window({
+rl.window.open({
   width: 960,
   height: 600,
   title: "terrain built in slang",
@@ -76,24 +76,24 @@ local frames = to_int(require("slang/string").to_number(
   os.getenv("TERRAIN_FRAMES") or "0",
 ))
 local frame = 0
-for(not rl.window_should_close()){
+for(not rl.window.should_close){
   camera:update(rl.CAMERA_ORBITAL)
-  rl.begin_drawing()
-  rl.clear_background({30, 34, 44})
-  rl.begin_mode_3d(camera)
-  model:draw({0, 0, 0}, 1, rl.WHITE)
-  model:draw_wires({0, 0.01, 0}, 1, rl.fade(rl.BLACK, 0.15))
-  rl.end_mode_3d()
-  rl.draw_text(rl.text_format(
-    "%d vertices built in slang",
-    model.meshes[0].vertex_count,
-  ), 12, 12, 20, rl.RAYWHITE)
-  rl.draw_fps(12, 40)
-  rl.end_drawing()
+  rl.drawing{
+    rl.draw.clear({30, 34, 44})
+    rl.mode_3d(camera){
+      model:draw({0, 0, 0}, 1, rl.WHITE)
+      model:draw_wires({0, 0.01, 0}, 1, rl.color.fade(rl.BLACK, 0.15))
+    }
+    rl.draw.text(rl.text.format(
+      "%d vertices built in slang",
+      model.meshes[0].vertex_count,
+    ), 12, 12, 20, rl.RAYWHITE)
+    rl.draw.fps(12, 40)
+  }
   frame = frame + 1
   if(frames > 0 and frame >= frames){
     break
   }
 }
 model:unload()
-rl.close_window()
+rl.window.close()

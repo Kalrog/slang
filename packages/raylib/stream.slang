@@ -101,15 +101,15 @@ local func pump_loop(cfg, ring, state, wake, ctl){
   local time = require("slang/time")
   local ch = cfg.channels
   local ring_frames = cfg.ring
-  rl.init_audio_device()
-  if(not rl.is_audio_device_ready()){
+  rl.audio.open()
+  if(not rl.audio.ready){
     wake:close()
     raise(error.new(error.kinds.not_found, "raylib/stream: no audio device"))
   }
-  local s = rl.load_audio_stream(cfg.sample_rate, 32, ch)
+  local s = rl.audio_stream.load(cfg.sample_rate, 32, ch)
   // raylib's audio thread calls this; it runs in this isolate, whose own
   // thread waits on ctl meanwhile
-  rl.set_audio_stream_callback(s, func(data, frames){
+  s.callback = func(data, frames){
     local out = buffer.wrap(data, frames * ch, "float")
     state:lock()
     local r = state[1]
@@ -138,18 +138,18 @@ local func pump_loop(cfg, ring, state, wake, ctl){
     state[3] = state[3] + 1
     state:unlock()
     wake:try_send(true)
-  })
+  }
   // start once the render isolate has filled the ring (or a second passed)
   local t0 = time.clock()
   for(state[0] < cfg.latency - cfg.block and time.clock() - t0 < 1000){
     time.sleep(2)
   }
-  rl.play_audio_stream(s)
+  s:play()
   state[4] = 1
   ctl:receive()
-  rl.stop_audio_stream(s)
-  rl.unload_audio_stream(s)
-  rl.close_audio_device()
+  s:stop()
+  s:unload()
+  rl.audio.close()
   wake:close()
   return null
 }
@@ -224,7 +224,9 @@ func player_get.playing(p){
 }
 
 local player_meta = {
-  __type: "raylib.Player", __index: player_methods, __get: player_get
+  __type: "raylib.Player",
+  __index: player_methods,
+  __get: player_get,
 }
 
 // play(setup: function, options?: Options) -> Player
@@ -256,7 +258,11 @@ func stream.play(setup, options){
     ring = ring * 2
   }
   if(ring % block != 0){
-    raise(error.new(error.kinds.argument, concat("raylib/stream: block must divide the ring (", ring, " frames): use a power of two")))
+    raise(error.new(error.kinds.argument, concat(
+      "raylib/stream: block must divide the ring (",
+      ring,
+      " frames): use a power of two",
+    )))
   }
   local cfg = {
     sample_rate: options.sample_rate or 48000,
@@ -274,17 +280,19 @@ func stream.play(setup, options){
     render_loop, setup, options.args or {}, cfg, samples, state, timing, wake
   )
   local pump = isolate.spawn(pump_loop, cfg, samples, state, wake, ctl)
-  return {@meta: player_meta, inner: {
-    render: render,
-    pump: pump,
-    ctl: ctl,
-    state: state,
-    timing: timing,
-    sample_rate: cfg.sample_rate,
-    last_rendered: 0,
-    last_seconds: 0.0,
-    stopped: false,
-  }}
+  return {
+    @meta: player_meta, inner: {
+      render: render,
+      pump: pump,
+      ctl: ctl,
+      state: state,
+      timing: timing,
+      sample_rate: cfg.sample_rate,
+      last_rendered: 0,
+      last_seconds: 0.0,
+      stopped: false,
+    }
+  }
 }
 
 return stream

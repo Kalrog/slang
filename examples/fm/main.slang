@@ -23,28 +23,28 @@ local rl = require("raylib")
 local app = require("app")
 local panel_mod = require("panel")
 
-rl.set_config_flags(rl.FLAG_MSAA_4X_HINT)
-rl.init_window(panel_mod.W, panel_mod.H, "slang six")
-rl.set_target_fps(60)
+rl.config_flags = rl.FLAG_MSAA_4X_HINT
+rl.window.open(panel_mod.W, panel_mod.H, "slang six")
+rl.target_fps = 60
 // ESC should not close the synth while it is played
-rl.set_exit_key(rl.KEY_NULL)
+rl.window.exit_key = rl.KEY_NULL
 panel_mod.load_font()
 app.start("midi_map.json")
 local panel = panel_mod.new(app)
 
 local frame = 0
 app.mark_start()
-for(not rl.window_should_close() and frame != app.max_frames){
+for(not rl.window.should_close and frame != app.max_frames){
   panel.handle_mouse()
   app.handle_keys()
   app.update(frame)
-  rl.begin_drawing()
-  panel.draw()
-  rl.end_drawing()
+  rl.drawing{
+    panel.draw()
+  }
   frame = frame + 1
   app.end_frame(frame)
 }
 
 panel_mod.unload_font()
 app.finish(frame)
-rl.close_window()
+rl.window.close()

@@ -64,8 +64,8 @@ local func make(rate, seconds, f){
 }
 
 func render.init_sound(){
-  rl.init_audio_device()
-  if(not rl.is_audio_device_ready()){
+  rl.audio.open()
+  if(not rl.audio.ready){
     return
   }
   local rate = 22050
@@ -95,13 +95,13 @@ func render.init_sound(){
 
 func render.play(name){
   if(sounds != null and sounds[name] != null){
-    rl.play_sound(sounds[name])
+    sounds[name]:play()
   }
 }
 
 func render.close_sound(){
   if(sounds != null){
-    rl.close_audio_device()
+    rl.audio.close()
   }
 }
 
@@ -119,28 +119,28 @@ local func draw_cells(state, time){
       local px = x * CELL
       local py = TOP + y * CELL
       if(c == rules.PILLAR){
-        rl.draw_rectangle(px, py, CELL, CELL, colors.pillar)
-        rl.draw_rectangle(px + 3, py + 3, CELL - 6, CELL - 12, colors.pillar_top)
+        rl.draw.rectangle(px, py, CELL, CELL, colors.pillar)
+        rl.draw.rectangle(px + 3, py + 3, CELL - 6, CELL - 12, colors.pillar_top)
       } else {
         local owner = state.paint[i]
         local floor = if(owner > 0){ inks[owner - 1] } else { colors.floor }
-        rl.draw_rectangle(px, py, CELL, CELL, floor)
-        rl.draw_rectangle_lines(px, py, CELL, CELL, colors.floor_line)
+        rl.draw.rectangle(px, py, CELL, CELL, floor)
+        rl.draw.rectangle_lines(px, py, CELL, CELL, colors.floor_line)
         if(c == rules.CRATE){
-          rl.draw_rectangle_rounded(cell_rect(x, y, 4), 0.18, 4, colors.crate_edge)
-          rl.draw_rectangle_rounded(cell_rect(x, y, 7), 0.18, 4, colors.crate)
-          rl.draw_line_ex({px + 10, py + 10}, {px + CELL - 10, py + CELL - 10}, 3, colors.crate_edge)
-          rl.draw_line_ex({px + CELL - 10, py + 10}, {px + 10, py + CELL - 10}, 3, colors.crate_edge)
+          rl.draw.rectangle_rounded(cell_rect(x, y, 4), 0.18, 4, colors.crate_edge)
+          rl.draw.rectangle_rounded(cell_rect(x, y, 7), 0.18, 4, colors.crate)
+          rl.draw.line_ex({px + 10, py + 10}, {px + CELL - 10, py + CELL - 10}, 3, colors.crate_edge)
+          rl.draw.line_ex({px + CELL - 10, py + 10}, {px + 10, py + CELL - 10}, 3, colors.crate_edge)
         } else if(c == rules.POT){
           local bob = math.sin(time * 4 + x) * 2
-          rl.draw_circle(px + CELL / 2, py + CELL / 2 + 4 + bob, 12, {60, 58, 76, 255})
-          rl.draw_circle(px + CELL / 2, py + CELL / 2 + 2 + bob, 9, mix(colors.players[to_int(time * 2) % 4], {255, 255, 255}, 0.2))
-          rl.draw_rectangle(px + CELL / 2 - 5, py + CELL / 2 - 12 + bob, 10, 6, {60, 58, 76, 255})
+          rl.draw.circle(px + CELL / 2, py + CELL / 2 + 4 + bob, 12, {60, 58, 76, 255})
+          rl.draw.circle(px + CELL / 2, py + CELL / 2 + 2 + bob, 9, mix(colors.players[to_int(time * 2) % 4], {255, 255, 255}, 0.2))
+          rl.draw.rectangle(px + CELL / 2 - 5, py + CELL / 2 - 12 + bob, 10, 6, {60, 58, 76, 255})
         } else if(c == rules.LENS){
           local bob = math.sin(time * 4 + y) * 2
-          rl.draw_circle_lines(px + CELL / 2, py + CELL / 2 + bob, 11, colors.text)
-          rl.draw_circle(px + CELL / 2, py + CELL / 2 + bob, 8, {150, 200, 255, 140})
-          rl.draw_line_ex({px + CELL / 2 + 8, py + CELL / 2 + 8 + bob}, {px + CELL / 2 + 15, py + CELL / 2 + 15 + bob}, 3, colors.text)
+          rl.draw.circle_lines(px + CELL / 2, py + CELL / 2 + bob, 11, colors.text)
+          rl.draw.circle(px + CELL / 2, py + CELL / 2 + bob, 8, {150, 200, 255, 140})
+          rl.draw.line_ex({px + CELL / 2 + 8, py + CELL / 2 + 8 + bob}, {px + CELL / 2 + 15, py + CELL / 2 + 15 + bob}, 3, colors.text)
         }
       }
     }
@@ -155,10 +155,10 @@ local func draw_charges(state, time){
     // quicker and bigger as it burns down
     local pulse = math.sin(time * (8 + 20 * (1 - left / 2200))) * 0.5 + 0.5
     local color = colors.players[ch[2]]
-    rl.draw_circle(cx, cy + 3, 15, {12, 12, 18, 120})
-    rl.draw_circle(cx, cy, 14 + pulse * 2, mix({30, 28, 40}, color, 0.25 + pulse * 0.25))
-    rl.draw_ring({cx, cy}, 10, 14 + pulse * 2, -90, -90 + 360 * left / 2200, 24, color)
-    rl.draw_circle(cx + 6, cy - 12, 3 + pulse * 2, {255, 230, 140, 255})
+    rl.draw.circle(cx, cy + 3, 15, {12, 12, 18, 120})
+    rl.draw.circle(cx, cy, 14 + pulse * 2, mix({30, 28, 40}, color, 0.25 + pulse * 0.25))
+    rl.draw.ring({cx, cy}, 10, 14 + pulse * 2, -90, -90 + 360 * left / 2200, 24, color)
+    rl.draw.circle(cx + 6, cy - 12, 3 + pulse * 2, {255, 230, 140, 255})
   }
 }
 
@@ -168,8 +168,8 @@ local func draw_blasts(state){
     for(let local i in values(b[1])){
       local x = i % rules.W
       local y = to_int((i - x) / rules.W)
-      rl.draw_rectangle_rounded(cell_rect(x, y, 2), 0.3, 4, with_alpha(color, 0.85))
-      rl.draw_rectangle_rounded(cell_rect(x, y, 12), 0.5, 4, {255, 248, 230, 230})
+      rl.draw.rectangle_rounded(cell_rect(x, y, 2), 0.3, 4, with_alpha(color, 0.85))
+      rl.draw.rectangle_rounded(cell_rect(x, y, 12), 0.5, 4, {255, 248, 230, 230})
     }
   }
 }
@@ -191,9 +191,9 @@ local func draw_player(c, p, time){
   local dir = p[3]
   local dx = rules.DX[dir]
   local dy = rules.DY[dir]
-  rl.draw_ellipse(cx, cy + 15, 15, 6, {10, 10, 16, 110})
-  rl.draw_circle(cx, cy, 17, mix(color, {0, 0, 0}, 0.3))
-  rl.draw_circle(cx, cy - 2, 16, color)
+  rl.draw.ellipse(cx, cy + 15, 15, 6, {10, 10, 16, 110})
+  rl.draw.circle(cx, cy, 17, mix(color, {0, 0, 0}, 0.3))
+  rl.draw.circle(cx, cy - 2, 16, color)
   // eyes look where it goes: side by side, or one above the other
   // when it looks left or right
   for(let local side in values({-1, 1})){
@@ -203,11 +203,11 @@ local func draw_player(c, p, time){
       ex = cx + dx * 7
       ey = cy - 4 + side * 4
     }
-    rl.draw_circle(ex, ey, 4, {250, 250, 255, 255})
-    rl.draw_circle(ex + dx * 1.5, ey + dy * 1.5, 2, {20, 20, 30, 255})
+    rl.draw.circle(ex, ey, 4, {250, 250, 255, 255})
+    rl.draw.circle(ex + dx * 1.5, ey + dy * 1.5, 2, {20, 20, 30, 255})
   }
   if(slot == c.slot){
-    rl.draw_triangle({cx, cy - 25}, {cx - 6, cy - 33}, {cx + 6, cy - 33}, colors.text)
+    rl.draw.triangle({cx, cy - 25}, {cx - 6, cy - 33}, {cx + 6, cy - 33}, colors.text)
   }
 }
 
@@ -229,7 +229,7 @@ local func name_of(c, slot){
 }
 
 local func draw_hud(c, state){
-  rl.draw_rectangle(0, 0, render.WIDTH, TOP, colors.background)
+  rl.draw.rectangle(0, 0, render.WIDTH, TOP, colors.background)
   local card = 150
   local order = {0, 2, 1, 3}
   for(local n = 0; n < 4; n = n + 1){
@@ -238,34 +238,34 @@ local func draw_hud(c, state){
     local x = if(n < 2){ 12 + n * (card + 8) } else { render.WIDTH - 12 - (4 - n) * (card + 8) + 8 }
     local color = colors.players[slot]
     if(p == null){
-      rl.draw_rectangle_rounded({x, 10, card, 52}, 0.2, 4, {34, 33, 44, 255})
+      rl.draw.rectangle_rounded({x, 10, card, 52}, 0.2, 4, {34, 33, 44, 255})
     } else {
-      rl.draw_rectangle_rounded({x, 10, card, 52}, 0.2, 4, mix(colors.background, color, if(slot == c.slot){ 0.35 } else { 0.18 }))
-      rl.draw_rectangle_rounded({x + 8, 20, 10, 32}, 0.5, 4, color)
+      rl.draw.rectangle_rounded({x, 10, card, 52}, 0.2, 4, mix(colors.background, color, if(slot == c.slot){ 0.35 } else { 0.18 }))
+      rl.draw.rectangle_rounded({x + 8, 20, 10, 32}, 0.5, 4, color)
       local name = name_of(c, slot)
       if(c.roster[slot] != null and c.roster[slot].bot){
         name = concat(name, " (bot)")
       }
       // (a long name is cut to fit the card)
-      for(len(name) > 1 and rl.measure_text(name, 16) > card - 34){
+      for(len(name) > 1 and rl.text.measure(name, 16) > card - 34){
         name = str.substring(name, 0, len(name) - 1)
       }
-      rl.draw_text(name, x + 26, 16, 16, colors.text)
-      rl.draw_text(string(p[6]), x + 26, 36, 22, color)
+      rl.draw.text(name, x + 26, 16, 16, colors.text)
+      rl.draw.text(string(p[6]), x + 26, 36, 22, color)
       local kos = concat("KO ", string(p[5]))
-      rl.draw_text(kos, x + card - 10 - rl.measure_text(kos, 14), 42, 14, colors.dim)
+      rl.draw.text(kos, x + card - 10 - rl.text.measure(kos, 14), 42, 14, colors.dim)
     }
   }
   local t = clock_text(state.left)
   local size = 34
   local tcolor = if(state.left < 10000){ colors.players[0] } else { colors.text }
-  rl.draw_text(t, render.WIDTH / 2 - rl.measure_text(t, size) / 2, 12, size, tcolor)
+  rl.draw.text(t, render.WIDTH / 2 - rl.text.measure(t, size) / 2, 12, size, tcolor)
   local rtt = concat(string(to_int(c.net.rtt)), " ms")
-  rl.draw_text(rtt, render.WIDTH / 2 - rl.measure_text(rtt, 12) / 2, 50, 12, colors.dim)
+  rl.draw.text(rtt, render.WIDTH / 2 - rl.text.measure(rtt, 12) / 2, 50, 12, colors.dim)
 }
 
 local func centered(s, y, size, color){
-  rl.draw_text(s, render.WIDTH / 2 - rl.measure_text(s, size) / 2, y, size, color)
+  rl.draw.text(s, render.WIDTH / 2 - rl.text.measure(s, size) / 2, y, size, color)
 }
 
 local func draw_feed(feed, time){
@@ -274,9 +274,9 @@ local func draw_feed(feed, time){
     local e = feed[i]
     local age = time - e.at
     if(age < 4){
-      local w = rl.measure_text(e.text, 16)
-      rl.draw_rectangle_rounded({render.WIDTH - w - 24, y - 4, w + 16, 24}, 0.4, 4, {16, 16, 24, to_int(200 * (1 - age / 4))})
-      rl.draw_text(e.text, render.WIDTH - w - 16, y, 16, with_alpha(e.color, 1 - age / 4))
+      local w = rl.text.measure(e.text, 16)
+      rl.draw.rectangle_rounded({render.WIDTH - w - 24, y - 4, w + 16, 24}, 0.4, 4, {16, 16, 24, to_int(200 * (1 - age / 4))})
+      rl.draw.text(e.text, render.WIDTH - w - 16, y, 16, with_alpha(e.color, 1 - age / 4))
       y = y - 28
     }
   }
@@ -284,38 +284,37 @@ local func draw_feed(feed, time){
 
 // draw(client, feed, time): one frame
 func render.draw(c, feed, time){
-  rl.begin_drawing()
-  rl.clear_background(colors.background)
-  local state = c.state
-  if(state == null){
-    centered(c.status, render.HEIGHT / 2 - 12, 24, colors.dim)
-    rl.end_drawing()
-    return
-  }
-  draw_cells(state, time)
-  draw_charges(state, time)
-  draw_blasts(state)
-  for(let local p in values(state.players)){
-    draw_player(c, p, time)
-  }
-  draw_hud(c, state)
-  draw_feed(feed, time)
-  if(state.phase == "over"){
-    rl.draw_rectangle(0, TOP, render.WIDTH, render.HEIGHT - TOP, {10, 10, 16, 170})
-    local p = state.by_slot[state.winner]
-    if(p != null){
-      local color = colors.players[state.winner]
-      centered(concat(name_of(c, state.winner), " wins"), render.HEIGHT / 2 - 40, 48, color)
-      centered(concat(string(p[6]), " tiles of ink"), render.HEIGHT / 2 + 16, 24, colors.text)
+  rl.drawing{
+    rl.draw.clear(colors.background)
+    local state = c.state
+    if(state == null){
+      centered(c.status, render.HEIGHT / 2 - 12, 24, colors.dim)
+      return
     }
-    centered("next round soon", render.HEIGHT / 2 + 52, 18, colors.dim)
-  } else if(c.slot != null){
-    local me = state.by_slot[c.slot]
-    if(me != null and (me[4] & 1) == 0){
-      centered("knocked out", render.HEIGHT / 2 - 16, 32, colors.text)
+    draw_cells(state, time)
+    draw_charges(state, time)
+    draw_blasts(state)
+    for(let local p in values(state.players)){
+      draw_player(c, p, time)
+    }
+    draw_hud(c, state)
+    draw_feed(feed, time)
+    if(state.phase == "over"){
+      rl.draw.rectangle(0, TOP, render.WIDTH, render.HEIGHT - TOP, {10, 10, 16, 170})
+      local p = state.by_slot[state.winner]
+      if(p != null){
+        local color = colors.players[state.winner]
+        centered(concat(name_of(c, state.winner), " wins"), render.HEIGHT / 2 - 40, 48, color)
+        centered(concat(string(p[6]), " tiles of ink"), render.HEIGHT / 2 + 16, 24, colors.text)
+      }
+      centered("next round soon", render.HEIGHT / 2 + 52, 18, colors.dim)
+    } else if(c.slot != null){
+      local me = state.by_slot[c.slot]
+      if(me != null and (me[4] & 1) == 0){
+        centered("knocked out", render.HEIGHT / 2 - 16, 32, colors.text)
+      }
     }
   }
-  rl.end_drawing()
 }
 
 // the line in the feed for a piece of news, or null

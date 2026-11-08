@@ -119,7 +119,7 @@ for(local i = 0; i < len(samples); i = i + 1){
 }
 local points = buffer.new("Vector2", 100, rl.decls)   // structs: views
 points[3].x = 10
-rl.draw_triangle_strip(points, rl.RED)                // no conversion
+rl.draw.triangle_strip(points, rl.RED)                // no conversion
 ```
 
 Indexes count from 0 and are checked; `len`, `values`, `entries` and `==`

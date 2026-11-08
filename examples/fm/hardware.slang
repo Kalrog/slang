@@ -261,7 +261,7 @@ func hw.press(app, c, y, shift){
     app.learn(hw.target_of(c))
     return null
   }
-  local now = rl.get_time()
+  local now = rl.time
   local double = last_click.control == c and now - last_click.time < 0.35
   last_click = {control: c, time: now}
   if(c.kind == "page"){
@@ -384,31 +384,31 @@ local func draw_algorithm(app, x, y, w, h){
   }
   for(local k = 1; k <= 6; k = k + 1){
     for(let local m in values(a.mods[k])){
-      rl.draw_line_ex({x: boxes[m].x + bw / 2, y: boxes[m].y + bh}, {x: boxes[k].x + bw / 2, y: boxes[k].y}, 1.5, colors.lcd_dim)
+      rl.draw.line_ex({x: boxes[m].x + bw / 2, y: boxes[m].y + bh}, {x: boxes[k].x + bw / 2, y: boxes[k].y}, 1.5, colors.lcd_dim)
     }
   }
   local bottom = y + h - 3
   for(let local c in values(a.carriers)){
-    rl.draw_line_ex({x: boxes[c].x + bw / 2, y: boxes[c].y + bh}, {x: boxes[c].x + bw / 2, y: bottom}, 1.5, colors.lcd_dim)
+    rl.draw.line_ex({x: boxes[c].x + bw / 2, y: boxes[c].y + bh}, {x: boxes[c].x + bw / 2, y: bottom}, 1.5, colors.lcd_dim)
   }
   local s = boxes[a.fb_from]
   local d = boxes[a.fb_to]
   local fx = math.max(s.x, d.x) + bw + 4
-  rl.draw_line_ex({x: s.x + bw, y: s.y + bh / 2}, {x: fx, y: s.y + bh / 2}, 1.5, colors.lcd_dim)
-  rl.draw_line_ex({x: fx, y: s.y + bh / 2}, {x: fx, y: d.y - 3}, 1.5, colors.lcd_dim)
-  rl.draw_line_ex({x: fx, y: d.y - 3}, {x: d.x + bw / 2, y: d.y - 3}, 1.5, colors.lcd_dim)
+  rl.draw.line_ex({x: s.x + bw, y: s.y + bh / 2}, {x: fx, y: s.y + bh / 2}, 1.5, colors.lcd_dim)
+  rl.draw.line_ex({x: fx, y: s.y + bh / 2}, {x: fx, y: d.y - 3}, 1.5, colors.lcd_dim)
+  rl.draw.line_ex({x: fx, y: d.y - 3}, {x: d.x + bw / 2, y: d.y - 3}, 1.5, colors.lcd_dim)
   for(local k = 1; k <= 6; k = k + 1){
     local b = boxes[k]
     local on = app.patch.ops[k - 1].on == 1
     if(k - 1 == hw.op and hw.PAGES[hw.page].op){
-      rl.draw_rectangle(to_int(b.x), to_int(b.y), bw, bh, colors.lcd_text)
+      rl.draw.rectangle(to_int(b.x), to_int(b.y), bw, bh, colors.lcd_text)
       text_center(string(k), b.x + bw / 2, b.y + 2, 9, colors.lcd_dark)
     } else {
       local col = colors.lcd_text
       if(not on){
         col = colors.lcd_dim
       }
-      rl.draw_rectangle_lines(to_int(b.x), to_int(b.y), bw, bh, col)
+      rl.draw.rectangle_lines(to_int(b.x), to_int(b.y), bw, bh, col)
       text_center(string(k), b.x + bw / 2, b.y + 2, 9, col)
     }
   }
@@ -422,7 +422,7 @@ local func draw_page_view(app, x, y, w, h){
     local o = p.ops[hw.op]
     gfx.draw_eg({o.r1, o.r2, o.r3, o.r4}, {o.l1, o.l2, o.l3, o.l4}, x, y, w, h, o.l4, colors.lcd_text, 2)
   } else if(page.label == "P.EG"){
-    rl.draw_line(to_int(x), to_int(y + h / 2), to_int(x + w), to_int(y + h / 2), colors.lcd_dim)
+    rl.draw.line(to_int(x), to_int(y + h / 2), to_int(x + w), to_int(y + h / 2), colors.lcd_dim)
     gfx.draw_eg({p.pr1, p.pr2, p.pr3, p.pr4}, {p.pl1, p.pl2, p.pl3, p.pl4}, x, y, w, h, p.pl4, colors.lcd_text, 2)
   } else if(page.label == "OSC"){
     local o = p.ops[hw.op]
@@ -466,12 +466,12 @@ local func draw_page_view(app, x, y, w, h){
       local py = y + h / 2 - math.clamp(k, -4, 2) * h / 8
       local px = x + (n - 21) / 87 * w
       if(prev != null){
-        rl.draw_line_ex(prev, {x: px, y: py}, 2, colors.lcd_text)
+        rl.draw.line_ex(prev, {x: px, y: py}, 2, colors.lcd_text)
       }
       prev = {x: px, y: py}
     }
     local bx = x + (o["break"] - 21) / 87 * w
-    rl.draw_line(to_int(bx), to_int(y), to_int(bx), to_int(y + h), colors.lcd_dim)
+    rl.draw.line(to_int(bx), to_int(y), to_int(bx), to_int(y + h), colors.lcd_dim)
   } else if(page.label == "LFO"){
     // one cycle of the wave
     local prev = null
@@ -499,7 +499,7 @@ local func draw_page_view(app, x, y, w, h){
       }
       local pt = {x: x + ph * (w - 140), y: y + h / 2 - v * (h / 2 - 3)}
       if(prev != null){
-        rl.draw_line_ex(prev, pt, 2, colors.lcd_text)
+        rl.draw.line_ex(prev, pt, 2, colors.lcd_text)
       }
       prev = pt
     }
@@ -517,8 +517,8 @@ local func draw_lcd(app){
   local x = LCD.x
   local y = LCD.y
   // the bezel and the glass
-  rl.draw_rectangle(x - 8, y - 8, LCD.w + 16, LCD.h + 16, {10, 10, 10})
-  rl.draw_rectangle_gradient_v(x, y, LCD.w, LCD.h, colors.lcd, colors.lcd_dark)
+  rl.draw.rectangle(x - 8, y - 8, LCD.w + 16, LCD.h + 16, {10, 10, 10})
+  rl.draw.rectangle_gradient_v(x, y, LCD.w, LCD.h, colors.lcd, colors.lcd_dark)
   local p = app.patch
   local name = p.name
   if(app.edited){
@@ -535,10 +535,10 @@ local func draw_lcd(app){
     title = "MIDI LEARN: CLICK A KNOB, TURN ONE"
   }
   text(title, x + LCD.w - 10 - gfx.measure(title, 10), y + 10, 10, colors.lcd_text)
-  rl.draw_line(x + 6, y + 30, x + LCD.w - 6, y + 30, colors.lcd_dim)
+  rl.draw.line(x + 6, y + 30, x + LCD.w - 6, y + 30, colors.lcd_dim)
   draw_algorithm(app, x + 6, y + 34, 140, 72)
   draw_page_view(app, x + 160, y + 38, LCD.w - 172, 62)
-  rl.draw_line(x + 6, y + 108, x + LCD.w - 6, y + 108, colors.lcd_dim)
+  rl.draw.line(x + 6, y + 108, x + LCD.w - 6, y + 108, colors.lcd_dim)
   // the slots, over the encoders
   for(local i = 0; i < 8; i = i + 1){
     local cx = x + SLOT_W * (i + 0.5)
@@ -550,7 +550,7 @@ local func draw_lcd(app){
       text_center("-", cx, y + 128, 16, colors.lcd_dim)
     }
     if(i > 0){
-      rl.draw_line(to_int(x + SLOT_W * i), y + 112, to_int(x + SLOT_W * i), y + LCD.h - 6, {44, 80, 66})
+      rl.draw.line(to_int(x + SLOT_W * i), y + 112, to_int(x + SLOT_W * i), y + LCD.h - 6, {44, 80, 66})
     }
   }
 }
@@ -560,9 +560,9 @@ local func draw_lcd(app){
 // caps: also flat knobs and buttons (for a 2D view of the face; the 3D
 // synth makes its own)
 func hw.draw_face(app, caps){
-  rl.draw_rectangle(40, hw.FACE_TOP, 1120, hw.FACE_BOTTOM - hw.FACE_TOP, colors.panel)
+  rl.draw.rectangle(40, hw.FACE_TOP, 1120, hw.FACE_BOTTOM - hw.FACE_TOP, colors.panel)
   // a band of colour along the top, as on the panels of the time
-  rl.draw_rectangle(40, hw.FACE_TOP, 1120, 6, colors.accent)
+  rl.draw.rectangle(40, hw.FACE_TOP, 1120, 6, colors.accent)
   text("slang", 64, 40, 26, colors.print)
   text("six", 64 + gfx.measure("slang ", 26), 40, 26, colors.accent)
   text("SIX-OPERATOR", 64, 76, 8, colors.dim)
@@ -575,15 +575,12 @@ func hw.draw_face(app, caps){
     if(k.kind == "volume"){
       for(local t = 0; t <= 10; t = t + 1){
         local a = (t / 10 * 300 - 150) * math.pi / 180
-        rl.draw_line_ex(
-          {x: k.x + math.sin(a) * (k.r + 6), y: k.y - math.cos(a) * (k.r + 6)},
-          {x: k.x + math.sin(a) * (k.r + 11), y: k.y - math.cos(a) * (k.r + 11)},
-          1.5, colors.dim)
+        rl.draw.line_ex({x: k.x + math.sin(a) * (k.r + 6), y: k.y - math.cos(a) * (k.r + 6)}, {x: k.x + math.sin(a) * (k.r + 11), y: k.y - math.cos(a) * (k.r + 11)}, 1.5, colors.dim)
       }
     } else {
       for(local t = 0; t < 16; t = t + 1){
         local a = t / 16 * 2 * math.pi
-        rl.draw_circle(to_int(k.x + math.sin(a) * (k.r + 7)), to_int(k.y - math.cos(a) * (k.r + 7)), 1.2, colors.faint)
+        rl.draw.circle(to_int(k.x + math.sin(a) * (k.r + 7)), to_int(k.y - math.cos(a) * (k.r + 7)), 1.2, colors.faint)
       }
     }
   }
@@ -594,8 +591,8 @@ func hw.draw_face(app, caps){
     for(let local k in values(hw.knobs)){
       local target = hw.target_of(k)
       if(app.armed(target)){
-        rl.draw_circle_lines(to_int(k.x), to_int(k.y), k.r + 12, colors.accent)
-        rl.draw_circle_lines(to_int(k.x), to_int(k.y), k.r + 13, colors.accent)
+        rl.draw.circle_lines(to_int(k.x), to_int(k.y), k.r + 12, colors.accent)
+        rl.draw.circle_lines(to_int(k.x), to_int(k.y), k.r + 13, colors.accent)
       }
       local b = app.binding(target)
       if(b != null){
@@ -606,8 +603,8 @@ func hw.draw_face(app, caps){
   // the buttons' headings and labels
   text("PAGE", 798 - BUTTON_W / 2, 38, 9, colors.print)
   text("OPERATOR", 1018 - 23, 38, 9, colors.print)
-  rl.draw_line(798 - BUTTON_W / 2, 50, 798 + 136 + BUTTON_W / 2, 50, colors.line)
-  rl.draw_line(1018 - 23, 50, 1018 + 116 + 23, 50, colors.line)
+  rl.draw.line(798 - BUTTON_W / 2, 50, 798 + 136 + BUTTON_W / 2, 50, colors.line)
+  rl.draw.line(1018 - 23, 50, 1018 + 116 + 23, 50, colors.line)
   text("SHIFT + OPERATOR: ON / OFF", 1018 - 23, 202, 7, colors.faint)
   for(let local b in values(hw.buttons)){
     local label = null
@@ -628,17 +625,17 @@ func hw.draw_face(app, caps){
       text_center(label, b.x, b.y - b.h / 2 - 15, 8, colors.print)
     }
     if(caps){
-      rl.draw_rectangle(to_int(b.x - b.w / 2), to_int(b.y - b.h / 2), b.w, b.h, {70, 66, 64})
+      rl.draw.rectangle(to_int(b.x - b.w / 2), to_int(b.y - b.h / 2), b.w, b.h, {70, 66, 64})
       if(hw.lit(app, b)){
-        rl.draw_rectangle(to_int(b.x + b.w / 2 - 10), to_int(b.y - b.h / 2 + 3), 6, 4, colors.accent)
+        rl.draw.rectangle(to_int(b.x + b.w / 2 - 10), to_int(b.y - b.h / 2 + 3), 6, 4, colors.accent)
       }
     }
   }
   text("INTERNAL MEMORY", BANK_X - 26, 290, 9, colors.print)
-  rl.draw_line(BANK_X + 80, 296, 1134, 296, colors.line)
+  rl.draw.line(BANK_X + 80, 296, 1134, 296, colors.line)
   if(caps){
     for(let local k in values(hw.knobs)){
-      rl.draw_circle(to_int(k.x), to_int(k.y), k.r, {16, 16, 16})
+      rl.draw.circle(to_int(k.x), to_int(k.y), k.r, {16, 16, 16})
     }
   }
 }

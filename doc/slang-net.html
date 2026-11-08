@@ -51,7 +51,7 @@ local client = net.connect(&quot;127.0.0.1&quot;, 7777)
 client:on(&quot;welcome&quot;, func(m){ my_id = m.id })
 client:send(&quot;move&quot;, {x: 3}, {mode: &quot;unreliable&quot;})
 
-for(not rl.window_should_close()){
+for(not rl.window.should_close){
   server:poll()      // receive, run the handlers, send what is queued
   client:poll()
   ...

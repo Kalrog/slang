@@ -162,26 +162,24 @@ local current_shine = -1
 // init(): the shader, the textures and the meshes; after init_window
 func m.init(){
   if(web){
-    shader = rl.load_shader_from_memory(vertex_100, fragment_100)
+    shader = rl.shader({vertex: vertex_100, fragment: fragment_100})
   } else {
-    shader = rl.load_shader_from_memory(vertex_330, fragment_330)
+    shader = rl.shader({vertex: vertex_330, fragment: fragment_330})
   }
-  locs.light = rl.get_shader_location(shader, "lightDir")
-  locs.view = rl.get_shader_location(shader, "viewPos")
-  locs.fog = rl.get_shader_location(shader, "fogColor")
-  locs.scale = rl.get_shader_location(shader, "texScale")
-  locs.shine = rl.get_shader_location(shader, "shine")
-  rl.set_shader_value(shader, locs.light, light, rl.SHADER_UNIFORM_VEC3)
+  locs.light = shader:location("lightDir")
+  locs.view = shader:location("viewPos")
+  locs.fog = shader:location("fogColor")
+  locs.scale = shader:location("texScale")
+  locs.shine = shader:location("shine")
+  shader:set_value(locs.light, light, rl.SHADER_UNIFORM_VEC3)
   local f = m.sky.fog
-  rl.set_shader_value(
-    shader, locs.fog, {f[0] / 255, f[1] / 255, f[2] / 255}, rl.SHADER_UNIFORM_VEC3
-  )
+  shader:set_value(locs.fog, {f[0] / 255, f[1] / 255, f[2] / 255}, rl.SHADER_UNIFORM_VEC3)
   textures.all()
-  meshes.cube = rl.gen_mesh_cube(1, 1, 1)
-  meshes.sphere = rl.gen_mesh_sphere(1, 12, 16)
-  meshes.cylinder = rl.gen_mesh_cylinder(1, 1, 18)
-  meshes.cone = rl.gen_mesh_cone(1, 1, 14)
-  meshes.plane = rl.gen_mesh_plane(1, 1, 1, 1)
+  meshes.cube = rl.mesh.cube(1, 1, 1)
+  meshes.sphere = rl.mesh.sphere(1, 12, 16)
+  meshes.cylinder = rl.mesh.cylinder(1, 1, 18)
+  meshes.cone = rl.mesh.cone(1, 1, 14)
+  meshes.plane = rl.mesh.plane(1, 1, 1, 1)
 }
 
 func m.light(){
@@ -198,7 +196,7 @@ func m.model(shape, texture){
     if(mesh == null){
       raise(error.new(error.kinds.not_found, concat("no mesh called ", shape)))
     }
-    model = rl.load_model_from_mesh(mesh)
+    model = mesh:to_model()
     model.materials[0].shader = shader
     model.materials[0].maps[rl.MATERIAL_MAP_ALBEDO].texture = textures.get(
       texture
@@ -211,7 +209,7 @@ func m.model(shape, texture){
 
 // a model of a mesh of the game's own (the terrain), textured
 func m.own_model(mesh, texture){
-  local model = rl.load_model_from_mesh(mesh)
+  local model = mesh:to_model()
   model.materials[0].shader = shader
   model.materials[0].maps[rl.MATERIAL_MAP_ALBEDO].texture = textures.get(
     texture
@@ -228,15 +226,15 @@ func m.unload(){
   for(let local e in entries(models)){
     // the meshes are shared: raylib would free each once per model
     e[1].mesh_count = 0
-    rl.unload_model(e[1])
+    e[1]:unload()
   }
   models = {}
   for(let local e in entries(meshes)){
-    rl.unload_mesh(e[1])
+    e[1]:unload()
   }
   meshes = {}
   textures.unload()
-  rl.unload_shader(shader)
+  shader:unload()
 }
 
 // ------------------------------------------------------------ the frame
@@ -244,11 +242,11 @@ func m.unload(){
 // backdrop(camera, time): the sky behind everything (before begin): a
 // gradient, the sun, clouds that slide with the camera's heading
 func m.backdrop(camera, time){
-  local w = rl.get_screen_width()
-  local h = rl.get_screen_height()
-  rl.clear_background(m.sky.horizon)
+  local w = rl.window.width
+  local h = rl.window.height
+  rl.draw.clear(m.sky.horizon)
   local horizon = to_int(h * 0.62)
-  rl.draw_rectangle_gradient_v(0, 0, w, horizon, m.sky.top, m.sky.horizon)
+  rl.draw.rectangle_gradient_v(0, 0, w, horizon, m.sky.top, m.sky.horizon)
   local forward = vec.normalize(vec.sub(camera.target, camera.position))
   local yaw = vec.yaw_of(forward)
   local pitch = math.asin(vec.clamp(forward.y, -1, 1))
@@ -264,10 +262,8 @@ func m.backdrop(camera, time){
   local cloud = textures.get("cloud")
   local spark = textures.get("spark")
   if(math.abs(dyaw) < 1.2){
-    rl.draw_texture_pro(spark, {0, 0, 32, 32}, {px - 160, py - 160, 320, 320},
-      {0, 0}, 0, {255, 250, 230, 90})
-    rl.draw_texture_pro(spark, {0, 0, 32, 32}, {px - 40, py - 40, 80, 80},
-      {0, 0}, 0, m.sky.sun)
+    spark:draw_pro({0, 0, 32, 32}, {px - 160, py - 160, 320, 320}, {0, 0}, 0, {255, 250, 230, 90})
+    spark:draw_pro({0, 0, 32, 32}, {px - 40, py - 40, 80, 80}, {0, 0}, 0, m.sky.sun)
   }
   // clouds, on a band above the horizon
   for(local i = 0; i < 9; i = i + 1){
@@ -279,23 +275,18 @@ func m.backdrop(camera, time){
     local cy = horizon * (0.32 + 0.3 * ((i * 7) % 5) / 5) + pitch * h / 1.4
     local size = 220 + ((i * 13) % 7) * 40
     if(cx > -size and cx < w + size){
-      rl.draw_texture_pro(cloud, {0, 0, 256, 256},
-        {cx - size / 2, cy - size * 0.25, size, size * 0.5}, {0, 0}, 0,
-        {255, 255, 255, 170})
+      cloud:draw_pro({0, 0, 256, 256}, {cx - size / 2, cy - size * 0.25, size, size * 0.5}, {0, 0}, 0, {255, 255, 255, 170})
     }
   }
 }
 
-// begin(camera): the 3D view with the shader knowing where the camera is
-func m.begin(camera){
-  rl.set_shader_value(shader, locs.view, camera.position, rl.SHADER_UNIFORM_VEC3)
+// scene(camera, block): the block draws the 3D view, with the shader
+// knowing where the camera is
+func m.scene(camera, block){
+  shader:set_value(locs.view, camera.position, rl.SHADER_UNIFORM_VEC3)
   current_scale = -1
   current_shine = -1
-  rl.begin_mode_3d(camera)
-}
-
-func m.end(){
-  rl.end_mode_3d()
+  rl.mode_3d(camera, block)
 }
 
 // ------------------------------------------------------------ primitives
@@ -305,12 +296,12 @@ local origin = {0, 0, 0}
 local func uniforms(texture){
   local s = tiling[texture] or 1
   if(s != current_scale){
-    rl.set_shader_value(shader, locs.scale, s, rl.SHADER_UNIFORM_FLOAT)
+    shader:set_value(locs.scale, s, rl.SHADER_UNIFORM_FLOAT)
     current_scale = s
   }
   local sh = shines[texture] or 0.12
   if(sh != current_shine){
-    rl.set_shader_value(shader, locs.shine, sh, rl.SHADER_UNIFORM_FLOAT)
+    shader:set_value(locs.shine, sh, rl.SHADER_UNIFORM_FLOAT)
     current_shine = sh
   }
 }
@@ -321,14 +312,14 @@ func m.draw(shape, matrix, color, texture){
   local model = m.model(shape, texture)
   uniforms(texture)
   model.transform = matrix
-  rl.draw_model(model, origin, 1, color)
+  model:draw(origin, 1, color)
 }
 
 // draw_model(model, matrix, color): a model made with own_model
 func m.draw_model(model, matrix, color){
   uniforms(model.texture)
   model.transform = matrix
-  rl.draw_model(model, origin, 1, color)
+  model:draw(origin, 1, color)
 }
 
 local identity = {x: 0, y: 0, z: 0, w: 1}

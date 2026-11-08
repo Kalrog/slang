@@ -219,7 +219,7 @@ local func ground_color(t, ix, iz, h, slope){
 // build(t): makes (or remakes) t.model, the raylib model of the ground
 func m.build(t){
   if(t.model != null){
-    rl.unload_model(t.model)
+    t.model:unload()
     t.model = null
   }
   local n = t.n
@@ -309,7 +309,7 @@ func m.shape(t){
 
 func m.unload(t){
   if(t.model != null){
-    rl.unload_model(t.model)
+    t.model:unload()
     t.model = null
   }
 }

@@ -14,7 +14,7 @@
 //   client:on("welcome", func(m){ my_id = m.id })
 //   client:send("move", {x: 3}, {mode: "unreliable"})
 //
-//   for(not rl.window_should_close()){
+//   for(not rl.window.should_close){
 //     server:poll()      // receive, run the handlers, send what is queued
 //     client:poll()
 //     ...

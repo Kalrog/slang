@@ -67,23 +67,23 @@ local func draw_wheel(wh){
   local y0 = panel.WHEEL_Y
   local h = panel.WHEEL_H
   local w = panel.WHEEL_W
-  rl.draw_rectangle(x - 4, y0 - 4, w + 8, h + 8, {8, 8, 8})
-  rl.draw_rectangle_gradient_v(x, y0, w, h, {40, 40, 42}, {16, 16, 16})
+  rl.draw.rectangle(x - 4, y0 - 4, w + 8, h + 8, {8, 8, 8})
+  rl.draw.rectangle_gradient_v(x, y0, w, h, {40, 40, 42}, {16, 16, 16})
   // ridges that move with the wheel
   local offset = v * 60.0
   for(local k = 0; k < 14; k = k + 1){
     local y = y0 + ((k * 12.0 + offset) % h)
-    rl.draw_line(x + 2, to_int(y), x + w - 2, to_int(y), {70, 70, 72})
+    rl.draw.line(x + 2, to_int(y), x + w - 2, to_int(y), {70, 70, 72})
   }
   local my = to_int(y0 + h - v * h)
-  rl.draw_rectangle(x, my - 3, w, 6, colors.pointer)
+  rl.draw.rectangle(x, my - 3, w, 6, colors.pointer)
   panel.text_center(params.list[wh.index].label, x + w / 2, y0 + h + 12, 10, colors.text)
 }
 
 local func draw_keyboard(){
   local bed = panel.BED_Y
   local top = panel.KEYS_Y
-  rl.draw_rectangle(40, bed - 6, W - 80, H - bed + 6, colors.bed)
+  rl.draw.rectangle(40, bed - 6, W - 80, H - bed + 6, colors.bed)
   for(let local wh in values(panel.wheels)){
     draw_wheel(wh)
   }
@@ -94,7 +94,7 @@ local func draw_keyboard(){
       if(panel.key_down(k.note)){
         color = colors.white_down
       }
-      rl.draw_rectangle(to_int(k.x), top, to_int(k.w) - 1, panel.WHITE_H, color)
+      rl.draw.rectangle(to_int(k.x), top, to_int(k.w) - 1, panel.WHITE_H, color)
       if(k.note % 12 == 0){
         panel.text_center(concat("C", to_int(k.note / 12) - 1), k.x + k.w / 2, top + panel.WHITE_H - 18, 10, colors.dim)
       }
@@ -106,25 +106,25 @@ local func draw_keyboard(){
       if(panel.key_down(k.note)){
         color = colors.black_down
       }
-      rl.draw_rectangle(to_int(k.x), top, to_int(k.w), panel.BLACK_H, color)
+      rl.draw.rectangle(to_int(k.x), top, to_int(k.w), panel.BLACK_H, color)
     }
   }
-  rl.draw_rectangle(panel.KEYS_X, top - 4, W - 48 - panel.KEYS_X, 4, colors.felt)
+  rl.draw.rectangle(panel.KEYS_X, top - 4, W - 48 - panel.KEYS_X, 4, colors.felt)
 }
 
 local func draw_cheeks(){
-  rl.draw_rectangle(0, 0, 40, H, colors.wood)
-  rl.draw_rectangle(W - 40, 0, 40, H, colors.wood)
-  rl.draw_rectangle(36, 0, 4, H, colors.wood_dark)
-  rl.draw_rectangle(W - 40, 0, 4, H, colors.wood_dark)
+  rl.draw.rectangle(0, 0, 40, H, colors.wood)
+  rl.draw.rectangle(W - 40, 0, 40, H, colors.wood)
+  rl.draw.rectangle(36, 0, 4, H, colors.wood_dark)
+  rl.draw.rectangle(W - 40, 0, 4, H, colors.wood_dark)
 }
 
 // ------------------------------------------------------------ input
 
 local func handle_mouse(){
-  local m = rl.get_mouse_position()
+  local m = rl.mouse.position
   local left = rl.MOUSE_BUTTON_LEFT
-  if(rl.is_mouse_button_pressed(left)){
+  if(rl.mouse.pressed(left)){
     local i = panel.control_at(m.x, m.y) or wheel_at(m.x, m.y)
     if(i != null){
       panel.press(i, m.y)
@@ -135,16 +135,16 @@ local func handle_mouse(){
       }
     }
   }
-  if(rl.is_mouse_button_down(left)){
+  if(rl.mouse.down(left)){
     panel.drag(m.y)
     // gliding over the keys plays the one under the mouse
     panel.slide_key(key_at(m.x, m.y))
   }
-  if(rl.is_mouse_button_released(left)){
+  if(rl.mouse.released(left)){
     panel.release()
   }
   // the wheel turns the knob under the mouse
-  local w = rl.get_mouse_wheel_move()
+  local w = rl.mouse.wheel
   if(w != 0.0){
     local i = panel.control_at(m.x, m.y) or wheel_at(m.x, m.y)
     if(i != null){
@@ -156,9 +156,9 @@ local func handle_mouse(){
 
 // ------------------------------------------------------------ the loop
 
-rl.set_config_flags(rl.FLAG_MSAA_4X_HINT)
-rl.init_window(W, H, "slang mini")
-rl.set_target_fps(60)
+rl.config_flags = rl.FLAG_MSAA_4X_HINT
+rl.window.open(W, H, "slang mini")
+rl.target_fps = 60
 panel.load_font()
 panel.start()
 if(panel.autoplay){
@@ -167,25 +167,25 @@ if(panel.autoplay){
 
 local frame = 0
 panel.mark_start()
-for(not rl.window_should_close() and frame != panel.max_frames){
+for(not rl.window.should_close and frame != panel.max_frames){
   handle_mouse()
   panel.handle_keys()
   panel.handle_midi()
   panel.demo(frame)
   panel.update_stats()
-  rl.begin_drawing()
-  rl.clear_background(colors.bed)
-  draw_cheeks()
-  panel.draw_face(true)
-  draw_keyboard()
-  rl.end_drawing()
+  rl.drawing{
+    rl.draw.clear(colors.bed)
+    draw_cheeks()
+    panel.draw_face(true)
+    draw_keyboard()
+  }
   frame = frame + 1
   if(panel.screenshot != null and frame == panel.max_frames){
-    rl.take_screenshot(panel.screenshot)
+    rl.window.screenshot(panel.screenshot)
   }
 }
 
 panel.mark_end()
 panel.unload_font()
-rl.close_window()
+rl.window.close()
 panel.finish(frame)

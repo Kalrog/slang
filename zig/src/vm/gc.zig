@@ -294,6 +294,17 @@ noinline fn barrierSlow(vm: *VM, v: Value) void {
     if (vm.gc_state.phase == .mark) markValue(vm, v);
 }
 
+/// A table that inline caches depend on (Table.is_proto) changed: the VM's
+/// caches through metatables fill again (see interp.icGet). Found like
+/// tableBarrier finds the VM; tables outside a VM have no caches.
+pub noinline fn shapeChanged(gpa: Allocator) void {
+    @branchHint(.cold);
+    if (gpa.vtable != &CountingAllocator.vtable) return;
+    const c: *CountingAllocator = @ptrCast(@alignCast(gpa.ptr));
+    const vm: *VM = @alignCast(@fieldParentPtr("counting", c));
+    vm.shape_epoch +%= 1;
+}
+
 /// The barrier for table.zig, which has the allocator, not the VM: the VM's
 /// allocator is its counting allocator, a field of the VM (other
 /// allocators are tables outside any VM, in tests).
@@ -800,6 +811,7 @@ fn freeObject(vm: *VM, o: *Object) void {
         },
         .table => {
             const t: *Table = @alignCast(@fieldParentPtr("obj", o));
+            if (t.is_proto) vm.shape_epoch +%= 1;
             t.deinit(gpa);
             if (t.isInline()) {
                 const mem: [*]align(@alignOf(Table)) u8 = @ptrCast(t);

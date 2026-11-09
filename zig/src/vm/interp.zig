@@ -11,6 +11,232 @@ const gc = @import("gc.zig");
 const ctypes = @import("../stdlib/ctypes.zig");
 const d = @import("disasm.zig");
 const Op = d.Op;
+const Ic = @import("table.zig").Ic;
+
+// ---- inline caches (quickening)
+//
+// The first time a get_x, self_x or set_x with a constant string key runs,
+// it is rewritten in place into get_k, self_k or set_k, whose key operand
+// is an index into the prototype's inline caches (Proto.ics) instead. A
+// cache remembers the slot where the key was last found in the object
+// itself: objects that got their keys in the same order (made by the same
+// constructor) hit with one compare, no hashing and no shapes. Loads also
+// remember what the metatables gave for the key, which holds while
+//
+//   - the object's metatable is the one the cache was filled with,
+//   - the VM's shape_epoch has not moved: no table the cache walked
+//     through (metatables, __index and __get tables, marked is_proto)
+//     gained or lost a key, had a metamethod field stored, got another
+//     metatable or was freed (so a stale pointer never matches), and
+//   - the object never had the key (Table.keybits).
+//
+// Values are read from the remembered slot each time, so storing a new
+// method into a class does not invalidate anything. A miss runs the
+// original instruction (Ic.orig), which does the full lookup.
+
+/// Where a quickened instruction keeps its key: get_x and self_x in C,
+/// set_x in B.
+fn keyField(comptime op: Op) u5 {
+    return if (op == .set_x) 23 else 14;
+}
+
+/// The key of a get_x, self_x or set_x that can be quickened: a constant
+/// string (for a store not a metamethod name: those change what the caches
+/// depend on, and not a literal's field), the instruction not quickened
+/// already (after a miss it runs as itself), room for another cache in the
+/// prototype (9 bits).
+inline fn quickenable(proto: *root.Proto, code: []u32, consts: []const Value, pc: usize, ins: u32, comptime op: Op) ?*String {
+    const x = (ins >> keyField(op)) & 0x1FF;
+    if (x < d.first_constant or x >= d.first_upvalue) return null;
+    const k = consts[x - d.first_constant];
+    if (k != .string) return null;
+    if (d.opOf(code[pc - 1]) != op) return null;
+    if (proto.ics.items.len >= d.stack_operand) return null;
+    if (op == .set_x) {
+        // a table literal's field (into the table on top): always a new
+        // key, which the cache does not store
+        if (d.argA(ins) == d.peek_dest) return null;
+        const b = k.string.bytes();
+        if (b.len >= 2 and b[0] == '_' and b[1] == '_') return null;
+    }
+    return k.string;
+}
+
+/// Gives the instruction a cache and rewrites it at pc - 1 into its
+/// quickened form, which it returns.
+fn quicken(vm: *root.VM, proto: *root.Proto, code: []u32, pc: usize, ins: u32, key: *String, comptime op: Op) u32 {
+    const idx: u32 = @intCast(proto.ics.items.len);
+    proto.ics.append(vm.gpa, .{ .key = key, .orig = ins, .keybit = Table.keyBit(key) }) catch oom();
+    const q: Op = switch (op) {
+        .get_x => .get_k,
+        .self_x => .self_k,
+        .set_x => .set_k,
+        else => unreachable,
+    };
+    const shift = comptime keyField(op);
+    const quick = (ins & ~((@as(u32, 0x1FF) << shift) | 0x3F)) | (idx << shift) | @intFromEnum(q);
+    code[pc - 1] = quick;
+    return quick;
+}
+
+/// obj[key] through an inline cache. Null: a property (its getter in
+/// `getter`) or the generic path.
+inline fn icGet(vm: *root.VM, ic: *Ic, obj: Value, getter: *Value) ?Value {
+    switch (obj) {
+        .table => |t| {
+            const ents = t.ents.items;
+            const s = ic.own_slot;
+            if (s < ents.len) {
+                const k = ents[s].key;
+                if (k == .string and k.string == ic.key) return ents[s].val;
+            }
+            if (t.meta == ic.meta and ic.epoch == vm.shape_epoch and t.keybits & ic.keybit == 0) {
+                switch (ic.state) {
+                    .holder => return ic.holder.?.ents.items[ic.slot].val,
+                    .absent => return .null,
+                    .getter => {
+                        getter.* = ic.holder.?.ents.items[ic.slot].val;
+                        return null;
+                    },
+                    .generic => return null,
+                    .none => {},
+                }
+            }
+        },
+        .userdata => |u| {
+            if (u.meta == ic.meta and ic.epoch == vm.shape_epoch) {
+                switch (ic.state) {
+                    .holder => {
+                        // (a method stored as null: the generic path)
+                        const v = ic.holder.?.ents.items[ic.slot].val;
+                        return if (v != .null) v else null;
+                    },
+                    .getter => {
+                        getter.* = ic.holder.?.ents.items[ic.slot].val;
+                        return null;
+                    },
+                    .generic => return null,
+                    .none, .absent => {},
+                }
+            }
+        },
+        else => return null,
+    }
+    return icFill(vm, ic, obj, getter);
+}
+
+/// What the metatables give for the key, remembered in the cache.
+fn icRemember(ic: *Ic, state: Ic.State, meta: ?*Table, holder: ?*Table, slot: u32, epoch: u64) void {
+    ic.state = state;
+    ic.meta = meta;
+    ic.holder = holder;
+    ic.slot = slot;
+    ic.epoch = epoch;
+}
+
+/// A __get table's getter for the key, if any (the table is marked: a
+/// getter added later must be seen).
+fn icGetter(m: *Table, vm: *root.VM, key: Value) ?struct { *Table, u32 } {
+    const g = m.getStr(vm.get_name);
+    if (g != .table) return null;
+    g.table.is_proto = true;
+    const i = g.table.findSlot(key) orelse return null;
+    if (g.table.ents.items[i].val == .null) return null;
+    return .{ g.table, i };
+}
+
+/// The slow path of icGet: the lookup the way getFastG and getChain do it,
+/// remembering where it went. Every table it passes is marked is_proto.
+noinline fn icFill(vm: *root.VM, ic: *Ic, obj: Value, getter: *Value) ?Value {
+    const key: Value = .{ .string = ic.key };
+    const epoch = vm.shape_epoch;
+    switch (obj) {
+        .table => |t0| {
+            if (t0.findSlot(key)) |i| {
+                ic.own_slot = i;
+                return t0.ents.items[i].val;
+            }
+            var t = t0;
+            var depth: usize = 0;
+            while (depth < 100) : (depth += 1) {
+                const m = t.meta orelse {
+                    icRemember(ic, .absent, t0.meta, null, 0, epoch);
+                    return .null;
+                };
+                m.is_proto = true;
+                if (icGetter(m, vm, key)) |g| {
+                    icRemember(ic, .getter, t0.meta, g[0], g[1], epoch);
+                    getter.* = g[0].ents.items[g[1]].val;
+                    return null;
+                }
+                switch (m.getStr(vm.index_name)) {
+                    .table => |n| t = n,
+                    .null => {
+                        icRemember(ic, .absent, t0.meta, null, 0, epoch);
+                        return .null;
+                    },
+                    else => break,
+                }
+                t.is_proto = true;
+                if (t.findSlot(key)) |i| {
+                    icRemember(ic, .holder, t0.meta, t, i, epoch);
+                    return t.ents.items[i].val;
+                }
+            }
+            icRemember(ic, .generic, t0.meta, null, 0, epoch);
+            return null;
+        },
+        .userdata => |u| {
+            const m = u.meta orelse return null;
+            m.is_proto = true;
+            if (icGetter(m, vm, key)) |g| {
+                icRemember(ic, .getter, m, g[0], g[1], epoch);
+                getter.* = g[0].ents.items[g[1]].val;
+                return null;
+            }
+            icRemember(ic, .generic, m, null, 0, epoch);
+            const idx = m.getStr(vm.index_name);
+            if (idx != .table) return null;
+            const n = idx.table;
+            n.is_proto = true;
+            const i = n.findSlot(key) orelse return null;
+            const v = n.ents.items[i].val;
+            if (v == .null) return null;
+            icRemember(ic, .holder, m, n, i, epoch);
+            return v;
+        },
+        else => return null,
+    }
+}
+
+/// obj[key] = val through an inline cache: only an existing key of the
+/// object itself (what setFast stores inline whatever the metatable has).
+inline fn icStore(vm: *root.VM, ic: *Ic, obj: Value, val: Value) bool {
+    if (obj != .table) return false;
+    const t = obj.table;
+    const ents = t.ents.items;
+    const s = ic.own_slot;
+    if (s < ents.len) {
+        const k = ents[s].key;
+        if (k == .string and k.string == ic.key) {
+            t.storeAt(vm.gpa, s, val);
+            return true;
+        }
+    }
+    const i = t.findSlot(.{ .string = ic.key }) orelse return false;
+    ic.own_slot = i;
+    t.storeAt(vm.gpa, i, val);
+    return true;
+}
+
+/// == of a jeq without a call: null, booleans and strings (whose __eq is
+/// never asked). Null: numbers of mixed kinds, tables, the rest.
+inline fn eqInline(a: Value, b: Value) ?bool {
+    if (a == .null or b == .null) return a == .null and b == .null;
+    if (a == .string and b == .string) return a.string.eql(b.string);
+    if (a == .bool and b == .bool) return a.bool == b.bool;
+    return null;
+}
 
 /// Executes frames until the frame depth drops back to stop_depth.
 ///
@@ -593,6 +819,8 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                         .leq => a.float <= b.float,
                         else => a.float == b.float,
                     };
+                } else if (if (core == .eq) eqInline(a, b) else null) |e| {
+                    r = e;
                 } else {
                     spill(trace, th, fi, pc, top);
                     r = compareSlow(th, core, a, b) catch |e| {
@@ -625,6 +853,11 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
             },
             .get_x => {
+                quicken: {
+                    const k = quickenable(proto, code, consts, pc, ins, .get_x) orelse break :quicken;
+                    ins = quicken(vm, proto, code, pc, ins, k, .get_x);
+                    continue :sw .get_k;
+                }
                 const bx = d.argB(ins);
                 const key = operandValue(th, fi, stack, base, consts, d.argC(ins));
                 const popped: usize = @intFromBool(bx == d.stack_operand);
@@ -687,7 +920,27 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 storeDest(stack, base, &top, d.argA(ins), v);
                 continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
             },
+            .set_k => {
+                const ic = &proto.ics.items[d.argB(ins)];
+                const val = operandValue(th, fi, stack, base, consts, d.argC(ins));
+                const ax = d.argA(ins);
+                const obj = switch (ax) {
+                    d.push_dest, d.peek_dest => stack[top - 1],
+                    else => stack[base + ax],
+                };
+                if (icStore(vm, ic, obj, val)) {
+                    if (ax == d.push_dest) top -= 1;
+                    continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+                }
+                ins = ic.orig;
+                continue :sw .set_x;
+            },
             .set_x => {
+                quicken: {
+                    const k = quickenable(proto, code, consts, pc, ins, .set_x) orelse break :quicken;
+                    ins = quicken(vm, proto, code, pc, ins, k, .set_x);
+                    continue :sw .set_k;
+                }
                 const val = operandValue(th, fi, stack, base, consts, d.argC(ins));
                 const bx = d.argB(ins);
                 var popped: usize = 0;
@@ -761,9 +1014,89 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 stack[base + d.argA(ins)] = operandValue(th, fi, stack, base, consts, d.argB(ins));
                 continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
             },
+            .get_k => {
+                const ic = &proto.ics.items[d.argC(ins)];
+                const bx = d.argB(ins);
+                const popped: usize = @intFromBool(bx == d.stack_operand);
+                const obj = if (popped != 0) stack[top - 1] else operandValue(th, fi, stack, base, consts, bx);
+                var getter: Value = .null;
+                if (icGet(vm, ic, obj, &getter)) |v| {
+                    top -= popped;
+                    storeDest(stack, base, &top, d.argA(ins), v);
+                    continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+                }
+                if (getter != .null) {
+                    top -= popped;
+                    const g = getter;
+                    // a property: its getter as a call, the result pushed
+                    // or put in the register A
+                    const a = d.argA(ins);
+                    th.top = top;
+                    th.ensure(top + 2) catch |e| {
+                        try th.handleError(e, stop_depth);
+                        continue :outer;
+                    };
+                    stack = th.stack.ptr;
+                    stack[top] = g;
+                    stack[top + 1] = obj;
+                    const dest: u16 = if (a == d.push_dest) thread_mod.dest_push else @intCast(a);
+                    spill(trace, th, fi, pc, top + 2);
+                    const is_slang = th.precall(top, 1) catch |e| {
+                        try th.handleError(e, stop_depth);
+                        continue :outer;
+                    };
+                    const acc_dest: u16 = dest;
+                    if (is_slang) {
+                        th.frames.items[th.frames.items.len - 1].dest = acc_dest;
+                        fi = th.frames.items.len - 1;
+                        const fr = th.frames.items[fi];
+                        proto = fr.cl.proto.?;
+                        code = proto.code;
+                        consts = proto.consts;
+                        base = fr.base;
+                        pc = fr.pc;
+                        top = th.top;
+                        stack = th.stack.ptr;
+                    } else {
+                        // a native accessor ran already: its result where it was
+                        top = th.top;
+                        stack = th.stack.ptr;
+                        if (acc_dest != thread_mod.dest_push) {
+                            top -= 1;
+                            if (acc_dest != thread_mod.dest_drop) stack[base + acc_dest] = stack[top];
+                        }
+                    }
+                    continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+                }
+                ins = ic.orig;
+                continue :sw .get_x;
+            },
+            .self_k => {
+                const ic = &proto.ics.items[d.argC(ins)];
+                const bx = d.argB(ins);
+                const obj = if (bx == d.stack_operand) stack[top - 1] else operandValue(th, fi, stack, base, consts, bx);
+                var getter: Value = .null;
+                if (icGet(vm, ic, obj, &getter)) |f| {
+                    if (bx != d.stack_operand) {
+                        stack[top] = obj;
+                        top += 1;
+                    }
+                    stack[top] = f;
+                    stack[top + 1] = obj;
+                    top += 2;
+                    continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+                }
+                ins = ic.orig;
+                continue :sw .self_x;
+            },
             .self_x => {
                 // obj -> obj, obj[key], obj (a method call's receiver, the
                 // method, the receiver as its first argument)
+                quicken: {
+                    const k = quickenable(proto, code, consts, pc, ins, .self_x) orelse break :quicken;
+                    ins = quicken(vm, proto, code, pc, ins, k, .self_x);
+                    continue :sw .self_k;
+                }
                 const bx = d.argB(ins);
                 const key = operandValue(th, fi, stack, base, consts, d.argC(ins));
                 var obj: Value = undefined;
@@ -1449,10 +1782,10 @@ pub const ThreadOps = struct {
         const t = obj.asTable() orelse return th.vm.raiseKind("type", "cannot set the metatable of a {s} value", .{obj.typeName()});
         switch (m) {
             .table => |mt| {
-                t.meta = mt;
+                t.setMetatable(th.vm.gpa, mt);
                 gc.barrier(th.vm, &t.obj, m);
             },
-            .null => t.meta = null,
+            .null => t.setMetatable(th.vm.gpa, null),
             else => return th.vm.raiseKind("type", "@meta must be a table or null, got {s}", .{m.typeName()}),
         }
     }

@@ -51,6 +51,14 @@ pub const Op = enum(u6) {
     get_meta, // push(meta of pop()): x.@meta, null for a value without one
     set_meta, // m = pop(); t = pop(); t's metatable = m (a table or null)
 
+    // The quickened forms: get_x, self_x and set_x with a constant string
+    // key become these when they first run (interp.quicken); the key
+    // operand (C, for set_k B) is the index of an inline cache in
+    // Proto.ics instead. Never in bytecode files (slb writes Ic.orig).
+    get_k = 47,
+    self_k = 48,
+    set_k = 49,
+
     // The fused forms (the `fused` profile), numbered from 63 down so the
     // core can grow upward. B and C are operands (see `operand`); A is a
     // destination register, 255 for a push.
@@ -126,6 +134,9 @@ pub const Op = enum(u6) {
             .move_x => "moveX",
             .self_x => "selfX",
             .for_loop => "forLoop",
+            .get_k => "getK",
+            .self_k => "selfK",
+            .set_k => "setK",
             _ => "op?",
         };
     }
@@ -150,6 +161,11 @@ pub const Op = enum(u6) {
 
 /// The opcodes below this one are the core ISA.
 pub const first_fused: u6 = @intFromEnum(Op.for_loop);
+
+/// Whether an opcode is one of the quickened forms (see Op.get_k).
+pub inline fn isQuickened(op: Op) bool {
+    return op == .get_k or op == .self_k or op == .set_k;
+}
 
 pub inline fn isFused(op: Op) bool {
     return @intFromEnum(op) >= first_fused;
@@ -375,7 +391,9 @@ fn annotateConstant(w: *Writer, c: root.Value) Writer.Error!void {
 fn disasmProto(w: *Writer, p: *const Proto, indent: []const u8) Writer.Error!void {
     try w.print("{s}function (nargs={d} vararg={} maxstack={d} temps={d})\n", .{ indent, p.nargs, p.is_vararg, p.max_stack, p.temps });
     try w.print("{s}Instructions:\n", .{indent});
-    for (p.code, 0..) |ins, i| {
+    for (p.code, 0..) |quick, i| {
+        // (as compiled: a quickened instruction as it was)
+        const ins = p.original(quick);
         // the instruction, padded, then `; annotation`, then the location
         var ibuf: [64]u8 = undefined;
         var iw: Writer = .fixed(&ibuf);
@@ -525,9 +543,9 @@ pub fn maxTemps(gpa: std.mem.Allocator, code: []const u32) u32 {
                 // the handler starts at the try's top with the error on it
                 visit(gpa, depth, &work, i + 1 + argSBx(ins), dv + 1);
             },
-            .add_x, .sub_x, .mul_x, .div_x, .mod_x, .get_x => delta = pushes - popped,
-            .set_x => delta = -popped - pushes,
-            .self_x => delta = if (popped != 0) 2 else 3,
+            .add_x, .sub_x, .mul_x, .div_x, .mod_x, .get_x, .get_k => delta = pushes - popped,
+            .set_x, .set_k => delta = -popped - pushes,
+            .self_x, .self_k => delta = if (popped != 0) 2 else 3,
             .jlt, .jleq, .jeq, .jtest, .for_loop => {
                 // the word after it is a jump, taken or skipped
                 const d2 = dv - (if (op == .jtest or op == .for_loop) 0 else popped);

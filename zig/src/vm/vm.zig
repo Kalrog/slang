@@ -104,6 +104,11 @@ pub const VM = struct {
     gpa: Allocator,
     backing: Allocator,
     counting: gc.CountingAllocator,
+    /// Counts the changes of the tables inline caches depend on
+    /// (Table.is_proto): a cache through metatables holds while it is the
+    /// count the cache was filled at (see interp.icGet). One per VM: an
+    /// isolate's tables change only its own count.
+    shape_epoch: u64 = 1,
     io: std.Io,
     globals: *Table,
     packages: *Table,

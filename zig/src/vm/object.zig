@@ -162,6 +162,9 @@ pub const Proto = struct {
     is_vararg: bool = false,
     /// The name its definition gives the function (`f`, `m.f`), or null.
     name: ?*String = null,
+    /// the inline caches of its quickened instructions (get_k, self_k,
+    /// set_k: see interp.quicken)
+    ics: std.ArrayList(@import("table.zig").Ic) = .empty,
 
     /// The source position of the instruction at pc, or null.
     pub fn location(p: *const Proto, pc: usize) ?*const LocInfo {
@@ -184,5 +187,16 @@ pub const Proto = struct {
         gpa.free(p.children);
         gpa.free(p.locs);
         gpa.free(p.locals);
+        p.ics.deinit(gpa);
+    }
+
+    /// An instruction as it was compiled (a quickened one as it was before).
+    pub fn original(p: *const Proto, ins: u32) u32 {
+        const disasm = @import("disasm.zig");
+        return switch (disasm.opOf(ins)) {
+            .get_k, .self_k => p.ics.items[disasm.argC(ins)].orig,
+            .set_k => p.ics.items[disasm.argB(ins)].orig,
+            else => ins,
+        };
     }
 };

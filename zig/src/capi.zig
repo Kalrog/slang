@@ -540,7 +540,7 @@ pub export fn slang_setmetatable(th: *Thread, idx: c_int) void {
     const target = get(th, idx);
     const m = pop(th).asTable();
     switch (target) {
-        .table => |t| t.meta = m,
+        .table => |t| t.setMetatable(th.vm.gpa, m),
         .userdata => |u| u.meta = m,
         else => return,
     }

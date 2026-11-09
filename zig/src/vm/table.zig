@@ -56,8 +56,81 @@ const small_limit = 8;
 /// and booleans are values, never collected out of a weak table.
 pub const Weak = enum(u8) { none, keys, values };
 
+/// The inline cache of a quickened instruction (get_k, self_k, set_k; see
+/// interp.icGet): its constant string key, the slot where the key was last
+/// found in the object itself, and what the metatables gave for it. The
+/// part through the metatables holds while the object's metatable is
+/// `meta`, its VM's shape_epoch is still `epoch` and the object has never
+/// had the key (keybits).
+pub const Ic = struct {
+    key: *String,
+    /// the instruction before quickening (what slb writes, what runs on a miss)
+    orig: u32,
+    keybit: u64,
+    own_slot: u32 = std.math.maxInt(u32),
+    state: State = .none,
+    /// holder's entry at slot: the value (holder) or the getter (getter)
+    slot: u32 = 0,
+    epoch: u64 = 0,
+    meta: ?*Table = null,
+    holder: ?*Table = null,
+
+    pub const State = enum(u8) {
+        /// nothing known through the metatables
+        none,
+        /// found in holder (an __index table) at slot
+        holder,
+        /// absent all along the chain: null
+        absent,
+        /// a property: holder is the __get table, its getter at slot
+        getter,
+        /// what the cache does not cover (an __index function): the
+        /// generic path, without filling again
+        generic,
+    };
+};
+
 pub const Table = struct {
+    /// The bit of a string key in keybits.
+    pub inline fn keyBit(s: *String) u64 {
+        return @as(u64, 1) << @as(u6, @truncate(s.hash() >> 58));
+    }
+
+    fn isMetaName(k: Value) bool {
+        if (k != .string) return false;
+        const b = k.string.bytes();
+        return b.len >= 2 and b[0] == '_' and b[1] == '_';
+    }
+
+    /// Sets the metatable (the inline caches through the old one may no
+    /// longer hold).
+    pub fn setMetatable(t: *Table, gpa: Allocator, m: ?*Table) void {
+        if (t.is_proto) gc.shapeChanged(gpa);
+        t.meta = m;
+    }
+
+    /// The position of a key in the hash part.
+    pub fn findSlot(t: *const Table, key: Value) ?u32 {
+        return t.find(key);
+    }
+
+    /// Overwrites the value of the entry at idx (found by findSlot) whose key
+    /// is not a metamethod name: an inline cache's store.
+    pub inline fn storeAt(t: *Table, gpa: Allocator, idx: u32, val: Value) void {
+        t.wb(gpa, val);
+        t.ents.items[idx].val = val;
+    }
+
     obj: Object,
+    /// The string keys the hash part ever had, one bit each (keyBit; not
+    /// cleared on removal): an inline cache's test that an object does not
+    /// have a key, without a lookup.
+    keybits: u64 = 0,
+    /// Some inline cache depends on this table's keys (it is a metatable,
+    /// an __index or a __get table one was filled through): adding or
+    /// removing a key, storing a metamethod field, setting its metatable
+    /// and freeing it change the VM's shape_epoch.
+    is_proto: bool = false,
     arr: std.ArrayList(Value) = .empty,
     ents: std.ArrayList(Entry) = .empty,
     index: Index = .empty,
@@ -248,6 +321,7 @@ pub const Table = struct {
     /// Removes the entry at idx (found by find) and returns its value.
     fn takeEntry(t: *Table, gpa: Allocator, idx: u32) Value {
         t.mflags = 0;
+        if (t.is_proto) gc.shapeChanged(gpa);
         const e = t.ents.items[idx];
         if (t.indexed) _ = t.index.remove(e.key);
         t.killEntry(gpa, idx);
@@ -320,6 +394,7 @@ pub const Table = struct {
         t.wb(gpa, val);
         t.ents.items[idx].val = val;
         t.mflags = 0;
+        if (t.is_proto and isMetaName(.{ .string = s })) gc.shapeChanged(gpa);
         return true;
     }
 
@@ -337,6 +412,7 @@ pub const Table = struct {
             t.ents.items[idx].val = val;
             // (a metamethod field may have become null, or stopped being)
             t.mflags = 0;
+            if (t.is_proto and isMetaName(key)) gc.shapeChanged(gpa);
             return;
         }
         t.insertNew(gpa, key, val);
@@ -345,6 +421,8 @@ pub const Table = struct {
     /// Adds an entry for a key that is not in the hash part.
     fn insertNew(t: *Table, gpa: Allocator, key: Value, val: Value) void {
         t.mflags = 0;
+        if (key == .string) t.keybits |= keyBit(key.string);
+        if (t.is_proto) gc.shapeChanged(gpa);
         const idx: u32 = @intCast(t.ents.items.len);
         t.reserveEnts(gpa, 1);
         t.ents.append(gpa, .{ .key = key, .val = val }) catch oom();

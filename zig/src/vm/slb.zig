@@ -63,7 +63,7 @@ pub fn encode(gpa: std.mem.Allocator, p: *const Proto, strip_locs: bool) []u8 {
 pub fn profiles(p: *const Proto) u8 {
     var r: u8 = 0;
     for (p.code) |ins| {
-        if (disasm.isFused(disasm.opOf(ins))) r |= profile_fused;
+        if (disasm.isFused(disasm.opOf(p.original(ins)))) r |= profile_fused;
     }
     for (p.children) |c| r |= profiles(c);
     return r;
@@ -80,7 +80,7 @@ fn encodeProto(w: *std.Io.Writer, p: *const Proto, strip_locs: bool) void {
     w.writeByte(@intFromBool(p.is_vararg)) catch oom();
     encodeStr(w, if (p.name) |n| n.bytes() else "");
     w.writeInt(u32, @intCast(p.code.len), .little) catch oom();
-    for (p.code) |c| w.writeInt(u32, c, .little) catch oom();
+    for (p.code) |c| w.writeInt(u32, p.original(c), .little) catch oom();
     if (strip_locs) {
         w.writeInt(u32, 0, .little) catch oom();
     } else {

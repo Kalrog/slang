@@ -58,11 +58,11 @@ pub fn run(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
             },
             .load_int => {
-                stack[base + ops.argA(ins)] = .{ .int = ops.argSBx(ins) };
+                putRaw(&stack[base + ops.argA(ins)], .int, @bitCast(@as(i64, ops.argSBx(ins))));
                 continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
             },
             .load_bool => {
-                stack[base + ops.argA(ins)] = .{ .bool = ops.argB(ins) != 0 };
+                putRaw(&stack[base + ops.argA(ins)], .bool, @intFromBool(ops.argB(ins) != 0));
                 if (ops.argC(ins) != 0) pc += 1;
                 continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
             },
@@ -106,12 +106,12 @@ pub fn run(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 const c = rk(stack, base, consts, ins);
                 switch (core) {
                     .add, .sub, .mul, .div, .mod => if (interp.numArith(core, b, c)) |r| {
-                        stack[base + ops.argA(ins)] = r;
+                        putValue(&stack[base + ops.argA(ins)], r);
                         continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
                     },
                     .band, .bor, .bxor, .shl, .shr => if (b == .int and c == .int) {
                         if (interp.bitop(core, b.int, c.int)) |r| {
-                            stack[base + ops.argA(ins)] = r;
+                            putValue(&stack[base + ops.argA(ins)], r);
                             continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
                         }
                     },
@@ -302,10 +302,10 @@ pub fn run(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 continue :sw if (op == .get_field_q) .get_field else .get_up_field;
             },
             inline .set_field, .set_index, .set_up_field => |op| {
-                if (op == .set_field) quicken: {
+                if (op != .set_index) quicken: {
                     const key = quickenable(proto, code, pc, consts[ops.argB(ins)], op) orelse break :quicken;
                     ins = quicken(vm, proto, code, pc, ins, key, op);
-                    continue :sw .set_field_q;
+                    continue :sw if (op == .set_field) .set_field_q else .set_up_field_q;
                 }
                 const obj = if (op == .set_up_field) cl.upvals[ops.argA(ins)].get() else stack[base + ops.argA(ins)];
                 const key = if (op == .set_index) stack[base + ops.argB(ins)] else consts[ops.argB(ins)];
@@ -328,13 +328,14 @@ pub fn run(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 stack = th.stack.ptr;
                 continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
             },
-            .set_field_q => {
+            inline .set_field_q, .set_up_field_q => |op| {
                 const ic = &proto.ics.items[ops.cacheOf(ins)];
-                if (interp.icStore(vm, ic, stack[base + ops.argA(ins)], rk(stack, base, consts, ins))) {
+                const obj = if (op == .set_up_field_q) cl.upvals[ops.argA(ins)].get() else stack[base + ops.argA(ins)];
+                if (interp.icStore(vm, ic, obj, rk(stack, base, consts, ins))) {
                     continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
                 }
                 ins = ic.orig;
-                continue :sw .set_field;
+                continue :sw if (op == .set_field_q) .set_field else .set_up_field;
             },
             .init_field => {
                 const t = stack[base + ops.argA(ins)].table;
@@ -558,7 +559,7 @@ pub fn run(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 var cont = true;
                 if (i == .int and step == .int and limit == .int) {
                     const k = if (is_sub) i.int -% step.int else i.int +% step.int;
-                    stack[ra] = .{ .int = k };
+                    putRaw(&stack[ra], .int, @bitCast(k));
                     const c = if (flags & ops.for_flags.leq != 0) k <= limit.int else k < limit.int;
                     cont = c != (flags & ops.for_flags.negate != 0);
                 } else {
@@ -571,7 +572,7 @@ pub fn run(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                         stack = th.stack.ptr;
                         break :slow r;
                     };
-                    stack[ra] = r;
+                    putValue(&stack[ra], r);
                     if (r.isNumber() and limit.isNumber()) {
                         const x = r.asNumber();
                         const y = limit.asNumber();
@@ -664,6 +665,27 @@ inline fn spill(th: *Thread, fi: usize, pc: usize, ftop: usize) void {
     th.frames.items[fi].pc = @intCast(pc);
 }
 
+/// Writes a value of a kind without a heap pointer as one 16-byte store
+/// (payload, tag). A value written in parts (an 8-byte payload, a 1-byte
+/// tag), as Zig writes a tagged union, and then copied as a whole by the
+/// next instruction (a 16-byte load) stalls that load until the parts
+/// reach the cache: the store cannot be forwarded. Arithmetic chains
+/// (x = x * a + b) paid that on every operation.
+inline fn putRaw(dst: *Value, tag: root.Kind, bits: u64) void {
+    const words: *[2]u64 = @ptrCast(dst);
+    words.* = .{ bits, @backingInt(tag) };
+}
+
+/// A value (an arithmetic result) into a register in one store when it is
+/// a number.
+inline fn putValue(dst: *Value, v: Value) void {
+    switch (v) {
+        .int => |i| putRaw(dst, .int, @bitCast(i)),
+        .float => |f| putRaw(dst, .float, @bitCast(f)),
+        else => dst.* = v,
+    }
+}
+
 /// RK(C): constant C when k is set, else register C.
 inline fn rk(stack: [*]Value, base: usize, consts: []const Value, ins: u32) Value {
     return if (ops.argK(ins)) consts[ops.argC(ins)] else stack[base + ops.argC(ins)];
@@ -725,9 +747,10 @@ fn callAccessor(th: *Thread, fi: usize, pc: usize, base: usize, ftop: usize, f: 
 inline fn quickenable(proto: *root.Proto, code: []u32, pc: usize, k: Value, comptime op: Op) ?*String {
     if (k != .string) return null;
     if (ops.opOf(code[pc - 1]) != op) return null;
-    const room: usize = if (op == .set_field) ops.max_store_caches else ops.max_load_caches;
+    const store = op == .set_field or op == .set_up_field;
+    const room: usize = if (store) ops.max_store_caches else ops.max_load_caches;
     if (proto.ics.items.len >= room) return null;
-    if (op == .set_field) {
+    if (store) {
         const b = k.string.bytes();
         if (b.len >= 2 and b[0] == '_' and b[1] == '_') return null;
     }
@@ -744,8 +767,19 @@ fn quicken(vm: *root.VM, proto: *root.Proto, code: []u32, pc: usize, ins: u32, k
         .get_up_field => ops.abc(.get_up_field_q, ops.argA(ins), ops.argB(ins), idx & 0xFF, idx >= 256),
         .self => ops.abc(.self_q, ops.argA(ins), ops.argB(ins), idx & 0xFF, idx >= 256),
         .set_field => ops.abc(.set_field_q, ops.argA(ins), idx, ops.argC(ins), ops.argK(ins)),
+        .set_up_field => ops.abc(.set_up_field_q, ops.argA(ins), idx, ops.argC(ins), ops.argK(ins)),
         else => unreachable,
     };
     code[pc - 1] = quick;
     return quick;
+}
+
+test "putRaw writes the layout of a tagged union (payload, then the tag)" {
+    var v: Value = .null;
+    putRaw(&v, .float, @bitCast(@as(f64, 1.5)));
+    try std.testing.expect(v == .float and v.float == 1.5);
+    putRaw(&v, .int, @bitCast(@as(i64, -3)));
+    try std.testing.expect(v == .int and v.int == -3);
+    putRaw(&v, .bool, 1);
+    try std.testing.expect(v == .bool and v.bool);
 }

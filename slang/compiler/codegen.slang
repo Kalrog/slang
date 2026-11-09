@@ -629,8 +629,8 @@ func asm.end_pattern(self){
 // locals are moved to the new indices.
 
 local fuse_enabled = vm.features != null and vm.features().fused == true
-// SLANG_ISA=register: the register backend (slang/codegen_reg) compiles
-// everything, unless generate is told an isa
+// the register backend (slang/codegen_reg) compiles everything unless
+// SLANG_ISA=stack or core (vm.features().isa) or generate is told an isa
 local default_isa = null
 if(vm.features != null){
   default_isa = vm.features().isa

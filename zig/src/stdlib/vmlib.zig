@@ -407,21 +407,19 @@ fn vmDisassemble(th: *Thread, args: []Value) Error!Value {
     return th.vm.str(aw.writer.buffered());
 }
 
-/// features(): the optional parts of the ISA this VM runs, as a set
-/// ({fused: true, register: true}); the compiler emits core bytecode for
-/// what is missing. SLANG_ISA=core hides the fused instructions, which
-/// makes the compiler emit core bytecode only; SLANG_ISA=register adds
-/// isa: "register", and the compiler emits the register ISA.
+/// features(): the instruction set the compiler emits and the optional
+/// parts this VM runs ({isa: "register", fused: true, register: true}).
+/// The register ISA is the default; SLANG_ISA=stack emits the stack ISA
+/// (with the fused forms), SLANG_ISA=core the stack ISA without them.
 fn vmFeatures(th: *Thread, args: []Value) Error!Value {
     _ = args;
     const vm = th.vm;
-    const t = vm.newTable(0, 1);
-    const isa = vm.getenv("SLANG_ISA");
-    if (isa == null or !std.mem.eql(u8, isa.?, "core")) t.set(vm.gpa, vm.str("fused"), .{ .bool = true });
-    // the register ISA (vm/ops.zig) is always there; SLANG_ISA=register
-    // makes the compiler emit it for everything
+    const t = vm.newTable(0, 3);
+    const env = vm.getenv("SLANG_ISA") orelse "register";
+    const stack = std.mem.eql(u8, env, "stack") or std.mem.eql(u8, env, "core");
+    if (!std.mem.eql(u8, env, "core")) t.set(vm.gpa, vm.str("fused"), .{ .bool = true });
     t.set(vm.gpa, vm.str("register"), .{ .bool = true });
-    if (isa != null and std.mem.eql(u8, isa.?, "register")) t.set(vm.gpa, vm.str("isa"), vm.str("register"));
+    t.set(vm.gpa, vm.str("isa"), vm.str(if (stack) "stack" else "register"));
     return .{ .table = t };
 }
 

@@ -14,6 +14,10 @@ const d = @import("disasm.zig");
 const corelib = @import("../stdlib/core.zig");
 const oom = root.oom;
 
+test {
+    _ = @import("interp_reg.zig");
+}
+
 const abc = ops.abc;
 const abx = ops.abx;
 const asbx = ops.asbx;
@@ -277,6 +281,17 @@ test "register fields: getters, methods, stores, quickened" {
     try std.testing.expectEqual(ops.Op.get_field_q, ops.opOf(main.code[1]));
     try std.testing.expectEqual(ops.Op.self_q, ops.opOf(main.code[2]));
     try std.testing.expectEqual(ops.Op.get_field, ops.opOf(main.original(main.code[1])));
+
+    // a store into a field of an upvalue (a module's table) quickens too
+    const up_store = proto(vm, .{ .regs = 1, .consts = &.{ .{ .string = vm.newString("y") }, .{ .int = 9 } }, .upvals = &.{.{ .name = vm.newString("o"), .index = 0, .is_local = false }}, .code = &.{
+        abc(.set_up_field, 0, 0, 1, true),
+        abc(.return_null, 0, 0, 0, false),
+    } });
+    const up_cl = vm.newClosure(up_store);
+    up_cl.upvals[0] = vm.newUpvalue(.{ .table = obj });
+    for (0..2) |_| _ = try vm.call(.{ .function = up_cl }, &.{});
+    try std.testing.expectEqual(ops.Op.set_up_field_q, ops.opOf(up_store.code[0]));
+    try std.testing.expectEqual(@as(i64, 9), obj.getStr(vm.newString("y")).int);
     try std.testing.expectEqual(main.code.len, 10);
     const bytes = root.slb.encode(vm.gpa, main, false);
     defer vm.gpa.free(bytes);

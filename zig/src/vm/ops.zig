@@ -103,7 +103,8 @@ pub const Op = enum(u7) {
 
     // The quickened forms (inside the VM only: never in bytecode files,
     // see Proto.original). The key operand is an inline cache in Proto.ics:
-    // C + k * 256 for the loads, B for set_field_q.
+    // C + k * 256 for the loads, B for the stores.
+    set_up_field_q = 123,
     get_field_q = 124,
     get_up_field_q = 125,
     self_q = 126,
@@ -170,6 +171,7 @@ pub const Op = enum(u7) {
             .get_up_field_q => "getUpFieldQ",
             .self_q => "selfQ",
             .set_field_q => "setFieldQ",
+            .set_up_field_q => "setUpFieldQ",
             _ => "op?",
         };
     }
@@ -236,12 +238,13 @@ pub fn ax(op: Op, a: u32) u32 {
 }
 
 pub inline fn isQuickened(op: Op) bool {
-    return @backingInt(op) >= @backingInt(Op.get_field_q);
+    return @backingInt(op) >= @backingInt(Op.set_up_field_q);
 }
 
 /// The inline cache of a quickened instruction.
 pub inline fn cacheOf(ins: u32) u32 {
-    return if (opOf(ins) == .set_field_q) argB(ins) else argC(ins) | @as(u32, @intFromBool(argK(ins))) << 8;
+    const op = opOf(ins);
+    return if (op == .set_field_q or op == .set_up_field_q) argB(ins) else argC(ins) | @as(u32, @intFromBool(argK(ins))) << 8;
 }
 
 const Mode = enum { abc, abck, abx, asbx, a, ak, ab, none, jump };

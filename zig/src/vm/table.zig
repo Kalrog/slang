@@ -598,10 +598,11 @@ pub const Table = struct {
     /// state: index << 3 | 4 once in the hash part | the caller's 2 bits.
     pub fn nextLive(t: *const Table, state: *u64) ?Entry {
         const low = state.* & 3;
-        var idx = state.* >> 3;
+        // (an index past the parts is clamped: usize is 32 bits on wasm)
+        var idx: usize = @intCast(@min(state.* >> 3, std.math.maxInt(u32)));
         if (state.* & 4 == 0) {
             if (idx < t.arr.items.len) {
-                state.* = (idx + 1) << 3 | low;
+                state.* = @as(u64, idx + 1) << 3 | low;
                 return .{ .key = .{ .int = @intCast(idx) }, .val = t.arr.items[idx] };
             }
             idx = 0;
@@ -609,11 +610,11 @@ pub const Table = struct {
         const ents = t.ents.items;
         while (idx < ents.len) : (idx += 1) {
             if (ents[idx].key != .null) {
-                state.* = (idx + 1) << 3 | 4 | low;
+                state.* = @as(u64, idx + 1) << 3 | 4 | low;
                 return ents[idx];
             }
         }
-        state.* = idx << 3 | 4 | low;
+        state.* = @as(u64, idx) << 3 | 4 | low;
         return null;
     }
 

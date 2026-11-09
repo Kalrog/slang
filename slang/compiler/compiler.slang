@@ -1059,8 +1059,8 @@ if(vm.build_id != null){
 if(vm.features == null or not vm.features().fused){
   build_id = concat(build_id, "-core")
 }
-if(vm.features != null and vm.features().isa == "register"){
-  build_id = concat(build_id, "-register")
+if(vm.features != null and vm.features().isa != "register"){
+  build_id = concat(build_id, "-stack")
 }
 
 // cache_root() -> string?: where slang caches what it builds

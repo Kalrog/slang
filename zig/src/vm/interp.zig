@@ -90,7 +90,7 @@ inline fn icGet(vm: *root.VM, ic: *Ic, obj: Value, getter: *Value) ?Value {
                 const k = ents[s].key;
                 if (k == .string and k.string == ic.key) return ents[s].val;
             }
-            if (t.meta == ic.meta and ic.epoch == vm.shape_epoch and t.keybits & ic.keybit == 0) {
+            if (ic.epoch == vm.shape_epoch and t.keybits & ic.keybit == 0 and icMetaHolds(vm, ic, t.meta)) {
                 switch (ic.state) {
                     .holder => return ic.holder.?.ents.items[ic.slot].val,
                     .absent => return .null,
@@ -104,7 +104,9 @@ inline fn icGet(vm: *root.VM, ic: *Ic, obj: Value, getter: *Value) ?Value {
             }
         },
         .userdata => |u| {
-            if (u.meta == ic.meta and ic.epoch == vm.shape_epoch) {
+            // (a userdata's metatable by identity only: a cache filled
+            // structurally has not marked the metatable it saw)
+            if (!ic.structural and u.meta == ic.meta and ic.epoch == vm.shape_epoch) {
                 switch (ic.state) {
                     .holder => {
                         // (a method stored as null: the generic path)
@@ -123,6 +125,20 @@ inline fn icGet(vm: *root.VM, ic: *Ic, obj: Value, getter: *Value) ?Value {
         else => return null,
     }
     return icFill(vm, ic, obj, getter);
+}
+
+/// Whether an object's metatable is one the cache's lookup through the
+/// metatables holds for: the same table, or (structural) one the lookup
+/// reads the same from: no __get, __index the same table.
+inline fn icMetaHolds(vm: *root.VM, ic: *Ic, meta: ?*Table) bool {
+    if (!ic.structural) return meta == ic.meta;
+    const m = meta orelse return false;
+    if (m.keybits & ic.meta_bits != 0) return false;
+    const it = ic.index_table orelse return true;
+    const ents = m.ents.items;
+    if (ic.index_slot >= ents.len) return false;
+    const e = ents[ic.index_slot];
+    return e.key == .string and e.key.string == vm.index_name and e.val == .table and e.val.table == it;
 }
 
 /// What the metatables give for the key, remembered in the cache.
@@ -145,6 +161,23 @@ fn icGetter(m: *Table, vm: *root.VM, key: Value) ?struct { *Table, u32 } {
     return .{ g.table, i };
 }
 
+/// Makes the cache check the object's first metatable structurally when
+/// that is exact: it never had __get (its key bit is clear), and its
+/// __index is a table at a slot (or it never had __index).
+fn icStructural(vm: *root.VM, ic: *Ic, m: *Table) void {
+    const get_bit = Table.keyBit(vm.get_name);
+    if (m.keybits & get_bit != 0) return;
+    if (m.findSlot(.{ .string = vm.index_name })) |i| {
+        const v = m.ents.items[i].val;
+        if (v != .table) return;
+        ic.* = .{ .key = ic.key, .orig = ic.orig, .keybit = ic.keybit, .own_slot = ic.own_slot, .structural = true, .index_slot = i, .meta_bits = get_bit, .index_table = v.table };
+    } else {
+        const index_bit = Table.keyBit(vm.index_name);
+        if (m.keybits & index_bit != 0) return;
+        ic.* = .{ .key = ic.key, .orig = ic.orig, .keybit = ic.keybit, .own_slot = ic.own_slot, .structural = true, .meta_bits = get_bit | index_bit };
+    }
+}
+
 /// The slow path of icGet: the lookup the way getFastG and getChain do it,
 /// remembering where it went. Every table it passes is marked is_proto.
 noinline fn icFill(vm: *root.VM, ic: *Ic, obj: Value, getter: *Value) ?Value {
@@ -156,6 +189,15 @@ noinline fn icFill(vm: *root.VM, ic: *Ic, obj: Value, getter: *Value) ?Value {
                 ic.own_slot = i;
                 return t0.ents.items[i].val;
             }
+            // the first metatable: by identity while the site has seen one;
+            // once it sees another (a metatable made per object), by what
+            // the lookup reads from it when the key bits and one slot can
+            // tell (see icMetaHolds), so those are neither marked nor misses
+            const polymorphic = ic.structural or (ic.state != .none and ic.meta != t0.meta);
+            ic.structural = false;
+            if (t0.meta) |m0| {
+                if (polymorphic) icStructural(vm, ic, m0);
+            }
             var t = t0;
             var depth: usize = 0;
             while (depth < 100) : (depth += 1) {
@@ -163,7 +205,7 @@ noinline fn icFill(vm: *root.VM, ic: *Ic, obj: Value, getter: *Value) ?Value {
                     icRemember(ic, .absent, t0.meta, null, 0, epoch);
                     return .null;
                 };
-                m.is_proto = true;
+                if (depth > 0 or !ic.structural) m.is_proto = true;
                 if (icGetter(m, vm, key)) |g| {
                     icRemember(ic, .getter, t0.meta, g[0], g[1], epoch);
                     getter.* = g[0].ents.items[g[1]].val;
@@ -189,6 +231,7 @@ noinline fn icFill(vm: *root.VM, ic: *Ic, obj: Value, getter: *Value) ?Value {
         .userdata => |u| {
             const m = u.meta orelse return null;
             m.is_proto = true;
+            ic.structural = false;
             if (icGetter(m, vm, key)) |g| {
                 icRemember(ic, .getter, m, g[0], g[1], epoch);
                 getter.* = g[0].ents.items[g[1]].val;

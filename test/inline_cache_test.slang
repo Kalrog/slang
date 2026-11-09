@@ -123,6 +123,57 @@ t.group("inline caches"){
     }
   }
 
+  t.test("a metatable per object: each one's __index and __get are seen"){
+    // one lookup site per case, warmed on several objects; the changed
+    // object is looked up first, before anything could refill the cache
+    // (no collection meanwhile: freeing a marked table refills the caches
+    // too, which would hide a stale one)
+    vm.collect()
+    local automatic = vm.gc.automatic
+    vm.gc.automatic = false
+    local C = {m: 1}
+    local func objects(){
+      local objs = {}
+      for(local i = 0; i < 4; i = i + 1){
+        local o = {n: i}
+        o.@meta = {__index: C}
+        append(objs, o)
+      }
+      return objs
+    }
+    local func site_a(o){ return o.m }
+    local func site_b(o){ return o.m }
+    local func site_c(o){ return o.m }
+    local a = objects()
+    for(let local o in values(a)){ assert(warm(site_a, o) == 1) }
+    a[1].@meta.__index = {m: 2}
+    assert(site_a(a[1]) == 2 and site_a(a[0]) == 1 and site_a(a[2]) == 1)
+    local b = objects()
+    for(let local o in values(b)){ assert(warm(site_b, o) == 1) }
+    b[1].@meta.__get = {m: func(self){ return 3 }}
+    assert(site_b(b[1]) == 3 and site_b(b[0]) == 1)
+    local c = objects()
+    for(let local o in values(c)){ assert(warm(site_c, o) == 1) }
+    delete(c[1].@meta, "__index")
+    assert(site_c(c[1]) == null and site_c(c[0]) == 1)
+    // and the class itself, marked as before
+    C.m = 4
+    assert(site_a(a[0]) == 4 and site_b(b[0]) == 4 and site_c(c[0]) == 4)
+    vm.gc.automatic = automatic
+  }
+
+  t.test("a metatable with many keys is checked as itself"){
+    // (its key bits are all set, so it cannot be checked by its fields)
+    local C = {m: func(self){ return "C" }}
+    local M = {__index: C}
+    for(local i = 0; i < 100; i = i + 1){ M[concat("f", i)] = i }
+    local o = {}
+    o.@meta = M
+    assert(warm(call, o) == "C")
+    M.__index = {m: func(self){ return "D" }}
+    assert(call(o) == "D")
+  }
+
   t.test("an __index function is called every time"){
     local count = 0
     local o = {}

@@ -72,8 +72,19 @@ pub const Ic = struct {
     /// holder's entry at slot: the value (holder) or the getter (getter)
     slot: u32 = 0,
     epoch: u64 = 0,
+    /// the object's metatable, when `structural` is false
     meta: ?*Table = null,
     holder: ?*Table = null,
+    /// When true, the object's metatable is not checked by identity but by
+    /// what the lookup reads from it (so a new metatable per object still
+    /// hits): it never had the keys in meta_bits (__get, and __index when
+    /// index_table is null), and when index_table is set its entry at
+    /// index_slot is __index holding index_table. Such a metatable is not
+    /// marked is_proto; the tables from index_table on are.
+    structural: bool = false,
+    index_slot: u32 = 0,
+    meta_bits: u64 = 0,
+    index_table: ?*Table = null,
 
     pub const State = enum(u8) {
         /// nothing known through the metatables

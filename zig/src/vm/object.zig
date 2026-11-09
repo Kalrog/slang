@@ -146,6 +146,8 @@ pub const LocalVar = struct {
 
 /// A compiled function: bytecode plus everything needed to instantiate
 /// closures from it. All slices are owned by the proto (freed on sweep).
+pub const Isa = enum(u8) { stack, register };
+
 pub const Proto = struct {
     obj: Object,
     code: []u32 = &.{},
@@ -155,6 +157,10 @@ pub const Proto = struct {
     locs: []LocInfo = &.{},
     locals: []LocalVar = &.{},
     max_stack: u32 = 0,
+    /// The instruction set of its code (and its children's): the stack
+    /// ISA (disasm.zig, interp.zig) or the register ISA (ops.zig,
+    /// interp_reg.zig, max_stack its registers).
+    isa: Isa = .stack,
     /// The temporaries its code pushes above the registers at most (computed
     /// from the code when it is loaded: disasm.maxTemps)
     temps: u32 = 0,
@@ -192,6 +198,10 @@ pub const Proto = struct {
 
     /// An instruction as it was compiled (a quickened one as it was before).
     pub fn original(p: *const Proto, ins: u32) u32 {
+        if (p.isa == .register) {
+            const ops = @import("ops.zig");
+            return if (ops.isQuickened(ops.opOf(ins))) p.ics.items[ops.cacheOf(ins)].orig else ins;
+        }
         const disasm = @import("disasm.zig");
         return switch (disasm.opOf(ins)) {
             .get_k, .self_k => p.ics.items[disasm.argC(ins)].orig,

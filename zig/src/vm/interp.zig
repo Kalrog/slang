@@ -13,6 +13,7 @@ const corelib = @import("../stdlib/core.zig");
 const d = @import("disasm.zig");
 const Op = d.Op;
 const Ic = @import("table.zig").Ic;
+const interp_reg = @import("interp_reg.zig");
 
 // ---- inline caches (quickening)
 //
@@ -82,7 +83,7 @@ fn quicken(vm: *root.VM, proto: *root.Proto, code: []u32, pc: usize, ins: u32, k
 
 /// obj[key] through an inline cache. Null: a property (its getter in
 /// `getter`) or the generic path.
-inline fn icGet(vm: *root.VM, ic: *Ic, obj: Value, getter: *Value) ?Value {
+pub inline fn icGet(vm: *root.VM, ic: *Ic, obj: Value, getter: *Value) ?Value {
     switch (obj) {
         .table => |t| {
             const ents = t.ents.items;
@@ -255,7 +256,7 @@ noinline fn icFill(vm: *root.VM, ic: *Ic, obj: Value, getter: *Value) ?Value {
 
 /// obj[key] = val through an inline cache: only an existing key of the
 /// object itself (what setFast stores inline whatever the metatable has).
-inline fn icStore(vm: *root.VM, ic: *Ic, obj: Value, val: Value) bool {
+pub inline fn icStore(vm: *root.VM, ic: *Ic, obj: Value, val: Value) bool {
     if (obj != .table) return false;
     const t = obj.table;
     const ents = t.ents.items;
@@ -276,7 +277,7 @@ inline fn icStore(vm: *root.VM, ic: *Ic, obj: Value, val: Value) bool {
 /// Which built-in iterator f is (0 keys, 1 values, 2 entries) when it is
 /// one forin_prep walks in the loop (of a table; anything else, null
 /// included, goes to the call as before).
-inline fn iterKind(f: *root.Closure) ?i64 {
+pub inline fn iterKind(f: *root.Closure) ?i64 {
     const n = f.native orelse return null;
     if (n == &corelib.coreValues) return 1;
     if (n == &corelib.coreEntries) return 2;
@@ -286,7 +287,7 @@ inline fn iterKind(f: *root.Closure) ?i64 {
 
 /// == of a jeq without a call: null, booleans and strings (whose __eq is
 /// never asked). Null: numbers of mixed kinds, tables, the rest.
-inline fn eqInline(a: Value, b: Value) ?bool {
+pub inline fn eqInline(a: Value, b: Value) ?bool {
     if (a == .null or b == .null) return a == .null and b == .null;
     if (a == .string and b == .string) return a.string.eql(b.string);
     if (a == .bool and b == .bool) return a.bool == b.bool;
@@ -299,17 +300,28 @@ inline fn eqInline(a: Value, b: Value) ?bool {
 /// runs: `th.top` is written back, and both are reloaded (a call may grow
 /// the stack), around everything that calls out: natives, metamethods, the
 /// collector, error handling and the trace.
+///
+/// There is a loop for each ISA (this one for the stack ISA, interp_reg.zig
+/// for the register ISA); each runs the frames of its own and returns here
+/// when a call or a return reaches a frame of the other one.
 pub fn run(th: *Thread, stop_depth: usize) Error!void {
+    th.run_depth += 1;
+    defer th.run_depth -= 1;
     // the trace check costs about 3% on call-heavy code when it sits in
-    // every opcode, so the loop exists twice: with and without it (the
+    // every opcode, so each loop exists twice: with and without it (the
     // profiler and the debugger use the same hook)
-    if (th.vm.tracer != null or th.vm.opstats != null or th.vm.profiler != null or th.vm.debugger != null) return runImpl(th, stop_depth, true);
-    return runImpl(th, stop_depth, false);
+    const vm = th.vm;
+    const trace = vm.tracer != null or vm.opstats != null or vm.profiler != null or vm.debugger != null;
+    while (th.frames.items.len > stop_depth) {
+        const p = th.frames.items[th.frames.items.len - 1].cl.proto orelse return vm.raise("internal error: native frame in interpreter loop", .{});
+        switch (p.isa) {
+            .stack => if (trace) try runImpl(th, stop_depth, true) else try runImpl(th, stop_depth, false),
+            .register => if (trace) try interp_reg.run(th, stop_depth, true) else try interp_reg.run(th, stop_depth, false),
+        }
+    }
 }
 
 fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
-    th.run_depth += 1;
-    defer th.run_depth -= 1;
     const vm = th.vm;
     outer: while (true) {
         const n = th.frames.items.len;
@@ -317,6 +329,8 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
         var fi = n - 1;
         const frame = th.frames.items[fi];
         var proto = frame.cl.proto orelse return vm.raise("internal error: native frame in interpreter loop", .{});
+        // a frame of the register ISA: back to run
+        if (proto.isa != .stack) return;
         var code = proto.code;
         var consts = proto.consts;
         var base: usize = frame.base;
@@ -542,6 +556,7 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 fi = th.frames.items.len - 1;
                 const fr = th.frames.items[fi];
                 proto = fr.cl.proto.?;
+                if (proto.isa != .stack) continue :outer;
                 code = proto.code;
                 consts = proto.consts;
                 base = fr.base;
@@ -584,6 +599,7 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                         fi = th.frames.items.len - 1;
                         const fr = th.frames.items[fi];
                         proto = fr.cl.proto.?;
+                        if (proto.isa != .stack) continue :outer;
                         code = proto.code;
                         consts = proto.consts;
                         base = fr.base;
@@ -635,6 +651,7 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                         fi = th.frames.items.len - 1;
                         const fr = th.frames.items[fi];
                         proto = fr.cl.proto.?;
+                        if (proto.isa != .stack) continue :outer;
                         code = proto.code;
                         consts = proto.consts;
                         base = fr.base;
@@ -734,6 +751,7 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                     fi = th.frames.items.len - 1;
                     const fr = th.frames.items[fi];
                     proto = fr.cl.proto.?;
+                    if (proto.isa != .stack) continue :outer;
                     code = proto.code;
                     consts = proto.consts;
                     base = fr.base;
@@ -812,6 +830,7 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                     fi = th.frames.items.len - 1;
                     const fr = th.frames.items[fi];
                     proto = fr.cl.proto.?;
+                    if (proto.isa != .stack) continue :outer;
                     code = proto.code;
                     consts = proto.consts;
                     base = fr.base;
@@ -996,6 +1015,7 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                         fi = th.frames.items.len - 1;
                         const fr = th.frames.items[fi];
                         proto = fr.cl.proto.?;
+                        if (proto.isa != .stack) continue :outer;
                         code = proto.code;
                         consts = proto.consts;
                         base = fr.base;
@@ -1087,6 +1107,7 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                         fi = th.frames.items.len - 1;
                         const fr = th.frames.items[fi];
                         proto = fr.cl.proto.?;
+                        if (proto.isa != .stack) continue :outer;
                         code = proto.code;
                         consts = proto.consts;
                         base = fr.base;
@@ -1154,6 +1175,7 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                         fi = th.frames.items.len - 1;
                         const fr = th.frames.items[fi];
                         proto = fr.cl.proto.?;
+                        if (proto.isa != .stack) continue :outer;
                         code = proto.code;
                         consts = proto.consts;
                         base = fr.base;
@@ -1310,7 +1332,7 @@ inline fn spill(comptime trace: bool, th: *Thread, fi: usize, pc: usize, top: us
     if (!trace) th.frames.items[fi].pc = @intCast(pc);
 }
 
-fn traceInstruction(th: *Thread, fi: usize, base: usize, pc: usize, ins: u32) void {
+pub fn traceInstruction(th: *Thread, fi: usize, base: usize, pc: usize, ins: u32) void {
     if (th.vm.profiler) |p| p.check(th);
     if (th.vm.debugger) |dbg| dbg.check(th, fi, pc);
     if (th.vm.opstats) |s| s.record(th, fi, pc, ins);
@@ -1338,7 +1360,7 @@ inline fn storeDest(stack: [*]Value, base: usize, top: *usize, a: u32, v: Value)
 /// get_table's inline cases: a table (then __index tables), a buffer
 /// element, a userdata's method. Null when the generic path (getTable)
 /// must run.
-inline fn getFast(vm: *root.VM, obj: Value, key: Value) ?Value {
+pub inline fn getFast(vm: *root.VM, obj: Value, key: Value) ?Value {
     var getter: Value = .null;
     return getFastG(vm, obj, key, &getter);
 }
@@ -1346,7 +1368,7 @@ inline fn getFast(vm: *root.VM, obj: Value, key: Value) ?Value {
 /// getFast that also tells, on a miss, the getter of the property it met
 /// (null when the miss is for another reason): found once, called by the
 /// instruction.
-inline fn getFastG(vm: *root.VM, obj: Value, key: Value, getter: *Value) ?Value {
+pub inline fn getFastG(vm: *root.VM, obj: Value, key: Value, getter: *Value) ?Value {
     if (obj == .table) {
         const t = obj.table;
         const v = switch (key) {
@@ -1384,7 +1406,7 @@ inline fn getFastG(vm: *root.VM, obj: Value, key: Value, getter: *Value) ?Value 
 
 /// set_table's inline cases; false when the generic path (setTable) must
 /// run.
-inline fn setFast(vm: *root.VM, obj: Value, key: Value, val: Value) bool {
+pub inline fn setFast(vm: *root.VM, obj: Value, key: Value, val: Value) bool {
     if (obj == .table and key == .string) {
         // inline unless the store could go to a metamethod: the key is new
         // and the metatable could have a setter or __newindex for it (see
@@ -1406,7 +1428,7 @@ inline fn setFast(vm: *root.VM, obj: Value, key: Value, val: Value) bool {
 
 /// A comparison that is not int with int or float with float: mixed
 /// numbers, metamethods, the error; as the core eq, lt and leq do it.
-fn compareSlow(th: *Thread, comptime op: Op, a: Value, b: Value) Error!bool {
+pub fn compareSlow(th: *Thread, comptime op: Op, a: Value, b: Value) Error!bool {
     if (op == .eq) {
         if (a.kind() == b.kind() and (a == .table or a == .userdata)) {
             const f = metamethod(a, b, "__eq");
@@ -1441,7 +1463,7 @@ inline fn newKeyInline(vm: *root.VM, m: *Table) bool {
 /// its metatable or, inherited, of the metatables along its __index
 /// tables; null when there is none, or a getter comes first (the generic
 /// path raises read-only).
-fn findSetter(vm: *root.VM, obj: Value, key: Value) ?Value {
+pub fn findSetter(vm: *root.VM, obj: Value, key: Value) ?Value {
     var m: *Table = switch (obj) {
         .table => |t| blk: {
             if (t.has(key)) return null;
@@ -1600,7 +1622,7 @@ fn isBitOp(op: Op) bool {
 /// & | ~ << >> on integers (floats with integral values convert). Shifts by
 /// 64 or more give 0 (or -1 for a negative value shifted right); a negative
 /// shift amount is an error, reported by arithMeta.
-fn bitop(op: Op, x: i64, y: i64) ?Value {
+pub fn bitop(op: Op, x: i64, y: i64) ?Value {
     return switch (op) {
         .band => .{ .int = x & y },
         .bor => .{ .int = x | y },
@@ -1620,7 +1642,7 @@ fn bitop(op: Op, x: i64, y: i64) ?Value {
 }
 
 /// ~a for anything but an int: an integral float, or __bnot.
-fn bnotSlow(th: *Thread, a: Value) Error!Value {
+pub fn bnotSlow(th: *Thread, a: Value) Error!Value {
     if (exactInt(a)) |x| return .{ .int = ~x };
     const f = metamethod(a, .null, "__bnot");
     if (f == .function) return th.call(f, &.{a});
@@ -1675,7 +1697,7 @@ inline fn floatArith(op: Op, x: f64, y: f64) Value {
 /// + - * / % ^ on numbers: int and int, float and float, then mixed; null
 /// when an operand is not a number (or for an integer modulo by zero).
 /// The opcodes call this with a comptime op, so each folds to its case.
-inline fn numArith(op: Op, a: Value, b: Value) ?Value {
+pub inline fn numArith(op: Op, a: Value, b: Value) ?Value {
     if (a == .int and b == .int) return intArith(op, a.int, b.int);
     if (a == .float and b == .float) return floatArith(op, a.float, b.float);
     if (a.isNumber() and b.isNumber()) return floatArith(op, a.asNumber(), b.asNumber());

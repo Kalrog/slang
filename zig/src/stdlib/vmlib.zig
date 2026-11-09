@@ -222,17 +222,21 @@ fn gcSetLongestStep(th: *Thread, args: []Value) Error!Value {
 ///
 ///   {code: {ints}, locations: {{pc, origin, line, column}}, constants: {{kind, value}},
 ///    upvalues: {{name, index, is_local}}, children: {proto}, max_stack, nargs, is_vararg,
-///    name}
+///    name, isa}
+///
+/// isa "register" (on the outermost prototype, for all of them): the code
+/// is in the register ISA (vm/ops.zig), max_stack its registers.
 fn vmLoadProto(th: *Thread, args: []Value) Error!Value {
     const t = try api.argTable(th, args, 0, "proto");
-    const p = try protoFromTable(th, t, 0);
+    const isa: object.Isa = if (std.mem.eql(u8, t.getName("isa").asBytes() orelse "", "register")) .register else .stack;
+    const p = try protoFromTable(th, t, 0, isa);
     const env = api.arg(args, 1);
     if (env == .null) return .{ .function = th.vm.load(p) };
     const e = env.asTable() orelse return api.argError(th, "env", 1, "table", env);
     return .{ .function = th.vm.loadWithEnv(p, e) };
 }
 
-fn protoFromTable(th: *Thread, t: *Table, depth: usize) Error!*Proto {
+fn protoFromTable(th: *Thread, t: *Table, depth: usize, isa: object.Isa) Error!*Proto {
     const vm = th.vm;
     const gpa = vm.gpa;
     if (depth > 200) return vm.raise("load_proto: nesting too deep", .{});
@@ -250,7 +254,8 @@ fn protoFromTable(th: *Thread, t: *Table, depth: usize) Error!*Proto {
         if (e.val != .int) return vm.raise("load_proto: instruction is not an int", .{});
         p.code[i] = @truncate(@as(u64, @bitCast(e.val.int)));
     }
-    p.temps = disasm.maxTemps(gpa, p.code);
+    p.isa = isa;
+    if (isa == .stack) p.temps = disasm.maxTemps(gpa, p.code);
     if (t.getName("locations").asTable()) |locs| {
         var list: std.ArrayList(object.LocInfo) = .empty;
         var lit = locs.iterator();
@@ -319,7 +324,7 @@ fn protoFromTable(th: *Thread, t: *Table, depth: usize) Error!*Proto {
         var chit = children.iterator();
         while (chit.next()) |e| {
             const ct = e.val.asTable() orelse return vm.raise("load_proto: child must be a table", .{});
-            list.append(gpa, try protoFromTable(th, ct, depth + 1)) catch oom();
+            list.append(gpa, try protoFromTable(th, ct, depth + 1, isa)) catch oom();
         }
         p.children = list.toOwnedSlice(gpa) catch oom();
     }

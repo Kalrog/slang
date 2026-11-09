@@ -1,6 +1,7 @@
-//! The .slb container, version 5 (versions 2 to 4, without the profile
-//! byte, version 2 and 3 without the locals and version 2 without the
-//! name, are still read):
+//! The .slb container, version 5 for the stack ISA and 6 for the register
+//! ISA (ops.zig; the layout is the same, the profiles byte 0). Versions 2
+//! to 4, without the profile byte, version 2 and 3 without the locals and
+//! version 2 without the name, are still read:
 //!
 //!   magic "SLANG", u8 version, u8 profiles (bit 0: fused instructions)
 //!   proto := u32 maxStack, u32 nargs, u8 isVarArg, str name ("": none),
@@ -25,6 +26,8 @@ const disasm = @import("disasm.zig");
 
 pub const magic = "SLANG";
 pub const version: u8 = 5;
+/// The version of a file whose code is in the register ISA.
+pub const version_register: u8 = 6;
 
 /// The profiles byte: which optional parts of the ISA the code uses.
 pub const profile_fused: u8 = 1;
@@ -37,7 +40,7 @@ pub const DecodeError = error{ BadMagic, BadVersion, BadProfile, Truncated, BadC
 pub fn errorMessage(e: DecodeError) []const u8 {
     return switch (e) {
         error.BadMagic => "not a slang bytecode file (bad magic)",
-        error.BadVersion => "unsupported bytecode version (want 2 to 5)",
+        error.BadVersion => "unsupported bytecode version (want 2 to 6)",
         error.BadProfile => "bytecode uses instructions this VM does not have",
         error.Truncated => "bytecode: unexpected end of data",
         error.BadCount => "bytecode: implausible count",
@@ -53,7 +56,7 @@ pub fn encode(gpa: std.mem.Allocator, p: *const Proto, strip_locs: bool) []u8 {
     defer w.deinit();
     const out = &w.writer;
     out.writeAll(magic) catch oom();
-    out.writeByte(version) catch oom();
+    out.writeByte(if (p.isa == .register) version_register else version) catch oom();
     out.writeByte(profiles(p)) catch oom();
     encodeProto(out, p, strip_locs);
     return w.toOwnedSlice() catch oom();
@@ -62,6 +65,7 @@ pub fn encode(gpa: std.mem.Allocator, p: *const Proto, strip_locs: bool) []u8 {
 /// The profiles a prototype and its children use.
 pub fn profiles(p: *const Proto) u8 {
     var r: u8 = 0;
+    if (p.isa == .register) return 0;
     for (p.code) |ins| {
         if (disasm.isFused(disasm.opOf(p.original(ins)))) r |= profile_fused;
     }
@@ -185,7 +189,7 @@ const Reader = struct {
         const ncode = try r.count();
         p.code = gpa.alloc(u32, ncode) catch oom();
         for (p.code) |*c| c.* = try r.u32_();
-        p.temps = disasm.maxTemps(gpa, p.code);
+        if (r.version == version_register) p.isa = .register else p.temps = disasm.maxTemps(gpa, p.code);
         const nlocs = try r.count();
         p.locs = gpa.alloc(object.LocInfo, nlocs) catch oom();
         for (p.locs) |*l| {
@@ -240,7 +244,7 @@ pub fn decode(vm: *VM, data: []const u8) DecodeError!*Proto {
     const m = try r.take(magic.len);
     if (!std.mem.eql(u8, m, magic)) return error.BadMagic;
     r.version = try r.u8_();
-    if (r.version < 2 or r.version > version) return error.BadVersion;
+    if (r.version < 2 or r.version > version_register) return error.BadVersion;
     if (r.version >= 5) {
         if ((try r.u8_()) & ~known_profiles != 0) return error.BadProfile;
     }

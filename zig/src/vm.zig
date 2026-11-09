@@ -42,4 +42,5 @@ test {
     @import("std").testing.refAllDecls(@This());
     _ = @import("vm/table.zig");
     _ = @import("vm/format.zig");
+    _ = @import("vm/interp_reg_test.zig");
 }

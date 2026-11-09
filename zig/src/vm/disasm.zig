@@ -2,6 +2,7 @@ const std = @import("std");
 const root = @import("../vm.zig");
 const Proto = root.Proto;
 const Writer = std.Io.Writer;
+const ops = @import("ops.zig");
 
 /// Opcodes. The encoding is the one of the Dart implementation:
 ///
@@ -400,7 +401,11 @@ fn annotateConstant(w: *Writer, c: root.Value) Writer.Error!void {
 }
 
 fn disasmProto(w: *Writer, p: *const Proto, indent: []const u8) Writer.Error!void {
-    try w.print("{s}function (nargs={d} vararg={} maxstack={d} temps={d})\n", .{ indent, p.nargs, p.is_vararg, p.max_stack, p.temps });
+    if (p.isa == .register) {
+        try w.print("{s}function (nargs={d} vararg={} registers={d})\n", .{ indent, p.nargs, p.is_vararg, p.max_stack });
+    } else {
+        try w.print("{s}function (nargs={d} vararg={} maxstack={d} temps={d})\n", .{ indent, p.nargs, p.is_vararg, p.max_stack, p.temps });
+    }
     try w.print("{s}Instructions:\n", .{indent});
     for (p.code, 0..) |quick, i| {
         // (as compiled: a quickened instruction as it was)
@@ -408,10 +413,15 @@ fn disasmProto(w: *Writer, p: *const Proto, indent: []const u8) Writer.Error!voi
         // the instruction, padded, then `; annotation`, then the location
         var ibuf: [64]u8 = undefined;
         var iw: Writer = .fixed(&ibuf);
-        writeInstruction(&iw, ins) catch {};
         var abuf: [128]u8 = undefined;
         var aw: Writer = .fixed(&abuf);
-        annotate(&aw, p, i, ins) catch {};
+        if (p.isa == .register) {
+            ops.writeInstruction(&iw, ins) catch {};
+            ops.annotate(&aw, p, i, ins) catch {};
+        } else {
+            writeInstruction(&iw, ins) catch {};
+            annotate(&aw, p, i, ins) catch {};
+        }
         var loc: ?*const @import("object.zig").LocInfo = null;
         for (p.locs) |*l| {
             if (l.first_pc == i) {

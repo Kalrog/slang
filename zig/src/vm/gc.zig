@@ -601,6 +601,11 @@ fn atomic(vm: *VM) void {
     vm.weak_tables.shrinkRetainingCapacity(keep);
     if (build_options.gc_stress) verify(vm);
 
+    // what lies above a stack's top was not marked: cleared, so that no
+    // pointer to an object freed now is there when the top rises over it
+    // again (a frame of the register ISA counts its registers live up to
+    // its end, while a call lowers the top to its arguments: see ops.zig)
+    for (st.threads.items) |th| @memset(th.stack[th.top..], .null);
     st.threads.clearRetainingCapacity();
     st.ephemerons.clearRetainingCapacity();
     st.white = 1 - st.white;

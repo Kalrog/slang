@@ -16,6 +16,13 @@ const oom = root.oom;
 const Thread = root.Thread;
 const d = @import("disasm.zig");
 const Op = d.Op;
+const ops = @import("ops.zig");
+
+/// Whether frame fi runs register code (ops.zig).
+fn isRegister(th: *Thread, fi: usize) bool {
+    const p = th.frames.items[fi].cl.proto orelse return false;
+    return p.isa == .register;
+}
 
 pub const Tracer = struct {
     gpa: std.mem.Allocator,
@@ -46,7 +53,7 @@ pub const Tracer = struct {
         var line: [512]u8 = undefined;
         var w: std.Io.Writer = .fixed(&line);
         w.print("[{d}] base={d} top={d} pc={d}: ", .{ fi, base, th.top, pc }) catch {};
-        d.writeInstruction(&w, ins) catch {};
+        if (isRegister(th, fi)) ops.writeInstruction(&w, ins) catch {} else d.writeInstruction(&w, ins) catch {};
         if (t.stack) {
             w.writeAll("  stack:") catch {};
             var i = base;
@@ -79,9 +86,12 @@ pub const Tracer = struct {
     }
 };
 
-/// An instruction's shape: its opcode and a variant (see variantOf).
+/// An instruction's shape: a stack opcode and a variant (see variantOf), or
+/// a register opcode (from reg_shapes on).
 const variants = 3;
-const shapes = 64 * variants;
+const reg_shapes = 64 * variants;
+const shapes = reg_shapes + ops.count;
+const Shape = u16;
 
 pub const OpStats = struct {
     gpa: std.mem.Allocator,
@@ -89,7 +99,7 @@ pub const OpStats = struct {
     ops: [shapes]u64 = @splat(0),
     /// pairs[a * shapes + b]: shape b right after shape a
     pairs: []u64,
-    /// a << 16 | b << 8 | c
+    /// a << 20 | b << 10 | c
     triples: std.AutoHashMapUnmanaged(u32, u64) = .empty,
     // the straight run the last instructions belong to
     last_th: ?*Thread = null,
@@ -97,7 +107,7 @@ pub const OpStats = struct {
     last_pc: usize = 0,
     /// the shapes of the last two instructions of the run, and its length
     /// (up to 3)
-    last: [2]u8 = .{ 0, 0 },
+    last: [2]Shape = .{ 0, 0 },
     run: u8 = 0,
     finished: bool = false,
 
@@ -132,14 +142,16 @@ pub const OpStats = struct {
     }
 
     pub fn record(s: *OpStats, th: *Thread, fi: usize, pc: usize, ins: u32) void {
-        const op = d.opOf(ins);
-        const shape: u8 = @intCast(@as(usize, @intFromEnum(op)) * variants + variantOf(op, ins));
+        const shape: Shape = if (isRegister(th, fi)) @intCast(reg_shapes + @as(usize, @intFromEnum(ops.opOf(ins)))) else blk: {
+            const op = d.opOf(ins);
+            break :blk @intCast(@as(usize, @intFromEnum(op)) * variants + variantOf(op, ins));
+        };
         s.ops[shape] += 1;
         const follows = s.last_th == th and s.last_fi == fi and s.last_pc + 1 == pc;
         if (!follows) s.run = 0;
         if (s.run >= 1) s.pairs[@as(usize, s.last[1]) * shapes + shape] += 1;
         if (s.run >= 2) {
-            const key = @as(u32, s.last[0]) << 16 | @as(u32, s.last[1]) << 8 | shape;
+            const key = @as(u32, s.last[0]) << 20 | @as(u32, s.last[1]) << 10 | shape;
             const gop = s.triples.getOrPut(s.gpa, key) catch oom();
             if (!gop.found_existing) gop.value_ptr.* = 0;
             gop.value_ptr.* += 1;
@@ -151,7 +163,12 @@ pub const OpStats = struct {
         s.last_pc = pc;
     }
 
-    fn writeShape(w: *std.Io.Writer, shape: u8) void {
+    fn writeShape(w: *std.Io.Writer, shape: Shape) void {
+        if (shape >= reg_shapes) {
+            const rop: ops.Op = @enumFromInt(shape - reg_shapes);
+            w.writeAll(rop.name()) catch {};
+            return;
+        }
         const op: Op = @enumFromInt(shape / variants);
         const v = shape % variants;
         w.writeAll(op.name()) catch {};
@@ -182,7 +199,7 @@ pub const OpStats = struct {
             var i: usize = len;
             while (i > 0) {
                 i -= 1;
-                writeShape(w, @intCast((e.key >> @intCast(i * 8)) & 0xff));
+                writeShape(w, @intCast((e.key >> @intCast(i * 10)) & 0x3ff));
                 if (i > 0) w.writeAll(" ; ") catch {};
             }
             w.writeByte('\n') catch {};
@@ -211,7 +228,7 @@ pub const OpStats = struct {
         for (s.pairs, 0..) |n, i| {
             const a = i / shapes;
             const b = i % shapes;
-            if (n > 0) list.append(s.gpa, .{ .key = @intCast(a << 8 | b), .n = n }) catch oom();
+            if (n > 0) list.append(s.gpa, .{ .key = @intCast(a << 10 | b), .n = n }) catch oom();
         }
         section(w, "pairs (in one frame, in order)", list.items, total, 2, 40);
         list.clearRetainingCapacity();

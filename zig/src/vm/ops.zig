@@ -1,6 +1,6 @@
-//! The register instruction set (plans/PLAN_REGISTER.md): its opcodes, the
-//! encoding, and how an instruction is rendered. It runs in
-//! interp_reg.zig; a prototype says which ISA its code is in (Proto.isa).
+//! The instruction set (plans/PLAN_REGISTER.md): its opcodes, the
+//! encoding, and how an instruction is rendered. interp.zig runs it,
+//! slang/codegen emits it, slb.zig stores it.
 //!
 //! 32-bit words, Lua 5.4's layout:
 //!

@@ -9,9 +9,7 @@
 #   make test-safe    the suites on the checked build (ReleaseSafe) and under GC stress
 #   make test-gui     the webview tests (macOS; they open and close windows)
 #   make seed         re-generate the seed with bin/slang itself (self-hosting), then rebuild
-#   make seed-core    write the seed in core instructions only (SLANG_ISA=core) to build/seed-core,
-#                     for ports of the VM that leave out the fused profile
-#   make fixpoint     check that the seed compiles itself to identical bytecode, fused and core
+#   make fixpoint     check that the seed compiles itself to identical bytecode
 #   make bench        run bench/ (bench/run_all.sh adds the Lua ports and the C sawtooth)
 #   make bench-vectors 3D vector math in every style: slang tables, methods, operators, a native
 #                     (Zig) library, C through slang/ffi, buffers, a kernel (bench/vectors)
@@ -58,9 +56,8 @@ PREFIX ?= /usr/local
 LIB_SRC  := $(wildcard slang/lib/*.slang)
 COMPILER_SRC := $(wildcard slang/compiler/*.slang)
 SEED_DIR := boot/slang
-SEED_CORE_DIR := build/seed-core
 
-.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed seed-core fixpoint bench bench-vectors raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test inkblast inkblast-test synth synth3d synth-test synth-mix modular modular-test modular-demos live live-test delve delve-test courier courier-test siege siege-test midi-test kernel-test kernel-bench fm fm3d fm-test fm-gen clean doc \
+.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed fixpoint bench bench-vectors raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test inkblast inkblast-test synth synth3d synth-test synth-mix modular modular-test modular-demos live live-test delve delve-test courier courier-test siege siege-test midi-test kernel-test kernel-bench fm fm3d fm-test fm-gen clean doc \
         vscode vscode-grammar
 
 all: build
@@ -151,27 +148,13 @@ seed: build
 	bin/slang run slang/seed_parsers.slang $(SEED_DIR)/pegc_root.slb
 	cd zig && $(ZIG) build -Doptimize=ReleaseFast -p ..
 
-# the seed in core instructions (the compiler leaves out the fused forms)
-seed-core: build
-	@mkdir -p $(SEED_CORE_DIR)
-	@for f in $(LIB_SRC) $(COMPILER_SRC); do \
-	  n=$$(basename $$f .slang); \
-	  SLANG_ISA=core bin/slang compile $$f -o $(SEED_CORE_DIR)/$$n.slb --origin slang/$$n || exit 1; \
-	done
-	@echo "seed-core: $(SEED_CORE_DIR)"
-
-# the seed must reproduce itself exactly; the core seed must be what the
-# core compiler gives too (the fusing pass is deterministic)
+# the seed must reproduce itself exactly
 fixpoint: build
-	@rm -rf /tmp/slang-fixpoint && mkdir -p /tmp/slang-fixpoint/core
+	@rm -rf /tmp/slang-fixpoint && mkdir -p /tmp/slang-fixpoint
 	@for f in $(LIB_SRC) $(COMPILER_SRC); do \
 	  n=$$(basename $$f .slang); \
 	  bin/slang compile $$f -o /tmp/slang-fixpoint/$$n.slb --origin slang/$$n || exit 1; \
 	  cmp $(SEED_DIR)/$$n.slb /tmp/slang-fixpoint/$$n.slb || { echo "fixpoint: $$n differs"; exit 1; }; \
-	  SLANG_ISA=core bin/slang compile $$f -o /tmp/slang-fixpoint/core/$$n.slb --origin slang/$$n || exit 1; \
-	  if [ -f $(SEED_CORE_DIR)/$$n.slb ]; then \
-	    cmp $(SEED_CORE_DIR)/$$n.slb /tmp/slang-fixpoint/core/$$n.slb || { echo "fixpoint: core $$n differs"; exit 1; }; \
-	  fi; \
 	done
 	@bin/slang run slang/seed_parsers.slang /tmp/slang-fixpoint/pegc_root.slb > /dev/null || exit 1
 	@cmp $(SEED_DIR)/pegc_root.slb /tmp/slang-fixpoint/pegc_root.slb || { echo "fixpoint: root parsers differ"; exit 1; }

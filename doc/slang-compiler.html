@@ -77,6 +77,7 @@ local h = compiler.highlight(source, &quot;main.slang&quot;, {symbols: true})</c
 <li><a href="#pegc_cache"><code>pegc_cache</code></a></li>
 <li><a href="#load_file"><code>load_file</code></a></li>
 <li><a href="#load_main"><code>load_main</code></a></li>
+<li><a href="#dialect_kind"><code>dialect_kind</code></a></li>
 <li><a href="#highlight"><code>highlight</code></a></li>
 <li><a href="#compile_file"><code>compile_file</code></a></li>
 <li><a href="#analyze_file"><code>analyze_file</code></a></li>
@@ -225,6 +226,10 @@ f()   // 42</code></pre>
 
 </div>
 <h2>highlighting</h2>
+<div class="def" id="dialect_kind"><h3><code>compiler.dialect_kind(path: string, options?: <a href="#type-ParseOptions">ParseOptions</a>) -> string?</code></h3>
+<p>How the project compiles a file at path when its suffix is a dialect's: &quot;grammar&quot;, &quot;extensions&quot; or &quot;compile&quot;; null for a plain slang file.</p>
+
+</div>
 <div class="def" id="highlight"><h3><code>compiler.highlight(source: string, path: string, options?: <a href="#type-ParseOptions">ParseOptions</a>) -> <a href="#type-Highlight">Highlight</a></code></h3>
 <p>The tokens of source as the compiler would parse the file at path (its project, its dialect), and its parse errors. Extension code runs as it would in the compiler; nothing is compiled or cached. A file of a dialect with a compile function has no tokens. The tokens are read off the lossless tree (peg.highlights); a statement that fails to parse is reported and highlighted by its words, and the parse goes on after it. A slang.project gets no symbols.</p>
 
@@ -270,9 +275,9 @@ f()   // 42</code></pre>
 <p>A project file as the compiler applies it: the program's (from <a href="#load_project"><code>load_project</code></a>) or a package's.</p>
 <dl class="params"><dt><code>path: string</code></dt><dd>the project file</dd><dt><code>dir: string</code></dt><dd>the directory that holds it</dd><dt><code>source: string</code></dt><dd>the file's text</dd><dt><code>extensions: {string}</code></dt><dd>the ambient extensions, loaded into every file in order</dd><dt><code>dialects: {[string]: <a href="#type-Dialect">Dialect</a>}</code></dt><dd>by file suffix (&quot;.json&quot;)</dd><dt><code>warnings?: bool | {[string]: bool}</code></dt><dd>false turns grammar warnings off, a table per extension</dd><dt><code>key: string</code></dt><dd>the project file and its extensions' sources, for cache keys</dd><dt><code>grammar: table</code></dt><dd>the grammar files of the project compile with</dd><dt><code>dialect_grammars: {[string]: table}</code></dt><dd>the grammars made so far for dialects, by suffix</dd><dt><code>package?: string</code></dt><dd>the package's name, for a package's project</dd></dl>
 <h2 id="type-Dialect">type Dialect</h2>
-<pre><code>type Dialect = {compile?: string, extensions?: {string}}</code></pre>
-<p>A dialect of a project: files with its suffix compile differently. With compile the file is not slang at all.</p>
-<dl class="params"><dt><code>compile?: string</code></dt><dd>a module whose compile(source, origin) makes the file's function</dd><dt><code>extensions?: {string}</code></dt><dd>extensions loaded on top of the project's for these files</dd></dl>
+<pre><code>type Dialect = {grammar?: string, compile?: string, extensions?: {string}}</code></pre>
+<p>A dialect of a project: files with its suffix compile differently. With grammar or compile the file is not slang at all.</p>
+<dl class="params"><dt><code>grammar?: string</code></dt><dd>a module that returns the language of the files (a grammar.FileGrammar): they are parsed, highlighted, formatted and compiled (and cached) as slang files are, with its parsers</dd><dt><code>compile?: string</code></dt><dd>a module whose compile(source, origin) makes the file's function; the tools see nothing of such a file (no tokens, no tree)</dd><dt><code>extensions?: {string}</code></dt><dd>extensions loaded on top of the project's for these files</dd></dl>
 <h2 id="type-Package">type Package</h2>
 <pre><code>type Package = {name: string, dir?: string, version?: string, missing: bool}</code></pre>
 <p>A package of the program, as slang.lock and slang.project give it.</p>

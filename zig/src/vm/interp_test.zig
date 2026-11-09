@@ -1,6 +1,5 @@
-//! The register loop (interp_reg.zig) on prototypes assembled by hand: the
-//! compiler does not emit the register ISA yet (plans/PLAN_REGISTER.md,
-//! phase 2).
+//! The interpreter loop (interp.zig) on prototypes assembled by hand: each
+//! instruction's semantics without the compiler in between.
 
 const std = @import("std");
 const root = @import("../vm.zig");
@@ -15,7 +14,7 @@ const corelib = @import("../stdlib/core.zig");
 const oom = root.oom;
 
 test {
-    _ = @import("interp_reg.zig");
+    _ = @import("interp.zig");
 }
 
 const abc = ops.abc;
@@ -33,29 +32,21 @@ const Spec = struct {
     nargs: u32 = 0,
     children: []const *Proto = &.{},
     upvals: []const object.UpvalDesc = &.{},
-    isa: object.Isa = .register,
 };
 
 fn proto(vm: *VM, s: Spec) *Proto {
     const p = vm.newProto();
-    p.isa = s.isa;
     p.max_stack = s.regs;
     p.nargs = s.nargs;
     p.code = vm.gpa.dupe(u32, s.code) catch oom();
     p.consts = vm.gpa.dupe(Value, s.consts) catch oom();
     p.children = vm.gpa.dupe(*Proto, s.children) catch oom();
     p.upvals = vm.gpa.dupe(object.UpvalDesc, s.upvals) catch oom();
-    if (s.isa == .stack) p.temps = d.maxTemps(vm.gpa, p.code);
     return p;
 }
 
 fn run(vm: *VM, p: *Proto, args: []const Value) !Value {
     return vm.call(.{ .function = vm.load(p) }, args);
-}
-
-/// A stack-ISA instruction (disasm.zig's encoding).
-fn stackIns(op: d.Op, a: u32, bx: u32) u32 {
-    return @backingInt(op) | a << 6 | bx << 14;
 }
 
 test "register arithmetic, constants and comparisons" {
@@ -84,7 +75,7 @@ test "register arithmetic, constants and comparisons" {
     try std.testing.expectEqual(@as(i64, 2), (try run(vm, p, &.{ .{ .float = 3.5 }, .{ .int = 4 } })).int);
 }
 
-test "register calls: slang, native, upvalues, the other ISA" {
+test "register calls: slang, native, upvalues, closures in closures" {
     const vm = newVM();
     defer vm.destroy();
     // a closure over the caller's register 0, counting it up
@@ -124,19 +115,18 @@ test "register calls: slang, native, upvalues, the other ISA" {
     } });
     try std.testing.expectEqual(@as(i64, 42), (try run(vm, callNative, &.{ vm.nativeValue("twice", twice), .{ .int = 21 } })).int);
 
-    // register code calling stack code calling register code:
+    // a closure that makes a closure and calls it:
     // (n) => child(n) - 1, child = (x) => g(x) + 1, g = (y) => y * 3
     const g = proto(vm, .{ .regs = 2, .nargs = 1, .consts = &.{.{ .int = 3 }}, .code = &.{
         abc(.mul, 1, 0, 0, true),
         abc(.@"return", 1, 0, 0, false),
     } });
-    const child = proto(vm, .{ .isa = .stack, .regs = 1, .nargs = 1, .children = &.{g}, .consts = &.{.{ .int = 1 }}, .code = &.{
-        @backingInt(d.Op.load_closure),
-        stackIns(.push, 0, 0x1FFFF),
-        stackIns(.call, 0, 1),
-        stackIns(.load_constant, 0, 0),
-        @backingInt(d.Op.add),
-        @backingInt(d.Op.@"return"),
+    const child = proto(vm, .{ .regs = 4, .nargs = 1, .children = &.{g}, .consts = &.{.{ .int = 1 }}, .code = &.{
+        abx(.closure, 1, 0),
+        abc(.move, 2, 0, 0, false),
+        abc(.call, 1, 1, 0, false),
+        abc(.add, 1, 1, 0, true),
+        abc(.@"return", 1, 0, 0, false),
     } });
     const mixed = proto(vm, .{ .regs = 4, .nargs = 1, .children = &.{child}, .consts = &.{.{ .int = 1 }}, .code = &.{
         abx(.closure, 1, 0),
@@ -295,8 +285,7 @@ test "register fields: getters, methods, stores, quickened" {
     try std.testing.expectEqual(main.code.len, 10);
     const bytes = root.slb.encode(vm.gpa, main, false);
     defer vm.gpa.free(bytes);
-    try std.testing.expectEqual(root.slb.version_register, bytes[5]);
+    try std.testing.expectEqual(root.slb.version, bytes[5]);
     const back = try root.slb.decode(vm, bytes);
-    try std.testing.expectEqual(object.Isa.register, back.isa);
     try std.testing.expectEqual(ops.Op.get_field, ops.opOf(back.code[1]));
 }

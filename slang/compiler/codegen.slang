@@ -1,5 +1,6 @@
 // slang/codegen: compiles AST nodes into function prototypes, tables that
-// slang/vm's load_proto turns into functions.
+// slang/vm's load_proto turns into functions, in the register instruction
+// set (zig/src/vm/ops.zig).
 //
 //   local proto = codegen.generate(ast_node, "main.slang")
 //   local f = vm.load_proto(proto)
@@ -8,9 +9,18 @@
 // unquotes are resolved by the parser before code is generated. Names are
 // resolved here, which is also how slang/symbols learns a file's scoping
 // (the record option of [generate]).
+//
+// An expression compiles to a descriptor (see `desc` below) that says where
+// its value is or how to get it, and is placed in a register only where it
+// is needed: a local is read in place, a constant becomes the k operand of
+// the instruction that uses it, a field read is emitted once its
+// destination is known. Registers hold the locals, in the order of their
+// declaration, and above them the temporaries of the expression being
+// compiled, allocated and freed as a stack; a statement ends with no
+// temporaries left. A call's function and arguments are always the highest
+// registers in use (the VM relies on it: see ops.zig).
 local ast = require("slang/ast")
 local str = require("slang/string")
-local vm = require("slang/vm")
 local optimizer = require("slang/optimizer")
 
 local codegen = {}
@@ -18,7 +28,7 @@ local codegen = {}
 // A compiled function, before the VM loads it.
 // type Prototype = {code: {int}, locations: {{any}}, constants: {any},
 //   upvalues: {{any}}, children: {Prototype}, max_stack: int, nargs: int,
-//   is_vararg: bool, name?: string, locals: {{any}}}
+//   is_vararg: bool, name?: string, locals: {{any}}, isa: string}
 // [code]: the instructions, encoded as the VM expects them
 // [locations]: {instruction index, origin, line, column} where they change
 // [upvalues]: {name, index, from a local of the enclosing function: bool}
@@ -27,102 +37,117 @@ local codegen = {}
 // [nargs]: its fixed parameters
 // [name]: the name its definition gives it, for stack traces
 // [locals]: {name, register, first pc, end pc} of each local, for debuggers
+// [isa]: "register"
 
-// opcodes (must match the VM)
-local OP_LOAD_CONSTANT = 0
-local OP_LOAD_BOOL = 1
-local OP_LOAD_CLOSURE = 2
-local OP_ADD = 3
-local OP_SUB = 4
-local OP_MUL = 5
-local OP_DIV = 6
-local OP_MOD = 7
-local OP_NEG = 8
-local OP_NOT = 9
-local OP_EQ = 10
-local OP_LT = 11
-local OP_LEQ = 12
-local OP_MOVE = 13
-local OP_PUSH = 14
-local OP_POP = 15
-local OP_RETURN = 16
-local OP_NEW_TABLE = 17
-local OP_SET_TABLE = 18
-local OP_GET_TABLE = 19
-local OP_SET_UPVALUE = 20
-local OP_GET_UPVALUE = 21
-local OP_CLOSE_UPVALUES = 22
-local OP_TEST = 23
-local OP_JUMP = 24
-local OP_CALL = 25
-local OP_TYPE = 26
-local OP_POW = 27
-local OP_BAND = 28
-local OP_BOR = 29
-local OP_BXOR = 30
-local OP_SHL = 31
-local OP_SHR = 32
-local OP_BNOT = 33
-local OP_CALL_SPREAD = 34
-local OP_TRY_BEGIN = 35
-local OP_TRY_END = 36
-local OP_THROW = 37
-local OP_GET_META = 38
-local OP_SET_META = 39
-local OP_FORIN_PREP = 40
-local OP_FORIN_NEXT = 41
+// opcodes (zig/src/vm/ops.zig: Op)
+local OP_MOVE = 0
+local OP_LOAD_K = 1
+local OP_LOAD_INT = 2
+local OP_LOAD_BOOL = 3
+local OP_LOAD_NULL = 4
+local OP_CLOSURE = 5
+local OP_GET_UPVAL = 6
+local OP_SET_UPVAL = 7
+local OP_CLOSE = 8
+local OP_ADD = 9
+local OP_SUB = 10
+local OP_MUL = 11
+local OP_DIV = 12
+local OP_MOD = 13
+local OP_POW = 14
+local OP_BAND = 15
+local OP_BOR = 16
+local OP_BXOR = 17
+local OP_SHL = 18
+local OP_SHR = 19
+local OP_NEG = 20
+local OP_NOT = 21
+local OP_BNOT = 22
+local OP_EQ = 23
+local OP_LT = 24
+local OP_LE = 25
+local OP_GT = 26
+local OP_GE = 27
+local OP_TEST = 28
+local OP_TEST_SET = 29
+local OP_JUMP = 30
+local OP_NEW_TABLE = 31
+local OP_GET_FIELD = 32
+local OP_GET_INDEX = 33
+local OP_GET_UP_FIELD = 34
+local OP_SET_FIELD = 35
+local OP_SET_INDEX = 36
+local OP_SET_UP_FIELD = 37
+local OP_SELF = 38
+local OP_SET_LIST = 39
+local OP_INIT_FIELD = 40
+local OP_GET_META = 41
+local OP_SET_META = 42
+local OP_TYPE = 43
+local OP_CALL = 44
+local OP_CALL_SPREAD = 45
+local OP_RETURN = 46
+local OP_RETURN_NULL = 47
+local OP_TRY_BEGIN = 48
+local OP_TRY_END = 49
+local OP_THROW = 50
+local OP_FOR_LOOP = 51
+local OP_FORIN_PREP = 52
+local OP_FORIN_NEXT = 53
 
-// the fused forms (the VM's `fused` profile), numbered from 63 down; see
-// fuse below and zig/src/vm/disasm.zig
-local OP_FOR_LOOP = 50
-local OP_SELF_X = 51
-local OP_MOVE_X = 52
-local OP_SET_X = 53
-local OP_GET_X = 54
-local OP_JTEST = 55
-local OP_JEQ = 56
-local OP_JLEQ = 57
-local OP_JLT = 58
-local OP_MOD_X = 59
-local OP_DIV_X = 60
-local OP_MUL_X = 61
-local OP_SUB_X = 62
-local OP_ADD_X = 63
+// the flags of a for_loop, in the A of the jump word after it
+local FOR_LEQ = 1
+local FOR_NEGATE = 2
+local FOR_SUB = 4
+local FOR_STEP_K = 8
+local FOR_LIMIT_K = 16
 
-// instruction layout: |b:9|c:9|a:8|op:6|, bx = 18 bits, sbx = bx - 0x1FFFF, ax = 26 bits
-local SBX_OFFSET = 131071
+// instruction layout: |c:8|b:8|k:1|a:8|op:7|, bx = 17 bits, sbx = bx - 65535
+local SBX_OFFSET = 65535
+local MAX_BX = 131071
+// a constant up to this index fits the k operand (C, or B of a store)
+local MAX_RK = 255
+// the most array items a table literal stores with one set_list
+local LIST_FLUSH = 32
 
-local func enc_abc(op, a, b, c){
-  return b << 23 | c << 14 | a << 6 | op
+local func enc_abc(op, a, b, c, k){
+  local kbit = 0
+  if(k){
+    kbit = 1
+  }
+  return c << 24 | b << 16 | kbit << 15 | a << 7 | op
 }
 
 local func enc_abx(op, a, bx){
-  return bx << 14 | a << 6 | op
+  return bx << 15 | a << 7 | op
 }
 
 local func enc_asbx(op, a, sbx){
-  return (sbx + SBX_OFFSET) << 14 | a << 6 | op
+  return (sbx + SBX_OFFSET) << 15 | a << 7 | op
 }
 
-local func enc_ax(op, ax){
-  return ax << 6 | op
-}
+local arith_ops = {}
+arith_ops["+"] = OP_ADD
+arith_ops["-"] = OP_SUB
+arith_ops["*"] = OP_MUL
+arith_ops["/"] = OP_DIV
+arith_ops["%"] = OP_MOD
+arith_ops["^"] = OP_POW
+arith_ops["&"] = OP_BAND
+arith_ops["|"] = OP_BOR
+arith_ops["~"] = OP_BXOR
+arith_ops["<<"] = OP_SHL
+arith_ops[">>"] = OP_SHR
 
-local binops = {}
-binops["+"] = OP_ADD
-binops["-"] = OP_SUB
-binops["*"] = OP_MUL
-binops["/"] = OP_DIV
-binops["%"] = OP_MOD
-binops["<"] = OP_LT
-binops["<="] = OP_LEQ
-binops["=="] = OP_EQ
-binops["^"] = OP_POW
-binops["&"] = OP_BAND
-binops["|"] = OP_BOR
-binops["~"] = OP_BXOR
-binops["<<"] = OP_SHL
-binops[">>"] = OP_SHR
+// a comparison: its opcode (with the left operand in B), the opcode with
+// the operands swapped, and whether its sense is inverted (!=)
+local compare_ops = {}
+compare_ops["<"] = {op: OP_LT, swapped: OP_GT, negate: false}
+compare_ops["<="] = {op: OP_LE, swapped: OP_GE, negate: false}
+compare_ops[">"] = {op: OP_GT, swapped: OP_LT, negate: false}
+compare_ops[">="] = {op: OP_GE, swapped: OP_LE, negate: false}
+compare_ops["=="] = {op: OP_EQ, swapped: OP_EQ, negate: false}
+compare_ops["!="] = {op: OP_EQ, swapped: OP_EQ, negate: true}
 
 // ------------------------------------------------------------ function assembler
 
@@ -137,10 +162,12 @@ func asm.new(parent, origin, nargs, is_vararg){
     origin: origin or parent.origin,
     instructions: {},
     locations: {},
-    patterns: {},
     constants: {},
     constant_index: {},
     locals: {},
+    // the live locals in the order of their registers (the last one holds
+    // the highest register: the temporaries start above it)
+    active: {},
     // every local's {name, register, first pc, end pc} (for debuggers)
     local_vars: {},
     upvalues: {},
@@ -151,6 +178,9 @@ func asm.new(parent, origin, nargs, is_vararg){
     is_vararg: is_vararg == true,
     used_registers: 0,
     max_registers: 0,
+    // temporaries below this register stay while statements are compiled
+    // (a defer's cleanup, emitted where a return holds its value)
+    temp_floor: 0,
     scope: 0,
   }
   a.@meta = asm_meta
@@ -161,7 +191,37 @@ func asm.get_local(self, name){
   return self.locals[name]
 }
 
-func asm.create_local(self, name){
+// the register above the live locals: where the temporaries start
+func asm.local_top(self){
+  local n = len(self.active)
+  if(n == 0){
+    return 0
+  }
+  return self.active[n - 1].register + 1
+}
+
+// the register the temporaries of a statement start at
+func asm.statement_base(self){
+  local top = self:local_top()
+  if(self.temp_floor > top){
+    return self.temp_floor
+  }
+  return top
+}
+
+// frees the temporaries (the end of a statement)
+func asm.reset_temps(self){
+  self.used_registers = self:statement_base()
+}
+
+// a new local in the next register: nothing but locals may be below it, so
+// its register is the end of the locals (the register of a temporary that
+// is still in use would be held until the local's scope ends)
+func asm.create_local(self, name, above_temps){
+  if(above_temps != true and self.used_registers != self:statement_base()){
+    raise(error.new(error.kinds.error, concat(
+      "codegen: local ", name, " declared while temporaries are in use")))
+  }
   local register = self:allocate_register()
   local lv = {
     register: register, name: name, scope: self.scope,
@@ -170,7 +230,18 @@ func asm.create_local(self, name){
   lv.debug = {name, register, len(self.instructions), -1}
   append(self.local_vars, lv.debug)
   self.locals[name] = lv
+  append(self.active, lv)
   return lv
+}
+
+// gives a hidden local its visible name (a for-in's element register)
+func asm.rename_local(self, lv, name){
+  self.locals[lv.name] = lv.previous
+  lv.previous = self.locals[name]
+  lv.name = name
+  self.locals[name] = lv
+  lv.debug[0] = name
+  lv.debug[2] = len(self.instructions)
 }
 
 func asm.get_upvalue(self, name){
@@ -210,13 +281,19 @@ func asm.get_upvalue(self, name){
   return null
 }
 
+// frees the innermost live local, which must be lv
 func asm.free_local(self, lv){
+  local n = len(self.active)
+  if(n == 0 or self.active[n - 1] != lv){
+    raise(error.new(error.kinds.error, "codegen: locals freed out of order"))
+  }
+  remove(self.active, n - 1)
   if(lv.debug != null and lv.debug[3] < 0){
     lv.debug[3] = len(self.instructions)
   }
   // a shadowed local (lv.previous) is visible again
   self.locals[lv.name] = lv.previous
-  self:free_register()
+  self.used_registers = lv.register
 }
 
 func asm.enter_scope(self, breakable){
@@ -233,63 +310,44 @@ func asm.leave_scope(self){
   // scopes that end otherwise (an if's condition, a try expression's
   // clause, a loop's variables)
   self:close_open_upvalues()
-  // every local of the scope, also those a later one of the same name
-  // shadows within it, innermost first
-  local names = {}
-  for(let local name in keys(self.locals)){
-    append(names, name)
-  }
-  for(let local name in values(names)){
-    local lv = self.locals[name]
-    for(lv != null and lv.scope == self.scope){
-      self:free_local(lv)
-      lv = self.locals[name]
-    }
+  // the locals of the scope are the innermost ones
+  for(len(self.active) > 0 and
+    self.active[len(self.active) - 1].scope == self.scope){
+    self:free_local(self.active[len(self.active) - 1])
   }
   local leaving = remove(self.scopes, len(self.scopes) - 1)
-  // a loop may say where a break lands (a for-in: on the pop of its iterator)
   for(let local jump in values(leaving.break_jumps)){
     self:patch_jump(jump, leaving.break_target)
   }
   self.scope = self.scope - 1
 }
 
-// emits closeUpvalues for the lowest captured local of the scopes deeper
-// than depth: a break or continue leaves them without their block's end
+// emits close for the lowest captured local of the scopes deeper than
+// depth: a break or continue leaves them without their block's end
 func asm.close_upvalues_below(self, depth){
   local min_slot = self.max_registers
   local any_captured = false
-  for(let local name in keys(self.locals)){
-    local current = self.locals[name]
-    for(current != null and current.scope > depth){
-      if(current.captured and current.register < min_slot){
-        any_captured = true
-        min_slot = current.register
-      }
-      current = current.previous
+  for(let local lv in values(self.active)){
+    if(lv.scope > depth and lv.captured and lv.register < min_slot){
+      any_captured = true
+      min_slot = lv.register
     }
   }
   if(any_captured){
-    self:emit_close_upvalues(min_slot)
+    self:emit_close(min_slot)
   }
 }
 
-// emits closeUpvalues for the lowest captured local of the current scope,
-// unless the instruction before already closes them (the scope's block
-// did) or the scope ends in a return or a throw (a frame closes its own)
+// emits close for the lowest captured local of the current scope, unless
+// the instruction before already closes them (the scope's block did) or
+// the scope ends in a return or a throw (a frame closes its own)
 func asm.close_open_upvalues(self){
   local min_slot = self.max_registers
   local any_captured = false
-  for(let local name in keys(self.locals)){
-    local current = self.locals[name]
-    for(current != null and current.scope == self.scope){
-      if(current.captured){
-        any_captured = true
-        if(current.register < min_slot){
-          min_slot = current.register
-        }
-      }
-      current = current.previous
+  for(let local lv in values(self.active)){
+    if(lv.scope == self.scope and lv.captured and lv.register < min_slot){
+      any_captured = true
+      min_slot = lv.register
     }
   }
   if(not any_captured){
@@ -298,15 +356,15 @@ func asm.close_open_upvalues(self){
   local n = len(self.instructions)
   if(n > 0){
     local last = self.instructions[n - 1]
-    local op = last & 63
-    if(op == OP_RETURN or op == OP_THROW){
+    local op = last & 127
+    if(op == OP_RETURN or op == OP_RETURN_NULL or op == OP_THROW){
       return null
     }
-    if(op == OP_CLOSE_UPVALUES and (last >> 6) <= min_slot){
+    if(op == OP_CLOSE and ((last >> 7) & 255) <= min_slot){
       return null
     }
   }
-  self:emit_close_upvalues(min_slot)
+  self:emit_close(min_slot)
 }
 
 func asm.allocate_register(self){
@@ -322,7 +380,11 @@ func asm.allocate_register(self){
         location: {origin: at[1], line: at[2], column: at[3]}, stack: "",
       }
     }
-    raise(error.new(error.kinds.compile, "Too many registers", fields))
+    local what = "Too many registers"
+    if(self.name != null){
+      what = concat(what, " in ", self.name)
+    }
+    raise(error.new(error.kinds.compile, what, fields))
   }
   if(self.used_registers > self.max_registers){
     self.max_registers = self.used_registers
@@ -330,12 +392,17 @@ func asm.allocate_register(self){
   return register
 }
 
-func asm.free_register(self){
-  if(self.used_registers == 0){
-    raise(error.new(error.kinds.error, "No registers to free"))
+// frees register reg when it is a temporary (the last one allocated)
+func asm.free_register(self, reg){
+  if(reg < self:local_top()){
+    return null
   }
-  self.used_registers = self.used_registers - 1
-  return self.used_registers
+  if(reg != self.used_registers - 1){
+    raise(error.new(error.kinds.error, concat(
+      "codegen: register ", reg, " freed out of order (", self.used_registers,
+      " in use)")))
+  }
+  self.used_registers = reg
 }
 
 func asm.index_of_constant(self, value){
@@ -365,6 +432,9 @@ func asm.index_of_constant(self, value){
     return index
   }
   index = len(self.constants)
+  if(index > MAX_BX){
+    raise(error.new(error.kinds.compile, "Too many constants"))
+  }
   self.constant_index[key] = index
   local entry = {kind}
   entry[1] = value
@@ -386,102 +456,59 @@ func asm.set_location(self, token){
 
 func asm.emit(self, instruction){
   append(self.instructions, instruction)
+  return len(self.instructions) - 1
 }
 
-func asm.emit_abc(self, op, a, b, c){
-  self:emit(enc_abc(op, a or 0, b or 0, c or 0))
+func asm.emit_abc(self, op, a, b, c, k){
+  return self:emit(enc_abc(op, a or 0, b or 0, c or 0, k == true))
 }
 
 func asm.emit_abx(self, op, a, bx){
-  self:emit(enc_abx(op, a or 0, bx or 0))
+  return self:emit(enc_abx(op, a or 0, bx or 0))
 }
 
 func asm.emit_asbx(self, op, a, sbx){
-  self:emit(enc_asbx(op, a or 0, sbx or 0))
+  return self:emit(enc_asbx(op, a or 0, sbx or 0))
 }
 
-func asm.emit_ax(self, op, ax){
-  self:emit(enc_ax(op, ax or 0))
+func asm.next_instruction_index(self){
+  return len(self.instructions)
 }
 
-func asm.emit_load_constant(self, value){
-  self:emit_abx(OP_LOAD_CONSTANT, 0, self:index_of_constant(value))
+// sets the A of the instruction at pc (a relocatable result)
+func asm.set_a(self, pc, a){
+  local ins = self.instructions[pc]
+  self.instructions[pc] = (ins & ~(255 << 7)) | a << 7
 }
 
-func asm.emit_binop(self, op){
-  local code = binops[op]
-  if(code == null){
-    raise(error.new(error.kinds.compile,
-      concat("Unknown operator: \"", op, "\"")))
-  }
-  self:emit(code)
-}
-
-func asm.emit_unop(self, op){
-  if(op == "-"){
-    self:emit(OP_NEG)
-  } else if(op == "not"){
-    self:emit(OP_NOT)
-  } else if(op == "~"){
-    self:emit(OP_BNOT)
-  } else {
-    raise(error.new(error.kinds.compile, concat("Unknown operator: ", op)))
+func asm.emit_move(self, to, from){
+  if(to != from){
+    self:emit_abc(OP_MOVE, to, from, 0)
   }
 }
 
-func asm.emit_return(self){
-  self:emit(OP_RETURN)
+func asm.emit_load_k(self, reg, index){
+  self:emit_abx(OP_LOAD_K, reg, index)
 }
 
-func asm.emit_move(self, from){
-  self:emit_asbx(OP_MOVE, 0, from)
+func asm.emit_load_null(self, reg, count){
+  self:emit_abc(OP_LOAD_NULL, reg, (count or 1) - 1, 0)
 }
 
-func asm.emit_push(self, index){
-  self:emit_asbx(OP_PUSH, 0, index)
-}
-
-func asm.emit_new_table(self, n_list, n_hash){
-  self:emit_abc(OP_NEW_TABLE, 0, n_list, n_hash)
-}
-
-func asm.emit_set_table(self){
-  self:emit(OP_SET_TABLE)
-}
-
-func asm.emit_get_table(self){
-  self:emit(OP_GET_TABLE)
-}
-
-// get_meta: the metatable of the value on top (x.@meta)
-func asm.emit_get_meta(self){
-  self:emit(OP_GET_META)
-}
-
-// set_meta: pops a value and the table under it and makes the value the
-// table's metatable (x.@meta = m)
-func asm.emit_set_meta(self){
-  self:emit(OP_SET_META)
-}
-
-func asm.emit_load_bool(self, value, jump){
+func asm.emit_load_bool(self, reg, value, skip){
   local b = 0
   if(value){
     b = 1
   }
   local c = 0
-  if(jump){
+  if(skip){
     c = 1
   }
-  self:emit_abc(OP_LOAD_BOOL, 0, b, c)
+  self:emit_abc(OP_LOAD_BOOL, reg, b, c)
 }
 
-func asm.emit_test(self, c){
-  local v = 0
-  if(c){
-    v = 1
-  }
-  self:emit_abc(OP_TEST, 0, 0, v)
+func asm.emit_close(self, min_slot){
+  self:emit_abc(OP_CLOSE, min_slot, 0, 0)
 }
 
 func asm.emit_jump(self, target){
@@ -489,560 +516,156 @@ func asm.emit_jump(self, target){
   if(target != null){
     sbx = target - len(self.instructions) - 1
   }
-  self:emit_asbx(OP_JUMP, 0, sbx)
-  return len(self.instructions) - 1
+  return self:emit_asbx(OP_JUMP, 0, sbx)
 }
 
+// jumps and try_begins keep their opcode and A (a for_loop's jump carries
+// its flags there)
 func asm.patch_jump(self, jump, target){
   if(target == null){
     target = len(self.instructions)
   }
-  local opcode = self.instructions[jump] & 63
-  self.instructions[jump] = enc_asbx(opcode, 0, target - jump - 1)
+  local ins = self.instructions[jump]
+  self.instructions[jump] = (ins & 32767) | (target - jump - 1 + SBX_OFFSET) << 15
 }
 
 // try_begin(first) -> a handle for patch_try: an error raised before the
-// matching try_end goes to the patched address, with upvalues of registers
-// from `first` up closed
+// matching try_end goes to the patched address with the error in register
+// `first` and the upvalues of the registers from `first` up closed
 func asm.emit_try_begin(self, first){
-  self:emit_asbx(OP_TRY_BEGIN, first, 0)
-  return {index: len(self.instructions) - 1, first: first}
+  return self:emit_asbx(OP_TRY_BEGIN, first, 0)
 }
 
 func asm.patch_try(self, handle){
-  self.instructions[handle.index] = enc_asbx(
-    OP_TRY_BEGIN, handle.first, len(self.instructions) - handle.index - 1
-  )
+  self:patch_jump(handle)
 }
 
-func asm.emit_try_end(self){
-  self:emit_abc(OP_TRY_END, 0, 0, 0)
+func asm.emit_call(self, fn, nargs){
+  self:emit_abc(OP_CALL, fn, nargs, 0)
 }
 
-func asm.emit_throw(self){
-  self:emit_abc(OP_THROW, 0, 0, 0)
+// call_spread(fn, fixed): the arguments are `fixed` values followed by one
+// list whose elements become the remaining arguments
+func asm.emit_call_spread(self, fn, fixed){
+  self:emit_abc(OP_CALL_SPREAD, fn, fixed, 0)
 }
 
-func asm.emit_break(self){
-  local target = null
-  for(local i = len(self.scopes) - 1; i >= 0; i = i - 1){
-    if(self.scopes[i].breakable){
-      target = self.scopes[i]
-      break
-    }
-  }
-  if(target == null){
-    raise(error.new(error.kinds.compile, "Cannot break outside of a loop"))
-  }
-  append(target.break_jumps, self:emit_jump())
-}
-
-func asm.emit_pop(self, keep, n){
-  self:emit_abx(OP_POP, keep or 0, n or 1)
-}
-
-func asm.next_instruction_index(self){
-  return len(self.instructions)
-}
-
-func asm.emit_set_upvalue(self, index){
-  self:emit_ax(OP_SET_UPVALUE, index)
-}
-
-func asm.emit_get_upvalue(self, index){
-  self:emit_ax(OP_GET_UPVALUE, index)
-}
-
-func asm.emit_close_upvalues(self, min_slot){
-  self:emit_ax(OP_CLOSE_UPVALUES, min_slot)
-}
-
-func asm.emit_load_closure(self, index){
-  self:emit_ax(OP_LOAD_CLOSURE, index)
-}
-
-// for..in over f(x), f and x on the stack: f(x), or (f the built-in keys,
-// values or entries, x a table) x walked in the loop with its position in
-// register `position` (see forin_next and zig/src/vm/interp.zig)
-func asm.emit_forin_prep(self, position){
-  self:emit_abc(OP_FORIN_PREP, position, 0, 0)
-}
-
-// a for..in step over the iterator on top of the stack; it is followed by
-// two jumps (the loop's end, the pattern), which the caller emits and patches
-func asm.emit_forin_next(self, position){
-  self:emit_abc(OP_FORIN_NEXT, position, 0, 0)
-}
-
-func asm.emit_call(self, nargs){
-  self:emit_abx(OP_CALL, 0, nargs)
-}
-
-// call_spread(fixed): the arguments are `fixed` values followed by one list
-// whose elements become the remaining arguments
-func asm.emit_call_spread(self, fixed){
-  self:emit_abx(OP_CALL_SPREAD, 0, fixed)
-}
-
-func asm.emit_type(self){
-  self:emit(OP_TYPE)
-}
-
-func asm.start_pattern(self){
-  local p = pattern_new(self)
-  append(self.patterns, p)
-  return p
-}
-
-func asm.current_pattern(self){
-  return self.patterns[len(self.patterns) - 1]
-}
-
-func asm.end_pattern(self){
-  remove(self.patterns, len(self.patterns) - 1)
-}
-
-// ------------------------------------------------------------ fused instructions
+// ------------------------------------------------------------ expressions
 //
-// When the VM has the fused profile (vm.features(); SLANG_ISA=core hides
-// it), assemble rewrites a function's finished instructions: a short
-// sequence that pushes registers, constants or upvalues and operates on
-// them becomes one instruction. The operands are 9-bit codes: 0..127 a
-// register, 128..383 a constant, 384..510 an upvalue, 511 the value on top
-// of the stack. A destination of 255 pushes the result.
-//
-//   push a; push b; add [move r]       addX r|push a b (sub, mul, div, mod)
-//   push a; push b; lt [not] test c    jlt k a b, then the jump stays
-//   push a; test c                     jtest c a, then the jump stays
-//   push a; push b; getTable [move r]  getX r|push a b
-//   push t; push k; push v; setTable   setX t k v (t: 254 the top, kept;
-//                                      255 popped; k may be popped)
-//   push a; move r                     moveX r a
-//   push o; push -1; loadConstant k;   selfX o k (o may be the top)
-//   getTable; push -2
-//   addX i i step; jump <condition>    forLoop i step limit, then a jump to
-//                                      the body whose A has the flags
-//
-// Any first operand may be missing, meaning the value on the stack. A
-// jump may only land on the first instruction of a sequence, and the one a
-// test or loadBool skips stays alone. Jumps, locations and the ranges of
-// locals are moved to the new indices.
+// A descriptor says where an expression's value is:
+//   {kind: "k", index}                  a constant
+//   {kind: "reg", reg}                  a register: a local, or a temporary
+//   {kind: "upval", index}              an upvalue
+//   {kind: "indexed", table, key}       table[key]: table a register, key a
+//                                       "k" descriptor (a field) or a "reg"
+//   {kind: "indexed_up", up, key}       upvalue[key], key a constant index
+//   {kind: "reloc", pc}                 the instruction at pc computes it
+//                                       into the register its A will name
+// A temporary is any register from the function's local_top up; the
+// descriptor functions free them in the order they were allocated, last
+// first.
 
-local fuse_enabled = vm.features != null and vm.features().fused == true
-// the register backend (slang/codegen_reg) compiles everything unless
-// SLANG_ISA=stack or core (vm.features().isa) or generate is told an isa
-local default_isa = null
-if(vm.features != null){
-  default_isa = vm.features().isa
-}
-local register_backend = null
-
-local FIRST_CONSTANT = 128
-local FIRST_UPVALUE = 384
-local STACK_OPERAND = 511
-local PUSH_DEST = 255
-local PEEK_DEST = 254
-local FOR_LEQ = 1
-local FOR_NEGATE = 2
-local FOR_SUB = 4
-
-local fused_arith = {}
-fused_arith[OP_ADD] = OP_ADD_X
-fused_arith[OP_SUB] = OP_SUB_X
-fused_arith[OP_MUL] = OP_MUL_X
-fused_arith[OP_DIV] = OP_DIV_X
-fused_arith[OP_MOD] = OP_MOD_X
-
-local fused_compare = {}
-fused_compare[OP_LT] = OP_JLT
-fused_compare[OP_LEQ] = OP_JLEQ
-fused_compare[OP_EQ] = OP_JEQ
-
-local func arg_a(ins){
-  return (ins >> 6) & 255
+local func is_temp(a, e){
+  return e.kind == "reg" and e.reg >= a:local_top()
 }
 
-local func arg_c(ins){
-  return (ins >> 14) & 511
-}
-
-local func arg_sbx(ins){
-  return (ins >> 14) - SBX_OFFSET
-}
-
-// the operand code of an instruction that pushes a register, a constant or
-// an upvalue (null for anything else)
-local func operand_of(ins){
-  if(ins == null){
-    return null
-  }
-  local op = ins & 63
-  if(op == OP_PUSH){
-    local r = arg_sbx(ins)
-    if(r >= 0 and r < FIRST_CONSTANT){
-      return r
+local func free_desc(a, e){
+  if(e.kind == "reg"){
+    a:free_register(e.reg)
+  } else if(e.kind == "indexed"){
+    // (the key was allocated after the table)
+    if(e.key.kind == "reg"){
+      a:free_register(e.key.reg)
     }
-  } else if(op == OP_LOAD_CONSTANT){
-    local k = ins >> 14
-    if(k < FIRST_UPVALUE - FIRST_CONSTANT){
-      return FIRST_CONSTANT + k
-    }
-  } else if(op == OP_GET_UPVALUE){
-    local u = ins >> 6
-    if(u < STACK_OPERAND - FIRST_UPVALUE){
-      return FIRST_UPVALUE + u
-    }
-  }
-  return null
-}
-
-local func fuse(a){
-  local code = a.instructions
-  local n = len(code)
-  local func op_at(i){
-    if(i >= n){
-      return -1
-    }
-    return code[i] & 63
-  }
-  local func is_push(i, offset){
-    return op_at(i) == OP_PUSH and arg_sbx(code[i]) == offset
-  }
-  // the register a move at i stores to (below `limit`), or null
-  local func move_to(i, limit){
-    if(op_at(i) == OP_MOVE){
-      local r = arg_sbx(code[i])
-      if(r >= 0 and r < limit){
-        return r
-      }
-    }
-    return null
-  }
-  // where jumps land, and what a test or loadBool may skip
-  local target = {}
-  local alone = {}
-  for(local i = 0; i < n + 2; i = i + 1){
-    append(target, false)
-    append(alone, false)
-  }
-  for(local i = 0; i < n; i = i + 1){
-    local ins = code[i]
-    local op = ins & 63
-    if(op == OP_JUMP or op == OP_TRY_BEGIN){
-      target[i + 1 + arg_sbx(ins)] = true
-    } else if(op == OP_TEST or (op == OP_LOAD_BOOL and arg_c(ins) != 0)){
-      alone[i + 1] = true
-      target[i + 2] = true
-    }
-  }
-  // can instructions from..to-1 become one
-  local func joinable(from, to){
-    if(to > n){
-      return false
-    }
-    for(local i = from; i < to; i = i + 1){
-      if(alone[i] or (i > from and target[i])){
-        return false
-      }
-    }
-    return true
-  }
-  // the two operands of a binary operation at i: {b, c, at} where `at` is
-  // the operation's index; b is the stack when only one operand is there
-  local func operands(i, ops){
-    local b = operand_of(code[i])
-    local c = operand_of(code[i + 1])
-    if(b != null and c != null and ops[op_at(i + 2)] != null){
-      return {b, c, i + 2}
-    }
-    if(b != null and ops[op_at(i + 1)] != null){
-      return {STACK_OPERAND, b, i + 1}
-    }
-    return null
-  }
-  local get_ops = {}
-  get_ops[OP_GET_TABLE] = OP_GET_X
-  // each match: {instruction, size}, compares also the parts the loops
-  // below need
-  local func match_self(i){
-    local b = operand_of(code[i])
-    local at = i + 1
-    if(b == null){
-      b = STACK_OPERAND
-      at = i
-    }
-    if(is_push(at, -1) and op_at(at + 1) == OP_LOAD_CONSTANT and
-      op_at(at + 2) == OP_GET_TABLE and is_push(at + 3, -2)){
-      local k = operand_of(code[at + 1])
-      if(k != null and joinable(i, at + 4)){
-        return {enc_abc(OP_SELF_X, 0, b, k), at + 4 - i}
-      }
-    }
-    return null
-  }
-  local func match_compare(i){
-    local o = operands(i, fused_compare)
-    if(o == null){
-      return null
-    }
-    local p = o[2] + 1
-    local negate = 0
-    if(op_at(p) == OP_NOT){
-      negate = 1
-      p = p + 1
-    }
-    if(op_at(p) != OP_TEST or op_at(p + 1) != OP_JUMP or
-      not joinable(i, p + 1)){
-      return null
-    }
-    local k = 0
-    if(arg_c(code[p]) != negate){
-      k = 1
-    }
-    local op = op_at(o[2])
-    return {
-      enc_abc(fused_compare[op], k, o[0], o[1]), p + 1 - i,
-      {op: op, b: o[0], c: o[1], k: k},
-    }
-  }
-  local func match_test(i){
-    local b = operand_of(code[i])
-    if(b != null and op_at(i + 1) == OP_TEST and op_at(i + 2) == OP_JUMP and
-      joinable(i, i + 2)){
-      return {enc_abc(OP_JTEST, arg_c(code[i + 1]), b, 0), 2}
-    }
-    return null
-  }
-  // an operation with a destination: a move after it stores the result
-  local func match_dest(i, ops){
-    local o = operands(i, ops)
-    if(o == null){
-      return null
-    }
-    local op = ops[op_at(o[2])]
-    local r = move_to(o[2] + 1, PUSH_DEST)
-    if(r != null and joinable(i, o[2] + 2)){
-      return {enc_abc(op, r, o[0], o[1]), o[2] + 2 - i, op_at(o[2])}
-    }
-    if(joinable(i, o[2] + 1)){
-      return {enc_abc(op, PUSH_DEST, o[0], o[1]), o[2] + 1 - i, op_at(o[2])}
-    }
-    return null
-  }
-  local func match_set(i){
-    local x = operand_of(code[i])
-    local y = operand_of(code[i + 1])
-    local z = operand_of(code[i + 2])
-    if(x != null and y != null and z != null and op_at(i + 3) == OP_SET_TABLE and
-      x < FIRST_CONSTANT and joinable(i, i + 4)){
-      return {enc_abc(OP_SET_X, x, y, z), 4}
-    }
-    if(is_push(i, -1) and y != null and z != null and
-      op_at(i + 3) == OP_SET_TABLE and joinable(i, i + 4)){
-      return {enc_abc(OP_SET_X, PEEK_DEST, y, z), 4}
-    }
-    if(x != null and y != null and op_at(i + 2) == OP_SET_TABLE and
-      joinable(i, i + 3)){
-      return {enc_abc(OP_SET_X, PUSH_DEST, x, y), 3}
-    }
-    if(x != null and op_at(i + 1) == OP_SET_TABLE and joinable(i, i + 2)){
-      return {enc_abc(OP_SET_X, PUSH_DEST, STACK_OPERAND, x), 2}
-    }
-    return null
-  }
-  local func match_move(i){
-    local b = operand_of(code[i])
-    local r = move_to(i + 1, PUSH_DEST)
-    if(b != null and r != null and joinable(i, i + 2)){
-      return {enc_abc(OP_MOVE_X, r, b, 0), 2}
-    }
-    return null
-  }
-  // the new instructions, the old index each jump in them goes to (-1:
-  // none), the new index of each old instruction
-  local out = {}
-  local jumps = {}
-  local new_index = {}
-  // old index -> the fused compare that starts there, for loops
-  local compares = {}
-  local i = 0
-  for(i < n){
-    local ins = code[i]
-    local m = match_self(i) or match_compare(i) or match_test(i)
-    if(m == null){
-      m = match_dest(i, fused_arith)
-      if(m != null){
-        // i = i + step; jump <the condition i < limit>: a numeric for
-        local stop = i + m[1]
-        local r = arg_a(m[0])
-        local cmp = null
-        if(op_at(stop) == OP_JUMP and arg_sbx(code[stop]) < 0 and
-          (m[2] == OP_ADD or m[2] == OP_SUB) and r < FIRST_CONSTANT and
-          r == (m[0] >> 23) and joinable(i, stop + 1)){
-          cmp = compares[stop + 1 + arg_sbx(code[stop])]
-        }
-        if(cmp != null and cmp.op != OP_EQ and cmp.b == r and
-          cmp.c != STACK_OPERAND and
-          cmp.exit + 1 + arg_sbx(code[cmp.exit]) == stop + 1){
-          local flags = 0
-          if(cmp.op == OP_LEQ){
-            flags = flags | FOR_LEQ
-          }
-          if(cmp.k == 1){
-            flags = flags | FOR_NEGATE
-          }
-          if(m[2] == OP_SUB){
-            flags = flags | FOR_SUB
-          }
-          for(local j = i; j < stop; j = j + 1){
-            append(new_index, len(out))
-          }
-          append(out, enc_abc(OP_FOR_LOOP, r, arg_c(m[0]), cmp.c))
-          append(jumps, -1)
-          append(new_index, len(out))
-          append(out, enc_asbx(OP_JUMP, flags, 0))
-          append(jumps, cmp.exit + 1)
-          i = stop + 1
-          continue
-        }
-      }
-    }
-    if(m == null){
-      m = match_dest(i, get_ops) or match_set(i) or match_move(i)
-    }
-    if(m == null){
-      local op = ins & 63
-      append(new_index, len(out))
-      append(out, ins)
-      if(op == OP_JUMP or op == OP_TRY_BEGIN){
-        append(jumps, i + 1 + arg_sbx(ins))
-      } else {
-        append(jumps, -1)
-      }
-      i = i + 1
-    } else {
-      if(len(m) > 2 and type(m[2]) == "table"){
-        local cmp = m[2]
-        cmp.size = m[1]
-        cmp.exit = i + m[1]
-        compares[i] = cmp
-      }
-      for(local j = 0; j < m[1]; j = j + 1){
-        append(new_index, len(out))
-      }
-      append(out, m[0])
-      append(jumps, -1)
-      i = i + m[1]
-    }
-  }
-  append(new_index, len(out))
-  for(local p = 0; p < len(out); p = p + 1){
-    if(jumps[p] >= 0){
-      local ins = out[p]
-      out[p] = enc_asbx(ins & 63, arg_a(ins), new_index[jumps[p]] - p - 1)
-    }
-  }
-  // a location that starts inside a fused instruction moves to it, and
-  // the last of them wins: it is the one of the operation that may raise
-  local locations = {}
-  for(let local l in values(a.locations)){
-    local at = new_index[l[0]]
-    local entry = {at, l[1], l[2], l[3]}
-    local last = len(locations) - 1
-    if(last >= 0 and locations[last][0] == at){
-      locations[last] = entry
-    } else {
-      append(locations, entry)
-    }
-  }
-  for(let local v in values(a.local_vars)){
-    v[2] = new_index[v[2]]
-    v[3] = new_index[v[3]]
-  }
-  a.instructions = out
-  a.locations = locations
-}
-
-// assemble(fused: bool): with fused, the instructions are fused (see fuse)
-func asm.assemble(self, fused){
-  local children = {}
-  for(let local c in values(self.children)){
-    append(children, c:assemble(fused))
-  }
-  local upvalues = {}
-  for(let local u in values(self.upvalue_list)){
-    local index = u.upvalue_index
-    if(u.local_register >= 0){
-      index = u.local_register
-    }
-    append(upvalues, {u.name, index, u.local_register >= 0})
-  }
-  // locals still alive at the end live to it
-  for(let local v in values(self.local_vars)){
-    if(v[3] < 0){
-      v[3] = len(self.instructions)
-    }
-  }
-  if(fused){
-    fuse(self)
-  }
-  return {
-    code: self.instructions,
-    locations: self.locations,
-    constants: self.constants,
-    upvalues: upvalues,
-    children: children,
-    max_stack: self.max_registers,
-    nargs: self.nargs,
-    is_vararg: self.is_vararg,
-    name: self.name,
-    locals: self.local_vars,
+    a:free_register(e.table)
   }
 }
 
-// ------------------------------------------------------------ pattern assembler
-
-local pat = {}
-local pat_meta = {__index: pat}
-
-func pattern_new(parent){
-  local p = {
-    step: "check", missmatch_jumps: {}, stack_increase: 0, parent: parent
+// frees the registers of two operands, the higher one first
+local func free_two(a, e1, e2){
+  local r1 = -1
+  local r2 = -1
+  if(e1.kind == "reg"){
+    r1 = e1.reg
   }
-  p.@meta = pat_meta
-  return p
-}
-
-func pat.complete_check_step(self){
-  if(self.step != "check"){
-    raise(error.new(error.kinds.error,
-      "Cannot complete check step after completing the assign step"))
+  if(e2.kind == "reg"){
+    r2 = e2.reg
   }
-  self.step = "assign"
-}
-
-func pat.close_missmatch_jumps(self){
-  for(let local jump in values(self.missmatch_jumps)){
-    self.parent:patch_jump(jump)
+  if(r1 > r2){
+    free_desc(a, e1)
+    free_desc(a, e2)
+  } else {
+    free_desc(a, e2)
+    free_desc(a, e1)
   }
 }
 
-func pat.increase_stack_height(self){
-  self.stack_increase = self.stack_increase + 1
-}
-
-func pat.decrease_stack_height(self){
-  self.stack_increase = self.stack_increase - 1
-}
-
-func pat.test_missmatch(self, missmatch_if){
-  self.parent:emit_test(not missmatch_if)
-  local match_jump = self.parent:emit_jump()
-  if(self.stack_increase > 0){
-    self.parent:emit_pop(0, self.stack_increase)
+// an upvalue or an indexed value becomes the instruction that reads it
+local func discharge(a, e){
+  if(e.kind == "upval"){
+    return {kind: "reloc", pc: a:emit_abc(OP_GET_UPVAL, 0, e.index, 0)}
   }
-  append(self.missmatch_jumps, self.parent:emit_jump())
-  self.parent:patch_jump(match_jump)
+  if(e.kind == "indexed"){
+    free_desc(a, e)
+    if(e.key.kind == "k"){
+      return {kind: "reloc", pc: a:emit_abc(OP_GET_FIELD, 0, e.table, e.key.index)}
+    }
+    return {kind: "reloc", pc: a:emit_abc(OP_GET_INDEX, 0, e.table, e.key.reg)}
+  }
+  if(e.kind == "indexed_up"){
+    return {kind: "reloc", pc: a:emit_abc(OP_GET_UP_FIELD, 0, e.up, e.key)}
+  }
+  return e
+}
+
+// puts the value in register reg (freeing the temporary it was in)
+local func to_reg(a, e, reg){
+  e = discharge(a, e)
+  if(e.kind == "k"){
+    a:emit_load_k(reg, e.index)
+  } else if(e.kind == "reg"){
+    if(e.reg != reg){
+      a:emit_move(reg, e.reg)
+      a:free_register(e.reg)
+    }
+  } else if(e.kind == "reloc"){
+    a:set_a(e.pc, reg)
+  } else if(e.kind == "void"){
+    a:emit_load_null(reg)
+  } else {
+    raise(error.new(error.kinds.error, concat("codegen: cannot place a ", e.kind)))
+  }
+  return {kind: "reg", reg: reg}
+}
+
+// the value in some register: where it is, or a new temporary
+local func to_any_reg(a, e){
+  if(e.kind == "reg"){
+    return e
+  }
+  e = discharge(a, e)
+  return to_reg(a, e, a:allocate_register())
+}
+
+// the value in the next free register (a temporary at the top)
+local func to_next_reg(a, e){
+  e = discharge(a, e)
+  free_desc(a, e)
+  return to_reg(a, e, a:allocate_register())
+}
+
+// an operand that may be a constant: {c, k} for the C and k fields; the
+// register it took, if any, is the caller's to free (through `desc`)
+local func to_rk(a, e){
+  if(e.kind == "k" and e.index <= MAX_RK){
+    return {c: e.index, k: true, desc: e}
+  }
+  local r = to_any_reg(a, e)
+  return {c: r.reg, k: false, desc: r}
+}
+
+local func const_desc(a, value){
+  return {kind: "k", index: a:index_of_constant(value)}
 }
 
 // ------------------------------------------------------------ code generator
@@ -1051,6 +674,7 @@ local gen = {}
 local gen_meta = {__index: gen}
 local visitors = {}
 
+// visit(node) -> the descriptor of an expression, null for a statement
 func gen.visit(self, node){
   self.asm:set_location(node.token)
   local f = visitors[node.type]
@@ -1058,7 +682,7 @@ func gen.visit(self, node){
     raise(error.new(error.kinds.error,
       concat("codegen: unknown node type ", node.type)))
   }
-  f(self, node)
+  return f(self, node)
 }
 
 local func global_index(token, name){
@@ -1071,8 +695,7 @@ local func global_index(token, name){
 
 // raises a compile error in the program at token: {kind: "compile",
 // message, location, stack}, so that it is reported at the program's line
-// rather than the compiler's (the stack is empty: the compiler that
-// generate runs in may put the line's text there, see slang/compiler)
+// rather than the compiler's
 local func compile_error(g, token, ...message){
   local parts = {}
   for(let local m in values(message)){
@@ -1120,55 +743,194 @@ local func record_use(g, name, token, write, value, statement){
   }
 }
 
+// the descriptor of a name: a local, an upvalue, or the global _ENV[name]
+local func name_desc(g, node, name){
+  local lv = g.asm:get_local(name)
+  if(lv != null){
+    return {kind: "reg", reg: lv.register}
+  }
+  local up = g.asm:get_upvalue(name)
+  if(up != null){
+    return {kind: "upval", index: up.index}
+  }
+  return g:visit(global_index(node.token, name))
+}
+
 func visitors.Int(g, node){
-  g.asm:emit_load_constant(node.value)
+  return const_desc(g.asm, node.value)
 }
 
 func visitors.Double(g, node){
-  g.asm:emit_load_constant(node.value)
+  return const_desc(g.asm, node.value)
 }
 
 func visitors.String(g, node){
-  g.asm:emit_load_constant(node.value)
+  return const_desc(g.asm, node.value)
 }
 
 func visitors.True(g, node){
-  g.asm:emit_load_bool(true, false)
+  return const_desc(g.asm, true)
 }
 
 func visitors.False(g, node){
-  g.asm:emit_load_bool(false, false)
+  return const_desc(g.asm, false)
 }
 
 func visitors.Null(g, node){
-  g.asm:emit_load_constant(null)
+  return const_desc(g.asm, null)
 }
 
-local func visit_logical_and(g, node){
-  g:visit(node.left)
-  g.asm:emit_push(-1)
-  g.asm:emit_test(false)
-  local done = g.asm:emit_jump()
-  g.asm:emit_pop()
-  g:visit(node.right)
-  g.asm:patch_jump(done)
+func visitors.Identifier(g, node){
+  record_use(g, node.value, node.token, false)
+  return name_desc(g, node, node.value)
 }
 
-local func visit_logical_or(g, node){
-  g:visit(node.left)
-  g.asm:emit_push(-1)
-  g.asm:emit_test(true)
-  local done = g.asm:emit_jump()
-  g.asm:emit_pop()
-  g:visit(node.right)
-  g.asm:patch_jump(done)
+// the key of an index or a field: a constant (a "k" descriptor, when it
+// fits the k operand) or a register
+local func key_desc(g, node){
+  local a = g.asm
+  local e = g:visit(node)
+  if(e.kind == "k" and e.index <= MAX_RK){
+    return e
+  }
+  return to_any_reg(a, e)
+}
+
+func visitors.Index(g, node){
+  if(g.record != null){
+    g.record:field(node, false)
+  }
+  local a = g.asm
+  local recv = g:visit(node.receiver)
+  if(recv.kind == "upval" and node.index.type == "String"){
+    local k = a:index_of_constant(node.index.value)
+    if(k <= MAX_RK){
+      return {kind: "indexed_up", up: recv.index, key: k}
+    }
+  }
+  local t = to_any_reg(a, recv)
+  local key = key_desc(g, node.index)
+  return {kind: "indexed", table: t.reg, key: key}
+}
+
+func visitors.Meta(g, node){
+  if(g.record != null){
+    g.record:field(node, false)
+  }
+  local a = g.asm
+  local r = to_any_reg(a, g:visit(node.receiver))
+  free_desc(a, r)
+  return {kind: "reloc", pc: a:emit_abc(OP_GET_META, 0, r.reg, 0)}
+}
+
+// ---- conditions
+
+local visit_condition = null
+local patch_all = null
+
+patch_all = func(g, jumps){
+  for(let local j in values(jumps)){
+    g.asm:patch_jump(j)
+  }
+}
+
+// a comparison that jumps when its truth is `sense`; with `counter`, that
+// register is put in B (a for loop's counter): null when it is neither side
+local func emit_compare(g, node, sense, counter){
+  local a = g.asm
+  local cmp = compare_ops[node.op]
+  if(cmp.negate){
+    sense = not sense
+  }
+  local left = g:visit(node.left)
+  // (the left side is placed before the right side is compiled, so that
+  // the registers it holds are below the right side's)
+  if(left.kind != "k" and left.kind != "reg"){
+    left = to_any_reg(a, left)
+  }
+  local right = g:visit(node.right)
+  local op = cmp.op
+  // the left operand goes in a register: a constant on the left alone
+  // swaps sides (1 < x is x > 1), and so does a counter on the right
+  local swap = false
+  if(counter != null){
+    if(left.kind == "reg" and left.reg == counter){
+      swap = false
+    } else if(right.kind == "reg" and right.reg == counter){
+      swap = true
+    } else {
+      return null
+    }
+  } else if(left.kind == "k" and right.kind != "k"){
+    swap = true
+  }
+  if(swap){
+    local t = left
+    left = right
+    right = t
+    op = cmp.swapped
+  }
+  local b = to_any_reg(a, left)
+  local c = to_rk(a, right)
+  free_two(a, b, c.desc)
+  local k = 0
+  if(sense){
+    k = 1
+  }
+  a:set_location(node.token)
+  a:emit_abc(op, k, b.reg, c.c, c.k)
+  return a:emit_jump()
+}
+
+local pattern_declare = null
+local pattern_check = null
+local pattern_assign = null
+
+// let PATTERN = value as a condition: the value goes to a hidden local (so
+// that the pattern's own locals come after it), the pattern is checked,
+// then its names are bound; the mismatches are the jumps when false
+local func let_condition(g, node, sense){
+  local a = g.asm
+  local right = node.right
+  local subject = null
+  // a let inside a statement's expression had its locals declared at the
+  // statement's start (predeclare_lets); one in a condition declares them
+  // here, where no temporary is in use
+  local pre = g.predeclared[node]
+  if(pre != null and pre.asm == a and pre.scope == a.scope){
+    if(pre.subject == null){
+      record_use(g, right.value, right.token, false)
+      subject = a:get_local(right.value).register
+    } else {
+      to_reg(a, g:visit(right), pre.subject)
+      subject = pre.subject
+    }
+  } else if(right.type == "Identifier" and a:get_local(right.value) != null){
+    record_use(g, right.value, right.token, false)
+    subject = a:get_local(right.value).register
+    pattern_declare(g, node.pattern)
+  } else {
+    local hidden = a:create_local(concat("(let value ", a:next_instruction_index(), ")"))
+    to_reg(a, g:visit(right), hidden.register)
+    a:reset_temps()
+    subject = hidden.register
+    pattern_declare(g, node.pattern)
+  }
+  local mismatch = {}
+  pattern_check(g, node.pattern, subject, mismatch)
+  pattern_assign(g, node.pattern, subject)
+  if(not sense){
+    return mismatch
+  }
+  local matched = a:emit_jump()
+  patch_all(g, mismatch)
+  return {matched}
 }
 
 // visit_condition(g, node, sense) -> the jumps to patch: code that jumps
 // when the condition's truthiness is `sense` and falls through otherwise.
-// and, or and not become jumps instead of values, so each comparison in
-// them is a test of its own (which fuse turns into jlt/jleq/jeq/jtest).
-local visit_condition = null
+// and, or and not become jumps instead of values, comparisons compare and
+// jump, anything else is tested in a register.
 visit_condition = func(g, node, sense){
   local t = node.type
   if(t == "UnOp" and node.op == "not"){
@@ -1188,52 +950,99 @@ visit_condition = func(g, node, sense){
     }
     local skip = visit_condition(g, node.left, not sense)
     local jumps = visit_condition(g, node.right, sense)
-    for(let local j in values(skip)){
-      g.asm:patch_jump(j)
-    }
+    patch_all(g, skip)
     return jumps
   }
-  g:visit(node)
-  g.asm:emit_test(sense)
-  return {g.asm:emit_jump()}
+  if(t == "BinOp" and compare_ops[node.op] != null){
+    g.asm:set_location(node.token)
+    return {emit_compare(g, node, sense, null)}
+  }
+  if(t == "Let"){
+    g.asm:set_location(node.token)
+    return let_condition(g, node, sense)
+  }
+  local a = g.asm
+  local r = to_any_reg(a, g:visit(node))
+  free_desc(a, r)
+  a:emit_abc(OP_TEST, r.reg, 0, 0, sense)
+  local jump = a:emit_jump()
+  return {jump}
 }
 
-local func patch_all(g, jumps){
-  for(let local j in values(jumps)){
-    g.asm:patch_jump(j)
+// a condition as a value: true or false in a new temporary
+local func condition_value(g, node){
+  local a = g.asm
+  local when_false = visit_condition(g, node, false)
+  local r = a:allocate_register()
+  a:emit_load_bool(r, true, true)
+  patch_all(g, when_false)
+  a:emit_load_bool(r, false, false)
+  return {kind: "reg", reg: r}
+}
+
+// a and b, a or b as values: the left side when it decides, else the right
+local func logical_value(g, node){
+  local a = g.asm
+  local r = a:allocate_register()
+  local left = discharge(a, g:visit(node.left))
+  local k = node.op == "or"
+  if(left.kind == "reg"){
+    // test_set: the left value moves to r only when it is the result
+    a:emit_abc(OP_TEST_SET, r, left.reg, 0, k)
+    a:free_register(left.reg)
+  } else {
+    to_reg(a, left, r)
+    a:emit_abc(OP_TEST, r, 0, 0, k)
   }
+  local done = a:emit_jump()
+  to_reg(a, g:visit(node.right), r)
+  a:patch_jump(done)
+  return {kind: "reg", reg: r}
 }
 
 func visitors.BinOp(g, node){
   local op = node.op
-  if(op == "and"){
-    visit_logical_and(g, node)
-    return null
+  if(op == "and" or op == "or"){
+    return logical_value(g, node)
   }
-  if(op == "or"){
-    visit_logical_or(g, node)
-    return null
+  if(compare_ops[op] != null){
+    return condition_value(g, node)
   }
-  g:visit(node.left)
-  g:visit(node.right)
-  if(op == ">"){
-    g.asm:emit_binop("<=")
-    g.asm:emit_unop("not")
-  } else if(op == ">="){
-    g.asm:emit_binop("<")
-    g.asm:emit_unop("not")
-  } else if(op == "!="){
-    g.asm:emit_binop("==")
-    g.asm:emit_unop("not")
-  } else {
-    g.asm:emit_binop(op)
+  local code = arith_ops[op]
+  if(code == null){
+    compile_error(g, node.token, "Unknown operator: \"", op, "\"")
   }
+  local a = g.asm
+  local b = to_any_reg(a, g:visit(node.left))
+  local c = to_rk(a, g:visit(node.right))
+  free_two(a, b, c.desc)
+  a:set_location(node.token)
+  return {kind: "reloc", pc: a:emit_abc(code, 0, b.reg, c.c, c.k)}
 }
 
 func visitors.UnOp(g, node){
-  g:visit(node.operand)
-  g.asm:emit_unop(node.op)
+  local code
+  if(node.op == "-"){
+    code = OP_NEG
+  } else if(node.op == "not"){
+    code = OP_NOT
+  } else if(node.op == "~"){
+    code = OP_BNOT
+  } else {
+    compile_error(g, node.token, "Unknown operator: ", node.op)
+  }
+  local a = g.asm
+  local b = to_any_reg(a, g:visit(node.operand))
+  free_desc(a, b)
+  a:set_location(node.token)
+  return {kind: "reloc", pc: a:emit_abc(code, 0, b.reg, 0)}
 }
+
+func visitors.Let(g, node){
+  return condition_value(g, node)
+}
+
+// ---- assignment
 
 // the name a definition gives a function: f, m.f, field (for profiles and
 // tracebacks); null for anything else
@@ -1263,6 +1072,55 @@ local func name_next(g, target, value){
   }
 }
 
+// table[key] = value for an Index target: the receiver and the key are
+// evaluated, then the value
+local func store_index(g, left, value_node){
+  local a = g.asm
+  local recv = g:visit(left.receiver)
+  if(recv.kind == "upval" and left.index.type == "String"){
+    local k = a:index_of_constant(left.index.value)
+    if(k <= MAX_RK){
+      local v = to_rk(a, g:visit(value_node))
+      free_desc(a, v.desc)
+      a:set_location(left.token)
+      a:emit_abc(OP_SET_UP_FIELD, recv.index, k, v.c, v.k)
+      return null
+    }
+  }
+  local t = to_any_reg(a, recv)
+  local key = key_desc(g, left.index)
+  local v = to_rk(a, g:visit(value_node))
+  free_desc(a, v.desc)
+  if(key.kind == "reg"){
+    a:free_register(key.reg)
+  }
+  a:free_register(t.reg)
+  a:set_location(left.token)
+  if(key.kind == "k"){
+    a:emit_abc(OP_SET_FIELD, t.reg, key.index, v.c, v.k)
+  } else {
+    a:emit_abc(OP_SET_INDEX, t.reg, key.reg, v.c, v.k)
+  }
+}
+
+// name = value for a name that is a local, an upvalue or a global
+local func store_name(g, token, name, value_node){
+  local a = g.asm
+  local lv = a:get_local(name)
+  if(lv != null){
+    to_reg(a, g:visit(value_node), lv.register)
+    return null
+  }
+  local up = a:get_upvalue(name)
+  if(up != null){
+    local v = to_any_reg(a, g:visit(value_node))
+    free_desc(a, v)
+    a:emit_abc(OP_SET_UPVAL, v.reg, up.index, 0)
+    return null
+  }
+  store_index(g, global_index(token, name), value_node)
+}
+
 func visitors.Assignment(g, node){
   local left = node.left
   name_next(g, left, node.right)
@@ -1274,36 +1132,52 @@ func visitors.Assignment(g, node){
     }
   }
   if(left.type == "Identifier"){
-    local lv = g.asm:get_local(left.value)
-    if(lv != null){
-      g:visit(node.right)
-      g.asm:emit_move(lv.register)
-      return null
-    }
-    local up = g.asm:get_upvalue(left.value)
-    if(up != null){
-      g:visit(node.right)
-      g.asm:emit_set_upvalue(up.index)
-      return null
-    }
-    g:visit(ast.node(
-      "Assignment",
-      {left: global_index(left.token, left.value), right: node.right},
-      left.token,
-    ))
+    store_name(g, left.token, left.value, node.right)
   } else if(left.type == "Index"){
-    g:visit(left.receiver)
-    g:visit(left.index)
-    g:visit(node.right)
-    g.asm:emit_set_table()
+    store_index(g, left, node.right)
   } else if(left.type == "Meta"){
-    g:visit(left.receiver)
-    g:visit(node.right)
-    g.asm:emit_set_meta()
+    local a = g.asm
+    local t = to_any_reg(a, g:visit(left.receiver))
+    local m = to_any_reg(a, g:visit(node.right))
+    free_two(a, t, m)
+    a:set_location(left.token)
+    a:emit_abc(OP_SET_META, t.reg, m.reg, 0)
   } else {
     compile_error(g, left.token, "Invalid assignment target: ",
       ast.to_string(left))
   }
+}
+
+// whether the name occurs anywhere in node (as an identifier, read or
+// written, in nested functions too)
+local mentions = null
+mentions = func(node, name){
+  // (type() of a node is its own: the type field tells a node)
+  if(node == null){
+    return false
+  }
+  local t = node.type
+  if(t == null){
+    return false
+  }
+  if(t == "Identifier"){
+    return node.value == name
+  }
+  for(let local spec in values(ast.specs[t] or {})){
+    local kind = spec[1]
+    if(kind == "node" or kind == "node?"){
+      if(mentions(node[spec[0]], name)){
+        return true
+      }
+    } else if(kind == "list"){
+      for(let local item in values(node[spec[0]] or {})){
+        if(mentions(item, name)){
+          return true
+        }
+      }
+    }
+  }
+  return false
 }
 
 func visitors.Declaration(g, node){
@@ -1326,10 +1200,7 @@ func visitors.Declaration(g, node){
       g.record:use(name, left.token, null, true, node.right, node.token, true)
     }
     if(node.right != null){
-      g:visit(ast.node(
-        "Assignment", {left: global_index(left.token, name), right: node.right},
-        left.token
-      ))
+      store_index(g, global_index(left.token, name), node.right)
     }
     return null
   }
@@ -1341,7 +1212,22 @@ func visitors.Declaration(g, node){
       if(node.is_local and existing != null and existing.scope == g.asm.scope){
         compile_error(g, left.token, "Variable already declared: ", name)
       }
+      if(node.is_local and node.right != null and not mentions(node.right, name)){
+        // the value is computed into the register the local takes: it
+        // was declared last, so that is the next free one
+        local a = g.asm
+        local e = to_next_reg(a, g:visit(node.right))
+        a:free_register(e.reg)
+        local lv = a:create_local(name)
+        if(lv.register != e.reg){
+          raise(error.new(error.kinds.error, "codegen: a declaration's register moved"))
+        }
+        record_local(g, name, left.token, "local", node.right, node.token)
+        return null
+      }
       if(node.is_local){
+        // (declared before its value is compiled: `local func f(){ f() }`
+        // and `local t = {f: func(){ t }}` refer to it)
         g.asm:create_local(name)
         record_local(g, name, left.token, "local", node.right, node.token)
       } else {
@@ -1349,8 +1235,9 @@ func visitors.Declaration(g, node){
       }
       local lv = g.asm:get_local(name)
       if(node.right != null){
-        g:visit(node.right)
-        g.asm:emit_move(lv.register)
+        to_reg(g.asm, g:visit(node.right), lv.register)
+      } else if(node.is_local){
+        g.asm:emit_load_null(lv.register)
       }
       return null
     }
@@ -1359,8 +1246,7 @@ func visitors.Declaration(g, node){
     if(g.asm:get_upvalue(name) != null){
       record_use(g, name, left.token, true, node.right, node.token)
       if(node.right != null){
-        g:visit(node.right)
-        g.asm:emit_set_upvalue(g.asm:get_upvalue(name).index)
+        store_name(g, left.token, name, node.right)
       }
       return null
     }
@@ -1371,31 +1257,46 @@ func visitors.Declaration(g, node){
     if(g.record != null){
       g.record:use(name, left.token, null, true, node.right, node.token)
     }
-    g:visit(ast.node(
-      "Assignment", {left: global_index(left.token, name), right: right},
-      left.token
-    ))
+    store_index(g, global_index(left.token, name), right)
   } else if(left.type == "Index"){
     if(g.record != null){
       g.record:field(left, true, node.right, node.token)
     }
-    g:visit(left.receiver)
-    g:visit(left.index)
-    g:visit(node.right)
-    g.asm:emit_set_table()
+    store_index(g, left, node.right)
   } else {
     compile_error(g, left.token, "Invalid assignment target: ",
       ast.to_string(left))
   }
 }
 
+// ---- blocks, defer, try
+
 // defined with the blocks below
 local emit_exits = null
+
+// whether a return or break here leaves a try or a defer (whose cleanup
+// runs before it: the value returned is copied first)
+local func has_exits(g, stop){
+  local scopes = g.asm.scopes
+  for(local i = len(scopes) - 1; i >= stop; i = i - 1){
+    if(scopes[i].handler or scopes[i].cleanup != null){
+      return true
+    }
+  }
+  return false
+}
 
 func visitors.Return(g, node){
   if(g.defer_floors != null and len(g.defer_floors) > 0){
     compile_error(g, node.token, "return is not allowed inside defer")
   }
+  local a = g.asm
+  local exits = has_exits(g, 0)
+  if(node.value == null and not exits){
+    a:emit_abc(OP_RETURN_NULL, 0, 0, 0)
+    return null
+  }
+  local r = null
   if(node.value != null){
     if(g.record != null and node.value.type == "Function" and
       g.record_function != null){
@@ -1404,16 +1305,22 @@ func visitors.Return(g, node){
       // returned from, index})
       g.callback_site = {returned_from: g.record_function}
     }
-    g:visit(node.value)
+    local e = g:visit(node.value)
+    if(exits){
+      // the value waits in a temporary while the defers left run
+      r = to_next_reg(a, e)
+    } else {
+      r = to_any_reg(a, e)
+    }
   } else {
-    g.asm:emit_load_constant(null)
+    r = {kind: "reg", reg: a:allocate_register()}
+    a:emit_load_null(r.reg)
   }
-  // the value waits on the stack while the defers left run
   emit_exits(g, 0)
-  g.asm:emit_return()
+  a:set_location(node.token)
+  a:emit_abc(OP_RETURN, r.reg, 0, 0)
+  free_desc(a, r)
 }
-
-// ------------------------------------------------------------ blocks, defer, try
 
 local RAISED = "<raised>"
 
@@ -1427,6 +1334,65 @@ local func copy_map(t){
 
 local visit_statements = null
 
+// the statement types whose children are statements of their own (each
+// declared at its own start) or belong to another scope
+local statement_scopes = {
+  Function: true, Block: true, If: true, For: true, ForIn: true, Try: true,
+  Defer: true,
+}
+
+// Declares the locals of the `let` expressions in a statement's
+// expressions before the statement is compiled: a let's value and the
+// names it binds are locals of the statement's scope, and a local can
+// only be declared while no temporary is in use (so not in the middle of
+// a call's arguments, where `f(let x = y)` meets its let). Each let is
+// remembered with its registers (see let_condition).
+local predeclare_lets = null
+predeclare_lets = func(g, node){
+  if(node == null){
+    return null
+  }
+  local t = node.type
+  if(t == null or statement_scopes[t]){
+    return null
+  }
+  if(t == "Let"){
+    local a = g.asm
+    local right = node.right
+    local pre = {asm: a, scope: a.scope, subject: null}
+    if(right.type == "Identifier" and a:get_local(right.value) != null){
+      // (the value stays where it is)
+    } else {
+      predeclare_lets(g, right)
+      pre.subject = a:create_local(concat("(let value ", a:next_instruction_index(), ")")).register
+    }
+    pattern_declare(g, node.pattern)
+    g.predeclared[node] = pre
+    return null
+  }
+  if(t == "LetStat"){
+    predeclare_lets(g, node.right)
+    return null
+  }
+  for(let local spec in values(ast.specs[t] or {})){
+    local kind = spec[1]
+    if(kind == "node" or kind == "node?"){
+      predeclare_lets(g, node[spec[0]])
+    } else if(kind == "list"){
+      for(let local item in values(node[spec[0]] or {})){
+        predeclare_lets(g, item)
+      }
+    }
+  }
+}
+
+// a statement: compiled with no temporaries in use before or after it
+local func visit_statement(g, node){
+  predeclare_lets(g, node)
+  g:visit(node)
+  g.asm:reset_temps()
+}
+
 // the body of an if, a loop, a function, a try or a defer, which opens the
 // scope itself: a loop body shares it with the loop variables, so that a
 // closure made in one iteration keeps that iteration's values
@@ -1434,7 +1400,7 @@ local func visit_body(g, node){
   if(node.type == "Block"){
     visit_statements(g, node.statements, 0)
   } else {
-    g:visit(node)
+    visit_statement(g, node)
   }
 }
 
@@ -1447,9 +1413,13 @@ local func emit_cleanup(g, cleanup){
   local floors = g.defer_floors or {}
   g.defer_floors = floors
   append(floors, len(g.asm.scopes))
+  // (a return's value waits in a temporary below the cleanup's code)
+  local saved_floor = g.asm.temp_floor
+  g.asm.temp_floor = g.asm.used_registers
   g.asm:enter_scope(false)
   visit_body(g, cleanup.body)
   g.asm:leave_scope()
+  g.asm.temp_floor = saved_floor
   remove(floors, len(floors) - 1)
   g.asm.locals = saved
 }
@@ -1462,7 +1432,7 @@ emit_exits = func(g, stop){
   for(local i = len(scopes) - 1; i >= stop; i = i - 1){
     local sc = scopes[i]
     if(sc.handler){
-      g.asm:emit_try_end()
+      g.asm:emit_abc(OP_TRY_END, 0, 0, 0)
     }
     if(sc.cleanup != null){
       emit_cleanup(g, sc.cleanup)
@@ -1470,11 +1440,14 @@ emit_exits = func(g, stop){
   }
 }
 
-// the error path of a protected region: the raised value is on the stack;
-// it becomes the local RAISED for the handler's code
-local func handler_local(g){
-  local lv = g.asm:create_local(RAISED)
-  g.asm:emit_move(lv.register)
+// the error path of a protected region whose try_begin named `first`: the
+// raised value is in that register, which becomes the local RAISED
+local func handler_local(g, first, above_temps){
+  local lv = g.asm:create_local(RAISED, above_temps)
+  if(lv.register != first){
+    raise(error.new(error.kinds.error, concat(
+      "codegen: the handler's register is ", lv.register, ", not ", first)))
+  }
   return lv
 }
 
@@ -1482,26 +1455,26 @@ local func handler_local(g){
 // region; the cleanup is emitted at its normal end, in its error handler
 // (then the error goes on), and at every return and break that leaves it
 local func emit_defer(g, d, statements, from){
-  local cleanup = {body: d.body, locals: copy_map(g.asm.locals)}
-  local first = g.asm.used_registers
-  local begin = g.asm:emit_try_begin(first)
-  g.asm:enter_scope(false)
-  local sc = g.asm.scopes[len(g.asm.scopes) - 1]
+  local a = g.asm
+  local cleanup = {body: d.body, locals: copy_map(a.locals)}
+  local first = a.used_registers
+  local begin = a:emit_try_begin(first)
+  a:enter_scope(false)
+  local sc = a.scopes[len(a.scopes) - 1]
   sc.handler = true
   sc.cleanup = cleanup
   visit_statements(g, statements, from)
-  g.asm:leave_scope()
-  g.asm:emit_try_end()
+  a:leave_scope()
+  a:emit_abc(OP_TRY_END, 0, 0, 0)
   emit_cleanup(g, cleanup)
-  local done = g.asm:emit_jump()
-  g.asm:patch_try(begin)
-  g.asm:enter_scope(false)
-  local lv = handler_local(g)
+  local done = a:emit_jump()
+  a:patch_try(begin)
+  a:enter_scope(false)
+  local lv = handler_local(g, first)
   emit_cleanup(g, cleanup)
-  g.asm:emit_push(lv.register)
-  g.asm:emit_throw()
-  g.asm:leave_scope()
-  g.asm:patch_jump(done)
+  a:emit_abc(OP_THROW, lv.register, 0, 0)
+  a:leave_scope()
+  a:patch_jump(done)
 }
 
 visit_statements = func(g, statements, from){
@@ -1521,7 +1494,7 @@ visit_statements = func(g, statements, from){
       final = null
       break
     }
-    g:visit(s)
+    visit_statement(g, s)
   }
   // a return closes every upvalue of the frame itself, after its value:
   // closing here would give a closure made by the value (return func(){
@@ -1530,7 +1503,7 @@ visit_statements = func(g, statements, from){
     g.asm:close_open_upvalues()
   }
   if(final != null){
-    g:visit(final)
+    visit_statement(g, final)
   }
 }
 
@@ -1550,17 +1523,18 @@ func visitors.Defer(g, node){
 // try { body } catch(p1) { b1 } catch(p2) { b2 } ...: the clauses become
 // if(let p1 = raised) b1 else if(let p2 = raised) b2 else raise(raised)
 func visitors.Try(g, node){
-  local first = g.asm.used_registers
-  local begin = g.asm:emit_try_begin(first)
-  g.asm:enter_scope(false)
-  g.asm.scopes[len(g.asm.scopes) - 1].handler = true
+  local a = g.asm
+  local first = a.used_registers
+  local begin = a:emit_try_begin(first)
+  a:enter_scope(false)
+  a.scopes[len(a.scopes) - 1].handler = true
   visit_body(g, node.body)
-  g.asm:leave_scope()
-  g.asm:emit_try_end()
-  local done = g.asm:emit_jump()
-  g.asm:patch_try(begin)
-  g.asm:enter_scope(false)
-  handler_local(g)
+  a:leave_scope()
+  a:emit_abc(OP_TRY_END, 0, 0, 0)
+  local done = a:emit_jump()
+  a:patch_try(begin)
+  a:enter_scope(false)
+  handler_local(g, first)
   local raised = ast.node("Identifier", {value: RAISED}, node.token)
   local chain = ast.node("Throw", {value: raised}, node.token)
   for(local i = len(node.catches) - 1; i >= 0; i = i - 1){
@@ -1575,36 +1549,39 @@ func visitors.Try(g, node){
     }
   }
   visit_body(g, chain)
-  g.asm:leave_scope()
-  g.asm:patch_jump(done)
+  a:leave_scope()
+  a:patch_jump(done)
 }
 
-// try { value } catch(p1) { v1 } ...: one value either way; the clauses
-// are tried in order on the raised value as Try's are, and when none
-// matches it is raised again
+// try { value } catch(p1) { v1 } ...: one value either way, in a temporary
+// that is also where the error lands (the local RAISED of the catch
+// clauses); the clauses are tried in order on it as Try's are, and when
+// none matches it is raised again
 func visitors.TryExpr(g, node){
-  local first = g.asm.used_registers
-  local begin = g.asm:emit_try_begin(first)
-  g:visit(node.value)
-  g.asm:emit_try_end()
-  local done = g.asm:emit_jump()
-  g.asm:patch_try(begin)
-  g.asm:enter_scope(false)
-  handler_local(g)
+  local a = g.asm
+  local r = a:allocate_register()
+  local begin = a:emit_try_begin(r)
+  to_reg(a, g:visit(node.value), r)
+  a:emit_abc(OP_TRY_END, 0, 0, 0)
+  local done = a:emit_jump()
+  a:patch_try(begin)
+  a:free_register(r)
+  a:enter_scope(false)
+  handler_local(g, r, true)
   local raised = ast.node("Identifier", {value: RAISED}, node.token)
   local ends = {}
   local caught_all = false
   for(let local c in values(node.catches)){
-    g.asm:enter_scope(false)
+    a:enter_scope(false)
     local skip = null
     if(c.pattern != null){
       skip = visit_condition(
         g, ast.node("Let", {pattern: c.pattern, right: raised}, c.token), false
       )
     }
-    g:visit(c.body)
-    g.asm:leave_scope()
-    append(ends, g.asm:emit_jump())
+    to_reg(a, g:visit(c.body), r)
+    a:leave_scope()
+    append(ends, a:emit_jump())
     if(skip == null){
       caught_all = true
       break
@@ -1612,221 +1589,64 @@ func visitors.TryExpr(g, node){
     patch_all(g, skip)
   }
   if(not caught_all){
-    g:visit(raised)
-    g.asm:emit_throw()
+    a:emit_abc(OP_THROW, r, 0, 0)
   }
-  g.asm:leave_scope()
+  a:leave_scope()
   patch_all(g, ends)
-  g.asm:patch_jump(done)
+  a:patch_jump(done)
+  // the register again, as the value
+  local again = a:allocate_register()
+  if(again != r){
+    raise(error.new(error.kinds.error, "codegen: a try's value moved"))
+  }
+  return {kind: "reg", reg: r}
 }
 
 func visitors.Throw(g, node){
-  g:visit(node.value)
-  g.asm:emit_throw()
+  local a = g.asm
+  local v = to_any_reg(a, g:visit(node.value))
+  free_desc(a, v)
+  a:set_location(node.token)
+  a:emit_abc(OP_THROW, v.reg, 0, 0)
 }
 
 // if(c){ a } else { b } as an expression: one value either way
 func visitors.IfExpr(g, node){
+  local a = g.asm
+  local r = a:allocate_register()
   local else_jumps = visit_condition(g, node.condition, false)
-  g:visit(node.thenValue)
-  local skip = g.asm:emit_jump()
+  to_reg(a, g:visit(node.thenValue), r)
+  local skip = a:emit_jump()
   patch_all(g, else_jumps)
-  g:visit(node.elseValue)
-  g.asm:patch_jump(skip)
+  to_reg(a, g:visit(node.elseValue), r)
+  a:patch_jump(skip)
+  return {kind: "reg", reg: r}
 }
 
-func visitors.Identifier(g, node){
-  record_use(g, node.value, node.token, false)
-  local lv = g.asm:get_local(node.value)
-  if(lv != null){
-    g.asm:emit_push(lv.register)
-    return null
-  }
-  local up = g.asm:get_upvalue(node.value)
-  if(up != null){
-    g.asm:emit_get_upvalue(up.index)
-    return null
-  }
-  g:visit(global_index(node.token, node.value))
-}
-
-func visitors.Field(g, node){
-  if(node.key != null){
-    name_next(g, node.key, node.value)
-  }
-  g.asm:emit_push(-1)
-  g:visit(node.key)
-  g:visit(node.value)
-  g.asm:emit_set_table()
-}
-
-local func has_spread(items){
-  for(let local item in values(items)){
-    if(item.type == "Spread"){
-      return true
-    }
-  }
-  return false
-}
-
-// leaves one table on the stack: the items (fields or argument nodes, some
-// of them Spread) joined with concat, consecutive plain items as one literal
-local func emit_spread_list(g, items, token){
-  local segments = {}
-  local plain = {}
-  local func flush(){
-    if(len(plain) > 0){
-      append(segments, ast.node("Table", {fields: plain}, token))
-      plain = {}
-    }
-  }
-  for(let local item in values(items)){
-    if(item.type == "Spread"){
-      flush()
-      append(segments, item.value)
-    } else if(item.type == "Field"){
-      append(plain, item)
-    } else {
-      append(plain, ast.node("Field", {value: item}, item.token))
-    }
-  }
-  flush()
-  // concat is looked up as a global whatever locals are in scope
-  g:visit(global_index(token, "concat"))
-  for(let local seg in values(segments)){
-    g:visit(seg)
-  }
-  g.asm:emit_call(len(segments))
-}
-
-// pushes the arguments and emits the call; `extra` arguments (the receiver
-// of a method call) are already on the stack
-// (with a recorder, a function literal passed as an argument learns where:
-// its parameters are recorded with a CallbackParam value, {call, arg,
-// index}, for tools that read the callee's doc)
-local func emit_call_args(g, args, extra, token, call){
-  if(not has_spread(args)){
-    for(local i = 0; i < len(args); i = i + 1){
-      local a = args[i]
-      if(g.record != null and call != null and a.type == "Function"){
-        g.callback_site = {call: call, arg: i}
-      }
-      g:visit(a)
-    }
-    g.asm:emit_call(len(args) + extra)
-    return null
-  }
-  local fixed = 0
-  local rest = {}
-  for(let local a in values(args)){
-    if(a.type == "Spread" or len(rest) > 0){
-      append(rest, a)
-    } else {
-      g:visit(a)
-      fixed = fixed + 1
-    }
-  }
-  if(len(rest) == 1){
-    // f(a, ...t): the list itself, no copy
-    g:visit(rest[0].value)
-  } else {
-    emit_spread_list(g, rest, token)
-  }
-  g.asm:emit_call_spread(fixed + extra)
-}
-
-// {..., @meta: m}: the table is built from its other fields, then given
-// its metatable
-func visitors.Table(g, node){
-  local metas = {}
-  local fields = {}
-  for(let local f in values(node.fields)){
-    if(f.type == "MetaField"){
-      append(metas, f)
-    } else {
-      append(fields, f)
-    }
-  }
-  if(len(metas) > 0){
-    g:visit(ast.node("Table", {fields: fields}, node.token))
-    for(let local f in values(metas)){
-      g.asm:emit_push(-1)
-      g:visit(f.value)
-      g.asm:emit_set_meta()
-    }
-    return null
-  }
-  if(has_spread(node.fields)){
-    emit_spread_list(g, node.fields, node.token)
-    return null
-  }
-  local array_fields = {}
-  local map_fields = {}
-  for(let local f in values(node.fields)){
-    if(f.key == null){
-      append(array_fields, f)
-    } else {
-      append(map_fields, f)
-    }
-  }
-  g.asm:emit_new_table(len(array_fields), len(map_fields))
-  local i = 0
-  for(let local f in values(array_fields)){
-    g:visit(ast.node(
-      "Field", {key: ast.node("Int", {value: i}, f.token), value: f.value},
-      f.token
-    ))
-    i = i + 1
-  }
-  for(let local f in values(map_fields)){
-    g:visit(f)
-  }
-}
-
-func visitors.Index(g, node){
-  if(g.record != null){
-    g.record:field(node, false)
-  }
-  g:visit(node.receiver)
-  g:visit(node.index)
-  g.asm:emit_get_table()
-}
-
-func visitors.Meta(g, node){
-  if(g.record != null){
-    g.record:field(node, false)
-  }
-  g:visit(node.receiver)
-  g.asm:emit_get_meta()
-}
-
-// the outer scope holds locals bound by the condition (let patterns); each
-// branch gets its own scope so that then-branch locals do not leak into the
-// else branch
-// let PATTERN = expr: the value is kept in a hidden local so that the
-// error can carry it; the pattern's locals are declared in the current
-// scope. A mismatch raises {kind: "let", message, pattern, value} with the
-// throw op (no global involved); printed uncaught, it shows the value too.
+// let PATTERN = expr as a statement: a mismatch raises {kind: "let",
+// message, pattern, value} with the throw op (no global involved); printed
+// uncaught, it shows the value too. The pattern's locals are declared in
+// the current scope.
 func visitors.LetStat(g, node){
+  local a = g.asm
   local token = node.token
-  local hidden = concat("let value ", g.asm:next_instruction_index())
-  g.asm:create_local(hidden)
-  local lv = g.asm:get_local(hidden)
-  g:visit(node.right)
-  g.asm:emit_move(lv.register)
-  local value = ast.node("Identifier", {value: hidden}, token)
-  g:visit(ast.node("Let", {pattern: node.pattern, right: value}, token))
-  g.asm:emit_test(false)
-  local fail_jump = g.asm:emit_jump()
-  local done = g.asm:emit_jump()
-  g.asm:patch_jump(fail_jump)
+  local hidden = a:create_local(concat("(let value ", a:next_instruction_index(), ")"))
+  to_reg(a, g:visit(node.right), hidden.register)
+  a:reset_temps()
+  pattern_declare(g, node.pattern)
+  local mismatch = {}
+  pattern_check(g, node.pattern, hidden.register, mismatch)
+  pattern_assign(g, node.pattern, hidden.register)
+  local done = a:emit_jump()
+  patch_all(g, mismatch)
   local pattern_text = str.trim(ast.to_source(node.pattern))
   local func field(name, v){
     return ast.node(
       "Field", {key: ast.node("String", {value: name}, token), value: v}, token
     )
   }
-  g:visit(ast.node("Table", {
+  local value = ast.node("Identifier", {value: hidden.name}, token)
+  local err = g:visit(ast.node("Table", {
     fields: {
       field("kind", ast.node("String", {value: "let"}, token)),
       field("message", ast.node(
@@ -1837,10 +1657,15 @@ func visitors.LetStat(g, node){
       field("value", value),
     },
   }, token))
-  g.asm:emit_throw()
-  g.asm:patch_jump(done)
+  local e = to_any_reg(a, err)
+  free_desc(a, e)
+  a:emit_abc(OP_THROW, e.reg, 0, 0)
+  a:patch_jump(done)
 }
 
+// the outer scope holds locals bound by the condition (let patterns); each
+// branch gets its own scope so that then-branch locals do not leak into the
+// else branch
 func visitors.If(g, node){
   g.asm:enter_scope(false)
   local else_jumps = visit_condition(g, node.condition, false)
@@ -1859,6 +1684,8 @@ func visitors.If(g, node){
   }
   g.asm:leave_scope()
 }
+
+// ---- functions and calls
 
 func visitors.Function(g, node){
   local parent = g.asm
@@ -1904,10 +1731,95 @@ func visitors.Function(g, node){
   visit_body(g, node.body)
   g.record_function = outer_function
   g.asm:leave_scope()
-  g.asm:emit_load_constant(null)
-  g.asm:emit_return()
+  g.asm:emit_abc(OP_RETURN_NULL, 0, 0, 0)
   g.asm = parent
-  g.asm:emit_load_closure(len(parent.children) - 1)
+  g.asm:set_location(node.token)
+  return {kind: "reloc", pc: parent:emit_abx(OP_CLOSURE, 0, len(parent.children) - 1)}
+}
+
+local func has_spread(items){
+  for(let local item in values(items)){
+    if(item.type == "Spread"){
+      return true
+    }
+  }
+  return false
+}
+
+local emit_spread_list = null
+
+// the arguments into the registers after fn (the receiver of a method call
+// is there already: `extra`), then the call; the result is in fn
+// (with a recorder, a function literal passed as an argument learns where:
+// its parameters are recorded with a CallbackParam value, {call, arg,
+// index}, for tools that read the callee's doc)
+local func emit_call_args(g, args, extra, fn, token, call){
+  local a = g.asm
+  if(not has_spread(args)){
+    for(local i = 0; i < len(args); i = i + 1){
+      local arg = args[i]
+      if(g.record != null and call != null and arg.type == "Function"){
+        g.callback_site = {call: call, arg: i}
+      }
+      to_next_reg(a, g:visit(arg))
+    }
+    a:set_location(token)
+    a:emit_call(fn, len(args) + extra)
+  } else {
+    local fixed = 0
+    local rest = {}
+    for(let local arg in values(args)){
+      if(arg.type == "Spread" or len(rest) > 0){
+        append(rest, arg)
+      } else {
+        to_next_reg(a, g:visit(arg))
+        fixed = fixed + 1
+      }
+    }
+    if(len(rest) == 1){
+      // f(a, ...t): the list itself, no copy
+      to_next_reg(a, g:visit(rest[0].value))
+    } else {
+      to_next_reg(a, emit_spread_list(g, rest, token))
+    }
+    a:set_location(token)
+    a:emit_call_spread(fn, fixed + extra)
+  }
+  a.used_registers = fn + 1
+  return {kind: "reg", reg: fn}
+}
+
+// one table: the items (fields or argument nodes, some of them Spread)
+// joined with concat, consecutive plain items as one literal
+emit_spread_list = func(g, items, token){
+  local segments = {}
+  local plain = {}
+  local func flush(){
+    if(len(plain) > 0){
+      append(segments, ast.node("Table", {fields: plain}, token))
+      plain = {}
+    }
+  }
+  for(let local item in values(items)){
+    if(item.type == "Spread"){
+      flush()
+      append(segments, item.value)
+    } else if(item.type == "Field"){
+      append(plain, item)
+    } else {
+      append(plain, ast.node("Field", {value: item}, item.token))
+    }
+  }
+  flush()
+  // concat is looked up as a global whatever locals are in scope
+  local a = g.asm
+  local fn = to_next_reg(a, g:visit(global_index(token, "concat")))
+  for(let local seg in values(segments)){
+    to_next_reg(a, g:visit(seg))
+  }
+  a:emit_call(fn.reg, len(segments))
+  a.used_registers = fn.reg + 1
+  return fn
 }
 
 func visitors.Call(g, node){
@@ -1921,48 +1833,264 @@ func visitors.Call(g, node){
     compile_error(g, f.token,
       "slang has no while loop: `for(condition){ ... }` loops while the condition holds")
   }
-  g:visit(node.function)
-  emit_call_args(g, node.args, 0, node.token, node)
+  local a = g.asm
+  local fn = to_next_reg(a, g:visit(node.function))
+  return emit_call_args(g, node.args, 0, fn.reg, node.token, node)
 }
 
+// obj:name(args): self puts the method and the receiver in two registers
 func visitors.Invoke(g, node){
   if(g.record != null){
     g.record:field(node, false)
   }
-  g:visit(node.receiver)
-  g.asm:emit_push(-1)
-  g.asm:emit_load_constant(node.name.value)
-  g.asm:emit_get_table()
-  g.asm:emit_push(-2)
-  emit_call_args(g, node.args, 1, node.token, node)
-  g.asm:emit_move(-1)
+  local a = g.asm
+  local recv = to_any_reg(a, g:visit(node.receiver))
+  free_desc(a, recv)
+  local base = a:allocate_register()
+  a:allocate_register()
+  local k = a:index_of_constant(node.name.value)
+  a:set_location(node.token)
+  if(k <= MAX_RK){
+    a:emit_abc(OP_SELF, base, recv.reg, k, true)
+  } else {
+    local t = a:allocate_register()
+    a:emit_load_k(t, k)
+    a:emit_abc(OP_SELF, base, recv.reg, t, false)
+    a:free_register(t)
+  }
+  return emit_call_args(g, node.args, 1, base, node.token, node)
 }
 
 func visitors.CallStat(g, node){
-  g:visit(node.call)
-  g.asm:emit_pop()
+  local a = g.asm
+  free_desc(a, discharge(a, g:visit(node.call)))
 }
 
+// ---- tables
+
+local func at_most(x, limit){
+  if(x > limit){
+    return limit
+  }
+  return x
+}
+
+// a table literal's field: a constant key stores with init_field, a
+// computed one with set_index
+local func emit_field(g, t, key_node, value_node){
+  local a = g.asm
+  local key = key_desc(g, key_node)
+  local v = to_rk(a, g:visit(value_node))
+  free_desc(a, v.desc)
+  if(key.kind == "k"){
+    a:emit_abc(OP_INIT_FIELD, t, key.index, v.c, v.k)
+  } else {
+    a:free_register(key.reg)
+    a:emit_abc(OP_SET_INDEX, t, key.reg, v.c, v.k)
+  }
+}
+
+// {..., @meta: m}: the table is built from its other fields, then given
+// its metatable
+func visitors.Table(g, node){
+  local a = g.asm
+  local metas = {}
+  local fields = {}
+  for(let local f in values(node.fields)){
+    if(f.type == "MetaField"){
+      append(metas, f)
+    } else {
+      append(fields, f)
+    }
+  }
+  if(len(metas) > 0){
+    local t = to_any_reg(a, g:visit(ast.node("Table", {fields: fields}, node.token)))
+    for(let local f in values(metas)){
+      local m = to_any_reg(a, g:visit(f.value))
+      free_desc(a, m)
+      a:set_location(f.token)
+      a:emit_abc(OP_SET_META, t.reg, m.reg, 0)
+    }
+    return t
+  }
+  if(has_spread(node.fields)){
+    return emit_spread_list(g, node.fields, node.token)
+  }
+  local array_fields = {}
+  local map_fields = {}
+  for(let local f in values(node.fields)){
+    if(f.key == null){
+      append(array_fields, f)
+    } else {
+      append(map_fields, f)
+    }
+  }
+  local t = a:allocate_register()
+  a:emit_abc(OP_NEW_TABLE, t, at_most(len(array_fields), 255), at_most(len(map_fields), 255))
+  // the list items, in the registers after the table, stored in batches
+  local pending = 0
+  local start = 0
+  local func flush(){
+    if(pending == 0){
+      return null
+    }
+    if(start <= 255){
+      a:emit_abc(OP_SET_LIST, t, pending, start, false)
+    } else {
+      a:emit_abc(OP_SET_LIST, t, pending, 0, true)
+      a:emit(start)
+    }
+    start = start + pending
+    pending = 0
+    a.used_registers = t + 1
+  }
+  for(let local f in values(array_fields)){
+    name_next(g, ast.node("Int", {value: start + pending}, f.token), f.value)
+    to_next_reg(a, g:visit(f.value))
+    pending = pending + 1
+    if(pending == LIST_FLUSH){
+      flush()
+    }
+  }
+  flush()
+  for(let local f in values(map_fields)){
+    name_next(g, f.key, f.value)
+    a:set_location(f.token)
+    emit_field(g, t, f.key, f.value)
+  }
+  return {kind: "reg", reg: t}
+}
+
+// ---- loops
+
+local emit_for_loop = null
+
 func visitors.For(g, node){
-  g.asm:enter_scope(true)
-  local scope = g.asm.scopes[len(g.asm.scopes) - 1]
+  local a = g.asm
+  a:enter_scope(true)
+  local scope = a.scopes[len(a.scopes) - 1]
   scope.label = node.label
   if(node.init != null){
-    g:visit(node.init)
+    visit_statement(g, node.init)
   }
-  local loop_start = g.asm:next_instruction_index()
-  local exits = visit_condition(g, node.condition, false)
+  // a counting loop: `i = i + step` (or -) as the update and a comparison
+  // of i with a limit as the condition, both in registers or constants,
+  // become a for_loop (see emit_for_loop)
+  local counter = null
+  local update = node.update
+  local cond = node.condition
+  if(update != null and cond != null and update.type == "Assignment" and
+    update.left.type == "Identifier" and update.right.type == "BinOp" and
+    (update.right.op == "+" or update.right.op == "-") and
+    update.right.left.type == "Identifier" and
+    update.right.left.value == update.left.value and
+    cond.type == "BinOp" and compare_ops[cond.op] != null and
+    cond.op != "==" and cond.op != "!="){
+    local name = update.left.value
+    local lv = a:get_local(name)
+    local on_left = cond.left.type == "Identifier" and cond.left.value == name
+    local on_right = cond.right.type == "Identifier" and cond.right.value == name
+    if(lv != null and (on_left or on_right)){
+      counter = lv.register
+    }
+  }
+  local loop_start = a:next_instruction_index()
+  local exits = null
+  if(counter != null){
+    exits = {emit_compare(g, cond, false, counter)}
+    // (the condition must be the comparison and its jump alone: the
+    // for_loop jumps back to them when its operands are not numbers)
+    if(a:next_instruction_index() != loop_start + 2){
+      counter = null
+    }
+  } else {
+    exits = visit_condition(g, cond, false)
+  }
   visit_body(g, node.body)
   // continue goes to the update
   for(let local jump in values(scope.continue_jumps)){
-    g.asm:patch_jump(jump)
+    a:patch_jump(jump)
   }
-  if(node.update != null){
-    g:visit(node.update)
+  if(counter != null){
+    emit_for_loop(g, update, counter, cond, loop_start)
+  } else {
+    if(update != null){
+      visit_statement(g, update)
+    }
+    a:emit_jump(loop_start)
   }
-  g.asm:emit_jump(loop_start)
   patch_all(g, exits)
-  g.asm:leave_scope()
+  a:leave_scope()
+}
+
+// the operand of a for_loop: {x, k} for a constant or a register, or null
+local func for_operand(g, node){
+  local a = g.asm
+  if(node.type == "Int" or node.type == "Double"){
+    local k = a:index_of_constant(node.value)
+    if(k <= MAX_RK){
+      return {x: k, k: true}
+    }
+    return null
+  }
+  if(node.type == "Identifier"){
+    local lv = a:get_local(node.value)
+    if(lv != null){
+      return {x: lv.register, k: false}
+    }
+  }
+  return null
+}
+
+// the update and the jump back of a counting loop as one for_loop (the
+// condition was compiled as one comparison and one jump at loop_start);
+// when its operands do not fit, the update as itself
+emit_for_loop = func(g, update, counter, cond, loop_start){
+  local a = g.asm
+  local step = for_operand(g, update.right.right)
+  local cmp = compare_ops[cond.op]
+  local limit_node = cond.right
+  local op = cond.op
+  if(cond.left.type != "Identifier" or a:get_local(cond.left.value) == null or
+    a:get_local(cond.left.value).register != counter){
+    // the counter on the right: the mirrored comparison
+    limit_node = cond.left
+    if(op == "<"){
+      op = ">"
+    } else if(op == "<="){
+      op = ">="
+    } else if(op == ">"){
+      op = "<"
+    } else {
+      op = "<="
+    }
+  }
+  local limit = for_operand(g, limit_node)
+  if(step == null or limit == null){
+    visit_statement(g, update)
+    a:emit_jump(loop_start)
+    return null
+  }
+  local flags = 0
+  if(op == "<=" or op == ">"){
+    flags = flags | FOR_LEQ
+  }
+  if(op == ">" or op == ">="){
+    flags = flags | FOR_NEGATE
+  }
+  if(update.right.op == "-"){
+    flags = flags | FOR_SUB
+  }
+  if(step.k){
+    flags = flags | FOR_STEP_K
+  }
+  if(limit.k){
+    flags = flags | FOR_LIMIT_K
+  }
+  a:set_location(update.token)
+  a:emit_abc(OP_FOR_LOOP, counter, step.x, limit.x, false)
+  // the jump to the body, after the condition's two words
+  a:emit_asbx(OP_JUMP, flags, loop_start + 2 - a:next_instruction_index() - 1)
 }
 
 // (with a recorder, the names a for-in pattern binds are recorded with a
@@ -1995,192 +2123,145 @@ local func loop_values(g, node){
   return out
 }
 
+// for(let PATTERN in f(x)): the iterator, its position and the element in
+// three registers (forin_prep, forin_next); an element is matched against
+// the pattern in place, a plain `let local name` naming the element's
+// register itself
 func visitors.ForIn(g, node){
-  g.asm:enter_scope(true)
-  local scope = g.asm.scopes[len(g.asm.scopes) - 1]
+  local a = g.asm
+  a:enter_scope(true)
+  local scope = a.scopes[len(a.scopes) - 1]
   scope.label = node.label
   // the iterator returns stop when it is done (null is an element): the
   // global, read once into a hidden local, compared by identity
-  local stop_lv = g.asm:create_local("(for stop)")
-  g:visit(global_index(node.token, "stop"))
-  g.asm:emit_move(stop_lv.register)
+  local stop_lv = a:create_local("(for stop)")
+  to_reg(a, g:visit(global_index(node.token, "stop")), stop_lv.register)
+  a:reset_temps()
   g.loop_values = loop_values(g, node)
-  // the position of a table walked in the loop (keys, values, entries)
-  local position_lv = g.asm:create_local("(for position)")
+  local it_lv = a:create_local("(for iterator)")
+  local position_lv = a:create_local("(for position)")
+  local element_lv = a:create_local("(for element)")
+  local pattern = node.pattern
+  local plain = pattern.type == "VarPattern" and pattern.isLocal
   local it = node.itterator
   if(it.type == "Call" and len(it.args) == 1 and it.args[0].type != "Spread"){
-    g:visit(it.function)
-    g:visit(it.args[0])
-    g.asm:set_location(it.token)
-    g.asm:emit_forin_prep(position_lv.register)
+    to_reg(a, g:visit(it.function), it_lv.register)
+    to_reg(a, g:visit(it.args[0]), position_lv.register)
+    a:reset_temps()
+    a:set_location(it.token)
+    a:emit_abc(OP_FORIN_PREP, it_lv.register, 0, 0)
   } else {
-    g:visit(it)
+    to_reg(a, g:visit(it), it_lv.register)
+    a:reset_temps()
   }
-  local loop_start = g.asm:next_instruction_index()
-  local p = g.asm:start_pattern()
+  if(plain){
+    // (after the iterator, which may read a variable of the same name)
+    a:rename_local(element_lv, pattern.name.value)
+    local value = null
+    if(g.loop_values != null and pattern.name.token != null){
+      value = g.loop_values[pattern.name.token.start]
+    }
+    record_local(g, pattern.name.value, pattern.name.token, "local", value)
+  }
+  local loop_start = a:next_instruction_index()
   // a table walked in the loop: its next element, then to the pattern
   // (or to the end); an iterator function: on to its call
-  g.asm:emit_forin_next(position_lv.register)
-  local walked_end = g.asm:emit_jump()
-  local walked_value = g.asm:emit_jump()
-  g.asm:emit_push(-1)
-  g.asm:emit_call(0)
-  p:increase_stack_height()
-  g.asm:emit_push(-1)
-  g.asm:emit_push(stop_lv.register)
-  g.asm:emit_binop("==")
-  g.asm:emit_test(true)
-  local stop_jump = g.asm:emit_jump()
-  g.asm:patch_jump(walked_value)
-  g.asm:emit_push(-1)
-  p:increase_stack_height()
-  g:visit(node.pattern)
-  p:complete_check_step()
-  g:visit(node.pattern)
-  g.asm:end_pattern()
+  a:emit_abc(OP_FORIN_NEXT, it_lv.register, 0, 0)
+  local walked_end = a:emit_jump()
+  local walked_value = a:emit_jump()
+  // the call, in a temporary above the loop's locals
+  local t = a:allocate_register()
+  a:emit_move(t, it_lv.register)
+  a:set_location(it.token)
+  a:emit_call(t, 0)
+  a:emit_move(element_lv.register, t)
+  a:free_register(t)
+  a:emit_abc(OP_EQ, 1, element_lv.register, stop_lv.register, false)
+  local stop_jump = a:emit_jump()
+  a:patch_jump(walked_value)
+  local mismatch = {}
+  if(plain){
+    pattern_check(g, pattern, element_lv.register, mismatch)
+  } else {
+    pattern_declare(g, pattern)
+    pattern_check(g, pattern, element_lv.register, mismatch)
+    pattern_assign(g, pattern, element_lv.register)
+  }
   g.loop_values = null
   visit_body(g, node.body)
   // continue fetches the next value
   for(let local jump in values(scope.continue_jumps)){
-    g.asm:patch_jump(jump, loop_start)
+    a:patch_jump(jump, loop_start)
   }
-  g.asm:emit_jump(loop_start)
-  // stop: the value is still on the stack above the iterator
-  g.asm:patch_jump(stop_jump)
-  g.asm:patch_jump(walked_end)
-  g.asm:emit_pop()
-  local stopped = g.asm:emit_jump()
+  a:emit_jump(loop_start)
   // an element the pattern does not take: let? goes on with the next one,
   // let raises (as the let statement does)
-  p:close_missmatch_jumps()
-  if(node.skip){
-    g.asm:emit_jump(loop_start)
-  } else {
-    local token = node.token
-    local pattern_text = str.trim(ast.to_source(node.pattern))
-    local func field(name, text){
-      return ast.node("Field", {
-        key: ast.node("String", {value: name}, token),
-        value: ast.node("String", {value: text}, token),
-      }, token)
-    }
-    g:visit(ast.node("Table", {
-      fields: {
-        field("kind", "for"),
-        field("message", concat(
-          "for: an element does not match ", pattern_text,
-          " (write let? to skip such elements; a name? takes null)",
-        )),
-        field("pattern", pattern_text),
-      },
-    }, token))
-    g.asm:emit_throw()
-  }
-  // a break lands here too: the iterator is still on the stack
-  scope.break_target = g.asm:next_instruction_index()
-  g.asm:patch_jump(stopped, scope.break_target)
-  g.asm:emit_pop()
-  g.asm:leave_scope()
-}
-
-func visitors.Let(g, node){
-  local p = g.asm:start_pattern()
-  g:visit(node.right)
-  p:increase_stack_height()
-  g.asm:emit_push(-1)
-  p:increase_stack_height()
-  g:visit(node.pattern)
-  p:complete_check_step()
-  g:visit(node.pattern)
-  g.asm:end_pattern()
-  g.asm:emit_load_bool(true, true)
-  p:close_missmatch_jumps()
-  g.asm:emit_load_bool(false, false)
-}
-
-// Every pattern consumes the value on top of the stack, in the check step
-// and in the assign step.
-func visitors.ConstPattern(g, node){
-  local p = g.asm:current_pattern()
-  if(p.step == "check"){
-    g:visit(node.value)
-    g.asm:emit_binop("==")
-    p:decrease_stack_height()
-    p:test_missmatch(false)
-  } else {
-    g.asm:emit_pop()
-  }
-}
-
-func visitors.FieldPattern(g, node){
-  local p = g.asm:current_pattern()
-  if(p.step == "check"){
-    g.asm:emit_push(-1)
-    g:visit(node.key)
-    g.asm:emit_get_table()
-    p:increase_stack_height()
-    g:visit(node.value)
-  } else {
-    g.asm:emit_push(-1)
-    g:visit(node.key)
-    g.asm:emit_get_table()
-    g:visit(node.value)
-  }
-}
-
-// 'matcher [as PATTERN]: __match(matcher, value) decides (null: no match)
-// and its result is what the sub-pattern matches. The pattern machinery
-// makes two passes, a check and a bind, each consuming a copy of the value,
-// so a matcher with a sub-pattern runs twice on a successful match: keep
-// matchers pure. 'Type as PATTERN checks the type and matches the
-// sub-pattern against the value itself.
-local func emit_match_call(g, node){
-  // stack: value -> value, result
-  g:visit(global_index(node.token, "__match"))
-  g:visit(node.matcher)
-  g.asm:emit_push(-3)
-  g.asm:emit_call(2)
-}
-
-func visitors.MatcherPattern(g, node){
-  local p = g.asm:current_pattern()
-  if(node.matcher == null){
-    if(p.step == "check"){
-      g.asm:emit_push(-1)
-      g.asm:emit_type()
-      g.asm:emit_load_constant(node.type_name)
-      g.asm:emit_binop("==")
-      p:test_missmatch(false)
-    }
-    g:visit(node.sub)
-    return null
-  }
-  if(p.step == "check"){
-    emit_match_call(g, node)
-    // the value is consumed; the result replaces it (a negative move
-    // counts from the top after the pop)
-    g.asm:emit_move(-1)
-    g.asm:emit_push(-1)
-    g.asm:emit_load_constant(null)
-    g.asm:emit_binop("==")
-    p:test_missmatch(true)
-    if(node.sub != null){
-      g:visit(node.sub)
+  if(len(mismatch) > 0){
+    patch_all(g, mismatch)
+    if(node.skip){
+      a:emit_jump(loop_start)
     } else {
-      g.asm:emit_pop()
-      p:decrease_stack_height()
+      local token = node.token
+      local pattern_text = str.trim(ast.to_source(pattern))
+      local func field(name, text){
+        return ast.node("Field", {
+          key: ast.node("String", {value: name}, token),
+          value: ast.node("String", {value: text}, token),
+        }, token)
+      }
+      local err = to_any_reg(a, g:visit(ast.node("Table", {
+        fields: {
+          field("kind", "for"),
+          field("message", concat(
+            "for: an element does not match ", pattern_text,
+            " (write let? to skip such elements; a name? takes null)",
+          )),
+          field("pattern", pattern_text),
+        },
+      }, token)))
+      free_desc(a, err)
+      a:emit_abc(OP_THROW, err.reg, 0, 0)
     }
-  } else if(node.sub != null){
-    emit_match_call(g, node)
-    g.asm:emit_move(-1)
-    g:visit(node.sub)
-  } else {
-    g.asm:emit_pop()
+  }
+  a:patch_jump(stop_jump)
+  a:patch_jump(walked_end)
+  a:leave_scope()
+}
+
+// ---- patterns
+//
+// A pattern is matched against a value in a register in two steps: the
+// check jumps to the mismatch list when the value does not fit, then the
+// assignment binds the names. The locals a pattern binds are declared
+// before either step (pattern_declare), so that no temporary is below them.
+
+pattern_declare = func(g, p){
+  local t = p.type
+  if(t == "VarPattern"){
+    if(p.isLocal){
+      g.asm:create_local(p.name.value)
+      local value = null
+      if(g.loop_values != null and p.name.token != null){
+        value = g.loop_values[p.name.token.start]
+      }
+      record_local(g, p.name.value, p.name.token, "local", value)
+    }
+  } else if(t == "TablePattern"){
+    for(let local f in values(p.fields)){
+      pattern_declare(g, f.value)
+    }
+  } else if(t == "FieldPattern"){
+    pattern_declare(g, p.value)
+  } else if(t == "MatcherPattern"){
+    if(p.sub != null){
+      pattern_declare(g, p.sub)
+    }
   }
 }
 
-func visitors.TablePattern(g, node){
-  local p = g.asm:current_pattern()
+// a table pattern's fields with their keys: positional ones count from 0
+// and after the last integer key
+local func table_pattern_fields(node){
   local fields = {}
   local last_number = -1
   for(let local f in values(node.fields)){
@@ -2198,61 +2279,162 @@ func visitors.TablePattern(g, node){
       append(fields, f)
     }
   }
-  if(p.step == "check"){
-    g.asm:emit_push(-1)
-    g.asm:emit_type()
-    g.asm:emit_load_constant(node.type_check or "table")
-    g.asm:emit_binop("==")
-    p:test_missmatch(false)
-  }
-  for(let local f in values(fields)){
-    g:visit(f)
-  }
-  g.asm:emit_pop()
-  p:decrease_stack_height()
+  return fields
 }
 
-func visitors.VarPattern(g, node){
-  local p = g.asm:current_pattern()
-  if(p.step == "check"){
-    if(node.canBeNull){
-      g.asm:emit_pop()
-      p:decrease_stack_height()
-      return null
-    }
-    // anything but null matches (false too: for-in goes on past it)
-    g:visit(ast.node("Null", {}, node.token))
-    g.asm:emit_binop("==")
-    g.asm:emit_unop("not")
-    p:decrease_stack_height()
-    p:test_missmatch(false)
+// reg[key] into a new temporary
+local func emit_field_read(g, reg, key_node){
+  local a = g.asm
+  local t = a:allocate_register()
+  local key = key_desc(g, key_node)
+  if(key.kind == "k"){
+    a:emit_abc(OP_GET_FIELD, t, reg, key.index)
   } else {
-    if(node.isLocal){
-      g.asm:create_local(node.name.value)
-      local value = null
-      if(g.loop_values != null and node.name.token != null){
-        value = g.loop_values[node.name.token.start]
+    a:free_register(key.reg)
+    a:emit_abc(OP_GET_INDEX, t, reg, key.reg)
+  }
+  return t
+}
+
+// __match(matcher, value) into a new temporary (null: no match)
+local func emit_match_call(g, node, reg){
+  local a = g.asm
+  local fn = to_next_reg(a, g:visit(global_index(node.token, "__match")))
+  to_next_reg(a, g:visit(node.matcher))
+  local v = a:allocate_register()
+  a:emit_move(v, reg)
+  a:set_location(node.token)
+  a:emit_call(fn.reg, 2)
+  a.used_registers = fn.reg + 1
+  return fn.reg
+}
+
+// a jump to the mismatches when the type of reg is not name
+local func check_type(g, reg, name, mismatch){
+  local a = g.asm
+  local t = a:allocate_register()
+  a:emit_abc(OP_TYPE, t, reg, 0)
+  local k = to_rk(a, const_desc(a, name))
+  free_desc(a, k.desc)
+  a:free_register(t)
+  a:emit_abc(OP_EQ, 0, t, k.c, k.k)
+  append(mismatch, a:emit_jump())
+}
+
+pattern_check = func(g, p, reg, mismatch){
+  local a = g.asm
+  local t = p.type
+  a:set_location(p.token)
+  if(t == "ConstPattern"){
+    local k = to_rk(a, g:visit(p.value))
+    free_desc(a, k.desc)
+    a:emit_abc(OP_EQ, 0, reg, k.c, k.k)
+    append(mismatch, a:emit_jump())
+  } else if(t == "VarPattern"){
+    // anything but null matches (false too: for-in goes on past it)
+    if(not p.canBeNull){
+      local k = to_rk(a, const_desc(a, null))
+      free_desc(a, k.desc)
+      a:emit_abc(OP_EQ, 1, reg, k.c, k.k)
+      append(mismatch, a:emit_jump())
+    }
+  } else if(t == "TablePattern"){
+    check_type(g, reg, p.type_check or "table", mismatch)
+    for(let local f in values(table_pattern_fields(p))){
+      pattern_check(g, f, reg, mismatch)
+    }
+  } else if(t == "FieldPattern"){
+    local v = emit_field_read(g, reg, p.key)
+    pattern_check(g, p.value, v, mismatch)
+    a:free_register(v)
+  } else if(t == "MatcherPattern"){
+    // 'matcher [as PATTERN]: __match(matcher, value) decides (null: no
+    // match) and its result is what the sub-pattern matches; the check
+    // and the assignment each call it, so a matcher must be pure. 'Type as
+    // PATTERN checks the type and matches the sub-pattern against the
+    // value itself.
+    if(p.matcher == null){
+      check_type(g, reg, p.type_name, mismatch)
+      if(p.sub != null){
+        pattern_check(g, p.sub, reg, mismatch)
       }
-      record_local(g, node.name.value, node.name.token, "local", value)
-      g.asm:emit_move(g.asm:get_local(node.name.value).register)
-    } else if(g.asm:get_local(node.name.value) != null){
+    } else {
+      local r = emit_match_call(g, p, reg)
+      local k = to_rk(a, const_desc(a, null))
+      free_desc(a, k.desc)
+      a:emit_abc(OP_EQ, 1, r, k.c, k.k)
+      append(mismatch, a:emit_jump())
+      if(p.sub != null){
+        pattern_check(g, p.sub, r, mismatch)
+      }
+      a:free_register(r)
+    }
+  } else {
+    compile_error(g, p.token, "not a pattern: ", t)
+  }
+}
+
+pattern_assign = func(g, p, reg){
+  local a = g.asm
+  local t = p.type
+  if(t == "VarPattern"){
+    local name = p.name.value
+    if(p.isLocal){
+      a:emit_move(a:get_local(name).register, reg)
+    } else if(a:get_local(name) != null){
       // an existing name is assigned like `name = value`: a local first,
       // then an upvalue, else a global
-      record_use(g, node.name.value, node.name.token, true)
-      g.asm:emit_move(g.asm:get_local(node.name.value).register)
-    } else if(g.asm:get_upvalue(node.name.value) != null){
-      record_use(g, node.name.value, node.name.token, true)
-      g.asm:emit_set_upvalue(g.asm:get_upvalue(node.name.value).index)
+      record_use(g, name, p.name.token, true)
+      a:emit_move(a:get_local(name).register, reg)
+    } else if(a:get_upvalue(name) != null){
+      record_use(g, name, p.name.token, true)
+      a:emit_abc(OP_SET_UPVAL, reg, a:get_upvalue(name).index, 0)
     } else {
-      record_use(g, node.name.value, node.name.token, true)
-      g:visit(ast.node("Identifier", {value: "_ENV"}, node.token))
-      g.asm:emit_load_constant(node.name.value)
-      g.asm:emit_push(-3)
-      g.asm:emit_set_table()
-      g.asm:emit_pop()
+      record_use(g, name, p.name.token, true)
+      local env = g:visit(ast.node("Identifier", {value: "_ENV"}, p.token))
+      local k = a:index_of_constant(name)
+      if(env.kind == "upval" and k <= MAX_RK){
+        a:emit_abc(OP_SET_UP_FIELD, env.index, k, reg, false)
+      } else {
+        local e = to_any_reg(a, env)
+        local key = to_any_reg(a, {kind: "k", index: k})
+        free_two(a, e, key)
+        a:emit_abc(OP_SET_INDEX, e.reg, key.reg, reg, false)
+      }
+    }
+  } else if(t == "TablePattern"){
+    for(let local f in values(table_pattern_fields(p))){
+      pattern_assign(g, f, reg)
+    }
+  } else if(t == "FieldPattern"){
+    local v = emit_field_read(g, reg, p.key)
+    pattern_assign(g, p.value, v)
+    a:free_register(v)
+  } else if(t == "MatcherPattern"){
+    if(p.sub == null){
+      return null
+    }
+    if(p.matcher == null){
+      pattern_assign(g, p.sub, reg)
+    } else {
+      local r = emit_match_call(g, p, reg)
+      pattern_assign(g, p.sub, r)
+      a:free_register(r)
     }
   }
 }
+
+// the pattern nodes are compiled through pattern_check and pattern_assign
+local func pattern_outside(g, node){
+  compile_error(g, node.token, "a pattern outside of let or for")
+}
+visitors.ConstPattern = pattern_outside
+visitors.VarPattern = pattern_outside
+visitors.TablePattern = pattern_outside
+visitors.FieldPattern = pattern_outside
+visitors.MatcherPattern = pattern_outside
+
+// ---- break, continue, quote
 
 // the scope index of the loop a break or continue goes to: the innermost,
 // or the one with the label
@@ -2301,47 +2483,69 @@ func visitors.Continue(g, node){
 }
 
 func visitors.Quote(g, node){
-  g:visit(ast.quote(node.ast))
+  return g:visit(ast.quote(node.ast))
 }
 
 func visitors.Unquote(g, node){
   compile_error(g, node.token, "an unquote outside of a quote is resolved while parsing; this one was not")
 }
 
-// generate(node: table, origin?: string,
-//   options?: {record?: table, core?: bool}) -> Prototype
+func visitors.Spread(g, node){
+  compile_error(g, node.token, "a spread (...) belongs in a call or a table")
+}
+
+// ------------------------------------------------------------ assembly
+
+func asm.assemble(self){
+  local children = {}
+  for(let local c in values(self.children)){
+    append(children, c:assemble())
+  }
+  local upvalues = {}
+  for(let local u in values(self.upvalue_list)){
+    local index = u.upvalue_index
+    if(u.local_register >= 0){
+      index = u.local_register
+    }
+    append(upvalues, {u.name, index, u.local_register >= 0})
+  }
+  // locals still alive at the end live to it
+  for(let local v in values(self.local_vars)){
+    if(v[3] < 0){
+      v[3] = len(self.instructions)
+    }
+  }
+  return {
+    code: self.instructions,
+    locations: self.locations,
+    constants: self.constants,
+    upvalues: upvalues,
+    children: children,
+    max_stack: self.max_registers,
+    nargs: self.nargs,
+    is_vararg: self.is_vararg,
+    name: self.name,
+    locals: self.local_vars,
+    isa: "register",
+  }
+}
+
+// generate(node: table, origin?: string, options?: {record?: table})
+//   -> Prototype
 // Compiles an AST node (a chunk, usually) into the prototype of a function
 // that runs it; it reaches globals through the upvalue _ENV. Locals that
 // always hold a literal are replaced by it first (slang/optimizer), unless
-// a recorder is told of the names: those are the names as written. Raises on what cannot compile
-// (break outside a loop, a variable declared twice, an unresolved
-// unquote, ...).
+// a recorder is told of the names: those are the names as written. Raises
+// on what cannot compile (break outside a loop, a variable declared twice,
+// an unresolved unquote, ...).
 // [origin]: the name in locations and error messages; "string" by default
 // [options]: record, a recorder told of names as they are resolved, with
-// define, use and field methods (see record_local above and slang/symbols);
-// core: true emits core instructions only, as for a VM without the fused
-// profile (the default when vm.features() has no fused); isa: "register"
-// (or "stack") picks the instruction set, the register one compiled by
-// slang/codegen_reg (the default when SLANG_ISA=register)
+// define, use and field methods (see record_local above and slang/symbols)
 func codegen.generate(node, origin, options){
-  local isa = default_isa
-  if(options != null and options.isa != null){
-    isa = options.isa
-  }
-  if(isa == "register"){
-    if(register_backend == null){
-      register_backend = require("slang/codegen_reg")
-    }
-    return register_backend.generate(node, origin, options)
-  }
-  local g = {}
+  local g = {predeclared: {}}
   g.@meta = gen_meta
-  local fused = fuse_enabled
   if(options != null){
     g.record = options.record
-    if(options.core){
-      fused = false
-    }
   }
   if(g.record == null){
     node = optimizer.optimize(node, {constants: true})
@@ -2350,9 +2554,8 @@ func codegen.generate(node, origin, options){
   parent:create_local("_ENV")
   g.asm = asm.new(parent)
   visit_body(g, node)
-  g.asm:emit_load_constant(null)
-  g.asm:emit_return()
-  return g.asm:assemble(fused)
+  g.asm:emit_abc(OP_RETURN_NULL, 0, 0, 0)
+  return g.asm:assemble()
 }
 
 return codegen

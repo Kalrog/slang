@@ -1,8 +1,7 @@
-// A frame's temporaries (a call's function and arguments, an expression's
-// operands) live above its registers. The interpreter pushes them without
-// checking the stack's length, so a call reserves room for as many as the
-// code pushes at most: a call with many arguments in a function whose
-// registers end at the end of the stack must not write past it.
+// A call's function and arguments are the highest registers of the frame
+// that makes it, and the callee's frame starts at its first argument: a
+// call with many arguments in a function whose registers end at the end of
+// the stack must find the stack grown for the callee.
 local t = require("slang/test")
 
 local func many(a, b, c, d, e, f, g, h, i, j, k, l, m, n){
@@ -37,27 +36,7 @@ local func at_depth(n){
   return at_depth(n - 1)
 }
 
-// the temps a function's disassembly reports
-local func temps_of(f){
-  local str = require("slang/string")
-  local text = require("slang/vm").disassemble(f)
-  local at = str.index_of(text, "temps=") + 6
-  local stop = str.index_of(text, ")", at)
-  return to_int(str.to_number(str.substring(text, at, stop)))
-}
-
-t.group("stack temporaries"){
-  t.test("a frame reserves what its code pushes, past the old margin of 8"){
-    // (the register ISA has no temporaries above the registers: a call's
-    // arguments are registers of the frame)
-    if(require("slang/vm").features().isa == "register"){
-      return null
-    }
-    // wide pushes many's function and its 14 arguments above its registers
-    assert(temps_of(wide) >= 15, concat("temps ", temps_of(wide)))
-    assert(temps_of(many) >= 1)
-    assert(temps_of(func(){ return 1 }) == 1)
-  }
+t.group("frames at the end of the stack"){
   t.test("a call with many arguments at every depth of the stack"){
     // each depth puts wide's frame at another place, one of them where
     // its registers end at the end of the stack

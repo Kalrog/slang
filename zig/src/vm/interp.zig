@@ -1,3 +1,12 @@
+//! The interpreter: the loop that runs the register instruction set
+//! (ops.zig), the inline caches its quickened instructions use, and the
+//! operations with metamethods (ThreadOps) the rest of the VM calls.
+//!
+//! A frame's registers are base .. base + max_stack, and th.top is their
+//! end whenever something can collect, call out or raise (spill). A call
+//! lowers it to the end of its arguments; what lies above is dead (see
+//! ops.zig) and the collector clears it.
+
 const std = @import("std");
 const root = @import("../vm.zig");
 const oom = root.oom;
@@ -10,15 +19,54 @@ const Error = root.Error;
 const gc = @import("gc.zig");
 const ctypes = @import("../stdlib/ctypes.zig");
 const corelib = @import("../stdlib/core.zig");
-const d = @import("disasm.zig");
-const Op = d.Op;
+const ops = @import("ops.zig");
 const Ic = @import("table.zig").Ic;
-const interp_reg = @import("interp_reg.zig");
+
+/// The operation of an arithmetic, bitwise or comparison instruction, as
+/// the helpers below take it (at comptime from the loop, so that each
+/// folds to its case).
+pub const Op = enum {
+    add,
+    sub,
+    mul,
+    div,
+    mod,
+    pow,
+    band,
+    bor,
+    bxor,
+    shl,
+    shr,
+    bnot,
+    eq,
+    lt,
+    leq,
+
+    pub fn symbol(op: Op) []const u8 {
+        return switch (op) {
+            .add => "+",
+            .sub => "-",
+            .mul => "*",
+            .div => "/",
+            .mod => "%",
+            .pow => "^",
+            .band => "&",
+            .bor => "|",
+            .bxor, .bnot => "~",
+            .shl => "<<",
+            .shr => ">>",
+            .eq => "==",
+            .lt => "<",
+            .leq => "<=",
+        };
+    }
+};
 
 // ---- inline caches (quickening)
 //
-// The first time a get_x, self_x or set_x with a constant string key runs,
-// it is rewritten in place into get_k, self_k or set_k, whose key operand
+// The first time a get_field, get_up_field, self, set_field or
+// set_up_field with a constant string key runs, it is rewritten in place
+// into its quickened form (ops.zig: get_field_q, ...), whose key operand
 // is an index into the prototype's inline caches (Proto.ics) instead. A
 // cache remembers the slot where the key was last found in the object
 // itself: objects that got their keys in the same order (made by the same
@@ -35,51 +83,6 @@ const interp_reg = @import("interp_reg.zig");
 // Values are read from the remembered slot each time, so storing a new
 // method into a class does not invalidate anything. A miss runs the
 // original instruction (Ic.orig), which does the full lookup.
-
-/// Where a quickened instruction keeps its key: get_x and self_x in C,
-/// set_x in B.
-fn keyField(comptime op: Op) u5 {
-    return if (op == .set_x) 23 else 14;
-}
-
-/// The key of a get_x, self_x or set_x that can be quickened: a constant
-/// string (for a store not a metamethod name: those change what the caches
-/// depend on, and not a literal's field), the instruction not quickened
-/// already (after a miss it runs as itself), room for another cache in the
-/// prototype (9 bits).
-inline fn quickenable(proto: *root.Proto, code: []u32, consts: []const Value, pc: usize, ins: u32, comptime op: Op) ?*String {
-    const x = (ins >> keyField(op)) & 0x1FF;
-    if (x < d.first_constant or x >= d.first_upvalue) return null;
-    const k = consts[x - d.first_constant];
-    if (k != .string) return null;
-    if (d.opOf(code[pc - 1]) != op) return null;
-    if (proto.ics.items.len >= d.stack_operand) return null;
-    if (op == .set_x) {
-        // a table literal's field (into the table on top): always a new
-        // key, which the cache does not store
-        if (d.argA(ins) == d.peek_dest) return null;
-        const b = k.string.bytes();
-        if (b.len >= 2 and b[0] == '_' and b[1] == '_') return null;
-    }
-    return k.string;
-}
-
-/// Gives the instruction a cache and rewrites it at pc - 1 into its
-/// quickened form, which it returns.
-fn quicken(vm: *root.VM, proto: *root.Proto, code: []u32, pc: usize, ins: u32, key: *String, comptime op: Op) u32 {
-    const idx: u32 = @intCast(proto.ics.items.len);
-    proto.ics.append(vm.gpa, .{ .key = key, .orig = ins, .keybit = Table.keyBit(key) }) catch oom();
-    const q: Op = switch (op) {
-        .get_x => .get_k,
-        .self_x => .self_k,
-        .set_x => .set_k,
-        else => unreachable,
-    };
-    const shift = comptime keyField(op);
-    const quick = (ins & ~((@as(u32, 0x1FF) << shift) | 0x3F)) | (idx << shift) | @intFromEnum(q);
-    code[pc - 1] = quick;
-    return quick;
-}
 
 /// obj[key] through an inline cache. Null: a property (its getter in
 /// `getter`) or the generic path.
@@ -285,7 +288,7 @@ pub inline fn iterKind(f: *root.Closure) ?i64 {
     return null;
 }
 
-/// == of a jeq without a call: null, booleans and strings (whose __eq is
+/// == without a call: null, booleans and strings (whose __eq is
 /// never asked). Null: numbers of mixed kinds, tables, the rest.
 pub inline fn eqInline(a: Value, b: Value) ?bool {
     if (a == .null or b == .null) return a == .null and b == .null;
@@ -295,1004 +298,569 @@ pub inline fn eqInline(a: Value, b: Value) ?bool {
 }
 
 /// Executes frames until the frame depth drops back to stop_depth.
-///
-/// The stack top and the stack base pointer live in locals while a frame
-/// runs: `th.top` is written back, and both are reloaded (a call may grow
-/// the stack), around everything that calls out: natives, metamethods, the
-/// collector, error handling and the trace.
-///
-/// There is a loop for each ISA (this one for the stack ISA, interp_reg.zig
-/// for the register ISA); each runs the frames of its own and returns here
-/// when a call or a return reaches a frame of the other one.
 pub fn run(th: *Thread, stop_depth: usize) Error!void {
     th.run_depth += 1;
     defer th.run_depth -= 1;
     // the trace check costs about 3% on call-heavy code when it sits in
-    // every opcode, so each loop exists twice: with and without it (the
+    // every opcode, so the loop exists twice: with and without it (the
     // profiler and the debugger use the same hook)
     const vm = th.vm;
-    const trace = vm.tracer != null or vm.opstats != null or vm.profiler != null or vm.debugger != null;
-    while (th.frames.items.len > stop_depth) {
-        const p = th.frames.items[th.frames.items.len - 1].cl.proto orelse return vm.raise("internal error: native frame in interpreter loop", .{});
-        switch (p.isa) {
-            .stack => if (trace) try runImpl(th, stop_depth, true) else try runImpl(th, stop_depth, false),
-            .register => if (trace) try interp_reg.run(th, stop_depth, true) else try interp_reg.run(th, stop_depth, false),
-        }
-    }
+    if (vm.tracer != null or vm.opstats != null or vm.profiler != null or vm.debugger != null) return runLoop(th, stop_depth, true);
+    return runLoop(th, stop_depth, false);
 }
 
-fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
+fn runLoop(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
     const vm = th.vm;
     outer: while (true) {
         const n = th.frames.items.len;
         if (n <= stop_depth) return;
         var fi = n - 1;
         const frame = th.frames.items[fi];
-        var proto = frame.cl.proto orelse return vm.raise("internal error: native frame in interpreter loop", .{});
-        // a frame of the register ISA: back to run
-        if (proto.isa != .stack) return;
+        var cl = frame.cl;
+        var proto = cl.proto orelse return vm.raise("internal error: native frame in interpreter loop", .{});
         var code = proto.code;
         var consts = proto.consts;
         var base: usize = frame.base;
+        // the end of the frame's registers
+        var ftop: usize = base + proto.max_stack;
         var pc: usize = frame.pc;
-        var top: usize = th.top;
         var stack: [*]Value = th.stack.ptr;
         var ins: u32 = undefined;
-        // labelled switch: every opcode fetches the next instruction and
-        // jumps straight to its case
-        sw: switch (fetch(trace, th, code, fi, base, &pc, top, &ins)) {
-            .load_constant => {
-                stack[top] = consts[d.argBx(ins)];
-                top += 1;
-                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+        th.top = ftop;
+        sw: switch (fetch(trace, th, code, fi, base, &pc, ftop, &ins)) {
+            // ---- loads
+            .move => {
+                stack[base + ops.argA(ins)] = stack[base + ops.argB(ins)];
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+            },
+            .load_k => {
+                stack[base + ops.argA(ins)] = consts[ops.argBx(ins)];
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+            },
+            .load_int => {
+                putRaw(&stack[base + ops.argA(ins)], .int, @bitCast(@as(i64, ops.argSBx(ins))));
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
             },
             .load_bool => {
-                stack[top] = .{ .bool = d.argB(ins) != 0 };
-                top += 1;
-                if (d.argC(ins) != 0) pc += 1;
-                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+                putRaw(&stack[base + ops.argA(ins)], .bool, @intFromBool(ops.argB(ins) != 0));
+                if (ops.argC(ins) != 0) pc += 1;
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
             },
-            .load_closure => {
-                th.top = top;
+            .load_null => {
+                const a = base + ops.argA(ins);
+                @memset(stack[a .. a + ops.argB(ins) + 1], .null);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+            },
+            .closure => {
+                spill(th, fi, pc, ftop);
                 gc.safePoint(vm, th) catch |e| {
-                    spill(trace, th, fi, pc, top);
                     try th.handleError(e, stop_depth);
                     continue :outer;
                 };
-                const cl = th.makeClosure(th.frames.items[fi], proto.children[d.argAx(ins)]);
-                stack[top] = .{ .function = cl };
-                top += 1;
-                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+                const c = th.makeClosure(th.frames.items[fi], proto.children[ops.argBx(ins)]);
+                stack[base + ops.argA(ins)] = .{ .function = c };
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
             },
-            inline .add, .sub, .mul, .div, .mod => |op| {
-                const b = stack[top - 1];
-                const a = stack[top - 2];
-                if (numArith(op, a, b)) |r| {
-                    top -= 1;
-                    stack[top - 1] = r;
-                    continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+            // ---- upvalues
+            .get_upval => {
+                stack[base + ops.argA(ins)] = cl.upvals[ops.argB(ins)].get();
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+            },
+            .set_upval => {
+                const v = stack[base + ops.argA(ins)];
+                const u = cl.upvals[ops.argB(ins)];
+                u.set(v);
+                // a closed upvalue is an object of its own (open, the value
+                // is on a stack: rescanned)
+                if (u.th == null) gc.barrier(vm, &u.obj, v);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+            },
+            .close => {
+                th.closeUpvalues(base + ops.argA(ins));
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+            },
+            // ---- arithmetic
+            inline .add, .sub, .mul, .div, .mod, .pow, .band, .bor, .bxor, .shl, .shr => |op| {
+                const core = comptime coreOf(op);
+                const b = stack[base + ops.argB(ins)];
+                const c = rk(stack, base, consts, ins);
+                switch (core) {
+                    .add, .sub, .mul, .div, .mod => if (numArith(core, b, c)) |r| {
+                        putValue(&stack[base + ops.argA(ins)], r);
+                        continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                    },
+                    .band, .bor, .bxor, .shl, .shr => if (b == .int and c == .int) {
+                        if (bitop(core, b.int, c.int)) |r| {
+                            putValue(&stack[base + ops.argA(ins)], r);
+                            continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                        }
+                    },
+                    else => {},
                 }
-                // operands stay on the stack during the (possibly
-                // allocating) operation so the collector can see them
-                spill(trace, th, fi, pc, top);
-                const r = th.arithMeta(op, a, b) catch |e| {
-                    th.top -= 2;
+                spill(th, fi, pc, ftop);
+                const r = th.arithMeta(core, b, c) catch |e| {
                     try th.handleError(e, stop_depth);
                     continue :outer;
                 };
-                top = th.top - 1;
                 stack = th.stack.ptr;
-                stack[top - 1] = r;
-                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-            },
-            .pow, .band, .bor, .bxor, .shl, .shr => {
-                const b = stack[top - 1];
-                const a = stack[top - 2];
-                spill(trace, th, fi, pc, top);
-                const r = th.arithMeta(d.opOf(ins), a, b) catch |e| {
-                    th.top -= 2;
-                    try th.handleError(e, stop_depth);
-                    continue :outer;
-                };
-                top = th.top - 1;
-                stack = th.stack.ptr;
-                stack[top - 1] = r;
-                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+                stack[base + ops.argA(ins)] = r;
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
             },
             .neg => {
-                const a = stack[top - 1];
+                const a = stack[base + ops.argB(ins)];
                 switch (a) {
-                    .int => |i| stack[top - 1] = .{ .int = 0 -% i },
-                    .float => |f| stack[top - 1] = .{ .float = -f },
+                    .int => |i| stack[base + ops.argA(ins)] = .{ .int = 0 -% i },
+                    .float => |f| stack[base + ops.argA(ins)] = .{ .float = -f },
                     else => {
-                        spill(trace, th, fi, pc, top);
+                        spill(th, fi, pc, ftop);
                         const f = metamethod(a, .null, "__unm");
-                        if (f == .function) {
-                            const r = th.call(f, &.{a}) catch |e| {
-                                try th.handleError(e, stop_depth);
-                                continue :outer;
-                            };
-                            top = th.top;
-                            stack = th.stack.ptr;
-                            stack[top - 1] = r;
-                            continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+                        if (f != .function) {
+                            vm.setError("attempt to negate a {s} value", .{a.typeName()});
+                            try th.handleError(error.Slang, stop_depth);
+                            continue :outer;
                         }
-                        vm.setError("attempt to negate a {s} value", .{a.typeName()});
-                        try th.handleError(error.Slang, stop_depth);
-                        continue :outer;
+                        const r = th.call(f, &.{a}) catch |e| {
+                            try th.handleError(e, stop_depth);
+                            continue :outer;
+                        };
+                        stack = th.stack.ptr;
+                        stack[base + ops.argA(ins)] = r;
                     },
                 }
-                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+            },
+            .not => {
+                // (read first: a tagged union written in place takes its tag
+                // before the operand is read)
+                const v = stack[base + ops.argB(ins)];
+                stack[base + ops.argA(ins)] = .{ .bool = !v.truthy() };
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
             },
             .bnot => {
-                const a = stack[top - 1];
+                const a = stack[base + ops.argB(ins)];
                 if (a == .int) {
-                    stack[top - 1] = .{ .int = ~a.int };
+                    stack[base + ops.argA(ins)] = .{ .int = ~a.int };
                 } else {
-                    spill(trace, th, fi, pc, top);
+                    spill(th, fi, pc, ftop);
                     const r = bnotSlow(th, a) catch |e| {
                         try th.handleError(e, stop_depth);
                         continue :outer;
                     };
-                    top = th.top;
                     stack = th.stack.ptr;
-                    stack[top - 1] = r;
+                    stack[base + ops.argA(ins)] = r;
                 }
-                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
             },
-            .not => {
-                // Read into a local first: writing `.{ .bool = ... }` straight
-                // into the slot sets the tag before the operand is evaluated
-                // (Zig result-location semantics).
-                const v = stack[top - 1];
-                stack[top - 1] = .{ .bool = !v.truthy() };
-                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-            },
-            .eq => {
-                const b = stack[top - 1];
-                const a = stack[top - 2];
-                top -= 1;
-                if (a == .int and b == .int) {
-                    const r = a.int == b.int;
-                    stack[top - 1] = .{ .bool = r };
-                    continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-                }
-                if (a == .float and b == .float) {
-                    const r = a.float == b.float;
-                    stack[top - 1] = .{ .bool = r };
-                    continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-                }
-                if (a.kind() == b.kind() and (a == .table or a == .userdata)) {
-                    const f = metamethod(a, b, "__eq");
-                    if (f == .function) {
-                        spill(trace, th, fi, pc, top);
-                        const r = th.call(f, &.{ a, b }) catch |e| {
-                            th.top -= 1;
-                            try th.handleError(e, stop_depth);
-                            continue :outer;
-                        };
-                        top = th.top;
-                        stack = th.stack.ptr;
-                        stack[top - 1] = .{ .bool = r.truthy() };
-                        continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-                    }
-                }
-                stack[top - 1] = .{ .bool = a.equals(b) };
-                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-            },
-            .lt, .leq => {
-                const b = stack[top - 1];
-                const a = stack[top - 2];
-                top -= 1;
-                const is_lt = d.opOf(ins) == .lt;
-                var r: bool = undefined;
-                if (a == .int and b == .int) {
-                    r = if (is_lt) a.int < b.int else a.int <= b.int;
-                } else if (a.isNumber() and b.isNumber()) {
-                    const x = a.asNumber();
-                    const y = b.asNumber();
-                    r = if (is_lt) x < y else x <= y;
+            // ---- compare and branch
+            inline .eq, .lt, .le, .gt, .ge => |op| {
+                const core: Op = comptime switch (op) {
+                    .eq => .eq,
+                    .lt, .gt => .lt,
+                    else => .leq,
+                };
+                const swap = comptime (op == .gt or op == .ge);
+                const x = stack[base + ops.argB(ins)];
+                const y = rk(stack, base, consts, ins);
+                const l = if (swap) y else x;
+                const r = if (swap) x else y;
+                var res: bool = undefined;
+                if (l == .int and r == .int) {
+                    res = switch (core) {
+                        .lt => l.int < r.int,
+                        .leq => l.int <= r.int,
+                        else => l.int == r.int,
+                    };
+                } else if (l == .float and r == .float) {
+                    res = switch (core) {
+                        .lt => l.float < r.float,
+                        .leq => l.float <= r.float,
+                        else => l.float == r.float,
+                    };
+                } else if (if (core == .eq) eqInline(l, r) else null) |e| {
+                    res = e;
                 } else {
-                    spill(trace, th, fi, pc, top);
-                    const name: []const u8 = if (is_lt) "__lt" else "__le";
-                    const f = metamethod(a, b, name);
-                    if (f == .function) {
-                        const res = th.call(f, &.{ a, b }) catch |e| {
-                            th.top -= 1;
-                            try th.handleError(e, stop_depth);
-                            continue :outer;
-                        };
-                        top = th.top;
-                        stack = th.stack.ptr;
-                        stack[top - 1] = .{ .bool = res.truthy() };
-                        continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-                    }
-                    th.top -= 1;
-                    vm.setError("attempt to compare {s} {s} {s}", .{ a.typeName(), if (is_lt) "<" else "<=", b.typeName() });
+                    spill(th, fi, pc, ftop);
+                    res = compareSlow(th, core, l, r) catch |e| {
+                        try th.handleError(e, stop_depth);
+                        continue :outer;
+                    };
+                    stack = th.stack.ptr;
+                }
+                if (res != (ops.argA(ins) != 0)) pc += 1 else takeJump(code, &pc);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+            },
+            .@"test" => {
+                const v = stack[base + ops.argA(ins)];
+                if (v.truthy() != ops.argK(ins)) pc += 1 else takeJump(code, &pc);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+            },
+            .test_set => {
+                const v = stack[base + ops.argB(ins)];
+                if (v.truthy() != ops.argK(ins)) {
+                    pc += 1;
+                } else {
+                    stack[base + ops.argA(ins)] = v;
+                    takeJump(code, &pc);
+                }
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+            },
+            .jump => {
+                const off = ops.argSBx(ins);
+                if (off < 0) {
+                    spill(th, fi, pc, ftop);
+                    gc.safePoint(vm, th) catch |e| {
+                        try th.handleError(e, stop_depth);
+                        continue :outer;
+                    };
+                }
+                pc = @intCast(@as(i64, @intCast(pc)) + off);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+            },
+            // ---- tables
+            .new_table => {
+                spill(th, fi, pc, ftop);
+                gc.safePoint(vm, th) catch |e| {
+                    try th.handleError(e, stop_depth);
+                    continue :outer;
+                };
+                stack[base + ops.argA(ins)] = .{ .table = vm.newTable(ops.argB(ins), ops.argC(ins)) };
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+            },
+            inline .get_field, .get_index, .get_up_field => |op| {
+                if (op != .get_index) quicken: {
+                    const key = quickenable(proto, code, pc, consts[ops.argC(ins)], op) orelse break :quicken;
+                    ins = quicken(vm, proto, code, pc, ins, key, op);
+                    continue :sw if (op == .get_field) .get_field_q else .get_up_field_q;
+                }
+                const obj = switch (op) {
+                    .get_up_field => cl.upvals[ops.argB(ins)].get(),
+                    else => stack[base + ops.argB(ins)],
+                };
+                const key = if (op == .get_index) stack[base + ops.argC(ins)] else consts[ops.argC(ins)];
+                var getter: Value = .null;
+                if (getFastG(vm, obj, key, &getter)) |v| {
+                    stack[base + ops.argA(ins)] = v;
+                    continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                }
+                if (getter != .null) {
+                    const switched = callAccessor(th, fi, pc, base, ftop, getter, obj, null, @intCast(ops.argA(ins))) catch |e| {
+                        try th.handleError(e, stop_depth);
+                        continue :outer;
+                    };
+                    if (switched) continue :outer;
+                    stack = th.stack.ptr;
+                    continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                }
+                spill(th, fi, pc, ftop);
+                const v = th.getTable(obj, key) catch |e| {
+                    try th.handleError(e, stop_depth);
+                    continue :outer;
+                };
+                stack = th.stack.ptr;
+                stack[base + ops.argA(ins)] = v;
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+            },
+            inline .get_field_q, .get_up_field_q => |op| {
+                const ic = &proto.ics.items[ops.cacheOf(ins)];
+                const obj = if (op == .get_up_field_q) cl.upvals[ops.argB(ins)].get() else stack[base + ops.argB(ins)];
+                var getter: Value = .null;
+                if (icGet(vm, ic, obj, &getter)) |v| {
+                    stack[base + ops.argA(ins)] = v;
+                    continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                }
+                if (getter != .null) {
+                    const switched = callAccessor(th, fi, pc, base, ftop, getter, obj, null, @intCast(ops.argA(ins))) catch |e| {
+                        try th.handleError(e, stop_depth);
+                        continue :outer;
+                    };
+                    if (switched) continue :outer;
+                    stack = th.stack.ptr;
+                    continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                }
+                // a miss: the instruction as it was compiled
+                ins = ic.orig;
+                continue :sw if (op == .get_field_q) .get_field else .get_up_field;
+            },
+            inline .set_field, .set_index, .set_up_field => |op| {
+                if (op != .set_index) quicken: {
+                    const key = quickenable(proto, code, pc, consts[ops.argB(ins)], op) orelse break :quicken;
+                    ins = quicken(vm, proto, code, pc, ins, key, op);
+                    continue :sw if (op == .set_field) .set_field_q else .set_up_field_q;
+                }
+                const obj = if (op == .set_up_field) cl.upvals[ops.argA(ins)].get() else stack[base + ops.argA(ins)];
+                const key = if (op == .set_index) stack[base + ops.argB(ins)] else consts[ops.argB(ins)];
+                const val = rk(stack, base, consts, ins);
+                if (setFast(vm, obj, key, val)) continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                if (findSetter(vm, obj, key)) |f| {
+                    const switched = callAccessor(th, fi, pc, base, ftop, f, obj, val, thread_mod.dest_drop) catch |e| {
+                        try th.handleError(e, stop_depth);
+                        continue :outer;
+                    };
+                    if (switched) continue :outer;
+                    stack = th.stack.ptr;
+                    continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                }
+                spill(th, fi, pc, ftop);
+                th.setTable(obj, key, val) catch |e| {
+                    try th.handleError(e, stop_depth);
+                    continue :outer;
+                };
+                stack = th.stack.ptr;
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+            },
+            inline .set_field_q, .set_up_field_q => |op| {
+                const ic = &proto.ics.items[ops.cacheOf(ins)];
+                const obj = if (op == .set_up_field_q) cl.upvals[ops.argA(ins)].get() else stack[base + ops.argA(ins)];
+                if (icStore(vm, ic, obj, rk(stack, base, consts, ins))) {
+                    continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                }
+                ins = ic.orig;
+                continue :sw if (op == .set_field_q) .set_field else .set_up_field;
+            },
+            .init_field => {
+                const t = stack[base + ops.argA(ins)].table;
+                t.set(vm.gpa, consts[ops.argB(ins)], rk(stack, base, consts, ins));
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+            },
+            .self => {
+                quicken: {
+                    if (!ops.argK(ins)) break :quicken;
+                    const key = quickenable(proto, code, pc, consts[ops.argC(ins)], .self) orelse break :quicken;
+                    ins = quicken(vm, proto, code, pc, ins, key, .self);
+                    continue :sw .self_q;
+                }
+                const obj = stack[base + ops.argB(ins)];
+                const key = rk(stack, base, consts, ins);
+                const a = base + ops.argA(ins);
+                var f: Value = undefined;
+                if (getFast(vm, obj, key)) |v| {
+                    f = v;
+                } else {
+                    spill(th, fi, pc, ftop);
+                    f = th.getTable(obj, key) catch |e| {
+                        try th.handleError(e, stop_depth);
+                        continue :outer;
+                    };
+                    stack = th.stack.ptr;
+                }
+                stack[a + 1] = obj;
+                stack[a] = f;
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+            },
+            .self_q => {
+                const ic = &proto.ics.items[ops.cacheOf(ins)];
+                const obj = stack[base + ops.argB(ins)];
+                var getter: Value = .null;
+                if (icGet(vm, ic, obj, &getter)) |f| {
+                    const a = base + ops.argA(ins);
+                    stack[a + 1] = obj;
+                    stack[a] = f;
+                    continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                }
+                ins = ic.orig;
+                continue :sw .self;
+            },
+            .set_list => {
+                const a = base + ops.argA(ins);
+                const t = stack[a].table;
+                var start: usize = ops.argC(ins);
+                if (ops.argK(ins)) {
+                    start = code[pc];
+                    pc += 1;
+                }
+                for (0..ops.argB(ins)) |i| t.set(vm.gpa, .{ .int = @intCast(start + i) }, stack[a + 1 + i]);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+            },
+            // ---- metatables, types
+            .get_meta => {
+                const v = stack[base + ops.argB(ins)];
+                stack[base + ops.argA(ins)] = switch (v) {
+                    .table => |t| Value.fromTable(t.meta),
+                    .userdata => |u| Value.fromTable(u.meta),
+                    else => .null,
+                };
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+            },
+            .set_meta => {
+                th.setMeta(stack[base + ops.argA(ins)], stack[base + ops.argB(ins)]) catch |e| {
+                    spill(th, fi, pc, ftop);
+                    try th.handleError(e, stop_depth);
+                    continue :outer;
+                };
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+            },
+            .type => {
+                spill(th, fi, pc, ftop);
+                const r = th.typeOf(stack[base + ops.argB(ins)]) catch |e| {
+                    try th.handleError(e, stop_depth);
+                    continue :outer;
+                };
+                stack = th.stack.ptr;
+                stack[base + ops.argA(ins)] = r;
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+            },
+            // ---- functions
+            .call => {
+                spill(th, fi, pc, ftop);
+                gc.safePoint(vm, th) catch |e| {
+                    try th.handleError(e, stop_depth);
+                    continue :outer;
+                };
+                const fn_idx = base + ops.argA(ins);
+                const nargs: usize = ops.argB(ins);
+                th.top = fn_idx + 1 + nargs;
+                const is_slang = th.precall(fn_idx, nargs) catch |e| {
+                    try th.handleError(e, stop_depth);
+                    continue :outer;
+                };
+                if (is_slang) {
+                    // the callee's frame, without leaving the switch
+                    fi = th.frames.items.len - 1;
+                    const fr = th.frames.items[fi];
+                    cl = fr.cl;
+                    proto = cl.proto.?;
+                    code = proto.code;
+                    consts = proto.consts;
+                    base = fr.base;
+                    ftop = base + proto.max_stack;
+                    pc = fr.pc;
+                    th.top = ftop;
+                    stack = th.stack.ptr;
+                    continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                }
+                // a native ran: its result is in R[A]
+                th.top = ftop;
+                stack = th.stack.ptr;
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+            },
+            .call_spread => {
+                spill(th, fi, pc, ftop);
+                gc.safePoint(vm, th) catch |e| {
+                    try th.handleError(e, stop_depth);
+                    continue :outer;
+                };
+                const fn_idx = base + ops.argA(ins);
+                const fixed: usize = ops.argB(ins);
+                const at = fn_idx + 1 + fixed;
+                const list = stack[at];
+                if (list != .table) {
+                    vm.setError("attempt to spread a {s} value", .{list.typeName()});
                     try th.handleError(error.Slang, stop_depth);
                     continue :outer;
                 }
-                stack[top - 1] = .{ .bool = r };
-                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+                // every index up to the largest: a gap is passed as null
+                const lt = list.table;
+                const spread_n = lt.spreadLen();
+                th.ensure(at + spread_n + 8) catch |e| {
+                    try th.handleError(e, stop_depth);
+                    continue :outer;
+                };
+                stack = th.stack.ptr;
+                for (0..spread_n) |i| stack[at + i] = lt.getInt(@intCast(i));
+                th.top = at + spread_n;
+                const is_slang = th.precall(fn_idx, fixed + spread_n) catch |e| {
+                    try th.handleError(e, stop_depth);
+                    continue :outer;
+                };
+                if (is_slang) continue :outer;
+                th.top = ftop;
+                stack = th.stack.ptr;
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
             },
-            .move => {
-                const v = stack[top - 1];
-                top -= 1;
-                stack[absIndex(top, base, d.argSBx(ins))] = v;
-                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-            },
-            .push => {
-                stack[top] = stack[absIndex(top, base, d.argSBx(ins))];
-                top += 1;
-                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-            },
-            .pop => {
-                const keep: usize = d.argA(ins);
-                const drop: usize = d.argBx(ins);
-                if (keep > 0) {
-                    std.mem.copyForwards(Value, stack[top - drop - keep .. top - drop], stack[top - keep .. top]);
-                }
-                top -= drop;
-                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-            },
-            .@"return" => {
-                const res = stack[top - 1];
+            .@"return", .return_null => {
+                const res: Value = if (ops.opOf(ins) == .@"return") stack[base + ops.argA(ins)] else .null;
                 const fn_idx = base - 1;
                 const dest = th.frames.items[fi].dest;
-                th.top = top;
                 th.popFrame();
                 th.top = fn_idx;
                 if (dest == thread_mod.dest_push) {
                     th.stack[fn_idx] = res;
                     th.top = fn_idx + 1;
                 } else if (dest != thread_mod.dest_drop) {
-                    // a getter's result, into its caller's register
+                    // an accessor's result, into its caller's register
                     th.stack[th.frames.items[th.frames.items.len - 1].base + dest] = res;
                 }
                 if (th.frames.items.len == stop_depth) return;
-                // the caller's frame, without leaving the switch (every
-                // frame above stop_depth is a slang frame: natives that
-                // call back run their own loop)
+                // the caller's frame, without leaving the switch
                 fi = th.frames.items.len - 1;
                 const fr = th.frames.items[fi];
-                proto = fr.cl.proto.?;
-                if (proto.isa != .stack) continue :outer;
+                cl = fr.cl;
+                proto = cl.proto orelse continue :outer;
                 code = proto.code;
                 consts = proto.consts;
                 base = fr.base;
+                ftop = base + proto.max_stack;
                 pc = fr.pc;
-                top = th.top;
+                th.top = ftop;
                 stack = th.stack.ptr;
-                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
             },
-            .new_table => {
-                th.top = top;
-                gc.safePoint(vm, th) catch |e| {
-                    spill(trace, th, fi, pc, top);
-                    try th.handleError(e, stop_depth);
-                    continue :outer;
-                };
-                stack[top] = .{ .table = vm.newTable(d.argB(ins), d.argC(ins)) };
-                top += 1;
-                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-            },
-            .set_table => {
-                const val = stack[top - 1];
-                const key = stack[top - 2];
-                const obj = stack[top - 3];
-                top -= 3;
-                if (setFast(vm, obj, key, val)) continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-                if (findSetter(vm, obj, key)) |f| {
-                    // a property: its setter, called as a call, its result
-                    // dropped
-                    stack[top] = f;
-                    stack[top + 1] = obj;
-                    stack[top + 2] = val;
-                    spill(trace, th, fi, pc, top + 3);
-                    const is_slang = th.precall(top, 2) catch |e| {
-                        try th.handleError(e, stop_depth);
-                        continue :outer;
-                    };
-                    const acc_dest: u16 = thread_mod.dest_drop;
-                    if (is_slang) {
-                        th.frames.items[th.frames.items.len - 1].dest = acc_dest;
-                        fi = th.frames.items.len - 1;
-                        const fr = th.frames.items[fi];
-                        proto = fr.cl.proto.?;
-                        if (proto.isa != .stack) continue :outer;
-                        code = proto.code;
-                        consts = proto.consts;
-                        base = fr.base;
-                        pc = fr.pc;
-                        top = th.top;
-                        stack = th.stack.ptr;
-                    } else {
-                        // a native accessor ran already: its result where it was
-                        top = th.top;
-                        stack = th.stack.ptr;
-                        if (acc_dest != thread_mod.dest_push) {
-                            top -= 1;
-                            if (acc_dest != thread_mod.dest_drop) stack[base + acc_dest] = stack[top];
-                        }
-                    }
-                    continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-                }
-                spill(trace, th, fi, pc, top);
-                th.setTable(obj, key, val) catch |e| {
-                    try th.handleError(e, stop_depth);
-                    continue :outer;
-                };
-                top = th.top;
-                stack = th.stack.ptr;
-                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-            },
-            .get_table => {
-                const key = stack[top - 1];
-                const obj = stack[top - 2];
-                top -= 1;
-                var getter: Value = .null;
-                if (getFastG(vm, obj, key, &getter)) |v| {
-                    stack[top - 1] = v;
-                    continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-                }
-                top -= 1;
-                if (getter != .null) {
-                    const g = getter;
-                    // a property: its getter, called as a call instruction
-                    // calls (the result lands where obj was)
-                    stack[top] = g;
-                    stack[top + 1] = obj;
-                    spill(trace, th, fi, pc, top + 2);
-                    const is_slang = th.precall(top, 1) catch |e| {
-                        try th.handleError(e, stop_depth);
-                        continue :outer;
-                    };
-                    if (is_slang) {
-                        fi = th.frames.items.len - 1;
-                        const fr = th.frames.items[fi];
-                        proto = fr.cl.proto.?;
-                        if (proto.isa != .stack) continue :outer;
-                        code = proto.code;
-                        consts = proto.consts;
-                        base = fr.base;
-                        pc = fr.pc;
-                    }
-                    top = th.top;
-                    stack = th.stack.ptr;
-                    continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-                }
-                spill(trace, th, fi, pc, top);
-                const v = th.getTable(obj, key) catch |e| {
-                    try th.handleError(e, stop_depth);
-                    continue :outer;
-                };
-                top = th.top;
-                stack = th.stack.ptr;
-                stack[top] = v;
-                top += 1;
-                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-            },
-            .set_upvalue => {
-                const v = stack[top - 1];
-                top -= 1;
-                const u = th.frames.items[fi].cl.upvals[d.argAx(ins)];
-                u.set(v);
-                // a closed upvalue is an object of its own (open, the value
-                // is on a stack: rescanned)
-                if (u.th == null) gc.barrier(th.vm, &u.obj, v);
-                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-            },
-            .get_upvalue => {
-                stack[top] = th.frames.items[fi].cl.upvals[d.argAx(ins)].get();
-                top += 1;
-                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-            },
-            .close_upvalues => {
-                th.closeUpvalues(base + d.argAx(ins));
-                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-            },
-            .@"test" => {
-                const v = stack[top - 1];
-                top -= 1;
-                if (v.truthy() != (d.argC(ins) != 0)) pc += 1;
-                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-            },
-            .jump => {
-                const off = d.argSBx(ins);
-                if (off < 0) {
-                    spill(trace, th, fi, pc, top);
-                    gc.safePoint(vm, th) catch |e| {
-                        spill(trace, th, fi, pc, top);
-                        try th.handleError(e, stop_depth);
-                        continue :outer;
-                    };
-                }
-                pc = @intCast(@as(i64, @intCast(pc)) + off);
-                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-            },
-            .call_spread => {
-                spill(trace, th, fi, pc, top);
-                gc.safePoint(vm, th) catch |e| {
-                    spill(trace, th, fi, pc, top);
-                    try th.handleError(e, stop_depth);
-                    continue :outer;
-                };
-                const fixed: usize = d.argBx(ins);
-                const list = stack[top - 1];
-                if (list != .table) {
-                    vm.setError("attempt to spread a {s} value", .{list.typeName()});
-                    try th.handleError(error.Slang, stop_depth);
-                    continue :outer;
-                }
-                // every index up to the largest: a gap is passed as null,
-                // so ...args forwards f(1, null, 3) as it came
-                const lt = list.table;
-                const spread_n = lt.spreadLen();
-                top -= 1;
-                spill(trace, th, fi, pc, top);
-                th.ensure(top + spread_n + 8) catch |e| {
-                    try th.handleError(e, stop_depth);
-                    continue :outer;
-                };
-                stack = th.stack.ptr;
-                for (0..spread_n) |i| {
-                    stack[top] = lt.getInt(@intCast(i));
-                    top += 1;
-                }
-                spill(trace, th, fi, pc, top);
-                const nargs = fixed + spread_n;
-                const fn_idx = top - nargs - 1;
-                const is_slang = th.precall(fn_idx, nargs) catch |e| {
-                    try th.handleError(e, stop_depth);
-                    continue :outer;
-                };
-                if (is_slang) {
-                    // the callee's frame, without leaving the switch
-                    fi = th.frames.items.len - 1;
-                    const fr = th.frames.items[fi];
-                    proto = fr.cl.proto.?;
-                    if (proto.isa != .stack) continue :outer;
-                    code = proto.code;
-                    consts = proto.consts;
-                    base = fr.base;
-                    pc = fr.pc;
-                    top = th.top;
-                    stack = th.stack.ptr;
-                    continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-                }
-                top = th.top;
-                stack = th.stack.ptr;
-                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-            },
-            .forin_prep => {
-                // [f, x]: the built-in keys, values or entries of a table
-                // become a walk of the table in the loop (forin_next) with
-                // nothing allocated; anything else is the call f(x)
-                const f = stack[top - 2];
-                const x = stack[top - 1];
-                if (f == .function and x == .table) {
-                    if (iterKind(f.function)) |kind| {
-                        stack[top - 2] = x;
-                        top -= 1;
-                        stack[base + d.argA(ins)] = .{ .int = kind };
-                        continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-                    }
-                }
-                ins = @as(u32, 1) << 14 | @intFromEnum(Op.call);
-                continue :sw .call;
-            },
-            .forin_next => {
-                const it = stack[top - 1];
-                if (it == .table) {
-                    const ra = base + d.argA(ins);
-                    var state: u64 = @intCast(stack[ra].int);
-                    const e = it.table.nextLive(&state);
-                    if (e) |entry| {
-                        stack[ra] = .{ .int = @intCast(state) };
-                        const v: Value = switch (state & 3) {
-                            0 => entry.key,
-                            1 => entry.val,
-                            else => .{ .table = corelib.entryPair(vm, entry) },
-                        };
-                        stack[top] = v;
-                        top += 1;
-                        // the second word: to the pattern
-                        const off = d.argSBx(code[pc + 1]);
-                        pc += 2 + @as(usize, @intCast(off));
-                    } else {
-                        // the end: the loop's stop path pops a value
-                        stack[top] = .null;
-                        top += 1;
-                        const off = d.argSBx(code[pc]);
-                        pc += 1 + @as(usize, @intCast(off));
-                    }
-                    continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-                }
-                // an iterator function: the call after the two words
-                pc += 2;
-                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-            },
-            .call => {
-                spill(trace, th, fi, pc, top);
-                gc.safePoint(vm, th) catch |e| {
-                    spill(trace, th, fi, pc, top);
-                    try th.handleError(e, stop_depth);
-                    continue :outer;
-                };
-                const nargs: usize = d.argBx(ins);
-                const fn_idx = top - nargs - 1;
-                const is_slang = th.precall(fn_idx, nargs) catch |e| {
-                    try th.handleError(e, stop_depth);
-                    continue :outer;
-                };
-                if (is_slang) {
-                    // the callee's frame, without leaving the switch
-                    fi = th.frames.items.len - 1;
-                    const fr = th.frames.items[fi];
-                    proto = fr.cl.proto.?;
-                    if (proto.isa != .stack) continue :outer;
-                    code = proto.code;
-                    consts = proto.consts;
-                    base = fr.base;
-                    pc = fr.pc;
-                    top = th.top;
-                    stack = th.stack.ptr;
-                    continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-                }
-                top = th.top;
-                stack = th.stack.ptr;
-                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-            },
-            .type => {
-                const v = stack[top - 1];
-                spill(trace, th, fi, pc, top);
-                const r = th.typeOf(v) catch |e| {
-                    th.top -= 1;
-                    try th.handleError(e, stop_depth);
-                    continue :outer;
-                };
-                top = th.top;
-                stack = th.stack.ptr;
-                stack[top - 1] = r;
-                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-            },
+            // ---- errors
             .try_begin => {
-                const off = d.argSBx(ins);
+                const a = base + ops.argA(ins);
                 th.pushHandler(.{
                     .frame = @intCast(fi),
-                    .pc = @intCast(@as(i64, @intCast(pc)) + off),
-                    .top = @intCast(top),
-                    .close_from = @intCast(base + d.argA(ins)),
+                    .pc = @intCast(@as(i64, @intCast(pc)) + ops.argSBx(ins)),
+                    // (handleError puts the error at top: R[A])
+                    .top = @intCast(a),
+                    .close_from = @intCast(a),
                 });
-                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
             },
             .try_end => {
                 _ = th.handlers.pop();
-                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
             },
             .throw => {
-                const v = stack[top - 1];
-                spill(trace, th, fi, pc, top - 1);
+                const v = stack[base + ops.argA(ins)];
+                spill(th, fi, pc, ftop);
                 vm.setErrorFromValue(v);
                 try th.handleError(error.Slang, stop_depth);
                 continue :outer;
             },
-            .get_meta => {
-                const v = stack[top - 1];
-                stack[top - 1] = switch (v) {
-                    .table => |t| Value.fromTable(t.meta),
-                    .userdata => |u| Value.fromTable(u.meta),
-                    else => .null,
-                };
-                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-            },
-            .set_meta => {
-                const m = stack[top - 1];
-                const obj = stack[top - 2];
-                top -= 2;
-                th.setMeta(obj, m) catch |e| {
-                    spill(trace, th, fi, pc, top);
-                    try th.handleError(e, stop_depth);
-                    continue :outer;
-                };
-                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-            },
-            // ---- the fused forms (see disasm.zig): each does what its core
-            // sequence does, with the same errors at the same location
-            inline .add_x, .sub_x, .mul_x, .div_x, .mod_x => |op| {
-                const core = comptime d.coreOf(op);
-                const bx = d.argB(ins);
-                const b = operandValue(th, fi, stack, base, consts, d.argC(ins));
-                const popped: usize = @intFromBool(bx == d.stack_operand);
-                const a = if (popped != 0) stack[top - 1] else operandValue(th, fi, stack, base, consts, bx);
-                if (numArith(core, a, b)) |r| {
-                    top -= popped;
-                    storeDest(stack, base, &top, d.argA(ins), r);
-                    continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-                }
-                // a popped operand stays on the stack during the operation
-                spill(trace, th, fi, pc, top);
-                const r = th.arithMeta(core, a, b) catch |e| {
-                    th.top -= popped;
-                    try th.handleError(e, stop_depth);
-                    continue :outer;
-                };
-                top = th.top - popped;
-                stack = th.stack.ptr;
-                storeDest(stack, base, &top, d.argA(ins), r);
-                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-            },
-            inline .jlt, .jleq, .jeq => |op| {
-                const core = comptime d.coreOf(op);
-                const bx = d.argB(ins);
-                const b = operandValue(th, fi, stack, base, consts, d.argC(ins));
-                const popped: usize = @intFromBool(bx == d.stack_operand);
-                const a = if (popped != 0) stack[top - 1] else operandValue(th, fi, stack, base, consts, bx);
-                var r: bool = undefined;
-                if (a == .int and b == .int) {
-                    r = switch (core) {
-                        .lt => a.int < b.int,
-                        .leq => a.int <= b.int,
-                        else => a.int == b.int,
-                    };
-                } else if (a == .float and b == .float) {
-                    r = switch (core) {
-                        .lt => a.float < b.float,
-                        .leq => a.float <= b.float,
-                        else => a.float == b.float,
-                    };
-                } else if (if (core == .eq) eqInline(a, b) else null) |e| {
-                    r = e;
-                } else {
-                    spill(trace, th, fi, pc, top);
-                    r = compareSlow(th, core, a, b) catch |e| {
-                        th.top -= popped;
-                        try th.handleError(e, stop_depth);
-                        continue :outer;
-                    };
-                    top = th.top;
-                    stack = th.stack.ptr;
-                }
-                top -= popped;
-                if (r != (d.argA(ins) != 0)) {
-                    pc += 1;
-                } else {
-                    // the jump that follows, taken here when it goes
-                    // forward (a backward one runs as itself: safe point)
-                    const off = d.argSBx(code[pc]);
-                    if (off >= 0) pc += 1 + @as(usize, @intCast(off));
-                }
-                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-            },
-            .jtest => {
-                const v = operandValue(th, fi, stack, base, consts, d.argB(ins));
-                if (v.truthy() != (d.argA(ins) != 0)) {
-                    pc += 1;
-                } else {
-                    const off = d.argSBx(code[pc]);
-                    if (off >= 0) pc += 1 + @as(usize, @intCast(off));
-                }
-                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-            },
-            .get_x => {
-                quicken: {
-                    const k = quickenable(proto, code, consts, pc, ins, .get_x) orelse break :quicken;
-                    ins = quicken(vm, proto, code, pc, ins, k, .get_x);
-                    continue :sw .get_k;
-                }
-                const bx = d.argB(ins);
-                const key = operandValue(th, fi, stack, base, consts, d.argC(ins));
-                const popped: usize = @intFromBool(bx == d.stack_operand);
-                const obj = if (popped != 0) stack[top - 1] else operandValue(th, fi, stack, base, consts, bx);
-                top -= popped;
-                var getter: Value = .null;
-                if (getFastG(vm, obj, key, &getter)) |v| {
-                    storeDest(stack, base, &top, d.argA(ins), v);
-                    continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-                }
-                if (getter != .null) {
-                    const g = getter;
-                    // a property: its getter as a call, the result pushed
-                    // or put in the register A
-                    const a = d.argA(ins);
-                    th.top = top;
-                    th.ensure(top + 2) catch |e| {
-                        try th.handleError(e, stop_depth);
-                        continue :outer;
-                    };
-                    stack = th.stack.ptr;
-                    stack[top] = g;
-                    stack[top + 1] = obj;
-                    const dest: u16 = if (a == d.push_dest) thread_mod.dest_push else @intCast(a);
-                    spill(trace, th, fi, pc, top + 2);
-                    const is_slang = th.precall(top, 1) catch |e| {
-                        try th.handleError(e, stop_depth);
-                        continue :outer;
-                    };
-                    const acc_dest: u16 = dest;
-                    if (is_slang) {
-                        th.frames.items[th.frames.items.len - 1].dest = acc_dest;
-                        fi = th.frames.items.len - 1;
-                        const fr = th.frames.items[fi];
-                        proto = fr.cl.proto.?;
-                        if (proto.isa != .stack) continue :outer;
-                        code = proto.code;
-                        consts = proto.consts;
-                        base = fr.base;
-                        pc = fr.pc;
-                        top = th.top;
-                        stack = th.stack.ptr;
-                    } else {
-                        // a native accessor ran already: its result where it was
-                        top = th.top;
-                        stack = th.stack.ptr;
-                        if (acc_dest != thread_mod.dest_push) {
-                            top -= 1;
-                            if (acc_dest != thread_mod.dest_drop) stack[base + acc_dest] = stack[top];
-                        }
-                    }
-                    continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-                }
-                spill(trace, th, fi, pc, top);
-                const v = th.getTable(obj, key) catch |e| {
-                    try th.handleError(e, stop_depth);
-                    continue :outer;
-                };
-                top = th.top;
-                stack = th.stack.ptr;
-                storeDest(stack, base, &top, d.argA(ins), v);
-                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-            },
-            .set_k => {
-                const ic = &proto.ics.items[d.argB(ins)];
-                const val = operandValue(th, fi, stack, base, consts, d.argC(ins));
-                const ax = d.argA(ins);
-                const obj = switch (ax) {
-                    d.push_dest, d.peek_dest => stack[top - 1],
-                    else => stack[base + ax],
-                };
-                if (icStore(vm, ic, obj, val)) {
-                    if (ax == d.push_dest) top -= 1;
-                    continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-                }
-                ins = ic.orig;
-                continue :sw .set_x;
-            },
-            .set_x => {
-                quicken: {
-                    const k = quickenable(proto, code, consts, pc, ins, .set_x) orelse break :quicken;
-                    ins = quicken(vm, proto, code, pc, ins, k, .set_x);
-                    continue :sw .set_k;
-                }
-                const val = operandValue(th, fi, stack, base, consts, d.argC(ins));
-                const bx = d.argB(ins);
-                var popped: usize = 0;
-                var key: Value = undefined;
-                if (bx == d.stack_operand) {
-                    key = stack[top - 1];
-                    popped = 1;
-                } else {
-                    key = operandValue(th, fi, stack, base, consts, bx);
-                }
-                const ax = d.argA(ins);
-                var obj: Value = undefined;
-                switch (ax) {
-                    d.push_dest => {
-                        obj = stack[top - 1 - popped];
-                        popped += 1;
-                    },
-                    d.peek_dest => obj = stack[top - 1 - popped],
-                    else => obj = stack[base + ax],
-                }
-                top -= popped;
-                if (setFast(vm, obj, key, val)) continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-                if (findSetter(vm, obj, key)) |f| {
-                    th.top = top;
-                    th.ensure(top + 3) catch |e| {
-                        try th.handleError(e, stop_depth);
-                        continue :outer;
-                    };
-                    stack = th.stack.ptr;
-                    stack[top] = f;
-                    stack[top + 1] = obj;
-                    stack[top + 2] = val;
-                    spill(trace, th, fi, pc, top + 3);
-                    const is_slang = th.precall(top, 2) catch |e| {
-                        try th.handleError(e, stop_depth);
-                        continue :outer;
-                    };
-                    const acc_dest: u16 = thread_mod.dest_drop;
-                    if (is_slang) {
-                        th.frames.items[th.frames.items.len - 1].dest = acc_dest;
-                        fi = th.frames.items.len - 1;
-                        const fr = th.frames.items[fi];
-                        proto = fr.cl.proto.?;
-                        if (proto.isa != .stack) continue :outer;
-                        code = proto.code;
-                        consts = proto.consts;
-                        base = fr.base;
-                        pc = fr.pc;
-                        top = th.top;
-                        stack = th.stack.ptr;
-                    } else {
-                        // a native accessor ran already: its result where it was
-                        top = th.top;
-                        stack = th.stack.ptr;
-                        if (acc_dest != thread_mod.dest_push) {
-                            top -= 1;
-                            if (acc_dest != thread_mod.dest_drop) stack[base + acc_dest] = stack[top];
-                        }
-                    }
-                    continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-                }
-                spill(trace, th, fi, pc, top);
-                th.setTable(obj, key, val) catch |e| {
-                    try th.handleError(e, stop_depth);
-                    continue :outer;
-                };
-                top = th.top;
-                stack = th.stack.ptr;
-                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-            },
-            .move_x => {
-                stack[base + d.argA(ins)] = operandValue(th, fi, stack, base, consts, d.argB(ins));
-                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-            },
-            .get_k => {
-                const ic = &proto.ics.items[d.argC(ins)];
-                const bx = d.argB(ins);
-                const popped: usize = @intFromBool(bx == d.stack_operand);
-                const obj = if (popped != 0) stack[top - 1] else operandValue(th, fi, stack, base, consts, bx);
-                var getter: Value = .null;
-                if (icGet(vm, ic, obj, &getter)) |v| {
-                    top -= popped;
-                    storeDest(stack, base, &top, d.argA(ins), v);
-                    continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-                }
-                if (getter != .null) {
-                    top -= popped;
-                    const g = getter;
-                    // a property: its getter as a call, the result pushed
-                    // or put in the register A
-                    const a = d.argA(ins);
-                    th.top = top;
-                    th.ensure(top + 2) catch |e| {
-                        try th.handleError(e, stop_depth);
-                        continue :outer;
-                    };
-                    stack = th.stack.ptr;
-                    stack[top] = g;
-                    stack[top + 1] = obj;
-                    const dest: u16 = if (a == d.push_dest) thread_mod.dest_push else @intCast(a);
-                    spill(trace, th, fi, pc, top + 2);
-                    const is_slang = th.precall(top, 1) catch |e| {
-                        try th.handleError(e, stop_depth);
-                        continue :outer;
-                    };
-                    const acc_dest: u16 = dest;
-                    if (is_slang) {
-                        th.frames.items[th.frames.items.len - 1].dest = acc_dest;
-                        fi = th.frames.items.len - 1;
-                        const fr = th.frames.items[fi];
-                        proto = fr.cl.proto.?;
-                        if (proto.isa != .stack) continue :outer;
-                        code = proto.code;
-                        consts = proto.consts;
-                        base = fr.base;
-                        pc = fr.pc;
-                        top = th.top;
-                        stack = th.stack.ptr;
-                    } else {
-                        // a native accessor ran already: its result where it was
-                        top = th.top;
-                        stack = th.stack.ptr;
-                        if (acc_dest != thread_mod.dest_push) {
-                            top -= 1;
-                            if (acc_dest != thread_mod.dest_drop) stack[base + acc_dest] = stack[top];
-                        }
-                    }
-                    continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-                }
-                ins = ic.orig;
-                continue :sw .get_x;
-            },
-            .self_k => {
-                const ic = &proto.ics.items[d.argC(ins)];
-                const bx = d.argB(ins);
-                const obj = if (bx == d.stack_operand) stack[top - 1] else operandValue(th, fi, stack, base, consts, bx);
-                var getter: Value = .null;
-                if (icGet(vm, ic, obj, &getter)) |f| {
-                    if (bx != d.stack_operand) {
-                        stack[top] = obj;
-                        top += 1;
-                    }
-                    stack[top] = f;
-                    stack[top + 1] = obj;
-                    top += 2;
-                    continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-                }
-                ins = ic.orig;
-                continue :sw .self_x;
-            },
-            .self_x => {
-                // obj -> obj, obj[key], obj (a method call's receiver, the
-                // method, the receiver as its first argument)
-                quicken: {
-                    const k = quickenable(proto, code, consts, pc, ins, .self_x) orelse break :quicken;
-                    ins = quicken(vm, proto, code, pc, ins, k, .self_x);
-                    continue :sw .self_k;
-                }
-                const bx = d.argB(ins);
-                const key = operandValue(th, fi, stack, base, consts, d.argC(ins));
-                var obj: Value = undefined;
-                if (bx == d.stack_operand) {
-                    obj = stack[top - 1];
-                } else {
-                    obj = operandValue(th, fi, stack, base, consts, bx);
-                    stack[top] = obj;
-                    top += 1;
-                }
-                var f: Value = undefined;
-                if (getFast(vm, obj, key)) |v| {
-                    f = v;
-                } else {
-                    spill(trace, th, fi, pc, top);
-                    f = th.getTable(obj, key) catch |e| {
-                        try th.handleError(e, stop_depth);
-                        continue :outer;
-                    };
-                    top = th.top;
-                    stack = th.stack.ptr;
-                }
-                stack[top] = f;
-                stack[top + 1] = obj;
-                top += 2;
-                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
-            },
+            // ---- loops
             .for_loop => {
-                // the update and the condition of a numeric for; the jump
-                // word after it goes to the body and carries the flags
-                const ra = base + d.argA(ins);
-                const step = operandValue(th, fi, stack, base, consts, d.argB(ins));
-                const limit = operandValue(th, fi, stack, base, consts, d.argC(ins));
+                // the update and the condition of a for; the jump word after
+                // it goes to the body and carries the flags
+                const ra = base + ops.argA(ins);
                 const j = code[pc];
-                const flags = d.argA(j);
-                const is_sub = flags & d.for_flags.sub != 0;
+                const flags = ops.argA(j);
+                const step = if (flags & ops.for_flags.step_k != 0) consts[ops.argB(ins)] else stack[base + ops.argB(ins)];
+                const limit = if (flags & ops.for_flags.limit_k != 0) consts[ops.argC(ins)] else stack[base + ops.argC(ins)];
+                const is_sub = flags & ops.for_flags.sub != 0;
                 const i = stack[ra];
                 // the jump's offset from the word after it: the body, or
                 // the condition (two before the body) to compare in full
-                var off: i64 = d.argSBx(j);
+                var off: i64 = ops.argSBx(j);
                 var cont = true;
                 if (i == .int and step == .int and limit == .int) {
                     const k = if (is_sub) i.int -% step.int else i.int +% step.int;
-                    stack[ra] = .{ .int = k };
-                    const c = if (flags & d.for_flags.leq != 0) k <= limit.int else k < limit.int;
-                    cont = c != (flags & d.for_flags.negate != 0);
+                    putRaw(&stack[ra], .int, @bitCast(k));
+                    const c = if (flags & ops.for_flags.leq != 0) k <= limit.int else k < limit.int;
+                    cont = c != (flags & ops.for_flags.negate != 0);
                 } else {
                     const r = (if (is_sub) numArith(.sub, i, step) else numArith(.add, i, step)) orelse slow: {
-                        spill(trace, th, fi, pc, top);
+                        spill(th, fi, pc, ftop);
                         const r = th.arithMeta(if (is_sub) .sub else .add, i, step) catch |e| {
                             try th.handleError(e, stop_depth);
                             continue :outer;
                         };
-                        top = th.top;
                         stack = th.stack.ptr;
                         break :slow r;
                     };
-                    stack[ra] = r;
+                    putValue(&stack[ra], r);
                     if (r.isNumber() and limit.isNumber()) {
                         const x = r.asNumber();
                         const y = limit.asNumber();
-                        const c = if (flags & d.for_flags.leq != 0) x <= y else x < y;
-                        cont = c != (flags & d.for_flags.negate != 0);
+                        const c = if (flags & ops.for_flags.leq != 0) x <= y else x < y;
+                        cont = c != (flags & ops.for_flags.negate != 0);
                     } else {
                         off -= 2;
                     }
                 }
                 if (cont) {
-                    spill(trace, th, fi, pc, top);
+                    spill(th, fi, pc, ftop);
                     gc.safePoint(vm, th) catch |e| {
-                        spill(trace, th, fi, pc, top);
                         try th.handleError(e, stop_depth);
                         continue :outer;
                     };
@@ -1300,36 +868,185 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 } else {
                     pc += 1;
                 }
-                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+            },
+            .forin_prep => {
+                // R[A] = f, R[A+1] = x: the built-in keys, values or entries
+                // of a table become a walk of the table in the loop
+                // (forin_next) with nothing allocated; anything else is the
+                // call f(x)
+                const a = base + ops.argA(ins);
+                const f = stack[a];
+                const x = stack[a + 1];
+                if (f == .function and x == .table) {
+                    if (iterKind(f.function)) |kind| {
+                        stack[a] = x;
+                        stack[a + 1] = .{ .int = kind };
+                        continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                    }
+                }
+                ins = ops.abc(.call, ops.argA(ins), 1, 0, false);
+                continue :sw .call;
+            },
+            .forin_next => {
+                const a = base + ops.argA(ins);
+                const it = stack[a];
+                if (it == .table) {
+                    var state: u64 = @intCast(stack[a + 1].int);
+                    if (it.table.nextLive(&state)) |entry| {
+                        stack[a + 1] = .{ .int = @intCast(state) };
+                        stack[a + 2] = switch (state & 3) {
+                            0 => entry.key,
+                            1 => entry.val,
+                            else => .{ .table = corelib.entryPair(vm, entry) },
+                        };
+                        // the second word: to the pattern
+                        pc += 2 + @as(usize, @intCast(ops.argSBx(code[pc + 1])));
+                    } else {
+                        // the first: the end
+                        pc += 1 + @as(usize, @intCast(ops.argSBx(code[pc])));
+                    }
+                    continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                }
+                // an iterator function: the call after the two words
+                pc += 2;
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
             },
             _ => {
-                spill(trace, th, fi, pc, top);
-                return vm.raise("unknown opcode {d}", .{ins & 0x3F});
+                spill(th, fi, pc, ftop);
+                return vm.raise("unknown opcode {d}", .{ins & 0x7F});
             },
         }
     }
 }
 
 /// Fetches the next instruction and returns its opcode. The trace build
-/// (profiler, debugger, SLANG_TRACE) also runs the hook and keeps the
-/// frame's pc current at every instruction.
-inline fn fetch(comptime trace: bool, th: *Thread, code: []const u32, fi: usize, base: usize, pc: *usize, top: usize, ins: *u32) Op {
+/// (profiler, debugger, SLANG_TRACE, SLANG_OPSTATS) also runs the hook and
+/// keeps the frame's pc current at every instruction.
+inline fn fetch(comptime trace: bool, th: *Thread, code: []const u32, fi: usize, base: usize, pc: *usize, ftop: usize, ins: *u32) ops.Op {
     ins.* = code[pc.*];
     if (trace) {
-        th.top = top;
+        th.top = ftop;
         traceInstruction(th, fi, base, pc.*, ins.*);
     }
     pc.* += 1;
     if (trace) th.frames.items[fi].pc = @intCast(pc.*);
-    return d.opOf(ins.*);
+    return ops.opOf(ins.*);
 }
 
-/// Before anything that can raise, call, yield or collect: the thread's
-/// top and the frame's pc (which error locations, tracebacks and the
-/// return from a call read) are stored. The hot opcodes skip this.
-inline fn spill(comptime trace: bool, th: *Thread, fi: usize, pc: usize, top: usize) void {
-    th.top = top;
-    if (!trace) th.frames.items[fi].pc = @intCast(pc);
+/// Before anything that can raise, call, yield or collect: the frame's pc
+/// (error locations, tracebacks) and th.top at the end of its registers.
+inline fn spill(th: *Thread, fi: usize, pc: usize, ftop: usize) void {
+    th.top = ftop;
+    th.frames.items[fi].pc = @intCast(pc);
+}
+
+/// Writes a value of a kind without a heap pointer as one 16-byte store
+/// (payload, tag). A value written in parts (an 8-byte payload, a 1-byte
+/// tag), as Zig writes a tagged union, and then copied as a whole by the
+/// next instruction (a 16-byte load) stalls that load until the parts
+/// reach the cache: the store cannot be forwarded. Arithmetic chains
+/// (x = x * a + b) paid that on every operation.
+inline fn putRaw(dst: *Value, tag: root.Kind, bits: u64) void {
+    const words: *[2]u64 = @ptrCast(dst);
+    words.* = .{ bits, @backingInt(tag) };
+}
+
+/// A value (an arithmetic result) into a register in one store when it is
+/// a number.
+inline fn putValue(dst: *Value, v: Value) void {
+    switch (v) {
+        .int => |i| putRaw(dst, .int, @bitCast(i)),
+        .float => |f| putRaw(dst, .float, @bitCast(f)),
+        else => dst.* = v,
+    }
+}
+
+/// RK(C): constant C when k is set, else register C.
+inline fn rk(stack: [*]Value, base: usize, consts: []const Value, ins: u32) Value {
+    return if (ops.argK(ins)) consts[ops.argC(ins)] else stack[base + ops.argC(ins)];
+}
+
+/// Takes the jump that follows a compare or a test, when it goes forward;
+/// a backward one runs as itself (a safe point).
+inline fn takeJump(code: []const u32, pc: *usize) void {
+    const off = ops.argSBx(code[pc.*]);
+    if (off >= 0) pc.* += 1 + @as(usize, @intCast(off));
+}
+
+/// The operation an arithmetic opcode performs.
+fn coreOf(comptime op: ops.Op) Op {
+    return switch (op) {
+        .add => .add,
+        .sub => .sub,
+        .mul => .mul,
+        .div => .div,
+        .mod => .mod,
+        .pow => .pow,
+        .band => .band,
+        .bor => .bor,
+        .bxor => .bxor,
+        .shl => .shl,
+        .shr => .shr,
+        else => unreachable,
+    };
+}
+
+/// A property's getter (val null) or setter, called above the frame's
+/// registers: its result goes to the register dest (or is dropped). True
+/// when it is a slang function whose frame runs next.
+fn callAccessor(th: *Thread, fi: usize, pc: usize, base: usize, ftop: usize, f: Value, obj: Value, val: ?Value, dest: u16) Error!bool {
+    spill(th, fi, pc, ftop);
+    const nargs: usize = if (val != null) 2 else 1;
+    try th.ensure(ftop + 1 + nargs);
+    th.stack[ftop] = f;
+    th.stack[ftop + 1] = obj;
+    if (val) |v| th.stack[ftop + 2] = v;
+    th.top = ftop + 1 + nargs;
+    if (try th.precall(ftop, nargs)) {
+        th.frames.items[th.frames.items.len - 1].dest = dest;
+        return true;
+    }
+    // a native accessor ran already: its result where it was called
+    if (dest != thread_mod.dest_drop) th.stack[base + dest] = th.stack[ftop];
+    th.top = ftop;
+    return false;
+}
+
+// ---- quickening (see zig's inline caches)
+
+/// The key of a get_field, get_up_field, self or set_field that can be
+/// quickened: a constant string (for a store not a metamethod name), the
+/// instruction not quickened already (after a miss it runs as itself),
+/// room for another cache that the instruction can address.
+inline fn quickenable(proto: *root.Proto, code: []u32, pc: usize, k: Value, comptime op: ops.Op) ?*String {
+    if (k != .string) return null;
+    if (ops.opOf(code[pc - 1]) != op) return null;
+    const store = op == .set_field or op == .set_up_field;
+    const room: usize = if (store) ops.max_store_caches else ops.max_load_caches;
+    if (proto.ics.items.len >= room) return null;
+    if (store) {
+        const b = k.string.bytes();
+        if (b.len >= 2 and b[0] == '_' and b[1] == '_') return null;
+    }
+    return k.string;
+}
+
+/// Gives the instruction a cache and rewrites it at pc - 1 into its
+/// quickened form, which it returns.
+fn quicken(vm: *root.VM, proto: *root.Proto, code: []u32, pc: usize, ins: u32, key: *String, comptime op: ops.Op) u32 {
+    const idx: u32 = @intCast(proto.ics.items.len);
+    proto.ics.append(vm.gpa, .{ .key = key, .orig = ins, .keybit = Table.keyBit(key) }) catch root.oom();
+    const quick: u32 = switch (op) {
+        .get_field => ops.abc(.get_field_q, ops.argA(ins), ops.argB(ins), idx & 0xFF, idx >= 256),
+        .get_up_field => ops.abc(.get_up_field_q, ops.argA(ins), ops.argB(ins), idx & 0xFF, idx >= 256),
+        .self => ops.abc(.self_q, ops.argA(ins), ops.argB(ins), idx & 0xFF, idx >= 256),
+        .set_field => ops.abc(.set_field_q, ops.argA(ins), idx, ops.argC(ins), ops.argK(ins)),
+        .set_up_field => ops.abc(.set_up_field_q, ops.argA(ins), idx, ops.argC(ins), ops.argK(ins)),
+        else => unreachable,
+    };
+    code[pc - 1] = quick;
+    return quick;
 }
 
 pub fn traceInstruction(th: *Thread, fi: usize, base: usize, pc: usize, ins: u32) void {
@@ -1339,25 +1056,7 @@ pub fn traceInstruction(th: *Thread, fi: usize, base: usize, pc: usize, ins: u32
     if (th.vm.tracer) |t| t.instruction(th, fi, base, pc, ins);
 }
 
-/// A fused form's B or C operand when it is not the stack: a register, a
-/// constant or an upvalue.
-inline fn operandValue(th: *Thread, fi: usize, stack: [*]Value, base: usize, consts: []const Value, x: u32) Value {
-    if (x < d.first_constant) return stack[base + x];
-    if (x < d.first_upvalue) return consts[x - d.first_constant];
-    return th.frames.items[fi].cl.upvals[x - d.first_upvalue].get();
-}
-
-/// Stores a fused form's result: pushed, or into register a.
-inline fn storeDest(stack: [*]Value, base: usize, top: *usize, a: u32, v: Value) void {
-    if (a == d.push_dest) {
-        stack[top.*] = v;
-        top.* += 1;
-    } else {
-        stack[base + a] = v;
-    }
-}
-
-/// get_table's inline cases: a table (then __index tables), a buffer
+/// get_index's inline cases: a table (then __index tables), a buffer
 /// element, a userdata's method. Null when the generic path (getTable)
 /// must run.
 pub inline fn getFast(vm: *root.VM, obj: Value, key: Value) ?Value {
@@ -1404,7 +1103,7 @@ pub inline fn getFastG(vm: *root.VM, obj: Value, key: Value, getter: *Value) ?Va
     return null;
 }
 
-/// set_table's inline cases; false when the generic path (setTable) must
+/// set_index's inline cases; false when the generic path (setTable) must
 /// run.
 pub inline fn setFast(vm: *root.VM, obj: Value, key: Value, val: Value) bool {
     if (obj == .table and key == .string) {
@@ -1529,11 +1228,6 @@ inline fn getChain(vm: *root.VM, t0: *Table, key: Value, getter: *Value) ?Value 
         if (v != .null or t.has(key)) return v;
     }
     return null;
-}
-
-inline fn absIndex(top: usize, base: usize, idx: i32) usize {
-    if (idx < 0) return @intCast(@as(i64, @intCast(top)) + idx);
-    return base + @as(usize, @intCast(idx));
 }
 
 /// a value's type for an error: a userdata's own type name
@@ -1990,3 +1684,13 @@ pub const ThreadOps = struct {
         };
     }
 };
+
+test "putRaw writes the layout of a tagged union (payload, then the tag)" {
+    var v: Value = .null;
+    putRaw(&v, .float, @bitCast(@as(f64, 1.5)));
+    try std.testing.expect(v == .float and v.float == 1.5);
+    putRaw(&v, .int, @bitCast(@as(i64, -3)));
+    try std.testing.expect(v == .int and v.int == -3);
+    putRaw(&v, .bool, 1);
+    try std.testing.expect(v == .bool and v.bool);
+}

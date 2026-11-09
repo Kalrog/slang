@@ -33,9 +33,10 @@ pub const Frame = struct {
     cl: *Closure,
     pc: u32,
     base: u32,
-    /// where the result goes when the frame returns: pushed where the
-    /// function was (dest_push), dropped (a setter's, dest_drop) or into
-    /// the caller's register dest (a getter's, for get_x)
+    /// where the result goes when the frame returns: into the slot the
+    /// function was in (dest_push: a call's register A, or where Thread.call
+    /// reads it, with the top just above), dropped (a setter's, dest_drop)
+    /// or into the caller's register dest (a getter's)
     dest: u16 = dest_push,
     /// how many arguments the call passed (slang/vm's arg_count): with
     /// trailing nulls, which a rest parameter cannot hold
@@ -304,7 +305,7 @@ pub const Thread = struct {
         const base = fn_idx + 1;
         var nparams: usize = p.nargs;
         if (p.is_vararg) nparams -= 1;
-        try th.ensure(base + @max(nparams + 1, p.max_stack) + p.temps + 8);
+        try th.ensure(base + @max(nparams + 1, p.max_stack) + 8);
         if (nargs_ > nparams) {
             if (p.is_vararg) {
                 // the extra arguments by position: a null one is a gap

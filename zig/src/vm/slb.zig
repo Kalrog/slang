@@ -1,9 +1,8 @@
-//! The .slb container, version 5 for the stack ISA and 6 for the register
-//! ISA (ops.zig; the layout is the same, the profiles byte 0). Versions 2
-//! to 4, without the profile byte, version 2 and 3 without the locals and
-//! version 2 without the name, are still read:
+//! The .slb container, version 6: the code is in the register ISA
+//! (ops.zig). Files of older versions hold the stack ISA, which this VM no
+//! longer runs: they are refused (recompile the source).
 //!
-//!   magic "SLANG", u8 version, u8 profiles (bit 0: fused instructions)
+//!   magic "SLANG", u8 version, u8 profiles (0: no optional instructions)
 //!   proto := u32 maxStack, u32 nargs, u8 isVarArg, str name ("": none),
 //!            u32 nCode, u32[nCode],
 //!            u32 nLocs, {u32 firstPC, str origin, u32 line, u32 column}*,
@@ -22,16 +21,13 @@ const VM = root.VM;
 const Value = root.Value;
 const Proto = root.Proto;
 const object = @import("object.zig");
-const disasm = @import("disasm.zig");
 
 pub const magic = "SLANG";
-pub const version: u8 = 5;
-/// The version of a file whose code is in the register ISA.
-pub const version_register: u8 = 6;
+pub const version: u8 = 6;
 
-/// The profiles byte: which optional parts of the ISA the code uses.
-pub const profile_fused: u8 = 1;
-const known_profiles: u8 = profile_fused;
+/// The profiles byte: which optional parts of the ISA the code uses (none
+/// exist yet: a VM refuses a file that uses one it does not know).
+const known_profiles: u8 = 0;
 
 const Tag = enum(u8) { int = 0, double = 1, string = 2, bool = 3, null = 4 };
 
@@ -40,7 +36,7 @@ pub const DecodeError = error{ BadMagic, BadVersion, BadProfile, Truncated, BadC
 pub fn errorMessage(e: DecodeError) []const u8 {
     return switch (e) {
         error.BadMagic => "not a slang bytecode file (bad magic)",
-        error.BadVersion => "unsupported bytecode version (want 2 to 6)",
+        error.BadVersion => "unsupported bytecode version (want 6: recompile the source)",
         error.BadProfile => "bytecode uses instructions this VM does not have",
         error.Truncated => "bytecode: unexpected end of data",
         error.BadCount => "bytecode: implausible count",
@@ -56,21 +52,10 @@ pub fn encode(gpa: std.mem.Allocator, p: *const Proto, strip_locs: bool) []u8 {
     defer w.deinit();
     const out = &w.writer;
     out.writeAll(magic) catch oom();
-    out.writeByte(if (p.isa == .register) version_register else version) catch oom();
-    out.writeByte(profiles(p)) catch oom();
+    out.writeByte(version) catch oom();
+    out.writeByte(0) catch oom();
     encodeProto(out, p, strip_locs);
     return w.toOwnedSlice() catch oom();
-}
-
-/// The profiles a prototype and its children use.
-pub fn profiles(p: *const Proto) u8 {
-    var r: u8 = 0;
-    if (p.isa == .register) return 0;
-    for (p.code) |ins| {
-        if (disasm.isFused(disasm.opOf(p.original(ins)))) r |= profile_fused;
-    }
-    for (p.children) |c| r |= profiles(c);
-    return r;
 }
 
 fn encodeStr(w: *std.Io.Writer, s: []const u8) void {
@@ -111,22 +96,22 @@ fn encodeProto(w: *std.Io.Writer, p: *const Proto, strip_locs: bool) void {
     for (p.consts) |c| {
         switch (c) {
             .int => |i| {
-                w.writeByte(@intFromEnum(Tag.int)) catch oom();
+                w.writeByte(@backingInt(Tag.int)) catch oom();
                 w.writeInt(i64, i, .little) catch oom();
             },
             .float => |f| {
-                w.writeByte(@intFromEnum(Tag.double)) catch oom();
+                w.writeByte(@backingInt(Tag.double)) catch oom();
                 w.writeInt(u64, @bitCast(f), .little) catch oom();
             },
             .string => |s| {
-                w.writeByte(@intFromEnum(Tag.string)) catch oom();
+                w.writeByte(@backingInt(Tag.string)) catch oom();
                 encodeStr(w, s.bytes());
             },
             .bool => |b| {
-                w.writeByte(@intFromEnum(Tag.bool)) catch oom();
+                w.writeByte(@backingInt(Tag.bool)) catch oom();
                 w.writeByte(@intFromBool(b)) catch oom();
             },
-            else => w.writeByte(@intFromEnum(Tag.null)) catch oom(),
+            else => w.writeByte(@backingInt(Tag.null)) catch oom(),
         }
     }
     w.writeInt(u32, @intCast(p.upvals.len), .little) catch oom();
@@ -182,14 +167,11 @@ const Reader = struct {
         p.max_stack = try r.u32_();
         p.nargs = try r.u32_();
         p.is_vararg = (try r.u8_()) != 0;
-        if (r.version >= 3) {
-            const name = try r.str();
-            if (name.bytes().len > 0) p.name = name;
-        }
+        const name = try r.str();
+        if (name.bytes().len > 0) p.name = name;
         const ncode = try r.count();
         p.code = gpa.alloc(u32, ncode) catch oom();
         for (p.code) |*c| c.* = try r.u32_();
-        if (r.version == version_register) p.isa = .register else p.temps = disasm.maxTemps(gpa, p.code);
         const nlocs = try r.count();
         p.locs = gpa.alloc(object.LocInfo, nlocs) catch oom();
         for (p.locs) |*l| {
@@ -198,26 +180,24 @@ const Reader = struct {
             l.line = try r.u32_();
             l.column = try r.u32_();
         }
-        if (r.version >= 4) {
-            const nlocals = try r.count();
-            p.locals = gpa.alloc(object.LocalVar, nlocals) catch oom();
-            for (p.locals) |*l| {
-                l.name = try r.str();
-                l.reg = try r.u32_();
-                l.start_pc = try r.u32_();
-                l.end_pc = try r.u32_();
-            }
+        const nlocals = try r.count();
+        p.locals = gpa.alloc(object.LocalVar, nlocals) catch oom();
+        for (p.locals) |*l| {
+            l.name = try r.str();
+            l.reg = try r.u32_();
+            l.start_pc = try r.u32_();
+            l.end_pc = try r.u32_();
         }
         const nconsts = try r.count();
         p.consts = gpa.alloc(Value, nconsts) catch oom();
         for (p.consts) |*c| {
             const tag = try r.u8_();
             c.* = switch (tag) {
-                @intFromEnum(Tag.int) => .{ .int = @bitCast(try r.u64_()) },
-                @intFromEnum(Tag.double) => .{ .float = @bitCast(try r.u64_()) },
-                @intFromEnum(Tag.string) => .{ .string = try r.str() },
-                @intFromEnum(Tag.bool) => .{ .bool = (try r.u8_()) != 0 },
-                @intFromEnum(Tag.null) => .null,
+                @backingInt(Tag.int) => .{ .int = @bitCast(try r.u64_()) },
+                @backingInt(Tag.double) => .{ .float = @bitCast(try r.u64_()) },
+                @backingInt(Tag.string) => .{ .string = try r.str() },
+                @backingInt(Tag.bool) => .{ .bool = (try r.u8_()) != 0 },
+                @backingInt(Tag.null) => .null,
                 else => return error.BadTag,
             };
         }
@@ -244,9 +224,7 @@ pub fn decode(vm: *VM, data: []const u8) DecodeError!*Proto {
     const m = try r.take(magic.len);
     if (!std.mem.eql(u8, m, magic)) return error.BadMagic;
     r.version = try r.u8_();
-    if (r.version < 2 or r.version > version_register) return error.BadVersion;
-    if (r.version >= 5) {
-        if ((try r.u8_()) & ~known_profiles != 0) return error.BadProfile;
-    }
+    if (r.version != version) return error.BadVersion;
+    if ((try r.u8_()) & ~known_profiles != 0) return error.BadProfile;
     return r.proto(0);
 }

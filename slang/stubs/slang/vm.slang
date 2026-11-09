@@ -143,13 +143,6 @@ func m.embedded(name){}
 // what an old one compiled.
 func m.build_id(){}
 
-// features() -> {[string]: bool}
-// The optional parts of the instruction set this VM runs ({fused: true});
-// the compiler emits the core instructions for what is missing.
-// The register ISA by default; SLANG_ISA=stack the stack ISA, core without
-// the fused forms.
-func m.features(){}
-
 // disassemble(f: function) -> string
 // A listing of a slang function's bytecode, its nested functions
 // included.

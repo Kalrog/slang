@@ -66,7 +66,6 @@ px.keep = img            // the image lives as long as px or img does</code></pr
 <li><a href="#load_proto"><code>load_proto</code></a></li>
 <li><a href="#embedded"><code>embedded</code></a></li>
 <li><a href="#build_id"><code>build_id</code></a></li>
-<li><a href="#features"><code>features</code></a></li>
 <li><a href="#disassemble"><code>disassemble</code></a></li>
 <li><a href="#get_upvalue"><code>get_upvalue</code></a></li>
 <li><a href="#set_upvalue"><code>set_upvalue</code></a></li>
@@ -135,10 +134,6 @@ if(r.value != null){ r.value:redraw() }</code></pre>
 </div>
 <div class="def" id="build_id"><h3><code>vm.build_id() -> string</code></h3>
 <p>A hash of the interpreter's embedded library and compiler, as 16 hex digits: the bytecode cache keys on it, so a new compiler never loads what an old one compiled.</p>
-
-</div>
-<div class="def" id="features"><h3><code>vm.features() -> {[string]: bool}</code></h3>
-<p>The optional parts of the instruction set this VM runs ({fused: true}); the compiler emits the core instructions for what is missing. SLANG_ISA=core hides the fused ones.</p>
 
 </div>
 <div class="def" id="disassemble"><h3><code>vm.disassemble(f: function) -> string</code></h3>

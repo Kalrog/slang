@@ -1,4 +1,4 @@
-// Inline caches (quickened get_k, self_k, set_k): every lookup site below
+// Inline caches (quickened get_field, self, set_field): every lookup site below
 // runs several times before the tables under it change, so a stale cache
 // would show. Each helper is one site shared by the tests, so the sites also
 // see many objects of different shapes.

@@ -56,7 +56,7 @@ const small_limit = 8;
 /// and booleans are values, never collected out of a weak table.
 pub const Weak = enum(u8) { none, keys, values };
 
-/// The inline cache of a quickened instruction (get_k, self_k, set_k; see
+/// The inline cache of a quickened instruction (get_field_q, self_q, ...; see
 /// interp.icGet): its constant string key, the slot where the key was last
 /// found in the object itself, and what the metatables gave for it. The
 /// part through the metatables holds while the object's metatable is

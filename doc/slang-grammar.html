@@ -87,6 +87,7 @@ unless(1 &gt; 2){
 <li><a href="#Grammar:token"><code>Grammar:token</code></a></li>
 <li><a href="#Grammar:tag"><code>Grammar:tag</code></a></li>
 <li><a href="#Grammar:unit_id"><code>Grammar:unit_id</code></a></li>
+<li><a href="#Grammar:no_cache"><code>Grammar:no_cache</code></a></li>
 <li><a href="#Grammar:testing"><code>Grammar:testing</code></a></li>
 <li><a href="#Grammar:origin"><code>Grammar:origin</code></a></li>
 <li><a href="#Grammar:unit_local"><code>Grammar:unit_local</code></a></li>
@@ -101,6 +102,7 @@ unless(1 &gt; 2){
 <li><a href="#Grammar:run_extension"><code>Grammar:run_extension</code></a></li>
 <li><a href="#Grammar:parse_source"><code>Grammar:parse_source</code></a></li>
 <li><a href="#Grammar:parse_repl"><code>Grammar:parse_repl</code></a></li>
+<li><a href="#type-FileGrammar"><code>type FileGrammar</code></a></li>
 <li><a href="#type-ExpressionRegistry"><code>type ExpressionRegistry</code></a></li>
 <li><a href="#ExpressionRegistry:primary"><code>ExpressionRegistry:primary</code></a></li>
 <li><a href="#ExpressionRegistry:level"><code>ExpressionRegistry:level</code></a></li>
@@ -212,6 +214,10 @@ unless(1 &gt; 2){
 <p>A number identifying the parse of the current unit (a new one for every unit, nested compiles included), for per-unit state in an extension loaded once for a whole project.</p>
 
 </div>
+<div class="def" id="Grammar:no_cache"><h3><code>Grammar:no_cache()</code></h3>
+<p>The unit being parsed depends on more than its source and grammar (an extension read another file to compile it): its bytecode is not cached, so that it is compiled again when that changes.</p>
+
+</div>
 <div class="def" id="Grammar:testing"><h3><code>Grammar:testing() -> bool</code></h3>
 <p>Whether the unit being parsed is compiled for a test run: <code>slang test</code> compiles the files of the project under test so (not those of its packages or of slang's library), and editors analyse every file so. Code only tests need can compile to nothing otherwise.</p>
 
@@ -269,6 +275,10 @@ return {token: op, ast: +{-{async}.await(-{exp})}}</code></pre>
 <p>A chunk, or an expression wrapped in a Return. The REPL is one unit spread over many lines: its extension statements are not scoped.</p>
 
 </div>
+<h2 id="type-FileGrammar">type FileGrammar</h2>
+<pre><code>type FileGrammar = {item: <a href="slang-peg.html#type-Parser">peg.Parser</a>, unit: func(items: {any}, g: <a href="#type-Grammar">Grammar</a>): <a href="#type-Code">Code</a>, keywords?: {string}, sources?: {string}}</code></pre>
+<p>A grammar dialect's module (slang.project's {grammar: &quot;module&quot;}): the language of whole files that are not slang, as slang/peg parsers. Files of the dialect are parsed one item at a time, like slang's top-level statements (an item that fails is an error region and the parse goes on with recover), highlighted and formatted by the item parser's token categories and format marks, and compiled from the block unit returns.</p>
+<dl class="params"><dt><code>item: <a href="slang-peg.html#type-Parser">peg.Parser</a></code></dt><dd>one top-level item of a file; its value is collected</dd><dt><code>unit: func(items: {any}, g: <a href="#type-Grammar">Grammar</a>): <a href="#type-Code">Code</a></code></dt><dd>the file's code from its items' values, a Block node (g is the unit's grammar: g:origin(), g:unit_local, g:error_at, g:no_cache)</dd><dt><code>keywords?: {string}</code></dt><dd>the words error regions highlight as keywords</dd><dt><code>sources?: {string}</code></dt><dd>modules whose sources join the bytecode cache's key (those the compilation depends on)</dd></dl>
 <h2 id="type-ExpressionRegistry">type ExpressionRegistry</h2>
 <p>The expression registry of a grammar (<a href="#Grammar:expression"><code>Grammar.expression</code></a>): its expression walker (see peg.walker) behind a facade that decodes what extension callbacks return (<a href="#type-Code"><code>Code</code></a>). Levels are ordered tightest first; core has &quot;bracket&quot;, &quot;indexAndCall&quot;, &quot;power&quot;, &quot;unary&quot;, &quot;multiply&quot;, &quot;add&quot;, &quot;shift&quot;, &quot;bitAnd&quot;, &quot;bitXor&quot;, &quot;bitOr&quot;, &quot;compare&quot;, &quot;and&quot; and &quot;or&quot;. Its changes are grammar changes. Operators of one level are tried in the order they were added.</p>
 <div class="def" id="ExpressionRegistry:primary"><h3><code>ExpressionRegistry:primary(name: string, parser: <a href="slang-peg.html#type-Parser">peg.Parser</a>, placement?: <a href="slang-peg.html#type-Placement">peg.Placement</a>) -> <a href="#type-ExpressionRegistry">ExpressionRegistry</a></code></h3>

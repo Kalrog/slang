@@ -1,28 +1,19 @@
-//! Instruction-level tools of the hooked loop (see interp.fetch): both run
+//! Instruction-level tools of the hooked loop (see interp.zig's fetch): both run
 //! only when they are on, the plain loop never sees them.
 //!
 //! - `SLANG_TRACE=1` prints every instruction to stderr, `SLANG_TRACE=stack`
 //!   also the frame's stack. The lines go through one buffer per VM, and a
 //!   write that fails (the reader of a pipe went away) turns the trace off.
-//! - `SLANG_OPSTATS=1` counts the instructions that run, by shape (the
-//!   opcode, and for push, move and the fused forms where the result goes),
-//!   and the pairs and triples of shapes that follow each other in one frame
-//!   (a jump, call or return ends a run). The summary goes to stderr when the
-//!   program ends: what a new fused form or a codegen change would cover.
+//! - `SLANG_OPSTATS=1` counts the instructions that run by opcode, and the
+//!   pairs and triples of them that follow each other in one frame (a jump,
+//!   call or return ends a run). The summary goes to stderr when the program
+//!   ends: what a new fused form or a codegen change would cover.
 
 const std = @import("std");
 const root = @import("../vm.zig");
 const oom = root.oom;
 const Thread = root.Thread;
-const d = @import("disasm.zig");
-const Op = d.Op;
 const ops = @import("ops.zig");
-
-/// Whether frame fi runs register code (ops.zig).
-fn isRegister(th: *Thread, fi: usize) bool {
-    const p = th.frames.items[fi].cl.proto orelse return false;
-    return p.isa == .register;
-}
 
 pub const Tracer = struct {
     gpa: std.mem.Allocator,
@@ -53,7 +44,7 @@ pub const Tracer = struct {
         var line: [512]u8 = undefined;
         var w: std.Io.Writer = .fixed(&line);
         w.print("[{d}] base={d} top={d} pc={d}: ", .{ fi, base, th.top, pc }) catch {};
-        if (isRegister(th, fi)) ops.writeInstruction(&w, ins) catch {} else d.writeInstruction(&w, ins) catch {};
+        ops.writeInstruction(&w, ins) catch {};
         if (t.stack) {
             w.writeAll("  stack:") catch {};
             var i = base;
@@ -86,11 +77,8 @@ pub const Tracer = struct {
     }
 };
 
-/// An instruction's shape: a stack opcode and a variant (see variantOf), or
-/// a register opcode (from reg_shapes on).
-const variants = 3;
-const reg_shapes = 64 * variants;
-const shapes = reg_shapes + ops.count;
+/// An instruction's shape: its opcode.
+const shapes = ops.count;
 const Shape = u16;
 
 pub const OpStats = struct {
@@ -126,26 +114,8 @@ pub const OpStats = struct {
         s.gpa.destroy(s);
     }
 
-    /// 1: the value goes to or comes from the stack (push -1, move to the
-    /// top, a fused form's push destination), 2: a setX that keeps its
-    /// table on the stack, 0: anything else
-    fn variantOf(op: Op, ins: u32) u8 {
-        return switch (op) {
-            .push, .move => if (d.argSBx(ins) < 0) 1 else 0,
-            .add_x, .sub_x, .mul_x, .div_x, .mod_x, .get_x, .set_x => switch (d.argA(ins)) {
-                d.push_dest => 1,
-                d.peek_dest => 2,
-                else => 0,
-            },
-            else => 0,
-        };
-    }
-
     pub fn record(s: *OpStats, th: *Thread, fi: usize, pc: usize, ins: u32) void {
-        const shape: Shape = if (isRegister(th, fi)) @intCast(reg_shapes + @as(usize, @intFromEnum(ops.opOf(ins)))) else blk: {
-            const op = d.opOf(ins);
-            break :blk @intCast(@as(usize, @intFromEnum(op)) * variants + variantOf(op, ins));
-        };
+        const shape: Shape = @backingInt(ops.opOf(ins));
         s.ops[shape] += 1;
         const follows = s.last_th == th and s.last_fi == fi and s.last_pc + 1 == pc;
         if (!follows) s.run = 0;
@@ -164,24 +134,8 @@ pub const OpStats = struct {
     }
 
     fn writeShape(w: *std.Io.Writer, shape: Shape) void {
-        if (shape >= reg_shapes) {
-            const rop: ops.Op = @enumFromInt(shape - reg_shapes);
-            w.writeAll(rop.name()) catch {};
-            return;
-        }
-        const op: Op = @enumFromInt(shape / variants);
-        const v = shape % variants;
+        const op: ops.Op = @fromBackingInt(@intCast(shape));
         w.writeAll(op.name()) catch {};
-        const suffix: []const u8 = switch (op) {
-            .push, .move => if (v == 1) " stack" else " r",
-            .add_x, .sub_x, .mul_x, .div_x, .mod_x, .get_x, .set_x => switch (v) {
-                1 => " push",
-                2 => " peek",
-                else => " r",
-            },
-            else => "",
-        };
-        w.writeAll(suffix) catch {};
     }
 
     const Entry = struct { key: u32, n: u64 };

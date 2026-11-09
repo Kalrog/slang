@@ -34,7 +34,7 @@ examples/fm/midi_map*.json
 /website/public/slang-gfx.*
 /website/web/.cache/
 
-# the core seed (make seed-core)
+# build outputs
 /build/
 
 # recordings made by examples/synth/mixdown.slang

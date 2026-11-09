@@ -24,7 +24,6 @@ pub fn module(vm: *VM) *Table {
         .{ .name = "to_bytes", .f = vmToBytes },
         .{ .name = "embedded", .f = vmEmbedded },
         .{ .name = "build_id", .f = vmBuildId },
-        .{ .name = "features", .f = vmFeatures },
         .{ .name = "disassemble", .f = vmDisassemble },
         .{ .name = "load_proto", .f = vmLoadProto },
         .{ .name = "load_native", .f = @import("../loader.zig").loadNative },
@@ -222,21 +221,19 @@ fn gcSetLongestStep(th: *Thread, args: []Value) Error!Value {
 ///
 ///   {code: {ints}, locations: {{pc, origin, line, column}}, constants: {{kind, value}},
 ///    upvalues: {{name, index, is_local}}, children: {proto}, max_stack, nargs, is_vararg,
-///    name, isa}
+///    name}
 ///
-/// isa "register" (on the outermost prototype, for all of them): the code
-/// is in the register ISA (vm/ops.zig), max_stack its registers.
+/// The code is in the register ISA (vm/ops.zig), max_stack its registers.
 fn vmLoadProto(th: *Thread, args: []Value) Error!Value {
     const t = try api.argTable(th, args, 0, "proto");
-    const isa: object.Isa = if (std.mem.eql(u8, t.getName("isa").asBytes() orelse "", "register")) .register else .stack;
-    const p = try protoFromTable(th, t, 0, isa);
+    const p = try protoFromTable(th, t, 0);
     const env = api.arg(args, 1);
     if (env == .null) return .{ .function = th.vm.load(p) };
     const e = env.asTable() orelse return api.argError(th, "env", 1, "table", env);
     return .{ .function = th.vm.loadWithEnv(p, e) };
 }
 
-fn protoFromTable(th: *Thread, t: *Table, depth: usize, isa: object.Isa) Error!*Proto {
+fn protoFromTable(th: *Thread, t: *Table, depth: usize) Error!*Proto {
     const vm = th.vm;
     const gpa = vm.gpa;
     if (depth > 200) return vm.raise("load_proto: nesting too deep", .{});
@@ -254,8 +251,6 @@ fn protoFromTable(th: *Thread, t: *Table, depth: usize, isa: object.Isa) Error!*
         if (e.val != .int) return vm.raise("load_proto: instruction is not an int", .{});
         p.code[i] = @truncate(@as(u64, @bitCast(e.val.int)));
     }
-    p.isa = isa;
-    if (isa == .stack) p.temps = disasm.maxTemps(gpa, p.code);
     if (t.getName("locations").asTable()) |locs| {
         var list: std.ArrayList(object.LocInfo) = .empty;
         var lit = locs.iterator();
@@ -324,7 +319,7 @@ fn protoFromTable(th: *Thread, t: *Table, depth: usize, isa: object.Isa) Error!*
         var chit = children.iterator();
         while (chit.next()) |e| {
             const ct = e.val.asTable() orelse return vm.raise("load_proto: child must be a table", .{});
-            list.append(gpa, try protoFromTable(th, ct, depth + 1, isa)) catch oom();
+            list.append(gpa, try protoFromTable(th, ct, depth + 1)) catch oom();
         }
         p.children = list.toOwnedSlice(gpa) catch oom();
     }
@@ -405,22 +400,6 @@ fn vmDisassemble(th: *Thread, args: []Value) Error!Value {
     defer aw.deinit();
     vm_mod.disasm.disassemble(&aw.writer, p) catch oom();
     return th.vm.str(aw.writer.buffered());
-}
-
-/// features(): the instruction set the compiler emits and the optional
-/// parts this VM runs ({isa: "register", fused: true, register: true}).
-/// The register ISA is the default; SLANG_ISA=stack emits the stack ISA
-/// (with the fused forms), SLANG_ISA=core the stack ISA without them.
-fn vmFeatures(th: *Thread, args: []Value) Error!Value {
-    _ = args;
-    const vm = th.vm;
-    const t = vm.newTable(0, 3);
-    const env = vm.getenv("SLANG_ISA") orelse "register";
-    const stack = std.mem.eql(u8, env, "stack") or std.mem.eql(u8, env, "core");
-    if (!std.mem.eql(u8, env, "core")) t.set(vm.gpa, vm.str("fused"), .{ .bool = true });
-    t.set(vm.gpa, vm.str("register"), .{ .bool = true });
-    t.set(vm.gpa, vm.str("isa"), vm.str(if (stack) "stack" else "register"));
-    return .{ .table = t };
 }
 
 /// build_id(): a hash of the embedded seed bytecode, as 16 hex digits; the

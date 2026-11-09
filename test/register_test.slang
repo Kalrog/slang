@@ -4,21 +4,17 @@ local compiler = require("slang/compiler")
 local codegen = require("slang/codegen")
 local str = require("slang/string")
 
-// The register ISA (slang/codegen_reg, zig/src/vm/interp_reg.zig) must do
-// what the stack ISA does: values, metamethods, closures, errors and their
-// lines. Each program here is compiled both ways and run; the results, or
-// the errors' messages and lines, must be the same.
-//
-// Known differences (the register ISA does what Lua does): `a > b` is
-// `b < a`, so it calls __lt with the operands swapped where the stack ISA
-// computed `not (a <= b)` through __le, and an error from comparing what
-// cannot be compared names the operands the other way around; a call that
-// spans lines reports an error at its own line, not its last argument's.
-// The programs here avoid both.
+// Programs through the register backend (slang/codegen) and the register
+// loop (zig/src/vm/interp.zig): values, metamethods, closures, errors
+// and their lines. Each outcome was recorded while the stack ISA still
+// existed and both ISAs gave the same (plans/PLAN_REGISTER.md, phase 5),
+// except where the register ISA does what Lua does: `a > b` is `b < a`
+// (__lt with the operands swapped), and an error in a call that spans
+// lines points at the call's line.
 
-local func load(source, isa){
+local func load(source){
   local node = compiler.parse(source, "register")
-  return vm.load_proto(codegen.generate(node, "register", {isa: isa}))
+  return vm.load_proto(codegen.generate(node, "register"))
 }
 
 // runs f: "ok VALUE", or "err MESSAGE at line N"
@@ -34,27 +30,24 @@ local func outcome(f){
   return concat("err ", r.error.message, " at line ", line)
 }
 
-// the outcome of the program, the same compiled both ways
-local func same(source){
-  local stack = outcome(load(source, "stack"))
-  local register = outcome(load(source, "register"))
-  assert(stack == register, concat("stack:    ", stack, "\nregister: ", register))
-  return register
+// the outcome of the program, as expected
+local func expect(source, expected){
+  local got = outcome(load(source))
+  assert(got == expected, concat("expected: ", expected, "\ngot:      ", got))
+  return got
 }
 
 // Some programs give a local its value through to_int("3") rather than 3:
 // a local declared with a literal and never assigned again is replaced by
 // the literal (constant propagation), and these programs want registers.
 t.group("register ISA"){
-  t.test("the register backend emits the register ISA"){
-    local text = vm.disassemble(load("local a = to_int(\"1\")\nreturn a + 2", "register"))
+  t.test("the backend emits the register ISA"){
+    local text = vm.disassemble(load("local a = to_int(\"1\")\nreturn a + 2"))
     assert(str.index_of(text, "registers=") >= 0, text)
-    assert(str.index_of(text, "loadK") < 0 or str.index_of(text, "add ") >= 0, text)
-    text = vm.disassemble(load("local a = to_int(\"1\")\nreturn a + 2", "stack"))
-    assert(str.index_of(text, "maxstack=") >= 0, text)
+    assert(str.index_of(text, "add ") >= 0, text)
   }
   t.test("arithmetic, comparisons and logic as values"){
-    local r = same("""
+    local r = expect("""
       local up = to_int("3")
       local f = func(a, b){
         local x = a + b
@@ -74,11 +67,11 @@ t.group("register ISA"){
           ge, " ", ne, " ", chosen, " ", neg, " ", nt, " ", 2 ^ a, " ", 7 >> 1)
       }
       return concat(f(7, 2), "|", f(1.5, 4), "|", f(-7, 2), "|", f(2, 2))
-    """)
+    """, "ok 12 19.5 3.0 1 15 false true true true 2 -7 false 128 3|8.5 10.75 0.125 1.5 17 true false false true 4 -1.5 false 2.82842712474619 3|-2 -15.5 -4.0 2 9 true false false true 2 7 false 0.0078125 3|7 7.0 0.5 2 11 false false true false 2 -2 false 4 3")
     assert(str.starts_with(r, "ok 12 19.5 3.0 1 "), r)
   }
   t.test("conditions: and, or, not, comparisons with constants on either side"){
-    same("""
+    expect("""
       local up = to_int("5")
       local f = func(a, b){
         local r = ""
@@ -104,10 +97,10 @@ t.group("register ISA"){
         return "one"
       }
       return concat(f(1, 2), "|", f(2, 2.0), "|", f(3.5, 2), "|", f(7, 0), "|", g(null), g("x"), g(1), g(2))
-    """)
+    """, "ok lt le ne 3gt up truthy and/or |le ge eq 3gt up truthy |gt ge ne 3le up truthy neither |gt ge ne 3le truthy and/or neither |nullxonenot one")
   }
   t.test("metamethods: arithmetic, comparison, index, newindex, call, len, properties"){
-    same("""
+    expect("""
       local log = ""
       local m = {}
       m.__add = func(a, b){ log = log + "add "; return 10 }
@@ -141,10 +134,10 @@ t.group("register ISA"){
       p.v = 4
       local got = p.v
       return concat(log, x, " ", y, " ", z, " ", n, " ", l, " ", c, " ", got)
-    """)
+    """, "ok add sub lt yes le eq same index missing index method newindex field unm len call set 4 get 10 20 42 5 42 42 9")
   }
   t.test("tables: literals, lists, spread, meta fields, computed keys, stores"){
-    same("""
+    expect("""
       local buffer = require("slang/buffer")
       local b = buffer.new("float", 4)
       local k = to_int("2")
@@ -166,17 +159,17 @@ t.group("register ISA"){
       return concat("", o:get("x"), make():get(k), o[k], o.ab, o[0], o[1], t[2], t.z, t.w, b[3],
         list[2], list[4], list[5], len(list), len(spread_only), nested[1][1][0], withmeta:m(),
         big[69], len(big), lit[34], len(lit))
-    """)
+    """, "ok 1twotwo310201561.528966424761703535")
   }
   t.test("globals, upvalues, closures in loops, recursion"){
-    same("""
+    expect("""
       local func str_join(l){ local s = ""; for(let local x in values(l)){ s = s + x + "," } return s }
       global counter = 0
       counter = counter + 1
       local fs = {}
       for(local i = 0; i < 3; i = i + 1){
         local j = i * 10
-        append(fs, func(){ j = j + 1; return concat(i, ":", j) })
+        append(fs, func(){ j = j + 1; return concat("", i, ":", j) })
       }
       local acc = {}
       for(let local f in values(fs)){ append(acc, f()); append(acc, f()) }
@@ -190,11 +183,11 @@ t.group("register ISA"){
       inc(); inc()
       local self_ref = {v: 2}
       self_ref.f = func(){ return self_ref.v }
-      return concat(counter, " ", str_join(acc), " ", fib(10), " ", outer, " ", get(), " ", self_ref.f())
-    """)
+      return concat("", counter, " ", str_join(acc), " ", fib(10), " ", outer, " ", get(), " ", self_ref.f())
+    """, "ok 1 0:1,0:2,1:11,1:12,2:21,2:22, 55 3 2 2")
   }
   t.test("numeric for loops: directions, steps, limits, changes in the body"){
-    local r = same("""
+    local r = expect("""
       local up = to_int("4")
       local s = ""
       local n = to_int("3")
@@ -231,34 +224,34 @@ t.group("register ISA"){
       for(local i = 0; i < 3; i = i + 1){ append(fs, func(){ return i }) }
       s = concat(s, " ", fs[0](), fs[2]())
       return s
-    """)
+    """, "ok 0120123321321001202 0.0 0.25 0.5 0.75 0 0.5 1.0 2 5 8 11 0 1 2 c0 c1 c3 d10 d8 d6 d4 d2 l0 l1 l2 k3 00 10 02")
     assert(str.index_of(r, "0120123321321001202 0.0 0.25") == 3, r)
   }
   t.test("a for loop whose limit or step is not a number compares in full"){
-    same("""
+    expect("""
       local lim = {n: 3}
       lim.@meta = {__lt: func(a, b){ return a < b.n }}
       local s = ""
       for(local i = 0; i < lim; i = i + 1){ s = concat(s, i) }
       return s
-    """)
-    same("""
+    """, "ok 012")
+    expect("""
       local s = ""
       for(local i = 0; i < 3; i = i + 1){
         s = concat(s, i)
         if(i == 1){ i = "x" }
       }
       return s
-    """)
-    same("""
+    """, "err attempt to perform arithmetic (+) on string and int at line 3")
+    expect("""
       local s = ""
       local step = {}
       for(local i = 0; i < 3; i = i + step){ s = s + "x" }
       return s
-    """)
+    """, "err attempt to perform arithmetic (+) on int and table at line 4")
   }
   t.test("for..in: tables, iterator functions, patterns, let?, errors"){
-    same("""
+    expect("""
       local s = ""
       local t = {a: 1, b: 2}
       for(let local k in keys({10, 20})){ s = concat(s, k) }
@@ -278,18 +271,18 @@ t.group("register ISA"){
       local x = {y: {1, 2}}
       for(let local x in values(x.y)){ s = concat(s, "i", x) }
       return s
-    """)
-    same("""
+    """, "ok 011020x1x11231234131null2 4 12i1i2")
+    expect("""
       for(let {local a} in values({{1}, 2})){ }
       return "unreached"
-    """)
-    same("""
+    """, "err for: an element does not match {local a} (write let? to skip such elements; a name? takes null) at line 2")
+    expect("""
       local it = null
       for(let local x in it){ }
-    """)
+    """, "err attempt to call a null value at line 3")
   }
   t.test("patterns: let statements and conditions, matchers, nesting"){
-    same("""
+    expect("""
       local s = ""
       let {local a, local b, name: local c} = {1, 2, name: "n"}
       s = concat(s, a, b, c)
@@ -310,22 +303,22 @@ t.group("register ISA"){
       s = concat(s, " ", ok, " ", (let 1 = 2))
       local f = func(x){ return (let {local y} = x) and y or "none" }
       s = concat(s, " ", f({5}), f(3))
-      local g = func(v){ if(let 'int = v and v < 2){ return "small" } return "big" }
+      local g = func(v){ if((let 'int = v) and v < 2){ return "small" } return "big" }
       s = concat(s, " ", g(5), g(1), g("x"))
       return s
-    """)
-    same("""
+    """, "ok 12n5nullk7elsew8notposint3notstr123 true false 5none bigsmallbig")
+    expect("""
       local x = {a: 1}
       let {b: local b} = x
       return b
-    """)
-    same("""
+    """, "err let: the value does not match {b: local b} at line 3")
+    expect("""
       let 'string as local s = 5
       return s
-    """)
+    """, "err let: the value does not match 'string as local s at line 2")
   }
   t.test("try, catch, throw, try expressions, defer"){
-    same("""
+    expect("""
       local func str_join(l){ local s = ""; for(let local x in values(l)){ s = s + x + "," } return s }
       local log = ""
       local func f(n){
@@ -341,7 +334,7 @@ t.group("register ISA"){
         }
       }
       log = concat(f(0), "|", f(1), "|", f(2), "|", f(3))
-      local v = 10 + try { to_int("x") } catch { 5 } * 2
+      local v = 10 + try { raise("x") } catch { 5 } * 2
       local w = try { raise("w") } catch({kind: "nope"}) { 1 } catch(local e) { e.message }
       local list = {try { 1 } catch { 0 }, try { raise("y") } catch { 2 }}
       local g = func(a, b, c){ return concat(string(a), string(b), string(c)) }
@@ -370,24 +363,24 @@ t.group("register ISA"){
       local func boom(){ defer { log = log + " deferred" } raise("boom") }
       local caught = try { boom() } catch(local e) { e.message }
       return concat(log, " ", d(), " ", str_join(d2()), " ", d3(), " ", caught)
-    """)
-    same("""
+    """, "ok fine|caught one|caught two|caught attempt to index a null value (key \"field\") 20 w 12 1x3 deferred body b0,d0,d1, 2 boom")
+    expect("""
       local r = try { raise("again") } catch({kind: "x"}) { 1 }
       return r
-    """)
-    same("""
+    """, "err again at line 2")
+    expect("""
       try { raise({kind: "custom", message: "m", value: 3}) } catch(local e) { raise(e) }
-    """)
+    """, "err m at line 2")
   }
   t.test("calls: methods, varargs, spread, many arguments, results as receivers"){
-    same("""
+    expect("""
       local o = {n: 2}
       func o.add(self, ...rest){ local s = self.n; for(let local r in values(rest)){ s = s + r } return s }
       func o.me(self){ return self }
       local func count(...args){ return len(args) }
-      local func pack(a, b, ...rest){ return concat(a, b, len(rest), string(rest[0])) }
+      local func pack(a, b, ...rest){ return concat("", a, b, len(rest), string(rest[0])) }
       local list = {1, 2, 3}
-      local s = concat(o:add(1, 2), o:add(...list), o:add(0, ...list), o:me():me().n)
+      local s = concat("", o:add(1, 2), o:add(...list), o:add(0, ...list), o:me():me().n)
       s = concat(s, " ", count(), count(1, null, 3), count(...list), count(0, ...list, ...list))
       s = concat(s, " ", pack(1, 2), pack(1, 2, 3, 4), pack(...{5, 6, 7}))
       local func many(a, b, c, d, e, f, g, h, i, j, k, l, m, n){ return a + b + c + d + e + f + g + h + i + j + k + l + m + n }
@@ -395,12 +388,12 @@ t.group("register ISA"){
       local f = func(x){ return func(y){ return x + y } }
       s = concat(s, " ", f(1)(2), " ", ({f: f}).f(3)(4))
       local str = require("slang/string")
-      s = concat(s, " ", str.upper("ab"), " ", ("x"):upper())
+      s = concat(s, " ", str.upper("ab"), " ", str.lower("XY"))
       return s
-    """)
+    """, "ok 5882 0337 120null12235617 105 3 7 AB xy")
   }
   t.test("if expressions, string operations, meta access, type"){
-    same("""
+    expect("""
       local func nil_value(){ return null }
       local n = to_int("5")
       local a = if(n > 3){ "big" } else if(n > 1){ "mid" } else { "small" }
@@ -412,94 +405,94 @@ t.group("register ISA"){
       t.@meta = m
       local same_meta = t.@meta == m
       return concat(a, b, s, rep, " ", type(t), type(1), type(1.5), type("s"), type(nil_value()), type(true), " ", same_meta)
-    """)
+    """, "ok big2abcdxxxxx thingintdoublestringnullbool true")
   }
   t.test("errors keep their messages and lines"){
-    same("""
+    expect("""
       local a = null
       local b = 1
       return b + a
-    """)
-    same("""
+    """, "err attempt to perform arithmetic (+) on int and null at line 4")
+    expect("""
       local a = null
       local b = 1
       local c = 0
       c = a * 2
       return c
-    """)
-    same("""
+    """, "err attempt to perform arithmetic (*) on null and int at line 5")
+    expect("""
       local f = func(){ return null }
       return f() - 1
-    """)
-    same("""
+    """, "err attempt to perform arithmetic (-) on null and int at line 3")
+    expect("""
       local a = {}
       local b = 2
       if(a < b){ return 1 }
       return 0
-    """)
-    same("""
+    """, "err attempt to compare table < int at line 4")
+    expect("""
       local a = "s"
       if(
         a <= 2
       ){ return 1 }
       return 0
-    """)
-    same("""
+    """, "err attempt to compare string <= int at line 4")
+    expect("""
       local a = null
       local x = 1
       return a.field
-    """)
-    same("""
+    """, "err attempt to index a null value (key \"field\") at line 4")
+    expect("""
       local a = null
       local k = "f"
       local v = 1
       a[k] = v
       return 0
-    """)
-    same("""
+    """, "err attempt to index a null value (key \"f\") at line 5")
+    expect("""
       local a = null
       return a:method()
-    """)
-    same("""
+    """, "err attempt to index a null value (key \"method\") at line 3")
+    expect("""
       local f = null
       return f(1, 2)
-    """)
-    same("""
+    """, "err attempt to call a null value at line 3")
+    expect("""
       local n = 1 % 0
       return n
-    """)
-    same("""
+    """, "err integer modulo by zero at line 2")
+    expect("""
       local a = 1
       local b = 0
       return a % b
-    """)
-    same("""
+    """, "err integer modulo by zero at line 4")
+    expect("""
       local t = {}
       t.x.y = 1
-    """)
-    same("""
+    """, "err attempt to index a null value (key \"y\") at line 3")
+    expect("""
       local s = "x"
       return -s
-    """)
-    same("""
+    """, "err attempt to negate a string value at line 3")
+    expect("""
       local s = {}
       return ~s
-    """)
-    same("""
+    """, "err attempt to perform bitwise operation (~) on a table value at line 3")
+    expect("""
       raise({kind: "mine", message: "with a table"})
-    """)
-    same("""
+    """, "err with a table at line 2")
+    expect("""
       local list = {1}
       local func f(...args){ return args }
       return f(...list[0])
-    """)
-    same("""
+    """, "err attempt to spread a int value at line 4")
+    expect("""
       let {local a} = 5
-    """)
-    same("""
+    """, "err let: the value does not match {local a} at line 2")
+    expect("""
       local deep = func(n){ if(n == 0){ return to_int({}) } return deep(n - 1) }
       return deep(3)
-    """)
+    """, "err to_int requires a number or a string, got table at line 2")
   }
   t.test("register code survives .slb, and runs in a fresh thread"){
     local f = load("""
@@ -508,7 +501,7 @@ t.group("register ISA"){
       for(local i = 0; i < 4; i = i + 1){ s = s + a * i }
       local t = {s, s + 1}
       return t[1]
-    """, "register")
+    """)
     local g = vm.load_bytes(vm.to_bytes(f))
     assert(g() == 13 and f() == 13, string(g()))
     local thread = require("slang/thread")
@@ -526,7 +519,7 @@ t.group("register ISA"){
       append(out, thread.resume(co, 10))
       append(out, thread.resume(co, 100))
       return concat("", out[0], " ", out[1], " ", out[2])
-    """, "register")
+    """)
     assert(yielding() == "2 20 99", yielding())
   }
 }

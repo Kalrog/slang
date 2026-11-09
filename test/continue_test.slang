@@ -132,7 +132,7 @@ t.group("labels"){
 }
 
 t.group("break out of a for-in"){
-  t.test("lands on the pop of the iterator (nothing is left on the stack)"){
+  t.test("lands after the loop"){
     local vm = require("slang/vm")
     local func f(){
       for(let local x in values({1, 2})){ break }
@@ -157,11 +157,7 @@ t.group("break out of a for-in"){
         landing = line
       }
     }
-    // (the register ISA has no stack to pop: the break lands after the loop)
-    local register = vm.features().isa == "register"
-    assert(
-      landing != null and (register or str.index_of(landing, "pop") >= 0),
-      concat("lands on: ", string(landing)),
-    )
+    // (no iterator to pop: the break lands after the loop)
+    assert(landing != null, concat("lands on: ", string(landing)))
   }
 }

@@ -228,6 +228,11 @@ func asm.enter_scope(self, breakable){
 }
 
 func asm.leave_scope(self){
+  // a local a closure captured is closed when its scope ends: a block
+  // closes its own at its end (visit_statements), and this covers the
+  // scopes that end otherwise (an if's condition, a try expression's
+  // clause, a loop's variables)
+  self:close_open_upvalues()
   // every local of the scope, also those a later one of the same name
   // shadows within it, innermost first
   local names = {}
@@ -269,7 +274,9 @@ func asm.close_upvalues_below(self, depth){
   }
 }
 
-// emits closeUpvalues for the lowest captured local of the current scope
+// emits closeUpvalues for the lowest captured local of the current scope,
+// unless the instruction before already closes them (the scope's block
+// did) or the scope ends in a return or a throw (a frame closes its own)
 func asm.close_open_upvalues(self){
   local min_slot = self.max_registers
   local any_captured = false
@@ -285,9 +292,21 @@ func asm.close_open_upvalues(self){
       current = current.previous
     }
   }
-  if(any_captured){
-    self:emit_close_upvalues(min_slot)
+  if(not any_captured){
+    return null
   }
+  local n = len(self.instructions)
+  if(n > 0){
+    local last = self.instructions[n - 1]
+    local op = last & 63
+    if(op == OP_RETURN or op == OP_THROW){
+      return null
+    }
+    if(op == OP_CLOSE_UPVALUES and (last >> 6) <= min_slot){
+      return null
+    }
+  }
+  self:emit_close_upvalues(min_slot)
 }
 
 func asm.allocate_register(self){
@@ -610,6 +629,13 @@ func asm.end_pattern(self){
 // locals are moved to the new indices.
 
 local fuse_enabled = vm.features != null and vm.features().fused == true
+// SLANG_ISA=register: the register backend (slang/codegen_reg) compiles
+// everything, unless generate is told an isa
+local default_isa = null
+if(vm.features != null){
+  default_isa = vm.features().isa
+}
+local register_backend = null
 
 local FIRST_CONSTANT = 128
 local FIRST_UPVALUE = 384
@@ -2294,8 +2320,20 @@ func visitors.Unquote(g, node){
 // [options]: record, a recorder told of names as they are resolved, with
 // define, use and field methods (see record_local above and slang/symbols);
 // core: true emits core instructions only, as for a VM without the fused
-// profile (the default when vm.features() has no fused)
+// profile (the default when vm.features() has no fused); isa: "register"
+// (or "stack") picks the instruction set, the register one compiled by
+// slang/codegen_reg (the default when SLANG_ISA=register)
 func codegen.generate(node, origin, options){
+  local isa = default_isa
+  if(options != null and options.isa != null){
+    isa = options.isa
+  }
+  if(isa == "register"){
+    if(register_backend == null){
+      register_backend = require("slang/codegen_reg")
+    }
+    return register_backend.generate(node, origin, options)
+  }
   local g = {}
   g.@meta = gen_meta
   local fused = fuse_enabled

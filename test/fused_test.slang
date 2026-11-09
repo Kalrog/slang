@@ -11,7 +11,7 @@ local str = require("slang/string")
 
 local func load(source, core){
   local node = compiler.parse(source, "fused")
-  return vm.load_proto(codegen.generate(node, "fused", {core: core}))
+  return vm.load_proto(codegen.generate(node, "fused", {core: core, isa: "stack"}))
 }
 
 // runs f: "ok VALUE", or "err MESSAGE at line N"

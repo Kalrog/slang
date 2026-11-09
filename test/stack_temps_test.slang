@@ -48,6 +48,11 @@ local func temps_of(f){
 
 t.group("stack temporaries"){
   t.test("a frame reserves what its code pushes, past the old margin of 8"){
+    // (the register ISA has no temporaries above the registers: a call's
+    // arguments are registers of the frame)
+    if(require("slang/vm").features().isa == "register"){
+      return null
+    }
     // wide pushes many's function and its 14 arguments above its registers
     assert(temps_of(wide) >= 15, concat("temps ", temps_of(wide)))
     assert(temps_of(many) >= 1)

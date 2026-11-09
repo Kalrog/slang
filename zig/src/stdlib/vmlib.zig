@@ -408,15 +408,20 @@ fn vmDisassemble(th: *Thread, args: []Value) Error!Value {
 }
 
 /// features(): the optional parts of the ISA this VM runs, as a set
-/// ({fused: true}); the compiler emits core bytecode for what is missing.
-/// SLANG_ISA=core hides the fused instructions, which makes the compiler
-/// emit core bytecode only.
+/// ({fused: true, register: true}); the compiler emits core bytecode for
+/// what is missing. SLANG_ISA=core hides the fused instructions, which
+/// makes the compiler emit core bytecode only; SLANG_ISA=register adds
+/// isa: "register", and the compiler emits the register ISA.
 fn vmFeatures(th: *Thread, args: []Value) Error!Value {
     _ = args;
     const vm = th.vm;
     const t = vm.newTable(0, 1);
     const isa = vm.getenv("SLANG_ISA");
     if (isa == null or !std.mem.eql(u8, isa.?, "core")) t.set(vm.gpa, vm.str("fused"), .{ .bool = true });
+    // the register ISA (vm/ops.zig) is always there; SLANG_ISA=register
+    // makes the compiler emit it for everything
+    t.set(vm.gpa, vm.str("register"), .{ .bool = true });
+    if (isa != null and std.mem.eql(u8, isa.?, "register")) t.set(vm.gpa, vm.str("isa"), vm.str("register"));
     return .{ .table = t };
 }
 

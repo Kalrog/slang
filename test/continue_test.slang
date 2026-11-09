@@ -157,8 +157,10 @@ t.group("break out of a for-in"){
         landing = line
       }
     }
+    // (the register ISA has no stack to pop: the break lands after the loop)
+    local register = vm.features().isa == "register"
     assert(
-      landing != null and str.index_of(landing, "pop") >= 0,
+      landing != null and (register or str.index_of(landing, "pop") >= 0),
       concat("lands on: ", string(landing)),
     )
   }

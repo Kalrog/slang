@@ -55,6 +55,19 @@ test.group("closure test", func(){
     dec()
     assert(i == 0, "i should be 0 while upvalue is not closed yet")
   })
+  test.test("locals of a condition or a catch clause are closed when their scope ends"){
+    local fs = {}
+    if(let local x = 1){ append(fs, func(){ return x }) }
+    local other = 99
+    for(local i = 0; i < 2; i = i + 1){
+      local v = try { raise(string(i)) } catch(local e) { func(){ return e.message } }
+      append(fs, v)
+    }
+    local more = 7
+    assert(fs[0]() == 1, string(fs[0]()))
+    assert(fs[1]() == "0" and fs[2]() == "1", concat(fs[1](), " ", fs[2]()))
+    assert(other == 99 and more == 7)
+  }
   test.test("recursive function"){
     local func factorial(n){
       if(n == 0){

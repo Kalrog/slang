@@ -33,16 +33,16 @@ pub fn run(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
     outer: while (true) {
         const n = th.frames.items.len;
         if (n <= stop_depth) return;
-        const fi = n - 1;
+        var fi = n - 1;
         const frame = th.frames.items[fi];
-        const cl = frame.cl;
-        const proto = cl.proto orelse return vm.raise("internal error: native frame in interpreter loop", .{});
+        var cl = frame.cl;
+        var proto = cl.proto orelse return vm.raise("internal error: native frame in interpreter loop", .{});
         if (proto.isa != .register) return;
-        const code = proto.code;
-        const consts = proto.consts;
-        const base: usize = frame.base;
+        var code = proto.code;
+        var consts = proto.consts;
+        var base: usize = frame.base;
         // the end of the frame's registers
-        const ftop: usize = base + proto.max_stack;
+        var ftop: usize = base + proto.max_stack;
         var pc: usize = frame.pc;
         var stack: [*]Value = th.stack.ptr;
         var ins: u32 = undefined;
@@ -432,7 +432,23 @@ pub fn run(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                     try th.handleError(e, stop_depth);
                     continue :outer;
                 };
-                if (is_slang) continue :outer;
+                if (is_slang) {
+                    // the callee's frame, without leaving the switch when
+                    // it is register code too
+                    fi = th.frames.items.len - 1;
+                    const fr = th.frames.items[fi];
+                    cl = fr.cl;
+                    proto = cl.proto.?;
+                    if (proto.isa != .register) continue :outer;
+                    code = proto.code;
+                    consts = proto.consts;
+                    base = fr.base;
+                    ftop = base + proto.max_stack;
+                    pc = fr.pc;
+                    th.top = ftop;
+                    stack = th.stack.ptr;
+                    continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                }
                 // a native ran: its result is in R[A]
                 th.top = ftop;
                 stack = th.stack.ptr;
@@ -486,7 +502,21 @@ pub fn run(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                     th.stack[th.frames.items[th.frames.items.len - 1].base + dest] = res;
                 }
                 if (th.frames.items.len == stop_depth) return;
-                continue :outer;
+                // the caller's frame, without leaving the switch when it
+                // is register code too
+                fi = th.frames.items.len - 1;
+                const fr = th.frames.items[fi];
+                cl = fr.cl;
+                proto = cl.proto orelse continue :outer;
+                if (proto.isa != .register) continue :outer;
+                code = proto.code;
+                consts = proto.consts;
+                base = fr.base;
+                ftop = base + proto.max_stack;
+                pc = fr.pc;
+                th.top = ftop;
+                stack = th.stack.ptr;
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
             },
             // ---- errors
             .try_begin => {

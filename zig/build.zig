@@ -89,6 +89,26 @@ pub fn build(b: *std.Build) void {
     vec.linker_allow_shlib_undefined = true;
     b.installArtifact(vec);
 
+    // The vector benchmark's libraries (bench/vectors, `make bench-vectors`):
+    // a Zig extension and a C library for slang/ffi, into build/bench under
+    // the prefix only by the bench-libs step, never with the install.
+    const bench_libs = b.step("bench-libs", "the vector benchmark's native libraries, into build/bench");
+    const v3_mod = b.createModule(.{
+        .root_source_file = b.path("../bench/vectors/native/vec3.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    v3_mod.addImport("slang", translated.createModule());
+    const v3 = b.addLibrary(.{ .name = "vec3", .linkage = .dynamic, .root_module = v3_mod });
+    v3.linker_allow_shlib_undefined = true;
+    const cv3_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
+    cv3_mod.addCSourceFile(.{ .file = b.path("../bench/vectors/native/cvec3.c"), .flags = &.{ "-std=c11", "-O2" } });
+    const cv3 = b.addLibrary(.{ .name = "cvec3", .linkage = .dynamic, .root_module = cv3_mod });
+    for ([_]*std.Build.Step.Compile{ v3, cv3 }) |lib| {
+        bench_libs.dependOn(&b.addInstallArtifact(lib, .{ .dest_dir = .{ .override = .{ .custom = "build/bench" } } }).step);
+    }
+
     // The native extensions (extensions/native), each a library installed as
     // lib/<name>.<ext>, linked against its third-party library: statically
     // where the install has a static archive (lib<x>.a), so that the

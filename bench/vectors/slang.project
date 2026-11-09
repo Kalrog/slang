@@ -1,0 +1,6 @@
+{
+  name: "vectors",
+  dependencies: {
+    kernel: {path: "../../packages/kernel"},
+  },
+}

@@ -13,6 +13,8 @@
 #                     for ports of the VM that leave out the fused profile
 #   make fixpoint     check that the seed compiles itself to identical bytecode, fused and core
 #   make bench        run bench/ (bench/run_all.sh adds the Lua ports and the C sawtooth)
+#   make bench-vectors 3D vector math in every style: slang tables, methods, operators, a native
+#                     (Zig) library, C through slang/ffi, buffers, a kernel (bench/vectors)
 #   make raylib-test  run the raylib package's tests (packages/raylib; needs raylib installed)
 #   make box2d-test   run the box2d package's tests (packages/box2d; needs Box2D 3 installed)
 #   make jolt-test    run the jolt package's tests (packages/jolt; ships its own Jolt)
@@ -58,7 +60,7 @@ COMPILER_SRC := $(wildcard slang/compiler/*.slang)
 SEED_DIR := boot/slang
 SEED_CORE_DIR := build/seed-core
 
-.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed seed-core fixpoint bench raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test inkblast inkblast-test synth synth3d synth-test synth-mix modular modular-test modular-demos live live-test delve delve-test courier courier-test siege siege-test midi-test kernel-test kernel-bench fm fm3d fm-test fm-gen clean doc \
+.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed seed-core fixpoint bench bench-vectors raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test inkblast inkblast-test synth synth3d synth-test synth-mix modular modular-test modular-demos live live-test delve delve-test courier courier-test siege siege-test midi-test kernel-test kernel-bench fm fm3d fm-test fm-gen clean doc \
         vscode vscode-grammar
 
 all: build
@@ -200,6 +202,12 @@ midi-test: build
 # the kernel package ships its interpreter per platform (packages/kernel/tool/build.sh)
 kernel-test: build
 	cd packages/kernel && ../../bin/slang test test
+
+# the native libraries (a Zig extension, a C library) go to build/bench,
+# not lib/: they are the benchmark's, never installed
+bench-vectors: build
+	cd zig && $(ZIG) build bench-libs -Doptimize=ReleaseFast -p ..
+	cd bench/vectors && ../../bin/slang run main.slang
 
 kernel-bench: build
 	cd packages/kernel && ../../bin/slang run bench/bench.slang

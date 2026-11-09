@@ -9,6 +9,7 @@ const thread_mod = @import("thread.zig");
 const Error = root.Error;
 const gc = @import("gc.zig");
 const ctypes = @import("../stdlib/ctypes.zig");
+const corelib = @import("../stdlib/core.zig");
 const d = @import("disasm.zig");
 const Op = d.Op;
 const Ic = @import("table.zig").Ic;
@@ -270,6 +271,17 @@ inline fn icStore(vm: *root.VM, ic: *Ic, obj: Value, val: Value) bool {
     ic.own_slot = i;
     t.storeAt(vm.gpa, i, val);
     return true;
+}
+
+/// Which built-in iterator f is (0 keys, 1 values, 2 entries) when it is
+/// one forin_prep walks in the loop (of a table; anything else, null
+/// included, goes to the call as before).
+inline fn iterKind(f: *root.Closure) ?i64 {
+    const n = f.native orelse return null;
+    if (n == &corelib.coreValues) return 1;
+    if (n == &corelib.coreEntries) return 2;
+    if (n == &corelib.coreKeys) return 0;
+    return null;
 }
 
 /// == of a jeq without a call: null, booleans and strings (whose __eq is
@@ -732,6 +744,54 @@ fn runImpl(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 }
                 top = th.top;
                 stack = th.stack.ptr;
+                continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+            },
+            .forin_prep => {
+                // [f, x]: the built-in keys, values or entries of a table
+                // become a walk of the table in the loop (forin_next) with
+                // nothing allocated; anything else is the call f(x)
+                const f = stack[top - 2];
+                const x = stack[top - 1];
+                if (f == .function and x == .table) {
+                    if (iterKind(f.function)) |kind| {
+                        stack[top - 2] = x;
+                        top -= 1;
+                        stack[base + d.argA(ins)] = .{ .int = kind };
+                        continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+                    }
+                }
+                ins = @as(u32, 1) << 14 | @intFromEnum(Op.call);
+                continue :sw .call;
+            },
+            .forin_next => {
+                const it = stack[top - 1];
+                if (it == .table) {
+                    const ra = base + d.argA(ins);
+                    var state: u64 = @intCast(stack[ra].int);
+                    const e = it.table.nextLive(&state);
+                    if (e) |entry| {
+                        stack[ra] = .{ .int = @intCast(state) };
+                        const v: Value = switch (state & 3) {
+                            0 => entry.key,
+                            1 => entry.val,
+                            else => .{ .table = corelib.entryPair(vm, entry) },
+                        };
+                        stack[top] = v;
+                        top += 1;
+                        // the second word: to the pattern
+                        const off = d.argSBx(code[pc + 1]);
+                        pc += 2 + @as(usize, @intCast(off));
+                    } else {
+                        // the end: the loop's stop path pops a value
+                        stack[top] = .null;
+                        top += 1;
+                        const off = d.argSBx(code[pc]);
+                        pc += 1 + @as(usize, @intCast(off));
+                    }
+                    continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
+                }
+                // an iterator function: the call after the two words
+                pc += 2;
                 continue :sw fetch(trace, th, code, fi, base, &pc, top, &ins);
             },
             .call => {

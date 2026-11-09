@@ -4,6 +4,7 @@ const oom = vm_mod.oom;
 const VM = vm_mod.VM;
 const Value = vm_mod.Value;
 const Table = vm_mod.Table;
+const TableEntry = @import("../vm/table.zig").Entry;
 const Thread = vm_mod.Thread;
 const Error = vm_mod.Error;
 const api = vm_mod.api;
@@ -213,47 +214,43 @@ fn keysOf(vm: *VM, t: *const Table) *Table {
     return keys;
 }
 
-// The iterators keep {keys snapshot, position, source table} in the native
-// closure's nvals, skip the keys deleted since the snapshot and return stop
-// at the end (null is an element like any other).
+// The iterators keep {table, position} in the native closure's nvals and
+// walk the table as it is (Table.nextLive: no copy of its keys); they
+// return stop at the end (null is an element like any other). A for..in
+// over keys, values or entries of a table does not call them: forin_prep
+// and forin_next walk it in the loop itself (see interp.zig).
 
-/// The next key of the snapshot still in the source table, or null.
-fn nextKey(cl: *vm_mod.Closure) ?Value {
-    const keys = cl.nvals[0].table;
-    const src = cl.nvals[2].table;
-    var i: usize = @intCast(cl.nvals[1].int);
-    while (i < keys.arrayLen()) {
-        const k = keys.getInt(@intCast(i));
-        i += 1;
-        if (src.has(k)) {
-            cl.nvals[1] = .{ .int = @intCast(i) };
-            return k;
-        }
-    }
-    cl.nvals[1] = .{ .int = @intCast(i) };
-    return null;
+fn nextLive(cl: *vm_mod.Closure) ?TableEntry {
+    var state: u64 = @intCast(cl.nvals[1].int);
+    const e = cl.nvals[0].table.nextLive(&state);
+    cl.nvals[1] = .{ .int = @intCast(state) };
+    return e;
 }
 
 fn keysNext(th: *Thread, args: []Value) Error!Value {
     _ = args;
-    return nextKey(th.currentClosure()) orelse .{ .userdata = th.vm.stop_value };
+    const e = nextLive(th.currentClosure()) orelse return .{ .userdata = th.vm.stop_value };
+    return e.key;
 }
 
 fn valuesNext(th: *Thread, args: []Value) Error!Value {
     _ = args;
-    const cl = th.currentClosure();
-    const k = nextKey(cl) orelse return .{ .userdata = th.vm.stop_value };
-    return cl.nvals[2].table.get(k);
+    const e = nextLive(th.currentClosure()) orelse return .{ .userdata = th.vm.stop_value };
+    return e.val;
+}
+
+/// {key, value} of an entry (entries)
+pub fn entryPair(vm: *VM, e: TableEntry) *Table {
+    const pair = vm.newTable(2, 0);
+    pair.append(vm.gpa, e.key);
+    pair.append(vm.gpa, e.val);
+    return pair;
 }
 
 fn entriesNext(th: *Thread, args: []Value) Error!Value {
     _ = args;
-    const cl = th.currentClosure();
-    const k = nextKey(cl) orelse return .{ .userdata = th.vm.stop_value };
-    const pair = th.vm.newTable(2, 0);
-    pair.append(th.vm.gpa, k);
-    pair.append(th.vm.gpa, cl.nvals[2].table.get(k));
-    return .{ .table = pair };
+    const e = nextLive(th.currentClosure()) orelse return .{ .userdata = th.vm.stop_value };
+    return .{ .table = entryPair(th.vm, e) };
 }
 
 /// Iterating a buffer (slang/ctypes): nvals are the buffer, the next index
@@ -283,11 +280,10 @@ fn bufferIterator(th: *Thread, v: Value, what: i64, name: []const u8) ?Value {
     return .{ .function = th.vm.newNative(name, bufferNext, &.{ v, .{ .int = 0 }, .{ .int = what } }) };
 }
 
-fn coreKeys(th: *Thread, args: []Value) Error!Value {
+pub fn coreKeys(th: *Thread, args: []Value) Error!Value {
     if (bufferIterator(th, api.arg(args, 0), 0, "keys.next")) |it| return it;
     const t = api.arg(args, 0).asTable() orelse return .null;
-    const keys = keysOf(th.vm, t);
-    return .{ .function = th.vm.newNative("keys.next", keysNext, &.{ .{ .table = keys }, .{ .int = 0 }, .{ .table = t } }) };
+    return .{ .function = th.vm.newNative("keys.next", keysNext, &.{ .{ .table = t }, .{ .int = 0 } }) };
 }
 
 fn iterTable(th: *Thread, args: []Value, name: []const u8) Error!*Table {
@@ -299,18 +295,16 @@ fn iterTable(th: *Thread, args: []Value, name: []const u8) Error!*Table {
     };
 }
 
-fn coreValues(th: *Thread, args: []Value) Error!Value {
+pub fn coreValues(th: *Thread, args: []Value) Error!Value {
     if (bufferIterator(th, api.arg(args, 0), 1, "values.next")) |it| return it;
     const t = try iterTable(th, args, "values");
-    const keys = keysOf(th.vm, t);
-    return .{ .function = th.vm.newNative("values.next", valuesNext, &.{ .{ .table = keys }, .{ .int = 0 }, .{ .table = t } }) };
+    return .{ .function = th.vm.newNative("values.next", valuesNext, &.{ .{ .table = t }, .{ .int = 0 } }) };
 }
 
-fn coreEntries(th: *Thread, args: []Value) Error!Value {
+pub fn coreEntries(th: *Thread, args: []Value) Error!Value {
     if (bufferIterator(th, api.arg(args, 0), 2, "entries.next")) |it| return it;
     const t = try iterTable(th, args, "entries");
-    const keys = keysOf(th.vm, t);
-    return .{ .function = th.vm.newNative("entries.next", entriesNext, &.{ .{ .table = keys }, .{ .int = 0 }, .{ .table = t } }) };
+    return .{ .function = th.vm.newNative("entries.next", entriesNext, &.{ .{ .table = t }, .{ .int = 0 } }) };
 }
 
 fn coreConcat(th: *Thread, args: []Value) Error!Value {

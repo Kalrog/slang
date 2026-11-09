@@ -69,6 +69,8 @@ local OP_TRY_END = 36
 local OP_THROW = 37
 local OP_GET_META = 38
 local OP_SET_META = 39
+local OP_FORIN_PREP = 40
+local OP_FORIN_NEXT = 41
 
 // the fused forms (the VM's `fused` profile), numbered from 63 down; see
 // fuse below and zig/src/vm/disasm.zig
@@ -538,6 +540,19 @@ func asm.emit_close_upvalues(self, min_slot){
 
 func asm.emit_load_closure(self, index){
   self:emit_ax(OP_LOAD_CLOSURE, index)
+}
+
+// for..in over f(x), f and x on the stack: f(x), or (f the built-in keys,
+// values or entries, x a table) x walked in the loop with its position in
+// register `position` (see forin_next and zig/src/vm/interp.zig)
+func asm.emit_forin_prep(self, position){
+  self:emit_abc(OP_FORIN_PREP, position, 0, 0)
+}
+
+// a for..in step over the iterator on top of the stack; it is followed by
+// two jumps (the loop's end, the pattern), which the caller emits and patches
+func asm.emit_forin_next(self, position){
+  self:emit_abc(OP_FORIN_NEXT, position, 0, 0)
 }
 
 func asm.emit_call(self, nargs){
@@ -1964,9 +1979,24 @@ func visitors.ForIn(g, node){
   g:visit(global_index(node.token, "stop"))
   g.asm:emit_move(stop_lv.register)
   g.loop_values = loop_values(g, node)
-  g:visit(node.itterator)
+  // the position of a table walked in the loop (keys, values, entries)
+  local position_lv = g.asm:create_local("(for position)")
+  local it = node.itterator
+  if(it.type == "Call" and len(it.args) == 1 and it.args[0].type != "Spread"){
+    g:visit(it.function)
+    g:visit(it.args[0])
+    g.asm:set_location(it.token)
+    g.asm:emit_forin_prep(position_lv.register)
+  } else {
+    g:visit(it)
+  }
   local loop_start = g.asm:next_instruction_index()
   local p = g.asm:start_pattern()
+  // a table walked in the loop: its next element, then to the pattern
+  // (or to the end); an iterator function: on to its call
+  g.asm:emit_forin_next(position_lv.register)
+  local walked_end = g.asm:emit_jump()
+  local walked_value = g.asm:emit_jump()
   g.asm:emit_push(-1)
   g.asm:emit_call(0)
   p:increase_stack_height()
@@ -1975,6 +2005,7 @@ func visitors.ForIn(g, node){
   g.asm:emit_binop("==")
   g.asm:emit_test(true)
   local stop_jump = g.asm:emit_jump()
+  g.asm:patch_jump(walked_value)
   g.asm:emit_push(-1)
   p:increase_stack_height()
   g:visit(node.pattern)
@@ -1990,6 +2021,7 @@ func visitors.ForIn(g, node){
   g.asm:emit_jump(loop_start)
   // stop: the value is still on the stack above the iterator
   g.asm:patch_jump(stop_jump)
+  g.asm:patch_jump(walked_end)
   g.asm:emit_pop()
   local stopped = g.asm:emit_jump()
   // an element the pattern does not take: let? goes on with the next one,

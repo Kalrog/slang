@@ -50,6 +50,15 @@ pub const Op = enum(u6) {
     throw, // raise pop()
     get_meta, // push(meta of pop()): x.@meta, null for a value without one
     set_meta, // m = pop(); t = pop(); t's metatable = m (a table or null)
+    // a for..in over f(x): when f is the built-in keys, values or entries
+    // and x a table, x stays as the iterator and r[a] is the
+    // position; anything else: call f(x) (as call with one argument)
+    forin_prep,
+    // a for..in step; the next two words are jumps: the loop's end and its
+    // pattern. A table iterator (forin_prep) pushes its next element and
+    // takes the second (or pushes null and takes the first at the end); a
+    // function iterator skips both, to the call that follows
+    forin_next,
 
     // The quickened forms: get_x, self_x and set_x with a constant string
     // key become these when they first run (interp.quicken); the key
@@ -120,6 +129,8 @@ pub const Op = enum(u6) {
             .throw => "throw",
             .get_meta => "getMeta",
             .set_meta => "setMeta",
+            .forin_prep => "forinPrep",
+            .forin_next => "forinNext",
             .add_x => "addX",
             .sub_x => "subX",
             .mul_x => "mulX",
@@ -217,7 +228,7 @@ const Mode = enum { abc, abx, asbx, ax, none, fused };
 fn mode(op: Op) Mode {
     return switch (op) {
         .load_constant, .pop, .call, .call_spread => .abx,
-        .load_bool, .new_table, .@"test" => .abc,
+        .load_bool, .new_table, .@"test", .forin_prep, .forin_next => .abc,
         .load_closure, .set_upvalue, .get_upvalue, .close_upvalues => .ax,
         .move, .push, .jump, .try_begin => .asbx,
         else => if (isFused(op)) .fused else .none,
@@ -528,6 +539,18 @@ pub fn maxTemps(gpa: std.mem.Allocator, code: []const u32) u32 {
             .pop => delta = -@as(i32, @intCast(argBx(ins))),
             .set_table => delta = -3,
             .set_meta => delta = -2,
+            // (f and x become the iterator, as a call of f(x) does)
+            .forin_prep => delta = -1,
+            .forin_next => {
+                // an element and one of the two jumps, or on to the call
+                if (i + 2 < code.len) {
+                    visit(gpa, depth, &work, i + 2 + argSBx(code[idx + 1]), dv + 1);
+                    visit(gpa, depth, &work, i + 3 + argSBx(code[idx + 2]), dv + 1);
+                    visit(gpa, depth, &work, i + 3, dv);
+                }
+                max = @max(max, dv + 1);
+                next = false;
+            },
             .call => delta = -@as(i32, @intCast(argBx(ins))),
             .call_spread => delta = -@as(i32, @intCast(argBx(ins))) - 1,
             .@"return", .throw => next = false,

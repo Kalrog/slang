@@ -241,8 +241,14 @@ global stop
 
 // keys(t: table) -> function
 // An iterator over the keys of t: list indices first, then the other keys
-// in insertion order. The keys are a snapshot taken by the call. A
-// slang/buffer iterates its indices. Returns null for anything else.
+// in insertion order. It walks t as it is, nothing is copied: values are
+// read when reached, keys added while iterating are visited (at the end),
+// deleted ones not yet reached are not. Moving list elements of t while
+// iterating it (remove, or delete in the middle of the list) may skip or
+// repeat elements: iterate a copy for that, `values({...t})`. A for-in
+// loop over keys, values or entries of a table walks it in the loop
+// itself, without calls or allocation. A slang/buffer iterates its
+// indices. Returns null for anything else.
 //   for(let local k in keys(t)){ print(k, "\n") }
 func keys(t){}
 

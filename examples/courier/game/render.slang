@@ -81,7 +81,7 @@ void main(){
   vec3 v = normalize(viewPos - fragPosition);
   float dist = distance(viewPos, fragPosition);
   float low = exp(-max(fragPosition.y, 0.0) * 0.012);
-  vec3 haze = vec3(0.36, 0.12, 0.30);
+  vec3 haze = vec3(0.24, 0.09, 0.22);
   vec3 col = vec3(0.0);
   float alpha = colDiffuse.a;
   if(kind < 0.5){
@@ -99,43 +99,50 @@ void main(){
     vec2 cell = floor(uv / cs);
     vec2 f = fract(uv / cs);
     float h = hash21(cell + seed * 7.13);
-    float lit = step(h, param) * vertical;
+    // fewer lit, and most of those dim: a city at night, not a lamp
+    float lit = step(h, param * 0.6) * vertical;
     float frame = step(0.16, f.x) * step(f.x, 0.84) * step(0.2, f.y) * step(f.y, 0.8);
-    float h2 = hash21(vec2(cell.y, seed));
-    vec3 wcol = mix(vec3(1.0, 0.82, 0.55), vec3(0.55, 0.85, 1.0), step(0.55, h2));
-    wcol = mix(wcol, vec3(1.0, 0.5, 0.8), step(0.92, h2));
-    float flicker = 1.0 + 0.3 * step(0.93, hash21(cell * 1.7 + seed)) * sin(time * 7.0 + h * 50.0);
-    float bright = lit * frame * (0.6 + 0.7 * hash21(cell + 3.0)) * flicker;
-    vec3 wall = base * 0.2 * (0.7 + 0.3 * vertical);
+    float h2 = hash21(vec2(cell.y * 0.37 + cell.x * 0.11, seed));
+    vec3 wcol = mix(vec3(1.0, 0.74, 0.42), vec3(1.0, 0.86, 0.62), hash21(cell * 0.7 + seed));
+    wcol = mix(wcol, vec3(0.62, 0.84, 1.0), step(0.86, h2));
+    float flicker = 1.0 + 0.15 * step(0.97, hash21(cell * 1.7 + seed)) * sin(time * 5.0 + h * 50.0);
+    float level = pow(hash21(cell + 3.0), 2.0);
+    float bright = lit * frame * (0.15 + 0.75 * level) * flicker;
+    vec3 wall = base * 0.16 * (0.7 + 0.3 * vertical);
     float band = smoothstep(0.0, 0.08, f.y) * smoothstep(1.0, 0.92, f.y);
-    wall *= 0.75 + 0.5 * (1.0 - band);
-    wall += haze * low * 0.6 * (0.5 - 0.5 * n.y);
-    col = wall + wcol * bright * 1.8 + (1.0 - lit) * frame * vertical * wcol * 0.04;
-    float rim = pow(1.0 - max(dot(n, v), 0.0), 4.0);
-    col += rim * vec3(0.3, 0.15, 0.45) * 0.35;
+    wall *= 0.8 + 0.4 * (1.0 - band);
+    wall += haze * low * 0.45 * (0.5 - 0.5 * n.y);
+    // the glass between the floors mirrors the night, as the cars do
+    vec3 r = reflect(-v, n);
+    vec3 env = mix(vec3(0.20, 0.075, 0.19), vec3(0.04, 0.05, 0.12), smoothstep(0.0, 0.5, r.y));
+    float fres = pow(1.0 - max(dot(n, v), 0.0), 4.0);
+    wall += env * frame * vertical * (0.18 + 0.6 * fres) * (1.0 - lit);
+    col = wall + wcol * bright * 0.95;
   } else if(kind < 1.5){
     // neon
     float blink = 1.0;
     if(param > 0.0){
       blink = step(0.5, fract(time * param));
     }
-    col = base * (2.4 * blink + 0.08);
+    col = base * (1.3 * blink + 0.06);
   } else if(kind < 2.5){
     // structure, with running lights along its length
     col = base * 0.3 * (0.6 + 0.4 * max(n.y, 0.0));
     col += haze * low * 0.5 * (0.5 - 0.5 * n.y);
     if(param > 6.0){
+      // small lamps along it, a slow pulse running through them
       float along = uv2.x * param;
-      float dots = step(0.86, fract(along / 6.0 - time * 0.7)) * step(0.5, abs(n.y));
-      col += vec3(1.0, 0.6, 0.2) * dots * 1.6;
+      float lamp = smoothstep(0.12, 0.0, abs(fract(along / 8.0) - 0.5)) * step(0.5, abs(n.y));
+      float pulse = 0.5 + 0.5 * sin(along * 0.05 - time * 0.8);
+      col += vec3(0.55, 0.8, 1.0) * lamp * (0.15 + 0.2 * pulse);
     }
     float rim = pow(1.0 - max(dot(n, v), 0.0), 3.0);
-    col += rim * vec3(0.25, 0.12, 0.4) * 0.3;
+    col += rim * vec3(0.14, 0.11, 0.28) * 0.3;
   } else if(kind < 3.5){
     // a billboard: bands, a drifting blob, scanlines, color cycling
     vec2 u = uv2;
     float t = time * (0.5 + 0.25 * param) + seed;
-    vec3 c2 = base.gbr;
+    vec3 c2 = mix(vec3(0.0, 0.86, 1.0), vec3(1.0, 0.2, 0.67), step(base.r, 0.5));
     float band = 0.5 + 0.5 * sin(u.y * 8.0 - t * 3.0 + sin(u.x * 5.0 + t));
     float scan = 0.85 + 0.15 * step(0.5, fract(u.y * 40.0 + time * 10.0));
     float blob = smoothstep(0.35, 0.1, distance(u, vec2(0.5 + 0.25 * sin(t), 0.5 + 0.2 * cos(t * 1.3))));
@@ -171,24 +178,35 @@ void main(){
     }
     float center = smoothstep(0.5, 0.0, d);
     col = vec3(0.03, 0.025, 0.05) + street * vec3(0.09, 0.05, 0.1);
-    col += lane * vec3(1.0, 0.5, 0.2) * 0.9 + center * vec3(0.3, 0.9, 1.0);
+    col += lane * vec3(1.0, 0.55, 0.25) * 0.5 + center * vec3(0.3, 0.9, 1.0) * 0.6;
     float sparkle = step(0.985, hash21(floor(p / 3.0))) * (1.0 - street);
     col += sparkle * vec3(1.0, 0.8, 0.6) * 0.7;
   } else {
-    // painted metal: the cars
-    vec3 l = normalize(vec3(0.3, 1.0, 0.2));
-    float d = max(dot(n, l), 0.0);
+    // the cars: lacquer that mirrors the night (the sky above, the city's
+    // glow at the horizon, the dark below) and glass that mirrors it more
+    vec3 r = reflect(-v, n);
+    vec3 env = mix(vec3(0.20, 0.075, 0.19), vec3(0.04, 0.05, 0.12), smoothstep(0.0, 0.5, r.y));
+    env = mix(env, vec3(0.02, 0.015, 0.03), smoothstep(0.0, -0.3, r.y));
+    // a band of light from the street lamps and windows, sliding over
+    env += vec3(1.0, 0.7, 0.45) * smoothstep(0.08, 0.0, abs(r.y - 0.12)) * 0.5;
+    vec3 l = normalize(vec3(-0.4, 0.35, 0.75));
     vec3 h = normalize(l + v);
-    float spec = pow(max(dot(n, h), 0.0), 40.0);
-    float rim = pow(1.0 - max(dot(n, v), 0.0), 3.0);
-    col = base * (0.25 + 0.35 * d + 0.15 * (0.5 + 0.5 * n.y));
-    col += vec3(0.8, 0.85, 1.0) * spec * 0.6 + rim * vec3(0.4, 0.2, 0.6) * 0.5;
-    col += haze * low * 0.3;
+    float fres = pow(1.0 - max(dot(n, v), 0.0), 4.0);
+    float spec = pow(max(dot(n, h), 0.0), 60.0);
+    bool glass = abs(seed - 7.0) < 0.5;
+    if(glass){
+      col = vec3(0.01, 0.015, 0.03) + env * (0.35 + 0.65 * fres) + vec3(0.85, 0.9, 1.0) * spec * 1.2;
+      col += vec3(0.0, 0.25, 0.3) * 0.08;
+    } else {
+      float d = max(dot(n, l), 0.0) * 0.5 + 0.5;
+      col = base * (0.10 + 0.22 * d) + env * (0.12 + 0.7 * fres) * mix(vec3(1.0), base * 1.5 + 0.2, 0.4);
+      col += vec3(0.85, 0.9, 1.0) * spec * 0.8;
+    }
   }
   // the fog: by distance, glowing warm where the city's light is
   float fog = 1.0 - exp(-dist * 0.0017);
   float lowf = exp(-max(fragPosition.y, 0.0) * 0.009);
-  vec3 fogc = mix(vec3(0.02, 0.015, 0.05), vec3(0.24, 0.085, 0.22), lowf);
+  vec3 fogc = mix(vec3(0.03, 0.035, 0.08), vec3(0.17, 0.065, 0.16), lowf * 0.9);
   col = mix(col, fogc, fog);
   finalColor = vec4(col, alpha);
 }
@@ -278,6 +296,7 @@ uniform vec3 camUp;
 uniform vec2 tanHalf;
 uniform float camY;
 uniform float time;
+uniform vec2 resolution;
 out vec4 finalColor;
 
 float hash21(vec2 p){
@@ -286,23 +305,70 @@ float hash21(vec2 p){
   return fract((p3.x + p3.y) * p3.z);
 }
 
+float noise(vec2 p){
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash21(i), hash21(i + vec2(1.0, 0.0)), u.x),
+             mix(hash21(i + vec2(0.0, 1.0)), hash21(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+
+float fbm(vec2 p){
+  float v = 0.0;
+  float a = 0.5;
+  for(int i = 0; i < 5; i++){
+    v += a * noise(p);
+    p = p * 2.03 + vec2(17.1, 9.2);
+    a *= 0.5;
+  }
+  return v;
+}
+
 void main(){
-  vec2 uv = fragTexCoord * 2.0 - 1.0;
-  vec3 dir = normalize(camForward + camRight * uv.x * tanHalf.x - camUp * uv.y * tanHalf.y);
+  // the pixel's place on the screen (-1..1, y up): from the fragment's
+  // own coordinates, not the rectangle's texture coordinates (a raylib
+  // rectangle has the same one all over)
+  vec2 uv = gl_FragCoord.xy / resolution * 2.0 - 1.0;
+  vec3 dir = normalize(camForward + camRight * uv.x * tanHalf.x + camUp * uv.y * tanHalf.y);
   float h = dir.y;
-  vec3 top = vec3(0.015, 0.012, 0.04);
-  vec3 haze = vec3(0.24, 0.085, 0.22);
-  vec3 glow = vec3(0.34, 0.13, 0.26);
-  float horizon = exp(-abs(h) * 7.0);
-  float lowcam = exp(-max(camY, 0.0) * 0.004);
-  vec3 col = mix(top, haze, horizon * (0.55 + 0.45 * lowcam));
-  col = mix(col, glow, smoothstep(0.0, -0.35, h) * (0.5 + 0.5 * lowcam));
+  // the night: deep blue at the top, the city's glow at the horizon
+  vec3 zenith = vec3(0.004, 0.008, 0.026);
+  vec3 mid = vec3(0.025, 0.03, 0.075);
+  vec3 glow = vec3(0.17, 0.065, 0.16);
+  vec3 col = mix(mid, zenith, smoothstep(0.03, 0.6, h));
+  col = mix(col, glow, exp(-max(h, 0.0) * 16.0));
+  // below the horizon: the haze over the city, as the fog has it
+  col = mix(col, glow, smoothstep(0.0, -0.05, h));
+  // the moon, its halo
+  vec3 moon_dir = normalize(vec3(-0.45, 0.32, 0.83));
+  float md = dot(dir, moon_dir);
+  float disc = smoothstep(0.99935, 0.9996, md);
+  float halo = pow(max(md, 0.0), 300.0) * 0.5 + pow(max(md, 0.0), 24.0) * 0.08;
   // stars
-  vec2 cell = floor(dir.xz / max(0.02, abs(h) + 0.02) * 40.0 + dir.y * 100.0);
-  vec2 sp = vec2(atan(dir.x, dir.z) * 120.0, h * 300.0);
+  vec2 sp = vec2(atan(dir.x, dir.z) * 160.0, h * 320.0);
   float s = hash21(floor(sp));
-  float star = step(0.985, s) * smoothstep(0.05, 0.3, h) * (0.5 + 0.5 * sin(time * 2.0 + s * 60.0));
-  col += vec3(0.8, 0.85, 1.0) * star * 0.8;
+  vec2 sf = fract(sp) - 0.5;
+  float star = step(0.992, s) * smoothstep(0.3, 0.0, length(sf)) * smoothstep(0.06, 0.35, h) * (0.6 + 0.4 * sin(time * 1.5 + s * 80.0));
+  vec3 lights = vec3(0.75, 0.82, 1.0) * star * 0.9 + vec3(0.85, 0.9, 1.0) * (disc * 1.6 + halo);
+  // clouds: a layer high over the city, drifting, lit from below by its
+  // glow and on their edges by the moon
+  float cover = 0.0;
+  if(h > 0.01){
+    vec2 p = dir.xz / (h + 0.08) * 3.2 + vec2(time * 0.03, time * 0.012);
+    float d = fbm(p) * 0.75 + fbm(p * 3.1 + vec2(time * 0.05, 0.0)) * 0.25;
+    float dd = fbm(p + vec2(0.12, 0.08)) * 0.75 + fbm(p * 3.1 + vec2(time * 0.05 + 0.3, 0.2)) * 0.25;
+    cover = smoothstep(0.5, 0.75, d) * smoothstep(0.02, 0.12, h);
+    float lit = clamp((d - dd) * 6.0 + 0.5, 0.0, 1.0);
+    // the undersides catch the city's light (warmer, brighter low over
+    // the horizon), the thick parts stay dark, the moon silvers the edges
+    float thick = smoothstep(0.55, 0.9, d);
+    vec3 under = mix(vec3(0.42, 0.16, 0.30), vec3(0.10, 0.07, 0.16), smoothstep(0.02, 0.45, h));
+    vec3 cloud = mix(under, vec3(0.015, 0.015, 0.035), thick * 0.75);
+    cloud += vec3(0.55, 0.6, 0.75) * lit * (halo * 5.0 + pow(max(md, 0.0), 8.0) * 0.12) * (1.0 - thick);
+    col = mix(col, cloud, cover * 0.9);
+  }
+  col += lights * (1.0 - cover);
+  // (the same at every height and angle: it belongs to the world)
   finalColor = vec4(col, 1.0);
 }
 """
@@ -464,15 +530,192 @@ local func add_box(out, b){
   }
 }
 
+local func new_box_lists(){
+  return {vertices: {}, normals: {}, colors: {}, texcoords: {}, texcoords2: {}, indices: {}, count: 0}
+}
+
 local func new_lists(){
   return {vertices: {}, normals: {}, colors: {}, texcoords: {}, texcoords2: {}, indices: {}, count: 0}
 }
 
-// a model of boxes, under the shader
+// ring(sec, n): a profile of n points around (sec.xc, sec.yc), half width
+// sec.w and half height sec.h, counter clockwise seen from the front;
+// sec.e under 1 squares the corners (1 is an ellipse)
+local func ring(sec, n){
+  local pts = {}
+  local e = sec.e or 0.5
+  for(local k = 0; k < n; k = k + 1){
+    local a = (k + 0.5) / n * 2 * math.pi
+    local c = math.cos(a)
+    local sn = math.sin(a)
+    append(pts, {
+      x: (sec.xc or 0) + sec.w * math.sign(c) * math.abs(c) ^ e,
+      y: sec.yc + sec.h * math.sign(sn) * math.abs(sn) ^ e,
+    })
+  }
+  return pts
+}
+
+// geometry(part) -> {positions, normals, uvs, tris}: a box ({x0 .. z1})
+// or a loft ({sections: {{z, w, h, yc, xc?, e?}}, n}) in its own frame. A
+// loft joins the profiles of its sections along z with one ring of
+// vertices each, shaded smooth, and closes both ends.
+local func geometry(part){
+  local g = {positions: {}, normals: {}, uvs: {}, tris: {}}
+  if(part.sections == null){
+    local lists = new_box_lists()
+    add_box(lists, part)
+    for(local i = 0; i < lists.count; i = i + 1){
+      append(g.positions, {x: lists.vertices[i * 3], y: lists.vertices[i * 3 + 1], z: lists.vertices[i * 3 + 2]})
+      append(g.normals, {x: lists.normals[i * 3], y: lists.normals[i * 3 + 1], z: lists.normals[i * 3 + 2]})
+      append(g.uvs, {lists.texcoords2[i * 2], lists.texcoords2[i * 2 + 1]})
+    }
+    g.tris = lists.indices
+    return g
+  }
+  local n = part.n or 10
+  local secs = part.sections
+  local count = len(secs)
+  local acc = {}
+  for(local si = 0; si < count; si = si + 1){
+    local pts = ring(secs[si], n)
+    for(local k = 0; k < n; k = k + 1){
+      append(g.positions, {x: pts[k].x, y: pts[k].y, z: secs[si].z})
+      append(acc, {x: 0, y: 0, z: 0})
+      append(g.uvs, {k / n, si / (count - 1)})
+    }
+  }
+  // the sides: quads between rings, their normals summed at the corners
+  for(local si = 0; si + 1 < count; si = si + 1){
+    for(local k = 0; k < n; k = k + 1){
+      local a = si * n + k
+      local b = si * n + (k + 1) % n
+      local c = (si + 1) * n + (k + 1) % n
+      local d = (si + 1) * n + k
+      local fa = vec.cross(vec.sub(g.positions[b], g.positions[a]), vec.sub(g.positions[c], g.positions[a]))
+      local fb = vec.cross(vec.sub(g.positions[c], g.positions[a]), vec.sub(g.positions[d], g.positions[a]))
+      local f = vec.add(fa, fb)
+      for(let local i in values({a, b, c, d})){
+        acc[i] = vec.add(acc[i], f)
+      }
+      for(let local i in values({a, b, c, a, c, d})){
+        append(g.tris, i)
+      }
+    }
+  }
+  for(let local v in values(acc)){
+    append(g.normals, vec.normalize(v))
+  }
+  // the ends, flat
+  for(let local end in values({0, count - 1})){
+    local start = len(g.positions)
+    local nz = if(end == 0){ -1 } else { 1 }
+    for(local k = 0; k < n; k = k + 1){
+      append(g.positions, g.positions[end * n + k])
+      append(g.normals, {x: 0, y: 0, z: nz})
+      append(g.uvs, {0, 0})
+    }
+    for(local k = 1; k + 1 < n; k = k + 1){
+      if(nz > 0){
+        append(g.tris, start)
+        append(g.tris, start + k)
+        append(g.tris, start + k + 1)
+      } else {
+        append(g.tris, start)
+        append(g.tris, start + k + 1)
+        append(g.tris, start + k)
+      }
+    }
+  }
+  return g
+}
+
+// emit(out, part, g, xf?, extra?): a part's geometry into the lists, turned
+// by xf.q and moved to xf.pos; extra replaces texcoord2 ({speed, axis})
+// and the param (texcoord y) for the traffic
+local func emit(out, part, g, xf, extra){
+  local c = part.color
+  local seed = part.seed or 0
+  local start = out.count
+  local param = part.param or 0
+  if(extra != null){
+    param = extra.param
+  }
+  for(local i = 0; i < len(g.positions); i = i + 1){
+    local p = g.positions[i]
+    local nn = g.normals[i]
+    if(xf != null){
+      p = vec.add(xf.pos, vec.rotate(xf.q, p))
+      nn = vec.rotate(xf.q, nn)
+    }
+    append(out.vertices, p.x)
+    append(out.vertices, p.y)
+    append(out.vertices, p.z)
+    append(out.normals, nn.x)
+    append(out.normals, nn.y)
+    append(out.normals, nn.z)
+    append(out.colors, c[0])
+    append(out.colors, c[1])
+    append(out.colors, c[2])
+    append(out.colors, seed)
+    append(out.texcoords, part.kind)
+    append(out.texcoords, param)
+    if(extra != null){
+      append(out.texcoords2, extra.speed)
+      append(out.texcoords2, extra.axis)
+    } else {
+      append(out.texcoords2, g.uvs[i][0])
+      append(out.texcoords2, g.uvs[i][1])
+    }
+    out.count = out.count + 1
+  }
+  for(let local i in values(g.tris)){
+    append(out.indices, start + i)
+  }
+}
+
+// emit_moved(out, part, g, pos, extra): emit, only moved by pos
+local func emit_moved(out, part, g, pos, extra){
+  local c = part.color
+  local start = out.count
+  local vs = out.vertices
+  local ns = out.normals
+  local cs = out.colors
+  local ts = out.texcoords
+  local t2 = out.texcoords2
+  for(local i = 0; i < len(g.positions); i = i + 1){
+    local q = g.positions[i]
+    local nn = g.normals[i]
+    append(vs, pos.x + q.x)
+    append(vs, pos.y + q.y)
+    append(vs, pos.z + q.z)
+    append(ns, nn.x)
+    append(ns, nn.y)
+    append(ns, nn.z)
+    append(cs, c[0])
+    append(cs, c[1])
+    append(cs, c[2])
+    append(cs, part.seed or 0)
+    append(ts, part.kind)
+    append(ts, extra.param)
+    append(t2, extra.speed)
+    append(t2, extra.axis)
+  }
+  out.count = start + len(g.positions)
+  for(let local i in values(g.tris)){
+    append(out.indices, start + i)
+  }
+}
+
+// a model of parts (boxes and lofts), under the shader
 local func boxes_model(boxes){
   local out = new_lists()
   for(let local b in values(boxes)){
-    add_box(out, b)
+    if(b.sections == null){
+      add_box(out, b)
+    } else {
+      emit(out, b, geometry(b))
+    }
   }
   local mesh = rl.mesh({
     vertices: out.vertices, normals: out.normals, colors: out.colors,
@@ -481,6 +724,126 @@ local func boxes_model(boxes){
   local model = mesh:to_model()
   model.materials[0].shader = shader
   return model
+}
+
+// ------------------------------------------------------------ the cars
+
+local METAL = 6
+
+local GLASS = 7
+
+// a loft section: z along the car, half width and height, center height
+local func sec(z, w, h, yc, e){
+  return {z: z, w: w, h: h, yc: yc, e: e}
+}
+
+// the player's car in its own frame (forward is +z, +x its left): a low
+// wedge of a hull, a bubble canopy, two thruster pods, fins, light
+local func car_parts(){
+  local paint = {44, 50, 70}
+  local trim = {28, 30, 40}
+  local glass = {20, 30, 44}
+  local cyan = {0, 220, 255}
+  local white = {255, 240, 220}
+  local red = {255, 40, 90}
+  local parts = {
+    {
+      kind: METAL, color: paint, seed: 1, n: 14, sections: {
+        sec(-2.2, 0.82, 0.16, 0.02, 0.45),
+        sec(-1.9, 1.0, 0.27, 0.0, 0.45),
+        sec(-0.7, 1.06, 0.31, -0.03, 0.45),
+        sec(0.7, 1.0, 0.27, -0.08, 0.5),
+        sec(1.7, 0.84, 0.19, -0.14, 0.55),
+        sec(2.25, 0.5, 0.08, -0.18, 0.6),
+      },
+    },
+    {
+      kind: METAL, color: glass, seed: GLASS, n: 12, sections: {
+        sec(-1.25, 0.44, 0.06, 0.24, 0.7),
+        sec(-0.85, 0.6, 0.27, 0.28, 0.7),
+        sec(0.15, 0.62, 0.29, 0.26, 0.7),
+        sec(0.95, 0.4, 0.1, 0.2, 0.7),
+      },
+    },
+  }
+  for(let local side in values({-1, 1})){
+    // a pod: a round nacelle along the side, its nozzle at the back
+    append(parts, {
+      kind: METAL, color: trim, seed: 1, n: 10, sections: {
+        {z: -2.3, w: 0.2, h: 0.2, yc: -0.12, xc: side * 1.02, e: 1},
+        {z: -2.05, w: 0.26, h: 0.25, yc: -0.12, xc: side * 1.05, e: 1},
+        {z: -0.2, w: 0.24, h: 0.23, yc: -0.12, xc: side * 1.05, e: 1},
+        {z: 0.7, w: 0.12, h: 0.12, yc: -0.14, xc: side * 1.0, e: 1},
+      },
+    })
+    // a fin over the pod
+    append(parts, {
+      kind: METAL, color: paint, seed: 1, n: 6, sections: {
+        {z: -2.15, w: 0.04, h: 0.24, yc: 0.3, xc: side * 0.92, e: 0.6},
+        {z: -1.45, w: 0.05, h: 0.1, yc: 0.18, xc: side * 0.95, e: 0.6},
+      },
+    })
+    // a line of cyan along the pod, the head and tail lights
+    append(parts, {x0: side * 1.05 - 0.02, y0: -0.36, z0: -1.9, x1: side * 1.05 + 0.02, y1: -0.33, z1: 0.3, kind: city.NEON, color: cyan, seed: 1})
+    local x0 = math.min(side * 0.25, side * 0.62)
+    local x1 = math.max(side * 0.25, side * 0.62)
+    append(parts, {x0: x0, y0: -0.2, z0: 1.95, x1: x1, y1: -0.13, z1: 2.02, kind: city.NEON, color: white, seed: 1})
+    // the hover pads underneath
+    append(parts, {x0: side * 0.65 - 0.2, y0: -0.31, z0: 0.9, x1: side * 0.65 + 0.2, y1: -0.27, z1: 1.3, kind: city.NEON, color: cyan, seed: 1})
+    append(parts, {x0: side * 0.65 - 0.2, y0: -0.31, z0: -1.5, x1: side * 0.65 + 0.2, y1: -0.27, z1: -1.1, kind: city.NEON, color: cyan, seed: 1})
+  }
+  // the tail light: one bar across the back
+  append(parts, {x0: -0.75, y0: 0.04, z0: -2.22, x1: 0.75, y1: 0.1, z1: -2.17, kind: city.NEON, color: red, seed: 1})
+  return parts
+}
+
+// the player car's thrusters: where the flames come out, its own frame
+m.NOZZLES = {{x: -1.05, y: -0.12, z: -2.3}, {x: 1.05, y: -0.12, z: -2.3}}
+
+// the body styles of the traffic (in the bounds of its physics box, half
+// 1.25 x 0.85 x 2.3): a rounded saloon, a tall hauler, a low wedge
+local styles = {
+  {
+    body: {sec(-2.3, 1.0, 0.3, -0.42, 0.5), sec(-2.0, 1.2, 0.42, -0.36, 0.5), sec(0.0, 1.25, 0.45, -0.35, 0.5), sec(1.6, 1.18, 0.38, -0.38, 0.5), sec(2.3, 0.86, 0.2, -0.46, 0.55)},
+    cabin: {sec(-1.55, 0.86, 0.12, 0.12, 0.6), sec(-1.15, 1.0, 0.44, 0.28, 0.6), sec(0.55, 0.98, 0.42, 0.28, 0.6), sec(1.2, 0.8, 0.12, 0.12, 0.6)},
+    front: 2.32, back: -2.32, strip: 1.25, strip_y: -0.35, light_y: -0.42,
+  },
+  {
+    body: {sec(-2.3, 1.12, 0.72, -0.1, 0.3), sec(-2.15, 1.25, 0.8, -0.05, 0.3), sec(1.4, 1.25, 0.8, -0.05, 0.3), sec(2.05, 1.16, 0.62, -0.2, 0.35), sec(2.3, 1.0, 0.42, -0.32, 0.4)},
+    cabin: {sec(1.25, 1.08, 0.1, 0.52, 0.5), sec(1.55, 1.12, 0.24, 0.42, 0.5), sec(2.0, 1.04, 0.18, 0.3, 0.5), sec(2.2, 0.9, 0.05, 0.22, 0.5)},
+    front: 2.32, back: -2.32, strip: 1.25, strip_y: -0.4, light_y: -0.45,
+  },
+  {
+    body: {sec(-2.3, 1.08, 0.24, -0.5, 0.45), sec(-1.85, 1.25, 0.35, -0.45, 0.45), sec(0.5, 1.22, 0.33, -0.48, 0.5), sec(1.95, 1.0, 0.2, -0.56, 0.55), sec(2.35, 0.6, 0.08, -0.62, 0.6)},
+    cabin: {sec(-1.05, 0.66, 0.08, -0.12, 0.7), sec(-0.45, 0.8, 0.3, -0.02, 0.7), sec(0.6, 0.76, 0.26, -0.06, 0.7), sec(1.35, 0.5, 0.06, -0.22, 0.7)},
+    front: 2.2, back: -2.32, strip: 1.22, strip_y: -0.5, light_y: -0.56,
+  },
+}
+m.STYLES = len(styles)
+
+// a traffic car's parts in its own frame (forward is +z). role: "body"
+// (the hull and its glass), "lights" or "strips", or all of them
+local func traffic_parts(style, color, light, accent, role){
+  local st = styles[style]
+  local out = {}
+  if(role == null or role == "body"){
+    append(out, {kind: METAL, color: color, seed: 3, n: 10, sections: st.body})
+    append(out, {kind: METAL, color: {20, 26, 38}, seed: GLASS, n: 8, sections: st.cabin})
+  }
+  if(role == null or role == "lights"){
+    append(out, {x0: -0.85, y0: st.light_y - 0.06, z0: st.front - 0.1, x1: 0.85, y1: st.light_y + 0.08, z1: st.front, kind: city.NEON, color: light})
+    append(out, {x0: -0.95, y0: st.light_y, z0: st.back, x1: 0.95, y1: st.light_y + 0.12, z1: st.back + 0.1, kind: city.NEON, color: {255, 40, 70}})
+  }
+  if(role == null or role == "strips"){
+    append(out, {x0: -st.strip - 0.05, y0: st.strip_y - 0.05, z0: -1.9, x1: -st.strip + 0.02, y1: st.strip_y + 0.05, z1: 1.9, kind: city.NEON, color: accent})
+    append(out, {x0: st.strip - 0.02, y0: st.strip_y - 0.05, z0: -1.9, x1: st.strip + 0.05, y1: st.strip_y + 0.05, z1: 1.9, kind: city.NEON, color: accent})
+  }
+  return out
+}
+
+// a traffic car's style, from its id
+func m.style_of(car){
+  return car.id % len(styles)
 }
 
 // ------------------------------------------------------------ init
@@ -512,6 +875,7 @@ func m.init(w, h){
   post.sky_tan = post.sky:location("tanHalf")
   post.sky_y = post.sky:location("camY")
   post.sky_time = post.sky:location("time")
+  post.sky_resolution = post.sky:location("resolution")
   post.bright = rl.shader({vertex: post_vs, fragment: bright_fs})
   post.blur = rl.shader({vertex: post_vs, fragment: blur_fs})
   post.blur_dir = post.blur:location("dir")
@@ -532,12 +896,17 @@ func m.init(w, h){
   meshes.cube = rl.mesh.cube(1, 1, 1)
   models.cube = meshes.cube:to_model()
   models.cube.materials[0].shader = shader
-  models.car = boxes_model(m.car_boxes())
-  // a wrecked traffic car, drawn on its own: the body tinted the car's
-  // color, the lights, the strips tinted its accent
-  models.wreck_body = boxes_model(m.traffic_boxes({255, 255, 255}, null, null, "body"))
-  models.wreck_lights = boxes_model(m.traffic_boxes(null, {255, 240, 200}, null, "lights"))
-  models.wreck_strips = boxes_model(m.traffic_boxes(null, null, {255, 255, 255}, "strips"))
+  models.car = boxes_model(car_parts())
+  // a wrecked traffic car of each style, drawn on its own: the body tinted
+  // the car's color, the lights, the strips tinted its accent
+  models.wrecks = {}
+  for(local style = 0; style < len(styles); style = style + 1){
+    append(models.wrecks, {
+      body: boxes_model(traffic_parts(style, {255, 255, 255}, null, null, "body")),
+      lights: boxes_model(traffic_parts(style, null, {255, 236, 200}, null, "lights")),
+      strips: boxes_model(traffic_parts(style, null, null, {255, 255, 255}, "strips")),
+    })
+  }
 }
 
 // a model of boxes under a shader, from lists already filled
@@ -551,12 +920,14 @@ local func lists_model(out, sh){
   return model
 }
 
-// build_traffic(t): every car as boxes where it starts, in meshes of up
-// to 65535 vertices, for the traffic shader to slide along the lanes
+// build_traffic(t): every car where it starts, in meshes of up to 65535
+// vertices, for the traffic shader to slide along the lanes. A car's
+// geometry turned to its lane's heading is made once per style, palette
+// and heading, then only moved.
 func m.build_traffic(t){
   m.unload_traffic()
   local out = new_lists()
-  local per_car = 6 * 24
+  local templates = {}
   for(let local car in values(t.cars)){
     local lane = car.lane
     local p = m.position(car, 0)
@@ -564,20 +935,31 @@ func m.build_traffic(t){
     if(lane.axis == "z"){
       axis = 1
     }
-    for(let local b in values(m.traffic_boxes(car.color, car.light, car.accent))){
-      // into the world: the car's frame turned to its lane
-      local world = {kind: b.kind, color: b.color, seed: 3, param: car.s0, speed: lane.speed, axis: car.id * 2 + axis}
-      local c0 = vec.rotate(lane.q, {x: b.x0, y: b.y0, z: b.z0})
-      local c1 = vec.rotate(lane.q, {x: b.x1, y: b.y1, z: b.z1})
-      world.x0 = p.x + math.min(c0.x, c1.x)
-      world.x1 = p.x + math.max(c0.x, c1.x)
-      world.y0 = p.y + math.min(c0.y, c1.y)
-      world.y1 = p.y + math.max(c0.y, c1.y)
-      world.z0 = p.z + math.min(c0.z, c1.z)
-      world.z1 = p.z + math.max(c0.z, c1.z)
-      add_box(out, world)
+    local style = m.style_of(car)
+    local key = concat(string(style), ":", string(lane.direction.x), ":", string(lane.direction.z))
+    local by_color = templates[car.color]
+    if(by_color == null){
+      by_color = {}
+      templates[car.color] = by_color
     }
-    if(out.count + per_car > 65000){
+    local tpl = by_color[key]
+    if(tpl == null){
+      tpl = {}
+      for(let local part in values(traffic_parts(style, car.color, car.light, car.accent))){
+        local g = geometry(part)
+        for(local i = 0; i < len(g.positions); i = i + 1){
+          g.positions[i] = vec.rotate(lane.q, g.positions[i])
+          g.normals[i] = vec.rotate(lane.q, g.normals[i])
+        }
+        append(tpl, {part: part, g: g})
+      }
+      by_color[key] = tpl
+    }
+    local extra = {param: car.s0, speed: lane.speed, axis: car.id * 2 + axis}
+    for(let local piece in values(tpl)){
+      emit_moved(out, piece.part, piece.g, p, extra)
+    }
+    if(out.count > 64000){
       append(traffic_models, lists_model(out, traffic_shader))
       out = new_lists()
     }
@@ -627,9 +1009,11 @@ func m.unload(){
   m.unload_city()
   m.unload_traffic()
   models.car:unload()
-  models.wreck_body:unload()
-  models.wreck_lights:unload()
-  models.wreck_strips:unload()
+  for(let local w in values(models.wrecks)){
+    w.body:unload()
+    w.lights:unload()
+    w.strips:unload()
+  }
   traffic_shader:unload()
   models.cube.mesh_count = 0
   models.cube:unload()
@@ -642,60 +1026,6 @@ func m.unload(){
   post.bright:unload()
   post.blur:unload()
   post.composite:unload()
-}
-
-// ------------------------------------------------------------ the cars
-
-local METAL = 6
-
-// the player's car, as boxes in its own frame (forward is +z)
-func m.car_boxes(){
-  local paint = {44, 48, 66}
-  local glass = {16, 22, 34}
-  local cyan = {0, 230, 255}
-  return {
-    {x0: -1.0, y0: -0.3, z0: -2.0, x1: 1.0, y1: 0.22, z1: 1.5, kind: METAL, color: paint, seed: 1},
-    {x0: -0.8, y0: -0.3, z0: 1.5, x1: 0.8, y1: 0.0, z1: 2.2, kind: METAL, color: paint, seed: 1},
-    {x0: -0.6, y0: 0.22, z0: -0.9, x1: 0.6, y1: 0.58, z1: 0.9, kind: METAL, color: glass, seed: 1},
-    {x0: -1.15, y0: -0.2, z0: -2.2, x1: -1.0, y1: 0.08, z1: 0.6, kind: METAL, color: paint, seed: 1},
-    {x0: 1.0, y0: -0.2, z0: -2.2, x1: 1.15, y1: 0.08, z1: 0.6, kind: METAL, color: paint, seed: 1},
-    // the fins at the back
-    {x0: -1.1, y0: 0.2, z0: -2.1, x1: -0.9, y1: 0.7, z1: -1.4, kind: METAL, color: paint, seed: 1},
-    {x0: 0.9, y0: 0.2, z0: -2.1, x1: 1.1, y1: 0.7, z1: -1.4, kind: METAL, color: paint, seed: 1},
-    // neon trim
-    {x0: -1.18, y0: -0.06, z0: -1.9, x1: -1.13, y1: 0.0, z1: 0.5, kind: city.NEON, color: cyan, seed: 1},
-    {x0: 1.13, y0: -0.06, z0: -1.9, x1: 1.18, y1: 0.0, z1: 0.5, kind: city.NEON, color: cyan, seed: 1},
-    // headlights and tail lights
-    {x0: -0.7, y0: -0.2, z0: 2.18, x1: -0.3, y1: -0.05, z1: 2.24, kind: city.NEON, color: {255, 245, 220}, seed: 1},
-    {x0: 0.3, y0: -0.2, z0: 2.18, x1: 0.7, y1: -0.05, z1: 2.24, kind: city.NEON, color: {255, 245, 220}, seed: 1},
-    {x0: -0.95, y0: 0.0, z0: -2.06, x1: -0.2, y1: 0.14, z1: -2.0, kind: city.NEON, color: {255, 40, 40}, seed: 1},
-    {x0: 0.2, y0: 0.0, z0: -2.06, x1: 0.95, y1: 0.14, z1: -2.0, kind: city.NEON, color: {255, 40, 40}, seed: 1},
-    // the hover pads underneath
-    {x0: -0.85, y0: -0.34, z0: 1.0, x1: -0.45, y1: -0.3, z1: 1.4, kind: city.NEON, color: cyan, seed: 1},
-    {x0: 0.45, y0: -0.34, z0: 1.0, x1: 0.85, y1: -0.3, z1: 1.4, kind: city.NEON, color: cyan, seed: 1},
-    {x0: -0.85, y0: -0.34, z0: -1.6, x1: -0.45, y1: -0.3, z1: -1.2, kind: city.NEON, color: cyan, seed: 1},
-    {x0: 0.45, y0: -0.34, z0: -1.6, x1: 0.85, y1: -0.3, z1: -1.2, kind: city.NEON, color: cyan, seed: 1},
-  }
-}
-
-// a traffic car: a tall body with a cabin, headlights and tail lights,
-// and strips of light down both sides so it can be seen side-on; in its
-// own frame (forward is +z). part: "body", "lights", "strips" or all
-func m.traffic_boxes(color, light, accent, part){
-  local out = {}
-  if(part == null or part == "body"){
-    append(out, {x0: -1.25, y0: -0.85, z0: -2.3, x1: 1.25, y1: 0.2, z1: 2.3, kind: METAL, color: color})
-    append(out, {x0: -0.95, y0: 0.2, z0: -1.4, x1: 0.95, y1: 0.85, z1: 1.0, kind: METAL, color: color})
-  }
-  if(part == null or part == "lights"){
-    append(out, {x0: -1.0, y0: -0.5, z0: 2.3, x1: 1.0, y1: -0.2, z1: 2.42, kind: city.NEON, color: light})
-    append(out, {x0: -1.1, y0: -0.3, z0: -2.42, x1: 1.1, y1: -0.05, z1: -2.3, kind: city.NEON, color: {255, 40, 30}})
-  }
-  if(part == null or part == "strips"){
-    append(out, {x0: -1.33, y0: -0.45, z0: -2.0, x1: -1.25, y1: -0.2, z1: 2.0, kind: city.NEON, color: accent})
-    append(out, {x0: 1.25, y0: -0.45, z0: -2.0, x1: 1.33, y1: -0.2, z1: 2.0, kind: city.NEON, color: accent})
-  }
-  return out
 }
 
 // ------------------------------------------------------------ drawing
@@ -717,6 +1047,7 @@ local func sky(camera, time){
     post.sky:set_value(post.sky_tan, {t * width / height, t}, rl.SHADER_UNIFORM_VEC2)
     post.sky:set_value(post.sky_y, camera.position.y, rl.SHADER_UNIFORM_FLOAT)
     post.sky:set_value(post.sky_time, time, rl.SHADER_UNIFORM_FLOAT)
+    post.sky:set_value(post.sky_resolution, {width, height}, rl.SHADER_UNIFORM_VEC2)
     rl.draw.rectangle(0, 0, width, height, rl.WHITE)
   }
   shader:set_value(locs.view, camera.position, rl.SHADER_UNIFORM_VEC3)
@@ -777,28 +1108,112 @@ func m.box(pos, q, size, color, kind, param){
   draw_model(models.cube, pos, q, size, color, kind, param)
 }
 
-// car(car, time): the player's car with its thrusters
-func m.car(car, time){
-  draw_model(models.car, car.pos, car.q, unit, rl.WHITE)
-  local axes = vec.axes(car.q)
+// the thrusters' light trail: where the nozzles were in the last moments,
+// {t, points: one per nozzle, width, color}, kept on each car (car.trail)
+local TRAIL = 0.35
+
+// a ribbon through points facing the camera, as wide as widths say, in
+// colors (both sides drawn: it is seen from anywhere)
+local func ribbon(points, widths, colors, eye){
+  for(local i = 0; i + 1 < len(points); i = i + 1){
+    local a = points[i]
+    local b = points[i + 1]
+    local along = vec.sub(b, a)
+    if(vec.length(along) > 0.01){
+      local side = vec.normalize(vec.cross(along, vec.sub(eye, a)))
+      local sa = vec.scale(side, widths[i])
+      local sb = vec.scale(side, widths[i + 1])
+      local a0 = vec.sub(a, sa)
+      local a1 = vec.add(a, sa)
+      local b0 = vec.sub(b, sb)
+      local b1 = vec.add(b, sb)
+      local c = colors[i]
+      rl.draw.triangle_3d(a0, b1, a1, c)
+      rl.draw.triangle_3d(a0, b0, b1, c)
+      rl.draw.triangle_3d(a0, a1, b1, c)
+      rl.draw.triangle_3d(a0, b1, b0, c)
+    }
+  }
+}
+
+// car(car, time, camera, tint?, simple?): a car (the player's, or another
+// tinted), its thrusters' glow and the light trail they leave behind it
+// (simple: no trail, for one far off)
+func m.car(car, time, camera, tint, simple){
+  draw_model(models.car, car.pos, car.q, unit, tint or rl.WHITE)
+  if(simple){
+    // far off: the model and its nozzles' glow, no trail
+    for(let local nz in values(m.NOZZLES)){
+      m.box(vec.add(car.pos, vec.rotate(car.q, nz)), car.q, {x: 0.35, y: 0.35, z: 0.12}, {80, 210, 255, 200}, city.NEON)
+    }
+    return
+  }
+  local trail = car.trail or {}
   local t = car.thrust
   if(car.boosting){
     t = 1
   }
-  local flame = 0.14 + t * 0.42
-  local length = 0.4 + t * 1.6 + math.sin(time * 40) * 0.1 * t
-  local color = {120, 220, 255}
+  local color = {80, 210, 255}
   if(car.boosting){
-    color = {255, 160, 80}
-    length = length + 1.2
+    color = {255, 120, 200}
   }
-  local a = to_int(80 + t * 175)
-  for(let local side in values({-0.6, 0.6})){
-    local p = vec.add(car.pos, vec.rotate(car.q, {x: side, y: -0.05, z: -2.1 - length / 2}))
-    m.box(p, car.q, {x: flame, y: flame * 0.6, z: length}, {color[0], color[1], color[2], a}, city.NEON)
+  // the nozzles now, into the trail; the old part of it out
+  local now = {}
+  for(let local nz in values(m.NOZZLES)){
+    append(now, vec.add(car.pos, vec.rotate(car.q, nz)))
   }
-  // the magnet's glow under the car
-  if(car.magnet){
+  local last = trail[len(trail) - 1]
+  if(last != null and vec.length(vec.sub(last.points[0], now[0])) > 30){
+    trail = {}
+  }
+  append(trail, {t: time, points: now, width: 0.07 + 0.17 * t, color: color})
+  local keep = {}
+  local life = TRAIL
+  if(car.boosting){
+    life = TRAIL * 1.25
+  }
+  for(let local sample in values(trail)){
+    if(time - sample.t < life){
+      append(keep, sample)
+    }
+  }
+  trail = keep
+  car.trail = trail
+  // newest first: wide and bright at the car, thin and faint behind it
+  local n = len(trail)
+  if(n >= 2 and camera != null){
+    rl.blend_mode(rl.BLEND_ADDITIVE){
+      for(local k = 0; k < len(m.NOZZLES); k = k + 1){
+        local points = {}
+        local widths = {}
+        local outer = {}
+        local core = {}
+        local core_w = {}
+        for(local i = n - 1; i >= 0; i = i - 1){
+          local sample = trail[i]
+          local f = 1 - (time - sample.t) / life
+          local c = sample.color
+          append(points, sample.points[k])
+          append(widths, sample.width * f)
+          append(core_w, sample.width * 0.3 * f)
+          // fainter the nearer it comes to the camera (it is behind the car)
+          local near = vec.clamp(vec.length(vec.sub(sample.points[k], camera.position)) / 6 - 0.3, 0, 1)
+          local a = to_int(vec.clamp((40 + 170 * t) * f * f * near, 0, 255))
+          append(outer, {c[0], c[1], c[2], a})
+          append(core, {255, 255, 255, to_int(a * 0.8)})
+        }
+        ribbon(points, widths, outer, camera.position)
+        ribbon(points, core_w, core, camera.position)
+      }
+    }
+  }
+  // the hot glow in each nozzle
+  local glow = 0.2 + 0.25 * t
+  for(let local p in values(now)){
+    m.box(p, car.q, {x: glow, y: glow, z: 0.12}, {color[0], color[1], color[2], to_int(120 + 135 * t)}, city.NEON)
+  }
+  // the magnet's glow under the car, while it holds a surface
+  if(car.mode == "stick"){
     local p = vec.add(car.pos, vec.rotate(car.q, {x: 0, y: -0.4, z: -0.3}))
     local pulse = 0.5 + 0.5 * math.sin(time * 6)
     local c = {80, 255, 160, to_int(60 + 60 * pulse)}
@@ -830,9 +1245,10 @@ func m.traffic(t, camera, time){
   }
   for(let local wr in values(t.wrecks)){
     local car = wr.car
-    draw_model(models.wreck_body, wr.pos, wr.q, unit, car.color)
-    draw_model(models.wreck_lights, wr.pos, wr.q, unit, rl.WHITE)
-    draw_model(models.wreck_strips, wr.pos, wr.q, unit, car.accent)
+    local wm = models.wrecks[m.style_of(car)]
+    draw_model(wm.body, wr.pos, wr.q, unit, car.color)
+    draw_model(wm.lights, wr.pos, wr.q, unit, rl.WHITE)
+    draw_model(wm.strips, wr.pos, wr.q, unit, car.accent)
   }
   return len(t.cars)
 }

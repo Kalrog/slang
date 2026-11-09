@@ -12,22 +12,30 @@ local vec = require("game/vec")
 
 local m = {}
 
-m.HALF = {x: 1.1, y: 0.45, z: 2.2}   // the body's box
+m.HALF = {x: 1.1, y: 0.45, z: 2.2} // the body's box
 m.MASS = 900
-m.CLEARANCE = 1.0       // the center's height over a surface it sticks to
-m.STICK_RANGE = 6       // how near a surface the magnet reaches
-m.ACCEL = 28            // m/s^2 of thrust
-m.TOP_SPEED = 62        // m/s where thrust and drag balance
-m.BOOST_FACTOR = 1.9    // thrust with the boost
-m.BOOST_DRAIN = 0.32    // of the meter per second
-m.BRAKE = 34            // m/s^2
-m.PITCH_RATE = 2.3      // rad/s at full stick
+m.CLEARANCE = 1.0 // the center's height over a surface it sticks to
+m.STICK_RANGE = 4.5 // how near a surface the magnet reaches
+m.JUMP = 25 // m/s off a surface when the jump (magnet) button is pressed
+m.GRAB_SPEED = 12 // m/s toward a surface over which the magnet does not grab
+m.BELLY = 0.65 // ... unless the car comes at it belly first (its up this
+// near the surface's normal): then it grabs at any speed
+m.GLIDE = 3.2 // s the car keeps its attitude after leaving a wall at its edge
+m.SLOT_THRUST = 1.3 // thrust riding a wall with another one just over the car
+m.HEADROOM = 6 // how far over the tallest building the car may climb
+m.BOOST_HEADROOM = 18 // ... and while boosting
+m.ACCEL = 28 // m/s^2 of thrust
+m.TOP_SPEED = 80 // m/s where thrust and drag balance
+m.BOOST_FACTOR = 1.9 // thrust with the boost
+m.BOOST_DRAIN = 0.32 // of the meter per second
+m.BRAKE = 34 // m/s^2
+m.PITCH_RATE = 2.3 // rad/s at full stick
 m.ROLL_RATE = 3.4
 m.YAW_RATE = 1.5
-m.STEER_RATE = 2.2      // on a surface
-m.DAMAGE_SPEED = 5      // impacts slower than this scratch the paint only
-m.DAMAGE_PER_MS = 0.009 // hull lost per m/s of impact above that
-m.RADIUS = 2.5          // about, for things that keep a distance
+m.STEER_RATE = 2.2 // on a surface
+m.DAMAGE_SPEED = 5 // impacts slower than this scratch the paint only
+m.DAMAGE_PER_MS = 0.002 // hull lost per m/s of impact above that
+m.RADIUS = 2.5 // about, for things that keep a distance
 
 // the body's moments of inertia about its own axes (a box of MASS)
 local inertia = {
@@ -57,19 +65,22 @@ func m.new(phys, pos, yaw){
     pos: {x: pos.x, y: pos.y, z: pos.z},
     vel: {x: 0, y: 0, z: 0},
     q: q,
-    omega: {x: 0, y: 0, z: 0},      // angular velocity, world frame
-    mode: "fly",                   // or "stick"
-    magnet: false,
-    stick: null,                   // {box, normal} while stuck
-    cooldown: 0,                   // before the magnet grabs again
+    omega: {x: 0, y: 0, z: 0}, // angular velocity, world frame
+    mode: "fly", // or "stick"
+    magnet: true, // on: it grabs surfaces near it (the jump lets go)
+    stick: null, // {box, normal} while stuck
+    cooldown: 0, // before the magnet grabs again
     boost: 1,
     boosting: false,
     hull: 1,
     speed: 0,
-    thrust: 0,                     // 0..1, for the visuals and sound
+    thrust: 0, // 0..1, for the visuals and sound
     brake: 0,
-    nearest: 1e9,                  // distance to the nearest surface
+    nearest: 1e9, // distance to the nearest surface
     skimming: false,
+    in_slot: false, // riding a wall with another one just over it
+    glide: 0, // s left holding glide_q, after leaving a wall at its edge
+    glide_q: null,
     events: {},
     time: 0,
   }
@@ -95,12 +106,36 @@ local func face_toward(b, p){
   local out = 0
   local n = null
   local d = 0
-  if(p.x > b.x1){ out = out + 1; n = {x: 1, y: 0, z: 0}; d = p.x - b.x1 }
-  if(p.x < b.x0){ out = out + 1; n = {x: -1, y: 0, z: 0}; d = b.x0 - p.x }
-  if(p.y > b.y1){ out = out + 1; n = {x: 0, y: 1, z: 0}; d = p.y - b.y1 }
-  if(p.y < b.y0){ out = out + 1; n = {x: 0, y: -1, z: 0}; d = b.y0 - p.y }
-  if(p.z > b.z1){ out = out + 1; n = {x: 0, y: 0, z: 1}; d = p.z - b.z1 }
-  if(p.z < b.z0){ out = out + 1; n = {x: 0, y: 0, z: -1}; d = b.z0 - p.z }
+  if(p.x > b.x1){
+    out = out + 1
+    n = {x: 1, y: 0, z: 0}
+    d = p.x - b.x1
+  }
+  if(p.x < b.x0){
+    out = out + 1
+    n = {x: -1, y: 0, z: 0}
+    d = b.x0 - p.x
+  }
+  if(p.y > b.y1){
+    out = out + 1
+    n = {x: 0, y: 1, z: 0}
+    d = p.y - b.y1
+  }
+  if(p.y < b.y0){
+    out = out + 1
+    n = {x: 0, y: -1, z: 0}
+    d = b.y0 - p.y
+  }
+  if(p.z > b.z1){
+    out = out + 1
+    n = {x: 0, y: 0, z: 1}
+    d = p.z - b.z1
+  }
+  if(p.z < b.z0){
+    out = out + 1
+    n = {x: 0, y: 0, z: -1}
+    d = b.z0 - p.z
+  }
   if(out != 1){
     return null
   }
@@ -111,12 +146,15 @@ local func face_toward(b, p){
 // margin outward, so the car hangs over an edge a little before it falls)
 local func on_face(b, n, p, margin){
   if(n.x != 0){
-    return p.y >= b.y0 - margin and p.y <= b.y1 + margin and p.z >= b.z0 - margin and p.z <= b.z1 + margin
+    return p.y >= b.y0 - margin and p.y <= b.y1 + margin and
+      p.z >= b.z0 - margin and p.z <= b.z1 + margin
   }
   if(n.y != 0){
-    return p.x >= b.x0 - margin and p.x <= b.x1 + margin and p.z >= b.z0 - margin and p.z <= b.z1 + margin
+    return p.x >= b.x0 - margin and p.x <= b.x1 + margin and
+      p.z >= b.z0 - margin and p.z <= b.z1 + margin
   }
-  return p.x >= b.x0 - margin and p.x <= b.x1 + margin and p.y >= b.y0 - margin and p.y <= b.y1 + margin
+  return p.x >= b.x0 - margin and p.x <= b.x1 + margin and
+    p.y >= b.y0 - margin and p.y <= b.y1 + margin
 }
 
 // the distance from p to the plane of face n of box b
@@ -150,13 +188,31 @@ local func feelers(car){
 local func find_surface(car, phys){
   local best = null
   local bd = m.STICK_RANGE
+  // gliding off a wall, only a surface under the car (the next slot's
+  // wall, not the one across from it)
+  local up = vec.axes(car.q).up
   for(let local f in values(feelers(car))){
-    local hit = phys.jw:cast_ray(vec.add_scaled(car.pos, f.dir, f.from), vec.scale(f.dir, m.STICK_RANGE + 1))
+    local hit = phys.jw:cast_ray(
+      vec.add_scaled(car.pos, f.dir, f.from),
+      vec.scale(f.dir, m.STICK_RANGE + 1),
+    )
     if(hit != null){
       local what = phys.by_id[hit.body.id]
-      if(what != null and what.box != null){
+      // (a slot line's funnel walls do not hold: game/city)
+      if(what != null and what.box != null and not what.box.slick){
         local f = face_toward(what.box, car.pos)
-        if(f != null and f.dist < bd){
+        // a surface met head-on at speed is a crash, not a landing: the
+        // magnet takes only a glancing or gentle approach
+        local closing = 0
+        local belly = false
+        if(f != null){
+          closing = -vec.dot(car.vel, f.normal)
+          belly = vec.dot(f.normal, up) > m.BELLY
+        }
+        local under = car.glide <= 0 or
+          (f != null and vec.dot(f.normal, up) > 0.7)
+        if(f != null and f.dist < bd and (closing < m.GRAB_SPEED or belly) and
+          under){
           bd = f.dist
           best = {box: what.box, normal: f.normal, dist: f.dist}
         }
@@ -166,10 +222,21 @@ local func find_surface(car, phys){
   return best
 }
 
+// attach(car, surface): stuck to it. Coming at it fast (belly first), the
+// magnet takes the speed into it at once: a slam, not a crash
 local func attach(car, surface){
   car.mode = "stick"
   car.stick = surface
-  event(car, "attach", {normal: surface.normal})
+  car.glide = 0
+  local n = surface.normal
+  local into = -vec.dot(car.vel, n)
+  local slam = 0
+  if(into > m.GRAB_SPEED){
+    slam = into
+    car.vel = vec.add_scaled(car.vel, n, into)
+    car.body.linear_velocity = car.vel
+  }
+  event(car, "attach", {normal: n, slam: slam, pos: car.pos})
 }
 
 local func detach(car, why, hop){
@@ -177,9 +244,18 @@ local func detach(car, why, hop){
     return
   }
   local n = car.stick.normal
+  car.left_box = car.stick.box
   car.mode = "fly"
   car.stick = null
   car.cooldown = 0.5
+  // off the end of a wall: the car flies on as it was, on its side, so
+  // it can cross a street into the next slot of a line (the magnet
+  // ready again soon)
+  if(why == "edge" and n.y == 0){
+    car.glide = m.GLIDE
+    car.glide_q = car.q
+    car.cooldown = 0.25
+  }
   if(hop != null and hop > 0){
     car.body:add_impulse(vec.scale(n, hop * m.MASS))
   }
@@ -222,12 +298,22 @@ func m.control(car, phys, input, dt){
   car.events = {}
   car.time = car.time + dt
   car.cooldown = math.max(0, car.cooldown - dt)
+  // the magnet is always on; its button jumps off the surface it holds
+  // (along the surface and up a little), and in the air keeps it from
+  // grabbing for a moment, to pass close by a wall
   if(input.magnet){
-    car.magnet = not car.magnet
-    if(not car.magnet){
-      detach(car, "released", 7)
+    // (held off after a jump, a belly-first landing on another box still
+    // takes; pressed in the air, the magnet holds off altogether)
+    car.jumped = false
+    if(car.mode == "stick"){
+      local n = car.stick.normal
+      detach(car, "jump", 0)
+      local dir = vec.normalize(vec.add(n, {x: 0, y: 0.6, z: 0}))
+      car.body:add_impulse(vec.scale(dir, m.JUMP * m.MASS))
+      event(car, "jump")
+      car.jumped = true
     }
-    event(car, "magnet", {on: car.magnet})
+    car.cooldown = 0.8
   }
   local axes = vec.axes(car.q)
   local speed = car.speed
@@ -240,6 +326,9 @@ func m.control(car, phys, input, dt){
     car.boosting = true
     thrust_scale = m.BOOST_FACTOR
     car.boost = math.max(0, car.boost - m.BOOST_DRAIN * dt)
+  }
+  if(car.in_slot){
+    thrust_scale = thrust_scale * m.SLOT_THRUST
   }
 
   // ---- the magnet grabbing, holding, letting go at an edge
@@ -257,7 +346,19 @@ func m.control(car, phys, input, dt){
 
   // ---- turning
   local torque = null
-  if(car.mode == "fly"){
+  if(car.mode == "fly" and car.glide > 0){
+    // gliding: the attitude it left the wall with, until the time is up
+    // or the stick is pushed well over
+    car.glide = car.glide - dt
+    local pushed = math.max(
+      math.max(math.abs(input.pitch), math.abs(input.roll)),
+      math.abs(input.yaw),
+    )
+    if(pushed > 0.35){
+      car.glide = 0
+    }
+    torque = rate_torque(car, rates_toward(car, car.glide_q, 6), 7)
+  } else if(car.mode == "fly"){
     // (the body's +x is its left side: looking along +z with y up, x
     // points left, so a turn to the right is a negative yaw rate and a
     // bank to the right a positive roll rate)
@@ -291,10 +392,21 @@ func m.control(car, phys, input, dt){
     if(vec.length(fwd) < 0.05){
       fwd = vec.reject(axes.up, n)
     }
+    // in a slot, with the stick let go, the heading settles level along
+    // it: a rail
+    if(car.in_slot and math.abs(steer) < 0.1 and math.abs(fwd.y) < 0.8){
+      fwd = {x: fwd.x, y: 0, z: fwd.z}
+    }
     fwd = vec.normalize(fwd)
-    local target = rates_toward(car, vec.quat_look(fwd, n), 9)
+    // a slot's wall (game/city) takes the car flat faster: the gap is
+    // short
+    local settle = 9
+    if(car.stick.box.slot){
+      settle = 18
+    }
+    local target = rates_toward(car, vec.quat_look(fwd, n), settle)
     target.y = target.y - steer * rate
-    torque = rate_torque(car, target, 9)
+    torque = rate_torque(car, target, settle)
   }
   body:add_torque(torque)
 
@@ -329,7 +441,11 @@ func m.control(car, phys, input, dt){
     local n = car.stick.normal
     local d = face_distance(car.stick.box, n, car.pos)
     local vn = vec.dot(car.vel, n)
-    accel = vec.add_scaled(accel, n, (m.CLEARANCE - d) * 80 - vn * 14)
+    if(car.stick.box.slot){
+      accel = vec.add_scaled(accel, n, (m.CLEARANCE - d) * 260 - vn * 27)
+    } else {
+      accel = vec.add_scaled(accel, n, (m.CLEARANCE - d) * 80 - vn * 14)
+    }
   }
   // ---- the city limits: a soft wall, and a ceiling
   local limit = phys.limit
@@ -342,8 +458,18 @@ func m.control(car, phys, input, dt){
     accel.z = accel.z - math.sign(car.pos.z) * 40
     pushed = true
   }
-  if(car.pos.y > 400){
-    accel.y = accel.y - 40
+  // the ceiling: over the tallest building (more of it while boosting)
+  // the car is pulled down, harder the higher it is, and its climb fades
+  local ceiling = (phys.ceiling or 360) + m.HEADROOM
+  if(car.boosting){
+    ceiling = ceiling + m.BOOST_HEADROOM - m.HEADROOM
+  }
+  local over = car.pos.y - ceiling
+  if(over > 0){
+    accel.y = accel.y - 25 - over * 5
+    if(car.vel.y > 0){
+      accel.y = accel.y - car.vel.y * 3
+    }
     pushed = true
   }
   if(pushed){
@@ -384,12 +510,30 @@ func m.read(car, phys, contacts){
       continue
     }
     local impact = math.abs(vec.dot(rel, n))
+    // into a box belly first: it lands, however fast (even while the
+    // magnet is held off after a jump, unless it is the box just left)
+    if(other != null and other.box != null and not other.box.slick and car.mode != "stick" and
+      car.magnet and (car.cooldown <= 0 or (car.jumped and other.box != car.left_box)) and
+      vec.dot(axes.up, n) < -m.BELLY){
+      local f = face_toward(other.box, car.pos)
+      if(f != null){
+        attach(car, {box: other.box, normal: f.normal, dist: f.dist})
+        continue
+      }
+    }
     local at = c.points[0] or car.pos
     if(impact > m.DAMAGE_SPEED){
-      car.hull = math.max(0, car.hull - (impact - m.DAMAGE_SPEED) * m.DAMAGE_PER_MS)
+      car.hull = math.max(
+        0,
+        car.hull - (impact - m.DAMAGE_SPEED) * m.DAMAGE_PER_MS,
+      )
       car.boost = car.boost * 0.4
       event(car, "hit", {
-        impact: impact, normal: n, pos: at, box: other and other.box,
+        impact: impact,
+        normal: n,
+        pos: at,
+        box: other and other.box,
+        car: other and other.car,
         traffic: other != null and other.traffic != null,
       })
       if(car.mode == "stick" and impact > 12){
@@ -402,15 +546,24 @@ func m.read(car, phys, contacts){
   // the nearest surface: for skimming, from the rays (not forward: a
   // wall ahead is a crash, not a skim)
   local nearest = 1e9
+  local over = 1e9
   local fs = feelers(car)
   for(local i = 0; i < 4; i = i + 1){
     local f = fs[i]
-    local hit = phys.jw:cast_ray(vec.add_scaled(car.pos, f.dir, f.from), vec.scale(f.dir, 6))
+    local hit = phys.jw:cast_ray(
+      vec.add_scaled(car.pos, f.dir, f.from),
+      vec.scale(f.dir, 6),
+    )
     if(hit != null){
       nearest = math.min(nearest, hit.fraction * 6)
+      if(i == 1){
+        over = hit.fraction * 6
+      }
     }
   }
   car.nearest = nearest
+  // in a slot: on a wall, the other wall just over the roof
+  car.in_slot = car.mode == "stick" and car.stick.normal.y == 0 and over < 1.2
   // the boost meter refills: slowly by itself, fast when skimming a
   // surface at speed or riding one
   car.skimming = false
@@ -427,11 +580,6 @@ func m.read(car, phys, contacts){
   car.boost = math.min(1, car.boost + regen * (1 / 60))
 }
 
-// a close call with something else: the meter fills
-func m.close_call(car){
-  car.boost = math.min(1, car.boost + 0.18)
-}
-
 // place(car, pos, yaw): set down somewhere, at rest, flying
 func m.place(car, pos, yaw){
   car.pos = {x: pos.x, y: pos.y, z: pos.z}
@@ -441,7 +589,10 @@ func m.place(car, pos, yaw){
   car.mode = "fly"
   car.stick = null
   car.cooldown = 0.5
-  car.body:set_position_rotation_and_velocity(car.pos, car.q, car.vel, car.omega)
+  car.glide = 0
+  car.body:set_position_rotation_and_velocity(
+    car.pos, car.q, car.vel, car.omega
+  )
 }
 
 func m.axes(car){

@@ -3,6 +3,7 @@
   dependencies: {
     raylib: {path: "../../packages/raylib"},
     jolt: {path: "../../packages/jolt"},
+    kernel: {path: "../../packages/kernel"},
   },
   search_paths: {"."},
 }

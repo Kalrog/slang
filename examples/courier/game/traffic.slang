@@ -23,14 +23,16 @@ m.HALF_LENGTH = 2.3
 m.RADIUS = 2.6           // about, for keeping a distance
 m.WRECK_TIME = 6         // seconds a wreck tumbles before it is taken away
 
+// the cars in the city's palette: muted bodies, warm headlights, side
+// strips in its two neons
 local palettes = {
-  {{230, 230, 240}, {255, 240, 200}, {0, 230, 255}},   // body, headlights, side strips
-  {{60, 60, 80}, {255, 240, 200}, {255, 60, 200}},
-  {{200, 60, 60}, {255, 240, 200}, {255, 200, 60}},
-  {{60, 120, 200}, {210, 230, 255}, {120, 255, 200}},
-  {{240, 180, 40}, {255, 240, 200}, {255, 90, 40}},
-  {{140, 60, 200}, {230, 200, 255}, {0, 230, 255}},
-  {{40, 160, 140}, {210, 255, 240}, {255, 60, 200}},
+  {{200, 205, 215}, {255, 236, 200}, {0, 220, 255}},   // body, headlights, side strips
+  {{48, 52, 66}, {255, 236, 200}, {255, 50, 170}},
+  {{90, 100, 120}, {255, 236, 200}, {0, 220, 255}},
+  {{28, 30, 38}, {255, 236, 200}, {0, 220, 255}},
+  {{150, 60, 110}, {255, 236, 200}, {255, 50, 170}},
+  {{40, 90, 120}, {220, 236, 255}, {0, 220, 255}},
+  {{120, 124, 136}, {255, 236, 200}, {255, 50, 170}},
 }
 
 // where along the lane a start s0 is at a time: wrapped into -limit..limit
@@ -91,7 +93,6 @@ func m.new(c, phys, seed, count){
         accent: palette[2],
         vel: vec.scale(lane.direction, math.abs(lane.speed)),
         body: null,
-        last_close: -10,
         pos: null,
         wrecked: false,
       }

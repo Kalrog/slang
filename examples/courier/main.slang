@@ -1,22 +1,30 @@
-// Courier: deliveries by flying car through a night city, on the raylib
+// Courier: jobs by flying car through a night city, on the raylib
 // and jolt packages. The city is made from a seed: towers in tiers with
 // ledges, fins, billboards and halos sticking out of them, skybridges
-// and glass tubes across the streets, traffic in lanes at six heights.
-// Pick up a package at one pad, deliver it to another before the clock
-// runs out; pay for the distance, the time left and the package in one
-// piece. The car flies with pitch, roll and yaw, boosts, and its magnet
-// locks it onto any surface to drive along walls and under bridges.
-// Close calls with traffic and skimming walls at speed refill the boost;
-// hits cost hull, and the wreck costs the job.
+// and glass tubes across the streets, traffic in lanes at six heights
+// and cars flying free of them (game/flyers).
+// Offers wait on pads around the city, each with an icon and a time
+// left (game/missions): deliveries, races against a rival courier,
+// takedowns of a fleeing car, tails of one that must not spot you; fly
+// to one to take it. The car flies with pitch, roll and yaw, boosts, and its magnet
+// (always on) locks it onto any surface near it to drive along walls and
+// under bridges; the magnet button jumps off. Slots, gaps lit amber in
+// rows of blocks, are too tight to fly through level but just right
+// riding one of their walls, and lead into the next across the street.
+// Over the tallest building the car is pulled back down (a little higher
+// while boosting), so the traffic is flown through, not over.
+// Near misses with traffic and skimming walls at speed refill the boost,
+// and the misses chain into cash that a hit loses; hits cost hull, and
+// the wreck costs the job.
 //
 //   make courier      (or: bin/slang run examples/courier/main.slang)
 //
 // The mouse steers: it moves a reticle, and the car turns toward it
 // (pitch and a banked turn). W thrust, S brake and reverse, A/D roll,
 // Q/E yaw, the arrow keys pitch and roll too; Space or the left button
-// boosts, F or the right button is the magnet, R goes back to the last
+// boosts, F or the right button jumps off a surface, R goes back to the last
 // pad, Esc pauses. A gamepad: left stick pitch and roll, right stick yaw,
-// triggers thrust and brake, A boost, X magnet.
+// triggers thrust and brake, A boost, X jump.
 //
 // For tests and screenshots, from the environment:
 //   COURIER_FRAMES=n        quit after n frames
@@ -24,6 +32,9 @@
 //   COURIER_LEVEL=n         start in level n (from 1); the title has the menu
 //   COURIER_AUTOPLAY=1      start at once with the autopilot flying
 //   COURIER_START=1         start at once (no title screen)
+//   COURIER_FLYERS=n        n cars flying free instead of the level's
+//   COURIER_JOB=kind        an offer of a kind (delivery, race, takedown,
+//                           tail) near the start, the autopilot's choice
 //   COURIER_SHOT=n:file.png save a screenshot at frame n (comma separated
 //                           for several; relative to the working directory)
 local rl = require("raylib")
@@ -34,7 +45,8 @@ local time = require("slang/time")
 local vec = require("game/vec")
 local world = require("game/world")
 local car_lib = require("game/car")
-local bot = require("game/bot")
+local missions = require("game/missions")
+local flyers = require("game/flyers")
 local render = require("game/render")
 local levels = require("game/levels")
 local hud = require("game/hud")
@@ -45,6 +57,7 @@ local WIDTH = 1280
 local HEIGHT = 720
 
 local autoplay = os.getenv("COURIER_AUTOPLAY") != null
+local job_kind = os.getenv("COURIER_JOB")
 local frame_limit = os.getenv("COURIER_FRAMES")
 local seed = to_int(str.to_number(os.getenv("COURIER_SEED") or "7"))
 local start_level = to_int(str.to_number(os.getenv("COURIER_LEVEL") or "1")) - 1
@@ -73,17 +86,24 @@ local game = {
 }
 
 // new_world(seed, level, carry?): a city of the level; carry = the world
-// before, whose credits and deliveries come along
+// before, whose credits and jobs come along
 local func new_world(s, level, carry){
   local options = {seed: s, level: level}
+  if(os.getenv("COURIER_FLYERS") != null){
+    options.flyers = to_int(str.to_number(os.getenv("COURIER_FLYERS")))
+  }
   if(carry != null){
     options.credits = carry.credits
-    options.deliveries = carry.deliveries
+    options.jobs = carry.jobs
   }
   if(game.world != null){
     world.destroy(game.world)
   }
   game.world = world.new(options)
+  if(job_kind != null){
+    missions.board(game.world)
+    missions.new_offer(game.world, job_kind, true)
+  }
   render.build_city(game.world.city)
   render.build_traffic(game.world.traffic)
   game.fresh = true
@@ -208,6 +228,17 @@ local func update_camera(dt){
   local car_axes = vec.axes(car.q)
   local back = 6.5 + speed * 0.05
   local lift = 2.2 + speed * 0.012
+  // in a slot (and on its lead, and gliding between slots) "up" is the
+  // other wall, a meter off: the camera comes down into the car's plane,
+  // straight behind it
+  local slotted = car.in_slot or car.glide > 0 or
+    (car.mode == "stick" and car.stick.box.slot == true and car.stick.normal.y == 0)
+  local want = 0
+  if(slotted){
+    want = 1
+  }
+  cam.slot = vec.approach(cam.slot or 0, want, 6, dt)
+  lift = lift * (1 - cam.slot * 0.92)
   local desired = vec.add(vec.add_scaled(car.pos, axes.forward, -back), vec.scale(axes.up, lift))
   // not through a wall: pull in to what the ray from the car hits
   local to = vec.sub(desired, car.pos)
@@ -270,52 +301,101 @@ local func title_camera(dt){
 local func handle_events(w){
   for(let local e in values(w.events)){
     if(e.kind == "hit"){
-      sound.play("hit", vec.clamp(e.impact / 25, 0.3, 1))
+      sound.play("hit", vec.clamp(e.impact / 25, 0.3, 1), e.pos)
       fx.sparks(e.pos, e.normal, e.impact)
       game.cam.shake = math.min(1.5, game.cam.shake + e.impact * 0.03)
       game.flash = {0.35, 0.02, 0.0}
       game.hit_time = game.time
     } else if(e.kind == "scrape"){
       if(game.time - game.hit_time > 0.3){
-        sound.play("scrape", 0.4)
+        sound.play("scrape", 0.5, e.pos)
         fx.sparks(e.pos, e.normal, 2)
         game.hit_time = game.time
       }
     } else if(e.kind == "smash"){
-      sound.play("hit", 1)
+      sound.play("hit", 1, e.pos)
       fx.sparks(e.pos, {x: 0, y: 1, z: 0}, e.impact + 10)
       hud.message("SMASH", hud.colors.orange, 1.2)
       game.cam.shake = math.min(1.5, game.cam.shake + 0.4)
-    } else if(e.kind == "close_call"){
-      sound.play("whoosh", 0.9)
-      hud.message("CLOSE CALL  +boost", hud.colors.cyan, 1.2)
-      game.flash = {0.0, 0.08, 0.12}
-    } else if(e.kind == "pickup"){
+    } else if(e.kind == "near_miss"){
+      local loud = 0.6
+      if(e.tier == "RAZOR"){
+        loud = 1.0
+        game.flash = {0.12, 0.0, 0.1}
+        game.cam.shake = math.min(1.5, game.cam.shake + 0.12)
+      } else if(e.tier == "TIGHT"){
+        loud = 0.8
+        game.flash = {0.0, 0.06, 0.1}
+      }
+      sound.play("whoosh", loud, e.pos)
+      sound.chain(e.chain)
+      hud.near_miss(e)
+    } else if(e.kind == "chain_banked"){
+      sound.play("pickup", 0.6)
+      hud.message(concat("CHAIN OF ", string(e.chain), "  +$", string(e.cash)), hud.colors.green, 2)
+    } else if(e.kind == "chain_lost"){
+      sound.play("late", 0.5)
+      hud.message(concat("CHAIN LOST  $", string(e.cash)), hud.colors.red, 2)
+    } else if(e.kind == "accept"){
+      local job = e.job
+      local c = missions.KINDS[job.kind].color
       sound.play("pickup")
-      fx.burst(e.job.from, {0, 230, 255})
-      hud.message(concat("picked up ", e.job.what), hud.colors.cyan, 2.5)
-      hud.message(concat("deliver to ", e.job.to.name), hud.colors.orange, 3)
-    } else if(e.kind == "deliver"){
+      fx.burst(job.offer.pad, c)
+      if(job.kind == "delivery"){
+        hud.message(concat("picked up ", job.what), c, 2.5)
+        hud.message(concat("deliver to ", job.to.name), hud.colors.orange, 3)
+      } else if(job.kind == "race"){
+        hud.message(concat("RACE to ", job.to.name), c, 3)
+      } else if(job.kind == "takedown"){
+        hud.message("TAKEDOWN: ram the red car", c, 3)
+      } else {
+        hud.message("TAIL the violet car: not too near", c, 3)
+      }
+    } else if(e.kind == "count"){
+      sound.play("ui", 0.8)
+    } else if(e.kind == "race_go"){
+      sound.play("ui", 1)
+      sound.play("ignite", 0.8)
+      hud.message("GO!", missions.KINDS.race.color, 1.2)
+    } else if(e.kind == "target_hit"){
+      game.cam.shake = math.min(1.5, game.cam.shake + 0.3)
+      hud.message(concat("TARGET ", string(to_int(e.job.hull * 100)), "%"), missions.KINDS.takedown.color, 1.2)
+    } else if(e.kind == "npc_wreck"){
+      sound.play("wreck", 0.8, e.pos)
+      fx.sparks(e.pos, {x: 0, y: 1, z: 0}, 30)
+    } else if(e.kind == "job_done"){
       sound.play("deliver")
-      fx.burst(e.job.to, {255, 150, 40})
-      hud.message(concat("DELIVERED  +$", string(e.pay)), hud.colors.green, 3)
+      local where = w.car.pos
+      if(e.job.to != null){
+        where = e.job.to
+      }
+      fx.burst(where, missions.KINDS[e.job.kind].color)
+      local done = {delivery: "DELIVERED", race: "RACE WON", takedown: "TAKEN DOWN", tail: "TAILED HOME"}
+      hud.message(concat(done[e.job.kind], "  +$", string(e.pay)), hud.colors.green, 3)
       game.flash = {0.05, 0.12, 0.05}
+    } else if(e.kind == "job_failed"){
+      sound.play("late")
+      if(e.why != "wrecked"){
+        hud.message(concat(missions.KINDS[e.job.kind].name, " FAILED: ", e.why), hud.colors.red, 3)
+      }
     } else if(e.kind == "late"){
       sound.play("late")
       hud.message("LATE: a third of the pay", hud.colors.red, 3)
-    } else if(e.kind == "job"){
-      if(w.deliveries > 0 or w.time > 1){
-        hud.message(concat("new job: ", e.job.what, " at ", e.job.from.name), hud.colors.white, 3)
-      }
     } else if(e.kind == "attach"){
       sound.play("clunk", 0.8)
       game.cam.shake = math.min(1.5, game.cam.shake + 0.25)
-    } else if(e.kind == "detach"){
-      if(e.why == "released"){
-        sound.play("release", 0.6)
+      if(e.slam > 0){
+        // onto a wall fast, belly first: the magnet takes it, hard
+        sound.play("clunk", 1)
+        sound.play("hit", vec.clamp(e.slam / 60, 0.2, 0.6), e.pos)
+        fx.sparks(e.pos, e.normal, e.slam * 0.5)
+        game.cam.shake = math.min(1.5, game.cam.shake + e.slam * 0.02)
+        game.flash = {0.0, 0.12, 0.08}
       }
-    } else if(e.kind == "magnet"){
-      sound.play("ui", 0.5)
+    } else if(e.kind == "jump"){
+      sound.play("release", 0.7)
+      sound.play("ignite", 0.5)
+      game.cam.shake = math.min(1.5, game.cam.shake + 0.15)
     } else if(e.kind == "wreck"){
       sound.play("wreck")
       sound.stop_loops()
@@ -325,7 +405,7 @@ local func handle_events(w){
     } else if(e.kind == "respawn"){
       hud.message("back at the pad", hud.colors.white, 2)
     } else if(e.kind == "level_up"){
-      sound.play("deliver")
+      sound.play("level")
       game.level_up = e.next
     }
   }
@@ -338,14 +418,31 @@ local func draw_world(camera){
   render.scene(camera, game.time){
     render.city(camera)
     render.traffic(w.traffic, camera, game.time)
-    render.car(w.car, game.time)
-    local target = world.target(w)
-    if(target != null){
-      local color = {0, 230, 255}
-      if(w.job.phase == "deliver"){
-        color = {255, 150, 40}
+    render.car(w.car, game.time, camera)
+    // the other cars: not behind the camera, a trail only near it, none
+    // past the fog
+    local look = vec.normalize(vec.sub(camera.target, camera.position))
+    local func other(car, tint){
+      local to = vec.sub(car.pos, camera.position)
+      local d = vec.length(to)
+      if(d < 700 and vec.dot(to, look) > -10){
+        render.car(car, game.time, camera, tint, d > 150)
       }
-      render.beacon(target, color, game.time)
+    }
+    for(let local npc in values(w.npcs)){
+      other(npc.car, npc.tint)
+    }
+    for(let local g in values(flyers.cars(w))){
+      other(g.car, g.tint)
+    }
+    // the job's pad, or the offers' while there is no job
+    local target = missions.target(w)
+    if(target != null and target.pad != null){
+      render.beacon(target.pad, target.color, game.time)
+    } else if(w.job == null and w.board != null){
+      for(let local o in values(w.board.offers)){
+        render.beacon(o.pad, missions.KINDS[o.kind].color, game.time)
+      }
     }
     fx.draw(w.car)
   }
@@ -369,7 +466,11 @@ local func update_play(dt){
   }
   local input = null
   if(autoplay){
-    input = bot.input(w, dt)
+    local prefer = null
+    if(job_kind != null){
+      prefer = {job_kind}
+    }
+    input = missions.autopilot(w, dt, {prefer: prefer})
   } else {
     input = player_input(dt)
   }
@@ -379,7 +480,7 @@ local func update_play(dt){
     w.credits = math.max(0, w.credits - 20)
     hud.message("back to the pad  -$20", hud.colors.dim, 2)
   }
-  world.step(w, input, dt)
+  missions.step(w, input, dt)
   handle_events(w)
   if(game.level_up != null){
     // on to the next district: a new city, the earnings kept
@@ -390,13 +491,18 @@ local func update_play(dt){
     w = game.world
     sound.stop_loops()
     hud.message(concat("LEVEL ", string(next + 1), ": ", w.level.name), hud.colors.orange, 4)
-    hud.message(concat("pick up ", w.job.what, " at ", w.job.from.name), hud.colors.cyan, 4)
+    hud.message("fly to an offer to take a job", hud.colors.cyan, 4)
   }
   if(w.state == "play"){
     sound.engine(w.car)
   }
   hud.update(dt)
   local camera = update_camera(dt)
+  sound.listener(camera)
+  if(rl.key.pressed(rl.KEY_M)){
+    sound.toggle_music()
+    hud.message(if(sound.music){ "music on" } else { "music off" }, hud.colors.white, 1.5)
+  }
   fx.update(dt, w.car, camera)
   draw_world(camera)
   local car = w.car
@@ -417,8 +523,11 @@ local func update_play(dt){
 local func update_title(dt){
   local w = game.world
   local idle = {pitch: 0, roll: 0, yaw: 0, throttle: 0, brake: 0, boost: false, magnet: false}
+  if(w.flyers == null and w.flyer_count > 0){
+    flyers.new(w, w.flyer_count)
+  }
+  flyers.step(w, dt)
   world.step(w, idle, dt)
-  w.job.left = w.job.limit
   game.world.events = {}
   local camera = title_camera(dt)
   fx.update(dt, w.car, camera)
@@ -451,7 +560,7 @@ local func update_title(dt){
     game.screen = "play"
     sound.play("ui")
     hud.message(concat("LEVEL ", string(w.level_index + 1), ": ", w.level.name), hud.colors.orange, 3)
-    hud.message(concat("pick up ", w.job.what, " at ", w.job.from.name), hud.colors.cyan, 4)
+    hud.message("fly to an offer to take a job", hud.colors.cyan, 4)
     if(not autoplay){
       rl.mouse.locked = true
       stick = {x: 0, y: 0}
@@ -504,6 +613,7 @@ for(not rl.window.should_close and not game.quit){
   }
   local dt = math.min(rl.frame_time, 0.05)
   game.time = game.time + dt
+  local work_from = time.clock()
   rl.drawing{
     if(game.screen == "title"){
       update_title(dt)
@@ -512,6 +622,8 @@ for(not rl.window.should_close and not game.quit){
     } else {
       update_paused(dt)
     }
+    // the frame's work, without the wait for the screen
+    game.work = (game.work or 0) + time.clock() - work_from
   }
   if(shots[frames] != null){
     rl.window.screenshot(shots[frames])
@@ -521,8 +633,9 @@ for(not rl.window.should_close and not game.quit){
 if(frame_limit != null){
   local w = game.world
   print("courier: ", frames, " frames, ", to_int(frames * 1000 / math.max(1, time.clock() - started)),
-    " frames/s, $", w.credits, ", ", w.deliveries, " delivered, hull ", to_int(w.car.hull * 100),
-    "%, level ", w.level_index + 1, " ", w.level.name, "\n")
+    " frames/s (", to_int((game.work or 0) * 100 / math.max(1, frames)) / 100, " ms of work a frame), $", w.credits, ", ", w.jobs, " jobs done, hull ", to_int(w.car.hull * 100),
+    "%, level ", w.level_index + 1, " ", w.level.name, ", ", w.near_miss.misses,
+    " near misses (best chain ", w.near_miss.best_chain, ", $", w.near_miss.banked, " banked)\n")
 }
 world.destroy(game.world)
 sound.close()

@@ -1,6 +1,7 @@
 // game/city: the night city, made from a seed and a level with no window: blocks of
 // towers in tiers with ledges, fins, billboards, halo rings and antennas
 // sticking out of them, skybridges and glass tubes between neighbours,
+// lines of slots (blocks split by a gap to ride a wall through),
 // delivery pads on roofs and balconies, and the lanes the traffic flies.
 // Everything solid is an axis-aligned box in a spatial grid, so the car
 // finds what is near it fast; the renderer turns the boxes into meshes.
@@ -25,13 +26,37 @@ m.BILLBOARD = 3   // an animated screen (param: style)
 m.PAD = 4         // a delivery pad
 m.GROUND = 5      // the street level
 
+// how much higher the lanes along z run than those along x (a car is
+// 1.7 m tall; bridges hang 15 m over a lane level)
+m.CROSSING = 6
+
+// slots: a block split by a gap too narrow to fly through level (the car
+// is 2.2 m wide) but just right riding one of its walls with the magnet
+// (which holds the car 1 m off it: in the middle). The two towers are
+// staggered, so each wall has a stretch of LEAD m with nothing across
+// from it, to grab before the gap closes. A line of them runs through a
+// row of blocks, aligned across the streets.
+m.SLOT = 2
+m.LEAD = 18
+// at either end of a line (unless it ends at the city's edge) a block is
+// split wider, on the line: room to line up on the way in, and on the way
+// out to fly on, off the last wall, into the open. Its walls do not hold
+// the magnet (riding one would lead into the end of a slot's tower). Its
+// middle is FUNNEL_SHIFT off the line toward the open side of the slot's
+// lead there: flown level down it, the car is near the lead's wall
+// enough for the magnet, not so near that it clips the wall's end.
+m.FUNNEL = 10
+m.FUNNEL_SHIFT = 2
+local SLOT_LIGHT = {255, 150, 50}
+
+// one palette for the whole city: blue-grey concrete in a few shades,
+// neon in two colors (cyan and magenta) with a little warm amber
 local facades = {
-  {72, 78, 98}, {64, 58, 76}, {88, 72, 80}, {58, 70, 86}, {80, 80, 92},
-  {66, 66, 72}, {92, 84, 76},
+  {62, 70, 88}, {56, 62, 80}, {70, 76, 94}, {50, 58, 74}, {66, 72, 86},
 }
 local neons = {
-  {0, 230, 255}, {255, 40, 200}, {255, 140, 30}, {150, 255, 60},
-  {160, 80, 255}, {255, 60, 60}, {255, 230, 120},
+  {0, 220, 255}, {0, 220, 255}, {0, 220, 255}, {255, 50, 170},
+  {255, 50, 170}, {255, 50, 170}, {255, 150, 50},
 }
 local first_names = {
   "Kaito", "Nova", "Helix", "Orion", "Tsuki", "Vektor", "Aurum", "Zenith",
@@ -279,8 +304,13 @@ local func antenna(ctx, b, x, z){
 
 // a tower of tiers standing on y = 0 at cx, cz: returns its tier boxes
 // (bottom first). Each tier is decorated; the roof gets a pad or masts.
-local func tower(ctx, cx, cz, w, d, height, name, base_y){
+// opts: {bare: {side: true} (nothing on those sides), plain (no crowns,
+// corner strips or halos: they stick out), first (the lowest tier at
+// least this tall, if the tower is)}
+local func tower(ctx, cx, cz, w, d, height, name, base_y, opts){
   local rng = ctx.rng
+  opts = opts or {}
+  local bare = opts.bare or {}
   local tiers = {}
   local level = ctx.level
   local n = 1 + rng:int(level.tiers)
@@ -301,16 +331,19 @@ local func tower(ctx, cx, cz, w, d, height, name, base_y){
     } else {
       th = snap(left, 3)
     }
+    if(t == 0 and opts.first != null){
+      th = math.max(th, snap(math.min(left, opts.first), 3))
+    }
     if(th < 9){
       th = 9
     }
     local b = box(ctx, x0, y, z0, x1, y + th, z1, m.WALL, facade, rng:range(0.2, 0.7))
     append(tiers, b)
     // lights
-    if(rng:chance(0.55)){
+    if(rng:chance(0.55) and not opts.plain){
       crown(ctx, b, neon_color(ctx))
     }
-    if(rng:chance(0.3)){
+    if(rng:chance(0.3) and not opts.plain){
       corner_strips(ctx, b, neon_color(ctx))
     }
     // things sticking out, above the first floors
@@ -318,7 +351,7 @@ local func tower(ctx, cx, cz, w, d, height, name, base_y){
     for(local k = 0; k < count; k = k + 1){
       local side = rng:int(4)
       local fy = snap(rng:range(y + 12, y + th - 6), 3)
-      if(fy > y + 6 and fy < y + th - 3){
+      if(fy > y + 6 and fy < y + th - 3 and not bare[side]){
         local r = rng:next()
         if(r < 0.35){
           ledge(ctx, b, side, fy)
@@ -331,7 +364,7 @@ local func tower(ctx, cx, cz, w, d, height, name, base_y){
         }
       }
     }
-    if(th > 40 and rng:chance(level.halos)){
+    if(th > 40 and rng:chance(level.halos) and not opts.plain){
       halo(ctx, b, snap(rng:range(y + 15, y + th - 10), 3))
     }
     y = y + th
@@ -341,6 +374,11 @@ local func tower(ctx, cx, cz, w, d, height, name, base_y){
     local iz = snap(rng:range(2, 10), 2)
     local sx = snap(rng:range(-ix, ix), 2)
     local sz = snap(rng:range(-iz, iz), 2)
+    if(opts.plain){
+      // centered: no tier comes out flush with a slot's wall
+      sx = 0
+      sz = 0
+    }
     x0 = x0 + ix + sx
     x1 = x1 - ix + sx
     z0 = z0 + iz + sz
@@ -430,6 +468,104 @@ local func tier_at(tiers, y){
   return null
 }
 
+// a block split by a slot along axis ("x" or "z") whose middle is at
+// across (odd: the walls fall on the 2 m grid): tower A on the low side,
+// B on the high side, staggered by LEAD along the slot. Returns the slot:
+// {axis, at, lo, hi (where both walls are), a0, a1 (the walls with their
+// lead), top, side}
+local func split_block(ctx, block, cx, cz, axis, at, height, name, funnel){
+  local rng = ctx.rng
+  local city = ctx.city
+  local h2 = snap(height * rng:range(0.75, 1), 3)
+  local first = math.min(h2, 75)
+  local ca = cx
+  local cc = cz
+  if(axis == "z"){
+    ca = cz
+    cc = cx
+  }
+  local a0 = snap(ca - city.block * 0.46, 2)
+  local a1 = snap(ca + city.block * 0.46, 2)
+  local c0 = snap(cc - city.block * 0.44, 2)
+  local c1 = snap(cc + city.block * 0.44, 2)
+  local half = m.SLOT / 2
+  local lead = m.LEAD
+  local line = at
+  if(funnel){
+    half = m.FUNNEL / 2
+    lead = 0
+    // (the end the line starts at: its first lead is A's, open toward +)
+    if(funnel == "low"){
+      at = at + m.FUNNEL_SHIFT
+    } else {
+      at = at - m.FUNNEL_SHIFT
+    }
+  }
+  // the two in (along, across) bounds, and their bare sides: the slot's
+  // face and the end that faces the other's lead (a funnel's: both ends)
+  local ta = {a0, a1 - lead, c0, at - half}
+  local tb = {a0 + lead, a1, at + half, c1}
+  local bare_a = {[2]: true, [0]: true}
+  local bare_b = {[3]: true, [1]: true}
+  if(axis == "z"){
+    bare_a = {[0]: true, [2]: true}
+    bare_b = {[1]: true, [3]: true}
+  }
+  if(funnel){
+    bare_a = {[0]: true, [1]: true, [2]: true, [3]: true}
+    bare_b = bare_a
+  }
+  local func make(r, h, tname, bare){
+    local x0 = r[0]
+    local x1 = r[1]
+    local z0 = r[2]
+    local z1 = r[3]
+    if(axis == "z"){
+      x0 = r[2]
+      x1 = r[3]
+      z0 = r[0]
+      z1 = r[1]
+    }
+    return tower(ctx, (x0 + x1) / 2, (z0 + z1) / 2, x1 - x0, z1 - z0, h, tname, 0,
+      {bare: bare, plain: true, first: first})
+  }
+  local A = make(ta, height, name, bare_a)
+  local B = make(tb, h2, unique_name(ctx, concat(name, " annex")), bare_b)
+  append(block.towers, A)
+  append(block.towers, B)
+  // the walls of the slot hold the car harder (game/car); a funnel's do
+  // not hold it at all
+  if(funnel){
+    A[0].slick = true
+    B[0].slick = true
+  } else {
+    A[0].slot = true
+    B[0].slot = true
+  }
+  local top = math.min(A[0].y1, B[0].y1)
+  // amber light: up the two mouths, and along the tops of the walls
+  local func lit(a0, a1, c0, c1, y0, y1){
+    if(axis == "x"){
+      box(ctx, a0, y0, c0, a1, y1, c1, m.NEON, SLOT_LIGHT)
+    } else {
+      box(ctx, c0, y0, a0, c1, y1, a1, m.NEON, SLOT_LIGHT)
+    }
+  }
+  if(funnel){
+    // the four mouths, on the end faces beside the gap
+    lit(a0 - 0.3, a0, at + half, at + half + 0.6, 0, top)
+    lit(a0 - 0.3, a0, at - half - 0.6, at - half, 0, top)
+    lit(a1, a1 + 0.3, at + half, at + half + 0.6, 0, top)
+    lit(a1, a1 + 0.3, at - half - 0.6, at - half, 0, top)
+  } else {
+    lit(a0 + lead - 0.3, a0 + lead, at + half, at + half + 0.6, 0, top)
+    lit(a1 - lead, a1 - lead + 0.3, at - half - 0.6, at - half, 0, top)
+  }
+  lit(a0, a1 - lead, at - half - 0.4, at - half, A[0].y1 - 0.2, A[0].y1 + 0.35)
+  lit(a0 + lead, a1, at + half, at + half + 0.4, B[0].y1 - 0.2, B[0].y1 + 0.35)
+  return {axis: axis, at: at, line: line, lo: a0 + lead, hi: a1 - lead, a0: a0, a1: a1, top: top, funnel: funnel}
+}
+
 // ------------------------------------------------------------ the city
 
 local func new_chunk(city, cx, cz){
@@ -450,9 +586,45 @@ func m.generate(seed, level){
     n: N, block: level.block, street: level.street, pitch: level.block + level.street,
     lane_levels: level.lane_levels, lane_offsets: level.lane_offsets,
     boxes: {}, chunks: {}, pads: {}, lanes: {}, grid: {},
-    blocks: {}, names: {}, stamp: 0, wanted_pads: {},
+    blocks: {}, names: {}, stamp: 0, wanted_pads: {}, slots: {}, funnels: {},
   }
   city.half = N * city.pitch / 2
+  // the slot lines: all along one axis, each through a run of a row of
+  // blocks (rows apart), at one offset from the row's middle
+  local lines = {}
+  local srng = vec.random(seed * 613 + 11)
+  local slot_axis = "x"
+  if(srng:chance(0.5)){
+    slot_axis = "z"
+  }
+  local rows = {}
+  local reach = city.block * 0.44 - 18
+  for(local k = 0; k < (level.slots or 0); k = k + 1){
+    local row = srng:int(N)
+    if(rows[row] == null and rows[row - 1] == null and rows[row + 1] == null){
+      rows[row] = true
+      local run = math.min(N, 3 + srng:int(N - 2))
+      local start = srng:int(N - run + 1)
+      local offset = srng:range(-reach, reach)
+      // the slots, and a funnel at either end inside the city
+      for(local q = start - 1; q <= start + run; q = q + 1){
+        if(q >= 0 and q < N){
+          local funnel = null
+          if(q < start){
+            funnel = "low"
+          } else if(q >= start + run){
+            funnel = "high"
+          }
+          local mark = {offset: offset, funnel: funnel}
+          if(slot_axis == "x"){
+            lines[q * N + row] = mark
+          } else {
+            lines[row * N + q] = mark
+          }
+        }
+      }
+    }
+  }
   local center_rng = vec.random(seed)
   // the ground, one box in a chunk of its own (not in the grid)
   local ground = {city: city, chunk: new_chunk(city, 0, 0), rng: center_rng, level: level}
@@ -477,7 +649,20 @@ func m.generate(seed, level){
       local name = building_name(ctx)
       local block = {i: i, j: j, cx: cx, cz: cz, name: name, towers: {}}
       local r = rng:next()
-      if(r < 0.6){
+      local line = lines[i * N + j]
+      if(line != null){
+        local across = cz
+        if(slot_axis == "z"){
+          across = cx
+        }
+        local slot = split_block(ctx, block, cx, cz, slot_axis, snap(across + line.offset, 2) + 1, height, name, line.funnel)
+        block.slot = slot
+        if(line.funnel != null){
+          append(city.funnels, slot)
+        } else {
+          append(city.slots, slot)
+        }
+      } else if(r < 0.6){
         // one tower
         local w = rng:range(city.block * 0.55, city.block * 0.88)
         local d = rng:range(city.block * 0.55, city.block * 0.88)
@@ -534,8 +719,12 @@ func m.generate(seed, level){
       for(let local d in values({{1, 0}, {0, 1}})){
         local ni = i + d[0]
         local nj = j + d[1]
-        if(ni < N and nj < N and rng:chance(level.bridges)){
-          local other = city.blocks[ni * N + nj]
+        // (none from a split block: one could cross its slot)
+        local other = null
+        if(ni < N and nj < N){
+          other = city.blocks[ni * N + nj]
+        }
+        if(other != null and block.slot == null and other.slot == null and rng:chance(level.bridges)){
           local count = 1 + rng:int(1 + to_int(level.bridges * 1.5))
           for(local k = 0; k < count; k = k + 1){
             local ly = rng:int(len(city.lane_levels) - 1)
@@ -596,14 +785,16 @@ func m.generate(seed, level){
     chunk.radius = vec.distance(chunk.center, {x: x0, y: y0, z: z0})
   }
   // the lanes: both ways along every street at every level, one or
-  // more side by side in each direction
+  // more side by side in each direction. The lanes along z run a little
+  // higher than those along x, so crossing traffic passes over and under
+  // (never through) each other at the intersections.
   for(local k = 0; k <= N; k = k + 1){
     local at = (k - N / 2) * city.pitch
     for(let local y in values(city.lane_levels)){
       for(let local dir in values({1, -1})){
         for(let local offset in values(city.lane_offsets)){
           append(city.lanes, {axis: "x", at: at + dir * offset, y: y, dir: dir})
-          append(city.lanes, {axis: "z", at: at - dir * offset, y: y, dir: dir})
+          append(city.lanes, {axis: "z", at: at - dir * offset, y: y + m.CROSSING, dir: dir})
         }
       }
     }

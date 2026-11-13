@@ -1,0 +1,505 @@
+// game/plants_sow: the kernels that set the trees, bushes, rocks and logs
+// on the land (game/plants.slang calls them once for every square of 64 m).
+// Each walks a jittered grid over the square, asks the ground at every
+// place of it (how high, how steep, how far over the river, under
+// water or not) and what grows there (patches of wood and clearings from
+// noise, the kinds by height), and writes what it sets down as records
+// of ten numbers: x, y, z, yaw, pitch, roll, scale, kind, tint, extra.
+
+// a number in 0..1 for a grid point
+local func hash2(ix: int, iz: int, seed: int): float {
+  local h = ix * 374761393 + iz * 668265263 + seed * 1442695041
+  h = (h ~ (h >> 13)) * 1274126177
+  h = h ~ (h >> 16)
+  return float(h & 16777215) / 16777215.0
+}
+
+// smooth noise in 0..1
+local func noise(x: float, z: float, seed: int): float {
+  local fx = floor(x)
+  local fz = floor(z)
+  local ix = int(fx)
+  local iz = int(fz)
+  local wx = x - fx
+  local wz = z - fz
+  local ux = wx * wx * (3 - 2 * wx)
+  local uz = wz * wz * (3 - 2 * wz)
+  local a = hash2(ix, iz, seed)
+  local b = hash2(ix + 1, iz, seed)
+  local c = hash2(ix, iz + 1, seed)
+  local d = hash2(ix + 1, iz + 1, seed)
+  return mix(mix(a, b, ux), mix(c, d, ux), uz)
+}
+
+// the ground at the place last probed: its height, its gradient, how far
+// it is over the river's water there, how deep under water it lies
+local g_h = 0.0
+local g_gx = 0.0
+local g_gz = 0.0
+local g_rel = 0.0
+local g_depth = 0.0
+// how steep the ground is over a few meters around it (a ledge on a
+// cliff is level where one stands and steep around)
+local g_broad = 0.0
+
+local func probe(h: float[], water: float[], n: int, spacing: float, origin: float,
+  level: float[], level_origin: float, level_step: float, x: float, z: float){
+  local fx = clamp((x - origin) / spacing, 1, n - 2.001)
+  local fz = clamp((z - origin) / spacing, 1, n - 2.001)
+  local ix = int(fx)
+  local iz = int(fz)
+  local tx = fx - ix
+  local tz = fz - iz
+  local i = iz * n + ix
+  local a = h[i]
+  local b = h[i + 1]
+  local c = h[i + n]
+  local d = h[i + n + 1]
+  // (the two triangles of the square, as the physics has them: split
+  // from its first corner to the one across)
+  if(tz >= tx){
+    g_h = a + (c - a) * tz + (d - c) * tx
+  } else {
+    g_h = a + (b - a) * tx + (d - b) * tz
+  }
+  g_gx = (b - h[i - 1] + d - h[i + n - 1]) / (4 * spacing)
+  g_gz = (c - h[i - n] + d - h[i - n + 1]) / (4 * spacing)
+  local x0 = max(ix - 3, 0)
+  local x1 = min(ix + 3, n - 1)
+  local z0 = max(iz - 3, 0)
+  local z1 = min(iz + 3, n - 1)
+  local bx = (h[iz * n + x1] - h[iz * n + x0]) / ((x1 - x0) * spacing)
+  local bz = (h[z1 * n + ix] - h[z0 * n + ix]) / ((z1 - z0) * spacing)
+  g_broad = sqrt(bx * bx + bz * bz)
+  g_depth = max(0.0, max(water[i], water[i + n + 1]) - g_h)
+  local lu = clamp((z - level_origin) / level_step, 0, len(level) - 1.001)
+  local li = int(lu)
+  g_rel = g_h - mix(level[li], level[li + 1], lu - li)
+}
+
+// whether a place is one where nothing may stand (mask: a grid of bytes
+// over the land, mask_n a side, cells of mask_cell meters; mask_n 0: none)
+local func masked(mask: uint8[], mask_n: int, mask_cell: float, origin: float, x: float, z: float): bool {
+  if(mask_n <= 0){
+    return false
+  }
+  local mi = clamp(int((x - origin) / mask_cell), 0, mask_n - 1)
+  local mj = clamp(int((z - origin) / mask_cell), 0, mask_n - 1)
+  return mask[mj * mask_n + mi] != 0
+}
+
+// green: how much can grow at the place last probed, 1 to 0: nothing
+// green stands on snow (snow: the land's second cover, four bytes a
+// sample, the second of them the snow's share; sn samples a side, 0:
+// not known) or above the tree line (line: where it thins out from, in
+// meters of height; 60 m higher nothing is left)
+local func green(snow: uint8[], sn: int, spacing: float, origin: float, x: float, z: float, line: float): float {
+  local g = 1 - smoothstep(line, line + 60.0, g_h)
+  if(sn > 0){
+    local i = clamp(int((x - origin) / spacing + 0.5), 0, sn - 1)
+    local j = clamp(int((z - origin) / spacing + 0.5), 0, sn - 1)
+    g *= 1 - smoothstep(0.0, 0.2, snow[(j * sn + i) * 4 + 1] / 255.0)
+  }
+  return g
+}
+
+// how wooded a place is, 0 (a clearing) to 1 (deep in the wood): patches
+// a few hundred meters across with ragged edges
+local func wood(x: float, z: float, seed: int): float {
+  return noise(x * 0.0058, z * 0.0058, seed + 21) * 0.68 + noise(x * 0.019, z * 0.019, seed + 22) * 0.32
+}
+
+// trees: the trees of a square of the land from (x0, z0), side meters
+// wide, on a grid of cells meters; records are written from the
+// start-th on and the count after them comes back (never more than cap).
+// Kinds: 0 spruce, 1 fir, 2 pine, 3 birch, 4 oak, 5 snag, 6 sapling.
+func trees(out: float[], start: int, cap: int, h: float[], water: float[], n: int, spacing: float,
+  origin: float, level: float[], level_origin: float, level_step: float, x0: float, z0: float,
+  side: float, cell: float, seed: int, density: float, mask: uint8[], mask_n: int,
+  mask_cell: float, snow: uint8[], sn: int): int {
+  local count = start
+  local cx0 = int(floor((x0 - origin) / cell + 0.5))
+  local cz0 = int(floor((z0 - origin) / cell + 0.5))
+  local cells = int(floor(side / cell + 0.5))
+  for(local j = 0; j < cells; j += 1){
+    for(local i = 0; i < cells; i += 1){
+      local cx = cx0 + i
+      local cz = cz0 + j
+      local x = origin + (cx + 0.12 + 0.76 * hash2(cx, cz, seed + 11)) * cell
+      local z = origin + (cz + 0.12 + 0.76 * hash2(cx, cz, seed + 12)) * cell
+      if(x < origin + 2 or z < origin + 2 or x > origin + (n - 3) * spacing or z > origin + (n - 3) * spacing){
+        continue
+      }
+      probe(h, water, n, spacing, origin, level, level_origin, level_step, x, z)
+      if(g_depth > 0.02){
+        continue
+      }
+      local slope = sqrt(g_gx * g_gx + g_gz * g_gz)
+      if(slope > 0.78 or g_broad > 0.92){
+        continue
+      }
+      local rel = g_rel
+      local patch = wood(x, z, seed)
+      // the floor by the river is meadow with trees alone and in groups;
+      // the slopes are wooded in patches; the wood thins toward the tree line
+      local meadow = 1 - smoothstep(5.0, 16.0, rel)
+      local high = smoothstep(190.0, 285.0, rel)
+      local wooded = smoothstep(0.4, 0.54, patch)
+      local grows = wooded * (1 - 0.94 * meadow) * (1 - high) * (1 - 0.85 * smoothstep(0.5, 0.78, slope))
+      grows += meadow * (0.5 * smoothstep(0.69, 0.76, patch) + 0.012)
+      grows += high * (1 - smoothstep(285.0, 300.0, rel)) * 0.06 * wooded
+      grows *= green(snow, sn, spacing, origin, x, z, 300.0)
+      if(hash2(cx, cz, seed + 13) > grows * density){
+        continue
+      }
+      if(masked(mask, mask_n, mask_cell, origin, x, z)){
+        continue
+      }
+      // which kind: broadleaf low down and on the meadow, conifers above
+      local pick = hash2(cx, cz, seed + 14)
+      local pick2 = hash2(cx, cz, seed + 15)
+      local broad = max(meadow, 0.78 * (1 - smoothstep(18.0, 100.0, rel)))
+      local kind = 0
+      local scale = 0.78 + 0.5 * hash2(cx, cz, seed + 16)
+      if(pick < broad){
+        if(pick2 < 0.5 + 0.2 * smoothstep(8.0, 60.0, rel)){
+          kind = 3
+        } else {
+          kind = 4
+        }
+      } else {
+        local firs = 0.24 + 0.4 * smoothstep(110.0, 230.0, rel)
+        local pines = 0.16 + 0.3 * smoothstep(0.35, 0.65, slope)
+        if(pick2 < firs){
+          kind = 1
+        } else if(pick2 < firs + pines){
+          kind = 2
+        } else {
+          kind = 0
+        }
+        if(hash2(cx, cz, seed + 17) < 0.03){
+          kind = 5
+        }
+      }
+      // young trees at the wood's edge, and all that grows up high is small
+      local edge = wooded * (1 - wooded) * 4
+      if(kind < 3 and hash2(cx, cz, seed + 18) < 0.28 * edge + 0.5 * high){
+        kind = 6
+        scale = 0.6 + 0.9 * hash2(cx, cz, seed + 16)
+      }
+      scale *= 1 - 0.4 * high
+      local at = count * 10
+      out[at] = x
+      out[at + 1] = g_h - 0.12
+      out[at + 2] = z
+      out[at + 3] = hash2(cx, cz, seed + 19) * 6.2831853
+      out[at + 4] = (hash2(cx, cz, seed + 20) - 0.5) * 0.09
+      out[at + 5] = (hash2(cx, cz, seed + 23) - 0.5) * 0.09
+      out[at + 6] = scale
+      out[at + 7] = kind
+      out[at + 8] = hash2(cx, cz, seed + 24)
+      out[at + 9] = hash2(cx, cz, seed + 25)
+      count += 1
+      if(count >= cap){
+        return count
+      }
+    }
+  }
+  return count
+}
+
+// bushes: at the wood's edges, along the river, a few on the meadow, and
+// low ones up to the tree line. Kinds: 7 a leafy bush, 8 a low dark one.
+func bushes(out: float[], start: int, cap: int, h: float[], water: float[], n: int, spacing: float,
+  origin: float, level: float[], level_origin: float, level_step: float, x0: float, z0: float,
+  side: float, cell: float, seed: int, density: float, mask: uint8[], mask_n: int,
+  mask_cell: float, snow: uint8[], sn: int): int {
+  local count = start
+  local cx0 = int(floor((x0 - origin) / cell + 0.5))
+  local cz0 = int(floor((z0 - origin) / cell + 0.5))
+  local cells = int(floor(side / cell + 0.5))
+  for(local j = 0; j < cells; j += 1){
+    for(local i = 0; i < cells; i += 1){
+      local cx = cx0 + i
+      local cz = cz0 + j
+      local x = origin + (cx + 0.1 + 0.8 * hash2(cx, cz, seed + 31)) * cell
+      local z = origin + (cz + 0.1 + 0.8 * hash2(cx, cz, seed + 32)) * cell
+      if(x < origin + 2 or z < origin + 2 or x > origin + (n - 3) * spacing or z > origin + (n - 3) * spacing){
+        continue
+      }
+      probe(h, water, n, spacing, origin, level, level_origin, level_step, x, z)
+      if(g_depth > 0.02){
+        continue
+      }
+      local slope = sqrt(g_gx * g_gx + g_gz * g_gz)
+      if(slope > 0.85 or g_broad > 1.05){
+        continue
+      }
+      local rel = g_rel
+      local patch = wood(x, z, seed)
+      local meadow = 1 - smoothstep(5.0, 16.0, rel)
+      local edge = smoothstep(0.32, 0.42, patch) * (1 - smoothstep(0.46, 0.58, patch))
+      local shore = 1 - smoothstep(0.25, 1.5, rel)
+      local high = smoothstep(170.0, 250.0, rel)
+      local grows = 0.3 * edge * (1 - high) + 0.42 * shore + 0.03 * meadow + 0.2 * high +
+        0.06 * smoothstep(0.57, 0.7, patch)
+      // (low shrubs go a little higher than the trees do, not onto snow)
+      grows *= (1 - smoothstep(290.0, 335.0, rel)) * green(snow, sn, spacing, origin, x, z, 315.0)
+      if(hash2(cx, cz, seed + 33) > grows * density){
+        continue
+      }
+      if(masked(mask, mask_n, mask_cell, origin, x, z)){
+        continue
+      }
+      local kind = 7
+      local scale = 0.7 + 0.8 * hash2(cx, cz, seed + 34)
+      if(hash2(cx, cz, seed + 35) < high * 1.4 + 0.18 * (1 - shore)){
+        kind = 8
+      } else if(shore > 0.5){
+        // willows by the water stand taller
+        scale *= 1.45
+      }
+      local at = count * 10
+      out[at] = x
+      out[at + 1] = g_h - 0.08
+      out[at + 2] = z
+      out[at + 3] = hash2(cx, cz, seed + 36) * 6.2831853
+      out[at + 4] = (hash2(cx, cz, seed + 37) - 0.5) * 0.1
+      out[at + 5] = (hash2(cx, cz, seed + 38) - 0.5) * 0.1
+      out[at + 6] = scale
+      out[at + 7] = kind
+      out[at + 8] = hash2(cx, cz, seed + 39)
+      out[at + 9] = hash2(cx, cz, seed + 40)
+      count += 1
+      if(count >= cap){
+        return count
+      }
+    }
+  }
+  return count
+}
+
+// rocks: boulders alone and in fields (more where it is steep and high,
+// and on the river's gravel), each with small stones around it. Kinds 9
+// to 9 + shapes - 1; scale is the rock's size in meters.
+func rocks(out: float[], start: int, cap: int, h: float[], water: float[], n: int, spacing: float,
+  origin: float, level: float[], level_origin: float, level_step: float, x0: float, z0: float,
+  side: float, cell: float, seed: int, density: float, mask: uint8[], mask_n: int,
+  mask_cell: float, shapes: int): int {
+  local count = start
+  local cx0 = int(floor((x0 - origin) / cell + 0.5))
+  local cz0 = int(floor((z0 - origin) / cell + 0.5))
+  local cells = int(floor(side / cell + 0.5))
+  for(local j = 0; j < cells; j += 1){
+    for(local i = 0; i < cells; i += 1){
+      local cx = cx0 + i
+      local cz = cz0 + j
+      local x = origin + (cx + 0.08 + 0.84 * hash2(cx, cz, seed + 51)) * cell
+      local z = origin + (cz + 0.08 + 0.84 * hash2(cx, cz, seed + 52)) * cell
+      if(x < origin + 2 or z < origin + 2 or x > origin + (n - 3) * spacing or z > origin + (n - 3) * spacing){
+        continue
+      }
+      probe(h, water, n, spacing, origin, level, level_origin, level_step, x, z)
+      if(g_depth > 0.5){
+        continue
+      }
+      local slope = sqrt(g_gx * g_gx + g_gz * g_gz)
+      if(slope > 1.15){
+        continue
+      }
+      local rel = g_rel
+      local field = smoothstep(0.6, 0.78, noise(x * 0.0105 + 40.0, z * 0.0105 + 7.0, seed + 53))
+      local grows = 0.045 + 0.7 * field + 0.4 * smoothstep(0.38, 0.62, slope) +
+        0.3 * smoothstep(120.0, 260.0, rel) + 0.22 * (1 - smoothstep(0.3, 1.6, rel))
+      if(hash2(cx, cz, seed + 54) > grows * density){
+        continue
+      }
+      if(masked(mask, mask_n, mask_cell, origin, x, z)){
+        continue
+      }
+      // most are small, a few are as big as the truck
+      local u = hash2(cx, cz, seed + 55)
+      local size = 0.5 + 3.3 * u * u * u * (0.6 + 0.6 * field)
+      local at = count * 10
+      // it lies on the slope (tipped as the ground is, and a little any
+      // way), sunk in a little: more of the big ones and on a slope
+      local yaw = hash2(cx, cz, seed + 57) * 6.2831853
+      local along = g_gx * sin(yaw) + g_gz * cos(yaw)
+      local across = g_gx * cos(yaw) - g_gz * sin(yaw)
+      local deep = hash2(cx, cz, seed + 56)
+      out[at] = x
+      out[at + 1] = g_h - size * (0.03 + 0.14 * deep * deep + 0.08 * min(slope, 1.0))
+      out[at + 2] = z
+      out[at + 3] = yaw
+      out[at + 4] = -atan2(along, 1.0) * 0.85 + (hash2(cx, cz, seed + 58) - 0.5) * 0.44
+      out[at + 5] = atan2(across, 1.0) * 0.85 + (hash2(cx, cz, seed + 59) - 0.5) * 0.44
+      out[at + 6] = size
+      // the last shape is a river stone: by the water mostly, seldom elsewhere
+      local pick = hash2(cx, cz, seed + 60)
+      local shape = min(shapes - 2, int(pick * (shapes - 1)))
+      if(hash2(cx, cz, seed + 70) < 0.04 + 0.7 * (1 - smoothstep(0.4, 1.8, rel))){
+        shape = shapes - 1
+      }
+      out[at + 7] = 9 + shape
+      out[at + 8] = hash2(cx, cz, seed + 61)
+      out[at + 9] = 0
+      count += 1
+      if(count >= cap){
+        return count
+      }
+      // the stones around it: too small to stop a wheel
+      local stones = int(hash2(cx, cz, seed + 62) * (2.5 + 2.5 * field + size))
+      for(local k = 0; k < stones; k += 1){
+        local a = hash2(cx * 7 + k, cz * 13 + k, seed + 63) * 6.2831853
+        local r = size * 0.55 + 0.4 + 2.6 * hash2(cx * 7 + k, cz * 13 + k, seed + 64)
+        local sx = x + cos(a) * r
+        local sz = z + sin(a) * r
+        if(sx < origin + 2 or sz < origin + 2 or sx > origin + (n - 3) * spacing or sz > origin + (n - 3) * spacing){
+          continue
+        }
+        probe(h, water, n, spacing, origin, level, level_origin, level_step, sx, sz)
+        if(g_depth > 0.3 or masked(mask, mask_n, mask_cell, origin, sx, sz)){
+          continue
+        }
+        local small = 0.14 + 0.3 * hash2(cx * 7 + k, cz * 13 + k, seed + 65)
+        // in a field of boulders some of them are boulders themselves
+        local loose = 1.0
+        if(hash2(cx * 7 + k, cz * 13 + k, seed + 71) < 0.55 * field){
+          local big = hash2(cx * 7 + k, cz * 13 + k, seed + 72)
+          small = 0.55 + 1.3 * big * big
+          loose = 0.0
+        }
+        local sat = count * 10
+        out[sat] = sx
+        out[sat + 1] = g_h - small * 0.1
+        out[sat + 2] = sz
+        out[sat + 3] = a * 3.0
+        out[sat + 4] = -atan2(g_gx * sin(a * 3.0) + g_gz * cos(a * 3.0), 1.0) * 0.85 +
+          (hash2(cx * 7 + k, cz * 13 + k, seed + 66) - 0.5) * 0.7
+        out[sat + 5] = atan2(g_gx * cos(a * 3.0) - g_gz * sin(a * 3.0), 1.0) * 0.85 +
+          (hash2(cx * 7 + k, cz * 13 + k, seed + 67) - 0.5) * 0.7
+        out[sat + 6] = small
+        // (the stones around a river stone are river stones)
+        local kind = 9 + min(shapes - 2, int(hash2(cx * 7 + k, cz * 13 + k, seed + 68) * (shapes - 1)))
+        if(shape == shapes - 1){
+          kind = 9 + shapes - 1
+        }
+        out[sat + 7] = kind
+        out[sat + 8] = hash2(cx * 7 + k, cz * 13 + k, seed + 69)
+        out[sat + 9] = loose
+        count += 1
+        if(count >= cap){
+          return count
+        }
+      }
+    }
+  }
+  return count
+}
+
+// logs: fallen trunks and stumps in the woods. Kinds: log_kind a log
+// (lying along its z, tipped to the slope), log_kind + 1 a stump.
+func logs(out: float[], start: int, cap: int, h: float[], water: float[], n: int, spacing: float,
+  origin: float, level: float[], level_origin: float, level_step: float, x0: float, z0: float,
+  side: float, cell: float, seed: int, density: float, mask: uint8[], mask_n: int,
+  mask_cell: float, log_kind: int, snow: uint8[], sn: int): int {
+  local count = start
+  local cx0 = int(floor((x0 - origin) / cell + 0.5))
+  local cz0 = int(floor((z0 - origin) / cell + 0.5))
+  local cells = int(floor(side / cell + 0.5))
+  for(local j = 0; j < cells; j += 1){
+    for(local i = 0; i < cells; i += 1){
+      local cx = cx0 + i
+      local cz = cz0 + j
+      local x = origin + (cx + 0.1 + 0.8 * hash2(cx, cz, seed + 71)) * cell
+      local z = origin + (cz + 0.1 + 0.8 * hash2(cx, cz, seed + 72)) * cell
+      if(x < origin + 2 or z < origin + 2 or x > origin + (n - 3) * spacing or z > origin + (n - 3) * spacing){
+        continue
+      }
+      probe(h, water, n, spacing, origin, level, level_origin, level_step, x, z)
+      if(g_depth > 0.02){
+        continue
+      }
+      local slope = sqrt(g_gx * g_gx + g_gz * g_gz)
+      if(slope > 0.5 or g_broad > 0.7 or g_rel > 250){
+        continue
+      }
+      local wooded = smoothstep(0.4, 0.54, wood(x, z, seed)) * smoothstep(5.0, 16.0, g_rel)
+      local pick = hash2(cx, cz, seed + 73)
+      if(pick > (0.05 + 0.3 * wooded) * density * green(snow, sn, spacing, origin, x, z, 300.0)){
+        continue
+      }
+      if(masked(mask, mask_n, mask_cell, origin, x, z)){
+        continue
+      }
+      local yaw = hash2(cx, cz, seed + 74) * 6.2831853
+      local at = count * 10
+      out[at] = x
+      out[at + 2] = z
+      out[at + 3] = yaw
+      out[at + 8] = hash2(cx, cz, seed + 76)
+      out[at + 9] = hash2(cx, cz, seed + 77)
+      if(hash2(cx, cz, seed + 75) < 0.55){
+        // a log: along the ground, a little sunk
+        local scale = 0.75 + 0.55 * hash2(cx, cz, seed + 78)
+        out[at + 1] = g_h + 0.2 * scale
+        out[at + 4] = -atan2(g_gx * sin(yaw) + g_gz * cos(yaw), 1.0)
+        out[at + 5] = 0
+        out[at + 6] = scale
+        out[at + 7] = log_kind
+      } else {
+        out[at + 1] = g_h - 0.06
+        out[at + 4] = 0
+        out[at + 5] = 0
+        out[at + 6] = 0.75 + 0.6 * hash2(cx, cz, seed + 78)
+        out[at + 7] = log_kind + 1
+      }
+      count += 1
+      if(count >= cap){
+        return count
+      }
+    }
+  }
+  return count
+}
+
+// arrange: count records of src into dst in the order of their kinds
+// (those of a kind below 0 left out); starts[k] is where kind k begins in
+// dst, starts[kinds] how many there are in all, which also comes back;
+// bounds gets the lowest and the highest y of them.
+func arrange(src: float[], count: int, dst: float[], starts: int32[], kinds: int, bounds: float[]): int {
+  for(local k = 0; k <= kinds; k += 1){
+    starts[k] = 0
+  }
+  local low = 1.0e9
+  local high = -1.0e9
+  for(local i = 0; i < count; i += 1){
+    local k = int(src[i * 10 + 7])
+    if(k >= 0 and k < kinds){
+      starts[k + 1] = starts[k + 1] + 1
+      low = min(low, src[i * 10 + 1])
+      high = max(high, src[i * 10 + 1])
+    }
+  }
+  bounds[0] = low
+  bounds[1] = high
+  for(local k = 0; k < kinds; k += 1){
+    starts[k + 1] = starts[k + 1] + starts[k]
+  }
+  // (starts[k] moves up as kind k's records are placed, then is put back)
+  for(local i = 0; i < count; i += 1){
+    local k = int(src[i * 10 + 7])
+    if(k >= 0 and k < kinds){
+      local to = starts[k] * 10
+      for(local f = 0; f < 10; f += 1){
+        dst[to + f] = src[i * 10 + f]
+      }
+      starts[k] = starts[k] + 1
+    }
+  }
+  for(local k = kinds; k > 0; k -= 1){
+    starts[k] = starts[k - 1]
+  }
+  starts[0] = 0
+  return starts[kinds]
+}

@@ -1,0 +1,304 @@
+// render/flora_bake: the kernels that bake plants into meshes
+// (render/flora.slang). A shape (render/flora_mesh) stands in its own
+// frame; each record of game/plants puts one of it somewhere, turned,
+// scaled and tinted. Baking writes every vertex of every such instance
+// into one mesh's buffers, in the world, so that a square of the land
+// with all its trees is one draw.
+
+// how many records the last call wrote (the rest did not pass its
+// limits of size)
+local wrote = 0
+
+func written(): int {
+  return wrote
+}
+
+// the ground's height at a place: `gh` is gn samples a side, gs meters
+// apart, from the corner at go (both ways); each square split from its
+// first corner to the one across, as the land is drawn and driven on
+local func ground(gh: float[], gn: int, gs: float, go: float, x: float, z: float): float {
+  local fx = clamp((x - go) / gs, 0, gn - 1.001)
+  local fz = clamp((z - go) / gs, 0, gn - 1.001)
+  local ix = int(fx)
+  local iz = int(fz)
+  local tx = fx - ix
+  local tz = fz - iz
+  local i = iz * gn + ix
+  local a = gh[i]
+  local d = gh[i + gn + 1]
+  if(tz >= tx){
+    local c = gh[i + gn]
+    return a + (c - a) * tz + (d - c) * tx
+  }
+  local b = gh[i + 1]
+  return a + (b - a) * tx + (d - b) * tz
+}
+
+// the color of the ground at a place, from the land's cover (c1: rock,
+// scree, dirt, mud; c2: sand, snow, forest floor; the rest is grass; cn
+// samples a side, cs meters apart, 0: none), as render/terrain draws it
+// from afar
+local soil_r = 0.0
+local soil_g = 0.0
+local soil_b = 0.0
+
+local func soil(c1: uint8[], c2: uint8[], cn: int, cs: float, go: float, x: float, y: float, z: float){
+  soil_r = 0.13
+  soil_g = 0.1
+  soil_b = 0.065
+  if(cn > 0){
+    local i = clamp(int((x - go) / cs + 0.5), 0, cn - 1)
+    local j = clamp(int((z - go) / cs + 0.5), 0, cn - 1)
+    local at = (j * cn + i) * 4
+    local rock = c1[at] / 255.0
+    local scree = c1[at + 1] / 255.0
+    local dirt = c1[at + 2] / 255.0
+    local mud = c1[at + 3] / 255.0
+    local sand = c2[at] / 255.0
+    local snow = c2[at + 1] / 255.0
+    local forest = c2[at + 2] / 255.0
+    local grass = max(0.0, 1 - rock - scree - dirt - mud - sand - snow - forest)
+    local total = max(0.001, rock + scree + dirt + mud + sand + snow + forest + grass)
+    local dry = smoothstep(170.0, 400.0, y)
+    soil_r = (rock * 0.19 + scree * 0.19 + dirt * 0.175 + mud * 0.11 + sand * 0.325 + snow * 0.55 + forest * 0.06 +
+      grass * mix(0.066, 0.124, dry)) / total
+    soil_g = (rock * 0.175 + scree * 0.18 + dirt * 0.124 + mud * 0.08 + sand * 0.285 + snow * 0.57 + forest * 0.078 +
+      grass * mix(0.104, 0.118, dry)) / total
+    soil_b = (rock * 0.157 + scree * 0.165 + dirt * 0.076 + mud * 0.055 + sand * 0.21 + snow * 0.6 + forest * 0.038 +
+      grass * mix(0.03, 0.05, dry)) / total
+  }
+}
+
+// bake: `count` records from the `first`-th, as instances of a shape
+// (spos .. sidx, nv vertices, ni indices), into a mesh's buffers from
+// vertex v0 and index i0 on. Only records with a scale from `least` up
+// to `most` are written. It stops before the mesh would have more than
+// `room` vertices and returns how many records it got through.
+//
+// A mesh's vertex gets: its place and normal in the world; the place its
+// instance stands at (x, z: the wind and the levels of detail go by it);
+// what it is made of; and
+//   of a plant: the shape's texture place and color bytes, and the
+//     shape's own color, for foliage tinted as the record says;
+//   of a rock: the record's tint and how high the vertex is over the
+//     ground (as its texture place); the ground's color there and how
+//     far the vertex is from its face's border (as its color bytes: r,
+//     g, a the color's root, b the distance of 0.4 m); the direction
+//     across the rock's strata (as its color).
+// The ground is gh (see ground), its color c1 and c2 (see soil).
+func bake(pos: float[], nrm: float[], uv: float[], at: float[], col: uint8[], tan: float[],
+  idx: uint16[], v0: int, i0: int, room: int,
+  spos: float[], snrm: float[], suv: float[], scol: uint8[], stan: float[], sidx: uint16[],
+  nv: int, ni: int, records: float[], first: int, count: int, least: float, most: float,
+  gh: float[], gn: int, gs: float, go: float, c1: uint8[], c2: uint8[], cn: int, cs: float): int {
+  wrote = 0
+  local v = v0
+  local i = i0
+  local stone = stan[3] > 2.5
+  for(local r = 0; r < count; r += 1){
+    local rec = (first + r) * 10
+    local s = records[rec + 6]
+    if(s < least or s >= most){
+      continue
+    }
+    if(v + nv > room){
+      return r
+    }
+    local x = records[rec]
+    local y = records[rec + 1]
+    local z = records[rec + 2]
+    local yaw = records[rec + 3]
+    local pitch = records[rec + 4]
+    local roll = records[rec + 5]
+    local tint = records[rec + 8]
+    local cy = cos(yaw)
+    local sy = sin(yaw)
+    local cp = cos(pitch)
+    local sp = sin(pitch)
+    local cr = cos(roll)
+    local sr = sin(roll)
+    // R = Ry(yaw) Rx(pitch) Rz(roll)
+    local r00 = cy * cr + sy * sp * sr
+    local r01 = -cy * sr + sy * sp * cr
+    local r02 = sy * cp
+    local r10 = cp * sr
+    local r11 = cp * cr
+    local r12 = -sp
+    local r20 = -sy * cr + cy * sp * sr
+    local r21 = sy * sr + cy * sp * cr
+    local r22 = cy * cp
+    // no two of a kind the same green
+    local tr = 0.84 + 0.32 * tint
+    local tg = 0.9 + 0.2 * tint
+    local tb = 1.1 - 0.2 * tint
+    if(stone){
+      soil(c1, c2, cn, cs, go, x, y, z)
+    }
+    for(local k = 0; k < nv; k += 1){
+      local px = spos[k * 3] * s
+      local py = spos[k * 3 + 1] * s
+      local pz = spos[k * 3 + 2] * s
+      local o3 = (v + k) * 3
+      local wx = x + r00 * px + r01 * py + r02 * pz
+      local wy = y + r10 * px + r11 * py + r12 * pz
+      local wz = z + r20 * px + r21 * py + r22 * pz
+      pos[o3] = wx
+      pos[o3 + 1] = wy
+      pos[o3 + 2] = wz
+      local nx = snrm[k * 3]
+      local ny = snrm[k * 3 + 1]
+      local nz = snrm[k * 3 + 2]
+      nrm[o3] = r00 * nx + r01 * ny + r02 * nz
+      nrm[o3 + 1] = r10 * nx + r11 * ny + r12 * nz
+      nrm[o3 + 2] = r20 * nx + r21 * ny + r22 * nz
+      local o2 = (v + k) * 2
+      local o4 = (v + k) * 4
+      local made = stan[k * 4 + 3]
+      at[o2] = x
+      at[o2 + 1] = z
+      if(stone){
+        uv[o2] = tint
+        uv[o2 + 1] = wy - ground(gh, gn, gs, go, wx, wz)
+        col[o4] = int(clamp(sqrt(soil_r) * 255.0, 0, 255))
+        col[o4 + 1] = int(clamp(sqrt(soil_g) * 255.0, 0, 255))
+        col[o4 + 2] = int(clamp(scol[k * 4 + 2] * s, 0, 255))
+        col[o4 + 3] = int(clamp(sqrt(soil_b) * 255.0, 0, 255))
+        local bx = stan[k * 4]
+        local by = stan[k * 4 + 1]
+        local bz = stan[k * 4 + 2]
+        tan[o4] = r00 * bx + r01 * by + r02 * bz
+        tan[o4 + 1] = r10 * bx + r11 * by + r12 * bz
+        tan[o4 + 2] = r20 * bx + r21 * by + r22 * bz
+      } else {
+        uv[o2] = suv[k * 2]
+        uv[o2 + 1] = suv[k * 2 + 1]
+        col[o4] = scol[k * 4]
+        col[o4 + 1] = scol[k * 4 + 1]
+        col[o4 + 2] = scol[k * 4 + 2]
+        col[o4 + 3] = scol[k * 4 + 3]
+        if(made > 0.75){
+          tan[o4] = stan[k * 4] * tr
+          tan[o4 + 1] = stan[k * 4 + 1] * tg
+          tan[o4 + 2] = stan[k * 4 + 2] * tb
+        } else {
+          tan[o4] = stan[k * 4]
+          tan[o4 + 1] = stan[k * 4 + 1]
+          tan[o4 + 2] = stan[k * 4 + 2]
+        }
+      }
+      tan[o4 + 3] = made
+    }
+    for(local k = 0; k < ni; k += 1){
+      idx[i + k] = sidx[k] + v
+    }
+    v += nv
+    i += ni
+    wrote += 1
+  }
+  return count
+}
+
+// bake_far: the same for the far meshes, which carry less: a vertex gets
+// its place and normal, the place its instance stands at, and a color:
+// in r, g, b what the far shader draws it in (the shape's color, tinted,
+// darker where the shape is closed to the sky), stored as its root so
+// that the darks keep their steps; in a how much the wind bends it (1 to
+// 254 of 255), and 0 for a trunk. A rock has 255 there, the record's
+// tint in r and whether it is a river stone in g: the far shader draws
+// it as the near one does, from the land's stone.
+func bake_far(pos: float[], nrm: float[], at: float[], col: uint8[], idx: uint16[],
+  v0: int, i0: int, room: int,
+  spos: float[], snrm: float[], scol: uint8[], stan: float[], sidx: uint16[],
+  nv: int, ni: int, records: float[], first: int, count: int, least: float, most: float): int {
+  wrote = 0
+  local v = v0
+  local i = i0
+  for(local r = 0; r < count; r += 1){
+    local rec = (first + r) * 10
+    local s = records[rec + 6]
+    if(s < least or s >= most){
+      continue
+    }
+    if(v + nv > room){
+      return r
+    }
+    local x = records[rec]
+    local y = records[rec + 1]
+    local z = records[rec + 2]
+    local yaw = records[rec + 3]
+    local pitch = records[rec + 4]
+    local roll = records[rec + 5]
+    local tint = records[rec + 8]
+    local cy = cos(yaw)
+    local sy = sin(yaw)
+    local cp = cos(pitch)
+    local sp = sin(pitch)
+    local cr = cos(roll)
+    local sr = sin(roll)
+    local r00 = cy * cr + sy * sp * sr
+    local r01 = -cy * sr + sy * sp * cr
+    local r02 = sy * cp
+    local r10 = cp * sr
+    local r11 = cp * cr
+    local r12 = -sp
+    local r20 = -sy * cr + cy * sp * sr
+    local r21 = sy * sr + cy * sp * cr
+    local r22 = cy * cp
+    local tr = 0.84 + 0.32 * tint
+    local tg = 0.9 + 0.2 * tint
+    local tb = 1.1 - 0.2 * tint
+    for(local k = 0; k < nv; k += 1){
+      local px = spos[k * 3] * s
+      local py = spos[k * 3 + 1] * s
+      local pz = spos[k * 3 + 2] * s
+      local o3 = (v + k) * 3
+      pos[o3] = x + r00 * px + r01 * py + r02 * pz
+      pos[o3 + 1] = y + r10 * px + r11 * py + r12 * pz
+      pos[o3 + 2] = z + r20 * px + r21 * py + r22 * pz
+      local nx = snrm[k * 3]
+      local ny = snrm[k * 3 + 1]
+      local nz = snrm[k * 3 + 2]
+      local wy = r10 * nx + r11 * ny + r12 * nz
+      nrm[o3] = r00 * nx + r01 * ny + r02 * nz
+      nrm[o3 + 1] = wy
+      nrm[o3 + 2] = r20 * nx + r21 * ny + r22 * nz
+      local o2 = (v + k) * 2
+      at[o2] = x
+      at[o2 + 1] = z
+      local made = stan[k * 4 + 3]
+      local open = 0.45 + 0.55 * scol[k * 4 + 2] / 255.0
+      local cr2 = stan[k * 4] * open
+      local cg2 = stan[k * 4 + 1] * open
+      local cb2 = stan[k * 4 + 2] * open
+      local bends = 0.0
+      if(made > 0.75 and made < 2.5){
+        cr2 *= tr
+        cg2 *= tg
+        cb2 *= tb
+        bends = clamp(scol[k * 4], 1, 254)
+      }
+      local o4 = (v + k) * 4
+      if(made > 2.5){
+        col[o4] = int(clamp(tint * 255.0, 0, 255))
+        col[o4 + 1] = 0
+        if(made > 3.5){
+          col[o4 + 1] = 255
+        }
+        col[o4 + 2] = 0
+        col[o4 + 3] = 255
+      } else {
+        col[o4] = int(clamp(sqrt(cr2) * 255.0, 0, 255))
+        col[o4 + 1] = int(clamp(sqrt(cg2) * 255.0, 0, 255))
+        col[o4 + 2] = int(clamp(sqrt(cb2) * 255.0, 0, 255))
+        col[o4 + 3] = int(bends)
+      }
+    }
+    for(local k = 0; k < ni; k += 1){
+      idx[i + k] = sidx[k] + v
+    }
+    v += nv
+    i += ni
+    wrote += 1
+  }
+  return count
+}

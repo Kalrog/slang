@@ -1,0 +1,11 @@
+{
+  name: "switchback",
+  dependencies: {
+    raylib: {path: "../../packages/raylib"},
+    jolt: {path: "../../packages/jolt"},
+    kernel: {path: "../../packages/kernel"},
+  },
+  search_paths: {"."},
+  // game/land.kernel: the kernels that compute the land
+  dialects: {[".kernel"]: {grammar: "kernel/file"}},
+}

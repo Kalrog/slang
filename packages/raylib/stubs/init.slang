@@ -4759,6 +4759,11 @@ func m.shader_mode(shader, block){}
 //   blend_mode(mode: int, block)
 func m.blend_mode(mode, block){}
 
+// With write false the block draws without writing depths: for what is
+// seen through (smoke, glass), drawn after everything solid
+//   depth_mask(write: bool, block)
+func m.depth_mask(write, block){}
+
 // The block draws only inside the rectangle
 //   scissor_mode(x: int, y: int, width: int, height: int, block) or
 //      scissor_mode(rectangle: Rectangle, block)

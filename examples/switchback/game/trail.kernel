@@ -1,0 +1,414 @@
+// game/trail: the kernels of the trail (game/route calls them): a coarse
+// picture of the land for finding a way, the cheapest way over it from
+// one place to another for something that turns in arcs (Dijkstra's
+// algorithm with a heap, all in arrays),
+// and the cutting of the track into the land's heights.
+
+// coarse: the land in squares of `block` samples: each square's mean
+// height, its mean steepness (rise over run) and how deep the water
+// stands in it (the most)
+func coarse(height: float[], steep: float[], wet: float[], m: int, block: int,
+  h: float[], water: float[], n: int, spacing: float){
+  for(local j = 0; j < m; j += 1){
+    for(local i = 0; i < m; i += 1){
+      local sum = 0.0
+      local slopes = 0.0
+      local deep = 0.0
+      for(local b = 0; b < block; b += 1){
+        for(local a = 0; a < block; a += 1){
+          local x = clamp(i * block + a, 1, n - 2)
+          local z = clamp(j * block + b, 1, n - 2)
+          local c = h[z * n + x]
+          sum += c
+          local gx = (h[z * n + x + 1] - h[z * n + x - 1]) / (2 * spacing)
+          local gz = (h[(z + 1) * n + x] - h[(z - 1) * n + x]) / (2 * spacing)
+          slopes += sqrt(gx * gx + gz * gz)
+          deep = max(deep, water[z * n + x] - c)
+        }
+      }
+      height[j * m + i] = sum / (block * block)
+      steep[j * m + i] = slopes / (block * block)
+      wet[j * m + i] = deep
+    }
+  }
+}
+
+// ways: the cheapest way from the square `start` to the square `goal`
+// for something that cannot turn on the spot. A state is a square and
+// the direction it was entered by (16 of them: toward the eight
+// neighbors and the eight knight's moves between, in order round the
+// compass; dir_x and dir_z hold their steps); cost and from are per
+// state (16 a square), from being the state before. A step costs its
+// length, more the steeper it climbs or drops (at `grade`, rise over run,
+// about twice as much; beyond it steeply more), more across steep ground,
+// more through water, and more the sharper it turns from the step
+// before; a step steeper than `most` (when that is not 0) costs as much
+// as many turns: the way winds wherever the land lets it; `toll` is
+// extra per square (1e9: no way). `heading` is the
+// direction it has at the start (-1: any). Returns the state the goal was
+// reached in, or -1. The heap arrays (`room` long) and `done` are
+// scratch.
+func ways(cost: double[], from: int32[], height: float[], steep: float[], wet: float[],
+  toll: float[], m: int, cell: float, start: int, heading: int, goal: int, grade: float,
+  most: float, dir_x: int32[], dir_z: int32[], heap_key: double[], heap_cell: int32[], room: int,
+  done: uint8[]): int {
+  for(local i = 0; i < m * m * 16; i += 1){
+    cost[i] = 1.0e30
+    from[i] = -1
+    done[i] = 0
+  }
+  // it leaves the start in any direction, or about the way it is heading
+  local size = 0
+  for(local d = 0; d < 16; d += 1){
+    local off = abs(d - heading)
+    if(heading < 0 or min(off, 16 - off) <= 2){
+      cost[start * 16 + d] = 0
+      heap_key[size] = 0
+      heap_cell[size] = start * 16 + d
+      size += 1
+    }
+  }
+  local found = -1
+  for(size > 0){
+    // the nearest state not done yet: the heap's top
+    local key = heap_key[0]
+    local c = heap_cell[0]
+    size -= 1
+    if(size > 0){
+      local k = heap_key[size]
+      local v = heap_cell[size]
+      local i = 0
+      local sinking = true
+      for(sinking){
+        local l = 2 * i + 1
+        if(l >= size){
+          sinking = false
+        } else {
+          local s = l
+          if(l + 1 < size and heap_key[l + 1] < heap_key[l]){
+            s = l + 1
+          }
+          if(heap_key[s] >= k){
+            sinking = false
+          } else {
+            heap_key[i] = heap_key[s]
+            heap_cell[i] = heap_cell[s]
+            i = s
+          }
+        }
+      }
+      heap_key[i] = k
+      heap_cell[i] = v
+    }
+    if(done[c] == 0){
+      done[c] = 1
+      local square = c / 16
+      local came = c % 16
+      if(square == goal){
+        found = c
+        size = 0
+      } else {
+        local cx = square % m
+        local cz = square / m
+        for(local d = 0; d < 16; d += 1){
+          local turn = abs(d - came)
+          turn = min(turn, 16 - turn)
+          local nx = cx + dir_x[d]
+          local nz = cz + dir_z[d]
+          // (no turning back on itself in one step)
+          if(turn <= 4 and nx >= 2 and nz >= 2 and nx < m - 2 and nz < m - 2){
+            local q = nz * m + nx
+            local state = q * 16 + d
+            if(done[state] == 0){
+              local length = sqrt(float(dir_x[d] * dir_x[d] + dir_z[d] * dir_z[d])) * cell
+              local g = abs(height[q] - height[square]) / length
+              // (up in the snow a track climbs less steeply: see route's
+              // limits; the way is planned by what can be built)
+              local thin = select(height[q] > 420.0, 0.72, 1.0)
+              g = g / thin
+              local gr = g / grade
+              local w = 1.0 + 1.2 * gr * gr * gr
+              if(g > grade * 1.25){
+                w += 30.0 * (g - grade * 1.25) / grade
+              }
+              // (steeper than a track can be built: a deep cut, worth
+              // many turns to avoid)
+              if(most > 0 and g > most){
+                w += 60.0 + 900.0 * (g - most)
+              }
+              // across a steep slope the track must be cut into it, and
+              // through crags it would be a trench
+              local side = max(steep[q] - 0.3, 0.0)
+              local crag = max(steep[q] - 0.85, 0.0)
+              w += 5.0 * side * side + 70.0 * crag * crag
+              // water: a ford costs, deep water more than anything
+              if(wet[q] > 0.05){
+                w += 4.0 + 12.0 * wet[q]
+                if(wet[q] > 1.1){
+                  w += 4000.0
+                }
+              }
+              // a turn costs, a sharp one much
+              local bend = select(turn == 0, 0.0, select(turn == 1, 2.0, select(turn == 2, 10.0,
+                select(turn == 3, 30.0, 70.0))))
+              local nc = key + length * w + toll[q] + bend
+              if(nc < cost[state] and size < room){
+                cost[state] = nc
+                from[state] = c
+                // into the heap, rising to its place
+                local i = size
+                size += 1
+                local rising = true
+                for(rising){
+                  if(i == 0){
+                    rising = false
+                  } else {
+                    local p = (i - 1) / 2
+                    if(heap_key[p] <= nc){
+                      rising = false
+                    } else {
+                      heap_key[i] = heap_key[p]
+                      heap_cell[i] = heap_cell[p]
+                      i = p
+                    }
+                  }
+                }
+                heap_key[i] = nc
+                heap_cell[i] = state
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  return found
+}
+
+// near: for every sample within `reach` of the track, how far the track's
+// line is, half the track's width there, how far along the track that is
+// (m), and whether mud is dug there (1). points: eight numbers a point: x,
+// z, height, half width, tilt, waves, walls, mud (see [cut]; only x, z,
+// the width and the mud are read here). dist starts out large everywhere.
+func near(dist: float[], half: float[], along: float[], mud: uint8[], n: int,
+  spacing: float, origin: float, points: float[], count: int, reach: float, step: float){
+  for(local k = 0; k + 1 < count; k += 1){
+    local ax = points[k * 8]
+    local az = points[k * 8 + 1]
+    local bx = points[k * 8 + 8]
+    local bz = points[k * 8 + 9]
+    local ex = bx - ax
+    local ez = bz - az
+    local ee = ex * ex + ez * ez
+    local i0 = int(clamp((min(ax, bx) - reach - origin) / spacing, 0, n - 1))
+    local i1 = int(clamp((max(ax, bx) + reach - origin) / spacing + 1, 0, n - 1))
+    local j0 = int(clamp((min(az, bz) - reach - origin) / spacing, 0, n - 1))
+    local j1 = int(clamp((max(az, bz) + reach - origin) / spacing + 1, 0, n - 1))
+    for(local j = j0; j <= j1; j += 1){
+      local z = origin + j * spacing
+      for(local i = i0; i <= i1; i += 1){
+        local x = origin + i * spacing
+        local t = clamp(((x - ax) * ex + (z - az) * ez) / ee, 0, 1)
+        local qx = ax + ex * t - x
+        local qz = az + ez * t - z
+        local d = sqrt(qx * qx + qz * qz)
+        if(d < dist[j * n + i]){
+          dist[j * n + i] = d
+          half[j * n + i] = mix(points[k * 8 + 3], points[k * 8 + 11], t)
+          along[j * n + i] = (k + t) * step
+          mud[j * n + i] = select(mix(points[k * 8 + 7], points[k * 8 + 15], t) > 0.5, 1, 0)
+        }
+      }
+    }
+  }
+}
+
+// how rough the top of a wall of rock is at a place, 0 to 1: a number per
+// meter, smooth between
+local func wall_rough(x: float, z: float, seed: int): float {
+  local fx = floor(x)
+  local fz = floor(z)
+  local ix = int(fx)
+  local iz = int(fz)
+  local tx = x - fx
+  local tz = z - fz
+  local a = float(((ix * 374761393 + iz * 668265263 + seed * 1442695041) >> 13) & 1023) / 1023.0
+  local b = float((((ix + 1) * 374761393 + iz * 668265263 + seed * 1442695041) >> 13) & 1023) / 1023.0
+  local c = float(((ix * 374761393 + (iz + 1) * 668265263 + seed * 1442695041) >> 13) & 1023) / 1023.0
+  local d = float((((ix + 1) * 374761393 + (iz + 1) * 668265263 + seed * 1442695041) >> 13) & 1023) / 1023.0
+  return mix(mix(a, b, tx), mix(c, d, tx), tz)
+}
+
+// cut: the track cut into the land's fine heights `h` (n a side, spacing
+// apart; rows j0 to j1): level across its width, then a bank up to (or
+// down to) the land as it was. The bank starts gently at the track's edge
+// (a wheel that strays climbs a little, not a wall) and steepens away
+// from it: about 48 degrees where the land is much higher (a cut into the
+// hill), about 34 where it falls away (fill). Where walls are built, rock
+// stands up beside the track instead.
+//
+// points: the track's line every `step` meters, eight numbers a point: x,
+// z, height, half width, tilt (the rise across the track per meter to the
+// left), waves (the height of humps that alternate left and right along
+// it), walls (their height), and how much of all this is done there (1:
+// all; 0: the land is left as it is, as in a ford). dist and along are
+// the coarse maps [near] made (m a side, cell apart): how far the line
+// is, and how far along it: where to look for the nearest piece of it.
+func cut(j0: int, j1: int, h: float[], n: int, spacing: float, origin: float,
+  dist: float[], along: float[], m: int, cell: float, points: float[], count: int,
+  step: float, reach: float, seed: int){
+  for(local j = j0; j < j1; j += 1){
+    local z = origin + j * spacing
+    local cj = int(clamp((z - origin) / cell + 0.5, 0, m - 1))
+    for(local i = 0; i < n; i += 1){
+      local x = origin + i * spacing
+      local ci = int(clamp((x - origin) / cell + 0.5, 0, m - 1))
+      if(dist[cj * m + ci] < reach + 2 * cell){
+        // the nearest piece of the line, near where the coarse map says
+        local k0 = int(along[cj * m + ci] / step)
+        local best = 1.0e12
+        local bk = 0
+        local bt = 0.0
+        for(local k = max(k0 - 14, 0); k <= min(k0 + 14, count - 2); k += 1){
+          local ax = points[k * 8]
+          local az = points[k * 8 + 1]
+          local ex = points[k * 8 + 8] - ax
+          local ez = points[k * 8 + 9] - az
+          local t = clamp(((x - ax) * ex + (z - az) * ez) / (ex * ex + ez * ez), 0, 1)
+          local qx = ax + ex * t - x
+          local qz = az + ez * t - z
+          local q = qx * qx + qz * qz
+          if(q < best){
+            best = q
+            bk = k
+            bt = t
+          }
+        }
+        local d = sqrt(best)
+        local share = mix(points[bk * 8 + 7], points[bk * 8 + 15], bt)
+        if(d < reach and share > 0.001){
+          local ax = points[bk * 8]
+          local az = points[bk * 8 + 1]
+          local ex = points[bk * 8 + 8] - ax
+          local ez = points[bk * 8 + 9] - az
+          local el = sqrt(ex * ex + ez * ez)
+          // to the left of the way it runs: positive
+          local left = (ez * (x - ax) - ex * (z - az)) / el
+          local s = (bk + bt) * step
+          local w = mix(points[bk * 8 + 3], points[bk * 8 + 11], bt)
+          local y = mix(points[bk * 8 + 2], points[bk * 8 + 10], bt)
+          y += mix(points[bk * 8 + 4], points[bk * 8 + 12], bt) * clamp(left, -w, w)
+          // the humps: one side up and the other down, changing over
+          // smoothly in the middle
+          local u = clamp(left / 1.15, -1, 1)
+          y += mix(points[bk * 8 + 5], points[bk * 8 + 13], bt) * sin(s * 1.1636) * u * (1.5 - 0.5 * u * u)
+          local was = h[j * n + i]
+          local diff = was - y
+          local run = select(diff > 0, diff * 0.9, -diff * 1.5)
+          run = clamp(run, 2.5, reach - w - 0.5)
+          local k = clamp((d - w) / run, 0, 1)
+          // a camber: the middle a little higher than the edges
+          local e = clamp(d / w, 0, 1)
+          local crown = 0.05 * (1 - e * e)
+          local made = mix(y + crown, was, k * k * (1.6 - 0.6 * k))
+          local wall = mix(points[bk * 8 + 6], points[bk * 8 + 14], bt)
+          if(wall > 0.1){
+            // rock standing beside the track: up steeply from its edge,
+            // broken on top, and falling back to the land behind
+            local up = smoothstep(w + 0.1, w + 1.5, d) * (1 - smoothstep(w + 4.5, w + 8.5, d))
+            made = max(made, y + wall * up * (0.75 + 0.25 * wall_rough(x, z, seed)))
+          }
+          h[j * n + i] = mix(was, made, share)
+        }
+      }
+    }
+  }
+}
+
+// clear: where nothing may stand, as a coarse map of the land (m a side,
+// `block` samples a cell; 1: keep clear): the track and `margin` meters
+// beside it. dist and half are [near]'s maps.
+func clear(out: uint8[], m: int, block: int, dist: float[], half: float[], n: int, margin: float){
+  for(local j = 0; j < m; j += 1){
+    for(local i = 0; i < m; i += 1){
+      local taken = 0
+      for(local b = 0; b < block; b += 1){
+        for(local a = 0; a < block; a += 1){
+          local at = min(j * block + b, n - 1) * n + min(i * block + a, n - 1)
+          if(dist[at] < half[at] + margin){
+            taken = 1
+          }
+        }
+      }
+      out[j * m + i] = taken
+    }
+  }
+}
+
+// crown: a summit made the top of its mountain: within `radius` of
+// (cx, cz) nothing stands over `level`, and from there out to `reach`
+// nothing over a cone that falls gently away from it; what is lower
+// stays as it is.
+func crown(h: float[], n: int, spacing: float, origin: float, cx: float, cz: float,
+  level: float, radius: float, reach: float){
+  local i0 = int(clamp((cx - reach - origin) / spacing, 0, n - 1))
+  local i1 = int(clamp((cx + reach - origin) / spacing + 1, 0, n - 1))
+  local j0 = int(clamp((cz - reach - origin) / spacing, 0, n - 1))
+  local j1 = int(clamp((cz + reach - origin) / spacing + 1, 0, n - 1))
+  for(local j = j0; j <= j1; j += 1){
+    for(local i = i0; i <= i1; i += 1){
+      local x = origin + i * spacing
+      local z = origin + j * spacing
+      local d = sqrt((x - cx) * (x - cx) + (z - cz) * (z - cz))
+      if(d < reach){
+        local most = level - max(d - radius, 0) * 0.04
+        // (fading out at the reach, not a step)
+        local k = 1 - smoothstep(reach * 0.8, reach, d)
+        h[j * n + i] = mix(h[j * n + i], min(h[j * n + i], most), k)
+      }
+    }
+  }
+}
+
+// saddle: where the track would be cut deep through a ridge, the ridge
+// gets a pass instead. points: the track's line (eight numbers a point,
+// see [cut]); wherever the land stands more than `deep` meters over a
+// point of it, nothing around that point stands over a slope that rises
+// from the track's edge, rough as broken rock is: the ridge is lowered
+// into a notch with sloping sides, and the track is then cut into its
+// floor like anywhere else.
+func saddle(h: float[], n: int, spacing: float, origin: float, points: float[], count: int,
+  every: int, deep: float, seed: int){
+  for(local k = 0; k < count; k += every){
+    local px = points[k * 8]
+    local pz = points[k * 8 + 1]
+    local y = points[k * 8 + 2]
+    local w = points[k * 8 + 3]
+    local ci = int(clamp((px - origin) / spacing + 0.5, 0, n - 1))
+    local cj = int(clamp((pz - origin) / spacing + 0.5, 0, n - 1))
+    local over = h[cj * n + ci] - y
+    if(over > deep and points[k * 8 + 7] > 0.5){
+      // as far as a slope from the track reaches the ridge's top
+      local reach = min(over / 0.75 + w + 6, 110)
+      local i0 = int(clamp((px - reach - origin) / spacing, 0, n - 1))
+      local i1 = int(clamp((px + reach - origin) / spacing + 1, 0, n - 1))
+      local j0 = int(clamp((pz - reach - origin) / spacing, 0, n - 1))
+      local j1 = int(clamp((pz + reach - origin) / spacing + 1, 0, n - 1))
+      for(local j = j0; j <= j1; j += 1){
+        for(local i = i0; i <= i1; i += 1){
+          local x = origin + i * spacing
+          local z = origin + j * spacing
+          local d = sqrt((x - px) * (x - px) + (z - pz) * (z - pz))
+          if(d < reach){
+            local side = max(d - w, 0)
+            local rough = wall_rough(x * 0.13, z * 0.13, seed + 5) * 0.6 + wall_rough(x * 0.6, z * 0.6, seed + 6) * 0.4
+            local most = y + deep * 0.6 + side * (0.72 + 0.5 * rough) + rough * min(side, 6) * 0.5
+            if(h[j * n + i] > most){
+              h[j * n + i] = most
+            }
+          }
+        }
+      }
+    }
+  }
+}

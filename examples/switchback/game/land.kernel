@@ -1,0 +1,698 @@
+// game/land: the kernels that compute the land (packages/kernel): the
+// heights of every sample from the river's line and layers of noise, and
+// pictures of the result. game/terrain calls them, the big one from an
+// isolate per core, each computing a band of rows.
+
+// a number in 0..1 for a grid point
+local func hash2(ix: int, iz: int, seed: int): float {
+  local h = ix * 374761393 + iz * 668265263 + seed * 1442695041
+  h = (h ~ (h >> 13)) * 1274126177
+  h = h ~ (h >> 16)
+  return float(h & 16777215) / 16777215.0
+}
+
+// smooth noise in 0..1
+local func noise(x: float, z: float, seed: int): float {
+  local fx = floor(x)
+  local fz = floor(z)
+  local ix = int(fx)
+  local iz = int(fz)
+  local wx = x - fx
+  local wz = z - fz
+  local ux = wx * wx * wx * (wx * (wx * 6 - 15) + 10)
+  local uz = wz * wz * wz * (wz * (wz * 6 - 15) + 10)
+  local a = hash2(ix, iz, seed)
+  local b = hash2(ix + 1, iz, seed)
+  local c = hash2(ix, iz + 1, seed)
+  local d = hash2(ix + 1, iz + 1, seed)
+  return mix(mix(a, b, ux), mix(c, d, ux), uz)
+}
+
+// octaves of noise, about -1..1
+local func fbm(px: float, pz: float, octaves: int, seed: int): float {
+  local x = px
+  local z = pz
+  local sum = 0.0
+  local amp = 0.5
+  for(local o = 0; o < octaves; o += 1){
+    sum += (noise(x, z, seed + o * 17) * 2 - 1) * amp
+    local rx = 0.8 * x - 0.6 * z
+    local rz = 0.6 * x + 0.8 * z
+    x = rx * 2.03 + 11.3
+    z = rz * 2.03 + 4.7
+    amp *= 0.5
+  }
+  return sum
+}
+
+// mountains: octaves of noise, each damped where the ones before it
+// are steep, which leaves ridges sharp and valleys smooth as running
+// water does (after Inigo Quilez); about 0..1.4
+local func eroded(px: float, pz: float, octaves: int, seed: int): float {
+  local x = px
+  local z = pz
+  local a = 0.0
+  local b = 1.0
+  local dx = 0.0
+  local dz = 0.0
+  for(local o = 0; o < octaves; o += 1){
+    local fx = floor(x)
+    local fz = floor(z)
+    local ix = int(fx)
+    local iz = int(fz)
+    local wx = x - fx
+    local wz = z - fz
+    local ux = wx * wx * wx * (wx * (wx * 6 - 15) + 10)
+    local uz = wz * wz * wz * (wz * (wz * 6 - 15) + 10)
+    local dux = 30 * wx * wx * (wx * (wx - 2) + 1)
+    local duz = 30 * wz * wz * (wz * (wz - 2) + 1)
+    local ha = hash2(ix, iz, seed + o * 31)
+    local hb = hash2(ix + 1, iz, seed + o * 31)
+    local hc = hash2(ix, iz + 1, seed + o * 31)
+    local hd = hash2(ix + 1, iz + 1, seed + o * 31)
+    local k1 = hb - ha
+    local k2 = hc - ha
+    local k4 = ha - hb - hc + hd
+    local n = ha + k1 * ux + k2 * uz + k4 * ux * uz
+    dx += dux * (k1 + k4 * uz)
+    dz += duz * (k2 + k4 * ux)
+    a += b * n / (1 + dx * dx + dz * dz)
+    b *= 0.5
+    local rx = 0.8 * x - 0.6 * z
+    local rz = 0.6 * x + 0.8 * z
+    x = rx * 2.0
+    z = rz * 2.0
+  }
+  return a
+}
+
+// a value of a coarse square grid at a place given in its cells
+local func sample(f: float[], m: int, u: float, v: float): float {
+  local cu = clamp(u, 0, m - 1.001)
+  local cv = clamp(v, 0, m - 1.001)
+  local iu = int(cu)
+  local iv = int(cv)
+  local tu = cu - iu
+  local tv = cv - iv
+  local i = iv * m + iu
+  return mix(mix(f[i], f[i + 1], tu), mix(f[i + m], f[i + m + 1], tu), tv)
+}
+
+// a value of a row of numbers at a place given in its steps
+local func sample1(f: float[], u: float): float {
+  local cu = clamp(u, 0, len(f) - 1.001)
+  local iu = int(cu)
+  return mix(f[iu], f[iu + 1], cu - iu)
+}
+
+// river_field: for every cell of a coarse grid, how far the river's
+// middle line is. points: x, z per point.
+func river_field(dist: float[], m: int, cell: float, origin: float, points: float[], count: int){
+  for(local j = 0; j < m; j += 1){
+    for(local i = 0; i < m; i += 1){
+      local x = origin + i * cell
+      local z = origin + j * cell
+      local best = 1.0e12
+      for(local k = 0; k + 1 < count; k += 1){
+        local ax = points[k * 2]
+        local az = points[k * 2 + 1]
+        local ex = points[k * 2 + 2] - ax
+        local ez = points[k * 2 + 3] - az
+        local t = clamp(((x - ax) * ex + (z - az) * ez) / (ex * ex + ez * ez), 0, 1)
+        local qx = ax + ex * t - x
+        local qz = az + ez * t - z
+        best = min(best, qx * qx + qz * qz)
+      }
+      dist[j * m + i] = sqrt(best)
+    }
+  }
+}
+
+// heights: the land's height at every sample of rows j0 to j1, and the
+// height of the water over it (below the ground where there is none).
+// The river's water level and half width are rows of numbers by z
+// (every table_step meters from table_origin); dist is the river field.
+func heights(j0: int, j1: int, out: float[], water: float[], n: int, spacing: float, origin: float,
+  seed: int, dist: float[], m: int, cell: float, field_origin: float,
+  level: float[], width: float[], table_origin: float, table_step: float,
+  peak_x: float, peak_z: float){
+  for(local j = j0; j < j1; j += 1){
+    local z = origin + j * spacing
+    local tz = (z - table_origin) / table_step
+    local river = sample1(level, tz)
+    local half = sample1(width, tz)
+    for(local i = 0; i < n; i += 1){
+      local x = origin + i * spacing
+      local d = sample(dist, m, (x - field_origin) / cell, (z - field_origin) / cell)
+
+      // the valley's floor, wide here and a gorge there
+      local wide = noise(x * 0.0017 + 3.1, z * 0.0017 + 7.7, seed + 101)
+      local floor_half = half + 18 + 170 * wide * wide
+      local e = d - floor_half
+      local ramp = 300 + 240 * noise(x * 0.0013 + 1.7, z * 0.0013 + 4.2, seed + 102)
+      local t = clamp(e / ramp, 0, 1)
+      local rise = t * t * (3 - 2 * t)
+
+      // the mountains: big shapes bent a little so that ridges curve
+      local bend_x = (noise(x * 0.0016, z * 0.0016, seed + 201) - 0.5) * 260
+      local bend_z = (noise(x * 0.0016 + 9.2, z * 0.0016 + 1.3, seed + 202) - 0.5) * 260
+      local ridges = eroded((x + bend_x) * 0.0021, (z + bend_z) * 0.0021, 8, seed + 301)
+      // one mountain stands over the rest
+      local px = (x - peak_x) / 520
+      local pz = (z - peak_z) / 520
+      local peak = exp(-(px * px + pz * pz) * 1.6)
+      local mountain = pow(rise, 1.2) * (30 + 290 * ridges + 150 * peak * (0.4 + ridges))
+
+      // the foothills: knolls and spurs from the floor's edge on
+      local foot = smoothstep(0.0, 1.0, clamp(e / 140, 0, 1))
+      local hills = eroded(x * 0.0062 + 31.0, z * 0.0062 + 17.0, 6, seed + 351)
+      mountain += foot * (1 - 0.6 * rise) * 58 * hills
+
+      // a bench: in places the slope pauses in a shelf at one height
+      local shelf_at = 62 + 46 * noise(x * 0.0011 + 8.8, z * 0.0011 + 0.4, seed + 371)
+      local shelf_w = 34.0
+      local su = (mountain - shelf_at) / shelf_w
+      local shelf = clamp(noise(x * 0.0024 + 2.9, z * 0.0024 + 6.1, seed + 372) * 2.4 - 0.7, 0, 1)
+      mountain -= shelf * 0.92 * shelf_w * su * exp(-su * su)
+
+      // the strata: bands of harder rock stand as ledges on the slopes
+      local wobble = 0.5 * fbm(x * 0.004, z * 0.004, 3, seed + 401)
+      local band = 38.0
+      local level_in = mountain / band + wobble
+      local f = level_in - floor(level_in)
+      local step = floor(level_in) + smoothstep(0.3, 0.7, f)
+      local strata = clamp(noise(x * 0.0031 + 5.5, z * 0.0031 + 2.2, seed + 402) * 2.6 - 1.1, 0, 1)
+      mountain = mix(mountain, (step - wobble) * band, strata * 0.75 * rise)
+
+      // crags: where it is steep and high the rock is broken
+      local rough = fbm(x * 0.045, z * 0.045, 3, seed + 451)
+      mountain += rough * 5.0 * rise * (0.3 + strata)
+
+      // the floor: nearly flat, rolling a little, rising gently from the bank
+      local meadow = 1.3 + 2.2 * noise(x * 0.011, z * 0.011, seed + 501) + 6.0 * rise +
+        clamp((d - half) / 80, 0, 1) * 2.0
+      local roll = fbm(x * 0.021, z * 0.021, 4, seed + 502) * (1.0 + 3.0 * foot)
+      local h = river + meadow + roll + mountain
+
+      // the river's bed and its banks
+      local bank = half * 1.6 + 5.0
+      if(d < bank){
+        local deep = 0.5 + 0.45 * noise(x * 0.03, z * 0.03, seed + 601)
+        if(half > 20){
+          // the lake: deep in the middle
+          deep = 0.6 + 5.5 * smoothstep(0.0, 1.0, 1 - d / half)
+        }
+        local p = d / half
+        local bed = river - deep * clamp(1.12 - p * p, 0, 1)
+        local k = smoothstep(half * 0.85, bank, d)
+        h = mix(bed, h, k)
+      }
+      out[j * n + i] = h
+      water[j * n + i] = river
+    }
+  }
+}
+
+// relief: the land from above as a picture (r, g, b, a per sample): tinted
+// by height and by what lies there, lit from the north west
+func relief(image: uint8[], h: float[], water: float[], n: int, step: int, spacing: float){
+  local m = n / step
+  for(local j = 0; j < m; j += 1){
+    for(local i = 0; i < m; i += 1){
+      local x = clamp(i * step, 1, n - 2)
+      local z = clamp(j * step, 1, n - 2)
+      local c = h[z * n + x]
+      local gx = (h[z * n + x + 1] - h[z * n + x - 1]) / (2 * spacing)
+      local gz = (h[(z + 1) * n + x] - h[(z - 1) * n + x]) / (2 * spacing)
+      local l = 1 / sqrt(gx * gx + 1 + gz * gz)
+      local shade = clamp((-gx * -0.55 + 0.62 + -gz * 0.5) * l, 0, 1)
+      local slope = sqrt(gx * gx + gz * gz)
+      local r = mix(96, 150, clamp(c / 420, 0, 1))
+      local g = mix(140, 150, clamp(c / 420, 0, 1))
+      local b = mix(70, 140, clamp(c / 420, 0, 1))
+      local rock = smoothstep(0.7, 1.1, slope)
+      r = mix(r, 138, rock)
+      g = mix(g, 130, rock)
+      b = mix(b, 122, rock)
+      local snow = smoothstep(330, 380, c) * (1 - rock * 0.7)
+      r = mix(r, 240, snow)
+      g = mix(g, 244, snow)
+      b = mix(b, 250, snow)
+      local light = 0.35 + 0.9 * shade
+      r *= light
+      g *= light
+      b *= light
+      if(water[z * n + x] > c){
+        local deep = clamp((water[z * n + x] - c) / 3, 0, 1)
+        r = mix(70, 30, deep)
+        g = mix(130, 70, deep)
+        b = mix(160, 120, deep)
+      }
+      // image rows run down the screen: north (+z) at the top
+      // (north up; the land's x grows to the west of that)
+      local at = ((m - 1 - j) * m + (m - 1 - i)) * 4
+      image[at] = int(clamp(r, 0, 255))
+      image[at + 1] = int(clamp(g, 0, 255))
+      image[at + 2] = int(clamp(b, 0, 255))
+      image[at + 3] = 255
+    }
+  }
+}
+
+// mark: on a picture made by relief, the samples nearer than `within` to
+// something (dist: how far it is from each sample) painted a color
+func mark(image: uint8[], dist: float[], n: int, step: int, within: float, r: int, g: int, b: int){
+  local m = n / step
+  for(local j = 0; j < m; j += 1){
+    for(local i = 0; i < m; i += 1){
+      local least = 1.0e9
+      for(local b2 = 0; b2 < step; b2 += 1){
+        for(local a = 0; a < step; a += 1){
+          least = min(least, dist[(j * step + b2) * n + i * step + a])
+        }
+      }
+      if(least < within){
+        local at = ((m - 1 - j) * m + (m - 1 - i)) * 4
+        image[at] = r
+        image[at + 1] = g
+        image[at + 2] = b
+      }
+    }
+  }
+}
+
+// shape: for the samples of rows j0 to j1, what the light needs to know of
+// the land's shape, four bytes each: the normal's x and z (0..255 for
+// -1..1), how much of the sky the place sees (the valley's floor less than
+// a ridge), and how much of the sun reaches it past the mountains (soft
+// at a shadow's edge). sun: the direction to it.
+func shape(j0: int, j1: int, out: uint8[], h: float[], n: int, spacing: float,
+  sun_x: float, sun_y: float, sun_z: float, top: float){
+  for(local j = j0; j < j1; j += 1){
+    for(local i = 0; i < n; i += 1){
+      local x = clamp(i, 1, n - 2)
+      local z = clamp(j, 1, n - 2)
+      local c = h[z * n + x]
+      local gx = (h[z * n + x + 1] - h[z * n + x - 1]) / (2 * spacing)
+      local gz = (h[(z + 1) * n + x] - h[(z - 1) * n + x]) / (2 * spacing)
+      local l = 1 / sqrt(gx * gx + 1 + gz * gz)
+      // the sky: how high the land stands around, in eight directions
+      local blocked = 0.0
+      for(local d = 0; d < 8; d += 1){
+        local dx = select(d == 0 or d == 1 or d == 7, 1, select(d == 3 or d == 4 or d == 5, -1, 0))
+        local dz = select(d == 1 or d == 2 or d == 3, 1, select(d == 5 or d == 6 or d == 7, -1, 0))
+        local run = sqrt(float(dx * dx + dz * dz)) * spacing
+        local most = 0.0
+        local reach = 2
+        for(local k = 0; k < 5; k += 1){
+          local sx = clamp(x + dx * reach, 0, n - 1)
+          local sz = clamp(z + dz * reach, 0, n - 1)
+          local rise = (h[sz * n + sx] - c) / (reach * run)
+          most = max(most, rise)
+          reach = reach * 2 + 1
+        }
+        // (the sine of the horizon's angle)
+        blocked += most / sqrt(1 + most * most)
+      }
+      local sky = clamp(1 - blocked / 8 * 1.15, 0, 1)
+      // the sun: a ray toward it, in steps that grow; where the land
+      // stands over the ray it is in shadow, where it nearly does, half
+      local lit = 1.0
+      // (each sample starts its steps at a place of its own, so that the
+      // steps show as fine grain, which soften blurs away, not as bands)
+      local t = 1.5 + 2.5 * hash2(i, j, 977)
+      local going = true
+      for(going){
+        local rx = x + sun_x * t / spacing
+        local rz = z + sun_z * t / spacing
+        local ry = c + 0.4 + sun_y * t
+        if(rx < 0 or rz < 0 or rx > n - 1 or rz > n - 1 or ry > top){
+          going = false
+        } else {
+          local over = ry - h[int(rz) * n + int(rx)]
+          lit = min(lit, 9.0 * over / t + 0.25)
+          if(lit <= 0){
+            going = false
+          }
+          t = t * 1.13 + 0.8
+        }
+      }
+      lit = clamp(lit, 0, 1)
+      local at = (j * n + i) * 4
+      out[at] = int(clamp((-gx * l * 0.5 + 0.5) * 255 + 0.5, 0, 255))
+      out[at + 1] = int(clamp((-gz * l * 0.5 + 0.5) * 255 + 0.5, 0, 255))
+      out[at + 2] = int(sky * 255 + 0.5)
+      out[at + 3] = int(lit * lit * (3 - 2 * lit) * 255 + 0.5)
+    }
+  }
+}
+
+// cover: for the samples of rows j0 to j1, what the ground is made of, as
+// eight shares that add up to 255: first rock, scree, dirt, mud; second
+// sand, snow, forest floor, grass. From how steep and how high the place
+// is, how wet, and where the track runs (track: how far its line is;
+// half: half its width there; along: how far along it; pits: 1 where a
+// mud pit is dug into it).
+func cover(j0: int, j1: int, first: uint8[], second: uint8[], h: float[], water: float[],
+  track: float[], half: float[], along: float[], pits: uint8[], shade: uint8[], n: int,
+  spacing: float, origin: float, seed: int){
+  for(local j = j0; j < j1; j += 1){
+    for(local i = 0; i < n; i += 1){
+      local x = clamp(i, 1, n - 2)
+      local z = clamp(j, 1, n - 2)
+      local wx = origin + i * spacing
+      local wz = origin + j * spacing
+      local c = h[z * n + x]
+      local gx = (h[z * n + x + 1] - h[z * n + x - 1]) / (2 * spacing)
+      local gz = (h[(z + 1) * n + x] - h[(z - 1) * n + x]) / (2 * spacing)
+      local slope = sqrt(gx * gx + gz * gz)
+      local level = water[z * n + x]
+      local over = c - level
+      local patch = noise(wx * 0.011 + 40.0, wz * 0.011 + 12.0, seed + 701)
+      local fine = noise(wx * 0.19, wz * 0.19, seed + 702)
+      local broad = noise(wx * 0.0031 + 5.0, wz * 0.0031 + 9.0, seed + 703)
+
+      // rock where it is steep, and in ledges where the strata show
+      local rock = smoothstep(0.72, 1.0, slope + 0.22 * (fine - 0.5) + 0.12 * (patch - 0.5))
+      // scree: loose stone on the slopes under the rock and up high
+      local high = smoothstep(150.0, 330.0, c + 60 * (broad - 0.5))
+      local scree = smoothstep(0.42, 0.62, slope + 0.12 * (fine - 0.5)) * (1 - rock) *
+        clamp(0.15 + high + 0.5 * smoothstep(0.55, 0.8, patch), 0, 1)
+      // snow up high, where it is not too steep to lie
+      local snow = smoothstep(405.0, 460.0, c + 55 * (patch - 0.5) + 25 * (fine - 0.5)) *
+        (1 - smoothstep(0.75, 1.15, slope))
+      // sand and gravel under the water and on the banks just over it
+      local sand = 1 - smoothstep(0.05, 0.5, over + 0.25 * (fine - 0.5))
+      // mud: the low wet ground by the river, in patches
+      local mud = (1 - smoothstep(0.5, 2.2, over)) * smoothstep(0.52, 0.66, patch) * (1 - sand) *
+        (1 - smoothstep(0.1, 0.3, slope))
+      // the track: bare earth, most in the two ruts; rock stays rock, and
+      // in the wet patches the track is mud
+      local dirt = 0.0
+      local d = track[z * n + x]
+      if(d < 30){
+        local w = half[z * n + x]
+        local on = 1 - smoothstep(w - 0.5, w + 0.5, d + 0.5 * (fine - 0.5))
+        local rut = 1 - smoothstep(0.3, 0.75, abs(d - 0.8))
+        local middle = 1 - smoothstep(0.1, 0.45, d)
+        local worn = clamp(0.55 + 0.45 * rut - 0.3 * middle, 0, 1)
+        dirt = on * worn
+        local s = along[z * n + x]
+        local wet = smoothstep(0.6, 0.72, noise(s * 0.013 + 3.0, 7.7, seed + 711)) * (1 - smoothstep(4.0, 9.0, over))
+        // (and the pits dug into the track are mud all across)
+        if(pits[z * n + x] > 0){
+          wet = 1.0
+          dirt = on
+        }
+        mud = max(mud, dirt * wet)
+        dirt *= 1 - wet
+        // a track cut into rock or scree is stony, not earth
+        scree = max(scree * (1 - on), on * smoothstep(0.5, 0.8, slope) * 0.6)
+        // and in the snow its ruts are worn down to the ground
+        snow *= 1 - 0.62 * dirt
+      }
+      // each takes from what is left, in this order
+      local left = 1.0
+      local w_sand = sand * left
+      left -= w_sand
+      local w_snow = snow * left
+      left -= w_snow
+      local w_rock = rock * left
+      left -= w_rock
+      local w_mud = mud * left
+      left -= w_mud
+      local w_dirt = dirt * left
+      left -= w_dirt
+      local w_scree = scree * left
+      left -= w_scree
+      local at = (j * n + i) * 4
+      local b_rock = int(w_rock * 255 + 0.5)
+      local b_scree = int(w_scree * 255 + 0.5)
+      local b_dirt = int(w_dirt * 255 + 0.5)
+      local b_mud = int(w_mud * 255 + 0.5)
+      local b_sand = int(w_sand * 255 + 0.5)
+      local b_snow = int(w_snow * 255 + 0.5)
+      first[at] = b_rock
+      first[at + 1] = b_scree
+      first[at + 2] = b_dirt
+      first[at + 3] = b_mud
+      second[at] = b_sand
+      second[at + 1] = b_snow
+      second[at + 2] = 0
+      second[at + 3] = clamp(255 - b_rock - b_scree - b_dirt - b_mud - b_sand - b_snow, 0, 255)
+    }
+  }
+}
+
+// a number in 0..1 for a point of a grid that repeats every `period`
+local func tile_hash(ix: int, iz: int, period: int, seed: int): float {
+  return hash2(ix % period, iz % period, seed)
+}
+
+// smooth noise in 0..1 that repeats every `period`
+local func tile_noise(x: float, z: float, period: int, seed: int): float {
+  local fx = floor(x)
+  local fz = floor(z)
+  local ix = int(fx)
+  local iz = int(fz)
+  local wx = x - fx
+  local wz = z - fz
+  local ux = wx * wx * (3 - 2 * wx)
+  local uz = wz * wz * (3 - 2 * wz)
+  local a = tile_hash(ix, iz, period, seed)
+  local b = tile_hash(ix + 1, iz, period, seed)
+  local c = tile_hash(ix, iz + 1, period, seed)
+  local d = tile_hash(ix + 1, iz + 1, period, seed)
+  return mix(mix(a, b, ux), mix(c, d, ux), uz)
+}
+
+// how far (in cells) the nearest of a repeating scatter of points is
+local func tile_cells(x: float, z: float, period: int, seed: int): float {
+  local fx = floor(x)
+  local fz = floor(z)
+  local ix = int(fx)
+  local iz = int(fz)
+  local best = 9.0
+  for(local dj = -1; dj <= 1; dj += 1){
+    for(local di = -1; di <= 1; di += 1){
+      local px = di + tile_hash(ix + di, iz + dj, period, seed) - (x - fx)
+      local pz = dj + tile_hash(ix + di, iz + dj, period, seed + 7) - (z - fz)
+      best = min(best, px * px + pz * pz)
+    }
+  }
+  return sqrt(best)
+}
+
+// detail: a square picture that repeats, for the ground's small patterns:
+// in its four bytes a fine grain, stones (bright in the middle of each,
+// dark between), broad blotches, and small pebbles
+func detail(out: uint8[], size: int, seed: int){
+  for(local j = 0; j < size; j += 1){
+    for(local i = 0; i < size; i += 1){
+      local u = float(i) / size
+      local v = float(j) / size
+      local grain = 0.0
+      local amp = 0.5
+      local period = 16
+      for(local o = 0; o < 5; o += 1){
+        grain += tile_noise(u * period, v * period, period, seed + o) * amp
+        amp *= 0.5
+        period *= 2
+      }
+      local stones = 1 - clamp(tile_cells(u * 14, v * 14, 14, seed + 11) * 1.25, 0, 1)
+      local blotch = tile_noise(u * 3, v * 3, 3, seed + 21) * 0.6 + tile_noise(u * 7, v * 7, 7, seed + 22) * 0.4
+      local pebbles = 1 - clamp(tile_cells(u * 41, v * 41, 41, seed + 31) * 1.35, 0, 1)
+      local at = (j * size + i) * 4
+      out[at] = int(clamp(grain / 0.97, 0, 1) * 255)
+      out[at + 1] = int(stones * 255)
+      out[at + 2] = int(clamp(blotch, 0, 1) * 255)
+      out[at + 3] = int(pebbles * 255)
+    }
+  }
+}
+
+// soften: the sun's share in a shape map (its fourth byte) blurred a
+// little, rows j0 to j1 from `from` into `to`: each sample the mean of
+// itself and the eight around it
+func soften(j0: int, j1: int, to: uint8[], from: uint8[], n: int){
+  for(local j = j0; j < j1; j += 1){
+    for(local i = 0; i < n; i += 1){
+      local sum = 0
+      for(local dj = -1; dj <= 1; dj += 1){
+        for(local di = -1; di <= 1; di += 1){
+          local x = clamp(i + di, 0, n - 1)
+          local z = clamp(j + dj, 0, n - 1)
+          sum += from[(z * n + x) * 4 + 3]
+        }
+      }
+      to[(j * n + i) * 4 + 3] = (sum + 4) / 9
+    }
+  }
+}
+
+// refine: the heights again with `f` samples for each one along a side
+// (rows j0 to j1 of the finer array): a smooth surface through the coarse
+// samples' neighborhood (a cubic B-spline: no kinks, and what is rougher
+// than the samples can say is evened out). The finer array's sample
+// (f * i, f * j) lies where the coarse (i, j) does.
+func refine(j0: int, j1: int, out: float[], h: float[], n: int, f: int){
+  local m = n * f
+  for(local j = j0; j < j1; j += 1){
+    local v = float(j) / f
+    local iz = int(floor(v))
+    local tz = v - iz
+    local z0 = clamp(iz - 1, 0, n - 1)
+    local z1 = clamp(iz, 0, n - 1)
+    local z2 = clamp(iz + 1, 0, n - 1)
+    local z3 = clamp(iz + 2, 0, n - 1)
+    local a0 = (1 - tz) * (1 - tz) * (1 - tz) / 6
+    local a1 = (3 * tz * tz * tz - 6 * tz * tz + 4) / 6
+    local a2 = (-3 * tz * tz * tz + 3 * tz * tz + 3 * tz + 1) / 6
+    local a3 = tz * tz * tz / 6
+    for(local i = 0; i < m; i += 1){
+      local u = float(i) / f
+      local ix = int(floor(u))
+      local tx = u - ix
+      local x0 = clamp(ix - 1, 0, n - 1)
+      local x1 = clamp(ix, 0, n - 1)
+      local x2 = clamp(ix + 1, 0, n - 1)
+      local x3 = clamp(ix + 2, 0, n - 1)
+      local b0 = (1 - tx) * (1 - tx) * (1 - tx) / 6
+      local b1 = (3 * tx * tx * tx - 6 * tx * tx + 4) / 6
+      local b2 = (-3 * tx * tx * tx + 3 * tx * tx + 3 * tx + 1) / 6
+      local b3 = tx * tx * tx / 6
+      local r0 = b0 * h[z0 * n + x0] + b1 * h[z0 * n + x1] + b2 * h[z0 * n + x2] + b3 * h[z0 * n + x3]
+      local r1 = b0 * h[z1 * n + x0] + b1 * h[z1 * n + x1] + b2 * h[z1 * n + x2] + b3 * h[z1 * n + x3]
+      local r2 = b0 * h[z2 * n + x0] + b1 * h[z2 * n + x1] + b2 * h[z2 * n + x2] + b3 * h[z2 * n + x3]
+      local r3 = b0 * h[z3 * n + x0] + b1 * h[z3 * n + x1] + b2 * h[z3 * n + x2] + b3 * h[z3 * n + x3]
+      out[j * m + i] = a0 * r0 + a1 * r1 + a2 * r2 + a3 * r3
+    }
+  }
+}
+
+// coarsen: the coarse heights taken back from the finer ones (rows j0 to
+// j1 of the coarse array): every f-th sample
+func coarsen(j0: int, j1: int, h: float[], n: int, fine: float[], f: int){
+  local m = n * f
+  for(local j = j0; j < j1; j += 1){
+    for(local i = 0; i < n; i += 1){
+      h[j * n + i] = fine[j * f * m + i * f]
+    }
+  }
+}
+
+// shoal: a shallow in the river around a place (cx, cz), where it can be
+// forded: within `radius` the bed comes up until the water over it is no
+// deeper than `depth` (less at the edges of the channel, a little uneven),
+// and the banks lie lower and flatter, so that the river runs wide and
+// thin over gravel there. The water's level stays what it was.
+func shoal(h: float[], water: float[], n: int, spacing: float, origin: float, cx: float,
+  cz: float, radius: float, depth: float, seed: int){
+  local i0 = int(clamp((cx - radius - origin) / spacing, 0, n - 1))
+  local i1 = int(clamp((cx + radius - origin) / spacing + 1, 0, n - 1))
+  local j0 = int(clamp((cz - radius - origin) / spacing, 0, n - 1))
+  local j1 = int(clamp((cz + radius - origin) / spacing + 1, 0, n - 1))
+  for(local j = j0; j <= j1; j += 1){
+    for(local i = i0; i <= i1; i += 1){
+      local x = origin + i * spacing
+      local z = origin + j * spacing
+      local r = sqrt((x - cx) * (x - cx) + (z - cz) * (z - cz)) / radius
+      if(r < 1){
+        local k = 1 - smoothstep(0.45, 1.0, r)
+        local level = water[j * n + i]
+        local was = h[j * n + i]
+        local over = was - level
+        // bars of gravel and channels between them
+        local bars = noise(x * 0.16, z * 0.16, seed + 811) * 0.7 + noise(x * 0.47, z * 0.47, seed + 812) * 0.3
+        local made = was
+        if(over < 0){
+          // the bed: no deeper than the shallow's depth
+          local most = depth * (0.55 + 0.9 * bars)
+          made = level - min(-over, most)
+        } else {
+          // the banks: a beach, then the meadow at less than its height
+          made = level + over * (0.3 + 0.7 * smoothstep(0.0, 2.6, over)) * 0.72
+        }
+        h[j * n + i] = mix(was, made, k)
+      }
+    }
+  }
+}
+
+// highest: the highest of the heights within `reach` of a place: out[0]
+// its height, out[1] and out[2] where it is (x, z)
+func highest(out: float[], h: float[], n: int, spacing: float, origin: float, cx: float, cz: float,
+  reach: float){
+  local i0 = int(clamp((cx - reach - origin) / spacing, 0, n - 1))
+  local i1 = int(clamp((cx + reach - origin) / spacing + 1, 0, n - 1))
+  local j0 = int(clamp((cz - reach - origin) / spacing, 0, n - 1))
+  local j1 = int(clamp((cz + reach - origin) / spacing + 1, 0, n - 1))
+  local best = -1.0e9
+  local bx = cx
+  local bz = cz
+  for(local j = j0; j <= j1; j += 1){
+    for(local i = i0; i <= i1; i += 1){
+      local x = origin + i * spacing
+      local z = origin + j * spacing
+      if((x - cx) * (x - cx) + (z - cz) * (z - cz) <= reach * reach and h[j * n + i] > best){
+        best = h[j * n + i]
+        bx = x
+        bz = z
+      }
+    }
+  }
+  out[0] = best
+  out[1] = bx
+  out[2] = bz
+}
+
+// summit: the mountain's top (rows j0 to j1). The horns that erosion
+// leaves are too sharp for anything to climb; the mountain's highest
+// point is a dome instead, standing over them at (cx, cz) with its top
+// at `top`: rounded on top, its flanks falling gently for some way and
+// then as steeply as a track can still be cut across, ribbed and
+// hollowed more the further from the top. The land takes the dome's
+// height wherever the dome is higher and the mountain is high already:
+// `broad` is the land as it was, coarse (bm a side, cells of bcell
+// meters from borigin); where its heights, taken broadly, are far under
+// the top, the land stays as it is (the valley is not filled in).
+func summit(j0: int, j1: int, h: float[], n: int, spacing: float, origin: float, cx: float,
+  cz: float, top: float, seed: int, broad: float[], bm: int, bcell: float, borigin: float){
+  for(local j = j0; j < j1; j += 1){
+    local z = origin + j * spacing
+    for(local i = 0; i < n; i += 1){
+      local x = origin + i * spacing
+      local d = sqrt((x - cx) * (x - cx) + (z - cz) * (z - cz))
+      if(d < 1100){
+        // how high the mountain stands hereabouts (taken over a wide
+        // patch, so that the dome's edge is not a wall)
+        local sum = 0.0
+        for(local b = -2; b <= 2; b += 1){
+          for(local a = -2; a <= 2; a += 1){
+            sum += sample(broad, bm, (x + a * 44 - borigin) / bcell, (z + b * 44 - borigin) / bcell)
+          }
+        }
+        local share = smoothstep(top - 500, top - 310, sum / 25)
+        if(share > 0){
+          // not a cone: wider one way than another, by a slow noise
+          local lobes = 0.75 + 0.5 * noise(x * 0.0023 + 4.0, z * 0.0023 + 9.0, seed + 903)
+          // (round within some forty meters of the top; from its gentle
+          // flanks to its steeper ones in a curve, not at a line)
+          local r = (sqrt(d * d + 38 * 38) - 38) / mix(1.0, lobes, clamp(d / 120, 0, 1))
+          // (a track climbs its upper part straight; lower down it must wind)
+          local mid = max(r - 100, 0)
+          local over = max(r - 190, 0)
+          local fall = 0.13 * r + 0.11 * mid * mid / (mid + 60) + 0.34 * over * over / (over + 90)
+          local ribs = (eroded(x * 0.0041 + 11.0, z * 0.0041 + 23.0, 5, seed + 901) - 0.45) * 34 * clamp((r - 70) / 170, 0, 1)
+          local grain = (fbm(x * 0.028, z * 0.028, 3, seed + 902) - 0.5) * 3.0 * clamp(r / 30, 0, 1)
+          local dome = top - fall + ribs + grain
+          // (meeting the land in a curve, not a crease)
+          local was = h[j * n + i]
+          local k = 8.0
+          local t = clamp(0.5 + 0.5 * (dome - was) / k, 0, 1)
+          h[j * n + i] = mix(was, mix(was, dome, t) + k * t * (1 - t), share)
+        }
+      }
+    }
+  }
+}

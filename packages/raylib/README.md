@@ -128,6 +128,7 @@ Every raylib function has one place, which its name says:
     rl.shader_mode(shader){ ... }
     rl.blend_mode(rl.BLEND_ADDITIVE){ ... }
     rl.scissor_mode({x, y, w, h}){ ... }
+    rl.depth_mask(false){ ... }     // draws without writing depths (smoke, glass)
   }
   ```
 

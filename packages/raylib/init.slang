@@ -73,6 +73,13 @@ local C = ffi.cdef(os.read_file(where.header), {
 if(os.exists(where.raymath)){
   ffi.cdef(os.read_file(where.raymath), {into: C, field_name: snake})
 }
+// the few of rlgl's functions the blocks below need (the library has them
+// all; raylib.h does not declare them)
+ffi.cdef("""
+void rlDrawRenderBatchActive(void);
+void rlEnableDepthMask(void);
+void rlDisableDepthMask(void);
+""", {into: C, field_name: snake})
 local lib = ffi.load(where.library, C)
 local K = C.constants
 
@@ -894,6 +901,26 @@ func rl.shader_mode(shader, block){
 func rl.blend_mode(mode, block){
   lib.BeginBlendMode(mode)
   defer lib.EndBlendMode()
+  return block()
+}
+
+// depth_mask(write: bool, block): with write false the block draws
+// without writing the depths of what it draws: for what is seen through
+// (smoke, glass), drawn after everything solid, so that one such thing
+// does not hide another behind it
+local func depth_mask_back(){
+  lib.rlDrawRenderBatchActive()
+  lib.rlEnableDepthMask()
+}
+
+func rl.depth_mask(write, block){
+  lib.rlDrawRenderBatchActive()
+  if(write){
+    lib.rlEnableDepthMask()
+  } else {
+    lib.rlDisableDepthMask()
+  }
+  defer depth_mask_back()
   return block()
 }
 

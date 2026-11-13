@@ -48,6 +48,8 @@
 #   make delve-test   run delve's tests (no window: sight, maps, rules, the autoplayer)
 #   make courier      run Courier, the flying-car delivery game (examples/courier) on raylib and jolt
 #   make courier-test run its tests (no window: the city, the car on Jolt, the traffic, the jobs)
+#   make switchback   run Switchback, the off-road drive up a valley made from a seed (examples/switchback) on raylib, jolt and kernel
+#   make switchback-test run its tests (no window: the drivetrain, the truck on Jolt, the land, the trail, the bot, a run)
 #   make siege        run the siege catapult game (examples/siege) on the raylib and jolt packages
 #   make inkblast     run the Inkblast party game (examples/inkblast): slang/net, bots, raylib
 #   make inkblast-test run Inkblast's tests (no window: the rules, a match over loopback)
@@ -65,7 +67,7 @@ LIB_SRC  := $(wildcard slang/lib/*.slang)
 COMPILER_SRC := $(wildcard slang/compiler/*.slang)
 SEED_DIR := boot/slang
 
-.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed fixpoint bench bench-compare bench-vectors raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test inkblast inkblast-test synth synth3d synth-test synth-mix modular modular-test modular-demos live live-test dsp car dsp-test granular granular-test delve delve-test courier courier-test siege siege-test midi-test microphone-test kernel-test kernel-bench fm fm3d fm-test fm-gen clean doc \
+.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed fixpoint bench bench-compare bench-vectors raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test inkblast inkblast-test synth synth3d synth-test synth-mix modular modular-test modular-demos live live-test dsp car dsp-test granular granular-test delve delve-test courier courier-test switchback switchback-test siege siege-test midi-test microphone-test kernel-test kernel-bench fm fm3d fm-test fm-gen clean doc \
         vscode vscode-grammar
 
 all: build
@@ -135,6 +137,8 @@ test: build unit
 	$(MAKE) inkblast-test
 	@if [ -d "packages/kernel/lib/$(SLANG_PLATFORM)" ]; then $(MAKE) kernel-test && $(MAKE) fm-test && $(MAKE) modular-test && $(MAKE) live-test && $(MAKE) dsp-test && $(MAKE) granular-test; \
 	  else echo "no kernel/vm for $(SLANG_PLATFORM): packages/kernel, examples/fm, examples/modular, examples/live, examples/dsp and examples/granular not tested"; fi
+	@if [ -d "packages/kernel/lib/$(SLANG_PLATFORM)" ] && [ -d "packages/jolt/lib/$(SLANG_PLATFORM)" ]; then $(MAKE) switchback-test; \
+	  else echo "no kernel/vm or no joltc for $(SLANG_PLATFORM): examples/switchback not tested"; fi
 
 test-gui: build
 	bin/slang test zig/test/gui
@@ -294,6 +298,12 @@ courier: build
 
 courier-test: build
 	cd examples/courier && ../../bin/slang test test
+
+switchback: build
+	bin/slang run examples/switchback/main.slang
+
+switchback-test: build
+	cd examples/switchback && ../../bin/slang test test
 
 siege: build
 	bin/slang run examples/siege/main.slang

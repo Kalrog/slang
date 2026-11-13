@@ -1,0 +1,633 @@
+// render/menu: the screens that are not driving: the title over the
+// valley, the pause, the result at the summit, the garage, the list of
+// controls, and what is shown while a valley is made. Each is one
+// function that draws the screen and says what the player chose in this
+// frame, or null: the game calls it every frame while the screen is up.
+//
+//   menu.init()
+//   local action = menu.title({seed: 7, best: 801.4, trail_length: 4796})
+//   if(action == "drive"){ ... }
+//
+// A screen is drawn inside rl.drawing{ }, over the scene when there is
+// one behind it. The key that brought the screen up must not be pressed
+// any more when its function is first called (so: from the next frame
+// on), or it is taken as a key for the screen.
+//
+// The arrow keys (or W, A, S, D, or the gamepad's cross or left stick)
+// move, Enter or Space (or the gamepad's A) choose, Esc or Backspace (or
+// B) go back; the mouse points and clicks. The screens know nothing of
+// the game: they get plain numbers and names.
+local rl = require("raylib")
+local math = require("slang/math")
+local str = require("slang/string")
+local ui = require("render/ui")
+
+local m = {}
+
+local colors = ui.colors
+
+// where the player is in each screen, kept between frames
+local state = {
+  selected: {},      // by screen: the entry the bar is on
+  seen: {},          // by screen: the frame it was last shown in
+  frame: 0,
+  row: 0,            // the garage's row
+  mouse: {x: -1, y: -1},
+  stick: {x: 0, y: 0},   // where the gamepad's stick was pushed to: -1, 0, 1
+}
+
+// garage: whether the player changed an option in the last call of
+// [garage] (so the game knows to rebuild the truck)
+m.changed = false
+
+// init(): the fonts (the HUD's are the same ones)
+func m.init(){
+  ui.init()
+}
+
+// unload(): the fonts given back (when the window closes)
+func m.unload(){
+  state.selected = {}
+  state.seen = {}
+  state.row = 0
+  ui.unload()
+}
+
+// ------------------------------------------------------------ input
+
+local func any_key(...keys){
+  for(let local k in values(keys)){
+    if(rl.key.pressed(k)){
+      return true
+    }
+  }
+  return false
+}
+
+local func pad(...buttons){
+  if(not rl.gamepad.available(0)){
+    return false
+  }
+  for(let local b in values(buttons)){
+    if(rl.gamepad.pressed(0, b)){
+      return true
+    }
+  }
+  return false
+}
+
+// the gamepad's left stick as steps: pushed past most of its way it
+// counts once, and again only after it came back
+local func stick(){
+  local out = {x: 0, y: 0}
+  if(not rl.gamepad.available(0)){
+    return out
+  }
+  local now = {
+    x: rl.gamepad.axis(0, rl.GAMEPAD_AXIS_LEFT_X),
+    y: rl.gamepad.axis(0, rl.GAMEPAD_AXIS_LEFT_Y),
+  }
+  for(let local axis in values({"x", "y"})){
+    local v = now[axis]
+    local was = state.stick[axis]
+    if(math.abs(v) < 0.3){
+      state.stick[axis] = 0
+    } else if(math.abs(v) > 0.6){
+      local way = if(v > 0){ 1 } else { -1 }
+      if(was != way){
+        out[axis] = way
+      }
+      state.stick[axis] = way
+    }
+  }
+  return out
+}
+
+// what the player did this frame, from the keyboard, the gamepad and the
+// mouse
+local func moves(){
+  ui.begin()
+  state.frame = state.frame + 1
+  local mouse = ui.mouse
+  local moved = mouse.x != state.mouse.x or mouse.y != state.mouse.y
+  state.mouse = mouse
+  local pushed = stick()
+  return {
+    up: any_key(rl.KEY_UP, rl.KEY_W) or pad(rl.GAMEPAD_BUTTON_LEFT_FACE_UP) or pushed.y < 0,
+    down: any_key(rl.KEY_DOWN, rl.KEY_S) or pad(rl.GAMEPAD_BUTTON_LEFT_FACE_DOWN) or pushed.y > 0,
+    left: any_key(rl.KEY_LEFT, rl.KEY_A) or pad(rl.GAMEPAD_BUTTON_LEFT_FACE_LEFT) or pushed.x < 0,
+    right: any_key(rl.KEY_RIGHT, rl.KEY_D) or pad(rl.GAMEPAD_BUTTON_LEFT_FACE_RIGHT) or pushed.x > 0,
+    accept: any_key(rl.KEY_ENTER, rl.KEY_KP_ENTER, rl.KEY_SPACE) or pad(rl.GAMEPAD_BUTTON_RIGHT_FACE_DOWN),
+    back: any_key(rl.KEY_ESCAPE, rl.KEY_BACKSPACE) or pad(rl.GAMEPAD_BUTTON_RIGHT_FACE_RIGHT),
+    start: pad(rl.GAMEPAD_BUTTON_MIDDLE_RIGHT),
+    moved: moved,
+    click: ui.click,
+  }
+}
+
+// whether a screen is shown for the first time after another was (its
+// bar then goes back to the first entry)
+local func opened(key){
+  local last = state.seen[key]
+  state.seen[key] = state.frame
+  return last == null or last < state.frame - 1
+}
+
+// ------------------------------------------------------------ parts
+
+// the game's mark: a trail that doubles back on itself up a slope, with
+// the place it leads to at its end
+local func mark(x, y, size, color){
+  local k = size / 60
+  local points = {}
+  for(let local p in values({
+    {0, 52}, {6, 50}, {44, 44}, {56, 36}, {46, 29}, {16, 27}, {5, 20}, {14, 13}, {40, 9}, {52, 3}, {55, 1},
+  })){
+    append(points, {x + p[0] * k, y + p[1] * k})
+  }
+  rl.draw.spline_catmull_rom(points, math.max(1.5, 3.2 * k), color)
+  rl.draw.circle_v({x + 54 * k, y + 2 * k}, 4.2 * k, colors.paper)
+}
+
+// a column of entries: the bar moves with the keys and follows the
+// mouse; returns the index of the entry chosen in this frame, or null.
+// align -1: from x on, 0: centered on x.
+local func column(key, entries, x, y, input, options){
+  options = options or {}
+  local s = ui.s
+  local size = options.size or 27
+  local step = (options.step or 46) * s
+  local align = options.align or -1
+  local count = len(entries)
+  local selected = state.selected[key] or 0
+  if(selected >= count){
+    selected = 0
+  }
+  if(input.down){
+    selected = (selected + 1) % count
+  }
+  if(input.up){
+    selected = (selected + count - 1) % count
+  }
+  local chosen = null
+  for(local i = 0; i < count; i = i + 1){
+    local w = ui.measure(entries[i], size)
+    local ex = if(align == 0){ x - w / 2 } else { x }
+    local ey = y + i * step
+    local over = ui.inside(ex - 18 * s, ey - 6 * s, w + 36 * s, step - 4 * s)
+    if(over and input.moved){
+      selected = i
+    }
+    if(over and input.click){
+      selected = i
+      chosen = i
+    }
+    if(i == selected){
+      if(align == 0){
+        rl.draw.rectangle_rec({ex - 20 * s, ey + size * s * 0.52, 8 * s, 2.5 * s}, colors.amber)
+        rl.draw.rectangle_rec({ex + w + 12 * s, ey + size * s * 0.52, 8 * s, 2.5 * s}, colors.amber)
+        ui.text(ex, ey, entries[i], size, colors.amber)
+      } else {
+        rl.draw.rectangle_rec({ex - 2 * s, ey + 3 * s, 3 * s, size * s * 0.94}, colors.amber)
+        ui.text(ex + 14 * s, ey, entries[i], size, colors.amber)
+      }
+    } else {
+      ui.text(ex, ey, entries[i], size, {242, 234, 216, 205})
+    }
+  }
+  if(input.accept){
+    chosen = selected
+  }
+  state.selected[key] = selected
+  return chosen
+}
+
+// a line of keys and what they do: {{keys}, text} one after another;
+// returns where it ended
+local func hints(x, y, list, size){
+  local s = ui.s
+  size = size or 12
+  for(let local hint in values(list)){
+    for(let local key in values(hint[0])){
+      x = x + ui.key_cap(x, y, key, size) + 4 * s
+    }
+    x = x + 3 * s
+    ui.text(x, y + size * 0.36 * s, hint[1], size, colors.dim)
+    x = x + ui.measure(hint[1], size) + 20 * s
+  }
+  return x
+}
+
+// a figure with its name over it
+local func stat(x, y, name, value, color){
+  ui.label(x, y, name, 9, colors.dim)
+  ui.text(x, y + 13 * ui.s, value, 19, color or colors.paper)
+  return math.max(ui.measure(value, 19), ui.measure(str.upper(name), 9, 0.14))
+}
+
+local func dim_scene(alpha){
+  rl.draw.rectangle(0, 0, to_int(ui.w) + 1, to_int(ui.h) + 1, {12, 14, 16, alpha or 150})
+}
+
+// ------------------------------------------------------------ the title
+
+// title(state: {seed?: int, best?: float, trail_length?: float})
+//   -> "drive" | "garage" | "seed" | "controls" | "quit" | null
+// The title over the valley (the scene shows through on the right): the
+// game's name, what there is to do, the valley's number, the length of
+// its trail, the best time on it, and the controls along the bottom.
+// Esc puts the bar on Quit, and quits from there.
+// [best]: seconds, or null when the trail has not been driven
+// [trail_length]: m
+func m.title(info){
+  info = info or {}
+  local input = moves()
+  local s = ui.s
+  local w = ui.w
+  local h = ui.h
+  // dark on the left, where the words are, and along the bottom
+  rl.draw.rectangle_gradient_h(0, 0, to_int(w * 0.68), to_int(h) + 1, {12, 14, 16, 232}, {12, 14, 16, 0})
+  rl.draw.rectangle_gradient_v(0, to_int(h - 150 * s), to_int(w) + 1, to_int(150 * s) + 1, {12, 14, 16, 0}, {12, 14, 16, 215})
+  local x = 76 * s
+  mark(x + 2 * s, 74 * s, 54 * s, colors.amber)
+  ui.text(x - 4 * s, 132 * s, "SWITCHBACK", 80, colors.paper, 0.07)
+  ui.label(x, 222 * s, "an off-road expedition", 12, colors.amber)
+  rl.draw.rectangle_rec({x, 250 * s, 44 * s, 1.5 * s}, colors.dim)
+
+  if(input.start){
+    input.accept = true
+  }
+  // (Esc puts the bar on Quit; there it quits)
+  local quit = false
+  if(input.back){
+    if(state.selected.title == 4){
+      quit = true
+    } else {
+      state.selected.title = 4
+    }
+  }
+  local chosen = column("title", {"Drive", "Garage", "New valley", "Controls", "Quit"}, x, 284 * s, input)
+
+  // the valley
+  local sy = h - 152 * s
+  local sx = x
+  sx = sx + stat(sx, sy, "valley", concat("No. ", string(info.seed or 0))) + 34 * s
+  if(info.trail_length != null){
+    sx = sx + stat(sx, sy, "trail", concat(str.format("%.1f", info.trail_length / 1000), " km")) + 34 * s
+  }
+  if(info.best != null){
+    stat(sx, sy, "best", ui.clock(info.best), colors.amber)
+  } else {
+    stat(sx, sy, "best", "not driven yet", colors.dim)
+  }
+  // the controls
+  hints(x, h - 58 * s, {
+    {{"W", "S"}, "drive, brake"}, {{"A", "D"}, "steer"}, {{"Space"}, "hand brake"}, {{"Q"}, "low range"},
+    {{"E"}, "diff locks"}, {{"F"}, "winch"}, {{"R"}, "recover"}, {{"C"}, "camera"}, {{"Esc"}, "pause"},
+  })
+  if(quit){
+    return "quit"
+  }
+  if(chosen != null){
+    local actions = {"drive", "garage", "seed", "controls", "quit"}
+    return actions[chosen]
+  }
+  return null
+}
+
+// ------------------------------------------------------------ the pause
+
+// pause() -> "resume" | "restart" | "garage" | "title" | "quit" | null
+// The game held: the scene dimmed, the choices in the middle. Esc (or
+// the gamepad's B or Start) resumes.
+func m.pause(){
+  local input = moves()
+  local s = ui.s
+  if(opened("pause")){
+    state.selected.pause = 0
+  }
+  dim_scene(150)
+  local entries = {"Resume", "Restart", "Garage", "Title", "Quit"}
+  local pw = 320 * s
+  local ph = (88 + len(entries) * 42) * s
+  local px = (ui.w - pw) / 2
+  local py = (ui.h - ph) / 2
+  ui.panel(px, py, pw, ph, {16, 18, 20, 225})
+  ui.label(ui.w / 2, py + 26 * s, "paused", 13, colors.amber, 0)
+  rl.draw.rectangle_rec({ui.w / 2 - 22 * s, py + 52 * s, 44 * s, 1.5 * s}, colors.dim)
+  local chosen = column("pause", entries, ui.w / 2, py + 74 * s, input, {align: 0, size: 24, step: 42})
+  if(input.back or input.start){
+    return "resume"
+  }
+  if(chosen != null){
+    local actions = {"resume", "restart", "garage", "title", "quit"}
+    return actions[chosen]
+  }
+  return null
+}
+
+// ------------------------------------------------------------ the result
+
+// finish(result: {time?: float, penalty?: float, splits?: {{name: string,
+//   time: float, best?: float}}, best?: float, new_best?: bool,
+//   recoveries?: int, damage?: float}) -> "again" | "title" | null
+// The run's result at the summit: the time (penalties included), the
+// best time or that this is it, the splits against the best run's, what
+// it cost in recoveries and damage.
+// [best]: the best time before this run, seconds
+func m.finish(result){
+  result = result or {}
+  local input = moves()
+  local s = ui.s
+  if(opened("finish")){
+    state.selected.finish = 0
+  }
+  if(input.start){
+    input.accept = true
+  }
+  dim_scene(165)
+  local splits = result.splits or {}
+  local rows = len(splits)
+  local pw = 560 * s
+  local ph = (312 + rows * 23) * s
+  local px = (ui.w - pw) / 2
+  local py = (ui.h - ph) / 2
+  local cx = ui.w / 2
+  ui.panel(px, py, pw, ph, {16, 18, 20, 230})
+  mark(cx - 20 * s, py + 20 * s, 40 * s, colors.amber)
+  ui.label(cx, py + 66 * s, "summit reached", 13, colors.amber, 0)
+  ui.text_center(cx, py + 84 * s, ui.clock(result.time or 0), 60, colors.paper, 0.04)
+  local y = py + 152 * s
+  if(result.new_best){
+    local bw = 96 * s
+    ui.pill(cx - bw / 2, y, bw, 20 * s, "new best", true)
+  } else if(result.best != null){
+    ui.label(cx, y + 4 * s, concat("best ", ui.clock(result.best)), 11, colors.dim, 0)
+  }
+  y = y + 30 * s
+  if((result.penalty or 0) > 0.05){
+    ui.label(cx, y - 4 * s, concat("with ", ui.clock(result.penalty, false), " of penalties"), 9, colors.red, 0)
+  }
+  y = y + 12 * s
+  rl.draw.rectangle_rec({px + 36 * s, y, pw - 72 * s, 1 * s}, colors.edge)
+  y = y + 12 * s
+  // the splits: name, time, against the best
+  for(let local split in values(splits)){
+    ui.label(px + 40 * s, y + 2 * s, split.name, 10, colors.dim)
+    ui.figures(px + pw - 150 * s, y, ui.clock(split.time), 13, colors.paper, 1)
+    if(split.best != null){
+      local d = split.time - split.best
+      ui.figures(px + pw - 40 * s, y, ui.delta(d), 13, if(d <= 0){ colors.green } else { colors.red }, 1)
+    }
+    y = y + 23 * s
+  }
+  y = y + 2 * s
+  rl.draw.rectangle_rec({px + 36 * s, y, pw - 72 * s, 1 * s}, colors.edge)
+  y = y + 12 * s
+  local recoveries = result.recoveries or 0
+  local damage = to_int((result.damage or 0) * 100 + 0.5)
+  ui.label(px + 40 * s, y, concat("recoveries ", string(recoveries)), 10, if(recoveries > 0){ colors.paper } else { colors.dim })
+  ui.label(px + pw - 40 * s, y, concat("damage ", string(damage), "%"), 10, if(damage > 0){ colors.paper } else { colors.dim }, 1)
+  // the two ways on, side by side
+  y = y + 30 * s
+  local entries = {"Drive again", "Title"}
+  local selected = state.selected.finish or 0
+  if(input.left or input.up){
+    selected = 0
+  }
+  if(input.right or input.down){
+    selected = 1
+  }
+  local chosen = null
+  for(local i = 0; i < 2; i = i + 1){
+    local w = ui.measure(entries[i], 22)
+    local ex = if(i == 0){ cx - 40 * s - w } else { cx + 40 * s }
+    local over = ui.inside(ex - 16 * s, y - 6 * s, w + 32 * s, 38 * s)
+    if(over and input.moved){
+      selected = i
+    }
+    if(over and input.click){
+      selected = i
+      chosen = i
+    }
+    if(i == selected){
+      rl.draw.rectangle_rec({ex, y + 28 * s, w, 2.5 * s}, colors.amber)
+      ui.text(ex, y, entries[i], 22, colors.amber)
+    } else {
+      ui.text(ex, y, entries[i], 22, {242, 234, 216, 205})
+    }
+  }
+  if(input.accept){
+    chosen = selected
+  }
+  state.selected.finish = selected
+  if(input.back){
+    return "title"
+  }
+  if(chosen != null){
+    local actions = {"again", "title"}
+    return actions[chosen]
+  }
+  return null
+}
+
+// ------------------------------------------------------------ the garage
+
+// garage(categories: {Category}) -> "back" | null
+// The truck's fittings on the left of the screen (the truck itself is
+// the game's to show, in the middle and on the right): a row for each
+// category with the option it has now. Up and down choose a row, left
+// and right (or a click on the arrows, or Enter) change its option:
+// `value` is changed in place, and [changed] says whether it was in this
+// call. Esc leaves.
+// type Category = {name: string, options: {string | Option}, value: int}
+// [value]: the index of the option it has, from 0
+// type Option = {name: string, color?: {int}, about?: string}
+// [color]: shown as a dab of paint before the name
+// [about]: a line on the option, shown under the rows while its row is
+//   chosen
+func m.garage(categories){
+  local input = moves()
+  local s = ui.s
+  m.changed = false
+  local count = len(categories)
+  // (rows as high as there is room for)
+  local row_h = math.max(30, math.min(48, (ui.h / s - 72 - 186) / math.max(1, count))) * s
+  local pw = 384 * s
+  local ph = 186 * s + count * row_h
+  local px = 40 * s
+  local py = math.max(16 * s, (ui.h - ph) / 2)
+  ui.panel(px, py, pw, ph, {16, 18, 20, 215})
+  ui.text(px + 28 * s, py + 20 * s, "Garage", 34, colors.paper)
+  ui.label(px + 30 * s, py + 62 * s, "fit out the truck", 10, colors.amber)
+  local row = state.row
+  if(opened("garage") or row >= count){
+    row = 0
+  }
+  if(input.down and count > 0){
+    row = (row + 1) % count
+  }
+  if(input.up and count > 0){
+    row = (row + count - 1) % count
+  }
+  local about = null
+  local y = py + 92 * s
+  for(local i = 0; i < count; i = i + 1){
+    local category = categories[i]
+    local options = category.options or {}
+    local n = math.max(1, len(options))
+    local over = ui.inside(px + 8 * s, y, pw - 16 * s, row_h - 2 * s)
+    if(over and input.moved){
+      row = i
+    }
+    local step = 0
+    // the arrows at the row's right end
+    local ax = px + pw - 76 * s
+    local ay = y + row_h / 2
+    local over_left = ui.inside(ax - 12 * s, y, 28 * s, row_h)
+    local over_right = ui.inside(ax + 28 * s, y, 32 * s, row_h)
+    if(over and input.click){
+      row = i
+      step = if(over_left){ -1 } else { 1 }
+    }
+    if(i == row){
+      if(input.left){
+        step = -1
+      }
+      if(input.right or input.accept){
+        step = 1
+      }
+      rl.draw.rectangle_rounded({px + 10 * s, y + 1 * s, pw - 20 * s, row_h - 4 * s}, 0.3, 6, {242, 234, 216, 20})
+      rl.draw.rectangle_rec({px + 10 * s, y + 9 * s, 3 * s, row_h - 20 * s}, colors.amber)
+    }
+    if(step != 0 and len(options) > 1){
+      category.value = ((category.value or 0) + step + n) % n
+      m.changed = true
+    }
+    local value = category.value or 0
+    local option = options[value]
+    local name = "-"
+    local dab = null
+    if(type(option) == "string"){
+      name = option
+    } else if(option != null){
+      name = option.name or "-"
+      dab = option.color
+      if(i == row){
+        about = option.about
+      }
+    }
+    local mid = y + row_h / 2
+    ui.label(px + 30 * s, mid - 17 * s, category.name, 9, colors.dim)
+    local nx = px + 30 * s
+    if(dab != null){
+      rl.draw.circle_v({nx + 7 * s, mid + 7 * s}, 7 * s, {dab[0], dab[1], dab[2], 255})
+      rl.draw.ring({nx + 7 * s, mid + 7 * s}, 7 * s, 8 * s, 0, 360, 24, colors.dim)
+      nx = nx + 23 * s
+    }
+    ui.text(nx, mid - 4 * s, name, 18, if(i == row){ colors.amber } else { colors.paper })
+    local arrow = if(i == row){ colors.paper } else { colors.faint }
+    rl.draw.triangle({ax - 4 * s, ay}, {ax + 4 * s, ay + 6 * s}, {ax + 4 * s, ay - 6 * s},
+      if(over_left and over){ colors.amber } else { arrow })
+    rl.draw.triangle({ax + 48 * s, ay}, {ax + 40 * s, ay - 6 * s}, {ax + 40 * s, ay + 6 * s},
+      if(over_right and over){ colors.amber } else { arrow })
+    ui.figures(ax + 22 * s, ay - 6 * s, concat(string(value + 1), "/", string(n)), 10, colors.dim, 0)
+    y = y + row_h
+  }
+  state.row = row
+  if(about != null){
+    ui.text(px + 30 * s, y + 10 * s, about, 12, colors.dim)
+  }
+  hints(px + 28 * s, py + ph - 42 * s, {{{"up", "down"}, "choose"}, {{"left", "right"}, "change"}, {{"Esc"}, "done"}}, 11)
+  if(input.back){
+    return "back"
+  }
+  return null
+}
+
+// ------------------------------------------------------------ controls
+
+local keyboard = {
+  {{"W", "S"}, "drive, brake and reverse"},
+  {{"A", "D"}, "steer"},
+  {{"Space"}, "hand brake"},
+  {{"Q"}, "low range"},
+  {{"E"}, "differential locks: off, rear, both"},
+  {{"F"}, "winch: hook to a tree ahead, release"},
+  {{"R"}, "hold: recover onto the trail"},
+  {{"C"}, "camera"},
+  {{"Mouse"}, "look around"},
+  {{"Esc"}, "pause"},
+}
+
+local gamepad = {
+  {{"RT"}, "drive"},
+  {{"LT"}, "brake and reverse"},
+  {{"L stick"}, "steer"},
+  {{"A"}, "hand brake"},
+  {{"X"}, "low range"},
+  {{"Y"}, "differential locks"},
+  {{"D-pad up"}, "winch"},
+  {{"B"}, "hold: recover onto the trail"},
+  {{"R stick"}, "look around"},
+  {{"Start"}, "pause"},
+}
+
+// controls() -> "back" | null
+// What the keys and the gamepad do. Any of Esc, Enter or a click leaves.
+func m.controls(){
+  local input = moves()
+  local s = ui.s
+  dim_scene(165)
+  local pw = 800 * s
+  local ph = (140 + len(keyboard) * 34) * s
+  local px = (ui.w - pw) / 2
+  local py = (ui.h - ph) / 2
+  ui.panel(px, py, pw, ph, {16, 18, 20, 230})
+  ui.text(px + 40 * s, py + 24 * s, "Controls", 32, colors.paper)
+  local sides = {{"keyboard", keyboard, px + 40 * s}, {"gamepad", gamepad, px + pw / 2 + 20 * s}}
+  for(let local side in values(sides)){
+    local x = side[2]
+    local y = py + 84 * s
+    ui.label(x, y, side[0], 10, colors.amber)
+    y = y + 24 * s
+    for(let local line in values(side[1])){
+      local kx = x
+      for(let local key in values(line[0])){
+        kx = kx + ui.key_cap(kx, y, key, 12) + 4 * s
+      }
+      ui.text(x + 92 * s, y + 4 * s, line[1], 14, colors.paper)
+      y = y + 34 * s
+    }
+  }
+  ui.label(px + pw - 40 * s, py + ph - 30 * s, "esc: back", 9, colors.dim, 1)
+  if(input.back or input.accept or (input.click and not ui.inside(px, py, pw, ph))){
+    return "back"
+  }
+  return null
+}
+
+// ------------------------------------------------------------ loading
+
+// loading(progress: float, text?: string)
+// The screen while a valley is made: the game's mark and name, a bar
+// filled by progress (0 to 1) and a word on what is being made.
+func m.loading(progress, text){
+  ui.begin()
+  local s = ui.s
+  local cx = ui.w / 2
+  local cy = ui.h / 2
+  // (a rectangle, not a clearing: it covers what was drawn before it in
+  // the frame)
+  rl.draw.rectangle(0, 0, to_int(ui.w) + 1, to_int(ui.h) + 1, {16, 18, 20, 255})
+  mark(cx - 27 * s, cy - 118 * s, 54 * s, colors.amber)
+  local name = "SWITCHBACK"
+  ui.text(cx - ui.measure(name, 44, 0.09) / 2, cy - 54 * s, name, 44, colors.paper, 0.09)
+  local bw = 340 * s
+  ui.bar(cx - bw / 2, cy + 22 * s, bw, 3 * s, math.max(0, math.min(1, progress or 0)), colors.amber)
+  if(text != null){
+    ui.label(cx, cy + 38 * s, text, 10, colors.dim, 0)
+  }
+}
+
+return m

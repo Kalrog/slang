@@ -593,6 +593,10 @@ local made = {
     "The block draws blending with mode (rl.BLEND_ADDITIVE, ...)"
   },
   {
+    "m", "depth_mask", "write, block", "depth_mask(write: bool, block)",
+    "With write false the block draws without writing depths: for what is seen through (smoke, glass), drawn after everything solid"
+  },
+  {
     "m",
     "scissor_mode",
     "x, y, width, height, block",

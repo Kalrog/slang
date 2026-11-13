@@ -1,0 +1,8 @@
+{
+  name: "prolog_example",
+  extensions: {
+    "extensions/inline_test",
+  },
+  // the modules here, and the repository root for extensions/inline_test
+  search_paths: {".", "../.."},
+}

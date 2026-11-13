@@ -12,11 +12,13 @@ local math = require("slang/math")
 local jolt = require("jolt")
 local vec = require("game/vec")
 local city = require("game/city")
+local designs = require("game/designs")
 
 local m = {}
 
-m.BODIES = 220           // the pool of bodies for the cars near the player
+m.BODIES = 260           // the pools of bodies for the cars near the player (all classes)
 m.NEAR = 100             // how near the player a car gets a body
+// a standard car's box (game/designs has the others: car.half)
 m.HALF_WIDTH = 1.25
 m.HALF_HEIGHT = 0.85
 m.HALF_LENGTH = 2.3
@@ -34,6 +36,8 @@ local palettes = {
   {{40, 90, 120}, {220, 236, 255}, {0, 220, 255}},
   {{120, 124, 136}, {255, 236, 200}, {255, 50, 170}},
 }
+
+m.PALETTES = palettes
 
 // where along the lane a start s0 is at a time: wrapped into -limit..limit
 local func along(lane, s0, time, limit){
@@ -83,9 +87,15 @@ func m.new(c, phys, seed, count){
   for(let local lane in values(t.lanes)){
     local n = to_int(per * rng:range(0.5, 1.5))
     for(local i = 0; i < n; i = i + 1){
-      local palette = rng:pick(palettes)
+      local pi = rng:int(len(palettes))
+      local palette = palettes[pi]
+      local design = designs.pick(rng)
       local car = {
         id: len(t.cars),
+        design: design,
+        palette: pi,
+        class: designs.TRAFFIC[design].class,
+        half: designs.half(designs.TRAFFIC[design]),
         lane: lane,
         s0: -limit + (i + rng:range(0.15, 0.85)) * 2 * limit / n,
         color: palette[0],
@@ -100,17 +110,25 @@ func m.new(c, phys, seed, count){
       append(t.cars, car)
     }
   }
-  // the pool of bodies, parked under the city
+  // a pool of bodies for each size class, parked under the city; the
+  // pool is all of them, each slot knowing its class
   if(phys != null){
-    local shape = jolt.box({m.HALF_WIDTH, m.HALF_HEIGHT, m.HALF_LENGTH}, {density: 120})
-    for(local i = 0; i < m.BODIES; i = i + 1){
-      local body = phys.jw:create_body({
-        shape: shape, position: {0, -60 - i * 3, 0}, motion: "kinematic", friction: 0.2,
-        allow_dynamic_or_kinematic: true, gravity_factor: 0,
-      })
-      local slot = {body: body, car: null}
-      phys.by_id[body.id] = {traffic: slot}
-      append(t.pool, slot)
+    local i = 0
+    for(let local name in values(designs.CLASS_ORDER)){
+      local class = designs.CLASSES[name]
+      local h = class.half
+      local shape = jolt.box({h.x, h.y, h.z}, {density: 120})
+      local count = math.max(16, to_int(m.BODIES * class.weight + 0.5))
+      for(local k = 0; k < count; k = k + 1){
+        local body = phys.jw:create_body({
+          shape: shape, position: {0, -60 - i * 7, 0}, motion: "kinematic", friction: 0.2,
+          allow_dynamic_or_kinematic: true, gravity_factor: 0,
+        })
+        local slot = {body: body, car: null, class: name}
+        phys.by_id[body.id] = {traffic: slot}
+        append(t.pool, slot)
+        i = i + 1
+      }
     }
   }
   return t
@@ -204,15 +222,17 @@ func m.step(t, dt, time, focus){
       }
     }
   }
-  local free = 0
+  local free = {}
   for(let local car in values(near)){
     if(car.body == null){
-      // a free slot
-      for(free < len(t.pool) and t.pool[free].car != null){
-        free = free + 1
+      // a free slot of its class
+      local k = free[car.class] or 0
+      for(k < len(t.pool) and (t.pool[k].car != null or t.pool[k].class != car.class)){
+        k = k + 1
       }
-      if(free < len(t.pool)){
-        local slot = t.pool[free]
+      free[car.class] = k
+      if(k < len(t.pool)){
+        local slot = t.pool[k]
         slot.car = car
         car.body = slot.body
         slot.body:set_position_rotation_and_velocity(car.pos, car.lane.q, car.vel, {0, 0, 0})
@@ -222,6 +242,7 @@ func m.step(t, dt, time, focus){
     }
   }
   t.near = near
+  t.focus = focus
   // the wrecks tumble on their own; after a while they are taken away
   // and the car is back on its lane, wherever that has carried it
   local kept = {}

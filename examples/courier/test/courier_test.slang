@@ -275,6 +275,102 @@ t.group("car"){
     assert(w.car.mode == "fly")
     world.destroy(w)
   }
+  // a pyramid on a roof (game/city: a solid), and the face of it that
+  // slopes most toward +x
+  local func pyramid(w){
+    for(let local b in values(w.city.boxes)){
+      if(b.solid != null and b.crown and b.kind == city.ROOF and b.y1 - b.y0 > 8 and
+        b.solid.top[0].x == b.solid.top[1].x and b.solid.top[0].x == b.solid.top[2].x){
+        local face = null
+        for(let local f in values(city.solid_faces(b.solid))){
+          if(f.n.y > 0.2 and f.n.y < 0.95 and (face == null or f.n.x > face.n.x)){
+            face = f
+          }
+        }
+        return {box: b, face: face}
+      }
+    }
+    return null
+  }
+  t.test("a sloped roof collides where it slopes, not at its bounds"){
+    local w = world.new({seed: 3, level: 3, traffic: 0, flyers: 0})
+    local p = pyramid(w)
+    assert(p != null)
+    local b = p.box
+    // over a corner of its bounds: the slope there is near its foot
+    local from = {x: b.x0 + 0.8, y: b.y1 + 5, z: b.z0 + 0.8}
+    local down = b.y1 - b.y0 + 10
+    local hit = w.phys.jw:cast_ray(from, {0, -down, 0})
+    assert(hit != null)
+    local y = from.y - down * hit.fraction
+    assert(y < b.y0 + (b.y1 - b.y0) * 0.3, y - b.y0)
+    world.destroy(w)
+  }
+  t.test("the magnet holds the car on a slope, belly to it"){
+    local w = world.new({seed: 3, level: 3, traffic: 0, flyers: 0})
+    local p = pyramid(w)
+    local f = p.face
+    local c = {x: 0, y: 0, z: 0}
+    for(let local q in values(f.points)){
+      c = vec.add(c, q)
+    }
+    c = vec.scale(c, 1 / len(f.points))
+    local up = f.n
+    local forward = vec.normalize(vec.cross({x: 0, y: 1, z: 0}, up))
+    local q = vec.quat_look(forward, up)
+    local pos = vec.add_scaled(c, up, car_lib.CLEARANCE + 0.6)
+    w.car.pos = pos
+    w.car.q = q
+    w.car.body:set_position_rotation_and_velocity(pos, q, {0, 0, 0}, {0, 0, 0})
+    local mag = idle()
+    mag.magnet = true
+    run(w, mag, 90)
+    assert(w.car.mode == "stick" and w.car.stick.box == p.box, w.car.mode)
+    assert(vec.dot(w.car.stick.normal, f.n) > 0.999)
+    // it stays on the face, the clearance off it
+    local d = vec.dot(f.n, w.car.pos) - f.d
+    assert(math.abs(d - car_lib.CLEARANCE) < 0.4, d)
+    world.destroy(w)
+  }
+  t.test("a hole goes through its tier: the air down its middle is clear, the walls round it solid"){
+    local w = world.new({seed: 3, level: 3, traffic: 0, flyers: 0})
+    local found = 0
+    for(let local block in values(w.city.blocks)){
+      for(let local tw in values(block.towers)){
+        for(let local tier in values(tw)){
+          local h = tier.hole
+          if(h != null){
+            found = found + 1
+            local u = (h.u0 + h.u1) / 2
+            local v = (h.v0 + h.v1) / 2
+            local from = null
+            local dir = null
+            local len = 0
+            if(h.axis == "x"){
+              from = {x: tier.x0 - 3, y: v, z: u}
+              len = tier.x1 - tier.x0 + 6
+              dir = {len, 0, 0}
+            } else {
+              from = {x: u, y: v, z: tier.z0 - 3}
+              len = tier.z1 - tier.z0 + 6
+              dir = {0, 0, len}
+            }
+            // (a twin's middle is its pillar: down one of the two)
+            if(h.shape == "twin"){
+              local off = (h.u1 - h.u0) / 4 + 0.5
+              if(h.axis == "x"){ from.z = from.z - off } else { from.x = from.x - off }
+            }
+            assert(w.phys.jw:cast_ray(from, dir) == null, h.shape)
+            // and over it, the wall
+            local above = {x: from.x, y: h.v1 + 2, z: from.z}
+            assert(w.phys.jw:cast_ray(above, dir) != null, h.shape)
+          }
+        }
+      }
+    }
+    assert(found > 3, found)
+    world.destroy(w)
+  }
   t.test("a crash costs hull and is reported"){
     local w = world.new({seed: 3, traffic: 0})
     local wall = null
@@ -339,6 +435,25 @@ t.group("car"){
 }
 
 t.group("traffic"){
+  t.test("every car has a design, its class's box, and a body of that size near the player"){
+    local w = world.new({seed: 5, level: 2})
+    local classes = {}
+    for(let local car in values(w.traffic.cars)){
+      assert(car.design != null and car.half != null)
+      classes[car.class] = true
+    }
+    // all the classes come up in a city's worth of cars
+    for(let local name in values(require("game/designs").CLASS_ORDER)){
+      assert(classes[name], name)
+    }
+    run(w, idle(), 5)
+    for(let local slot in values(w.traffic.pool)){
+      if(slot.car != null){
+        assert(slot.class == slot.car.class)
+      }
+    }
+    world.destroy(w)
+  }
   t.test("a car's position follows its lane and wraps at the edge"){
     local w = world.new({seed: 3, traffic: 300})
     local t = w.traffic
@@ -667,17 +782,25 @@ t.group("autopilot"){
     local y = n.bands[2]
     local z = n.lines[3]
     local near = 0
-    for(local i = 0; i < 60 * 30; i = i + 1){
+    local caught = null
+    local frames = 60 * 30
+    for(local i = 0; i < frames; i = i + 1){
       local goal = {x: n.lines[1] + i / 60 * 12, y: y, z: z}
       local input = bot.drive(w, w.car, p, goal, dt, {land: false})
       world.step(w, input, dt)
       assert(w.state == "play")
       if(vec.distance(w.car.pos, goal) < 25){
         near = near + 1
+        if(caught == null){
+          caught = i
+        }
       }
     }
-    // most of the time near it, once caught up
-    assert(near > 60 * 15, near)
+    // caught up within 20 s (the route depends on the city's shapes), and
+    // near it most of the time after (arriving fast it may overshoot once:
+    // the autopilot does not match a moving goal's speed)
+    assert(caught != null and caught < 60 * 20, caught)
+    assert(near > (frames - caught) * 0.6, near)
     world.destroy(w)
   }
 }

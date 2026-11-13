@@ -46,13 +46,14 @@ func m.new(){
 
 // gap(car, t): the air between the car's hull and a traffic car's
 func m.gap(car, t){
-  local hx = traffic_lib.HALF_WIDTH
-  local hz = traffic_lib.HALF_LENGTH
+  local th = t.half or {x: traffic_lib.HALF_WIDTH, y: traffic_lib.HALF_HEIGHT, z: traffic_lib.HALF_LENGTH}
+  local hx = th.x
+  local hz = th.z
   if(t.lane.axis == "x"){
-    hx = traffic_lib.HALF_LENGTH
-    hz = traffic_lib.HALF_WIDTH
+    hx = th.z
+    hz = th.x
   }
-  local hy = traffic_lib.HALF_HEIGHT
+  local hy = th.y
   local d = vec.sub(car.pos, t.pos)
   // from the nearest point of the traffic car's box to the car's center
   local out = {
@@ -168,7 +169,7 @@ func m.touch(s, t){
 // chain's clock (held while skimming)
 func m.step(s, w, dt){
   local car = w.car
-  local reach = m.ZONE + traffic_lib.HALF_LENGTH + car_lib.HALF.z
+  local reach = m.ZONE + 5.2 + car_lib.HALF.z
   local seen = {}
   for(let local t in values(w.traffic.near)){
     if(not t.wrecked and t.pos != null and vec.distance(t.pos, car.pos) < reach){

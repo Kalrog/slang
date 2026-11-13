@@ -48,7 +48,7 @@ local runtime_block = +{block:
     for(let local c in values(self.clauses)){
       if(n <= c.n or c.rest){
         local r = c.f(args)
-        if(r != __def.no_match){
+        if(not same(r, __def.no_match)){
           return r
         }
       }
@@ -181,6 +181,13 @@ local func clause_function(params, rest_name, guard, body, token){
       thenBranch: no_match_return(token),
     }, token))
   }
+  // append(statements, +{
+  //   print(
+  //     "picked function:",
+  //     -{ast.node("String", {value: ast.to_source(pattern)})},
+  //     "\n",
+  //   )
+  // })
   for(let local s in values(body.statements)){
     append(statements, s)
   }

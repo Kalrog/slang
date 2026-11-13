@@ -1,0 +1,10 @@
+{
+  name: "granular",
+  dependencies: {
+    raylib: {path: "../../packages/raylib"},
+    kernel: {path: "../../packages/kernel"},
+    microphone: {path: "../../packages/microphone"},
+    midi: {path: "../../packages/midi"},
+  },
+  search_paths: {"."},
+}

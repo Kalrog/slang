@@ -205,9 +205,11 @@ local func resolve_rule(ref){
     ref.target = target
   }
   if(target == null){
-    raise(error.new(error.kinds.not_found,
+    raise(error.new(
+      error.kinds.not_found,
       concat("grammar rule ", ref.rule_name, " is not defined"),
-      {rule: ref.rule_name}))
+      {rule: ref.rule_name},
+    ))
   }
   return target
 }
@@ -459,13 +461,18 @@ func methods.modify(g, name, f){
   check_changes(g, "modify")
   local entry = g.rule_table[name]
   if(entry == null){
-    raise(error.new(error.kinds.not_found,
-      concat("grammar rule ", name, " is not defined"), {rule: name}))
+    raise(error.new(
+      error.kinds.not_found,
+      concat("grammar rule ", name, " is not defined"),
+      {rule: name},
+    ))
   }
   if(entry.protected){
-    raise(error.new(error.kinds.argument,
+    raise(error.new(
+      error.kinds.argument,
       concat("grammar rule ", name, " is protected and cannot be modified"),
-      {rule: name}))
+      {rule: name},
+    ))
   }
   local owner = g.state.owner
   if(len(entry.history) > 0 and g.state.opts.warn != null){
@@ -494,8 +501,10 @@ func methods.modify(g, name, f){
   append(entry.bases, old)
   local new = f(old)
   if(not peg.is_parser(new)){
-    raise(error.new(error.kinds.argument,
-      concat("modify(", name, ") must return a parser")))
+    raise(error.new(
+      error.kinds.argument,
+      concat("modify(", name, ") must return a parser"),
+    ))
   }
   if(g.state.opts.warn != null){
     check_shape(g, name, old, new)
@@ -576,9 +585,9 @@ func methods.with_owner(g, owner, f){
   local lin = g.state
   local outer = lin.owner
   lin.owner = owner
-  local r = try { {ok: true, value: f()} } catch(local e) {
-    {ok: false, error: e}
-  }
+  local r = try { {ok: true, value: f()} } catch(local e) { {
+    ok: false, error: e
+  } }
   lin.owner = outer
   if(not r.ok){
     raise(r.error)
@@ -683,8 +692,10 @@ local not_name = regex.compile("[^a-zA-Z0-9_]")
 func methods.unit_local(g, key, expr){
   local locals = g.state.unit_locals
   if(locals == null){
-    raise(error.new(error.kinds.state,
-      "unit_local is only available while a unit is being parsed"))
+    raise(error.new(
+      error.kinds.state,
+      "unit_local is only available while a unit is being parsed",
+    ))
   }
   local name = locals.names[key]
   local token = expr.token
@@ -732,8 +743,10 @@ func methods.uniq_id(g){
 local func decode_statement(value){
   local node = ast.decode(value)
   if(not ast.is_statement(node)){
-    raise(error.new(error.kinds.argument,
-      concat("expected a statement, got ", node)))
+    raise(error.new(
+      error.kinds.argument,
+      concat("expected a statement, got ", node),
+    ))
   }
   return node
 }
@@ -1053,7 +1066,9 @@ local func generated_target(g, name, module){
 local func generate_parsers(g){
   local lin = g.state
   g.generation_tried = true
-  if(pegc_debug == null){ pegc_debug = require("slang/os").getenv("SLANG_PEGC_DEBUG") != null }
+  if(pegc_debug == null){
+    pegc_debug = require("slang/os").getenv("SLANG_PEGC_DEBUG") != null
+  }
   if(pegc == null){
     pegc = require("slang/pegc")
   }
@@ -1069,9 +1084,18 @@ local func generate_parsers(g){
         if(pegc_debug){
           // the source that did not compile, for a look
           local os = require("slang/os")
-          local path = concat(os.getenv("TMPDIR") or "/tmp", "/pegc-failed-", string(lin.unit_counter), ".slang")
-          try { os.write_file(path, made.source) } catch {}
-          os.write_stderr(concat("pegc: the generated source is in ", path, "\n"))
+          local path = concat(
+            os.getenv("TMPDIR") or "/tmp",
+            "/pegc-failed-",
+            string(lin.unit_counter),
+            ".slang",
+          )
+          try {
+            os.write_file(path, made.source)
+          } catch {}
+          os.write_stderr(
+            concat("pegc: the generated source is in ", path, "\n"),
+          )
         }
         raise(e)
       }
@@ -1090,8 +1114,12 @@ local func generate_parsers(g){
   if(failure == null){
     g.generated = generated
   } else {
-    local message = concat("the grammar's parsers were not generated: ", failure.message)
-    if(lin.opts.pegc == "always" or require("slang/os").getenv("SLANG_PEGC_DEBUG") != null){
+    local message = concat(
+      "the grammar's parsers were not generated: ",
+      failure.message,
+    )
+    if(lin.opts.pegc == "always" or
+      require("slang/os").getenv("SLANG_PEGC_DEBUG") != null){
       // asked for explicitly: say what went wrong
       require("slang/os").write_stderr(concat("pegc: ", message, "\n"))
     } else if(lin.opts.warn != null){
@@ -1104,19 +1132,41 @@ local func generate_parsers(g){
 // whether to generate now, before parsing source (tree: a tree parse)
 local func maybe_generate(g, source, tree){
   local lin = g.state
-  if(pegc_debug == null){ pegc_debug = require("slang/os").getenv("SLANG_PEGC_DEBUG") != null }
-  if(not g.generate or g.generated != null or g.generation_tried or lin.opts.pegc == "off"){
+  if(pegc_debug == null){
+    pegc_debug = require("slang/os").getenv("SLANG_PEGC_DEBUG") != null
+  }
+  if(not g.generate or g.generated != null or g.generation_tried or
+    lin.opts.pegc == "off"){
     if(pegc_debug and g.generate and g.generated == null){
-      require("slang/os").write_stderr(concat("pegc: not generating: tried ", string(g.generation_tried), " mode ", lin.opts.pegc, " dirty ", string(g.dirty), "\n"))
+      require(
+        "slang/os",
+      ).write_stderr(concat(
+        "pegc: not generating: tried ", string(g.generation_tried), " mode ",
+        lin.opts.pegc, " dirty ", string(g.dirty), "\n"
+      ))
     }
     return
   }
   lin.parsed_bytes = lin.parsed_bytes + len(source)
-  if(tree or lin.opts.pegc == "always" or lin.parsed_bytes > generation_threshold){
-    if(pegc_debug){ require("slang/os").write_stderr(concat("pegc: generating (dirty ", string(g.dirty), ", bytes ", string(lin.parsed_bytes), ")\n")) }
+  if(tree or lin.opts.pegc == "always" or
+    lin.parsed_bytes > generation_threshold){
+    if(pegc_debug){
+      require(
+        "slang/os",
+      ).write_stderr(concat(
+        "pegc: generating (dirty ", string(g.dirty), ", bytes ",
+        string(lin.parsed_bytes), ")\n"
+      ))
+    }
     g:activate()
     generate_parsers(g)
-    if(pegc_debug){ require("slang/os").write_stderr(concat("pegc: generated ", string(g.generated != null), "\n")) }
+    if(pegc_debug){
+      require(
+        "slang/os",
+      ).write_stderr(concat(
+        "pegc: generated ", string(g.generated != null), "\n"
+      ))
+    }
   }
 }
 
@@ -1126,8 +1176,10 @@ local func build_rule(g, entry){
   for(let local w in values(entry.wrappers)){
     p = w(p)
     if(not peg.is_parser(p)){
-      raise(error.new(error.kinds.argument,
-        concat("modify(", entry.name, ") must return a parser")))
+      raise(error.new(
+        error.kinds.argument,
+        concat("modify(", entry.name, ") must return a parser"),
+      ))
     }
   }
   return p
@@ -1415,8 +1467,10 @@ local func install_core(g){
     if(peg.is_parser(source)){
       return source:flatten(name):token(category or name):trim(space)
     }
-    raise(error.new(error.kinds.argument,
-      concat("Invalid token source: ", source)))
+    raise(error.new(
+      error.kinds.argument,
+      concat("Invalid token source: ", source),
+    ))
   }
 
   local func tok(s, category){
@@ -1543,9 +1597,9 @@ local func install_core(g){
     "string_literal",
     peg.choice(rule("multiline_string"), rule("double_quoted_string"))
       :map(func(t){
-        local value = try { ast.resolve_escapes(t.value) } catch(local e) {
-          g:error_at(t, e.message)
-        }
+        local value = try { ast.resolve_escapes(
+          t.value,
+        ) } catch(local e) { g:error_at(t, e.message) }
         return ast.node("String", {value: value}, t)
       }),
   )
@@ -1558,25 +1612,24 @@ local func install_core(g){
   local char_escape = peg.seq(peg.char("\\"), peg.choice(
     peg.seq(peg.char("u"), peg.char("{"), hex:plus(), peg.char("}")),
     peg.seq(peg.char("x"), hex, hex),
-    peg.pattern("nrtbfv"), peg.char("\\"), peg.char("'"), peg.char("\""),
+    peg.pattern("nrtbfv"),
+    peg.char("\\"),
+    peg.char("'"),
+    peg.char("\""),
   ))
-  local char_body = peg.choice(
-    char_escape,
-    peg.seq(
-      peg.choice(peg.char("'"), peg.char("\\"), peg.char("\n")):forbid(),
-      peg.any(),
-    ),
-  )
+  local char_body = peg.choice(char_escape, peg.seq(
+    peg.choice(peg.char("'"), peg.char("\\"), peg.char("\n")):forbid(),
+    peg.any(),
+  ))
   define("char_literal", token(
     peg.seq(peg.char("'"), char_body, peg.char("'"), number_end),
-    "char", "string",
+    "char",
+    "string",
   ):map(func(t){
     local text = str.trim(t.value)
-    local s = try {
-      ast.resolve_escapes(str.substring(text, 1, len(text) - 1))
-    } catch(local e) {
-      g:error_at(t, e.message)
-    }
+    local s = try { ast.resolve_escapes(
+      str.substring(text, 1, len(text) - 1),
+    ) } catch(local e) { g:error_at(t, e.message) }
     // (one byte: ASCII or a \x escape; else the code point of the UTF-8)
     local v = str.byte_at(s, 0)
     if(len(s) > 1){
@@ -1638,24 +1691,30 @@ local func install_core(g){
   // ------------------------------------------------------------ tables
 
   // field: name: value | [key]: value | @meta: value | value
-  define("field", peg.choice(rule("spread"), peg.seq(
-    ftok("@meta", null, "none", "keyword"), ftok(":", "none", "space"), rule("expr"),
-  ):token():map(func(t){
-    return ast.node("MetaField", {value: t.value[2]}, t)
-  }), peg.seq(peg.choice(
-    peg.seq(rule("name"), ftok(":", "none", "space")):pick(0):map(func(n){
-      return ast.node("String", {value: n.value}, n.token)
-    }),
+  define("field", peg.choice(
+    rule("spread"),
     peg.seq(
-      ftok("[", null, "none"),
-      rule("expr"),
-      ftok("]", "none", "none"),
+      ftok("@meta", null, "none", "keyword"),
       ftok(":", "none", "space"),
-    ):pick(1),
-  ):optional(), rule("expr")):token():map(func(t){
-    local key = t.value[0]
-    return ast.node("Field", {key: key, value: t.value[1]}, t)
-  })))
+      rule("expr"),
+    ):token():map(func(t){
+      return ast.node("MetaField", {value: t.value[2]}, t)
+    }),
+    peg.seq(peg.choice(
+      peg.seq(rule("name"), ftok(":", "none", "space")):pick(0):map(func(n){
+        return ast.node("String", {value: n.value}, n.token)
+      }),
+      peg.seq(
+        ftok("[", null, "none"),
+        rule("expr"),
+        ftok("]", "none", "none"),
+        ftok(":", "none", "space"),
+      ):pick(1),
+    ):optional(), rule("expr")):token():map(func(t){
+      local key = t.value[0]
+      return ast.node("Field", {key: key, value: t.value[1]}, t)
+    }),
+  ))
 
   // a table that is the last argument of a call may hug it: f(x, {
   define(
@@ -1879,17 +1938,11 @@ local func install_core(g){
       ftok("{", null, "space"),
       rule("expr"),
       ftok("}", "space", "space"),
-      peg.seq(
-        ftok("catch", "space"),
-        peg.seq(
-          ftok("(", "none", "none"),
-          rule("slang_pattern"),
-          ftok(")", "none", "space"),
-        ):pick(1):optional(),
-        ftok("{", null, "space"),
-        rule("expr"),
-        ftok("}", "space"),
-      ):map(func(v){
+      peg.seq(ftok("catch", "space"), peg.seq(
+        ftok("(", "none", "none"),
+        rule("slang_pattern"),
+        ftok(")", "none", "space"),
+      ):pick(1):optional(), ftok("{", null, "space"), rule("expr"), ftok("}", "space")):map(func(v){
         return ast.node("Catch", {pattern: v[1], body: v[3]}, v[0])
       }):plus(),
     )
@@ -1983,41 +2036,34 @@ local func install_core(g){
   // for(let PATTERN in iterator): the iterator is called until it returns
   // stop; an element that does not match the pattern raises, as `let`
   // does. for(let? PATTERN in iterator) skips such elements instead.
-  define("for_in_loop", peg.seq(
-    ftok("for", null, "none"),
-    ftok("(", "none", "none"),
-    peg.choice(
+  define(
+    "for_in_loop",
+    peg.seq(ftok("for", null, "none"), ftok("(", "none", "none"), peg.choice(
       ftok("let?", "none", "space", "keyword"),
       ftok("let", "none", "space"),
-    ),
-    rule("slang_pattern"),
-    ftok("in", "space", "space"),
-    rule("expr"),
-    ftok(")", "none", "brace"),
-    rule("statement"),
-  ):map(func(v){
-    return ast.node("ForIn", {
-      pattern: v[3], itterator: v[5], body: v[7],
-      skip: if(v[2].value == "let?"){ true } else { null },
-    }, v[0])
-  }), {probe: "for(let local x in values(t)){ f(x) }"})
+    ), rule("slang_pattern"), ftok("in", "space", "space"), rule("expr"), ftok(")", "none", "brace"), rule("statement")):map(func(v){
+      return ast.node("ForIn", {
+        pattern: v[3],
+        itterator: v[5],
+        body: v[7],
+        skip: if(v[2].value == "let?"){ true } else { null },
+      }, v[0])
+    }),
+    {probe: "for(let local x in values(t)){ f(x) }"},
+  )
 
-  define("function_definition_statement", peg.seq(
-    peg.choice(
-      ftok("local", null, "space"),
-      ftok("global", null, "space"),
-    ):optional(),
-    ftok("func", null, "space"),
-    rule("identifier_and_index"),
-    rule("function_definition"),
-  ):map(func(v){
+  define("function_definition_statement", peg.seq(peg.choice(
+    ftok("local", null, "space"),
+    ftok("global", null, "space"),
+  ):optional(), ftok("func", null, "space"), rule("identifier_and_index"), rule("function_definition")):map(func(v){
     // is_global only when set, so that other declarations (and their
     // quotes) are what they were before `global` existed
     local is_global = v[0] != null and v[0].value == "global"
     return ast.node("Declaration", {
       is_local: v[0] != null and not is_global,
       is_global: if(is_global){ true } else { null },
-      left: v[2], right: v[3],
+      left: v[2],
+      right: v[3],
     }, v[1])
   }), {probe: "func f(a, b){ return a }"})
 
@@ -2200,33 +2246,36 @@ local func install_core(g){
   // ------------------------------------------------------------ patterns
 
   define("slang_pattern", peg.choice(
-    // ('a' before 'Name: a matcher's quote never closes like this)
-    rule("char_literal"):map(func(exp){
-      return ast.node("ConstPattern", {value: exp}, exp.token)
-    }),
-    rule("quoted_pattern"),
-    rule("table_pattern"),
-    rule("const_pattern"),
-    rule("pin_pattern"),
-    rule("var_pattern"),
-  ))
+  // ('a' before 'Name: a matcher's quote never closes like this)
+  rule("char_literal"):map(func(exp){
+    return ast.node("ConstPattern", {value: exp}, exp.token)
+  }), rule("quoted_pattern"), rule("table_pattern"), rule("const_pattern"), rule("pin_pattern"), rule("var_pattern")))
 
   // ^expr: compares with the value of expr instead of binding a name
   // (^x, ^error.kinds.not_found, ^(a + b)); a bare name binds
-  define("pin_pattern", peg.seq(
-    ftok("^", null, "none"),
-    peg.choice(
-      peg.seq(ftok("(", null, "none"), rule("expr"), ftok(")", "none")):pick(1),
-      rule("identifier_and_index"),
-    ),
-  ):map(func(v){
+  define("pin_pattern", peg.seq(ftok("^", null, "none"), peg.choice(
+    peg.seq(ftok("(", null, "none"), rule("expr"), ftok(")", "none")):pick(1),
+    rule("identifier_and_index"),
+  )):map(func(v){
     return ast.node("ConstPattern", {value: v[1]}, v[0])
   }), {probe: "^x"})
 
-  define("table_pattern", peg.seq(
-    ftok("{", null, "none"),
-    rule("field_pattern"):star_separated(ftok(",", "none", "space")),
-    ftok("}", "none"),
+  // laid out like a table literal: on one line if it fits, else a field per
+  // line with a trailing comma
+  define("table_pattern", fmt.mark(
+    peg.seq(
+      tok("{"),
+      fmt.indent(
+        fmt.mark(
+          rule("field_pattern"):star_separated(ftok(",", "none", "line")),
+          {fill: true},
+        ),
+        "softline",
+      ),
+      fmt.trailing_comma(tok(","):optional()),
+      fmt.gaps(tok("}"), "softline"),
+    ),
+    {group: true},
   ):map(func(v){
     return ast.node(
       "TablePattern", {type_check: "table", fields: v[1].elements}, v[0]
@@ -2454,13 +2503,16 @@ local func install_core(g){
       )
     }
     if(lin.sandbox){
-      raise(error.new(error.kinds.compile,
-        "compile-time code (an unquote) is not allowed in a sandboxed compile"
+      raise(error.new(
+        error.kinds.compile,
+        "compile-time code (an unquote) is not allowed in a sandboxed compile",
       ))
     }
     if(opts.run_block == null){
-      raise(error.new(error.kinds.unsupported,
-        "this grammar cannot execute unquotes"))
+      raise(error.new(
+        error.kinds.unsupported,
+        "this grammar cannot execute unquotes",
+      ))
     }
     lin.compile_time_effects = true
     local result = opts.run_block(node)
@@ -2706,8 +2758,12 @@ local func diagnose(lin, ctx, pos){
 // reported)
 local func failure_record(d){
   return {
-    message: d.message, pos: d.pos, far_pos: d.pos, far_message: d.message,
-    notes: d.notes, hints: d.hints,
+    message: d.message,
+    pos: d.pos,
+    far_pos: d.pos,
+    far_message: d.message,
+    notes: d.notes,
+    hints: d.hints,
   }
 }
 
@@ -2734,17 +2790,18 @@ local func fail_parse(lin, ctx, origin, message, pos){
 local func with_changes_allowed(g, owner, f, a, b){
   local lin = g.state
   if(lin.statement_depth > 0){
-    raise(error.new(error.kinds.state,
-      "extension statements cannot run from code that executes while a statement is being parsed"
+    raise(error.new(
+      error.kinds.state,
+      "extension statements cannot run from code that executes while a statement is being parsed",
     ))
   }
   lin.compile_time_effects = true
   lin.extension_depth = lin.extension_depth + 1
   local outer_owner = lin.owner
   lin.owner = owner
-  local r = try { {ok: true, value: f(a, b)} } catch(local e) {
-    {ok: false, error: e}
-  }
+  local r = try { {ok: true, value: f(a, b)} } catch(local e) { {
+    ok: false, error: e
+  } }
   lin.owner = outer_owner
   lin.extension_depth = lin.extension_depth - 1
   if(not r.ok){
@@ -2760,13 +2817,17 @@ local func with_changes_allowed(g, owner, f, a, b){
 func methods.run_extension(g, parsed, origin){
   local opts = g.state.opts
   if(g.state.sandbox){
-    raise(error.new(error.kinds.compile,
-      "extension statements are not allowed in a sandboxed compile"))
+    raise(error.new(
+      error.kinds.compile,
+      "extension statements are not allowed in a sandboxed compile",
+    ))
   }
   if(parsed.builtin != null){
     if(opts.run_extension == null){
-      raise(error.new(error.kinds.unsupported,
-        "this grammar cannot run extension statements"))
+      raise(error.new(
+        error.kinds.unsupported,
+        "this grammar cannot run extension statements",
+      ))
     }
     local node = parsed.builtin
     local owner = concat(origin, ":", node.token.line)
@@ -2787,8 +2848,10 @@ func methods.run_extension(g, parsed, origin){
   }
   local node = ast.decode(result)
   if(not ast.is_statement(node)){
-    raise(error.new(error.kinds.argument,
-      concat("an extension statement must produce a statement, got ", node.type)))
+    raise(error.new(error.kinds.argument, concat(
+      "an extension statement must produce a statement, got ",
+      node.type,
+    )))
   }
   return node
 }
@@ -2831,7 +2894,9 @@ local func expected_at(lin, ctx, parsers, pos){
   for(let local p in values({parsers.statement, parsers.final})){
     c.rule_memo = {}
     c.memo = {}
-    try { parse_with(p, c, pos) } catch {}
+    try {
+      parse_with(p, c, pos)
+    } catch {}
   }
   lin.statement_depth = lin.statement_depth - 1
   lin.sandbox = outer_sandbox
@@ -2844,9 +2909,10 @@ local func expected_at(lin, ctx, parsers, pos){
 
 local func parse_statement(lin, parser, ctx, pos){
   lin.statement_depth = lin.statement_depth + 1
-  local r = try { {ok: true, value: parse_with(parser, ctx, pos)} } catch(local e) {
-    {ok: false, error: e}
-  }
+  local r = try { {
+    ok: true,
+    value: parse_with(parser, ctx, pos),
+  } } catch(local e) { {ok: false, error: e} }
   lin.statement_depth = lin.statement_depth - 1
   if(not r.ok){
     raise(r.error)
@@ -3176,7 +3242,9 @@ local func parse_top_level(g, source, origin, scoped, recover, tree){
       }
     }
     block = ast.node(
-      "Block", {statements: statements}, peg.make_token(ctx, null, 0, pos)
+      "Block",
+      {statements: statements},
+      peg.make_token(ctx, null, 0, pos),
     )
   } else {
     block = ast.node(
@@ -3233,11 +3301,10 @@ func methods.parse_source(g, source, origin, options){
   local outer_parts = lin.tree_parts
   maybe_generate(g, source, tree)
   lin.parse_depth = lin.parse_depth + 1
-  local r = try {
-    {ok: true, value: parse_top_level(g, source, origin, scoped, recover, tree)}
-  } catch(local e) {
-    {ok: false, error: e}
-  }
+  local r = try { {
+    ok: true,
+    value: parse_top_level(g, source, origin, scoped, recover, tree),
+  } } catch(local e) { {ok: false, error: e} }
   lin.parse_depth = lin.parse_depth - 1
   if(tree and not r.ok and lin.tree_parts != null){
     local parts = lin.tree_parts

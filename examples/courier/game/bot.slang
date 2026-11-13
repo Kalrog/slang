@@ -217,7 +217,12 @@ local func traffic_threat(w, car, near_miss, rank, ignore){
   local soonest = null
   for(let local t in values(w.traffic.near)){
     if(t.pos != null and not t.wrecked){
-      local tca = closing(car, t.pos, t.vel, near_miss)
+      // (a long or tall car reaches further from its middle)
+      local extra = 0
+      if(t.half != null){
+        extra = math.max(0, math.max(t.half.z - 2.3, t.half.y - 0.85))
+      }
+      local tca = closing(car, t.pos, t.vel, near_miss + extra)
       if(tca != null and (soonest == null or tca < soonest)){
         soonest = tca
       }

@@ -25,6 +25,7 @@ m.DARK = 2        // structure: bridges, ledges, struts (param: length)
 m.BILLBOARD = 3   // an animated screen (param: style)
 m.PAD = 4         // a delivery pad
 m.GROUND = 5      // the street level
+m.ROOF = 8        // a sloped roof, a skirt between tiers (param: 1 glass)
 
 // how much higher the lanes along z run than those along x (a car is
 // 1.7 m tall; bridges hang 15 m over a lane level)
@@ -106,12 +107,12 @@ local func grid_insert(city, b){
 
 // box(ctx, x0, y0, z0, x1, y1, z1, kind, color, param?) -> the box, added
 // to the city, its chunk and the grid
-local func box(ctx, x0, y0, z0, x1, y1, z1, kind, color, param){
+local func box(ctx, x0, y0, z0, x1, y1, z1, kind, color, param, rng){
   local b = {
     x0: math.min(x0, x1), y0: math.min(y0, y1), z0: math.min(z0, z1),
     x1: math.max(x0, x1), y1: math.max(y0, y1), z1: math.max(z0, z1),
     kind: kind, color: color, param: param or 0,
-    seed: ctx.rng:int(256), mark: 0,
+    seed: (rng or ctx.rng):int(256), mark: 0,
   }
   b.id = len(ctx.city.boxes)
   append(ctx.city.boxes, b)
@@ -126,6 +127,16 @@ local func box(ctx, x0, y0, z0, x1, y1, z1, kind, color, param){
 // off the face, depth meters out from there, a0..a1 fractions along the
 // face, y0..y1 absolute
 local func attach(ctx, b, side, gap, depth, a0, a1, y0, y1, kind, color, param){
+  // (a tier with its corners cut: only on the face that is left)
+  if(b.chamfer != null){
+    local l = if(side < 2){ b.z1 - b.z0 } else { b.x1 - b.x0 }
+    local c = (b.chamfer + 0.5) / l
+    a0 = math.max(a0, c)
+    a1 = math.min(a1, 1 - c)
+    if(a1 - a0 < 0.02){
+      return null
+    }
+  }
   if(side == 0){
     local z0 = b.z0 + (b.z1 - b.z0) * a0
     local z1 = b.z0 + (b.z1 - b.z0) * a1
@@ -154,6 +165,187 @@ local func face_length(b, side){
 // the outward normal of a side
 local normals = {
   {x: 1, y: 0, z: 0}, {x: -1, y: 0, z: 0}, {x: 0, y: 0, z: 1}, {x: 0, y: 0, z: -1},
+}
+
+// ------------------------------------------------------------ solids
+
+// A solid is a box record (its x0 .. z1 the bounds, for the grid and the
+// queries) with the shape inside: a convex body between a polygon at y0
+// and one at y1, their points in the same order (counter clockwise seen
+// from above) and corresponding, so a pyramid's top is one point
+// repeated, a shed's a line along one edge. b.solid = {bottom, top, y0,
+// y1}; b.planes the outward faces {n, d} (dot(n, p) = d on the face),
+// for the magnet; the physics gets the convex hull of the points.
+
+local func rect_poly(x0, z0, x1, z1){
+  return {{x: x0, z: z0}, {x: x1, z: z0}, {x: x1, z: z1}, {x: x0, z: z1}}
+}
+
+// a rectangle with its corners cut off by c: eight points
+local func chamfer_poly(x0, z0, x1, z1, c){
+  return {
+    {x: x0 + c, z: z0}, {x: x1 - c, z: z0}, {x: x1, z: z0 + c}, {x: x1, z: z1 - c},
+    {x: x1 - c, z: z1}, {x: x0 + c, z: z1}, {x: x0, z: z1 - c}, {x: x0, z: z0 + c},
+  }
+}
+
+// a polygon pulled toward (cx, cz) by k (0: all at the middle)
+local func scaled_poly(poly, cx, cz, k){
+  local out = {}
+  for(let local p in values(poly)){
+    append(out, {x: cx + (p.x - cx) * k, z: cz + (p.z - cz) * k})
+  }
+  return out
+}
+
+local func poly_center(poly){
+  local x = 0
+  local z = 0
+  for(let local p in values(poly)){
+    x = x + p.x
+    z = z + p.z
+  }
+  return {x: x / len(poly), z: z / len(poly)}
+}
+
+local func poly_area(poly){
+  local a = 0
+  local n = len(poly)
+  for(local i = 0; i < n; i = i + 1){
+    local p = poly[i]
+    local q = poly[(i + 1) % n]
+    a = a + p.x * q.z - q.x * p.z
+  }
+  return math.abs(a) / 2
+}
+
+// faces(solid) -> {{points (3D, counter clockwise seen from outside),
+// n}}: the bottom, the top (unless it is a point or a line) and the
+// sides (triangles where an edge has shrunk to a point)
+func m.solid_faces(sd){
+  local bottom = sd.bottom
+  local top = sd.top
+  local n = len(bottom)
+  local center = {x: 0, y: (sd.y0 + sd.y1) / 2, z: 0}
+  local bc = poly_center(bottom)
+  local tc = poly_center(top)
+  center.x = (bc.x + tc.x) / 2
+  center.z = (bc.z + tc.z) / 2
+  local faces = {}
+  local func add(points){
+    // drop repeated points
+    local pts = {}
+    for(let local p in values(points)){
+      local last = pts[len(pts) - 1]
+      if(last == null or vec.distance(last, p) > 0.001){
+        append(pts, p)
+      }
+    }
+    if(len(pts) > 1 and vec.distance(pts[0], pts[len(pts) - 1]) <= 0.001){
+      remove(pts, len(pts) - 1)
+    }
+    if(len(pts) < 3){
+      return
+    }
+    // Newell's normal
+    local nn = {x: 0, y: 0, z: 0}
+    local c = {x: 0, y: 0, z: 0}
+    for(local i = 0; i < len(pts); i = i + 1){
+      local a = pts[i]
+      local b = pts[(i + 1) % len(pts)]
+      nn.x = nn.x + (a.y - b.y) * (a.z + b.z)
+      nn.y = nn.y + (a.z - b.z) * (a.x + b.x)
+      nn.z = nn.z + (a.x - b.x) * (a.y + b.y)
+      c = vec.add(c, a)
+    }
+    local l = vec.length(nn)
+    if(l < 0.0001){
+      return
+    }
+    nn = vec.scale(nn, 1 / l)
+    c = vec.scale(c, 1 / len(pts))
+    if(vec.dot(nn, vec.sub(c, center)) < 0){
+      // wound the other way: turn it round
+      local rev = {}
+      for(local i = len(pts) - 1; i >= 0; i = i - 1){
+        append(rev, pts[i])
+      }
+      pts = rev
+      nn = vec.scale(nn, -1)
+    }
+    append(faces, {points: pts, n: nn, d: vec.dot(nn, c)})
+  }
+  local func at(p, y){
+    return {x: p.x, y: y, z: p.z}
+  }
+  local bottom_pts = {}
+  local top_pts = {}
+  for(local i = 0; i < n; i = i + 1){
+    append(bottom_pts, at(bottom[i], sd.y0))
+    append(top_pts, at(top[i], sd.y1))
+  }
+  add(bottom_pts)
+  if(poly_area(top) > 0.01){
+    add(top_pts)
+  }
+  for(local i = 0; i < n; i = i + 1){
+    local j = (i + 1) % n
+    add({at(bottom[i], sd.y0), at(bottom[j], sd.y0), at(top[j], sd.y1), at(top[i], sd.y1)})
+  }
+  return faces
+}
+
+// the points of a solid (for its convex hull), no two the same
+func m.solid_points(sd){
+  local out = {}
+  local seen = {}
+  for(let local pair in values({{sd.bottom, sd.y0}, {sd.top, sd.y1}})){
+    for(let local p in values(pair[0])){
+      local key = concat(string(to_int(p.x * 100)), ",", string(to_int(pair[1] * 100)), ",", string(to_int(p.z * 100)))
+      if(seen[key] == null){
+        seen[key] = true
+        append(out, {x: p.x, y: pair[1], z: p.z})
+      }
+    }
+  }
+  return out
+}
+
+// solid(ctx, bottom, top, y0, y1, kind, color, param?, rng?) -> the box
+// record (its seed from rng, the style's by default)
+local func solid(ctx, bottom, top, y0, y1, kind, color, param, rng){
+  local x0 = 1e9
+  local z0 = 1e9
+  local x1 = -1e9
+  local z1 = -1e9
+  for(let local poly in values({bottom, top})){
+    for(let local p in values(poly)){
+      x0 = math.min(x0, p.x)
+      z0 = math.min(z0, p.z)
+      x1 = math.max(x1, p.x)
+      z1 = math.max(z1, p.z)
+    }
+  }
+  local b = box(ctx, x0, y0, z0, x1, y1, z1, kind, color, param, rng or ctx.srng)
+  b.solid = {bottom: bottom, top: top, y0: y0, y1: y1}
+  b.planes = {}
+  for(let local f in values(m.solid_faces(b.solid))){
+    append(b.planes, {n: f.n, d: f.d})
+  }
+  return b
+}
+
+// deco(ctx, x0, y0, z0, x1, y1, z1, kind, color, param?): a box only to
+// be seen (small, flush with a wall): in its chunk's mesh, not in the
+// physics or the grid
+local func deco(ctx, x0, y0, z0, x1, y1, z1, kind, color, param){
+  local b = {
+    x0: math.min(x0, x1), y0: math.min(y0, y1), z0: math.min(z0, z1),
+    x1: math.max(x0, x1), y1: math.max(y0, y1), z1: math.max(z0, z1),
+    kind: kind, color: color, param: param or 0, seed: ctx.srng:int(256), deco: true,
+  }
+  append(ctx.chunk.boxes, b)
+  return b
 }
 
 // ------------------------------------------------------------ names
@@ -258,6 +450,9 @@ local func balcony(ctx, b, side, y, name){
   local a = ctx.rng:range(0.05, 0.95 - w / l)
   local depth = 7
   local slab = attach(ctx, b, side, 0, depth, a, a + w / l, y - 0.8, y, m.DARK, {62, 62, 72}, w)
+  if(slab == null or slab.x1 - slab.x0 < w - 0.1 and slab.z1 - slab.z0 < w - 0.1){
+    return
+  }
   // struts under the outer corners
   attach(ctx, b, side, depth - 0.6, 0.6, a, a + 0.6 / l, y - 7, y - 0.8, m.DARK, {50, 50, 58}, 6)
   attach(ctx, b, side, depth - 0.6, 0.6, a + w / l - 0.6 / l, a + w / l, y - 7, y - 0.8, m.DARK, {50, 50, 58}, 6)
@@ -300,15 +495,502 @@ local func antenna(ctx, b, x, z){
     ctx.rng:range(0.7, 1.6))
 }
 
+
+// ------------------------------------------------------------ holes
+
+local func pick_weighted(r, list){
+  local total = 0
+  for(let local c in values(list)){
+    total = total + c.weight
+  }
+  local x = r:next() * total
+  for(let local c in values(list)){
+    if(x < c.weight){
+      return c.kind
+    }
+    x = x - c.weight
+  }
+  return list[0].kind
+}
+
+// a wedge filling a corner of a hole along axis: a prism the length of
+// the tier, its section the right triangle at (u, v) (u across, v up)
+// with legs a across and b up, toward +su and +sv
+local func corner_wedge(ctx, axis, a0, a1, u, v, a, b, su, sv, color, param){
+  // in the solid's terms: the horizontal edge of the triangle is a
+  // rectangle a wide, the opposite corner a line
+  local flat_v = v
+  local tip_v = v + sv * b
+  local func line(uu){
+    if(axis == "x"){
+      return {{x: a0, z: uu}, {x: a1, z: uu}, {x: a1, z: uu}, {x: a0, z: uu}}
+    }
+    return {{x: uu, z: a0}, {x: uu, z: a0}, {x: uu, z: a1}, {x: uu, z: a1}}
+  }
+  local func rect(ua, ub){
+    if(axis == "x"){
+      return {{x: a0, z: ua}, {x: a1, z: ua}, {x: a1, z: ub}, {x: a0, z: ub}}
+    }
+    return {{x: ua, z: a0}, {x: ub, z: a0}, {x: ub, z: a1}, {x: ua, z: a1}}
+  }
+  local flat = rect(math.min(u, u + su * a), math.max(u, u + su * a))
+  local tip = line(u)
+  if(sv > 0){
+    solid(ctx, flat, tip, flat_v, tip_v, m.WALL, color, param)
+  } else {
+    solid(ctx, tip, flat, tip_v, flat_v, m.WALL, color, param)
+  }
+}
+
+// a strip of light in a hole's mouth plane, from (ua, va) to (ub, vb)
+// (u across, v up), from a to a + dir * 0.3 along the axis: a box when
+// level, else a thin slanted solid
+local func mouth_strip(ctx, axis, a, dir, ua, va, ub, vb, color){
+  local t = 0.3
+  local a0 = math.min(a, a + dir * t)
+  local a1 = math.max(a, a + dir * t)
+  local func at(u0, u1){
+    if(axis == "x"){
+      return {{x: a0, z: u0}, {x: a1, z: u0}, {x: a1, z: u1}, {x: a0, z: u1}}
+    }
+    return {{x: u0, z: a0}, {x: u0, z: a1}, {x: u1, z: a1}, {x: u1, z: a0}}
+  }
+  if(math.abs(vb - va) < 0.01){
+    local u0 = math.min(ua, ub) - t
+    local u1 = math.max(ua, ub) + t
+    if(axis == "x"){
+      box(ctx, a0, va - t / 2, u0, a1, va + t / 2, u1, m.NEON, color, 0, ctx.srng)
+    } else {
+      box(ctx, u0, va - t / 2, a0, u1, va + t / 2, a1, m.NEON, color, 0, ctx.srng)
+    }
+    return
+  }
+  // lower end first
+  if(va > vb){
+    local tu = ua
+    ua = ub
+    ub = tu
+    local tv = va
+    va = vb
+    vb = tv
+  }
+  local w = t * 0.75
+  solid(ctx, at(ua - w, ua + w), at(ub - w, ub + w), va, vb, m.NEON, color)
+}
+
+// the outline of a hole's mouth, (u, v) points round it, for its shape
+// (a twin's two)
+local func hole_outlines(h){
+  local u0 = h.u0
+  local u1 = h.u1
+  local v0 = h.v0
+  local v1 = h.v1
+  local w = u1 - u0
+  local hh = v1 - v0
+  local shape = h.shape
+  if(shape == "arch"){
+    local a = math.min(w, hh) * 0.35
+    return {{{u0, v0}, {u1, v0}, {u1, v1 - a}, {u1 - a, v1}, {u0 + a, v1}, {u0, v1 - a}}}
+  } else if(shape == "octagon"){
+    local a = math.min(w, hh) * 0.29
+    return {{{u0 + a, v0}, {u1 - a, v0}, {u1, v0 + a}, {u1, v1 - a}, {u1 - a, v1}, {u0 + a, v1}, {u0, v1 - a}, {u0, v0 + a}}}
+  } else if(shape == "diamond"){
+    local um = (u0 + u1) / 2
+    local vm = (v0 + v1) / 2
+    return {{{um, v0}, {u1, vm}, {um, v1}, {u0, vm}}}
+  } else if(shape == "twin"){
+    local mid = (u0 + u1) / 2
+    return {
+      {{u0, v0}, {mid - 2, v0}, {mid - 2, v1}, {u0, v1}},
+      {{mid + 2, v0}, {u1, v0}, {u1, v1}, {mid + 2, v1}},
+    }
+  }
+  return {{{u0, v0}, {u1, v0}, {u1, v1}, {u0, v1}}}
+}
+
+// a neon frame round a hole's mouth at a (the coordinate along axis),
+// out of the face by dir, along the shape's outline
+local func mouth_frame(ctx, axis, a, dir, hole, color){
+  for(let local outline in values(hole_outlines(hole))){
+    local n = len(outline)
+    for(local i = 0; i < n; i = i + 1){
+      local p = outline[i]
+      local q = outline[(i + 1) % n]
+      // (a vertical edge is a strip standing up: across it is level)
+      if(math.abs(p[0] - q[0]) < 0.01){
+        local t = 0.15
+        local va = math.min(p[1], q[1])
+        local vb = math.max(p[1], q[1])
+        local a0 = math.min(a, a + dir * 0.3)
+        local a1 = math.max(a, a + dir * 0.3)
+        if(axis == "x"){
+          box(ctx, a0, va, p[0] - t, a1, vb, p[0] + t, m.NEON, color, 0, ctx.srng)
+        } else {
+          box(ctx, p[0] - t, va, a0, p[0] + t, vb, a1, m.NEON, color, 0, ctx.srng)
+        }
+      } else {
+        mouth_strip(ctx, axis, a, dir, p[0], p[1], q[0], q[1], color)
+      }
+    }
+  }
+}
+
+// tier_with_hole(ctx, x0, y0, z0, x1, y1, z1, color, param, hole) -> the
+// tier's record (its bounds, for the decorations, bridges and roof; not
+// itself in the city): the walls round a hole through the tier along
+// hole.axis, from u0 to u1 across and v0 to v1 up, of a shape
+local func tier_with_hole(ctx, x0, y0, z0, x1, y1, z1, color, param, hole){
+  local axis = hole.axis
+  local u0 = hole.u0
+  local u1 = hole.u1
+  local v0 = hole.v0
+  local v1 = hole.v1
+  local lo = if(axis == "x"){ z0 } else { x0 }
+  local hi = if(axis == "x"){ z1 } else { x1 }
+  local a0 = if(axis == "x"){ x0 } else { z0 }
+  local a1 = if(axis == "x"){ x1 } else { z1 }
+  local pieces = {}
+  local func piece(ua, va, ub, vb){
+    if(ub - ua < 0.01 or vb - va < 0.01){
+      return
+    }
+    local b = null
+    if(axis == "x"){
+      b = box(ctx, a0, va, ua, a1, vb, ub, m.WALL, color, param, ctx.srng)
+    } else {
+      b = box(ctx, ua, va, a0, ub, vb, a1, m.WALL, color, param, ctx.srng)
+    }
+    append(pieces, b)
+  }
+  // under, over, beside (one block between twin holes)
+  piece(lo, y0, hi, v0)
+  piece(lo, v1, hi, y1)
+  piece(lo, v0, u0, v1)
+  piece(u1, v0, hi, v1)
+  local kind = hole.shape
+  if(kind == "twin"){
+    local mid = (u0 + u1) / 2
+    piece(mid - 2, v0, mid + 2, v1)
+  }
+  // the corners filled for the shape
+  local w = u1 - u0
+  local h = v1 - v0
+  if(kind == "arch"){
+    local a = math.min(w, h) * 0.35
+    corner_wedge(ctx, axis, a0, a1, u0, v1, a, a, 1, -1, color, param)
+    corner_wedge(ctx, axis, a0, a1, u1, v1, a, a, -1, -1, color, param)
+  } else if(kind == "octagon"){
+    local a = math.min(w, h) * 0.29
+    corner_wedge(ctx, axis, a0, a1, u0, v1, a, a, 1, -1, color, param)
+    corner_wedge(ctx, axis, a0, a1, u1, v1, a, a, -1, -1, color, param)
+    corner_wedge(ctx, axis, a0, a1, u0, v0, a, a, 1, 1, color, param)
+    corner_wedge(ctx, axis, a0, a1, u1, v0, a, a, -1, 1, color, param)
+  } else if(kind == "diamond"){
+    local a = w * 0.5
+    local b = h * 0.5
+    corner_wedge(ctx, axis, a0, a1, u0, v1, a, b, 1, -1, color, param)
+    corner_wedge(ctx, axis, a0, a1, u1, v1, a, b, -1, -1, color, param)
+    corner_wedge(ctx, axis, a0, a1, u0, v0, a, b, 1, 1, color, param)
+    corner_wedge(ctx, axis, a0, a1, u1, v0, a, b, -1, 1, color, param)
+  }
+  // lit at both mouths
+  local neon = hole.neon
+  mouth_frame(ctx, axis, a1, 1, hole, neon)
+  mouth_frame(ctx, axis, a0, -1, hole, neon)
+  // all the walls one facade (the windows run on across them)
+  for(let local pc in values(pieces)){
+    pc.seed = pieces[0].seed
+  }
+  return {
+    x0: x0, y0: y0, z0: z0, x1: x1, y1: y1, z1: z1,
+    kind: m.WALL, color: color, param: param, hole: hole, pieces: pieces,
+  }
+}
+
+// a hole for a tier, or null: through it along its longer... shorter
+// side (so it is a short tunnel), big enough to fly through whatever its
+// shape
+local func plan_hole(ctx, x0, y0, z0, x1, y1, z1){
+  local r = ctx.srng
+  local th = y1 - y0
+  local axis = if(x1 - x0 <= z1 - z0){ "x" } else { "z" }
+  local lo = if(axis == "x"){ z0 } else { x0 }
+  local hi = if(axis == "x"){ z1 } else { x1 }
+  local across = hi - lo
+  if(th < 34 or across < 30){
+    return null
+  }
+  local shape = pick_weighted(r, m.STYLE.hole_shapes)
+  local w = snap(r:range(14, math.min(26, across * 0.6)), 2)
+  local h = snap(r:range(12, math.min(22, th - 16)), 1)
+  if(shape == "slit"){
+    w = r:pick({6, 8})
+    h = snap(math.min(th - 14, r:range(22, 36)), 1)
+  } else if(shape == "twin"){
+    w = snap(math.max(w, 24), 2)
+  } else if(shape == "diamond"){
+    w = snap(math.max(w, 20), 2)
+    h = math.max(h, 18)
+  }
+  if(h > th - 12 or w > across - 8){
+    return null
+  }
+  local mid = snap((lo + hi) / 2 + r:range(-1, 1) * (across - w - 8) / 2 * 0.5, 1)
+  local v0 = snap(r:range(y0 + 7, y1 - h - 5), 1)
+  return {axis: axis, shape: shape, u0: mid - w / 2, u1: mid + w / 2, v0: v0, v1: v0 + h, neon: neon_color(ctx)}
+}
+
+// ------------------------------------------------------------ the towers' style
+
+// how the shapes are chosen, for each tower: the corners cut (a tower of
+// eight sides), slopes between the tiers, ribs up the walls, and the
+// crown on the roof when no pad is there
+m.STYLE = {
+  chamfer: 0.3,    // a tower's chance of cut corners
+  slope: 0.45,     // a setback's chance of a sloped skirt
+  ribs: 0.35,      // a tower's chance of ribs up its walls
+  bands: 0.25,     // ... of bands round it between floors
+  clutter: true,   // machinery on the roofs
+  holes: 0.22,     // a tier's chance of a hole through it to fly through
+  hole_shapes: {   // ... and its shape, by weight
+    {kind: "rect", weight: 1},
+    {kind: "arch", weight: 1.2},
+    {kind: "octagon", weight: 1},
+    {kind: "diamond", weight: 0.7},
+    {kind: "slit", weight: 0.6},
+    {kind: "twin", weight: 0.6},
+  },
+  crowns: {        // the roof without a pad: what stands on it, by weight
+    {kind: "flat", weight: 2},
+    {kind: "pyramid", weight: 2},
+    {kind: "spire", weight: 1},
+    {kind: "shed", weight: 1.5},
+    {kind: "gable", weight: 1},
+    {kind: "dome", weight: 1},
+    {kind: "steps", weight: 1.2},
+  },
+}
+
+local ROOF_COLOR = {54, 58, 72}
+local RIB_COLOR = {74, 80, 98}
+
+// strips of light along a polygon's edges at height y (a crown for a
+// tower of any shape)
+local func poly_crown(ctx, poly, y, color){
+  local n = len(poly)
+  local c = poly_center(poly)
+  for(local i = 0; i < n; i = i + 1){
+    local a = poly[i]
+    local b = poly[(i + 1) % n]
+    // out from the edge by t: the strip's foot
+    local ex = b.x - a.x
+    local ez = b.z - a.z
+    local l = math.sqrt(ex * ex + ez * ez)
+    if(l > 0.5){
+      local ox = ez / l
+      local oz = -ex / l
+      if(ox * ((a.x + b.x) / 2 - c.x) + oz * ((a.z + b.z) / 2 - c.z) < 0){
+        ox = -ox
+        oz = -oz
+      }
+      local t = 0.4
+      local q = {a, b, {x: b.x + ox * t, z: b.z + oz * t}, {x: a.x + ox * t, z: a.z + oz * t}}
+      solid(ctx, q, q, y - 0.2, y + 0.35, m.NEON, color)
+    }
+  }
+}
+
+// ribs up a tier's walls (only to be seen): thin fins every few meters
+local func ribs(ctx, b, spacing, bare){
+  local depth = 0.35
+  local w = 0.5
+  for(local side = 0; side < 4; side = side + 1){
+    if(not bare[side]){
+      local l = face_length(b, side)
+      local count = to_int(l / spacing)
+      for(local k = 1; k < count; k = k + 1){
+        local a = k / count
+        local hw = w / 2 / l
+        if(side == 0){
+          local z = b.z0 + (b.z1 - b.z0) * a
+          deco(ctx, b.x1, b.y0, z - w / 2, b.x1 + depth, b.y1, z + w / 2, m.DARK, RIB_COLOR, b.y1 - b.y0)
+        } else if(side == 1){
+          local z = b.z0 + (b.z1 - b.z0) * a
+          deco(ctx, b.x0 - depth, b.y0, z - w / 2, b.x0, b.y1, z + w / 2, m.DARK, RIB_COLOR, b.y1 - b.y0)
+        } else if(side == 2){
+          local x = b.x0 + (b.x1 - b.x0) * a
+          deco(ctx, x - w / 2, b.y0, b.z1, x + w / 2, b.y1, b.z1 + depth, m.DARK, RIB_COLOR, b.y1 - b.y0)
+        } else {
+          local x = b.x0 + (b.x1 - b.x0) * a
+          deco(ctx, x - w / 2, b.y0, b.z0 - depth, x + w / 2, b.y1, b.z0, m.DARK, RIB_COLOR, b.y1 - b.y0)
+        }
+      }
+    }
+  }
+}
+
+// bands round a tier every few floors (only to be seen)
+local func bands(ctx, b, every){
+  local t = 0.3
+  for(local y = b.y0 + every; y < b.y1 - 2; y = y + every){
+    deco(ctx, b.x0 - t, y, b.z0 - t, b.x1 + t, y + 0.5, b.z0, m.DARK, RIB_COLOR, b.x1 - b.x0)
+    deco(ctx, b.x0 - t, y, b.z1, b.x1 + t, y + 0.5, b.z1 + t, m.DARK, RIB_COLOR, b.x1 - b.x0)
+    deco(ctx, b.x0 - t, y, b.z0, b.x0, y + 0.5, b.z1, m.DARK, RIB_COLOR, b.z1 - b.z0)
+    deco(ctx, b.x1, y, b.z0, b.x1 + t, y + 0.5, b.z1, m.DARK, RIB_COLOR, b.z1 - b.z0)
+  }
+}
+
+// machinery on a roof: boxes, a tank, vents, in the corners (away from
+// the middle, where a pad may be)
+local func roof_clutter(ctx, top, count){
+  local r = ctx.srng
+  local corners = {{top.x0, top.z0}, {top.x1, top.z0}, {top.x0, top.z1}, {top.x1, top.z1}}
+  for(local k = 0; k < count; k = k + 1){
+    local c = r:pick(corners)
+    local sx = if(c[0] == top.x0){ 1 } else { -1 }
+    local sz = if(c[1] == top.z0){ 1 } else { -1 }
+    local x = c[0] + sx * r:range(2, 4)
+    local z = c[1] + sz * r:range(2, 4)
+    local kind = r:int(3)
+    if(kind == 0){
+      // a cooling unit, its fan grille lit faintly
+      local w = r:range(2, 3.5)
+      local d = r:range(2, 3.5)
+      local h = r:range(1.2, 2.2)
+      box(ctx, x, top.y1, z, x + sx * w, top.y1 + h, z + sz * d, m.DARK, {66, 70, 82}, w, r)
+      box(ctx, x + sx * 0.4, top.y1 + h, z + sz * 0.4, x + sx * (w - 0.4), top.y1 + h + 0.1, z + sz * (d - 0.4), m.NEON, {40, 60, 70}, 0, r)
+    } else if(kind == 1){
+      // a water tank: eight sides on legs
+      local rr = r:range(1.2, 2)
+      local cx = x + sx * rr
+      local cz = z + sz * rr
+      local legs = 1.5
+      box(ctx, cx - rr * 0.7, top.y1, cz - rr * 0.7, cx + rr * 0.7, top.y1 + legs, cz + rr * 0.7, m.DARK, {40, 42, 50}, 2, r)
+      local poly = chamfer_poly(cx - rr, cz - rr, cx + rr, cz + rr, rr * 0.3)
+      local h = r:range(2.5, 4)
+      solid(ctx, poly, poly, top.y1 + legs, top.y1 + legs + h, m.DARK, {70, 66, 62}, h)
+      solid(ctx, poly, scaled_poly(poly, cx, cz, 0.2), top.y1 + legs + h, top.y1 + legs + h + rr * 0.6, m.ROOF, ROOF_COLOR)
+    } else {
+      // vents: a row of short stacks
+      for(local v = 0; v < 3; v = v + 1){
+        local vx = x + sx * v * 1.2
+        box(ctx, vx - 0.35, top.y1, z - 0.35, vx + 0.35, top.y1 + r:range(1, 2.5), z + 0.35, m.DARK, {58, 60, 70}, 2, r)
+      }
+    }
+  }
+}
+
+// crown(ctx, top, poly, kind, neon) -> how high it reaches over the roof:
+// a shape standing on the roof of the top tier (poly its outline)
+local func roof_crown(ctx, top, poly, kind, neon){
+  local r = ctx.srng
+  local y = top.y1
+  local w = top.x1 - top.x0
+  local d = top.z1 - top.z0
+  local cx = (top.x0 + top.x1) / 2
+  local cz = (top.z0 + top.z1) / 2
+  local small = math.min(w, d)
+  local func crowned(b){
+    b.crown = true
+    return b
+  }
+  if(kind == "pyramid"){
+    local h = math.min(45, small * r:range(0.6, 1.3))
+    local k = r:pick({0, 0, 0.15, 0.3})
+    crowned(solid(ctx, poly, scaled_poly(poly, cx, cz, k), y, y + h, m.ROOF, ROOF_COLOR, r:int(2)))
+    return h
+  } else if(kind == "spire"){
+    // a short pyramid, a needle on it
+    local h = math.min(24, small * r:range(0.3, 0.6))
+    crowned(solid(ctx, poly, scaled_poly(poly, cx, cz, 0.25), y, y + h, m.ROOF, ROOF_COLOR, 0))
+    local nr = math.max(0.8, small * 0.05)
+    local needle = rect_poly(cx - nr, cz - nr, cx + nr, cz + nr)
+    local nh = r:range(30, 70)
+    crowned(solid(ctx, needle, scaled_poly(needle, cx, cz, 0), y + h, y + h + nh, m.DARK, {80, 84, 100}, nh))
+    crowned(box(ctx, cx - 0.5, y + h + nh * 0.6, cz - 0.5, cx + 0.5, y + h + nh * 0.6 + 1, cz + 0.5, m.NEON, {255, 60, 60}, r:range(0.7, 1.6), r))
+    return h + nh
+  } else if(kind == "shed" or kind == "gable"){
+    // a roof sloping from one side to the other, or up to a ridge, along
+    // the longer side
+    local h = math.min(26, small * r:range(0.3, 0.6))
+    local x0 = top.x0
+    local x1 = top.x1
+    local z0 = top.z0
+    local z1 = top.z1
+    local bottom = rect_poly(x0, z0, x1, z1)
+    local t = null
+    if(w >= d){
+      // the ridge runs along x
+      local zr = if(kind == "gable"){ cz } else { z1 }
+      t = {{x: x0, z: zr}, {x: x1, z: zr}, {x: x1, z: zr}, {x: x0, z: zr}}
+    } else {
+      local xr = if(kind == "gable"){ cx } else { x1 }
+      t = {{x: xr, z: z0}, {x: xr, z: z0}, {x: xr, z: z1}, {x: xr, z: z1}}
+    }
+    crowned(solid(ctx, bottom, t, y, y + h, m.ROOF, ROOF_COLOR, r:int(2)))
+    return h
+  } else if(kind == "dome"){
+    // rings of eight sides, each narrower and flatter than the last
+    local o = chamfer_poly(cx - small * 0.45, cz - small * 0.45, cx + small * 0.45, cz + small * 0.45, small * 0.13)
+    local drum = small * 0.08
+    crowned(solid(ctx, o, o, y, y + drum, m.DARK, {66, 70, 84}, 4))
+    local yy = y + drum
+    local ks = {1, 0.86, 0.6, 0.25}
+    local hs = {0.22, 0.18, 0.14}
+    for(local i = 0; i < 3; i = i + 1){
+      local h = small * hs[i]
+      crowned(solid(ctx, scaled_poly(o, cx, cz, ks[i]), scaled_poly(o, cx, cz, ks[i + 1]), yy, yy + h, m.ROOF, ROOF_COLOR, 1))
+      yy = yy + h
+    }
+    poly_crown(ctx, o, y + drum, neon)
+    return yy - y
+  } else if(kind == "steps"){
+    // thin slabs stepping in, lit at their edges
+    local yy = y
+    local k = 1
+    for(local i = 0; i < 3; i = i + 1){
+      k = k * 0.78
+      local p = scaled_poly(poly, cx, cz, k)
+      local h = r:range(1.5, 3)
+      crowned(solid(ctx, p, p, yy, yy + h, m.DARK, {60, 64, 78}, 4))
+      yy = yy + h
+      if(i % 2 == 1){
+        poly_crown(ctx, p, yy, neon)
+      }
+    }
+    return yy - y
+  }
+  return 0
+}
+
+local func pick_crown(r){
+  local total = 0
+  for(let local c in values(m.STYLE.crowns)){
+    total = total + c.weight
+  }
+  local x = r:next() * total
+  for(let local c in values(m.STYLE.crowns)){
+    if(x < c.weight){
+      return c.kind
+    }
+    x = x - c.weight
+  }
+  return "flat"
+}
+
 // ------------------------------------------------------------ buildings
 
 // a tower of tiers standing on y = 0 at cx, cz: returns its tier boxes
-// (bottom first). Each tier is decorated; the roof gets a pad or masts.
+// (bottom first). Each tier is decorated; the roof gets a pad or masts,
+// or a crown. A tower may have its corners cut (each tier a solid of
+// eight sides), sloped skirts between its tiers, ribs or bands on its
+// walls (game/city STYLE).
 // opts: {bare: {side: true} (nothing on those sides), plain (no crowns,
-// corner strips or halos: they stick out), first (the lowest tier at
-// least this tall, if the tower is)}
+// corner strips or halos: they stick out; boxes only), first (the lowest
+// tier at least this tall, if the tower is)}
 local func tower(ctx, cx, cz, w, d, height, name, base_y, opts){
   local rng = ctx.rng
+  local sr = ctx.srng
   opts = opts or {}
   local bare = opts.bare or {}
   local tiers = {}
@@ -324,6 +1006,16 @@ local func tower(ctx, cx, cz, w, d, height, name, base_y, opts){
   local y = base_y or 0
   local left = height
   local facade = rng:pick(facades)
+  // the style of this tower (from the style's own numbers: the plain
+  // towers of the slots stay boxes)
+  local styled = not opts.plain
+  local chamfer = styled and sr:chance(m.STYLE.chamfer) and math.min(x1 - x0, z1 - z0) >= 22
+  local with_ribs = styled and sr:chance(m.STYLE.ribs)
+  local with_bands = styled and not with_ribs and sr:chance(m.STYLE.bands)
+  local rib_spacing = sr:pick({4, 6, 8})
+  local band_every = sr:pick({9, 12, 15})
+  local cut = 0
+  local prev = null
   for(local t = 0; t < n; t = t + 1){
     local th = left
     if(t < n - 1){
@@ -337,21 +1029,63 @@ local func tower(ctx, cx, cz, w, d, height, name, base_y, opts){
     if(th < 9){
       th = 9
     }
-    local b = box(ctx, x0, y, z0, x1, y + th, z1, m.WALL, facade, rng:range(0.2, 0.7))
+    local poly = rect_poly(x0, z0, x1, z1)
+    local b = null
+    if(chamfer){
+      cut = snap(math.min(x1 - x0, z1 - z0) * sr:range(0.12, 0.22), 1)
+      poly = chamfer_poly(x0, z0, x1, z1, cut)
+      b = solid(ctx, poly, poly, y, y + th, m.WALL, facade, rng:range(0.2, 0.7), rng)
+      b.chamfer = cut
+    } else {
+      local param = rng:range(0.2, 0.7)
+      local hole = null
+      if(styled and sr:chance(m.STYLE.holes)){
+        hole = plan_hole(ctx, x0, y, z0, x1, y + th, z1)
+      }
+      if(hole != null){
+        b = tier_with_hole(ctx, x0, y, z0, x1, y + th, z1, facade, param, hole)
+        // (the seed the box would have drawn, so the rest of the layout
+        // is the same)
+        rng:int(256)
+      } else {
+        b = box(ctx, x0, y, z0, x1, y + th, z1, m.WALL, facade, param)
+      }
+    }
+    b.poly = poly
     append(tiers, b)
+    // a sloped skirt from the tier below up onto this one
+    if(prev != null and styled and sr:chance(m.STYLE.slope)){
+      local hs = math.min(th - 3, snap(sr:range(3, 9), 1))
+      if(hs >= 3 and len(prev.poly) == len(poly)){
+        solid(ctx, prev.poly, poly, y, y + hs, m.ROOF, ROOF_COLOR, sr:int(2))
+      }
+    }
     // lights
     if(rng:chance(0.55) and not opts.plain){
-      crown(ctx, b, neon_color(ctx))
+      if(chamfer){
+        poly_crown(ctx, poly, y + th, neon_color(ctx))
+      } else {
+        crown(ctx, b, neon_color(ctx))
+      }
     }
-    if(rng:chance(0.3) and not opts.plain){
+    if(rng:chance(0.3) and not opts.plain and not chamfer){
       corner_strips(ctx, b, neon_color(ctx))
+    }
+    if(with_ribs and not chamfer and b.hole == null){
+      ribs(ctx, b, rib_spacing, bare)
+    }
+    if(with_bands and not chamfer and b.hole == null){
+      bands(ctx, b, band_every)
     }
     // things sticking out, above the first floors
     local count = rng:int(1 + to_int(level.decor * 3 + 0.5))
     for(local k = 0; k < count; k = k + 1){
       local side = rng:int(4)
       local fy = snap(rng:range(y + 12, y + th - 6), 3)
-      if(fy > y + 6 and fy < y + th - 3 and not bare[side]){
+      // (nothing over a hole's mouths)
+      local over_hole = b.hole != null and ((side < 2) == (b.hole.axis == "x")) and
+        fy > b.hole.v0 - 12 and fy < b.hole.v1 + 2
+      if(fy > y + 6 and fy < y + th - 3 and not bare[side] and not over_hole){
         local r = rng:next()
         if(r < 0.35){
           ledge(ctx, b, side, fy)
@@ -369,6 +1103,7 @@ local func tower(ctx, cx, cz, w, d, height, name, base_y, opts){
     }
     y = y + th
     left = left - th
+    prev = b
     // the next tier stands inset on this one
     local ix = snap(rng:range(2, 10), 2)
     local iz = snap(rng:range(2, 10), 2)
@@ -394,12 +1129,28 @@ local func tower(ctx, cx, cz, w, d, height, name, base_y, opts){
   if(rw >= 14 and rd >= 14 and rng:chance(0.7)){
     pad(ctx, top, (top.x0 + top.x1) / 2, (top.z0 + top.z1) / 2, concat(name, " rooftop"), "roof")
     if(rng:chance(0.6)){
-      antenna(ctx, top, top.x0 + 2, top.z0 + 2)
+      antenna(ctx, top, top.x0 + 2 + (top.chamfer or 0), top.z0 + 2 + (top.chamfer or 0))
+    }
+    if(styled and m.STYLE.clutter and rw >= 24 and rd >= 24 and not chamfer){
+      roof_clutter(ctx, top, 1 + sr:int(3))
     }
   } else {
-    local k = 1 + rng:int(2)
-    for(local i = 0; i < k; i = i + 1){
-      antenna(ctx, top, rng:range(top.x0 + 1, top.x1 - 1), rng:range(top.z0 + 1, top.z1 - 1))
+    local kind = "flat"
+    if(styled){
+      kind = pick_crown(sr)
+    }
+    local over = 0
+    if(kind != "flat"){
+      over = roof_crown(ctx, top, top.poly, kind, neon_color(ctx))
+    }
+    if(kind == "flat" or kind == "shed" or kind == "gable"){
+      local k = 1 + rng:int(2)
+      for(local i = 0; i < k; i = i + 1){
+        antenna(ctx, top, rng:range(top.x0 + 1, top.x1 - 1), rng:range(top.z0 + 1, top.z1 - 1))
+      }
+      if(styled and m.STYLE.clutter and kind == "flat" and rw >= 20 and rd >= 20 and not chamfer){
+        roof_clutter(ctx, top, 1 + sr:int(3))
+      }
     }
   }
   return tiers
@@ -416,9 +1167,11 @@ local func bridge(ctx, a, b, y, axis){
   }
   local n = neon_color(ctx)
   local c = {64, 64, 74}
+  local ca = a.chamfer or 0
+  local cb = b.chamfer or 0
   if(axis == "x"){
-    local lo = math.max(a.z0, b.z0)
-    local hi = math.min(a.z1, b.z1)
+    local lo = math.max(a.z0 + ca, b.z0 + cb)
+    local hi = math.min(a.z1 - ca, b.z1 - cb)
     if(hi - lo < w + 2){
       return false
     }
@@ -436,8 +1189,8 @@ local func bridge(ctx, a, b, y, axis){
       box(ctx, x0, y + 1.2, zc + w / 2 - 0.3, x1, y + 1.7, zc + w / 2, m.NEON, n)
     }
   } else {
-    local lo = math.max(a.x0, b.x0)
-    local hi = math.min(a.x1, b.x1)
+    local lo = math.max(a.x0 + ca, b.x0 + cb)
+    local hi = math.min(a.x1 - ca, b.x1 - cb)
     if(hi - lo < w + 2){
       return false
     }
@@ -627,7 +1380,7 @@ func m.generate(seed, level){
   }
   local center_rng = vec.random(seed)
   // the ground, one box in a chunk of its own (not in the grid)
-  local ground = {city: city, chunk: new_chunk(city, 0, 0), rng: center_rng, level: level}
+  local ground = {city: city, chunk: new_chunk(city, 0, 0), rng: center_rng, srng: vec.random(seed * 3 + 1), level: level}
   local g = city.half + 400
   box(ground, -g, -4, -g, g, 0, g, m.GROUND, {20, 16, 28})
   // the blocks
@@ -636,7 +1389,10 @@ func m.generate(seed, level){
       local cx = (i - (N - 1) / 2) * city.pitch
       local cz = (j - (N - 1) / 2) * city.pitch
       local rng = vec.random(seed * 7919 + i * 131 + j * 17 + 3)
-      local ctx = {city: city, chunk: new_chunk(city, cx, cz), rng: rng, level: level}
+      // (the shapes' style draws from a generator of its own, so the
+      // layout is the same with or without it)
+      local ctx = {city: city, chunk: new_chunk(city, cx, cz), rng: rng, level: level,
+        srng: vec.random(seed * 104729 + i * 389 + j * 97 + 5)}
       // taller toward the middle, with some noise
       local dx = (i - (N - 1) / 2) / (N / 2)
       local dz = (j - (N - 1) / 2) / (N / 2)

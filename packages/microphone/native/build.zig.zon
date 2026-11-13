@@ -1,0 +1,12 @@
+.{
+    .name = .microphone_native,
+    .version = "0.1.0",
+    .fingerprint = 0x7b83a936422f0df7,
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "microphone.c",
+    },
+}

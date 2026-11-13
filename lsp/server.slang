@@ -1222,11 +1222,15 @@ local func outline(doc, encoding){
     local sym = {
       name: def.name,
       kind: symbol_kind(def),
-      detail: detail,
       range: lsp.range_of(text, start, def_end(def, text), encoding),
       selectionRange: lsp.range_of(text, def.start, def.stop, encoding),
       children: json.array({}),
       start: start,
+    }
+    // no detail key at all: the client checks `detail === undefined` to
+    // tell a DocumentSymbol from a SymbolInformation, and null would fail it
+    if(detail != null){
+      sym.detail = detail
     }
     made[def] = sym
     return sym

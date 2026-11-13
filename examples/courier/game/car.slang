@@ -101,8 +101,25 @@ local func event(car, kind, extra){
 // ------------------------------------------------------------ faces
 
 // the face of box b that p is outside of, if it is outside exactly one:
-// {normal, dist} or null (edges and corners do not hold a car)
+// {normal, dist} or null (edges and corners do not hold a car). A solid
+// (game/city: a pyramid, a slope, a tower of eight sides) has planes
+// instead of the six faces of its bounds.
 local func face_toward(b, p){
+  if(b.planes != null){
+    local out = 0
+    local best = null
+    for(let local pl in values(b.planes)){
+      local s = vec.dot(pl.n, p) - pl.d
+      if(s > 0){
+        out = out + 1
+        best = {normal: pl.n, dist: s}
+      }
+    }
+    if(out != 1){
+      return null
+    }
+    return best
+  }
   local out = 0
   local n = null
   local d = 0
@@ -142,9 +159,33 @@ local func face_toward(b, p){
   return {normal: n, dist: d}
 }
 
+// the plane of a solid's face with normal n
+local func plane_of(b, n){
+  for(let local pl in values(b.planes)){
+    if(vec.dot(pl.n, n) > 0.999){
+      return pl
+    }
+  }
+  return null
+}
+
 // whether p's projection along the face normal lies on the face (with a
 // margin outward, so the car hangs over an edge a little before it falls)
 local func on_face(b, n, p, margin){
+  if(b.planes != null){
+    local pl = plane_of(b, n)
+    if(pl == null){
+      return false
+    }
+    // projected onto the face's plane, inside every other one
+    local q = vec.add_scaled(p, pl.n, -(vec.dot(pl.n, p) - pl.d))
+    for(let local o in values(b.planes)){
+      if(o != pl and vec.dot(o.n, q) - o.d > margin){
+        return false
+      }
+    }
+    return true
+  }
   if(n.x != 0){
     return p.y >= b.y0 - margin and p.y <= b.y1 + margin and
       p.z >= b.z0 - margin and p.z <= b.z1 + margin
@@ -159,6 +200,13 @@ local func on_face(b, n, p, margin){
 
 // the distance from p to the plane of face n of box b
 local func face_distance(b, n, p){
+  if(b.planes != null){
+    local pl = plane_of(b, n)
+    if(pl == null){
+      return 1e9
+    }
+    return vec.dot(pl.n, p) - pl.d
+  }
   if(n.x > 0){ return p.x - b.x1 }
   if(n.x < 0){ return b.x0 - p.x }
   if(n.y > 0){ return p.y - b.y1 }

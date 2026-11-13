@@ -11,12 +11,15 @@
 #   make seed         re-generate the seed with bin/slang itself (self-hosting), then rebuild
 #   make fixpoint     check that the seed compiles itself to identical bytecode
 #   make bench        run bench/ (bench/run_all.sh adds the Lua ports and the C sawtooth)
+#   make bench-compare the same programs in slang, Python, Lua, LuaJIT, node and Ruby
+#                     (bench/compare; RUNS=n, LANGS="slang python ...", a list of benchmarks)
 #   make bench-vectors 3D vector math in every style: slang tables, methods, operators, a native
 #                     (Zig) library, C through slang/ffi, buffers, a kernel (bench/vectors)
 #   make raylib-test  run the raylib package's tests (packages/raylib; needs raylib installed)
 #   make box2d-test   run the box2d package's tests (packages/box2d; needs Box2D 3 installed)
 #   make jolt-test    run the jolt package's tests (packages/jolt; ships its own Jolt)
 #   make midi-test    run the midi package's tests (packages/midi; no device needed)
+#   make microphone-test run the microphone package's tests (packages/microphone; no device needed)
 #   make kernel-test  run the kernel package's tests (packages/kernel; ships its interpreter)
 #   make kernel-bench kernels against plain slang (sawtooth, FM operator chain, filter)
 #   make fm-gen       regenerate examples/fm/render.kernel from its algorithms
@@ -36,6 +39,11 @@
 #   make modular-demos rewrite the patches that come with it (examples/modular/patches)
 #   make live         run the live coding environment for music and visuals (examples/live)
 #   make live-test    run its tests (no window, no audio device: the notation, the engine, every piece)
+#   make dsp          play the block-diagram instruments (examples/dsp: a Faust-like language compiled to kernels)
+#   make car          drive the four-cylinder engine of examples/dsp (programs/inline4.dsp)
+#   make dsp-test     run its tests (no window, no audio device: the language, the generated kernels, the engine)
+#   make granular     play the granular synthesizer (examples/granular): grains of a microphone recording, on kernels
+#   make granular-test run its tests (no window, no audio device: WAV files, the engine, recording through a virtual microphone)
 #   make delve        run the Delve roguelike (examples/delve) on the raylib package
 #   make delve-test   run delve's tests (no window: sight, maps, rules, the autoplayer)
 #   make courier      run Courier, the flying-car delivery game (examples/courier) on raylib and jolt
@@ -57,7 +65,7 @@ LIB_SRC  := $(wildcard slang/lib/*.slang)
 COMPILER_SRC := $(wildcard slang/compiler/*.slang)
 SEED_DIR := boot/slang
 
-.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed fixpoint bench bench-vectors raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test inkblast inkblast-test synth synth3d synth-test synth-mix modular modular-test modular-demos live live-test delve delve-test courier courier-test siege siege-test midi-test kernel-test kernel-bench fm fm3d fm-test fm-gen clean doc \
+.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed fixpoint bench bench-compare bench-vectors raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test inkblast inkblast-test synth synth3d synth-test synth-mix modular modular-test modular-demos live live-test dsp car dsp-test granular granular-test delve delve-test courier courier-test siege siege-test midi-test microphone-test kernel-test kernel-bench fm fm3d fm-test fm-gen clean doc \
         vscode vscode-grammar
 
 all: build
@@ -123,9 +131,10 @@ test: build unit
 	@if [ -d "packages/jolt/lib/$(SLANG_PLATFORM)" ]; then $(MAKE) jolt-test && $(MAKE) siege-test && $(MAKE) courier-test; \
 	  else echo "no joltc for $(SLANG_PLATFORM): packages/jolt and examples/siege not tested"; fi
 	$(MAKE) midi-test
+	$(MAKE) microphone-test
 	$(MAKE) inkblast-test
-	@if [ -d "packages/kernel/lib/$(SLANG_PLATFORM)" ]; then $(MAKE) kernel-test && $(MAKE) fm-test && $(MAKE) modular-test && $(MAKE) live-test; \
-	  else echo "no kernel/vm for $(SLANG_PLATFORM): packages/kernel, examples/fm, examples/modular and examples/live not tested"; fi
+	@if [ -d "packages/kernel/lib/$(SLANG_PLATFORM)" ]; then $(MAKE) kernel-test && $(MAKE) fm-test && $(MAKE) modular-test && $(MAKE) live-test && $(MAKE) dsp-test && $(MAKE) granular-test; \
+	  else echo "no kernel/vm for $(SLANG_PLATFORM): packages/kernel, examples/fm, examples/modular, examples/live, examples/dsp and examples/granular not tested"; fi
 
 test-gui: build
 	bin/slang test zig/test/gui
@@ -182,12 +191,18 @@ jolt-test: build
 midi-test: build
 	cd packages/midi && ../../bin/slang test test
 
+microphone-test: build
+	cd packages/microphone && ../../bin/slang test test
+
 # the kernel package ships its interpreter per platform (packages/kernel/tool/build.sh)
 kernel-test: build
 	cd packages/kernel && ../../bin/slang test test
 
 # the native libraries (a Zig extension, a C library) go to build/bench,
 # not lib/: they are the benchmark's, never installed
+bench-compare: build
+	bench/compare/run.sh $(BENCH)
+
 bench-vectors: build
 	cd zig && $(ZIG) build bench-libs -Doptimize=ReleaseFast -p ..
 	cd bench/vectors && ../../bin/slang run main.slang
@@ -252,6 +267,21 @@ live: build
 
 live-test: build
 	cd examples/live && ../../bin/slang test test
+
+dsp: build
+	cd examples/dsp && ../../bin/slang run main.slang
+
+car: build
+	cd examples/dsp && ../../bin/slang run car.slang
+
+dsp-test: build
+	cd examples/dsp && ../../bin/slang test test
+
+granular: build
+	cd examples/granular && ../../bin/slang run main.slang
+
+granular-test: build
+	cd examples/granular && ../../bin/slang test test
 
 delve: build
 	bin/slang run examples/delve/main.slang

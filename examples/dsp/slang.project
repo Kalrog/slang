@@ -1,0 +1,11 @@
+{
+  name: "dsp-example",
+  dependencies: {
+    raylib: {path: "../../packages/raylib"},
+    kernel: {path: "../../packages/kernel"},
+  },
+  search_paths: {"."},
+  // `dsp name { }` in every slang file here, and .dsp files as programs
+  extensions: {"dsp"},
+  dialects: {[".dsp"]: {grammar: "dsp/file"}},
+}

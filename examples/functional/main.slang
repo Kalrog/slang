@@ -158,3 +158,56 @@ let {distance: local distance, previous: local previous} = dijkstra(graph, "a")
 show(distance, "distances from a")
 path(previous, "e") |> str.join(" -> ") |> show("path a -> e")
 path(previous, "d") |> str.join(" -> ") |> show("path a -> d")
+
+def coin_permutations(total,coins) {
+  return coin_permutations(total, coins, {})
+}
+
+def coin_permutations(0, coins, permutation){
+  return {permutation}
+}
+
+def coin_permutations(total,'list.empty, permutation){
+  return {}
+}
+
+def coin_permutations(total,coins, permutation) when (len(coins) == 0){
+  print("matched len == 0 but not 'list.empty")
+  return {}
+}
+
+// def coin_permutations(total,'list.empty, 'list.empty){
+//   return {}
+// }
+
+def coin_permutations(total, 'list.cons{first, rest}, permutation) {
+  return concat(
+    coin_permutations(total, rest, permutation),
+    if(total >= first){ coin_permutations(total - first, {first, ...rest}, {
+      ...permutation,
+      [first]: (permutation[first] or 0) + 1,
+    }) } else { {} },
+  )
+}
+
+group("coin_permutations"){
+  local func has_permutation(permutations, value){
+    for(let local t in values(permutations)){
+      if(t == value){
+        return true
+      }
+    }
+    return false
+  }
+  test("single coin"){
+    local permutations = coin_permutations(100, {100})
+    assert(len(permutations) == 1, "finds single permutation")
+    assert(permutations[0][100] == 1, "finds single coin")
+  }
+  test("failing"){
+    local permutations = coin_permutations(100, {30})
+    assert(len(permutations) == 0, "finds no permutation")
+  }
+}
+
+print(coin_permutations(100, {50, 20, 10}), "\n")

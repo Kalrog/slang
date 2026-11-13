@@ -79,6 +79,13 @@ t.group("slang fmt"){
     )
     formats("f(1, 2,)", "f(\n  1,\n  2,\n)\n")
     formats("func g(a, b,){ return a }", "func g(\n  a,\n  b,\n){ return a }\n")
+    // a table pattern is laid out like the table it matches
+    formats("let {a: x, b: y,} = t", "let {\n  a: x,\n  b: y,\n} = t\n")
+    formats("let {a: x, b: y} = t", "let {a: x, b: y} = t\n")
+    formats(
+      "let 'Point{x: alpha_value, y: beta_value, z: gamma_value, w: delta_value_too} = p",
+      "let 'Point{\n  x: alpha_value, y: beta_value, z: gamma_value, w: delta_value_too\n} = p\n",
+    )
     // a list packed as many to a line as fit gets none
     formats(
       "local xs = {\"aaaaaaaa\", \"bbbbbbbbb\", \"cccccccc\", \"dddddddd\", \"eeeeeeeee\", \"ffffffff\", \"gggggggg\"}",

@@ -189,19 +189,29 @@ async function loadTests(controller: vscode.TestController, file: vscode.TestIte
     return;
   }
   const r = await client.sendRequest<{ tests: TestNode[] }>("slang/tests", { uri: file.uri.toString() });
-  const make = (node: TestNode, parentId: string): vscode.TestItem => {
-    const id = `${parentId} / ${node.name}`;
-    const item = controller.createTestItem(id, node.name, file.uri);
-    item.range = new vscode.Range(
-      node.range.start.line,
-      node.range.start.character,
-      node.range.end.line,
-      node.range.end.character
-    );
-    item.children.replace(node.children.map((c) => make(c, id)));
-    return item;
+  // the items that exist are updated in place: VS Code keeps the gutter
+  // buttons of an item it knows, so a new instance under the same id can
+  // leave them where the test was
+  const update = (parent: vscode.TestItem, nodes: TestNode[]) => {
+    const items: vscode.TestItem[] = [];
+    for (const node of nodes) {
+      const id = `${parent.id} / ${node.name}`;
+      const item = parent.children.get(id) ?? controller.createTestItem(id, node.name, file.uri);
+      const range = new vscode.Range(
+        node.range.start.line,
+        node.range.start.character,
+        node.range.end.line,
+        node.range.end.character
+      );
+      if (!item.range?.isEqual(range)) {
+        item.range = range;
+      }
+      update(item, node.children);
+      items.push(item);
+    }
+    parent.children.replace(items);
   };
-  file.children.replace(r.tests.map((t) => make(t, file.id)));
+  update(file, r.tests);
   // a file that is not a test file is listed while it has inline tests
   if (r.tests.length === 0 && !isTestFile(file.uri)) {
     controller.items.delete(file.id);
@@ -405,9 +415,21 @@ function startTests(context: vscode.ExtensionContext): void {
       loadTests(controller, testFile(controller, doc.uri));
     }
   };
+  // while typing, the tests follow the text once it rests a moment
+  const timers = new Map<string, NodeJS.Timeout>();
+  const refreshSoon = (e: vscode.TextDocumentChangeEvent) => {
+    const key = e.document.uri.toString();
+    clearTimeout(timers.get(key));
+    timers.set(key, setTimeout(() => {
+      timers.delete(key);
+      refresh(e.document);
+    }, 500));
+  };
   context.subscriptions.push(
     vscode.workspace.onDidOpenTextDocument(refresh),
-    vscode.workspace.onDidSaveTextDocument(refresh)
+    vscode.workspace.onDidSaveTextDocument(refresh),
+    vscode.workspace.onDidChangeTextDocument(refreshSoon),
+    { dispose: () => timers.forEach((t) => clearTimeout(t)) }
   );
   vscode.workspace.textDocuments.forEach(refresh);
 }

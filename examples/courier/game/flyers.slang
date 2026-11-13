@@ -206,7 +206,9 @@ local func new_flyer(w, nav, rng, id){
   f.q = vec.quat_look(f.h, {x: 0, y: 1, z: 0})
   keep_ahead(f, nav, rng)
   // what render.car draws while it only slides
-  f.ghost = {pos: f.pos, q: f.q, vel: f.vel, speed: f.speed, thrust: 0.5, boosting: false, mode: "fly"}
+  // its design (game/designs FREE), from its id
+  f.design = (id * 7 + 3) % 4
+  f.ghost = {pos: f.pos, q: f.q, vel: f.vel, speed: f.speed, thrust: 0.5, boosting: false, mode: "fly", design: f.design}
   return f
 }
 
@@ -322,7 +324,7 @@ local func catch_up(f){
 
 local func become_car(w, f){
   local yaw = math.atan2(f.vel.x, f.vel.z)
-  f.npc = world.spawn(w, f.pos, yaw, {role: "flyer", tint: f.tint, rank: f.rank})
+  f.npc = world.spawn(w, f.pos, yaw, {role: "flyer", tint: f.tint, rank: f.rank, design: f.design})
   local car = f.npc.car
   car.q = f.q
   car.body:set_position_rotation_and_velocity(f.pos, f.q, f.vel, {0, 0, 0})

@@ -25,18 +25,31 @@ local func physics(c){
   local jw = jolt.world({
     gravity: {0, 0, 0},
     contact_events: true,
-    max_bodies: 8192,
+    max_bodies: 32768,
   })
   // ceiling: the top of the tallest building; the car may not climb much
   // over it (game/car), so the traffic is flown through, not over
   local phys = {jw: jw, by_id: {}, limit: c.half + c.street, ceiling: 0}
   for(let local b in values(c.boxes)){
-    if(b.y1 > phys.ceiling and b.y1 < 2000){
+    // (a crown on a roof, a pyramid or a spire, does not raise it)
+    if(b.y1 > phys.ceiling and b.y1 < 2000 and not b.crown){
       phys.ceiling = b.y1
     }
+    local center = {x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2, z: (b.z0 + b.z1) / 2}
+    local shape = null
+    if(b.solid != null){
+      // a solid: the convex hull of its points, around the center
+      local points = {}
+      for(let local p in values(city.solid_points(b.solid))){
+        append(points, {p.x - center.x, p.y - center.y, p.z - center.z})
+      }
+      shape = jolt.convex_hull(points)
+    } else {
+      shape = jolt.box({(b.x1 - b.x0) / 2, (b.y1 - b.y0) / 2, (b.z1 - b.z0) / 2})
+    }
     local body = jw:create_body({
-      shape: jolt.box({(b.x1 - b.x0) / 2, (b.y1 - b.y0) / 2, (b.z1 - b.z0) / 2}),
-      position: {(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, (b.z0 + b.z1) / 2},
+      shape: shape,
+      position: {center.x, center.y, center.z},
       friction: 0.4,
     })
     phys.by_id[body.id] = {box: b}
@@ -166,6 +179,7 @@ func m.spawn(w, pos, yaw, o){
   local npc = o or {}
   npc.car = car_lib.new(w.phys, pos, yaw or 0)
   npc.car.cooldown = 0.5
+  npc.car.design = npc.design
   npc.input = null
   npc.wrecked = false
   append(w.npcs, npc)

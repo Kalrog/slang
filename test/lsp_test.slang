@@ -404,6 +404,8 @@ t.group("language server: names"){
     local got = {}
     for(let local sym in values(syms)){
       append(got, concat(sym.name, "/", string(sym.kind)))
+      // a null detail makes VS Code read the list as SymbolInformation
+      assert(not has(sym, "detail") or type(sym.detail) == "string", sym.name)
     }
     // modules 2, functions 12, variables 13
     assert(

@@ -133,9 +133,20 @@ the arrow keys or the mouse and press Enter (or click) to start there;
 
 ## How it is built
 
-- `game/city.slang`: the generator. Everything solid is an axis-aligned
-  box with a kind (facade, neon, structure, billboard, pad, ground) in a
-  spatial grid. Towers are stacks of inset tiers, decorated per tier;
+- `game/city.slang`: the generator. Everything solid is a box with a
+  kind (facade, neon, structure, billboard, pad, ground, roof) in a
+  spatial grid; some are solids, convex shapes between a polygon at the
+  bottom and one at the top inside their box's bounds: towers with their
+  corners cut, sloped skirts between tiers, pyramids, spires, sheds,
+  gables, domes and stepped crowns on the roofs, the corners of holes.
+  The physics has their convex hulls and the magnet their planes, so a
+  slope can be ridden; the grid, the routes and the pads keep to the
+  bounds. Some tiers have a hole through them to fly through (a
+  rectangle, an arch, an octagon, a diamond, a slit to take on edge, or
+  two side by side), lit round its mouths; ribs and bands on the walls
+  are only drawn. How often each comes up is `STYLE` at the top of the
+  section; the style draws from a generator of its own, so the layout
+  of a seed stays the same. Towers are stacks of inset tiers, decorated per tier;
   bridges span neighbouring blocks at heights between the traffic lanes
   (open slabs with rails, or tubes with lit walls to fly through); pads
   are placed last, only where the air above them is clear.
@@ -144,13 +155,21 @@ the arrow keys or the mouse and press Enter (or click) to start there;
   the turning rates and the self-leveling are forces and torques; the
   magnet is a spring to the surface and a torque to its normal. Jolt
   resolves the collisions, and its contact reports become hits.
+- `game/designs.slang`: what the cars look like: thirteen traffic
+  designs in five size classes (compact pods, saloons, coupes, taxis,
+  patrol cars, vans, limousines, buses, freighters, tankers), each class
+  its own physics box, and four for the cars flying free (the courier,
+  a dart, an interceptor, a skiff). A design is lofts, boxes and lights
+  in the car's frame, its colors fixed or slots the palette fills.
 - `game/traffic.slang`: thousands of cars, and nothing is stepped. Every
   lane is a conveyor: its cars share its speed and keep their order, so a
   car's place is a formula of the time (start plus speed times time,
-  wrapped at the city's edge). The renderer moves every car in the vertex
-  shader from that formula, in one static mesh per 65k vertices; only the
-  cars near the player get kinematic Jolt bodies from a small pool, found
-  by a binary search along each nearby lane.
+  wrapped at the city's edge). The renderer draws each design once,
+  instanced, every car's lane, start, speed and colors in its instance
+  matrix, and the vertex shader moves it from that formula (a simpler
+  mesh far off, the full one within 90 m); only the cars near the player
+  get kinematic Jolt bodies from a pool for their class, found by a
+  binary search along each nearby lane.
 - `game/world.slang`: the physics world with every box as a static body,
   the fixed steps, the wrecks, and the other cars (`world.spawn`: a car
   of its own in the physics, flown by whatever sets its input; ramming
@@ -237,6 +256,16 @@ COURIER_FRAMES=600 COURIER_SHOT=500:frame.png slang run main.slang`
 (`COURIER_START=1` skips the title without the autopilot;
 `COURIER_JOB=race`, `takedown`, `tail` or `delivery` puts an offer of
 that kind near the start, and the autopilot takes it).
+
+## The showroom
+
+`slang run tool/showroom.slang` shows the cars and the buildings on
+their own under the game's shaders: one car on a turntable, all of them
+in a lineup, or a block of a district (and its neighbours with G). Tab
+switches, the arrows pick the car and its palette or the seed and the
+district, the mouse orbits, O looks through each hole, P saves a
+screenshot. The `SHOWROOM_*` variables at the top of the file take
+screenshots without a hand on the mouse.
 
 ## Tuning the handling
 

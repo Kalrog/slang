@@ -19,6 +19,18 @@ t.group("isolates"){
     assert(inner:join() == inner.id)
   }
 
+  t.test("an isolate that ends at once is still there to join"){
+    // (its handle holds it from before its thread starts: the thread's
+    // own reference may be gone before spawn returns)
+    local all = {}
+    for(local i = 0; i < 24; i = i + 1){
+      append(all, isolate.spawn(func(n){ return n }, i))
+    }
+    for(local i = 0; i < 24; i = i + 1){
+      assert(all[i]:join() == i)
+    }
+  }
+
   t.test("an isolate finds modules where its caller does: paths and packages"){
     local saved = __PACKAGES.packages
     __PACKAGES.packages = {demo: {dir: "/nowhere", paths: {"/nowhere"}, suffixes: {}, missing: false}}

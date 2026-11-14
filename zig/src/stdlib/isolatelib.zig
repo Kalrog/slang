@@ -913,15 +913,20 @@ fn isoSpawn(th: *Thread, args: []Value) Error!Value {
         .trace = if (vm.tracer) |t| (if (t.stack) "stack" else "1") else null,
         .profile_path = profile_path,
     };
-    // one reference for the thread, one for the handle (newHandle)
+    // one reference for the thread, one for the handle (newHandle). The
+    // handle takes its reference before the thread starts: a thread that
+    // ends at once releases its own, and the isolate must outlive that.
+    const handle = newHandle(vm, .{ .isolate = iso });
     _ = running.fetchAdd(1, .seq_cst);
     const thread = std.Thread.spawn(.{}, threadMain, .{iso}) catch |e| {
         _ = running.fetchSub(1, .seq_cst);
+        // (the thread's reference; the handle's goes with the handle)
+        iso.state = .killed;
         iso.release();
         return vm.raise("cannot start an isolate: {t}", .{e});
     };
     thread.detach();
-    return newHandle(vm, .{ .isolate = iso });
+    return handle;
 }
 
 /// isolate:join() -> any: waits for the isolate to end and returns its

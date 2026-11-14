@@ -7,12 +7,18 @@
 // The keys 1 to 9 choose the screen: 1 the HUD, 2 the title, 3 the pause,
 // 4 the result, 5 the garage, 6 the controls, 7 the loading screen, 8
 // the HUD again in trouble (leaning, wheels in the air, a penalty), 9
-// the HUD given nothing; B changes the picture behind (a bright day, a
-// dark wood, a plain grey).
+// the HUD given nothing, 0 the HUD while exploring; M the map (of a real
+// valley: made when it is first shown, a few seconds); B changes the
+// picture behind (a bright day, a dark wood, a plain grey).
 //
 // From the environment, for screenshots:
 //   UI_SCREEN=name     hud, title, pause, finish, garage, controls,
-//                      loading, trouble, bare or bench
+//                      loading, trouble, bare, explore, map, pause_explore
+//                      or bench
+//   UI_SEED=n          the valley of the map (7)
+//   UI_VIEW=name       the map's view: relief or topo
+//   UI_ZOOM=f          the map's zoom to start at (pixels a meter)
+//   UI_MOUSE=x,y       the map: the mouse held still there (for the hover)
 //   UI_BG=name         bright, dark or plain
 //   UI_FRAMES=n        quit after n frames
 //   UI_SHOT=file.png   save the last frame (into the working directory)
@@ -32,6 +38,8 @@ local table = require("slang/table")
 local ui = require("render/ui")
 local hud = require("render/hud")
 local menu = require("render/menu")
+local map = require("render/map")
+local terrain = require("game/terrain")
 
 local screen = os.getenv("UI_SCREEN") or "hud"
 local background = os.getenv("UI_BG") or "bright"
@@ -205,7 +213,162 @@ local result = {
   },
 }
 
-local screens = {"hud", "title", "pause", "finish", "garage", "controls", "loading", "trouble", "bare"}
+// ------------------------------------------------------------ exploring
+
+// made-up trails that meet and part: the trail above, and others leaving
+// it to wind off somewhere, each a point every 2 m
+local func branch(from, turn, count, seed){
+  local out = {}
+  local p = points[from]
+  local x = p.x
+  local z = p.z
+  local q = points[from + 1]
+  local yaw = math.atan2(q.x - p.x, q.z - p.z) + turn
+  for(local i = 0; i < count; i = i + 1){
+    append(out, {x: x, z: z})
+    yaw = yaw + 0.02 * math.sin(i * 0.031 + seed) + 0.012 * math.sin(i * 0.007 + seed * 3)
+    x = x + math.sin(yaw) * 2
+    z = z + math.cos(yaw) * 2
+  }
+  return out
+}
+
+local network = {
+  trails: {
+    {name: "Summit Trail", kind: "main", points: points},
+    {name: "Bear Ridge Trail", kind: "branch", points: branch(60, 1.1, 500, 1)},
+    {name: "Lake Loop", kind: "loop", points: branch(420, -1.2, 700, 2)},
+    {name: "Cedar Gully", kind: "branch", points: branch(800, 0.9, 400, 3)},
+  },
+}
+network.camps = {}
+for(local i = 0; i < len(checkpoints); i = i + 1){
+  local c = checkpoints[i]
+  append(network.camps, {name: c.name, x: c.x, z: c.z, found: i < 3})
+}
+for(let local t in values(network.trails)){
+  if(t.kind != "main"){
+    local p = t.points[len(t.points) - 1]
+    append(network.camps, {name: concat(t.name, " Camp"), x: p.x, z: p.z, found: false})
+  }
+}
+local ends = network.trails[1].points
+network.markers = {
+  {x: ends[len(ends) - 1].x + 30, z: ends[len(ends) - 1].z + 10, name: "the ledge"},
+  {x: points[900].x - 60, z: points[900].z + 40},
+}
+network.target = 0
+
+local func explore_info(t){
+  local info = info_at(t, false)
+  local index = info.trail.index
+  info.mode = "explore"
+  info.place = "Bear Ridge Trail"
+  info.camps_found = 3
+  info.camps_total = len(network.camps)
+  info.repair = (t * 0.25) % 1
+  // the way to the marker: down the trail to the branch and up it
+  local route = {}
+  for(local i = index; i >= 60; i = i - 1){
+    append(route, points[i])
+  }
+  for(let local p in values(ends)){
+    append(route, p)
+  }
+  info.network = {
+    position: info.trail.position, trails: network.trails, route: route, camps: network.camps,
+    markers: network.markers, target: 0,
+  }
+  info.trail = null
+  local m = network.markers[0]
+  local a = info.network.position
+  info.checkpoint = {name: "Marker 1", distance: 1840, bearing: math.atan2(m.x - a.x, m.z - a.z)}
+  info.recover_text = "hold to right the truck"
+  info.recover = t % 6 > 4
+  info.damage = 0.3
+  return info
+}
+
+// the map of a real valley, with made-up trails laid on it where the
+// valley's own cannot be had
+local real = null
+
+local func real_view(){
+  if(real != null){
+    return real
+  }
+  local seed = to_int(str.to_number(os.getenv("UI_SEED") or "7"))
+  rl.drawing{
+    rl.draw.clear({12, 14, 16})
+    menu.loading(0.3, "raising the mountains")
+  }
+  local land = terrain.generate(seed)
+  local trails = {}
+  try {
+    local route = require("game/route")
+    local trail = route.plan(land)
+    route.carve(land, trail)
+    append(trails, {name: "Summit Trail", kind: "main", points: trail.points})
+  } catch {
+    null
+  }
+  terrain.finish(land)
+  local from = time.clock()
+  map.init(land, {view: os.getenv("UI_VIEW")})
+  print("ui_preview: the map's picture in ", to_int(time.clock() - from), " ms\n")
+  // (and the made-up trails moved to the trailhead's side of the valley)
+  local main = if(len(trails) > 0){ trails[0].points } else { points }
+  if(len(trails) == 0){
+    append(trails, network.trails[0])
+  }
+  local start = main[0]
+  for(local k = 1; k < len(network.trails); k = k + 1){
+    local t = network.trails[k]
+    local at = to_int(len(main) * (0.15 + 0.25 * k))
+    local o = main[at]
+    local shifted = {}
+    local first = t.points[0]
+    for(let local p in values(t.points)){
+      append(shifted, {x: p.x - first.x + o.x, z: p.z - first.z + o.z})
+    }
+    append(trails, {name: t.name, kind: t.kind, points: shifted})
+  }
+  local camps = {}
+  local names = {}
+  for(local k = 0; k < len(trails); k = k + 1){
+    local p = trails[k].points
+    local e = p[len(p) - 1]
+    append(camps, {name: concat(trails[k].name, " Camp"), x: e.x, z: e.z, found: k < 2})
+    append(names, {name: trails[k].name, x: p[to_int(len(p) / 2)].x, z: p[to_int(len(p) / 2)].z})
+  }
+  append(camps, {name: "Trailhead", x: start.x, z: start.z, found: true})
+  local truck = main[to_int(len(main) * 0.3)]
+  local next = main[to_int(len(main) * 0.3) + 2]
+  local b = trails[1].points
+  local route = {}
+  for(local i = to_int(len(main) * 0.3); i >= to_int(len(main) * 0.4) - 1 and i >= 0; i = i - 1){
+    append(route, main[i])
+  }
+  for(local i = to_int(len(main) * 0.3); i <= to_int(len(main) * 0.4); i = i + 1){
+    append(route, main[i])
+  }
+  for(let local p in values(b)){
+    append(route, p)
+  }
+  local last = b[len(b) - 1]
+  real = {
+    land: land, trails: trails, camps: camps, names: names,
+    truck: {x: truck.x, z: truck.z, heading: math.atan2(next.x - truck.x, next.z - truck.z)},
+    markers: {{x: last.x + 40, z: last.z + 25, name: "the ledge"}, {x: truck.x - 300, z: truck.z + 200}},
+    target: 0, route: route,
+  }
+  if(os.getenv("UI_ZOOM") != null){
+    map.look(truck.x, truck.z, str.to_number(os.getenv("UI_ZOOM")))
+  }
+  return real
+}
+
+local screens = {"hud", "title", "pause", "finish", "garage", "controls", "loading", "trouble", "bare", "explore"}
 local frames = 0
 local t = 0
 local costs = {}
@@ -218,10 +381,16 @@ for(not rl.window.should_close){
   }
   local dt = rl.frame_time
   t = t + dt
-  for(local i = 0; i < len(screens); i = i + 1){
+  for(local i = 0; i < 9; i = i + 1){
     if(rl.key.pressed(rl.KEY_ONE + i)){
       screen = screens[i]
     }
+  }
+  if(rl.key.pressed(rl.KEY_ZERO)){
+    screen = "explore"
+  }
+  if(screen != "map" and rl.key.pressed(rl.KEY_M)){
+    screen = "map"
   }
   script_key = null
   if(frames >= 30 and frames % 10 == 0 and (frames - 30) / 10 < len(script)){
@@ -265,9 +434,35 @@ for(not rl.window.should_close){
       hud.draw({})
       hud.draw(null)
     } else if(screen == "title"){
-      action = menu.title({seed: 7, best: 801.4, trail_length: 4796})
+      action = menu.title({seed: 7, best: 801.4, trail_length: 4796, trails_length: 21430, camps_found: 3, camps_total: 14})
     } else if(screen == "pause"){
       action = menu.pause()
+    } else if(screen == "pause_explore"){
+      action = menu.pause("explore")
+    } else if(screen == "explore"){
+      hud.draw(explore_info(t))
+    } else if(screen == "map"){
+      local view = real_view()
+      if(os.getenv("UI_MOUSE") != null){
+        local xy = str.split(os.getenv("UI_MOUSE"), ",")
+        rl.mouse.position = {x: str.to_number(xy[0]), y: str.to_number(xy[1])}
+      }
+      local done = map.draw(view)
+      if(done != null){
+        print("ui_preview: map -> ", done.kind, " ", done.index or "", " ", done.x or "", " ", done.z or "", "\n")
+        if(done.kind == "place"){
+          append(view.markers, {x: done.x, z: done.z})
+        } else if(done.kind == "remove"){
+          remove(view.markers, done.index)
+          view.target = null
+        } else if(done.kind == "target"){
+          view.target = done.index
+        } else if(done.kind == "view"){
+          null
+        } else if(done.kind == "close"){
+          screen = "explore"
+        }
+      }
     } else if(screen == "finish"){
       action = menu.finish(result)
     } else if(screen == "garage"){
@@ -316,6 +511,7 @@ local func say_cost(name, list){
 say_cost("hud.draw", costs)
 say_cost("hud.draw in trouble", costs_trouble)
 say_cost("sending the HUD to the graphics card", costs_sent)
+map.unload()
 hud.unload()
 menu.unload()
 rl.window.close()

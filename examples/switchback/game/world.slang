@@ -116,11 +116,12 @@ local func solids(w){
 }
 
 // new(options?: {seed?: int, size?: int, land?: Terrain, trail?: bool,
-//   plants?: bool, start?: Vec3, yaw?: float,
+//   branches?: bool, plants?: bool, start?: Vec3, yaw?: float,
 //   progress?: func(share: float, what: string)}) -> World
-// A world of a seed (7 by default): its land with the trail cut into it
-// and trees, bushes and rocks set on it (not on the track), the truck at
-// the trailhead. size is the land's (see terrain.generate; a land smaller
+// A world of a seed (7 by default): its land with the trails cut into it
+// (`trails`, the Summit Run first and as `trail`; their `camps`) and
+// trees, bushes and rocks set on it (not on the tracks), the truck at the
+// trailhead. branches false: the Summit Run alone. size is the land's (see terrain.generate; a land smaller
 // than the whole map has no trail); a land made before can be given
 // instead; trail false leaves the trail out, plants false what grows;
 // progress is called before each part of the making with the share done
@@ -131,12 +132,14 @@ func m.new(options){
   local progress = options.progress or func(share, what){}
   progress(0.02, "Raising the mountains")
   local land = options.land or terrain.generate(options.seed or 7, {size: options.size})
-  local trail = null
+  local net = null
   if(options.trail != false and land.n == terrain.SIZE and land.trail == null){
-    progress(0.45, "Cutting the trail")
-    trail = route.plan(land)
-    route.carve(land, trail)
+    progress(0.36, "Finding the trails")
+    net = route.network(land, {branches: options.branches})
+    progress(0.48, "Cutting the trails")
+    route.carve(land, net.trails)
   }
+  local trail = if(net != null){ net.main } else { null }
   if(land.shape == null){
     progress(0.6, "Laying out the ground and the light")
     terrain.finish(land)
@@ -176,13 +179,21 @@ func m.new(options){
     return terrain.surface_at(land, x, z)
   }
   w.trail = trail
+  w.trails = if(net != null){ net.trails } else { {} }
+  w.camps = if(net != null){ net.camps } else { {} }
   w.solids = {}
   if(options.plants != false){
     progress(0.92, "Planting the woods")
     w.plants = plants.scatter(land, {mask: route.clear(land, 2)})
-    if(trail != null){
-      // (and what is set on the trail by hand: stones, fallen trunks)
-      props.add(w.plants, props.trail(land, trail))
+    // (and what is set on the trails by hand: stones, fallen trunks)
+    local set = {}
+    for(let local t in values(w.trails)){
+      for(let local record in values(props.trail(land, t))){
+        append(set, record)
+      }
+    }
+    if(len(set) > 0){
+      props.add(w.plants, set)
     }
   }
   local start = options.start
@@ -246,12 +257,12 @@ func m.step(w, input, dt){
   return n
 }
 
-// recover(w, index?): the truck back on its wheels on the trail, at the
-// trail's point `index` (by default a little before where it is now),
-// standing still and looking along the trail
-func m.recover(w, index){
+// recover(w, index?, trail?): the truck back on its wheels on a trail
+// (the Summit Run by default), at the trail's point `index` (by default a
+// little before where it is now), standing still and looking along it
+func m.recover(w, index, trail){
   winch.release(w)
-  local trail = w.trail
+  trail = trail or w.trail
   if(trail == null){
     w.car:place(w.start, w.start_yaw)
     solids(w)
@@ -276,6 +287,14 @@ func m.recover(w, index){
   w.car:place({
     x: p.x, y: terrain.height_at(w.land, p.x, p.z) + car_lib.WHEEL_RADIUS + 0.3, z: p.z
   }, route.direction(trail, index))
+  solids(w)
+}
+
+// place(w, at: Vec3, yaw): the truck put down at a place, on its wheels,
+// standing still, looking the way of yaw (what stands near it made solid)
+func m.place(w, at, yaw){
+  winch.release(w)
+  w.car:place({x: at.x, y: terrain.height_at(w.land, at.x, at.z) + car_lib.WHEEL_RADIUS + 0.3, z: at.z}, yaw)
   solids(w)
 }
 

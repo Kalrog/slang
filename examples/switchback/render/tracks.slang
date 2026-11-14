@@ -20,6 +20,8 @@ local m = {}
 m.SIZE = 2048       // texels along a side of the map
 m.TEXEL = 0.125     // meters to a texel: the map reaches 128 m each way
 m.BLOCK = 16        // texels: the map is wiped in strips this wide (2 m)
+m.TILE = 64         // texels: what changed goes to the graphics card in
+                    // squares this wide (8 m)
 
 // how hard a tire presses each kind of ground, 0 to 1 (rock and wood
 // take no mark; under water nothing stays)
@@ -42,10 +44,10 @@ func m.init(){
   state.zeros = kernel.uint8:array(n * m.BLOCK)
   state.center = null
   state.last = {}
-  // the rows changed since the last upload: first and last, in the map's
-  // lower and upper half
-  state.low = {n, -1}
-  state.high = {n, -1}
+  // the squares changed since the last upload (by their index), and one
+  // square's texels packed for the upload
+  state.dirty = {}
+  state.tile = kernel.uint8:array(m.TILE * m.TILE)
   state.at = {x: 0, z: 0}
 }
 
@@ -92,8 +94,7 @@ local func wipe_row(block){
 local func wipe_all(){
   state.map:fill(0)
   state.texture:update(state.map)
-  state.low = {m.SIZE, -1}
-  state.high = {m.SIZE, -1}
+  state.dirty = {}
 }
 
 // the map's middle moved to the truck: block by block, each step wiping
@@ -159,22 +160,15 @@ local func stamp(x, z, strength){
         }
       }
     }
-    // (rows changed, kept apart by which half of the map they are in:
-    // the map wraps, and the truck may stand on the seam)
-    if(row < n / 2){
-      if(row < state.low[0]){
-        state.low[0] = row
-      }
-      if(row > state.low[1]){
-        state.low[1] = row
-      }
-    } else {
-      if(row < state.high[0]){
-        state.high[0] = row
-      }
-      if(row > state.high[1]){
-        state.high[1] = row
-      }
+  }
+  // (the squares changed: a print is three texels across, at most two
+  // squares each way)
+  local tiles = to_int(n / m.TILE)
+  for(let local dj in values({-1, 1})){
+    for(let local di in values({-1, 1})){
+      local tz = to_int(wrap(iz + dj) / m.TILE)
+      local tx = to_int(wrap(ix + di) / m.TILE)
+      state.dirty[tz * tiles + tx] = true
     }
   }
 }
@@ -227,19 +221,25 @@ func m.update(world){
       }
     }
   }
-  // what changed, to the graphics card: the rows from the first changed
-  // to the last, in each half of the map
+  // what changed, to the graphics card: the squares the wheels pressed,
+  // each packed row by row (not whole rows of the map: those are wide)
   local n = m.SIZE
-  for(let local span in values({state.low, state.high})){
-    if(span[1] >= span[0]){
-      state.texture:update_rec(
-        {x: 0, y: span[0], width: n, height: span[1] - span[0] + 1},
-        state.map:slice(span[0] * n, (span[1] + 1) * n),
-      )
-      span[0] = n
-      span[1] = -1
+  local size = m.TILE
+  local tiles = to_int(n / size)
+  local tile = state.tile
+  for(let local e in entries(state.dirty)){
+    local index = e[0]
+    local tx = index % tiles
+    local tz = to_int((index - tx) / tiles)
+    local x0 = tx * size
+    local z0 = tz * size
+    for(local r = 0; r < size; r = r + 1){
+      local from = (z0 + r) * n + x0
+      tile:slice(r * size, (r + 1) * size):set(state.map:slice(from, from + size))
     }
+    state.texture:update_rec({x: x0, y: z0, width: size, height: size}, tile)
   }
+  state.dirty = {}
 }
 
 // clear(): no tracks (a new run)

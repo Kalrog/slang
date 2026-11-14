@@ -1,9 +1,13 @@
-// Switchback: an off-road drive up a valley made from a seed, on the
-// raylib, jolt and kernel packages. A trail leads from the meadow by the
-// river through fords, mud, washouts and humps, along the lake, up the
-// hillside in switchbacks, between rock walls and over ledges to the
-// shoulder of the highest mountain; the clock runs from the trailhead to
-// the summit, with checkpoints between.
+// Switchback: an off-road expedition through a valley made from a seed,
+// on the raylib, jolt and kernel packages. Trails lead from the meadow by
+// the river through fords, mud, washouts and humps, along the lake, up
+// the hillsides in switchbacks, between rock walls and over ledges, to
+// lookouts, the headwaters and the summit of the highest mountain; they
+// split and meet again. Exploring (the first mode) the valley is the
+// player's to drive through: camps are found by coming to them, a truck
+// that breaks down is towed to the nearest one, and the map has markers
+// and the way to them. The Summit Run is the race: the clock runs from
+// the trailhead to the summit, with checkpoints between.
 //
 //   make switchback      (or: bin/slang run examples/switchback/main.slang)
 //
@@ -11,15 +15,17 @@
 // A and D steer. Space is the hand brake, Q the low range, E the
 // differential locks (none, rear, rear and front), F the winch (it hooks
 // to a tree ahead and pulls; F again lets go), R held puts the truck back
-// on the trail, C changes the camera, the mouse looks around, Esc pauses.
-// A gamepad: right trigger drive, left trigger brake, left stick steer,
-// A hand brake, X low range, Y locks, d-pad up the winch, B back on the
-// trail, right stick look.
+// on the trail (exploring: rights the truck where it is), C changes the
+// camera, M opens the map (exploring), the mouse looks around, Esc
+// pauses. A gamepad: right trigger drive, left trigger brake, left stick
+// steer, A hand brake, X low range, Y locks, d-pad up the winch, B back on
+// the trail, Back the map, right stick look.
 //
 // For tests and screenshots, from the environment:
 //   SWITCHBACK_SEED=n          the valley's seed
 //   SWITCHBACK_START=1         straight into the drive (no title)
-//   SWITCHBACK_AUTOPLAY=1      the same with the bot driving
+//   SWITCHBACK_AUTOPLAY=1      the same with the bot driving (the Summit Run)
+//   SWITCHBACK_MODE=trail      the Summit Run, not exploring
 //   SWITCHBACK_AT=m            the truck starts m meters along the trail
 //   SWITCHBACK_SETUP=text      the truck's setup, as "paint=moss,roof=tent"
 //   SWITCHBACK_FRAMES=n        quit after n frames
@@ -30,8 +36,14 @@
 //                              (1 by default; 0.75 is lighter on the GPU)
 //   SWITCHBACK_PLAIN=1         no HUD (for pictures of the land)
 //   SWITCHBACK_FPS=1           the frames a second in the HUD
+//   SWITCHBACK_UNCAPPED=1      no vsync and no frame cap (to measure; with
+//                              SWITCHBACK_FRAMES the time of each part of a
+//                              frame is printed at the end)
+//   SWITCHBACK_DEBUG=1         for testing: the frames a second, and on the
+//                              map G (or the middle button) puts the truck
+//                              where it points
 //   SWITCHBACK_SCREEN=name     starts on a screen: title, drive, pause,
-//                              finish, garage, controls
+//                              finish, garage, controls, map
 local rl = require("raylib")
 local os = require("slang/os")
 local str = require("slang/string")
@@ -43,6 +55,7 @@ local world = require("game/world")
 local terrain = require("game/terrain")
 local route = require("game/route")
 local run = require("game/run")
+local explore = require("game/explore")
 local bot = require("game/bot")
 local garage = require("game/garage")
 local winch = require("game/winch")
@@ -51,6 +64,7 @@ local scene = require("render/scene")
 local hud = require("render/hud")
 local menu = require("render/menu")
 local markers = require("render/markers")
+local map = require("render/map")
 
 local WIDTH = 1280
 local HEIGHT = 720
@@ -69,8 +83,13 @@ local autoplay = os.getenv("SWITCHBACK_AUTOPLAY") != null
 local skip_title = autoplay or os.getenv("SWITCHBACK_START") != null
 local start_at = env_number("SWITCHBACK_AT", 0)
 local plain = os.getenv("SWITCHBACK_PLAIN") != null
-local show_fps = os.getenv("SWITCHBACK_FPS") != null
+local debug = os.getenv("SWITCHBACK_DEBUG") != null
+local show_fps = debug or os.getenv("SWITCHBACK_FPS") != null
 local first_screen = os.getenv("SWITCHBACK_SCREEN")
+local uncapped = os.getenv("SWITCHBACK_UNCAPPED") != null
+// what the parts of the drive's frames took, ms in all (see SWITCHBACK_FRAMES)
+local spent = {driver: 0, physics: 0, rules: 0, scene: 0, hud: 0, present: 0}
+local first_mode = if(autoplay or os.getenv("SWITCHBACK_MODE") == "trail"){ "trail" } else { "explore" }
 local shots = {}
 if(os.getenv("SWITCHBACK_SHOT") != null){
   for(let local part in values(str.split(os.getenv("SWITCHBACK_SHOT"), ","))){
@@ -128,7 +147,9 @@ if(os.getenv("SWITCHBACK_SEED") == null and type(settings.seed) == "int"){
 // ------------------------------------------------------------ the game
 
 local game = {
-  screen: "title", // title, drive, pause, finish, garage, controls
+  screen: "title", // title, drive, pause, finish, garage, controls, map
+  mode: "explore", // explore, or trail (the Summit Run)
+  explore: null,   // what was found and marked (game/explore)
   back_to: "title", // where the garage and the controls return to
   world: null,
   run: null,
@@ -176,6 +197,10 @@ local func new_world(s){
   )
   game.world = w
   game.run = run.new(w)
+  game.explore = explore.new(w)
+  markers.found = game.explore.found
+  map.init(w.land, {view: settings.map_view})
+  map.look(w.car.pos.x, w.car.pos.z)
   game.driver = null
   game.camera.yaw = null
   game.camera.pos = null
@@ -196,10 +221,16 @@ local func new_world(s){
   )
 }
 
-// restart(): the truck back at the trailhead, the clock at zero
+// restart(): the truck back at the trailhead, the clock at zero; or,
+// exploring, at the camp it was last at
 local func restart(){
   local w = game.world
-  world.recover(w, 4)
+  markers.gates = game.mode == "trail"
+  if(game.mode == "explore"){
+    explore.start(game.explore, w)
+  } else {
+    world.recover(w, 4)
+  }
   // (a clean truck for a new run)
   w.car.dirt = 0
   w.car.dust = 0
@@ -488,12 +519,31 @@ local func handle(events){
     } else if(e.kind == "section"){
       hud.message(e.name, "title", 2.6)
     } else if(e.kind == "recover"){
-      hud.message(
-        concat("Back on the trail  +", string(run.RECOVER_PENALTY), " s"),
-        "warn", 2.5
-      )
+      if(game.mode == "explore"){
+        hud.message("Back on its wheels", "info", 2.2)
+      } else {
+        hud.message(
+          concat("Back on the trail  +", string(run.RECOVER_PENALTY), " s"),
+          "warn", 2.5
+        )
+      }
       game.camera.yaw = null
       game.camera.pos = null
+    } else if(e.kind == "camp"){
+      hud.message(e.name, "title", 3)
+      if(e.new){
+        hud.message("Camp found", "good", 3.5)
+      }
+    } else if(e.kind == "mended"){
+      hud.message("Truck mended", "good", 2.5)
+    } else if(e.kind == "breakdown"){
+      hud.message(concat("Broken down: towed to ", e.camp), "bad", 4.5)
+      game.camera.yaw = null
+      game.camera.pos = null
+    } else if(e.kind == "trail"){
+      hud.message(e.name, "title", 2.6)
+    } else if(e.kind == "arrived"){
+      hud.message(concat(e.name, " reached"), "good", 3)
     } else if(e.kind == "wreck"){
       hud.message(
         concat("Wrecked: patched up  +", string(run.WRECK_PENALTY), " s"),
@@ -511,8 +561,56 @@ local func handle(events){
 // a frame of the world drawn through a camera, and what the HUD needs
 local func draw_world(camera, options){
   markers.next = game.run.next
+  markers.gates = game.mode == "trail"
   local view = scene.view(fixed_view or camera, game.time)
   scene.draw(view, game.world, options)
+}
+
+// the map: opened while exploring, the game held behind it
+local func open_map(){
+  game.screen = "map"
+  rl.mouse.locked = false
+}
+
+local func update_map(dt){
+  local w = game.world
+  local e = game.explore
+  draw_world(chase_camera(0), {fade: game.fade})
+  local view = explore.map(e, w)
+  view.land = w.land
+  view.debug = debug
+  view.truck = {x: w.car.pos.x, z: w.car.pos.z, heading: math.atan2(w.car.forward.x, w.car.forward.z)}
+  local action = map.draw(view)
+  if(map.view != settings.map_view){
+    settings.map_view = map.view
+    save_settings(settings)
+  }
+  if(action == null){
+    return
+  }
+  if(action.kind == "place"){
+    local index = explore.mark(e, w, action.x, action.z)
+    if(index == null){
+      hud.message(concat("No more than ", string(explore.MARKERS), " markers"), "warn", 2.5)
+    } else if(e.target == null){
+      // (the first marker is the one the way leads to)
+      explore.aim(e, w, index)
+    }
+  } else if(action.kind == "remove"){
+    explore.unmark(e, w, action.index)
+  } else if(action.kind == "target"){
+    explore.aim(e, w, action.index)
+  } else if(action.kind == "teleport"){
+    // (testing: the truck put there, looking the way it did)
+    world.place(w, {x: action.x, z: action.z}, math.atan2(w.car.forward.x, w.car.forward.z))
+    explore.aim(e, w, e.target)
+    game.camera.yaw = null
+    game.camera.pos = null
+    hud.message("Teleported", "info", 1.5)
+  } else if(action.kind == "close"){
+    game.screen = "drive"
+    rl.mouse.locked = fixed_view == null
+  }
 }
 
 local func update_drive(dt){
@@ -528,7 +626,14 @@ local func update_drive(dt){
   if(rl.key.pressed(rl.KEY_C)){
     game.camera.mode = (game.camera.mode + 1) % len(VIEWS)
   }
+  if(game.mode == "explore" and (rl.key.pressed(rl.KEY_M) or
+    (rl.gamepad.available(0) and rl.gamepad.pressed(0, rl.GAMEPAD_BUTTON_MIDDLE_LEFT)))){
+    open_map()
+    draw_world(chase_camera(0), {fade: game.fade})
+    return
+  }
   local input = null
+  local t0 = time.clock()
   if(autoplay){
     if(game.driver == null){
       game.driver = bot.new()
@@ -540,19 +645,37 @@ local func update_drive(dt){
   } else {
     input = player_input(dt)
   }
+  local t1 = time.clock()
   world.step(w, input, dt)
+  local t2 = time.clock()
   if(w.winch_done){
     w.winch_done = false
     hud.message("Winch in", "info", 1.8)
   }
-  handle(run.step(game.run, w, input, dt))
+  local info = null
+  if(game.mode == "explore"){
+    handle(explore.step(game.explore, w, input, dt))
+  } else {
+    handle(run.step(game.run, w, input, dt))
+  }
+  local t3 = time.clock()
   draw_world(chase_camera(dt), {fade: game.fade})
+  local t4 = time.clock()
   if(not plain){
-    local info = run.info(game.run, w)
+    if(game.mode == "explore"){
+      info = explore.info(game.explore, w)
+    } else {
+      info = run.info(game.run, w)
+    }
     info.fps = rl.fps
     info.debug = show_fps
     hud.draw(info)
   }
+  spent.driver = spent.driver + t1 - t0
+  spent.physics = spent.physics + t2 - t1
+  spent.rules = spent.rules + t3 - t2
+  spent.scene = spent.scene + t4 - t3
+  spent.hud = spent.hud + time.clock() - t4
   if(game.run.phase == "finished"){
     game.finish_wait = game.finish_wait - dt
     if(game.finish_wait <= 0){
@@ -567,12 +690,20 @@ local func update_title(dt){
   world.step(w, {}, dt)
   draw_world(turning_camera(dt, 9.5, 2.6, 0.07), {fade: game.fade})
   local best = game.run.best
+  local total = 0
+  for(let local t in values(w.trails)){
+    total = total + t.length
+  }
   local action = menu.title({
     seed: seed,
     best: if(best != null){ best.time } else { null },
     trail_length: if(w.trail != null){ w.trail.length } else { 0 },
+    trails_length: total,
+    camps_found: explore.found(game.explore, w),
+    camps_total: len(w.camps),
   })
-  if(action == "drive"){
+  if(action == "explore" or action == "drive"){
+    game.mode = if(action == "explore"){ "explore" } else { "trail" }
     restart()
     game.screen = "drive"
     rl.mouse.locked = true
@@ -594,10 +725,12 @@ local func update_title(dt){
 
 local func update_pause(dt){
   draw_world(chase_camera(0), {fade: game.fade * 0.6})
-  local action = menu.pause()
+  local action = menu.pause(game.mode)
   if(action == "resume"){
     game.screen = "drive"
     rl.mouse.locked = true
+  } else if(action == "map"){
+    open_map()
   } else if(action == "restart"){
     restart()
     game.screen = "drive"
@@ -673,14 +806,19 @@ local func update_controls(dt){
 // ------------------------------------------------------------ main
 
 rl.window.open({
-  width: WIDTH, height: HEIGHT, title: "Switchback", msaa: true, vsync: true,
-  fps: 60
+  width: WIDTH, height: HEIGHT, title: "Switchback", msaa: true, vsync: not uncapped,
+  fps: if(uncapped){ 0 } else { 60 }
 })
 rl.window.exit_key = rl.KEY_NULL
 hud.init()
 menu.init()
+game.mode = first_mode
 new_world(seed)
+markers.gates = game.mode == "trail"
 if(skip_title){
+  if(game.mode == "explore"){
+    explore.start(game.explore, game.world)
+  }
   game.screen = "drive"
   rl.mouse.locked = not autoplay and fixed_view == null
 }
@@ -693,6 +831,7 @@ if(first_screen != null){
 
 local frames = 0
 local work = 0
+local began = time.clock()
 for(not rl.window.should_close and not game.quit){
   if(frame_limit != null and frames >= to_int(str.to_number(frame_limit))){
     break
@@ -712,11 +851,15 @@ for(not rl.window.should_close and not game.quit){
       update_finish(dt)
     } else if(game.screen == "garage"){
       update_garage(dt)
+    } else if(game.screen == "map"){
+      update_map(dt)
     } else {
       update_controls(dt)
     }
     work = work + time.clock() - from
   }
+  // (the frame handed over: waiting for the graphics card, when it is behind)
+  spent.present = spent.present + time.clock() - from
   if(shots[frames] != null){
     rl.window.screenshot(shots[frames])
   }
@@ -730,8 +873,22 @@ if(frame_limit != null){
     to_int(r.index * route.STEP), " m along the trail, checkpoint ", r.next - 1,
     ", ", r.recoveries, " recoveries\n"
   )
+  local n = math.max(1, frames)
+  local func ms(v){
+    return str.format("%.2f", v / n)
+  }
+  local costs = scene.costs()
+  spent.present = spent.present - work
+  print(
+    "switchback: a frame took ", ms(time.clock() - began), " ms (", to_int(frames * 1000 / math.max(1, time.clock() - began)),
+    " a second): bot ", ms(spent.driver), ", physics ", ms(spent.physics), ", rules ", ms(spent.rules),
+    ", scene ", ms(spent.scene), " (effects ", str.format("%.2f", costs.effects), ", shadows ", str.format("%.2f", costs.shadows),
+    ", scene ", str.format("%.2f", costs.scene), ", post ", str.format("%.2f", costs.post), "), HUD ", ms(spent.hud),
+    ", handing over (waiting for the graphics card) ", ms(spent.present), " ms\n"
+  )
 }
 scene.unload()
+map.unload()
 world.destroy(game.world)
 hud.unload()
 menu.unload()

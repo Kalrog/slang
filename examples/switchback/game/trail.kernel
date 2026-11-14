@@ -43,15 +43,17 @@ func coarse(height: float[], steep: float[], wet: float[], m: int, block: int,
 // about twice as much; beyond it steeply more), more across steep ground,
 // more through water, and more the sharper it turns from the step
 // before; a step steeper than `most` (when that is not 0) costs as much
-// as many turns: the way winds wherever the land lets it; `toll` is
+// as many turns: the way winds wherever the land lets it (a `most` under
+// 0: a step steeper than -most is not taken, its cost is 1e9); `toll` is
 // extra per square (1e9: no way). `heading` is the
-// direction it has at the start (-1: any). Returns the state the goal was
-// reached in, or -1. The heap arrays (`room` long) and `done` are
+// direction it has at the start (-1: any). `goal` is the square to reach;
+// -1: any square that `targets` has (not 0). Returns the state the goal
+// was reached in, or -1. The heap arrays (`room` long) and `done` are
 // scratch.
 func ways(cost: double[], from: int32[], height: float[], steep: float[], wet: float[],
   toll: float[], m: int, cell: float, start: int, heading: int, goal: int, grade: float,
   most: float, dir_x: int32[], dir_z: int32[], heap_key: double[], heap_cell: int32[], room: int,
-  done: uint8[]): int {
+  done: uint8[], targets: uint8[]): int {
   for(local i = 0; i < m * m * 16; i += 1){
     cost[i] = 1.0e30
     from[i] = -1
@@ -104,7 +106,7 @@ func ways(cost: double[], from: int32[], height: float[], steep: float[], wet: f
       done[c] = 1
       local square = c / 16
       local came = c % 16
-      if(square == goal){
+      if(square == goal or (goal < 0 and targets[square] != 0)){
         found = c
         size = 0
       } else {
@@ -135,6 +137,10 @@ func ways(cost: double[], from: int32[], height: float[], steep: float[], wet: f
               // many turns to avoid)
               if(most > 0 and g > most){
                 w += 60.0 + 900.0 * (g - most)
+              }
+              // (a `most` under 0: no step steeper than it at all)
+              if(most < 0 and g > -most){
+                w += 1.0e9
               }
               // across a steep slope the track must be cut into it, and
               // through crags it would be a trench
@@ -239,24 +245,42 @@ local func wall_rough(x: float, z: float, seed: int): float {
   return mix(mix(a, b, tx), mix(c, d, tx), tz)
 }
 
+// a map of m by m samples (cell apart, from `origin`) read between its
+// samples at a place
+local func between(a: float[], m: int, cell: float, origin: float, x: float, z: float): float {
+  local fx = clamp((x - origin) / cell, 0, m - 1.001)
+  local fz = clamp((z - origin) / cell, 0, m - 1.001)
+  local i = int(fx)
+  local j = int(fz)
+  local tx = fx - float(i)
+  local tz = fz - float(j)
+  local top = mix(a[j * m + i], a[j * m + i + 1], tx)
+  local bottom = mix(a[(j + 1) * m + i], a[(j + 1) * m + i + 1], tx)
+  return mix(top, bottom, tz)
+}
+
 // cut: the track cut into the land's fine heights `h` (n a side, spacing
 // apart; rows j0 to j1): level across its width, then a bank up to (or
 // down to) the land as it was. The bank starts gently at the track's edge
 // (a wheel that strays climbs a little, not a wall) and steepens away
 // from it: about 48 degrees where the land is much higher (a cut into the
-// hill), about 34 where it falls away (fill). Where walls are built, rock
-// stands up beside the track instead.
+// hill), about 34 where it falls away (fill). In a narrows the cut is a
+// face of rock instead, steep from the track's edge.
 //
 // points: the track's line every `step` meters, eight numbers a point: x,
 // z, height, half width, tilt (the rise across the track per meter to the
 // left), waves (the height of humps that alternate left and right along
-// it), walls (their height), and how much of all this is done there (1:
+// it), narrows (0 to 1: how far into one; there the land beside the track
+// is cut as a face of rock), and how much of all this is done there (1:
 // all; 0: the land is left as it is, as in a ford). dist and along are
 // the coarse maps [near] made (m a side, cell apart): how far the line
 // is, and how far along it: where to look for the nearest piece of it.
+// prior and prior_half are the same maps of the tracks cut before this
+// one (as [near] makes them, on the same grid): their tracks are left as
+// they are, and this one's banks run into them.
 func cut(j0: int, j1: int, h: float[], n: int, spacing: float, origin: float,
   dist: float[], along: float[], m: int, cell: float, points: float[], count: int,
-  step: float, reach: float, seed: int){
+  step: float, reach: float, seed: int, prior: float[], prior_half: float[]){
   for(local j = j0; j < j1; j += 1){
     local z = origin + j * spacing
     local cj = int(clamp((z - origin) / cell + 0.5, 0, m - 1))
@@ -286,6 +310,10 @@ func cut(j0: int, j1: int, h: float[], n: int, spacing: float, origin: float,
         }
         local d = sqrt(best)
         local share = mix(points[bk * 8 + 7], points[bk * 8 + 15], bt)
+        // (not on another track: up to its edge; its banks this one cuts
+        // through like any land)
+        local other = between(prior, m, cell, origin, x, z) - between(prior_half, m, cell, origin, x, z)
+        share *= smoothstep(-0.4, 0.8, other)
         if(d < reach and share > 0.001){
           local ax = points[bk * 8]
           local az = points[bk * 8 + 1]
@@ -305,19 +333,26 @@ func cut(j0: int, j1: int, h: float[], n: int, spacing: float, origin: float,
           local was = h[j * n + i]
           local diff = was - y
           local run = select(diff > 0, diff * 0.9, -diff * 1.5)
-          run = clamp(run, 2.5, reach - w - 0.5)
+          local least = 2.5
+          local shape = 0.0
+          // the narrows: where the land stands over the track it is cut
+          // through as a face of rock, steep from the track's edge and
+          // broken, not as a bank; nothing is built up (where the land is
+          // no higher, the track is only narrower)
+          local narrows = clamp(mix(points[bk * 8 + 6], points[bk * 8 + 14], bt), 0, 1)
+          if(narrows > 0.01 and diff > 0){
+            local broken = 0.7 + 0.6 * wall_rough(x * 0.7, z * 0.7, seed)
+            run = mix(run, diff * 0.22 * broken, narrows)
+            least = mix(2.5, 0.5, narrows)
+            shape = narrows
+          }
+          run = clamp(run, least, reach - w - 0.5)
           local k = clamp((d - w) / run, 0, 1)
           // a camber: the middle a little higher than the edges
           local e = clamp(d / w, 0, 1)
           local crown = 0.05 * (1 - e * e)
-          local made = mix(y + crown, was, k * k * (1.6 - 0.6 * k))
-          local wall = mix(points[bk * 8 + 6], points[bk * 8 + 14], bt)
-          if(wall > 0.1){
-            // rock standing beside the track: up steeply from its edge,
-            // broken on top, and falling back to the land behind
-            local up = smoothstep(w + 0.1, w + 1.5, d) * (1 - smoothstep(w + 4.5, w + 8.5, d))
-            made = max(made, y + wall * up * (0.75 + 0.25 * wall_rough(x, z, seed)))
-          }
+          // (a bank starts gently at the track's edge; a face of rock at once)
+          local made = mix(y + crown, was, mix(k * k * (1.6 - 0.6 * k), k, shape))
           h[j * n + i] = mix(was, made, share)
         }
       }
@@ -345,26 +380,38 @@ func clear(out: uint8[], m: int, block: int, dist: float[], half: float[], n: in
   }
 }
 
-// crown: a summit made the top of its mountain: within `radius` of
-// (cx, cz) nothing stands over `level`, and from there out to `reach`
-// nothing over a cone that falls gently away from it; what is lower
-// stays as it is.
-func crown(h: float[], n: int, spacing: float, origin: float, cx: float, cz: float,
-  level: float, radius: float, reach: float){
+// pad: where two trails meet, the ground they share, cut as one piece:
+// within `radius` of (cx, cz) the plane through (cx, y, cz) that rises
+// gx a meter toward x and gz toward z (both tracks follow it there), and
+// from its edge out to `reach` a bank to the land as it is, as a
+// track's (see [cut]): the corners between the tracks rounded off, not
+// a spur of hill between two cuts. The tracks themselves are left as
+// they are (dist and half: [near]'s maps of all of them, m a side, cell
+// apart).
+func pad(h: float[], n: int, spacing: float, origin: float, cx: float, cz: float, y: float,
+  gx: float, gz: float, radius: float, reach: float, dist: float[], half: float[], m: int,
+  cell: float){
   local i0 = int(clamp((cx - reach - origin) / spacing, 0, n - 1))
   local i1 = int(clamp((cx + reach - origin) / spacing + 1, 0, n - 1))
   local j0 = int(clamp((cz - reach - origin) / spacing, 0, n - 1))
   local j1 = int(clamp((cz + reach - origin) / spacing + 1, 0, n - 1))
   for(local j = j0; j <= j1; j += 1){
+    local z = origin + j * spacing
     for(local i = i0; i <= i1; i += 1){
       local x = origin + i * spacing
-      local z = origin + j * spacing
       local d = sqrt((x - cx) * (x - cx) + (z - cz) * (z - cz))
       if(d < reach){
-        local most = level - max(d - radius, 0) * 0.04
-        // (fading out at the reach, not a step)
-        local k = 1 - smoothstep(reach * 0.8, reach, d)
-        h[j * n + i] = mix(h[j * n + i], min(h[j * n + i], most), k)
+        local was = h[j * n + i]
+        local plane = y + gx * (x - cx) + gz * (z - cz)
+        local diff = was - plane
+        local run = select(diff > 0, diff * 0.9, -diff * 1.5)
+        run = clamp(run, 2.5, reach - radius)
+        local k = clamp((d - radius) / run, 0, 1)
+        local made = mix(plane, was, k * k * (1.6 - 0.6 * k))
+        // (the tracks are left as they are: they follow the plane there
+        // already, each as its line allows)
+        local track = between(dist, m, cell, origin, x, z) - between(half, m, cell, origin, x, z)
+        h[j * n + i] = mix(made, was, 1 - smoothstep(-0.3, 0.8, track))
       }
     }
   }
@@ -376,9 +423,10 @@ func crown(h: float[], n: int, spacing: float, origin: float, cx: float, cz: flo
 // point of it, nothing around that point stands over a slope that rises
 // from the track's edge, rough as broken rock is: the ridge is lowered
 // into a notch with sloping sides, and the track is then cut into its
-// floor like anywhere else.
+// floor like anywhere else. The tracks cut before (prior, prior_half:
+// see [cut], m a side, cell apart) are left as they are.
 func saddle(h: float[], n: int, spacing: float, origin: float, points: float[], count: int,
-  every: int, deep: float, seed: int){
+  every: int, deep: float, seed: int, prior: float[], prior_half: float[], m: int, cell: float){
   for(local k = 0; k < count; k += every){
     local px = points[k * 8]
     local pz = points[k * 8 + 1]
@@ -403,12 +451,28 @@ func saddle(h: float[], n: int, spacing: float, origin: float, points: float[], 
             local side = max(d - w, 0)
             local rough = wall_rough(x * 0.13, z * 0.13, seed + 5) * 0.6 + wall_rough(x * 0.6, z * 0.6, seed + 6) * 0.4
             local most = y + deep * 0.6 + side * (0.72 + 0.5 * rough) + rough * min(side, 6) * 0.5
-            if(h[j * n + i] > most){
+            if(h[j * n + i] > most and between(prior, m, cell, origin, x, z) - between(prior_half, m, cell, origin, x, z) > 3.0){
               h[j * n + i] = most
             }
           }
         }
       }
+    }
+  }
+}
+
+// merge: the maps of one track ([near]'s, d, w, a, k) taken into those of
+// all the tracks (dist, half, along, mud) where it is the nearest; which
+// says whose: the track's number `id`. count: the samples.
+func merge(dist: float[], half: float[], along: float[], mud: uint8[], which: uint8[], d: float[],
+  w: float[], a: float[], k: uint8[], count: int, id: int){
+  for(local i = 0; i < count; i += 1){
+    if(d[i] < dist[i]){
+      dist[i] = d[i]
+      half[i] = w[i]
+      along[i] = a[i]
+      mud[i] = k[i]
+      which[i] = id
     }
   }
 }

@@ -1,11 +1,15 @@
-// render/markers: the trail's checkpoints as things in the world: at each
-// a gate of two posts and a beam over the track, with a banner hanging
-// from it that stirs in the wind. The banner of the gate to reach next is
-// amber and glows, those passed are green, those further on the color of
-// canvas.
+// render/markers: what marks places in the world. The Summit Run's
+// checkpoints are gates of two posts and a beam over the track, with a
+// banner hanging from it that stirs in the wind: the banner of the gate
+// to reach next is amber and glows, those passed are green, those further
+// on the color of canvas. The camps are a tent beside the track, a ring of
+// stones round a fire and a pennant on a pole: amber where the camp is
+// found, canvas where it is not.
 //
 //   markers.init(world)
 //   markers.next = 3            // the checkpoint to reach (main sets it)
+//   markers.gates = false       // no gates (exploring)
+//   markers.found = {Trailhead: true}   // the camps found
 //   markers.draw(view, world)
 local rl = require("raylib")
 local math = require("slang/math")
@@ -19,6 +23,10 @@ local m = {}
 
 // the checkpoint to reach next (an index into the trail's checkpoints)
 m.next = 1
+// whether the gates are shown
+m.gates = true
+// the camps found, by name
+m.found = {}
 
 // a material of this module's own beside the mesh kit's: cloth
 local CLOTH = 9
@@ -38,11 +46,13 @@ out vec3 normal;
 out vec3 tint;
 out float cloth;
 out float hang;           // of cloth: how far over its lower edge, m
+out float ember;          // of a fire's embers (material 11): 1
 
 void main(){
   vec3 p = vertexPosition;
   hang = p.y - (stir.w - 0.85);
-  cloth = vertexTexCoord.x > 8.5 ? 1.0 : 0.0;
+  cloth = vertexTexCoord.x > 8.5 && vertexTexCoord.x < 10.5 ? 1.0 : 0.0;
+  ember = vertexTexCoord.x > 10.5 ? 1.0 : 0.0;
   if(cloth > 0.5){
     // the wind in the cloth: more the further from where it is tied (a
     // banner to its beam, a pennant to its pole)
@@ -67,6 +77,7 @@ in vec3 normal;
 in vec3 tint;
 in float cloth;
 in float hang;
+in float ember;
 uniform vec4 banner;      // the cloth's color, and how much it glows
 out vec4 finalColor;
 
@@ -81,7 +92,12 @@ void main(){
   }
   float shadow = sunShadow(worldPos, n);
   vec3 color;
-  if(cloth > 0.5){
+  if(ember > 0.5){
+    // embers: glowing, flickering, darker where they are ash
+    float flicker = 0.75 + 0.25 * sin(time * 9.0 + worldPos.x * 7.0) * sin(time * 5.7 + worldPos.z * 9.0);
+    float ash = fract(sin(dot(floor(worldPos.xz * 14.0), vec2(12.9898, 78.233))) * 43758.5453);
+    color = mix(vec3(0.05, 0.04, 0.035), vec3(2.6, 0.75, 0.16) * flicker, smoothstep(0.35, 0.8, ash));
+  } else if(cloth > 0.5){
     // cloth lets the sun through; a darker band along its lower edge
     vec3 dye = banner.rgb * (1.0 - 0.45 * step(hang, 0.24) * step(0.06, hang));
     color = shadeLeaf(dye, n, worldPos, shadow, 0.5) + dye * banner.a;
@@ -102,7 +118,151 @@ local func beside(land, c, lx, lz, off){
   return {x: x, y: terrain_lib.height_at(land, x, z), z: z}
 }
 
-// init(world): a gate at every checkpoint of the world's trail
+// the tents' canvas, one camp after the other
+local CANVAS = {{196, 104, 46}, {92, 104, 64}, {58, 92, 120}, {172, 150, 92}}
+
+// camp(world, camp, k) -> what a camp is built of: a tent beside the
+// clearing, its door to the track, a ring of stones with a fire in it,
+// logs to sit on, and on the other side a pole with a pennant
+local func camp_mesh(world, camp, k){
+  local land = world.land
+  local trail = camp.trail
+  local count = len(trail.points)
+  local at = camp.at
+  // where on the trail: in the middle of the clearing, or at a trail's end
+  // where the clearing is
+  // (ahead of where the truck stands, out of the way of the camera
+  // behind it)
+  local index = at
+  if(at == 0){
+    index = math.min(count - 1, 10)
+  } else if(at == count - 1){
+    index = math.max(0, count - 2)
+  } else {
+    index = math.min(count - 1, at + 5)
+  }
+  local p = trail.points[index]
+  local yaw = route.direction(trail, index)
+  local lx = math.cos(yaw)
+  local lz = -math.sin(yaw)
+  local fx = math.sin(yaw)
+  local fz = math.cos(yaw)
+  local half = math.max(p.half, route.CAMP_HALF)
+  local func spot(left, ahead){
+    local x = p.x + lx * left + fx * ahead
+    local z = p.z + lz * left + fz * ahead
+    return {x: x, y: terrain_lib.height_at(land, x, z), z: z}
+  }
+  local b = kit.new()
+  // the tent: a ridge along the track, its door at the near end
+  local w = 1.9
+  local l = 2.3
+  local h = 1.3
+  local tent = spot(half - 1.3, 0)
+  local floor = tent.y
+  for(let local c in values({spot(half - 1.3 - w / 2, -l / 2), spot(half - 1.3 + w / 2, l / 2),
+    spot(half - 1.3 + w / 2, -l / 2), spot(half - 1.3 - w / 2, l / 2)})){
+    floor = math.max(floor, c.y)
+  }
+  b:push(tent.x, floor - 0.05, tent.z, vec.quat_yaw(yaw))
+  local canvas = CANVAS[k % len(CANVAS)]
+  b:paint(kit.MATTE)
+  b:color(canvas[0], canvas[1], canvas[2])
+  local slope = math.atan2(h, w / 2)
+  local panel = math.sqrt(w * w / 4 + h * h)
+  for(let local side in values({-1, 1})){
+    b:push(side * w / 4, h / 2, 0, vec.quat_axis({x: 0, y: 0, z: 1}, -side * slope))
+    b:box(0, 0, 0, panel + 0.06, 0.03, l, 0.01)
+    b:pop()
+  }
+  // its ends: the back closed, the door dark and tied open
+  for(let local end in values({-1, 1})){
+    local z = end * l / 2
+    local a = {x: -w / 2, y: 0, z: z}
+    local c = {x: w / 2, y: 0, z: z}
+    local top = {x: 0, y: h, z: z}
+    if(end > 0){
+      b:color(canvas[0] * 0.8, canvas[1] * 0.8, canvas[2] * 0.8)
+    } else {
+      b:color(30, 28, 26)
+    }
+    b:tri(a, c, top)
+    b:tri(c, a, top)
+  }
+  b:color(canvas[0] * 0.85, canvas[1] * 0.85, canvas[2] * 0.85)
+  b:tri({x: -0.04, y: h, z: -l / 2 - 0.01}, {x: -w / 2, y: 0, z: -l / 2 - 0.01}, {x: -w * 0.28, y: 0, z: -l / 2 - 0.28})
+  b:tri({x: 0.04, y: h, z: -l / 2 - 0.01}, {x: w * 0.28, y: 0, z: -l / 2 - 0.28}, {x: w / 2, y: 0, z: -l / 2 - 0.01})
+  // the poles and the ridge
+  b:paint(kit.METAL, 0.3)
+  b:color(80, 82, 86)
+  b:rod({x: 0, y: -0.2, z: -l / 2 - 0.04}, {x: 0, y: h + 0.12, z: -l / 2 - 0.04}, 0.014, 6, 0.014, false, true)
+  b:rod({x: 0, y: -0.2, z: l / 2 + 0.04}, {x: 0, y: h + 0.12, z: l / 2 + 0.04}, 0.014, 6, 0.014, false, true)
+  b:rod({x: 0, y: h + 0.03, z: -l / 2 - 0.06}, {x: 0, y: h + 0.03, z: l / 2 + 0.06}, 0.012, 6, 0.012, true, true)
+  b:pop()
+  // the fire: a ring of stones, the embers, and two logs to sit on
+  local fire = spot(half - 2.7, -3.0)
+  b:paint(kit.MATTE)
+  for(local i = 0; i < 9; i = i + 1){
+    local a = i * 2 * math.pi / 9
+    local x = fire.x + math.cos(a) * 0.46
+    local z = fire.z + math.sin(a) * 0.46
+    local y = terrain_lib.height_at(land, x, z)
+    local g = 96 + (i * 37) % 30
+    b:color(g, g - 4, g - 10)
+    b:push(x, y + 0.05, z, vec.quat_yaw(a + i))
+    b:box(0, 0, 0, 0.2, 0.15, 0.17, 0.05)
+    b:pop()
+  }
+  b:paint(11)
+  b:color(255, 255, 255)
+  b:disc({x: fire.x, y: fire.y + 0.04, z: fire.z}, {x: 0, y: 1, z: 0}, 0.34, 12)
+  b:paint(kit.MATTE)
+  b:color(70, 52, 38)
+  for(let local r in values({0.0, 1.2})){
+    local a = yaw + r
+    b:rod(
+      {x: fire.x + math.sin(a) * 0.22, y: fire.y + 0.1, z: fire.z + math.cos(a) * 0.22},
+      {x: fire.x - math.sin(a) * 0.22, y: fire.y + 0.16, z: fire.z - math.cos(a) * 0.22}, 0.045, 6, 0.04, true, true,
+    )
+  }
+  b:color(110, 82, 58)
+  for(let local off in values({{1.25, 0.2}, {-0.1, 1.3}})){
+    local s = spot(half - 2.7 + off[0], -3.0 + off[1])
+    local d = {x: fx * 0.75 * (if(off[0] > 1){ 1 } else { 0 }) + lx * 0.75 * (if(off[0] > 1){ 0 } else { 1 }), z: 0}
+    d.z = fz * 0.75 * (if(off[0] > 1){ 1 } else { 0 }) + lz * 0.75 * (if(off[0] > 1){ 0 } else { 1 })
+    b:rod({x: s.x - d.x, y: s.y + 0.14, z: s.z - d.z}, {x: s.x + d.x, y: s.y + 0.14, z: s.z + d.z}, 0.15, 10, 0.14, true, true)
+  }
+  // the pennant on its pole, across the track
+  local foot = spot(-(half - 0.6), -1.0)
+  local px = foot.x
+  local pz = foot.z
+  b:color(92, 70, 50)
+  b:rod({x: px, y: foot.y - 0.3, z: pz}, {x: px, y: foot.y + 4.6, z: pz}, 0.045, 8, 0.03, false, true)
+  b:paint(CLOTH + 1)
+  local parts = 8
+  for(local i = 0; i < parts; i = i + 1){
+    local a = i / parts
+    local e = (i + 1) / parts
+    local wx = -lx * 1.4
+    local wz = -lz * 1.4
+    local q = {
+      {x: px + wx * a, y: foot.y + 4.55 - 0.26 * a, z: pz + wz * a},
+      {x: px + wx * e, y: foot.y + 4.55 - 0.26 * e, z: pz + wz * e},
+      {x: px + wx * e, y: foot.y + 4.0 + 0.26 * e, z: pz + wz * e},
+      {x: px + wx * a, y: foot.y + 4.0 + 0.26 * a, z: pz + wz * a},
+    }
+    b:quad(q[0], q[1], q[2], q[3])
+    b:quad(q[3], q[2], q[1], q[0])
+  }
+  local mesh = b:mesh()
+  local made = {mesh: mesh, model: mesh:to_model(), name: camp.name, x: tent.x, z: tent.z, pole: {px, pz},
+    stir: {-lx, -lz}, tied: foot.y + 4.6}
+  made.material = shaders.use(made.model, state.shader)
+  return made
+}
+
+// init(world): a gate at every checkpoint of the world's trail, a camp
+// at each of its camps
 func m.init(world){
   m.unload()
   local trail = world.trail
@@ -195,6 +355,10 @@ func m.init(world){
     gate.material = shaders.use(gate.model, state.shader)
     append(state.gates, gate)
   }
+  state.camps = {}
+  for(local k = 0; k < len(world.camps or {}); k = k + 1){
+    append(state.camps, camp_mesh(world, world.camps[k], k))
+  }
 }
 
 // draw(view, world): the gates (they cast shadows)
@@ -208,7 +372,24 @@ func m.draw(view, world){
     m0: 1, m1: 0, m2: 0, m3: 0, m4: 0, m5: 1, m6: 0, m7: 0,
     m8: 0, m9: 0, m10: 1, m11: 0, m12: 0, m13: 0, m14: 0, m15: 1,
   }
-  local trail = world.trail
+  for(let local camp in values(state.camps)){
+    local dx = camp.x - view.eye.x
+    local dz = camp.z - view.eye.z
+    if(dx * dx + dz * dz > 600 * 600){
+      continue
+    }
+    local banner = {0.56, 0.5, 0.38, 0}
+    if(m.found[camp.name]){
+      banner = {0.85, 0.38, 0.04, 0.05}
+    }
+    shader:set("banner", banner, rl.SHADER_UNIFORM_VEC4)
+    shader:set("stir", {camp.stir[0], camp.stir[1], 0.16, camp.tied}, rl.SHADER_UNIFORM_VEC4)
+    shader:set("pole", camp.pole, rl.SHADER_UNIFORM_VEC2)
+    rl.draw.mesh(camp.mesh, camp.material, identity)
+  }
+  if(not m.gates){
+    return
+  }
   for(let local gate in values(state.gates)){
     local dx = gate.x - view.eye.x
     local dz = gate.z - view.eye.z
@@ -234,6 +415,10 @@ func m.unload(){
     for(let local gate in values(state.gates)){
       gate.model:unload()
     }
+    for(let local camp in values(state.camps or {})){
+      camp.model:unload()
+    }
+    state.camps = {}
     state.shader:unload()
     state.shader = null
     state.gates = {}

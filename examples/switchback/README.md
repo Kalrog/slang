@@ -1,16 +1,29 @@
 # Switchback
 
-An off-road drive up a valley made from a seed, in slang on the raylib,
-Jolt and kernel packages. A trail leads from the meadow by the river
-through a ford, mud holes, washouts and moguls, past the lake, up the
-hillside in switchbacks, between rock walls, over ledges, through rock
-gardens and fallen trees, into the snow and onto the summit of the
-valley's highest mountain. The clock runs from the trailhead to the
-summit, with checkpoints between; the truck is yours to fit out.
+An off-road expedition through a valley made from a seed, in slang on
+the raylib, Jolt and kernel packages. Trails lead from the meadow by the
+river through fords, mud holes, washouts and moguls, past the lake, up
+the hillsides in switchbacks, between rock walls, over ledges, through
+rock gardens and fallen trees, to lookouts on the ridges, the lake's far
+shore, the headwaters, and into the snow as high up the valley's
+highest mountain as a track can go. They split and meet again; between them the land is
+open to whoever leaves the track. The truck is yours to fit out.
+
+There are two ways to play:
+
+- **Explore** (the first): drive where you like. The valley's camps are
+  found by coming to them; at a camp the truck is mended. A truck that
+  breaks down is towed to the nearest camp found so far, and the place
+  it broke down at must be found again. The map (`M`) shows the valley
+  as relief or as a contour map, the trails, the camps you found, and
+  markers you set; the way to the marker you choose is shown along the
+  trails, on the map, on the small map and on the compass.
+- **Summit Run**: the race. The clock runs from the trailhead to the
+  summit, with checkpoints between; recoveries and wrecks cost time.
 
 ```sh
 make switchback        # or: slang run examples/switchback/main.slang
-make switchback-test   # the drivetrain, the truck, the land, the trail, the bot and a run, without a window
+make switchback-test   # the drivetrain, the truck, the land, the trails, the bot, exploring and a run, without a window
 ```
 
 ![Switchback](switchback.png)
@@ -25,12 +38,16 @@ between high and low range, `E` goes through the differential locks (open,
 rear, rear and front; in low range the center is locked as well). `F`
 hooks the winch to the nearest tree ahead (or to a ground anchor where
 none stands) and pulls; `F` again lets go. Holding `R` puts the truck back
-on the trail, for twenty seconds on the clock. `C` changes the camera, the
-mouse looks around, `Esc` pauses.
+on the trail, for twenty seconds on the clock (exploring, it rights the
+truck where it is). `M` opens the map while exploring: drag or `W`, `A`,
+`S`, `D` to move it, the wheel or `Q`/`E` to zoom, a click to set a
+marker or to follow one, a right click to take one away, `T` for the
+contour map, `Space` back to the truck. `C` changes the camera, the mouse
+looks around, `Esc` pauses.
 
 A gamepad works too: right trigger drive, left trigger brake, left stick
 steer, A hand brake, X low range, Y locks, d-pad up the winch, B (held)
-back on the trail, right stick look, Start pause.
+back on the trail, Back the map, right stick look, Start pause.
 
 The gearbox shifts by itself. On a slope the truck holds itself when you
 let go of the pedals and rolls away without rolling back when you drive
@@ -44,7 +61,8 @@ kinds of wheels, a stock bumper, a bull bar or a winch bumper, a basket
 rack, an expedition load or a roof tent, a light bar, a snorkel, the spare
 on the tailgate, rock sliders or side steps, mud flaps. What you choose is
 kept in `~/.switchback/settings.json`, your best time of each valley in
-`~/.switchback/best.json`.
+`~/.switchback/best.json`, the camps you found and the markers you set
+in `~/.switchback/explore.json`.
 
 Underneath it is a Jolt body on four wheels (`game/car.slang`). Jolt finds
 the ground under each wheel and carries the truck on springs that are part
@@ -74,20 +92,32 @@ surface, with numbers for what it does.
 Every seed is a valley (`game/terrain.slang`, its kernels in
 `game/land.kernel`): a river winding through a lake, a floor of meadows,
 foothills, benches and strata, mountains shaped by erosion, and one
-mountain over the rest with a snow dome for a summit (its natural tops
-are horns no track could climb). The heights are computed on every core
+mountain over the rest, its tops sharp horns in the snow. The heights are computed on every core
 in a second or two.
 
-The trail is nobody's drawing (`game/route.slang`): it is the cheapest way
-over the land for something that cannot turn on the spot and may not climb
-steeply, so it winds up slopes in switchbacks by itself, five to seven
-kilometers to the top. It is cut into the land as a track with banks,
-fords the river where the river is given a shallow, crosses a ridge by a
-pass where it would otherwise be a trench, and gets an obstacle every few
-hundred meters that suits where it is: mud holes, moguls, washouts,
-off-camber stretches, narrows between rock, rock steps, rock gardens,
-deadfall. The truck drives on the same triangles the picture shows, half
-a meter to the sample.
+The trails are nobody's drawing (`game/route.slang`): each is the
+cheapest way over the land for something that cannot turn on the spot and
+may not climb steeply, so it winds up slopes in switchbacks by itself.
+The Summit Run goes first, five to seven kilometers up the highest
+mountain, as high as it can climb on the mountain as it is (no step of
+it steeper than a track may be: it is not dug in), not always to the
+very top; then the
+valley's other sights are found (the lake's far shore, the headwaters,
+ground that stands out over what is around it), and each gets a trail
+from wherever the trails there are come nearest, leaving them where they
+run level; a few go on from their sight to meet the trails again
+elsewhere, so that there are loops. Each is cut into the land as a track
+with banks; they ford the river where it is given a shallow, cross a
+ridge by a pass where they would otherwise be a trench, and get an
+obstacle every few hundred meters that suits where it is: mud holes,
+moguls, washouts, off-camber stretches, narrows cut through rock, rock
+steps, rock gardens, deadfall. Where two trails meet, one leaves the
+other at an angle, and the ground they share there is one piece: a plane
+that climbs along each as it does, tilted across the other no more than
+a few degrees, with the corners between the tracks rounded off; no
+obstacle lies within fifty meters of it. A camp is a clearing beside the
+track, with a tent, a fire and a pennant. The truck drives on the same triangles the picture shows,
+half a meter to the sample.
 
 Woods, bushes, boulders and logs are set on the land by kernels
 (`game/plants.slang`), not on the track, and what stands near the truck is
@@ -100,14 +130,17 @@ and sand (`render/tracks.slang`) and throw up dust, clods and spray
 
 ## How it is laid out
 
-- `game/`: the game without a window: the land, the trail, the truck, the
-  world they are in, the run's rules (`run.slang`), the bot that drives
-  the trail in the tests (`bot.slang`).
+- `game/`: the game without a window: the land, the trails, the truck, the
+  world they are in, the rules of exploring (`explore.slang`) and of the
+  Summit Run (`run.slang`), the way along the trails to a marker
+  (`navigate.slang`), the bot that drives a trail in the tests
+  (`bot.slang`).
 - `render/`: the picture: the scene's passes (`scene.slang`: shadows, the
   land as a clipmap, plants, grass, water, dust, then bloom and grading),
-  the HUD and the menus.
-- `tool/`: `lab` (the physics bench), `map` (a valley as a picture),
-  `drive` (the bot drives a whole trail and reports), `view` (a camera on
+  the HUD, the map (`map.slang`, its pictures in `map_picture.kernel`)
+  and the menus.
+- `tool/`: `lab` (the physics bench), `map` (a valley and its trails as
+  a picture), `drive` (the bot drives a whole trail and reports), `view` (a camera on
   the bot), `showroom` (the truck), `arboretum` (the plants), `ui_preview`
   (the HUD and menus).
 - `test/`: what `make switchback-test` runs.

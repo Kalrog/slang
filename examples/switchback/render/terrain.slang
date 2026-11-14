@@ -246,8 +246,9 @@ void main(){
     vec3 lush = mix(vec3(0.055, 0.105, 0.028), vec3(0.11, 0.155, 0.045), mid.b * 0.5 + macro * 0.5);
     vec3 dry = mix(vec3(0.12, 0.125, 0.05), vec3(0.19, 0.17, 0.075), mid.b * 0.5 + macro * 0.5);
     vec3 c = mix(lush, dry, smoothstep(170.0, 400.0, worldPos.y + 80.0 * (macro - 0.5)));
-    // (as dark as the blades are with the shade between them; from afar,
-    // where no blades are drawn, as bright as their tips)
+    // (as dark as the blades are with the shade between them; from afar
+    // brighter: the color render/grass gives the blades as they sink
+    // into the ground, from fifty to a hundred and twenty meters)
     c *= mix(0.62, 0.92, smoothstep(22.0, 60.0, dist)) + 0.3 * fine.r;
     albedo += w_grass * c;
     relief += w_grass * fine.r * 0.03;

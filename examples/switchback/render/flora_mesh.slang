@@ -254,8 +254,9 @@ local FAR = {}
 
 // core(b, height, center, rx, ry, color, seed): the inside of a crown: a
 // lumpy ball in the foliage's own color, darker, behind the cards. A
-// crown of cards alone has holes the sky shows through, most of all at
-// mid distance, where the cards are few, and from above.
+// crown of few cards (the trees at mid distance) has holes the sky shows
+// through; the trees near by have cards enough, and a ball in them would
+// show between them as what it is: they have none.
 local func core(b, height, center, rx, ry, color, seed){
   local shape = plants.ball(1)
   local first = b.count
@@ -461,7 +462,11 @@ local func conifer(o, lod){
       face2(b, i0, i2, i1)
     }
   }
-  cone_core(b, height, axis_at, height * (o.first + 0.05), height * 0.9, o.crown * 0.42, darker(FAR[o.name], 0.7))
+  // (a body inside the crown only where its fronds are few: from close by
+  // it shows between them)
+  if(lod > 0){
+    cone_core(b, height, axis_at, height * (o.first + 0.08), height * 0.86, o.crown * 0.3, darker(FAR[o.name], 0.7))
+  }
   // the tip: the leader, a narrow frond standing straight up (two cards
   // crossed)
   local top = axis_at(height * 0.92)
@@ -604,7 +609,9 @@ local func pine(lod){
       }, rng)
     }
   }
-  core(b, height, {x: center.x, y: center.y - 0.3, z: center.z}, 1.7, 2.0, darker(FAR.pine, 0.8), 13)
+  if(lod > 0){
+    core(b, height, {x: center.x, y: center.y - 0.3, z: center.z}, 1.3, 1.55, darker(FAR.pine, 0.8), 13)
+  }
   // tufts all over the head, so that it is a crown from every side
   for(local q = 0; q < (if(lod == 0){ 16 } else { 12 }); q = q + 1){
     local d = vec.normalize({x: rng:range(-1, 1), y: rng:range(-0.5, 1), z: rng:range(-1, 1)})
@@ -698,7 +705,9 @@ local func birch(lod){
         0.55 + 0.45 * s)
     }
   }
-  core(b, height, {x: center.x, y: center.y - 0.2, z: center.z}, 1.25, 3.0, darker(FAR.birch, 0.8), 17)
+  if(lod > 0){
+    core(b, height, {x: center.x, y: center.y - 0.2, z: center.z}, 0.95, 2.3, darker(FAR.birch, 0.8), 17)
+  }
   // sprays all around the crown, so that it is one from every side
   for(local q = 0; q < (if(lod == 0){ 22 } else { 18 }); q = q + 1){
     local d = vec.normalize({x: rng:range(-1, 1), y: rng:range(-0.7, 1), z: rng:range(-1, 1)})
@@ -783,7 +792,9 @@ local func oak(lod){
       tuft(b, at, rng:range(1.6, 2.0), m.CLUSTER, if(lod == 0){ 3 } else { 2 }, center, look_at(at), rng)
     }
   }
-  core(b, height, center, rx * 0.8, ry * 0.8, darker(FAR.oak, 0.8), 19)
+  if(lod > 0){
+    core(b, height, center, rx * 0.6, ry * 0.6, darker(FAR.oak, 0.8), 19)
+  }
   // the crown's skin: clusters all over a ball
   local skin = if(lod == 0){ 96 } else { 40 }
   for(local q = 0; q < skin; q = q + 1){

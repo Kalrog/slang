@@ -93,11 +93,17 @@ local func band(module, name, j0, j1, ...rest){
 // rows j0 to j1 first, run over all n rows: a band on every core. Every
 // array given must be shared memory.
 func m.bands(module, name, n, workers, ...rest){
+  m.rows(module, name, 0, n, workers, ...rest)
+}
+
+// rows(module: string, name: string, from: int, to: int, workers?: int,
+//   ...rest): the same for the rows from `from` up to `to` only
+func m.rows(module, name, from, to, workers, ...rest){
   workers = workers or math.max(1, math.min(os.cpu_count() - 1, 12))
-  local rows = to_int((n + workers - 1) / workers)
+  local rows = math.max(1, to_int((to - from + workers - 1) / workers))
   local pool = {}
-  for(local j0 = 0; j0 < n; j0 = j0 + rows){
-    append(pool, isolate.spawn(band, module, name, j0, math.min(n, j0 + rows), ...rest))
+  for(local j0 = from; j0 < to; j0 = j0 + rows){
+    append(pool, isolate.spawn(band, module, name, j0, math.min(to, j0 + rows), ...rest))
   }
   for(let local worker in values(pool)){
     worker:join()
@@ -166,20 +172,6 @@ func m.generate(seed, options){
     local fw = kernel.float:array(fn * fn, {shared: true})
     in_bands("heights", fn, options.workers, fh, fw, fn, fs, -fn * fs / 2, seed, dist, fm, cell,
       -reach, level, width, table_origin, table_step, peak.x, peak.z)
-    // the mountain's summit: a dome over the highest of its horns (see
-    // land.kernel's summit), on the land and on the land beyond alike;
-    // it spreads where the land as it was (the coarse heights, kept) is
-    // high already
-    local was = kernel.float:array(fn * fn, {shared: true})
-    was:set(fh)
-    local found = kernel.float:array(3)
-    land.highest(found, h, n, spacing, -half, peak.x, peak.z, 420)
-    local top = found[0] + 10
-    in_bands("summit", n, options.workers, h, n, spacing, -half, peak.x, peak.z, top, seed,
-      was, fn, fs, -fn * fs / 2)
-    in_bands("summit", fn, options.workers, fh, fn, fs, -fn * fs / 2, peak.x, peak.z, top, seed,
-      was, fn, fs, -fn * fs / 2)
-    peak.y = top
     if(options.far != false){
       far = {heights: fh, n: fn, spacing: fs, half: fn * fs / 2}
     }

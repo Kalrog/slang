@@ -2,10 +2,12 @@
 // a window, and reports how it went: the time to each checkpoint, where
 // it got stuck, how far it leaned.
 //
-//   cd examples/switchback && ../../bin/slang run tool/drive.slang [seed] [seconds] [from]
+//   cd examples/switchback && ../../bin/slang run tool/drive.slang [seed] [seconds] [from] [trail]
 //
 // seconds: how long it may take (2400); from: where along the trail it
-// starts, in meters (0).
+// starts, in meters (0); trail: which of the valley's trails (0, the
+// Summit Run; the others from where they leave the trail they branch
+// off).
 local math = require("slang/math")
 local str = require("slang/string")
 local time = require("slang/time")
@@ -17,6 +19,7 @@ local argv = args()
 local seed = if(len(argv) > 0){ to_int(str.to_number(argv[0])) } else { 7 }
 local limit = if(len(argv) > 1){ str.to_number(argv[1]) } else { 2400 }
 local from = if(len(argv) > 2){ str.to_number(argv[2]) } else { 0 }
+local which = if(len(argv) > 3){ to_int(str.to_number(argv[3])) } else { 0 }
 
 local func fmt(v, digits){
   return str.format(concat("%.", string(digits or 1), "f"), v)
@@ -28,7 +31,12 @@ local func vec_clamp(v){
 
 local started = time.clock()
 local w = world.new({seed: seed})
-print("world of seed ", seed, " in ", to_int(time.clock() - started), " ms; trail ", to_int(w.trail.length), " m\n")
+if(which > 0){
+  // (the bot follows the world's trail: this one, from its start)
+  w.trail = w.trails[which]
+  world.recover(w, 4)
+}
+print("world of seed ", seed, " in ", to_int(time.clock() - started), " ms; ", w.trail.name, " ", to_int(w.trail.length), " m\n")
 local driver = bot.new()
 if(from > 0){
   // from a place along the trail
@@ -68,7 +76,7 @@ for(w.time < limit and not driver.done){
     note(input)
   }
   lean = math.min(lean, car.up.y)
-  if(next < len(w.trail.checkpoints) and driver.index >= w.trail.checkpoints[next].index - 3){
+  if(w.trail.checkpoints != null and next < len(w.trail.checkpoints) and driver.index >= w.trail.checkpoints[next].index - 3){
     local c = w.trail.checkpoints[next]
     print("  ", c.name, " (", to_int(c.at), " m) at ", fmt(w.time), " s; most lean so far ", fmt(math.acos(lean) * 180 / math.pi, 0),
       " deg; backed up ", driver.recoveries, " times\n")

@@ -4,9 +4,10 @@
 // the differential locks and the brakes that hold it. Bottom left, how it
 // stands: every wheel (gripping, spinning, in the air) with the axles
 // that are locked, the ground under it, and how far it leans forward and
-// sideways. Top left the clock and the splits, top middle the way to the
-// next checkpoint on a compass, top right the trail on a small map that
-// turns with the truck. Titles of the trail's hard stretches and
+// sideways. Top left the clock and the splits (or, exploring, the name
+// of the trail and the camps found), top middle the way to the next
+// checkpoint (or the marker followed) on a compass, top right the trails
+// on a small map that turns with the truck. Titles of the trail's hard stretches and
 // messages come and go under the compass.
 //
 //   hud.init()
@@ -38,7 +39,15 @@ local colors = ui.colors
 //   running?: bool, penalty?: float, checkpoint?: Checkpoint,
 //   splits?: {Split}, progress?: float, trail?: Trail, section?: {name:
 //   string}, damage?: float, recover?: bool, recover_hold?: float,
-//   fps?: float, debug?: bool}
+//   recover_text?: string, fps?: float, debug?: bool, mode?: string,
+//   place?: string, camps_found?: int, camps_total?: int, repair?: float,
+//   network?: Network}
+// [mode]: "explore" shows where the truck is and the camps found top left
+//   instead of the clock, and the small map has [network] (when given)
+//   instead of [trail]; "trail" (or nothing) is the run to the summit
+// [place]: the name of the trail or place the truck is on (exploring)
+// [repair]: while the truck is repaired at a camp, how far that is, 0 to 1
+// [recover_text]: what the hint to recover says (when [recover])
 // [speed]: m/s, backward negative
 // [gear]: -1 reverse, 0 neutral, 1 and up forward
 // [pitch], [roll]: radians, nose up and right side down positive
@@ -54,6 +63,13 @@ local colors = ui.colors
 // [bearing]: the way to it, an angle like [heading]
 // [index]: which of the trail's checkpoints it is
 // type Split = {name: string, time: float, best?: float}
+// type Network = {position: {x: float, z: float}, trails: {{points:
+//   {{x: float, z: float}}, kind?: string}}, route?: {{x: float,
+//   z: float}}, camps?: {{x: float, z: float, found?: bool}},
+//   markers?: {{x: float, z: float}}, target?: int}
+// [position]: the truck's
+// [route]: the way along the trails to the marker followed
+// [target]: which of the markers is followed
 // type Trail = {points: {{x: float, z: float}}, position: {x: float,
 //   z: float}, index?: int, checkpoints?: {{x: float, z: float,
 //   index?: int, name?: string}}, next?: int}
@@ -71,7 +87,7 @@ local state = {
   points: null,        // a buffer of points for the map's lines
 }
 
-local MAP_POINTS = 64
+local MAP_POINTS = 256
 // the dial: where its scale starts and how far round it goes, degrees
 // (0 is to the right, growing clockwise), and the revs at its end
 local DIAL_FROM = 140
@@ -627,6 +643,181 @@ local func draw_map(info){
   rl.draw.triangle({cx, cy - 8 * s}, {cx - 5.5 * s, cy + 6 * s}, {cx + 5.5 * s, cy + 6 * s}, colors.amber)
 }
 
+// ------------------------------------------------------------ exploring
+
+// where the truck is while exploring, top left: the trail's (or the
+// place's) name, the camps found of all there are, and the repairs while
+// they are made at a camp
+local func draw_place(info){
+  local s = ui.s
+  local x = 28 * s
+  local y = 24 * s
+  local repairing = info.repair != null
+  local h = if(repairing){ 92 } else { 66 }
+  ui.panel(x - 8 * s, y - 8 * s, 248 * s, h * s + 4 * s)
+  ui.label(x + 4 * s, y + 1 * s, "exploring", 8, colors.amber)
+  local name = info.place
+  if(name == null){
+    ui.text(x + 4 * s, y + 13 * s, "Off the trail", 19, colors.dim)
+  } else {
+    // (a long name smaller, so that it fits)
+    local size = 19
+    for(ui.measure(name, size) > 222 * s and size > 12){
+      size = size - 1
+    }
+    ui.text(x + 4 * s, y + 13 * s, name, size, colors.paper)
+  }
+  local cy = y + 51 * s
+  ui.tent(x + 11 * s, cy + 6 * s, 6.5 * s, (info.camps_found or 0) > 0)
+  ui.label(x + 24 * s, cy, concat("camps  ", string(info.camps_found or 0), " / ", string(info.camps_total or 0)), 9, colors.dim)
+  if(repairing){
+    local by = y + 74 * s
+    ui.label(x + 4 * s, by - 3 * s, "repairing", 8, colors.green)
+    ui.bar(x + 82 * s, by, 140 * s, 3 * s, math.max(0, math.min(1, info.repair)), colors.green)
+  }
+}
+
+// the trails cut in pieces with their boxes, for the small map: {list,
+// of} (worked out again when the game gives other trails)
+local network_pieces = null
+
+local func pieces_of(trails){
+  if(network_pieces != null and network_pieces.of == trails and network_pieces.count == len(trails)){
+    return network_pieces.list
+  }
+  local list = {}
+  for(let local trail in values(trails)){
+    local points = trail.points
+    local count = len(points)
+    local cut = {}
+    for(local from = 0; from < count - 1; from = from + 48){
+      local to = math.min(count - 1, from + 48)
+      local x0 = 1.0e9
+      local x1 = -1.0e9
+      local z0 = 1.0e9
+      local z1 = -1.0e9
+      for(local i = from; i <= to; i = i + 1){
+        local p = points[i]
+        x0 = math.min(x0, p.x)
+        x1 = math.max(x1, p.x)
+        z0 = math.min(z0, p.z)
+        z1 = math.max(z1, p.z)
+      }
+      append(cut, {from: from, to: to, x0: x0, x1: x1, z0: z0, z1: z1})
+    }
+    append(list, cut)
+  }
+  network_pieces = {list: list, of: trails, count: len(trails)}
+  return list
+}
+
+// the small map while exploring: every trail near the truck, the way to
+// the marker followed over them, the camps, and the marker itself (at the
+// rim when it is further)
+local func draw_network(info){
+  local network = info.network
+  local s = ui.s
+  local r = 76 * s
+  local cx = ui.w - 28 * s - r
+  local cy = 24 * s + r
+  ui.disc(cx, cy, r, colors.ink)
+  local position = network.position or (info.trail or {}).position
+  if(position == null){
+    return
+  }
+  local heading = info.heading or 0
+  local ch = math.cos(heading)
+  local sh = math.sin(heading)
+  local px = position.x
+  local pz = position.z
+  local scale = r / 150          // 150 m around the truck
+  local inner = r - 4 * s
+  local reach = inner * inner
+  local buf = state.points
+  // a point of the land on the map (ahead is up; the truck's left is the
+  // picture's left)
+  local func at(x, z){
+    local dx = x - px
+    local dz = z - pz
+    return {-(dx * ch - dz * sh) * scale, -(dx * sh + dz * ch) * scale}
+  }
+  // a line through points from..to, every `step`, in runs inside the disc
+  local func run(points, from, to, step, thick, color){
+    local n = 0
+    local i = from
+    local last = false
+    for(not last){
+      if(i >= to){
+        i = to
+        last = true
+      }
+      local p = points[i]
+      local q = at(p.x, p.z)
+      if(q[0] * q[0] + q[1] * q[1] < reach and n < MAP_POINTS){
+        buf[n].x = cx + q[0]
+        buf[n].y = cy + q[1]
+        n = n + 1
+      } else {
+        if(n > 1){
+          rl.draw.spline_linear(buf:slice(0, n), thick, color)
+        }
+        n = 0
+      }
+      i = i + step
+    }
+    if(n > 1){
+      rl.draw.spline_linear(buf:slice(0, n), thick, color)
+    }
+  }
+  local trails = network.trails or {}
+  local list = pieces_of(trails)
+  local near = 170
+  for(local t = 0; t < len(trails); t = t + 1){
+    local points = trails[t].points
+    local color = if(trails[t].kind == "main"){ {236, 204, 150, 220} } else { {242, 234, 216, 190} }
+    for(let local piece in values(list[t])){
+      if(piece.x1 > px - near and piece.x0 < px + near and piece.z1 > pz - near and piece.z0 < pz + near){
+        run(points, piece.from, piece.to, 2, 2 * s, color)
+      }
+    }
+  }
+  local route = network.route
+  if(route != null and len(route) > 1){
+    run(route, 0, len(route) - 1, 2, 3 * s, colors.amber)
+  }
+  // the camps in reach
+  for(let local c in values(network.camps or {})){
+    local q = at(c.x, c.z)
+    if(q[0] * q[0] + q[1] * q[1] < (inner - 8 * s) * (inner - 8 * s)){
+      ui.tent(cx + q[0], cy + q[1] + 3 * s, 4.5 * s, c.found == true)
+    }
+  }
+  // the markers: the one followed a pin, at the rim when it is further
+  local markers = network.markers or {}
+  for(local i = 0; i < len(markers); i = i + 1){
+    local p = markers[i]
+    local q = at(p.x, p.z)
+    local d = math.sqrt(q[0] * q[0] + q[1] * q[1])
+    local followed = network.target == i
+    local edge = r - 8 * s
+    if(d > edge){
+      if(followed){
+        rl.draw.circle_v({cx + q[0] / d * edge, cy + q[1] / d * edge}, 4 * s, colors.amber)
+      }
+    } else if(followed){
+      ui.pin(cx + q[0], cy + q[1], 4.5 * s, null, colors.amber)
+    } else {
+      rl.draw.circle_v({cx + q[0], cy + q[1]}, 3 * s, colors.ink_solid)
+      rl.draw.circle_v({cx + q[0], cy + q[1]}, 2 * s, colors.paper)
+    }
+  }
+  // north, on the rim
+  local nx = cx + sh * (r - 9 * s)
+  local ny = cy - ch * (r - 9 * s)
+  ui.text_center(nx, ny - 5.5 * s, "N", 10, colors.dim)
+  rl.draw.triangle({cx, cy - 8 * s}, {cx - 5.5 * s, cy + 6 * s}, {cx + 5.5 * s, cy + 6 * s}, colors.amber)
+}
+
 // ------------------------------------------------------------ words
 
 local message_colors = {
@@ -690,7 +881,7 @@ local func draw_words(info, dt){
   // how to get back on the trail, when that is what is needed
   local hold = math.max(0, math.min(1, info.recover_hold or 0))
   if(info.recover or hold > 0.02){
-    local text = "hold to recover onto the trail"
+    local text = info.recover_text or "hold to recover onto the trail"
     local w = ui.measure(text, 14)
     local kw = 22 * s
     local x = cx - (kw + 8 * s + w) / 2
@@ -720,9 +911,17 @@ func m.draw(info){
   ui.hold()
   draw_drive(info)
   draw_stance(info)
-  draw_clock(info)
+  if(info.mode == "explore"){
+    draw_place(info)
+  } else {
+    draw_clock(info)
+  }
   draw_way(info)
-  draw_map(info)
+  if(info.network != null){
+    draw_network(info)
+  } else {
+    draw_map(info)
+  }
   draw_words(info, dt)
   ui.release()
 }

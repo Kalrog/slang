@@ -43,9 +43,9 @@ local m = {}
 
 // how far each level of detail is drawn, in meters: thinning in from ..
 // to, thinning out from .. to
-m.NEAR = {0, 0, 58, 72}
-m.MID = {58, 72, 235, 265}
-m.FAR = {235, 265, 100000, 100001}
+m.NEAR = {0, 0, 100, 125}
+m.MID = {100, 125, 380, 430}
+m.FAR = {380, 430, 100000, 100001}
 // rocks smaller than these (meters) are left out of the mid and the far
 // level; a rock smaller than SMALL is drawn as a coarse stone
 m.MID_ROCK = 0.4

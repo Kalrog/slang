@@ -49,7 +49,7 @@
 #   make courier      run Courier, the flying-car delivery game (examples/courier) on raylib and jolt
 #   make courier-test run its tests (no window: the city, the car on Jolt, the traffic, the jobs)
 #   make switchback   run Switchback, the off-road drive up a valley made from a seed (examples/switchback) on raylib, jolt and kernel
-#   make switchback-test run its tests (no window: the drivetrain, the truck on Jolt, the land, the trail, the bot, a run)
+#   make switchback-test run its tests (no window: the drivetrain, the truck on Jolt, the land, the trails, the bot, exploring, a run)
 #   make siege        run the siege catapult game (examples/siege) on the raylib and jolt packages
 #   make inkblast     run the Inkblast party game (examples/inkblast): slang/net, bots, raylib
 #   make inkblast-test run Inkblast's tests (no window: the rules, a match over loopback)

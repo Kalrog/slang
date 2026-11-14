@@ -72,7 +72,7 @@ func m.trail(land, trail){
     }
   }
   for(let local section in values(trail.sections)){
-    local rng = vec.random(land.seed * 977 + to_int(section.from) * 13 + 5)
+    local rng = vec.random(land.seed * 977 + to_int(section.from) * 13 + 5 + (trail.id or 0) * 7919)
     if(section.kind == "rocks"){
       // stones in the track: every meter or so a row of them, under one
       // wheel or the other more often than between; none taller than the

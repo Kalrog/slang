@@ -454,6 +454,73 @@ func m.bar(x, y, w, h, share, color, back){
   }
 }
 
+// hints(x, y, list, size?) -> where it ended: a line of keys and what
+// they do, {{keys}, text} one after another
+func m.hints(x, y, list, size){
+  size = size or 12
+  for(let local hint in values(list)){
+    for(let local key in values(hint[0])){
+      x = x + m.key_cap(x, y, key, size) + 4 * m.s
+    }
+    x = x + 3 * m.s
+    m.text(x, y + size * 0.36 * m.s, hint[1], size, m.colors.dim)
+    x = x + m.measure(hint[1], size) + 20 * m.s
+  }
+  return x
+}
+
+// hints_width(list, size?) -> how wide [hints] sets a line
+func m.hints_width(list, size){
+  size = size or 12
+  local w = 0
+  for(let local hint in values(list)){
+    for(let local key in values(hint[0])){
+      local h = size * 1.7 * m.s
+      w = w + math.max(h, m.measure(key, size) + size * 0.9 * m.s) + 4 * m.s
+    }
+    w = w + 3 * m.s + m.measure(hint[1], size) + 20 * m.s
+  }
+  return w - 20 * m.s
+}
+
+// tent(cx, cy, size, found): a camp as a small tent standing on (cx, cy):
+// filled when it has been found, an outline when not
+func m.tent(cx, cy, size, found){
+  local top = {cx, cy - size * 1.15}
+  local left = {cx - size, cy}
+  local right = {cx + size, cy}
+  if(found){
+    local o = 1.6 * m.s
+    rl.draw.triangle({cx, cy - size * 1.15 - o * 1.4}, {cx - size - o * 1.5, cy + o}, {cx + size + o * 1.5, cy + o}, m.colors.ink_solid)
+    rl.draw.triangle(top, left, right, m.colors.paper)
+    // (the door: a dark slit up its middle)
+    rl.draw.triangle({cx, cy - size * 0.62}, {cx - size * 0.3, cy}, {cx + size * 0.3, cy}, m.colors.ink_solid)
+  } else {
+    rl.draw.triangle({cx, cy - size * 1.15 - 2.2 * m.s}, {cx - size - 2.4 * m.s, cy + 1.4 * m.s}, {cx + size + 2.4 * m.s, cy + 1.4 * m.s}, {16, 18, 20, 140})
+    local thick = math.max(1, 1.4 * m.s)
+    local color = {242, 234, 216, 150}
+    rl.draw.line_ex(top, left, thick, color)
+    rl.draw.line_ex(top, right, thick, color)
+    rl.draw.line_ex(left, right, thick, color)
+  }
+}
+
+// pin(cx, cy, size, text?, color?): a pin stuck into the map at (cx, cy):
+// a round head over its point with a word or figure in it
+func m.pin(cx, cy, size, text, color){
+  color = color or m.colors.paper
+  local head = cy - size * 1.7
+  local o = 1.5 * m.s
+  rl.draw.circle_v({cx, head}, size + o, m.colors.ink_solid)
+  rl.draw.triangle({cx - size * 0.62 - o, head + size * 0.5}, {cx, cy + o * 1.2}, {cx + size * 0.62 + o, head + size * 0.5}, m.colors.ink_solid)
+  rl.draw.triangle({cx - size * 0.62, head + size * 0.5}, {cx, cy}, {cx + size * 0.62, head + size * 0.5}, color)
+  rl.draw.circle_v({cx, head}, size, color)
+  if(text != null){
+    local fs = size / m.s * 1.05
+    m.text_center(cx, head - fs * m.s * 0.56, text, fs, m.colors.ink_solid)
+  }
+}
+
 // band(cx, y, w, h, alpha): a dark band that fades out to the left and to
 // the right, behind words that stand straight on the scene
 func m.band(cx, y, w, h, alpha){

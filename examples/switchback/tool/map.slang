@@ -1,4 +1,5 @@
-// tool/map: the land of a seed from above, written as a picture.
+// tool/map: the land of a seed from above with its trails, written as a
+// picture, and what there is on each trail.
 //
 //   cd examples/switchback && ../../bin/slang run tool/map.slang [seed] [file.png]
 local rl = require("raylib")
@@ -15,9 +16,10 @@ local file = if(len(argv) > 1){ argv[1] } else { "map.png" }
 local started = time.clock()
 local land = terrain.generate(seed)
 local made = time.clock()
-local trail = route.plan(land)
+local net = route.network(land)
+local trail = net.main
 local planned = time.clock()
-route.carve(land, trail)
+route.carve(land, net.trails)
 local carved = time.clock()
 terrain.finish(land)
 local finished = time.clock()
@@ -51,6 +53,36 @@ for(let local section in values(trail.sections)){
 for(let local c in values(trail.checkpoints)){
   print("  ", c.name, " at ", to_int(c.at), " m: ", to_int(c.x), " ", to_int(c.y), " ", to_int(c.z), "\n")
 }
+for(let local t in values(net.trails)){
+  if(t != trail){
+    // (outside its obstacles and fords, as the tests have it)
+    local hard = {}
+    for(let local s in values(t.sections)){
+      for(local i = s.index - 2; i <= s.last + 2; i = i + 1){
+        hard[i] = true
+      }
+    }
+    for(let local ford in values(t.fords)){
+      for(local i = to_int(ford.from / route.STEP) - 8; i <= to_int(ford.to / route.STEP) + 8; i = i + 1){
+        hard[i] = true
+      }
+    }
+    local steep = 0
+    for(local i = 1; i < len(t.points); i = i + 1){
+      if(not hard[i] and not hard[i - 1]){
+        steep = math.max(steep, math.abs(t.points[i].y - t.points[i - 1].y) / route.STEP)
+      }
+    }
+    local kinds = {}
+    for(let local section in values(t.sections)){
+      append(kinds, section.name)
+    }
+    print(t.name, " (", t.kind, "): ", to_int(t.length), " m from ", to_int(t.start.y), " to ", to_int(t.goal.y),
+      " m, steepest ", to_int(steep * 100), "%, leaves ", t.from.trail.name, " at ", to_int(t.from.index * route.STEP), " m; ",
+      str.join(kinds, ", "), "\n")
+  }
+}
+print(len(net.camps), " camps\n")
 print("seed ", seed, ": generated in ", to_int(made - started), " ms, heights ", to_int(lowest), " to ", to_int(highest),
   " m, lake at z ", to_int(land.river.lake.z), " level ", to_int(land.river.lake.level), ", peak at ", to_int(land.peak.x), " ", to_int(land.peak.z),
   "; picture ", file, "\n")

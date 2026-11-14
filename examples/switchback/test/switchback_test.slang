@@ -5,7 +5,9 @@
 // surface; the land is the same for a seed, the trail climbs to the
 // summit without crossing itself and is cut into the land, the bot
 // drives it, the truck stands on the ground the game tells of, the winch
-// pulls, and a run counts checkpoints, penalties and the finish.
+// pulls; the other trails meet the Summit Run and lead to every camp,
+// exploring finds camps and tows a broken truck to one; and a run counts
+// checkpoints, penalties and the finish.
 // Run with `slang test test` in examples/switchback (or make
 // switchback-test).
 local t = require("slang/test")
@@ -22,6 +24,8 @@ local world = require("game/world")
 local bot = require("game/bot")
 local run = require("game/run")
 local winch = require("game/winch")
+local navigate = require("game/navigate")
+local explore = require("game/explore")
 
 local DT = 1 / 120
 
@@ -517,6 +521,122 @@ t.group("the world"){
     assert(most > 500 and most <= winch.PULL, most)
     winch.release(w)
     assert(w.winch == null and not w.car.winched)
+  }
+}
+
+t.group("the trails and exploring"){
+  t.test("the trails meet: along them a way leads to every camp"){
+    assert(len(w.trails) >= 4, len(w.trails))
+    assert(len(w.camps) >= 10, len(w.camps))
+    local net = navigate.new(w.trails)
+    local start = w.camps[0]
+    for(let local camp in values(w.camps)){
+      local way = navigate.route(net, start, camp)
+      local straight = math.sqrt((camp.x - start.x) * (camp.x - start.x) + (camp.z - start.z) * (camp.z - start.z))
+      // (not straight over the land, unless it is near: along the trails)
+      assert(straight < 150 or not way.direct, camp.name)
+      local last = way.points[len(way.points) - 2]
+      assert((last.x - camp.x) * (last.x - camp.x) + (last.z - camp.z) * (last.z - camp.z) < 30 * 30, camp.name)
+    }
+  }
+  t.test("where trails meet, the one goes over into the other"){
+    for(let local trail in values(w.trails)){
+      if(trail.from != null){
+        // (the ground along it there: near its height, and without a step)
+        local points = trail.points
+        local was = null
+        for(local k = 0; k <= 60; k = k + 1){
+          local i = to_int(k / 4)
+          local t = k / 4 - i
+          local x = points[i].x + (points[i + 1].x - points[i].x) * t
+          local z = points[i].z + (points[i + 1].z - points[i].z) * t
+          local h = terrain.height_at(w.land, x, z)
+          local y = points[i].y + (points[i + 1].y - points[i].y) * t
+          // (on the other trail's track its ground is that track's)
+          if(k / 2 > 6){
+            assert(math.abs(h - y) < 0.3, concat(trail.name, " at ", string(k / 2), " m: ", string(h - y)))
+          }
+          if(was != null){
+            assert(math.abs(h - was) < 0.5 * 0.3, concat(trail.name, " at ", string(k / 2), " m: a step of ", string(h - was)))
+          }
+          was = h
+        }
+      }
+    }
+  }
+  t.test("where trails meet, no track is cut into the other"){
+    // (around each junction, nothing on a track steeper than a track's
+    // grade and its tilt together)
+    for(let local trail in values(w.trails)){
+      if(trail.from != null){
+        local j = trail.points[0]
+        for(local dz = -16; dz <= 16; dz = dz + 1){
+          for(local dx = -16; dx <= 16; dx = dx + 1){
+            local x = j.x + dx
+            local z = j.z + dz
+            local near = route.near(w.land, x, z)
+            if(dx * dx + dz * dz <= 256 and near != null and near.dist < near.half - 0.25){
+              local e = 0.25
+              local gx = (terrain.height_at(w.land, x + e, z) - terrain.height_at(w.land, x - e, z)) / (2 * e)
+              local gz = (terrain.height_at(w.land, x, z + e) - terrain.height_at(w.land, x, z - e)) / (2 * e)
+              assert(gx * gx + gz * gz < 0.45 * 0.45, concat(trail.name, ": ", string(math.sqrt(gx * gx + gz * gz)),
+                " at ", string(dx), ", ", string(dz)))
+            }
+          }
+        }
+      }
+    }
+  }
+  t.test("no obstacle where trails meet, on either of them"){
+    local func clear_at(trail, s){
+      for(let local section in values(trail.sections)){
+        if(section.kind != "climb"){
+          assert(s < section.from - route.JOIN_CLEAR or s > section.to + route.JOIN_CLEAR,
+            concat(trail.name, ": ", section.name, " at ", string(section.from), " m, a junction at ", string(s), " m"))
+        }
+      }
+    }
+    for(let local trail in values(w.trails)){
+      if(trail.from != null){
+        clear_at(trail, 0)
+        clear_at(trail.from.trail, trail.from.index * route.STEP)
+      }
+      if(trail.to != null){
+        clear_at(trail, trail.length)
+        clear_at(trail.to.trail, trail.to.index * route.STEP)
+      }
+    }
+  }
+  t.test("exploring finds camps, and a broken truck is towed to one found"){
+    local e = explore.new(w, {keep: false})
+    explore.start(e, w)
+    assert(e.found.Trailhead and explore.found(e, w) == 1)
+    // to another camp: found
+    local camp = w.camps[2]
+    world.place(w, camp, camp.yaw)
+    local events = {}
+    for(local i = 0; i < 10; i = i + 1){
+      world.step(w, {}, 1 / 60)
+      for(let local ev in values(explore.step(e, w, {}, 1 / 60))){
+        append(events, ev)
+      }
+    }
+    assert(e.found[camp.name] and events[0].kind == "camp" and events[0].new, events[0].kind)
+    // far from it, broken down: towed to the nearest camp found
+    local far = w.trails[len(w.trails) - 1].points[30]
+    world.place(w, far, 0)
+    e.damage = 0.99
+    w.knock = 3
+    local towed = explore.step(e, w, {}, 1 / 60)
+    assert(len(towed) == 2 and towed[1].kind == "breakdown", len(towed))
+    assert(towed[1].camp == camp.name or towed[1].camp == "Trailhead", towed[1].camp)
+    assert(e.damage == 0)
+    // a marker, and the way to it
+    local index = explore.mark(e, w, far.x, far.z)
+    explore.aim(e, w, index)
+    assert(e.way != null and e.way.length > 100)
+    local info = explore.info(e, w)
+    assert(info.checkpoint.name == "Marker 1" and info.checkpoint.distance > 100)
   }
 }
 

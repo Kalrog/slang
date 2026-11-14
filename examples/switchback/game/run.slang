@@ -260,8 +260,8 @@ func m.result(r){
   }
 }
 
-// info(r, world) -> what the HUD shows of the truck and the run
-func m.info(r, world){
+// truck(world) -> what the HUD shows of the truck (see render/hud's Info)
+func m.truck(world){
   local car = world.car
   local d = car.drive
   local f = car.forward
@@ -293,6 +293,16 @@ func m.info(r, world){
     heading: math.atan2(f.x, f.z),
     wheels: wheels,
     surface: car.wheels[2].surface.name,
+  }
+  return info
+}
+
+// info(r, world) -> what the HUD shows of the truck and the run
+func m.info(r, world){
+  local car = world.car
+  local info = m.truck(world)
+  for(let local e in entries({
+    mode: "trail",
     time: r.time + r.penalty,
     running: r.phase == "driving",
     penalty: r.penalty,
@@ -301,6 +311,8 @@ func m.info(r, world){
     recover: r.recover_hint,
     recover_hold: r.holding_recover / m.RECOVER_HOLD,
     section: r.section,
+  })){
+    info[e[0]] = e[1]
   }
   local trail = world.trail
   if(trail != null){

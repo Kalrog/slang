@@ -205,17 +205,7 @@ local func column(key, entries, x, y, input, options){
 // a line of keys and what they do: {{keys}, text} one after another;
 // returns where it ended
 local func hints(x, y, list, size){
-  local s = ui.s
-  size = size or 12
-  for(let local hint in values(list)){
-    for(let local key in values(hint[0])){
-      x = x + ui.key_cap(x, y, key, size) + 4 * s
-    }
-    x = x + 3 * s
-    ui.text(x, y + size * 0.36 * s, hint[1], size, colors.dim)
-    x = x + ui.measure(hint[1], size) + 20 * s
-  }
-  return x
+  return ui.hints(x, y, list, size)
 }
 
 // a figure with its name over it
@@ -231,14 +221,18 @@ local func dim_scene(alpha){
 
 // ------------------------------------------------------------ the title
 
-// title(state: {seed?: int, best?: float, trail_length?: float})
-//   -> "drive" | "garage" | "seed" | "controls" | "quit" | null
+// title(state: {seed?: int, best?: float, trail_length?: float,
+//   trails_length?: float, camps_found?: int, camps_total?: int})
+//   -> "explore" | "drive" | "garage" | "seed" | "controls" | "quit" | null
 // The title over the valley (the scene shows through on the right): the
-// game's name, what there is to do, the valley's number, the length of
-// its trail, the best time on it, and the controls along the bottom.
-// Esc puts the bar on Quit, and quits from there.
-// [best]: seconds, or null when the trail has not been driven
-// [trail_length]: m
+// game's name, what there is to do (exploring the valley first, then the
+// run to the summit), the valley's number, how long its trails are, the
+// camps found in it, the best time to the summit, and the controls along
+// the bottom. Esc puts the bar on Quit, and quits from there.
+// [best]: seconds, or null when the summit run has not been driven
+// [trail_length]: m, of the trail to the summit (shown when
+//   [trails_length] is not given)
+// [trails_length]: m, of all the valley's trails
 func m.title(info){
   info = info or {}
   local input = moves()
@@ -260,36 +254,42 @@ func m.title(info){
   // (Esc puts the bar on Quit; there it quits)
   local quit = false
   if(input.back){
-    if(state.selected.title == 4){
+    if(state.selected.title == 5){
       quit = true
     } else {
-      state.selected.title = 4
+      state.selected.title = 5
     }
   }
-  local chosen = column("title", {"Drive", "Garage", "New valley", "Controls", "Quit"}, x, 284 * s, input)
+  local chosen = column("title", {"Explore", "Summit Run", "Garage", "New valley", "Controls", "Quit"}, x,
+    278 * s, input, {step: 41})
 
   // the valley
   local sy = h - 152 * s
   local sx = x
   sx = sx + stat(sx, sy, "valley", concat("No. ", string(info.seed or 0))) + 34 * s
-  if(info.trail_length != null){
+  if(info.trails_length != null){
+    sx = sx + stat(sx, sy, "trails", concat(str.format("%.1f", info.trails_length / 1000), " km")) + 34 * s
+  } else if(info.trail_length != null){
     sx = sx + stat(sx, sy, "trail", concat(str.format("%.1f", info.trail_length / 1000), " km")) + 34 * s
   }
+  if(info.camps_total != null){
+    sx = sx + stat(sx, sy, "camps found", concat(string(info.camps_found or 0), " / ", string(info.camps_total))) + 34 * s
+  }
   if(info.best != null){
-    stat(sx, sy, "best", ui.clock(info.best), colors.amber)
+    stat(sx, sy, "summit run", ui.clock(info.best), colors.amber)
   } else {
-    stat(sx, sy, "best", "not driven yet", colors.dim)
+    stat(sx, sy, "summit run", "not driven yet", colors.dim)
   }
   // the controls
   hints(x, h - 58 * s, {
     {{"W", "S"}, "drive, brake"}, {{"A", "D"}, "steer"}, {{"Space"}, "hand brake"}, {{"Q"}, "low range"},
-    {{"E"}, "diff locks"}, {{"F"}, "winch"}, {{"R"}, "recover"}, {{"C"}, "camera"}, {{"Esc"}, "pause"},
+    {{"E"}, "locks"}, {{"F"}, "winch"}, {{"R"}, "recover"}, {{"M"}, "map"}, {{"C"}, "camera"}, {{"Esc"}, "pause"},
   })
   if(quit){
     return "quit"
   }
   if(chosen != null){
-    local actions = {"drive", "garage", "seed", "controls", "quit"}
+    local actions = {"explore", "drive", "garage", "seed", "controls", "quit"}
     return actions[chosen]
   }
   return null
@@ -297,10 +297,12 @@ func m.title(info){
 
 // ------------------------------------------------------------ the pause
 
-// pause() -> "resume" | "restart" | "garage" | "title" | "quit" | null
-// The game held: the scene dimmed, the choices in the middle. Esc (or
-// the gamepad's B or Start) resumes.
-func m.pause(){
+// pause(mode?: string) -> "resume" | "restart" | "map" | "garage" |
+//   "title" | "quit" | null
+// The game held: the scene dimmed, the choices in the middle. Exploring
+// (mode "explore") the map is among them and there is nothing to
+// restart. Esc (or the gamepad's B or Start) resumes.
+func m.pause(mode){
   local input = moves()
   local s = ui.s
   if(opened("pause")){
@@ -308,6 +310,11 @@ func m.pause(){
   }
   dim_scene(150)
   local entries = {"Resume", "Restart", "Garage", "Title", "Quit"}
+  local actions = {"resume", "restart", "garage", "title", "quit"}
+  if(mode == "explore"){
+    entries = {"Resume", "Map", "Garage", "Title", "Quit"}
+    actions = {"resume", "map", "garage", "title", "quit"}
+  }
   local pw = 320 * s
   local ph = (88 + len(entries) * 42) * s
   local px = (ui.w - pw) / 2
@@ -320,7 +327,6 @@ func m.pause(){
     return "resume"
   }
   if(chosen != null){
-    local actions = {"resume", "restart", "garage", "title", "quit"}
     return actions[chosen]
   }
   return null
@@ -554,7 +560,8 @@ local keyboard = {
   {{"Q"}, "low range"},
   {{"E"}, "differential locks: off, rear, both"},
   {{"F"}, "winch: hook to a tree ahead, release"},
-  {{"R"}, "hold: recover onto the trail"},
+  {{"R"}, "hold: right the truck, or back on the trail"},
+  {{"M"}, "map (exploring)"},
   {{"C"}, "camera"},
   {{"Mouse"}, "look around"},
   {{"Esc"}, "pause"},
@@ -568,7 +575,8 @@ local gamepad = {
   {{"X"}, "low range"},
   {{"Y"}, "differential locks"},
   {{"D-pad up"}, "winch"},
-  {{"B"}, "hold: recover onto the trail"},
+  {{"B"}, "hold: right the truck, or back on the trail"},
+  {{"Back"}, "map (exploring)"},
   {{"R stick"}, "look around"},
   {{"Start"}, "pause"},
 }

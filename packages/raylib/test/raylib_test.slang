@@ -140,6 +140,10 @@ t.group("raylib: where the functions are"){
         rl.key.pressed,
       ) == "function")
     assert(rl.draw.clear != null and rl.window.open != null)
+    // (instances are the package's own; rlgl's functions it uses are not
+    // its API, only C's names)
+    assert(type(rl.instances) == "function" and type(rl.draw.mesh_instances) == "function")
+    assert(rl.rl_enable_depth_mask == null and rl.c.rlEnableDepthMask != null)
     assert(rl.random(5, 5) == 5)
     local seq = rl.random_sequence(4, 0, 3)
     assert(len(seq) == 4)

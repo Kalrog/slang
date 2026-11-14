@@ -25,6 +25,7 @@ local ffi = require("slang/ffi")
 local os = require("slang/os")
 local str = require("slang/string")
 local buffer = require("slang/buffer")
+local math = require("slang/math")
 local names = require("raylib/names")
 local snake = names.snake
 local is_count = names.is_count
@@ -79,6 +80,32 @@ ffi.cdef("""
 void rlDrawRenderBatchActive(void);
 void rlEnableDepthMask(void);
 void rlDisableDepthMask(void);
+bool rlEnableVertexArray(unsigned int vaoId);
+void rlDisableVertexArray(void);
+void rlEnableVertexBuffer(unsigned int id);
+void rlDisableVertexBuffer(void);
+void rlEnableVertexBufferElement(unsigned int id);
+void rlDisableVertexBufferElement(void);
+void rlEnableVertexAttribute(unsigned int index);
+void rlSetVertexAttribute(unsigned int index, int compSize, int type, bool normalized, int stride, int offset);
+void rlSetVertexAttributeDivisor(unsigned int index, int divisor);
+void rlDrawVertexArrayInstanced(int offset, int count, int instances);
+void rlDrawVertexArrayElementsInstanced(int offset, int count, const void *buffer, int instances);
+unsigned int rlLoadVertexBuffer(const void *buffer, int size, bool dynamic);
+void rlUpdateVertexBuffer(unsigned int bufferId, const void *data, int dataSize, int offset);
+void rlUnloadVertexBuffer(unsigned int vboId);
+void rlEnableShader(unsigned int id);
+void rlDisableShader(void);
+void rlActiveTextureSlot(int slot);
+void rlEnableTexture(unsigned int id);
+void rlDisableTexture(void);
+void rlEnableTextureCubemap(unsigned int id);
+void rlDisableTextureCubemap(void);
+void rlSetUniform(int locIndex, const void *value, int uniformType, int count);
+void rlSetUniformMatrix(int locIndex, Matrix mat);
+Matrix rlGetMatrixModelview(void);
+Matrix rlGetMatrixProjection(void);
+Matrix rlGetMatrixTransform(void);
 """, {into: C, field_name: snake})
 local lib = ffi.load(where.library, C)
 local K = C.constants
@@ -518,6 +545,12 @@ local func place_of(c_name, decl){
   if(is_scoped(c_name)){
     return null
   }
+  // rlgl's functions are the package's own (the blocks, the instances):
+  // under rl.c only
+  if(str.starts_with(c_name, "rl") and len(c_name) > 2 and str.byte_at(c_name, 2) >= 'A' and
+    str.byte_at(c_name, 2) <= 'Z'){
+    return null
+  }
   local name = snake(c_name)
   local n = slang_arity(decl)
   if(str.starts_with(name, "draw_")){
@@ -922,6 +955,207 @@ func rl.depth_mask(write, block){
   }
   defer depth_mask_back()
   return block()
+}
+
+// ------------------------------------------------------------ instances
+
+// What rl.draw.mesh_instances draws from: transforms kept on the graphics
+// card, made once and drawn as often as needed (raylib's own
+// DrawMeshInstanced, rl.draw.mesh_instanced, makes and frees a buffer of
+// them at every call, which on some systems costs as much as a hundred
+// plain draws).
+// Transforms are Matrix values (a buffer or a list of them), or a buffer
+// of floats, sixteen to a transform, each column after the other (as
+// GLSL reads a mat4, and raymath's MatrixToFloatV gives them): those go
+// to the graphics card as they are, the fastest way.
+// type Instances = {count: int, capacity: int, set: func(transforms:
+//   Buffer | {Matrix}, first?: int), unload: func()}
+// [count]: how many transforms it holds (what a draw takes by default)
+// [capacity]: how many it can hold
+// [set]: transforms written from first (0) on; as many as it holds
+//   at most. count becomes first + how many were written, when that is more
+// [unload]: the buffer given back
+local Instances = {}
+local instances_meta = {__index: Instances, __type: "Instances"}
+
+// transforms as floats, sixteen to a transform, column by column (a
+// Matrix holds its fields row by row: m0, m4, m8, m12, m1, ...)
+local func float_columns(transforms){
+  if(type(transforms) == "table"){
+    local b = buffer.new("Matrix", len(transforms), C)
+    for(local i = 0; i < len(transforms); i = i + 1){
+      b[i] = transforms[i]
+    }
+    transforms = b
+  }
+  // (floats already: four bytes an element, a Matrix has sixty-four)
+  if(len(transforms) > 0 and transforms.size / len(transforms) == 4){
+    return transforms
+  }
+  local n = len(transforms)
+  local rows = transforms:cast(ffi.type("float"))
+  local out = buffer.new("float", n * 16)
+  for(local i = 0; i < n; i = i + 1){
+    local at = i * 16
+    for(local c = 0; c < 4; c = c + 1){
+      for(local r = 0; r < 4; r = r + 1){
+        out[at + c * 4 + r] = rows[at + r * 4 + c]
+      }
+    }
+  }
+  return out
+}
+
+func Instances.set(self, transforms, first){
+  first = first or 0
+  local b = float_columns(transforms)
+  local n = math.min(to_int(len(b) / 16), self.capacity - first)
+  if(n <= 0 or self.vbo == 0){
+    return
+  }
+  lib.rlUpdateVertexBuffer(self.vbo, b, n * 64, first * 64)
+  self.count = math.max(self.count, first + n)
+}
+
+func Instances.unload(self){
+  if(self.vbo != 0){
+    lib.rlUnloadVertexBuffer(self.vbo)
+    self.vbo = 0
+  }
+}
+
+// instances(transforms: Buffer | {Matrix} | int) -> Instances
+// Transforms on the graphics card (a buffer of Matrix, a list of
+// matrices, or a number: room for that many, all identity until [set]).
+local func make_instances(transforms){
+  local capacity = 0
+  local b = null
+  if(type(transforms) == "int"){
+    capacity = transforms
+    b = buffer.new("float", math.max(1, capacity) * 16)
+    for(local i = 0; i < capacity; i = i + 1){
+      b[i * 16] = 1
+      b[i * 16 + 5] = 1
+      b[i * 16 + 10] = 1
+      b[i * 16 + 15] = 1
+    }
+  } else {
+    b = float_columns(transforms)
+    capacity = to_int(len(b) / 16)
+  }
+  local self = {
+    vbo: lib.rlLoadVertexBuffer(b, math.max(1, capacity) * 64, true),
+    capacity: capacity,
+    count: if(type(transforms) == "int"){ 0 } else { capacity },
+    @meta: instances_meta,
+  }
+  return self
+}
+
+// (scratch for uniforms: the sampler slots and a color)
+local slot_numbers = buffer.new("int", 12)
+for(local i = 0; i < 12; i = i + 1){
+  slot_numbers[i] = i
+}
+local diffuse = buffer.new("float", 4)
+
+// draw.mesh_instances(mesh: Mesh, material: Material, instances:
+//   Instances, count?: int, first?: int)
+// The mesh drawn once for each of count transforms of instances (all it
+// holds by default), from the first (0) on: what raylib's
+// DrawMeshInstanced does, with the transforms already on the graphics
+// card. The material's shader takes the transform as an attribute (a
+// mat4), whose location is shader.locs[SHADER_LOC_MATRIX_MODEL], as for
+// rl.draw.mesh_instanced.
+local func mesh_instances(mesh, material, instances, count, first){
+  count = count or (instances.count - (first or 0))
+  first = first or 0
+  if(count <= 0 or instances.vbo == 0){
+    return
+  }
+  local shader = material.shader
+  local locs = shader.locs
+  lib.rlEnableShader(shader.id)
+  local maps = material.maps
+  local loc = locs[K.SHADER_LOC_COLOR_DIFFUSE]
+  if(loc != -1){
+    local c = maps[K.MATERIAL_MAP_DIFFUSE].color
+    diffuse[0] = c.r / 255
+    diffuse[1] = c.g / 255
+    diffuse[2] = c.b / 255
+    diffuse[3] = c.a / 255
+    lib.rlSetUniform(loc, diffuse, K.SHADER_UNIFORM_VEC4, 1)
+  }
+  local view = lib.rlGetMatrixModelview()
+  local projection = lib.rlGetMatrixProjection()
+  loc = locs[K.SHADER_LOC_MATRIX_VIEW]
+  if(loc != -1){
+    lib.rlSetUniformMatrix(loc, view)
+  }
+  loc = locs[K.SHADER_LOC_MATRIX_PROJECTION]
+  if(loc != -1){
+    lib.rlSetUniformMatrix(loc, projection)
+  }
+  // the transforms, from the first, as the instance attribute
+  lib.rlEnableVertexArray(mesh.vao_id)
+  // (raylib keeps the instance attribute's location as the model
+  // matrix's: shader.locs[SHADER_LOC_MATRIX_MODEL])
+  local tx = locs[K.SHADER_LOC_MATRIX_MODEL]
+  if(tx != -1){
+    lib.rlEnableVertexBuffer(instances.vbo)
+    for(local i = 0; i < 4; i = i + 1){
+      lib.rlEnableVertexAttribute(tx + i)
+      lib.rlSetVertexAttribute(tx + i, 4, 0x1406, false, 64, first * 64 + i * 16)
+      lib.rlSetVertexAttributeDivisor(tx + i, 1)
+    }
+    lib.rlDisableVertexBuffer()
+  }
+  loc = locs[K.SHADER_LOC_MATRIX_NORMAL]
+  if(loc != -1){
+    lib.rlSetUniformMatrix(loc, lib.MatrixIdentity())
+  }
+  // the material's textures, each in its slot
+  local bound = 0
+  for(local i = 0; i < 12; i = i + 1){
+    local id = maps[i].texture.id
+    if(id > 0){
+      lib.rlActiveTextureSlot(i)
+      if(i == K.MATERIAL_MAP_CUBEMAP or i == K.MATERIAL_MAP_IRRADIANCE or i == K.MATERIAL_MAP_PREFILTER){
+        lib.rlEnableTextureCubemap(id)
+      } else {
+        lib.rlEnableTexture(id)
+      }
+      lib.rlSetUniform(locs[K.SHADER_LOC_MAP_DIFFUSE + i], slot_numbers:slice(i, i + 1), K.SHADER_UNIFORM_INT, 1)
+      bound = bound | (1 << i)
+    }
+  }
+  local indexed = mesh.indices != null
+  if(indexed){
+    lib.rlEnableVertexBufferElement(mesh.vbo_id[6])
+  }
+  loc = locs[K.SHADER_LOC_MATRIX_MVP]
+  if(loc != -1){
+    lib.rlSetUniformMatrix(loc, lib.MatrixMultiply(lib.MatrixMultiply(lib.rlGetMatrixTransform(), view), projection))
+  }
+  if(indexed){
+    lib.rlDrawVertexArrayElementsInstanced(0, mesh.triangle_count * 3, null, count)
+  } else {
+    lib.rlDrawVertexArrayInstanced(0, mesh.vertex_count, count)
+  }
+  for(local i = 0; i < 12; i = i + 1){
+    if(bound & (1 << i) != 0){
+      lib.rlActiveTextureSlot(i)
+      if(i == K.MATERIAL_MAP_CUBEMAP or i == K.MATERIAL_MAP_IRRADIANCE or i == K.MATERIAL_MAP_PREFILTER){
+        lib.rlDisableTextureCubemap()
+      } else {
+        lib.rlDisableTexture()
+      }
+    }
+  }
+  lib.rlDisableVertexArray()
+  lib.rlDisableVertexBuffer()
+  lib.rlDisableVertexBufferElement()
+  lib.rlDisableShader()
 }
 
 // scissor_mode(x: int, y: int, width: int, height: int, block) or
@@ -1423,6 +1657,9 @@ for(let local e in entries(spaces)){
     rl[e[0]] = make_namespace(e[1])
   }
 }
+rl.draw.mesh_instances = mesh_instances
+// instances(transforms) -> Instances (see make_instances)
+rl.instances = make_instances
 // Every raylib function and constant under its C name, for whoever knows
 // raylib's API as written: rl.c.DrawText("hi", 10, 10, 20, rl.c.RED).
 rl.c = ffi.c_layer(lib, "raylib.c")

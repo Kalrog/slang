@@ -170,6 +170,15 @@ Every raylib function has one place, which its name says:
   - `shader:set(name, value, uniform_type?)` sets a uniform by name (its
     location looked up once), the type inferred from the value (a number,
     a vector, a matrix or a texture).
+  - `rl.instances(transforms)` keeps transforms on the graphics card
+    (Matrix values, or floats sixteen to a transform, column by column,
+    or a count to fill later with `instances:set(transforms, first?)`),
+    and `rl.draw.mesh_instances(mesh, material, instances, count?,
+    first?)` draws a mesh once for each of them. It is what
+    `rl.draw.mesh_instanced` (`DrawMeshInstanced`) does without making
+    and freeing a buffer at every call, which costs that one about as
+    much as a hundred plain draws; a stretch of one buffer (`first`,
+    `count`) can be drawn as often as needed.
   - `rl.random_sequence(count, min, max)` is a list.
 - **Old names** raise with where they went: `rl.get_mouse_position()` is
   `raylib: rl.get_mouse_position is now rl.mouse.position`.

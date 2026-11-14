@@ -598,6 +598,20 @@ local made = {
   },
   {
     "m",
+    "instances",
+    "transforms",
+    "instances(transforms: Buffer | {Matrix} | int) -> Instances",
+    "Transforms kept on the graphics card, for rl.draw.mesh_instances: Matrix values (a buffer or a list), a buffer of floats sixteen to a transform column by column, or a number (room for that many); instances:set(transforms, first?) writes some, instances:unload() frees them",
+  },
+  {
+    "ns_draw_fns",
+    "mesh_instances",
+    "mesh, material, instances, count, first",
+    "mesh_instances(mesh: Mesh, material: Material, instances: Instances, count?: int, first?: int)",
+    "The mesh drawn once for each of count of the instances' transforms (all by default) from the first (0): DrawMeshInstanced with the transforms already on the graphics card, without its buffer made and freed at every call",
+  },
+  {
+    "m",
     "scissor_mode",
     "x, y, width, height, block",
     "scissor_mode(x: int, y: int, width: int, height: int, block) or scissor_mode(rectangle: Rectangle, block)",

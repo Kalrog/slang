@@ -4759,10 +4759,24 @@ func m.shader_mode(shader, block){}
 //   blend_mode(mode: int, block)
 func m.blend_mode(mode, block){}
 
-// With write false the block draws without writing depths: for what is
-// seen through (smoke, glass), drawn after everything solid
+// With write false the block draws without writing depths: for what is seen
+// through (smoke, glass), drawn after everything solid
 //   depth_mask(write: bool, block)
 func m.depth_mask(write, block){}
+
+// Transforms kept on the graphics card, for rl.draw.mesh_instances: Matrix
+// values (a buffer or a list), a buffer of floats sixteen to a transform column
+// by column, or a number (room for that many); instances:set(transforms,
+// first?) writes some, instances:unload() frees them
+//   instances(transforms: Buffer | {Matrix} | int) -> Instances
+func m.instances(transforms){}
+
+// The mesh drawn once for each of count of the instances' transforms (all by
+// default) from the first (0): DrawMeshInstanced with the transforms already on
+// the graphics card, without its buffer made and freed at every call
+//   mesh_instances(mesh: Mesh, material: Material, instances: Instances,
+//      count?: int, first?: int)
+func ns_draw_fns.mesh_instances(mesh, material, instances, count, first){}
 
 // The block draws only inside the rectangle
 //   scissor_mode(x: int, y: int, width: int, height: int, block) or

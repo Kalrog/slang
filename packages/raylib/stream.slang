@@ -229,13 +229,142 @@ local player_meta = {
   __get: player_get,
 }
 
+// ------------------------------------------------------------ one thread
+//
+// Where there are no isolates (a browser), setup runs in the program's own
+// VM and the stream's callback computes the blocks as raylib asks for them.
+// In a browser raylib's audio (miniaudio on Web Audio) calls it on the
+// page's one thread, between the program's frames, so the program and the
+// sound take turns; the device's own buffer is the latency.
+
+local here_methods = {}
+
+func here_methods.stats(player){
+  local self = player.inner
+  if(self.failed != null){
+    raise(self.failed)
+  }
+  local frames = self.rendered - self.last_rendered
+  local load = 0.0
+  if(frames > 0){
+    load = (self.seconds - self.last_seconds) * self.sample_rate / frames
+  }
+  self.last_rendered = self.rendered
+  self.last_seconds = self.seconds
+  local peak = self.peak
+  self.peak = 0.0
+  return {
+    load: load,
+    peak: peak,
+    underruns: 0,
+    callbacks: self.callbacks,
+    playing: self.playing,
+  }
+}
+
+func here_methods.stop(player){
+  local self = player.inner
+  if(self.stopped){
+    return null
+  }
+  self.stopped = true
+  self.stream:stop()
+  self.stream:unload()
+  require("raylib").audio.close()
+  if(self.failed != null){
+    raise(self.failed)
+  }
+}
+
+local here_get = {}
+
+func here_get.playing(p){
+  return p.inner.playing
+}
+
+local here_meta = {
+  __type: "raylib.Player",
+  __index: here_methods,
+  __get: here_get,
+}
+
+local func play_here(setup, args, cfg){
+  local rl = require("raylib")
+  local block = setup(...args)
+  local ch = cfg.channels
+  local frames = cfg.block
+  rl.audio.open()
+  if(not rl.audio.ready){
+    raise(error.new(error.kinds.not_found, "raylib/stream: no audio device"))
+  }
+  local s = rl.audio_stream.load(cfg.sample_rate, 32, ch)
+  local inner = {
+    stream: s,
+    sample_rate: cfg.sample_rate,
+    rendered: 0,
+    seconds: 0.0,
+    peak: 0.0,
+    callbacks: 0,
+    last_rendered: 0,
+    last_seconds: 0.0,
+    playing: false,
+    stopped: false,
+    failed: null,
+  }
+  // one block computed ahead: what the last call did not take of it
+  local out = buffer.new("float", frames * ch)
+  local left = 0
+  s.callback = func(data, asked){
+    local dst = buffer.wrap(data, asked * ch, "float")
+    inner.callbacks = inner.callbacks + 1
+    if(inner.failed != null){
+      dst:fill(0.0)
+      return null
+    }
+    local done = 0
+    try {
+      for(done < asked){
+        if(left == 0){
+          local t0 = time.clock()
+          block(out, frames)
+          local dt = (time.clock() - t0) / 1000
+          inner.rendered = inner.rendered + frames
+          inner.seconds = inner.seconds + dt
+          local share = dt * cfg.sample_rate / frames
+          if(share > inner.peak){
+            inner.peak = share
+          }
+          left = frames
+        }
+        local n = asked - done
+        if(n > left){
+          n = left
+        }
+        local from = (frames - left) * ch
+        dst:set(out:slice(from, from + n * ch), done * ch)
+        done = done + n
+        left = left - n
+      }
+    } catch(local e) {
+      // heard as silence; stats and stop raise it
+      inner.failed = e
+      dst:slice(done * ch):fill(0.0)
+    }
+  }
+  s:play()
+  inner.playing = true
+  return {@meta: here_meta, inner: inner}
+}
+
 // play(setup: function, options?: Options) -> Player
 // Starts a stream: setup(...options.args) runs in a new isolate and returns
 // the block function, block(out: Buffer, frames: int), which fills out
 // (float samples, frames * channels of them, channels interleaved) and is
 // called for every block. Like isolate.spawn's function, setup must not
 // use locals of the code around it. The stream plays once the first blocks
-// are there.
+// are there. Where there are no isolates (a browser) setup runs in this VM
+// and the blocks are computed in raylib's audio callback (see "one
+// thread" above).
 //
 // type Options = {sample_rate?: int, channels?: int, block?: int,
 //   latency?: int, args?: {any}}
@@ -270,6 +399,9 @@ func stream.play(setup, options){
     block: block,
     latency: latency,
     ring: ring,
+  }
+  if(not isolate.available()){
+    return play_here(setup, options.args or {}, cfg)
   }
   local samples = buffer.shared("float", ring * cfg.channels)
   local state = buffer.shared("int64", STATE_SIZE)

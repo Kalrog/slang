@@ -73,12 +73,49 @@ pub fn findNative(th: *Thread, args: []Value) Error!Value {
 /// when no library for the name exists in the native search paths. With
 /// file (a package's native build) that library is loaded instead of
 /// searching.
-pub const loadNative = if (builtin.cpu.arch.isWasm()) noNatives else loadLibrary;
+pub const loadNative = if (builtin.os.tag == .emscripten) loadLinked else if (builtin.cpu.arch.isWasm()) noNatives else loadLibrary;
 
 /// WebAssembly (the playground) loads no native code.
 fn noNatives(th: *Thread, args: []Value) Error!Value {
     _ = th;
     _ = args;
+    return .null;
+}
+
+/// An extension linked into a VM that cannot load libraries (the browser's
+/// graphics VM): its mangled name and entry points.
+const Linked = struct {
+    name: [*:0]const u8,
+    version: *const fn () callconv(.c) c_int,
+    open: capi.CFunction,
+};
+var linked: [32]Linked = undefined;
+var linked_count: usize = 0;
+
+/// slang_register_extension(name, version, open): makes an extension that
+/// is linked into the executable known by its mangled name ("kernel_vm"
+/// for kernel/vm). Called before main, by a constructor the build writes
+/// (website/web/build.sh); only the Emscripten build looks the names up.
+export fn slang_register_extension(name: [*:0]const u8, version: *const fn () callconv(.c) c_int, open: capi.CFunction) void {
+    if (linked_count == linked.len) return;
+    linked[linked_count] = .{ .name = name, .version = version, .open = open };
+    linked_count += 1;
+}
+
+/// Emscripten: the extensions registered with slang_register_extension;
+/// the file a package names (lib/<platform>/<name>.so) is a placeholder.
+fn loadLinked(th: *Thread, args: []Value) Error!Value {
+    const vm = th.vm;
+    const name = try api.argString(th, args, 0, "name");
+    const mangled = mangle(vm.gpa, name);
+    defer vm.gpa.free(mangled);
+    for (linked[0..linked_count]) |l| {
+        if (std.mem.eql(u8, std.mem.span(l.name), mangled)) {
+            const open_sym = std.fmt.allocPrintSentinel(vm.gpa, "slang_open_{s}", .{mangled}, 0) catch oom();
+            defer vm.gpa.free(open_sym);
+            return openExtension(th, name, open_sym, l.version, l.open);
+        }
+    }
     return .null;
 }
 
@@ -122,6 +159,13 @@ fn loadLibrary(th: *Thread, args: []Value) Error!Value {
         // the library stays loaded: its functions are now reachable from slang
         vm.libraries.append(vm.gpa, lib) catch oom();
     }
+    return openExtension(th, name, open_sym, version_fn, open_fn);
+}
+
+/// Checks an extension's API version and calls its slang_open_<name>:
+/// the module value.
+fn openExtension(th: *Thread, name: []const u8, open_sym: [:0]const u8, version_fn: *const fn () callconv(.c) c_int, open_fn: capi.CFunction) Error!Value {
+    const vm = th.vm;
     const version = version_fn();
     if (version != capi.api_version) {
         return vm.raise("extension {s} was built for API version {d}, this VM provides version {d}", .{ name, version, capi.api_version });

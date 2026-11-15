@@ -1,8 +1,9 @@
 #!/bin/sh
 # The playground's graphics VM: slang built with Emscripten, with raylib's
-# web platform, Box2D, Jolt Physics (with joltc) and libffi, so that the
-# raylib, box2d and jolt packages run in the browser as they are (`make
-# wasm-gfx`). Writes website/public/slang-gfx.js and .wasm.
+# web platform (on WebGL 2), Box2D, Jolt Physics (with joltc), libffi and
+# the kernel package's interpreter, so that the raylib, box2d, jolt, kernel
+# and dsp packages run in the browser as they are (`make wasm-gfx`). Writes
+# website/public/slang-gfx.js and .wasm.
 #
 # Needs emcc (brew install emscripten), cmake, ninja and ZIG. The libraries
 # are downloaded once (pinned versions, checked) into website/web/.cache.
@@ -31,17 +32,21 @@ fetch() { # url file sha
   echo "$3  $2" | shasum -a 256 -c - > /dev/null || { echo "checksum mismatch: $2"; rm -f "$2"; exit 1; }
 }
 
-# raylib, its web platform (GLFW and WebGL come from Emscripten)
+# raylib, its web platform (GLFW and WebGL come from Emscripten), on
+# OpenGL ES 3 (WebGL 2): desktop GLSL 330 then runs as GLSL ES 3.00 (the
+# raylib package rewrites the #version), and GLSL 100 still runs
 RAYLIB=$CACHE/raylib-$RAYLIB_VERSION
-if [ ! -f "$RAYLIB/web/libraylib.a" ]; then
-  fetch "https://github.com/raysan5/raylib/archive/refs/tags/$RAYLIB_VERSION.tar.gz" "$CACHE/raylib.tar.gz" $RAYLIB_SHA
-  rm -rf "$RAYLIB" && mkdir -p "$RAYLIB" && tar xzf "$CACHE/raylib.tar.gz" -C "$RAYLIB" --strip-components=1
-  mkdir -p "$RAYLIB/web"
+if [ ! -f "$RAYLIB/web-es3/libraylib.a" ]; then
+  if [ ! -f "$RAYLIB/src/raylib.h" ]; then
+    fetch "https://github.com/raysan5/raylib/archive/refs/tags/$RAYLIB_VERSION.tar.gz" "$CACHE/raylib.tar.gz" $RAYLIB_SHA
+    rm -rf "$RAYLIB" && mkdir -p "$RAYLIB" && tar xzf "$CACHE/raylib.tar.gz" -C "$RAYLIB" --strip-components=1
+  fi
+  mkdir -p "$RAYLIB/web-es3"
   for f in rcore rshapes rtextures rtext rmodels utils raudio; do
-    emcc -c "$RAYLIB/src/$f.c" -o "$RAYLIB/web/$f.o" -Os -std=gnu99 -DPLATFORM_WEB \
-      -DGRAPHICS_API_OPENGL_ES2 -D_GNU_SOURCE -Wno-deprecated-pragma -w
+    emcc -c "$RAYLIB/src/$f.c" -o "$RAYLIB/web-es3/$f.o" -Os -std=gnu99 -DPLATFORM_WEB \
+      -DGRAPHICS_API_OPENGL_ES3 -D_GNU_SOURCE -Wno-deprecated-pragma -w
   done
-  emar rcs "$RAYLIB/web/libraylib.a" "$RAYLIB"/web/*.o
+  emar rcs "$RAYLIB/web-es3/libraylib.a" "$RAYLIB"/web-es3/*.o
 fi
 
 # libffi's Emscripten port (what Python's ctypes uses in the browser)
@@ -89,28 +94,63 @@ fi
 
 # the VM, compiled by Zig for wasm32-emscripten
 SYSROOT=$(em-config CACHE)/sysroot
-(cd zig && "$ZIG" build -Dtarget=wasm32-emscripten -Doptimize=ReleaseSmall --sysroot "$SYSROOT" -p zig-out-em)
+(cd zig && "$ZIG" build -Dtarget=wasm32-emscripten -Doptimize=ReleaseFast --sysroot "$SYSROOT" -p zig-out-em)
 
-# the symbols slang/ffi finds: the functions of raylib, raymath, Box2D and
+# the kernel package's interpreter and JIT (packages/kernel/native; in the
+# browser the JIT makes WebAssembly, see native/wasm.zig), linked in: the VM knows it as a built-in extension, which a
+# constructor registers before main (the package's lib/emscripten-wasm32/
+# vm.so in the file system is a placeholder that makes the package look for
+# it)
+(cd packages/kernel/native && "$ZIG" build -Dtarget=wasm32-emscripten --release \
+  -Dlibc-include="$SYSROOT/include" --sysroot "$SYSROOT" --prefix "$CACHE/kernel")
+cat > "$CACHE/linked.c" <<'EOF2'
+typedef int (*version_fn)(void);
+typedef int (*open_fn)(void *);
+void slang_register_extension(const char *name, version_fn version, open_fn open);
+int slang_ext_version_kernel_vm(void);
+int slang_open_kernel_vm(void *);
+__attribute__((constructor)) static void linked_extensions(void) {
+  slang_register_extension("kernel_vm", slang_ext_version_kernel_vm, slang_open_kernel_vm);
+}
+EOF2
+emcc -c "$CACHE/linked.c" -o "$CACHE/linked.o" -Os
+# its JIT's browser half (native/web.c: kernels compiled to WebAssembly);
+# the modules it makes import libm's functions from the VM
+emcc -c packages/kernel/native/web.c -o "$CACHE/kernel_web.o" -Os
+LIBM=_sin,_cos,_tan,_asin,_acos,_atan,_exp,_exp2,_log,_log2,_tanh,_sinh,_cosh,_round,_pow,_atan2
+
+# the symbols slang/ffi finds: the functions of raylib, raymath, rlgl, Box2D and
 # joltc
 JOLT_LIBS="$JOLTC/web/lib/libjoltc.a $JOLTC/web/lib/libJolt.a"
-emnm -g --defined-only "$RAYLIB/web/libraylib.a" "$BOX2D/web/src/libbox2d.a" $JOLT_LIBS 2>/dev/null \
+emnm -g --defined-only "$RAYLIB/web-es3/libraylib.a" "$BOX2D/web/src/libbox2d.a" $JOLT_LIBS 2>/dev/null \
   | awk 'NF>=3 && $2 ~ /[TD]/ {print $3}' | sort -u > "$CACHE/defined.txt"
 bin/slang run website/web/symbols.slang "$CACHE/symbols.c" "$CACHE/defined.txt" \
-  "$RAYLIB/src/raylib.h" "$RAYLIB/src/raymath.h" "$BOX2D"/include/box2d/*.h "$JOLTC/include/joltc.h" > /dev/null
+  "$RAYLIB/src/raylib.h" "$RAYLIB/src/raymath.h" "$RAYLIB/src/rlgl.h" "$BOX2D"/include/box2d/*.h "$JOLTC/include/joltc.h" > /dev/null
 emcc -c "$CACHE/symbols.c" -o "$CACHE/symbols.o" -Os -I"$RAYLIB/src" -DPLATFORM_WEB
 : > "$CACHE/empty"
+
+# the kernel and dsp packages' sources, at /kernel and /dsp
+KERNEL_FILES="--embed-file $CACHE/empty@/kernel/lib/emscripten-wasm32/vm.so"
+for f in slang.project init.slang compiler.slang file.slang grammar.slang lower.slang syntax.slang; do
+  KERNEL_FILES="$KERNEL_FILES --embed-file packages/kernel/$f@/kernel/$f"
+done
+DSP_FILES=""
+for f in slang.project slang.lock init.slang build.slang codegen.slang eval.slang file.slang \
+  grammar.slang runtime.slang signal.slang wav.slang std.dsp; do
+  DSP_FILES="$DSP_FILES --embed-file packages/dsp/$f@/dsp/$f"
+done
 
 # linked by Emscripten (em++: Jolt is C++): the packages and the libraries'
 # headers go into the virtual file system, where the packages look for
 # installed libraries (HEAPF32: raylib's audio, miniaudio, reads samples
 # through it; a callback is a function libffi adds to the table)
-em++ zig/zig-out-em/lib/slang.o "$CACHE/symbols.o" "$RAYLIB/web/libraylib.a" \
+em++ zig/zig-out-em/lib/slang.o "$CACHE/symbols.o" "$CACHE/kernel/lib/kernel_vm.o" "$CACHE/linked.o" "$CACHE/kernel_web.o" "$RAYLIB/web-es3/libraylib.a" \
   "$BOX2D/web/src/libbox2d.a" $JOLT_LIBS "$LIBFFI/out/lib/libffi.a" \
-  -o "$OUT/slang-gfx.js" -O2 -sUSE_GLFW=3 -sALLOW_MEMORY_GROWTH=1 -sALLOW_TABLE_GROWTH=1 -sSTACK_SIZE=8MB \
+  -o "$OUT/slang-gfx.js" -O2 --profiling-funcs -sUSE_GLFW=3 -sALLOW_MEMORY_GROWTH=1 -sALLOW_TABLE_GROWTH=1 -sSTACK_SIZE=8MB \
   -sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=createSlang -sINVOKE_RUN=0 -sEXIT_RUNTIME=1 \
-  -sENVIRONMENT=web -sFORCE_FILESYSTEM=1 -sEXPORTED_RUNTIME_METHODS=FS,callMain,HEAPF32 \
-  -sEXPORTED_FUNCTIONS=_main,_emscripten_cancel_main_loop,_CloseWindow,_CloseAudioDevice \
+  -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2 \
+  -sENVIRONMENT=web -sFORCE_FILESYSTEM=1 -sEXPORTED_RUNTIME_METHODS=FS,callMain,HEAPF32,ENV,IDBFS -lidbfs.js \
+  -sEXPORTED_FUNCTIONS=_main,_emscripten_cancel_main_loop,_CloseWindow,_CloseAudioDevice,$LIBM \
   --embed-file "$RAYLIB/src/raylib.h@/usr/include/raylib.h" \
   --embed-file "$RAYLIB/src/raymath.h@/usr/include/raymath.h" \
   --embed-file "$CACHE/empty@/usr/lib/libraylib.so" \
@@ -127,5 +167,6 @@ em++ zig/zig-out-em/lib/slang.o "$CACHE/symbols.o" "$RAYLIB/web/libraylib.a" \
   --embed-file "$CACHE/empty@/usr/lib/libjoltc.so" \
   --embed-file "packages/jolt/init.slang@/jolt/init.slang" \
   --embed-file "packages/jolt/names.slang@/jolt/names.slang" \
-  --embed-file "packages/jolt/slang.project@/jolt/slang.project"
+  --embed-file "packages/jolt/slang.project@/jolt/slang.project" \
+  $KERNEL_FILES $DSP_FILES
 echo "website/public/slang-gfx.js and slang-gfx.wasm"

@@ -8,7 +8,9 @@
 //! ships it prebuilt; see README.md).
 
 const std = @import("std");
-const jit = @import("jit.zig");
+// native code: arm64 machine code (jit.zig), or in the browser WebAssembly
+// that the browser compiles (wasm.zig)
+const jit = if (@import("builtin").os.tag == .emscripten) @import("wasm.zig") else @import("jit.zig");
 const c = @import("slang");
 
 const tname = "kernel.Program";

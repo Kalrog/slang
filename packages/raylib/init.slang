@@ -883,6 +883,33 @@ if(web_entry != null){
   // the page shows raylib's errors, not its start-up report (WebGL 1 has
   // warnings to make)
   lib.SetTraceLogLevel(K.LOG_ERROR)
+  // desktop GLSL (#version 330) runs as GLSL ES 3.00 on WebGL 2, which
+  // also wants the precision of floats said; other versions stay as they
+  // are (#version 100 is WebGL 1's)
+  local func es(code){
+    if(code == null){
+      return null
+    }
+    local first = str.index_of(code, "\n")
+    if(first < 0){
+      first = len(code)
+    }
+    local line = str.trim(str.substring(code, 0, first))
+    if(line != "#version 330" and line != "#version 330 core"){
+      return code
+    }
+    return concat(
+      "#version 300 es\nprecision highp float;\nprecision highp int;\n",
+      "precision highp sampler2D;\n", str.substring(code, first + 1),
+    )
+  }
+  local load_shader = null
+  func special.load_shader_from_memory(vertex, fragment){
+    if(load_shader == null){
+      load_shader = binding(C.functions.LoadShaderFromMemory, "rl.shader.load_from_memory")
+    }
+    return load_shader(es(vertex), es(fragment))
+  }
 }
 
 // ------------------------------------------------------------ blocks

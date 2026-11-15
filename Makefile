@@ -50,6 +50,8 @@
 #   make courier-test run its tests (no window: the city, the car on Jolt, the traffic, the jobs)
 #   make switchback   run Switchback, the off-road drive up a valley made from a seed (examples/switchback) on raylib, jolt, kernel and dsp
 #   make switchback-test run its tests (no window, no audio device: the drivetrain, the truck on Jolt, the land, the trails, the bot, exploring, a run, the sound)
+#   make switchback-web  Switchback in the browser: a site of its own in examples/switchback/web (the graphics VM, built by wasm-gfx, and the game's files)
+#   make switchback-web-serve  the same, served at http://127.0.0.1:8080/
 #   make switchback-sound SCENE=engine  render a part of its sound to a WAV and play it (examples/switchback/tool/sound.slang; ARGS="..." for the scene, e.g. SCENE=drive ARGS="25 300 40 heavy")
 #   make siege        run the siege catapult game (examples/siege) on the raylib and jolt packages
 #   make inkblast     run the Inkblast party game (examples/inkblast): slang/net, bots, raylib
@@ -68,7 +70,7 @@ LIB_SRC  := $(wildcard slang/lib/*.slang)
 COMPILER_SRC := $(wildcard slang/compiler/*.slang)
 SEED_DIR := boot/slang
 
-.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed fixpoint bench bench-compare bench-vectors raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test inkblast inkblast-test synth synth3d synth-test synth-mix modular modular-test modular-demos live live-test dsp car dsp-test granular granular-test delve delve-test courier courier-test switchback switchback-test switchback-sound siege siege-test midi-test microphone-test kernel-test kernel-bench fm fm3d fm-test fm-gen clean doc \
+.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed fixpoint bench bench-compare bench-vectors raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test inkblast inkblast-test synth synth3d synth-test synth-mix modular modular-test modular-demos live live-test dsp car dsp-test granular granular-test delve delve-test courier courier-test switchback switchback-test switchback-web switchback-web-serve switchback-sound siege siege-test midi-test microphone-test kernel-test kernel-bench fm fm3d fm-test fm-gen clean doc \
         vscode vscode-grammar
 
 all: build
@@ -306,6 +308,14 @@ switchback: build
 
 switchback-test: build
 	cd examples/switchback && ../../bin/slang test test
+
+# a site of its own (index.html, files.json, the graphics VM): any static
+# server will do; no special headers are needed (no threads)
+switchback-web: wasm-gfx
+	bin/slang run website/web/game.slang examples/switchback examples/switchback/web Switchback
+
+switchback-web-serve: switchback-web
+	bin/slang run website/serve.slang 8080 examples/switchback/web
 
 # a scene of tool/scenes rendered to a WAV (no audio device needed), then
 # played where there is a player for it

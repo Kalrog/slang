@@ -37,6 +37,8 @@ examples/granular/takes/
 /website/public/slang.wasm
 /website/public/slang-gfx.*
 /website/web/.cache/
+# Switchback's site (make switchback-web)
+/examples/switchback/web/
 
 # build outputs
 /build/

@@ -11,6 +11,7 @@
 //   scene.draw(view, world)
 local rl = require("raylib")
 local math = require("slang/math")
+local os = require("slang/os")
 local time = require("slang/time")
 local vec = require("game/vec")
 local terrain_lib = require("game/terrain")
@@ -55,6 +56,14 @@ func m.init(width, height, world){
   state.shadow.texture.filter = rl.TEXTURE_FILTER_POINT
   state.shadow.texture.wrap = rl.TEXTURE_WRAP_CLAMP
   shaders.shadow_texture = state.shadow.texture
+  // in a browser the sun's view is drawn into a picture of its own and
+  // copied into the map: WebGL draws nothing while the texture drawn into
+  // is bound for reading, and every material binds the map (the depth
+  // pass never reads it, which desktop GL leaves alone)
+  if(os.platform() == "emscripten-wasm32"){
+    state.casting = rl.render_texture(m.SHADOW_SIZE, m.SHADOW_SIZE)
+    state.casting.texture.filter = rl.TEXTURE_FILTER_POINT
+  }
   sky.init()
   // (before the land and the grass: both read the wheels' tracks)
   tracks.init()
@@ -210,10 +219,18 @@ func m.draw(view, world, options){
   local t1 = time.clock()
   // the shadows of what is near
   local sun = sun_view(view)
-  rl.texture_mode(state.shadow){
+  rl.texture_mode(state.casting or state.shadow){
     rl.draw.clear(rl.WHITE)
     rl.mode_3d(state.camera){
       draw_world(sun, world)
+    }
+  }
+  if(state.casting != null){
+    // (texel for texel, its rows as they are; its alpha is 1 throughout,
+    // so blending leaves the depths alone)
+    local size = m.SHADOW_SIZE
+    rl.texture_mode(state.shadow){
+      state.casting.texture:draw_rec({0, 0, size, -size}, {0, 0}, rl.WHITE)
     }
   }
   local t2 = time.clock()
@@ -267,6 +284,10 @@ func m.unload(){
     state.shadow:unload()
     state.shadow = null
     shaders.shadow_texture = null
+  }
+  if(state.casting != null){
+    state.casting:unload()
+    state.casting = null
   }
 }
 

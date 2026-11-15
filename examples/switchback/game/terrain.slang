@@ -99,6 +99,11 @@ func m.bands(module, name, n, workers, ...rest){
 // rows(module: string, name: string, from: int, to: int, workers?: int,
 //   ...rest): the same for the rows from `from` up to `to` only
 func m.rows(module, name, from, to, workers, ...rest){
+  if(not isolate.available()){
+    // (a browser: no threads, all rows here)
+    band(module, name, from, to, ...rest)
+    return null
+  }
   workers = workers or math.max(1, math.min(os.cpu_count() - 1, 12))
   local rows = math.max(1, to_int((to - from + workers - 1) / workers))
   local pool = {}

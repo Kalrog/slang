@@ -188,6 +188,24 @@ make switchback-sound SCENE=drive ARGS="25 300 40 heavy"    # the game as it sou
 make switchback-sound SCENE=life_cast ARGS="blackbird"      # one of the birds
 ```
 
+## In the browser
+
+```sh
+make switchback-web         # a site of its own in examples/switchback/web
+make switchback-web-serve   # the same, at http://127.0.0.1:8080/
+```
+
+The site is the game's files (`files.json`), a page, and slang's graphics
+VM built with Emscripten (`make wasm-gfx`): raylib on WebGL 2, Jolt, and
+the kernel package, whose JIT makes WebAssembly there (the browser
+compiles it like any other). Any static server will do. Two things work
+differently in a browser, which has one thread: the land's kernels run in
+one band instead of on every core (the valley takes about 20 seconds
+instead of 13), and the sound is computed in the browser's audio callback
+between frames instead of in isolates of its own. Settings are kept in
+the browser's storage. The page passes its query to the game as the
+environment: `?SWITCHBACK_SEED=29` is valley 29.
+
 ## How it is laid out
 
 - `game/`: the game without a window: the land, the trails, the truck, the

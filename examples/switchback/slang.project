@@ -4,8 +4,13 @@
     raylib: {path: "../../packages/raylib"},
     jolt: {path: "../../packages/jolt"},
     kernel: {path: "../../packages/kernel"},
+    dsp: {path: "../../packages/dsp"},
   },
   search_paths: {"."},
-  // game/land.kernel: the kernels that compute the land
-  dialects: {[".kernel"]: {grammar: "kernel/file"}},
+  // game/land.kernel: the kernels that compute the land; sound/engine.dsp:
+  // the programs that compute what is heard
+  dialects: {
+    [".kernel"]: {grammar: "kernel/file"},
+    [".dsp"]: {grammar: "dsp/file"},
+  },
 }

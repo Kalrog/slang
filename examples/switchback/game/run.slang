@@ -23,6 +23,8 @@ m.CHECK_RADIUS = 11       // how near a checkpoint counts as there, m
 m.RECOVER_PENALTY = 20    // s on the clock for being put back on the trail
 m.WRECK_PENALTY = 45      // and for wrecking the truck
 m.RECOVER_HOLD = 0.7      // s the key is held before it happens
+m.BROKEN = 2.6            // s a truck that broke stands where it broke (what
+// broke it is seen and heard) before it is patched up, or towed
 // a knock (the truck's speed changing by this much in one step of the
 // physics, m/s) starts to do damage; DAMAGE is how much per m/s over it
 m.KNOCK = 0.55
@@ -30,6 +32,7 @@ m.DAMAGE = 0.11
 
 // new(world) -> Run
 func m.new(world){
+  world.car.dead = false
   return {
     phase: "ready",        // ready (the clock waits), driving, finished
     time: 0,
@@ -39,6 +42,7 @@ func m.new(world){
     index: 0,              // the trail's point nearest the truck
     section: null,         // the obstacle it is in
     damage: 0,
+    broken: null,          // broken: the seconds until it is patched up
     recoveries: 0,
     wrecks: 0,
     holding_recover: 0,
@@ -146,7 +150,9 @@ func m.recover(r, world){
 // What happened in this frame: {kind: "start"}, {kind: "checkpoint",
 // name, time, delta?} (delta: against the best run's split), {kind:
 // "section", name}, {kind: "knock", strength}, {kind: "recover"},
-// {kind: "wreck"}, {kind: "finish", time, new_best}.
+// {kind: "broken"} (the knock that was one too many: the truck stands
+// dead where it is for BROKEN seconds), {kind: "wreck"} (then: patched up
+// and back on the trail), {kind: "finish", time, new_best}.
 func m.step(r, world, input, dt){
   local events = {}
   local car = world.car
@@ -161,19 +167,30 @@ func m.step(r, world, input, dt){
   // knocks: what the world saw of the truck's speed changing at once
   local knock = world.knock or 0
   if(knock > m.KNOCK){
-    local harm = (knock - m.KNOCK) * m.DAMAGE
+    // (a truck that is broken already takes no more harm)
+    local harm = if(r.broken == null){ (knock - m.KNOCK) * m.DAMAGE } else { 0 }
     r.damage = math.min(1, r.damage + harm)
     append(events, {kind: "knock", strength: knock, harm: harm})
   }
-  if(r.damage >= 1 and r.phase != "finished"){
-    // a wreck: patched up and put back, for a price
-    r.wrecks = r.wrecks + 1
-    r.damage = 0.35
-    if(r.phase == "driving"){
-      r.penalty = r.penalty + m.WRECK_PENALTY - m.RECOVER_PENALTY
+  if(r.broken != null){
+    // a wreck: it stands where it broke a moment, then it is patched up
+    // and put back, for a price
+    r.broken = r.broken - dt
+    if(r.broken <= 0){
+      r.broken = null
+      car.dead = false
+      r.wrecks = r.wrecks + 1
+      r.damage = 0.35
+      if(r.phase == "driving"){
+        r.penalty = r.penalty + m.WRECK_PENALTY - m.RECOVER_PENALTY
+      }
+      m.recover(r, world)
+      append(events, {kind: "wreck"})
     }
-    m.recover(r, world)
-    append(events, {kind: "wreck"})
+  } else if(r.damage >= 1 and r.phase != "finished"){
+    r.broken = m.BROKEN
+    car.dead = true
+    append(events, {kind: "broken"})
   }
   // on its side or roof, or off the map: offer the way back
   if(car.up.y < 0.3){
@@ -183,12 +200,13 @@ func m.step(r, world, input, dt){
   }
   local edge = world.land.half - 52
   local out = math.abs(car.pos.x) > edge or math.abs(car.pos.z) > edge
-  r.recover_hint = r.upside_down > 1.5 or out
+  r.recover_hint = (r.upside_down > 1.5 or out) and r.broken == null
   if(out and (math.abs(car.pos.x) > edge + 14 or math.abs(car.pos.z) > edge + 14)){
     m.recover(r, world)
     append(events, {kind: "recover", why: "edge"})
   }
-  if(input != null and input.recover){
+  // (a broken truck is not righted: it is patched up in a moment)
+  if(input != null and input.recover and r.broken == null){
     r.holding_recover = r.holding_recover + dt
     if(r.holding_recover >= m.RECOVER_HOLD){
       m.recover(r, world)

@@ -1,6 +1,6 @@
-// WAV files: 16-bit PCM from buffers of float samples (-1 to 1).
+// dsp/wav: WAV files, 16-bit PCM from buffers of float samples (-1 to 1).
 //
-//   local wav = require("wav")
+//   local wav = require("dsp/wav")
 //   wav.write("out.wav", {left, right}, 48000)       // stereo
 //   wav.write("stem.wav", {samples}, 48000, 0.9)     // mono, scaled
 local buffer = require("slang/buffer")

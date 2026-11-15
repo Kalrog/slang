@@ -262,10 +262,10 @@ void main(){
   // dent the light catches
   if(trackInfo.w > 0.5 && dist < 120.0){
     vec2 q = abs(p - trackInfo.yz) * trackInfo.x;
-    // (four readings half a texel apart: the map's texels are a hand
-    // wide, and their edges would show in the light)
+    // (four readings half a texel apart: the map's texels are half a
+    // hand wide, and their edges would show in the light)
     vec2 tq = p * trackInfo.x;
-    float e = trackInfo.x * 0.0625;
+    float e = trackInfo.x * 0.03125;
     float track = 0.25 * (texture(trackMap, tq + vec2(e, e)).r + texture(trackMap, tq + vec2(-e, e)).r +
       texture(trackMap, tq + vec2(e, -e)).r + texture(trackMap, tq + vec2(-e, -e)).r);
     track *= (1.0 - smoothstep(0.36, 0.45, max(q.x, q.y))) * (1.0 - smoothstep(70.0, 120.0, dist));

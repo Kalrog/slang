@@ -20,6 +20,8 @@ local surfaces = require("game/surfaces")
 local car_lib = require("game/car")
 local terrain = require("game/terrain")
 local route = require("game/route")
+local kernel = require("kernel")
+local trail_kernels = require("game/trail")
 local world = require("game/world")
 local bot = require("game/bot")
 local run = require("game/run")
@@ -404,8 +406,47 @@ t.group("trail"){
         local dx = points[i].x - points[j].x
         local dz = points[i].z - points[j].z
         assert(dx * dx + dz * dz > 6 * 6, concat(string(i * 2), " m and ", string(j * 2), " m"))
+        // (and where the one lies over the other, room for a bank between)
+        local d = math.sqrt(dx * dx + dz * dz)
+        if(d < 14){
+          assert(d - points[i].half - points[j].half > 0.5 * math.abs(points[i].y - points[j].y),
+            concat(string(i * 2), " m over ", string(j * 2), " m"))
+        }
       }
     }
+  }
+  t.test("where it passes itself it is pushed apart: room for the bank between"){
+    // a line that goes out and comes back 5 m beside itself, 6 m higher
+    local n = 80
+    local x = kernel.float:array(n)
+    local z = kernel.float:array(n)
+    local y = kernel.float:array(n)
+    for(local i = 0; i < n; i = i + 1){
+      x[i] = if(i < 40){ i * 2 } else { (79 - i) * 2 }
+      z[i] = if(i < 40){ 0 } else { 5 }
+      y[i] = if(i < 40){ 0 } else { 6 }
+    }
+    local took = trail_kernels.spread(x, z, y, n, 4.6, 6, 4, 80, kernel.int32:array(40000), 20000,
+      kernel.float:array(n), kernel.float:array(n), kernel.float:array(n), kernel.float:array(n),
+      kernel.float:array(n))
+    assert(took > 0)
+    // (as far apart as both are wide and a meter, and 0.7 of the 6 m)
+    for(local i = 14; i <= 26; i = i + 1){
+      local dx = x[i] - x[79 - i]
+      local dz = z[i] - z[79 - i]
+      assert(math.sqrt(dx * dx + dz * dz) > 9.4, string(math.sqrt(dx * dx + dz * dz)))
+    }
+    // its ends stay, and a line with room is left alone
+    assert(x[0] == 0 and z[0] == 0 and x[79] == 0 and z[79] == 5)
+    for(local i = 40; i < n; i = i + 1){
+      z[i] = 40
+    }
+    for(local i = 0; i < 40; i = i + 1){
+      z[i] = 0
+    }
+    assert(trail_kernels.spread(x, z, y, n, 4.6, 6, 4, 80, kernel.int32:array(40000), 20000,
+      kernel.float:array(n), kernel.float:array(n), kernel.float:array(n), kernel.float:array(n),
+      kernel.float:array(n)) == 0)
   }
   t.test("is cut into the land, with its obstacles"){
     local kinds = {}
@@ -627,10 +668,22 @@ t.group("the trails and exploring"){
     world.place(w, far, 0)
     e.damage = 0.99
     w.knock = 3
-    local towed = explore.step(e, w, {}, 1 / 60)
-    assert(len(towed) == 2 and towed[1].kind == "breakdown", len(towed))
-    assert(towed[1].camp == camp.name or towed[1].camp == "Trailhead", towed[1].camp)
-    assert(e.damage == 0)
+    // (it stands dead where it broke for a moment first)
+    local broke = explore.step(e, w, {}, 1 / 60)
+    assert(len(broke) == 2 and broke[0].kind == "knock" and broke[1].kind == "broken", len(broke))
+    assert(w.car.dead and e.damage == 1)
+    w.knock = 0
+    local towed = null
+    local waited = 0
+    for(towed == null and waited < 100){
+      for(let local ev in values(explore.step(e, w, {}, 0.1))){
+        towed = ev
+      }
+      waited = waited + 1
+    }
+    assert(towed != null and towed.kind == "breakdown" and waited >= 20 and waited <= 30, waited)
+    assert(towed.camp == camp.name or towed.camp == "Trailhead", towed.camp)
+    assert(e.damage == 0 and not w.car.dead)
     // a marker, and the way to it
     local index = explore.mark(e, w, far.x, far.z)
     explore.aim(e, w, index)
@@ -691,6 +744,34 @@ t.group("a run"){
       run.step(r, w, {recover: true}, 1 / 60)
     }
     assert(r.recoveries == 1 and r.penalty == run.RECOVER_PENALTY, r.penalty)
+  }
+  t.test("a wrecked truck stands dead where it broke, then is patched up for a price"){
+    world.recover(w, 30)
+    local r = run.new(w)
+    r.best = null
+    r.phase = "driving"
+    r.index = 30
+    r.damage = 0.99
+    w.knock = 3
+    local broke = run.step(r, w, {}, 1 / 60)
+    assert(broke[1].kind == "broken" and w.car.dead and r.wrecks == 0)
+    w.knock = 0
+    // dead: the pedal does nothing, and it is not righted by the key
+    local speed = 0
+    for(local i = 0; i < 60; i = i + 1){
+      world.step(w, {forward: 1}, 1 / 60)
+      run.step(r, w, {recover: true}, 1 / 60)
+      speed = math.max(speed, math.abs(w.car.speed))
+    }
+    assert(speed < 0.5 and r.recoveries == 0 and w.car.dead, speed)
+    local patched = null
+    for(local i = 0; i < 30 and patched == null; i = i + 1){
+      for(let local e in values(run.step(r, w, {}, 0.1))){
+        patched = e
+      }
+    }
+    assert(patched != null and patched.kind == "wreck" and r.wrecks == 1 and not w.car.dead)
+    assert(r.damage == 0.35 and r.penalty == run.WRECK_PENALTY, r.penalty)
     // (the last test with the world: it goes)
     world.destroy(w)
   }

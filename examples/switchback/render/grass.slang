@@ -3,7 +3,8 @@
 // can see; the vertex shader stands each blade on the land (its height
 // from the height map), makes it as tall as there is grass there (the
 // land's cover: none on the track, on rock, in the mud), turns it to face
-// the eye, bends it in the wind and lays it flat near the truck. The
+// the eye, bends it in the wind, lays it flat near the truck, and lays it
+// down where a wheel went, along the wheel's way (render/tracks). The
 // squares lie in three rings: near the eye the blades are many and thin,
 // farther off a quarter of them, broader, then a sixteenth on squares
 // twice as wide; from forty meters on they take on the color and the
@@ -39,6 +40,7 @@ uniform sampler2D heightMap;
 uniform sampler2D cover2Map;
 uniform sampler2D trackMap;
 uniform vec4 trackInfo;   // 1 / the track map's side (m), its middle's x and z, on (1) or off
+                          // (the map: r how hard a wheel pressed, g and b the way it went)
 uniform vec4 land;
 uniform vec4 blades;      // the ring: from, to (m from the eye along the ground), the blades' width, 0
 uniform vec2 thin;        // where three blades of four thin out (from, to; 0, 0: none do)
@@ -85,13 +87,28 @@ void main(){
   float patchy = vnoise(root * 0.21);
   float high = smoothstep(170.0, 400.0, ground + 80.0 * (macro - 0.5));
   float height = (0.2 + 0.42 * vertexNormal.x * vertexNormal.x + 0.2 * patchy) * mix(1.0, 0.55, high) * keep;
-  // the truck lays it flat, and where its wheels went it stays down
+  // the truck lays it flat, and where its wheels went it stays down:
+  // lying along the way the wheel went (a little outward at the track's
+  // edges: the track map has that way), each blade a little off it and
+  // not all of them all the way down
   float pressed = 1.0 - smoothstep(1.3, 2.9, distance(base, truck));
   height *= 1.0 - 0.82 * pressed;
+  float lay = 0.0;
+  vec2 lie = vec2(0.0, 1.0);
   if(trackInfo.w > 0.5){
     vec2 q = abs(root - trackInfo.yz) * trackInfo.x;
-    float track = textureLod(trackMap, root * trackInfo.x, 0.0).r * (1.0 - smoothstep(0.36, 0.45, max(q.x, q.y)));
-    height *= 1.0 - 0.9 * smoothstep(0.1, 0.5, track);
+    vec4 mark = textureLod(trackMap, root * trackInfo.x, 0.0);
+    float track = mark.r * (1.0 - smoothstep(0.36, 0.45, max(q.x, q.y)));
+    vec2 way = mark.gb * 2.0 - 1.0;
+    float known = smoothstep(0.15, 0.6, length(way));
+    float off = (rnd - 0.5) * 1.1;
+    way = vec2(way.x * cos(off) - way.y * sin(off), way.x * sin(off) + way.y * cos(off));
+    lie = normalize(way + vec2(0.0001, 0.0));
+    // (most lie flat, and one in twelve has come half up again)
+    float down = mix(0.82, 1.0, vertexNormal.y) * (1.0 - 0.5 * step(0.917, vertexNormal.z));
+    lay = smoothstep(0.08, 0.4, track) * known * down;
+    // (where the map does not say which way, the blades are short)
+    height *= 1.0 - 0.9 * smoothstep(0.1, 0.5, track) * (1.0 - known);
   }
 
   // the wind: gusts running over the meadow, and each blade's own flutter
@@ -99,17 +116,27 @@ void main(){
   float gust = vnoise(root * 0.06 - wind * time * 0.55) * 0.75 + vnoise(root * 0.23 - wind * time * 1.3) * 0.25;
   float lean = 0.1 + 0.75 * gust * gust + 0.05 * sin(time * 3.3 + rnd * 43.0);
   vec2 own = vec2(cos(rnd * 6.2831), sin(rnd * 6.2831)) * (0.1 + 0.25 * vertexNormal.y);
-  vec2 bend = (wind * lean + own) * t * t * height;
+  vec2 bend = (wind * lean + own) * t * t * height * (1.0 - lay);
 
   // facing the eye, turned a little each
   vec2 to_eye = normalize(eye.xz - root + vec2(0.0001));
   float turn = (vertexNormal.y - 0.5) * 1.5;
   vec2 facing = vec2(to_eye.x * cos(turn) - to_eye.y * sin(turn), to_eye.x * sin(turn) + to_eye.y * cos(turn));
-  vec2 side = vec2(facing.y, -facing.x);
+  // its width across the way it grows (up, or along the ground where it
+  // lies) and across the way to the eye: its flat side always toward the
+  // eye, standing, and to the sky, lying
+  vec3 stem = normalize(mix(vec3(0.0, 1.0, 0.0), vec3(lie.x, 0.1, lie.y), lay));
+  vec3 across = normalize(cross(stem, vec3(facing.x, (eye.y - ground) / max(distance(eye.xz, root), 0.01), facing.y)) +
+    vec3(-lie.y, 0.0, lie.x) * 0.2 * lay + vec3(0.0001, 0.0, 0.0));
   float w = vertexTexCoord.x * width * (1.0 - 0.8 * t * t) * step(0.001, height);
-  vec3 pos = base + vec3(side.x * w + bend.x, t * height * (1.0 - 0.25 * lean * t), side.y * w + bend.y);
+  // standing it rises; lying it runs along the ground, a little off it
+  // toward its tip
+  vec3 standing = vec3(bend.x, t * height * (1.0 - 0.25 * lean * t), bend.y);
+  vec3 lying = vec3(lie.x * t * height * 0.92, 0.025 + height * 0.11 * t * (1.6 - t), lie.y * t * height * 0.92);
+  vec3 pos = base + across * w + mix(standing, lying, lay);
   worldPos = pos;
-  along = t;
+  // (lying, it is not in the others' shade)
+  along = mix(t, 0.72 + 0.28 * t, lay);
 
   // the meadow's colors (the ground has the same from afar): greener low
   // down, drier up high, paler toward the tips
@@ -127,8 +154,13 @@ void main(){
   // line shows where they end
   sink = smoothstep(fade.x * 0.5, fade.x, dist);
   tint = mix(tint, meadow * 1.07, sink);
+  // (pressed flat a blade shows its whole length and its pale side to
+  // the sky: from above a track in a meadow is a paler stripe; looked at
+  // along the ground it is a lane in the shade of the grass beside it)
+  float into = smoothstep(0.12, 0.6, (eye.y - ground) / max(dist, 0.01));
+  tint = mix(tint, (c * mix(1.05, 1.5, t) + vec3(0.03, 0.03, 0.004)) * mix(0.58, 1.0, into), lay);
   // lit like the ground it stands on, a little toward the eye
-  normal = normalize(vec3(facing.x * 0.35 + bend.x, 1.0, facing.y * 0.35 + bend.y));
+  normal = normalize(vec3(facing.x * 0.35 * (1.0 - lay) + bend.x, 1.0, facing.y * 0.35 * (1.0 - lay) + bend.y));
   if(sink > 0.0){
     float hx = textureLod(heightMap, uv + vec2(land.z, 0.0), 0.0).r - textureLod(heightMap, uv - vec2(land.z, 0.0), 0.0).r;
     float hz = textureLod(heightMap, uv + vec2(0.0, land.z), 0.0).r - textureLod(heightMap, uv - vec2(0.0, land.z), 0.0).r;

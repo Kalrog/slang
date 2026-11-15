@@ -10,7 +10,7 @@ local time = require("slang/time")
 local path = require("slang/path")
 local engine = require("engine")
 local instruments = require("instruments")
-local wav = require("wav")
+local wav = require("dsp/wav")
 
 local RATE = 48000
 local BLOCK = 128

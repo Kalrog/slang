@@ -1,4 +1,4 @@
-// std: the library of dsp programs (`import "std";`), written in the
+// dsp/std: the library of dsp programs (`import "std";`), written in the
 // language itself. Oscillators take a frequency in Hz, filters a cutoff
 // in Hz, envelopes times in seconds; SR is the sample rate.
 
@@ -13,6 +13,9 @@ frac = _ <: _ - floor;
 // n wires in parallel
 bus(n) = par(i, n, _);
 
+// the i-th (from 0) of n signals, the others cut
+only(n, i) = par(j, n, *(j == i)) :> _;
+
 // the decibels x as a gain, and back
 db2lin(x) = pow(10, x / 20);
 lin2db(x) = 20 * log10(x);
@@ -26,6 +29,16 @@ smoo = smooth(0.999);
 
 // soft clipping
 drive(k) = *(k) : tanh;
+
+// a slow hand on the volume: a signal whose level (taken over about t
+// seconds) is l comes out at the level sqrt(l * ref), so what was 40 dB
+// apart is 20 dB apart; never raised by more than most times
+leveled(ref, t, most) = _ <: _ * gain with {
+  c = exp(-1 / (t * SR));
+  gain = \(x).(x * x)
+    : smooth(c)
+    : \(e).(min(sqrt(ref / sqrt(e + 1e-12)), most));
+};
 
 // equal-power panning, p from 0 (left) to 1 (right)
 pan(p) = _ <: *(sqrt(1 - p)), *(sqrt(p));
@@ -55,9 +68,12 @@ blep(t, dt) = select2(t < dt, select2(t > 1 - dt, 0, hi), lo) with {
 // (its products stay below 2^53, so they are exact in doubles)
 noise = noises(0);
 
-// independent white noises, one for each k = 0, 1, 2...: the generator
-// with another increment (every odd one runs through all 2^32 states)
-noises(k) = (*(69069) : +(2 * k + 1) : %(4294967296)) ~ _
+// independent white noises, one for each k = 0, 1, 2... (up to 200): the
+// generator with a multiplier of its own for each (with another increment
+// only, each would be the first times an odd number: a third alike).
+// Every such multiplier, 5 more than a multiple of 8, runs through all
+// 2^32 states.
+noises(k) = (*(69069 + 8168 * k) : +(2 * k + 1) : %(4294967296)) ~ _
   : /(2147483648)
   : -(1);
 

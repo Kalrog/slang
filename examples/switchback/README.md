@@ -1,7 +1,7 @@
 # Switchback
 
 An off-road expedition through a valley made from a seed, in slang on
-the raylib, Jolt and kernel packages. Trails lead from the meadow by the
+the raylib, Jolt, kernel and dsp packages. Trails lead from the meadow by the
 river through fords, mud holes, washouts and moguls, past the lake, up
 the hillsides in switchbacks, between rock walls, over ledges, through
 rock gardens and fallen trees, to lookouts on the ridges, the lake's far
@@ -13,8 +13,9 @@ There are two ways to play:
 
 - **Explore** (the first): drive where you like. The valley's camps are
   found by coming to them; at a camp the truck is mended. A truck that
-  breaks down is towed to the nearest camp found so far, and the place
-  it broke down at must be found again. The map (`M`) shows the valley
+  breaks down stands dead where it broke for a moment, then is towed to
+  the nearest camp found so far, and the place it broke down at must be
+  found again. The map (`M`) shows the valley
   as relief or as a contour map, the trails, the camps you found, and
   markers you set; the way to the marker you choose is shown along the
   trails, on the map, on the small map and on the compass.
@@ -23,12 +24,13 @@ There are two ways to play:
 
 ```sh
 make switchback        # or: slang run examples/switchback/main.slang
-make switchback-test   # the drivetrain, the truck, the land, the trails, the bot, exploring and a run, without a window
+make switchback-test   # the drivetrain, the truck, the land, the trails, the bot, exploring, a run and the sound, without a window or an audio device
 ```
 
 ![Switchback](switchback.png)
 
-Sound is not in yet.
+Everything you hear is computed as you drive: nothing is recorded (see
+[The sound](#the-sound)).
 
 ## Driving
 
@@ -122,11 +124,69 @@ half a meter to the sample.
 Woods, bushes, boulders and logs are set on the land by kernels
 (`game/plants.slang`), not on the track, and what stands near the truck is
 solid. The grass is placed by the graphics card, lies down under the truck
-and stays down where its wheels went; the wheels leave tracks in mud, snow
-and sand (`render/tracks.slang`) and throw up dust, clods and spray
+and stays down where its wheels went, along the way they went; the wheels
+leave tracks in mud, snow and sand (`render/tracks.slang`) and throw up dust, clods and spray
 (`render/dust.slang`), and the truck gets muddy until a ford washes it.
 
 `New valley` on the title screen takes the next seed.
+
+## The sound
+
+No sound of the game is a recording. Each is computed while it is heard,
+by small programs in a language for signals (`packages/dsp`: block
+diagrams, compiled to kernels) that run in the audio stream's own
+isolate. Once a frame the game writes what is going on into numbers it
+shares with them (how fast the engine turns and how hard it pulls, the
+ground under each wheel and how it slips, the wind, where the river
+is); the mixer (`sound/mixer.slang`) glides those from frame to frame,
+runs the layers and places what they make around the listener, who is
+the camera. What happens once (a knock, a lever, a click in a menu) goes
+to it as an event.
+
+- **The engine** (`sound/engine/`): a turbo diesel four as four
+  programs: the pressure in its cylinders, the exhaust and the intake as
+  pipes with their chambers and mouths, and the block with its
+  injectors, valves, timing gears, fan, starter and turbocharger. The
+  starter cranks it, it catches, and it runs down when the truck breaks.
+- **The driveline**: the gears' whine at the pitches their tooth counts
+  give, more of it in low range and in reverse, the brakes, and the
+  clunks of the levers, the lockers and the slack in the shafts.
+- **The tires**: the lumps of the ground through the tire's own
+  resonances, the tread's blocks, grit crushed by the meter (single
+  ticks at a crawl that become a roar at speed), slip and squeal, what
+  a spinning wheel throws against the truck, and water: each wheel by
+  the ground it stands on.
+- **The body**: knocks, a crash, the suspension at work and in its
+  stops, what the truck carries rattling (by how it is fitted out), the
+  frame creaking at a crawl, brush along its sides, the winch.
+- **The air**: the wind past the truck, growing with the cube of its
+  speed, and the valley's own: in the open, in conifers, in leaves and
+  grass, on the bare heights; a gust reaches the side it comes from
+  first.
+- **Water and camps**: the river, duller the farther it is, the lake
+  lapping at its shore, a camp's fire and its pennant in the wind.
+- **What lives there**: tits, chaffinches, chiffchaffs and blackbirds in
+  the woods, a woodpecker, a cuckoo far off, a buzzard and ravens up
+  high, marmots that whistle when the truck comes, crickets in the
+  meadows. Each bird has its place, its pitch and its repertoire; they
+  fall silent when the truck roars past and begin again after a while.
+- **The game itself**: ticks in the menus, the map's cloth, and short
+  figures on a plucked string and a bar for a camp found, a checkpoint,
+  the summit.
+- **The place** (`sound/place.dsp`): the ground's reflection, echoes off
+  steep rock, a faint tail in woods and gorges.
+
+All of it takes about a tenth of one core. The `Sound` row of the title
+and the pause menu sets the volume; `SWITCHBACK_MUTE=1` starts the game
+without sound. `tool/sound.slang` renders parts of it to WAV files
+without a window or an audio device, to look at and to listen to one by
+one (its scenes are in `tool/scenes/`):
+
+```sh
+make switchback-sound SCENE=engine                          # the engine alone
+make switchback-sound SCENE=drive ARGS="25 300 40 heavy"    # the game as it sounds, the bot driving
+make switchback-sound SCENE=life_cast ARGS="blackbird"      # one of the birds
+```
 
 ## How it is laid out
 
@@ -139,10 +199,15 @@ and sand (`render/tracks.slang`) and throw up dust, clods and spray
   land as a clipmap, plants, grass, water, dust, then bloom and grading),
   the HUD, the map (`map.slang`, its pictures in `map_picture.kernel`)
   and the menus.
+- `sound/`: what is heard: the director on the game's side
+  (`director.slang`), the mixer in the audio isolate (`mixer.slang`),
+  the numbers they share (`params.slang`), what is around the listener
+  (`around.slang`), and a layer for each kind of sound (`layers/`) with
+  its programs (`*.dsp`).
 - `tool/`: `lab` (the physics bench), `map` (a valley and its trails as
   a picture), `drive` (the bot drives a whole trail and reports), `view` (a camera on
   the bot), `showroom` (the truck), `arboretum` (the plants), `ui_preview`
-  (the HUD and menus).
+  (the HUD and menus), `sound` (parts of the sound as WAV files).
 - `test/`: what `make switchback-test` runs.
 
 For tests and pictures `main.slang` reads the environment

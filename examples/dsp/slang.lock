@@ -1,6 +1,7 @@
 // slang.lock: the packages this project uses, as slang get chose them.
 // Written by slang get and slang update; keep it with the project.
 {
+  ["dsp"]: {path: "../../packages/dsp"},
   ["kernel"]: {path: "../../packages/kernel"},
   ["raylib"]: {path: "../../packages/raylib"},
 }

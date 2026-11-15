@@ -1,8 +1,9 @@
 // game/trail: the kernels of the trail (game/route calls them): a coarse
 // picture of the land for finding a way, the cheapest way over it from
 // one place to another for something that turns in arcs (Dijkstra's
-// algorithm with a heap, all in arrays),
-// and the cutting of the track into the land's heights.
+// algorithm with a heap, all in arrays), the pushing apart of a line
+// that passes itself too near, and the cutting of the track into the
+// land's heights.
 
 // coarse: the land in squares of `block` samples: each square's mean
 // height, its mean steepness (rise over run) and how deep the water
@@ -229,6 +230,158 @@ func near(dist: float[], half: float[], along: float[], mud: uint8[], n: int,
   }
 }
 
+// spread: a line that passes itself too near is pushed apart there. Two
+// stretches of a track, one above the other, need room for the bank
+// between them: their middles as far apart as both are wide and a meter,
+// and 0.7 of what the one lies over the other (a bank of some 55
+// degrees; less room, and what is between them is a wall, which a grid of
+// heights cannot hold). x, z: the line's points (n of them), moved here;
+// y: how high the track lies at each, about; wide: a track's width.
+// Points less than `gap` points apart along the line are one stretch; the
+// first and the last `still` points stay where they are. Every round each
+// point too near another goes a part of what is missing away from it, and
+// its neighbours along the line with it; `rounds` at most. pairs (room
+// for `most` pairs of numbers), dx, dz, count, tx, tz: room to work in
+// (n each). Returns the rounds it took (0: nothing was too near).
+func spread(x: float[], z: float[], y: float[], n: int, wide: float, gap: int, still: int,
+  rounds: int, pairs: int32[], most: int, dx: float[], dz: float[], count: float[],
+  tx: float[], tz: float[]): int {
+  // the pairs of points that are, or may come, too near
+  local found = 0
+  for(local i = 0; i < n; i += 1){
+    for(local j = i + gap; j < n; j += 1){
+      local ex = x[j] - x[i]
+      if(abs(ex) < 38){
+        local ez = z[j] - z[i]
+        if(abs(ez) < 38){
+          local need = min(wide + 1.0 + 0.7 * abs(y[j] - y[i]), 26.0)
+          if(ex * ex + ez * ez < (need + 12) * (need + 12) and found < most){
+            pairs[found * 2] = i
+            pairs[found * 2 + 1] = j
+            found += 1
+          }
+        }
+      }
+    }
+  }
+  local took = 0
+  for(local r = 0; r < rounds; r += 1){
+    for(local i = 0; i < n; i += 1){
+      dx[i] = 0
+      dz[i] = 0
+      count[i] = 0
+    }
+    local short = 0.0
+    for(local p = 0; p < found; p += 1){
+      local i = pairs[p * 2]
+      local j = pairs[p * 2 + 1]
+      local ex = x[j] - x[i]
+      local ez = z[j] - z[i]
+      local d = sqrt(ex * ex + ez * ez)
+      local need = min(wide + 1.0 + 0.7 * abs(y[j] - y[i]), 26.0)
+      if(d < need){
+        local push = (need - d) * 0.5
+        local ux = select(d > 0.01, ex / max(d, 0.01), 1.0)
+        local uz = select(d > 0.01, ez / max(d, 0.01), 0.0)
+        dx[i] -= ux * push
+        dz[i] -= uz * push
+        count[i] += 1
+        dx[j] += ux * push
+        dz[j] += uz * push
+        count[j] += 1
+        short = max(short, need - d)
+      }
+    }
+    if(short < 0.1){
+      break
+    }
+    took += 1
+    // a point goes the mean of what pushes it, and its neighbours along
+    // the line some of the way with it (evened out four times); the ends
+    // stay
+    for(local i = 0; i < n; i += 1){
+      local c = max(count[i], 1)
+      dx[i] = dx[i] / c
+      dz[i] = dz[i] / c
+    }
+    for(local pass = 0; pass < 4; pass += 1){
+      for(local i = 0; i < n; i += 1){
+        local a = max(i - 1, 0)
+        local b = min(i + 1, n - 1)
+        tx[i] = (dx[a] + 2 * dx[i] + dx[b]) / 4
+        tz[i] = (dz[a] + 2 * dz[i] + dz[b]) / 4
+      }
+      for(local i = 0; i < n; i += 1){
+        // (what pushes a point itself is not evened away)
+        dx[i] = select(count[i] > 0, (dx[i] + tx[i]) / 2, tx[i])
+        dz[i] = select(count[i] > 0, (dz[i] + tz[i]) / 2, tz[i])
+      }
+    }
+    for(local i = 0; i < n; i += 1){
+      local free = clamp(float(min(i, n - 1 - i) - still) / 8.0, 0, 1)
+      x[i] += dx[i] * free
+      z[i] += dz[i] * free
+    }
+  }
+  return took
+}
+
+// beside: where a track passes itself (the two legs of a switchback), a
+// sample has more than one stretch of it near. For every sample within
+// `reach` of the track this is the nearest place of its line that is not
+// the one [near] found (more than `gap` meters along the track from it),
+// and where the line comes nearest and goes away again, not a place on the
+// way to the first: how far it is, and how far along the track. along:
+// [near]'s map; dist2 starts out large everywhere.
+func beside(dist2: float[], along2: float[], n: int, spacing: float, origin: float,
+  points: float[], count: int, reach: float, step: float, along: float[], gap: float){
+  for(local k = 0; k + 1 < count; k += 1){
+    local ax = points[k * 8]
+    local az = points[k * 8 + 1]
+    local bx = points[k * 8 + 8]
+    local bz = points[k * 8 + 9]
+    local ex = bx - ax
+    local ez = bz - az
+    local ee = ex * ex + ez * ez
+    // the pieces before and after it (itself at the line's ends)
+    local kp = max(k - 1, 0)
+    local kn = min(k + 1, count - 2)
+    local px = points[kp * 8]
+    local pz = points[kp * 8 + 1]
+    local pex = points[kp * 8 + 8] - px
+    local pez = points[kp * 8 + 9] - pz
+    local nx = points[kn * 8]
+    local nz = points[kn * 8 + 1]
+    local nex = points[kn * 8 + 8] - nx
+    local nez = points[kn * 8 + 9] - nz
+    local i0 = int(clamp((min(ax, bx) - reach - origin) / spacing, 0, n - 1))
+    local i1 = int(clamp((max(ax, bx) + reach - origin) / spacing + 1, 0, n - 1))
+    local j0 = int(clamp((min(az, bz) - reach - origin) / spacing, 0, n - 1))
+    local j1 = int(clamp((max(az, bz) + reach - origin) / spacing + 1, 0, n - 1))
+    for(local j = j0; j <= j1; j += 1){
+      local z = origin + j * spacing
+      for(local i = i0; i <= i1; i += 1){
+        local x = origin + i * spacing
+        local t = clamp(((x - ax) * ex + (z - az) * ez) / ee, 0, 1)
+        local qx = ax + ex * t - x
+        local qz = az + ez * t - z
+        local q = qx * qx + qz * qz
+        local s = (k + t) * step
+        if(q < dist2[j * n + i] * dist2[j * n + i] and abs(s - along[j * n + i]) > gap){
+          local tp = clamp(((x - px) * pex + (z - pz) * pez) / (pex * pex + pez * pez), 0, 1)
+          local tn = clamp(((x - nx) * nex + (z - nz) * nez) / (nex * nex + nez * nez), 0, 1)
+          local qp = (px + pex * tp - x) * (px + pex * tp - x) + (pz + pez * tp - z) * (pz + pez * tp - z)
+          local qn = (nx + nex * tn - x) * (nx + nex * tn - x) + (nz + nez * tn - z) * (nz + nez * tn - z)
+          if(q <= qp and q <= qn){
+            dist2[j * n + i] = sqrt(q)
+            along2[j * n + i] = s
+          }
+        }
+      }
+    }
+  }
+}
+
 // how rough the top of a wall of rock is at a place, 0 to 1: a number per
 // meter, smooth between
 local func wall_rough(x: float, z: float, seed: int): float {
@@ -259,6 +412,58 @@ local func between(a: float[], m: int, cell: float, origin: float, x: float, z: 
   return mix(top, bottom, tz)
 }
 
+// one of the eight numbers of the track's line at a place on it (s: the
+// number of its piece and how far along that)
+local func at(points: float[], count: int, s: float, field: int): float {
+  local k = min(int(s), count - 2)
+  return mix(points[k * 8 + field], points[k * 8 + 8 + field], s - float(k))
+}
+
+// the track's surface and its bank at a place, as the stretch of its line
+// at s shapes them (see [cut]): the height the land gets there. d: how far
+// the line is; was: the land as it is.
+local func shaped(points: float[], count: int, s: float, x: float, z: float, d: float,
+  was: float, step: float, reach: float, seed: int): float {
+  local k = min(int(s), count - 2)
+  local t = s - float(k)
+  local ax = points[k * 8]
+  local az = points[k * 8 + 1]
+  local ex = points[k * 8 + 8] - ax
+  local ez = points[k * 8 + 9] - az
+  local el = sqrt(ex * ex + ez * ez)
+  // to the left of the way it runs: positive
+  local left = (ez * (x - ax) - ex * (z - az)) / el
+  local w = mix(points[k * 8 + 3], points[k * 8 + 11], t)
+  local y = mix(points[k * 8 + 2], points[k * 8 + 10], t)
+  y += mix(points[k * 8 + 4], points[k * 8 + 12], t) * clamp(left, -w, w)
+  // the humps: one side up and the other down, changing over smoothly
+  // in the middle
+  local u = clamp(left / 1.15, -1, 1)
+  y += mix(points[k * 8 + 5], points[k * 8 + 13], t) * sin(s * step * 1.1636) * u * (1.5 - 0.5 * u * u)
+  local diff = was - y
+  local run = select(diff > 0, diff * 0.9, -diff * 1.5)
+  local least = 2.5
+  local shape = 0.0
+  // the narrows: where the land stands over the track it is cut through
+  // as a face of rock, steep from the track's edge and broken, not as a
+  // bank; nothing is built up (where the land is no higher, the track is
+  // only narrower)
+  local narrows = clamp(mix(points[k * 8 + 6], points[k * 8 + 14], t), 0, 1)
+  if(narrows > 0.01 and diff > 0){
+    local broken = 0.7 + 0.6 * wall_rough(x * 0.7, z * 0.7, seed)
+    run = mix(run, diff * 0.22 * broken, narrows)
+    least = mix(2.5, 0.5, narrows)
+    shape = narrows
+  }
+  run = clamp(run, least, reach - w - 0.5)
+  local bank = clamp((d - w) / run, 0, 1)
+  // a camber: the middle a little higher than the edges
+  local e = clamp(d / w, 0, 1)
+  local crown = 0.05 * (1 - e * e)
+  // (a bank starts gently at the track's edge; a face of rock at once)
+  return mix(y + crown, was, mix(bank * bank * (1.6 - 0.6 * bank), bank, shape))
+}
+
 // cut: the track cut into the land's fine heights `h` (n a side, spacing
 // apart; rows j0 to j1): level across its width, then a bank up to (or
 // down to) the land as it was. The bank starts gently at the track's edge
@@ -267,6 +472,13 @@ local func between(a: float[], m: int, cell: float, origin: float, x: float, z: 
 // hill), about 34 where it falls away (fill). In a narrows the cut is a
 // face of rock instead, steep from the track's edge.
 //
+// Where the track passes itself (the legs of a switchback, one above the
+// other, and the two arms of its hairpin), the land between is shaped by
+// both: by each as far as its own track's edge, and between them the
+// one's bank goes over into the other's, over EASE meters around where
+// both are as far. (Shaped by whichever is nearer, the two banks would
+// meet in a step.)
+//
 // points: the track's line every `step` meters, eight numbers a point: x,
 // z, height, half width, tilt (the rise across the track per meter to the
 // left), waves (the height of humps that alternate left and right along
@@ -274,86 +486,152 @@ local func between(a: float[], m: int, cell: float, origin: float, x: float, z: 
 // is cut as a face of rock), and how much of all this is done there (1:
 // all; 0: the land is left as it is, as in a ford). dist and along are
 // the coarse maps [near] made (m a side, cell apart): how far the line
-// is, and how far along it: where to look for the nearest piece of it.
-// prior and prior_half are the same maps of the tracks cut before this
-// one (as [near] makes them, on the same grid): their tracks are left as
-// they are, and this one's banks run into them.
+// is, and how far along it: where to look for the nearest piece of it;
+// dist2 and along2 those [beside] made: where to look for another stretch
+// of it. prior and prior_half are the same maps of the tracks cut before
+// this one (as [near] makes them, on the same grid): their tracks are
+// left as they are, and this one's banks run into them.
+local EASE = 4.0
+local AROUND = 28 // pieces of the line looked at before and after a place
 func cut(j0: int, j1: int, h: float[], n: int, spacing: float, origin: float,
   dist: float[], along: float[], m: int, cell: float, points: float[], count: int,
-  step: float, reach: float, seed: int, prior: float[], prior_half: float[]){
+  step: float, reach: float, seed: int, prior: float[], prior_half: float[],
+  dist2: float[], along2: float[]){
   for(local j = j0; j < j1; j += 1){
     local z = origin + j * spacing
     local cj = int(clamp((z - origin) / cell + 0.5, 0, m - 1))
+    local cj0 = int(clamp((z - origin) / cell, 0, m - 1))
     for(local i = 0; i < n; i += 1){
       local x = origin + i * spacing
       local ci = int(clamp((x - origin) / cell + 0.5, 0, m - 1))
       if(dist[cj * m + ci] < reach + 2 * cell){
-        // the nearest piece of the line, near where the coarse map says
-        local k0 = int(along[cj * m + ci] / step)
-        local best = 1.0e12
-        local bk = 0
-        local bt = 0.0
-        for(local k = max(k0 - 14, 0); k <= min(k0 + 14, count - 2); k += 1){
-          local ax = points[k * 8]
-          local az = points[k * 8 + 1]
-          local ex = points[k * 8 + 8] - ax
-          local ez = points[k * 8 + 9] - az
-          local t = clamp(((x - ax) * ex + (z - az) * ez) / (ex * ex + ez * ez), 0, 1)
-          local qx = ax + ex * t - x
-          local qz = az + ez * t - z
-          local q = qx * qx + qz * qz
-          if(q < best){
-            best = q
-            bk = k
-            bt = t
+        local ci0 = int(clamp((x - origin) / cell, 0, m - 1))
+        // The stretches of the line near here: the three nearest places
+        // where it comes nearest and goes away again (s1, s2, s3: the
+        // piece and how far along it; q1, q2, q3: how far, squared),
+        // looked for around where the coarse maps' samples about this one
+        // say: each of the four has its nearest stretch and another.
+        // (s0, q0: the nearest piece of all that were looked at: taken if
+        // no such place was among them.)
+        local s1 = -1000.0
+        local q1 = 1.0e12
+        local s2 = -1000.0
+        local q2 = 1.0e12
+        local s3 = -1000.0
+        local q3 = 1.0e12
+        local s0 = -1000.0
+        local q0 = 1.0e12
+        local seen1 = -1000
+        local seen2 = -1000
+        local seen3 = -1000
+        for(local c = 0; c < 8; c += 1){
+          local corner = min(cj0 + ((c >> 1) & 1), m - 1) * m + min(ci0 + (c & 1), m - 1)
+          local far = select(c < 4, dist[corner], dist2[corner])
+          local k0 = int(select(c < 4, along[corner], along2[corner]) / step)
+          // (not where a look around a place nearby has been taken)
+          if(far < reach + 2 * cell and abs(k0 - seen1) > 20 and abs(k0 - seen2) > 20 and abs(k0 - seen3) > 20){
+            seen3 = seen2
+            seen2 = seen1
+            seen1 = k0
+            local from = max(k0 - AROUND, 0)
+            local to = min(k0 + AROUND, count - 2)
+            // piece by piece, with the one before (sb, qb) and the one
+            // before that (qa): the one before is such a place when the
+            // line is no nearer on either side of it
+            local qa = 1.0e12
+            local qb = 1.0e12
+            local sb = -1000.0
+            for(local k = max(from - 1, 0); k <= min(to + 1, count - 2) + 1; k += 1){
+              local q = 1.0e12
+              local s = -1000.0
+              if(k <= count - 2){
+                local ax = points[k * 8]
+                local az = points[k * 8 + 1]
+                local ex = points[k * 8 + 8] - ax
+                local ez = points[k * 8 + 9] - az
+                local t = clamp(((x - ax) * ex + (z - az) * ez) / (ex * ex + ez * ez), 0, 1)
+                local qx = ax + ex * t - x
+                local qz = az + ez * t - z
+                q = qx * qx + qz * qz
+                s = float(k) + t
+                if(q < q0){
+                  q0 = q
+                  s0 = s
+                }
+              }
+              if(sb >= 0 and qb <= qa and qb < q and k - 1 >= from and k - 1 <= to){
+                if(abs(sb - s1) < 2 or abs(sb - s2) < 2 or abs(sb - s3) < 2){
+                  // (the same place, found from another sample)
+                } else if(qb < q1){
+                  s3 = s2
+                  q3 = q2
+                  s2 = s1
+                  q2 = q1
+                  s1 = sb
+                  q1 = qb
+                } else if(qb < q2){
+                  s3 = s2
+                  q3 = q2
+                  s2 = sb
+                  q2 = qb
+                } else if(qb < q3){
+                  s3 = sb
+                  q3 = qb
+                }
+              }
+              qa = qb
+              qb = q
+              sb = s
+            }
           }
         }
-        local d = sqrt(best)
-        local share = mix(points[bk * 8 + 7], points[bk * 8 + 15], bt)
-        // (not on another track: up to its edge; its banks this one cuts
-        // through like any land)
-        local other = between(prior, m, cell, origin, x, z) - between(prior_half, m, cell, origin, x, z)
-        share *= smoothstep(-0.4, 0.8, other)
-        if(d < reach and share > 0.001){
-          local ax = points[bk * 8]
-          local az = points[bk * 8 + 1]
-          local ex = points[bk * 8 + 8] - ax
-          local ez = points[bk * 8 + 9] - az
-          local el = sqrt(ex * ex + ez * ez)
-          // to the left of the way it runs: positive
-          local left = (ez * (x - ax) - ex * (z - az)) / el
-          local s = (bk + bt) * step
-          local w = mix(points[bk * 8 + 3], points[bk * 8 + 11], bt)
-          local y = mix(points[bk * 8 + 2], points[bk * 8 + 10], bt)
-          y += mix(points[bk * 8 + 4], points[bk * 8 + 12], bt) * clamp(left, -w, w)
-          // the humps: one side up and the other down, changing over
-          // smoothly in the middle
-          local u = clamp(left / 1.15, -1, 1)
-          y += mix(points[bk * 8 + 5], points[bk * 8 + 13], bt) * sin(s * 1.1636) * u * (1.5 - 0.5 * u * u)
+        if(s1 < 0){
+          s1 = s0
+          q1 = q0
+        }
+        if(s1 >= 0){
+          // (not on another track: up to its edge; its banks this one cuts
+          // through like any land)
+          local other = between(prior, m, cell, origin, x, z) - between(prior_half, m, cell, origin, x, z)
+          local free = smoothstep(-0.4, 0.8, other)
           local was = h[j * n + i]
-          local diff = was - y
-          local run = select(diff > 0, diff * 0.9, -diff * 1.5)
-          local least = 2.5
-          local shape = 0.0
-          // the narrows: where the land stands over the track it is cut
-          // through as a face of rock, steep from the track's edge and
-          // broken, not as a bank; nothing is built up (where the land is
-          // no higher, the track is only narrower)
-          local narrows = clamp(mix(points[bk * 8 + 6], points[bk * 8 + 14], bt), 0, 1)
-          if(narrows > 0.01 and diff > 0){
-            local broken = 0.7 + 0.6 * wall_rough(x * 0.7, z * 0.7, seed)
-            run = mix(run, diff * 0.22 * broken, narrows)
-            least = mix(2.5, 0.5, narrows)
-            shape = narrows
+          // how far beyond each stretch's track's edge the place is
+          local e1 = sqrt(q1) - at(points, count, s1, 3)
+          local e2 = 1.0e6
+          local e3 = 1.0e6
+          if(s2 >= 0){
+            e2 = sqrt(q2) - at(points, count, s2, 3)
           }
-          run = clamp(run, least, reach - w - 0.5)
-          local k = clamp((d - w) / run, 0, 1)
-          // a camber: the middle a little higher than the edges
-          local e = clamp(d / w, 0, 1)
-          local crown = 0.05 * (1 - e * e)
-          // (a bank starts gently at the track's edge; a face of rock at once)
-          local made = mix(y + crown, was, mix(k * k * (1.6 - 0.6 * k), k, shape))
-          h[j * n + i] = mix(was, made, share)
+          if(s3 >= 0){
+            e3 = sqrt(q3) - at(points, count, s3, 3)
+          }
+          local least = min(e1, min(e2, e3))
+          // what each makes of the land here, and how much it has to say:
+          // all of it where it is the nearest by more than EASE, nothing
+          // on another's track
+          local sum = 0.0
+          local total = 0.0
+          for(local l = 0; l < 3; l += 1){
+            local s = select(l == 0, s1, select(l == 1, s2, s3))
+            if(s >= 0){
+              local q = select(l == 0, q1, select(l == 1, q2, q3))
+              local e = select(l == 0, e1, select(l == 1, e2, e3))
+              local clear = select(l == 0, 1.0, smoothstep(0, 1.2, e1)) *
+                select(l == 1, 1.0, smoothstep(0, 1.2, e2)) * select(l == 2, 1.0, smoothstep(0, 1.2, e3))
+              local weight = max((1 - smoothstep(0, EASE, e - least)) * clear, select(e <= least, 0.001, 0.0))
+              if(weight > 0.0001){
+                local d = sqrt(q)
+                local share = at(points, count, s, 7) * free
+                local made = was
+                if(d < reach and share > 0.001){
+                  made = mix(was, shaped(points, count, s, x, z, d, was, step, reach, seed), share)
+                }
+                sum += made * weight
+                total += weight
+              }
+            }
+          }
+          h[j * n + i] = sum / total
         }
       }
     }

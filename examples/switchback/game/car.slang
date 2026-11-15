@@ -245,6 +245,7 @@ func m.new(world, position, yaw){
     throttle: 0,
     brake: 0,
     hand_brake: 0,
+    dead: false,       // broken down: no pedal does anything (game/run sets it)
     steer: 0,          // -1 (left) to 1 (right) of what the speed allows
     steer_angle: 0,    // the angle of the turn, rad (left positive)
     direction: 1,      // 1 forward, -1 reverse
@@ -367,6 +368,11 @@ func Car.step(c, input, dt){
   local d = c.drive
   local forward = vec.clamp(input.forward or 0, 0, 1)
   local back = vec.clamp(input.back or 0, 0, 1)
+  // (broken down: the engine gives nothing, and it rolls to a stop)
+  if(c.dead){
+    forward = 0
+    back = 0
+  }
   local speed = c.speed
 
   // ---- the keys as pedals: back brakes while it rolls forward and

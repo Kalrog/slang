@@ -6,8 +6,10 @@
 // split and meet and make loops. Nobody draws them: each is the cheapest
 // way over the land for a track that may not be steep, found on a coarse
 // grid (so it winds up a slope in switchbacks and takes a side valley
-// where there is one), then smoothed into a line and cut into the land as
-// a level track with banks (game/trail.kernel).
+// where there is one), then smoothed into a line, pushed apart where it
+// passes itself too near (the legs of a switchback need room for the
+// bank between them), and cut into the land as a level track with banks
+// (game/trail.kernel).
 //
 //   local net = route.network(land)    // {trails, main, camps}
 //   route.carve(land, net.trails)      // the land's heights get the tracks
@@ -22,17 +24,26 @@ local land_kernels = require("game/land")
 
 local m = {}
 
-m.BLOCK = 16         // samples along a side of a square of the coarse grid
-m.STEP = 2.0         // meters between the trail's points
-m.FINE_STEP = 0.5    // and between the points of the line it is cut along
-m.HALF_WIDTH = 2.3   // of the track, m
-m.REACH = 20.0       // how far from its line the track's banks reach, m
-m.DEEPEST = 7.0      // deeper than this the track is not cut: a ridge gets a pass
-m.GRADE = 0.16       // the rise over run the way should not exceed
-m.PITCH = 0.22       // and that no step of the way does, where the land allows
-m.STEEPEST = 0.24    // the steepest the finished track is, but on a steep climb
-m.CLIMB = 0.42       // the steepest it is on a climb up the mountain (the
-                     // Summit Run's): it is not dug into the mountain
+m.BLOCK = 8 // samples along a side of a square of the coarse grid
+m.STEP = 2.0 // meters between the trail's points
+m.FINE_STEP = 0.5 // and between the points of the line it is cut along
+m.HALF_WIDTH = 2.3 // of the track, m
+m.REACH = 20.0 // how far from its line the track's banks reach, m
+m.DEEPEST = 7.0 // deeper than this the track is not cut: a ridge gets a pass
+m.ROOM_GAP = 6 // points of a trail's line this far apart along it and more
+// are pushed apart where they lie too near each other (see roomy), and
+m.ROOM_STILL = 10 // this many points at each end of it stay where they are
+m.ROOM_PASSES = 4 // and this many times over, at most
+m.ROOM_WIDER = 1.5 // (a track is wider than usual in a tight turn: room for
+// that, m)
+m.APART = 10.0 // two places of a track this far apart along it, m, and
+// both near a place beside it, are two stretches of it there (the legs
+// of a switchback): the land between is shaped by both
+m.GRADE = 0.16 // the rise over run the way should not exceed
+m.PITCH = 0.22 // and that no step of the way does, where the land allows
+m.STEEPEST = 0.24 // the steepest the finished track is, but on a steep climb
+m.CLIMB = 0.42 // the steepest it is on a climb up the mountain (the
+// Summit Run's): it is not dug into the mountain
 
 // the river's x at a z
 local func river_x(land, z){
@@ -93,7 +104,8 @@ local func segments_cross(a, b, c, d){
   local d2 = side(c, d, b)
   local d3 = side(a, b, c)
   local d4 = side(a, b, d)
-  return d1 * d2 <= 0 and d3 * d4 <= 0 and (d1 != 0 or d2 != 0 or d3 != 0 or d4 != 0)
+  return d1 * d2 <= 0 and d3 * d4 <= 0 and
+    (d1 != 0 or d2 != 0 or d3 != 0 or d4 != 0)
 }
 
 // where a line of points crosses itself: the index of the first point of
@@ -107,7 +119,8 @@ local func crossing(line){
       local a = line[i]
       local b = line[i + 1]
       // (only what is near enough to cross: steps are short)
-      if(math.abs(a.x - c.x) < 80 and math.abs(a.z - c.z) < 80 and segments_cross(a, b, c, d)){
+      if(math.abs(a.x - c.x) < 80 and math.abs(a.z - c.z) < 80 and
+        segments_cross(a, b, c, d)){
         return j
       }
     }
@@ -122,7 +135,7 @@ m.OBSTACLES = {
   humps: {name: "The Moguls", length: 38, pace: 2.3},
   washout: {name: "Washouts", length: 30, pace: 2.6},
   camber: {name: "Off-Camber", length: 44, pace: 3.0},
-  narrows: {name: "The Narrows", length: 30, pace: 3.0},
+  narrows: {name: "The Narrows", length: 100, pace: 3.0},
   steps: {name: "Rock Steps", length: 32, pace: 2.1},
   rocks: {name: "Rock Garden", length: 34, pace: 1.7},
   logs: {name: "Deadfall", length: 26, pace: 1.6},
@@ -166,7 +179,9 @@ local func obstacles(land, points, bends, seed, keep){
     // where it is: how high over the river, how steep the land lies
     // across it, whether it climbs
     local n = land.n
-    local row = to_int(vec.clamp((p.z + land.half) / land.spacing + 0.5, 0, n - 1))
+    local row = to_int(
+      vec.clamp((p.z + land.half) / land.spacing + 0.5, 0, n - 1),
+    )
     local over = p.y - land.water[row * n]
     local yaw = math.atan2(points[i0 + 1].x - p.x, points[i0 + 1].z - p.z)
     local lx = math.cos(yaw)
@@ -193,7 +208,8 @@ local func obstacles(land, points, bends, seed, keep){
     }
     // (not what came just before, if it can be helped)
     local kind = rng:pick(kinds)
-    for(local again = 0; again < 4 and (kind == last or kind == before); again = again + 1){
+    for(local again = 0; again < 4 and (kind == last or kind == before); again = again +
+      1){
       kind = rng:pick(kinds)
     }
     // (narrows are cut out of rock that is there: not where the land
@@ -205,8 +221,10 @@ local func obstacles(land, points, bends, seed, keep){
     local i1 = math.min(count - 2, i0 + to_int(spec.length / step))
     // not in a bend, not in the water
     local fits = true
-    for(local i = math.max(0, i0 - 6); i <= math.min(count - 1, i1 + 6); i = i + 1){
-      if(bends[i] > 0.3 or terrain.water_at(land, points[i].x, points[i].z) > 0.02){
+    for(local i = math.max(0, i0 - 6); i <= math.min(count - 1, i1 + 6); i = i +
+      1){
+      if(bends[i] > 0.3 or
+        terrain.water_at(land, points[i].x, points[i].z) > 0.02){
         fits = false
       }
     }
@@ -222,7 +240,12 @@ local func obstacles(land, points, bends, seed, keep){
     before = last
     last = kind
     local section = {
-      kind: kind, name: spec.name, from: i0 * step, to: i1 * step, index: i0, last: i1,
+      kind: kind,
+      name: spec.name,
+      from: i0 * step,
+      to: i1 * step,
+      index: i0,
+      last: i1,
       way: 1,
     }
     if(kind == "camber"){
@@ -286,12 +309,12 @@ func m.offset(sections, s){
   return 0
 }
 
-m.CAMP_HALF = 4.6    // half the width of the clearing at a camp, m
-m.JOIN_GAP = 70      // the least distance between two junctions, m
-m.JOIN_ANGLE = 55    // the least angle a trail leaves another at, degrees
-m.CROSS = 0.07       // the most a trail is tilted across where another
-                     // leaves it (the rise across per meter)
-m.JOIN_CLEAR = 50    // no obstacle this near a junction, m (on both trails)
+m.CAMP_HALF = 4.6 // half the width of the clearing at a camp, m
+m.JOIN_GAP = 70 // the least distance between two junctions, m
+m.JOIN_ANGLE = 55 // the least angle a trail leaves another at, degrees
+m.CROSS = 0.07 // the most a trail is tilted across where another
+// leaves it (the rise across per meter)
+m.JOIN_CLEAR = 50 // no obstacle this near a junction, m (on both trails)
 
 // ------------------------------------------------------------ finding ways
 
@@ -304,7 +327,10 @@ local func grid(land){
   g.height = kernel.float:array(cm * cm)
   g.steep = kernel.float:array(cm * cm)
   g.wet = kernel.float:array(cm * cm)
-  trail_kernels.coarse(g.height, g.steep, g.wet, cm, block, land.heights, land.water, n, land.spacing)
+  trail_kernels.coarse(
+    g.height, g.steep, g.wet, cm, block, land.heights, land.water, n,
+    land.spacing
+  )
   // nothing at the land's edge, and not much near it
   g.base = kernel.float:array(cm * cm)
   for(local j = 0; j < cm; j = j + 1){
@@ -329,8 +355,12 @@ local func grid(land){
   g.heap_cell = kernel.int32:array(g.room)
   g.done = kernel.uint8:array(states)
   // the directions round the compass: neighbors and knight's moves in turn
-  g.dir_x = kernel.int32:array({1, 2, 1, 1, 0, -1, -1, -2, -1, -2, -1, -1, 0, 1, 1, 2})
-  g.dir_z = kernel.int32:array({0, 1, 1, 2, 1, 2, 1, 1, 0, -1, -1, -2, -1, -2, -1, -1})
+  g.dir_x = kernel.int32:array({
+    1, 2, 1, 1, 0, -1, -1, -2, -1, -2, -1, -1, 0, 1, 1, 2
+  })
+  g.dir_z = kernel.int32:array({
+    0, 1, 1, 2, 1, 2, 1, 1, 0, -1, -1, -2, -1, -2, -1, -1
+  })
   return g
 }
 
@@ -344,7 +374,10 @@ local func square_of(g, x, z){
 local func place_of(g, square){
   local i = square % g.cm
   local j = to_int((square - i) / g.cm)
-  return {x: (i + 0.5) * g.cell - g.land.half, z: (j + 0.5) * g.cell - g.land.half}
+  return {
+    x: (i + 0.5) * g.cell - g.land.half,
+    z: (j + 0.5) * g.cell - g.land.half,
+  }
 }
 
 // how steep the coarse land is at a square (rise over run)
@@ -364,8 +397,11 @@ local func find(g, x0, x1, z0, z1, score){
   for(local j = 3; j < cm - 3; j = j + 1){
     for(local i = 3; i < cm - 3; i = i + 1){
       local p = place_of(g, j * cm + i)
-      if(p.x >= math.min(x0, x1) and p.x <= math.max(x0, x1) and p.z >= z0 and p.z <= z1){
-        local value = score(p, g.height[j * cm + i], gradient(g, i, j), g.wet[j * cm + i])
+      if(p.x >= math.min(x0, x1) and p.x <= math.max(x0, x1) and p.z >= z0 and
+        p.z <= z1){
+        local value = score(
+          p, g.height[j * cm + i], gradient(g, i, j), g.wet[j * cm + i]
+        )
         if(value > best){
           best = value
           found = p
@@ -380,8 +416,11 @@ local func find(g, x0, x1, z0, z1, score){
 // the square a to the square b (-1: to any of g.targets), its squares
 // from a on, and the direction it arrives in (see trail.kernel's ways)
 local func way(g, a, heading, b, most){
-  local at = trail_kernels.ways(g.cost, g.from, g.height, g.steep, g.wet, g.toll, g.cm, g.cell, a,
-    heading, b, m.GRADE, most, g.dir_x, g.dir_z, g.heap_key, g.heap_cell, g.room, g.done, g.targets)
+  local at = trail_kernels.ways(
+    g.cost, g.from, g.height, g.steep, g.wet, g.toll, g.cm, g.cell, a, heading,
+    b, m.GRADE, most, g.dir_x, g.dir_z, g.heap_key, g.heap_cell, g.room, g.done,
+    g.targets
+  )
   if(at == -1){
     return null
   }
@@ -419,7 +458,10 @@ local func summit_way(land, g){
   for(local attempt = 0; attempt < 10; attempt = attempt + 1){
     line = {}
     // to the lake: the cheapest way, winding where steep pitches would cost
-    local first = way(g, square_of(g, start.x, start.z), -1, square_of(g, shore.x, shore.z), m.PITCH)
+    local first = way(
+      g, square_of(g, start.x, start.z), -1, square_of(g, shore.x, shore.z),
+      m.PITCH
+    )
     for(let local q in values(first.squares)){
       append(line, place_of(g, q))
     }
@@ -427,9 +469,11 @@ local func summit_way(land, g){
     // steep for a track (no goal: the search goes everywhere it can)
     g.targets:fill(0)
     local from_shore = square_of(g, shore.x, shore.z)
-    trail_kernels.ways(g.cost, g.from, g.height, g.steep, g.wet, g.toll, cm, g.cell, from_shore,
-      first.heading, -1, m.GRADE, -m.CLIMB, g.dir_x, g.dir_z, g.heap_key, g.heap_cell, g.room, g.done,
-      g.targets)
+    trail_kernels.ways(
+      g.cost, g.from, g.height, g.steep, g.wet, g.toll, cm, g.cell, from_shore,
+      first.heading, -1, m.GRADE, -m.CLIMB, g.dir_x, g.dir_z, g.heap_key,
+      g.heap_cell, g.room, g.done, g.targets
+    )
     // the highest of them near the mountain's middle (further out if none
     // near it can be reached)
     local best = null
@@ -499,7 +543,8 @@ local func summit_camps(points, shore){
   local lakeside = 0
   local nearest = 1.0e12
   for(local i = 0; i < count; i = i + 1){
-    local d = (points[i].x - shore.x) * (points[i].x - shore.x) + (points[i].z - shore.z) * (points[i].z - shore.z)
+    local d = (points[i].x - shore.x) * (points[i].x - shore.x) +
+      (points[i].z - shore.z) * (points[i].z - shore.z)
     if(d < nearest){
       nearest = d
       lakeside = i
@@ -522,6 +567,64 @@ local func summit_camps(points, shore){
 }
 
 // ------------------------------------------------------------ a trail built
+
+// a line of points (STEP apart) with room between its stretches: where it
+// passes itself nearer than a bank between the two needs (the legs of a
+// switchback one above the other, the arms of a hairpin), they are pushed
+// apart (see trail.kernel's spread). The ends stay where they are (a
+// trail begins and ends where it meets something).
+local func roomy(land, points){
+  local most = 400000
+  local pairs = null
+  // (pushed apart on a slope the two lie further above each other than
+  // before, and need more room again: a few times over)
+  for(local pass = 0; pass < m.ROOM_PASSES; pass = pass + 1){
+    local count = len(points)
+    if(count < 2 * m.ROOM_STILL + 20){
+      return points
+    }
+    local x = kernel.float:array(count)
+    local z = kernel.float:array(count)
+    local y = kernel.float:array(count)
+    // how high the track will lie, about: the land along the line, evened
+    // out
+    local heights = {}
+    for(local i = 0; i < count; i = i + 1){
+      x[i] = points[i].x
+      z[i] = points[i].z
+      heights[i] = terrain.height_at(land, points[i].x, points[i].z)
+    }
+    for(local i = 0; i < count; i = i + 1){
+      local sum = 0
+      local weight = 0
+      for(local k = -7; k <= 7; k = k + 1){
+        local j = i + k
+        if(j >= 0 and j < count){
+          local w = 8 - math.abs(k)
+          sum = sum + heights[j] * w
+          weight = weight + w
+        }
+      }
+      y[i] = sum / weight
+    }
+    pairs = pairs or kernel.int32:array(most * 2)
+    local took = trail_kernels.spread(
+      x, z, y, count, 2 * m.HALF_WIDTH + m.ROOM_WIDER, m.ROOM_GAP, m.ROOM_STILL,
+      80, pairs, most, kernel.float:array(count), kernel.float:array(count),
+      kernel.float:array(count), kernel.float:array(count),
+      kernel.float:array(count)
+    )
+    if(took == 0){
+      return points
+    }
+    local moved = {}
+    for(local i = 0; i < count; i = i + 1){
+      append(moved, {x: x[i], z: z[i]})
+    }
+    points = resampled(moved, m.STEP)
+  }
+  return points
+}
 
 // build(land, line, spec) -> Trail
 // A trail along a way found over the coarse grid (`line`, its places):
@@ -549,7 +652,7 @@ local func summit_camps(points, shore){
 // into the other.
 local func build(land, line, spec){
   local n = land.n
-  local points = resampled(rounded(line, 3), m.STEP)
+  local points = roomy(land, resampled(rounded(line, 3), m.STEP))
   local count = len(points)
   // where it crosses the river, the river gets a shallow: a ford is a
   // place where the water runs wide and thin over gravel, not a dam
@@ -563,9 +666,14 @@ local func build(land, line, spec){
     if(wet_from != null and (not wet or i == count - 1)){
       local middle = points[to_int((wet_from + i - 1) / 2)]
       local wide = (i - wet_from) * m.STEP
-      local ford = {x: middle.x, z: middle.z, radius: 22 + wide * 0.7, from: wet_from * m.STEP, to: i * m.STEP}
-      land_kernels.shoal(land.heights, land.water, n, land.spacing, -land.half, ford.x, ford.z,
-        ford.radius, 0.3, land.seed)
+      local ford = {
+        x: middle.x, z: middle.z, radius: 22 + wide * 0.7,
+        from: wet_from * m.STEP, to: i * m.STEP
+      }
+      land_kernels.shoal(
+        land.heights, land.water, n, land.spacing, -land.half, ford.x, ford.z,
+        ford.radius, 0.3, land.seed
+      )
       append(fords, ford)
       wet_from = null
     }
@@ -629,9 +737,16 @@ local func build(land, line, spec){
     }
     local slope = if(join.flat){ 0 } else { join.slope }
     local z = {
-      at: at, toward: toward, x: j.x, z: j.z, y: join.y, cross: cross,
+      at: at,
+      toward: toward,
+      x: j.x,
+      z: j.z,
+      y: join.y,
+      cross: cross,
       g: {x: slope * dp.x + cross * lx, z: slope * dp.z + cross * lz},
-      radius: 0, inside: 0, half: join.half,
+      radius: 0,
+      inside: 0,
+      half: join.half,
     }
     // (in it while its track is not yet a meter and a half clear of the
     // other's: by how far it is from the other's line; a level place, by
@@ -641,7 +756,9 @@ local func build(land, line, spec){
       local p = points[at + toward * k]
       local ox = p.x - j.x
       local oz = p.z - j.z
-      local off = if(join.flat){ math.sqrt(ox * ox + oz * oz) } else { math.abs(ox * lx + oz * lz) }
+      local off = if(join.flat){ math.sqrt(ox * ox + oz * oz) } else { math.abs(
+        ox * lx + oz * lz,
+      ) }
       if(off > clear or k * m.STEP > 30){
         break
       }
@@ -688,8 +805,12 @@ local func build(land, line, spec){
     local p = points[i]
     local a = points[math.max(0, i - 4)]
     local b = points[math.min(count - 1, i + 4)]
-    local chord = math.sqrt((b.x - a.x) * (b.x - a.x) + (b.z - a.z) * (b.z - a.z))
-    local bend = vec.clamp((1 - vec.clamp(chord / (8 * m.STEP), 0, 1)) * 2.2, 0, 1)
+    local chord = math.sqrt(
+      (b.x - a.x) * (b.x - a.x) + (b.z - a.z) * (b.z - a.z),
+    )
+    local bend = vec.clamp(
+      (1 - vec.clamp(chord / (8 * m.STEP), 0, 1)) * 2.2, 0, 1
+    )
     bends[i] = bend
     p.half = m.HALF_WIDTH + 2.4 * bend
     p.at = i * m.STEP
@@ -714,8 +835,13 @@ local func build(land, line, spec){
       local i = c + k
       if(i >= 0 and i < count){
         // (a trail's end is all clearing: a place to turn round)
-        local far = if(c == count - 1 or c == 0){ math.max(0, math.abs(k) - 3) } else { math.abs(k) }
-        points[i].half = math.max(points[i].half, m.CAMP_HALF + 0.9 - far * 0.32)
+        local far = if(c == count - 1 or c == 0){ math.max(
+          0, math.abs(k) - 3
+        ) } else { math.abs(k) }
+        points[i].half = math.max(
+          points[i].half,
+          m.CAMP_HALF + 0.9 - far * 0.32,
+        )
       }
     }
     append(keep, {from: c * m.STEP - 30, to: c * m.STEP + 30})
@@ -739,8 +865,11 @@ local func build(land, line, spec){
   // mountain as it goes
   local top = null
   if(spec.summit != null){
-    top = {x: spec.summit.x, z: spec.summit.z, y: spec.summit.y - 0.35, radius: 6.5}
-    for(local i = count - 1; i >= 0 and (count - 1 - i) * m.STEP <= top.radius; i = i - 1){
+    top = {
+      x: spec.summit.x, z: spec.summit.z, y: spec.summit.y - 0.35, radius: 6.5
+    }
+    for(local i = count - 1; i >= 0 and (count - 1 - i) * m.STEP <= top.radius; i = i -
+      1){
       ys[i] = top.y
     }
   }
@@ -767,7 +896,7 @@ local func build(land, line, spec){
   local fixed_start = zones.start != null
   local func forward(){
     for(local i = 1; i < count; i = i + 1){
-      if(not (fixed_end and i == count - 1)){
+      if(not(fixed_end and i == count - 1)){
         local limit = most(i)
         ys[i] = vec.clamp(ys[i], ys[i - 1] - limit, ys[i - 1] + limit)
       }
@@ -775,7 +904,7 @@ local func build(land, line, spec){
   }
   local func backward(){
     for(local i = count - 2; i >= 0; i = i - 1){
-      if(not (fixed_start and i == 0)){
+      if(not(fixed_start and i == 0)){
         local limit = most(i)
         ys[i] = vec.clamp(ys[i], ys[i + 1] - limit, ys[i + 1] + limit)
       }
@@ -851,7 +980,12 @@ local func build(land, line, spec){
     local i1 = math.min(count - 1, c.last + 2)
     local climb = m.OBSTACLES.climb
     append(sections, {
-      kind: "climb", name: climb.name, from: i0 * m.STEP, to: i1 * m.STEP, index: i0, last: i1,
+      kind: "climb",
+      name: climb.name,
+      from: i0 * m.STEP,
+      to: i1 * m.STEP,
+      index: i0,
+      last: i1,
       way: if(ys[i1] >= ys[i0]){ 1 } else { -1 },
     })
     for(local i = i0; i <= i1; i = i + 1){
@@ -866,10 +1000,11 @@ local func build(land, line, spec){
     p.y = ys[i]
     // under the water the land is left as the river made it: the track
     // runs down through the bank to the water's edge and ends there
-    local over = ys[i] - land.water[
-      to_int(vec.clamp((p.z + land.half) / land.spacing + 0.5, 0, n - 1)) * n +
-      to_int(vec.clamp((p.x + land.half) / land.spacing + 0.5, 0, n - 1))
-    ]
+    local over = ys[i] -
+      land.water[to_int(
+        vec.clamp((p.z + land.half) / land.spacing + 0.5, 0, n - 1),
+      ) * n +
+        to_int(vec.clamp((p.x + land.half) / land.spacing + 0.5, 0, n - 1))]
     local dry = vec.clamp((over + 0.1) / 0.3, 0, 1)
     p.cut = dry * dry * (3 - 2 * dry)
   }
@@ -888,7 +1023,9 @@ local func build(land, line, spec){
   local placed = {}
   for(let local camp in values(camps)){
     local p = points[camp.index]
-    append(placed, {at: p.at, index: camp.index, x: p.x, y: p.y, z: p.z, name: camp.name})
+    append(placed, {
+      at: p.at, index: camp.index, x: p.x, y: p.y, z: p.z, name: camp.name
+    })
   }
   return {
     points: points,
@@ -912,7 +1049,9 @@ local func build(land, line, spec){
 // climbs, where other trails meet it), and its track's height with them
 local func dress(land, trail){
   local all = trail.sections
-  for(let local section in values(obstacles(land, trail.points, trail.bends, trail.seed, trail.keep))){
+  for(let local section in values(obstacles(
+    land, trail.points, trail.bends, trail.seed, trail.keep
+  ))){
     append(all, section)
   }
   // (in their order along the trail)
@@ -940,7 +1079,8 @@ local func dress(land, trail){
 local func joinable(trail, i, junctions){
   local p = trail.points[i]
   local s = i * m.STEP
-  if(s < 40 or s > trail.length - 40 or (trail.summit != null and s > trail.length - 150)){
+  if(s < 40 or s > trail.length - 40 or
+    (trail.summit != null and s > trail.length - 150)){
     return false
   }
   // (nearly level there: a trail that leaves it climbs or drops by itself)
@@ -961,7 +1101,8 @@ local func joinable(trail, i, junctions){
     }
   }
   for(let local j in values(junctions)){
-    if((j.x - p.x) * (j.x - p.x) + (j.z - p.z) * (j.z - p.z) < m.JOIN_GAP * m.JOIN_GAP){
+    if((j.x - p.x) * (j.x - p.x) + (j.z - p.z) * (j.z - p.z) <
+      m.JOIN_GAP * m.JOIN_GAP){
       return false
     }
   }
@@ -994,7 +1135,9 @@ local func mark(g, trails, junctions, own){
         }
         open = false
       }
-      if(leave != null and (p.x - leave.x) * (p.x - leave.x) + (p.z - leave.z) * (p.z - leave.z) < 500 * 500){
+      if(leave != null and
+        (p.x - leave.x) * (p.x - leave.x) + (p.z - leave.z) * (p.z - leave.z) <
+          500 * 500){
         open = false
       }
       local c = square_of(g, p.x, p.z)
@@ -1028,7 +1171,8 @@ local func meeting(trails, junctions, own, place){
     if(trail != own){
       for(local i = 0; i < len(trail.points); i = i + 1){
         local p = trail.points[i]
-        local d = (p.x - place.x) * (p.x - place.x) + (p.z - place.z) * (p.z - place.z)
+        local d = (p.x - place.x) * (p.x - place.x) +
+          (p.z - place.z) * (p.z - place.z)
         if(d < least and joinable(trail, i, junctions)){
           least = d
           best = {trail: trail, index: i, x: p.x, z: p.z}
@@ -1083,7 +1227,8 @@ local func angled(line, meet){
   local result = {j, out}
   for(local i = 1; i < len(line); i = i + 1){
     local q = line[i]
-    if(i == len(line) - 1 or (q.x - j.x) * (q.x - j.x) + (q.z - j.z) * (q.z - j.z) > 24 * 24){
+    if(i == len(line) - 1 or
+      (q.x - j.x) * (q.x - j.x) + (q.z - j.z) * (q.z - j.z) > 24 * 24){
       append(result, q)
     }
   }
@@ -1105,7 +1250,9 @@ local func reach(g, trails, junctions, own, place){
       return null
     }
     local squares = found.squares
-    local meet = meeting(trails, junctions, own, place_of(g, squares[len(squares) - 1]))
+    local meet = meeting(
+      trails, junctions, own, place_of(g, squares[len(squares) - 1])
+    )
     if(meet == null){
       return null
     }
@@ -1114,7 +1261,8 @@ local func reach(g, trails, junctions, own, place){
       append(line, place_of(g, squares[i]))
     }
     local last = line[len(line) - 1]
-    if((last.x - place.x) * (last.x - place.x) + (last.z - place.z) * (last.z - place.z) > 4){
+    if((last.x - place.x) * (last.x - place.x) +
+      (last.z - place.z) * (last.z - place.z) > 4){
       append(line, {x: place.x, z: place.z})
     }
     line = angled(line, meet)
@@ -1137,7 +1285,12 @@ local func join_at(trail, k){
   local dx = b.x - a.x
   local dz = b.z - a.z
   local l = math.max(0.01, math.sqrt(dx * dx + dz * dz))
-  return {y: points[k].base, dir: {x: dx / l, z: dz / l}, slope: (b.base - a.base) / l, half: points[k].half}
+  return {
+    y: points[k].base,
+    dir: {x: dx / l, z: dz / l},
+    slope: (b.base - a.base) / l,
+    half: points[k].half,
+  }
 }
 
 // tilt_at(trail, k, zone): a trail tilted across where another meets it
@@ -1148,7 +1301,8 @@ local func tilt_at(trail, k, zone){
     return
   }
   local points = trail.points
-  for(local i = math.max(0, k - 16); i <= math.min(len(points) - 1, k + 16); i = i + 1){
+  for(local i = math.max(0, k - 16); i <= math.min(len(points) - 1, k + 16); i = i +
+    1){
     local t = vec.clamp((math.abs(i - k) * m.STEP - zone.radius) / 8, 0, 1)
     local f = 1 - t * t * (3 - 2 * t)
     if(f > 0){
@@ -1163,13 +1317,15 @@ local func apart(trails, others, place, far, between){
   for(let local trail in values(trails)){
     for(local i = 0; i < len(trail.points); i = i + 6){
       local q = trail.points[i]
-      if((q.x - place.x) * (q.x - place.x) + (q.z - place.z) * (q.z - place.z) < far * far){
+      if((q.x - place.x) * (q.x - place.x) + (q.z - place.z) * (q.z - place.z) <
+        far * far){
         return false
       }
     }
   }
   for(let local o in values(others)){
-    if((o.x - place.x) * (o.x - place.x) + (o.z - place.z) * (o.z - place.z) < between * between){
+    if((o.x - place.x) * (o.x - place.x) + (o.z - place.z) * (o.z - place.z) <
+      between * between){
       return false
     }
   }
@@ -1184,7 +1340,8 @@ local func destinations(land, g, way_found, trails){
   local out = {}
   local func usable(i, j){
     local edge = math.min(math.min(i, j), math.min(cm - 1 - i, cm - 1 - j))
-    return edge >= 14 and g.wet[j * cm + i] < 0.01 and g.steep[j * cm + i] < 0.42
+    return edge >= 14 and g.wet[j * cm + i] < 0.01 and
+      g.steep[j * cm + i] < 0.42
   }
   // the best square by a score that is apart from what there is
   local func best(score, far){
@@ -1248,8 +1405,10 @@ local func destinations(land, g, way_found, trails){
     append(out, head)
   }
   // the lookouts: what stands out most over the land around it
-  local names = {"Eagle Point", "Bear Ridge", "Cedar Bench", "Hawk Lookout", "Granite Knob", "Wolf Ridge",
-    "Juniper Bench", "Raven Crag"}
+  local names = {
+    "Eagle Point", "Bear Ridge", "Cedar Bench", "Hawk Lookout", "Granite Knob",
+    "Wolf Ridge", "Juniper Bench", "Raven Crag"
+  }
   // (a name to begin with by the valley: neighboring seeds differ)
   local first = (land.seed * 5 + 3) % len(names)
   for(local k = 0; k < 4; k = k + 1){
@@ -1331,7 +1490,9 @@ func m.network(land, options){
         local trail = build(land, got.line, {
           seed: land.seed * 131 + 7 + len(trails) * 977,
           start_join: join_at(meet.trail, meet.index),
-          camps: func(points){ return {{name: place.name, index: len(points) - 1}} },
+          camps: func(points){
+            return {{name: place.name, index: len(points) - 1}}
+          },
         })
         tilt_at(meet.trail, meet.index, trail.zones.start)
         trail.name = concat(place.name, " Trail")
@@ -1356,7 +1517,11 @@ func m.network(land, options){
       if(got != null){
         local length = 0
         for(local i = 1; i < len(got.line); i = i + 1){
-          length = length + vec.length({x: got.line[i].x - got.line[i - 1].x, y: 0, z: got.line[i].z - got.line[i - 1].z})
+          length = length + vec.length({
+              x: got.line[i].x - got.line[i - 1].x,
+              y: 0,
+              z: got.line[i].z - got.line[i - 1].z,
+            })
         }
         if(length > 250 and length < 3200){
           local meet = got.meet
@@ -1373,7 +1538,9 @@ func m.network(land, options){
           trail.kind = "loop"
           trail.id = len(trails)
           trail.from = meet
-          trail.to = {trail: branch, index: len(branch.points) - 1, x: end.x, z: end.z}
+          trail.to = {
+            trail: branch, index: len(branch.points) - 1, x: end.x, z: end.z
+          }
           append(junctions, {x: meet.x, z: meet.z})
           append(trails, trail)
           loops = loops + 1
@@ -1386,12 +1553,18 @@ func m.network(land, options){
   for(let local trail in values(trails)){
     if(trail.from != null){
       local s = trail.from.index * m.STEP
-      append(trail.from.trail.keep, {from: s - m.JOIN_CLEAR, to: s + m.JOIN_CLEAR})
+      append(trail.from.trail.keep, {
+        from: s - m.JOIN_CLEAR,
+        to: s + m.JOIN_CLEAR,
+      })
       append(trail.keep, {from: 0, to: m.JOIN_CLEAR})
     }
     if(trail.to != null){
       local s = trail.to.index * m.STEP
-      append(trail.to.trail.keep, {from: s - m.JOIN_CLEAR, to: s + m.JOIN_CLEAR})
+      append(trail.to.trail.keep, {
+        from: s - m.JOIN_CLEAR,
+        to: s + m.JOIN_CLEAR,
+      })
       append(trail.keep, {from: trail.length - m.JOIN_CLEAR, to: trail.length})
     }
   }
@@ -1412,7 +1585,10 @@ func m.network(land, options){
         yaw = yaw + math.pi
       }
       local p = trail.points[index]
-      append(camps, {name: c.name, x: p.x, y: p.y, z: p.z, yaw: yaw, trail: trail, index: index, at: c.index})
+      append(camps, {
+        name: c.name, x: p.x, y: p.y, z: p.z, yaw: yaw, trail: trail,
+        index: index, at: c.index
+      })
     }
   }
   return {trails: trails, main: main, camps: camps}
@@ -1495,6 +1671,10 @@ func m.carve(land, trails, options){
     half: kernel.float:array(n * n, {shared: true}),
     along: kernel.float:array(n * n, {shared: true}),
     mud: kernel.uint8:array(n * n, {shared: true}),
+    // (and where it passes itself: the other stretch of it, see
+    // trail.kernel's beside)
+    dist2: kernel.float:array(n * n, {shared: true}),
+    along2: kernel.float:array(n * n, {shared: true}),
   }
   if(land.fine == null){
     terrain.refine(land, options)
@@ -1516,21 +1696,39 @@ func m.carve(land, trails, options){
       high = math.max(high, p.z)
     }
     own.dist:fill(1.0e9)
-    trail_kernels.near(own.dist, own.half, own.along, own.mud, n, land.spacing, -land.half, flat, count,
-      m.REACH, m.STEP)
+    trail_kernels.near(
+      own.dist, own.half, own.along, own.mud, n, land.spacing, -land.half, flat,
+      count, m.REACH, m.STEP
+    )
+    own.dist2:fill(1.0e9)
+    trail_kernels.beside(
+      own.dist2, own.along2, n, land.spacing, -land.half, flat, count, m.REACH,
+      m.STEP, own.along, m.APART
+    )
     local line = fine_line(trail)
     // (a pass where the track would be a trench: see trail.kernel's saddle)
-    trail_kernels.saddle(fine.heights, fine.n, fine.spacing, -land.half, line.flat, line.count, 4,
-      m.DEEPEST, land.seed, dist, half, n, land.spacing)
+    trail_kernels.saddle(
+      fine.heights, fine.n, fine.spacing, -land.half, line.flat, line.count, 4,
+      m.DEEPEST, land.seed, dist, half, n, land.spacing
+    )
     // (only the rows the track and its banks are in)
     local margin = m.REACH + 4
-    local from = to_int(vec.clamp((low - margin + land.half) / fine.spacing, 0, fine.n))
-    local to = to_int(vec.clamp((high + margin + land.half) / fine.spacing + 1, 0, fine.n))
-    terrain.rows("game/trail", "cut", from, to, options.workers, fine.heights, fine.n, fine.spacing,
-      -land.half, own.dist, own.along, n, land.spacing, line.flat, line.count, m.FINE_STEP, m.REACH,
-      land.seed, dist, half)
-    trail_kernels.merge(dist, half, along, mud, which, own.dist, own.half, own.along, own.mud, n * n,
-      trail.id or 0)
+    local from = to_int(vec.clamp(
+      (low - margin + land.half) / fine.spacing, 0, fine.n
+    ))
+    local to = to_int(vec.clamp(
+      (high + margin + land.half) / fine.spacing + 1, 0, fine.n
+    ))
+    terrain.rows(
+      "game/trail", "cut", from, to, options.workers, fine.heights, fine.n,
+      fine.spacing, -land.half, own.dist, own.along, n, land.spacing, line.flat,
+      line.count, m.FINE_STEP, m.REACH, land.seed, dist, half, own.dist2,
+      own.along2
+    )
+    trail_kernels.merge(
+      dist, half, along, mud, which, own.dist, own.half, own.along, own.mud,
+      n * n, trail.id or 0
+    )
   }
   // where trails meet, the ground they share as one piece: the plane
   // both follow there, a little past where they part (see trail.kernel's
@@ -1538,8 +1736,10 @@ func m.carve(land, trails, options){
   for(let local trail in values(trails)){
     for(let? local z in values({trail.zones.start, trail.zones.finish})){
       local radius = vec.clamp(z.radius + 1, z.half + 3.5, 12)
-      trail_kernels.pad(fine.heights, fine.n, fine.spacing, -land.half, z.x, z.z, z.y, z.g.x, z.g.z,
-        radius, radius + 14, dist, half, n, land.spacing)
+      trail_kernels.pad(
+        fine.heights, fine.n, fine.spacing, -land.half, z.x, z.z, z.y, z.g.x,
+        z.g.z, radius, radius + 14, dist, half, n, land.spacing
+      )
     }
   }
   terrain.settle(land, options)
@@ -1567,7 +1767,9 @@ func m.clear(land, margin){
   local block = 2
   local size = to_int(land.n / block)
   local data = kernel.uint8:array(size * size, {shared: true})
-  trail_kernels.clear(data, size, block, land.trail.dist, land.trail.half, land.n, margin or 2)
+  trail_kernels.clear(
+    data, size, block, land.trail.dist, land.trail.half, land.n, margin or 2
+  )
   return {data: data, n: size, cell: block * land.spacing}
 }
 
@@ -1593,8 +1795,12 @@ func m.near(land, x, z){
   if(d > m.REACH){
     return null
   }
-  return {dist: d, along: land.trail.along[j * n + i], trail: land.trail.which[j * n + i],
-    half: land.trail.half[j * n + i]}
+  return {
+    dist: d,
+    along: land.trail.along[j * n + i],
+    trail: land.trail.which[j * n + i],
+    half: land.trail.half[j * n + i],
+  }
 }
 
 return m

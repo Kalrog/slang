@@ -39,17 +39,18 @@
 #   make modular-demos rewrite the patches that come with it (examples/modular/patches)
 #   make live         run the live coding environment for music and visuals (examples/live)
 #   make live-test    run its tests (no window, no audio device: the notation, the engine, every piece)
-#   make dsp          play the block-diagram instruments (examples/dsp: a Faust-like language compiled to kernels)
+#   make dsp          play the block-diagram instruments (examples/dsp, on packages/dsp: a Faust-like language compiled to kernels)
 #   make car          drive the four-cylinder engine of examples/dsp (programs/inline4.dsp)
-#   make dsp-test     run its tests (no window, no audio device: the language, the generated kernels, the engine)
+#   make dsp-test     run the dsp package's tests and the example's (no window, no audio device: the language, the generated kernels, the engine)
 #   make granular     play the granular synthesizer (examples/granular): grains of a microphone recording, on kernels
 #   make granular-test run its tests (no window, no audio device: WAV files, the engine, recording through a virtual microphone)
 #   make delve        run the Delve roguelike (examples/delve) on the raylib package
 #   make delve-test   run delve's tests (no window: sight, maps, rules, the autoplayer)
 #   make courier      run Courier, the flying-car delivery game (examples/courier) on raylib and jolt
 #   make courier-test run its tests (no window: the city, the car on Jolt, the traffic, the jobs)
-#   make switchback   run Switchback, the off-road drive up a valley made from a seed (examples/switchback) on raylib, jolt and kernel
-#   make switchback-test run its tests (no window: the drivetrain, the truck on Jolt, the land, the trails, the bot, exploring, a run)
+#   make switchback   run Switchback, the off-road drive up a valley made from a seed (examples/switchback) on raylib, jolt, kernel and dsp
+#   make switchback-test run its tests (no window, no audio device: the drivetrain, the truck on Jolt, the land, the trails, the bot, exploring, a run, the sound)
+#   make switchback-sound SCENE=engine  render a part of its sound to a WAV and play it (examples/switchback/tool/sound.slang; ARGS="..." for the scene, e.g. SCENE=drive ARGS="25 300 40 heavy")
 #   make siege        run the siege catapult game (examples/siege) on the raylib and jolt packages
 #   make inkblast     run the Inkblast party game (examples/inkblast): slang/net, bots, raylib
 #   make inkblast-test run Inkblast's tests (no window: the rules, a match over loopback)
@@ -67,7 +68,7 @@ LIB_SRC  := $(wildcard slang/lib/*.slang)
 COMPILER_SRC := $(wildcard slang/compiler/*.slang)
 SEED_DIR := boot/slang
 
-.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed fixpoint bench bench-compare bench-vectors raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test inkblast inkblast-test synth synth3d synth-test synth-mix modular modular-test modular-demos live live-test dsp car dsp-test granular granular-test delve delve-test courier courier-test switchback switchback-test siege siege-test midi-test microphone-test kernel-test kernel-bench fm fm3d fm-test fm-gen clean doc \
+.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed fixpoint bench bench-compare bench-vectors raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test inkblast inkblast-test synth synth3d synth-test synth-mix modular modular-test modular-demos live live-test dsp car dsp-test granular granular-test delve delve-test courier courier-test switchback switchback-test switchback-sound siege siege-test midi-test microphone-test kernel-test kernel-bench fm fm3d fm-test fm-gen clean doc \
         vscode vscode-grammar
 
 all: build
@@ -136,7 +137,7 @@ test: build unit
 	$(MAKE) microphone-test
 	$(MAKE) inkblast-test
 	@if [ -d "packages/kernel/lib/$(SLANG_PLATFORM)" ]; then $(MAKE) kernel-test && $(MAKE) fm-test && $(MAKE) modular-test && $(MAKE) live-test && $(MAKE) dsp-test && $(MAKE) granular-test; \
-	  else echo "no kernel/vm for $(SLANG_PLATFORM): packages/kernel, examples/fm, examples/modular, examples/live, examples/dsp and examples/granular not tested"; fi
+	  else echo "no kernel/vm for $(SLANG_PLATFORM): packages/kernel, packages/dsp, examples/fm, examples/modular, examples/live, examples/dsp and examples/granular not tested"; fi
 	@if [ -d "packages/kernel/lib/$(SLANG_PLATFORM)" ] && [ -d "packages/jolt/lib/$(SLANG_PLATFORM)" ]; then $(MAKE) switchback-test; \
 	  else echo "no kernel/vm or no joltc for $(SLANG_PLATFORM): examples/switchback not tested"; fi
 
@@ -279,6 +280,7 @@ car: build
 	cd examples/dsp && ../../bin/slang run car.slang
 
 dsp-test: build
+	cd packages/dsp && ../../bin/slang test test
 	cd examples/dsp && ../../bin/slang test test
 
 granular: build
@@ -304,6 +306,15 @@ switchback: build
 
 switchback-test: build
 	cd examples/switchback && ../../bin/slang test test
+
+# a scene of tool/scenes rendered to a WAV (no audio device needed), then
+# played where there is a player for it
+SCENE ?= engine
+SOUND_OUT ?= /tmp/switchback-sound
+switchback-sound: build
+	@mkdir -p $(SOUND_OUT)
+	cd examples/switchback && ../../bin/slang run tool/sound.slang $(SCENE) $(SOUND_OUT) $(ARGS)
+	@if command -v afplay >/dev/null; then afplay $(SOUND_OUT)/$(SCENE).wav; else echo "written: $(SOUND_OUT)/$(SCENE).wav"; fi
 
 siege: build
 	bin/slang run examples/siege/main.slang

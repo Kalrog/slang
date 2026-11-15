@@ -3,6 +3,7 @@
   dependencies: {
     raylib: {path: "../../packages/raylib"},
     kernel: {path: "../../packages/kernel"},
+    dsp: {path: "../../packages/dsp"},
   },
   search_paths: {"."},
   // `dsp name { }` in every slang file here, and .dsp files as programs

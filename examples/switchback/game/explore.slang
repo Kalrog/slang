@@ -104,6 +104,7 @@ func m.new(world, options){
     hint: null,
     reroute: 0,
     damage: 0,
+    broken: null,
     breakdowns: 0,
     camp: "Trailhead",
     at_camp: null,
@@ -160,6 +161,8 @@ func m.start(e, world){
     e.at_camp = camp.name
   }
   e.damage = 0
+  e.broken = null
+  world.car.dead = false
   e.section = null
   e.trail = null
   world.car.dirt = 0
@@ -275,8 +278,10 @@ local func right(e, world){
 // step(e, world, input: {recover?: bool}, dt) -> {Event}
 // What happened in this frame: {kind: "camp", name, new: bool} (the truck
 // came to a camp; new: found just now), {kind: "mended", name},
-// {kind: "knock", strength, harm}, {kind: "breakdown", camp} (towed
-// there), {kind: "recover"}, {kind: "trail", name} (on a trail other
+// {kind: "knock", strength, harm}, {kind: "broken"} (the knock that was
+// one too many: the truck stands dead where it is for run.BROKEN
+// seconds), {kind: "breakdown", camp} (then: towed there),
+// {kind: "recover"}, {kind: "trail", name} (on a trail other
 // than before), {kind: "section", name}, {kind: "arrived", name} (at the
 // marker the way led to).
 func m.step(e, world, input, dt){
@@ -286,14 +291,27 @@ func m.step(e, world, input, dt){
   // knocks, as in a run: but a truck that breaks down is towed
   local knock = world.knock or 0
   if(knock > run.KNOCK){
-    local harm = (knock - run.KNOCK) * run.DAMAGE
+    // (a truck that is broken already takes no more harm)
+    local harm = if(e.broken == null){ (knock - run.KNOCK) * run.DAMAGE } else { 0 }
     e.damage = math.min(1, e.damage + harm)
     append(events, {kind: "knock", strength: knock, harm: harm})
   }
+  if(e.broken != null){
+    // broken down: it stands where it broke a moment, then it is towed
+    e.broken = e.broken - dt
+    if(e.broken <= 0){
+      e.broken = null
+      car.dead = false
+      e.breakdowns = e.breakdowns + 1
+      e.damage = 0
+      append(events, {kind: "breakdown", camp: tow(e, world)})
+    }
+    return events
+  }
   if(e.damage >= 1){
-    e.breakdowns = e.breakdowns + 1
-    e.damage = 0
-    append(events, {kind: "breakdown", camp: tow(e, world)})
+    e.broken = run.BROKEN
+    car.dead = true
+    append(events, {kind: "broken"})
     return events
   }
   // the camps: found by coming to them, and the truck mended there

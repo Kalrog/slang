@@ -1,6 +1,6 @@
 // dsp/build: a program's definitions to kernel source, and to slang code
-// that loads it: what the `dsp name { }` statement (dsp.slang) and .dsp
-// files (dsp/file) expand to.
+// that loads it: what the `dsp name { }` statement (the extension "dsp")
+// and .dsp files (dsp/file) expand to.
 //
 //   local build = require("dsp/build")
 //   local r = build.program(items, "synth")      // {source, info}
@@ -16,8 +16,9 @@ local codegen = require("dsp/codegen")
 local build = {}
 
 // load(module, line) -> items: the definitions of an imported .dsp file,
-// found as require finds modules; on_file(path, module) hears of every
-// file read
+// found as require finds modules (and the package's own libraries by
+// their bare names: `import "std";`); on_file(path, module) hears of
+// every file read
 func build.loader(on_file){
   local cache = {}
   return func(module, line){
@@ -25,6 +26,11 @@ func build.loader(on_file){
     local found = null
     if(find != null){
       found = find(module)
+      if(found == null or found.suffix != ".dsp"){
+        // the package's own libraries by their bare names: "std" is
+        // dsp/std
+        found = find(concat("dsp/", module))
+      }
     }
     if(found == null or found.suffix != ".dsp"){
       raise(
@@ -67,7 +73,8 @@ func build.loader(on_file){
 // mistake (and origin, when it is in an imported file).
 func build.program(items, name, load){
   local r = eval.signals(items, load or build.loader())
-  return build.generate(r, name)
+  // (as the first of ATTEMPTS, below)
+  return build.generate(r, name, {pool: true})
 }
 
 // generate(signals, name, options?) -> {source, info}: dsp/codegen's code
@@ -81,11 +88,13 @@ func build.generate(r, name, options){
 }
 
 // the ways to generate a program, tried in order until its kernel fits in
-// the kernel VM's registers: one register per value (the fastest), the
-// temporaries in a reused pool, the values computed once a block in the
-// instance, the state and the constants in the instance as well
+// the kernel VM's registers: the temporaries in a reused pool, the values
+// computed once a block in the instance, the state and the constants in
+// the instance as well. (A register for every value, which codegen makes
+// without options, is not among them: it computes the same, but slower,
+// by a tenth to a half in the programs measured: the fewer registers a
+// kernel has, the more of them it keeps in the machine's.)
 local ATTEMPTS = {
-  {},
   {pool: true},
   {pool: true, spill_controls: true},
   {pool: true, spill_controls: true, spill_state: true},

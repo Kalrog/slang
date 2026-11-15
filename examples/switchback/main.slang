@@ -39,11 +39,17 @@
 //   SWITCHBACK_UNCAPPED=1      no vsync and no frame cap (to measure; with
 //                              SWITCHBACK_FRAMES the time of each part of a
 //                              frame is printed at the end)
-//   SWITCHBACK_DEBUG=1         for testing: the frames a second, and on the
+//   SWITCHBACK_DEBUG=1         for testing: the frames a second, on the
 //                              map G (or the middle button) puts the truck
-//                              where it points
+//                              where it points, and the keys 1 to 9 switch
+//                              the sound's layers off and on (engine,
+//                              driveline, tires, body, air, water, life,
+//                              camp, interface), to hear what is whose
 //   SWITCHBACK_SCREEN=name     starts on a screen: title, drive, pause,
 //                              finish, garage, controls, map
+//   SWITCHBACK_MUTE=1          no sound (nothing is computed)
+//   SWITCHBACK_VOLUME=v        the volume, 0 to 1, instead of the settings'
+//                              (0: computed, and not heard)
 local rl = require("raylib")
 local os = require("slang/os")
 local str = require("slang/string")
@@ -65,6 +71,8 @@ local hud = require("render/hud")
 local menu = require("render/menu")
 local markers = require("render/markers")
 local map = require("render/map")
+local director = require("sound/director")
+local sound_params = require("sound/params")
 
 local WIDTH = 1280
 local HEIGHT = 720
@@ -149,7 +157,7 @@ if(os.getenv("SWITCHBACK_SEED") == null and type(settings.seed) == "int"){
 local game = {
   screen: "title", // title, drive, pause, finish, garage, controls, map
   mode: "explore", // explore, or trail (the Summit Run)
-  explore: null,   // what was found and marked (game/explore)
+  explore: null, // what was found and marked (game/explore)
   back_to: "title", // where the garage and the controls return to
   world: null,
   run: null,
@@ -163,12 +171,24 @@ local game = {
   },
   low: false,
   locks: 0, // 0 none, 1 rear, 2 rear and front
+  view: null, // the last frame's view (scene.View): where the ears are
+  engine_wait: 0, // how long the engine still stands after it died, s
+  heard: {,
+  }, // what happened this frame, for the sound (the rules' events, the menus')
+  input: null, // what the driver did this frame, for the sound
   finish_wait: 0,
   title_turn: 0,
 }
 
-// new_world(seed): the valley made, shown as it is made
+// the game's sound (sound/director), or null when it has none
+local sound = null
+
+// new_world(seed): the valley made, shown as it is made (and nothing
+// heard meanwhile: no frame comes until it stands)
 local func new_world(s){
+  if(sound != null){
+    sound:rest()
+  }
   if(game.world != null){
     scene.unload()
     world.destroy(game.world)
@@ -295,7 +315,8 @@ local func player_input(dt){
     })[game.locks], "info", 1.8)
   }
   local wants_winch = rl.key.pressed(rl.KEY_F) or
-    (rl.gamepad.available(0) and rl.gamepad.pressed(0, rl.GAMEPAD_BUTTON_LEFT_FACE_UP))
+    (rl.gamepad.available(0) and
+      rl.gamepad.pressed(0, rl.GAMEPAD_BUTTON_LEFT_FACE_UP))
   if(wants_winch){
     local w = game.world
     if(w.winch != null){
@@ -503,6 +524,7 @@ local func clock(seconds){
 
 local func handle(events){
   for(let local e in values(events)){
+    append(game.heard, e)
     if(e.kind == "checkpoint"){
       local text = concat(e.name, "  ", clock(e.time))
       if(e.delta != null){
@@ -536,8 +558,18 @@ local func handle(events){
       }
     } else if(e.kind == "mended"){
       hud.message("Truck mended", "good", 2.5)
+    } else if(e.kind == "broken"){
+      // (the truck stands where it broke a moment: its engine dies with
+      // it, and is started again a while after it stands somewhere else)
+      hud.message(
+        if(game.mode == "explore"){ "Broken down" } else { "Wrecked" },
+        "bad",
+        run.BROKEN,
+      )
+      game.engine_wait = run.BROKEN + 2.4
     } else if(e.kind == "breakdown"){
-      hud.message(concat("Broken down: towed to ", e.camp), "bad", 4.5)
+      hud.message(concat("Towed to ", e.camp), "bad", 4.5)
+      game.engine_wait = 2.4
       game.camera.yaw = null
       game.camera.pos = null
     } else if(e.kind == "trail"){
@@ -546,9 +578,9 @@ local func handle(events){
       hud.message(concat(e.name, " reached"), "good", 3)
     } else if(e.kind == "wreck"){
       hud.message(
-        concat("Wrecked: patched up  +", string(run.WRECK_PENALTY), " s"),
-        "bad", 3.5
+        concat("Patched up  +", string(run.WRECK_PENALTY), " s"), "bad", 3.5
       )
+      game.engine_wait = 2.4
       game.camera.yaw = null
       game.camera.pos = null
     } else if(e.kind == "finish"){
@@ -563,13 +595,88 @@ local func draw_world(camera, options){
   markers.next = game.run.next
   markers.gates = game.mode == "trail"
   local view = scene.view(fixed_view or camera, game.time)
+  // (the ears are where the eye is)
+  game.view = view
   scene.draw(view, game.world, options)
+}
+
+// the frame as it sounds (sound/director): the engine runs while the
+// truck is driven, and behind the menus of a drive; after a breakdown it
+// stands a moment before it is started again
+
+// what the player did in a menu or on the map, to be heard: the name of
+// one of the interface's sounds (sound/layers/interface)
+local func menu_sound(what){
+  append(game.heard, {kind: "menu", what: what})
+}
+
+local func hear(dt){
+  for(let local what in values(menu.did())){
+    menu_sound(what)
+  }
+  // (for testing: a layer switched off or on, to hear what is whose)
+  if(debug and sound != null){
+    for(local i = 0; i < len(sound_params.LAYERS); i = i + 1){
+      if(rl.key.pressed(rl.KEY_ONE + i)){
+        local name = sound_params.LAYERS[i]
+        local on = not sound:heard(name)
+        sound:layer(name, on)
+        hud.message(
+          concat("Sound: ", name, if(on){ " on" } else { " off" }), "info", 1.6
+        )
+      }
+    }
+  }
+  if(sound == null or game.world == null or game.view == null){
+    // (nobody hears it: it is not kept)
+    if(len(game.heard) > 0){
+      game.heard = {}
+    }
+    return
+  }
+  local behind = (game.screen == "garage" or game.screen == "controls") and
+    game.back_to == "pause"
+  local driving = game.screen == "drive" or game.screen == "pause" or
+    game.screen == "map" or game.screen == "finish" or behind
+  game.engine_wait = math.max(0, game.engine_wait - dt)
+  sound:engine(driving and game.engine_wait == 0)
+  local damage = if(game.mode == "explore"){ game.explore.damage } else { game.run.damage }
+  local paused = 0
+  if(game.screen == "pause" or behind){
+    paused = 1
+  } else if(game.screen == "map"){
+    paused = 0.5
+  }
+  sound:frame({
+    world: game.world,
+    car: game.world.car,
+    view: game.view,
+    dt: dt,
+    setup: setup,
+    damage: damage or 0,
+    paused: paused,
+    input: game.input,
+    events: game.heard,
+    screen: game.screen,
+  })
+  game.heard = {}
+  game.input = null
+}
+
+// the volume as the Sound row of a menu set it: heard at once, and kept
+local func set_volume(v){
+  settings.volume = v
+  save_settings(settings)
+  if(sound != null){
+    sound:volume(v)
+  }
 }
 
 // the map: opened while exploring, the game held behind it
 local func open_map(){
   game.screen = "map"
   rl.mouse.locked = false
+  menu_sound("open")
 }
 
 local func update_map(dt){
@@ -579,7 +686,10 @@ local func update_map(dt){
   local view = explore.map(e, w)
   view.land = w.land
   view.debug = debug
-  view.truck = {x: w.car.pos.x, z: w.car.pos.z, heading: math.atan2(w.car.forward.x, w.car.forward.z)}
+  view.truck = {
+    x: w.car.pos.x, z: w.car.pos.z,
+    heading: math.atan2(w.car.forward.x, w.car.forward.z)
+  }
   local action = map.draw(view)
   if(map.view != settings.map_view){
     settings.map_view = map.view
@@ -588,10 +698,28 @@ local func update_map(dt){
   if(action == null){
     return
   }
+  // (what is done on the map is heard: a pin set or taken away, a marker
+  // followed or let go, the other view, the map folded away; a marker
+  // too many is refused)
+  local what = ({
+    place: "pin", remove: "unpin", target: "follow", view: "view",
+    close: "close"
+  })[action.kind]
+  if(action.kind == "place" and len(e.markers) >= explore.MARKERS){
+    what = "deny"
+  } else if(action.kind == "target" and action.index == null){
+    what = "unfollow"
+  }
+  if(what != null){
+    menu_sound(what)
+  }
   if(action.kind == "place"){
     local index = explore.mark(e, w, action.x, action.z)
     if(index == null){
-      hud.message(concat("No more than ", string(explore.MARKERS), " markers"), "warn", 2.5)
+      hud.message(
+        concat("No more than ", string(explore.MARKERS), " markers"), "warn",
+        2.5
+      )
     } else if(e.target == null){
       // (the first marker is the one the way leads to)
       explore.aim(e, w, index)
@@ -602,7 +730,11 @@ local func update_map(dt){
     explore.aim(e, w, action.index)
   } else if(action.kind == "teleport"){
     // (testing: the truck put there, looking the way it did)
-    world.place(w, {x: action.x, z: action.z}, math.atan2(w.car.forward.x, w.car.forward.z))
+    world.place(
+      w,
+      {x: action.x, z: action.z},
+      math.atan2(w.car.forward.x, w.car.forward.z),
+    )
     explore.aim(e, w, e.target)
     game.camera.yaw = null
     game.camera.pos = null
@@ -620,14 +752,17 @@ local func update_drive(dt){
       rl.gamepad.pressed(0, rl.GAMEPAD_BUTTON_MIDDLE_RIGHT))){
     game.screen = "pause"
     rl.mouse.locked = false
+    menu_sound("pause")
     draw_world(chase_camera(0), {fade: game.fade})
     return
   }
   if(rl.key.pressed(rl.KEY_C)){
     game.camera.mode = (game.camera.mode + 1) % len(VIEWS)
   }
-  if(game.mode == "explore" and (rl.key.pressed(rl.KEY_M) or
-    (rl.gamepad.available(0) and rl.gamepad.pressed(0, rl.GAMEPAD_BUTTON_MIDDLE_LEFT)))){
+  if(game.mode == "explore" and
+    (rl.key.pressed(rl.KEY_M) or
+      (rl.gamepad.available(0) and
+        rl.gamepad.pressed(0, rl.GAMEPAD_BUTTON_MIDDLE_LEFT)))){
     open_map()
     draw_world(chase_camera(0), {fade: game.fade})
     return
@@ -647,6 +782,7 @@ local func update_drive(dt){
   }
   local t1 = time.clock()
   world.step(w, input, dt)
+  game.input = input
   local t2 = time.clock()
   if(w.winch_done){
     w.winch_done = false
@@ -718,6 +854,8 @@ local func update_title(dt){
     settings.seed = seed
     save_settings(settings)
     new_world(seed)
+  } else if(action == "volume"){
+    set_volume(menu.volume)
   } else if(action == "quit"){
     game.quit = true
   }
@@ -738,6 +876,8 @@ local func update_pause(dt){
   } else if(action == "garage"){
     game.back_to = "pause"
     game.screen = "garage"
+  } else if(action == "volume"){
+    set_volume(menu.volume)
   } else if(action == "title"){
     restart()
     game.screen = "title"
@@ -806,14 +946,20 @@ local func update_controls(dt){
 // ------------------------------------------------------------ main
 
 rl.window.open({
-  width: WIDTH, height: HEIGHT, title: "Switchback", msaa: true, vsync: not uncapped,
-  fps: if(uncapped){ 0 } else { 60 }
+  width: WIDTH, height: HEIGHT, title: "Switchback", msaa: true,
+  vsync: not uncapped, fps: if(uncapped){ 0 } else { 60 }
 })
 rl.window.exit_key = rl.KEY_NULL
 hud.init()
 menu.init()
 game.mode = first_mode
 new_world(seed)
+// (the volume: the settings', as the menus' Sound row last left it)
+menu.volume = math.max(0, math.min(1, env_number(
+  "SWITCHBACK_VOLUME",
+  if(type(settings.volume) == "double" or type(settings.volume) == "int"){ settings.volume } else { 0.8 },
+)))
+sound = director.start({volume: menu.volume})
 markers.gates = game.mode == "trail"
 if(skip_title){
   if(game.mode == "explore"){
@@ -856,6 +1002,7 @@ for(not rl.window.should_close and not game.quit){
     } else {
       update_controls(dt)
     }
+    hear(dt)
     work = work + time.clock() - from
   }
   // (the frame handed over: waiting for the graphics card, when it is behind)
@@ -880,12 +1027,44 @@ if(frame_limit != null){
   local costs = scene.costs()
   spent.present = spent.present - work
   print(
-    "switchback: a frame took ", ms(time.clock() - began), " ms (", to_int(frames * 1000 / math.max(1, time.clock() - began)),
-    " a second): bot ", ms(spent.driver), ", physics ", ms(spent.physics), ", rules ", ms(spent.rules),
-    ", scene ", ms(spent.scene), " (effects ", str.format("%.2f", costs.effects), ", shadows ", str.format("%.2f", costs.shadows),
-    ", scene ", str.format("%.2f", costs.scene), ", post ", str.format("%.2f", costs.post), "), HUD ", ms(spent.hud),
-    ", handing over (waiting for the graphics card) ", ms(spent.present), " ms\n"
+    "switchback: a frame took ", ms(time.clock() - began), " ms (",
+    to_int(frames * 1000 / math.max(1, time.clock() - began)),
+    " a second): bot ", ms(spent.driver), ", physics ", ms(spent.physics),
+    ", rules ", ms(spent.rules), ", scene ", ms(spent.scene), " (effects ",
+    str.format("%.2f", costs.effects), ", shadows ",
+    str.format("%.2f", costs.shadows), ", scene ",
+    str.format("%.2f", costs.scene), ", post ", str.format("%.2f", costs.post),
+    "), HUD ", ms(spent.hud), ", handing over (waiting for the graphics card) ",
+    ms(spent.present), " ms\n"
   )
+}
+if(sound != null){
+  if(frame_limit != null){
+    local stats = sound:stats()
+    print(
+      "switchback: the sound took ",
+      str.format("%.1f", stats.load * 100),
+      "% of real time (the slowest block ",
+      str.format("%.0f", stats.peak * 100),
+      "%), ",
+      stats.underruns,
+      " underruns\n",
+    )
+    // (and what of it was whose)
+    local parts = {}
+    for(let local share in values(sound:shares())){
+      if(share.share > 0.00005){
+        append(
+          parts,
+          concat(share.name, " ", str.format("%.2f", share.share * 100), "%"),
+        )
+      }
+    }
+    if(len(parts) > 0){
+      print("switchback: of that: ", str.join(parts, ", "), "\n")
+    }
+  }
+  sound:stop()
 }
 scene.unload()
 map.unload()

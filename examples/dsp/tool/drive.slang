@@ -16,7 +16,7 @@ local kernel = require("kernel")
 local math = require("slang/math")
 local time = require("slang/time")
 local str = require("slang/string")
-local wav = require("wav")
+local wav = require("dsp/wav")
 local vehicle = require("vehicle")
 
 local RATE = 48000

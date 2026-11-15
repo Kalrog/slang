@@ -1,0 +1,8 @@
+{
+  name: "dsp",
+  dependencies: {
+    kernel: {path: "../kernel"},
+  },
+  // std.dsp, and the .dsp files of the package's tests
+  dialects: {[".dsp"]: {grammar: "dsp/file"}},
+}

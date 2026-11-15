@@ -55,6 +55,6 @@ return {
     "dsp/codegen",
     "dsp/build",
     "dsp/file",
-    "std",
+    "dsp/std",
   },
 }

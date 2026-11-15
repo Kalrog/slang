@@ -1,0 +1,82 @@
+// render/tracks_map: the wheels' tracks written into their map
+// (render/tracks.slang). The map is n by n texels of four bytes: how hard
+// the ground is pressed there, which way the wheel went that pressed it
+// (its x and z, each 128 for none and 1 or 255 for all the way), and 255.
+// It wraps: a texel's place is its coordinate modulo n.
+
+// blank: w by h texels from (x0, z0) as ground no wheel has touched (the
+// rectangle must lie within the map)
+func blank(map: uint8[], n: int, x0: int, z0: int, w: int, h: int){
+  for(local j = z0; j < z0 + h; j += 1){
+    for(local i = x0; i < x0 + w; i += 1){
+      local at = (j * n + i) * 4
+      map[at] = 0
+      map[at + 1] = 128
+      map[at + 2] = 128
+      map[at + 3] = 255
+    }
+  }
+}
+
+// press: a wheel's way from (x0, z0) to (x1, z1), in texels (anywhere:
+// the map wraps), pressed into the map as a band radius texels to each
+// side with soft edges and round ends. What was pressed harder before
+// stays. Within the band the texels take the way the wheel went, (wx, wz)
+// (a unit vector), turned outward toward the band's edges by spread (as
+// grass is pushed aside by a tire's shoulders: 0 none, 1 by 45 degrees at
+// the edge): what a later wheel presses lies its way.
+func press(map: uint8[], n: int, x0: float, z0: float, x1: float, z1: float, radius: float,
+  strength: float, wx: float, wz: float, spread: float){
+  local reach = radius + 1.5
+  local ax = int(floor(min(x0, x1) - reach))
+  local bx = int(floor(max(x0, x1) + reach))
+  local az = int(floor(min(z0, z1) - reach))
+  local bz = int(floor(max(z0, z1) + reach))
+  local ex = x1 - x0
+  local ez = z1 - z0
+  local l2 = max(ex * ex + ez * ez, 0.0001)
+  for(local j = az; j <= bz; j += 1){
+    local row = (j % n) * n
+    for(local i = ax; i <= bx; i += 1){
+      // the texel's middle from the nearest point of the way
+      local px = i + 0.5 - x0
+      local pz = j + 0.5 - z0
+      local t = clamp((px * ex + pz * ez) / l2, 0, 1)
+      local qx = px - ex * t
+      local qz = pz - ez * t
+      local d = sqrt(qx * qx + qz * qz)
+      // all of it inside the band, falling off over a texel and a half
+      // across its edge
+      local w = clamp((radius - d) / 1.5 + 0.5, 0, 1)
+      if(w > 0.0){
+        local at = (row + i % n) * 4
+        local value = strength * w * 255.0
+        if(value > map[at]){
+          map[at] = int(value)
+        }
+        if(w > 0.3){
+          // how far across the band the texel lies, -1 to 1 (to the way's
+          // left and right), and the way turned outward by that
+          local across = clamp((qz * wx - qx * wz) / radius, -1, 1)
+          local lx = wx - spread * across * wz
+          local lz = wz + spread * across * wx
+          local len = max(sqrt(lx * lx + lz * lz), 0.0001)
+          map[at + 1] = int(clamp(128.0 + 127.0 * lx / len, 1, 255))
+          map[at + 2] = int(clamp(128.0 + 127.0 * lz / len, 1, 255))
+        }
+      }
+    }
+  }
+}
+
+// pack: w by h texels of the map from (x0, z0), row by row into tile
+// (for the graphics card: the map's own rows are too wide to send)
+func pack(tile: uint8[], map: uint8[], n: int, x0: int, z0: int, w: int, h: int){
+  for(local j = 0; j < h; j += 1){
+    local from = ((z0 + j) * n + x0) * 4
+    local to = j * w * 4
+    for(local i = 0; i < w * 4; i += 1){
+      tile[to + i] = map[from + i]
+    }
+  }
+}

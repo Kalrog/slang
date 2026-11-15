@@ -17,6 +17,11 @@
 // move, Enter or Space (or the gamepad's A) choose, Esc or Backspace (or
 // B) go back; the mouse points and clicks. The screens know nothing of
 // the game: they get plain numbers and names.
+//
+// The title and the pause have a row for the sound's volume ([volume]):
+// left and right change it by tenths, down to off; the screen then
+// answers "volume". What the player did in a screen (the bar moved, an
+// entry chosen...) is kept for the game to make heard: see [did].
 local rl = require("raylib")
 local math = require("slang/math")
 local str = require("slang/string")
@@ -34,11 +39,31 @@ local state = {
   row: 0,            // the garage's row
   mouse: {x: -1, y: -1},
   stick: {x: 0, y: 0},   // where the gamepad's stick was pushed to: -1, 0, 1
+  did: {},           // what the player did in this frame's screen: see [did]
 }
 
 // garage: whether the player changed an option in the last call of
 // [garage] (so the game knows to rebuild the truck)
 m.changed = false
+
+// the sound's volume, 0 (off) to 1, as the Sound row of the title and of
+// the pause shows it: the game sets it once, and takes it from here when
+// a screen answers "volume" (the player changed it)
+m.volume = 0.8
+
+// did() -> {string}: what the player did in the screens since this was
+// last asked, for the game to make heard: "move" (the bar on another
+// entry), "select" (an entry chosen), "back", "step" (a setting changed
+// by a step), and in the garage "part" or "paint" (an option changed)
+func m.did(){
+  local list = state.did
+  state.did = {}
+  return list
+}
+
+local func note(what){
+  append(state.did, what)
+}
 
 // init(): the fonts (the HUD's are the same ones)
 func m.init(){
@@ -108,6 +133,8 @@ local func stick(){
 local func moves(){
   ui.begin()
   state.frame = state.frame + 1
+  // (what was done in a frame nobody asked about is forgotten)
+  state.did = {}
   local mouse = ui.mouse
   local moved = mouse.x != state.mouse.x or mouse.y != state.mouse.y
   state.mouse = mouse
@@ -149,9 +176,21 @@ local func mark(x, y, size, color){
   rl.draw.circle_v({x + 54 * k, y + 2 * k}, 4.2 * k, colors.paper)
 }
 
+// a setting's row: after its name a bar (with an arrow at either end
+// while the bar of the column is on the row) and its figure: how wide
+// the bar is, and what stands between the parts, in a window 720 high
+local SETTING_BAR = 64
+local SETTING_ARROW = 14
+local SETTING_GAP = 16
+
 // a column of entries: the bar moves with the keys and follows the
 // mouse; returns the index of the entry chosen in this frame, or null.
 // align -1: from x on, 0: centered on x.
+// An entry is its name, or a setting from 0 to 1: {name: string, value:
+// float}, shown with a bar and a figure ("off" at 0). A setting is not
+// chosen but changed, in place, by tenths: left and right (or a click
+// on its arrows) take a step down or up, Enter (or a click elsewhere on
+// it) a step up, and from the top round to off.
 local func column(key, entries, x, y, input, options){
   options = options or {}
   local s = ui.s
@@ -163,6 +202,7 @@ local func column(key, entries, x, y, input, options){
   if(selected >= count){
     selected = 0
   }
+  local was = selected
   if(input.down){
     selected = (selected + 1) % count
   }
@@ -170,11 +210,26 @@ local func column(key, entries, x, y, input, options){
     selected = (selected + count - 1) % count
   }
   local chosen = null
+  // (a click on a setting's arrows: a step down, a step up)
+  local down = false
+  local up = false
   for(local i = 0; i < count; i = i + 1){
-    local w = ui.measure(entries[i], size)
-    local ex = if(align == 0){ x - w / 2 } else { x }
+    local entry = entries[i]
+    local setting = null
+    if(type(entry) == "table"){
+      setting = entry
+      entry = setting.name
+    }
+    local w = ui.measure(entry, size)
+    // (all of a setting's row: its name, the bar between its arrows, its
+    // figure at its widest)
+    local all = w
+    if(setting != null){
+      all = w + (SETTING_GAP + 2 * SETTING_ARROW + SETTING_BAR + 10) * s + ui.measure("100%", 13)
+    }
+    local ex = if(align == 0){ x - all / 2 } else { x }
     local ey = y + i * step
-    local over = ui.inside(ex - 18 * s, ey - 6 * s, w + 36 * s, step - 4 * s)
+    local over = ui.inside(ex - 18 * s, ey - 6 * s, all + 36 * s, step - 4 * s)
     if(over and input.moved){
       selected = i
     }
@@ -185,18 +240,64 @@ local func column(key, entries, x, y, input, options){
     if(i == selected){
       if(align == 0){
         rl.draw.rectangle_rec({ex - 20 * s, ey + size * s * 0.52, 8 * s, 2.5 * s}, colors.amber)
-        rl.draw.rectangle_rec({ex + w + 12 * s, ey + size * s * 0.52, 8 * s, 2.5 * s}, colors.amber)
-        ui.text(ex, ey, entries[i], size, colors.amber)
+        rl.draw.rectangle_rec({ex + all + 12 * s, ey + size * s * 0.52, 8 * s, 2.5 * s}, colors.amber)
+        ui.text(ex, ey, entry, size, colors.amber)
       } else {
         rl.draw.rectangle_rec({ex - 2 * s, ey + 3 * s, 3 * s, size * s * 0.94}, colors.amber)
-        ui.text(ex + 14 * s, ey, entries[i], size, colors.amber)
+        ui.text(ex + 14 * s, ey, entry, size, colors.amber)
       }
     } else {
-      ui.text(ex, ey, entries[i], size, {242, 234, 216, 205})
+      ui.text(ex, ey, entry, size, {242, 234, 216, 205})
+    }
+    if(setting != null){
+      // (the bar stays where it is when the name moves aside for the
+      // column's bar)
+      local bx = ex + w + (SETTING_GAP + SETTING_ARROW) * s + (if(align == 0){ 0 } else { 14 * s })
+      local bw = SETTING_BAR * s
+      local ay = ey + size * s * 0.52 + 1 * s
+      local value = math.max(0, math.min(1, setting.value or 0))
+      local color = if(i == selected){ colors.amber } else { colors.dim }
+      ui.bar(bx, ay - 2 * s, bw, 4 * s, value, color)
+      if(i == selected){
+        local over_left = ui.inside(bx - (SETTING_ARROW + 6) * s, ey - 6 * s, (SETTING_ARROW + 6) * s, step - 4 * s)
+        local over_right = ui.inside(bx + bw, ey - 6 * s, (SETTING_ARROW + 6) * s, step - 4 * s)
+        rl.draw.triangle({bx - 11 * s, ay}, {bx - 5 * s, ay + 5 * s}, {bx - 5 * s, ay - 5 * s},
+          if(over_left){ colors.amber } else { colors.paper })
+        rl.draw.triangle({bx + bw + 11 * s, ay}, {bx + bw + 5 * s, ay - 5 * s}, {bx + bw + 5 * s, ay + 5 * s},
+          if(over_right){ colors.amber } else { colors.paper })
+        down = over_left and input.click
+        up = over_right and input.click
+      }
+      local figure = if(value < 0.05){ "off" } else { concat(string(to_int(value * 100 + 0.5)), "%") }
+      ui.text(bx + bw + (SETTING_ARROW + 10) * s, ey + (size - 13) * 0.55 * s, figure, 13, colors.dim)
     }
   }
   if(input.accept){
     chosen = selected
+  }
+  local setting = entries[selected]
+  local stepped = false
+  if(type(setting) == "table"){
+    local value = setting.value or 0
+    if(input.left or down){
+      value = value - 0.1
+    } else if(input.right or up){
+      value = value + 0.1
+    } else if(chosen == selected){
+      value = if(value > 0.95){ 0 } else { value + 0.1 }
+    }
+    chosen = null
+    value = math.max(0, math.min(1, math.floor(value * 10 + 0.5) / 10))
+    if(value != setting.value){
+      setting.value = value
+      stepped = true
+      note("step")
+    }
+  }
+  if(chosen != null){
+    note("select")
+  } else if(selected != was and not stepped){
+    note("move")
   }
   state.selected[key] = selected
   return chosen
@@ -223,12 +324,14 @@ local func dim_scene(alpha){
 
 // title(state: {seed?: int, best?: float, trail_length?: float,
 //   trails_length?: float, camps_found?: int, camps_total?: int})
-//   -> "explore" | "drive" | "garage" | "seed" | "controls" | "quit" | null
+//   -> "explore" | "drive" | "garage" | "seed" | "controls" | "volume" |
+//   "quit" | null
 // The title over the valley (the scene shows through on the right): the
 // game's name, what there is to do (exploring the valley first, then the
 // run to the summit), the valley's number, how long its trails are, the
 // camps found in it, the best time to the summit, and the controls along
-// the bottom. Esc puts the bar on Quit, and quits from there.
+// the bottom. Esc puts the bar on Quit, and quits from there. "volume":
+// the player changed the sound's volume ([volume] is the new one).
 // [best]: seconds, or null when the summit run has not been driven
 // [trail_length]: m, of the trail to the summit (shown when
 //   [trails_length] is not given)
@@ -254,14 +357,16 @@ func m.title(info){
   // (Esc puts the bar on Quit; there it quits)
   local quit = false
   if(input.back){
-    if(state.selected.title == 5){
+    note("back")
+    if(state.selected.title == 6){
       quit = true
     } else {
-      state.selected.title = 5
+      state.selected.title = 6
     }
   }
-  local chosen = column("title", {"Explore", "Summit Run", "Garage", "New valley", "Controls", "Quit"}, x,
-    278 * s, input, {step: 41})
+  local sound = {name: "Sound", value: m.volume}
+  local chosen = column("title", {"Explore", "Summit Run", "Garage", "New valley", "Controls", sound, "Quit"}, x,
+    270 * s, input, {step: 40})
 
   // the valley
   local sy = h - 152 * s
@@ -288,8 +393,12 @@ func m.title(info){
   if(quit){
     return "quit"
   }
+  if(sound.value != m.volume){
+    m.volume = sound.value
+    return "volume"
+  }
   if(chosen != null){
-    local actions = {"explore", "drive", "garage", "seed", "controls", "quit"}
+    local actions = {"explore", "drive", "garage", "seed", "controls", "volume", "quit"}
     return actions[chosen]
   }
   return null
@@ -298,10 +407,11 @@ func m.title(info){
 // ------------------------------------------------------------ the pause
 
 // pause(mode?: string) -> "resume" | "restart" | "map" | "garage" |
-//   "title" | "quit" | null
+//   "volume" | "title" | "quit" | null
 // The game held: the scene dimmed, the choices in the middle. Exploring
 // (mode "explore") the map is among them and there is nothing to
-// restart. Esc (or the gamepad's B or Start) resumes.
+// restart. Esc (or the gamepad's B or Start) resumes. "volume": the
+// player changed the sound's volume ([volume] is the new one).
 func m.pause(mode){
   local input = moves()
   local s = ui.s
@@ -309,11 +419,12 @@ func m.pause(mode){
     state.selected.pause = 0
   }
   dim_scene(150)
-  local entries = {"Resume", "Restart", "Garage", "Title", "Quit"}
-  local actions = {"resume", "restart", "garage", "title", "quit"}
+  local sound = {name: "Sound", value: m.volume}
+  local entries = {"Resume", "Restart", "Garage", sound, "Title", "Quit"}
+  local actions = {"resume", "restart", "garage", "volume", "title", "quit"}
   if(mode == "explore"){
-    entries = {"Resume", "Map", "Garage", "Title", "Quit"}
-    actions = {"resume", "map", "garage", "title", "quit"}
+    entries = {"Resume", "Map", "Garage", sound, "Title", "Quit"}
+    actions = {"resume", "map", "garage", "volume", "title", "quit"}
   }
   local pw = 320 * s
   local ph = (88 + len(entries) * 42) * s
@@ -324,7 +435,12 @@ func m.pause(mode){
   rl.draw.rectangle_rec({ui.w / 2 - 22 * s, py + 52 * s, 44 * s, 1.5 * s}, colors.dim)
   local chosen = column("pause", entries, ui.w / 2, py + 74 * s, input, {align: 0, size: 24, step: 42})
   if(input.back or input.start){
+    note("back")
     return "resume"
+  }
+  if(sound.value != m.volume){
+    m.volume = sound.value
+    return "volume"
   }
   if(chosen != null){
     return actions[chosen]
@@ -398,6 +514,7 @@ func m.finish(result){
   y = y + 30 * s
   local entries = {"Drive again", "Title"}
   local selected = state.selected.finish or 0
+  local was = selected
   if(input.left or input.up){
     selected = 0
   }
@@ -428,16 +545,31 @@ func m.finish(result){
   }
   state.selected.finish = selected
   if(input.back){
+    note("back")
     return "title"
   }
   if(chosen != null){
+    note("select")
     local actions = {"again", "title"}
     return actions[chosen]
+  }
+  if(selected != was){
+    note("move")
   }
   return null
 }
 
 // ------------------------------------------------------------ the garage
+
+// whether a category's options are paints: some have a color
+local func paints(options){
+  for(let local option in values(options)){
+    if(type(option) == "table" and option.color != null){
+      return true
+    }
+  }
+  return false
+}
 
 // garage(categories: {Category}) -> "back" | null
 // The truck's fittings on the left of the screen (the truck itself is
@@ -470,6 +602,7 @@ func m.garage(categories){
   if(opened("garage") or row >= count){
     row = 0
   }
+  local was = row
   if(input.down and count > 0){
     row = (row + 1) % count
   }
@@ -509,6 +642,7 @@ func m.garage(categories){
     if(step != 0 and len(options) > 1){
       category.value = ((category.value or 0) + step + n) % n
       m.changed = true
+      note(if(paints(options)){ "paint" } else { "part" })
     }
     local value = category.value or 0
     local option = options[value]
@@ -541,11 +675,16 @@ func m.garage(categories){
     y = y + row_h
   }
   state.row = row
+  // (a click that changes another row's option is heard as the change)
+  if(row != was and not m.changed){
+    note("move")
+  }
   if(about != null){
     ui.text(px + 30 * s, y + 10 * s, about, 12, colors.dim)
   }
   hints(px + 28 * s, py + ph - 42 * s, {{{"up", "down"}, "choose"}, {{"left", "right"}, "change"}, {{"Esc"}, "done"}}, 11)
   if(input.back){
+    note("back")
     return "back"
   }
   return null
@@ -610,6 +749,7 @@ func m.controls(){
   }
   ui.label(px + pw - 40 * s, py + ph - 30 * s, "esc: back", 9, colors.dim, 1)
   if(input.back or input.accept or (input.click and not ui.inside(px, py, pw, ph))){
+    note("back")
     return "back"
   }
   return null

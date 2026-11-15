@@ -117,6 +117,8 @@ emcc -c "$CACHE/linked.c" -o "$CACHE/linked.o" -Os
 # its JIT's browser half (native/web.c: kernels compiled to WebAssembly);
 # the modules it makes import libm's functions from the VM
 emcc -c packages/kernel/native/web.c -o "$CACHE/kernel_web.o" -Os
+# slang/web's messages between a program and its page
+emcc -c website/web/bridge.c -o "$CACHE/bridge.o" -Os
 LIBM=_sin,_cos,_tan,_asin,_acos,_atan,_exp,_exp2,_log,_log2,_tanh,_sinh,_cosh,_round,_pow,_atan2
 
 # the symbols slang/ffi finds: the functions of raylib, raymath, rlgl, Box2D and
@@ -144,12 +146,13 @@ done
 # headers go into the virtual file system, where the packages look for
 # installed libraries (HEAPF32: raylib's audio, miniaudio, reads samples
 # through it; a callback is a function libffi adds to the table)
-em++ zig/zig-out-em/lib/slang.o "$CACHE/symbols.o" "$CACHE/kernel/lib/kernel_vm.o" "$CACHE/linked.o" "$CACHE/kernel_web.o" "$RAYLIB/web-es3/libraylib.a" \
+em++ zig/zig-out-em/lib/slang.o "$CACHE/symbols.o" "$CACHE/kernel/lib/kernel_vm.o" "$CACHE/linked.o" "$CACHE/kernel_web.o" "$CACHE/bridge.o" "$RAYLIB/web-es3/libraylib.a" \
   "$BOX2D/web/src/libbox2d.a" $JOLT_LIBS "$LIBFFI/out/lib/libffi.a" \
   -o "$OUT/slang-gfx.js" -O2 --profiling-funcs -sUSE_GLFW=3 -sALLOW_MEMORY_GROWTH=1 -sALLOW_TABLE_GROWTH=1 -sSTACK_SIZE=8MB \
   -sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=createSlang -sINVOKE_RUN=0 -sEXIT_RUNTIME=1 \
   -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2 \
   -sENVIRONMENT=web -sFORCE_FILESYSTEM=1 -sEXPORTED_RUNTIME_METHODS=FS,callMain,HEAPF32,ENV,IDBFS -lidbfs.js \
+  -sDEFAULT_LIBRARY_FUNCS_TO_INCLUDE='$stringToNewUTF8,$UTF8ToString'  \
   -sEXPORTED_FUNCTIONS=_main,_emscripten_cancel_main_loop,_CloseWindow,_CloseAudioDevice,$LIBM \
   --embed-file "$RAYLIB/src/raylib.h@/usr/include/raylib.h" \
   --embed-file "$RAYLIB/src/raymath.h@/usr/include/raymath.h" \

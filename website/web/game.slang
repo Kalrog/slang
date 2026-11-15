@@ -12,6 +12,24 @@
 // travel as base64. The page passes its URL's query to the program as
 // environment variables (?SWITCHBACK_SEED=7), and keeps what the program
 // writes under $HOME in the browser's storage (IndexedDB) between visits.
+//
+// What a project adds to its page lives in its site/ directory, copied
+// next to the page (and not among the program's files). site/index.html,
+// when there is one, is the page itself; it loads launcher.js (written
+// here: it starts the program) and gives it the elements launcher.js
+// names. site/page.js, when
+// there is one, is a module the page imports; it may export
+//   setup(page)        when the page is loaded (page.header takes controls)
+//   beforeStart(page)  before the program starts: what it puts in
+//                      page.env is the program's environment (the URL's
+//                      query still wins); may be async
+//   message(text, page)  a message the program sent (slang/web's send)
+//   started(page)      the program started (its first frame is drawn)
+//   progress(page, share, text)  how the start goes (0 to 1)
+// and page.send(text) is a message to the program (slang/web's receive);
+// page.say(text) shows a line of status, page.show(cls)(text) a line of
+// output. A server directory (server/) is
+// not the program either.
 local os = require("slang/os")
 local str = require("slang/string")
 local json = require("slang/json")
@@ -19,7 +37,7 @@ local encoding = require("slang/encoding")
 
 local PACKAGES = {"raylib", "box2d", "jolt", "kernel", "dsp"}
 // directories that are not the program
-local SKIP_DIRS = {test: true, tool: true, out: true, web: true, [".git"]: true}
+local SKIP_DIRS = {test: true, tool: true, out: true, web: true, site: true, server: true, design: true, [".git"]: true}
 // files the program reads as text, and as bytes
 local TEXT = {".slang", ".kernel", ".dsp", ".json", ".txt", ".glsl", ".vs", ".fs"}
 local BINARY = {".ttf", ".otf", ".png", ".wav", ".ogg", ".mp3", ".bin"}
@@ -105,7 +123,7 @@ local func escape(s){
   return str.replace(s, ">", "&gt;")
 }
 
-local page = """<!doctype html>
+local default_page = """<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -128,6 +146,13 @@ local page = """<!doctype html>
   canvas { display: block; max-width: 100%; max-height: 100%; aspect-ratio: 16 / 9;
     background: #000; outline: none; }
   #stage:fullscreen canvas { width: 100%; height: 100%; object-fit: contain; }
+  .progress { position: relative; width: 180px; height: 4px; border-radius: 2px; background: #2a2e31; overflow: hidden; }
+  .progress i { position: absolute; inset: 0; background: var(--accent); transform-origin: left;
+    transform: scaleX(var(--progress, 0)); transition: transform .2s; }
+  .progress.busy i { transform: scaleX(.35); animation: slide 1.1s ease-in-out infinite alternate; }
+  @keyframes slide { from { transform: translateX(0) scaleX(.35); } to { transform: translateX(65%) scaleX(.35); } }
+  .progress[hidden], .progress[hidden] + .ptext { display: none; }
+  .ptext { color: var(--dim); font-size: 13px; }
   #output { margin: 0; max-height: 9em; overflow: auto; padding: 0 16px 8px; color: var(--dim);
     font: 12px/1.35 ui-monospace, Menlo, monospace; white-space: pre-wrap; }
   #output .err { color: #e07a6a; }
@@ -136,26 +161,39 @@ local page = """<!doctype html>
 <body>
 <header>
   <h1>TITLE</h1>
-  <button id="play">Play</button>
+  <button id="play" data-play>Play</button>
   <button id="full" class="quiet" hidden>Full screen</button>
   <span id="status">INFO</span>
+  <span class="progress" data-progress hidden><i></i></span><span class="ptext" data-progress-text></span>
 </header>
 <div id="stage"><canvas id="canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas></div>
 <pre id="output"></pre>
-<script type="module">
+<script type="module" src="launcher.js"></script>
+</body>
+</html>
+"""
+
+local launcher = """// launcher.js, written by website/web/game.slang: starts the program on
+// the graphics VM in this page (see game.slang for what a page provides).
+// What the page has: #canvas (the program's window), buttons with
+// data-play (start it), #status (a line of status), #output (what it
+// prints), #full (full screen), #stage (what goes full screen), and
+// [data-progress] / [data-progress-text] (how the start goes: see
+// progress below); all but the canvas are optional.
 const status = document.getElementById("status");
 const output = document.getElementById("output");
 const canvas = document.getElementById("canvas");
-const play = document.getElementById("play");
+const plays = [...document.querySelectorAll("[data-play]")];
 const full = document.getElementById("full");
-const say = (text) => { status.textContent = text; };
+const say = (text) => { if (status) status.textContent = text; };
 const show = (cls) => (text) => {
+  if (cls) console.error(text); else console.log(text);
+  if (!output) return;
   const line = document.createElement("div");
   if (cls) line.className = cls;
   line.textContent = text;
   output.appendChild(line);
   output.scrollTop = output.scrollHeight;
-  if (cls) console.error(text); else console.log(text);
 };
 const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 
@@ -163,6 +201,8 @@ const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 // do not scroll the page then
 for (const type of ["keydown", "keyup", "keypress"]) {
   window.addEventListener(type, (e) => {
+    // (what is typed into the page's own fields stays theirs)
+    if (e.target.closest && e.target.closest("input, textarea, select, [contenteditable]")) return;
     if (document.activeElement !== canvas) e.stopImmediatePropagation();
     else if ([" ", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Tab"].includes(e.key)) e.preventDefault();
   }, true);
@@ -179,21 +219,97 @@ if (BaseAudioContext) {
 window.addEventListener("error", (e) => {
   if (/miniaudio is not defined/.test(e.message)) e.preventDefault();
 });
-full.addEventListener("click", () => document.getElementById("stage").requestFullscreen().then(() => canvas.focus()));
+if (full) full.addEventListener("click", () => document.getElementById("stage").requestFullscreen().then(() => canvas.focus()));
+
+// the project's own part of the page (site/page.js); progress(page,
+// share, text) hears how the start goes
+const hooks = HOOKS ? await import("./page.js") : {};
+const page = { header: document.querySelector("header"), say, show, env: {}, send: () => {}, started: false };
+if (hooks.setup) await hooks.setup(page);
+
+// How the start goes, on the page: elements with data-progress get
+// --progress (0 to 1), and the class "busy" while the program starts and
+// nothing can be measured (an animation of transform keeps moving then,
+// though the page itself is held); [data-progress-text] the words.
+const bars = [...document.querySelectorAll("[data-progress]")];
+const words = [...document.querySelectorAll("[data-progress-text]")];
+function progress(share, text, busy = false) {
+  for (const b of bars) {
+    b.hidden = false;
+    b.style.setProperty("--progress", String(Math.max(0, Math.min(1, share))));
+    b.classList.toggle("busy", busy);
+  }
+  for (const w of words) w.textContent = text;
+  if (hooks.progress) hooks.progress(page, share, text);
+}
+const MB = (n) => (n / 1e6).toFixed(1);
+// the files' sizes, as game.slang wrote them (a server need not say them,
+// and one that compresses says less)
+const SIZES = SIZES_JSON;
+// the bytes of url, telling got(bytes) as they come
+async function download(url, got) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${url}: the server answered ${res.status}`);
+  if (!res.body) {
+    const all = new Uint8Array(await res.arrayBuffer());
+    got(all.length);
+    return all;
+  }
+  const reader = res.body.getReader();
+  const chunks = [];
+  let length = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    length += value.length;
+    got(value.length);
+  }
+  const all = new Uint8Array(length);
+  let at = 0;
+  for (const c of chunks) { all.set(c, at); at += c.length; }
+  return all;
+}
+// a frame for the page to show what it says before the program holds it
+const painted = () => new Promise((done) => requestAnimationFrame(() => setTimeout(done, 0)));
 
 let started = false;
 async function start() {
   if (started) return;
   started = true;
-  play.disabled = true;
+  for (const b of plays) b.disabled = true;
   say("loading…");
-  const [{ default: createSlang }, files] = await Promise.all([
+  if (hooks.beforeStart) {
+    try {
+      await hooks.beforeStart(page);
+    } catch (e) {
+      show("err")(String(e && e.message || e));
+    }
+  }
+  // the VM and the program's files, as they come (about 0.8 of the bar)
+  const total = SIZES["slang-gfx.wasm"] + SIZES["files.json"];
+  let got = 0;
+  const more = (n) => {
+    got += n;
+    progress(0.8 * Math.min(1, got / total), `Downloading the game · ${MB(Math.min(got, total))} of ${MB(total)} MB`);
+  };
+  more(0);
+  const [{ default: createSlang }, wasm, filesBytes] = await Promise.all([
     import("./slang-gfx.js"),
-    fetch("files.json").then((r) => r.json()),
+    download("slang-gfx.wasm", more),
+    download("files.json", more),
   ]);
+  const files = JSON.parse(new TextDecoder().decode(filesBytes));
+  progress(0.82, "Preparing the engine");
+  await painted();
   let module;
   module = await createSlang({
     canvas,
+    // (the bytes downloaded above)
+    instantiateWasm: (imports, done) => {
+      WebAssembly.instantiate(wasm, imports).then((r) => done(r.instance, r.module), (e) => show("err")(String(e)));
+      return {};
+    },
     print: show(""),
     printErr: show("err"),
     onExit: (code) => {
@@ -202,10 +318,16 @@ async function start() {
     },
     // (the program's environment is read before main starts)
     preRun: [(m) => {
+      for (const [k, v] of Object.entries(page.env)) m.ENV[k] = String(v);
       for (const [k, v] of new URLSearchParams(location.search)) m.ENV[k] = v;
     }],
   });
   window.slang = module;
+  // messages: the program's to the project's page.js, and back
+  module.programInbox = [];
+  module.onProgramMessage = (text) => { if (hooks.message) hooks.message(text, page); };
+  page.send = (text) => module.programInbox.push(text);
+  progress(0.88, "Unpacking the game");
   const FS = module.FS;
   FS.mkdir("/work");
   for (const [path, content] of Object.entries(files)) {
@@ -226,34 +348,72 @@ async function start() {
     syncing = true;
     FS.syncfs(false, () => { syncing = false; });
   }, 3000);
-  play.hidden = true;
-  full.hidden = false;
-  say("click the picture to give it the mouse and the keys");
-  canvas.focus();
+  for (const b of plays) b.hidden = true;
+  // the program compiles its modules and runs until its first frame: the
+  // page is held meanwhile
+  progress(0.92, "Starting the engine", true);
+  await painted();
   FS.chdir("/work");
   try {
     module.callMain(["run", "/work/MAIN"]);
   } catch (e) {
     if (e !== "unwind" && !(e && e.name === "ExitStatus")) show("err")(String(e && e.stack || e));
   }
+  // (its first frame is drawn: the program shows how it goes on)
+  progress(1, "");
+  for (const b of bars) b.hidden = true;
+  if (full) full.hidden = false;
+  page.started = true;
+  document.body.classList.add("running");
+  if (hooks.started) hooks.started(page);
+  say("click the picture to give it the mouse and the keys");
+  canvas.focus();
 }
-play.addEventListener("click", start);
+for (const b of plays) b.addEventListener("click", start);
 if (new URLSearchParams(location.search).has("autostart")) start();
-</script>
-</body>
-</html>
 """
 
+
 os.mkdir_all(out)
+// the project's own part of the page
+local site = concat(project, "/site")
+local hooks = false
+local func copy_site(dir, rel){
+  for(let local name in values(os.list_dir(dir))){
+    local from = concat(dir, "/", name)
+    local to = if(rel == ""){ name } else { concat(rel, "/", name) }
+    if(os.is_dir(from)){
+      os.mkdir_all(concat(out, "/", to))
+      copy_site(from, to)
+    } else {
+      os.copy_file(from, concat(out, "/", to))
+      if(to == "page.js"){
+        hooks = true
+      }
+    }
+  }
+}
+if(os.is_dir(site)){
+  copy_site(site, "")
+}
 local info = concat(
   string(count), " files; the first start loads about ",
   string(to_int((len(os.read_file(concat(vm_dir, "/slang-gfx.wasm"))) + bytes) / 1000000)),
   " MB",
 )
-page = str.replace(page, "TITLE", escape(title))
-page = str.replace(page, "INFO", escape(info))
-page = str.replace(page, "MAIN", "main.slang")
-os.write_file(concat(out, "/index.html"), page)
+// the project's own page (site/index.html), or the plain one
+if(not os.exists(concat(site, "/index.html"))){
+  local page = str.replace(default_page, "TITLE", escape(title))
+  page = str.replace(page, "INFO", escape(info))
+  os.write_file(concat(out, "/index.html"), page)
+}
+launcher = str.replace(launcher, "/work/MAIN", "/work/main.slang")
+launcher = str.replace(launcher, "HOOKS ?", if(hooks){ "true ?" } else { "false ?" })
+launcher = str.replace(launcher, "SIZES_JSON", json.encode({
+  ["slang-gfx.wasm"]: len(os.read_file(concat(vm_dir, "/slang-gfx.wasm"))),
+  ["files.json"]: len(json.encode(files)),
+}))
+os.write_file(concat(out, "/launcher.js"), launcher)
 os.write_file(concat(out, "/files.json"), json.encode(files))
 for(let local f in values({"slang-gfx.js", "slang-gfx.wasm"})){
   os.copy_file(concat(vm_dir, "/", f), concat(out, "/", f))

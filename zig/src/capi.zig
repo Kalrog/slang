@@ -132,26 +132,18 @@ fn newCClosure(vm: *VM, f: CFunction, name: []const u8, nvals: []const Value) *C
     return cl;
 }
 
-// printf-style formatting through libc; the va_list is passed the way C
-// passes it on this target.
-const VaList = std.builtin.VaList;
-const va_is_array = @typeInfo(VaList) == .array;
-const VaArg = if (va_is_array) *anyopaque else VaList;
-extern "c" fn vsnprintf(buf: [*]u8, size: usize, fmt: [*:0]const u8, ap: VaArg) c_int;
+// printf-style formatting: slang_pushfstring, slang_error and
+// slang_errorkind are C (capi_varargs.c), since Zig cannot take C's
+// variable arguments on every target; they format the text and call these.
 
-fn vformat(vm: *VM, fmt: [*:0]const u8, ap: *VaList) [:0]u8 {
-    var copy = @cVaCopy(ap);
-    defer @cVaEnd(&copy);
-    var small: [512]u8 = undefined;
-    const n = vsnprintf(&small, small.len, fmt, if (va_is_array) @ptrCast(&copy) else copy);
-    if (n < 0) return vm.dupeZ("");
-    const len: usize = @intCast(n);
-    if (len < small.len) return vm.dupeZ(small[0..len]);
-    const buf = vm.gpa.allocSentinel(u8, len, 0) catch oom();
-    var copy2 = @cVaCopy(ap);
-    defer @cVaEnd(&copy2);
-    _ = vsnprintf(buf.ptr, len + 1, fmt, if (va_is_array) @ptrCast(&copy2) else copy2);
-    return buf;
+pub export fn slang__pushformatted(th: *Thread, text: [*]const u8, len: usize) void {
+    th.push(th.vm.str(text[0..len]));
+}
+
+pub export fn slang__errorformatted(th: *Thread, kind: ?[*:0]const u8, text: [*]const u8, len: usize) c_int {
+    th.vm.setErrorOwned(th.vm.dupeZ(text[0..len]));
+    if (kind) |k| th.vm.err.?.kind = th.vm.gpa.dupe(u8, std.mem.span(k)) catch oom();
+    return err;
 }
 
 // ---- stack ----
@@ -247,14 +239,6 @@ pub export fn slang_pushstring(th: *Thread, s: ?[*:0]const u8) void {
 
 pub export fn slang_pushlstring(th: *Thread, s: [*]const u8, len: usize) void {
     th.push(th.vm.str(s[0..len]));
-}
-
-pub export fn slang_pushfstring(th: *Thread, fmt: [*:0]const u8, ...) callconv(.c) void {
-    var ap = @cVaStart();
-    defer @cVaEnd(&ap);
-    const s = vformat(th.vm, fmt, &ap);
-    defer th.vm.gpa.free(s);
-    th.push(th.vm.str(s));
 }
 
 pub export fn slang_pushcfunction(th: *Thread, f: CFunction, name: ?[*:0]const u8) void {
@@ -377,21 +361,6 @@ pub export fn slang_failed(th: *Thread) bool {
 }
 
 // ---- errors ----
-
-pub export fn slang_error(th: *Thread, fmt: [*:0]const u8, ...) callconv(.c) c_int {
-    var ap = @cVaStart();
-    defer @cVaEnd(&ap);
-    th.vm.setErrorOwned(vformat(th.vm, fmt, &ap));
-    return err;
-}
-
-pub export fn slang_errorkind(th: *Thread, kind: [*:0]const u8, fmt: [*:0]const u8, ...) callconv(.c) c_int {
-    var ap = @cVaStart();
-    defer @cVaEnd(&ap);
-    th.vm.setErrorOwned(vformat(th.vm, fmt, &ap));
-    th.vm.err.?.kind = th.vm.gpa.dupe(u8, std.mem.span(kind)) catch oom();
-    return err;
-}
 
 pub export fn slang_argerror(th: *Thread, arg: c_int, msg: ?[*:0]const u8) c_int {
     th.vm.setErrorKind("argument", "bad argument #{d} to '{s}' ({s})", .{ arg, fnName(th), span(msg) });

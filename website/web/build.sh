@@ -95,6 +95,8 @@ fi
 # the VM, compiled by Zig for wasm32-emscripten
 SYSROOT=$(em-config CACHE)/sysroot
 (cd zig && "$ZIG" build -Dtarget=wasm32-emscripten -Doptimize=ReleaseFast --sysroot "$SYSROOT" -p zig-out-em)
+# slang.h's printf-style functions are C, apart from the VM's object
+emcc -c zig/src/capi_varargs.c -o "$CACHE/capi_varargs.o" -O2 -std=c11
 
 # the kernel package's interpreter and JIT (packages/kernel/native; in the
 # browser the JIT makes WebAssembly, see native/wasm.zig), linked in: the VM knows it as a built-in extension, which a
@@ -146,7 +148,7 @@ done
 # headers go into the virtual file system, where the packages look for
 # installed libraries (HEAPF32: raylib's audio, miniaudio, reads samples
 # through it; a callback is a function libffi adds to the table)
-em++ zig/zig-out-em/lib/slang.o "$CACHE/symbols.o" "$CACHE/kernel/lib/kernel_vm.o" "$CACHE/linked.o" "$CACHE/kernel_web.o" "$CACHE/bridge.o" "$RAYLIB/web-es3/libraylib.a" \
+em++ zig/zig-out-em/lib/slang.o "$CACHE/capi_varargs.o" "$CACHE/symbols.o" "$CACHE/kernel/lib/kernel_vm.o" "$CACHE/linked.o" "$CACHE/kernel_web.o" "$CACHE/bridge.o" "$RAYLIB/web-es3/libraylib.a" \
   "$BOX2D/web/src/libbox2d.a" $JOLT_LIBS "$LIBFFI/out/lib/libffi.a" \
   -o "$OUT/slang-gfx.js" -O2 --profiling-funcs -sUSE_GLFW=3 -sALLOW_MEMORY_GROWTH=1 -sALLOW_TABLE_GROWTH=1 -sSTACK_SIZE=8MB \
   -sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=createSlang -sINVOKE_RUN=0 -sEXIT_RUNTIME=1 \

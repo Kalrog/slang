@@ -29,12 +29,16 @@ pub fn build(b: *std.Build) void {
     // Emscripten (the playground with raylib, see website/): Zig compiles the
     // VM to an object and emcc links it (with raylib and Emscripten's JS
     // runtime); `zig build -Dtarget=wasm32-emscripten --sysroot <emscripten
-    // cache/sysroot>` installs lib/slang.o
+    // cache/sysroot>` installs lib/slang.o. slang.h's printf-style functions
+    // (src/capi_varargs.c) are not in it: emcc compiles and links them.
     if (target.result.os.tag == .emscripten) {
         const obj = b.addObject(.{ .name = "slang", .root_module = mod });
         b.getInstallStep().dependOn(&b.addInstallFile(obj.getEmittedBin(), "lib/slang.o").step);
         return;
     }
+
+    // slang.h's printf-style functions are C (see src/capi_varargs.c)
+    mod.addCSourceFile(.{ .file = b.path("src/capi_varargs.c"), .flags = &.{"-std=c11"} });
 
     const exe = b.addExecutable(.{
         .name = "slang",
@@ -163,6 +167,7 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     rt_mod.addOptions("build_options", options);
+    rt_mod.addCSourceFile(.{ .file = b.path("src/capi_varargs.c"), .flags = &.{"-std=c11"} });
     rt_mod.addImport("seed", seed);
     const rt = b.addLibrary(.{ .name = "slang", .linkage = .static, .root_module = rt_mod });
     rt.bundle_compiler_rt = true;
@@ -202,6 +207,9 @@ const Native = struct {
 /// headers and its vendored library (linking is the caller's).
 fn nativeModule(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, n: Native) *std.Build.Module {
     const m = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
+    // (strict C11 hides POSIX's strdup and its kind from glibc's and musl's
+    // headers; macOS's show them anyway)
+    m.addCMacro("_DEFAULT_SOURCE", "1");
     m.addCSourceFile(.{ .file = b.path(b.fmt("../extensions/native/{s}", .{n.source})), .flags = n.flags });
     m.addIncludePath(b.path("include"));
     if (n.prefix) |prefix| m.addIncludePath(.{ .cwd_relative = b.fmt("{s}/include", .{prefix}) });

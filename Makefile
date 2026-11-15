@@ -52,7 +52,8 @@
 #   make switchback-test run its tests (no window, no audio device: the drivetrain, the truck on Jolt, the land, the trails, the bot, exploring, a run, the sound)
 #   make switchback-web  Switchback in the browser: a site of its own in examples/switchback/web (the graphics VM, built by wasm-gfx, and the game's files)
 #   make switchback-web-serve  the same, served at http://127.0.0.1:8080/ (no daily run)
-#   make switchback-daily  the daily run: the site and everyone's times of the day (examples/switchback/server, times in examples/switchback/daily.db) at http://127.0.0.1:8080/
+#   make switchback-daily switchback-release  the daily run: the site and everyone's times of the day (examples/switchback/server, times in examples/switchback/daily.db) at http://127.0.0.1:8080/
+#   make switchback-release  refresh the deploy repo of the daily run (DEST=../vps/switchback): the site, the server, slang's source
 #   make switchback-sound SCENE=engine  render a part of its sound to a WAV and play it (examples/switchback/tool/sound.slang; ARGS="..." for the scene, e.g. SCENE=drive ARGS="25 300 40 heavy")
 #   make siege        run the siege catapult game (examples/siege) on the raylib and jolt packages
 #   make inkblast     run the Inkblast party game (examples/inkblast): slang/net, bots, raylib
@@ -320,6 +321,10 @@ switchback-web-serve: switchback-web
 
 switchback-daily: switchback-web
 	bin/slang run examples/switchback/server/main.slang 8080
+
+DEST ?= ../vps/switchback
+switchback-release: build
+	examples/switchback/deploy/release.sh $(DEST)
 
 # a scene of tool/scenes rendered to a WAV (no audio device needed), then
 # played where there is a player for it

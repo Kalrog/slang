@@ -206,6 +206,42 @@ between frames instead of in isolates of its own. Settings are kept in
 the browser's storage. The page passes its query to the game as the
 environment: `?SWITCHBACK_SEED=29` is valley 29.
 
+## The daily run
+
+```sh
+make switchback-daily       # the site and the day's times at http://127.0.0.1:8080/
+```
+
+Every day has one valley, the same for everyone (day 1 was 15 November
+2026; a day starts at midnight UTC). The title offers the day's Summit
+Run first and no other valley. The first run a player finishes on a day is the one
+that counts (restarts on the way are fine); the finish screen then shows
+the day's times as a graph, the player's place among them, and the
+fastest of those who gave a name. Later runs that day are practice,
+shown against the counted one. Players are anonymous: the browser keeps
+a random id, and a name given with the chip at the top right ("Driving
+as ...") is shown with their time. Share copies a line with the time
+and the place.
+
+The site is two pages in `site/` (copied next to the game by
+`make switchback-web`): the drive (`index.html`, `page.js`) and the
+day's board (`board.html`, `board.js`: the graph of everyone's times,
+your place, the fastest by name, earlier days), with the header, the
+player's chip for their name and the countdown to the next valley in
+`common.js` and `style.css`. `design/` keeps the mockups the look was
+chosen from.
+
+The server (`server/`, slang on SQLite) serves the site and four calls:
+`GET /api/today`, `POST /api/runs`, `GET /api/days/:day`,
+`POST /api/name`. The game and its page talk in messages
+(`game/daily.slang`, `site/page.js`); the page does the talking to the
+server. Runs are checked for sense (times, splits) but not replayed: a
+determined player can send any time.
+
+`bin/slang run examples/switchback/server/main.slang [port] [site]
+[database]` runs it elsewhere; it listens on 127.0.0.1 and wants a web
+server in front of it for the world (and TLS).
+
 ## How it is laid out
 
 - `game/`: the game without a window: the land, the trails, the truck, the

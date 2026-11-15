@@ -11,6 +11,7 @@
 //   w.car.pos, w.land
 //   world.destroy(w)
 local math = require("slang/math")
+local time = require("slang/time")
 local jolt = require("jolt")
 local terrain = require("game/terrain")
 local route = require("game/route")
@@ -125,11 +126,44 @@ local func solids(w){
 // than the whole map has no trail); a land made before can be given
 // instead; trail false leaves the trail out, plants false what grows;
 // progress is called before each part of the making with the share done
-// so far.
+// so far, and in between where the making allows (terrain.tick), the
+// share moving on through the part by how long it takes in a browser.
 func m.new(options){
   options = options or {}
   // (what is being made, for whoever shows it)
-  local progress = options.progress or func(share, what){}
+  local told = options.progress or func(share, what){}
+  // each part's share of the bar, from where it starts to where the next
+  // one does, and about how long it takes (ms, in a browser, on one thread)
+  local PARTS = {
+    ["Raising the mountains"]: {0.02, 0.15, 2700},
+    ["Finding the trails"]: {0.15, 0.39, 5200},
+    ["Cutting the trails"]: {0.39, 0.55, 3400},
+    ["Laying out the ground and the light"]: {0.55, 0.76, 4100},
+    ["Setting the truck on its wheels"]: {0.76, 0.81, 800},
+    ["Planting the woods"]: {0.81, 0.9, 1000},
+  }
+  local part = null
+  local part_name = null
+  local began = 0
+  local drawn = 0
+  local func progress(share, what){
+    part = PARTS[what]
+    part_name = what
+    began = time.clock()
+    drawn = began
+    told(share, what)
+  }
+  if(options.progress != null){
+    terrain.tick = func(){
+      local now = time.clock()
+      if(part == null or now - drawn < 150){
+        return null
+      }
+      drawn = now
+      local through = math.min(0.95, (now - began) / part[2])
+      told(part[0] + (part[1] - part[0]) * through, part_name)
+    }
+  }
   progress(0.02, "Raising the mountains")
   local land = options.land or terrain.generate(options.seed or 7, {size: options.size})
   local net = null
@@ -196,6 +230,7 @@ func m.new(options){
       props.add(w.plants, set)
     }
   }
+  terrain.tick = null
   local start = options.start
   local yaw = options.yaw or 0
   if(start == null and trail != null){

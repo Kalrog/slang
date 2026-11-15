@@ -336,6 +336,9 @@ local func dim_scene(alpha){
 // [trail_length]: m, of the trail to the summit (shown when
 //   [trails_length] is not given)
 // [trails_length]: m, of all the valley's trails
+// [daily]: the daily run ({day, date, counted?}): the day's Summit Run
+//   comes first, and there is no other valley to choose (nor Quit, in a
+//   browser)
 func m.title(info){
   info = info or {}
   local input = moves()
@@ -354,24 +357,39 @@ func m.title(info){
   if(input.start){
     input.accept = true
   }
+  local daily = info.daily
+  local sound = {name: "Sound", value: m.volume}
+  local entries = {"Explore", "Summit Run", "Garage", "New valley", "Controls", sound, "Quit"}
+  local actions = {"explore", "drive", "garage", "seed", "controls", "volume", "quit"}
+  local quit_row = 6
+  if(daily != null){
+    entries = {"Daily run", "Explore", "Garage", "Controls", sound}
+    actions = {"drive", "explore", "garage", "controls", "volume"}
+    quit_row = null
+  }
   // (Esc puts the bar on Quit; there it quits)
   local quit = false
-  if(input.back){
+  if(input.back and quit_row != null){
     note("back")
-    if(state.selected.title == 6){
+    if(state.selected.title == quit_row){
       quit = true
     } else {
-      state.selected.title = 6
+      state.selected.title = quit_row
     }
   }
-  local sound = {name: "Sound", value: m.volume}
-  local chosen = column("title", {"Explore", "Summit Run", "Garage", "New valley", "Controls", sound, "Quit"}, x,
-    270 * s, input, {step: 40})
+  local chosen = column("title", entries, x, 270 * s, input, {step: 40})
 
   // the valley
   local sy = h - 152 * s
   local sx = x
-  sx = sx + stat(sx, sy, "valley", concat("No. ", string(info.seed or 0))) + 34 * s
+  if(daily != null){
+    sx = sx + stat(sx, sy, "daily run", concat("No. ", string(daily.day))) + 34 * s
+    if(daily.date != null){
+      sx = sx + stat(sx, sy, "date", m.date(daily.date)) + 34 * s
+    }
+  } else {
+    sx = sx + stat(sx, sy, "valley", concat("No. ", string(info.seed or 0))) + 34 * s
+  }
   if(info.trails_length != null){
     sx = sx + stat(sx, sy, "trails", concat(str.format("%.1f", info.trails_length / 1000), " km")) + 34 * s
   } else if(info.trail_length != null){
@@ -380,7 +398,13 @@ func m.title(info){
   if(info.camps_total != null){
     sx = sx + stat(sx, sy, "camps found", concat(string(info.camps_found or 0), " / ", string(info.camps_total))) + 34 * s
   }
-  if(info.best != null){
+  if(daily != null){
+    if(daily.counted != null){
+      stat(sx, sy, "today's run", ui.clock(daily.counted), colors.amber)
+    } else {
+      stat(sx, sy, "today's run", "not driven yet", colors.dim)
+    }
+  } else if(info.best != null){
     stat(sx, sy, "summit run", ui.clock(info.best), colors.amber)
   } else {
     stat(sx, sy, "summit run", "not driven yet", colors.dim)
@@ -398,21 +422,32 @@ func m.title(info){
     return "volume"
   }
   if(chosen != null){
-    local actions = {"explore", "drive", "garage", "seed", "controls", "volume", "quit"}
     return actions[chosen]
   }
   return null
 }
 
+local MONTHS = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"}
+
+// date(iso: string) -> "17 Nov 2026"
+func m.date(iso){
+  local parts = str.split(iso, "-")
+  if(len(parts) != 3){
+    return iso
+  }
+  local month = to_int(str.to_number(parts[1]) or 1)
+  return concat(string(to_int(str.to_number(parts[2]) or 1)), " ", MONTHS[math.max(0, math.min(11, month - 1))], " ", parts[0])
+}
+
 // ------------------------------------------------------------ the pause
 
-// pause(mode?: string) -> "resume" | "restart" | "map" | "garage" |
+// pause(mode?: string, options?: {quit?: bool}) -> "resume" | "restart" | "map" | "garage" |
 //   "volume" | "title" | "quit" | null
 // The game held: the scene dimmed, the choices in the middle. Exploring
 // (mode "explore") the map is among them and there is nothing to
 // restart. Esc (or the gamepad's B or Start) resumes. "volume": the
 // player changed the sound's volume ([volume] is the new one).
-func m.pause(mode){
+func m.pause(mode, options){
   local input = moves()
   local s = ui.s
   if(opened("pause")){
@@ -425,6 +460,11 @@ func m.pause(mode){
   if(mode == "explore"){
     entries = {"Resume", "Map", "Garage", sound, "Title", "Quit"}
     actions = {"resume", "map", "garage", "volume", "title", "quit"}
+  }
+  // (options.quit false: no Quit, as on the daily site)
+  if(options != null and options.quit == false){
+    remove(entries, len(entries) - 1)
+    remove(actions, len(actions) - 1)
   }
   local pw = 320 * s
   local ph = (88 + len(entries) * 42) * s
@@ -448,6 +488,136 @@ func m.pause(mode){
   return null
 }
 
+// ------------------------------------------------------------ the day
+
+// 1 -> "1st", 22 -> "22nd", 113 -> "113th"
+local func ordinal(n){
+  local tens = n % 100
+  local suffix = "th"
+  if(tens < 11 or tens > 13){
+    local last = n % 10
+    if(last == 1){
+      suffix = "st"
+    } else if(last == 2){
+      suffix = "nd"
+    } else if(last == 3){
+      suffix = "rd"
+    }
+  }
+  return concat(string(n), suffix)
+}
+
+// 1234 -> "1,234"
+local func thousands(n){
+  local text = string(n)
+  local out = ""
+  local k = 0
+  for(local i = len(text) - 1; i >= 0; i = i - 1){
+    if(k > 0 and k % 3 == 0){
+      out = concat(",", out)
+    }
+    out = concat(str.substring(text, i, i + 1), out)
+    k = k + 1
+  }
+  return out
+}
+
+// the day's times beside the result: where the player's run stands among
+// everyone's of the day, as bars of how many took how long, the fastest
+// with names (d: game/daily's view())
+local func daily_panel(x, y, w, h, d){
+  local s = ui.s
+  ui.panel(x, y, w, h, {16, 18, 20, 230})
+  local left = x + 32 * s
+  local right = x + w - 32 * s
+  local cx = x + w / 2
+  ui.label(cx, y + 26 * s, concat("daily run no. ", string(d.day or 0)), 13, colors.amber, 0)
+  if(d.date != null){
+    ui.label(cx, y + 46 * s, m.date(d.date), 10, colors.dim, 0)
+  }
+  local r = d.results
+  if(d.status == "sending" or (d.status == null)){
+    ui.label(cx, y + h / 2 - 8 * s, "sending your time...", 12, colors.dim, 0)
+    return null
+  }
+  if(d.status == "offline" or r == null){
+    ui.label(cx, y + h / 2 - 20 * s, "the day's times could not be reached", 12, colors.paper, 0)
+    ui.label(cx, y + h / 2 + 4 * s, d.error or "", 9, colors.dim, 0)
+    return null
+  }
+  // where the player stands
+  local yy = y + 74 * s
+  if(r.you != null){
+    ui.text_center(cx, yy, concat(ordinal(r.you.rank), " of ", thousands(r.count)), 34, colors.paper, 0.03)
+    yy = yy + 46 * s
+    local share = to_int(r.you.ahead_of * 100 + 0.5)
+    local line = if(r.count > 1){ concat("faster than ", string(share), "% of today's drivers") } else { "the first to the summit today" }
+    ui.label(cx, yy, line, 11, colors.amber, 0)
+  } else {
+    ui.text_center(cx, yy, thousands(r.count), 34, colors.paper, 0.03)
+    yy = yy + 46 * s
+    ui.label(cx, yy, "drivers today", 11, colors.dim, 0)
+  }
+  yy = yy + 22 * s
+  if(d.practice and d.counted != null){
+    ui.label(cx, yy, concat("practice: today's counted run was ", ui.clock(d.counted)), 9, colors.dim, 0)
+  } else if(d.counted_now){
+    ui.label(cx, yy, "this run is your run of the day", 9, colors.dim, 0)
+  }
+  // the bars
+  local counts = r.bins.counts
+  local n = len(counts)
+  local gy = yy + 26 * s
+  local gh = 120 * s
+  local base = gy + gh
+  if(n > 0){
+    local most = 1
+    for(let local c in values(counts)){
+      most = math.max(most, c)
+    }
+    local bw = (right - left) / n
+    local mine = null
+    if(r.you != null){
+      mine = math.min(n - 1, math.max(0, to_int(math.floor((r.you.time - r.bins.from) / r.bins.width))))
+    }
+    for(local k = 0; k < n; k = k + 1){
+      local bh = math.max(if(counts[k] > 0){ 2 * s } else { 0 }, gh * counts[k] / most)
+      local color = if(k == mine){ colors.amber } else { {242, 234, 216, 110} }
+      rl.draw.rectangle_rec({left + k * bw + 1 * s, base - bh, math.max(1, bw - 2 * s), bh}, color)
+    }
+    rl.draw.rectangle_rec({left, base, right - left, 1 * s}, colors.edge)
+    // this run's time, when it is practice (not among the bars)
+    local at_time = func(t){
+      return left + (t - r.bins.from) / (r.bins.width * n) * (right - left)
+    }
+    if(d.practice and d.time != null){
+      local px = math.max(left, math.min(right, at_time(d.time)))
+      rl.draw.rectangle_rec({px - 1 * s, gy - 6 * s, 2 * s, gh + 6 * s}, colors.paper)
+      ui.label(px, gy - 20 * s, concat("this run ", ui.clock(d.time)), 9, colors.paper, 0)
+    }
+    ui.label(left, base + 8 * s, ui.clock(r.bins.from, false), 9, colors.dim)
+    ui.label(right, base + 8 * s, concat(ui.clock(r.bins.from + r.bins.width * n, false), "+"), 9, colors.dim, 1)
+    if(r.median != null){
+      ui.label(cx, base + 8 * s, concat("median ", ui.clock(r.median)), 9, colors.dim, 0)
+    }
+  }
+  // the fastest, by name
+  local ty = base + 36 * s
+  local top = r.top or {}
+  if(len(top) > 0){
+    rl.draw.rectangle_rec({left, ty - 6 * s, right - left, 1 * s}, colors.edge)
+    for(local i = 0; i < len(top) and ty + 22 * s < y + h - 12 * s; i = i + 1){
+      local row = top[i]
+      local color = if(row.you){ colors.amber } else { colors.paper }
+      // (names as their players wrote them, not in capitals)
+      ui.figures(left + 14 * s, ty, concat(string(i + 1), "."), 13, colors.dim, 1)
+      ui.text(left + 24 * s, ty - 1 * s, row.name, 16, color)
+      ui.figures(right, ty, ui.clock(row.time), 13, color, 1)
+      ty = ty + 22 * s
+    }
+  }
+}
+
 // ------------------------------------------------------------ the result
 
 // finish(result: {time?: float, penalty?: float, splits?: {{name: string,
@@ -457,6 +627,8 @@ func m.pause(mode){
 // best time or that this is it, the splits against the best run's, what
 // it cost in recoveries and damage.
 // [best]: the best time before this run, seconds
+// [daily]: the daily run's view (game/daily's view()): the day's times
+//   are drawn beside the result, as a graph with the player's among them
 func m.finish(result){
   result = result or {}
   local input = moves()
@@ -474,7 +646,15 @@ func m.finish(result){
   local ph = (312 + rows * 23) * s
   local px = (ui.w - pw) / 2
   local py = (ui.h - ph) / 2
-  local cx = ui.w / 2
+  if(result.daily != null){
+    local gw = 460 * s
+    local gap = 20 * s
+    ph = math.max(ph, 470 * s)
+    py = (ui.h - ph) / 2
+    px = (ui.w - pw - gap - gw) / 2
+    daily_panel(px + pw + gap, py, gw, ph, result.daily)
+  }
+  local cx = px + pw / 2
   ui.panel(px, py, pw, ph, {16, 18, 20, 230})
   mark(cx - 20 * s, py + 20 * s, 40 * s, colors.amber)
   ui.label(cx, py + 66 * s, "summit reached", 13, colors.amber, 0)

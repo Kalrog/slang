@@ -50,6 +50,9 @@
 //   SWITCHBACK_MUTE=1          no sound (nothing is computed)
 //   SWITCHBACK_VOLUME=v        the volume, 0 to 1, instead of the settings'
 //                              (0: computed, and not heard)
+//   SWITCHBACK_DAILY=n         the daily run of day n (the daily site's
+//                              page sets it, with the day's seed: see
+//                              game/daily)
 local rl = require("raylib")
 local os = require("slang/os")
 local str = require("slang/string")
@@ -71,6 +74,7 @@ local hud = require("render/hud")
 local menu = require("render/menu")
 local markers = require("render/markers")
 local map = require("render/map")
+local daily = require("game/daily")
 local director = require("sound/director")
 local sound_params = require("sound/params")
 
@@ -586,6 +590,10 @@ local func handle(events){
     } else if(e.kind == "finish"){
       hud.message(concat("Summit  ", clock(e.time)), "good", 4)
       game.finish_wait = 2.5
+      // (the day's run goes to the page, and from there to the server)
+      if(daily.on() and game.mode == "trail"){
+        daily.finished(run.result(game.run), seed)
+      }
     }
   }
 }
@@ -837,6 +845,7 @@ local func update_title(dt){
     trails_length: total,
     camps_found: explore.found(game.explore, w),
     camps_total: len(w.camps),
+    daily: if(daily.on()){ {day: daily.day, date: daily.date, counted: daily.counted} } else { null },
   })
   if(action == "explore" or action == "drive"){
     game.mode = if(action == "explore"){ "explore" } else { "trail" }
@@ -863,7 +872,7 @@ local func update_title(dt){
 
 local func update_pause(dt){
   draw_world(chase_camera(0), {fade: game.fade * 0.6})
-  local action = menu.pause(game.mode)
+  local action = menu.pause(game.mode, {quit: not daily.on()})
   if(action == "resume"){
     game.screen = "drive"
     rl.mouse.locked = true
@@ -890,7 +899,11 @@ local func update_finish(dt){
   local w = game.world
   world.step(w, {back: 1}, dt)
   draw_world(turning_camera(dt, 10, 3.2, 0.12), {fade: game.fade})
-  local action = menu.finish(run.result(game.run))
+  local result = run.result(game.run)
+  if(daily.on() and game.mode == "trail"){
+    result.daily = daily.view()
+  }
+  local action = menu.finish(result)
   if(action == "again"){
     restart()
     game.screen = "drive"
@@ -986,6 +999,7 @@ for(not rl.window.should_close and not game.quit){
   game.time = game.time + dt
   game.fade = math.min(1, game.fade + dt * 1.2)
   local from = time.clock()
+  daily.poll()
   rl.drawing{
     if(game.screen == "title"){
       update_title(dt)

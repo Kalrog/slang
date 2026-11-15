@@ -81,6 +81,11 @@ local func river_points(rng, half){
   return {points: points, step: step, lake: {z: lake_z, level: lake_level}}
 }
 
+// tick: null, or a function called between the pieces of the land's
+// making where nothing else could show how it goes (in a browser, where it
+// all runs on one thread: world.new draws its loading screen there)
+m.tick = null
+
 // the rows j0 to j1 of something a module of kernels computes, in an
 // isolate of its own (it crosses as code: it uses only what it is given)
 local func band(module, name, j0, j1, ...rest){
@@ -100,8 +105,16 @@ func m.bands(module, name, n, workers, ...rest){
 //   ...rest): the same for the rows from `from` up to `to` only
 func m.rows(module, name, from, to, workers, ...rest){
   if(not isolate.available()){
-    // (a browser: no threads, all rows here)
-    band(module, name, from, to, ...rest)
+    // (a browser: no threads, all rows here, in pieces with a tick between
+    // when someone shows how the making goes)
+    local pieces = if(m.tick != null){ 12 } else { 1 }
+    local size = math.max(1, to_int((to - from + pieces - 1) / pieces))
+    for(local j0 = from; j0 < to; j0 = j0 + size){
+      band(module, name, j0, math.min(to, j0 + size), ...rest)
+      if(m.tick != null){
+        m.tick()
+      }
+    }
     return null
   }
   workers = workers or math.max(1, math.min(os.cpu_count() - 1, 12))

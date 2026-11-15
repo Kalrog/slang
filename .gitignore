@@ -39,6 +39,7 @@ examples/granular/takes/
 /website/web/.cache/
 # Switchback's site (make switchback-web)
 /examples/switchback/web/
+/examples/switchback/daily.db*
 
 # build outputs
 /build/

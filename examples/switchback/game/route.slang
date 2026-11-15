@@ -19,6 +19,14 @@ local math = require("slang/math")
 local kernel = require("kernel")
 local vec = require("game/vec")
 local terrain = require("game/terrain")
+
+// (between kernels: whoever shows the making of the land may draw a frame,
+// see terrain.tick)
+local func tick(){
+  if(terrain.tick != null){
+    terrain.tick()
+  }
+}
 local trail_kernels = require("game/trail")
 local land_kernels = require("game/land")
 
@@ -416,6 +424,7 @@ local func find(g, x0, x1, z0, z1, score){
 // the square a to the square b (-1: to any of g.targets), its squares
 // from a on, and the direction it arrives in (see trail.kernel's ways)
 local func way(g, a, heading, b, most){
+  tick()
   local at = trail_kernels.ways(
     g.cost, g.from, g.height, g.steep, g.wet, g.toll, g.cm, g.cell, a, heading,
     b, m.GRADE, most, g.dir_x, g.dir_z, g.heap_key, g.heap_cell, g.room, g.done,
@@ -469,6 +478,7 @@ local func summit_way(land, g){
     // steep for a track (no goal: the search goes everywhere it can)
     g.targets:fill(0)
     local from_shore = square_of(g, shore.x, shore.z)
+    tick()
     trail_kernels.ways(
       g.cost, g.from, g.height, g.steep, g.wet, g.toll, cm, g.cell, from_shore,
       first.heading, -1, m.GRADE, -m.CLIMB, g.dir_x, g.dir_z, g.heap_key,
@@ -608,6 +618,7 @@ local func roomy(land, points){
       y[i] = sum / weight
     }
     pairs = pairs or kernel.int32:array(most * 2)
+    tick()
     local took = trail_kernels.spread(
       x, z, y, count, 2 * m.HALF_WIDTH + m.ROOM_WIDER, m.ROOM_GAP, m.ROOM_STILL,
       80, pairs, most, kernel.float:array(count), kernel.float:array(count),
@@ -1696,17 +1707,20 @@ func m.carve(land, trails, options){
       high = math.max(high, p.z)
     }
     own.dist:fill(1.0e9)
+    tick()
     trail_kernels.near(
       own.dist, own.half, own.along, own.mud, n, land.spacing, -land.half, flat,
       count, m.REACH, m.STEP
     )
     own.dist2:fill(1.0e9)
+    tick()
     trail_kernels.beside(
       own.dist2, own.along2, n, land.spacing, -land.half, flat, count, m.REACH,
       m.STEP, own.along, m.APART
     )
     local line = fine_line(trail)
     // (a pass where the track would be a trench: see trail.kernel's saddle)
+    tick()
     trail_kernels.saddle(
       fine.heights, fine.n, fine.spacing, -land.half, line.flat, line.count, 4,
       m.DEEPEST, land.seed, dist, half, n, land.spacing
@@ -1725,6 +1739,7 @@ func m.carve(land, trails, options){
       line.count, m.FINE_STEP, m.REACH, land.seed, dist, half, own.dist2,
       own.along2
     )
+    tick()
     trail_kernels.merge(
       dist, half, along, mud, which, own.dist, own.half, own.along, own.mud,
       n * n, trail.id or 0
@@ -1736,6 +1751,7 @@ func m.carve(land, trails, options){
   for(let local trail in values(trails)){
     for(let? local z in values({trail.zones.start, trail.zones.finish})){
       local radius = vec.clamp(z.radius + 1, z.half + 3.5, 12)
+      tick()
       trail_kernels.pad(
         fine.heights, fine.n, fine.spacing, -land.half, z.x, z.z, z.y, z.g.x,
         z.g.z, radius, radius + 14, dist, half, n, land.spacing
@@ -1767,6 +1783,7 @@ func m.clear(land, margin){
   local block = 2
   local size = to_int(land.n / block)
   local data = kernel.uint8:array(size * size, {shared: true})
+  tick()
   trail_kernels.clear(
     data, size, block, land.trail.dist, land.trail.half, land.n, margin or 2
   )

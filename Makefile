@@ -21,6 +21,8 @@
 #   make midi-test    run the midi package's tests (packages/midi; no device needed)
 #   make microphone-test run the microphone package's tests (packages/microphone; no device needed)
 #   make kernel-test  run the kernel package's tests (packages/kernel; ships its interpreter)
+#   make studio-test  run the studio package's tests (packages/studio: instruments, effects, the mixer, sequences; no sound card needed)
+#   make studio-demo  render the studio's demo piece to packages/studio/demo.wav and say how much of a core it takes
 #   make window-test  run the window package's tests (packages/window; ships SDL3, opens hidden windows)
 #   make gpu-test     run the gpu package's tests (packages/gpu; ships wgpu-native, no window needed)
 #   make gpu          run the gpu examples in windows (examples/gpu: triangle, cube)
@@ -76,7 +78,7 @@ LIB_SRC  := $(wildcard slang/lib/*.slang)
 COMPILER_SRC := $(wildcard slang/compiler/*.slang)
 SEED_DIR := boot/slang
 
-.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed fixpoint bench bench-compare bench-vectors raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test inkblast inkblast-test synth synth3d synth-test synth-mix modular modular-test modular-demos live live-test dsp car dsp-test granular granular-test delve delve-test courier courier-test switchback switchback-test switchback-web switchback-web-serve switchback-daily switchback-sound siege siege-test midi-test microphone-test window-test gpu-test gpu swarm kernel-test kernel-bench fm fm3d fm-test fm-gen clean doc \
+.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed fixpoint bench bench-compare bench-vectors raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test inkblast inkblast-test synth synth3d synth-test synth-mix modular modular-test modular-demos live live-test dsp car dsp-test granular granular-test delve delve-test courier courier-test switchback switchback-test switchback-web switchback-web-serve switchback-daily switchback-sound siege siege-test midi-test microphone-test studio-test studio-demo window-test gpu-test gpu swarm kernel-test kernel-bench fm fm3d fm-test fm-gen clean doc \
         vscode vscode-grammar
 
 all: build
@@ -148,8 +150,8 @@ test: build unit
 	@if [ -d "packages/gpu/lib/$(SLANG_PLATFORM)" ]; then $(MAKE) gpu-test; \
 	  else echo "no wgpu-native for $(SLANG_PLATFORM): packages/gpu not tested"; fi
 	$(MAKE) inkblast-test
-	@if [ -d "packages/kernel/lib/$(SLANG_PLATFORM)" ]; then $(MAKE) kernel-test && $(MAKE) fm-test && $(MAKE) modular-test && $(MAKE) live-test && $(MAKE) dsp-test && $(MAKE) granular-test; \
-	  else echo "no kernel/vm for $(SLANG_PLATFORM): packages/kernel, packages/dsp, examples/fm, examples/modular, examples/live, examples/dsp and examples/granular not tested"; fi
+	@if [ -d "packages/kernel/lib/$(SLANG_PLATFORM)" ]; then $(MAKE) kernel-test && $(MAKE) fm-test && $(MAKE) modular-test && $(MAKE) live-test && $(MAKE) dsp-test && $(MAKE) granular-test && $(MAKE) studio-test; \
+	  else echo "no kernel/vm for $(SLANG_PLATFORM): packages/kernel, packages/dsp, packages/studio, examples/fm, examples/modular, examples/live, examples/dsp and examples/granular not tested"; fi
 	@if [ -d "packages/kernel/lib/$(SLANG_PLATFORM)" ] && [ -d "packages/jolt/lib/$(SLANG_PLATFORM)" ]; then $(MAKE) switchback-test; \
 	  else echo "no kernel/vm or no joltc for $(SLANG_PLATFORM): examples/switchback not tested"; fi
 
@@ -308,6 +310,12 @@ car: build
 dsp-test: build
 	cd packages/dsp && ../../bin/slang test test
 	cd examples/dsp && ../../bin/slang test test
+
+studio-test: build
+	cd packages/studio && ../../bin/slang test test
+
+studio-demo: build
+	cd packages/studio && ../../bin/slang run tool/demo.slang demo.wav
 
 granular: build
 	cd examples/granular && ../../bin/slang run main.slang

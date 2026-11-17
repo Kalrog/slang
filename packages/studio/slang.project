@@ -1,0 +1,14 @@
+{
+  name: "studio",
+  dependencies: {
+    kernel: {path: "../kernel"},
+    midi: {path: "../midi"},
+    dsp: {path: "../dsp"},
+    microphone: {path: "../microphone"},
+  },
+  // the kernel modules the units share (studio/lib) and the FM voice
+  dialects: {
+    [".kernel"]: {grammar: "kernel/file"},
+    [".dsp"]: {grammar: "dsp/file"},
+  },
+}

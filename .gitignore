@@ -51,3 +51,5 @@ examples/granular/takes/
 # recordings made by examples/synth/mixdown.slang
 /examples/synth/mixdown/
 examples/futamura/grammar_generated.slang
+# what make studio-demo renders
+packages/studio/demo.wav

@@ -107,5 +107,6 @@ The repository's `packages/` folder holds packages to depend on by path:
 | `gpu` | WebGPU through wgpu-native |
 | `kernel` | number-crunching loops in a small language of their own, compiled |
 | `dsp` | audio processing as block diagrams, after Faust, compiled to kernels |
+| `studio` | instruments and effects on tracks, a mixer and sequences: the core of a tracker or a workstation |
 | `midi` | MIDI input and MIDI files (macOS) |
 | `microphone` | audio input (macOS) |

@@ -1,0 +1,27 @@
+// studio/lib: what the units' kernels share (`use "studio/lib"`).
+
+// PolyBLEP: the correction that takes the alias out of a jump at phase 0
+// of a wave at phase t (0..1) advancing dt per sample
+local func blep(t: float, dt: float): float {
+  if(t < dt){
+    local x = t / dt
+    return x + x - x * x - 1.0
+  }
+  if(t > 1.0 - dt){
+    local x = (t - 1.0) / dt
+    return x * x + x + x + 1.0
+  }
+  return 0.0
+}
+
+// a soft clip, tanh-like up to 3 and flat beyond
+local func soft(x: float): float {
+  if(x > 3.0){
+    return 1.0
+  }
+  if(x < -3.0){
+    return -1.0
+  }
+  local x2 = x * x
+  return x * (27.0 + x2) / (27.0 + 9.0 * x2)
+}

@@ -24,6 +24,7 @@
 #   make window-test  run the window package's tests (packages/window; ships SDL3, opens hidden windows)
 #   make gpu-test     run the gpu package's tests (packages/gpu; ships wgpu-native, no window needed)
 #   make gpu          run the gpu examples in windows (examples/gpu: triangle, cube)
+#   make swarm        a million GPU particles with sound (examples/swarm, on the gpu and window packages)
 #   make kernel-bench kernels against plain slang (sawtooth, FM operator chain, filter)
 #   make fm-gen       regenerate examples/fm/render.kernel from its algorithms
 #   make physics      run the physics examples (examples/physics: Box2D and Jolt, drawn with raylib)
@@ -75,7 +76,7 @@ LIB_SRC  := $(wildcard slang/lib/*.slang)
 COMPILER_SRC := $(wildcard slang/compiler/*.slang)
 SEED_DIR := boot/slang
 
-.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed fixpoint bench bench-compare bench-vectors raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test inkblast inkblast-test synth synth3d synth-test synth-mix modular modular-test modular-demos live live-test dsp car dsp-test granular granular-test delve delve-test courier courier-test switchback switchback-test switchback-web switchback-web-serve switchback-daily switchback-sound siege siege-test midi-test microphone-test window-test gpu-test gpu kernel-test kernel-bench fm fm3d fm-test fm-gen clean doc \
+.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed fixpoint bench bench-compare bench-vectors raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test inkblast inkblast-test synth synth3d synth-test synth-mix modular modular-test modular-demos live live-test dsp car dsp-test granular granular-test delve delve-test courier courier-test switchback switchback-test switchback-web switchback-web-serve switchback-daily switchback-sound siege siege-test midi-test microphone-test window-test gpu-test gpu swarm kernel-test kernel-bench fm fm3d fm-test fm-gen clean doc \
         vscode vscode-grammar
 
 all: build
@@ -220,6 +221,9 @@ gpu-test: build
 
 gpu: build
 	cd examples/gpu && ../../bin/slang run triangle.slang && ../../bin/slang run cube.slang
+
+swarm: build
+	cd examples/swarm && ../../bin/slang run main.slang
 
 # the kernel package ships its interpreter per platform (packages/kernel/tool/build.sh)
 kernel-test: build

@@ -32,6 +32,7 @@
 local ffi = require("slang/ffi")
 local isolate = require("slang/isolate")
 local buffer = require("slang/buffer")
+local math = require("slang/math")
 local sdl = require("window/sdl")
 local C = sdl.C
 local lib = sdl.lib
@@ -217,7 +218,8 @@ player_meta.__set = {
 // [channels]: 1 (mono) by default
 // [block]: frames per call of the block function, 128 by default
 // [latency]: how many frames SDL is given ahead of the device; 1024 by
-//   default (21 ms at 48000). Smaller reacts sooner to events and runs dry
+//   default (21 ms at 48000), and never less than two of the device's own
+//   buffers and a block. Smaller reacts sooner to events and runs dry
 //   sooner when a block takes long.
 // [args]: the arguments of setup
 func audio.play(setup, options){
@@ -250,6 +252,19 @@ func audio.play(setup, options){
   )
   if(stream == null){
     fail("SDL_OpenAudioDeviceStream")
+  }
+  // SDL's device takes a buffer of its own at a time: hold at least two of
+  // them (in this stream's frames) and a block, or the stream runs dry
+  // between the device's pulls
+  local spec = ffi.new("SDL_AudioSpec", 1, C)
+  local device_frames = ffi.new("int", 1, C)
+  if(lib.SDL_GetAudioDeviceFormat(
+    lib.SDL_GetAudioStreamDevice(stream), spec, device_frames
+  )){
+    local pull = math.ceil(device_frames[0] * cfg.sample_rate / spec.freq) | 0
+    if(cfg.latency < pull * 2 + cfg.block){
+      cfg.latency = pull * 2 + cfg.block
+    }
   }
   local state = buffer.shared("int64", STATE_SIZE)
   local timing = buffer.shared("double", TIMING_SIZE)

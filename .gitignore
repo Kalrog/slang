@@ -21,6 +21,10 @@ examples/fm/midi_map*.json
 !/packages/midi/lib/
 # microphone ships its prebuilt CoreAudio module (packages/microphone/tool/build.sh)
 !/packages/microphone/lib/
+# window ships its prebuilt SDL3 (packages/window/tool/build.sh)
+!/packages/window/lib/
+# gpu ships wgpu-native's prebuilt library (packages/gpu/tool/fetch.sh)
+!/packages/gpu/lib/
 # the granular synthesizer's last take
 examples/granular/takes/
 

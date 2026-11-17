@@ -1,0 +1,7 @@
+{
+  name: "gpu_examples",
+  dependencies: {
+    gpu: {path: "../../packages/gpu"},
+    window: {path: "../../packages/window"},
+  },
+}

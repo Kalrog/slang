@@ -731,6 +731,11 @@ for (const el of document.querySelectorAll("[data-game]")) new Game(el);
 
 const benches = [...document.querySelectorAll("[data-workbench]")].map((el) => new Workbench(el));
 
+// on a narrow screen the docs' sidebar starts closed: the page comes first
+if (matchMedia("(max-width: 52rem)").matches) {
+  document.querySelector(".doc-nav details")?.removeAttribute("open");
+}
+
 // load the VM while the reader reads
 if (benches.length) {
   const warm = () => (checker ||= new Worker2());

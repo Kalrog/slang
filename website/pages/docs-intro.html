@@ -1,5 +1,15 @@
 <p class="kicker">Docs</p>
-<h1>The standard library</h1>
+<h1>Documentation</h1>
+<p>New to slang? <a href="../guide/install.html">Install it</a> and write a
+first program, or start in the browser: <a href="../tour/">the tour</a>
+teaches the language in thirteen short steps, each one a program you can
+edit and run.</p>
+
+<h2 id="guides">Guides</h2>
+<p>How things work and how to use them, a topic a page.</p>
+{{guides}}
+
+<h2 id="library">The standard library</h2>
 <p>Every module that ships with slang, generated from the doc comments in
 its source by <code>slang doc</code>. Load a module with
 <code>require</code>: <code>local str = require("slang/string")</code>. The
@@ -8,5 +18,5 @@ need no require.</p>
 <p>Signatures are typed in the docs' own notation: <code>name?: T</code> is
 optional, <code>{T}</code> a list, <code>{[K]: V}</code> a map,
 <code>{a: T}</code> a table with fields, <code>A | B</code> either. Slang
-itself has no types; these are for readers and editors. New to the
-language? Start with <a href="../tour/">the tour</a>.</p>
+itself has no types; these are for readers and editors.</p>
+{{modules}}

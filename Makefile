@@ -94,8 +94,8 @@ wasm:
 wasm-gfx: build
 	ZIG=$(ZIG) website/web/build.sh
 
-# the website (website/out): home, tour, playground and API docs; the
-# playground needs make wasm first
+# the website (website/out): home, tour, guides, playground and API docs;
+# the playground needs make wasm first
 website: build
 	bin/slang run website/build.slang
 

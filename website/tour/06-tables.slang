@@ -6,9 +6,10 @@
 // entries, `append` adds to the end of the list, `keys` and `values`
 // iterate over everything.
 //
-// Tables compare by value with `==`, and assigning `null` removes a key
-// (only that key: the others keep their indices); `remove(list, i)` takes
-// an element out of a list and moves the later ones down.
+// Tables compare by value with `==`. `null` is a value like any other:
+// `t.x = null` stores it and the key stays, which `has` tells. `delete(t,
+// key)` takes a key out, and `remove(list, i)` takes an element out of a
+// list and moves the later ones down.
 local fruits = {"apple", "pear"}
 append(fruits, "plum")
 print(fruits[0], " ", len(fruits), "\n")
@@ -27,3 +28,8 @@ for(let local k in keys(point)){
 }
 print("\n")
 print({1, {a: 2}} == {1, {a: 2}}, "\n")
+
+point.z = null
+print(has(point, "z"), " ", count(point), "\n")
+delete(point, "z")
+print(has(point, "z"), " ", count(point), "\n")

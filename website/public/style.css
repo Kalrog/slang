@@ -1409,4 +1409,118 @@ figure.example details summary {
     align-items: flex-start;
     gap: 0.5rem;
   }
+
+  header.top nav a.ext {
+    display: none;
+  }
+}
+/* ---------------------------------------------------------------- guides */
+
+.doc-nav ul.guides li a {
+  font-family: var(--body);
+  font-size: 0.92rem;
+}
+
+.doc.guide h1 {
+  font-family: var(--display);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.doc.guide h3 {
+  font-size: 1.1rem;
+  margin: 1.8rem 0 0.5rem;
+}
+
+.doc.guide li {
+  margin: 0.35rem 0;
+}
+
+.doc.guide ul.toc.on-page li {
+  margin: 0;
+  padding: 0.12rem 0;
+  break-inside: avoid;
+}
+
+/* operators are shown as they are typed */
+.doc.guide p code,
+.doc.guide li code,
+.doc.guide td code {
+  font-variant-ligatures: none;
+}
+
+.doc .pager {
+  margin-top: 3rem;
+}
+
+.doc h3.group {
+  font: 700 0.75rem/1 var(--body);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin: 1.8rem 0 0.2rem;
+}
+
+.doc dl.guides dt a {
+  font-family: var(--display);
+  font-size: 1.05rem;
+}
+
+.doc .table {
+  overflow-x: auto;
+  margin: 1rem 0;
+}
+
+.doc table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.95rem;
+}
+
+.doc th,
+.doc td {
+  text-align: left;
+  vertical-align: top;
+  padding: 0.45rem 1rem 0.45rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.doc th {
+  font: 700 0.75rem/1.4 var(--body);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  border-bottom-width: 2px;
+}
+
+.doc td:first-child {
+  white-space: nowrap;
+}
+
+@media (max-width: 52rem) {
+  .doc td:first-child {
+    white-space: normal;
+  }
+}
+
+/* the home page's cards: links, three to a row where there is room
+   (.tools is also the editors' toolbar, a flex row) */
+
+section.tools {
+  display: block;
+}
+
+section.tools .tool-grid {
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+}
+
+a.tool {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+}
+
+section.tools p.more {
+  color: var(--muted);
+  margin: 1.5rem 0 0;
 }

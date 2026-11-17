@@ -1,10 +1,11 @@
 // Methods and metatables
 //
-// A table's `meta` field is its metatable. `__index` gives a table
-// defaults, which makes classes: `v:len()` calls `v.len(v)`. Metamethods
-// overload operators (`__add`, `__eq`, ...), and `__tostring` decides how
-// a value prints. `__type` names a type for `type()` and patterns. `__get`
-// and `__set` hold properties: keys that read and write through functions.
+// `t.@meta` is a table's metatable, the table that says how `t` behaves.
+// `__index` gives it defaults, which makes classes: `v:length()` calls
+// `v.length(v)`. Metamethods overload operators (`__add`, `__eq`, ...),
+// and `__tostring` decides how a value prints. `__type` names a type for
+// `type()` and patterns. `__get` and `__set` hold properties: keys that
+// read and write through functions.
 local Vec = {}
 local vec_meta = {
   __index: Vec,

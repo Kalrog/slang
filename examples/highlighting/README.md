@@ -1,7 +1,7 @@
 # Highlighting examples
 
 Files to open in VS Code with the slang extension installed (`make vscode`,
-`code --install-extension editors/vscode/slang-lang-0.1.0.vsix`): each one
+`code --install-extension editors/vscode/slang-lang-0.2.0.vsix`): each one
 loads an extension and shows the categories it tags its syntax with.
 
 - `core.slang`: every core category (keyword, identifier, number, string,

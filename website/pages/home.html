@@ -9,7 +9,7 @@
     dialects, as plain libraries.</p>
     <div class="cta">
       <a class="btn big" href="tour/">Take the tour</a>
-      <a class="btn big ghost" href="play/">Open the playground</a>
+      <a class="btn big ghost" href="guide/install.html">Install slang</a>
     </div>
   </div>
   <div class="hero-play">
@@ -41,7 +41,7 @@
     <code>extension</code> block adds statements, operators or whole
     sub-languages, for the rest of its file. Projects load extensions for
     all their files, and give file types their own dialect.</p>
-    <p><a href="docs/slang-grammar.html">The grammar API →</a></p>
+    <p><a href="guide/extensions.html">Extending the language →</a></p>
   </div>
   <div class="feature-code">{{code:grow}}</div>
 </section>
@@ -54,7 +54,8 @@
     framework with sessions and a test client, SQLite, JSON, HTML
     templates, cryptography, and an FFI that calls C libraries straight
     from their headers.</p>
-    <p><a href="docs/">Browse the library →</a></p>
+    <p><a href="docs/#library">Browse the library →</a> ·
+    <a href="guide/async.html">Async and the web →</a></p>
   </div>
   <div class="feature-code">{{code:web}}</div>
 </section>
@@ -62,29 +63,64 @@
 <section class="tools">
   <h2>Everything in one small binary</h2>
   <div class="tool-grid">
-    <div class="tool"><h3>slang build</h3><p>One executable from a program,
-    its modules and its assets. No C compiler needed.</p></div>
-    <div class="tool"><h3>slang fmt</h3><p>An opinionated formatter that
-    knows your extensions' syntax too.</p></div>
-    <div class="tool"><h3>slang test</h3><p>Groups and tests, with JSON output
-    for editors and CI.</p></div>
-    <div class="tool"><h3>slang doc</h3><p>API docs from typed doc comments,
-    like the ones on this site.</p></div>
-    <div class="tool"><h3>Editors</h3><p>A language server, a VS Code
-    extension and a debugger, built on the real parser.</p></div>
-    <div class="tool"><h3>Packages</h3><p>Dependencies from git in
-    <code>slang.project</code>, with a lock file.</p></div>
+    <a class="tool" href="guide/build.html"><h3>slang build</h3><p>One
+    executable from a program, its modules and its assets. No C compiler
+    needed.</p></a>
+    <a class="tool" href="guide/tools.html#formatting"><h3>slang fmt</h3><p>An
+    opinionated formatter that knows your extensions' syntax too.</p></a>
+    <a class="tool" href="guide/tools.html#tests"><h3>slang test</h3><p>Groups
+    and tests, with JSON output for editors and CI.</p></a>
+    <a class="tool" href="guide/tools.html#documentation"><h3>slang doc</h3><p>API
+    docs from typed doc comments, like the ones on this site.</p></a>
+    <a class="tool" href="guide/tools.html#editors"><h3>Editors</h3><p>A
+    language server, plugins for VS Code and Neovim, and a debugger, built
+    on the real parser.</p></a>
+    <a class="tool" href="guide/projects.html"><h3>Packages</h3><p>Dependencies
+    from git in <code>slang.project</code>, with a lock file.</p></a>
   </div>
+</section>
+
+<section class="tools">
+  <h2>Written in slang</h2>
+  <div class="tool-grid">
+    <a class="tool" href="https://github.com/Kalrog/slang/tree/main/examples/switchback"><h3>Switchback</h3><p>An
+    off-road expedition through a valley made from a seed: a truck with
+    its own drivetrain, and every sound computed as it plays.</p></a>
+    <a class="tool" href="https://github.com/Kalrog/slang/tree/main/examples/deckhand"><h3>Deckhand</h3><p>A
+    first-person heist game. The deck you hack with runs slang, and the
+    maps are written in a language of their own.</p></a>
+    <a class="tool" href="https://github.com/Kalrog/slang/tree/main/examples/modular"><h3>slang modular</h3><p>A
+    modular synthesizer in pixel art: sequencers, oscillators, filters
+    and drums, patched with cables.</p></a>
+    <a class="tool" href="https://github.com/Kalrog/slang/tree/main/examples/live"><h3>slang live</h3><p>Live
+    coding of music and visuals: patterns, shaders, and an editor in the
+    window.</p></a>
+    <a class="tool" href="https://github.com/Kalrog/slang/tree/main/examples/webserver"><h3>Web server</h3><p>A
+    web application with sessions, uploads, WebSockets, SQLite and HTML
+    templates.</p></a>
+    <a class="tool" href="https://github.com/Kalrog/slang/tree/main/examples/prolog"><h3>Prolog</h3><p>A
+    Prolog interpreter written to be read: an explicit machine, cut,
+    exceptions and DCGs.</p></a>
+  </div>
+  <p class="more">These are examples in the repository, with
+  <a href="https://github.com/Kalrog/slang/tree/main/examples">more beside
+  them</a>. Breakout and the physics demos run in the
+  <a href="play/">playground</a>.</p>
 </section>
 
 <section class="install">
   <h2>Get slang</h2>
-  <p>Slang builds from source with Zig 0.17. The binary carries its compiler
-  and standard library; nothing else is needed at run time.</p>
+  <p>Slang builds from source with Zig 0.17, on macOS and Linux. The binary
+  carries its compiler and standard library; nothing else is needed at run
+  time.</p>
   <pre class="code shell"><code>git clone https://github.com/Kalrog/slang
 cd slang
 make build            # bin/slang
 make install          # /usr/local (or PREFIX=~/.local)
-bin/slang run hello.slang</code></pre>
+slang run hello.slang</code></pre>
+  <p><a href="guide/install.html">What you need, a first program and editor
+  setup →</a></p>
+  <p>Slang is young: until 1.0 the language and its library still
+  change.</p>
 </section>
 </main>

@@ -22,7 +22,8 @@
  *
  * Handles: timer, tcp, udp (bind, send, recv_start), pipe, signal (start(name, cb)), process (from
  * spawn(file, args, options, on_exit); pid, kill), poll (on a descriptor
- * another library owns) and async (async(cb): cb runs on the loop after a
+ * another library owns), fs_event (start(path, cb): a file or a directory
+ * watched for changes) and async (async(cb): cb runs on the loop after a
  * wake from another thread, see slang_uv.h); every handle has close, is_active, is_closing,
  * ref, unref and has_ref. getaddrinfo resolves names. The fs_* functions
  * (read_file, write_file, stat, scandir, unlink, mkdir, rmdir, rename,
@@ -48,6 +49,7 @@ typedef struct handle {
         uv_process_t process;
         uv_poll_t poll;
         uv_async_t async;
+        uv_fs_event_t fs_event;
     } u;
     int self_ref;    /* the userdata, while the handle is active or closing */
     int cb_ref;      /* timer, listen or read callback */
@@ -253,7 +255,7 @@ static int l_is_active(slang_State *S, const char *tname) {
 
 /* ---- methods every handle has ---- */
 
-static const char *handle_tnames[] = {"uv.timer", "uv.tcp", "uv.udp", "uv.pipe", "uv.signal", "uv.process", "uv.poll", "uv.async", NULL};
+static const char *handle_tnames[] = {"uv.timer", "uv.tcp", "uv.udp", "uv.pipe", "uv.signal", "uv.process", "uv.poll", "uv.async", "uv.fs_event", NULL};
 
 static handle *check_any(slang_State *S, int idx) {
     for (int i = 0; handle_tnames[i] != NULL; i++) {
@@ -1993,6 +1995,86 @@ static const slang_Reg poll_methods[] = {
     {NULL, NULL},
 };
 
+/* ---- watching files ---- */
+
+static int l_fs_event(slang_State *S) {
+    handle *h = new_handle(S, "uv.fs_event");
+    uv_fs_event_init(loop_of(S), &h->u.fs_event);
+    return 1;
+}
+
+/* cb(err) when watching failed, else cb(null, name, kind): name is the
+ * file (null where the system does not say), kind "rename" or "change" */
+static void on_fs_event(uv_fs_event_t *w, const char *filename, int events, int status) {
+    uv_ctx *cx = CTX(w->loop);
+    handle *h = (handle *)w;
+    if (!begin_callback(cx, h->cb_ref)) return;
+    if (status < 0) {
+        push_uv_error(cx->run_S, status);
+        finish_callback(cx, 1);
+        return;
+    }
+    slang_pushnull(cx->run_S);
+    if (filename != NULL) slang_pushstring(cx->run_S, filename); else slang_pushnull(cx->run_S);
+    slang_pushstring(cx->run_S, (events & UV_RENAME) ? "rename" : "change");
+    finish_callback(cx, 3);
+}
+
+/* fs_event:start(path, cb(err, name, kind), options?: {recursive}); a
+ * watcher that is started already moves to the new path */
+static int fs_event_start(slang_State *S) {
+    handle *h = check_handle(S, 1, "uv.fs_event");
+    if (h == NULL) return SLANG_ERROR;
+    const char *path = slang_checklstring(S, 2, NULL);
+    slang_checkfunction(S, 3);
+    if (slang_failed(S)) return SLANG_ERROR;
+    int has_options = !slang_isnone(S, 4) && !slang_isnull(S, 4);
+    if (has_options && !slang_istable(S, 4)) return slang_argerror(S, 4, "options table expected");
+    if (h->closed) return slang_errorkind(S, "closed", "fs_event handle is closed");
+    unsigned int flags = 0;
+    if (has_options) {
+        slang_getfield(S, 4, "recursive");
+        if (slang_tobool(S, -1)) flags |= UV_FS_EVENT_RECURSIVE;
+        slang_pop(S, 1);
+    }
+    if (uv_is_active(&h->u.handle)) uv_fs_event_stop(&h->u.fs_event);
+    drop_ref(S, &h->cb_ref);
+    slang_pushvalue(S, 3);
+    h->cb_ref = slang_ref(S);
+    retain(S, h, 1);
+    int r = uv_fs_event_start(&h->u.fs_event, on_fs_event, path, flags);
+    if (r < 0) {
+        drop_ref(S, &h->cb_ref);
+        release(S, h);
+        push_uv_error_at(S, r, "watch", path);
+        return slang_raise(S);
+    }
+    return 0;
+}
+
+static int fs_event_stop(slang_State *S) {
+    handle *h = check_handle(S, 1, "uv.fs_event");
+    if (h == NULL) return SLANG_ERROR;
+    if (!h->closed) uv_fs_event_stop(&h->u.fs_event);
+    drop_ref(S, &h->cb_ref);
+    release(S, h);
+    return 0;
+}
+
+static int fs_event_close(slang_State *S) { return l_close(S, "uv.fs_event"); }
+static int fs_event_is_active(slang_State *S) { return l_is_active(S, "uv.fs_event"); }
+static int fs_event_is_closing(slang_State *S) { return l_is_closing(S, "uv.fs_event"); }
+
+static const slang_Reg fs_event_methods[] = {
+    {"start", fs_event_start},
+    {"stop", fs_event_stop},
+    {"close", fs_event_close},
+    {"is_active", fs_event_is_active},
+    {"is_closing", fs_event_is_closing},
+    HANDLE_METHODS,
+    {NULL, NULL},
+};
+
 /* ---- module ---- */
 
 static const slang_Reg funcs[] = {
@@ -2013,6 +2095,7 @@ static const slang_Reg funcs[] = {
     {"kill", l_kill},
     {"getpid", l_getpid},
     {"poll", l_poll},
+    {"fs_event", l_fs_event},
     {"getaddrinfo", l_getaddrinfo},
     {"fs_read_file", l_fs_read_file},
     {"fs_write_file", l_fs_write_file},
@@ -2110,6 +2193,7 @@ SLANG_EXTENSION(uv) {
     make_meta(S, "uv.process", process_methods);
     make_meta(S, "uv.poll", poll_methods);
     make_meta(S, "uv.async", async_methods);
+    make_meta(S, "uv.fs_event", fs_event_methods);
     slang_newmodule(S, funcs);
     const slang_uv_api **api = slang_newuserdata(S, sizeof(slang_uv_api *), SLANG_UV_API_TNAME, NULL);
     *api = &the_api;

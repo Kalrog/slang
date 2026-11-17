@@ -863,6 +863,7 @@ local fs = {}
 //   fs.read(fd, length, offset) -> data ("" at the end; offset null reads on)
 //   fs.write(fd, data, offset) -> bytes written   fs.close(fd)
 //   fs.read_stream(path, {chunk_size, start, length}) -> a Stream of the file, read on demand
+//   fs.watch(path, {recursive, debounce}) -> a Watch: the changes of a file or directory, as a Stream
 //
 // In a program built by `slang build`, a relative path that names a bundled
 // file or directory is read from the bundle (read_file, stat, list_dir,
@@ -1106,6 +1107,117 @@ func fs.exists(path){
   return async.wrap(func(cb){
     loop_module().fs_stat(path, func(err, st){ cb(null, err == null) })
   })
+}
+
+// ------------------------------------------------------------ watching files
+
+// What a [Watch] reports.
+// type Change = {name?: string, kind: string}
+// [name]: the file that changed: for a watched directory, its path in
+//   the directory; null where the system does not say
+// [kind]: "rename" when the file was created, removed or renamed,
+//   "change" when its contents or attributes changed
+
+// A watch on a file or a directory.
+// type Watch = {handle: any, changes: Stream, close: func()}
+// [handle]: the uv.fs_event handle (handle:unref() lets the program end
+//   while the watch is open)
+// [changes]: the [Change]s, as they happen
+// [close]: stops watching and ends changes
+
+// watch(path: string, options?: {recursive?: bool, debounce?: int,
+//   high_water?: int}) -> Watch
+// Watches a file or a directory of the disk. Raises when path cannot be
+// watched (kind not_found when it does not exist). An open watch keeps
+// [main] running, as a listening socket does: close it when done.
+//
+//   local w = async.fs.watch("src", {debounce: 50})
+//   for(true){
+//     local e = async.await(w.changes:next())
+//     if(e.done){ break }
+//     print(e.value.name, " ", e.value.kind, "\n")
+//   }
+//
+// Editors often save a file by writing another and renaming it over the
+// old one, which ends a watch on the file itself: watch its directory and
+// look at the names. One save is often several changes: debounce makes
+// them one. A watched directory may be reported itself, under its own
+// name, when something in it changes.
+// [options]: recursive watches the directories under path too (macOS and
+//   Windows; Linux watches path alone). debounce, in milliseconds, holds
+//   changes back until none has come for that long, then reports each
+//   file once ("rename" if any of its changes was one). high_water:
+//   [controller]
+func fs.watch(path, options){
+  options = options or {}
+  local uv = loop_module()
+  local handle = uv.fs_event()
+  local c = async.controller(options)
+  local closed = false
+  local timer = null
+  // the changes held back, one per file, in the order they first came
+  local held = {}
+  local func flush(){
+    local changes = held
+    held = {}
+    for(let local change in values(changes)){
+      if(not closed){
+        c.add(change)
+      }
+    }
+  }
+  local func close(){
+    if(closed){
+      return
+    }
+    closed = true
+    if(timer != null){
+      timer:close()
+    }
+    handle:close()
+    c.close()
+  }
+  local func on_change(err, name, kind){
+    if(closed){
+      return
+    }
+    if(err != null){
+      // the watch is over: nothing more comes
+      closed = true
+      if(timer != null){
+        timer:close()
+      }
+      handle:close()
+      c.fail(err)
+    } else if(options.debounce == null){
+      c.add({name: name, kind: kind})
+    } else {
+      local known = false
+      for(let local change in values(held)){
+        if(change.name == name){
+          known = true
+          if(kind == "rename"){
+            change.kind = kind
+          }
+        }
+      }
+      if(not known){
+        append(held, {name: name, kind: kind})
+      }
+      if(timer == null){
+        timer = uv.timer()
+      }
+      // (a running timer starts over)
+      timer:start(options.debounce, 0, flush)
+    }
+  }
+  try {
+    handle:start(path, on_change, {recursive: options.recursive == true})
+  } catch(local e) {
+    handle:close()
+    raise(e)
+  }
+  return {handle: handle, changes: c.stream, close: close}
 }
 
 // ------------------------------------------------------------ signals

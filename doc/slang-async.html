@@ -99,6 +99,8 @@ async.main(func(){
 <li><a href="#type-Listener"><code>type Listener</code></a></li>
 <li><a href="#type-Stat"><code>type Stat</code></a></li>
 <li><a href="#type-DirEntry"><code>type DirEntry</code></a></li>
+<li><a href="#type-Change"><code>type Change</code></a></li>
+<li><a href="#type-Watch"><code>type Watch</code></a></li>
 <li><a href="#type-Process"><code>type Process</code></a></li>
 <li><a href="#type-async.Stream"><code>type async.Stream</code></a></li>
 <li><a href="#async.Stream:next"><code>async.Stream:next</code></a></li>
@@ -222,7 +224,8 @@ fs.remove(path)   fs.mkdir(path)   fs.rmdir(path)   fs.rename(from, to)
 fs.open(path, flags) -&gt; fd   (flags as fopen: &quot;r&quot;, &quot;w&quot;, &quot;a&quot;, &quot;r+&quot;, ...)
 fs.read(fd, length, offset) -&gt; data (&quot;&quot; at the end; offset null reads on)
 fs.write(fd, data, offset) -&gt; bytes written   fs.close(fd)
-fs.read_stream(path, {chunk_size, start, length}) -&gt; a Stream of the file, read on demand</code></pre>
+fs.read_stream(path, {chunk_size, start, length}) -&gt; a Stream of the file, read on demand
+fs.watch(path, {recursive, debounce}) -&gt; a Watch: the changes of a file or directory, as a Stream</code></pre>
 <p>In a program built by <code>slang build</code>, a relative path that names a bundled file or directory is read from the bundle (read_file, stat, list_dir, exists, read_stream; see slang/bundle); the rest is the disk's.</p>
 <pre><code>local text = async.await(async.fs.read_file(&quot;notes.txt&quot;))</code></pre>
 
@@ -301,6 +304,14 @@ print(r.status, r.stdout)</code></pre>
 <pre><code>type DirEntry = {name: string, type: string}</code></pre>
 <p>An entry of fs.list_dir.</p>
 <dl class="params"><dt><code>name: string</code></dt><dd></dd><dt><code>type: string</code></dt><dd>&quot;file&quot;, &quot;dir&quot;, &quot;link&quot;, &quot;unknown&quot; or &quot;other&quot;</dd></dl>
+<h2 id="type-Change">type Change</h2>
+<pre><code>type Change = {name?: string, kind: string}</code></pre>
+<p>What a <a href="#type-Watch"><code>Watch</code></a> reports.</p>
+<dl class="params"><dt><code>name?: string</code></dt><dd>the file that changed: for a watched directory, its path in the directory; null where the system does not say</dd><dt><code>kind: string</code></dt><dd>&quot;rename&quot; when the file was created, removed or renamed, &quot;change&quot; when its contents or attributes changed</dd></dl>
+<h2 id="type-Watch">type Watch</h2>
+<pre><code>type Watch = {handle: any, changes: <a href="#type-Stream">Stream</a>, close: func()}</code></pre>
+<p>A watch on a file or a directory.</p>
+<dl class="params"><dt><code>handle: any</code></dt><dd>the uv.fs_event handle (handle:unref() lets the program end while the watch is open)</dd><dt><code>changes: <a href="#type-Stream">Stream</a></code></dt><dd>the <a href="#type-Change"><code>Change</code></a>s, as they happen</dd><dt><code>close: func()</code></dt><dd>stops watching and ends changes</dd></dl>
 <h2 id="type-Process">type Process</h2>
 <pre><code>type Process = {process: any, pid: int, stdin?: any, stdout?: any, stderr?: any, pipes: {[int]: any}, exit: <a href="#type-Future">Future</a>, kill: func(sig?: string | int)}</code></pre>
 <p>A started program.</p>

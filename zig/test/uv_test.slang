@@ -316,6 +316,47 @@ t.group("uv: files, names, processes, signals, poll"){
   t.test("the C API for other extensions is there"){
     assert(type(uv.c_api) == "userdata")
   }
+  t.test("fs_event reports the changes in a directory"){
+    local dir = concat(scratch, "/watched")
+    os.mkdir_all(dir)
+    local w = uv.fs_event()
+    assert(type(w) == "uv.fs_event" and not w:is_active())
+    local seen = null
+    // the test fails, it does not hang, when nothing is reported
+    local guard = uv.timer()
+    guard:start(10000, 0, func(){
+      guard:close()
+      w:close()
+    })
+    w:start(dir, func(err, name, kind){
+      assert(err == null, string(err))
+      // (the system may still report the directory's own creation)
+      if(name == "a.txt" and seen == null){
+        seen = kind
+        guard:close()
+        w:close()
+      }
+    })
+    assert(w:is_active())
+    local writer = uv.timer()
+    writer:start(100, 0, func(){
+      writer:close()
+      uv.fs_write_file(concat(dir, "/a.txt"), "one\n", func(err){})
+    })
+    uv.run()
+    assert(seen == "rename" or seen == "change", string(seen))
+    assert(w:is_closing())
+    os.remove_all(dir)
+    local missing = uv.fs_event()
+    local e = t.raises(func(){
+      missing:start(concat(scratch, "/no/such"), func(){})
+    }, "not_found")
+    assert(str.starts_with(e.message, "ENOENT") and
+      str.contains(e.message, "watch"), e.message)
+    assert(not missing:is_active())
+    missing:close()
+    uv.run()
+  }
   t.test("udp datagrams go both ways"){
     local a = uv.udp()
     a:bind("127.0.0.1", 0)

@@ -48,7 +48,7 @@ t:start(100, 0, func(){
   t:close()
 })
 uv.run()</code></pre>
-<p>Handles (<a href="#type-Timer"><code>Timer</code></a>, <a href="#type-Tcp"><code>Tcp</code></a>, <a href="#type-Udp"><code>Udp</code></a>, <a href="#type-Pipe"><code>Pipe</code></a>, <a href="#type-Signal"><code>Signal</code></a>, <a href="#type-Process"><code>Process</code></a>, <a href="#type-Poll"><code>Poll</code></a>) are userdata with methods; every operation takes its callback last, and callbacks have the shape cb(err, value) with err a string like &quot;ECONNRESET: connection reset by peer&quot; or null. Callbacks run only from inside <a href="#run"><code>run</code></a>; an error raised in one stops the loop and comes out of <a href="#run"><code>run</code></a>. An active handle (a running timer, a listening or reading socket, a pending connect) keeps its userdata alive; a handle collected before it was closed is closed by its finalizer. Failing calls raise the same kind of error text.</p>
+<p>Handles (<a href="#type-Timer"><code>Timer</code></a>, <a href="#type-Tcp"><code>Tcp</code></a>, <a href="#type-Udp"><code>Udp</code></a>, <a href="#type-Pipe"><code>Pipe</code></a>, <a href="#type-Signal"><code>Signal</code></a>, <a href="#type-Process"><code>Process</code></a>, <a href="#type-Poll"><code>Poll</code></a>, <a href="#type-FsEvent"><code>FsEvent</code></a>) are userdata with methods; every operation takes its callback last, and callbacks have the shape cb(err, value) with err a string like &quot;ECONNRESET: connection reset by peer&quot; or null. Callbacks run only from inside <a href="#run"><code>run</code></a>; an error raised in one stops the loop and comes out of <a href="#run"><code>run</code></a>. An active handle (a running timer, a listening or reading socket, a pending connect) keeps its userdata alive; a handle collected before it was closed is closed by its finalizer. Failing calls raise the same kind of error text.</p>
 <p>Every VM has a loop of its own, so isolates (slang/isolate) run event loops side by side; handles cannot cross between them, and what an isolate leaves open is closed with its loop when it ends. Killing an isolate wakes its loop: <a href="#run"><code>run</code></a> raises &quot;isolate killed&quot;.</p>
 <p>uv.c_api is a userdata holding the C API (slang_uv.h) through which other extensions (sqlite, crypto) run work on libuv's thread pool.</p>
 <ul class="toc">
@@ -69,6 +69,7 @@ uv.run()</code></pre>
 <li><a href="#kill"><code>kill</code></a></li>
 <li><a href="#getpid"><code>getpid</code></a></li>
 <li><a href="#poll"><code>poll</code></a></li>
+<li><a href="#fs_event"><code>fs_event</code></a></li>
 <li><a href="#getaddrinfo"><code>getaddrinfo</code></a></li>
 <li><a href="#fs_read_file"><code>fs_read_file</code></a></li>
 <li><a href="#fs_write_file"><code>fs_write_file</code></a></li>
@@ -174,6 +175,15 @@ uv.run()</code></pre>
 <li><a href="#Poll:ref"><code>Poll:ref</code></a></li>
 <li><a href="#Poll:unref"><code>Poll:unref</code></a></li>
 <li><a href="#Poll:has_ref"><code>Poll:has_ref</code></a></li>
+<li><a href="#type-FsEvent"><code>type FsEvent</code></a></li>
+<li><a href="#FsEvent:start"><code>FsEvent:start</code></a></li>
+<li><a href="#FsEvent:stop"><code>FsEvent:stop</code></a></li>
+<li><a href="#FsEvent:close"><code>FsEvent:close</code></a></li>
+<li><a href="#FsEvent:is_active"><code>FsEvent:is_active</code></a></li>
+<li><a href="#FsEvent:is_closing"><code>FsEvent:is_closing</code></a></li>
+<li><a href="#FsEvent:ref"><code>FsEvent:ref</code></a></li>
+<li><a href="#FsEvent:unref"><code>FsEvent:unref</code></a></li>
+<li><a href="#FsEvent:has_ref"><code>FsEvent:has_ref</code></a></li>
 <li><a href="#type-SpawnOptions"><code>type SpawnOptions</code></a></li>
 <li><a href="#type-ExitStatus"><code>type ExitStatus</code></a></li>
 <li><a href="#type-FileStat"><code>type FileStat</code></a></li>
@@ -254,6 +264,11 @@ uv.run()</code></pre>
 <h2>polling</h2>
 <div class="def" id="poll"><h3><code>uv.poll(fd: int) -> <a href="#type-Poll">Poll</a></code></h3>
 <p>A watcher of a socket or pipe that another library owns (a database client, say), not started.</p>
+
+</div>
+<h2>watching files</h2>
+<div class="def" id="fs_event"><h3><code>uv.fs_event() -> <a href="#type-FsEvent">FsEvent</a></code></h3>
+<p>A watcher of a file or a directory, not started. slang/async's fs.watch makes a Stream of one.</p>
 
 </div>
 <h2>names</h2>
@@ -658,6 +673,41 @@ uv.run()</code></pre>
 
 </div>
 <div class="def" id="Poll:has_ref"><h3><code>Poll:has_ref() -> bool</code></h3>
+<p>Whether the handle keeps <a href="#run"><code>run</code></a> going.</p>
+
+</div>
+<h2 id="type-FsEvent">type FsEvent</h2>
+<p>A watcher of a file or a directory; type() of it is &quot;uv.fs_event&quot;.</p>
+<div class="def" id="FsEvent:start"><h3><code>FsEvent:start(path: string, cb: func(err: <a href="#type-Err">Err</a>, name: string?, kind: string), options?: {recursive?: bool})</code></h3>
+<p>Watches path, a file or a directory; cb(null, name, kind) for each change, cb(err) when watching fails. Raises when path cannot be watched (kind not_found when it does not exist). A watcher that is started already moves to the new path.</p>
+<p>Editors often save a file by writing another and renaming it over the old one, which ends a watch on the file itself: watch its directory. The system may report one save as several changes, and a watched directory itself, under its own name, when something in it changes.</p>
+<dl class="params"><dt><code>options</code></dt><dd>recursive watches the directories under path too (macOS and Windows; Linux watches path alone)</dd></dl>
+</div>
+<div class="def" id="FsEvent:stop"><h3><code>FsEvent:stop()</code></h3>
+<p>Stops watching.</p>
+
+</div>
+<div class="def" id="FsEvent:close"><h3><code>FsEvent:close(cb?: func())</code></h3>
+<p>Closes the handle; cb() runs once it is closed.</p>
+
+</div>
+<div class="def" id="FsEvent:is_active"><h3><code>FsEvent:is_active() -> bool</code></h3>
+<p>Whether the watcher is started.</p>
+
+</div>
+<div class="def" id="FsEvent:is_closing"><h3><code>FsEvent:is_closing() -> bool</code></h3>
+<p>Whether <a href="#FsEvent:close"><code>FsEvent.close</code></a> was called.</p>
+
+</div>
+<div class="def" id="FsEvent:ref"><h3><code>FsEvent:ref()</code></h3>
+<p>Makes the handle keep <a href="#run"><code>run</code></a> going again (the default).</p>
+
+</div>
+<div class="def" id="FsEvent:unref"><h3><code>FsEvent:unref()</code></h3>
+<p>Makes the handle no longer keep <a href="#run"><code>run</code></a> going: for a watch that should not stop the program from ending.</p>
+
+</div>
+<div class="def" id="FsEvent:has_ref"><h3><code>FsEvent:has_ref() -> bool</code></h3>
 <p>Whether the handle keeps <a href="#run"><code>run</code></a> going.</p>
 
 </div>

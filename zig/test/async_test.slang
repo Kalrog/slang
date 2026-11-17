@@ -287,6 +287,45 @@ t.group("async: race, timeout, pull streams"){
       await(async.fs.remove(p))
     })
   }
+  t.test("fs.watch is a stream of changes; debounce makes a save one change"){
+    async.main(func(){
+      local dir = concat(scratch, "/watched")
+      os.mkdir_all(dir)
+      local w = async.fs.watch(dir, {debounce: 100})
+      // (the system reports the directory itself too, by its own name)
+      local seen = {}
+      local ended = false
+      w.changes:listen(func(err, change){
+        assert(err == null, string(err))
+        if(change == stop){
+          ended = true
+        } else if(change.name == "b.txt"){
+          append(seen, change.kind)
+        }
+      })
+      await(async.sleep(300))
+      local p = concat(dir, "/b.txt")
+      await(async.fs.write_file(p, "one"))
+      await(async.fs.append_file(p, "two"))
+      await(async.fs.append_file(p, "three"))
+      for(local waited = 0; len(seen) == 0 and waited < 10000; waited = waited + 50){
+        await(async.sleep(50))
+      }
+      // the three writes are one change, and nothing follows it
+      await(async.sleep(400))
+      assert(len(seen) == 1, string(seen))
+      assert(seen[0] == "rename" or seen[0] == "change", seen[0])
+      assert(not ended)
+      w.close()
+      w.close()
+      assert(ended, "closing ends the stream")
+      os.remove_all(dir)
+      local e = t.raises(func(){
+        async.fs.watch(concat(scratch, "/no/such"))
+      }, "not_found")
+      assert(str.contains(e.message, "watch"), e.message)
+    })
+  }
 }
 
 t.group("uncaught errors"){

@@ -9,8 +9,8 @@
 //   })
 //   uv.run()
 //
-// Handles ([Timer], [Tcp], [Udp], [Pipe], [Signal], [Process], [Poll]) are
-// userdata with methods; every operation takes its callback last, and
+// Handles ([Timer], [Tcp], [Udp], [Pipe], [Signal], [Process], [Poll],
+// [FsEvent]) are userdata with methods; every operation takes its callback last, and
 // callbacks have the shape cb(err, value) with err a string like
 // "ECONNRESET: connection reset by peer" or null. Callbacks run only from
 // inside [run]; an error raised in one stops the loop and comes out of
@@ -77,6 +77,11 @@ local process_meta = {__index: process_methods, __type: "uv.process"}
 // type Poll
 local poll_methods = {}
 local poll_meta = {__index: poll_methods, __type: "uv.poll"}
+
+// A watcher of a file or a directory; type() of it is "uv.fs_event".
+// type FsEvent
+local fs_event_methods = {}
+local fs_event_meta = {__index: fs_event_methods, __type: "uv.fs_event"}
 
 // ------------------------------------------------------------ the loop
 
@@ -529,6 +534,61 @@ func poll_methods.unref(poll){}
 // has_ref() -> bool
 // Whether the handle keeps [run] going.
 func poll_methods.has_ref(poll){}
+
+// ------------------------------------------------------------ watching files
+
+// fs_event() -> FsEvent
+// A watcher of a file or a directory, not started. slang/async's
+// fs.watch makes a Stream of one.
+func m.fs_event(){ return {@meta: fs_event_meta} }
+
+// start(path: string, cb: func(err: Err, name: string?, kind: string),
+//       options?: {recursive?: bool})
+// Watches path, a file or a directory; cb(null, name, kind) for each
+// change, cb(err) when watching fails. Raises when path cannot be watched
+// (kind not_found when it does not exist). A watcher that is started
+// already moves to the new path.
+//
+// Editors often save a file by writing another and renaming it over the
+// old one, which ends a watch on the file itself: watch its directory.
+// The system may report one save as several changes, and a watched
+// directory itself, under its own name, when something in it changes.
+// [name]: the file that changed: for a directory, its path in the
+//   directory; null where the system does not say
+// [kind]: "rename" when the file was created, removed or renamed,
+//   "change" when its contents or attributes changed
+// [options]: recursive watches the directories under path too (macOS and
+//   Windows; Linux watches path alone)
+func fs_event_methods.start(fs_event, path, cb, options){}
+
+// stop()
+// Stops watching.
+func fs_event_methods.stop(fs_event){}
+
+// close(cb?: func())
+// Closes the handle; cb() runs once it is closed.
+func fs_event_methods.close(fs_event, cb){}
+
+// is_active() -> bool
+// Whether the watcher is started.
+func fs_event_methods.is_active(fs_event){}
+
+// is_closing() -> bool
+// Whether [FsEvent.close] was called.
+func fs_event_methods.is_closing(fs_event){}
+
+// ref()
+// Makes the handle keep [run] going again (the default).
+func fs_event_methods.ref(fs_event){}
+
+// unref()
+// Makes the handle no longer keep [run] going: for a watch that should
+// not stop the program from ending.
+func fs_event_methods.unref(fs_event){}
+
+// has_ref() -> bool
+// Whether the handle keeps [run] going.
+func fs_event_methods.has_ref(fs_event){}
 
 // ------------------------------------------------------------ names
 

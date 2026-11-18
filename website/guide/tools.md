@@ -71,7 +71,8 @@ and it resolves names the way the compiler does:
 - hover with the signature and doc comment, go to definition and find
   references, for locals, globals, module fields and methods;
 - rename across the project, the outline, workspace symbols;
-- completion (members, names in scope, keywords, module names) and
+- completion (members, names in scope, keywords, module names, and the
+  fields of an option table as its parameter's type documents them) and
   signature help;
 - formatting of a file or a selection;
 - on extension syntax: hover and go to definition lead to the extension

@@ -13,7 +13,8 @@ project's real grammar, extensions and dialects included. It provides:
   find references, highlights of a name's uses, rename across the project;
 - the outline and breadcrumbs, workspace symbols, parameter-name hints;
 - completion (members after `a.` and `a:`, names in scope, keywords,
-  module names in `require("...")`) and signature help;
+  module names in `require("...")`, the fields of an option table as its
+  parameter's type documents them) and signature help;
 - formatting of the file or a selection with `slang fmt`'s formatter
   (format on save is on for slang files: `editor.formatOnSave` under
   `[slang]` turns it off);

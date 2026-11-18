@@ -722,6 +722,88 @@ t.group("language server: names"){
       "typed.serve(port: int, handler: func(req: Request): string) -> server: Server",
     ) >= 0, h)
     assert(str.index_of(h, "- `port`: 0 picks a free one") >= 0, h)
+    // a table literal given for a typed parameter: the fields of the
+    // type that it does not have yet, as keys
+    local call = concat(ttext, "typed.open({name: \"a\", })\n")
+    assert(complete_in(call, "\"a\", ") == {
+        size: true, limits: true, routes: true,
+      })
+    // the value of a field, and an element of a list
+    local nested = concat(ttext, "typed.open({limits: {}, routes: {{}}})\n")
+    assert(complete_in(nested, "limits: {") == {max: true, min: true})
+    assert(complete_in(nested, "routes: {{") == {path: true, handler: true})
+    // a value's place is not a key's: the names in scope
+    assert(complete_in(call, "name: ").typed == true)
+    // a field comes with its type and its doc, and is inserted as a key
+    ts:handle(notify("textDocument/didChange", {
+      textDocument: {uri: turi, version: 4},
+      contentChanges: {{text: concat(ttext, "typed.open({})\n")}},
+    }))
+    local keys = ts:handle(request(9, "textDocument/completion", {
+      textDocument: {uri: turi},
+      position: spot(concat(ttext, "typed.open({})\n"), "open({", 6),
+      context: {triggerKind: 2, triggerCharacter: "{"},
+    }))[0].result
+    assert(len(keys) == 4 and keys[0].label == "name", string(len(keys)))
+    assert(keys[0].detail == "name: string" and keys[0].insertText == "name: ")
+    assert(keys[0].documentation.value == "what it is called")
+    assert(keys[1].detail == "size?: {int}", keys[1].detail)
+    // hover on a key: the field, its doc and what its type is
+    local hovered = concat(ttext, "typed.open({name: \"a\", limits: {max: 1}})\n")
+    ts:handle(notify("textDocument/didChange", {
+      textDocument: {uri: turi, version: 4},
+      contentChanges: {{text: hovered}},
+    }))
+    local func hover_at(word){
+      local r = ts:handle(request(9, "textDocument/hover", {
+        textDocument: {uri: turi},
+        position: spot(hovered, word, 1),
+      }))[0].result
+      return r and r.contents.value
+    }
+    local name_hover = hover_at("name: \"a\"")
+    assert(str.contains(name_hover, "name: string") and
+      str.contains(name_hover, "what it is called") and
+      str.contains(name_hover, "a field of Options"), name_hover)
+    local limits_hover = hover_at("limits: {max")
+    assert(str.contains(limits_hover, "limits?: Limits") and
+      str.contains(limits_hover, "type Limits = {\n  max: int,\n  min?: int,\n}"),
+      limits_hover)
+    assert(str.contains(hover_at("max: 1"), "a field of Limits"))
+    ts:handle(notify("textDocument/didChange", {
+      textDocument: {uri: turi, version: 4},
+      contentChanges: {{text: concat(ttext, "typed.open({})\n")}},
+    }))
+    // { and , ask for fields only: none where no type says what they are
+    local plain = ts:handle(request(9, "textDocument/completion", {
+      textDocument: {uri: turi},
+      position: spot(concat(ttext, "typed.open({})\n"), "serve(0,", 8),
+      context: {triggerKind: 2, triggerCharacter: ","},
+    }))[0].result
+    assert(len(plain) == 0)
+    // the variables of loops and of a catch are known in their bodies
+    local loops = concat(
+      ttext,
+      "for(let local r in values({s})){\n  r:close()\n}\n",
+      "for(local i = s; i != null; i = null){\n  i:close()\n}\n",
+      "try { s:close() } catch(local e) {\n  e:close()\n}\n",
+    )
+    assert(complete_in(loops, "  r:") == {close: true})
+    assert(complete_in(loops, "  i:") == {close: true})
+    ts:handle(notify("textDocument/didChange", {
+      textDocument: {uri: turi, version: 5},
+      contentChanges: {{text: loops}},
+    }))
+    local caught = ts:handle(request(9, "textDocument/definition", {
+      textDocument: {uri: turi},
+      position: spot(loops, "  e:", 2),
+    }))[0].result
+    assert(len(caught) == 1 and
+      caught[0].range.start.line == spot(loops, "catch(local e").line)
+    ts:handle(notify("textDocument/didChange", {
+      textDocument: {uri: turi, version: 6},
+      contentChanges: {{text: ttext}},
+    }))
     // a type named in a doc comment: its declaration
     local d = ts:handle(request(9, "textDocument/definition", {
       textDocument: {uri: turi},

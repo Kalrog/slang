@@ -400,7 +400,8 @@ local func type_value(w, path, t, depth){
     for(let local f in values(t.fields)){
       if(f.name != "@meta"){
         def.fields[f.name] = {
-          name: f.name, kind: "field", type: f.type, fields: {}
+          name: f.name, kind: "field", type: f.type, fields: {},
+          optional: f.optional,
         }
       }
     }
@@ -1714,6 +1715,45 @@ func methods.members(w, target){
   return out
 }
 
+// What an argument of a call has to be, by the callee's typed doc: the
+// value of the type of its index-th parameter ({path, def}; a shape's def
+// has the fields), or null. target is what is called, method whether with
+// a colon.
+func methods.argument_value(w, target, index, method){
+  if(target == null){
+    return null
+  }
+  local info = target.def.info
+  local typed = info and info.signature and info.signature.params
+  if(typed == null){
+    return null
+  }
+  if(method){
+    typed = navigate.method_params(typed, target.def)
+  }
+  local p = typed[index]
+  if(p == null and len(typed) > 0 and typed[len(typed) - 1].rest){
+    p = typed[len(typed) - 1]
+  }
+  if(p == null or p.type == null){
+    return null
+  }
+  return type_value(w, target.path, p.type, 0)
+}
+
+// What is inside a value: its field name, or an element of it when name
+// is null; {path, def} or null
+func methods.inside(w, value, name){
+  if(value == null){
+    return null
+  }
+  if(name == null){
+    return element_of(w, value, 0)
+  }
+  local f = field_of(w, value, name, 0)
+  return f and value_of_def(w, f.path, f.def, 0)
+}
+
 // the parameter names of a target's function, or null: its own, or those
 // of the function its value is (a module that returns one, a call that does)
 func methods.params(w, target){
@@ -1913,6 +1953,47 @@ decl_of = func(w, path, name, depth){
     return null
   }
   return {path: path, decl: decl}
+}
+
+// The declaration of the type t names, seen from path, as text: a shape
+// with a field to a line. For T?, {T} and A | B, that of T (the first
+// that has one). Null for the built-in types and the types of methods.
+func methods.type_declared(w, path, t){
+  if(t == null){
+    return null
+  }
+  if(t.kind == "optional" or t.kind == "list"){
+    return w:type_declared(path, t.of)
+  }
+  if(t.kind == "union"){
+    for(let local part in values(t.of)){
+      local text = w:type_declared(path, part)
+      if(text != null){
+        return text
+      }
+    }
+    return null
+  }
+  if(t.kind != "name"){
+    return null
+  }
+  local found = decl_of(w, path, t.name, 0)
+  if(found == null or found.decl.type == null){
+    return null
+  }
+  local declared = found.decl.type
+  if(declared.kind != "shape"){
+    return concat("type ", t.name, " = ", symbols.type_text(declared))
+  }
+  local lines = {concat("type ", t.name, " = {")}
+  for(let local f in values(declared.fields)){
+    append(lines, concat(
+      "  ", f.name, f.optional and "?" or "", ": ", symbols.type_text(f.type),
+      ",",
+    ))
+  }
+  append(lines, "}")
+  return str.join(lines, "\n")
 }
 
 local literal_kinds = {

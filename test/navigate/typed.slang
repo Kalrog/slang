@@ -19,4 +19,19 @@ func typed.serve(port, handler){
   return {@meta: {__index: server_methods}}
 }
 
+// What [open] takes.
+// type Options = {name: string, size?: {int}, limits?: Limits,
+//   routes?: {Route}}
+// [name]: what it is called
+
+// type Limits = {max: int, min?: int}
+
+// type Route = {path: string, handler?: function}
+
+// open(options: Options) -> Server
+// A server made from options.
+func typed.open(options){
+  return {@meta: {__index: server_methods}}
+}
+
 return typed

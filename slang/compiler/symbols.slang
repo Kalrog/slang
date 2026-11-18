@@ -1077,6 +1077,31 @@ local scope_types = {
   Block: true, Function: true, For: true, ForIn: true, Catch: true
 }
 
+// where a node ends: the furthest end of the tokens in it
+local func node_stop(node, source, stop){
+  if(node == null or ast.specs[node.type] == null){
+    return stop
+  }
+  local token = node.token
+  if(token != null and token.buffer == source and token.stop != null and
+    token.stop > stop){
+    stop = token.stop
+  }
+  for(let local field in values(ast.specs[node.type])){
+    local child = node[field[0]]
+    if(child != null){
+      if(field[1] == "list"){
+        for(let local c in values(child)){
+          stop = node_stop(c, source, stop)
+        }
+      } else if(field[1] != "value"){
+        stop = node_stop(child, source, stop)
+      }
+    }
+  }
+  return stop
+}
+
 // gives each local and parameter the range of its innermost scope (a name's
 // declaration is an identifier at the definition's start)
 local func assign_scopes(node, source, by_start, scope, top){
@@ -1087,6 +1112,11 @@ local func assign_scopes(node, source, by_start, scope, top){
   local here = token != null and token.buffer == source and token.start != null
   if(scope_types[node.type] and here and not top){
     scope = {start: token.start, stop: token.stop}
+    // a block's and a function's token is all of it; a loop's and a
+    // catch's is its keyword: the scope reaches to the end of the body
+    if(node.type != "Block" and node.type != "Function"){
+      scope.stop = node_stop(node, source, token.stop)
+    }
   }
   if(node.type == "Identifier" and here){
     local d = by_start[token.start]

@@ -12,7 +12,8 @@ LSP client:
 - hover (`K`), go to definition, references, document highlights, rename
   across the project (`grn`, `grr`, `gd` with your mappings), the outline
   and workspace symbols, signature help, completion (members after `a.`
-  and `a:`, names, keywords, `require("...")` module names);
+  and `a:`, names, keywords, `require("...")` module names, the fields of
+  an option table as its parameter's type documents them);
 - parameter-name inlay hints, on by default;
 - formatting with `slang fmt`'s formatter (`gq`, `vim.lsp.buf.format()`),
   on save by default;

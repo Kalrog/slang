@@ -817,7 +817,11 @@ handlers["initialize"] = func(s, id, params){
         renameProvider: {prepareProvider: true},
         workspaceSymbolProvider: true,
         inlayHintProvider: true,
-        completionProvider: {triggerCharacters: {".", ":", "\"", "/"}},
+        // (. and : for members, " and / for modules, { and , for the
+        // fields of a table literal)
+        completionProvider: {
+          triggerCharacters: {".", ":", "\"", "/", "{", ","},
+        },
         signatureHelpProvider: {
           triggerCharacters: {"(", ","},
           retriggerCharacters: {")"},
@@ -1106,6 +1110,9 @@ handlers["textDocument/references"] = func(s, id, params){
   return {response(id, locations(s, found))}
 }
 
+// (the hover of a table literal's key, defined with the literals' completion)
+local field_hover = null
+
 handlers["textDocument/hover"] = func(s, id, params){
   local at = position_of(s, params)
   if(at == null){
@@ -1131,6 +1138,18 @@ handlers["textDocument/hover"] = func(s, id, params){
     return {
       response(id, {
         contents: {kind: "markdown", value: str.join(lines, "\n\n")},
+      }),
+    }
+  }
+  // a key of a table literal that is to be a documented shape: the field
+  local fh = field_hover(
+    s, at.doc, lsp.offset_of(at.doc.text, params.position, s.encoding)
+  )
+  if(fh != null){
+    return {
+      response(id, {
+        contents: {kind: "markdown", value: fh.markdown},
+        range: lsp.range_of(at.doc.text, fh.start, fh.stop, s.encoding),
       }),
     }
   }
@@ -2050,6 +2069,287 @@ local func require_completion(s, text, pos){
   return items
 }
 
+// ---- the fields of a table literal
+//
+// A table literal given where a documented shape is expected (an argument
+// of a call whose doc types the parameter, or a table inside such a one)
+// is completed with the shape's fields: device:render_pass({ offers
+// color_attachments, and the table of an attachment its fields.
+
+local func is_space(b){
+  return b == ' ' or b == '\n' or b == '\t' or b == '\r'
+}
+
+// The table literal the cursor is in, at a place for a key, when it is an
+// argument of a call or inside one that is: {open, arg, steps, keys}, or
+// null.
+// [open]: the offset of the call's (
+// [arg]: which argument the outermost literal is
+// [steps]: the way from that literal to the cursor's: for each literal
+//   inside the last, the key it is the value of, or false for an element
+// [keys]: the keys the cursor's literal has already
+local func literal_at(text, pos){
+  local from = 0
+  if(pos > 8000){
+    from = pos - 8000
+  }
+  local stack = {}
+  local i = from
+  for(i < pos){
+    local b = str.byte_at(text, i)
+    local top = stack[len(stack) - 1]
+    if(b == '"'){
+      i = i + 1
+      for(i < pos and str.byte_at(text, i) != '"'){
+        if(str.byte_at(text, i) == '\\'){
+          i = i + 1
+        }
+        i = i + 1
+      }
+    } else if(b == '\'' and str.byte_at(text, i + 1) == '\\'){
+      // a character literal with an escape: to its closing quote
+      i = i + 2
+      for(i < pos and str.byte_at(text, i) != '\'' and
+        str.byte_at(text, i) != '\n'){
+        i = i + 1
+      }
+    } else if(b == '\'' and str.byte_at(text, i + 2) == '\''){
+      i = i + 2
+    } else if(b == '/' and str.byte_at(text, i + 1) == '/'){
+      for(i < pos and str.byte_at(text, i) != '\n'){
+        i = i + 1
+      }
+    } else if(b == '(' or b == '['){
+      append(stack, {at: i, paren: b == '(', commas: 0})
+    } else if(b == '{'){
+      // what stands before it says what it is: a call's argument, the
+      // value of a key, an element, or something else (a block)
+      local p = i
+      for(p > from and is_space(str.byte_at(text, p - 1))){
+        p = p - 1
+      }
+      local before = str.byte_at(text, p - 1)
+      local frame = {at: i, commas: 0, keys: {}, last: i + 1}
+      if(top != null and top.paren and (before == '(' or before == ',')){
+        frame.table = true
+        frame.arg = top.commas
+      } else if(top != null and top.table and before == ':'){
+        local stop = p - 1
+        for(stop > from and is_space(str.byte_at(text, stop - 1))){
+          stop = stop - 1
+        }
+        local start = word_start(text, stop)
+        if(start < stop){
+          frame.table = true
+          frame.step = str.substring(text, start, stop)
+        }
+      } else if(top != null and top.table and (before == '{' or before == ',')){
+        frame.table = true
+        frame.step = false
+      }
+      append(stack, frame)
+    } else if(b == ')' or b == '}' or b == ']'){
+      if(top != null){
+        remove(stack, len(stack) - 1)
+      }
+    } else if(b == ',' and top != null){
+      top.commas = top.commas + 1
+      top.last = i + 1
+    } else if(b == ':' and top != null and top.table){
+      // name: right after the { or the comma is a key
+      local stop = i
+      for(stop > from and is_space(str.byte_at(text, stop - 1))){
+        stop = stop - 1
+      }
+      local start = word_start(text, stop)
+      local q = top.last
+      for(q < start and is_space(str.byte_at(text, q))){
+        q = q + 1
+      }
+      if(start < stop and q == start){
+        append(top.keys, str.substring(text, start, stop))
+      }
+    }
+    i = i + 1
+  }
+  local top = stack[len(stack) - 1]
+  if(top == null or not top.table){
+    return null
+  }
+  // a place for a key: only spaces between the { or the last comma and
+  // the word being typed
+  local q = top.last
+  local word = word_start(text, pos)
+  for(q < word and is_space(str.byte_at(text, q))){
+    q = q + 1
+  }
+  if(q != word){
+    return null
+  }
+  // out to the literal that is the call's argument
+  local k = len(stack) - 1
+  for(k > 0 and stack[k].table and stack[k].arg == null){
+    k = k - 1
+  }
+  if(k < 1 or not stack[k].table or stack[k].arg == null){
+    return null
+  }
+  local steps = {}
+  for(local j = k + 1; j < len(stack); j = j + 1){
+    append(steps, stack[j].step)
+  }
+  return {
+    open: stack[k - 1].at, arg: stack[k].arg, steps: steps, keys: top.keys
+  }
+}
+
+// what is called by the ( at open: {target, method, name}, or null (a
+// definition's func name( is not a call)
+local func callee_at(nav, doc, text, open){
+  local p = open
+  for(p > 0 and str.char_at(text, p - 1) == " "){
+    p = p - 1
+  }
+  local name_start = word_start(text, p)
+  if(name_start == p){
+    return null
+  }
+  local last = str.substring(text, name_start, p)
+  local before = str.trim(str.substring(
+    text, word_start(text, name_start - 1), name_start
+  ))
+  if(before == "func"){
+    return null
+  }
+  local names = {last}
+  local method = false
+  local chain = chain_before(text, name_start)
+  if(chain != null){
+    names = chain.names
+    append(names, last)
+    method = chain.separator == ":"
+  }
+  local target = resolve_chain(nav, doc.path, names, index_pos(doc, name_start))
+  if(target == null){
+    return null
+  }
+  return {target: target, method: method, name: last}
+}
+
+// what a table literal (literal_at's) is expected to be: the value of
+// the type the doc of what is called gives it ({path, def}), or null
+local func literal_value(nav, doc, text, lit){
+  local callee = callee_at(nav, doc, text, lit.open)
+  if(callee == null){
+    return null
+  }
+  local value = nav:argument_value(callee.target, lit.arg, callee.method)
+  for(let local step in values(lit.steps)){
+    value = nav:inside(value, step or null)
+  }
+  if(value == null or value.def == null){
+    return null
+  }
+  return value
+}
+
+// A key of a table literal that is to be a documented shape, at pos: the
+// field with its type, its doc, and what its type is declared as;
+// {markdown, start, stop}, or null
+field_hover = func(s, doc, pos){
+  local text = doc.text
+  local start = word_start(text, pos)
+  local stop = pos
+  for(stop < len(text) and is_word_byte(str.byte_at(text, stop))){
+    stop = stop + 1
+  }
+  // name: at a key's place
+  local after = stop
+  for(after < len(text) and str.byte_at(text, after) == ' '){
+    after = after + 1
+  }
+  if(start == stop or str.byte_at(text, after) != ':' or
+    in_comment_or_string(text, start)){
+    return null
+  }
+  local lit = literal_at(text, start)
+  if(lit == null){
+    return null
+  }
+  local nav = nav_of(s)
+  local value = literal_value(nav, doc, text, lit)
+  if(value == null){
+    return null
+  }
+  local name = str.substring(text, start, stop)
+  local def = (value.def.fields or {})[name]
+  if(def == null or def.kind != "field" or def.type == null){
+    return null
+  }
+  local lines = {
+    concat(
+      "```slang\n", name, def.optional and "?" or "", ": ",
+      symbols.type_text(def.type), "\n```",
+    ),
+  }
+  if(def.doc != null){
+    append(lines, navigate.markdown(def.doc))
+  }
+  local declared = nav:type_declared(def.home or value.path, def.type)
+  if(declared != null){
+    append(lines, concat("```slang\n", declared, "\n```"))
+  }
+  if(value.type_name != null){
+    append(lines, concat("*a field of ", value.type_name, "*"))
+  }
+  return {markdown: str.join(lines, "\n\n"), start: start, stop: stop}
+}
+
+// the items for the fields of the shape a table literal is expected to
+// be, without the keys it has; null when it is not known to be one
+local func literal_items(nav, doc, text, lit){
+  local value = literal_value(nav, doc, text, lit)
+  if(value == null){
+    return null
+  }
+  local have = {}
+  for(let local k in values(lit.keys)){
+    have[k] = true
+  }
+  local items = json.array({})
+  local n = 0
+  for(let local e in entries(value.def.fields or {})){
+    local def = e[1]
+    // (a shape's fields have types; a table of methods is not a shape)
+    if(def.kind == "field" and def.type != null){
+      n = n + 1
+      if(not have[e[0]]){
+        local item = {
+          label: e[0],
+          kind: ITEM.field,
+          // in the order the type declares them
+          sortText: str.format("0%03d", n),
+          filterText: e[0],
+          insertText: concat(e[0], ": "),
+          detail: concat(
+            e[0], def.optional and "?" or "", ": ", symbols.type_text(def.type),
+          ),
+        }
+        if(def.doc != null){
+          item.documentation = {
+            kind: "markdown", value: navigate.markdown(def.doc)
+          }
+        }
+        append(items, item)
+      }
+    }
+  }
+  if(n == 0){
+    return null
+  }
+  return items
+}
+
 handlers["textDocument/completion"] = func(s, id, params){
   local doc = s.documents[params.textDocument.uri]
   if(doc == null){
@@ -2084,6 +2384,19 @@ handlers["textDocument/completion"] = func(s, id, params){
         append(items, item_of(e[0], def, "1", method))
       }
     }
+    return {response(id, items)}
+  }
+  // a key of a table literal that is to be a documented shape
+  local lit = literal_at(text, pos)
+  if(lit != null){
+    local fields = literal_items(nav, doc, text, lit)
+    if(fields != null){
+      return {response(id, fields)}
+    }
+  }
+  // { and , ask for a literal's fields only
+  local trigger = params.context and params.context.triggerCharacter
+  if(trigger == "{" or trigger == ","){
     return {response(id, items)}
   }
   local seen = {}

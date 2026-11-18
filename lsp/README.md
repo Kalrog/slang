@@ -20,7 +20,12 @@ of its uses cannot be resolved), `workspace/symbol`, `inlayHint`
 (parameter names before literal arguments, or all, per
 `initializationOptions.parameterHints`), `completion` (the members of
 what `a.b.` holds and the methods after `a:`, the names in scope, the
-grammar's keywords, module names in `require("...")`), `signatureHelp`,
+grammar's keywords, module names in `require("...")`, and the fields of a
+table literal given where a doc's type says what it is: an argument of a
+call whose parameter is a shape, or a table inside one, each field with
+its type and its doc, the ones the literal has left out; hover on such a
+key shows the field, its doc and what its type is declared as),
+`signatureHelp`,
 properties (the keys of a metatable's `__get` and `__set`, also along its
 `__index` chain: hover shows the getter's doc and its declared result as
 the property's type, definition goes to the getter, completion lists them

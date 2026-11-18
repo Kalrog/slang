@@ -47,7 +47,18 @@ app:get("/*", func(req, params){
     }
     file = concat(file, "/index.html")
   }
-  return web.file(req, file)
+  local res = web.file(req, file)
+  if(parts[0] == "notebook"){
+    // the notebook's page runs slang in workers: only a page that is
+    // cross-origin isolated can stop a cell and keep what the cells made
+    // (a server that hosts the site should send these two headers too)
+    res = async.await(res)
+    if(raw_type(res) == "table" and raw_type(res.headers) == "table"){
+      res.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+      res.headers["Cross-Origin-Embedder-Policy"] = "credentialless"
+    }
+  }
+  return res
 })
 
 async.main(func(){

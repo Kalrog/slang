@@ -208,6 +208,9 @@ pub const VM = struct {
     /// The thread a SIGINT raises in (compared, never followed); null: none,
     /// and an interrupt stays pending (slang/vm's interrupted()).
     interrupt_target: ?*Thread = null,
+    /// safe points until the page is asked for an interrupt again (the WASI
+    /// build, see gc.safePoint)
+    poll_left: u32 = 1,
     /// The isolate this VM runs (slang/isolate), null for the main VM.
     isolate: ?*anyopaque = null,
     /// Made by slang_isolate_new for an OS thread of the caller's: checked

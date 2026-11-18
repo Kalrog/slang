@@ -21,7 +21,7 @@
 #   make midi-test    run the midi package's tests (packages/midi; no device needed)
 #   make microphone-test run the microphone package's tests (packages/microphone; no device needed)
 #   make kernel-test  run the kernel package's tests (packages/kernel; ships its interpreter)
-#   make notebook-test run the notebook packages' tests (packages/notebook, packages/notebook_server: the format, a kernel, the server; no browser needed)
+#   make notebook-test run the notebook packages' tests (packages/notebook, packages/notebook_server: the format, a kernel, the server; no browser needed. With make wasm done and node installed, also slang.wasm as a notebook's kernel)
 #   make notebook     serve the notebooks of packages/notebook/examples to the browser (slang notebook-server)
 #   make studio-test  run the studio package's tests (packages/studio: instruments, effects, the mixer, sequences; no sound card needed)
 #   make studio-demo  render the studio's demo piece to packages/studio/demo.wav and say how much of a core it takes
@@ -97,20 +97,28 @@ all: build
 build:
 	cd zig && $(ZIG) build -Doptimize=ReleaseFast -p ..
 
-# the VM as WebAssembly (WASI), for the playground: website/slang.wasm
+# the VM as WebAssembly (WASI): website/public/slang.wasm for the
+# playground, lib/slang.wasm for notebooks that run in the browser (the
+# notebook package finds it there, and make install takes it along)
 wasm:
 	cd zig && $(ZIG) build -Dtarget=wasm32-wasi -Dffi=false -Doptimize=ReleaseSmall -p zig-out-wasm
-	mkdir -p website/public && cp zig/zig-out-wasm/bin/slang.wasm website/public/slang.wasm
+	mkdir -p website/public lib && cp zig/zig-out-wasm/bin/slang.wasm website/public/slang.wasm
+	cp zig/zig-out-wasm/bin/slang.wasm lib/slang.wasm
 
 # the playground's graphics VM (slang with raylib, built with Emscripten):
 # website/public/slang-gfx.js and .wasm; needs emcc (brew install emscripten)
 wasm-gfx: build
 	ZIG=$(ZIG) website/web/build.sh
 
-# the website (website/out): home, tour, guides, playground and API docs;
-# the playground needs make wasm first
+# the website (website/out): home, tour, guides, playground, API docs and
+# a notebook that runs in the page (the notebook package's tour, made by
+# its export); the playground and the notebook need make wasm first
 website: build
 	bin/slang run website/build.slang
+	@if [ -f website/public/slang.wasm ]; then mkdir -p website/out/notebook && \
+	  (cd packages/notebook && ../../bin/slang exec notebook export --live --vm ../assets/slang.wasm --home ../ \
+	    -o ../../website/out/notebook/index.html examples/tour.md); \
+	  else echo "website: no public/slang.wasm (make wasm): no notebook page"; fi
 
 # the built website at http://127.0.0.1:8080 (PORT=...), served by slang
 serve: website
@@ -345,6 +353,11 @@ dsp-test: build
 notebook-test: build
 	cd packages/notebook && ../../bin/slang test test
 	cd packages/notebook_server && ../../bin/slang test test
+	@cmp website/public/wasi.js packages/notebook/web/wasi.js || \
+	  { echo "website/public/wasi.js and packages/notebook/web/wasi.js differ: they are one file, kept twice"; exit 1; }
+	@if [ -f lib/slang.wasm ] && command -v node > /dev/null; then \
+	  node packages/notebook/test/web_test.mjs lib/slang.wasm; \
+	  else echo "no lib/slang.wasm (make wasm) or no node: notebooks in the browser not tested"; fi
 
 notebook: build
 	cd packages/notebook_server && ../../bin/slang exec notebook-server ../notebook/examples

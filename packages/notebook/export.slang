@@ -8,12 +8,20 @@ extension "extensions/html"
 //
 // The page needs nothing else: its styles, images and sound are in it.
 // Values that were tables stay trees to unfold.
+//
+// [app] makes the other kind of page: the notebook itself, to edit and
+// run, with slang inside the page (as WebAssembly) in place of a server:
+//
+//   os.write_file("notes.html", export.app(document.read("notes.md")))
 local html = require("slang/html")
 local str = require("slang/string")
 local os = require("slang/os")
 local tbl = require("slang/table")
+local json = require("slang/json")
+local encoding = require("slang/encoding")
 local compiler = require("slang/compiler")
 local document = require("notebook/document")
+local browser = require("notebook/browser")
 local markdown = require("notebook/markdown")
 local highlight = require("notebook/highlight")
 local inspect = require("notebook/inspect")
@@ -129,7 +137,11 @@ local func Data(props){
   }
   if(data["text/markdown"] != null){
     return <div class="nb-rich nb-md">
-      {html.raw(markdown.render(data["text/markdown"]))}
+      {html.raw(markdown.render(data["text/markdown"], {
+        highlight: func(code, language){
+          return language == "slang" and highlight.html(code) or null
+        }
+      }))}
     </div>
   }
   if(data[VALUE] != null){
@@ -247,6 +259,129 @@ func export.html(nb, options){
           {tbl.map(nb.cells, func(cell){ return <Cell cell={cell}/> })}
         </main>
         <footer>{name}, a slang notebook</footer>
+      </body>
+    </html>
+  </>), "\n")
+}
+
+// ------------------------------------------------------------ the app
+
+// text for the inside of a <script>: it cannot hold the tag that ends it
+local func script_text(text){
+  return html.raw(str.replace(text, "</script", "<\\/script"))
+}
+
+local THEME_SCRIPT = """
+  // the theme chosen before, ahead of the first paint
+  try {
+    var theme = localStorage.getItem("slang-notebook-theme");
+    if (theme) document.documentElement.dataset.theme = theme;
+  } catch (e) {}
+"""
+
+// the mark at the top left: a link when the page is part of a site
+local func Brand(props){
+  if(props.home != null){
+    return <a class="brand" href={props.home} title="Back to the site">
+      {props.children}
+    </a>
+  }
+  return <span class="brand">{props.children}</span>
+}
+
+// How [app] makes a page.
+// type AppOptions = {title?: string, vm?: string, home?: string}
+// [title]: the page's title; the notebook's first heading by default
+// [home]: where the page's mark at the top left leads: the site the page
+//   is part of. Nowhere by default
+// [vm]: the URL of slang.wasm, for a page that is served with one next to
+//   it. By default slang.wasm is inside the page (about 2 MB more), and
+//   the page is one file that opens from anywhere, a disk too
+
+// app(nb?: {path?: string, cells: {document.Cell}, settings?: document.Settings},
+//   options?: AppOptions) -> string
+// A notebook as a page that runs it: the notebook server's page without
+// the server. slang runs in the page as WebAssembly (the notebook's
+// session and its kernel are workers of the page, see
+// notebook/service_web), so the cells can be edited and run by anyone who
+// has the page, and they see nothing of the reader's machine. The reader
+// can start a new notebook, open one from their machine and save to it;
+// what they change is kept in their browser.
+//
+// The page starts with nb, showing what its cells showed when they last
+// ran; without nb, with an empty notebook. A browser has no event loop for
+// slang and no files: cells cannot await, and the notebook's project is
+// not in the page.
+// Raises when slang.wasm is to be inside the page and there is none
+// (notebook/browser's vm_path).
+func export.app(nb, options){
+  options = options or {}
+  local web_dir = browser.web_dir()
+  local config = {files: browser.package_files(), key: "app"}
+  local title = options.title or "slang notebook"
+  if(nb != null){
+    local name = "notebook.md"
+    if(nb.path != null){
+      name = compiler.absolute_path(nb.path)
+      name = str.substring(name, str.last_index_of(name, "/") + 1)
+    }
+    local text = document.format(nb.cells, nb.settings)
+    config.notebook = {
+      name: name, text: text, outputs: document.outputs_text(nb.cells)
+    }
+    config.key = concat(name, ":", document.hash(text))
+    title = options.title or document.title(nb.cells, name)
+  }
+  local vm = null
+  if(options.vm != null){
+    config.vm = options.vm
+  } else {
+    local path = browser.vm_path()
+    if(path == null){
+      raise(error.new(error.kinds.not_found,
+        "there is no slang.wasm to put in the page (make wasm builds it)"))
+    }
+    vm = encoding.base64.encode(require("slang/zlib").deflate(
+      os.read_file(path), {format: "gzip", level: 9},
+    ))
+  }
+  local logo = concat("data:image/svg+xml;base64,", encoding.base64.encode(
+    os.read_file(concat(web_dir, "/logo.svg")),
+  ))
+  local css = concat(
+    os.read_file(concat(export.assets_dir(), "/notebook.css")),
+    os.read_file(concat(web_dir, "/app.css")),
+  )
+  // (< is written as an escape: the configuration sits inside a script)
+  local config_text = str.replace(json.encode(config), "<", "\\u003c")
+  return concat(html.render(<>
+    {html.doctype}
+    <html lang="en">
+      <head>
+        <meta charset="utf-8"/>
+        <meta name="viewport" content="width=device-width, initial-scale=1"/>
+        <title>{title}</title>
+        <link rel="icon" href={logo}/>
+        <style>{html.raw(css)}</style>
+        <script>{html.raw(THEME_SCRIPT)}</script>
+      </head>
+      <body>
+        <header class="bar">
+          <Brand home={options.home}>
+            <img src={logo} alt="" width="26" height="26"/>
+            <span>notebook</span>
+          </Brand>
+          <nav class="crumbs" id="crumbs" aria-label="Notebook"></nav>
+          <div class="actions" id="actions"></div>
+        </header>
+        <main id="main"></main>
+        <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+        <script type="application/json" id="nb-config">{html.raw(config_text)}</script>
+        <script type="text/plain" id="nb-worker">
+          {script_text(browser.worker_source())}
+        </script>
+        {vm and <script type="application/octet-stream" id="nb-vm">{html.raw(vm)}</script>}
+        <script>{script_text(os.read_file(concat(web_dir, "/app.js")))}</script>
       </body>
     </html>
   </>), "\n")

@@ -11,6 +11,14 @@ compiled.
 bin/slang run examples/futamura/main.slang
 ```
 
+`futamura.md` is the same walk as a notebook, a step at a time with the
+residual programs under the code that makes them:
+
+```
+slang notebook-server examples/futamura/futamura.md    # in the browser
+slang notebook run examples/futamura/futamura.md       # in the terminal
+```
+
 ```slang
 local mix = require("mix")
 local program = +{block:

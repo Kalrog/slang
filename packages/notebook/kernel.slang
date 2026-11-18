@@ -2,13 +2,8 @@
 // notebook/client (bin/kernel.slang is its main file); see
 // notebook/protocol for how the two talk.
 //
-// A kernel is one session (compiler.session): the cells run one after
-// another as pieces of one program, a cell's top-level locals stay for
-// the cells after it, and a cell's value is what its last expression
-// gives. The cells run in the project of the notebook's folder: the
-// kernel enters it (compiler.enter_project) once its own modules are
-// loaded, so `require` finds the project's packages and files, and its
-// extensions are in effect.
+// The cells are run by notebook/runner: one session, in the project of
+// the notebook's folder.
 //
 // Cells run inside an async function (slang/async), so a cell may await.
 // What a cell left running (a timer, a server) keeps running between
@@ -23,43 +18,11 @@ local json = require("slang/json")
 local os = require("slang/os")
 local str = require("slang/string")
 local time = require("slang/time")
-local tbl = require("slang/table")
-local compiler = require("slang/compiler")
 local vm = require("slang/vm")
-local nb = require("notebook")
-local inspect = require("notebook/inspect")
 local protocol = require("notebook/protocol")
+local runner = require("notebook/runner")
 
 local kernel = {}
-
-// an error as the events carry it; the trace ends where the kernel's own
-// frames begin
-local func describe(e){
-  if(raw_type(e) != "table"){
-    return {kind: "error", message: string(e)}
-  }
-  local out = {kind: "error", message: error.message(e)}
-  if(type(e.kind) == "string"){
-    out.kind = e.kind
-  }
-  if(raw_type(e.location) == "table"){
-    out.location = {
-      origin: e.location.origin, line: e.location.line,
-      column: e.location.column
-    }
-  }
-  if(type(e.stack) == "string" and e.stack != ""){
-    local lines = {}
-    for(let local line in values(str.split(e.stack, "\n"))){
-      if(str.contains(line, "(notebook/kernel:")){
-        break
-      }
-      append(lines, line)
-    }
-    out.stack = str.join(lines, "\n")
-  }
-  return out
-}
 
 // main(arguments: {string})
 // Runs a kernel until its standard input ends or it is told to shut down:
@@ -69,84 +32,25 @@ func kernel.main(arguments){
   local target = arguments[0] or "."
   local token = arguments[1] or ""
   local uv = require("uv")
-  local current = null
   local func send(event){
     print(protocol.frame(token, event))
   }
-  nb.attach(func(kind, data){
-    send({event: kind, id: current, data: data})
-  })
-  // from here on, the notebook's project
-  local project = null
-  local failure = null
-  try {
-    project = compiler.enter_project(target)
-  } catch(local e) {
-    failure = error.message(e)
-  }
-  local session = compiler.session()
-  local ready = {event: "ready", pid: uv.getpid()}
-  if(project != null){
-    ready.project = project.path
-  }
-  if(failure != null){
-    ready.error = failure
-  }
+  local cells = runner.new(target, send)
+  local ready = cells.ready
+  ready.pid = uv.getpid()
   send(ready)
-
-  // ctrl-c (SIGINT) stops the running cell, not the kernel, where the VM
-  // can catch it; between cells it is only noted, and forgotten
-  local can_interrupt = vm.catch_interrupt != null
-  if(can_interrupt){
-    try {
-      vm.catch_interrupt(null)
-    } catch {
-      can_interrupt = false
-    }
-  }
+  local can_interrupt = cells.can_interrupt
   // the cell being run: {abandoned, abandon: a Completer}
   local running = null
 
-  // runs in a coroutine of its own: an interrupt raises in it
-  local func run_cell(msg, state){
-    local status = "ok"
-    if(can_interrupt){
-      vm.interrupted(true)
-      vm.catch_interrupt(true)
-    }
-    try {
-      local f = session:compile(msg.code, msg.origin or "cell", msg.line)
-      local value = f()
-      if(can_interrupt){
-        vm.catch_interrupt(null)
-      }
-      if(value != null and not state.abandoned){
-        send({event: "result", id: msg.id, data: nb.bundle(value)})
-      }
-    } catch(local e) {
-      if(can_interrupt){
-        vm.catch_interrupt(null)
-      }
-      status = "error"
-      local d = describe(e)
-      if(d.kind == "interrupted"){
-        status = "interrupted"
-      }
-      if(not state.abandoned){
-        send({event: "error", id: msg.id, error: d})
-      }
-    }
-    return status
-  }
-
   local func execute(msg){
-    current = msg.id
     send({event: "start", id: msg.id})
     local started = time.clock()
     local state = {abandoned: false, abandon: async.completer()}
     running = state
     local status = async.await(async.race({
-      async.run(func(){ return run_cell(msg, state) }), state.abandon.future
+      // (a coroutine of its own: an interrupt raises in it)
+      async.run(func(){ return cells.run(msg, state) }), state.abandon.future
     }))
     running = null
     if(status == "abandoned"){
@@ -174,19 +78,6 @@ func kernel.main(arguments){
     }
     return more
   })
-
-  // the session's locals: {name, type, text}
-  local func variables(msg){
-    local out = json.array({})
-    for(let local name in values(session:names())){
-      local v = get_raw(session.env, name)
-      append(out, {
-        name: name, type: type(v),
-        text: inspect.text(v, {width: 60, depth: 1, items: 8, string: 60})
-      })
-    }
-    send({event: "variables", id: msg.id, variables: out})
-  }
 
   async.main(func(){
     local queue = {}
@@ -231,7 +122,7 @@ func kernel.main(arguments){
         if(msg.op == "execute"){
           execute(msg)
         } else if(msg.op == "variables"){
-          variables(msg)
+          cells.variables(msg)
         } else if(msg.op == "shutdown"){
           break
         }

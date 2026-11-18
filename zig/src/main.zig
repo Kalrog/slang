@@ -196,6 +196,16 @@ fn stripSuffix(s: []const u8, suffix: []const u8) []const u8 {
 fn newVM(init: std.process.Init, args: []const []const u8) *VM {
     const vm = VM.create(init.gpa, init.io, init.environ_map);
     vm.args = args;
+    // WASI has no working directory of its own: what runs the program names
+    // one (PWD), and libc resolves relative paths from it
+    if (comptime builtin.os.tag == .wasi) {
+        if (init.environ_map.get("PWD")) |dir| {
+            if (init.gpa.dupeSentinel(u8, dir, 0)) |z| {
+                defer init.gpa.free(z);
+                _ = wasi_chdir(z.ptr);
+            } else |_| {}
+        }
+    }
     vm.embedded = &boot.embedded_files;
     stdlib.open(vm);
     stdlib.boot(vm) catch fail(vm);
@@ -215,6 +225,9 @@ fn newVM(init: std.process.Init, args: []const []const u8) *VM {
     }
     return vm;
 }
+
+extern "c" fn chdir(path: [*:0]const u8) c_int;
+const wasi_chdir = chdir;
 
 /// `slang run --debug port`
 var debug_port: ?[]const u8 = null;
@@ -266,7 +279,11 @@ fn run(init: std.process.Init, path: []const u8, args: []const []const u8, expla
     }
     const cl = loadFile(vm, path);
     if (builtin.os.tag == .emscripten) return web.start(vm, cl);
-    _ = vm.call(.{ .function = cl }, &.{}) catch fail(vm);
+    if (builtin.os.tag == .wasi) {
+        web.start(vm, cl);
+    } else {
+        _ = vm.call(.{ .function = cl }, &.{}) catch fail(vm);
+    }
     vm.flush();
     ended(vm, 0);
     isolates.finish(vm, 0);
@@ -306,7 +323,50 @@ const web = if (builtin.os.tag == .emscripten) struct {
             emscripten_force_exit(0);
         }
     }
+} else if (builtin.os.tag == .wasi) struct {
+    // In a worker (WASI) a program is a coroutine too. When it yields
+    // (slang/web's frame()), _start ends without the VM being taken down,
+    // and the page goes on with it through the export slang_resume: how a
+    // program waits for its page's messages where nothing can block.
+    const host = @import("stdlib/weblib.zig").host;
+    var the_vm: ?*VM = null;
+    var program: i64 = 0;
+
+    /// Returns when the program ended; does not return when it yielded.
+    fn start(vm: *VM, cl: *vm_mod.Closure) void {
+        const co = vm.newThread(cl);
+        program = vm.makeRef(.{ .thread = co });
+        _ = co.resumeCo(&.{}) catch fail(vm);
+        vm.flush();
+        if (co.status == .dead) return;
+        the_vm = vm;
+        host.parked();
+        // (not a return: main's cleanup would free what the VM uses)
+        std.process.exit(0);
+    }
+
+    /// slang_resume() -> 0 when the program yielded again, 1 when it ended.
+    /// A program that fails ends the way it does under _start: its error on
+    /// stderr and exit code 1.
+    fn resumeProgram() callconv(.c) i32 {
+        const vm = the_vm orelse return 1;
+        const co = vm.getRef(program).thread;
+        _ = co.resumeCo(&.{}) catch {
+            the_vm = null;
+            fail(vm);
+        };
+        vm.flush();
+        if (co.status == .dead) {
+            the_vm = null;
+            return 1;
+        }
+        return 0;
+    }
 } else struct {};
+
+comptime {
+    if (builtin.os.tag == .wasi) @export(&web.resumeProgram, .{ .name = "slang_resume" });
+}
 
 /// Runs the program bundled into this executable (slang build): its entry
 /// module, with every argument as its own.

@@ -48,6 +48,7 @@
 //! it); the next cycle clears it.
 
 const std = @import("std");
+const signals = @import("interrupt.zig");
 const build_options = @import("build_options");
 const root = @import("../vm.zig");
 const VM = root.VM;
@@ -217,7 +218,20 @@ pub const CountingAllocator = struct {
 /// Called by the interpreter at safe points. An isolate being killed sets
 /// next_gc to 0, so the interrupt check costs nothing on the fast path.
 pub inline fn safePoint(vm: *VM, th: *Thread) root.Error!void {
+    if (comptime signals.polled) {
+        vm.poll_left -%= 1;
+        if (vm.poll_left == 0) pollHost(vm);
+    }
     if (vm.bytes_allocated >= vm.next_gc) try slowPoint(vm, th);
+}
+
+/// In a worker: asks the page whether it wants the running code stopped
+/// (only a page can know: nothing reaches a worker that is busy).
+noinline fn pollHost(vm: *VM) void {
+    @branchHint(.cold);
+    vm.poll_left = signals.poll_every;
+    if (vm.interrupt_target == null) return;
+    if (@import("../stdlib/weblib.zig").host.interrupted() != 0) softInterrupt(vm);
 }
 
 // (out of line: the fast path, one compare, is in every call and loop)

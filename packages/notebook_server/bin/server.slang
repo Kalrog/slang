@@ -4,20 +4,31 @@
 //   slang notebook-server                 the notebooks of this folder
 //   slang notebook-server notes           those of the folder notes
 //   slang notebook-server notes/first.md  that notebook (made when missing)
+//   slang notebook-server --kernel wasm   every notebook runs in its page
 //
 // It serves on 127.0.0.1 and opens the page in the browser; ctrl-c ends
 // it and its kernels.
+//
+// A notebook's cells run in a kernel: a slang process on this machine, or
+// (a notebook that says `kernel: wasm`, or one switched in the page) slang
+// as WebAssembly inside the notebook's page, where the cells see the
+// notebook's project and nothing else of this machine. --kernel makes it
+// one of the two for every notebook, whatever the notebooks say: `wasm`
+// is the way to open a notebook you do not trust.
 local async = require("slang/async")
 local os = require("slang/os")
 local str = require("slang/string")
 local compiler = require("slang/compiler")
 local server = require("notebook_server")
 
-local USAGE = """usage: slang notebook-server [--port n] [--no-open] [folder | notebook.md]
+local USAGE = """usage: slang notebook-server [--port n] [--no-open] [--kernel process|wasm] [folder | notebook.md]
                               serve the notebooks of a folder (this one by default)
                               to the browser, at http://127.0.0.1:8888/
                               (--port: another port, 0 for any free one;
-                               --no-open: only print the address)
+                               --no-open: only print the address;
+                               --kernel: run every notebook's cells in a slang
+                               process (process) or inside its page (wasm),
+                               whatever the notebook says)
 """
 
 local func usage(){
@@ -26,6 +37,7 @@ local func usage(){
 }
 
 local port = null
+local kernel = null
 local open = true
 local target = null
 local arguments = args()
@@ -35,6 +47,12 @@ for(i < len(arguments)){
   if(a == "--port"){
     port = to_int(arguments[i + 1] or "")
     if(port == null){
+      usage()
+    }
+    i = i + 1
+  } else if(a == "--kernel"){
+    kernel = arguments[i + 1]
+    if(kernel != "process" and kernel != "wasm"){
       usage()
     }
     i = i + 1
@@ -78,7 +96,7 @@ async.main(func(){
   local failure = null
   if(port != null){
     try {
-      s = server.start({root: root, port: port})
+      s = server.start({root: root, port: port, kernel: kernel})
     } catch(local e) {
       failure = e
     }
@@ -87,16 +105,19 @@ async.main(func(){
     port = 8888
     for(local p = 8888; p < 8908 and s == null; p = p + 1){
       try {
-        s = server.start({root: root, port: p})
+        s = server.start({root: root, port: p, kernel: kernel})
       } catch(local e) {
         failure = e
+        if(e.kind != error.kinds.io and e.kind != "address_in_use"){
+          // not the port's fault: the next port would fail the same way
+          break
+        }
       }
     }
   }
   if(s == null){
     os.write_stderr(concat(
-      "slang notebook-server: cannot serve on port ", string(port), ": ",
-      error.message(failure), "\n"
+      "slang notebook-server: cannot serve: ", error.message(failure), "\n"
     ))
     os.exit(1)
   }

@@ -179,6 +179,9 @@ local NAV = {
   {key: "tour", href: "tour/", label: "Tour"},
   {key: "docs", href: "docs/", label: "Docs"},
   {key: "play", href: "play/", label: "Playground"},
+  // (the page itself is made by the notebook package: see the Makefile's
+  // website target)
+  {key: "notebook", href: "notebook/", label: "Notebook"},
 }
 
 // page(o: {title, body, root, section?, kind?, description?}) -> string

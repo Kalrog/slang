@@ -6,6 +6,9 @@
 //! reads it and marks the VM (gc.softInterrupt): the thread the interrupt
 //! is meant for raises an error of kind "interrupted" at its next safe
 //! point, and the interrupt hooks wake an event loop that is waiting.
+//!
+//! A program in a browser's worker (the WASI build) gets its interrupts
+//! from its page instead: see `polled`.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -13,8 +16,13 @@ const root = @import("../vm.zig");
 const VM = root.VM;
 const gc = @import("gc.zig");
 
-/// No signals in a browser; Windows has its own way, not built yet.
-pub const supported = !builtin.cpu.arch.isWasm() and builtin.os.tag != .windows;
+/// In a worker (the WASI build) there are no signals: the page raises a
+/// flag, which the VM asks for every so many safe points (gc.safePoint).
+pub const polled = builtin.os.tag == .wasi;
+/// No signals under Emscripten; Windows has its own way, not built yet.
+pub const supported = polled or (!builtin.cpu.arch.isWasm() and builtin.os.tag != .windows);
+/// how many safe points (calls and loops) pass between two questions
+pub const poll_every: u32 = 8192;
 
 extern "c" fn pipe(fds: *[2]c_int) c_int;
 extern "c" fn signal(sig: c_int, handler: *const fn (c_int) callconv(.c) void) ?*anyopaque;
@@ -59,6 +67,7 @@ fn watch() void {
 /// From now on SIGINT interrupts vm instead of ending the process.
 pub fn install(vm: *VM) !void {
     if (comptime !supported) return error.Unsupported;
+    if (comptime polled) return;
     acquire();
     defer release();
     watched = vm;
@@ -72,7 +81,7 @@ pub fn install(vm: *VM) !void {
 
 /// vm is going away: no interrupt reaches it any more.
 pub fn detach(vm: *VM) void {
-    if (comptime !supported) return;
+    if (comptime !supported or polled) return;
     acquire();
     defer release();
     if (watched == vm) watched = null;

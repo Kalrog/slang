@@ -1,10 +1,25 @@
-// The notebook server's page: a folder's notebooks, or one notebook with
-// its cells. No libraries: the server highlights code (with slang's own
-// parser) and renders Markdown; this script edits, asks and shows.
+// A notebook's page: one notebook with its cells, or (on the notebook
+// server) a folder's notebooks. No libraries: slang highlights code (with
+// its own parser) and renders Markdown; this script edits, asks and shows.
+//
+// The page talks to a notebook's session (notebook/session). On the
+// notebook server that is the server, over a WebSocket. A page of its own
+// (no server: notebook/export's app, which puts a configuration in
+// #nb-config) runs the session itself, as slang.wasm in a worker, and
+// keeps the notebook: in the browser's storage, and in a file of the
+// reader's when they open or save one.
+//
+// Either way a kernel may run in the page too: slang.wasm in another
+// worker (notebook/kernel_web), which the session drives through the page.
 (function () {
   "use strict";
 
   const VALUE = "application/vnd.slang.value+json";
+  // {vm, worker, files, notebook, key} of a page without a server, or null
+  const CONFIG = (() => {
+    const el = document.getElementById("nb-config");
+    return el ? JSON.parse(el.textContent) : null;
+  })();
   const main = document.getElementById("main");
   const crumbs = document.getElementById("crumbs");
   const actions = document.getElementById("actions");
@@ -32,6 +47,9 @@
       play: '<path d="M4 2.5v11l9-5.5z" fill="currentColor"/>',
       stop: '<rect x="3.5" y="3.5" width="9" height="9" rx="1.5" fill="currentColor"/>',
       restart: '<path d="M13 8a5 5 0 1 1-1.6-3.7M13 2.5v3h-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>',
+      new: '<path d="M4 1.8h5l3 3v9.4H4zM9 1.8v3h3M8 7.5v4M6 9.5h4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>',
+      open: '<path d="M1.8 12.5V4a1 1 0 0 1 1-1h3l1.4 1.6h5a1 1 0 0 1 1 1v1.2M1.8 12.5l1.7-5h11l-1.7 5z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>',
+      save: '<path d="M8 2v8M4.5 7 8 10.5 11.5 7M2.5 13.5h11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>',
       up: '<path d="M8 12.5v-9M4 7l4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>',
       down: '<path d="M8 3.5v9M4 9l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>',
       trash: '<path d="M3 4.5h10M6.5 4.5v-2h3v2M4.5 4.5l.6 8.5h5.8l.6-8.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>',
@@ -66,6 +84,11 @@
   function setCrumbs(path, isFile) {
     const parts = path === "" ? [] : path.split("/");
     crumbs.replaceChildren();
+    if (CONFIG) {
+      // a page of its own has one notebook and no folders
+      crumbs.append(h("span", { class: "sep" }, "/"), h("span", { class: "here" }, path));
+      return;
+    }
     let at = "";
     parts.forEach((part, i) => {
       at = at === "" ? part : at + "/" + part;
@@ -90,6 +113,158 @@
         try { localStorage.setItem("slang-notebook-theme", root.dataset.theme); } catch (e) {}
       },
     }, icon("theme"));
+  }
+
+  // ---------------------------------------------------------------- slang in the page
+
+  let vmPromise = null;
+
+  // slang as WebAssembly, compiled once for all the workers of the page
+  function vmModule() {
+    if (!vmPromise) {
+      vmPromise = (async () => {
+        const inline = document.getElementById("nb-vm");
+        let res;
+        if (inline) {
+          // in the page itself: gzipped, in base64
+          const text = atob(inline.textContent.trim());
+          const bytes = new Uint8Array(text.length);
+          for (let i = 0; i < text.length; i++) bytes[i] = text.charCodeAt(i);
+          res = new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip")));
+        } else {
+          res = await fetch(CONFIG ? CONFIG.vm : "/static/web/slang.wasm");
+          if (!res.ok) throw new Error("slang.wasm is not there (" + res.status + ")");
+        }
+        return WebAssembly.compile(await res.arrayBuffer());
+      })();
+      vmPromise.catch(() => { vmPromise = null; });
+    }
+    return vmPromise;
+  }
+
+  let workerScript = null;
+
+  function workerURL() {
+    if (!workerScript) {
+      const inline = document.getElementById("nb-worker");
+      if (inline) workerScript = URL.createObjectURL(new Blob([inline.textContent], { type: "text/javascript" }));
+      else workerScript = CONFIG ? CONFIG.worker : "/static/web/worker.js";
+    }
+    return workerScript;
+  }
+
+  // whether this page can stop what runs in a worker of its: it needs
+  // memory it shares with the worker, which only an isolated page has
+  const canInterrupt = typeof SharedArrayBuffer !== "undefined" && self.crossOriginIsolated === true;
+
+  // A slang program in a worker of the page (web/worker.js): on.message
+  // gets what it sends (slang/web), on.output what it prints, on.exit its
+  // end.
+  class WasmVM {
+    constructor(on) {
+      this.on = on;
+      this.worker = null;
+      this.gone = false;
+      this.flag = canInterrupt ? new SharedArrayBuffer(4) : null;
+      this.ready = null;
+    }
+
+    // options: {args, files, cwd, env}
+    start(options) {
+      this.ready = (async () => {
+        const module = await vmModule();
+        if (this.gone) return;
+        const worker = new Worker(workerURL());
+        this.worker = worker;
+        worker.onmessage = (e) => {
+          if (this.gone) return;
+          const m = e.data;
+          if (m.type === "message") this.on.message(m.text);
+          else if (m.type === "output") this.on.output(m.name, m.text);
+          else if (m.type === "exit") { this.gone = true; worker.terminate(); this.on.exit(m.code); }
+        };
+        worker.onerror = (e) => {
+          if (this.gone) return;
+          this.gone = true;
+          this.on.output("stderr", (e.message || "the worker failed") + "\n");
+          this.on.exit(134);
+        };
+        worker.postMessage({
+          op: "start", module: module, args: options.args, files: options.files,
+          cwd: options.cwd, env: options.env, flag: this.flag,
+        });
+      })();
+      return this.ready;
+    }
+
+    send(text) {
+      if (!this.ready) return;
+      this.ready.then(() => {
+        if (!this.gone && this.worker) this.worker.postMessage({ op: "message", text: text });
+      }, () => {});
+    }
+
+    // asks the program to stop what it runs; false when the page cannot
+    interrupt() {
+      if (!this.flag) return false;
+      Atomics.store(new Int32Array(this.flag), 0, 1);
+      return true;
+    }
+
+    stop() {
+      this.gone = true;
+      if (this.worker) this.worker.terminate();
+    }
+  }
+
+  // The kernel of a notebook, in a worker of this page: does what the
+  // session asks (the operations of notebook/remote) and gives emit the
+  // kernel's events.
+  class KernelHost {
+    constructor(emit) {
+      this.emit = emit;
+      this.vm = null;
+    }
+
+    handle(op) {
+      if (op.op === "start") {
+        this.stop();
+        const vm = new WasmVM({
+          message: (text) => { if (this.vm === vm) this.emit(JSON.parse(text)); },
+          output: (name, text) => { if (this.vm === vm) this.emit({ event: "stream", name: name, text: text }); },
+          exit: (code) => {
+            if (this.vm !== vm) return;
+            this.vm = null;
+            this.emit({ event: "exit", status: code });
+          },
+        });
+        this.vm = vm;
+        vm.start(op).catch((e) => {
+          if (this.vm !== vm) return;
+          this.vm = null;
+          toast("slang did not start in the page: " + e.message);
+          this.emit({ event: "exit", status: 1 });
+        });
+      } else if (op.op === "kill") {
+        this.stop();
+      } else if (op.op === "interrupt") {
+        if (this.vm && !this.vm.interrupt()) {
+          // nothing reaches a busy worker but its end
+          this.stop();
+          this.emit({
+            event: "exit", status: 130,
+            reason: "This page cannot stop a cell and keep the kernel, so the kernel was ended: what the cells had made is gone.",
+          });
+        }
+      } else if (this.vm) {
+        this.vm.send(JSON.stringify(op));
+      }
+    }
+
+    stop() {
+      if (this.vm) this.vm.stop();
+      this.vm = null;
+    }
   }
 
   // ---------------------------------------------------------------- a folder
@@ -658,6 +833,14 @@
   class Notebook {
     constructor(path) {
       this.path = path;
+      this.local = CONFIG !== null;
+      this.kind = null;
+      this.kinds = [];
+      this.kernelId = 0;
+      this.kernelHost = new KernelHost((e) => {
+        if (this.local) this.toService({ kernel: e });
+        else this.send({ op: "kernel_event", kernel: this.kernelId, e: e });
+      });
       this.cells = [];
       this.byId = new Map();
       this.selected = null;
@@ -673,17 +856,37 @@
       document.addEventListener("keydown", (e) => this.command(e));
       addEventListener("pagehide", () => this.flush());
       document.addEventListener("visibilitychange", () => { if (document.hidden) this.flush(); });
-      this.connect();
+      if (this.local) this.startService();
+      else this.connect();
     }
 
     buildBar() {
-      setCrumbs(this.path, true);
-      document.title = this.path.split("/").pop() + " - slang notebook";
+      this.setName(this.path);
       this.status = h("span", { class: "status", "data-kernel": "none" }, h("span", { class: "dot" }), h("span", { class: "text" }, "not started"));
       this.savedEl = h("span", { class: "saved" });
       this.stopButton = h("button", { class: "tool", title: "Stop the running cell", onclick: () => this.send({ op: "interrupt" }) }, icon("stop"), h("span", { class: "label" }, "Stop"));
+      // where the cells run, when there is a choice
+      this.kindSelect = h("select", {
+        class: "tool kind", title: "Where the cells run", "aria-label": "Where the cells run", hidden: true,
+        onchange: () => { this.flush(); this.send({ op: "kernel", kind: this.kindSelect.value }); },
+      });
+      const files = [];
+      if (this.local) {
+        files.push(
+          h("button", { class: "tool", title: "A new, empty notebook", onclick: () => this.newNotebook() }, icon("new"), h("span", { class: "label" }, "New")),
+          h("button", { class: "tool", title: "Open a notebook (a Markdown file) from this machine", onclick: () => this.openFile() }, icon("open"), h("span", { class: "label" }, "Open")),
+          h("button", { class: "tool", title: "Save the notebook to a file on this machine", onclick: () => this.saveFile() }, icon("save"), h("span", { class: "label" }, "Save")));
+        if (CONFIG.notebook) {
+          files.push(h("button", {
+            class: "tool", title: "The notebook as this page came with it; your changes to it are dropped",
+            onclick: () => this.resetNotebook(),
+          }, h("span", null, "Reset")));
+        }
+      }
       actions.replaceChildren(
+        ...files,
         this.savedEl,
+        this.kindSelect,
         this.status,
         h("button", { class: "tool primary", title: "Run every cell from the top", onclick: () => this.runAll() }, icon("play"), h("span", { class: "label" }, "Run all")),
         this.stopButton,
@@ -696,20 +899,39 @@
       this.setKernel("none", null);
     }
 
+    setName(name) {
+      this.path = name;
+      setCrumbs(name, true);
+      document.title = name.split("/").pop() + " - slang notebook";
+    }
+
     setKernel(status, project) {
       this.kernel = status;
       const names = { none: "not started", starting: "starting", idle: "idle", busy: "running", dead: "ended", offline: "offline" };
       this.status.dataset.kernel = status;
       let text = names[status] || status;
+      const where = this.kind === "wasm"
+        ? "The cells run in this page (slang as WebAssembly): they see the notebook's project and nothing else of this machine. "
+        : "";
       if (project) {
         const parts = project.split("/");
         text += " · " + (parts[parts.length - 2] || "project");
-        this.status.title = "The cells run in the project " + project;
+        this.status.title = where + "The cells run in the project " + project;
       } else {
-        this.status.title = status === "none" ? "The kernel starts when a cell is run" : "The cells run without a project file";
+        this.status.title = where + (status === "none" ? "The kernel starts when a cell is run" : "The cells run without a project file");
       }
       this.status.querySelector(".text").textContent = text;
       this.stopButton.disabled = status !== "busy";
+    }
+
+    // the kinds of kernel there are here, and the one this notebook has
+    setKinds(kinds, kind) {
+      if (kinds) this.kinds = kinds;
+      if (kind) this.kind = kind;
+      const labels = { process: "On this machine", wasm: "In the page" };
+      this.kindSelect.replaceChildren(...this.kinds.map((k) => h("option", { value: k }, labels[k] || k)));
+      this.kindSelect.value = this.kind || "";
+      this.kindSelect.hidden = this.kinds.length < 2;
     }
 
     // ---- the connection
@@ -730,7 +952,175 @@
     }
 
     send(m) {
-      if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(m));
+      if (this.local) this.toService({ page: m });
+      else if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(m));
+    }
+
+    // ---- without a server: the session is a worker of this page
+
+    startService() {
+      this.setBanner("Starting slang in this page ...");
+      const said = [];
+      this.service = new WasmVM({
+        message: (text) => this.fromService(JSON.parse(text)),
+        output: (name, text) => { said.push(text); console.warn(text); },
+        exit: (code) => {
+          this.gone = true;
+          this.kernelHost.stop();
+          this.setKernel("offline", null);
+          this.setBanner("The notebook's worker ended. Load the page again. " + said.join("").slice(-400));
+        },
+      });
+      this.service.start({
+        args: ["slang", "run", "/pkg/notebook/bin/service_web.slang"], files: CONFIG.files, cwd: "/work",
+      }).catch((e) => this.setBanner("slang did not start: " + e.message));
+    }
+
+    toService(m) {
+      if (this.service) this.service.send(JSON.stringify(m));
+    }
+
+    fromService(m) {
+      if (m.page) this.message(m.page);
+      else if (m.kernel) this.kernelHost.handle(m.kernel);
+      else if (m.timer) setTimeout(() => this.toService({ timer: m.timer.id }), m.timer.ms);
+      else if (m.store) this.store(m.store);
+      else if (m.ready) {
+        this.setBanner(null);
+        this.openDocument(this.draft() || CONFIG.notebook || this.blank(), null);
+      }
+    }
+
+    // ---- without a server: the notebook is the page's to keep
+
+    get draftKey() {
+      return "slang-notebook:" + (CONFIG.key || "");
+    }
+
+    draft() {
+      try {
+        const d = JSON.parse(localStorage.getItem(this.draftKey) || "null");
+        return d && typeof d.text === "string" ? d : null;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    blank() {
+      return { name: "notebook.md", text: "# Untitled\n\n```slang\n\n```\n" };
+    }
+
+    // shows a notebook: {name, text, outputs}, and the file it is, if any
+    openDocument(doc, handle) {
+      this.handle = handle;
+      this.latest = null;
+      this.loaded = false;
+      this.dirty = false;
+      clearTimeout(this.syncTimer);
+      this.kernelHost.stop();
+      this.setName(doc.name || "notebook.md");
+      this.savedEl.textContent = "";
+      this.toService({ open: { name: this.path, text: doc.text, outputs: doc.outputs || null } });
+    }
+
+    // the session saved: the notebook goes to the browser's storage, and
+    // to its file when it has one
+    store(s) {
+      this.latest = s;
+      try {
+        localStorage.setItem(this.draftKey, JSON.stringify(s));
+      } catch (e) {
+        // too much for the storage: the text alone
+        try { localStorage.setItem(this.draftKey, JSON.stringify({ name: s.name, text: s.text })); } catch (e2) {}
+      }
+      if (this.handle) this.write(this.handle, s.text).catch((e) => toast("not saved to " + this.path + ": " + e.message));
+    }
+
+    async write(handle, text) {
+      const out = await handle.createWritable();
+      await out.write(text);
+      await out.close();
+    }
+
+    newNotebook() {
+      if (!this.handle && this.latest && !confirm("Start a new notebook? This one is only kept in this browser, and is replaced.")) return;
+      try { localStorage.removeItem(this.draftKey); } catch (e) {}
+      this.openDocument(this.blank(), null);
+    }
+
+    resetNotebook() {
+      if (!confirm("Go back to the notebook as this page came with it? Your changes are dropped.")) return;
+      try { localStorage.removeItem(this.draftKey); } catch (e) {}
+      this.openDocument(CONFIG.notebook, null);
+    }
+
+    async openFile() {
+      this.flush();
+      if (window.showOpenFilePicker) {
+        let handle;
+        try {
+          [handle] = await showOpenFilePicker({
+            types: [{ description: "Notebooks (Markdown)", accept: { "text/markdown": [".md", ".markdown"] } }],
+          });
+        } catch (e) {
+          return; // not chosen
+        }
+        const file = await handle.getFile();
+        this.openDocument({ name: file.name, text: await file.text() }, handle);
+        return;
+      }
+      // a browser without file handles: the file is read, and saving
+      // downloads a copy
+      const input = h("input", { type: "file", accept: ".md,.markdown,text/markdown" });
+      input.onchange = async () => {
+        const file = input.files[0];
+        if (file) this.openDocument({ name: file.name, text: await file.text() }, null);
+      };
+      input.click();
+    }
+
+    // the notebook's text as it is now, from the session
+    currentText() {
+      this.sync();
+      this.send({ op: "save" });
+      return new Promise((resolve) => {
+        const wait = (tries) => {
+          if (this.latest || tries <= 0) resolve(this.latest ? this.latest.text : null);
+          else setTimeout(() => wait(tries - 1), 50);
+        };
+        this.latest = null;
+        wait(60);
+      });
+    }
+
+    async saveFile() {
+      const text = await this.currentText();
+      if (text == null) { toast("The notebook is not loaded yet."); return; }
+      try {
+        if (!this.handle && window.showSaveFilePicker) {
+          this.handle = await showSaveFilePicker({
+            suggestedName: this.path,
+            types: [{ description: "Notebooks (Markdown)", accept: { "text/markdown": [".md"] } }],
+          });
+          this.setName(this.handle.name);
+        }
+        if (this.handle) {
+          await this.write(this.handle, text);
+          this.savedEl.textContent = "Saved to " + this.path;
+          return;
+        }
+      } catch (e) {
+        if (e.name !== "AbortError") toast("not saved: " + e.message);
+        return;
+      }
+      // no file handles here: a download
+      const url = URL.createObjectURL(new Blob([text], { type: "text/markdown" }));
+      const a = h("a", { href: url, download: this.path });
+      document.body.append(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      this.savedEl.textContent = "Downloaded";
     }
 
     setBanner(text) {
@@ -760,6 +1150,7 @@
             this.load(list(m.cells));
           }
           this.loaded = true;
+          this.setKinds(list(m.kinds), m.kind);
           this.setKernel(m.kernel, m.project);
           break;
         case "cells":
@@ -776,7 +1167,13 @@
           if (cell) cell.setState(m.state);
           break;
         case "kernel":
+          this.setKinds(null, m.kind);
           this.setKernel(m.status, m.project);
+          break;
+        case "kernel_op":
+          // the server's session asks something of the kernel in this page
+          if (m.op && m.op.op === "start") this.kernelId = m.kernel;
+          if (m.kernel === this.kernelId) this.kernelHost.handle(m.op);
           break;
         case "tokens":
           if (cell) cell.tokens(m);
@@ -785,7 +1182,11 @@
           if (cell && m.seq === cell.seq) cell.setRendered(m.html);
           break;
         case "saved":
-          this.savedEl.textContent = this.dirty ? "Edited" : "Saved";
+          if (this.local) {
+            this.savedEl.textContent = this.dirty ? "Edited" : this.handle ? "Saved to " + this.path : "Kept in this browser";
+          } else {
+            this.savedEl.textContent = this.dirty ? "Edited" : "Saved";
+          }
           break;
         case "problem":
           if (m.fatal) { this.gone = true; this.setBanner(m.message); }
@@ -928,7 +1329,7 @@
     sync() {
       clearTimeout(this.syncTimer);
       if (!this.dirty || !this.loaded) return;
-      if (!this.ws || this.ws.readyState !== 1) return;
+      if (!this.local && (!this.ws || this.ws.readyState !== 1)) return;
       this.dirty = false;
       this.send({
         op: "update",
@@ -941,6 +1342,7 @@
     }
 
     saveNow() {
+      if (this.local) { this.saveFile(); return; }
       this.dirty = this.dirty || true;
       this.sync();
       this.send({ op: "save" });
@@ -1011,7 +1413,9 @@
   // ---------------------------------------------------------------- start
 
   const where = decodeURIComponent(location.pathname);
-  if (where.startsWith("/nb/") && /\.(md|markdown)$/i.test(where)) {
+  if (CONFIG) {
+    new Notebook("notebook.md");
+  } else if (where.startsWith("/nb/") && /\.(md|markdown)$/i.test(where)) {
     new Notebook(where.slice(4));
   } else {
     const path = where.startsWith("/nb/") ? where.slice(4).replace(/\/+$/, "") : "";

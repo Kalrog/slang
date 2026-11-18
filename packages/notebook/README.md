@@ -11,6 +11,8 @@ slang notebook new notes.md           # a notebook to start from
 slang notebook run notes.md           # run its cells, print what they show
 slang notebook run --save notes.md    # and keep the outputs (notes.out.json)
 slang notebook export notes.md        # notes.html: text, code and outputs in one file
+slang notebook export --live notes.md # notes.html that is the notebook: slang runs in the page
+slang notebook app                    # notebook.html: an empty notebook that runs in the page
 ```
 
 A notebook is a Markdown file: its `slang` code blocks are the cells, the
@@ -33,12 +35,16 @@ The guide [Notebooks](../../website/guide/notebooks.md) has the rest.
 
 | module | what it is |
 |---|---|
-| `notebook` | what cells call: `plot`, `table`, `audio`, `image`, `html`, `markdown`, `display` |
+| `notebook` | what cells call: `plot`, `table`, `audio`, `image`, `pixels`, `code`, `html`, `markdown`, `display` |
 | `notebook/document` | a notebook as a file: Markdown to cells and back, the sidecar of outputs |
 | `notebook/client` | starts a kernel and runs code in it: `execute`, `interrupt`, `shutdown` |
 | `notebook/kernel`, `notebook/protocol` | the process that runs the cells, and how it talks |
+| `notebook/runner` | what runs cells inside a kernel: one session, in the notebook's project |
 | `notebook/run` | runs a whole notebook |
-| `notebook/export` | a notebook and its outputs as one HTML page |
+| `notebook/export` | a notebook and its outputs as one HTML page; `app`: the notebook as a page that runs it |
+| `notebook/session` | an open notebook: cells, the queue, a kernel, the pages that show it |
+| `notebook/kernel_web`, `notebook/service_web` | the kernel and the session as slang.wasm in a page's workers |
+| `notebook/remote`, `notebook/browser` | a kernel that is in a page, as a session sees it; what a page needs (slang.wasm, the worker, the files) |
 | `notebook/inspect` | a value as text and as a tree to unfold |
 | `notebook/markdown`, `notebook/highlight` | Markdown to HTML; code coloured by slang's parser |
 
@@ -58,4 +64,19 @@ async.main(func(){
 })
 ```
 
-`make notebook-test` runs the tests of both packages.
+## In a browser, without a process
+
+A notebook's cells can run inside its page: slang as WebAssembly (`make
+wasm` builds `lib/slang.wasm`) in a worker. A notebook asks for that on
+its first line (`<!-- slang-notebook kernel: wasm -->`), the notebook
+server can do it for every notebook (`--kernel wasm`), and `export --live`
+and `app` make a page that needs nothing else: the notebook's session is a
+second worker there.
+
+`web/` is the page: `app.js` and `app.css` (the notebook server's page
+too), `worker.js` (runs slang.wasm) and `wasi.js` (the system slang.wasm
+asks for; the same file as `website/public/wasi.js`).
+
+`make notebook-test` runs the tests of both packages, and with `make wasm`
+done and node installed also `test/web_test.mjs`: slang.wasm as a kernel
+and as a page's session, with Node in the page's place.

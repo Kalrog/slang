@@ -4,6 +4,8 @@
 //   slang notebook run notes.md          run every cell, show what they show
 //   slang notebook new notes.md          a notebook to start from
 //   slang notebook export notes.md       notes.html, with the saved outputs
+//   slang notebook export --live notes.md  notes.html that runs: slang is in the page
+//   slang notebook app                   notebook.html: an empty notebook that runs
 //   slang notebook clear notes.md        forget the saved outputs
 //
 // To work on a notebook in the browser, see the notebook_server package
@@ -26,6 +28,14 @@ local USAGE = """usage: slang notebook run [--save] [--keep-going] [--quiet] <no
        slang notebook export [--run] [--no-code] [-o out.html] <notebook.md>
                               one HTML page of the notebook and its saved outputs
                               (--run: run it first; --no-code: text and outputs only)
+       slang notebook export --live [--run] [--vm url] [--home url] [-o out.html] <notebook.md>
+                              one HTML page that is the notebook, to edit and run:
+                              slang runs inside the page, no server
+                              (--vm: the page loads slang.wasm from that URL
+                               instead of carrying it; --home: where the mark
+                               at the page's top left leads)
+       slang notebook app [--vm url] [--home url] [-o notebook.html]
+                              the same page with an empty notebook
        slang notebook clear <notebook.md>...
                               remove the saved outputs
 """
@@ -41,8 +51,8 @@ local func usage(){
 }
 
 // the flags (--name) and the other arguments; value_flags take the next
-// argument
-local func parse(arguments, flags, value_flags){
+// argument. A command takes at least one other argument, unless no_files
+local func parse(arguments, flags, value_flags, no_files){
   local out = {files: {}}
   local i = 1
   for(i < len(arguments)){
@@ -59,7 +69,7 @@ local func parse(arguments, flags, value_flags){
     }
     i = i + 1
   }
-  if(len(out.files) == 0){
+  if(len(out.files) == 0 and not no_files){
     usage()
   }
   return out
@@ -189,10 +199,11 @@ if(command == "run"){
     print("wrote ", path, "\n")
   }
 } else if(command == "export"){
-  local o = parse(arguments, {["--run"]: "run", ["--no-code"]: "no_code"}, {
-    ["-o"]: "output"
-  })
-  if(len(o.files) != 1){
+  local o = parse(arguments, {
+    ["--run"]: "run", ["--no-code"]: "no_code", ["--live"]: "live"
+  }, {["-o"]: "output", ["--vm"]: "vm", ["--home"]: "home"})
+  if(len(o.files) != 1 or (o.live and o.no_code) or
+    ((o.vm != null or o.home != null) and not o.live)){
     usage()
   }
   local path = o.files[0]
@@ -203,7 +214,7 @@ if(command == "run"){
   if(o.run){
     async.main(func(){
       local r = async.await(run.file(path, {keep_going: true}))
-      nb = {path: path, cells: r.cells}
+      nb = {path: path, cells: r.cells, settings: document.read(path).settings}
     })
   } else {
     nb = document.read(path)
@@ -212,7 +223,27 @@ if(command == "run"){
   if(target == null){
     target = concat(str.trim_suffix(path, ".md"), ".html")
   }
-  os.write_file(target, export.html(nb, {code: not o.no_code}))
+  if(o.live){
+    local page = try { export.app(nb, {vm: o.vm, home: o.home}) } catch(local e) {
+      fail(error.message(e))
+    }
+    os.write_file(target, page)
+  } else {
+    os.write_file(target, export.html(nb, {code: not o.no_code}))
+  }
+  print("wrote ", target, "\n")
+} else if(command == "app"){
+  local o = parse(arguments, {}, {
+    ["-o"]: "output", ["--vm"]: "vm", ["--home"]: "home"
+  }, true)
+  if(len(o.files) != 0){
+    usage()
+  }
+  local target = o.output or "notebook.html"
+  local page = try { export.app(null, {vm: o.vm, home: o.home}) } catch(local e) {
+    fail(error.message(e))
+  }
+  os.write_file(target, page)
   print("wrote ", target, "\n")
 } else if(command == "clear"){
   local o = parse(arguments, {}, {})

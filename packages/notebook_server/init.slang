@@ -10,11 +10,17 @@ extension "extensions/html"
 //   })
 //
 // The server shows the notebooks (Markdown files) of a folder and the
-// folders below it. An open notebook has a kernel (notebook/client) that
-// starts when its first cell is run; what the cells showed is kept here,
-// not in the page, so a reload shows it again and a running cell goes on.
-// Edits are saved as they are made: the notebook to its Markdown file,
-// the outputs to its sidecar (notebook/document).
+// folders below it. An open notebook is a session (notebook/session): it
+// has a kernel that starts when its first cell is run; what the cells
+// showed is kept here, not in the page, so a reload shows it again and a
+// running cell goes on. Edits are saved as they are made: the notebook to
+// its Markdown file, the outputs to its sidecar (notebook/document).
+//
+// A kernel is a slang process on this machine (notebook/client), or, for
+// a notebook that says `kernel: wasm`, slang as WebAssembly in a worker of
+// the notebook's page (notebook/kernel_web): its cells then see the files
+// of the notebook's project and nothing else of this machine. The server
+// can be told to run every notebook on one of the two (Options.kernel).
 //
 // A notebook server runs code, and every page a browser has open can
 // reach a port on this machine. So it listens on 127.0.0.1 only, answers
@@ -22,13 +28,10 @@ extension "extensions/html"
 // cookie after that), only for its own host name, and takes WebSockets
 // and POSTs only from its own pages.
 //
-// The page and the server talk over a WebSocket per notebook, in JSON.
-// From the page: {op: "update", cells}, {op: "run", ids}, {op:
-// "interrupt"}, {op: "restart"}, {op: "clear", ids?}, {op: "highlight",
-// id, seq, source}, {op: "render", id, seq, source}, {op: "variables"}.
-// To the page: {event: "notebook", ...} with everything, once; then
-// "cells", "cell" (a kernel's event about a cell), "state", "kernel",
-// "tokens", "rendered", "variables", "saved" and "problem".
+// The page and the server talk over a WebSocket per notebook, in JSON:
+// the session's messages (see notebook/session), and for a kernel in the
+// page {event: "kernel_op", kernel, op} to the page (see notebook/remote)
+// and {op: "kernel_event", kernel, e} from it.
 local async = require("slang/async")
 local html = require("slang/html")
 local web = require("slang/web")
@@ -43,9 +46,10 @@ local tbl = require("slang/table")
 local encoding = require("slang/encoding")
 local compiler = require("slang/compiler")
 local document = require("notebook/document")
-local markdown = require("notebook/markdown")
-local highlight = require("notebook/highlight")
+local session = require("notebook/session")
 local client = require("notebook/client")
+local remote = require("notebook/remote")
+local browser = require("notebook/browser")
 local export = require("notebook/export")
 
 local server = {}
@@ -92,442 +96,177 @@ local func is_notebook(name){
 
 // ------------------------------------------------------------ notebooks
 
-// what the page gets of an output: Markdown comes rendered
-local func present_data(nb, data){
-  if(raw_type(data) != "table" or data["text/markdown"] == null or
-    data["text/html"] != null){
-    return data
+// A notebook that is open here: its session (notebook/session) and the
+// pages that show it. The server is the session's host: the notebook is a
+// file, the pages are sockets, and a kernel is a process of its own, or
+// slang in a worker of one of the pages.
+
+local func send_to(socket, message){
+  if(socket.open){
+    socket:send(json.encode(message)):catch(func(e){ return null })
   }
-  local out = {}
-  for(let local e in entries(data)){
-    out[e[0]] = e[1]
-  }
-  out["text/html"] = html.render(<div class="nb-md">
-    {html.raw(markdown.render(data["text/markdown"]))}
-  </div>)
-  return out
 }
 
-local func present_output(nb, o){
-  if(o.data == null){
-    return o
-  }
-  return {type: o.type, data: present_data(nb, o.data)}
-}
-
-local func render_text(nb, source){
-  return markdown.render(source, {
-    highlight: func(code, language){
-      if(language != "slang"){
-        return null
-      }
-      return highlight.html(code, nb.path)
-    }
+// a kernel as a process (notebook/client), as a session sees a kernel
+local func process_kernel(entry, on_event){
+  local k = client.start({
+    path: entry.path, slang: entry.server.slang, on_event: on_event
   })
-}
-
-local func cell_view(nb, cell){
-  local outputs = json.array({})
-  for(let local o in values(cell.outputs or {})){
-    append(outputs, present_output(nb, o))
-  }
-  local view = {
-    id: cell.id, type: cell.type, source: cell.source, outputs: outputs,
-    count: cell.count, ms: cell.ms, state: cell.state
-  }
-  if(cell.type == "code"){
-    view.spans = json.array(highlight.spans(cell.source, nb.path))
-  } else {
-    view.html = render_text(nb, cell.source)
-  }
-  return view
-}
-
-local func kernel_status(nb){
-  if(nb.kernel == null){
-    return "none"
-  }
-  return nb.kernel.status
-}
-
-local func snapshot(nb){
-  local cells = json.array({})
-  for(let local cell in values(nb.cells)){
-    append(cells, cell_view(nb, cell))
-  }
   return {
-    event: "notebook", path: nb.rel, name: basename(nb.rel),
-    title: document.title(nb.cells, basename(nb.rel)), cells: cells,
-    kernel: kernel_status(nb), project: nb.project
+    kind: "process",
+    status: func(){ return k.status },
+    execute: func(code, options){ k:execute(code, options) },
+    variables: func(reply){ k:variables():then(reply) },
+    interrupt: func(){ k:interrupt() },
+    kill: func(){ k:kill() }
   }
 }
 
-local func broadcast(nb, message, except){
-  local text = json.encode(message)
-  for(let local socket in values({...nb.sockets})){
-    if(socket.open and (except == null or not same(socket, except))){
-      socket:send(text):catch(func(e){ return null })
-    }
+// a kernel in a page: the page that asked runs slang.wasm in a worker and
+// passes on what it says (notebook/remote)
+local func page_kernel(entry, on_event, socket){
+  local st = entry.server
+  if(st.vm == null){
+    raise(error.new(error.kinds.not_found,
+      "there is no slang.wasm to run in the page (make wasm builds it)"))
   }
-}
-
-local func find(nb, id){
-  for(local i = 0; i < len(nb.cells); i = i + 1){
-    if(nb.cells[i].id == id){
-      return i
-    }
-  }
-  return -1
-}
-
-// reads the notebook's file: its cells get ids, and keep the outputs the
-// server has for them when the sidecar has none
-local func load(nb){
-  local doc = document.read(nb.path)
-  local kept = {}
-  for(let local old in values(nb.cells or {})){
-    if(old.type == "code" and old.outputs != null and len(old.outputs) > 0){
-      kept[document.hash(old.source)] = old
-    }
-  }
-  for(let local cell in values(doc.cells)){
-    nb.next_id = nb.next_id + 1
-    cell.id = concat("c", string(nb.next_id))
-    cell.state = "idle"
-    if(cell.type == "code" and cell.outputs == null){
-      local old = kept[document.hash(cell.source)]
-      if(old != null){
-        cell.outputs = old.outputs
-        cell.count = old.count
-        cell.ms = old.ms
+  if(socket == null or not socket.open){
+    socket = null
+    for(let local other in values(entry.sockets)){
+      if(other.open){
+        socket = other
+        break
       }
     }
-    cell.outputs = cell.outputs or {}
   }
-  nb.cells = doc.cells
-  nb.text = document.format(nb.cells)
-}
-
-local func save_now(nb){
-  if(nb.save_timer != null){
-    nb.save_timer:stop()
-    nb.save_timer:close()
-    nb.save_timer = null
+  if(socket == null){
+    raise(error.new(error.kinds.closed, "no page is open to run the kernel in"))
   }
-  try {
-    document.write(nb.path, nb.cells)
-    nb.text = document.format(nb.cells)
-    broadcast(nb, {event: "saved"})
-  } catch(local e) {
-    broadcast(nb, {
-      event: "problem", message: concat("not saved: ", error.message(e))
-    })
-  }
-}
-
-// saves soon: edits and outputs come in bursts
-local func save_soon(nb){
-  if(nb.save_timer != null){
-    return
-  }
-  local timer = require("uv").timer()
-  nb.save_timer = timer
-  timer:start(400, 0, func(){
-    save_now(nb)
+  entry.kernel_id = entry.kernel_id + 1
+  local id = entry.kernel_id
+  local project = browser.project_files(entry.path)
+  local k = remote.new(func(op){
+    send_to(socket, {event: "kernel_op", kernel: id, op: op})
+  }, func(event){
+    // the project file is named as it is here, not as the worker sees it
+    if(event.event == "ready" and type(event.project) == "string" and
+      str.starts_with(event.project, concat(browser.WORK, "/"))){
+      event.project = concat(
+        project.root, str.substring(event.project, len(browser.WORK))
+      )
+    }
+    on_event(event)
   })
-}
-
-local func set_state(nb, cell, state){
-  if(cell.state != state){
-    cell.state = state
-    broadcast(nb, {event: "state", id: cell.id, state: state})
+  entry.remote = k
+  entry.remote_socket = socket
+  local files = project.files
+  for(let local e in entries(st.package_files())){
+    files[e[0]] = e[1]
   }
-}
-
-local func tell_kernel(nb){
-  local message = {
-    event: "kernel", status: kernel_status(nb), project: nb.project
-  }
-  broadcast(nb, message)
-}
-
-// the cells waiting to run are not run after all
-local func drop_queue(nb){
-  local queue = nb.queue
-  nb.queue = {}
-  for(let local id in values(queue)){
-    local at = find(nb, id)
-    if(at >= 0){
-      set_state(nb, nb.cells[at], "idle")
-    }
-  }
-}
-
-local pump = null
-
-local func on_kernel_event(nb, k, event){
-  if(not same(nb.kernel, k)){
-    // a kernel that was restarted away
-    return
-  }
-  local kind = event.event
-  if(kind == "ready"){
-    nb.project = event.project
-    if(event.error != null){
-      broadcast(nb, {
-        event: "problem",
-        message: concat("the project did not load: ", event.error)
-      })
-    }
-    tell_kernel(nb)
-    return
-  }
-  if(kind == "exit"){
-    drop_queue(nb)
-    if(nb.running != null){
-      local at = find(nb, nb.running)
-      nb.running = null
-      if(at >= 0){
-        set_state(nb, nb.cells[at], "idle")
-      }
-      broadcast(nb, {event: "problem", message: "the kernel ended"})
-    }
-    tell_kernel(nb)
-    return
-  }
-  local at = find(nb, event.id)
-  if(at >= 0){
-    local cell = nb.cells[at]
-    if(kind == "start"){
-      nb.count = nb.count + 1
-      cell.count = nb.count
-      cell.state = "running"
-    } else if(kind == "done"){
-      cell.state = "idle"
-    } else if(kind == "error" and event.error.location != null and
-      event.error.location.origin == nb.rel and cell.run_line != null and
-      event.error.location.line != null){
-      // the line in the cell, when the error is in it
-      local line = event.error.location.line - cell.run_line
-      if(line >= 1 and line <= str.count(cell.source, "\n") + 1){
-        event.error.cell_line = line
-      }
-    }
-    document.apply(cell, event)
-    local shown = event
-    if(event.data != null){
-      shown = {event: kind, id: event.id, data: present_data(nb, event.data)}
-    }
-    broadcast(nb, {
-      event: "cell", id: cell.id, e: shown, count: cell.count,
-      state: cell.state
-    })
-  }
-  if(kind == "done"){
-    if(nb.running == event.id){
-      nb.running = null
-    }
-    if(event.status != "ok"){
-      drop_queue(nb)
-    }
-    save_soon(nb)
-    tell_kernel(nb)
-    pump(nb)
-  } else if(kind == "start"){
-    tell_kernel(nb)
-  }
-}
-
-local func ensure_kernel(nb){
-  if(nb.kernel != null and nb.kernel.status != "dead"){
-    return nb.kernel
-  }
-  nb.count = 0
-  local k = null
-  k = client.start({
-    path: nb.path, slang: nb.server.slang,
-    on_event: func(event){ on_kernel_event(nb, k, event) }
+  k.start({
+    args: browser.kernel_args(project.target), files: files, cwd: project.cwd
   })
-  nb.kernel = k
-  tell_kernel(nb)
+  if(project.left_out > 0){
+    send_to(socket, {event: "problem", message: concat(
+      string(project.left_out),
+      " files of the project are not in the page's kernel: too large, or more than 16 MB together"
+    )})
+  }
   return k
 }
 
-// runs the next waiting cell when none is running
-pump = func(nb){
-  for(nb.running == null and len(nb.queue) > 0){
-    local id = remove(nb.queue, 0)
-    local at = find(nb, id)
-    if(at >= 0){
-      local cell = nb.cells[at]
-      local failure = null
-      try {
-        local k = ensure_kernel(nb)
-        cell.run_line = document.layout(nb.cells)[at]
-        nb.running = id
-        k:execute(cell.source, {id: id, origin: nb.rel, line: cell.run_line})
-      } catch(local e) {
-        failure = e
-      }
-      if(failure != null){
-        nb.running = null
-        set_state(nb, cell, "idle")
-        drop_queue(nb)
-        broadcast(nb, {
-          event: "problem",
-          message: concat("the kernel did not start: ", error.message(failure))
-        })
+local func make_host(entry){
+  local host = {
+    name: entry.rel, path: entry.path, kernels: entry.server.kernels
+  }
+  func host.read(){
+    return document.read(entry.path)
+  }
+  func host.write(cells, settings){
+    document.write(entry.path, cells, settings)
+  }
+  func host.send(socket, message){
+    send_to(socket, message)
+  }
+  func host.broadcast(message, except){
+    local text = json.encode(message)
+    for(let local socket in values({...entry.sockets})){
+      if(socket.open and (except == null or not same(socket, except))){
+        socket:send(text):catch(func(e){ return null })
       }
     }
   }
-}
-
-local func run_cells(nb, ids){
-  for(let local id in values(ids)){
-    local at = find(nb, id)
-    if(at >= 0 and nb.cells[at].type == "code" and
-      nb.cells[at].state == "idle"){
-      set_state(nb, nb.cells[at], "queued")
-      append(nb.queue, id)
+  func host.start_kernel(kind, on_event, socket){
+    if(kind == "wasm"){
+      return page_kernel(entry, on_event, socket)
     }
+    return process_kernel(entry, on_event)
   }
-  pump(nb)
-}
-
-local func restart(nb){
-  local old = nb.kernel
-  nb.kernel = null
-  if(old != null){
-    old:kill()
-  }
-  nb.queue = {}
-  nb.running = null
-  for(let local cell in values(nb.cells)){
-    set_state(nb, cell, "idle")
-  }
-  try {
-    ensure_kernel(nb)
-  } catch(local e) {
-    broadcast(nb, {
-      event: "problem",
-      message: concat("the kernel did not start: ", error.message(e))
+  func host.later(ms, f){
+    local timer = require("uv").timer()
+    local done = false
+    local func stop(){
+      if(not done){
+        done = true
+        timer:stop()
+        timer:close()
+      }
+    }
+    timer:start(ms, 0, func(){
+      stop()
+      f()
     })
+    return {cancel: stop}
   }
-}
-
-// takes the page's cells: their order, kinds and text
-local func update(nb, incoming, from){
-  local by_id = {}
-  for(let local cell in values(nb.cells)){
-    by_id[cell.id] = cell
-  }
-  local cells = {}
-  local seen = {}
-  for(let local m in values(incoming)){
-    if(raw_type(m) == "table" and type(m.id) == "string" and
-      type(m.source) == "string" and not seen[m.id] and
-      (m.type == "code" or m.type == "markdown")){
-      seen[m.id] = true
-      local cell = by_id[m.id]
-      if(cell == null){
-        cell = {id: m.id, type: m.type, outputs: {}, state: "idle"}
-      } else if(cell.type != m.type){
-        cell.outputs = {}
-        cell.count = null
-        cell.ms = null
-      }
-      cell.type = m.type
-      cell.source = m.source
-      if(cell.type == "code" and cell.info == null){
-        cell.info = "slang"
-      }
-      append(cells, cell)
-    }
-  }
-  nb.cells = cells
-  // the other pages of the notebook follow
-  local views = json.array({})
-  for(let local cell in values(cells)){
-    append(views, cell_view(nb, cell))
-  }
-  broadcast(nb, {event: "cells", cells: views}, from)
-  save_soon(nb)
-}
-
-local func clear(nb, ids){
-  for(let local cell in values(nb.cells)){
-    if(cell.type == "code" and (ids == null or tbl.contains(ids, cell.id))){
-      cell.outputs = {}
-      cell.count = null
-      cell.ms = null
-      broadcast(nb, {
-        event: "cell", id: cell.id, e: {event: "clear", id: cell.id},
-        state: cell.state
-      })
-    }
-  }
-  save_soon(nb)
+  return host
 }
 
 local func open_notebook(st, rel){
-  local nb = st.notebooks[rel]
-  if(nb == null){
-    nb = {
-      server: st, rel: rel, path: concat(st.root, "/", rel), cells: {},
-      sockets: {}, queue: {}, running: null, kernel: null, project: null,
-      count: 0, next_id: 0, save_timer: null, text: ""
+  local entry = st.notebooks[rel]
+  if(entry == null){
+    entry = {
+      server: st, rel: rel, path: concat(st.root, "/", rel), sockets: {},
+      remote: null, remote_socket: null, kernel_id: 0
     }
-    load(nb)
-    st.notebooks[rel] = nb
-  } else if(len(nb.sockets) == 0 and nb.running == null and
-    len(nb.queue) == 0 and nb.save_timer == null){
+    entry.session = session.new(make_host(entry))
+    st.notebooks[rel] = entry
+  } else if(len(entry.sockets) == 0 and not session.busy(entry.session)){
     // nobody is looking: the file may have changed under us
-    local changed = try { os.read_file(nb.path) != nb.text } catch { false }
+    local changed = try {
+      os.read_file(entry.path) != entry.session.text
+    } catch { false }
     if(changed){
-      load(nb)
+      session.load(entry.session)
     }
   }
-  return nb
+  return entry
 }
 
-local func on_message(nb, socket, m){
-  local op = m.op
-  if(op == "update" and raw_type(m.cells) == "table"){
-    update(nb, m.cells, socket)
-  } else if(op == "run" and raw_type(m.ids) == "table"){
-    run_cells(nb, m.ids)
-  } else if(op == "interrupt"){
-    drop_queue(nb)
-    if(nb.kernel != null){
-      nb.kernel:interrupt()
+// what a page said: the kernel in it speaks through it, the rest is the
+// session's
+local func on_message(entry, socket, m){
+  if(m.op == "kernel_event"){
+    if(entry.remote != null and same(entry.remote_socket, socket) and
+      m.kernel == entry.kernel_id){
+      entry.remote.receive(m.e)
     }
-  } else if(op == "restart"){
-    restart(nb)
-  } else if(op == "clear"){
-    clear(nb, m.ids)
-  } else if(op == "save"){
-    save_now(nb)
-  } else if(op == "highlight" and type(m.source) == "string"){
-    socket:send(json.encode({
-      event: "tokens", id: m.id, seq: m.seq,
-      spans: json.array(highlight.spans(m.source, nb.path))
-    }))
-  } else if(op == "render" and type(m.source) == "string"){
-    socket:send(json.encode({
-      event: "rendered", id: m.id, seq: m.seq, html: render_text(nb, m.source)
-    }))
-  } else if(op == "variables"){
-    if(nb.kernel != null and nb.kernel.status != "dead"){
-      nb.kernel:variables():then(func(list){
-        if(socket.open){
-          socket:send(json.encode({event: "variables", variables: list}))
-        }
-      })
-    } else {
-      socket:send(json.encode({
-        event: "variables", variables: json.array({})
-      }))
+    return
+  }
+  session.on_message(entry.session, socket, m)
+}
+
+local func leave(entry, socket){
+  for(local i = len(entry.sockets) - 1; i >= 0; i = i - 1){
+    if(same(entry.sockets[i], socket)){
+      remove(entry.sockets, i)
     }
+  }
+  // the page that ran the kernel is gone, and the kernel with it
+  if(entry.remote != null and same(entry.remote_socket, socket)){
+    local k = entry.remote
+    entry.remote = null
+    entry.remote_socket = null
+    k.lost()
   }
 }
 
@@ -558,9 +297,10 @@ local func list_folder(st, rel){
         entry.outputs = os.exists(
           document.sidecar_path(concat(dir, "/", name)),
         )
-        entry.open = st.notebooks[path] != null and
-          kernel_status(st.notebooks[path]) != "none" and
-          kernel_status(st.notebooks[path]) != "dead"
+        local opened = st.notebooks[path]
+        local status = opened != null and
+          session.kernel_status(opened.session) or "none"
+        entry.open = status != "none" and status != "dead"
         append(notebooks, entry)
       }
     }
@@ -593,24 +333,33 @@ local func new_notebook(st, rel, name){
 }
 
 // How [start] serves.
-// type Options = {root?: string, port?: int, token?: string, slang?: string}
+// type Options = {root?: string, port?: int, token?: string, slang?: string,
+//   kernel?: string, vm?: string}
 // [root]: the folder whose notebooks are served; the working directory by
 //   default
 // [port]: 8888 by default; 0 picks a free one
 // [token]: what requests must carry; made up by default
 // [slang]: the slang that kernels run with; this one by default
+// [kernel]: "process" or "wasm": every notebook runs on that kind of
+//   kernel, whatever it says. By default a notebook chooses, and runs in
+//   a process when it does not ("wasm" needs slang.wasm)
+// [vm]: the file of slang as WebAssembly, for kernels in the page; the one
+//   notebook/browser finds (vm_path) by default
 
 // A running server, from [start].
 // type Server = {port: int, url: string, token: string, root: string,
-//   done: async.Future, close: func(), url_of: func(path: string): string}
+//   kernels: {string}, done: async.Future, close: func(),
+//   url_of: func(path: string): string}
+// [kernels]: the kinds of kernel notebooks run on here, the usual one
+//   first
 // [url]: where the page is, with the token: what to open in a browser
 // [done]: completes when the server is closed
 // [close]: ends the kernels and stops listening
 // [url_of]: the URL (with the token) of a notebook, by its path below root
 
 // start(options?: Options) -> Server
-// Starts serving on 127.0.0.1. Raises when the port is taken or root is
-// no folder.
+// Starts serving on 127.0.0.1. Raises when the port is taken, root is no
+// folder, or kernels are to run in the page and there is no slang.wasm.
 func server.start(options){
   options = options or {}
   local root = compiler.absolute_path(options.root or ".")
@@ -620,8 +369,32 @@ func server.start(options){
   }
   local st = {
     root: root, token: options.token or new_token(), notebooks: {},
-    slang: options.slang, port: 0
+    slang: options.slang, port: 0, vm: options.vm or browser.vm_path()
   }
+  if(options.kernel == "wasm"){
+    if(st.vm == null){
+      raise(error.new(error.kinds.not_found,
+        "there is no slang.wasm to run notebooks in the page (make wasm builds it)"))
+    }
+    st.kernels = {"wasm"}
+  } else if(options.kernel == "process" or st.vm == null){
+    st.kernels = {"process"}
+  } else if(options.kernel == null){
+    st.kernels = {"process", "wasm"}
+  } else {
+    raise(error.new(error.kinds.argument, concat(
+      "kernel: \"process\" or \"wasm\" expected, got ", string(options.kernel)
+    )))
+  }
+  // the notebook package's files for a kernel in a page, read once
+  local package_files = null
+  func st.package_files(){
+    if(package_files == null){
+      package_files = browser.package_files()
+    }
+    return package_files
+  }
+  local worker_source = null
   local static_dir = concat(here(), "/static")
   local assets_dir = export.assets_dir()
   local shell = os.read_file(concat(static_dir, "/index.html"))
@@ -683,12 +456,17 @@ func server.start(options){
     return next(req)
   })
 
+  // the page and its worker are cross-origin isolated: only then can a
+  // page raise the flag that interrupts a kernel in its worker (other
+  // sites' pictures in a notebook's text still load, without cookies)
   local func shell_response(){
     return {
       status: 200,
       headers: {
         ["Content-Type"]: "text/html; charset=utf-8",
-        ["Cache-Control"]: "no-store"
+        ["Cache-Control"]: "no-store",
+        ["Cross-Origin-Opener-Policy"]: "same-origin",
+        ["Cross-Origin-Embedder-Policy"]: "credentialless"
       },
       body: shell
     }
@@ -699,6 +477,34 @@ func server.start(options){
   })
   app:get("/static/notebook.css", func(req, params){
     return web.file(req, concat(assets_dir, "/notebook.css"))
+  })
+  // the page's script and styles are the notebook package's: a page
+  // without a server uses the same
+  for(let local name in values({"app.js", "app.css", "logo.svg"})){
+    app:get(concat("/static/", name), func(req, params){
+      return web.file(req, concat(browser.web_dir(), "/", name))
+    })
+  }
+  // slang for a kernel in the page, and the worker that runs it
+  app:get("/static/web/worker.js", func(req, params){
+    if(worker_source == null){
+      worker_source = browser.worker_source()
+    }
+    return {
+      status: 200,
+      headers: {
+        ["Content-Type"]: "text/javascript; charset=utf-8",
+        ["Cache-Control"]: "no-store",
+        ["Cross-Origin-Embedder-Policy"]: "credentialless"
+      },
+      body: worker_source
+    }
+  })
+  app:get("/static/web/slang.wasm", func(req, params){
+    if(st.vm == null){
+      web.fail(404, "there is no slang.wasm (make wasm builds it)")
+    }
+    return web.file(req, st.vm)
   })
   app:static("/static", static_dir)
   app:get("/api/files", func(req, params){
@@ -741,7 +547,7 @@ func server.start(options){
     }
     local nb = open_notebook(st, rel)
     append(nb.sockets, socket)
-    socket:send(json.encode(snapshot(nb)))
+    socket:send(json.encode(session.snapshot(nb.session)))
     for(true){
       local m = async.await(socket.messages:next())
       if(m.done){
@@ -760,11 +566,7 @@ func server.start(options){
         }
       }
     }
-    for(local i = len(nb.sockets) - 1; i >= 0; i = i - 1){
-      if(same(nb.sockets[i], socket)){
-        remove(nb.sockets, i)
-      }
-    }
+    leave(nb, socket)
   }, {max_message: 64 * 1024 * 1024})
   app.fallback = func(req){
     return web.text("not found\n", 404)
@@ -775,7 +577,7 @@ func server.start(options){
   local base = concat("http://127.0.0.1:", string(st.port))
   local s = {
     port: st.port, token: st.token, root: root, done: listener.done,
-    url: concat(base, "/?token=", st.token)
+    url: concat(base, "/?token=", st.token), kernels: st.kernels
   }
   func s.url_of(path){
     local parts = {}
@@ -786,14 +588,7 @@ func server.start(options){
   }
   func s.close(){
     for(let local nb in values(st.notebooks)){
-      if(nb.save_timer != null){
-        save_now(nb)
-      }
-      local k = nb.kernel
-      nb.kernel = null
-      if(k != null){
-        k:kill()
-      }
+      session.close(nb.session)
       for(let local socket in values({...nb.sockets})){
         socket:close(1001, "the server is closing")
       }

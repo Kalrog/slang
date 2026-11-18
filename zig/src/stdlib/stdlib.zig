@@ -159,8 +159,9 @@ pub fn open(vm: *VM) void {
     preload(vm, "slang/thread", .{ .table = @import("threadlib.zig").module(vm) });
     // parallel VMs that talk through channels
     preload(vm, "slang/isolate", .{ .table = @import("isolatelib.zig").module(vm) });
-    // the browser's frames, in the Emscripten build (the playground)
-    if (@import("builtin").os.tag == .emscripten) {
+    // the page of a program that runs in a browser (the Emscripten and
+    // the WASI build)
+    if (comptime @import("weblib.zig").present) {
         preload(vm, "slang/web", .{ .table = @import("weblib.zig").module(vm) });
     }
     preload(vm, "slang/utf8", .{ .table = @import("utf8lib.zig").module(vm) });

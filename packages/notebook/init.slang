@@ -9,7 +9,7 @@ extension "extensions/html"
 // A notebook is a Markdown file whose ```slang blocks are cells, run with
 // `slang notebook` or in the browser with `slang notebook-server`. A cell
 // shows what it prints and the value it ends in: tables as trees to
-// unfold, and a [Display] as what it is, HTML, an image, a plot, sound.
+// unfold, and a [Display] as what it is: HTML, an image, a plot, sound, code.
 // [display] shows values from the middle of a cell.
 //
 // A value of your own shows itself with `__display` in its metatable, a
@@ -24,6 +24,7 @@ local str = require("slang/string")
 local os = require("slang/os")
 local math = require("slang/math")
 local encoding = require("slang/encoding")
+local hash = require("slang/hash")
 local html = require("slang/html")
 local tbl = require("slang/table")
 local inspect = require("notebook/inspect")
@@ -31,8 +32,8 @@ local inspect = require("notebook/inspect")
 local nb = {}
 
 // Something to show, in one or more forms: the page takes the richest it
-// knows, a terminal the text. Made by [html], [markdown], [svg], [image],
-// [table], [plot], [audio] and [text].
+// knows, a terminal the text. Made by [html], [markdown], [code], [svg],
+// [image], [pixels], [table], [plot], [audio] and [text].
 // type Display = {data: {[string]: any}}
 // [data]: the forms by MIME type ("text/plain", "text/html", ...)
 local display_meta = {__type: "notebook.Display"}
@@ -86,6 +87,36 @@ func nb.markdown(s){
   return make({["text/markdown"]: s, ["text/plain"]: s})
 }
 
+// code(source: string, language?: string) -> Display
+// Source code shown as code: a program a cell made, a file it read. In a
+// notebook slang is coloured as the cells are.
+//   nb.code(spec:source())
+//   nb.code(os.read_file("rules.lisp"), "lisp")
+// [language]: "slang" by default
+func nb.code(source, language){
+  source = str.trim_end(source, "\n")
+  // a fence longer than any run of backticks in the code
+  local longest = 2
+  local run = 0
+  for(local i = 0; i < len(source); i = i + 1){
+    if(str.byte_at(source, i) == '`'){
+      run = run + 1
+      if(run > longest){
+        longest = run
+      }
+    } else {
+      run = 0
+    }
+  }
+  local fence = "`" * (longest + 1)
+  return make({
+    ["text/markdown"]: concat(
+      fence, language or "slang", "\n", source, "\n", fence
+    ),
+    ["text/plain"]: source
+  })
+}
+
 // svg(s: string) -> Display
 // An SVG image, from its text.
 func nb.svg(s){
@@ -128,6 +159,131 @@ func nb.image(data, mime){
   return make({
     [mime]: encoding.base64.encode(data),
     ["text/plain"]: concat("<", mime, ", ", string(len(data)), " bytes>")
+  })
+}
+
+// four bytes of an int, the high one first
+local func be32(v){
+  return str.from_bytes({(v >> 24) & 255, (v >> 16) & 255, (v >> 8) & 255, v & 255})
+}
+
+// a part of a PNG file: its length, its name, its data and their checksum
+local func png_chunk(name, data){
+  local body = concat(name, data)
+  return concat(be32(len(data)), body, be32(hash.crc32(body)))
+}
+
+// data as a zlib stream without compression (stored blocks), for where
+// slang has no zlib: in a browser
+local func zlib_stored(data, adler){
+  local parts = {"\x78\x01"}
+  local n = len(data)
+  local at = 0
+  for(true){
+    local size = math.min(n - at, 65535)
+    local last = at + size >= n
+    // (a block says its length twice, the second time inverted)
+    local inverse = ~size & 65535
+    append(parts, str.from_bytes({
+      last and 1 or 0, size & 255, size >> 8, inverse & 255, inverse >> 8
+    }))
+    append(parts, str.substring(data, at, at + size))
+    at = at + size
+    if(last){
+      break
+    }
+  }
+  append(parts, be32(adler))
+  return str.join(parts, "")
+}
+
+// a colour's part as a byte: 0 to 1, clamped
+local func level(v){
+  if(type(v) != "double" and type(v) != "int"){
+    return 0
+  }
+  if(v >= 1){
+    return 255
+  }
+  if(v > 0){
+    return to_int(v * 255 + 0.5)
+  }
+  // (0, below it, and what is no number at all)
+  return 0
+}
+
+// How [pixels] makes its image.
+// type PixelOptions = {compress?: bool}
+// [compress]: false keeps the pixels as they are in the file (larger).
+//   That is also what happens where slang has no zlib: in a browser
+
+// pixels(width: int, height: int, color: func(x: int, y: int): any,
+//   options?: PixelOptions) -> Display
+// An image made a pixel at a time (a PNG): color gives the pixel in column
+// x (0 at the left) of row y (0 at the top), as a grey from 0 (black) to 1
+// (white), or as {red, green, blue}, each from 0 to 1.
+//   nb.pixels(256, 256, func(x, y){ return {x / 255, y / 255, 0.5} })
+// Raises an error of kind argument for a size that is no image's.
+func nb.pixels(width, height, color, options){
+  if(type(width) != "int" or type(height) != "int" or width < 1 or
+    height < 1 or width * height > 16 * 1024 * 1024){
+    raise(error.new(error.kinds.argument,
+      "pixels: a width and a height from 1 on, and no more than 16 million pixels"))
+  }
+  local rows = {}
+  // (the checksum of the pixels' bytes, Adler-32, made as they are)
+  local a = 1
+  local b = 0
+  for(local y = 0; y < height; y = y + 1){
+    // a row starts with how it is filtered: not
+    local bytes = {0}
+    b = (b + a) % 65521
+    for(local x = 0; x < width; x = x + 1){
+      local c = color(x, y)
+      local red = 0
+      local green = 0
+      local blue = 0
+      if(raw_type(c) == "table"){
+        red = level(c[0])
+        green = level(c[1])
+        blue = level(c[2])
+      } else {
+        red = level(c)
+        green = red
+        blue = red
+      }
+      append(bytes, red)
+      append(bytes, green)
+      append(bytes, blue)
+      a = a + red
+      b = b + a
+      a = a + green
+      b = b + a
+      a = (a + blue) % 65521
+      b = (b + a) % 65521
+    }
+    append(rows, str.from_bytes(bytes))
+  }
+  local raw = str.join(rows, "")
+  local packed = null
+  if(options == null or options.compress != false){
+    local zlib = try { require("slang/zlib") } catch { null }
+    if(zlib != null){
+      packed = zlib.deflate(raw, {format: "zlib"})
+    }
+  }
+  if(packed == null){
+    packed = zlib_stored(raw, (b << 16) | a)
+  }
+  local png = concat(
+    "\x89PNG\r\n\x1a\n",
+    // 8 bits a part, red green blue
+    png_chunk("IHDR", concat(be32(width), be32(height), "\x08\x02\x00\x00\x00")),
+    png_chunk("IDAT", packed), png_chunk("IEND", ""),
+  )
+  return make({
+    ["image/png"]: encoding.base64.encode(png),
+    ["text/plain"]: concat("<image, ", string(width), " x ", string(height), ">")
   })
 }
 

@@ -1,5 +1,6 @@
-/* The notebook server's page: the bar, the folder list, the cells. What
-   the cells' content looks like is in notebook.css (the notebook package). */
+/* A notebook's page (the notebook server's, and the page without a server
+   that notebook/export makes): the bar, the folder list, the cells. What
+   the cells' content looks like is in assets/notebook.css. */
 
 * { box-sizing: border-box; }
 
@@ -473,4 +474,22 @@ button { font: inherit; color: inherit; }
 
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
+}
+
+/* where the cells run, when there is a choice */
+select.tool.kind {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 26px;
+  color: inherit;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: right 13px center, right 8px center;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+}
+
+select.tool.kind[hidden] { display: none; }
+
+@media (max-width: 720px) {
+  select.tool.kind { max-width: 30vw; }
 }

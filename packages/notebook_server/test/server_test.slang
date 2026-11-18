@@ -1,5 +1,6 @@
 // the notebook server: its gate, the folder's API, and a notebook's
-// session over a WebSocket (a kernel runs the cells)
+// session over a WebSocket (a kernel runs the cells: a process, or one in
+// the page, which is the test here)
 local t = require("slang/test")
 local str = require("slang/string")
 local os = require("slang/os")
@@ -201,6 +202,114 @@ t.group("notebook server"){
       assert(not os.exists(concat(scratch, "/first.out.json")))
       s.close()
       async.await(s.done)
+    })
+    os.remove_all(scratch)
+  }
+  t.test("a kernel in the page: the server asks, the page's worker answers"){
+    os.mkdir_all(scratch)
+    os.write_file(concat(scratch, "/slang.project"), "{name: \"scratch\"}\n")
+    os.write_file(concat(scratch, "/data.txt"), "plain data\n")
+    os.write_file(
+      concat(scratch, "/page.md"),
+      "<!-- slang-notebook kernel: wasm -->\n\n```slang\n1 + 1\n```\n",
+    )
+    os.write_file(concat(scratch, "/plain.md"), "```slang\n1\n```\n")
+    // (the server only hands slang.wasm out: the test is the page)
+    local vm = concat(scratch, "/data.txt")
+    async.main(func(){
+      local s = server.start({root: scratch, port: 0, token: "test-token", vm: vm})
+      assert(s.kernels[0] == "process" and s.kernels[1] == "wasm")
+      local headers = {
+        Cookie: concat("slang_notebook_", string(s.port), "=test-token"),
+        Origin: concat("http://127.0.0.1:", string(s.port))
+      }
+      local base = concat("http://127.0.0.1:", string(s.port))
+      // the page is isolated, and the worker's script is one classic script
+      local shell = async.await(http.fetch(concat(base, "/nb/page.md"), {headers: headers}))
+      assert(shell.headers["cross-origin-opener-policy"] == "same-origin")
+      assert(shell.headers["cross-origin-embedder-policy"] == "credentialless")
+      local worker = async.await(http.fetch(concat(base, "/static/web/worker.js"), {headers: headers}))
+      assert(worker.status == 200 and str.index_of(worker.body, "async function run(") > 0)
+      assert(async.await(http.fetch(concat(base, "/static/app.js"), {headers: headers})).status == 200)
+      assert(async.await(http.fetch(concat(base, "/static/web/slang.wasm"), {headers: headers})).body == "plain data\n")
+
+      local url = concat("ws://127.0.0.1:", string(s.port), "/ws?path=page.md")
+      local socket = async.await(ws.connect(url, {headers: headers}))
+      local nb = wait_for(socket, "notebook")
+      assert(nb.kind == "wasm" and len(nb.kinds) == 2)
+      local code = nb.cells[0].id
+      socket:send(json.encode({op: "run", ids: {code}}))
+      // the page is told to start a worker, with the project's files ...
+      local start = wait_for(socket, "kernel_op")
+      assert(start.op.op == "start" and start.op.cwd == "/work")
+      assert(start.op.args[3] == "/work/page.md")
+      assert(start.op.files["/work/data.txt"] == "plain data\n")
+      assert(start.op.files["/pkg/notebook/bin/kernel_web.slang"] != null)
+      // ... and then to run the cell, on the line it has in the file
+      local execute = wait_for(socket, "kernel_op")
+      assert(execute.op.op == "execute" and execute.op.code == "1 + 1")
+      assert(execute.op.line == 3 and execute.kernel == start.kernel)
+      local func say(e){
+        socket:send(json.encode({op: "kernel_event", kernel: start.kernel, e: e}))
+      }
+      say({event: "ready", project: "/work/slang.project"})
+      // (the project is named as it is on this machine)
+      local told = wait_for(socket, "kernel")
+      assert(told.project == concat(s.root, "/slang.project"), string(told.project))
+      say({event: "start", id: code})
+      say({event: "stream", name: "stdout", text: "printed\n"})
+      say({event: "result", id: code, data: {["text/plain"]: "2"}})
+      say({event: "done", id: code, status: "ok", ms: 1})
+      local seen = {}
+      for(seen.done == null){
+        local m = wait_for(socket, "cell", code)
+        seen[m.e.event] = m.e
+      }
+      assert(seen.stream.text == "printed\n" and seen.result.data["text/plain"] == "2")
+      // what another kernel's page says is not taken
+      socket:send(json.encode({op: "kernel_event", kernel: start.kernel + 7, e: {
+        event: "result", id: code, data: {["text/plain"]: "no"}
+      }}))
+      wait_for(socket, "saved")
+      assert(str.index_of(os.read_file(concat(scratch, "/page.out.json")), "\"no\"") < 0)
+      // the page leaves: its kernel is gone with it
+      socket:send(json.encode({op: "run", ids: {code}}))
+      wait_for(socket, "kernel_op")
+      socket:close()
+      local other = async.await(ws.connect(url, {headers: headers}))
+      local again = wait_for(other, "notebook")
+      for(again.kernel != "dead"){
+        again = wait_for(other, "kernel")
+        again.kernel = again.status
+      }
+      // a notebook that does not say runs in a process; a switch is saved
+      local plain = async.await(ws.connect(
+        concat("ws://127.0.0.1:", string(s.port), "/ws?path=plain.md"), {headers: headers},
+      ))
+      assert(wait_for(plain, "notebook").kind == "process")
+      plain:send(json.encode({op: "kernel", kind: "wasm"}))
+      assert(wait_for(plain, "kernel").kind == "wasm")
+      wait_for(plain, "saved")
+      assert(str.starts_with(
+        os.read_file(concat(scratch, "/plain.md")), "<!-- slang-notebook kernel: wasm -->\n\n```slang",
+      ))
+      s.close()
+      async.await(s.done)
+      // one kind for every notebook, whatever they say
+      local pinned = server.start({
+        root: scratch, port: 0, token: "test-token", kernel: "process", vm: vm
+      })
+      local third = async.await(ws.connect(
+        concat("ws://127.0.0.1:", string(pinned.port), "/ws?path=page.md"),
+        {headers: {
+          Cookie: concat("slang_notebook_", string(pinned.port), "=test-token"),
+          Origin: concat("http://127.0.0.1:", string(pinned.port))
+        }},
+      ))
+      local view = wait_for(third, "notebook")
+      assert(view.kind == "process" and len(view.kinds) == 1)
+      pinned.close()
+      async.await(pinned.done)
     })
     os.remove_all(scratch)
   }

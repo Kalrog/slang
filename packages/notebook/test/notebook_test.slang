@@ -1,5 +1,7 @@
 // the notebook package: the file format, what values show as, Markdown,
-// the kernel and its client, a whole run and the export
+// the kernel and its client, a whole run and the export, and a notebook's
+// session with a kernel that is somewhere else (the browser's part itself
+// is test/web_test.mjs)
 local t = require("slang/test")
 local str = require("slang/string")
 local os = require("slang/os")
@@ -17,6 +19,10 @@ local protocol = require("notebook/protocol")
 local client = require("notebook/client")
 local run = require("notebook/run")
 local export = require("notebook/export")
+local json = require("slang/json")
+local session = require("notebook/session")
+local remote = require("notebook/remote")
+local browser = require("notebook/browser")
 
 local scratch = concat(
   os.getenv("TMPDIR") or "/tmp/", "/slang-notebook-test-",
@@ -120,6 +126,35 @@ t.group("document"){
   }
 }
 
+t.group("settings"){
+  t.test("a notebook says what runs it on its first line"){
+    local text = "<!-- slang-notebook kernel: wasm -->\n\n# T\n\n```slang\n1\n```\n"
+    assert(document.settings(text).kernel == "wasm")
+    assert(document.settings("# T\n").kernel == null)
+    assert(document.settings("<!-- slang-notebook kernel: nope -->\n").kernel == null)
+    // the line is no cell, and the cells' lines are the file's
+    local cells = document.parse(text)
+    assert(len(cells) == 2 and cells[0].source == "# T")
+    assert(cells[1].line == 5, string(cells[1].line))
+    assert(document.format(cells, {kernel: "wasm"}) == text)
+    assert(document.layout(cells, {kernel: "wasm"})[1] == 5)
+    assert(document.format(cells) == "# T\n\n```slang\n1\n```\n")
+    assert(document.layout(cells)[1] == 3)
+    // a comment that is not the first thing is text
+    assert(document.settings("# T\n\n<!-- slang-notebook kernel: wasm -->\n").kernel == null)
+  }
+  t.test("a notebook from text, and its sidecar as text"){
+    local doc = document.from_text("<!-- slang-notebook kernel: process -->\n\n```slang\n1\n```\n")
+    assert(doc.settings.kernel == "process" and len(doc.cells) == 1)
+    assert(document.outputs_text(doc.cells) == null)
+    doc.cells[0].outputs = {{type: "result", data: {["text/plain"]: "1"}}}
+    doc.cells[0].count = 1
+    local side = document.outputs_text(doc.cells)
+    local back = document.from_text("```slang\n1\n```\n", side)
+    assert(back.cells[0].outputs[0].data["text/plain"] == "1" and back.settings.kernel == null)
+  }
+}
+
 t.group("values"){
   t.test("text: lists, records, strings, types, itself"){
     assert(inspect.text({1, 2.5, "a\"b\n"}) == "{1, 2.5, \"a\\\"b\\n\"}")
@@ -189,8 +224,65 @@ t.group("values"){
     local wav = encoding.base64.decode(nb.audio({0, 1, -1, 0.5}, {rate: 8000}).data["audio/wav"])
     assert(str.starts_with(wav, "RIFF") and len(wav) == 44 + 8)
     assert(str.byte_at(wav, 46) == 255 and str.byte_at(wav, 47) == 127, "1.0 is 32767")
+    local code = nb.code("local s = \"```\"\n")
+    assert(code.data["text/plain"] == "local s = \"```\"")
+    assert(str.starts_with(code.data["text/markdown"], "````slang\nlocal s"))
     assert(nb.image("\x89PNG....").data["image/png"] != null)
     t.raises(func(){ nb.image("no picture") })
+  }
+  t.test("an image from its pixels is a PNG, with zlib or without"){
+    local zlib = require("slang/zlib")
+    local hash = require("slang/hash")
+    local func color(x, y){
+      if(y == 0){
+        return x / 2          // greys: 0, 0.5, 1
+      }
+      return {x - 1, 2, "no"}   // clamped; what is no number is 0
+    }
+    // the parts of a PNG: {name, data}, their checksums checked
+    local func chunks(png){
+      assert(str.substring(png, 0, 8) == "\x89PNG\r\n\x1a\n")
+      local out = {}
+      local at = 8
+      for(at < len(png)){
+        local size = (str.byte_at(png, at) << 24) | (str.byte_at(png, at + 1) << 16) |
+          (str.byte_at(png, at + 2) << 8) | str.byte_at(png, at + 3)
+        local body = str.substring(png, at + 4, at + 8 + size)
+        local sum = str.substring(png, at + 8 + size, at + 12 + size)
+        local crc = hash.crc32(body)
+        assert(sum == str.from_bytes({(crc >> 24) & 255, (crc >> 16) & 255, (crc >> 8) & 255, crc & 255}))
+        append(out, {name: str.substring(body, 0, 4), data: str.substring(body, 4)})
+        at = at + 12 + size
+      }
+      return out
+    }
+    local want = concat(
+      "\x00", "\x00\x00\x00", "\x80\x80\x80", "\xff\xff\xff",
+      "\x00", "\x00\xff\x00", "\x00\xff\x00", "\xff\xff\x00",
+    )
+    for(let local options in values({{}, {compress: false}})){
+      local shown = nb.pixels(3, 2, color, options)
+      assert(shown.data["text/plain"] == "<image, 3 x 2>")
+      local parts = chunks(encoding.base64.decode(shown.data["image/png"]))
+      assert(len(parts) == 3 and parts[0].name == "IHDR" and parts[2].name == "IEND")
+      assert(parts[0].data == "\x00\x00\x00\x03\x00\x00\x00\x02\x08\x02\x00\x00\x00")
+      // (inflate checks the stream's own checksum too)
+      assert(zlib.inflate(parts[1].data, {format: "zlib"}) == want)
+      if(options.compress == false){
+        assert(len(parts[1].data) == len(want) + 2 + 5 + 4, "stored as it is")
+      }
+    }
+    // more than one stored block
+    local big = nb.pixels(200, 150, func(x, y){ return (x ~ y) % 7 / 6 }, {compress: false})
+    local raw = zlib.inflate(chunks(encoding.base64.decode(big.data["image/png"]))[1].data, {format: "zlib"})
+    assert(len(raw) == 150 * (1 + 200 * 3))
+    local kind = null
+    try {
+      nb.pixels(0, 4, color)
+    } catch(local e) {
+      kind = e.kind
+    }
+    assert(kind == error.kinds.argument)
   }
   t.test("outside a notebook, display prints; a sink takes it"){
     local got = {}
@@ -409,5 +501,215 @@ t.group("a notebook in a project"){
     assert(str.index_of(page, "class=\"nb-error\"") > 0)
     assert(str.index_of(export.html(back, {code: false}), "<span class=\"t-keyword\"") < 0)
     os.remove_all(scratch)
+  }
+}
+
+// a host as a test has it: what the session sends is kept, timers fire
+// when asked, and the kernel is a notebook/remote whose page is the test
+local func fake_host(text){
+  local h = {
+    name: "notes.md", kernels: {"process", "wasm"}, sent: {}, ops: {},
+    timers: {}, saved: null, started: {}
+  }
+  func h.read(){
+    return document.from_text(text)
+  }
+  func h.write(cells, settings){
+    h.saved = document.format(cells, settings)
+  }
+  func h.send(page, message){
+    append(h.sent, message)
+  }
+  func h.broadcast(message, except){
+    append(h.sent, message)
+  }
+  func h.start_kernel(kind, on_event, page){
+    append(h.started, kind)
+    h.kernel = remote.new(func(op){ append(h.ops, op) }, on_event)
+    h.kernel.start({target: "/work/notes.md"})
+    return h.kernel
+  }
+  func h.later(ms, f){
+    local timer = {f: f}
+    append(h.timers, timer)
+    return {cancel: func(){ timer.f = null }}
+  }
+  func h.fire(){
+    local timers = h.timers
+    h.timers = {}
+    for(let local timer in values(timers)){
+      if(timer.f != null){
+        timer.f()
+      }
+    }
+  }
+  // the events of a kind sent since the last call
+  func h.take(kind){
+    local out = {}
+    for(let local m in values(h.sent)){
+      if(m.event == kind){
+        append(out, m)
+      }
+    }
+    h.sent = {}
+    return out
+  }
+  return h
+}
+
+t.group("a session and a kernel somewhere else"){
+  t.test("cells wait their turn, events become outputs, the notebook is saved"){
+    local h = fake_host("# T\n\n```slang\n1\n```\n\n```slang\n2\n```\n")
+    local nb = session.new(h)
+    local snap = session.snapshot(nb)
+    assert(snap.kind == "process" and len(snap.kinds) == 2 and snap.kernel == "none")
+    assert(len(snap.cells) == 3 and snap.cells[1].spans[0][2] == "number")
+    local a = snap.cells[1].id
+    local b = snap.cells[2].id
+    session.on_message(nb, "page", {op: "run", ids: {a, b}})
+    assert(h.started[0] == "process" and h.ops[0].op == "start")
+    // one cell at a time: the second waits for the first to be done
+    assert(len(h.ops) == 2 and h.ops[1].op == "execute" and h.ops[1].id == a)
+    assert(h.ops[1].origin == "notes.md" and h.ops[1].line == 3)
+    assert(session.kernel_status(nb) == "starting")
+    h.kernel.receive({event: "ready", project: "/work/slang.project"})
+    assert(session.kernel_status(nb) == "busy" and nb.project == "/work/slang.project")
+    h.kernel.receive({event: "start", id: a})
+    h.kernel.receive({event: "stream", name: "stdout", text: "hi\n"})
+    h.kernel.receive({event: "result", id: a, data: {["text/markdown"]: "**b**", ["text/plain"]: "b"}})
+    h.kernel.receive({event: "done", id: a, status: "ok", ms: 2})
+    assert(nb.cells[1].outputs[0].text == "hi\n" and nb.cells[1].count == 1)
+    assert(len(h.ops) == 3 and h.ops[2].id == b and h.ops[2].line == 7)
+    // what a page gets of Markdown is rendered
+    local shown = null
+    for(let local m in values(h.take("cell"))){
+      if(m.e.event == "result"){
+        shown = m.e.data
+      }
+    }
+    assert(str.index_of(shown["text/html"], "<strong>b</strong>") > 0)
+    // an error ends the run; its line is the cell's
+    h.kernel.receive({event: "start", id: b})
+    h.kernel.receive({event: "error", id: b, error: {
+      kind: "type", message: "no", location: {origin: "notes.md", line: 8}
+    }})
+    h.kernel.receive({event: "done", id: b, status: "error", ms: 1})
+    assert(nb.cells[2].outputs[0].error.cell_line == 1)
+    assert(session.kernel_status(nb) == "idle" and session.busy(nb))
+    h.fire()
+    assert(h.saved == nb.text and not session.busy(nb))
+    // the variables are asked of the kernel, and answered to the page
+    session.on_message(nb, "page", {op: "variables"})
+    local asked = h.ops[len(h.ops) - 1]
+    assert(asked.op == "variables")
+    h.kernel.receive({event: "variables", id: asked.id, variables: {{name: "x", type: "int", text: "1"}}})
+    assert(h.take("variables")[0].variables[0].name == "x")
+  }
+  t.test("the notebook chooses its kernel where there is a choice; a lost kernel ends its cell"){
+    local h = fake_host("<!-- slang-notebook kernel: wasm -->\n\n```slang\nfor(true){}\n```\n")
+    local nb = session.new(h)
+    assert(session.snapshot(nb).kind == "wasm")
+    local a = nb.cells[0].id
+    session.on_message(nb, "page", {op: "run", ids: {a}})
+    assert(h.started[0] == "wasm" and h.ops[1].line == 3)
+    h.kernel.receive({event: "ready"})
+    h.kernel.receive({event: "start", id: a})
+    session.on_message(nb, "page", {op: "interrupt"})
+    assert(h.ops[len(h.ops) - 1].op == "interrupt")
+    // the page could not: it ended the worker, and says why
+    h.take("problem")
+    h.kernel.receive({event: "exit", status: 130, reason: "ended by the page"})
+    assert(session.kernel_status(nb) == "dead" and nb.cells[0].state == "idle")
+    assert(h.take("problem")[0].message == "ended by the page")
+    // another kind: the old kernel is ended, the notebook says the new one
+    session.on_message(nb, "page", {op: "run", ids: {a}})
+    h.kernel.receive({event: "ready"})
+    session.on_message(nb, "page", {op: "kernel", kind: "process"})
+    assert(h.ops[len(h.ops) - 1].op == "kill" and session.kernel_status(nb) == "none")
+    assert(nb.settings.kernel == "process" and nb.cells[0].state == "idle")
+    h.fire()
+    assert(str.starts_with(h.saved, "<!-- slang-notebook kernel: process -->\n\n```slang"))
+    // a kind the host does not have is not taken
+    h.kernels = {"process"}
+    session.on_message(nb, "page", {op: "kernel", kind: "wasm"})
+    assert(nb.settings.kernel == "process")
+    // and a notebook that asks for one runs on what there is
+    local only = fake_host("<!-- slang-notebook kernel: wasm -->\n\n```slang\n1\n```\n")
+    only.kernels = {"process"}
+    assert(session.snapshot(session.new(only)).kind == "process")
+  }
+}
+
+t.group("a notebook in a browser"){
+  t.test("the worker's script and the package's files"){
+    local source = browser.worker_source()
+    assert(str.index_of(source, "async function run(") > 0)
+    assert(str.index_of(source, "export ") < 0 and str.index_of(source, "import ") < 0)
+    assert(str.index_of(source, "onmessage = ") > 0)
+    local files = browser.package_files()
+    for(let local name in values({
+      "slang.project", "bin/kernel_web.slang", "bin/service_web.slang",
+      "runner.slang", "session.slang", "init.slang"
+    })){
+      assert(files[concat("/pkg/notebook/", name)] != null, name)
+    }
+    // (a browser has no event loop: nothing in there may need slang/async)
+    for(let local e in entries(files)){
+      assert(str.index_of(e[1], "require(\"slang/async\")") < 0, e[0])
+      assert(str.index_of(e[1], "require(\"uv\")") < 0, e[0])
+    }
+    local args = browser.kernel_args("/work/a.md")
+    assert(args[2] == "/pkg/notebook/bin/kernel_web.slang" and args[3] == "/work/a.md")
+  }
+  t.test("a project's files for the worker: the project's folder, without what is hidden or huge"){
+    os.mkdir_all(concat(scratch, "/proj/notes/.cache"))
+    os.mkdir_all(concat(scratch, "/proj/lib"))
+    write("proj/slang.project", "{name: \"proj\"}\n")
+    write("proj/lib/util.slang", "return {}\n")
+    write("proj/notes/a.md", "# A\n")
+    write("proj/notes/a.out.json", "{}")
+    write("proj/notes/.cache/x", "hidden")
+    write("proj/notes/.env", "SECRET=1")
+    write("proj/notes/bytes.bin", "\x00\xff\x01")
+    write("proj/big.txt", "x" * (2 * 1024 * 1024 + 1))
+    local p = browser.project_files(concat(scratch, "/proj/notes/a.md"))
+    assert(p.cwd == "/work/notes" and p.target == "/work/notes/a.md")
+    assert(str.ends_with(p.root, "/proj"))
+    assert(p.files["/work/slang.project"] != null and p.files["/work/lib/util.slang"] == "return {}\n")
+    assert(p.files["/work/notes/a.md"] == "# A\n")
+    assert(encoding.base64.decode(p.files["/work/notes/bytes.bin"].b64) == "\x00\xff\x01")
+    assert(p.files["/work/notes/.env"] == null and p.files["/work/notes/.cache/x"] == null)
+    assert(p.files["/work/notes/a.out.json"] == null)
+    assert(p.files["/work/big.txt"] == null and p.left_out == 1)
+    // without a project file, the notebook's own folder
+    os.remove(concat(scratch, "/proj/slang.project"))
+    p = browser.project_files(concat(scratch, "/proj/notes/a.md"))
+    assert(p.target == "/work/a.md" and p.files["/work/lib/util.slang"] == null)
+    os.remove_all(scratch)
+  }
+  t.test("the page that needs no server"){
+    local nb = document.from_text("# Mine\n\n```slang\nlocal a = \"</script>\"\n```\n")
+    nb.path = "mine.md"
+    nb.cells[1].outputs = {{type: "result", data: {["text/plain"]: "1"}}}
+    local page = export.app(nb, {vm: "../slang.wasm", home: "../"})
+    assert(str.starts_with(page, "<!DOCTYPE html>") and str.index_of(page, "<title>Mine</title>") > 0)
+    assert(str.index_of(page, "<a class=\"brand\" href=\"../\"") > 0)
+    assert(str.index_of(page, "id=\"nb-worker\"") > 0 and str.index_of(page, "id=\"nb-vm\"") < 0)
+    // the configuration: the notebook, its outputs, the package's files
+    local from = str.index_of(page, "id=\"nb-config\">") + len("id=\"nb-config\">")
+    local config_text = str.substring(page, from, str.index_of(page, "</script>", from))
+    assert(str.index_of(config_text, "<") < 0, "nothing in it ends the script")
+    local config = json.decode(config_text)
+    assert(config.vm == "../slang.wasm" and config.notebook.name == "mine.md")
+    assert(str.index_of(config.notebook.text, "local a = \"</script>\"") > 0)
+    assert(str.index_of(config.notebook.outputs, "\"text/plain\"") > 0)
+    assert(config.files["/pkg/notebook/service_web.slang"] != null)
+    assert(str.starts_with(config.key, "mine.md:"))
+    // an empty one
+    assert(json.decode(str.substring(
+      export.app(null, {vm: "x.wasm"}),
+      str.index_of(export.app(null, {vm: "x.wasm"}), "id=\"nb-config\">") + len("id=\"nb-config\">"),
+      str.index_of(export.app(null, {vm: "x.wasm"}), "</script>", str.index_of(export.app(null, {vm: "x.wasm"}), "id=\"nb-config\">")),
+    )).notebook == null)
   }
 }

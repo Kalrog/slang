@@ -76,6 +76,28 @@ nb.plot({
 }, {title: "Squares and their remainders", y_max: 100})
 ```
 
+An image, from a function that gives each pixel its colour:
+
+```slang
+local func mandelbrot(x, y){
+  local a = x / 100 - 2.2
+  local b = y / 100 - 1.1
+  local zr = 0
+  local zi = 0
+  for(local i = 0; i < 48; i = i + 1){
+    local r = zr * zr - zi * zi + a
+    zi = 2 * zr * zi + b
+    zr = r
+    if(zr * zr + zi * zi > 4){
+      local t = i / 48
+      return {t * 3, t * 1.4 + 0.08, 0.25 + t}
+    }
+  }
+  return 0
+}
+nb.pixels(320, 220, mandelbrot)
+```
+
 Markup of your own, and Markdown:
 
 ```slang

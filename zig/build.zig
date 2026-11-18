@@ -54,6 +54,8 @@ pub fn build(b: *std.Build) void {
     // command; nothing native loads in a browser
     if (target.result.cpu.arch.isWasm()) {
         exe.rdynamic = false;
+        // what a page calls to go on with a program that yielded (main.zig)
+        exe.root_module.export_symbol_names = &.{"slang_resume"};
         return;
     }
 

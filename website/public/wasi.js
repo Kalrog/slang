@@ -1,7 +1,13 @@
 // A small WASI (preview 1) for running slang.wasm in a browser or a worker:
-// an in-memory file system under one preopened directory, stdout and
-// stderr collected as text, no network. Enough for `slang run`, `slang fmt`
+// an in-memory file system, stdout and stderr collected as text, no
+// network. Enough for `slang run`, `slang fmt`
 // and `slang highlight`; everything else answers ENOSYS.
+//
+// A program may also talk to what runs it (slang/web: send, receive,
+// frame), through the imports of the module "slang_host": see options.host
+// of run. One that waits for messages yields (frame()) and is resumed.
+//
+// (packages/notebook/web/wasi.js is a copy of this file: change both.)
 
 const ESUCCESS = 0, EBADF = 8, EEXIST = 20, EINVAL = 28, EISDIR = 31,
   ENOENT = 44, ENOSYS = 52, ENOTDIR = 54, ENOTEMPTY = 55;
@@ -22,28 +28,49 @@ function normalize(path) {
   return "/" + out.join("/");
 }
 
-// run(wasm: WebAssembly.Module, args: string[], files: {[path]: string})
-//   -> {code, stdout, stderr, files}
+// run(wasm: WebAssembly.Module, args: string[], files: {[path]: string | Uint8Array},
+//   options?) -> {code, stdout, stderr, files, parked, resume}
 // Runs the module once with a fresh memory. files are written under /work
-// first (paths relative to it); what the program leaves there comes back.
+// first (paths relative to it; one that starts with / is where it says);
+// what the program leaves under /work comes back.
+//
+// options: env ({name: value}); cwd (the directory relative paths start
+// from, /work by default); onOutput(fd, bytes) as the program writes to
+// stdout (1) and stderr (2); collect: false to not also gather that text;
+// host: {send(text), receive() -> string | null, interrupted() -> bool},
+// the program's side of slang/web.
+//
+// parked: the program yielded (slang/web's frame()) instead of ending.
+// resume() then goes on with it, until it yields again or ends, and gives
+// {parked, code}.
 export async function run(module, args, files = {}, options = {}) {
   const enc = new TextEncoder(), dec = new TextDecoder();
   const fs = new Map(); // absolute path -> Uint8Array; directories: null
   fs.set("/", null);
   fs.set("/work", null);
   for (const [name, text] of Object.entries(files)) {
-    const path = normalize("/work/" + name);
+    const path = normalize(name.startsWith("/") ? name : "/work/" + name);
     const parts = path.split("/");
     for (let i = 2; i < parts.length; i++) fs.set(parts.slice(0, i).join("/") || "/", null);
     fs.set(path, typeof text === "string" ? enc.encode(text) : text);
   }
   let stdout = "", stderr = "";
+  const collect = options.collect !== false;
+  const cwd = normalize(options.cwd || "/work");
+  for (let parts = cwd.split("/"), i = 2; i <= parts.length; i++) {
+    const dir = parts.slice(0, i).join("/");
+    if (!fs.has(dir)) fs.set(dir, null);
+  }
   const decOut = new TextDecoder(), decErr = new TextDecoder();
-  // open descriptors: {path, pos, dir, append}; 3 is /work
-  const fds = new Map([[3, { path: "/work", pos: 0, dir: true, preopen: "/work" }]]);
-  let nextFd = 4;
+  // open descriptors: {path, pos, dir, append}. Two are preopened: 3 is the
+  // working directory (what relative paths start from), 4 the root
+  const fds = new Map([
+    [3, { path: cwd, pos: 0, dir: true, preopen: cwd }],
+    [4, { path: "/", pos: 0, dir: true, preopen: "/" }],
+  ]);
+  let nextFd = 5;
   const argv = args.map((a) => enc.encode(a + "\0"));
-  const envp = Object.entries(options.env || {}).map(([k, v]) => enc.encode(`${k}=${v}\0`));
+  const envp = Object.entries({ PWD: cwd, ...(options.env || {}) }).map(([k, v]) => enc.encode(`${k}=${v}\0`));
   let memory = null;
   const view = () => new DataView(memory.buffer);
   const bytes = () => new Uint8Array(memory.buffer);
@@ -91,8 +118,10 @@ export async function run(module, args, files = {}, options = {}) {
     if (fd === 1 || fd === 2) {
       for (const [p, l] of chunks) {
         const piece = bytes().slice(p, p + l);
-        if (fd === 1) stdout += decOut.decode(piece, { stream: true });
-        else stderr += decErr.decode(piece, { stream: true });
+        if (collect) {
+          if (fd === 1) stdout += decOut.decode(piece, { stream: true });
+          else stderr += decErr.decode(piece, { stream: true });
+        }
         if (options.onOutput) options.onOutput(fd, piece);
         total += l;
       }
@@ -207,7 +236,7 @@ export async function run(module, args, files = {}, options = {}) {
       return ESUCCESS;
     },
     fd_close(fd) {
-      if (!fds.has(fd) || fd === 3) return fd <= 2 ? ESUCCESS : EBADF;
+      if (!fds.has(fd) || fd <= 4) return fd <= 2 ? ESUCCESS : EBADF;
       fds.delete(fd);
       return ESUCCESS;
     },
@@ -360,23 +389,67 @@ export async function run(module, args, files = {}, options = {}) {
     if (imp.module !== "wasi_snapshot_preview1") continue;
     imports[imp.name] = wasi[imp.name] || (() => ENOSYS);
   }
-  const instance = await WebAssembly.instantiate(module, { wasi_snapshot_preview1: imports });
+  // slang/web: the messages between the program and what runs it
+  const host = options.host || {};
+  let incoming = null, parked = false;
+  const peek = () => {
+    if (incoming === null && host.receive) {
+      const text = host.receive();
+      if (text !== null && text !== undefined) incoming = enc.encode(String(text));
+    }
+    return incoming;
+  };
+  const slangHost = {
+    send(ptr, len) {
+      if (host.send) host.send(str(ptr, len));
+    },
+    receive_size() {
+      const m = peek();
+      return m === null ? -1 : m.length;
+    },
+    receive(ptr) {
+      if (incoming !== null) bytes().set(incoming, ptr);
+      incoming = null;
+    },
+    parked() {
+      parked = true;
+    },
+    interrupted: () => (host.interrupted && host.interrupted() ? 1 : 0),
+  };
+  const instance = await WebAssembly.instantiate(module, { wasi_snapshot_preview1: imports, slang_host: slangHost });
   memory = instance.exports.memory;
+  const crashed = (e) => {
+    const text = `\n${e.message === "unreachable" ? "the program crashed (out of memory or a VM error)" : e.message}\n`;
+    if (collect) stderr += text;
+    if (options.onOutput) options.onOutput(2, enc.encode(text));
+    return 134;
+  };
   let code = 0;
   try {
     instance.exports._start();
   } catch (e) {
-    if (e instanceof Exit) code = e.code;
-    else {
-      code = 134;
-      stderr += `\n${e.message === "unreachable" ? "the program crashed (out of memory or a VM error)" : e.message}\n`;
-    }
+    code = e instanceof Exit ? e.code : crashed(e);
   }
+  parked = parked && code === 0;
   stdout += decOut.decode();
   stderr += decErr.decode();
   const left = {};
-  for (const [path, data] of fs) {
-    if (data !== null && path.startsWith("/work/")) left[path.slice(6)] = dec.decode(data);
+  if (!parked) {
+    for (const [path, data] of fs) {
+      if (data !== null && path.startsWith("/work/")) left[path.slice(6)] = dec.decode(data);
+    }
   }
-  return { code, stdout, stderr, files: left };
+  const result = { code, stdout, stderr, files: left, parked };
+  result.resume = () => {
+    if (!result.parked) return { parked: false, code: result.code };
+    let again = false;
+    try {
+      again = instance.exports.slang_resume() === 0;
+    } catch (e) {
+      result.code = e instanceof Exit ? e.code : crashed(e);
+    }
+    result.parked = again;
+    return { parked: again, code: result.code };
+  };
+  return result;
 }

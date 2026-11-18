@@ -14,7 +14,8 @@ slang notebook run notes.md              # or run one in the terminal
 ```
 
 [Projects and packages](projects.md) explains `slang install` and
-executables.
+executables. The site's [Notebook](../notebook/) page is a notebook to try
+without installing anything: slang runs inside the page.
 
 ## A notebook is a Markdown file
 
@@ -85,7 +86,9 @@ nb.table({{name: "peak", value: 1.0}, {name: "length", value: len(wave)}})
 | `nb.plot(data, options)` | a chart of numbers: lines, points or bars; long lists as their envelope |
 | `nb.table(rows, options)` | rows, as records or lists |
 | `nb.audio(samples, {rate})` | sound to play |
-| `nb.image(bytes)` | a PNG, JPEG, GIF, WebP or SVG image |
+| `nb.image(bytes)` | an image from the bytes of its file: PNG, JPEG, GIF, WebP or SVG |
+| `nb.pixels(width, height, color)` | an image made a pixel at a time: `color(x, y)` gives a grey from 0 to 1, or `{red, green, blue}` |
+| `nb.code(source, language)` | source code as code: a program the cell made, a file it read |
 | `nb.html(markup)`, `nb.svg(text)` | markup of your own; `html` takes slang/html nodes too |
 | `nb.markdown(text)`, `nb.text(text)` | rendered Markdown; text as it is |
 | `nb.display(...values)` | shows values now |
@@ -115,14 +118,78 @@ port, `--no-open` only prints the address.
   cell above or below, D twice deletes, M and Y make it text or code, the
   arrows move.
 
-Each open notebook has a kernel, a slang process of its own, started when
-its first cell runs. The outputs are kept by the server, so a reload shows
-them and a running cell runs on.
+Each open notebook has a kernel, started when its first cell runs. The
+outputs are kept by the server, so a reload shows them and a running cell
+runs on.
 
 The server runs code, and every page a browser has open can reach a port
 of the machine. It listens on 127.0.0.1 only, answers only requests with
 its token (the address it prints carries it once; a cookie after that),
 and takes WebSockets and changes only from its own pages.
+
+## Two kinds of kernel
+
+What runs a notebook's cells is its kernel. There are two kinds:
+
+| kernel | is | its cells |
+|---|---|---|
+| `process` | a slang process on this machine | do all a slang program can: files, the network, native packages, `await` |
+| `wasm` | slang as WebAssembly, in a worker of the notebook's page | compute and show. They see a copy of the notebook's project and nothing else of the machine |
+
+A notebook runs in a process unless it says otherwise, on its first line,
+in a comment that Markdown does not show:
+
+```markdown
+<!-- slang-notebook kernel: wasm -->
+```
+
+The page has a switch for it (**On this machine** / **In the page**), which
+writes that line. `slang notebook-server --kernel wasm` runs every notebook
+in its page, whatever the notebooks say, and `--kernel process` every one
+in a process. A notebook from someone else is safe to open with `--kernel
+wasm`: its cells cannot reach your files.
+
+In the page a kernel has less than a process:
+
+- No event loop: `slang/async` and what is built on it (the network, a web
+  server, timers) are not there, so a cell cannot `await`.
+- No native code: packages with a native part (raylib, sqlite, `slang/ffi`)
+  do not load.
+- The files are a copy: the folder of the notebook's project (the nearest
+  `slang.project` above it, else its own folder), up to 16 MB and 2 MB a
+  file, without hidden files. What a cell writes stays in the page. The
+  packages a project gets from elsewhere are not copied yet.
+- **Stop** keeps the session where the browser lets a page share memory
+  with its worker (Chrome, Edge, Firefox). In other browsers it ends the
+  kernel, and the page says so.
+
+Kernels in the page need slang as WebAssembly: `make wasm` builds
+`lib/slang.wasm`, and `make install` takes it along.
+
+## Without a server
+
+`slang notebook export --live notes.md` writes `notes.html`: not a picture
+of the notebook but the notebook itself, with slang inside the page (about
+2 MB). Whoever opens the file can edit the cells and run them, without
+slang and without a server. It opens showing what the cells showed when
+they last ran.
+
+`slang notebook app` writes the same page with an empty notebook. In it:
+
+- **New** starts a notebook, **Open** takes a Markdown file from the
+  machine, **Save** writes one. In Chrome and Edge an opened or saved file
+  is then kept up to date as you edit; other browsers download a copy.
+- Changes are also kept in the browser's storage, so a reload brings them
+  back. **Reset** (on a page that came with a notebook) goes back to that
+  one.
+- The kernel is the `wasm` one, with its limits, and there is no project:
+  the page has only what slang itself brings and the `notebook` module.
+
+A page that is served rather than opened from a disk can load slang from
+next to it instead of carrying it (`--vm slang.wasm`). For **Stop** to keep
+the session there, the server has to send the page with the headers
+`Cross-Origin-Opener-Policy: same-origin` and
+`Cross-Origin-Embedder-Policy: credentialless`.
 
 ## In the terminal
 
@@ -133,6 +200,8 @@ and takes WebSockets and changes only from its own pages.
 | `slang notebook run --keep-going notes.md` | runs the cells after a failing one too |
 | `slang notebook export notes.md` | writes `notes.html`: the text, the code and the saved outputs in one file |
 | `slang notebook export --run --no-code notes.md` | runs it first; leaves the code out |
+| `slang notebook export --live notes.md` | writes `notes.html` that is the notebook, to edit and run: slang is in the page |
+| `slang notebook app` | writes `notebook.html`: the same page with an empty notebook |
 | `slang notebook new notes.md` | writes a notebook to start from |
 | `slang notebook clear notes.md` | removes the saved outputs |
 
@@ -144,4 +213,5 @@ runs in CI like a test.
 The packages are libraries too. `notebook/document` reads and writes
 notebooks and their sidecars, `notebook/client` starts a kernel and runs
 code in it, `notebook/run` runs a whole notebook, `notebook/export` makes
-the HTML page, and `notebook_server` serves. Their sources document them.
+the HTML pages, `notebook/session` is an open notebook as a page talks to
+it, and `notebook_server` serves. Their sources document them.

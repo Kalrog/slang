@@ -68,6 +68,34 @@ slang run tool/gen_stubs.slang     # after wgpu-native or the package changes
 
 `gpu.decls` holds the declarations, for `slang/ffi` and `slang/buffer`.
 
+## In a browser
+
+The package also runs in a browser, on the browser's own WebGPU: slang's
+graphics VM (`make wasm-gfx`, the VM of the playground and of pages made
+by `website/web/game.slang`) has
+[Dawn's `webgpu.h` for Emscripten](https://dawn.googlesource.com/dawn/+/refs/heads/main/src/emdawnwebgpu/)
+linked in, and the package reads that header there instead of
+wgpu-native's. The API is the same, and programs run unchanged
+(`examples/gpu` does, with the `window` package). What differs:
+
+- **A surface draws into the page's canvas.** A window of the `window`
+  package is that canvas. Without it, `gpu.canvas()` is the target:
+  `device:surface(gpu.canvas())`, and `canvas.pixel_size = {800, 600}`
+  sizes it.
+- **`surface:present()` ends the program's turn.** The browser shows the
+  frame, handles input, and the program goes on at the next animation
+  frame. What waits for the GPU (`gpu.device()`, `buffer:read()`,
+  `device:poll(true)`) hands the page control the same way. So these are
+  called from the program itself, not from a coroutine it made.
+- **Validation errors come later.** The browser checks a call after it
+  returned, so the error raises at a later call. `device:poll(true)` waits
+  for the browser and raises what went wrong before it.
+- **The browser must have WebGPU** (Chrome and Edge do, Safari and Firefox
+  in their newer versions). Without it `gpu.device()` raises "no adapter".
+
+`make gpu-web-test` runs this package's tests and the examples on the
+graphics VM in headless Chrome.
+
 ## How WebGPU maps to slang
 
 The package reads `webgpu.h` when it loads, and the API follows from it:

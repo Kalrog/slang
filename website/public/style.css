@@ -1203,13 +1203,17 @@ details.source pre.code {
   gap: 0.3rem;
 }
 
+/* The program sizes its canvas, and the page only keeps it inside the
+   column, in its own proportions. The frame is a shadow, not a border: a
+   border would add to the canvas's size, and SDL (the window package)
+   takes a canvas whose size on the page is not the one it set for one the
+   page sizes. Its height is the page's to work out, whatever SDL writes. */
 .stage canvas {
   max-width: 100%;
-  height: auto;
-  border: 2px solid var(--ink);
+  height: auto !important;
   border-radius: 12px;
   background: #000;
-  box-shadow: 5px 5px 0 var(--shadow);
+  box-shadow: 0 0 0 2px var(--ink), 5px 5px 0 2px var(--shadow);
 }
 
 .stage canvas:focus {
@@ -1239,7 +1243,6 @@ details.source pre.code {
 
 .stage:fullscreen canvas {
   max-width: none;
-  border: 0;
   border-radius: 0;
   box-shadow: none;
 }

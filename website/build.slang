@@ -388,7 +388,7 @@ local func build_tour(pages){
 
 // ------------------------------------------------------------ playground
 
-local RAYLIB_EXAMPLES = {
+local GRAPHICS_EXAMPLES = {
   {title: "Breakout (raylib, sound)", path: "examples/breakout/main.slang"},
   {title: "3D cubes (raylib)", path: "packages/raylib/examples/cubes.slang"},
   {
@@ -401,6 +401,9 @@ local RAYLIB_EXAMPLES = {
   },
   {title: "Boxes: 2D physics (Box2D)", path: "examples/physics/boxes.slang"},
   {title: "Tower: 3D physics (Jolt)", path: "examples/physics/tower.slang"},
+  // (on the browser's WebGPU: not every browser has it yet)
+  {title: "Triangle (gpu: WebGPU)", path: "examples/gpu/triangle.slang"},
+  {title: "Lit cube (gpu: WebGPU)", path: "examples/gpu/cube.slang"},
 }
 
 // every extension in extensions/ by path, as the playground's VM finds
@@ -421,9 +424,9 @@ local func build_playground(pages){
   for(let local p in values(pages)){
     append(examples, {title: p.title, code: p.code})
   }
-  // the raylib examples, as they are in the repository (the playground
+  // the examples that draw, as they are in the repository (the playground
   // runs them on its graphics VM)
-  for(let local e in values(RAYLIB_EXAMPLES)){
+  for(let local e in values(GRAPHICS_EXAMPLES)){
     append(examples, {title: e.title, code: os.read_file(e.path)})
   }
   for(let local f in values(sorted(os.list_dir(concat(here, "/examples"))))){

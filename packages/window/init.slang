@@ -21,6 +21,11 @@
 // ("a", "space", "left_shift", "f1", "escape", "return").
 // [c] holds the declared SDL functions and constants under their C names.
 // WINDOW_SDL names another SDL3 library (a file path).
+//
+// In a browser (slang's graphics VM, `make wasm-gfx`) a window is the
+// page's canvas (the element with the id "canvas"): its size is the
+// window's, and it has the keyboard while it has the focus. There is one
+// window, and no sound (window/audio needs threads).
 local ffi = require("slang/ffi")
 local os = require("slang/os")
 local str = require("slang/string")
@@ -375,12 +380,16 @@ local func is_macos(){
 // What a renderer needs to draw into the window, by platform:
 // {kind: "metal", layer} (a CAMetalLayer, macOS), {kind: "x11", display,
 // window}, {kind: "wayland", display, surface}, {kind: "windows", hwnd,
-// hinstance}. Pointers are ffi pointers.
+// hinstance}, {kind: "canvas", selector} (the page's canvas, in a
+// browser). Pointers are ffi pointers.
 // type Native = {kind: string, layer?: ffi.Pointer, display?: ffi.Pointer,
 //   window?: int, surface?: ffi.Pointer, hwnd?: ffi.Pointer,
-//   hinstance?: ffi.Pointer}
+//   hinstance?: ffi.Pointer, selector?: string}
 func window_get.native(self){
   local handle = live(self)
+  if(str.starts_with(os.platform(), "emscripten")){
+    return {kind: "canvas", selector: "#canvas"}
+  }
   if(is_macos()){
     if(self.metal_view == null){
       self.metal_view = lib.SDL_Metal_CreateView(handle)

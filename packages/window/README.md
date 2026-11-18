@@ -43,6 +43,19 @@ by hand. SDL's own headers are too heavy on macros for `slang/ffi`, and
 `SDL_Event` is a union. When the SDL pin moves, check the header against
 the new release.
 
+## In a browser
+
+The package runs in a browser too: slang's graphics VM (`make wasm-gfx`,
+the playground's VM) has SDL3 linked in. A window there is the page's
+canvas (the element with the id `canvas`): `window.open` sizes it, the
+canvas has the keyboard while it has the focus, and `win.native` is
+`{kind: "canvas", selector: "#canvas"}`, which the gpu package draws into.
+There is one window. `window/audio` is not there (it needs threads).
+
+A browser shows a frame when the program hands it control, which
+`surface:present()` of the gpu package does; a loop that never does keeps
+the page from answering.
+
 ## Windows
 
 `window.open(options)` takes `title`, `width` and `height` (in points, 800

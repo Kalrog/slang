@@ -5,7 +5,7 @@
 //   bin/slang run website/web/game.slang <project> <out> [title]
 //
 // The project's slang.project names its packages; the ones the graphics VM
-// carries (raylib, box2d, jolt, kernel, dsp) are found at /<name> there, and
+// carries (raylib, box2d, jolt, kernel, dsp, gpu, window) are found at /<name> there, and
 // its slang.project and slang.lock are rewritten to say so. Every file
 // under the project goes along except tests, tools, what a run wrote (out/)
 // and pictures, sounds and notes the program does not read; binary files
@@ -35,7 +35,7 @@ local str = require("slang/string")
 local json = require("slang/json")
 local encoding = require("slang/encoding")
 
-local PACKAGES = {"raylib", "box2d", "jolt", "kernel", "dsp"}
+local PACKAGES = {"raylib", "box2d", "jolt", "kernel", "dsp", "gpu", "window"}
 // directories that are not the program
 local SKIP_DIRS = {test: true, tool: true, out: true, web: true, site: true, server: true, design: true, [".git"]: true}
 // files the program reads as text, and as bytes
@@ -143,8 +143,11 @@ local default_page = """<!doctype html>
   button.quiet { background: transparent; color: var(--fg); font-weight: 400; }
   #status { color: var(--dim); }
   #stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
-  canvas { display: block; max-width: 100%; max-height: 100%; aspect-ratio: 16 / 9;
+  canvas { display: block; max-width: 100%; max-height: 100%;
     background: #000; outline: none; }
+  /* (until the program gives the canvas its size; SDL takes a canvas that
+     the page shapes for one whose size is the page's) */
+  canvas:not([width]) { aspect-ratio: 16 / 9; }
   #stage:fullscreen canvas { width: 100%; height: 100%; object-fit: contain; }
   .progress { position: relative; width: 180px; height: 4px; border-radius: 2px; background: #2a2e31; overflow: hidden; }
   .progress i { position: absolute; inset: 0; background: var(--accent); transform-origin: left;

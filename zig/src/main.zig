@@ -406,7 +406,22 @@ fn runTests(init: std.process.Init, args: []const []const u8) u8 {
     // the project's files compile with their tests (slang/inline_test)
     const compiler = vm.call(vm.getGlobal("require"), &.{vm.str("slang/compiler")}) catch fail(vm);
     compiler.table.set(vm.gpa, vm.str("testing"), .{ .bool = true });
-    if (std.mem.endsWith(u8, target, ".slang")) {
+    if (builtin.os.tag == .emscripten and std.mem.endsWith(u8, target, ".slang")) {
+        // in a browser a test file runs as a program does: as a coroutine,
+        // so that its tests may hand the page control (slang/web's frame(),
+        // which waiting for the GPU does)
+        var src: std.ArrayList(u8) = .empty;
+        defer src.deinit(vm.gpa);
+        src.appendSlice(vm.gpa, "require(\"slang/compiler\").load_main(\"") catch oom();
+        for (target) |c| {
+            if (c == '"' or c == '\\') src.append(vm.gpa, '\\') catch oom();
+            src.append(vm.gpa, c) catch oom();
+        }
+        src.appendSlice(vm.gpa, "\")()\nif(require(\"slang/test\").run_cli(args())){\n  require(\"slang/os\").exit(1)\n}\n") catch oom();
+        const all = vm.call(vm.getGlobal("compile"), &.{ vm.str(src.items), vm.str("test runner") }) catch fail(vm);
+        web.start(vm, all.function);
+        return 0;
+    } else if (std.mem.endsWith(u8, target, ".slang")) {
         const cl = loadFile(vm, target);
         _ = vm.call(.{ .function = cl }, &.{}) catch fail(vm);
     } else {

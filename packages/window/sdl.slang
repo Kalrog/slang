@@ -1,9 +1,11 @@
 // window/sdl: SDL3 loaded through slang/ffi, without initializing
 // anything: the declarations of include/window.h and the library, shared by
 // window (on the main thread) and window/audio's render isolate.
-// WINDOW_SDL names another SDL3 library (a file path).
+// WINDOW_SDL names another SDL3 library (a file path). In a browser
+// (slang's graphics VM, `make wasm-gfx`) SDL is linked into the VM.
 local ffi = require("slang/ffi")
 local os = require("slang/os")
+local str = require("slang/string")
 local path_lib = require("slang/path")
 
 local func find_sdl(){
@@ -16,6 +18,10 @@ local func find_sdl(){
     raise("window: the package's directory is unknown")
   }
   local header = concat(pkg, "/include/window.h")
+  if(str.starts_with(os.platform(), "emscripten")){
+    // in a browser (slang's graphics VM): SDL is part of the VM
+    return {header: header, library: "SDL3"}
+  }
   local env = os.getenv("WINDOW_SDL")
   if(env != null){
     return {header: header, library: env}

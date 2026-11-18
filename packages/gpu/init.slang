@@ -36,6 +36,20 @@
 // them any more. Validation errors raise. README.md has the details.
 // [c] holds every webgpu.h and wgpu.h function and constant under its C
 // name. GPU_WGPU names another wgpu-native library (a file path).
+//
+// In a browser (slang's graphics VM, `make wasm-gfx`) the same API runs on
+// the browser's own WebGPU, through Dawn's webgpu.h for Emscripten, which
+// is linked into that VM. What differs there:
+// - A surface draws into the page's canvas: [canvas] is its target, and a
+//   window of the window package is one too.
+// - The browser shows a frame when the program hands it control:
+//   [Surface.present] does (slang/web's frame()), and so does everything
+//   that waits for the GPU (a device, [Buffer.read]). So these are called
+//   from the program itself, not from a coroutine it made.
+// - A validation error is the browser's to report, and it does so later:
+//   it raises at a later call than the one that caused it.
+//   device:poll(true) waits for the browser, and so raises what went
+//   wrong before it.
 local ffi = require("slang/ffi")
 local os = require("slang/os")
 local str = require("slang/string")
@@ -84,6 +98,16 @@ local func normal(name){
 
 // ------------------------------------------------------------ the library
 
+// in a browser: slang/web, whose frame() hands the page control
+local web = null
+if(str.starts_with(os.platform(), "emscripten")){
+  local entry = __PACKAGES.preloaded["slang/web"]
+  if(entry == null){
+    raise("gpu: this build of slang has no page to draw into")
+  }
+  web = entry[1]
+}
+
 local func find_wgpu(){
   local pkg = null
   local source = __PACKAGES.find_source("gpu")
@@ -92,6 +116,11 @@ local func find_wgpu(){
   }
   if(pkg == null){
     raise("gpu: the package's directory is unknown")
+  }
+  if(web != null){
+    // Dawn's header for Emscripten, put there when the VM was built; the
+    // library is part of the VM
+    return {header: concat(pkg, "/include/web/webgpu.h"), library: "webgpu"}
   }
   local header = concat(pkg, "/include/wgpu.h")
   local env = os.getenv("GPU_WGPU")
@@ -196,9 +225,14 @@ gpu.c = ffi.c_layer(lib, "gpu.c")
 // Struct fields have their snake_case names.
 gpu.decls = C
 
-// UINT32_MAX and UINT64_MAX (SIZE_MAX): WebGPU's "undefined" and "whole"
+// UINT32_MAX and UINT64_MAX: WebGPU's "undefined" and "whole"; SIZE_MAX
+// is one or the other (a browser's pointers have 32 bits)
 local u32_max = 4294967295
 local u64_max = -1
+local size_max = u64_max
+if(ffi.sizeof("size_t", C) == 4){
+  size_max = u32_max
+}
 
 // ------------------------------------------------------------ enums
 
@@ -356,7 +390,7 @@ local func view_string(v){
   if(v == null or v.data == null or v.length == 0){
     return ""
   }
-  if(v.length == u64_max){
+  if(v.length == size_max){
     return ffi.string(v.data)
   }
   return ffi.string(v.data, v.length)
@@ -384,9 +418,15 @@ local func init_value(text){
     text == "WGPU_QUERY_SET_INDEX_UNDEFINED"){
     return u32_max
   }
-  if(text == "WGPU_LIMIT_U64_UNDEFINED" or text == "WGPU_WHOLE_SIZE" or
-    text == "WGPU_WHOLE_MAP_SIZE" or text == "WGPU_STRLEN"){
+  if(text == "WGPU_LIMIT_U64_UNDEFINED" or text == "WGPU_WHOLE_SIZE"){
     return u64_max
+  }
+  if(text == "WGPU_WHOLE_MAP_SIZE" or text == "WGPU_STRLEN"){
+    return size_max
+  }
+  if(text == "WGPU_DEPTH_CLEAR_VALUE_UNDEFINED"){
+    // (not a number: "no value given")
+    return 0.0 / 0.0
   }
   if(str.starts_with(text, "_wgpu_ENUM_ZERO_INIT") or
     text == "_wgpu_STRUCT_ZERO_INIT"){
@@ -434,7 +474,7 @@ local func has_keys(t){
 // a string as a WGPUStringView; its bytes kept alive in keep
 local func string_view(v, keep){
   if(v == null){
-    return {data: null, length: u64_max}
+    return {data: null, length: size_max}
   }
   if(type(v) != "string"){
     return v
@@ -840,16 +880,35 @@ local func the_instance(){
   return instance
 }
 
+// when a request's callback may run: natively whenever the request is
+// done. In a browser only while this package asks for events: the browser
+// would otherwise call into the program while it is not running
 local spontaneous = K.WGPUCallbackMode_AllowSpontaneous
+if(web != null){
+  spontaneous = K.WGPUCallbackMode_AllowProcessEvents
+}
 
-// runs a request whose callback sets done[0]; waits for it
+// runs a request whose callback sets done.value; waits for it. In a
+// browser a request is answered while the page has control: the program
+// hands it over, a frame at a time
 local func wait_for(done){
   local tries = 0
+  local most = 1000000
+  if(web != null){
+    // (ten seconds of frames)
+    most = 600
+  }
   for(not done.value){
     lib.wgpuInstanceProcessEvents(the_instance().handle)
+    if(done.value){
+      break
+    }
     tries = tries + 1
-    if(tries > 1000000){
+    if(tries > most){
       raise("gpu: a request never finished")
+    }
+    if(web != null){
+      web.frame()
     }
   }
 }
@@ -1007,6 +1066,25 @@ func device_g.features(self){
 // Runs the callbacks of finished work; with wait, waits for all submitted
 // work first. Returns whether the queue is empty.
 func device_m.poll(self, wait){
+  if(web != null){
+    // the browser does the work by itself. With wait, the queue is asked
+    // to say when it is through: by then the browser has also reported
+    // the mistakes made so far, which it otherwise does when it likes
+    if(wait == true){
+      local done = {value: false}
+      lib.wgpuQueueOnSubmittedWorkDone(self.queue.handle, {
+        mode: spontaneous,
+        callback: func(status, msg, u1, u2){
+          done.value = true
+        },
+      })
+      wait_for(done)
+    } else {
+      lib.wgpuInstanceProcessEvents(the_instance().handle)
+    }
+    check()
+    return true
+  }
   local r = lib.wgpuDevicePoll(self.handle, wait == true, null)
   check()
   return r != 0
@@ -1137,6 +1215,9 @@ local func map_read(device, buf, offset, size){
     },
   })
   check()
+  if(web != null){
+    wait_for(done)
+  }
   for(not done.value){
     lib.wgpuDevicePoll(device.handle, true, null)
   }
@@ -1745,11 +1826,65 @@ local func surface_source(native, keep){
     s.chain.s_type = K.WGPUSType_SurfaceSourceWindowsHWND
     s.hinstance = native.hinstance
     s.hwnd = native.hwnd
+  } else if(kind == "canvas" and web != null){
+    s = ffi.new("WGPUEmscriptenSurfaceSourceCanvasHTMLSelector", 1, C)
+    s.chain.s_type = K.WGPUSType_EmscriptenSurfaceSourceCanvasHTMLSelector
+    s.selector = string_view(native.selector or "#canvas", keep)
   } else {
-    raise(concat("gpu: cannot draw into a ", kind, " window"))
+    raise(concat("gpu: cannot draw into a ", string(kind), " window"))
   }
   append(keep, s)
   return ffi.cast(s, "WGPUChainedStruct", C)
+}
+
+// A canvas of the page, as something to draw into: a surface's target in
+// a browser.
+// type Canvas = {selector: string, native: table, pixel_size: {int}}
+// [selector]: the CSS selector that finds it
+// [pixel_size]: {width, height} of its drawing buffer; setting it resizes
+//   the canvas
+local canvas_meta = {__type: "gpu.Canvas"}
+local html5 = null
+if(web != null){
+  // Emscripten's html5.h, for the size of a canvas
+  local H = ffi.cdef("""
+    int emscripten_get_canvas_element_size(const char *target, int *width, int *height);
+    int emscripten_set_canvas_element_size(const char *target, int width, int height);
+  """)
+  html5 = ffi.load("html5", H)
+  canvas_meta.__get = {
+    pixel_size: func(self){
+      local w = ffi.new("int", 1)
+      local h = ffi.new("int", 1)
+      if(html5.emscripten_get_canvas_element_size(self.selector, w, h) != 0){
+        raise(concat("gpu: the page has no canvas ", self.selector))
+      }
+      return {w[0], h[0]}
+    },
+  }
+  canvas_meta.__set = {
+    pixel_size: func(self, size){
+      if(html5.emscripten_set_canvas_element_size(self.selector, size[0], size[1]) != 0){
+        raise(concat("gpu: the page has no canvas ", self.selector))
+      }
+    },
+  }
+}
+
+// canvas(selector?: string) -> Canvas
+// The page's canvas ("#canvas", or the one a CSS selector finds), to give
+// to [Device.surface]. Only in a browser: elsewhere it raises an error of
+// kind unsupported (windows come from the window package).
+//   local surface = device:surface(gpu.canvas())
+func gpu.canvas(selector){
+  if(web == null){
+    raise(error.new(error.kinds.unsupported,
+      "gpu: canvas: there is a canvas only in a browser (see the window package)"))
+  }
+  selector = selector or "#canvas"
+  local c = {selector: selector, native: {kind: "canvas", selector: selector}}
+  c.@meta = canvas_meta
+  return c
 }
 
 local surface_m = classes.Surface.methods
@@ -1757,8 +1892,8 @@ local surface_m = classes.Surface.methods
 // surface(target: any, options?: SurfaceOptions) -> Surface
 // What the device draws into a window with: target is a window of the
 // window package, or anything with a native property like its
-// ({kind: "metal", layer}, ...). Configured at the window's size in pixels
-// at once, and again whenever that changes.
+// ({kind: "metal", layer}, ...); in a browser also a [canvas]. Configured
+// at the target's size in pixels at once, and again whenever that changes.
 // type SurfaceOptions = {format?: string, present_mode?: string,
 //   alpha_mode?: string, usage?: string, view_formats?: {string},
 //   size?: {int}}
@@ -1879,21 +2014,33 @@ func surface_m.texture(self){
 }
 
 // present()
-// Shows the frame drawn into [Surface.texture]'s texture.
+// Shows the frame drawn into [Surface.texture]'s texture. In a browser
+// that is the page's doing: the program's turn ends here, and it goes on
+// at the next animation frame.
 func surface_m.present(self){
-  lib.wgpuSurfacePresent(self.handle)
+  if(web == null){
+    lib.wgpuSurfacePresent(self.handle)
+  }
   check()
   if(self.current != null){
     release_now(self.current)
     self.current = null
+  }
+  if(web != null){
+    web.frame()
+    lib.wgpuInstanceProcessEvents(the_instance().handle)
   }
 }
 
 // ------------------------------------------------------------ the rest
 
 // version() -> string
-// wgpu-native's version, "29.0.1.1".
+// wgpu-native's version, "29.0.1.1"; "browser" where WebGPU is the
+// browser's own.
 func gpu.version(){
+  if(web != null){
+    return "browser"
+  }
   local v = lib.wgpuGetVersion()
   return concat(
     "", (v >> 24) & 255, ".", (v >> 16) & 255, ".", (v >> 8) & 255, ".", v & 255

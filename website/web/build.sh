@@ -1,9 +1,10 @@
 #!/bin/sh
 # The playground's graphics VM: slang built with Emscripten, with raylib's
-# web platform (on WebGL 2), Box2D, Jolt Physics (with joltc), libffi and
-# the kernel package's interpreter, so that the raylib, box2d, jolt, kernel
-# and dsp packages run in the browser as they are (`make wasm-gfx`). Writes
-# website/public/slang-gfx.js and .wasm.
+# web platform (on WebGL 2), Box2D, Jolt Physics (with joltc), libffi, the
+# kernel package's interpreter and WebGPU (Dawn's webgpu.h for Emscripten,
+# on the browser's own WebGPU) and SDL3, so that the raylib, box2d, jolt,
+# kernel, dsp, gpu and window packages run in the browser as they are
+# (`make wasm-gfx`). Writes website/public/slang-gfx.js and .wasm.
 #
 # Needs emcc (brew install emscripten), cmake, ninja and ZIG. The libraries
 # are downloaded once (pinned versions, checked) into website/web/.cache.
@@ -123,14 +124,29 @@ emcc -c packages/kernel/native/web.c -o "$CACHE/kernel_web.o" -Os
 emcc -c website/web/bridge.c -o "$CACHE/bridge.o" -Os
 LIBM=_sin,_cos,_tan,_asin,_acos,_atan,_exp,_exp2,_log,_log2,_tanh,_sinh,_cosh,_round,_pow,_atan2
 
-# the symbols slang/ffi finds: the functions of raylib, raymath, rlgl, Box2D and
-# joltc
+# WebGPU: Emscripten's port of Dawn's webgpu.h (fetched and built by emcc
+# the first time it is named). The gpu package reads the port's header in
+# the browser, as it reads wgpu-native's elsewhere.
+WEBGPU="--use-port=emdawnwebgpu"
+embuilder build emdawnwebgpu > "$CACHE/emdawnwebgpu.log" 2>&1 || { cat "$CACHE/emdawnwebgpu.log"; exit 1; }
+WEBGPU_H=$(em-config CACHE)/ports/emdawnwebgpu/emdawnwebgpu_pkg/webgpu/include/webgpu/webgpu.h
+[ -f "$WEBGPU_H" ] || { echo "no webgpu.h in Emscripten's emdawnwebgpu port: $WEBGPU_H"; exit 1; }
+
+# SDL3, Emscripten's port of it: the window package's windows (the page's
+# canvas), keyboard, mouse and gamepads
+SDL3="--use-port=sdl3"
+embuilder build sdl3 > "$CACHE/sdl3.log" 2>&1 || { tail -20 "$CACHE/sdl3.log"; exit 1; }
+
+# the symbols slang/ffi finds: the functions of raylib, raymath, rlgl, Box2D,
+# joltc and WebGPU, the few of Emscripten's own in web_symbols.h, and the
+# part of SDL the window package declares
 JOLT_LIBS="$JOLTC/web/lib/libjoltc.a $JOLTC/web/lib/libJolt.a"
 emnm -g --defined-only "$RAYLIB/web-es3/libraylib.a" "$BOX2D/web/src/libbox2d.a" $JOLT_LIBS 2>/dev/null \
   | awk 'NF>=3 && $2 ~ /[TD]/ {print $3}' | sort -u > "$CACHE/defined.txt"
 bin/slang run website/web/symbols.slang "$CACHE/symbols.c" "$CACHE/defined.txt" \
-  "$RAYLIB/src/raylib.h" "$RAYLIB/src/raymath.h" "$RAYLIB/src/rlgl.h" "$BOX2D"/include/box2d/*.h "$JOLTC/include/joltc.h" > /dev/null
-emcc -c "$CACHE/symbols.c" -o "$CACHE/symbols.o" -Os -I"$RAYLIB/src" -DPLATFORM_WEB
+  "$RAYLIB/src/raylib.h" "$RAYLIB/src/raymath.h" "$RAYLIB/src/rlgl.h" "$BOX2D"/include/box2d/*.h "$JOLTC/include/joltc.h" \
+  "$WEBGPU_H" "$ROOT/website/web/web_symbols.h" "all:$ROOT/packages/window/include/window.h" > /dev/null
+emcc -c "$CACHE/symbols.c" -o "$CACHE/symbols.o" -Os -I"$RAYLIB/src" -DPLATFORM_WEB $WEBGPU
 : > "$CACHE/empty"
 
 # the kernel and dsp packages' sources, at /kernel and /dsp
@@ -150,7 +166,7 @@ done
 # through it; a callback is a function libffi adds to the table)
 em++ zig/zig-out-em/lib/slang.o "$CACHE/capi_varargs.o" "$CACHE/symbols.o" "$CACHE/kernel/lib/kernel_vm.o" "$CACHE/linked.o" "$CACHE/kernel_web.o" "$CACHE/bridge.o" "$RAYLIB/web-es3/libraylib.a" \
   "$BOX2D/web/src/libbox2d.a" $JOLT_LIBS "$LIBFFI/out/lib/libffi.a" \
-  -o "$OUT/slang-gfx.js" -O2 --profiling-funcs -sUSE_GLFW=3 -sALLOW_MEMORY_GROWTH=1 -sALLOW_TABLE_GROWTH=1 -sSTACK_SIZE=8MB \
+  -o "$OUT/slang-gfx.js" -O2 --profiling-funcs $WEBGPU $SDL3 -sUSE_GLFW=3 -sALLOW_MEMORY_GROWTH=1 -sALLOW_TABLE_GROWTH=1 -sSTACK_SIZE=8MB \
   -sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=createSlang -sINVOKE_RUN=0 -sEXIT_RUNTIME=1 \
   -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2 \
   -sENVIRONMENT=web -sFORCE_FILESYSTEM=1 -sEXPORTED_RUNTIME_METHODS=FS,callMain,HEAPF32,ENV,IDBFS -lidbfs.js \
@@ -173,5 +189,12 @@ em++ zig/zig-out-em/lib/slang.o "$CACHE/capi_varargs.o" "$CACHE/symbols.o" "$CAC
   --embed-file "packages/jolt/init.slang@/jolt/init.slang" \
   --embed-file "packages/jolt/names.slang@/jolt/names.slang" \
   --embed-file "packages/jolt/slang.project@/jolt/slang.project" \
+  --embed-file "packages/gpu/init.slang@/gpu/init.slang" \
+  --embed-file "packages/gpu/slang.project@/gpu/slang.project" \
+  --embed-file "$WEBGPU_H@/gpu/include/web/webgpu.h" \
+  --embed-file "packages/window/init.slang@/window/init.slang" \
+  --embed-file "packages/window/sdl.slang@/window/sdl.slang" \
+  --embed-file "packages/window/slang.project@/window/slang.project" \
+  --embed-file "packages/window/include/window.h@/window/include/window.h" \
   $KERNEL_FILES $DSP_FILES
 echo "website/public/slang-gfx.js and slang-gfx.wasm"

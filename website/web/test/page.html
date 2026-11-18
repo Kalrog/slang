@@ -1,0 +1,53 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>slang graphics VM test</title>
+<!-- Runs one slang file on the graphics VM (website/public/slang-gfx.js),
+     for website/web/test/gpu_web_test.mjs:
+       ?file=<path in the repository>&cmd=run|test&env=NAME=value,...
+     The program's project has the VM's packages. window.lines is what it
+     printed, window.done how it ended ("exit 0"). -->
+<canvas id="canvas" width="320" height="240" tabindex="0"></canvas>
+<pre id="out"></pre>
+<script type="module">
+const params = new URLSearchParams(location.search);
+window.lines = [];
+window.done = null;
+const show = (fd) => (text) => {
+  window.lines.push((fd === 2 ? "[stderr] " : "") + text);
+  document.getElementById("out").textContent += text + "\n";
+};
+try {
+  const { default: createSlang } = await import("/public/slang-gfx.js");
+  const module = await createSlang({
+    canvas: document.getElementById("canvas"), print: show(1), printErr: show(2),
+    onExit: (code) => { window.done = "exit " + code; },
+    // (the program's environment is read before main starts)
+    preRun: [(m) => {
+      for (const pair of (params.get("env") || "").split(",")) {
+        const eq = pair.indexOf("=");
+        if (eq > 0) m.ENV[pair.slice(0, eq)] = pair.slice(eq + 1);
+      }
+    }],
+  });
+  const packages = ["raylib", "box2d", "jolt", "kernel", "dsp", "gpu", "window"];
+  module.FS.mkdir("/work");
+  module.FS.writeFile("/work/slang.project",
+    `{name: "test", dependencies: {${packages.map((p) => `${p}: {path: "/${p}"}`).join(", ")}}}`);
+  module.FS.writeFile("/work/slang.lock",
+    `{${packages.map((p) => `["${p}"]: {path: "/${p}"}`).join(", ")}}`);
+  const file = params.get("file");
+  const name = file.split("/").pop();
+  const source = await fetch("/repo/" + file);
+  if (!source.ok) throw new Error(file + ": " + source.status);
+  module.FS.writeFile("/work/" + name, await source.text());
+  module.FS.chdir("/work");
+  try {
+    module.callMain([params.get("cmd") || "run", "/work/" + name]);
+  } catch (e) {
+    if (e !== "unwind" && !(e && e.name === "ExitStatus")) throw e;
+  }
+} catch (e) {
+  show(2)(String((e && e.stack) || e));
+  window.done = "failed";
+}
+</script>

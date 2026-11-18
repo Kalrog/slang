@@ -28,6 +28,7 @@
 #   make window-test  run the window package's tests (packages/window; ships SDL3, opens hidden windows)
 #   make gpu-test     run the gpu package's tests (packages/gpu; ships wgpu-native, no window needed)
 #   make gpu          run the gpu examples in windows (examples/gpu: triangle, cube)
+#   make gpu-web-test run the gpu package's tests and the gpu examples in a browser (the graphics VM of make wasm-gfx, in headless Chrome; needs node)
 #   make swarm        a million GPU particles with sound (examples/swarm, on the gpu and window packages)
 #   make kernel-bench kernels against plain slang (sawtooth, FM operator chain, filter)
 #   make fm-gen       regenerate examples/fm/render.kernel from its algorithms
@@ -88,7 +89,7 @@ SEED_DIR := boot/slang
 EXT_SRC  := extensions/async.slang extensions/html.slang extensions/inline_test.slang extensions/json.slang extensions/sqlite.slang
 EXT_SEED_DIR := boot/extensions
 
-.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed fixpoint bench bench-compare bench-vectors raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test inkblast inkblast-test synth synth3d synth-test synth-mix modular modular-test modular-demos live live-test tracker tracker-test tracker-demos dsp car dsp-test granular granular-test delve delve-test courier courier-test switchback switchback-test switchback-web switchback-web-serve switchback-daily switchback-sound siege siege-test midi-test microphone-test notebook-test notebook studio-test studio-demo window-test gpu-test gpu swarm kernel-test kernel-bench fm fm3d fm-test fm-gen clean doc \
+.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed fixpoint bench bench-compare bench-vectors raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test inkblast inkblast-test synth synth3d synth-test synth-mix modular modular-test modular-demos live live-test tracker tracker-test tracker-demos dsp car dsp-test granular granular-test delve delve-test courier courier-test switchback switchback-test switchback-web switchback-web-serve switchback-daily switchback-sound siege siege-test midi-test microphone-test notebook-test notebook studio-test studio-demo window-test gpu-test gpu gpu-web-test swarm kernel-test kernel-bench fm fm3d fm-test fm-gen clean doc \
         vscode vscode-grammar
 
 all: build
@@ -105,8 +106,10 @@ wasm:
 	mkdir -p website/public lib && cp zig/zig-out-wasm/bin/slang.wasm website/public/slang.wasm
 	cp zig/zig-out-wasm/bin/slang.wasm lib/slang.wasm
 
-# the playground's graphics VM (slang with raylib, built with Emscripten):
-# website/public/slang-gfx.js and .wasm; needs emcc (brew install emscripten)
+# the playground's graphics VM (slang built with Emscripten, with raylib,
+# Box2D, Jolt, WebGPU and SDL linked in, for the raylib, box2d, jolt, kernel,
+# gpu and window packages): website/public/slang-gfx.js and .wasm; needs
+# emcc (brew install emscripten)
 wasm-gfx: build
 	ZIG=$(ZIG) website/web/build.sh
 
@@ -253,6 +256,12 @@ gpu-test: build
 
 gpu: build
 	cd examples/gpu && ../../bin/slang run triangle.slang && ../../bin/slang run cube.slang
+
+# the gpu and window packages in a browser: the gpu package's tests and the
+# gpu examples on the graphics VM (make wasm-gfx first), in headless Chrome
+# on this machine's GPU
+gpu-web-test:
+	node website/web/test/gpu_web_test.mjs
 
 swarm: build
 	cd examples/swarm && ../../bin/slang run main.slang

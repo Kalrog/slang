@@ -1,10 +1,14 @@
 // The binding without a window: devices, buffers, compute, rendering into
 // a texture read back, enums, defaults and errors (run with
-// `slang test test` in packages/gpu)
+// `slang test test` in packages/gpu). The same tests pass in a browser, on
+// slang's graphics VM (`make gpu-web-test`).
 local t = require("slang/test")
 local gpu = require("gpu")
 
 local device = gpu.device()
+// in a browser WebGPU is the browser's own, which tells less about the
+// adapter and reports mistakes later
+local in_browser = gpu.version() == "browser"
 
 local func near(a, b){
   return a - b < 0.01 and b - a < 0.01
@@ -16,7 +20,7 @@ t.group("gpu: devices"){
     assert(type(device.queue) == "gpu.Queue")
     assert(device.queue == device.queue)
     local info = device.adapter.info
-    assert(type(info.device) == "string" and info.device != "")
+    assert(type(info.device) == "string" and (in_browser or info.device != ""))
     assert(type(info.backend_type) == "string")
   }
   t.test("enums are listed by name"){
@@ -153,6 +157,8 @@ t.group("gpu: errors"){
   t.test("WGSL that does not compile raises with the compiler's message"){
     local e = t.raises(func(){
       device:shader("fn broken( {")
+      // (a browser says so later: by the time the queue was waited for)
+      device:poll(true)
     })
     assert(require("slang/string").contains(e.message, "gpu:"), e.message)
   }
@@ -163,9 +169,13 @@ t.group("gpu: errors"){
       })
     }, "gpu: no_such_format is not a texture_format")
   }
-  t.test("a validation error raises at the call"){
-    t.raises(func(){
+  t.test("a validation error raises: at the call, in a browser by the next wait"){
+    local e = t.raises(func(){
       device:buffer({size: 4, usage: "map_read|storage"})
+      device:poll(true)
     })
+    assert(require("slang/string").contains(e.message, "gpu:"), e.message)
+    // and what comes after it works
+    assert(device:buffer({contents: {1, 2}, usage: "storage|copy_src"}):read("float")[1] == 2.0)
   }
 }

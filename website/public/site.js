@@ -404,7 +404,7 @@ class Workbench {
   }
   async run() {
     if (this.running) return;
-    if (usesRaylib(this.editor.value)) return this.runGraphics();
+    if (usesGraphics(this.editor.value)) return this.runGraphics();
     this.removeStage();
     this.running = true;
     this.runButton.textContent = "Stop";
@@ -440,7 +440,8 @@ class Workbench {
     const ms = Math.round(r.ms);
     this.say(r.code === 0 ? `done in ${ms} ms` : `exit code ${r.code}`);
   }
-  // a raylib program: the graphics VM, a canvas above the output
+  // a program that draws (raylib, or gpu and window): the graphics VM, a
+  // canvas above the output
   async runGraphics() {
     stopGraphics();
     this.running = true;
@@ -448,7 +449,7 @@ class Workbench {
     this.runButton.classList.add("stop");
     this.output.classList.add("shown");
     this.output.innerHTML = "";
-    this.say("loading raylib…");
+    this.say("loading the graphics VM…");
     let stage = this.root.querySelector(".stage");
     if (!stage) {
       stage = document.createElement("div");
@@ -465,8 +466,8 @@ class Workbench {
     const files = {
       ...(this.files || {}),
       "main.slang": this.prefix + this.editor.value,
-      "slang.project": '{name: "playground", dependencies: {raylib: {path: "/raylib"}, box2d: {path: "/box2d"}, jolt: {path: "/jolt"}}}',
-      "slang.lock": '{["raylib"]: {path: "/raylib"}, ["box2d"]: {path: "/box2d"}, ["jolt"]: {path: "/jolt"}}',
+      "slang.project": '{name: "playground", dependencies: {raylib: {path: "/raylib"}, box2d: {path: "/box2d"}, jolt: {path: "/jolt"}, gpu: {path: "/gpu"}, window: {path: "/window"}}}',
+      "slang.lock": '{["raylib"]: {path: "/raylib"}, ["box2d"]: {path: "/box2d"}, ["jolt"]: {path: "/jolt"}, ["gpu"]: {path: "/gpu"}, ["window"]: {path: "/window"}}',
     };
     const module = await launchGraphics({
       canvas, files, main: "main.slang", show, owner: this,
@@ -527,11 +528,12 @@ async function unpack(s) {
 
 // ---------------------------------------------------------------- graphics
 
-// A program that uses raylib runs on the graphics VM (slang built with
-// Emscripten and raylib's web platform, website/web/build.sh) on the page
-// itself, drawing into a canvas: it hands the browser control at the end of
-// each frame, so the page stays responsive. One runs at a time.
-const usesRaylib = (code) => /require\(\s*"raylib"\s*\)/.test(code);
+// A program that uses raylib, or the gpu or window package, runs on the
+// graphics VM (slang built with Emscripten, with raylib's web platform,
+// WebGPU and SDL, website/web/build.sh) on the page itself, drawing into a
+// canvas: it hands the browser control at the end of each frame, so the
+// page stays responsive. One runs at a time.
+const usesGraphics = (code) => /require\(\s*"(raylib|gpu|window)"\s*\)/.test(code);
 let gfx = null; // {module, canvas, owner}
 
 // a fresh canvas in a stage for every run (a WebGL context does not start

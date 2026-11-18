@@ -118,14 +118,17 @@ local func render_loop(setup, args, cfg, address, state, timing, ctl){
   return null
 }
 
-// A playing stream, as [play] returns it.
-// type Player
 local player_methods = {}
 local player_get = {}
+local player_set = {}
+
+// A playing stream, as [play] returns it.
+// type Player
 local player_meta = {
   __type: "window.Player",
   __index: player_methods,
   __get: player_get,
+  __set: player_set,
 }
 
 // stats() -> Stats
@@ -198,11 +201,9 @@ func player_get.playing(self){
 func player_get.volume(self){
   return self.gain
 }
-player_meta.__set = {
-  volume: func(self, v){
-    check(lib.SDL_SetAudioStreamGain(self.stream, v), "volume")
-    self.gain = v
-  },
+func player_set.volume(self, v){
+  check(lib.SDL_SetAudioStreamGain(self.stream, v), "volume")
+  self.gain = v
 }
 
 // play(setup: function, options?: PlayOptions) -> Player
@@ -331,11 +332,12 @@ local func prune(){
   voices = still
 }
 
-// One playing of a sound, as [Sound.play] returns it.
-// type Voice
 local voice_methods = {}
 local voice_get = {}
 local voice_set = {}
+
+// One playing of a sound, as [Sound.play] returns it.
+// type Voice
 local voice_meta = {
   __type: "window.Voice",
   __index: voice_methods,

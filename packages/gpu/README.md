@@ -58,6 +58,16 @@ checksummed release for those and for linux-x86_64 and linux-aarch64.
 `lib/VERSION` names the release. `GPU_WGPU` names another wgpu-native
 library file.
 
+The language server and `slang doc` read `stubs/init.slang`, generated
+from the header and `init.slang` (the objects' methods and properties are
+made at run time, so tools cannot see them in the source):
+
+```
+slang run tool/gen_stubs.slang     # after wgpu-native or the package changes
+```
+
+`gpu.decls` holds the declarations, for `slang/ffi` and `slang/buffer`.
+
 ## How WebGPU maps to slang
 
 The package reads `webgpu.h` when it loads, and the API follows from it:

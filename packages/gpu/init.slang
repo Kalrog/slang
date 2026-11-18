@@ -191,6 +191,11 @@ local gpu = {}
 // cover. Objects give their C pointer as handle.
 gpu.c = ffi.c_layer(lib, "gpu.c")
 
+// The declarations of webgpu.h and wgpu.h as slang/ffi read them, for
+// slang/ffi and slang/buffer: buffer.new("WGPUColor", 16, gpu.decls).
+// Struct fields have their snake_case names.
+gpu.decls = C
+
 // UINT32_MAX and UINT64_MAX (SIZE_MAX): WebGPU's "undefined" and "whole"
 local u32_max = 4294967295
 local u64_max = -1
@@ -647,10 +652,17 @@ for(let local fname in values(C.order)){
     local rest = str.substring(fname, 4)
     for(let local cn in values(class_names)){
       if(str.starts_with(rest, cn) and is_upper(str.byte_at(rest, len(cn)))){
-        if(methods_of[cn] == null){
-          methods_of[cn] = {}
+        // a method takes the object first (wgpuSurfaceCapabilitiesFreeMembers
+        // starts like a Surface's function and takes a struct)
+        local decl = C.functions[fname]
+        local first = decl.params[0]
+        if(first != null and first.type.kind == "ptr" and
+          first.type.to.name == concat("WGPU", cn, "Impl")){
+          if(methods_of[cn] == null){
+            methods_of[cn] = {}
+          }
+          methods_of[cn][snake(str.substring(rest, len(cn)))] = decl
         }
-        methods_of[cn][snake(str.substring(rest, len(cn)))] = C.functions[fname]
         break
       }
     }
@@ -724,6 +736,9 @@ local func define_class(name){
     methods: m,
     get: g,
     set: s,
+    // the C declarations behind the methods and properties made from the
+    // header, by method name (tool/gen_stubs.slang reads them)
+    decls: decls,
     release: lib[concat("wgpu", name, "Release")],
     add_ref: lib[concat("wgpu", name, "AddRef")],
   }
@@ -1130,7 +1145,7 @@ local func map_read(device, buf, offset, size){
   }
 }
 
-// read(type?: string, offset?: int, size?: int) -> slang/buffer
+// read(type?: string, offset?: int, size?: int) -> buffer.Buffer
 // The buffer's contents, after the work submitted so far: a slang/buffer
 // of type ("uint8_t" by default; "float", "uint32_t", ...). A buffer
 // without map_read usage is copied to one that has it first (it needs
@@ -1191,7 +1206,7 @@ func device_m.texture(self, options){
 
 local texture_m = classes.Texture.methods
 
-// view(options?: TextureViewOptions) -> TextureView
+// view(options?: TextureViewDescriptor) -> TextureView
 // A view of the texture (all of it by default) for binding or rendering.
 func texture_m.view(self, options){
   local keep = {}
@@ -1281,7 +1296,7 @@ func texture_m.write(self, data, options){
   check()
 }
 
-// sampler(options?: SamplerOptions) -> Sampler
+// sampler(options?: SamplerDescriptor) -> Sampler
 // How textures are sampled: filters, address modes, comparison.
 //   device:sampler({mag_filter: "linear", min_filter: "linear"})
 func device_m.sampler(self, options){
@@ -1363,10 +1378,32 @@ local func copy_table(t){
 //     depth_stencil: {format: "depth24_plus", depth_write_enabled: true,
 //       depth_compare: "less"},
 //   })
-// The fields are WGPURenderPipelineDescriptor's. Besides them: [shader]
-// is the module of vertex and fragment when they name none, a target's
-// blend may be "alpha", "premultiplied" or "additive", and layout is
-// "auto" when left out.
+// The fields are WGPURenderPipelineDescriptor's, and shader besides.
+// type RenderPipelineOptions = {shader?: ShaderModule, vertex?: VertexState,
+//   fragment?: RenderPipelineFragment, primitive?: PrimitiveState,
+//   depth_stencil?: DepthStencilState, multisample?: MultisampleState,
+//   layout?: PipelineLayout | string, label?: string}
+// [shader]: the module of vertex and fragment when they name none
+// [vertex]: the vertex stage: its buffers' layouts, entry_point when the
+//   module has more than one vertex function
+// [fragment]: the fragment stage and its targets. Left out, the pipeline
+//   writes depth only
+// type RenderPipelineFragment = {module?: ShaderModule,
+//   entry_point?: string, constants?: {ConstantEntry},
+//   targets?: {RenderPipelineTarget}}
+// [targets]: what the pass draws into, one for each color attachment
+// type RenderPipelineTarget = {format?: string,
+//   blend?: BlendState | string, write_mask?: string | {string} | int}
+// [format]: the attachment's texture format (a surface's: surface.format)
+// [blend]: how a pixel mixes with what is there: "alpha",
+//   "premultiplied", "additive", or a [BlendState]; left out, it replaces
+// [write_mask]: the channels written: "all" by default
+// [primitive]: topology ("triangle_list" by default), cull_mode,
+//   front_face
+// [depth_stencil]: the depth buffer's format, depth_write_enabled and
+//   depth_compare; left out, there is no depth test
+// [multisample]: count, for a multisampled target
+// [layout]: "auto" (the default: from the shader) or a pipeline layout
 func device_m.render_pipeline(self, options){
   local desc = copy_table(options)
   local shader = desc.shader
@@ -1403,8 +1440,13 @@ func device_m.render_pipeline(self, options){
 // compute_pipeline(options: ComputePipelineOptions) -> ComputePipeline
 // A compute shader's entry point, ready to dispatch.
 //   device:compute_pipeline({compute: {module: shader, entry_point: "main"}})
-// [shader] is the module when compute names none; layout is "auto" when
-// left out.
+// type ComputePipelineOptions = {shader?: ShaderModule,
+//   compute?: ComputeState, layout?: PipelineLayout | string,
+//   label?: string}
+// [shader]: the module when compute names none
+// [compute]: the stage: module, and entry_point when the module has more
+//   than one compute function
+// [layout]: "auto" (the default: from the shader) or a pipeline layout
 func device_m.compute_pipeline(self, options){
   local desc = copy_table(options)
   desc.compute = copy_table(desc.compute or {})
@@ -1420,11 +1462,18 @@ func device_m.compute_pipeline(self, options){
 }
 
 // bind_group(options: BindGroupOptions) -> BindGroup
-// Resources bound together for shaders' @group: each entry's resource is
-// a Buffer (all of it), {buffer, offset, size}, a TextureView, a Texture
-// (its default view) or a Sampler.
+// Resources bound together for shaders' @group.
 //   device:bind_group({layout: pipeline:get_bind_group_layout(0),
 //     entries: {{binding: 0, resource: uniforms}, {binding: 1, resource: sampler}}})
+// type BindGroupOptions = {layout: BindGroupLayout,
+//   entries: {BindGroupBinding}, label?: string}
+// [layout]: what the group binds, usually a pipeline's
+//   get_bind_group_layout(group)
+// type BindGroupBinding = {binding: int, resource: Buffer | Texture |
+//   TextureView | Sampler | {buffer: Buffer, offset?: int, size?: int}}
+// [binding]: the shader's @binding
+// [resource]: a Buffer (all of it), a part of one, a TextureView, a
+//   Texture (its default view) or a Sampler
 func device_m.bind_group(self, options){
   local desc = copy_table(options)
   local entries_out = {}
@@ -1464,7 +1513,7 @@ func device_m.bind_group(self, options){
   )
 }
 
-// bind_group_layout(options) -> BindGroupLayout
+// bind_group_layout(options: BindGroupLayoutDescriptor) -> BindGroupLayout
 // A bind group layout made by hand (pipelines with layout "auto" make
 // theirs: pipeline:get_bind_group_layout(i)).
 func device_m.bind_group_layout(self, options){
@@ -1505,9 +1554,19 @@ local encoder_m = classes.CommandEncoder.methods
 // Starts a render pass; draw into it, then [RenderPassEncoder.finish].
 //   local pass = encoder:render_pass({color_attachments: {
 //     {view: frame:view(), clear_value: {0.1, 0.1, 0.1, 1}}}})
-// The fields are WGPURenderPassDescriptor's. A color attachment's load_op
-// is "clear" when it has a clear_value and "load" otherwise, its store_op
-// "store"; a depth attachment clears to depth_clear_value (1) and stores.
+// The fields are WGPURenderPassDescriptor's.
+// type RenderPassOptions = {
+//   color_attachments?: {RenderPassColorAttachment},
+//   depth_stencil_attachment?: RenderPassDepthStencilAttachment,
+//   occlusion_query_set?: QuerySet, timestamp_writes?: PassTimestampWrites,
+//   label?: string}
+// [color_attachments]: what the pass draws into, one for each of the
+//   pipeline's targets: view, and clear_value ({r, g, b, a}) to start from
+//   a color. load_op is "clear" with a clear_value and "load" (keep what
+//   is there) without; store_op is "store"
+// [depth_stencil_attachment]: the depth buffer's view; it clears to
+//   depth_clear_value (1) and stores, unless depth_load_op and
+//   depth_store_op say otherwise
 func encoder_m.render_pass(self, options){
   local desc = copy_table(options)
   local colors = {}

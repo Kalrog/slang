@@ -129,14 +129,15 @@ local windows_by_id = {}
 // events taken in and not yet handed out
 local pending = {}
 
+local window_methods = {}
+local window_get = {}
+local window_set = {}
+
 // A window on the screen. Made by [open]; its size, title and state are
 // properties, and its events come from [Window.events].
 // type Window
 // [handle]: the SDL_Window pointer, for window.c
 // [id]: SDL's id of the window
-local window_methods = {}
-local window_get = {}
-local window_set = {}
 local window_meta = {
   __type: "window.Window",
   __index: window_methods,
@@ -491,6 +492,9 @@ local func axis_value(v){
 
 local gamepads_by_id = {}
 
+local gamepad_methods = {}
+local gamepad_get = {}
+
 // A gamepad, opened when it is connected (a "gamepad_added" event).
 // Buttons and axes are named as SDL names them: buttons "south", "east",
 // "west", "north" (the face buttons by position), "back", "guide",
@@ -501,8 +505,6 @@ local gamepads_by_id = {}
 // type Gamepad
 // [id]: SDL's id of the gamepad
 // [handle]: the SDL_Gamepad pointer, for window.c
-local gamepad_methods = {}
-local gamepad_get = {}
 local gamepad_meta = {
   __type: "window.Gamepad",
   __index: gamepad_methods,
@@ -769,9 +771,58 @@ func window.poll(){
   }
 }
 
+// Something that happened, as [events] and [Window.events] hand it out.
+// Its type says what, and which of the other fields it has:
+//
+//   "key_down", "key_up"                 window, key, scancode, repeat, mods
+//   "text"                               window, text
+//   "mouse_move"                         window, x, y, dx, dy
+//   "mouse_down", "mouse_up"             window, button, x, y, clicks
+//   "wheel"                              window, dx, dy, x, y
+//   "resize", "pixel_resize"             window, width, height
+//   "move"                               window, x, y
+//   "drop"                               window, path
+//   "close", "focus", "blur", "show", "hide", "expose", "minimize",
+//   "maximize", "restore", "mouse_enter", "mouse_leave", "occlude",
+//   "display_scale", "enter_fullscreen", "leave_fullscreen"     window
+//   "gamepad_added", "gamepad_removed"   gamepad
+//   "gamepad_down", "gamepad_up"         gamepad, button
+//   "gamepad_axis"                       gamepad, axis, value
+//   "quit"                               (the program was asked to quit)
+//
+// type Event = {type: string, window?: Window, gamepad?: Gamepad,
+//   key?: string, scancode?: string, repeat?: bool,
+//   mods?: {shift: bool, ctrl: bool, alt: bool, gui: bool}, text?: string,
+//   x?: number, y?: number, dx?: number, dy?: number,
+//   button?: string | int, clicks?: int, width?: int, height?: int,
+//   path?: string, axis?: string, value?: number}
+// [type]: what happened: one of the names above
+// [window]: the window it belongs to; "quit" and the gamepad events have
+//   none
+// [key]: the key in the keyboard's layout, named as SDL names it, in lower
+//   case with _ for spaces: "a", "1", "space", "return", "escape",
+//   "left_shift", "f1", "up"
+// [scancode]: the physical key, by its name on a US keyboard
+// [repeat]: whether the key repeats because it is held
+// [mods]: the modifier keys held
+// [text]: typed text (a window's text_input turns these events on)
+// [x]: where the mouse is in the window, across; for "move", where the
+//   window is on the screen
+// [y]: the same, down
+// [dx]: how far the mouse moved across; for "wheel", how far it scrolled
+// [dy]: the same, down
+// [button]: a mouse button ("left", "middle", "right", "x1", "x2"; a
+//   number for others), or a gamepad's button as [Gamepad.button] names it
+// [clicks]: 1 for a click, 2 for a double click
+// [width]: the new width, in points for "resize" and in pixels for
+//   "pixel_resize"
+// [height]: the new height, likewise
+// [path]: the file dropped on the window
+// [axis]: the gamepad's axis as [Gamepad.axis] names it
+// [value]: where the axis is, -1 to 1
+
 // events() -> {Event}
 // Every event since the last call, of all windows, oldest first.
-// type Event = {type: string, window?: Window, gamepad?: Gamepad}
 func window.events(){
   window.poll()
   local all = pending

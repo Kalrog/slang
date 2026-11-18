@@ -1,0 +1,8 @@
+{
+  name: "tracker",
+  dependencies: {
+    raylib: {path: "../../packages/raylib"},
+    studio: {path: "../../packages/studio"},
+  },
+  search_paths: {"."},
+}

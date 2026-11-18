@@ -45,6 +45,9 @@
 #   make modular-demos rewrite the patches that come with it (examples/modular/patches)
 #   make live         run the live coding environment for music and visuals (examples/live)
 #   make live-test    run its tests (no window, no audio device: the notation, the engine, every piece)
+#   make tracker      run the tracker (examples/tracker): songs as patterns of rows, on the studio and raylib packages
+#   make tracker-test run its tests (no window, no sound card: the song, the player, the grid, the songs that come with it)
+#   make tracker-demos rewrite the songs that come with it (examples/tracker/songs)
 #   make dsp          play the block-diagram instruments (examples/dsp, on packages/dsp: a Faust-like language compiled to kernels)
 #   make car          drive the four-cylinder engine of examples/dsp (programs/inline4.dsp)
 #   make dsp-test     run the dsp package's tests and the example's (no window, no audio device: the language, the generated kernels, the engine)
@@ -78,7 +81,7 @@ LIB_SRC  := $(wildcard slang/lib/*.slang)
 COMPILER_SRC := $(wildcard slang/compiler/*.slang)
 SEED_DIR := boot/slang
 
-.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed fixpoint bench bench-compare bench-vectors raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test inkblast inkblast-test synth synth3d synth-test synth-mix modular modular-test modular-demos live live-test dsp car dsp-test granular granular-test delve delve-test courier courier-test switchback switchback-test switchback-web switchback-web-serve switchback-daily switchback-sound siege siege-test midi-test microphone-test studio-test studio-demo window-test gpu-test gpu swarm kernel-test kernel-bench fm fm3d fm-test fm-gen clean doc \
+.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed fixpoint bench bench-compare bench-vectors raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test inkblast inkblast-test synth synth3d synth-test synth-mix modular modular-test modular-demos live live-test tracker tracker-test tracker-demos dsp car dsp-test granular granular-test delve delve-test courier courier-test switchback switchback-test switchback-web switchback-web-serve switchback-daily switchback-sound siege siege-test midi-test microphone-test studio-test studio-demo window-test gpu-test gpu swarm kernel-test kernel-bench fm fm3d fm-test fm-gen clean doc \
         vscode vscode-grammar
 
 all: build
@@ -150,8 +153,8 @@ test: build unit
 	@if [ -d "packages/gpu/lib/$(SLANG_PLATFORM)" ]; then $(MAKE) gpu-test; \
 	  else echo "no wgpu-native for $(SLANG_PLATFORM): packages/gpu not tested"; fi
 	$(MAKE) inkblast-test
-	@if [ -d "packages/kernel/lib/$(SLANG_PLATFORM)" ]; then $(MAKE) kernel-test && $(MAKE) fm-test && $(MAKE) modular-test && $(MAKE) live-test && $(MAKE) dsp-test && $(MAKE) granular-test && $(MAKE) studio-test; \
-	  else echo "no kernel/vm for $(SLANG_PLATFORM): packages/kernel, packages/dsp, packages/studio, examples/fm, examples/modular, examples/live, examples/dsp and examples/granular not tested"; fi
+	@if [ -d "packages/kernel/lib/$(SLANG_PLATFORM)" ]; then $(MAKE) kernel-test && $(MAKE) fm-test && $(MAKE) modular-test && $(MAKE) live-test && $(MAKE) dsp-test && $(MAKE) granular-test && $(MAKE) studio-test && $(MAKE) tracker-test; \
+	  else echo "no kernel/vm for $(SLANG_PLATFORM): packages/kernel, packages/dsp, packages/studio, examples/fm, examples/modular, examples/live, examples/dsp, examples/granular and examples/tracker not tested"; fi
 	@if [ -d "packages/kernel/lib/$(SLANG_PLATFORM)" ] && [ -d "packages/jolt/lib/$(SLANG_PLATFORM)" ]; then $(MAKE) switchback-test; \
 	  else echo "no kernel/vm or no joltc for $(SLANG_PLATFORM): examples/switchback not tested"; fi
 
@@ -300,6 +303,15 @@ live: build
 
 live-test: build
 	cd examples/live && ../../bin/slang test test
+
+tracker: build
+	cd examples/tracker && ../../bin/slang run main.slang
+
+tracker-test: build
+	cd examples/tracker && ../../bin/slang test test
+
+tracker-demos: build
+	cd examples/tracker && ../../bin/slang run tool/demos.slang
 
 dsp: build
 	cd examples/dsp && ../../bin/slang run main.slang

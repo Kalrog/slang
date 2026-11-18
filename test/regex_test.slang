@@ -11,10 +11,32 @@ t.group("regex"){
     assert(word:match_at("abc1", 0) == 3 and word:match_at("1abc", 0) == -1)
     assert(word:match_at("1abc", 1) == 4 and word:match_at("abc", 9) == -1)
     assert(regex.compile("(?i)hello"):matches("HeLLo"))
-    assert(regex.compile("[^\"]*"):match_at("h\u{e9}llo\"x", 0) == 6, "characters")
+    assert(
+      regex.compile("[^\"]*"):match_at("h\u{e9}llo\"x", 0) == 6,
+      "characters",
+    )
     assert(regex.compile("(?m)^b$"):find("a\nb\nc").start == 2)
     assert(regex.compile("\\bfoo\\b"):find("a foo b").start == 2)
     assert(regex.compile("[[:alpha:]]+"):find("12abc3").text == "abc")
+  }
+  t.test("Unicode classes: categories, scripts, identifier properties"){
+    assert(regex.compile("\\p{Lu}\\p{Ll}+"):find(
+      "x \u{c9}t\u{e9} y",
+    ).text == "\u{c9}t\u{e9}")
+    assert(regex.compile("\\pL+"):find(
+      "12 \u{3b1}\u{3b2}b 3",
+    ).text == "\u{3b1}\u{3b2}b")
+    assert(regex.compile("\\p{Greek}+"):find(
+      "ab\u{3b1}\u{3b2}c",
+    ).text == "\u{3b1}\u{3b2}")
+    assert(regex.compile("\\PL+"):find("ab12cd").text == "12")
+    assert(regex.compile("\\p{^Nd}+"):find("12ab34").text == "ab")
+    local name = regex.compile("[_\\p{XID_Start}][\\p{XID_Continue}]*")
+    assert(name:find("1 \u{394}x_2 +").text == "\u{394}x_2")
+    assert(regex.compile("[^\\p{L}\\d]+"):find("ab, cd").text == ", ")
+    assert(regex.compile("\\p{Any}"):matches("\u{1F600}"))
+    local e = t.raises(func(){ regex.compile("\\p{Nope}") })
+    assert(str.contains(e.message, "unknown Unicode class"), e.message)
   }
   t.test("find and groups"){
     local r = regex.compile("(?P<key>\\w+)=(\\d+)")
@@ -27,9 +49,14 @@ t.group("regex"){
     assert(len(r:find_all("a=1 bb=22 c=x")) == 2)
     assert(r.group_names == {"", "key", ""})
     local opt = regex.compile("a(x)?b"):find("ab")
-    assert(opt.groups[1] == "" and opt.spans[1] == {-1, -1}, "an unmatched group")
+    assert(
+      opt.groups[1] == "" and opt.spans[1] == {-1, -1},
+      "an unmatched group",
+    )
     // leftmost-first, as Perl and Go
-    assert(regex.compile("(a|ab)(c|bcd)(d*)"):find("abcd").groups == {"abcd", "a", "bcd", ""})
+    assert(regex.compile("(a|ab)(c|bcd)(d*)"):find("abcd").groups == {
+        "abcd", "a", "bcd", ""
+      })
     assert(regex.compile("x*?y"):find("xxy").text == "xxy")
     assert(regex.compile("a+?"):find("aaa").text == "a")
   }

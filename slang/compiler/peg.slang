@@ -468,6 +468,44 @@ func peg.pattern(spec, message){
   return p
 }
 
+// regex(pattern: string | Regex, message?: string) -> Parser
+// What a regular expression matches where the parser stands (slang/regex:
+// RE2 syntax, leftmost-first); its value is the text matched. A pattern
+// that can match nothing succeeds without consuming, as [epsilon] does.
+// For the tokens of a language: a number, a name.
+//   local name = peg.regex("[_\\p{XID_Start}]\\p{XID_Continue}*", "expected a name")
+//   local number = peg.regex("[0-9]+(?:\\.[0-9]+)?"):token("number"):trim()
+// [message]: what a failure says; "/pattern/ expected" by default
+func peg.regex(pattern, message){
+  local re = pattern
+  if(type(pattern) == "string"){
+    re = regex.compile(pattern)
+  }
+  local msg = message or concat(string(re), " expected")
+  local p = new_parser(
+    func(self, ctx, pos){
+      local q = match_at(re, ctx.buffer, pos)
+      if(q >= 0){
+        ctx.value = str.substring(ctx.buffer, pos, q)
+        return q
+      }
+      return fail(ctx, pos, msg)
+    },
+    null,
+    "regex",
+    func(self, ctx, pos){
+      local q = match_at(re, ctx.buffer, pos)
+      if(q >= 0){
+        return q
+      }
+      return fail(ctx, pos, msg)
+    },
+  )
+  p.regex = re
+  p.message = msg
+  return p
+}
+
 // any(message?: string) -> Parser
 // Any one character (a UTF-8 sequence); fails only at the end of the input.
 func peg.any(message){
@@ -1364,6 +1402,77 @@ func peg.resolve(parser){
 func peg.custom(parse_on, parse_tree){
   local p = new_parser(parse_on)
   p.parse_tree = parse_tree
+  return p
+}
+
+// What [trivia] takes.
+// type TriviaOptions = {skip: func(buffer: string, pos: int): int,
+//   comments?: func(buffer: string, start: int, stop: int): {Comment}}
+// [skip]: the position after the blankspace and comments at pos (pos when
+//   there are none)
+// [comments]: the comments in buffer[start, stop), a stretch skip went
+//   over, in order
+// A comment in a stretch of trivia.
+// type Comment = {start: int, stop: int, block?: bool}
+// [block]: a comment that ends by itself (`/* ... */`), so that code may
+//   follow it on its line; a line comment ends with its line
+
+// trivia(options?: TriviaOptions) -> Parser
+// What a language skips between its tokens: blankspace and comments. The
+// parser for [trim] (it takes everything in one go and fails where there
+// is nothing to skip); its skip_at(ctx, pos) is the skip function of a
+// [walker] or [dispatch]. Without options it is slang's own: whitespace and
+// `//` comments. With them it is a language's that differs: the
+// highlighter shows what comments finds as comments, and the formatter
+// keeps them where they are (see slang/format).
+//   local trivia = peg.trivia({
+//     skip: func(buffer, pos){ ... },          // past blanks, # comments
+//     comments: func(buffer, start, stop){ ... },
+//   })
+//   local number = peg.regex("[0-9]+"):token("number"):trim(trivia)
+//   local w = peg.walker(trivia.skip_at)
+func peg.trivia(options){
+  local skip = options and options.skip
+  local p = null
+  if(skip == null){
+    p = new_parser(func(self, ctx, pos){
+      local q = match_at(space_run, ctx.buffer, pos)
+      // (no failure recorded: trivia is optional wherever it is used)
+      if(q == pos){
+        return -1
+      }
+      ctx.value = null
+      return q
+    })
+    p.skip_at = peg.skip_space
+  } else {
+    p = new_parser(func(self, ctx, pos){
+      local q = skip(ctx.buffer, pos)
+      if(q <= pos){
+        return -1
+      }
+      ctx.value = null
+      return q
+    })
+    // the language's own skipping, for generated parsers too
+    p.skip_text = skip
+    p.skip_at = func(ctx, pos){
+      return skip(ctx.buffer, pos)
+    }
+    local comments = options.comments
+    if(comments != null){
+      p.comments = comments
+      p.highlight = func(buffer, start, stop){
+        local out = {}
+        for(let local c in values(comments(buffer, start, stop))){
+          append(out, {category: "comment", start: c.start, stop: c.stop})
+        }
+        return out
+      }
+    }
+  }
+  p.single = true
+  p.trivia = true
   return p
 }
 
@@ -3248,7 +3357,7 @@ func pipeline_methods.mark(self, data){
 // ref, whose tree is their child's.
 local copyable = {}
 for(let local k in values({
-  "string", "pattern", "any", "whitespace", "end", "epsilon", "failure", "seq",
+  "string", "pattern", "regex", "any", "whitespace", "end", "epsilon", "failure", "seq",
   "star", "plus", "optional", "star_lazy", "separated", "forbid", "and", "neg",
   "pick", "permute", "map", "flatten", "token", "trim", "where", "tag", "layer"
 })){

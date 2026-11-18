@@ -119,7 +119,11 @@ extensions and a dialect.
 An extension gets the grammar it extends with
 `require("slang/compiler").grammar()`, and builds parsers with the
 combinators of `slang/peg` (`seq`, `choice`, `star`, `plus`, `optional`,
-`map`, `token`, `ref`, ...). The grammar object offers:
+`map`, `token`, `ref`, ...). `peg.regex(pattern)` is a parser of what a
+regular expression matches (a number, a name), and `peg.trivia({skip,
+comments})` what a language of its own skips between tokens, for syntax
+whose blanks and comments are not slang's: the highlighter and the
+formatter take its comments from it. The grammar object offers:
 
 - `g:token(text)` and `g:keyword(word)` (a keyword is reserved).
   `g:rule(name)` refers to any rule of the grammar: `"expr"`,

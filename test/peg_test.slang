@@ -1,5 +1,6 @@
 local t = require("slang/test")
 local peg = require("slang/peg")
+local str = require("slang/string")
 
 local func ok(result, expected, msg){
   assert(
@@ -207,5 +208,66 @@ t.group("peg"){
     local r = peg.run(p, "abcdex")
     assert(r.ok == false, "fails")
     assert(r.far_column == 4, concat("farthest failure column ", r.far_column))
+  }
+  t.test("regex: what a regular expression matches where it stands"){
+    local name = peg.regex(
+      "[_\\p{XID_Start}]\\p{XID_Continue}*",
+      "expected a name",
+    )
+    local number = peg.regex("[0-9]+(?:\\.[0-9]+)?")
+    local r = peg.seq(name:trim(), number:trim()):end():parse("\u{394}x_1 12.5")
+    assert(r[0] == "ok" and r[1] == {"\u{394}x_1", "12.5"}, r)
+    local bad = peg.run(name, "1x")
+    assert(not bad.ok and bad.message == "expected a name", bad.message)
+    // a pattern that may match nothing succeeds without consuming
+    assert(peg.seq(peg.regex("a*"), peg.string("b")):parse("b")[0] == "ok")
+    // and it is a leaf of the tree, a token for the highlighter
+    local t1 = peg.run(number:token("number"), "42", {tree: true})
+    local spans = peg.highlights(t1.tree, "42")
+    assert(len(spans) == 1 and spans[0].category == "number", spans)
+  }
+  t.test("trivia: a language's own blanks and comments"){
+    // blanks, and # comments to the end of the line
+    local hash = require("slang/regex").compile("(?:[ \\n]+|#[^\\n]*)*")
+    local trivia = peg.trivia({
+      skip: func(buffer, pos){
+        return hash:match_at(buffer, pos)
+      },
+      comments: func(buffer, start, stop){
+        local out = {}
+        local i = str.index_of(buffer, "#", start)
+        for(i >= 0 and i < stop){
+          local j = str.index_of(buffer, "\n", i)
+          if(j < 0 or j > stop){
+            j = stop
+          }
+          append(out, {start: i, stop: j})
+          i = str.index_of(buffer, "#", j)
+        }
+        return out
+      },
+    })
+    local word = peg.regex("[a-z]+"):token("variable"):trim(trivia)
+    local source = "a # one\n b#two\nc"
+    local r = peg.run(word:star():end(), source, {tree: true})
+    assert(r.ok and len(r.value) == 3, r)
+    local cats = {}
+    for(let local s in values(peg.highlights(r.tree, source))){
+      append(cats, concat(
+        str.substring(source, s.start, s.stop), "=", s.category
+      ))
+    }
+    assert(cats == {
+        "a=variable",
+        "# one=comment",
+        "b=variable",
+        "#two=comment",
+        "c=variable",
+      }, cats)
+    // slang's own, and as a walker's skip function
+    local own = peg.trivia()
+    assert(peg.string("x"):trim(own):end():parse(" x // c\n")[0] == "ok")
+    assert(own.skip_at == peg.skip_space)
+    assert(trivia.skip_at(peg.context(" #c\n x"), 0) == 5)
   }
 }

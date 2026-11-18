@@ -8,7 +8,10 @@
 //   regex.compile("\\s*,\\s*"):split("a , b,c")   // {"a", "b", "c"}
 //
 // The syntax is RE2's, as in Go: `.` `[a-z]` `[^...]` `[[:alpha:]]`
-// `\d \w \s` (and `\D \W \S`, all ASCII), `^ $ \A \z \b \B`, groups `(...)`,
+// `\d \w \s` (and `\D \W \S`, all ASCII), Unicode classes `\pL \p{Lu}
+// \p{Greek} \p{XID_Start}` (a general category, a script, or XID_Start or
+// XID_Continue; `\P{...}` and `\p{^...}` for the rest; also inside
+// `[...]`), `^ $ \A \z \b \B`, groups `(...)`,
 // `(?:...)`, `(?P<name>...)` or `(?<name>...)`, `| * + ? {n} {n,} {n,m}`,
 // lazy forms `*? +? ?? {n,m}?`, escapes `\n \t \x41 \x{263a} \Q...\E`, and
 // flags `(?i)` (ASCII case folding), `(?m)` (^ and $ at lines), `(?s)` (.

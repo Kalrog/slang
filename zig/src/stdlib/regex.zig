@@ -12,7 +12,9 @@
 //!
 //! Positions are byte offsets; `.` and classes match one UTF-8 character
 //! (an invalid byte counts as one character, U+FFFD). Case folding with
-//! (?i) is ASCII only, and \d \w \s are ASCII as in Go.
+//! (?i) is ASCII only, and \d \w \s are ASCII as in Go. \p{...} names a
+//! Unicode general category, a script, or XID_Start or XID_Continue
+//! (unicode_tables.zig, generated from the Unicode Character Database).
 
 const std = @import("std");
 const vm_mod = @import("../vm.zig");
@@ -26,6 +28,7 @@ const Error = vm_mod.Error;
 const api = vm_mod.api;
 const stdlib = @import("stdlib.zig");
 const decodeRune = @import("stringlib.zig").decodeRune;
+const unicode_tables = @import("unicode_tables.zig");
 
 const Allocator = std.mem.Allocator;
 
@@ -454,6 +457,14 @@ const Parser = struct {
                 b.addPerl(p.gpa, c);
                 return p.node(.{ .class = p.addClass(b.finish(p.gpa, false)) });
             },
+            'p', 'P' => {
+                var b: ClassBuilder = .{};
+                p.unicodeClass(&b, at) catch |err| {
+                    b.ranges.deinit(p.gpa);
+                    return err;
+                };
+                return p.node(.{ .class = p.addClass(b.finish(p.gpa, false)) });
+            },
             'b' => {
                 p.pos += 1;
                 return p.node(.{ .assert = .word });
@@ -531,11 +542,60 @@ const Parser = struct {
                 p.pos += 2;
                 return v;
             },
-            'p', 'P' => return p.fail("Unicode classes (\\p) are not supported", at),
+            'p', 'P' => return p.fail("a Unicode class (\\p) is not one character", at),
             else => {
                 if (c < 128 and !std.ascii.isAlphanumeric(c)) return c;
                 return p.fail("invalid escape sequence", at);
             },
+        }
+    }
+
+    /// \pL, \p{Lu}, \p{Greek}, \p{XID_Start}, \P{...} and \p{^...}: the
+    /// code points of a Unicode general category (two letters, or one for
+    /// all that start with it), a script or an identifier property, added
+    /// to b; pos is at the p or P.
+    fn unicodeClass(p: *Parser, b: *ClassBuilder, at: usize) ParseError!void {
+        var negate = p.src[p.pos] == 'P';
+        p.pos += 1;
+        var name: []const u8 = undefined;
+        if (p.peek() == '{') {
+            const end = std.mem.indexOfScalarPos(u8, p.src, p.pos, '}') orelse
+                return p.fail("invalid character class range", at);
+            name = p.src[p.pos + 1 .. end];
+            p.pos = end + 1;
+            if (name.len > 0 and name[0] == '^') {
+                negate = !negate;
+                name = name[1..];
+            }
+        } else {
+            if (p.pos >= p.src.len) return p.fail("invalid character class range", at);
+            name = p.src[p.pos .. p.pos + 1];
+            p.pos += 1;
+        }
+        var tmp: ClassBuilder = .{};
+        defer tmp.ranges.deinit(p.gpa);
+        if (std.mem.eql(u8, name, "Any")) {
+            tmp.add(p.gpa, 0, 0x10FFFF);
+        } else {
+            var found = false;
+            for (unicode_tables.tables) |t| {
+                // a one-letter name is every category that starts with it
+                const hit = if (name.len == 1)
+                    t.name.len == 2 and t.name[0] == name[0]
+                else
+                    std.mem.eql(u8, t.name, name);
+                if (!hit) continue;
+                found = true;
+                for (t.ranges) |r| tmp.add(p.gpa, r[0], r[1]);
+            }
+            if (!found) return p.fail("unknown Unicode class", at);
+        }
+        if (negate) {
+            const neg = tmp.complement(p.gpa);
+            defer p.gpa.free(neg);
+            for (neg) |r| b.add(p.gpa, r[0], r[1]);
+        } else {
+            for (tmp.ranges.items) |r| b.add(p.gpa, r[0], r[1]);
         }
     }
 
@@ -593,6 +653,13 @@ const Parser = struct {
                 if (e == 'd' or e == 'D' or e == 'w' or e == 'W' or e == 's' or e == 'S') {
                     p.pos += 1;
                     b.addPerl(p.gpa, e);
+                    continue;
+                }
+                if (e == 'p' or e == 'P') {
+                    p.unicodeClass(&b, at) catch |err| {
+                        b.ranges.deinit(p.gpa);
+                        return err;
+                    };
                     continue;
                 }
                 lo = p.escapeChar(at) catch |err| {

@@ -331,6 +331,18 @@ func Gen.emit_inline(self, p, mode, pos, r, v, t){
     self:close()
     return
   }
+  if(k == "regex"){
+    local re = self:static(p.regex, concat("the regex of ", p.message))
+    self:line(concat(r, " = match_at(", re, ", buf, ", pos, ")"))
+    self:open(concat("if(", r, " >= 0){"))
+    if(value){ self:line(concat(v, " = substring(buf, ", pos, ", ", r, ")")) }
+    if(tree){ self:emit_leaf(p, pos, r, v, t) }
+    self:else_branch()
+    self:emit_fail(pos, self:static(p.message))
+    self:line(concat(r, " = -1"))
+    self:close()
+    return
+  }
   if(k == "any"){
     local n = self:temp("n")
     self:line(concat("local ", n, " = size_at(buf, ", pos, ")"))
@@ -548,13 +560,20 @@ func Gen.emit_inline(self, p, mode, pos, r, v, t){
   }
   if(k == "custom"){
     if(p.trivia){
-      // slang's trivia: one native call, no failure recorded
-      self:line(concat(r, " = match_at(SPACE, buf, ", pos, ")"))
+      // trivia: one call, no failure recorded; slang's is native, a
+      // language's own (peg.trivia with a skip function) its function
+      if(p.skip_text != null){
+        self:line(concat(r, " = ", self:static(p.skip_text, "a language's trivia"), "(buf, ", pos, ")"))
+      } else {
+        self:line(concat(r, " = match_at(SPACE, buf, ", pos, ")"))
+      }
       self:open(concat("if(", r, " == ", pos, "){"))
       self:line(concat(r, " = -1"))
       self:else_branch()
       if(value){ self:line(concat(v, " = null")) }
-      if(tree){
+      if(tree and p.skip_text != null){
+        self:emit_leaf(p, pos, r, "null", t)
+      } else if(tree){
         self:line(concat(t, " = raw_leaf(", self:parser_ref(p), ", ctx, ", pos, ", ", r, ")"))
         self:line(concat(t, ".value = null"))
       }
@@ -870,7 +889,11 @@ func Gen.emit_consume(self, trimmer, pos, out, kids){
   local target = target_of(trimmer)
   local single = trimmer.single or target.single
   if(target.trivia and kids == null){
-    self:line(concat("local ", out, " = match_at(SPACE, buf, ", pos, ")"))
+    if(target.skip_text != null){
+      self:line(concat("local ", out, " = ", self:static(target.skip_text, "a language's trivia"), "(buf, ", pos, ")"))
+    } else {
+      self:line(concat("local ", out, " = match_at(SPACE, buf, ", pos, ")"))
+    }
     return
   }
   if(kids == null){ trimmer = target }

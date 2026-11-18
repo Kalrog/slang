@@ -22,19 +22,9 @@ local grammar = {}
 
 // ------------------------------------------------------------ tokens
 
-// whitespace and comments, as slang's (the formatter keeps them because
-// the parser says it is trivia)
+// whitespace and comments, as slang's
 local space_re = peg.space
-local trivia = peg.custom(func(self, ctx, pos){
-  local q = space_re:match_at(ctx.buffer, pos)
-  if(q == pos){
-    return -1
-  }
-  ctx.value = null
-  return q
-})
-trivia.single = true
-trivia.trivia = true
+local trivia = peg.trivia()
 grammar.trivia = trivia
 
 local keywords = {
@@ -86,18 +76,10 @@ local func name(category){
 // numbers: decimal with _ between digits, hex, binary; a float has a
 // fraction or an exponent
 local number_re_text = "0[xX][0-9a-fA-F_]+|0[bB][01_]+|[0-9][0-9_]*(\\.[0-9_]*)?([eE][+-]?[0-9]+)?|\\.[0-9][0-9_]*([eE][+-]?[0-9]+)?"
-local number_re = require("slang/regex").compile(number_re_text)
-local number_chars = peg.custom(func(self, ctx, pos){
-  local q = number_re:match_at(ctx.buffer, pos)
-  if(q <= pos){
-    return peg.fail(ctx, pos, "expected an expression")
-  }
-  if(word_char:parse_on(ctx, q) >= 0){
-    return peg.fail(ctx, q, "a number runs into a name")
-  }
-  ctx.value = str.substring(ctx.buffer, pos, q)
-  return q
-})
+local number_chars = peg.seq(
+  peg.regex(number_re_text, "expected an expression"),
+  word_char:forbid("a number runs into a name"),
+):pick(0)
 
 local func number_value(text){
   local clean = str.join(str.split(text, "_"), "")

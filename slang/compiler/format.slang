@@ -1044,7 +1044,7 @@ local func has_space(s){
   return len(s) > 0
 }
 
-// the comments in a gap (the text between two tokens): {start, stop}
+// slang's comments in a gap (the text between two tokens): {start, stop}
 local func gap_comments(text){
   local out = {}
   local i = str.index_of(text, "//")
@@ -1086,10 +1086,48 @@ local func line_indent(source, pos){
 local formatter_methods = {}
 local formatter_meta = {__index: formatter_methods}
 
-local func new_formatter(source){
-  local f = {source: source, mark_cache: {}, soft_pending: false}
+// A formatter of source; with its tree it knows the gaps of languages with
+// comments of their own: where a leaf of such a language's trivia starts
+// (see peg.trivia), what finds the comments there.
+local func new_formatter(source, tree){
+  local f = {source: source, mark_cache: {}, soft_pending: false, finders: {}}
   f.@meta = formatter_meta
+  local func note(n){
+    local kids = n.kids
+    if(kids == null){
+      if(n.p.comments != null and n.stop > n.start){
+        f.finders[n.start] = n.p.comments
+      }
+      return null
+    }
+    for(local i = 0; i < len(kids); i = i + 1){
+      note(kids[i])
+    }
+  }
+  if(tree != null){
+    note(tree)
+  }
   return f
+}
+
+// the comments of source[from, to), a gap between two tokens (or before
+// the first, after the last): {start, stop, block?} counted from from.
+// slang's `//` comments, or those of the language whose trivia the gap is.
+func formatter_methods.comments(self, from, to){
+  to = to or len(self.source)
+  // (the trivia may start after a token that was dropped: a `;`)
+  local finder = null
+  for(local at = from; at <= to and finder == null; at = at + 1){
+    finder = self.finders[at]
+  }
+  if(finder == null){
+    return gap_comments(str.substring(self.source, from, to))
+  }
+  local out = {}
+  for(let local c in values(finder(self.source, from, to))){
+    append(out, {start: c.start - from, stop: c.stop - from, block: c.block})
+  }
+  return out
 }
 
 func formatter_methods.text(self, n){
@@ -1142,8 +1180,9 @@ func formatter_methods.gap(self, a, b, kind, blank){
   if(blank == null){
     blank = b.blank == true
   }
-  local comments = gap_comments(text)
-  if(len(comments) == 0){
+  local comments = self:comments(a.last.stop, b.first.start)
+  // without comments: what the kind says
+  local func plain(text){
     if(kind == null){
       if(has_space(text)){
         return " "
@@ -1172,6 +1211,37 @@ func formatter_methods.gap(self, a, b, kind, blank){
       return {HARDLINE, HARDLINE}
     }
     return HARDLINE
+  }
+  if(len(comments) == 0){
+    return plain(text)
+  }
+  // comments that end by themselves (/* ... */) stay in their line when
+  // the gap has no line break: they follow a, and then comes what the gap
+  // would be without them
+  local inline = str.index_of(text, "\n") < 0
+  for(let local c in values(comments)){
+    if(not c.block){
+      inline = false
+    }
+  }
+  if(inline){
+    local parts = {}
+    local at = 0
+    for(let local c in values(comments)){
+      // a space before a comment, except right after a token that takes
+      // nothing behind it (an opening bracket)
+      if(c.start > at or len(parts) > 0 or (kind != "none" and kind != "softline")){
+        append(parts, " ")
+      }
+      append(parts, str.substring(text, c.start, c.stop))
+      at = c.stop
+    }
+    local rest = plain(str.substring(text, at))
+    if(rest == "" and at < len(text)){
+      rest = " "
+    }
+    append(parts, rest)
+    return parts
   }
   // comments: one on the line of a stays there; the others get lines of
   // their own; a line break always follows the last one
@@ -2082,7 +2152,7 @@ func formatter_methods.build_unit(self, n){
   }
   // comments before the first statement
   local head = str.substring(source, 0, pieces[0].first.start)
-  local head_comments = gap_comments(head)
+  local head_comments = self:comments(0, pieces[0].first.start)
   for(local i = 0; i < len(head_comments); i = i + 1){
     local c = head_comments[i]
     local from = 0
@@ -2114,7 +2184,7 @@ func formatter_methods.build_unit(self, n){
   }
   // comments after the last statement
   local tail = str.substring(source, prev.last.stop)
-  local tail_comments = gap_comments(tail)
+  local tail_comments = self:comments(prev.last.stop)
   for(local i = 0; i < len(tail_comments); i = i + 1){
     local c = tail_comments[i]
     local from = 0
@@ -2189,14 +2259,12 @@ local func comments_of(f, toks_tree){
   local out = {}
   local at = 0
   for(let local l in values(leaves)){
-    for(let local c in values(
-      gap_comments(str.substring(f.source, at, l.start)),
-    )){
+    for(let local c in values(f:comments(at, l.start))){
       append(out, rstrip(str.substring(f.source, at + c.start, at + c.stop)))
     }
     at = l.stop
   }
-  for(let local c in values(gap_comments(str.substring(f.source, at)))){
+  for(let local c in values(f:comments(at))){
     append(out, rstrip(str.substring(f.source, at + c.start, at + c.stop)))
   }
   return out
@@ -2282,7 +2350,7 @@ local func format_text(text, path, options){
   if(tree == null){
     return null
   }
-  local f = new_formatter(text)
+  local f = new_formatter(text, tree)
   local out = layout(f, tree, options.width)
   // Some layouts depend on the source's: a block written on one line that
   // doesn't fit is broken, and is then a block written over several lines.
@@ -2290,7 +2358,7 @@ local func format_text(text, path, options){
   local out_tree = compiler.tree(out, path)
   local passes = 1
   for(true){
-    local again = layout(new_formatter(out), out_tree, options.width)
+    local again = layout(new_formatter(out, out_tree), out_tree, options.width)
     if(again == out){
       break
     }
@@ -2306,7 +2374,7 @@ local func format_text(text, path, options){
   if(options.check == false){
     return out
   }
-  local g = new_formatter(out)
+  local g = new_formatter(out, out_tree)
   local before = tokens(f, tree, {})
   local after = tokens(g, out_tree, {})
   if(not same_list(before, after)){

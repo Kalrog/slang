@@ -133,11 +133,20 @@ if (tests.done !== "exit 0") {
   console.log("  packages/gpu/test/gpu_test.slang ended with " + tests.done);
 }
 
+console.log("Group: WGSL blocks in a browser (gpu/wgsl, gpu/syntax)");
+const blocks = await run("packages/gpu/test/wgsl_test.slang", "test", "", 60000);
+for (const line of blocks.lines) console.log("  " + line);
+if (blocks.done !== "exit 0") {
+  failed++;
+  console.log("  packages/gpu/test/wgsl_test.slang ended with " + blocks.done);
+}
+
 console.log("Group: examples/gpu in a browser (gpu and window)");
 for (const [file, env] of [
   ["packages/gpu/examples/compute.slang", ""],
   ["examples/gpu/triangle.slang", "TRIANGLE_FRAMES=20"],
   ["examples/gpu/cube.slang", "CUBE_FRAMES=20"],
+  ["examples/gpu/waves.slang", "WAVES_FRAMES=20"],
 ]) {
   const r = await run(file, "run", env, 30000);
   const ok = r.done === "exit 0" && !r.lines.some((l) => l.startsWith("[stderr]"));

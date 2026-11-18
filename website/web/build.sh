@@ -190,6 +190,8 @@ em++ zig/zig-out-em/lib/slang.o "$CACHE/capi_varargs.o" "$CACHE/symbols.o" "$CAC
   --embed-file "packages/jolt/names.slang@/jolt/names.slang" \
   --embed-file "packages/jolt/slang.project@/jolt/slang.project" \
   --embed-file "packages/gpu/init.slang@/gpu/init.slang" \
+  --embed-file "packages/gpu/wgsl.slang@/gpu/wgsl.slang" \
+  --embed-file "packages/gpu/syntax.slang@/gpu/syntax.slang" \
   --embed-file "packages/gpu/slang.project@/gpu/slang.project" \
   --embed-file "$WEBGPU_H@/gpu/include/web/webgpu.h" \
   --embed-file "packages/window/init.slang@/window/init.slang" \

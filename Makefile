@@ -27,7 +27,7 @@
 #   make studio-demo  render the studio's demo piece to packages/studio/demo.wav and say how much of a core it takes
 #   make window-test  run the window package's tests (packages/window; ships SDL3, opens hidden windows)
 #   make gpu-test     run the gpu package's tests (packages/gpu; ships wgpu-native, no window needed)
-#   make gpu          run the gpu examples in windows (examples/gpu: triangle, cube)
+#   make gpu          run the gpu examples in windows (examples/gpu: triangle, cube, waves)
 #   make gpu-web-test run the gpu package's tests and the gpu examples in a browser (the graphics VM of make wasm-gfx, in headless Chrome; needs node)
 #   make swarm        a million GPU particles with sound (examples/swarm, on the gpu and window packages)
 #   make kernel-bench kernels against plain slang (sawtooth, FM operator chain, filter)
@@ -255,7 +255,7 @@ gpu-test: build
 	cd packages/gpu && ../../bin/slang test test && ../../bin/slang run examples/compute.slang
 
 gpu: build
-	cd examples/gpu && ../../bin/slang run triangle.slang && ../../bin/slang run cube.slang
+	cd examples/gpu && ../../bin/slang run triangle.slang && ../../bin/slang run cube.slang && ../../bin/slang run waves.slang
 
 # the gpu and window packages in a browser: the gpu package's tests and the
 # gpu examples on the graphics VM (make wasm-gfx first), in headless Chrome

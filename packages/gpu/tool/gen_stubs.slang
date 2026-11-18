@@ -132,7 +132,9 @@ for(let local raw in values(str.split(header, "\n"))){
     local name = str.substring(t, at + 1, open)
     local close = str.last_index_of(t, ")")
     local params = {}
-    for(let local p in values(str.split(str.substring(t, open + 1, close), ","))){
+    for(let local p in values(
+      str.split(str.substring(t, open + 1, close), ","),
+    )){
       local d = declarator(p)
       if(d != null){
         params[d.name] = d.type
@@ -140,12 +142,16 @@ for(let local raw in values(str.split(header, "\n"))){
     }
     local text = str.trim_suffix(t, ";")
     for(let local macro in values({
-      "WGPU_EXPORT ", " WGPU_FUNCTION_ATTRIBUTE", "WGPU_NULLABLE ",
+      "WGPU_EXPORT ",
+      " WGPU_FUNCTION_ATTRIBUTE",
+      "WGPU_NULLABLE ",
     })){
       text = str.replace(text, macro, "")
     }
     written_functions[name] = {
-      ret: str.substring(t, 0, at), params: params, text: str.trim(text),
+      ret: str.substring(t, 0, at),
+      params: params,
+      text: str.trim(text),
     }
   }
 }
@@ -298,7 +304,7 @@ local func enum_doc(t, written){
   for(let local n in values(gpu.enums[key] or {})){
     // (undefined is what leaving the field out says; a flag's none is
     // no flag)
-    if(n != "undefined" and not (e.flags and n == "none")){
+    if(n != "undefined" and not(e.flags and n == "none")){
       append(names, concat("\"", n, "\""))
     }
   }
@@ -310,12 +316,19 @@ local func enum_doc(t, written){
   if(len(names) > 12){
     shown = tbl.slice(names, 0, 8)
     more = concat(
-      ", ... (gpu.enums.", key, " lists all ", string(len(names)), ")",
+      ", ... (gpu.enums.",
+      key,
+      " lists all ",
+      string(len(names)),
+      ")",
     )
   }
   if(e.flags){
     return concat(
-      "any of ", str.join(shown, ", "), more, ", joined by | or as a list",
+      "any of ",
+      str.join(shown, ", "),
+      more,
+      ", joined by | or as a list",
     )
   }
   return concat(str.join(shown, ", "), more)
@@ -442,7 +455,9 @@ for(local i = 0; i < len(source); i = i + 1){
     local target = null
     if(len(path) == 2 and path[0] == "gpu"){
       append(module_members, {
-        name: path[1], lines: doc_block_above(i), params: f.params,
+        name: path[1],
+        lines: doc_block_above(i),
+        params: f.params,
       })
     } else if(len(path) == 2 and aliases[path[0]] != null){
       target = aliases[path[0]]
@@ -452,7 +467,9 @@ for(local i = 0; i < len(source); i = i + 1){
     if(target != null){
       local h = hand_of(target.class)
       append(h[target.kind], {
-        name: path[len(path) - 1], lines: doc_block_above(i), params: f.params,
+        name: path[len(path) - 1],
+        lines: doc_block_above(i),
+        params: f.params,
       })
       h.names[concat(target.kind, ".", path[len(path) - 1])] = true
     }
@@ -463,10 +480,25 @@ for(local i = 0; i < len(source); i = i + 1){
 
 // the ones a program meets first, then the rest by name
 local first_classes = {
-  "Instance", "Adapter", "Device", "Queue", "Buffer", "Texture",
-  "TextureView", "Sampler", "ShaderModule", "BindGroupLayout", "BindGroup",
-  "PipelineLayout", "RenderPipeline", "ComputePipeline", "CommandEncoder",
-  "RenderPassEncoder", "ComputePassEncoder", "CommandBuffer", "Surface",
+  "Instance",
+  "Adapter",
+  "Device",
+  "Queue",
+  "Buffer",
+  "Texture",
+  "TextureView",
+  "Sampler",
+  "ShaderModule",
+  "BindGroupLayout",
+  "BindGroup",
+  "PipelineLayout",
+  "RenderPipeline",
+  "ComputePipeline",
+  "CommandEncoder",
+  "RenderPassEncoder",
+  "ComputePassEncoder",
+  "CommandBuffer",
+  "Surface",
 }
 local class_names = {}
 local listed = {}
@@ -497,7 +529,13 @@ local func c_line(decl){
     append(parts, concat(p.type.c, " ", p.name))
   }
   return concat(
-    "C: `", decl.ret.c, " ", decl.name, "(", str.join(parts, ", "), ")`",
+    "C: `",
+    decl.ret.c,
+    " ",
+    decl.name,
+    "(",
+    str.join(parts, ", "),
+    ")`",
   )
 }
 
@@ -516,7 +554,9 @@ local func generic_method(key, spec){
     if(p.kind == "data"){
       ty = "any"
       append(items, concat(
-        "[", p.name, "]: a slang/buffer, a string, or a list of numbers (32-bit floats)",
+        "[",
+        p.name,
+        "]: a slang/buffer, a string, or a list of numbers (32-bit floats)",
       ))
     } else if(p.kind == "list" and not str.starts_with(ty, "{") and
       ty != "string" and ty != "any"){
@@ -535,8 +575,12 @@ local func generic_method(key, spec){
     signature = concat(signature, " -> ", ret)
   }
   return {
-    name: key, signature: signature, params: str.join(names, ", "),
-    c: c_line(decl), items: items, note: spec.missing and not_native or null,
+    name: key,
+    signature: signature,
+    params: str.join(names, ", "),
+    c: c_line(decl),
+    items: items,
+    note: spec.missing and not_native or null,
   }
 }
 
@@ -568,21 +612,25 @@ local func generic_members(class){
     }
     if(not h.names[concat("get.", prop)]){
       append(getters, {
-        name: prop, signature: concat(prop, "(self) -> ", ty or "any"),
-        c: c_line(decl), note: spec.missing and not_native or null,
+        name: prop,
+        signature: concat(prop, "(self) -> ", ty or "any"),
+        c: c_line(decl),
+        note: spec.missing and not_native or null,
       })
     }
   }
   if(made.set.label != null){
     if(not h.names["get.label"]){
       append(getters, {
-        name: "label", signature: "label(self) -> string?",
+        name: "label",
+        signature: "label(self) -> string?",
         c: "The object's name in error messages and debuggers: what it was made with or last set to.",
       })
     }
     if(not h.names["set.label"]){
       append(setters, {
-        name: "label", signature: "label(self, v: string)",
+        name: "label",
+        signature: "label(self, v: string)",
         c: c_line(made.set.label.decl),
       })
     }
@@ -623,7 +671,9 @@ line("local buffer = require(\"slang/buffer\")")
 line("")
 line("local m = {}")
 line("")
-line("// ------------------------------------------------------------ the module")
+line(
+  "// ------------------------------------------------------------ the module",
+)
 line("")
 for(let local member in values(module_members)){
   for(let local l in values(member.lines)){
@@ -673,16 +723,31 @@ for(let local name in values(class_names)){
   line("local ", base, "_set = {}")
   line("")
   comment(concat(
-    "WebGPU's ", name, " (WGPU", name, "); type() of it is \"gpu.", name,
-    "\". Its methods are webgpu.h's functions without the wgpu", name,
+    "WebGPU's ",
+    name,
+    " (WGPU",
+    name,
+    "); type() of it is \"gpu.",
+    name,
+    "\". Its methods are webgpu.h's functions without the wgpu",
+    name,
     " prefix, in snake_case (create_x is x, and so is a get_x that takes",
     " arguments); it is released when nothing refers to it.",
   ), false)
   line("// type ", name)
   line("// [handle]: the WGPU", name, " pointer, for gpu.c")
   line(
-    "local ", base, "_meta = {__type: \"gpu.", name, "\", __index: ", base,
-    "_methods, __get: ", base, "_get, __set: ", base, "_set}",
+    "local ",
+    base,
+    "_meta = {__type: \"gpu.",
+    name,
+    "\", __index: ",
+    base,
+    "_methods, __get: ",
+    base,
+    "_get, __set: ",
+    base,
+    "_set}",
   )
   line("")
   for(let local kind in values({"methods", "get", "set"})){
@@ -734,7 +799,13 @@ line("return m")
 os.mkdir_all("stubs")
 os.write_file("stubs/init.slang", concat(str.join(out, "\n"), "\n"))
 print(
-  "stubs/init.slang: ", string(len(class_names)), " classes, ",
-  string(method_count), " methods, ", string(property_count),
-  " properties, ", string(len(struct_order)), " types\n",
+  "stubs/init.slang: ",
+  string(len(class_names)),
+  " classes, ",
+  string(method_count),
+  " methods, ",
+  string(property_count),
+  " properties, ",
+  string(len(struct_order)),
+  " types\n",
 )

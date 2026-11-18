@@ -1,16 +1,12 @@
 // Doubles a list of numbers on the GPU with a WGSL compute shader and
 // reads the result back. No window needed.
 //   cd packages/gpu && ../../bin/slang run examples/compute.slang
+extension "gpu/syntax"
 local gpu = require("gpu")
 local math = require("slang/math")
 
-local device = gpu.device()
-print(
-  "adapter: ", device.adapter.info.device, " (",
-  device.adapter.info.backend_type, ")\n"
-)
-
-local shader = device:shader("""
+// the shader, as WGSL: parsed, highlighted and formatted with this file
+wgsl doubler {
   @group(0) @binding(0) var<storage, read_write> v: array<f32>;
 
   @compute @workgroup_size(64)
@@ -18,7 +14,16 @@ local shader = device:shader("""
     if (id.x < arrayLength(&v)) {
       v[id.x] = v[id.x] * 2.0;
     }
-  }""")
+  }
+}
+
+local device = gpu.device()
+print(
+  "adapter: ", device.adapter.info.device, " (",
+  device.adapter.info.backend_type, ")\n"
+)
+
+local shader = device:shader(doubler)
 local pipeline = device:compute_pipeline({shader: shader})
 
 local n = 1000

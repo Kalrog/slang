@@ -404,6 +404,7 @@ local GRAPHICS_EXAMPLES = {
   // (on the browser's WebGPU: not every browser has it yet)
   {title: "Triangle (gpu: WebGPU)", path: "examples/gpu/triangle.slang"},
   {title: "Lit cube (gpu: WebGPU)", path: "examples/gpu/cube.slang"},
+  {title: "Ripples (gpu: a wgsl block)", path: "examples/gpu/waves.slang"},
 }
 
 // every extension in extensions/ by path, as the playground's VM finds

@@ -361,7 +361,9 @@ func device_methods.sampler(self, options){}
 
 // shader(code: string | ShaderOptions) -> ShaderModule
 // A WGSL shader module; raises with the compiler's messages when the code
-// does not compile.
+// does not compile. A program of a `wgsl name { }` block (gpu/syntax) is
+// given as it is: device:shader(name); the compiler's messages then name
+// the lines and columns of the file the block is in.
 // type ShaderOptions = {code: string, label?: string}
 func device_methods.shader(self, options){}
 

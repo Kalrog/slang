@@ -219,11 +219,14 @@ for(let local line in values(str.split(header, "\n"))){
       is_upper(str.byte_at(t, at + 5))){
       local close = str.last_index_of(t, ")")
       local params = {}
-      for(let local p in values(str.split(str.substring(t, open + 1, close), ","))){
+      for(let local p in values(
+        str.split(str.substring(t, open + 1, close), ","),
+      )){
         append(params, written_kind(p) or false)
       }
       written[str.substring(t, at + 1, open)] = {
-        ret: written_kind(str.substring(t, 0, at)), params: params,
+        ret: written_kind(str.substring(t, 0, at)),
+        params: params,
       }
     }
     // #define WGPU_COLOR_TARGET_STATE_INIT _wgpu_MAKE_INIT_STRUCT(WGPUColorTargetState, { \
@@ -278,7 +281,8 @@ if(web == null){
 local func need(fname){
   if(missing[fname]){
     raise(error.new(error.kinds.unsupported, concat(
-      "gpu: wgpu-native does not implement ", fname,
+      "gpu: wgpu-native does not implement ",
+      fname,
     ), {function: fname}))
   }
 }
@@ -775,7 +779,7 @@ local func from_c(t, v){
     local flags = flag_fields[t.name] or {}
     for(let local f in values(fields_of(t))){
       if(f.name == "next_in_chain"){
-        // (not for programs)
+      // (not for programs)
       } else if(bools[f.name]){
         out[f.name] = v[f.name] != 0
       } else if(flags[f.name] != null){
@@ -863,11 +867,18 @@ for(let local fname in values(C.order)){
 // them all.
 local hidden = {
   Instance: {"create_surface", "process_events", "wait_any"},
-  Device: {"get_adapter_info", "create_command_encoder", "create_shader_module"},
+  Device: {
+    "get_adapter_info",
+    "create_command_encoder",
+    "create_shader_module",
+  },
   Queue: {"write_texture"},
   Buffer: {
-    "get_mapped_range", "get_const_mapped_range", "read_mapped_range",
-    "write_mapped_range", "get_map_state",
+    "get_mapped_range",
+    "get_const_mapped_range",
+    "read_mapped_range",
+    "write_mapped_range",
+    "get_map_state",
   },
   Surface: {"get_current_texture", "get_capabilities"},
   CommandEncoder: {"begin_render_pass", "begin_compute_pass"},
@@ -883,7 +894,8 @@ local func is_request(decl){
     return true
   }
   for(let local p in values(decl.params)){
-    if(p.type.kind == "struct" and str.ends_with(p.type.name or "", "CallbackInfo")){
+    if(p.type.kind == "struct" and
+      str.ends_with(p.type.name or "", "CallbackInfo")){
       return true
     }
   }
@@ -914,13 +926,19 @@ local func plan_of(decl){
   for(i < len(params)){
     local p = params[i]
     local next = params[i + 1]
-    local entry = {at: i, name: snake(p.name), c_name: p.name, type: p.type, kind: "value"}
-    if(next != null and p.type.kind == "prim" and str.ends_with(p.name, "Count") and
-      next.type.kind == "ptr" and
+    local entry = {
+      at: i, name: snake(p.name), c_name: p.name, type: p.type, kind: "value"
+    }
+    if(next != null and p.type.kind == "prim" and
+      str.ends_with(p.name, "Count") and next.type.kind == "ptr" and
       not str.ends_with(next.type.to.name or "", "Impl")){
       entry = {
-        at: i + 1, count_at: i, name: snake(next.name), c_name: next.name,
-        type: next.type, kind: "list",
+        at: i + 1,
+        count_at: i,
+        name: snake(next.name),
+        c_name: next.name,
+        type: next.type,
+        kind: "list",
       }
       i = i + 1
     } else if(next != null and p.type.kind == "ptr" and
@@ -930,7 +948,8 @@ local func plan_of(decl){
       entry.kind = "data"
       entry.size_at = i + 1
       i = i + 1
-    } else if(w.params[i] != null and w.params[i] != false and w.params[i] != "bool"){
+    } else if(w.params[i] != null and w.params[i] != false and
+      w.params[i] != "bool"){
       entry.kind = "flags"
       entry.flags = w.params[i]
     }
@@ -1338,7 +1357,10 @@ local func wait_for(f, device){
       process_events()
     }
     if(not f:is_done() and time.clock() - started > patience){
-      raise(error.new(error.kinds.timeout, "gpu: the GPU did not answer a request"))
+      raise(error.new(
+        error.kinds.timeout,
+        "gpu: the GPU did not answer a request",
+      ))
     }
   }
   f.handled = true
@@ -1526,7 +1548,8 @@ local func work_done(queue, open){
           answer(null)
         } else {
           answer(null, gpu_error("internal", concat(
-            "the queue's work was not done: ", view_string(msg),
+            "the queue's work was not done: ",
+            view_string(msg),
           )))
         }
       },
@@ -1574,7 +1597,8 @@ func device_m.pop_error_scope(self){
       callback: func(status, kind, msg, u1, u2){
         if(status != K.WGPUPopErrorScopeStatus_Success){
           answer(null, error.new(error.kinds.state, concat(
-            "gpu: no error scope to pop: ", view_string(msg),
+            "gpu: no error scope to pop: ",
+            view_string(msg),
           )))
         } else if(kind == K.WGPUErrorType_NoError){
           answer(null)
@@ -1641,8 +1665,11 @@ func device_m.buffer(self, options){
   b.device = self
   if(desc.mapped_at_creation == true){
     b.mapping = {
-      state: "mapped", mode: "write", offset: 0,
-      size: lib.wgpuBufferGetSize(b.handle), views: {},
+      state: "mapped",
+      mode: "write",
+      offset: 0,
+      size: lib.wgpuBufferGetSize(b.handle),
+      views: {},
     }
   }
   if(data != null){
@@ -1720,7 +1747,8 @@ func buffer_g.map_state(self){
 local func start_map(self, mode, offset, size, open){
   if(mode != "read" and mode != "write"){
     raise(error.new(error.kinds.argument, concat(
-      "gpu: a buffer is mapped to \"read\" or to \"write\", not to ", string(mode),
+      "gpu: a buffer is mapped to \"read\" or to \"write\", not to ",
+      string(mode),
     )))
   }
   if(self.mapping != null){
@@ -1729,18 +1757,25 @@ local func start_map(self, mode, offset, size, open){
       self.mapping.state == "mapped" and "mapped" or "being mapped",
     )))
   }
-  local mapping = {state: "pending", mode: mode, offset: offset, size: size, views: {}}
+  local mapping = {
+    state: "pending", mode: mode, offset: offset, size: size, views: {}
+  }
   self.mapping = mapping
   local f = open(func(answer){
     lib.wgpuBufferMapAsync(
-      self.handle, enum_value("WGPUMapMode", mode), offset, size, {
+      self.handle,
+      enum_value("WGPUMapMode", mode),
+      offset,
+      size,
+      {
         mode: spontaneous,
         callback: func(status, msg, u1, u2){
           if(status == K.WGPUMapAsyncStatus_Success){
             answer(true)
           } else if(status == K.WGPUMapAsyncStatus_Error){
             answer(null, gpu_error("validation", concat(
-              "the buffer was not mapped: ", view_string(msg),
+              "the buffer was not mapped: ",
+              view_string(msg),
             )))
           } else {
             answer(null, error.new(
@@ -1752,21 +1787,24 @@ local func start_map(self, mode, offset, size, open){
       },
     )
   })
-  return f:then(func(_){
-    if(self.mapping != mapping){
-      raise(error.new(
-        error.kinds.state,
-        "gpu: the buffer was unmapped or destroyed before it was mapped",
-      ))
-    }
-    mapping.state = "mapped"
-    return true
-  }, func(e){
-    if(self.mapping == mapping){
-      self.mapping = null
-    }
-    raise(e)
-  })
+  return f:then(
+    func(_){
+      if(self.mapping != mapping){
+        raise(error.new(
+          error.kinds.state,
+          "gpu: the buffer was unmapped or destroyed before it was mapped",
+        ))
+      }
+      mapping.state = "mapped"
+      return true
+    },
+    func(e){
+      if(self.mapping == mapping){
+        self.mapping = null
+      }
+      raise(e)
+    },
+  )
 }
 
 // map(mode?: string, options?: MapOptions) -> async.Future
@@ -1823,9 +1861,15 @@ func buffer_m.view(self, as_type, offset, size){
   size = size or (m.offset + m.size - offset)
   if(offset < m.offset or size < 0 or offset + size > m.offset + m.size){
     raise(error.new(error.kinds.argument, concat(
-      "gpu: bytes ", string(offset), " to ", string(offset + size),
-      " are not in the mapped range (", string(m.offset), " to ",
-      string(m.offset + m.size), ")",
+      "gpu: bytes ",
+      string(offset),
+      " to ",
+      string(offset + size),
+      " are not in the mapped range (",
+      string(m.offset),
+      " to ",
+      string(m.offset + m.size),
+      ")",
     )))
   }
   local key = concat(as_type, ":", string(offset), ":", string(size))
@@ -1840,7 +1884,10 @@ func buffer_m.view(self, as_type, offset, size){
     check()
     if(p == null){
       raise(error.new(error.kinds.state, concat(
-        "gpu: bytes ", string(offset), " to ", string(offset + size),
+        "gpu: bytes ",
+        string(offset),
+        " to ",
+        string(offset + size),
         " could not be handed out (the views of a mapped buffer must not overlap)",
       )))
     }
@@ -1925,7 +1972,8 @@ local func read_future(self, as_type, offset, size, open){
 // needs copy_src). Waits for the GPU; [Buffer.read_async] does not.
 func buffer_m.read(self, as_type, offset, size){
   return wait_for(
-    read_future(self, as_type, offset, size, open_request), self.device
+    read_future(self, as_type, offset, size, open_request),
+    self.device,
   )
 }
 
@@ -2070,13 +2118,57 @@ func device_m.sampler(self, options){
 
 // ---- shaders and pipelines
 
+// wgsl_source(tokens: string, at: string) -> string
+// The program of a `wgsl name { }` block (gpu/syntax) as text: its tokens
+// (their texts, a space between them) at their places (one
+// "origin:line:column" for each, a space between them), every token on
+// its line and in its column, so that what a WGSL compiler says about a
+// line and a column is true of the file the block is in.
+local func wgsl_source(tokens, at){
+  local texts = str.split(tokens, " ")
+  local places = str.split(at, " ")
+  local parts = {}
+  local line = 1
+  local column = 1
+  for(local i = 0; i < len(texts); i = i + 1){
+    local place = str.split(places[i], ":")
+    local want_line = str.parse_int(place[len(place) - 2], 10)
+    local want_column = str.parse_int(place[len(place) - 1], 10)
+    if(want_line > line){
+      append(parts, "\n" * (want_line - line))
+      line = want_line
+      column = 1
+    }
+    if(want_column > column){
+      append(parts, " " * (want_column - column))
+      column = want_column
+    } else if(i > 0 and want_column < column){
+      // (tokens of a text that was changed by hand: never run together)
+      append(parts, " ")
+      column = column + 1
+    }
+    append(parts, texts[i])
+    column = column + len(texts[i])
+  }
+  return str.join(parts, "")
+}
+
 // shader(code: string | ShaderOptions) -> ShaderModule
 // A WGSL shader module; raises with the compiler's messages when the code
-// does not compile.
+// does not compile. A program of a `wgsl name { }` block (gpu/syntax) is
+// given as it is: device:shader(name); the compiler's messages then name
+// the lines and columns of the file the block is in.
 // type ShaderOptions = {code: string, label?: string}
 func device_m.shader(self, options){
   if(type(options) == "string"){
     options = {code: options}
+  }
+  if(options.code == null and options.wgsl != null){
+    // a wgsl block: its tokens back at their places in the file
+    options = {
+      code: wgsl_source(options.wgsl, options.at),
+      label: options.label,
+    }
   }
   local keep = {}
   local wgsl = ffi.new("WGPUShaderSourceWGSL", 1, C)
@@ -2236,7 +2328,8 @@ local func render_pipeline_desc(options){
 // [layout]: "auto" (the default: from the shader) or a pipeline layout
 func device_m.render_pipeline(self, options){
   local p = descriptor_call("wgpuDeviceCreateRenderPipeline")(
-    self, render_pipeline_desc(options)
+    self,
+    render_pipeline_desc(options),
   )
   return wrap(classes.RenderPipeline, p, options)
 }
@@ -2274,7 +2367,9 @@ local func pipeline_async(device, fname, cls, describe, now){
 // would otherwise raise.
 func device_m.render_pipeline_async(self, options){
   return pipeline_async(
-    self, "wgpuDeviceCreateRenderPipelineAsync", classes.RenderPipeline,
+    self,
+    "wgpuDeviceCreateRenderPipelineAsync",
+    classes.RenderPipeline,
     func(){
       return render_pipeline_desc(options)
     },
@@ -2310,7 +2405,8 @@ local func compute_pipeline_desc(options){
 // [layout]: "auto" (the default: from the shader) or a pipeline layout
 func device_m.compute_pipeline(self, options){
   local p = descriptor_call("wgpuDeviceCreateComputePipeline")(
-    self, compute_pipeline_desc(options)
+    self,
+    compute_pipeline_desc(options),
   )
   return wrap(classes.ComputePipeline, p, options)
 }
@@ -2320,7 +2416,9 @@ func device_m.compute_pipeline(self, options){
 // future of the pipeline.
 func device_m.compute_pipeline_async(self, options){
   return pipeline_async(
-    self, "wgpuDeviceCreateComputePipelineAsync", classes.ComputePipeline,
+    self,
+    "wgpuDeviceCreateComputePipelineAsync",
+    classes.ComputePipeline,
     func(){
       return compute_pipeline_desc(options)
     },
@@ -2655,7 +2753,9 @@ if(web != null){
   }
   canvas_meta.__set = {
     pixel_size: func(self, size){
-      if(html5.emscripten_set_canvas_element_size(self.selector, size[0], size[1]) != 0){
+      if(html5.emscripten_set_canvas_element_size(
+        self.selector, size[0], size[1]
+      ) != 0){
         raise(concat("gpu: the page has no canvas ", self.selector))
       }
     },
@@ -2669,8 +2769,10 @@ if(web != null){
 //   local surface = device:surface(gpu.canvas())
 func gpu.canvas(selector){
   if(web == null){
-    raise(error.new(error.kinds.unsupported,
-      "gpu: canvas: there is a canvas only in a browser (see the window package)"))
+    raise(error.new(
+      error.kinds.unsupported,
+      "gpu: canvas: there is a canvas only in a browser (see the window package)",
+    ))
   }
   selector = selector or "#canvas"
   local c = {selector: selector, native: {kind: "canvas", selector: selector}}

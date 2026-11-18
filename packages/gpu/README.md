@@ -40,6 +40,46 @@ for(win.open){
 mouse controls (`make gpu`). `examples/compute.slang` in this package runs
 a compute shader without a window.
 
+## WGSL in slang files
+
+With the extension `gpu/syntax`, a shader is written in the slang file
+that uses it, as WGSL and nothing but WGSL:
+
+```slang
+extension "gpu/syntax"
+local gpu = require("gpu")
+
+wgsl doubler {
+  @group(0) @binding(0) var<storage, read_write> v: array<f32>;
+
+  @compute @workgroup_size(64)
+  fn main(@builtin(global_invocation_id) id: vec3u) {
+    v[id.x] = v[id.x] * 2.0;
+  }
+}
+
+local device = gpu.device()
+local pipeline = device:compute_pipeline({shader: device:shader(doubler)})
+```
+
+- The block is parsed with the file, by a grammar of WGSL written with
+  `slang/peg` (`gpu/wgsl`): a mistake in its syntax is a compile error at
+  its line.
+- Editors highlight it and `slang fmt` formats it, like the slang code
+  around it.
+- After the block its name is a local: the program, for `device:shader`.
+- What WGSL's own compiler finds later (a type that does not fit, a name
+  it does not know) it reports with the line and the column of the slang
+  file.
+
+The grammar takes the language as the specification gives it, with
+wgpu's 64-bit number suffixes besides. It does not check what WGSL's
+compiler checks: types, names, and where WGSL asks for parentheses between
+operators. `require("gpu/wgsl").parse(text)` gives the declarations of a
+WGSL text (structs with their members, variables with their bindings,
+functions with their parameters), which is what a later version will
+build struct values and bindings by name from.
+
 ## Using it
 
 Add the package to the project's `slang.project`:
@@ -247,6 +287,8 @@ when the GPU has not answered for ten seconds.
 
 ## Not yet
 
+- `.wgsl` files as modules, and structs and bindings of a `wgsl` block as
+  slang values.
 - Errors are raised at the next call on any device: with several devices,
   an error can surface at a call on another one.
 - `gpu.device()` and `gpu.adapter()` have no future form.

@@ -65,7 +65,9 @@ t.group("gpu: buffers"){
 t.group("gpu: mapped buffers"){
   t.test("a buffer mapped at creation is filled through its view"){
     local b = device:buffer({
-      size: 16, usage: "vertex|copy_src", mapped_at_creation: true,
+      size: 16,
+      usage: "vertex|copy_src",
+      mapped_at_creation: true,
     })
     assert(b.map_state == "mapped")
     local view = b:view("float")
@@ -230,18 +232,24 @@ t.group("gpu: the header's functions as methods"){
       fragment: {targets: {{format: "rgba8_unorm"}}},
     })
     local target = device:texture({
-      size: {4, 4}, format: "rgba8_unorm", usage: "render_attachment",
+      size: {4, 4},
+      format: "rgba8_unorm",
+      usage: "render_attachment",
     })
     assert(target.usage == "render_attachment", target.usage)
-    local bundler = device:render_bundle_encoder({color_formats: {"rgba8_unorm"}})
+    local bundler = device:render_bundle_encoder({
+      color_formats: {"rgba8_unorm"},
+    })
     bundler:set_pipeline(pipeline)
     bundler:draw(3, 1, 0, 0)
     local bundle = bundler:finish()
     assert(type(bundle) == "gpu.RenderBundle")
     local encoder = device:encoder()
-    local pass = encoder:render_pass({color_attachments: {
-      {view: target:view(), clear_value: {0, 0, 0, 1}},
-    }})
+    local pass = encoder:render_pass({
+      color_attachments: {
+        {view: target:view(), clear_value: {0, 0, 0, 1}},
+      },
+    })
     pass:execute_bundles({bundle})
     pass:finish()
     device.queue:submit(encoder:finish())
@@ -254,7 +262,9 @@ t.group("gpu: the header's functions as methods"){
       @group(0) @binding(0) var<storage, read_write> v: array<f32>;
       @compute @workgroup_size(1) fn main() { v[0] = 1.0; }""")
     local made = async.main(func(){
-      local pipeline = async.await(device:compute_pipeline_async({shader: shader}))
+      local pipeline = async.await(device:compute_pipeline_async({
+        shader: shader,
+      }))
       local messages = null
       if(in_browser){
         messages = async.await(shader:compilation_info())
@@ -273,7 +283,11 @@ t.group("gpu: the header's functions as methods"){
   t.test("what a C program would call is not a method"){
     local b = device:buffer({size: 16, usage: "uniform"})
     for(let local name in values({
-      "release", "add_ref", "map_async", "get_mapped_range", "set_label",
+      "release",
+      "add_ref",
+      "map_async",
+      "get_mapped_range",
+      "set_label",
     })){
       assert(b[name] == null, name)
     }
@@ -282,7 +296,9 @@ t.group("gpu: the header's functions as methods"){
   t.test("what wgpu-native does not implement raises"){
     if(not in_browser){
       local tex = device:texture({
-        size: {4, 4}, format: "rgba8_unorm", usage: "texture_binding",
+        size: {4, 4},
+        format: "rgba8_unorm",
+        usage: "texture_binding",
       })
       local e = t.raises(func(){ return tex.texture_binding_view_dimension })
       assert(e.kind == error.kinds.unsupported, e.kind)
@@ -306,7 +322,9 @@ t.group("gpu: errors"){
       })
     }, "gpu: no_such_format is not a texture_format")
   }
-  t.test("a validation error raises: at the call, in a browser by the next wait"){
+  t.test(
+    "a validation error raises: at the call, in a browser by the next wait",
+  ){
     local e = t.raises(func(){
       device:buffer({size: 4, usage: "map_read|storage"})
       device:poll(true)
@@ -314,7 +332,11 @@ t.group("gpu: errors"){
     assert(require("slang/string").contains(e.message, "gpu:"), e.message)
     assert(e.kind == "validation", e.kind)
     // and what comes after it works
-    assert(device:buffer({contents: {1, 2}, usage: "storage|copy_src"}):read("float")[1] == 2.0)
+    assert(
+      device
+        :buffer({contents: {1, 2}, usage: "storage|copy_src"})
+        :read("float")[1] == 2.0,
+    )
   }
   t.test("an error scope catches an error as a future's value"){
     device:push_error_scope("validation")

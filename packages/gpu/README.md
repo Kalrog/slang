@@ -86,7 +86,10 @@ wgpu-native's. The API is the same, and programs run unchanged
   frame, handles input, and the program goes on at the next animation
   frame. What waits for the GPU (`gpu.device()`, `buffer:read()`,
   `device:poll(true)`) hands the page control the same way. So these are
-  called from the program itself, not from a coroutine it made.
+  called from the program itself, not from a coroutine it made. The calls
+  that return a future (`buffer:map()`, `buffer:read_async()`) have no
+  such limit: `slang/async` runs on the page's frames there, so they are
+  awaited as anywhere else.
 - **Validation errors come later.** The browser checks a call after it
   returned, so the error raises at a later call. `device:poll(true)` waits
   for the browser and raises what went wrong before it.
@@ -102,11 +105,16 @@ The package reads `webgpu.h` when it loads, and the API follows from it:
 
 - **Objects are slang values with methods.** A method is the C function
   without its type's prefix, in snake_case: `pass:set_pipeline(p)` is
-  `wgpuRenderPassEncoderSetPipeline`, and `pipeline:get_bind_group_layout(0)`
-  is `wgpuRenderPipelineGetBindGroupLayout`.
+  `wgpuRenderPassEncoderSetPipeline`. `create_` and `get_` are left off:
+  `device:query_set(options)` is `wgpuDeviceCreateQuerySet`, and
+  `pipeline:bind_group_layout(0)` is `wgpuRenderPipelineGetBindGroupLayout`.
 - **Getters without arguments are properties:** `buffer.size`,
   `buffer.usage`, `texture.width`, `texture.format`,
-  `device.adapter.info`, `device.limits`.
+  `device.adapter.info`, `device.limits`. Enums come back as names and
+  flags as names joined by `|` (`"copy_dst|uniform"`), as a descriptor
+  takes them. `label` is a property of every object, which remembers it.
+- **A count and its pointer are one list** in a method's arguments as in a
+  descriptor: `pass:execute_bundles({bundle})`.
 - **Descriptors are option tables** with `webgpu.h`'s fields in snake_case.
   Fields you leave out take WebGPU's defaults (read from the header's
   `INIT` macros).
@@ -120,7 +128,16 @@ The package reads `webgpu.h` when it loads, and the API follows from it:
 - **Objects are released** once nothing refers to them.
 - **Validation errors raise** at the call that caused them, with
   wgpu's message, as `"gpu: ..."`. WGSL compile errors include the
-  compiler's diagnostics.
+  compiler's diagnostics. The error's `kind` is `"validation"`,
+  `"out_of_memory"`, `"internal"` or `"device_lost"`.
+- **What the GPU answers later is a future** of `slang/async`:
+  `await buffer:map("read")`, `await device.queue:work_done()`. Where a
+  method that waits has a twin that does not, the twin ends in `_async`
+  (`buffer:read()` and `buffer:read_async()`, as WebGPU names
+  `createRenderPipelineAsync`). See "Waiting for the GPU" below.
+- **What wgpu-native does not implement raises** an error of kind
+  `unsupported` instead of ending the process (`include/unimplemented.txt`
+  lists those functions; a browser's WebGPU has them all).
 
 On top of that, the package adds:
 
@@ -134,7 +151,14 @@ On top of that, the package adds:
   floats, or of `type`). Write with `buffer:write(data, offset)`. Read with
   `buffer:read(type, offset, size)`, which waits for the GPU and returns a
   slang/buffer; a buffer without `map_read` usage is copied through a
-  staging buffer.
+  staging buffer. `buffer:read_async(...)` is the same as a future.
+- **Mapped buffers.** `buffer:map(mode, {offset, size, type})` is a future
+  of a view: a slang/buffer over the GPU's memory, without a copy.
+  `buffer:view(type, offset, size)` is that view for a buffer that is
+  mapped already (one made with `mapped_at_creation: true`, say).
+  `buffer:unmap()` hands the buffer back to the GPU and empties the views,
+  so a view used afterwards raises instead of reading freed memory.
+  `buffer.map_state` is `"unmapped"`, `"pending"` or `"mapped"`.
 - **Textures.** `device:texture({size, format, usage})`, then
   `texture:view()` and `texture:write(data, options)`. `bytes_per_row` is
   worked out for the usual formats.
@@ -145,6 +169,9 @@ On top of that, the package adds:
     `"alpha"`, `"premultiplied"` or `"additive"`, and `layout` is auto when
     left out.
   - `device:compute_pipeline({shader})`.
+  - `device:render_pipeline_async(options)` and
+    `device:compute_pipeline_async(options)` are futures of the pipeline,
+    for shaders that take long to compile.
 - **Bind groups.** `device:bind_group({layout, entries})`, where each
   entry's `resource` is a Buffer, `{buffer, offset, size}`, a TextureView,
   a Texture or a Sampler.
@@ -164,14 +191,64 @@ On top of that, the package adds:
   (vsync) by default.
 
 `gpu.c` holds every `webgpu.h` and `wgpu.h` function and constant under its
-C name. Each object's C pointer is its `handle`.
+C name, including the ones that are not methods because the package has
+its own form for them (`wgpuBufferMapAsync`, `wgpuBufferGetMappedRange`,
+`AddRef` and `Release`). Each object's C pointer is its `handle`.
+
+## Waiting for the GPU
+
+A buffer is mapped, work is done and a scope's error is known some time
+after the call that asked. Those calls return a `slang/async` future:
+
+| call | the future's value |
+|---|---|
+| `buffer:map(mode, options)` | a view of the mapped bytes |
+| `buffer:read_async(type, offset, size)` | a copy of the contents |
+| `device.queue:work_done()` | null, once the submitted work is done |
+| `device:pop_error_scope()` | the scope's error, or null |
+| `device:render_pipeline_async(options)`, `device:compute_pipeline_async(options)` | the pipeline |
+| `shader:compilation_info()` | the compiler's messages (a browser only) |
+| `device.lost` | `{reason, message}`, if the device is ever lost |
+
+Under `async.main` they are awaited, and nothing else is needed: while a
+request is open, the package asks the GPU for its answers from the loop.
+
+```slang
+extension "extensions/async"
+local aio = require("slang/async")
+local gpu = require("gpu")
+
+aio.main(func(){
+  local device = gpu.device()
+  local staging = device:buffer({size: 16, usage: "map_write|copy_src"})
+  local floats = await staging:map("write", {type: "float"})
+  floats:set({1, 2, 3, 4})
+  staging:unmap()
+  print((await staging:read_async("float")):to_list(), "\n")
+})
+```
+
+A program that draws frames has a loop of its own. There
+`surface:present()` and `device:poll()` ask for the answers, and a future's
+`then` runs when its answer has come:
+
+```slang
+energy:read_async("uint32_t"):then(func(sums){
+  level = sums[0]
+})
+```
+
+For `await` in such a program, start the function with `async.run` and
+call `async.poll()` once a frame.
+
+`gpu.device()`, `gpu.adapter()`, `buffer:read()` and `device:poll(true)`
+wait where they are called. They give up with an error of kind `timeout`
+when the GPU has not answered for ten seconds.
 
 ## Not yet
 
-- Callback-based functions other than device and adapter requests and
-  buffer mapping (`queue:on_submitted_work_done`, compilation info,
-  error scopes). Use `gpu.c` for those.
-- The browser: the plan is to compile the same `webgpu.h` calls with
-  Emscripten against the browser's WebGPU.
+- Errors are raised at the next call on any device: with several devices,
+  an error can surface at a call on another one.
+- `gpu.device()` and `gpu.adapter()` have no future form.
 - Linux and Windows builds have not been run yet. The surface code knows
   their window handles.

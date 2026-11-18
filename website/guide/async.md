@@ -15,8 +15,9 @@ it, and the web stack is written in slang on top of that:
 | `slang/crypto`, `slang/jwt` | password hashes, random tokens, signed and sealed values, JWTs |
 | `slang/html`, `slang/json` | HTML as values, and JSON |
 
-These modules need the operating system, so they do not run in the
-playground.
+The modules that do I/O need the operating system, so they do not run in
+a browser. `slang/async` itself does: futures, `await`, `sleep` and
+`timeout` run there on the page's frames (see "Other loops" below).
 
 ## Futures and await
 
@@ -158,6 +159,40 @@ aio.main(func(){
   print(res.status, " ", res.body, "\n")      // 200 hello from /there
   server:close()
 })
+```
+
+## Other loops
+
+Futures and `await` need something that runs deferred functions and
+timers and waits for events: a loop. That is libuv's by default. Three
+functions fit `slang/async` to other situations:
+
+- **A program that draws frames** has a loop of its own, and no
+  `async.main`. It calls `async.poll()` once a frame, which handles what
+  is ready without waiting, so async functions started with `async.run`
+  go on between frames.
+- **A library with an event queue of its own** (a GPU's, a window
+  system's) joins the loop with `async.pump(step)`: the loop calls
+  `step()` about every millisecond while it returns true. The `gpu`
+  package completes its futures (`buffer:map()`) that way.
+- **Where there is no libuv**, `async.set_loop(loop)` installs another
+  loop. In a browser that happens by itself: slang's graphics VM uses
+  `async.frame_loop`, which hands the page control when there is nothing
+  to do and goes on with the next animation frame.
+
+```slang
+local async = require("slang/async")
+
+local answer = null
+async.run(func(){
+  async.await(async.sleep(20))
+  answer = 42
+})
+for(answer == null){
+  // (a frame would be drawn here)
+  async.poll()
+}
+print(answer, "\n")                       // 42
 ```
 
 `slang/net` is messaging over UDP for games (`examples/inkblast`), and

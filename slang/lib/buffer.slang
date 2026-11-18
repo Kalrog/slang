@@ -31,7 +31,7 @@
 //   fill: func(v: any): Buffer, set: func(src: {any} | Buffer, at?: int): Buffer,
 //   cast: func(t: ffi.Type): Buffer, to_list: func(): {any},
 //   to_string: func(): string, same: func(other: any): bool,
-//   pointer: func(): ffi.Pointer,
+//   pointer: func(): ffi.Pointer, detach: func(),
 //   lock: func(f?: func(): any): any, unlock: func()}
 // [size]: the size in bytes (len(b) is the number of elements)
 // [type]: the element type
@@ -48,6 +48,9 @@
 // [to_string]: the bytes as a string
 // [same]: whether other is a buffer of the same address, length and type
 // [pointer]: a pointer to the first element, keeping the memory alive
+// [detach]: lets go of the memory: the length is 0 from now on, so
+//   indexing raises. For a [wrap]ped view of memory C is about to take
+//   back; slices, casts and element pointers made before are not reached
 // [lock]: on a shared buffer, holds its mutex while f() runs and returns
 //   f's result (released when f raises too); without f, until [unlock]
 // [unlock]: releases the mutex lock() took

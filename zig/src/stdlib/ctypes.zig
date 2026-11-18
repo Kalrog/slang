@@ -217,6 +217,7 @@ pub fn module(vm: *VM) *Table {
         .{ .name = "to_string", .f = bufToString },
         .{ .name = "same", .f = bufSame },
         .{ .name = "pointer", .f = bufPointer },
+        .{ .name = "detach", .f = bufDetach },
         .{ .name = "lock", .f = bufLock },
         .{ .name = "unlock", .f = bufUnlock },
     });
@@ -938,6 +939,16 @@ fn bufPointer(th: *Thread, args: []Value) Error!Value {
     const u = try argBuffer(th, args, 0, "buffer");
     const p = u.as(Ptr);
     return newPointer(th.vm, p.addr, p.ty, ownerOf(u));
+}
+
+/// b:detach(): the buffer lets go of its memory: its length is 0 from now
+/// on, so indexing it raises. For a view of memory C is about to take back
+/// (slang/buffer's wrap). Slices, casts and element pointers made before
+/// are not reached.
+fn bufDetach(th: *Thread, args: []Value) Error!Value {
+    const u = try argBuffer(th, args, 0, "buffer");
+    u.as(Ptr).count = 0;
+    return .null;
 }
 
 // ------------------------------------------------------------ shared buffers

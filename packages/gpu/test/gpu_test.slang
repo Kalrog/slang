@@ -3,6 +3,7 @@
 // `slang test test` in packages/gpu). The same tests pass in a browser, on
 // slang's graphics VM (`make gpu-web-test`).
 local t = require("slang/test")
+local async = require("slang/async")
 local gpu = require("gpu")
 
 local device = gpu.device()
@@ -51,9 +52,73 @@ t.group("gpu: buffers"){
     local a = device:buffer({size: 64, usage: "uniform|copy_dst"})
     local b = device:buffer({size: 64, usage: {"uniform", "copy_dst"}})
     assert(a.usage == b.usage)
-    assert(
-      a.usage == gpu.c.WGPUBufferUsage_Uniform | gpu.c.WGPUBufferUsage_CopyDst,
-    )
+    assert(a.usage == "copy_dst|uniform", a.usage)
+  }
+  t.test("a label is a property the object remembers"){
+    local b = device:buffer({size: 16, usage: "uniform", label: "named"})
+    assert(b.label == "named")
+    b.label = "renamed"
+    assert(b.label == "renamed")
+  }
+}
+
+t.group("gpu: mapped buffers"){
+  t.test("a buffer mapped at creation is filled through its view"){
+    local b = device:buffer({
+      size: 16, usage: "vertex|copy_src", mapped_at_creation: true,
+    })
+    assert(b.map_state == "mapped")
+    local view = b:view("float")
+    assert(len(view) == 4 and b:view("float") == view)
+    view:set({1, 2, 3, 4})
+    b:unmap()
+    // the view lets go of the GPU's memory
+    assert(b.map_state == "unmapped" and len(view) == 0)
+    t.raises(func(){ return view[0] })
+    assert(b:read("float"):to_list() == {1.0, 2.0, 3.0, 4.0})
+  }
+  t.test("map is a future of a view: written, unmapped, mapped to read"){
+    local b = device:buffer({size: 16, usage: "map_write|copy_src"})
+    local out = device:buffer({size: 16, usage: "map_read|copy_dst"})
+    local got = async.main(func(){
+      local view = async.await(b:map("write", {type: "uint32_t"}))
+      assert(b.map_state == "mapped")
+      view:set({7, 8, 9, 10})
+      b:unmap()
+      local encoder = device:encoder()
+      encoder:copy_buffer_to_buffer(b, 0, out, 0, 16)
+      device.queue:submit(encoder:finish())
+      async.await(device.queue:work_done())
+      local back = async.await(out:map("read", {type: "uint32_t", offset: 8}))
+      local list = back:to_list()
+      out:unmap()
+      return list
+    })
+    assert(got == {9, 10}, got)
+  }
+  t.test("what is not mapped has no view; a second map fails its future"){
+    local b = device:buffer({size: 16, usage: "map_read|copy_dst"})
+    local e = t.raises(func(){ b:view() }, "gpu: the buffer is not mapped")
+    assert(e.kind == error.kinds.state)
+    local first = b:map()
+    assert(b.map_state == "pending")
+    local second = b:map()
+    assert(second:is_done() and second.error.kind == error.kinds.state)
+    second:catch(func(e){ })
+    // a program with a loop of its own polls
+    for(not first:is_done()){
+      device:poll(true)
+    }
+    assert(b.map_state == "mapped" and len(first.value) == 16)
+    b:unmap()
+    b:unmap()
+  }
+  t.test("read_async is read as a future"){
+    local data = device:buffer({contents: {5, 6}, usage: "storage|copy_src"})
+    local got = async.main(func(){
+      return async.await(data:read_async("float")):to_list()
+    })
+    assert(got == {5.0, 6.0}, got)
   }
 }
 
@@ -74,7 +139,7 @@ t.group("gpu: compute"){
     local pass = encoder:compute_pass()
     pass:set_pipeline(pipeline)
     pass:set_bind_group(0, device:bind_group({
-      layout: pipeline:get_bind_group_layout(0),
+      layout: pipeline:bind_group_layout(0),
       entries: {{binding: 0, resource: data}},
     }))
     pass:dispatch_workgroups(1)
@@ -113,7 +178,7 @@ t.group("gpu: rendering"){
     })
     pass:set_pipeline(pipeline)
     pass:set_bind_group(0, device:bind_group({
-      layout: pipeline:get_bind_group_layout(0),
+      layout: pipeline:bind_group_layout(0),
       entries: {{binding: 0, resource: uniforms}},
     }))
     pass:draw(3)
@@ -153,6 +218,78 @@ t.group("gpu: rendering"){
   }
 }
 
+t.group("gpu: the header's functions as methods"){
+  t.test("a count and its pointer are one list; results are slang values"){
+    local shader = device:shader("""
+      @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+        return vec4f(0.0, 0.0, 0.0, 1.0);
+      }
+      @fragment fn fs() -> @location(0) vec4f { return vec4f(1.0); }""")
+    local pipeline = device:render_pipeline({
+      shader: shader,
+      fragment: {targets: {{format: "rgba8_unorm"}}},
+    })
+    local target = device:texture({
+      size: {4, 4}, format: "rgba8_unorm", usage: "render_attachment",
+    })
+    assert(target.usage == "render_attachment", target.usage)
+    local bundler = device:render_bundle_encoder({color_formats: {"rgba8_unorm"}})
+    bundler:set_pipeline(pipeline)
+    bundler:draw(3, 1, 0, 0)
+    local bundle = bundler:finish()
+    assert(type(bundle) == "gpu.RenderBundle")
+    local encoder = device:encoder()
+    local pass = encoder:render_pass({color_attachments: {
+      {view: target:view(), clear_value: {0, 0, 0, 1}},
+    }})
+    pass:execute_bundles({bundle})
+    pass:finish()
+    device.queue:submit(encoder:finish())
+    device:poll(true)
+    assert(type(device:has_feature("timestamp_query")) == "bool")
+    assert(type(device.adapter.features) == "table")
+  }
+  t.test("a pipeline as a future; the compiler's messages in a browser"){
+    local shader = device:shader("""
+      @group(0) @binding(0) var<storage, read_write> v: array<f32>;
+      @compute @workgroup_size(1) fn main() { v[0] = 1.0; }""")
+    local made = async.main(func(){
+      local pipeline = async.await(device:compute_pipeline_async({shader: shader}))
+      local messages = null
+      if(in_browser){
+        messages = async.await(shader:compilation_info())
+      }
+      return {pipeline: pipeline, messages: messages}
+    })
+    assert(type(made.pipeline) == "gpu.ComputePipeline")
+    assert(type(made.pipeline:bind_group_layout(0)) == "gpu.BindGroupLayout")
+    if(in_browser){
+      assert(raw_type(made.messages) == "table" and len(made.messages) == 0)
+    } else {
+      local e = t.raises(func(){ shader:compilation_info() })
+      assert(e.kind == error.kinds.unsupported)
+    }
+  }
+  t.test("what a C program would call is not a method"){
+    local b = device:buffer({size: 16, usage: "uniform"})
+    for(let local name in values({
+      "release", "add_ref", "map_async", "get_mapped_range", "set_label",
+    })){
+      assert(b[name] == null, name)
+    }
+    assert(device.create_buffer == null and device.encoder != null)
+  }
+  t.test("what wgpu-native does not implement raises"){
+    if(not in_browser){
+      local tex = device:texture({
+        size: {4, 4}, format: "rgba8_unorm", usage: "texture_binding",
+      })
+      local e = t.raises(func(){ return tex.texture_binding_view_dimension })
+      assert(e.kind == error.kinds.unsupported, e.kind)
+    }
+  }
+}
+
 t.group("gpu: errors"){
   t.test("WGSL that does not compile raises with the compiler's message"){
     local e = t.raises(func(){
@@ -175,7 +312,21 @@ t.group("gpu: errors"){
       device:poll(true)
     })
     assert(require("slang/string").contains(e.message, "gpu:"), e.message)
+    assert(e.kind == "validation", e.kind)
     // and what comes after it works
     assert(device:buffer({contents: {1, 2}, usage: "storage|copy_src"}):read("float")[1] == 2.0)
+  }
+  t.test("an error scope catches an error as a future's value"){
+    device:push_error_scope("validation")
+    device:buffer({size: 4, usage: "map_read|storage"})
+    local e = async.main(func(){
+      return async.await(device:pop_error_scope())
+    })
+    assert(e.kind == "validation", e)
+    device:push_error_scope("validation")
+    device:buffer({size: 16, usage: "uniform"})
+    assert(async.main(func(){
+      return async.await(device:pop_error_scope())
+    }) == null)
   }
 }

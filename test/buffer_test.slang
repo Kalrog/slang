@@ -99,4 +99,11 @@ t.group("buffers"){
     local bytes = buffer.wrap(b:pointer(), 16, "uint8")
     assert(bytes[8] == 5)
   }
+  t.test("a detached view has no elements"){
+    local mem = ffi.new("int", 4, C)
+    local b = buffer.wrap(mem, 4)
+    b:detach()
+    assert(len(b) == 0 and b.size == 0)
+    t.raises(func(){ return b[0] })
+  }
 }

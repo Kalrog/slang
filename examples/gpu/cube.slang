@@ -106,7 +106,7 @@ local uniforms = device:buffer({
   usage: "uniform|copy_dst",
 })
 local bind_group = device:bind_group({
-  layout: pipeline:get_bind_group_layout(0),
+  layout: pipeline:bind_group_layout(0),
   entries: {{binding: 0, resource: uniforms}},
 })
 

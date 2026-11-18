@@ -64,7 +64,7 @@ local tonemap_pipeline = device:render_pipeline({
 
 local func simulation_group(pipeline){
   return device:bind_group({
-    layout: pipeline:get_bind_group_layout(0),
+    layout: pipeline:bind_group_layout(0),
     entries: {
       {binding: 0, resource: particles},
       {binding: 1, resource: uniforms},
@@ -75,7 +75,7 @@ local func simulation_group(pipeline){
 local seed_group = simulation_group(seed_pipeline)
 local step_group = simulation_group(step_pipeline)
 local draw_group = device:bind_group({
-  layout: draw_pipeline:get_bind_group_layout(0),
+  layout: draw_pipeline:bind_group_layout(0),
   entries: {
     {binding: 0, resource: particles},
     {binding: 1, resource: uniforms},
@@ -96,7 +96,7 @@ local func hdr_for(w, h){
     })
     hdr_view = hdr:view()
     tonemap_group = device:bind_group({
-      layout: tonemap_pipeline:get_bind_group_layout(0),
+      layout: tonemap_pipeline:bind_group_layout(0),
       entries: {
         {binding: 0, resource: hdr_view},
         {binding: 1, resource: uniforms},
@@ -260,11 +260,14 @@ for(win.open){
 
     // every 8th frame: the mean squared speed of the sampled particles,
     // added up by the GPU over those 8 frames
+    // (read without waiting for the GPU: the answer comes with a later
+    // frame's present, and the sum starts again at once)
     if(frames % 8 == 7){
-      local sum = energy:read("uint32_t")[0]
+      energy:read_async("uint32_t"):then(func(sums){
+        local mean = sums[0] / 1000.0 / (count / 64.0) / 8
+        audio.params[sound.ENERGY] = math.sqrt(mean)
+      })
       energy:write(zero)
-      local mean = sum / 1000.0 / (count / 64.0) / 8
-      audio.params[sound.ENERGY] = math.sqrt(mean)
     }
     audio.params[sound.FORCE] = force
     audio.params[sound.PAN] = mouse[0] / u[2]

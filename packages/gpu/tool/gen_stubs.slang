@@ -2,11 +2,11 @@
 // language server and `slang doc`, which cannot see the objects' methods
 // and properties: the package makes them at run time from webgpu.h. The
 // functions and methods written by hand in init.slang bring their doc
-// comments (and the types those declare); the rest come from the header:
-// a method for every function of a class, a property for a get_ function
-// without arguments and for a set_ function of one value, and a type for
-// every struct they take or return, with the fields as option tables have
-// them.
+// comments (and the types those declare); the rest come from the header,
+// as init.slang's define_class made them (gpu.classes[name].members): a
+// method for a function of a class, a property for a get_ function
+// without arguments, the property label, and a type for every struct they
+// take or return, with the fields as option tables have them.
 // Run in packages/gpu after wgpu-native or the package changes:
 //     slang run tool/gen_stubs.slang
 local str = require("slang/string")
@@ -223,8 +223,8 @@ local func slang_type(t, written, given){
     return "bool"
   }
   if(written_flags(written)){
-    // (what WebGPU hands back stays a number)
-    return given and "string | {string} | int" or "int"
+    // (what WebGPU hands back is the names joined by |)
+    return given and "string | {string} | int" or "string"
   }
   local kind = t.kind
   if(kind == "prim"){
@@ -501,95 +501,95 @@ local func c_line(decl){
   )
 }
 
-// a generic method: {name, signature, params, c}
-local func generic_method(key, decl){
+local not_native = "Not in wgpu-native: there it raises an error of kind unsupported."
+
+// a generic method: {name, signature, params, c, items}; its arguments
+// are what init.slang's plan_of made of the function's parameters
+local func generic_method(key, spec){
+  local decl = spec.decl
   local w = written_functions[decl.name] or {params: {}}
   local names = {"self"}
   local typed = {}
-  for(local i = 1; i < len(decl.params); i = i + 1){
-    local p = decl.params[i]
-    local name = snake(p.name)
-    append(names, name)
-    append(typed, concat(
-      name, ": ", slang_type(p.type, w.params[p.name], true) or "any",
-    ))
+  local items = {}
+  for(let local p in values(spec.plan)){
+    local ty = slang_type(p.type, w.params[p.c_name], true) or "any"
+    if(p.kind == "data"){
+      ty = "any"
+      append(items, concat(
+        "[", p.name, "]: a slang/buffer, a string, or a list of numbers (32-bit floats)",
+      ))
+    } else if(p.kind == "list" and not str.starts_with(ty, "{") and
+      ty != "string" and ty != "any"){
+      ty = concat("{", ty, "}")
+    }
+    append(names, p.name)
+    append(typed, concat(p.name, ": ", ty))
+    local text = enum_doc(p.type, w.params[p.c_name])
+    if(text != null){
+      append(items, concat("[", p.name, "]: ", text))
+    }
   }
   local ret = slang_type(decl.ret, w.ret, false)
   local signature = concat(key, "(", str.join(typed, ", "), ")")
   if(ret != null){
     signature = concat(signature, " -> ", ret)
   }
-  local items = {}
-  for(local i = 1; i < len(decl.params); i = i + 1){
-    local p = decl.params[i]
-    local text = enum_doc(p.type, w.params[p.name])
-    if(text != null){
-      append(items, concat("[", snake(p.name), "]: ", text))
-    }
-  }
   return {
     name: key, signature: signature, params: str.join(names, ", "),
-    c: c_line(decl), items: items,
+    c: c_line(decl), items: items, note: spec.missing and not_native or null,
   }
 }
 
-// what init.slang's define_class makes of a class's declarations
-local func generic_members(class){
-  local decls = classes[class].decls
-  local h = hand_of(class)
-  local keys_sorted = {}
-  for(let local k in keys(decls)){
-    append(keys_sorted, k)
+local func sorted_keys(t){
+  local list = {}
+  for(let local k in keys(t)){
+    append(list, k)
   }
-  keys_sorted = tbl.sort(keys_sorted)
+  return tbl.sort(list)
+}
+
+// what init.slang's define_class made of a class's declarations, without
+// what init.slang writes by hand
+local func generic_members(class){
+  local made = classes[class].members
+  local h = hand_of(class)
   local methods = {}
   local getters = {}
   local setters = {}
-  for(let local key in values(keys_sorted)){
-    local decl = decls[key]
-    local params = decl.params
+  for(let local prop in values(sorted_keys(made.get))){
+    local spec = made.get[prop]
+    local decl = spec.decl
     local w = written_functions[decl.name] or {params: {}}
-    local property = false
-    if(str.starts_with(key, "get_")){
-      local prop = str.substring(key, 4)
-      local ty = null
-      if(len(params) == 1){
-        ty = slang_type(decl.ret, w.ret, false)
-      } else if(len(params) == 2 and params[1].type.kind == "ptr" and
-        params[1].type.to.kind == "struct" and
-        params[1].type.to.fields != null and not params[1].type.const_to){
-        ty = use_struct(params[1].type.to, false)
-      }
-      if(ty != null){
-        property = true
-        if(not h.names[concat("get.", prop)]){
-          append(getters, {
-            name: prop, signature: concat(prop, "(self) -> ", ty),
-            c: c_line(decl),
-          })
-        }
-      }
+    local ty = null
+    if(spec.struct != null){
+      ty = use_struct(spec.struct, false)
+    } else {
+      ty = slang_type(decl.ret, w.ret, false)
     }
-    if(str.starts_with(key, "set_") and len(params) == 2){
-      local prop = str.substring(key, 4)
-      if(not h.names[concat("set.", prop)]){
-        append(setters, {
-          name: prop,
-          signature: concat(
-            prop, "(self, v: ",
-            slang_type(params[1].type, w.params[params[1].name], true) or "any",
-            ")",
-          ),
-          c: c_line(decl),
-        })
-      }
+    if(not h.names[concat("get.", prop)]){
+      append(getters, {
+        name: prop, signature: concat(prop, "(self) -> ", ty or "any"),
+        c: c_line(decl), note: spec.missing and not_native or null,
+      })
     }
-    // a getter that became a property is read as one; add_ref and release
-    // are the collector's business (objects are released when nothing
-    // refers to them)
-    if(not property and key != "add_ref" and key != "release" and
-      not h.names[concat("methods.", key)]){
-      append(methods, generic_method(key, decl))
+  }
+  if(made.set.label != null){
+    if(not h.names["get.label"]){
+      append(getters, {
+        name: "label", signature: "label(self) -> string?",
+        c: "The object's name in error messages and debuggers: what it was made with or last set to.",
+      })
+    }
+    if(not h.names["set.label"]){
+      append(setters, {
+        name: "label", signature: "label(self, v: string)",
+        c: c_line(made.set.label.decl),
+      })
+    }
+  }
+  for(let local key in values(sorted_keys(made.methods))){
+    if(not h.names[concat("methods.", key)]){
+      append(methods, generic_method(key, made.methods[key]))
     }
   }
   return {methods: methods, getters: getters, setters: setters}
@@ -675,7 +675,8 @@ for(let local name in values(class_names)){
   comment(concat(
     "WebGPU's ", name, " (WGPU", name, "); type() of it is \"gpu.", name,
     "\". Its methods are webgpu.h's functions without the wgpu", name,
-    " prefix, in snake_case; it is released when nothing refers to it.",
+    " prefix, in snake_case (create_x is x, and so is a get_x that takes",
+    " arguments); it is released when nothing refers to it.",
   ), false)
   line("// type ", name)
   line("// [handle]: the WGPU", name, " pointer, for gpu.c")
@@ -701,6 +702,9 @@ for(let local name in values(class_names)){
   for(let local p in values(g.getters)){
     comment(p.signature, true)
     comment(p.c, false)
+    if(p.note != null){
+      comment(p.note, false)
+    }
     line("func ", base, "_get.", p.name, "(self){}")
     line("")
     property_count = property_count + 1
@@ -714,6 +718,9 @@ for(let local name in values(class_names)){
   for(let local f in values(g.methods)){
     comment(f.signature, true)
     comment(f.c, false)
+    if(f.note != null){
+      comment(f.note, false)
+    }
     for(let local item in values(f.items)){
       comment(item, true)
     }

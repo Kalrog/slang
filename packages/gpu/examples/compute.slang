@@ -32,7 +32,7 @@ local encoder = device:encoder()
 local pass = encoder:compute_pass()
 pass:set_pipeline(pipeline)
 pass:set_bind_group(0, device:bind_group({
-  layout: pipeline:get_bind_group_layout(0),
+  layout: pipeline:bind_group_layout(0),
   entries: {{binding: 0, resource: data}},
 }))
 pass:dispatch_workgroups(math.floor((n + 63) / 64) | 0)

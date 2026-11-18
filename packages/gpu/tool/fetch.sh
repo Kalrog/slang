@@ -4,7 +4,9 @@
 # released prebuilt, lib/<platform>/libwgpu_native.{dylib,so}, and its
 # headers include/webgpu.h and include/wgpu.h. The release is pinned and
 # checked; run it again only to move to a new release (change the pins) or
-# to add a platform.
+# to add a platform. It also writes include/unimplemented.txt: the webgpu.h
+# functions this release exports but does not implement (calling one ends
+# the process), from the release's source; the package raises for those.
 #
 #   tool/fetch.sh                        this machine's platform
 #   tool/fetch.sh linux-x86_64 ...       others
@@ -59,4 +61,12 @@ fetch() { # platform
 
 [ $# -eq 0 ] && set -- "$(host)"
 for p in "$@"; do fetch "$p"; done
+SRC=$CACHE/unimplemented-$WGPU_VERSION.rs
+if [ ! -f "$SRC" ]; then
+  curl -sfL -o "$SRC.part" "https://raw.githubusercontent.com/gfx-rs/wgpu-native/$WGPU_VERSION/src/unimplemented.rs"
+  mv "$SRC.part" "$SRC"
+fi
+grep -o 'fn wgpu[A-Za-z0-9]*' "$SRC" | sed 's/fn //' | sort > "$PKG/include/unimplemented.txt"
+[ -s "$PKG/include/unimplemented.txt" ] || { echo "no unimplemented functions found in $SRC"; exit 1; }
+echo "  include/unimplemented.txt ($(wc -l < "$PKG/include/unimplemented.txt" | tr -d ' ') functions)"
 printf 'wgpu-native %s\n' "$WGPU_VERSION" > "$PKG/lib/VERSION"

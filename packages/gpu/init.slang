@@ -17,7 +17,7 @@
 //   local encoder = device:encoder()
 //   local pass = encoder:compute_pass()
 //   pass:set_pipeline(pipeline)
-//   pass:set_bind_group(0, device:bind_group({layout: pipeline:get_bind_group_layout(0),
+//   pass:set_bind_group(0, device:bind_group({layout: pipeline:bind_group_layout(0),
 //     entries: {{binding: 0, resource: data}}}))
 //   pass:dispatch_workgroups(1)
 //   pass:finish()
@@ -37,6 +37,13 @@
 // [c] holds every webgpu.h and wgpu.h function and constant under its C
 // name. GPU_WGPU names another wgpu-native library (a file path).
 //
+// What the GPU answers later is a slang/async Future: [Buffer.map] (a
+// view of the buffer's memory), [Buffer.read_async], [Queue.work_done],
+// [Device.pop_error_scope]. They are awaited under async.main; a program
+// that draws frames gets the answers with [Surface.present] and
+// [Device.poll]. [device], [Buffer.read] and device:poll(true) wait where
+// they are called.
+//
 // In a browser (slang's graphics VM, `make wasm-gfx`) the same API runs on
 // the browser's own WebGPU, through Dawn's webgpu.h for Emscripten, which
 // is linked into that VM. What differs there:
@@ -45,7 +52,8 @@
 // - The browser shows a frame when the program hands it control:
 //   [Surface.present] does (slang/web's frame()), and so does everything
 //   that waits for the GPU (a device, [Buffer.read]). So these are called
-//   from the program itself, not from a coroutine it made.
+//   from the program itself, not from a coroutine it made. Futures are
+//   awaited as anywhere: slang/async runs on the page's frames there.
 // - A validation error is the browser's to report, and it does so later:
 //   it raises at a later call than the one that caused it.
 //   device:poll(true) waits for the browser, and so raises what went
@@ -57,6 +65,8 @@ local buffer_lib = require("slang/buffer")
 local path_lib = require("slang/path")
 local math = require("slang/math")
 local table_lib = require("slang/table")
+local time = require("slang/time")
+local async = require("slang/async")
 
 // ------------------------------------------------------------ names
 
@@ -151,6 +161,23 @@ local where = find_wgpu()
 local header = ffi.header(where.header)
 local flag_types = {}
 local flag_fields = {}
+// fields and functions written with WGPUBool (an integer to slang/ffi):
+// bool_fields[struct][field], and written[function] = {ret, params} with
+// the flag type or "bool" of the result and of each parameter by position
+local bool_fields = {}
+local written = {}
+// what a type as written says: a flag type's name, "bool", or null
+local func written_kind(text){
+  for(let local w in values(str.fields(text))){
+    if(flag_types[w]){
+      return w
+    }
+    if(w == "WGPUBool"){
+      return "bool"
+    }
+  }
+  return null
+}
 local init_text = {}
 local lines = {}
 local current = null
@@ -177,6 +204,26 @@ for(let local line in values(str.split(header, "\n"))){
           flag_fields[current] = {}
         }
         flag_fields[current][snake(parts[1])] = parts[0]
+      }
+      if(len(parts) == 2 and parts[0] == "WGPUBool"){
+        if(bool_fields[current] == null){
+          bool_fields[current] = {}
+        }
+        bool_fields[current][snake(parts[1])] = true
+      }
+    }
+    // WGPU_EXPORT WGPUBufferUsage wgpuBufferGetUsage(WGPUBuffer buffer) ...;
+    local at = str.index_of(t, " wgpu")
+    local open = str.index_of(t, "(")
+    if(at >= 0 and open > at and str.ends_with(t, ";") and
+      is_upper(str.byte_at(t, at + 5))){
+      local close = str.last_index_of(t, ")")
+      local params = {}
+      for(let local p in values(str.split(str.substring(t, open + 1, close), ","))){
+        append(params, written_kind(p) or false)
+      }
+      written[str.substring(t, at + 1, open)] = {
+        ret: written_kind(str.substring(t, 0, at)), params: params,
       }
     }
     // #define WGPU_COLOR_TARGET_STATE_INIT _wgpu_MAKE_INIT_STRUCT(WGPUColorTargetState, { \
@@ -212,6 +259,29 @@ for(let local line in values(str.split(header, "\n"))){
 local C = ffi.cdef(str.join(lines, "\n"), {field_name: snake})
 local lib = ffi.load(where.library, C)
 local K = C.constants
+
+// The functions wgpu-native exports without implementing them: calling one
+// ends the process, so the package raises instead (include/
+// unimplemented.txt, which tool/fetch.sh writes from the release's source).
+// A browser's WebGPU has them all.
+local missing = {}
+if(web == null){
+  local list = concat(path_lib.dir(where.header), "/unimplemented.txt")
+  if(os.exists(list)){
+    for(let local name in values(str.fields(os.read_file(list)))){
+      missing[name] = true
+    }
+  }
+}
+
+// raises for a function this WebGPU does not have
+local func need(fname){
+  if(missing[fname]){
+    raise(error.new(error.kinds.unsupported, concat(
+      "gpu: wgpu-native does not implement ", fname,
+    ), {function: fname}))
+  }
+}
 
 local gpu = {}
 
@@ -304,6 +374,23 @@ local func enum_name(type_name, v){
   return names[v] or v
 }
 
+// a flags value WebGPU handed back, as its names joined by | in the order
+// of their bits ("copy_dst|uniform"): what a descriptor takes
+local func flags_names(type_name, v){
+  local names = enum_names[type_name]
+  local out = {}
+  for(local bit = 0; bit < 63; bit = bit + 1){
+    local one = 1 << bit
+    if(one > v){
+      break
+    }
+    if((v & one) != 0){
+      append(out, names[one] or string(one))
+    }
+  }
+  return str.join(out, "|")
+}
+
 // gpu.enums[type] lists the names an enum or flag type takes:
 // gpu.enums.texture_format, gpu.enums.buffer_usage
 gpu.enums = {}
@@ -353,11 +440,18 @@ local func class_of_impl(name){
 
 // a pointer WebGPU handed out as an object of class cls, released once
 // nothing refers to it
-local func wrap(cls, p){
+local func wrap(cls, p, options){
   if(p == null){
     return null
   }
-  local o = {handle: ffi.gc(p, cls.release)}
+  local o = {handle: p}
+  if(cls.release != null){
+    o.handle = ffi.gc(p, cls.release)
+  }
+  // (WebGPU has no getter for a label: the object remembers it)
+  if(raw_type(options) == "table" and type(options.label) == "string"){
+    o._label = options.label
+  }
   o.@meta = cls.meta
   return o
 }
@@ -366,23 +460,46 @@ local func wrap(cls, p){
 local func release_now(o){
   local h = o.handle
   if(h != null){
-    ffi.gc(h, null)
-    classes[o.@meta.__class].release(h)
+    local release = classes[o.@meta.__class].release
+    if(release != null){
+      ffi.gc(h, null)
+      release(h)
+    }
     o.handle = null
   }
 }
 
 // ------------------------------------------------------------ errors
 
-// validation errors arrive through the device's callback while a call
-// runs; they are raised when it returns
+// An error WebGPU reported: a slang error whose kind is "validation" (a
+// call that is not allowed: the usual one), "out_of_memory", "internal" or
+// "device_lost", with wgpu's message as "gpu: ...".
+local error_kinds = {}
+error_kinds[K.WGPUErrorType_Validation] = "validation"
+error_kinds[K.WGPUErrorType_OutOfMemory] = "out_of_memory"
+error_kinds[K.WGPUErrorType_Internal] = "internal"
+
+local func gpu_error(kind, message){
+  return error.new(kind, concat("gpu: ", message))
+}
+
+// errors arrive through the device's callback while a call runs; they are
+// raised when it returns: {kind, message}, messages of several joined
 local pending_error = null
+
+local func report(kind, message){
+  if(pending_error == null){
+    pending_error = {kind: kind, message: message}
+  } else {
+    pending_error.message = concat(pending_error.message, "\n", message)
+  }
+}
 
 local func check(){
   if(pending_error != null){
     local e = pending_error
     pending_error = null
-    raise(concat("gpu: ", e))
+    raise(gpu_error(e.kind, e.message))
   }
 }
 
@@ -620,12 +737,17 @@ convert = func(t, v, keep){
       return mem
     }
     if(to.kind == "prim"){
-      // a list of numbers or enum names
-      local list = {}
-      for(let local x in values(v)){
-        append(list, convert(to, x, keep))
+      // a list of numbers or enum names, in memory of its own
+      local c_type = to.c
+      if(str.starts_with(c_type or "", "enum ")){
+        c_type = "uint32_t"
       }
-      return list
+      local mem = ffi.new(c_type, math.max(len(v), 1), C)
+      append(keep, mem)
+      for(local i = 0; i < len(v); i = i + 1){
+        mem[i] = convert(to, v[i], keep)
+      }
+      return mem
     }
     if(to.kind == "ptr"){
       // a list of objects
@@ -649,8 +771,16 @@ local func from_c(t, v){
       return view_string(v)
     }
     local out = {}
+    local bools = bool_fields[t.name] or {}
+    local flags = flag_fields[t.name] or {}
     for(let local f in values(fields_of(t))){
-      if(f.name != "next_in_chain"){
+      if(f.name == "next_in_chain"){
+        // (not for programs)
+      } else if(bools[f.name]){
+        out[f.name] = v[f.name] != 0
+      } else if(flags[f.name] != null){
+        out[f.name] = flags_names(flags[f.name], v[f.name])
+      } else {
         out[f.name] = from_c(f.type, v[f.name])
       }
     }
@@ -673,7 +803,24 @@ local func from_c(t, v){
 
 // ------------------------------------------------------------ methods
 
-// every function's C declaration by class and snake_case method name:
+// bytes(data) -> {pointer, size, keep}: what can be written to the GPU: a
+// slang/buffer, a string, or a list of numbers (as 32-bit floats)
+local func bytes_of(data, as_type){
+  if(buffer_lib.is(data)){
+    return {pointer: data:pointer(), size: data.size, keep: data}
+  }
+  if(type(data) == "string"){
+    local b = buffer_lib.from_string(data)
+    return {pointer: b:pointer(), size: len(data), keep: b}
+  }
+  if(raw_type(data) == "table"){
+    local b = buffer_lib.from(data, as_type or "float")
+    return {pointer: b:pointer(), size: b.size, keep: b}
+  }
+  raise("gpu: data must be a slang/buffer, a string or a list of numbers")
+}
+
+// every function's C declaration by class and snake_case name:
 // wgpuRenderPassEncoderSetPipeline -> methods_of.RenderPassEncoder.set_pipeline
 local methods_of = {}
 local class_names = {}
@@ -709,13 +856,93 @@ for(let local fname in values(C.order)){
   }
 }
 
-// a WebGPU function as a method: arguments converted by the parameters'
-// types, results wrapped
-local func method(decl){
-  local f = ffi.bind(lib, decl)
+// The functions that are not methods under their own name: what the
+// package writes by hand under another (begin_render_pass is
+// render_pass, create_command_encoder is encoder, end is finish, the
+// mapped range is a view), and what a program has no use for. gpu.c has
+// them all.
+local hidden = {
+  Instance: {"create_surface", "process_events", "wait_any"},
+  Device: {"get_adapter_info", "create_command_encoder", "create_shader_module"},
+  Queue: {"write_texture"},
+  Buffer: {
+    "get_mapped_range", "get_const_mapped_range", "read_mapped_range",
+    "write_mapped_range", "get_map_state",
+  },
+  Surface: {"get_current_texture", "get_capabilities"},
+  CommandEncoder: {"begin_render_pass", "begin_compute_pass"},
+  RenderPassEncoder: {"end"},
+  ComputePassEncoder: {"end"},
+}
+
+// whether a function answers through a callback (it takes a
+// WGPU...CallbackInfo) or hands out a WGPUFuture: those are written by
+// hand, as functions returning a slang/async Future
+local func is_request(decl){
+  if(decl.ret.kind == "struct" and decl.ret.name == "WGPUFuture"){
+    return true
+  }
+  for(let local p in values(decl.params)){
+    if(p.type.kind == "struct" and str.ends_with(p.type.name or "", "CallbackInfo")){
+      return true
+    }
+  }
+  return false
+}
+
+// whether a get_ function fills a struct it is given: a property
+local func fills_struct(decl){
   local params = decl.params
-  local n = len(params)
-  local ret = decl.ret
+  return len(params) == 2 and params[1].type.kind == "ptr" and
+    params[1].type.to.kind == "struct" and params[1].type.to.fields != null and
+    not params[1].type.const_to and
+    not str.ends_with(params[1].type.to.name or "", "Impl")
+}
+
+// How a method's arguments become the function's parameters after the
+// object, one entry for each argument:
+// - a count and the pointer after it are one list ("list"),
+// - a void pointer and the size after it are one piece of data ("data": a
+//   slang/buffer, a string or a list of numbers),
+// - a flags parameter takes names ("flags"),
+// - everything else is converted by its type ("value").
+local func plan_of(decl){
+  local w = written[decl.name] or {params: {}}
+  local params = decl.params
+  local plan = {}
+  local i = 1
+  for(i < len(params)){
+    local p = params[i]
+    local next = params[i + 1]
+    local entry = {at: i, name: snake(p.name), c_name: p.name, type: p.type, kind: "value"}
+    if(next != null and p.type.kind == "prim" and str.ends_with(p.name, "Count") and
+      next.type.kind == "ptr" and
+      not str.ends_with(next.type.to.name or "", "Impl")){
+      entry = {
+        at: i + 1, count_at: i, name: snake(next.name), c_name: next.name,
+        type: next.type, kind: "list",
+      }
+      i = i + 1
+    } else if(next != null and p.type.kind == "ptr" and
+      (p.type.to.kind == "void" or p.type.to.name == "void") and
+      next.type.kind == "prim" and
+      (next.name == "size" or str.ends_with(next.name, "Size"))){
+      entry.kind = "data"
+      entry.size_at = i + 1
+      i = i + 1
+    } else if(w.params[i] != null and w.params[i] != false and w.params[i] != "bool"){
+      entry.kind = "flags"
+      entry.flags = w.params[i]
+    }
+    append(plan, entry)
+    i = i + 1
+  }
+  return plan
+}
+
+// what a function hands back, as a slang value
+local func result_of(spec){
+  local ret = spec.decl.ret
   local ret_class = null
   if(ret.kind == "ptr" and ret.to.kind == "struct"){
     ret_class = class_of_impl(ret.to.name)
@@ -725,16 +952,11 @@ local func method(decl){
     ret_enum = str.substring(ret.c, 5)
   }
   local ret_view = ret.kind == "struct" and ret.name == "WGPUStringView"
-  return func(self, ...args){
-    local keep = {}
-    local full = {self.handle}
-    for(local i = 1; i < n; i = i + 1){
-      full[i] = convert(params[i].type, args[i - 1], keep)
-    }
-    local r = f(...full)
-    check()
+  local ret_flags = spec.ret_flags
+  local ret_bool = spec.ret_bool
+  return func(r, options){
     if(ret_class != null){
-      return wrap(ret_class, r)
+      return wrap(ret_class, r, options)
     }
     if(ret_enum != null){
       return enum_name(ret_enum, r)
@@ -742,20 +964,82 @@ local func method(decl){
     if(ret_view){
       return view_string(r)
     }
+    if(ret_flags != null){
+      return flags_names(ret_flags, r)
+    }
+    if(ret_bool){
+      return r != 0
+    }
     return r
   }
 }
 
+// a WebGPU function as a method: arguments converted as its plan says,
+// the result wrapped
+local func method(spec){
+  local decl = spec.decl
+  if(spec.missing){
+    return func(self){
+      need(decl.name)
+    }
+  }
+  local f = ffi.bind(lib, decl)
+  local plan = spec.plan
+  local count = len(plan)
+  local result = result_of(spec)
+  return func(self, ...args){
+    local keep = {}
+    local full = {self.handle}
+    for(local a = 0; a < count; a = a + 1){
+      local p = plan[a]
+      local v = args[a]
+      local kind = p.kind
+      if(kind == "value"){
+        full[p.at] = convert(p.type, v, keep)
+      } else if(kind == "flags"){
+        full[p.at] = flags_value(p.flags, v)
+      } else if(kind == "list"){
+        v = v or {}
+        full[p.count_at] = len(v)
+        full[p.at] = convert(p.type, v, keep)
+      } else {
+        local b = bytes_of(v)
+        append(keep, b.keep)
+        full[p.at] = b.pointer
+        full[p.size_at] = b.size
+      }
+    }
+    local r = f(...full)
+    check()
+    return result(r, args[0])
+  }
+}
+
 // a get_ function with no argument besides the object as a property
-local func getter(decl){
-  local m = method(decl)
+local func getter(spec){
+  local decl = spec.decl
+  if(spec.missing){
+    return func(self){
+      need(decl.name)
+    }
+  }
+  local f = ffi.bind(lib, decl)
+  local result = result_of(spec)
   return func(self){
-    return m(self)
+    local r = f(self.handle)
+    check()
+    return result(r)
   }
 }
 
 // a get_ function filling a struct as a property returning it
-local func struct_getter(decl){
+local func struct_getter(spec){
+  local decl = spec.decl
+  if(spec.missing){
+    return func(self){
+      need(decl.name)
+    }
+  }
   local f = ffi.bind(lib, decl)
   local t = decl.params[1].type.to
   return func(self){
@@ -766,21 +1050,37 @@ local func struct_getter(decl){
   }
 }
 
+// A class from the header's functions of its type:
+// - a get_ function without arguments, or filling a struct, is a property;
+// - set_label is the property label (the object remembers it: WebGPU has
+//   no getter, and wgpu-native no setter);
+// - create_x is the method x, and a get_x with arguments the method x;
+// - the other functions are methods under their own names. The set_
+//   functions of passes stay methods: they record commands.
 local func define_class(name){
   local m = {}
   local g = {}
   local s = {}
   local decls = methods_of[name] or {}
+  local hide = {add_ref: true, release: true}
+  for(let local key in values(hidden[name] or {})){
+    hide[key] = true
+  }
+  // what was made of the header, by member name: {decl, missing, plan,
+  // ret_flags, ret_bool} (tool/gen_stubs.slang reads them)
+  local members = {methods: {}, get: {}, set: {}}
   local cls = {
     name: name,
     methods: m,
     get: g,
     set: s,
-    // the C declarations behind the methods and properties made from the
-    // header, by method name (tool/gen_stubs.slang reads them)
-    decls: decls,
-    release: lib[concat("wgpu", name, "Release")],
-    add_ref: lib[concat("wgpu", name, "AddRef")],
+    members: members,
+    release: null,
+    add_ref: null,
+  }
+  if(not missing[concat("wgpu", name, "Release")]){
+    cls.release = lib[concat("wgpu", name, "Release")]
+    cls.add_ref = lib[concat("wgpu", name, "AddRef")]
   }
   cls.meta = {
     __type: concat("gpu.", name),
@@ -792,41 +1092,76 @@ local func define_class(name){
       return a.handle == b.handle
     },
   }
+  for(let local e in entries(decls)){
+    local key = e[0]
+    local decl = e[1]
+    if(not hide[key] and not is_request(decl)){
+      local spec = {decl: decl, missing: missing[decl.name] == true}
+      local w = written[decl.name]
+      if(w != null and w.ret == "bool"){
+        spec.ret_bool = true
+      } else if(w != null and w.ret != null){
+        spec.ret_flags = w.ret
+      }
+      if(key == "set_label"){
+        members.set.label = spec
+      } else if(str.starts_with(key, "get_") and len(decl.params) == 1){
+        members.get[str.substring(key, 4)] = spec
+      } else if(str.starts_with(key, "get_") and fills_struct(decl)){
+        spec.struct = decl.params[1].type.to
+        members.get[str.substring(key, 4)] = spec
+      } else {
+        spec.plan = plan_of(decl)
+        local shown = key
+        if(str.starts_with(key, "create_")){
+          shown = str.substring(key, 7)
+        } else if(str.starts_with(key, "get_")){
+          shown = str.substring(key, 4)
+        }
+        if(decls[shown] != null){
+          shown = key
+        }
+        members.methods[shown] = spec
+      }
+    }
+  }
   // methods made on first use
   m.@meta = {
     __index: func(t, key){
-      local decl = decls[key]
-      if(decl == null){
+      local spec = members.methods[key]
+      if(spec == null){
         return null
       }
-      local fn = method(decl)
+      local fn = method(spec)
       set_raw(t, key, fn)
       return fn
     },
   }
-  for(let local e in entries(decls)){
-    local key = e[0]
-    local decl = e[1]
-    local params = decl.params
-    if(str.starts_with(key, "get_")){
-      local prop = str.substring(key, 4)
-      if(len(params) == 1){
-        g[prop] = getter(decl)
-      } else if(len(params) == 2 and params[1].type.kind == "ptr" and
-        params[1].type.to.kind == "struct" and
-        params[1].type.to.fields != null and not params[1].type.const_to){
-        g[prop] = struct_getter(decl)
-      }
+  for(let local e in entries(members.get)){
+    if(e[1].struct != null){
+      g[e[0]] = struct_getter(e[1])
+    } else {
+      g[e[0]] = getter(e[1])
     }
-    if(str.starts_with(key, "set_") and len(params) == 2){
-      local prop = str.substring(key, 4)
-      local fn = method(decl)
-      s[prop] = func(self, v){
-        fn(self, v)
+  }
+  if(members.set.label != null){
+    local spec = members.set.label
+    local set_label = null
+    if(not spec.missing){
+      set_label = ffi.bind(lib, spec.decl)
+    }
+    g.label = func(self){
+      return self._label
+    }
+    s.label = func(self, v){
+      self._label = v
+      if(set_label != null){
+        local keep = {}
+        set_label(self.handle, string_view(v, keep))
+        check()
       }
     }
   }
-  // label (wgpu<Type>SetLabel) as a write-only property
   classes[name] = cls
   return cls
 }
@@ -880,6 +1215,14 @@ local func the_instance(){
   return instance
 }
 
+// ------------------------------------------------------------ requests
+//
+// What WebGPU answers later (a mapped buffer, a device, finished work) it
+// answers through a callback, which runs while the package asks for
+// events. A request here is a slang/async Future: the callback only notes
+// the answer, and the future completes once the call that ran the
+// callback has returned, so no program code runs under a callback.
+
 // when a request's callback may run: natively whenever the request is
 // done. In a browser only while this package asks for events: the browser
 // would otherwise call into the program while it is not running
@@ -888,29 +1231,121 @@ if(web != null){
   spontaneous = K.WGPUCallbackMode_AllowProcessEvents
 }
 
-// runs a request whose callback sets done.value; waits for it. In a
-// browser a request is answered while the page has control: the program
-// hands it over, a frame at a time
-local func wait_for(done){
-  local tries = 0
-  local most = 1000000
-  if(web != null){
-    // (ten seconds of frames)
-    most = 600
+// the answers the callbacks left: {completer, value, error}
+local answers = {}
+// requests without an answer yet
+local in_flight = 0
+local pumping = false
+
+// completes the futures whose answers have arrived
+local func settle_answers(){
+  for(len(answers) > 0){
+    local list = answers
+    answers = {}
+    for(let local a in values(list)){
+      if(a.counted){
+        in_flight = in_flight - 1
+      }
+      if(a.error != null){
+        a.completer.fail(a.error)
+      } else {
+        a.completer.complete(a.value)
+      }
+    }
   }
-  for(not done.value){
-    lib.wgpuInstanceProcessEvents(the_instance().handle)
-    if(done.value){
-      break
+}
+
+// runs the callbacks of what has finished, and completes their futures
+local func process_events(){
+  lib.wgpuInstanceProcessEvents(the_instance().handle)
+  settle_answers()
+}
+
+// open_request(start: func(answer: func(value, error))) -> Future
+// A request as a future: start begins it, giving WebGPU a callback that
+// calls answer(value) or answer(null, error). Something has to ask for
+// events before it completes: [wait_for] does, and so does [request].
+local func open_request(start){
+  local c = async.completer()
+  in_flight = in_flight + 1
+  local answered = false
+  local answer = func(value, err){
+    if(not answered){
+      answered = true
+      append(answers, {completer: c, value: value, error: err, counted: true})
     }
-    tries = tries + 1
-    if(tries > most){
-      raise("gpu: a request never finished")
+  }
+  try {
+    start(answer)
+    check()
+  } catch(local e) {
+    answer(null, e)
+  }
+  return c.future
+}
+
+// request(start) -> Future
+// [open_request], for a future handed to the program: while such requests
+// are open the package asks for events from slang/async's loop, so
+// awaiting one works; [Device.poll] and [Surface.present] ask too.
+local func request(start){
+  local f = open_request(start)
+  if(not pumping and in_flight > 0){
+    pumping = true
+    // (a build without an event loop has nothing to join: its programs
+    // get the answers with poll and present)
+    try {
+      async.pump(func(){
+        process_events()
+        pumping = in_flight > 0
+        return pumping
+      })
+    } catch(local e) {
+      pumping = false
     }
+  }
+  return f
+}
+
+// attempt(f: func(): Future) -> Future
+// f's future; what f raises fails the future instead
+local func attempt(f){
+  local r = try { {future: f()} } catch(local e) { {future: async.failed(e)} }
+  return r.future
+}
+
+// how long a waiting call waits for the GPU before it gives up, in
+// milliseconds
+local patience = 10 * 1000
+
+// wait_for(f: Future, device?) -> the value of f
+// Waits for a request here and now, for the calls that return what they
+// asked for (a device, a buffer's contents): natively it waits on the
+// device, in a browser it hands the page control a frame at a time (so it
+// is called from the program itself, not from a coroutine it made).
+local func wait_for(f, device){
+  local started = time.clock()
+  for(not f:is_done()){
     if(web != null){
-      web.frame()
+      process_events()
+      if(not f:is_done()){
+        web.frame()
+      }
+    } else if(device != null and device.handle != null){
+      lib.wgpuDevicePoll(device.handle, true, null)
+      settle_answers()
+    } else {
+      process_events()
+    }
+    if(not f:is_done() and time.clock() - started > patience){
+      raise(error.new(error.kinds.timeout, "gpu: the GPU did not answer a request"))
     }
   }
+  f.handled = true
+  if(f.state == "error"){
+    raise(f.error)
+  }
+  return f.value
 }
 
 // ------------------------------------------------------------ devices
@@ -921,31 +1356,28 @@ local func wait_for(done){
 //   force_fallback_adapter?: bool, backend_type?: string}
 // [power_preference]: "high_performance" or "low_power"
 func gpu.adapter(options){
-  local keep = {}
   local inst = the_instance()
-  local done = {value: false}
-  local result = null
-  local message = ""
-  lib.wgpuInstanceRequestAdapter(
-    inst.handle,
-    with_descriptor("wgpuInstanceRequestAdapter", 1, options or {}, keep),
-    {
-      mode: spontaneous,
-      callback: func(status, adapter, msg, u1, u2){
-        if(status == K.WGPURequestAdapterStatus_Success){
-          result = adapter
-        } else {
-          message = view_string(msg)
-        }
-        done.value = true
+  local f = open_request(func(answer){
+    local keep = {}
+    lib.wgpuInstanceRequestAdapter(
+      inst.handle,
+      with_descriptor("wgpuInstanceRequestAdapter", 1, options or {}, keep),
+      {
+        mode: spontaneous,
+        callback: func(status, adapter, msg, u1, u2){
+          if(status == K.WGPURequestAdapterStatus_Success){
+            answer(adapter)
+          } else {
+            answer(null, error.new(
+              error.kinds.unsupported,
+              concat("gpu: no adapter: ", view_string(msg)),
+            ))
+          }
+        },
       },
-    },
-  )
-  wait_for(done)
-  if(result == null){
-    raise(concat("gpu: no adapter: ", message))
-  }
-  return wrap(Adapter, result)
+    )
+  })
+  return wrap(Adapter, wait_for(f))
 }
 
 local device_queues = {}
@@ -968,55 +1400,58 @@ func gpu.device(options){
 // A device on this adapter.
 func classes.Adapter.methods.request_device(self, options){
   options = options or {}
-  local keep = {}
+  local lost = async.completer()
   local desc = {
     label: options.label,
     required_features: options.required_features,
     required_limits: options.required_limits,
     uncaptured_error_callback_info: {
       callback: func(device, kind, msg, u1, u2){
-        local text = view_string(msg)
-        if(pending_error == null){
-          pending_error = text
-        } else {
-          pending_error = concat(pending_error, "\n", text)
-        }
+        report(error_kinds[kind] or "internal", view_string(msg))
       },
     },
     device_lost_callback_info: {
       mode: spontaneous,
       callback: func(device, reason, msg, u1, u2){
+        // (a device destroyed or collected is not lost)
         if(reason != K.WGPUDeviceLostReason_Destroyed and
           reason != K.WGPUDeviceLostReason_CallbackCancelled){
-          pending_error = concat("device lost: ", view_string(msg))
+          local message = view_string(msg)
+          report("device_lost", concat("device lost: ", message))
+          append(answers, {
+            completer: lost,
+            value: {
+              reason: enum_name("WGPUDeviceLostReason", reason),
+              message: message,
+            },
+          })
         }
       },
     },
   }
-  local done = {value: false}
-  local result = null
-  local message = ""
-  lib.wgpuAdapterRequestDevice(
-    self.handle,
-    with_descriptor("wgpuAdapterRequestDevice", 1, desc, keep),
-    {
-      mode: spontaneous,
-      callback: func(status, device, msg, u1, u2){
-        if(status == K.WGPURequestDeviceStatus_Success){
-          result = device
-        } else {
-          message = view_string(msg)
-        }
-        done.value = true
+  local f = open_request(func(answer){
+    local keep = {}
+    lib.wgpuAdapterRequestDevice(
+      self.handle,
+      with_descriptor("wgpuAdapterRequestDevice", 1, desc, keep),
+      {
+        mode: spontaneous,
+        callback: func(status, device, msg, u1, u2){
+          if(status == K.WGPURequestDeviceStatus_Success){
+            answer(device)
+          } else {
+            answer(null, error.new(
+              error.kinds.unsupported,
+              concat("gpu: no device: ", view_string(msg)),
+            ))
+          }
+        },
       },
-    },
-  )
-  wait_for(done)
-  if(result == null){
-    raise(concat("gpu: no device: ", message))
-  }
-  local device = wrap(Device, result)
+    )
+  })
+  local device = wrap(Device, wait_for(f), options)
   device.adapter = self
+  device.lost_completer = lost
   return device
 }
 
@@ -1048,11 +1483,9 @@ func classes.Adapter.get.info(self){
   return info
 }
 
-// features(self) -> {string}
-// The features the device has, by name.
-func device_g.features(self){
+local func features_of(get, handle){
   local out = ffi.new("WGPUSupportedFeatures", 1, C)
-  lib.wgpuDeviceGetFeatures(self.handle, out)
+  get(handle, out)
   local list = {}
   local v = ffi.value(out)
   for(local i = 0; i < v.feature_count; i = i + 1){
@@ -1062,32 +1495,95 @@ func device_g.features(self){
   return list
 }
 
+// features(self) -> {string}
+// The features the device has, by name.
+func device_g.features(self){
+  return features_of(lib.wgpuDeviceGetFeatures, self.handle)
+}
+
+// features(self) -> {string}
+// The features the adapter offers, by name: what a device's
+// required_features may ask for.
+func classes.Adapter.get.features(self){
+  return features_of(lib.wgpuAdapterGetFeatures, self.handle)
+}
+
+// lost(self) -> async.Future
+// Completes with {reason, message} when the device is lost (the GPU went
+// away, the driver failed): not when it is destroyed or no longer used.
+// From then on its calls raise errors of kind "device_lost".
+func device_g.lost(self){
+  return self.lost_completer.future
+}
+
+// the queue's submitted work, done: a request (opened by open)
+local func work_done(queue, open){
+  return open(func(answer){
+    lib.wgpuQueueOnSubmittedWorkDone(queue.handle, {
+      mode: spontaneous,
+      callback: func(status, msg, u1, u2){
+        if(status == K.WGPUQueueWorkDoneStatus_Success){
+          answer(null)
+        } else {
+          answer(null, gpu_error("internal", concat(
+            "the queue's work was not done: ", view_string(msg),
+          )))
+        }
+      },
+    })
+  })
+}
+
 // poll(wait?: bool) -> bool
-// Runs the callbacks of finished work; with wait, waits for all submitted
-// work first. Returns whether the queue is empty.
+// Runs the callbacks of finished work, which completes the futures the
+// package handed out ([Buffer.map], [Queue.work_done]); with wait, waits
+// for all submitted work first. Returns whether the queue is empty. A
+// program under slang/async's main need not call it: the futures complete
+// from its loop.
 func device_m.poll(self, wait){
   if(web != null){
     // the browser does the work by itself. With wait, the queue is asked
     // to say when it is through: by then the browser has also reported
     // the mistakes made so far, which it otherwise does when it likes
     if(wait == true){
-      local done = {value: false}
-      lib.wgpuQueueOnSubmittedWorkDone(self.queue.handle, {
-        mode: spontaneous,
-        callback: func(status, msg, u1, u2){
-          done.value = true
-        },
-      })
-      wait_for(done)
+      wait_for(work_done(self.queue, open_request))
     } else {
-      lib.wgpuInstanceProcessEvents(the_instance().handle)
+      process_events()
     }
     check()
     return true
   }
   local r = lib.wgpuDevicePoll(self.handle, wait == true, null)
+  settle_answers()
   check()
   return r != 0
+}
+
+// pop_error_scope() -> async.Future
+// Ends the error scope push_error_scope(filter) began: completes with the
+// first error of the scope's kind raised inside it (an error of kind
+// "validation", "out_of_memory" or "internal", not raised), or with null
+// when there was none. Errors a scope catches do not raise.
+//   device:push_error_scope("validation")
+//   device:buffer({size: 4, usage: "map_read|storage"})
+//   local e = await device:pop_error_scope()      // e.kind == "validation"
+func device_m.pop_error_scope(self){
+  return request(func(answer){
+    lib.wgpuDevicePopErrorScope(self.handle, {
+      mode: spontaneous,
+      callback: func(status, kind, msg, u1, u2){
+        if(status != K.WGPUPopErrorScopeStatus_Success){
+          answer(null, error.new(error.kinds.state, concat(
+            "gpu: no error scope to pop: ", view_string(msg),
+          )))
+        } else if(kind == K.WGPUErrorType_NoError){
+          answer(null)
+        } else {
+          answer(gpu_error(error_kinds[kind] or "internal", view_string(msg)))
+        }
+      },
+    })
+  })
 }
 
 local func descriptor_call(fname){
@@ -1104,23 +1600,6 @@ local func descriptor_call(fname){
 
 // ---- buffers
 
-// bytes(data) -> {pointer, size, keep}: what can be written to the GPU: a
-// slang/buffer, a string, or a list of numbers (as 32-bit floats)
-local func bytes_of(data, as_type){
-  if(buffer_lib.is(data)){
-    return {pointer: data:pointer(), size: data.size, keep: data}
-  }
-  if(type(data) == "string"){
-    local b = buffer_lib.from_string(data)
-    return {pointer: b:pointer(), size: len(data), keep: b}
-  }
-  if(raw_type(data) == "table"){
-    local b = buffer_lib.from(data, as_type or "float")
-    return {pointer: b:pointer(), size: b.size, keep: b}
-  }
-  raise("gpu: data must be a slang/buffer, a string or a list of numbers")
-}
-
 // buffer(options: BufferOptions) -> Buffer
 // A buffer on the GPU.
 //   device:buffer({size: 1024, usage: "uniform|copy_dst"})
@@ -1132,6 +1611,8 @@ local func bytes_of(data, as_type){
 //   index, vertex, uniform, storage, indirect, query_resolve
 // [contents]: data written into it at once: a slang/buffer, a string, or a
 //   list of numbers (32-bit floats, or of [type]); size and copy_dst follow
+// [mapped_at_creation]: the buffer starts mapped for writing, whatever its
+//   usage: fill its [Buffer.view], then [Buffer.unmap]
 func device_m.buffer(self, options){
   local data = null
   local desc = options
@@ -1150,12 +1631,20 @@ func device_m.buffer(self, options){
       desc.size = (data.size + 3) & ~3
     }
   }
-  local b = wrap(Buffer, descriptor_call("wgpuDeviceCreateBuffer")(self, desc))
+  local b = wrap(
+    Buffer, descriptor_call("wgpuDeviceCreateBuffer")(self, desc), desc
+  )
   if(b == null){
     check()
     raise("gpu: the buffer was not made")
   }
   b.device = self
+  if(desc.mapped_at_creation == true){
+    b.mapping = {
+      state: "mapped", mode: "write", offset: 0,
+      size: lib.wgpuBufferGetSize(b.handle), views: {},
+    }
+  }
   if(data != null){
     self.queue:write_buffer(b, 0, data)
   }
@@ -1163,6 +1652,14 @@ func device_m.buffer(self, options){
 }
 
 local queue_m = classes.Queue.methods
+
+// work_done() -> async.Future
+// Completes (with null) once the GPU has done the work submitted so far.
+//   device.queue:submit(encoder:finish())
+//   await device.queue:work_done()
+func queue_m.work_done(self){
+  return work_done(self, request)
+}
 
 // write_buffer(buffer: Buffer, offset: int, data: any)
 // Writes data (a slang/buffer, a string, or a list of 32-bit floats) into
@@ -1201,37 +1698,198 @@ func buffer_m.write(self, data, offset){
   self.device.queue:write_buffer(self, offset or 0, data)
 }
 
-// maps a buffer for reading and waits for it
-local func map_read(device, buf, offset, size){
-  local done = {value: false}
-  local status = 0
-  local message = ""
-  lib.wgpuBufferMapAsync(buf.handle, K.WGPUMapMode_Read, offset, size, {
-    mode: spontaneous,
-    callback: func(s, msg, u1, u2){
-      status = s
-      message = view_string(msg)
-      done.value = true
-    },
+local buffer_g = classes.Buffer.get
+
+// A mapped buffer keeps {state: "pending" | "mapped", mode, offset, size,
+// views} as its mapping: WebGPU ends the process when the mapped range of
+// an unmapped buffer is asked for, so the package knows by itself.
+
+// map_state(self) -> string
+// "unmapped", "pending" (a [Buffer.map] that has no answer yet) or
+// "mapped".
+func buffer_g.map_state(self){
+  local m = self.mapping
+  if(m == null){
+    return "unmapped"
+  }
+  return m.state
+}
+
+// begins mapping a buffer: a future (opened by open) that completes once
+// the buffer is mapped. Raises when it is mapped or being mapped already.
+local func start_map(self, mode, offset, size, open){
+  if(mode != "read" and mode != "write"){
+    raise(error.new(error.kinds.argument, concat(
+      "gpu: a buffer is mapped to \"read\" or to \"write\", not to ", string(mode),
+    )))
+  }
+  if(self.mapping != null){
+    raise(error.new(error.kinds.state, concat(
+      "gpu: the buffer is already ",
+      self.mapping.state == "mapped" and "mapped" or "being mapped",
+    )))
+  }
+  local mapping = {state: "pending", mode: mode, offset: offset, size: size, views: {}}
+  self.mapping = mapping
+  local f = open(func(answer){
+    lib.wgpuBufferMapAsync(
+      self.handle, enum_value("WGPUMapMode", mode), offset, size, {
+        mode: spontaneous,
+        callback: func(status, msg, u1, u2){
+          if(status == K.WGPUMapAsyncStatus_Success){
+            answer(true)
+          } else if(status == K.WGPUMapAsyncStatus_Error){
+            answer(null, gpu_error("validation", concat(
+              "the buffer was not mapped: ", view_string(msg),
+            )))
+          } else {
+            answer(null, error.new(
+              error.kinds.state,
+              "gpu: the buffer was unmapped or destroyed before it was mapped",
+            ))
+          }
+        },
+      },
+    )
   })
-  check()
-  if(web != null){
-    wait_for(done)
+  return f:then(func(_){
+    if(self.mapping != mapping){
+      raise(error.new(
+        error.kinds.state,
+        "gpu: the buffer was unmapped or destroyed before it was mapped",
+      ))
+    }
+    mapping.state = "mapped"
+    return true
+  }, func(e){
+    if(self.mapping == mapping){
+      self.mapping = null
+    }
+    raise(e)
+  })
+}
+
+// map(mode?: string, options?: MapOptions) -> async.Future
+// Maps the buffer (or a part of it) into the program's memory, when the
+// GPU is done with it: the future completes with a [Buffer.view] of the
+// mapped bytes, a slang/buffer that reads and writes the GPU's memory
+// without a copy. The buffer cannot be used on the GPU while it is mapped:
+// [Buffer.unmap] hands it back.
+//   local staging = device:buffer({size: 1024, usage: "map_write|copy_src"})
+//   local floats = await staging:map("write", {type: "float"})
+//   floats[0] = 1.5
+//   staging:unmap()
+// The future fails when the buffer cannot be mapped (it lacks the usage, it
+// is mapped already) or is unmapped before the GPU answered.
+// [mode]: "read" (the default; the buffer needs map_read usage) or "write"
+//   (map_write usage)
+// type MapOptions = {offset?: int, size?: int, type?: string}
+// [offset]: the first byte mapped (0), a multiple of 8
+// [size]: the bytes mapped (the rest of the buffer), a multiple of 4
+// [type]: the view's element type ("uint8_t" by default; "float",
+//   "uint32_t", ...)
+func buffer_m.map(self, mode, options){
+  options = options or {}
+  local as_type = options.type
+  return attempt(func(){
+    local offset = options.offset or 0
+    local size = options.size or (lib.wgpuBufferGetSize(self.handle) - offset)
+    return start_map(self, mode or "read", offset, size, request)
+  }):then(func(_){
+    return self:view(as_type)
+  })
+}
+
+// view(type?: string, offset?: int, size?: int) -> buffer.Buffer
+// The mapped bytes as a slang/buffer of type ("uint8_t" by default), all
+// that is mapped or size bytes from offset (counted from the buffer's
+// start): the GPU's memory itself, not a copy. For a buffer that is
+// mapped: after [Buffer.map], or made with mapped_at_creation. Raises an
+// error of kind state when it is not. What a buffer mapped to read shows
+// is for reading. [Buffer.unmap] takes the memory back: the view is empty
+// from then on (len 0), so using it raises.
+//   local b = device:buffer({size: 16, usage: "vertex", mapped_at_creation: true})
+//   b:view("float"):set({0, 0.5, -0.5, -0.5})
+//   b:unmap()
+// Ranges asked for must not overlap (the same range again gives the same
+// view).
+func buffer_m.view(self, as_type, offset, size){
+  local m = self.mapping
+  if(m == null or m.state != "mapped"){
+    raise(error.new(error.kinds.state, "gpu: the buffer is not mapped"))
   }
-  for(not done.value){
-    lib.wgpuDevicePoll(device.handle, true, null)
+  as_type = as_type or "uint8_t"
+  offset = offset or m.offset
+  size = size or (m.offset + m.size - offset)
+  if(offset < m.offset or size < 0 or offset + size > m.offset + m.size){
+    raise(error.new(error.kinds.argument, concat(
+      "gpu: bytes ", string(offset), " to ", string(offset + size),
+      " are not in the mapped range (", string(m.offset), " to ",
+      string(m.offset + m.size), ")",
+    )))
   }
-  if(status != K.WGPUMapAsyncStatus_Success){
-    raise(concat("gpu: the buffer could not be read: ", message))
+  local key = concat(as_type, ":", string(offset), ":", string(size))
+  local v = m.views[key]
+  if(v == null){
+    local p = null
+    if(m.mode == "read"){
+      p = lib.wgpuBufferGetConstMappedRange(self.handle, offset, size)
+    } else {
+      p = lib.wgpuBufferGetMappedRange(self.handle, offset, size)
+    }
+    check()
+    if(p == null){
+      raise(error.new(error.kinds.state, concat(
+        "gpu: bytes ", string(offset), " to ", string(offset + size),
+        " could not be handed out (the views of a mapped buffer must not overlap)",
+      )))
+    }
+    v = buffer_lib.wrap(p, size, "uint8_t")
+    if(as_type != "uint8_t"){
+      v = v:cast(ffi.type(as_type, C))
+    }
+    v.keep = self
+    m.views[key] = v
+  }
+  return v
+}
+
+// the views handed out are empty from now on
+local func end_mapping(self){
+  local m = self.mapping
+  if(m != null){
+    for(let local v in values(m.views)){
+      v:detach()
+    }
+    self.mapping = null
   }
 }
 
-// read(type?: string, offset?: int, size?: int) -> buffer.Buffer
-// The buffer's contents, after the work submitted so far: a slang/buffer
-// of type ("uint8_t" by default; "float", "uint32_t", ...). A buffer
-// without map_read usage is copied to one that has it first (it needs
-// copy_src). Waits for the GPU.
-func buffer_m.read(self, as_type, offset, size){
+// unmap()
+// Hands a mapped buffer back to the GPU: what was written through its
+// views is in the buffer, and the views are empty from now on. A [map]
+// that has no answer yet is given up (its future fails). Does nothing for
+// a buffer that is not mapped.
+func buffer_m.unmap(self){
+  if(self.mapping == null){
+    return
+  }
+  end_mapping(self)
+  lib.wgpuBufferUnmap(self.handle)
+  check()
+}
+
+// destroy()
+// Frees the buffer's memory now (and unmaps it); using it afterwards is an
+// error.
+func buffer_m.destroy(self){
+  end_mapping(self)
+  lib.wgpuBufferDestroy(self.handle)
+  check()
+}
+
+// a future (opened by open) of a copy of the buffer's bytes
+local func read_future(self, as_type, offset, size, open){
   offset = offset or 0
   size = size or (lib.wgpuBufferGetSize(self.handle) - offset)
   local device = self.device
@@ -1245,20 +1903,41 @@ func buffer_m.read(self, as_type, offset, size){
     device.queue:submit(encoder:finish())
     from = 0
   }
-  map_read(device, source, from, size)
-  local p = lib.wgpuBufferGetConstMappedRange(source.handle, from, size)
-  local copy = buffer_lib.wrap(p, size, "uint8_t"):copy()
-  lib.wgpuBufferUnmap(source.handle)
-  if(source != self){
-    lib.wgpuBufferDestroy(source.handle)
-  }
-  if(as_type != null and as_type != "uint8_t"){
-    return copy:cast(ffi.type(as_type, C))
-  }
-  return copy
+  local staged = source != self
+  return start_map(source, "read", from, size, open):then(func(_){
+    local copy = source:view("uint8_t", from, size):copy()
+    if(staged){
+      source:destroy()
+    } else {
+      source:unmap()
+    }
+    if(as_type != null and as_type != "uint8_t"){
+      return copy:cast(ffi.type(as_type, C))
+    }
+    return copy
+  })
 }
 
-// destroy(): frees the buffer's memory now; using it afterwards is an error
+// read(type?: string, offset?: int, size?: int) -> buffer.Buffer
+// The buffer's contents, after the work submitted so far: a slang/buffer
+// of type ("uint8_t" by default; "float", "uint32_t", ...), a copy. A
+// buffer without map_read usage is copied to one that has it first (it
+// needs copy_src). Waits for the GPU; [Buffer.read_async] does not.
+func buffer_m.read(self, as_type, offset, size){
+  return wait_for(
+    read_future(self, as_type, offset, size, open_request), self.device
+  )
+}
+
+// read_async(type?: string, offset?: int, size?: int) -> async.Future
+// [Buffer.read] without waiting: a future of the contents, for a program
+// that draws frames or runs other things meanwhile.
+//   local result = await data:read_async("float")
+func buffer_m.read_async(self, as_type, offset, size){
+  return attempt(func(){
+    return read_future(self, as_type, offset, size, request)
+  })
+}
 
 // ---- textures
 
@@ -1276,6 +1955,7 @@ func device_m.texture(self, options){
   local t = wrap(
     Texture,
     descriptor_call("wgpuDeviceCreateTexture")(self, options),
+    options,
   )
   if(t == null){
     check()
@@ -1296,7 +1976,7 @@ func texture_m.view(self, options){
     with_descriptor("wgpuTextureCreateView", 1, options, keep),
   )
   check()
-  return wrap(TextureView, v)
+  return wrap(TextureView, v, options)
 }
 
 // bytes per texel of the usual formats, for write's bytes_per_row
@@ -1384,6 +2064,7 @@ func device_m.sampler(self, options){
   return wrap(
     Sampler,
     descriptor_call("wgpuDeviceCreateSampler")(self, options),
+    options,
   )
 }
 
@@ -1412,7 +2093,42 @@ func device_m.shader(self, options){
     }, keep),
   )
   check()
-  return wrap(ShaderModule, m)
+  return wrap(ShaderModule, m, options)
+}
+
+// compilation_info() -> async.Future
+// Completes with what the compiler said about the module: a list of
+// {type, message, line_num, line_pos, offset, length}, type being "error",
+// "warning" or "info". Only a browser's WebGPU has it: with wgpu-native it
+// raises an error of kind unsupported (its errors raise from
+// [Device.shader], with the messages).
+func classes.ShaderModule.methods.compilation_info(self){
+  need("wgpuShaderModuleGetCompilationInfo")
+  return request(func(answer){
+    lib.wgpuShaderModuleGetCompilationInfo(self.handle, {
+      mode: spontaneous,
+      callback: func(status, info, u1, u2){
+        if(status != K.WGPUCompilationInfoRequestStatus_Success){
+          answer(null, gpu_error("internal", "no compilation info"))
+          return
+        }
+        // (the messages are WebGPU's only while the callback runs)
+        local list = {}
+        for(local i = 0; i < info.message_count; i = i + 1){
+          local m = info.messages[i]
+          append(list, {
+            type: enum_name("WGPUCompilationMessageType", m.type),
+            message: view_string(m.message),
+            line_num: m.line_num,
+            line_pos: m.line_pos,
+            offset: m.offset,
+            length: m.length,
+          })
+        }
+        answer(list)
+      },
+    })
+  })
 }
 
 local blend_presets = {
@@ -1446,6 +2162,39 @@ local func copy_table(t){
     out[e[0]] = e[1]
   }
   return out
+}
+
+// what render_pipeline makes of its options: the descriptor
+local func render_pipeline_desc(options){
+  local desc = copy_table(options)
+  local shader = desc.shader
+  desc.shader = null
+  desc.vertex = copy_table(desc.vertex or {})
+  if(desc.vertex.module == null){
+    desc.vertex.module = shader
+  }
+  if(desc.fragment != null){
+    desc.fragment = copy_table(desc.fragment)
+    if(desc.fragment.module == null){
+      desc.fragment.module = shader
+    }
+    local targets = {}
+    for(let local t in values(desc.fragment.targets or {})){
+      local target = copy_table(t)
+      if(type(target.blend) == "string"){
+        target.blend = blend_presets[target.blend]
+        if(target.blend == null){
+          raise(concat("gpu: no blend preset ", t.blend))
+        }
+      }
+      append(targets, target)
+    }
+    desc.fragment.targets = targets
+  }
+  if(desc.layout == "auto"){
+    desc.layout = null
+  }
+  return desc
 }
 
 // render_pipeline(options: RenderPipelineOptions) -> RenderPipeline
@@ -1486,36 +2235,67 @@ local func copy_table(t){
 // [multisample]: count, for a multisampled target
 // [layout]: "auto" (the default: from the shader) or a pipeline layout
 func device_m.render_pipeline(self, options){
-  local desc = copy_table(options)
-  local shader = desc.shader
-  desc.shader = null
-  desc.vertex = copy_table(desc.vertex or {})
-  if(desc.vertex.module == null){
-    desc.vertex.module = shader
+  local p = descriptor_call("wgpuDeviceCreateRenderPipeline")(
+    self, render_pipeline_desc(options)
+  )
+  return wrap(classes.RenderPipeline, p, options)
+}
+
+// a pipeline made without waiting: a future of it. wgpu-native makes
+// pipelines at once, so there the future is complete already
+local func pipeline_async(device, fname, cls, describe, now){
+  if(missing[fname]){
+    return attempt(func(){
+      return async.value(now())
+    })
   }
-  if(desc.fragment != null){
-    desc.fragment = copy_table(desc.fragment)
-    if(desc.fragment.module == null){
-      desc.fragment.module = shader
-    }
-    local targets = {}
-    for(let local t in values(desc.fragment.targets or {})){
-      local target = copy_table(t)
-      if(type(target.blend) == "string"){
-        target.blend = blend_presets[target.blend]
-        if(target.blend == null){
-          raise(concat("gpu: no blend preset ", t.blend))
+  return request(func(answer){
+    local keep = {}
+    lib[fname](device.handle, with_descriptor(fname, 1, describe(), keep), {
+      mode: spontaneous,
+      callback: func(status, pipeline, msg, u1, u2){
+        if(status == K.WGPUCreatePipelineAsyncStatus_Success){
+          answer(pipeline)
+        } else if(status == K.WGPUCreatePipelineAsyncStatus_ValidationError){
+          answer(null, gpu_error("validation", view_string(msg)))
+        } else {
+          answer(null, gpu_error("internal", view_string(msg)))
         }
-      }
-      append(targets, target)
-    }
-    desc.fragment.targets = targets
+      },
+    })
+  }):then(func(p){
+    return wrap(cls, p)
+  })
+}
+
+// render_pipeline_async(options: RenderPipelineOptions) -> async.Future
+// [Device.render_pipeline] without waiting for the shaders to compile: a
+// future of the pipeline, which fails with the error a mistake in options
+// would otherwise raise.
+func device_m.render_pipeline_async(self, options){
+  return pipeline_async(
+    self, "wgpuDeviceCreateRenderPipelineAsync", classes.RenderPipeline,
+    func(){
+      return render_pipeline_desc(options)
+    },
+    func(){
+      return self:render_pipeline(options)
+    },
+  )
+}
+
+// what compute_pipeline makes of its options: the descriptor
+local func compute_pipeline_desc(options){
+  local desc = copy_table(options)
+  desc.compute = copy_table(desc.compute or {})
+  if(desc.compute.module == null){
+    desc.compute.module = desc.shader
   }
+  desc.shader = null
   if(desc.layout == "auto"){
     desc.layout = null
   }
-  local p = descriptor_call("wgpuDeviceCreateRenderPipeline")(self, desc)
-  return wrap(classes.RenderPipeline, p)
+  return desc
 }
 
 // compute_pipeline(options: ComputePipelineOptions) -> ComputePipeline
@@ -1529,27 +2309,35 @@ func device_m.render_pipeline(self, options){
 //   than one compute function
 // [layout]: "auto" (the default: from the shader) or a pipeline layout
 func device_m.compute_pipeline(self, options){
-  local desc = copy_table(options)
-  desc.compute = copy_table(desc.compute or {})
-  if(desc.compute.module == null){
-    desc.compute.module = desc.shader
-  }
-  desc.shader = null
-  if(desc.layout == "auto"){
-    desc.layout = null
-  }
-  local p = descriptor_call("wgpuDeviceCreateComputePipeline")(self, desc)
-  return wrap(classes.ComputePipeline, p)
+  local p = descriptor_call("wgpuDeviceCreateComputePipeline")(
+    self, compute_pipeline_desc(options)
+  )
+  return wrap(classes.ComputePipeline, p, options)
+}
+
+// compute_pipeline_async(options: ComputePipelineOptions) -> async.Future
+// [Device.compute_pipeline] without waiting for the shader to compile: a
+// future of the pipeline.
+func device_m.compute_pipeline_async(self, options){
+  return pipeline_async(
+    self, "wgpuDeviceCreateComputePipelineAsync", classes.ComputePipeline,
+    func(){
+      return compute_pipeline_desc(options)
+    },
+    func(){
+      return self:compute_pipeline(options)
+    },
+  )
 }
 
 // bind_group(options: BindGroupOptions) -> BindGroup
 // Resources bound together for shaders' @group.
-//   device:bind_group({layout: pipeline:get_bind_group_layout(0),
+//   device:bind_group({layout: pipeline:bind_group_layout(0),
 //     entries: {{binding: 0, resource: uniforms}, {binding: 1, resource: sampler}}})
 // type BindGroupOptions = {layout: BindGroupLayout,
 //   entries: {BindGroupBinding}, label?: string}
 // [layout]: what the group binds, usually a pipeline's
-//   get_bind_group_layout(group)
+//   bind_group_layout(group)
 // type BindGroupBinding = {binding: int, resource: Buffer | Texture |
 //   TextureView | Sampler | {buffer: Buffer, offset?: int, size?: int}}
 // [binding]: the shader's @binding
@@ -1591,16 +2379,18 @@ func device_m.bind_group(self, options){
   return wrap(
     classes.BindGroup,
     descriptor_call("wgpuDeviceCreateBindGroup")(self, desc),
+    options,
   )
 }
 
 // bind_group_layout(options: BindGroupLayoutDescriptor) -> BindGroupLayout
 // A bind group layout made by hand (pipelines with layout "auto" make
-// theirs: pipeline:get_bind_group_layout(i)).
+// theirs: pipeline:bind_group_layout(i)).
 func device_m.bind_group_layout(self, options){
   return wrap(
     classes.BindGroupLayout,
     descriptor_call("wgpuDeviceCreateBindGroupLayout")(self, options),
+    options,
   )
 }
 
@@ -1610,6 +2400,7 @@ func device_m.pipeline_layout(self, options){
   return wrap(
     classes.PipelineLayout,
     descriptor_call("wgpuDeviceCreatePipelineLayout")(self, options),
+    options,
   )
 }
 
@@ -1624,7 +2415,7 @@ func device_m.encoder(self, label){
     "wgpuDeviceCreateCommandEncoder", 1, {label: label}, keep
   ))
   check()
-  local enc = wrap(CommandEncoder, e)
+  local enc = wrap(CommandEncoder, e, {label: label})
   enc.device = self
   return enc
 }
@@ -1684,7 +2475,7 @@ func encoder_m.render_pass(self, options){
     "wgpuCommandEncoderBeginRenderPass", 1, desc, keep
   ))
   check()
-  return wrap(RenderPassEncoder, p)
+  return wrap(RenderPassEncoder, p, options)
 }
 
 // compute_pass(label?: string) -> ComputePassEncoder
@@ -1695,7 +2486,7 @@ func encoder_m.compute_pass(self, label){
     "wgpuCommandEncoderBeginComputePass", 1, {label: label}, keep
   ))
   check()
-  return wrap(ComputePassEncoder, p)
+  return wrap(ComputePassEncoder, p, {label: label})
 }
 
 // finish(label?: string) -> CommandBuffer
@@ -1706,7 +2497,7 @@ func encoder_m.finish(self, label){
     "wgpuCommandEncoderFinish", 1, {label: label}, keep
   ))
   check()
-  return wrap(classes.CommandBuffer, b)
+  return wrap(classes.CommandBuffer, b, {label: label})
 }
 
 // the per-draw calls, direct
@@ -2026,9 +2817,14 @@ func surface_m.present(self){
     release_now(self.current)
     self.current = null
   }
+  // and what the GPU has answered meanwhile completes its futures
   if(web != null){
     web.frame()
-    lib.wgpuInstanceProcessEvents(the_instance().handle)
+    process_events()
+  } else if(in_flight > 0){
+    process_events()
+  } else {
+    settle_answers()
   }
 }
 
@@ -2047,8 +2843,9 @@ func gpu.version(){
   )
 }
 
-// classes by name, for code that checks what a value is
-// (v.@meta == gpu.classes.Buffer.meta)
+// The classes by name, with what was made of the header for each
+// (members): for tool/gen_stubs.slang. A program tells what a value is by
+// type(v), "gpu.Buffer".
 gpu.classes = classes
 
 return gpu

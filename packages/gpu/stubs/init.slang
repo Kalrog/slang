@@ -17,7 +17,7 @@
 //   local encoder = device:encoder()
 //   local pass = encoder:compute_pass()
 //   pass:set_pipeline(pipeline)
-//   pass:set_bind_group(0, device:bind_group({layout: pipeline:get_bind_group_layout(0),
+//   pass:set_bind_group(0, device:bind_group({layout: pipeline:bind_group_layout(0),
 //     entries: {{binding: 0, resource: data}}}))
 //   pass:dispatch_workgroups(1)
 //   pass:finish()
@@ -37,6 +37,13 @@
 // [c] holds every webgpu.h and wgpu.h function and constant under its C
 // name. GPU_WGPU names another wgpu-native library (a file path).
 //
+// What the GPU answers later is a slang/async Future: [Buffer.map] (a
+// view of the buffer's memory), [Buffer.read_async], [Queue.work_done],
+// [Device.pop_error_scope]. They are awaited under async.main; a program
+// that draws frames gets the answers with [Surface.present] and
+// [Device.poll]. [device], [Buffer.read] and device:poll(true) wait where
+// they are called.
+//
 // In a browser (slang's graphics VM, `make wasm-gfx`) the same API runs on
 // the browser's own WebGPU, through Dawn's webgpu.h for Emscripten, which
 // is linked into that VM. What differs there:
@@ -45,7 +52,8 @@
 // - The browser shows a frame when the program hands it control:
 //   [Surface.present] does (slang/web's frame()), and so does everything
 //   that waits for the GPU (a device, [Buffer.read]). So these are called
-//   from the program itself, not from a coroutine it made.
+//   from the program itself, not from a coroutine it made. Futures are
+//   awaited as anywhere: slang/async runs on the page's frames there.
 // - A validation error is the browser's to report, and it does so later:
 //   it raises at a later call than the one that caused it.
 //   device:poll(true) waits for the browser, and so raises what went
@@ -102,8 +110,9 @@ func m.canvas(selector){}
 // browser's own.
 func m.version(){}
 
-// classes by name, for code that checks what a value is
-// (v.@meta == gpu.classes.Buffer.meta)
+// The classes by name, with what was made of the header for each
+// (members): for tool/gen_stubs.slang. A program tells what a value is by
+// type(v), "gpu.Buffer".
 m.classes = {}
 
 // ------------------------------------------------------------ types
@@ -112,10 +121,6 @@ m.classes = {}
 // method, one is an option table: every field may be left out (WebGPU's
 // default applies), enums are names, flags names joined by | or lists.
 
-// type SurfaceDescriptor = {label?: string}
-
-// type InstanceEnumerateAdapterOptions = {backends?: int}
-
 // type SupportedWGSLLanguageFeatures = {features: {string}}
 // [features]: "readonly_and_readwrite_storage_textures",
 //   "packed4x8_integer_dot_product", "unrestricted_pointer_parameters",
@@ -123,21 +128,7 @@ m.classes = {}
 //   "subgroup_id", "texture_and_sampler_let", "subgroup_uniformity",
 //   "texture_formats_tier1", "linear_indexing"
 
-// type RequestAdapterOptions = {feature_level?: string, power_preference?:
-//   string, force_fallback_adapter?: bool, backend_type?: string,
-//   compatible_surface?: Surface}
-// [feature_level]: "compatibility", "core"
-// [power_preference]: "low_power", "high_performance"
-// [backend_type]: "null", "web_gpu", "d3d11", "d3d12", "metal", "vulkan",
-//   "open_gl", "open_gles"
-
-// type RequestAdapterCallbackInfo = {mode?: string, callback?: any, userdata1?:
-//   any, userdata2?: any}
-// [mode]: "wait_any_only", "allow_process_events", "allow_spontaneous"
-
-// type Future = {id?: int}
-
-// type FutureWaitInfo = {future?: Future, completed?: bool}
+// type InstanceEnumerateAdapterOptions = {backends?: int}
 
 // type SupportedFeatures = {features: {string}}
 // [features]: "core_features_and_limits", "depth_clip_control",
@@ -174,30 +165,6 @@ m.classes = {}
 //   int, max_compute_workgroup_size_y: int, max_compute_workgroup_size_z: int,
 //   max_compute_workgroups_per_dimension: int, max_immediate_size: int}
 
-// type BindGroupDescriptor = {label?: string, layout?: BindGroupLayout,
-//   entries?: {BindGroupEntry}}
-
-// type BindGroupLayoutDescriptor = {label?: string, entries?:
-//   {BindGroupLayoutEntry}}
-
-// type BufferDescriptor = {label?: string, usage?: string | {string} | int,
-//   size?: int, mapped_at_creation?: bool}
-// [usage]: any of "map_read", "map_write", "copy_src", "copy_dst", "index",
-//   "vertex", "uniform", "storage", "indirect", "query_resolve", joined by | or
-//   as a list
-
-// type CommandEncoderDescriptor = {label?: string}
-
-// type ComputePipelineDescriptor = {label?: string, layout?: PipelineLayout,
-//   compute?: ComputeState}
-
-// type CreateComputePipelineAsyncCallbackInfo = {mode?: string, callback?: any,
-//   userdata1?: any, userdata2?: any}
-// [mode]: "wait_any_only", "allow_process_events", "allow_spontaneous"
-
-// type PipelineLayoutDescriptor = {label?: string, bind_group_layouts?:
-//   {BindGroupLayout}, immediate_size?: int}
-
 // type QuerySetDescriptor = {label?: string, type?: string, count?: int}
 // [type]: "occlusion", "timestamp"
 
@@ -211,92 +178,10 @@ m.classes = {}
 //   "r16_unorm", "r16_snorm", "r16_uint", "r16_sint", ...
 //   (gpu.enums.texture_format lists all 101)
 
-// type RenderPipelineDescriptor = {label?: string, layout?: PipelineLayout,
-//   vertex?: VertexState, primitive?: PrimitiveState, depth_stencil?:
-//   DepthStencilState, multisample?: MultisampleState, fragment?:
-//   FragmentState}
-
-// type CreateRenderPipelineAsyncCallbackInfo = {mode?: string, callback?: any,
-//   userdata1?: any, userdata2?: any}
-// [mode]: "wait_any_only", "allow_process_events", "allow_spontaneous"
-
-// type SamplerDescriptor = {label?: string, address_mode_u?: string,
-//   address_mode_v?: string, address_mode_w?: string, mag_filter?: string,
-//   min_filter?: string, mipmap_filter?: string, lod_min_clamp?: float,
-//   lod_max_clamp?: float, compare?: string, max_anisotropy?: int}
-// [address_mode_u]: "clamp_to_edge", "repeat", "mirror_repeat"
-// [address_mode_v]: "clamp_to_edge", "repeat", "mirror_repeat"
-// [address_mode_w]: "clamp_to_edge", "repeat", "mirror_repeat"
-// [mag_filter]: "nearest", "linear"
-// [min_filter]: "nearest", "linear"
-// [mipmap_filter]: "nearest", "linear"
-// [compare]: "never", "less", "equal", "less_equal", "greater", "not_equal",
-//   "greater_equal", "always"
-
-// type ShaderModuleDescriptor = {label?: string}
-
 // type ShaderModuleDescriptorSpirV = {label?: string, source_size?: int,
 //   source?: {int}}
 
-// type TextureDescriptor = {label?: string, usage?: string | {string} | int,
-//   dimension?: string, size?: Extent3D, format?: string, mip_level_count?:
-//   int, sample_count?: int, view_formats?: {string}}
-// [usage]: any of "copy_src", "copy_dst", "texture_binding", "storage_binding",
-//   "render_attachment", "transient_attachment", joined by | or as a list
-// [dimension]: "1d", "2d", "3d"
-// [format]: "r8_unorm", "r8_snorm", "r8_uint", "r8_sint", "r16_unorm",
-//   "r16_snorm", "r16_uint", "r16_sint", ... (gpu.enums.texture_format lists
-//   all 101)
-// [view_formats]: "r8_unorm", "r8_snorm", "r8_uint", "r8_sint", "r16_unorm",
-//   "r16_snorm", "r16_uint", "r16_sint", ... (gpu.enums.texture_format lists
-//   all 101)
-
-// type PopErrorScopeCallbackInfo = {mode?: string, callback?: any, userdata1?:
-//   any, userdata2?: any}
-// [mode]: "wait_any_only", "allow_process_events", "allow_spontaneous"
-
-// type QueueWorkDoneCallbackInfo = {mode?: string, callback?: any, userdata1?:
-//   any, userdata2?: any}
-// [mode]: "wait_any_only", "allow_process_events", "allow_spontaneous"
-
-// type TexelCopyTextureInfo = {texture?: Texture, mip_level?: int, origin?:
-//   Origin3D, aspect?: string}
-// [aspect]: "all", "stencil_only", "depth_only"
-
-// type TexelCopyBufferLayout = {offset?: int, bytes_per_row?: int,
-//   rows_per_image?: int}
-
-// Also a list: {width, height, depth_or_array_layers}, the last two 1 when left
-// out.
-// type Extent3D = {width?: int, height?: int, depth_or_array_layers?: int}
-
-// type BufferMapCallbackInfo = {mode?: string, callback?: any, userdata1?: any,
-//   userdata2?: any}
-// [mode]: "wait_any_only", "allow_process_events", "allow_spontaneous"
-
-// type TextureViewDescriptor = {label?: string, format?: string, dimension?:
-//   string, base_mip_level?: int, mip_level_count?: int, base_array_layer?:
-//   int, array_layer_count?: int, aspect?: string, usage?: string | {string} |
-//   int}
-// [format]: "r8_unorm", "r8_snorm", "r8_uint", "r8_sint", "r16_unorm",
-//   "r16_snorm", "r16_uint", "r16_sint", ... (gpu.enums.texture_format lists
-//   all 101)
-// [dimension]: "1d", "2d", "2d_array", "cube", "cube_array", "3d"
-// [aspect]: "all", "stencil_only", "depth_only"
-// [usage]: any of "copy_src", "copy_dst", "texture_binding", "storage_binding",
-//   "render_attachment", "transient_attachment", joined by | or as a list
-
-// type CompilationInfoCallbackInfo = {mode?: string, callback?: any,
-//   userdata1?: any, userdata2?: any}
-// [mode]: "wait_any_only", "allow_process_events", "allow_spontaneous"
-
-// type ComputePassDescriptor = {label?: string, timestamp_writes?:
-//   PassTimestampWrites}
-
-// type RenderPassDescriptor = {label?: string, color_attachments?:
-//   {RenderPassColorAttachment}, depth_stencil_attachment?:
-//   RenderPassDepthStencilAttachment, occlusion_query_set?: QuerySet,
-//   timestamp_writes?: PassTimestampWrites}
+// type ShaderModuleDescriptor = {label?: string}
 
 // type ImageSubresourceRange = {aspect?: string, base_mip_level?: int,
 //   mip_level_count?: int, base_array_layer?: int, array_layer_count?: int}
@@ -304,24 +189,16 @@ m.classes = {}
 
 // type TexelCopyBufferInfo = {layout?: TexelCopyBufferLayout, buffer?: Buffer}
 
+// type TexelCopyTextureInfo = {texture?: Texture, mip_level?: int, origin?:
+//   Origin3D, aspect?: string}
+// [aspect]: "all", "stencil_only", "depth_only"
+
+// Also a list: {width, height, depth_or_array_layers}, the last two 1 when left
+// out.
+// type Extent3D = {width?: int, height?: int, depth_or_array_layers?: int}
+
 // Also a list: {r, g, b, a}, a 1 when left out.
 // type Color = {r?: float, g?: float, b?: float, a?: float}
-
-// type SurfaceCapabilities = {usages?: string | {string} | int, formats?:
-//   {string}, present_modes?: {string}, alpha_modes?: {string}}
-// [usages]: any of "copy_src", "copy_dst", "texture_binding",
-//   "storage_binding", "render_attachment", "transient_attachment", joined by |
-//   or as a list
-// [formats]: "r8_unorm", "r8_snorm", "r8_uint", "r8_sint", "r16_unorm",
-//   "r16_snorm", "r16_uint", "r16_sint", ... (gpu.enums.texture_format lists
-//   all 101)
-// [present_modes]: "fifo", "fifo_relaxed", "immediate", "mailbox"
-// [alpha_modes]: "auto", "opaque", "premultiplied", "unpremultiplied",
-//   "inherit"
-
-// type SurfaceTexture = {texture: Texture, status: string}
-// [status]: "success_optimal", "success_suboptimal", "timeout", "outdated",
-//   "lost", "error", "occluded"
 
 // type RenderBundleDescriptor = {label?: string}
 
@@ -332,128 +209,11 @@ m.classes = {}
 //   "surface_source_wayland_surface", "surface_source_android_native_window",
 //   ... (gpu.enums.s_type lists all 27)
 
-// type BindGroupEntry = {binding?: int, buffer?: Buffer, offset?: int, size?:
-//   int, sampler?: Sampler, texture_view?: TextureView}
-
-// type BindGroupLayoutEntry = {binding?: int, visibility?: string | {string} |
-//   int, binding_array_size?: int, buffer?: BufferBindingLayout, sampler?:
-//   SamplerBindingLayout, texture?: TextureBindingLayout, storage_texture?:
-//   StorageTextureBindingLayout}
-// [visibility]: any of "vertex", "fragment", "compute", joined by | or as a
-//   list
-
-// type ComputeState = {module?: ShaderModule, entry_point?: string, constants?:
-//   {ConstantEntry}}
-
-// type VertexState = {module?: ShaderModule, entry_point?: string, constants?:
-//   {ConstantEntry}, buffers?: {VertexBufferLayout}}
-
-// type PrimitiveState = {topology?: string, strip_index_format?: string,
-//   front_face?: string, cull_mode?: string, unclipped_depth?: bool}
-// [topology]: "point_list", "line_list", "line_strip", "triangle_list",
-//   "triangle_strip"
-// [strip_index_format]: "uint16", "uint32"
-// [front_face]: "ccw", "cw"
-// [cull_mode]: "none", "front", "back"
-
-// type DepthStencilState = {format?: string, depth_write_enabled?: bool,
-//   depth_compare?: string, stencil_front?: StencilFaceState, stencil_back?:
-//   StencilFaceState, stencil_read_mask?: int, stencil_write_mask?: int,
-//   depth_bias?: int, depth_bias_slope_scale?: float, depth_bias_clamp?: float}
-// [format]: "r8_unorm", "r8_snorm", "r8_uint", "r8_sint", "r16_unorm",
-//   "r16_snorm", "r16_uint", "r16_sint", ... (gpu.enums.texture_format lists
-//   all 101)
-// [depth_compare]: "never", "less", "equal", "less_equal", "greater",
-//   "not_equal", "greater_equal", "always"
-
-// type MultisampleState = {count?: int, mask?: int, alpha_to_coverage_enabled?:
-//   bool}
-
-// type FragmentState = {module?: ShaderModule, entry_point?: string,
-//   constants?: {ConstantEntry}, targets?: {ColorTargetState}}
+// type TexelCopyBufferLayout = {offset?: int, bytes_per_row?: int,
+//   rows_per_image?: int}
 
 // Also a list: {x, y, z}, 0 for what is left out.
 // type Origin3D = {x?: int, y?: int, z?: int}
-
-// type PassTimestampWrites = {query_set?: QuerySet,
-//   beginning_of_pass_write_index?: int, end_of_pass_write_index?: int}
-
-// type RenderPassColorAttachment = {view?: TextureView, depth_slice?: int,
-//   resolve_target?: TextureView, load_op?: string, store_op?: string,
-//   clear_value?: Color}
-// [load_op]: "load", "clear"
-// [store_op]: "store", "discard"
-
-// type RenderPassDepthStencilAttachment = {view?: TextureView, depth_load_op?:
-//   string, depth_store_op?: string, depth_clear_value?: float,
-//   depth_read_only?: bool, stencil_load_op?: string, stencil_store_op?:
-//   string, stencil_clear_value?: int, stencil_read_only?: bool}
-// [depth_load_op]: "load", "clear"
-// [depth_store_op]: "store", "discard"
-// [stencil_load_op]: "load", "clear"
-// [stencil_store_op]: "store", "discard"
-
-// type BufferBindingLayout = {type?: string, has_dynamic_offset?: bool,
-//   min_binding_size?: int}
-// [type]: "binding_not_used", "uniform", "storage", "read_only_storage"
-
-// type SamplerBindingLayout = {type?: string}
-// [type]: "binding_not_used", "filtering", "non_filtering", "comparison"
-
-// type TextureBindingLayout = {sample_type?: string, view_dimension?: string,
-//   multisampled?: bool}
-// [sample_type]: "binding_not_used", "float", "unfilterable_float", "depth",
-//   "sint", "uint"
-// [view_dimension]: "1d", "2d", "2d_array", "cube", "cube_array", "3d"
-
-// type StorageTextureBindingLayout = {access?: string, format?: string,
-//   view_dimension?: string}
-// [access]: "binding_not_used", "write_only", "read_only", "read_write"
-// [format]: "r8_unorm", "r8_snorm", "r8_uint", "r8_sint", "r16_unorm",
-//   "r16_snorm", "r16_uint", "r16_sint", ... (gpu.enums.texture_format lists
-//   all 101)
-// [view_dimension]: "1d", "2d", "2d_array", "cube", "cube_array", "3d"
-
-// type ConstantEntry = {key?: string, value?: float}
-
-// type VertexBufferLayout = {step_mode?: string, array_stride?: int,
-//   attributes?: {VertexAttribute}}
-// [step_mode]: "vertex", "instance"
-
-// type StencilFaceState = {compare?: string, fail_op?: string, depth_fail_op?:
-//   string, pass_op?: string}
-// [compare]: "never", "less", "equal", "less_equal", "greater", "not_equal",
-//   "greater_equal", "always"
-// [fail_op]: "keep", "zero", "replace", "invert", "increment_clamp",
-//   "decrement_clamp", "increment_wrap", "decrement_wrap"
-// [depth_fail_op]: "keep", "zero", "replace", "invert", "increment_clamp",
-//   "decrement_clamp", "increment_wrap", "decrement_wrap"
-// [pass_op]: "keep", "zero", "replace", "invert", "increment_clamp",
-//   "decrement_clamp", "increment_wrap", "decrement_wrap"
-
-// type ColorTargetState = {format?: string, blend?: BlendState, write_mask?:
-//   string | {string} | int}
-// [format]: "r8_unorm", "r8_snorm", "r8_uint", "r8_sint", "r16_unorm",
-//   "r16_snorm", "r16_uint", "r16_sint", ... (gpu.enums.texture_format lists
-//   all 101)
-// [write_mask]: any of "red", "green", "blue", "alpha", "all", joined by | or
-//   as a list
-
-// type VertexAttribute = {format?: string, offset?: int, shader_location?: int}
-// [format]: "uint8", "uint8x2", "uint8x4", "sint8", "sint8x2", "sint8x4",
-//   "unorm8", "unorm8x2", ... (gpu.enums.vertex_format lists all 41)
-
-// type BlendState = {color?: BlendComponent, alpha?: BlendComponent}
-
-// type BlendComponent = {operation?: string, src_factor?: string, dst_factor?:
-//   string}
-// [operation]: "add", "subtract", "reverse_subtract", "min", "max"
-// [src_factor]: "zero", "one", "src", "one_minus_src", "src_alpha",
-//   "one_minus_src_alpha", "dst", "one_minus_dst", ... (gpu.enums.blend_factor
-//   lists all 17)
-// [dst_factor]: "zero", "one", "src", "one_minus_src", "src_alpha",
-//   "one_minus_src_alpha", "dst", "one_minus_dst", ... (gpu.enums.blend_factor
-//   lists all 17)
 
 // ------------------------------------------------------------ Instance
 
@@ -462,8 +222,9 @@ local instance_get = {}
 local instance_set = {}
 
 // WebGPU's Instance (WGPUInstance); type() of it is "gpu.Instance". Its methods
-// are webgpu.h's functions without the wgpuInstance prefix, in snake_case; it
-// is released when nothing refers to it.
+// are webgpu.h's functions without the wgpuInstance prefix, in snake_case
+// (create_x is x, and so is a get_x that takes arguments); it is released when
+// nothing refers to it.
 // type Instance
 // [handle]: the WGPUInstance pointer, for gpu.c
 local instance_meta = {__type: "gpu.Instance", __index: instance_methods, __get: instance_get, __set: instance_set}
@@ -471,12 +232,8 @@ local instance_meta = {__type: "gpu.Instance", __index: instance_methods, __get:
 // wgsl_language_features(self) -> SupportedWGSLLanguageFeatures
 // C: `void wgpuInstanceGetWGSLLanguageFeatures(WGPUInstance instance,
 // WGPUSupportedWGSLLanguageFeatures * features)`
+// Not in wgpu-native: there it raises an error of kind unsupported.
 func instance_get.wgsl_language_features(self){}
-
-// create_surface(descriptor: SurfaceDescriptor) -> Surface
-// C: `WGPUSurface wgpuInstanceCreateSurface(WGPUInstance instance,
-// WGPUSurfaceDescriptor const * descriptor)`
-func instance_methods.create_surface(self, descriptor){}
 
 // enumerate_adapters(options: InstanceEnumerateAdapterOptions, adapters:
 //   {Adapter}) -> int
@@ -487,29 +244,13 @@ func instance_methods.enumerate_adapters(self, options, adapters){}
 // has_wgsl_language_feature(feature: string) -> bool
 // C: `WGPUBool wgpuInstanceHasWGSLLanguageFeature(WGPUInstance instance,
 // WGPUWGSLLanguageFeatureName feature)`
+// Not in wgpu-native: there it raises an error of kind unsupported.
 // [feature]: "readonly_and_readwrite_storage_textures",
 //   "packed4x8_integer_dot_product", "unrestricted_pointer_parameters",
 //   "pointer_composite_access", "uniform_buffer_standard_layout",
 //   "subgroup_id", "texture_and_sampler_let", "subgroup_uniformity",
 //   "texture_formats_tier1", "linear_indexing"
 func instance_methods.has_wgsl_language_feature(self, feature){}
-
-// process_events()
-// C: `void wgpuInstanceProcessEvents(WGPUInstance instance)`
-func instance_methods.process_events(self){}
-
-// request_adapter(options: RequestAdapterOptions, callback_info:
-//   RequestAdapterCallbackInfo) -> Future
-// C: `WGPUFuture wgpuInstanceRequestAdapter(WGPUInstance instance,
-// WGPURequestAdapterOptions const * options, WGPURequestAdapterCallbackInfo
-// callbackInfo)`
-func instance_methods.request_adapter(self, options, callback_info){}
-
-// wait_any(future_count: int, futures: FutureWaitInfo, timeout_ns: int) ->
-//   string
-// C: `WGPUWaitStatus wgpuInstanceWaitAny(WGPUInstance instance, size_t
-// futureCount, WGPUFutureWaitInfo * futures, uint64_t timeoutNS)`
-func instance_methods.wait_any(self, future_count, futures, timeout_ns){}
 
 // ------------------------------------------------------------ Adapter
 
@@ -518,8 +259,9 @@ local adapter_get = {}
 local adapter_set = {}
 
 // WebGPU's Adapter (WGPUAdapter); type() of it is "gpu.Adapter". Its methods
-// are webgpu.h's functions without the wgpuAdapter prefix, in snake_case; it is
-// released when nothing refers to it.
+// are webgpu.h's functions without the wgpuAdapter prefix, in snake_case
+// (create_x is x, and so is a get_x that takes arguments); it is released when
+// nothing refers to it.
 // type Adapter
 // [handle]: the WGPUAdapter pointer, for gpu.c
 local adapter_meta = {__type: "gpu.Adapter", __index: adapter_methods, __get: adapter_get, __set: adapter_set}
@@ -533,9 +275,9 @@ func adapter_methods.request_device(self, options){}
 // backend_type, adapter_type, vendor_id, device_id}.
 func adapter_get.info(self){}
 
-// features(self) -> SupportedFeatures
-// C: `void wgpuAdapterGetFeatures(WGPUAdapter adapter, WGPUSupportedFeatures *
-// features)`
+// features(self) -> {string}
+// The features the adapter offers, by name: what a device's
+// required_features may ask for.
 func adapter_get.features(self){}
 
 // limits(self) -> Limits
@@ -560,16 +302,30 @@ local device_get = {}
 local device_set = {}
 
 // WebGPU's Device (WGPUDevice); type() of it is "gpu.Device". Its methods are
-// webgpu.h's functions without the wgpuDevice prefix, in snake_case; it is
-// released when nothing refers to it.
+// webgpu.h's functions without the wgpuDevice prefix, in snake_case (create_x
+// is x, and so is a get_x that takes arguments); it is released when nothing
+// refers to it.
 // type Device
 // [handle]: the WGPUDevice pointer, for gpu.c
 local device_meta = {__type: "gpu.Device", __index: device_methods, __get: device_get, __set: device_set}
 
 // poll(wait?: bool) -> bool
-// Runs the callbacks of finished work; with wait, waits for all submitted
-// work first. Returns whether the queue is empty.
+// Runs the callbacks of finished work, which completes the futures the
+// package handed out ([Buffer.map], [Queue.work_done]); with wait, waits
+// for all submitted work first. Returns whether the queue is empty. A
+// program under slang/async's main need not call it: the futures complete
+// from its loop.
 func device_methods.poll(self, wait){}
+
+// pop_error_scope() -> async.Future
+// Ends the error scope push_error_scope(filter) began: completes with the
+// first error of the scope's kind raised inside it (an error of kind
+// "validation", "out_of_memory" or "internal", not raised), or with null
+// when there was none. Errors a scope catches do not raise.
+//   device:push_error_scope("validation")
+//   device:buffer({size: 4, usage: "map_read|storage"})
+//   local e = await device:pop_error_scope()      // e.kind == "validation"
+func device_methods.pop_error_scope(self){}
 
 // buffer(options: BufferOptions) -> Buffer
 // A buffer on the GPU.
@@ -582,6 +338,8 @@ func device_methods.poll(self, wait){}
 //   index, vertex, uniform, storage, indirect, query_resolve
 // [contents]: data written into it at once: a slang/buffer, a string, or a
 //   list of numbers (32-bit floats, or of [type]); size and copy_dst follow
+// [mapped_at_creation]: the buffer starts mapped for writing, whatever its
+//   usage: fill its [Buffer.view], then [Buffer.unmap]
 func device_methods.buffer(self, options){}
 
 // texture(options: TextureOptions) -> Texture
@@ -646,6 +404,12 @@ func device_methods.shader(self, options){}
 // [layout]: "auto" (the default: from the shader) or a pipeline layout
 func device_methods.render_pipeline(self, options){}
 
+// render_pipeline_async(options: RenderPipelineOptions) -> async.Future
+// [Device.render_pipeline] without waiting for the shaders to compile: a
+// future of the pipeline, which fails with the error a mistake in options
+// would otherwise raise.
+func device_methods.render_pipeline_async(self, options){}
+
 // compute_pipeline(options: ComputePipelineOptions) -> ComputePipeline
 // A compute shader's entry point, ready to dispatch.
 //   device:compute_pipeline({compute: {module: shader, entry_point: "main"}})
@@ -658,14 +422,19 @@ func device_methods.render_pipeline(self, options){}
 // [layout]: "auto" (the default: from the shader) or a pipeline layout
 func device_methods.compute_pipeline(self, options){}
 
+// compute_pipeline_async(options: ComputePipelineOptions) -> async.Future
+// [Device.compute_pipeline] without waiting for the shader to compile: a
+// future of the pipeline.
+func device_methods.compute_pipeline_async(self, options){}
+
 // bind_group(options: BindGroupOptions) -> BindGroup
 // Resources bound together for shaders' @group.
-//   device:bind_group({layout: pipeline:get_bind_group_layout(0),
+//   device:bind_group({layout: pipeline:bind_group_layout(0),
 //     entries: {{binding: 0, resource: uniforms}, {binding: 1, resource: sampler}}})
 // type BindGroupOptions = {layout: BindGroupLayout,
 //   entries: {BindGroupBinding}, label?: string}
 // [layout]: what the group binds, usually a pipeline's
-//   get_bind_group_layout(group)
+//   bind_group_layout(group)
 // type BindGroupBinding = {binding: int, resource: Buffer | Texture |
 //   TextureView | Sampler | {buffer: Buffer, offset?: int, size?: int}}
 // [binding]: the shader's @binding
@@ -675,7 +444,7 @@ func device_methods.bind_group(self, options){}
 
 // bind_group_layout(options: BindGroupLayoutDescriptor) -> BindGroupLayout
 // A bind group layout made by hand (pipelines with layout "auto" make
-// theirs: pipeline:get_bind_group_layout(i)).
+// theirs: pipeline:bind_group_layout(i)).
 func device_methods.bind_group_layout(self, options){}
 
 // pipeline_layout(options: {bind_group_layouts: {BindGroupLayout}}) -> PipelineLayout
@@ -710,122 +479,28 @@ func device_get.queue(self){}
 // The features the device has, by name.
 func device_get.features(self){}
 
-// adapter_info(self) -> AdapterInfo
-// C: `WGPUStatus wgpuDeviceGetAdapterInfo(WGPUDevice device, WGPUAdapterInfo *
-// adapterInfo)`
-func device_get.adapter_info(self){}
+// lost(self) -> async.Future
+// Completes with {reason, message} when the device is lost (the GPU went
+// away, the driver failed): not when it is destroyed or no longer used.
+// From then on its calls raise errors of kind "device_lost".
+func device_get.lost(self){}
 
 // limits(self) -> Limits
 // C: `WGPUStatus wgpuDeviceGetLimits(WGPUDevice device, WGPULimits * limits)`
 func device_get.limits(self){}
 
-// lost_future(self) -> Future
-// C: `WGPUFuture wgpuDeviceGetLostFuture(WGPUDevice device)`
-func device_get.lost_future(self){}
-
 // native_metal_device(self) -> any
 // C: `void * wgpuDeviceGetNativeMetalDevice(struct WGPUDeviceImpl * device)`
 func device_get.native_metal_device(self){}
 
+// label(self) -> string?
+// The object's name in error messages and debuggers: what it was made with or
+// last set to.
+func device_get.label(self){}
+
 // label(self, v: string)
 // C: `void wgpuDeviceSetLabel(WGPUDevice device, WGPUStringView label)`
 func device_set.label(self, v){}
-
-// create_bind_group(descriptor: BindGroupDescriptor) -> BindGroup
-// C: `WGPUBindGroup wgpuDeviceCreateBindGroup(WGPUDevice device,
-// WGPUBindGroupDescriptor const * descriptor)`
-func device_methods.create_bind_group(self, descriptor){}
-
-// create_bind_group_layout(descriptor: BindGroupLayoutDescriptor) ->
-//   BindGroupLayout
-// C: `WGPUBindGroupLayout wgpuDeviceCreateBindGroupLayout(WGPUDevice device,
-// WGPUBindGroupLayoutDescriptor const * descriptor)`
-func device_methods.create_bind_group_layout(self, descriptor){}
-
-// create_buffer(descriptor: BufferDescriptor) -> Buffer
-// C: `WGPUBuffer wgpuDeviceCreateBuffer(WGPUDevice device, WGPUBufferDescriptor
-// const * descriptor)`
-func device_methods.create_buffer(self, descriptor){}
-
-// create_command_encoder(descriptor: CommandEncoderDescriptor) ->
-//   CommandEncoder
-// C: `WGPUCommandEncoder wgpuDeviceCreateCommandEncoder(WGPUDevice device,
-// WGPUCommandEncoderDescriptor const * descriptor)`
-func device_methods.create_command_encoder(self, descriptor){}
-
-// create_compute_pipeline(descriptor: ComputePipelineDescriptor) ->
-//   ComputePipeline
-// C: `WGPUComputePipeline wgpuDeviceCreateComputePipeline(WGPUDevice device,
-// WGPUComputePipelineDescriptor const * descriptor)`
-func device_methods.create_compute_pipeline(self, descriptor){}
-
-// create_compute_pipeline_async(descriptor: ComputePipelineDescriptor,
-//   callback_info: CreateComputePipelineAsyncCallbackInfo) -> Future
-// C: `WGPUFuture wgpuDeviceCreateComputePipelineAsync(WGPUDevice device,
-// WGPUComputePipelineDescriptor const * descriptor,
-// WGPUCreateComputePipelineAsyncCallbackInfo callbackInfo)`
-func device_methods.create_compute_pipeline_async(self, descriptor, callback_info){}
-
-// create_pipeline_layout(descriptor: PipelineLayoutDescriptor) ->
-//   PipelineLayout
-// C: `WGPUPipelineLayout wgpuDeviceCreatePipelineLayout(WGPUDevice device,
-// WGPUPipelineLayoutDescriptor const * descriptor)`
-func device_methods.create_pipeline_layout(self, descriptor){}
-
-// create_query_set(descriptor: QuerySetDescriptor) -> QuerySet
-// C: `WGPUQuerySet wgpuDeviceCreateQuerySet(WGPUDevice device,
-// WGPUQuerySetDescriptor const * descriptor)`
-func device_methods.create_query_set(self, descriptor){}
-
-// create_render_bundle_encoder(descriptor: RenderBundleEncoderDescriptor) ->
-//   RenderBundleEncoder
-// C: `WGPURenderBundleEncoder wgpuDeviceCreateRenderBundleEncoder(WGPUDevice
-// device, WGPURenderBundleEncoderDescriptor const * descriptor)`
-func device_methods.create_render_bundle_encoder(self, descriptor){}
-
-// create_render_pipeline(descriptor: RenderPipelineDescriptor) ->
-//   RenderPipeline
-// C: `WGPURenderPipeline wgpuDeviceCreateRenderPipeline(WGPUDevice device,
-// WGPURenderPipelineDescriptor const * descriptor)`
-func device_methods.create_render_pipeline(self, descriptor){}
-
-// create_render_pipeline_async(descriptor: RenderPipelineDescriptor,
-//   callback_info: CreateRenderPipelineAsyncCallbackInfo) -> Future
-// C: `WGPUFuture wgpuDeviceCreateRenderPipelineAsync(WGPUDevice device,
-// WGPURenderPipelineDescriptor const * descriptor,
-// WGPUCreateRenderPipelineAsyncCallbackInfo callbackInfo)`
-func device_methods.create_render_pipeline_async(self, descriptor, callback_info){}
-
-// create_sampler(descriptor: SamplerDescriptor) -> Sampler
-// C: `WGPUSampler wgpuDeviceCreateSampler(WGPUDevice device,
-// WGPUSamplerDescriptor const * descriptor)`
-func device_methods.create_sampler(self, descriptor){}
-
-// create_shader_module(descriptor: ShaderModuleDescriptor) -> ShaderModule
-// C: `WGPUShaderModule wgpuDeviceCreateShaderModule(WGPUDevice device,
-// WGPUShaderModuleDescriptor const * descriptor)`
-func device_methods.create_shader_module(self, descriptor){}
-
-// create_shader_module_spir_v(descriptor: ShaderModuleDescriptorSpirV) ->
-//   ShaderModule
-// C: `WGPUShaderModule wgpuDeviceCreateShaderModuleSpirV(WGPUDevice device,
-// WGPUShaderModuleDescriptorSpirV const *descriptor)`
-func device_methods.create_shader_module_spir_v(self, descriptor){}
-
-// create_shader_module_trusted(descriptor: ShaderModuleDescriptor,
-//   runtime_checks: string | {string} | int) -> ShaderModule
-// C: `WGPUShaderModule wgpuDeviceCreateShaderModuleTrusted(WGPUDevice device,
-// WGPUShaderModuleDescriptor const * descriptor, WGPUShaderRuntimeChecks
-// runtimeChecks)`
-// [runtime_checks]: any of "bounds_checks", "force_loop_bounding",
-//   "ray_query_initialization_tracking", "task_shader_dispatch_tracking",
-//   "mesh_shader_primitive_indices_clamp", joined by | or as a list
-func device_methods.create_shader_module_trusted(self, descriptor, runtime_checks){}
-
-// create_texture(descriptor: TextureDescriptor) -> Texture
-// C: `WGPUTexture wgpuDeviceCreateTexture(WGPUDevice device,
-// WGPUTextureDescriptor const * descriptor)`
-func device_methods.create_texture(self, descriptor){}
 
 // destroy()
 // C: `void wgpuDeviceDestroy(WGPUDevice device)`
@@ -841,19 +516,36 @@ func device_methods.destroy(self){}
 //   (gpu.enums.feature_name lists all 22)
 func device_methods.has_feature(self, feature){}
 
-// pop_error_scope(callback_info: PopErrorScopeCallbackInfo) -> Future
-// C: `WGPUFuture wgpuDevicePopErrorScope(WGPUDevice device,
-// WGPUPopErrorScopeCallbackInfo callbackInfo)`
-func device_methods.pop_error_scope(self, callback_info){}
-
 // push_error_scope(filter: string)
 // C: `void wgpuDevicePushErrorScope(WGPUDevice device, WGPUErrorFilter filter)`
 // [filter]: "validation", "out_of_memory", "internal"
 func device_methods.push_error_scope(self, filter){}
 
-// set_label(label: string)
-// C: `void wgpuDeviceSetLabel(WGPUDevice device, WGPUStringView label)`
-func device_methods.set_label(self, label){}
+// query_set(descriptor: QuerySetDescriptor) -> QuerySet
+// C: `WGPUQuerySet wgpuDeviceCreateQuerySet(WGPUDevice device,
+// WGPUQuerySetDescriptor const * descriptor)`
+func device_methods.query_set(self, descriptor){}
+
+// render_bundle_encoder(descriptor: RenderBundleEncoderDescriptor) ->
+//   RenderBundleEncoder
+// C: `WGPURenderBundleEncoder wgpuDeviceCreateRenderBundleEncoder(WGPUDevice
+// device, WGPURenderBundleEncoderDescriptor const * descriptor)`
+func device_methods.render_bundle_encoder(self, descriptor){}
+
+// shader_module_spir_v(descriptor: ShaderModuleDescriptorSpirV) -> ShaderModule
+// C: `WGPUShaderModule wgpuDeviceCreateShaderModuleSpirV(WGPUDevice device,
+// WGPUShaderModuleDescriptorSpirV const *descriptor)`
+func device_methods.shader_module_spir_v(self, descriptor){}
+
+// shader_module_trusted(descriptor: ShaderModuleDescriptor, runtime_checks:
+//   string | {string} | int) -> ShaderModule
+// C: `WGPUShaderModule wgpuDeviceCreateShaderModuleTrusted(WGPUDevice device,
+// WGPUShaderModuleDescriptor const * descriptor, WGPUShaderRuntimeChecks
+// runtimeChecks)`
+// [runtime_checks]: any of "bounds_checks", "force_loop_bounding",
+//   "ray_query_initialization_tracking", "task_shader_dispatch_tracking",
+//   "mesh_shader_primitive_indices_clamp", joined by | or as a list
+func device_methods.shader_module_trusted(self, descriptor, runtime_checks){}
 
 // start_graphics_debugger_capture() -> bool
 // C: `WGPUBool wgpuDeviceStartGraphicsDebuggerCapture(WGPUDevice device)`
@@ -870,11 +562,18 @@ local queue_get = {}
 local queue_set = {}
 
 // WebGPU's Queue (WGPUQueue); type() of it is "gpu.Queue". Its methods are
-// webgpu.h's functions without the wgpuQueue prefix, in snake_case; it is
-// released when nothing refers to it.
+// webgpu.h's functions without the wgpuQueue prefix, in snake_case (create_x is
+// x, and so is a get_x that takes arguments); it is released when nothing
+// refers to it.
 // type Queue
 // [handle]: the WGPUQueue pointer, for gpu.c
 local queue_meta = {__type: "gpu.Queue", __index: queue_methods, __get: queue_get, __set: queue_set}
+
+// work_done() -> async.Future
+// Completes (with null) once the GPU has done the work submitted so far.
+//   device.queue:submit(encoder:finish())
+//   await device.queue:work_done()
+func queue_methods.work_done(self){}
 
 // write_buffer(buffer: Buffer, offset: int, data: any)
 // Writes data (a slang/buffer, a string, or a list of 32-bit floats) into
@@ -893,31 +592,19 @@ func queue_get.native_metal_command_queue(self){}
 // C: `float wgpuQueueGetTimestampPeriod(WGPUQueue queue)`
 func queue_get.timestamp_period(self){}
 
+// label(self) -> string?
+// The object's name in error messages and debuggers: what it was made with or
+// last set to.
+func queue_get.label(self){}
+
 // label(self, v: string)
 // C: `void wgpuQueueSetLabel(WGPUQueue queue, WGPUStringView label)`
 func queue_set.label(self, v){}
 
-// on_submitted_work_done(callback_info: QueueWorkDoneCallbackInfo) -> Future
-// C: `WGPUFuture wgpuQueueOnSubmittedWorkDone(WGPUQueue queue,
-// WGPUQueueWorkDoneCallbackInfo callbackInfo)`
-func queue_methods.on_submitted_work_done(self, callback_info){}
-
-// set_label(label: string)
-// C: `void wgpuQueueSetLabel(WGPUQueue queue, WGPUStringView label)`
-func queue_methods.set_label(self, label){}
-
-// submit_for_index(command_count: int, commands: {CommandBuffer}) -> int
+// submit_for_index(commands: {CommandBuffer}) -> int
 // C: `WGPUSubmissionIndex wgpuQueueSubmitForIndex(WGPUQueue queue, size_t
 // commandCount, WGPUCommandBuffer const *commands)`
-func queue_methods.submit_for_index(self, command_count, commands){}
-
-// write_texture(destination: TexelCopyTextureInfo, data: any, data_size: int,
-//   data_layout: TexelCopyBufferLayout, write_size: Extent3D)
-// C: `void wgpuQueueWriteTexture(WGPUQueue queue, WGPUTexelCopyTextureInfo
-// const * destination, void const * data, size_t dataSize,
-// WGPUTexelCopyBufferLayout const * dataLayout, WGPUExtent3D const *
-// writeSize)`
-func queue_methods.write_texture(self, destination, data, data_size, data_layout, write_size){}
+func queue_methods.submit_for_index(self, commands){}
 
 // ------------------------------------------------------------ Buffer
 
@@ -926,8 +613,9 @@ local buffer_get = {}
 local buffer_set = {}
 
 // WebGPU's Buffer (WGPUBuffer); type() of it is "gpu.Buffer". Its methods are
-// webgpu.h's functions without the wgpuBuffer prefix, in snake_case; it is
-// released when nothing refers to it.
+// webgpu.h's functions without the wgpuBuffer prefix, in snake_case (create_x
+// is x, and so is a get_x that takes arguments); it is released when nothing
+// refers to it.
 // type Buffer
 // [handle]: the WGPUBuffer pointer, for gpu.c
 local buffer_meta = {__type: "gpu.Buffer", __index: buffer_methods, __get: buffer_get, __set: buffer_set}
@@ -937,67 +625,88 @@ local buffer_meta = {__type: "gpu.Buffer", __index: buffer_methods, __get: buffe
 // ([Queue.write_buffer]).
 func buffer_methods.write(self, data, offset){}
 
+// map(mode?: string, options?: MapOptions) -> async.Future
+// Maps the buffer (or a part of it) into the program's memory, when the
+// GPU is done with it: the future completes with a [Buffer.view] of the
+// mapped bytes, a slang/buffer that reads and writes the GPU's memory
+// without a copy. The buffer cannot be used on the GPU while it is mapped:
+// [Buffer.unmap] hands it back.
+//   local staging = device:buffer({size: 1024, usage: "map_write|copy_src"})
+//   local floats = await staging:map("write", {type: "float"})
+//   floats[0] = 1.5
+//   staging:unmap()
+// The future fails when the buffer cannot be mapped (it lacks the usage, it
+// is mapped already) or is unmapped before the GPU answered.
+// [mode]: "read" (the default; the buffer needs map_read usage) or "write"
+//   (map_write usage)
+// type MapOptions = {offset?: int, size?: int, type?: string}
+// [offset]: the first byte mapped (0), a multiple of 8
+// [size]: the bytes mapped (the rest of the buffer), a multiple of 4
+// [type]: the view's element type ("uint8_t" by default; "float",
+//   "uint32_t", ...)
+func buffer_methods.map(self, mode, options){}
+
+// view(type?: string, offset?: int, size?: int) -> buffer.Buffer
+// The mapped bytes as a slang/buffer of type ("uint8_t" by default), all
+// that is mapped or size bytes from offset (counted from the buffer's
+// start): the GPU's memory itself, not a copy. For a buffer that is
+// mapped: after [Buffer.map], or made with mapped_at_creation. Raises an
+// error of kind state when it is not. What a buffer mapped to read shows
+// is for reading. [Buffer.unmap] takes the memory back: the view is empty
+// from then on (len 0), so using it raises.
+//   local b = device:buffer({size: 16, usage: "vertex", mapped_at_creation: true})
+//   b:view("float"):set({0, 0.5, -0.5, -0.5})
+//   b:unmap()
+// Ranges asked for must not overlap (the same range again gives the same
+// view).
+func buffer_methods.view(self, as_type, offset, size){}
+
+// unmap()
+// Hands a mapped buffer back to the GPU: what was written through its
+// views is in the buffer, and the views are empty from now on. A [map]
+// that has no answer yet is given up (its future fails). Does nothing for
+// a buffer that is not mapped.
+func buffer_methods.unmap(self){}
+
+// destroy()
+// Frees the buffer's memory now (and unmaps it); using it afterwards is an
+// error.
+func buffer_methods.destroy(self){}
+
 // read(type?: string, offset?: int, size?: int) -> buffer.Buffer
 // The buffer's contents, after the work submitted so far: a slang/buffer
-// of type ("uint8_t" by default; "float", "uint32_t", ...). A buffer
-// without map_read usage is copied to one that has it first (it needs
-// copy_src). Waits for the GPU.
+// of type ("uint8_t" by default; "float", "uint32_t", ...), a copy. A
+// buffer without map_read usage is copied to one that has it first (it
+// needs copy_src). Waits for the GPU; [Buffer.read_async] does not.
 func buffer_methods.read(self, as_type, offset, size){}
 
+// read_async(type?: string, offset?: int, size?: int) -> async.Future
+// [Buffer.read] without waiting: a future of the contents, for a program
+// that draws frames or runs other things meanwhile.
+//   local result = await data:read_async("float")
+func buffer_methods.read_async(self, as_type, offset, size){}
+
 // map_state(self) -> string
-// C: `WGPUBufferMapState wgpuBufferGetMapState(WGPUBuffer buffer)`
+// "unmapped", "pending" (a [Buffer.map] that has no answer yet) or
+// "mapped".
 func buffer_get.map_state(self){}
 
 // size(self) -> int
 // C: `uint64_t wgpuBufferGetSize(WGPUBuffer buffer)`
 func buffer_get.size(self){}
 
-// usage(self) -> int
+// usage(self) -> string
 // C: `WGPUBufferUsage wgpuBufferGetUsage(WGPUBuffer buffer)`
 func buffer_get.usage(self){}
+
+// label(self) -> string?
+// The object's name in error messages and debuggers: what it was made with or
+// last set to.
+func buffer_get.label(self){}
 
 // label(self, v: string)
 // C: `void wgpuBufferSetLabel(WGPUBuffer buffer, WGPUStringView label)`
 func buffer_set.label(self, v){}
-
-// destroy()
-// C: `void wgpuBufferDestroy(WGPUBuffer buffer)`
-func buffer_methods.destroy(self){}
-
-// get_const_mapped_range(offset: int, size: int) -> any
-// C: `void const * wgpuBufferGetConstMappedRange(WGPUBuffer buffer, size_t
-// offset, size_t size)`
-func buffer_methods.get_const_mapped_range(self, offset, size){}
-
-// get_mapped_range(offset: int, size: int) -> any
-// C: `void * wgpuBufferGetMappedRange(WGPUBuffer buffer, size_t offset, size_t
-// size)`
-func buffer_methods.get_mapped_range(self, offset, size){}
-
-// map_async(mode: string | {string} | int, offset: int, size: int,
-//   callback_info: BufferMapCallbackInfo) -> Future
-// C: `WGPUFuture wgpuBufferMapAsync(WGPUBuffer buffer, WGPUMapMode mode, size_t
-// offset, size_t size, WGPUBufferMapCallbackInfo callbackInfo)`
-// [mode]: any of "read", "write", joined by | or as a list
-func buffer_methods.map_async(self, mode, offset, size, callback_info){}
-
-// read_mapped_range(offset: int, data: any, size: int) -> string
-// C: `WGPUStatus wgpuBufferReadMappedRange(WGPUBuffer buffer, size_t offset,
-// void * data, size_t size)`
-func buffer_methods.read_mapped_range(self, offset, data, size){}
-
-// set_label(label: string)
-// C: `void wgpuBufferSetLabel(WGPUBuffer buffer, WGPUStringView label)`
-func buffer_methods.set_label(self, label){}
-
-// unmap()
-// C: `void wgpuBufferUnmap(WGPUBuffer buffer)`
-func buffer_methods.unmap(self){}
-
-// write_mapped_range(offset: int, data: any, size: int) -> string
-// C: `WGPUStatus wgpuBufferWriteMappedRange(WGPUBuffer buffer, size_t offset,
-// void const * data, size_t size)`
-func buffer_methods.write_mapped_range(self, offset, data, size){}
 
 // ------------------------------------------------------------ Texture
 
@@ -1006,8 +715,9 @@ local texture_get = {}
 local texture_set = {}
 
 // WebGPU's Texture (WGPUTexture); type() of it is "gpu.Texture". Its methods
-// are webgpu.h's functions without the wgpuTexture prefix, in snake_case; it is
-// released when nothing refers to it.
+// are webgpu.h's functions without the wgpuTexture prefix, in snake_case
+// (create_x is x, and so is a get_x that takes arguments); it is released when
+// nothing refers to it.
 // type Texture
 // [handle]: the WGPUTexture pointer, for gpu.c
 local texture_meta = {__type: "gpu.Texture", __index: texture_methods, __get: texture_get, __set: texture_set}
@@ -1057,9 +767,10 @@ func texture_get.sample_count(self){}
 // texture_binding_view_dimension(self) -> string
 // C: `WGPUTextureViewDimension
 // wgpuTextureGetTextureBindingViewDimension(WGPUTexture texture)`
+// Not in wgpu-native: there it raises an error of kind unsupported.
 func texture_get.texture_binding_view_dimension(self){}
 
-// usage(self) -> int
+// usage(self) -> string
 // C: `WGPUTextureUsage wgpuTextureGetUsage(WGPUTexture texture)`
 func texture_get.usage(self){}
 
@@ -1067,22 +778,18 @@ func texture_get.usage(self){}
 // C: `uint32_t wgpuTextureGetWidth(WGPUTexture texture)`
 func texture_get.width(self){}
 
+// label(self) -> string?
+// The object's name in error messages and debuggers: what it was made with or
+// last set to.
+func texture_get.label(self){}
+
 // label(self, v: string)
 // C: `void wgpuTextureSetLabel(WGPUTexture texture, WGPUStringView label)`
 func texture_set.label(self, v){}
 
-// create_view(descriptor: TextureViewDescriptor) -> TextureView
-// C: `WGPUTextureView wgpuTextureCreateView(WGPUTexture texture,
-// WGPUTextureViewDescriptor const * descriptor)`
-func texture_methods.create_view(self, descriptor){}
-
 // destroy()
 // C: `void wgpuTextureDestroy(WGPUTexture texture)`
 func texture_methods.destroy(self){}
-
-// set_label(label: string)
-// C: `void wgpuTextureSetLabel(WGPUTexture texture, WGPUStringView label)`
-func texture_methods.set_label(self, label){}
 
 // ------------------------------------------------------------ TextureView
 
@@ -1092,20 +799,21 @@ local texture_view_set = {}
 
 // WebGPU's TextureView (WGPUTextureView); type() of it is "gpu.TextureView".
 // Its methods are webgpu.h's functions without the wgpuTextureView prefix, in
-// snake_case; it is released when nothing refers to it.
+// snake_case (create_x is x, and so is a get_x that takes arguments); it is
+// released when nothing refers to it.
 // type TextureView
 // [handle]: the WGPUTextureView pointer, for gpu.c
 local texture_view_meta = {__type: "gpu.TextureView", __index: texture_view_methods, __get: texture_view_get, __set: texture_view_set}
+
+// label(self) -> string?
+// The object's name in error messages and debuggers: what it was made with or
+// last set to.
+func texture_view_get.label(self){}
 
 // label(self, v: string)
 // C: `void wgpuTextureViewSetLabel(WGPUTextureView textureView, WGPUStringView
 // label)`
 func texture_view_set.label(self, v){}
-
-// set_label(label: string)
-// C: `void wgpuTextureViewSetLabel(WGPUTextureView textureView, WGPUStringView
-// label)`
-func texture_view_methods.set_label(self, label){}
 
 // ------------------------------------------------------------ Sampler
 
@@ -1114,19 +822,21 @@ local sampler_get = {}
 local sampler_set = {}
 
 // WebGPU's Sampler (WGPUSampler); type() of it is "gpu.Sampler". Its methods
-// are webgpu.h's functions without the wgpuSampler prefix, in snake_case; it is
-// released when nothing refers to it.
+// are webgpu.h's functions without the wgpuSampler prefix, in snake_case
+// (create_x is x, and so is a get_x that takes arguments); it is released when
+// nothing refers to it.
 // type Sampler
 // [handle]: the WGPUSampler pointer, for gpu.c
 local sampler_meta = {__type: "gpu.Sampler", __index: sampler_methods, __get: sampler_get, __set: sampler_set}
 
+// label(self) -> string?
+// The object's name in error messages and debuggers: what it was made with or
+// last set to.
+func sampler_get.label(self){}
+
 // label(self, v: string)
 // C: `void wgpuSamplerSetLabel(WGPUSampler sampler, WGPUStringView label)`
 func sampler_set.label(self, v){}
-
-// set_label(label: string)
-// C: `void wgpuSamplerSetLabel(WGPUSampler sampler, WGPUStringView label)`
-func sampler_methods.set_label(self, label){}
 
 // ------------------------------------------------------------ ShaderModule
 
@@ -1136,25 +846,29 @@ local shader_module_set = {}
 
 // WebGPU's ShaderModule (WGPUShaderModule); type() of it is "gpu.ShaderModule".
 // Its methods are webgpu.h's functions without the wgpuShaderModule prefix, in
-// snake_case; it is released when nothing refers to it.
+// snake_case (create_x is x, and so is a get_x that takes arguments); it is
+// released when nothing refers to it.
 // type ShaderModule
 // [handle]: the WGPUShaderModule pointer, for gpu.c
 local shader_module_meta = {__type: "gpu.ShaderModule", __index: shader_module_methods, __get: shader_module_get, __set: shader_module_set}
+
+// compilation_info() -> async.Future
+// Completes with what the compiler said about the module: a list of
+// {type, message, line_num, line_pos, offset, length}, type being "error",
+// "warning" or "info". Only a browser's WebGPU has it: with wgpu-native it
+// raises an error of kind unsupported (its errors raise from
+// [Device.shader], with the messages).
+func shader_module_methods.compilation_info(self){}
+
+// label(self) -> string?
+// The object's name in error messages and debuggers: what it was made with or
+// last set to.
+func shader_module_get.label(self){}
 
 // label(self, v: string)
 // C: `void wgpuShaderModuleSetLabel(WGPUShaderModule shaderModule,
 // WGPUStringView label)`
 func shader_module_set.label(self, v){}
-
-// get_compilation_info(callback_info: CompilationInfoCallbackInfo) -> Future
-// C: `WGPUFuture wgpuShaderModuleGetCompilationInfo(WGPUShaderModule
-// shaderModule, WGPUCompilationInfoCallbackInfo callbackInfo)`
-func shader_module_methods.get_compilation_info(self, callback_info){}
-
-// set_label(label: string)
-// C: `void wgpuShaderModuleSetLabel(WGPUShaderModule shaderModule,
-// WGPUStringView label)`
-func shader_module_methods.set_label(self, label){}
 
 // ------------------------------------------------------------ BindGroupLayout
 
@@ -1164,21 +878,21 @@ local bind_group_layout_set = {}
 
 // WebGPU's BindGroupLayout (WGPUBindGroupLayout); type() of it is
 // "gpu.BindGroupLayout". Its methods are webgpu.h's functions without the
-// wgpuBindGroupLayout prefix, in snake_case; it is released when nothing refers
-// to it.
+// wgpuBindGroupLayout prefix, in snake_case (create_x is x, and so is a get_x
+// that takes arguments); it is released when nothing refers to it.
 // type BindGroupLayout
 // [handle]: the WGPUBindGroupLayout pointer, for gpu.c
 local bind_group_layout_meta = {__type: "gpu.BindGroupLayout", __index: bind_group_layout_methods, __get: bind_group_layout_get, __set: bind_group_layout_set}
+
+// label(self) -> string?
+// The object's name in error messages and debuggers: what it was made with or
+// last set to.
+func bind_group_layout_get.label(self){}
 
 // label(self, v: string)
 // C: `void wgpuBindGroupLayoutSetLabel(WGPUBindGroupLayout bindGroupLayout,
 // WGPUStringView label)`
 func bind_group_layout_set.label(self, v){}
-
-// set_label(label: string)
-// C: `void wgpuBindGroupLayoutSetLabel(WGPUBindGroupLayout bindGroupLayout,
-// WGPUStringView label)`
-func bind_group_layout_methods.set_label(self, label){}
 
 // ------------------------------------------------------------ BindGroup
 
@@ -1188,20 +902,21 @@ local bind_group_set = {}
 
 // WebGPU's BindGroup (WGPUBindGroup); type() of it is "gpu.BindGroup". Its
 // methods are webgpu.h's functions without the wgpuBindGroup prefix, in
-// snake_case; it is released when nothing refers to it.
+// snake_case (create_x is x, and so is a get_x that takes arguments); it is
+// released when nothing refers to it.
 // type BindGroup
 // [handle]: the WGPUBindGroup pointer, for gpu.c
 local bind_group_meta = {__type: "gpu.BindGroup", __index: bind_group_methods, __get: bind_group_get, __set: bind_group_set}
+
+// label(self) -> string?
+// The object's name in error messages and debuggers: what it was made with or
+// last set to.
+func bind_group_get.label(self){}
 
 // label(self, v: string)
 // C: `void wgpuBindGroupSetLabel(WGPUBindGroup bindGroup, WGPUStringView
 // label)`
 func bind_group_set.label(self, v){}
-
-// set_label(label: string)
-// C: `void wgpuBindGroupSetLabel(WGPUBindGroup bindGroup, WGPUStringView
-// label)`
-func bind_group_methods.set_label(self, label){}
 
 // ------------------------------------------------------------ PipelineLayout
 
@@ -1211,21 +926,21 @@ local pipeline_layout_set = {}
 
 // WebGPU's PipelineLayout (WGPUPipelineLayout); type() of it is
 // "gpu.PipelineLayout". Its methods are webgpu.h's functions without the
-// wgpuPipelineLayout prefix, in snake_case; it is released when nothing refers
-// to it.
+// wgpuPipelineLayout prefix, in snake_case (create_x is x, and so is a get_x
+// that takes arguments); it is released when nothing refers to it.
 // type PipelineLayout
 // [handle]: the WGPUPipelineLayout pointer, for gpu.c
 local pipeline_layout_meta = {__type: "gpu.PipelineLayout", __index: pipeline_layout_methods, __get: pipeline_layout_get, __set: pipeline_layout_set}
+
+// label(self) -> string?
+// The object's name in error messages and debuggers: what it was made with or
+// last set to.
+func pipeline_layout_get.label(self){}
 
 // label(self, v: string)
 // C: `void wgpuPipelineLayoutSetLabel(WGPUPipelineLayout pipelineLayout,
 // WGPUStringView label)`
 func pipeline_layout_set.label(self, v){}
-
-// set_label(label: string)
-// C: `void wgpuPipelineLayoutSetLabel(WGPUPipelineLayout pipelineLayout,
-// WGPUStringView label)`
-func pipeline_layout_methods.set_label(self, label){}
 
 // ------------------------------------------------------------ RenderPipeline
 
@@ -1235,27 +950,27 @@ local render_pipeline_set = {}
 
 // WebGPU's RenderPipeline (WGPURenderPipeline); type() of it is
 // "gpu.RenderPipeline". Its methods are webgpu.h's functions without the
-// wgpuRenderPipeline prefix, in snake_case; it is released when nothing refers
-// to it.
+// wgpuRenderPipeline prefix, in snake_case (create_x is x, and so is a get_x
+// that takes arguments); it is released when nothing refers to it.
 // type RenderPipeline
 // [handle]: the WGPURenderPipeline pointer, for gpu.c
 local render_pipeline_meta = {__type: "gpu.RenderPipeline", __index: render_pipeline_methods, __get: render_pipeline_get, __set: render_pipeline_set}
+
+// label(self) -> string?
+// The object's name in error messages and debuggers: what it was made with or
+// last set to.
+func render_pipeline_get.label(self){}
 
 // label(self, v: string)
 // C: `void wgpuRenderPipelineSetLabel(WGPURenderPipeline renderPipeline,
 // WGPUStringView label)`
 func render_pipeline_set.label(self, v){}
 
-// get_bind_group_layout(group_index: int) -> BindGroupLayout
+// bind_group_layout(group_index: int) -> BindGroupLayout
 // C: `WGPUBindGroupLayout
 // wgpuRenderPipelineGetBindGroupLayout(WGPURenderPipeline renderPipeline,
 // uint32_t groupIndex)`
-func render_pipeline_methods.get_bind_group_layout(self, group_index){}
-
-// set_label(label: string)
-// C: `void wgpuRenderPipelineSetLabel(WGPURenderPipeline renderPipeline,
-// WGPUStringView label)`
-func render_pipeline_methods.set_label(self, label){}
+func render_pipeline_methods.bind_group_layout(self, group_index){}
 
 // ------------------------------------------------------------ ComputePipeline
 
@@ -1265,27 +980,27 @@ local compute_pipeline_set = {}
 
 // WebGPU's ComputePipeline (WGPUComputePipeline); type() of it is
 // "gpu.ComputePipeline". Its methods are webgpu.h's functions without the
-// wgpuComputePipeline prefix, in snake_case; it is released when nothing refers
-// to it.
+// wgpuComputePipeline prefix, in snake_case (create_x is x, and so is a get_x
+// that takes arguments); it is released when nothing refers to it.
 // type ComputePipeline
 // [handle]: the WGPUComputePipeline pointer, for gpu.c
 local compute_pipeline_meta = {__type: "gpu.ComputePipeline", __index: compute_pipeline_methods, __get: compute_pipeline_get, __set: compute_pipeline_set}
+
+// label(self) -> string?
+// The object's name in error messages and debuggers: what it was made with or
+// last set to.
+func compute_pipeline_get.label(self){}
 
 // label(self, v: string)
 // C: `void wgpuComputePipelineSetLabel(WGPUComputePipeline computePipeline,
 // WGPUStringView label)`
 func compute_pipeline_set.label(self, v){}
 
-// get_bind_group_layout(group_index: int) -> BindGroupLayout
+// bind_group_layout(group_index: int) -> BindGroupLayout
 // C: `WGPUBindGroupLayout
 // wgpuComputePipelineGetBindGroupLayout(WGPUComputePipeline computePipeline,
 // uint32_t groupIndex)`
-func compute_pipeline_methods.get_bind_group_layout(self, group_index){}
-
-// set_label(label: string)
-// C: `void wgpuComputePipelineSetLabel(WGPUComputePipeline computePipeline,
-// WGPUStringView label)`
-func compute_pipeline_methods.set_label(self, label){}
+func compute_pipeline_methods.bind_group_layout(self, group_index){}
 
 // ------------------------------------------------------------ CommandEncoder
 
@@ -1295,8 +1010,8 @@ local command_encoder_set = {}
 
 // WebGPU's CommandEncoder (WGPUCommandEncoder); type() of it is
 // "gpu.CommandEncoder". Its methods are webgpu.h's functions without the
-// wgpuCommandEncoder prefix, in snake_case; it is released when nothing refers
-// to it.
+// wgpuCommandEncoder prefix, in snake_case (create_x is x, and so is a get_x
+// that takes arguments); it is released when nothing refers to it.
 // type CommandEncoder
 // [handle]: the WGPUCommandEncoder pointer, for gpu.c
 local command_encoder_meta = {__type: "gpu.CommandEncoder", __index: command_encoder_methods, __get: command_encoder_get, __set: command_encoder_set}
@@ -1328,22 +1043,15 @@ func command_encoder_methods.compute_pass(self, label){}
 // The recorded commands, for [Queue.submit].
 func command_encoder_methods.finish(self, label){}
 
+// label(self) -> string?
+// The object's name in error messages and debuggers: what it was made with or
+// last set to.
+func command_encoder_get.label(self){}
+
 // label(self, v: string)
 // C: `void wgpuCommandEncoderSetLabel(WGPUCommandEncoder commandEncoder,
 // WGPUStringView label)`
 func command_encoder_set.label(self, v){}
-
-// begin_compute_pass(descriptor: ComputePassDescriptor) -> ComputePassEncoder
-// C: `WGPUComputePassEncoder
-// wgpuCommandEncoderBeginComputePass(WGPUCommandEncoder commandEncoder,
-// WGPUComputePassDescriptor const * descriptor)`
-func command_encoder_methods.begin_compute_pass(self, descriptor){}
-
-// begin_render_pass(descriptor: RenderPassDescriptor) -> RenderPassEncoder
-// C: `WGPURenderPassEncoder
-// wgpuCommandEncoderBeginRenderPass(WGPUCommandEncoder commandEncoder,
-// WGPURenderPassDescriptor const * descriptor)`
-func command_encoder_methods.begin_render_pass(self, descriptor){}
 
 // clear_buffer(buffer: Buffer, offset: int, size: int)
 // C: `void wgpuCommandEncoderClearBuffer(WGPUCommandEncoder commandEncoder,
@@ -1404,11 +1112,6 @@ func command_encoder_methods.push_debug_group(self, group_label){}
 // destination, uint64_t destinationOffset)`
 func command_encoder_methods.resolve_query_set(self, query_set, first_query, query_count, destination, destination_offset){}
 
-// set_label(label: string)
-// C: `void wgpuCommandEncoderSetLabel(WGPUCommandEncoder commandEncoder,
-// WGPUStringView label)`
-func command_encoder_methods.set_label(self, label){}
-
 // write_timestamp(query_set: QuerySet, query_index: int)
 // C: `void wgpuCommandEncoderWriteTimestamp(WGPUCommandEncoder commandEncoder,
 // WGPUQuerySet querySet, uint32_t queryIndex)`
@@ -1422,8 +1125,8 @@ local render_pass_encoder_set = {}
 
 // WebGPU's RenderPassEncoder (WGPURenderPassEncoder); type() of it is
 // "gpu.RenderPassEncoder". Its methods are webgpu.h's functions without the
-// wgpuRenderPassEncoder prefix, in snake_case; it is released when nothing
-// refers to it.
+// wgpuRenderPassEncoder prefix, in snake_case (create_x is x, and so is a get_x
+// that takes arguments); it is released when nothing refers to it.
 // type RenderPassEncoder
 // [handle]: the WGPURenderPassEncoder pointer, for gpu.c
 local render_pass_encoder_meta = {__type: "gpu.RenderPassEncoder", __index: render_pass_encoder_methods, __get: render_pass_encoder_get, __set: render_pass_encoder_set}
@@ -1451,25 +1154,15 @@ func render_pass_encoder_methods.draw_indexed(self, n, instances, first, base, f
 // finish(): ends the pass (WebGPU's end)
 func render_pass_encoder_methods.finish(self){}
 
-// blend_constant(self, v: Color)
-// C: `void wgpuRenderPassEncoderSetBlendConstant(WGPURenderPassEncoder
-// renderPassEncoder, WGPUColor const * color)`
-func render_pass_encoder_set.blend_constant(self, v){}
+// label(self) -> string?
+// The object's name in error messages and debuggers: what it was made with or
+// last set to.
+func render_pass_encoder_get.label(self){}
 
 // label(self, v: string)
 // C: `void wgpuRenderPassEncoderSetLabel(WGPURenderPassEncoder
 // renderPassEncoder, WGPUStringView label)`
 func render_pass_encoder_set.label(self, v){}
-
-// pipeline(self, v: RenderPipeline)
-// C: `void wgpuRenderPassEncoderSetPipeline(WGPURenderPassEncoder
-// renderPassEncoder, WGPURenderPipeline pipeline)`
-func render_pass_encoder_set.pipeline(self, v){}
-
-// stencil_reference(self, v: int)
-// C: `void wgpuRenderPassEncoderSetStencilReference(WGPURenderPassEncoder
-// renderPassEncoder, uint32_t reference)`
-func render_pass_encoder_set.stencil_reference(self, v){}
 
 // begin_occlusion_query(query_index: int)
 // C: `void wgpuRenderPassEncoderBeginOcclusionQuery(WGPURenderPassEncoder
@@ -1492,10 +1185,6 @@ func render_pass_encoder_methods.draw_indexed_indirect(self, indirect_buffer, in
 // renderPassEncoder, WGPUBuffer indirectBuffer, uint64_t indirectOffset)`
 func render_pass_encoder_methods.draw_indirect(self, indirect_buffer, indirect_offset){}
 
-// end()
-// C: `void wgpuRenderPassEncoderEnd(WGPURenderPassEncoder renderPassEncoder)`
-func render_pass_encoder_methods.end(self){}
-
 // end_occlusion_query()
 // C: `void wgpuRenderPassEncoderEndOcclusionQuery(WGPURenderPassEncoder
 // renderPassEncoder)`
@@ -1507,10 +1196,10 @@ func render_pass_encoder_methods.end_occlusion_query(self){}
 // renderPassEncoder)`
 func render_pass_encoder_methods.end_pipeline_statistics_query(self){}
 
-// execute_bundles(bundle_count: int, bundles: {RenderBundle})
+// execute_bundles(bundles: {RenderBundle})
 // C: `void wgpuRenderPassEncoderExecuteBundles(WGPURenderPassEncoder
 // renderPassEncoder, size_t bundleCount, WGPURenderBundle const * bundles)`
-func render_pass_encoder_methods.execute_bundles(self, bundle_count, bundles){}
+func render_pass_encoder_methods.execute_bundles(self, bundles){}
 
 // insert_debug_marker(marker_label: string)
 // C: `void wgpuRenderPassEncoderInsertDebugMarker(WGPURenderPassEncoder
@@ -1557,15 +1246,11 @@ func render_pass_encoder_methods.push_debug_group(self, group_label){}
 // renderPassEncoder, WGPUColor const * color)`
 func render_pass_encoder_methods.set_blend_constant(self, color){}
 
-// set_immediates(offset: int, data: any, size: int)
+// set_immediates(offset: int, data: any)
 // C: `void wgpuRenderPassEncoderSetImmediates(WGPURenderPassEncoder
 // renderPassEncoder, uint32_t offset, void const * data, size_t size)`
-func render_pass_encoder_methods.set_immediates(self, offset, data, size){}
-
-// set_label(label: string)
-// C: `void wgpuRenderPassEncoderSetLabel(WGPURenderPassEncoder
-// renderPassEncoder, WGPUStringView label)`
-func render_pass_encoder_methods.set_label(self, label){}
+// [data]: a slang/buffer, a string, or a list of numbers (32-bit floats)
+func render_pass_encoder_methods.set_immediates(self, offset, data){}
 
 // set_scissor_rect(x: int, y: int, width: int, height: int)
 // C: `void wgpuRenderPassEncoderSetScissorRect(WGPURenderPassEncoder
@@ -1597,8 +1282,8 @@ local compute_pass_encoder_set = {}
 
 // WebGPU's ComputePassEncoder (WGPUComputePassEncoder); type() of it is
 // "gpu.ComputePassEncoder". Its methods are webgpu.h's functions without the
-// wgpuComputePassEncoder prefix, in snake_case; it is released when nothing
-// refers to it.
+// wgpuComputePassEncoder prefix, in snake_case (create_x is x, and so is a
+// get_x that takes arguments); it is released when nothing refers to it.
 // type ComputePassEncoder
 // [handle]: the WGPUComputePassEncoder pointer, for gpu.c
 local compute_pass_encoder_meta = {__type: "gpu.ComputePassEncoder", __index: compute_pass_encoder_methods, __get: compute_pass_encoder_get, __set: compute_pass_encoder_set}
@@ -1615,15 +1300,15 @@ func compute_pass_encoder_methods.dispatch_workgroups(self, x, y, z){}
 // finish(): ends the pass (WebGPU's end)
 func compute_pass_encoder_methods.finish(self){}
 
+// label(self) -> string?
+// The object's name in error messages and debuggers: what it was made with or
+// last set to.
+func compute_pass_encoder_get.label(self){}
+
 // label(self, v: string)
 // C: `void wgpuComputePassEncoderSetLabel(WGPUComputePassEncoder
 // computePassEncoder, WGPUStringView label)`
 func compute_pass_encoder_set.label(self, v){}
-
-// pipeline(self, v: ComputePipeline)
-// C: `void wgpuComputePassEncoderSetPipeline(WGPUComputePassEncoder
-// computePassEncoder, WGPUComputePipeline pipeline)`
-func compute_pass_encoder_set.pipeline(self, v){}
 
 // begin_pipeline_statistics_query(query_set: QuerySet, query_index: int)
 // C: `void
@@ -1636,11 +1321,6 @@ func compute_pass_encoder_methods.begin_pipeline_statistics_query(self, query_se
 // wgpuComputePassEncoderDispatchWorkgroupsIndirect(WGPUComputePassEncoder
 // computePassEncoder, WGPUBuffer indirectBuffer, uint64_t indirectOffset)`
 func compute_pass_encoder_methods.dispatch_workgroups_indirect(self, indirect_buffer, indirect_offset){}
-
-// end()
-// C: `void wgpuComputePassEncoderEnd(WGPUComputePassEncoder
-// computePassEncoder)`
-func compute_pass_encoder_methods.end(self){}
 
 // end_pipeline_statistics_query()
 // C: `void
@@ -1663,15 +1343,11 @@ func compute_pass_encoder_methods.pop_debug_group(self){}
 // computePassEncoder, WGPUStringView groupLabel)`
 func compute_pass_encoder_methods.push_debug_group(self, group_label){}
 
-// set_immediates(offset: int, data: any, size: int)
+// set_immediates(offset: int, data: any)
 // C: `void wgpuComputePassEncoderSetImmediates(WGPUComputePassEncoder
 // computePassEncoder, uint32_t offset, void const * data, size_t size)`
-func compute_pass_encoder_methods.set_immediates(self, offset, data, size){}
-
-// set_label(label: string)
-// C: `void wgpuComputePassEncoderSetLabel(WGPUComputePassEncoder
-// computePassEncoder, WGPUStringView label)`
-func compute_pass_encoder_methods.set_label(self, label){}
+// [data]: a slang/buffer, a string, or a list of numbers (32-bit floats)
+func compute_pass_encoder_methods.set_immediates(self, offset, data){}
 
 // write_timestamp(query_set: QuerySet, query_index: int)
 // C: `void wgpuComputePassEncoderWriteTimestamp(WGPUComputePassEncoder
@@ -1686,21 +1362,21 @@ local command_buffer_set = {}
 
 // WebGPU's CommandBuffer (WGPUCommandBuffer); type() of it is
 // "gpu.CommandBuffer". Its methods are webgpu.h's functions without the
-// wgpuCommandBuffer prefix, in snake_case; it is released when nothing refers
-// to it.
+// wgpuCommandBuffer prefix, in snake_case (create_x is x, and so is a get_x
+// that takes arguments); it is released when nothing refers to it.
 // type CommandBuffer
 // [handle]: the WGPUCommandBuffer pointer, for gpu.c
 local command_buffer_meta = {__type: "gpu.CommandBuffer", __index: command_buffer_methods, __get: command_buffer_get, __set: command_buffer_set}
+
+// label(self) -> string?
+// The object's name in error messages and debuggers: what it was made with or
+// last set to.
+func command_buffer_get.label(self){}
 
 // label(self, v: string)
 // C: `void wgpuCommandBufferSetLabel(WGPUCommandBuffer commandBuffer,
 // WGPUStringView label)`
 func command_buffer_set.label(self, v){}
-
-// set_label(label: string)
-// C: `void wgpuCommandBufferSetLabel(WGPUCommandBuffer commandBuffer,
-// WGPUStringView label)`
-func command_buffer_methods.set_label(self, label){}
 
 // ------------------------------------------------------------ Surface
 
@@ -1709,8 +1385,9 @@ local surface_get = {}
 local surface_set = {}
 
 // WebGPU's Surface (WGPUSurface); type() of it is "gpu.Surface". Its methods
-// are webgpu.h's functions without the wgpuSurface prefix, in snake_case; it is
-// released when nothing refers to it.
+// are webgpu.h's functions without the wgpuSurface prefix, in snake_case
+// (create_x is x, and so is a get_x that takes arguments); it is released when
+// nothing refers to it.
 // type Surface
 // [handle]: the WGPUSurface pointer, for gpu.c
 local surface_meta = {__type: "gpu.Surface", __index: surface_methods, __get: surface_get, __set: surface_set}
@@ -1732,24 +1409,14 @@ func surface_methods.texture(self){}
 // at the next animation frame.
 func surface_methods.present(self){}
 
-// current_texture(self) -> SurfaceTexture
-// C: `void wgpuSurfaceGetCurrentTexture(WGPUSurface surface, WGPUSurfaceTexture
-// * surfaceTexture)`
-func surface_get.current_texture(self){}
+// label(self) -> string?
+// The object's name in error messages and debuggers: what it was made with or
+// last set to.
+func surface_get.label(self){}
 
 // label(self, v: string)
 // C: `void wgpuSurfaceSetLabel(WGPUSurface surface, WGPUStringView label)`
 func surface_set.label(self, v){}
-
-// get_capabilities(adapter: Adapter, capabilities: SurfaceCapabilities) ->
-//   string
-// C: `WGPUStatus wgpuSurfaceGetCapabilities(WGPUSurface surface, WGPUAdapter
-// adapter, WGPUSurfaceCapabilities * capabilities)`
-func surface_methods.get_capabilities(self, adapter, capabilities){}
-
-// set_label(label: string)
-// C: `void wgpuSurfaceSetLabel(WGPUSurface surface, WGPUStringView label)`
-func surface_methods.set_label(self, label){}
 
 // unconfigure()
 // C: `void wgpuSurfaceUnconfigure(WGPUSurface surface)`
@@ -1763,21 +1430,21 @@ local external_texture_set = {}
 
 // WebGPU's ExternalTexture (WGPUExternalTexture); type() of it is
 // "gpu.ExternalTexture". Its methods are webgpu.h's functions without the
-// wgpuExternalTexture prefix, in snake_case; it is released when nothing refers
-// to it.
+// wgpuExternalTexture prefix, in snake_case (create_x is x, and so is a get_x
+// that takes arguments); it is released when nothing refers to it.
 // type ExternalTexture
 // [handle]: the WGPUExternalTexture pointer, for gpu.c
 local external_texture_meta = {__type: "gpu.ExternalTexture", __index: external_texture_methods, __get: external_texture_get, __set: external_texture_set}
+
+// label(self) -> string?
+// The object's name in error messages and debuggers: what it was made with or
+// last set to.
+func external_texture_get.label(self){}
 
 // label(self, v: string)
 // C: `void wgpuExternalTextureSetLabel(WGPUExternalTexture externalTexture,
 // WGPUStringView label)`
 func external_texture_set.label(self, v){}
-
-// set_label(label: string)
-// C: `void wgpuExternalTextureSetLabel(WGPUExternalTexture externalTexture,
-// WGPUStringView label)`
-func external_texture_methods.set_label(self, label){}
 
 // ------------------------------------------------------------ QuerySet
 
@@ -1786,8 +1453,9 @@ local query_set_get = {}
 local query_set_set = {}
 
 // WebGPU's QuerySet (WGPUQuerySet); type() of it is "gpu.QuerySet". Its methods
-// are webgpu.h's functions without the wgpuQuerySet prefix, in snake_case; it
-// is released when nothing refers to it.
+// are webgpu.h's functions without the wgpuQuerySet prefix, in snake_case
+// (create_x is x, and so is a get_x that takes arguments); it is released when
+// nothing refers to it.
 // type QuerySet
 // [handle]: the WGPUQuerySet pointer, for gpu.c
 local query_set_meta = {__type: "gpu.QuerySet", __index: query_set_methods, __get: query_set_get, __set: query_set_set}
@@ -1800,6 +1468,11 @@ func query_set_get.count(self){}
 // C: `WGPUQueryType wgpuQuerySetGetType(WGPUQuerySet querySet)`
 func query_set_get.type(self){}
 
+// label(self) -> string?
+// The object's name in error messages and debuggers: what it was made with or
+// last set to.
+func query_set_get.label(self){}
+
 // label(self, v: string)
 // C: `void wgpuQuerySetSetLabel(WGPUQuerySet querySet, WGPUStringView label)`
 func query_set_set.label(self, v){}
@@ -1807,10 +1480,6 @@ func query_set_set.label(self, v){}
 // destroy()
 // C: `void wgpuQuerySetDestroy(WGPUQuerySet querySet)`
 func query_set_methods.destroy(self){}
-
-// set_label(label: string)
-// C: `void wgpuQuerySetSetLabel(WGPUQuerySet querySet, WGPUStringView label)`
-func query_set_methods.set_label(self, label){}
 
 // ------------------------------------------------------------ RenderBundle
 
@@ -1820,20 +1489,21 @@ local render_bundle_set = {}
 
 // WebGPU's RenderBundle (WGPURenderBundle); type() of it is "gpu.RenderBundle".
 // Its methods are webgpu.h's functions without the wgpuRenderBundle prefix, in
-// snake_case; it is released when nothing refers to it.
+// snake_case (create_x is x, and so is a get_x that takes arguments); it is
+// released when nothing refers to it.
 // type RenderBundle
 // [handle]: the WGPURenderBundle pointer, for gpu.c
 local render_bundle_meta = {__type: "gpu.RenderBundle", __index: render_bundle_methods, __get: render_bundle_get, __set: render_bundle_set}
+
+// label(self) -> string?
+// The object's name in error messages and debuggers: what it was made with or
+// last set to.
+func render_bundle_get.label(self){}
 
 // label(self, v: string)
 // C: `void wgpuRenderBundleSetLabel(WGPURenderBundle renderBundle,
 // WGPUStringView label)`
 func render_bundle_set.label(self, v){}
-
-// set_label(label: string)
-// C: `void wgpuRenderBundleSetLabel(WGPURenderBundle renderBundle,
-// WGPUStringView label)`
-func render_bundle_methods.set_label(self, label){}
 
 // ------------------------------------------------------------ RenderBundleEncoder
 
@@ -1843,21 +1513,21 @@ local render_bundle_encoder_set = {}
 
 // WebGPU's RenderBundleEncoder (WGPURenderBundleEncoder); type() of it is
 // "gpu.RenderBundleEncoder". Its methods are webgpu.h's functions without the
-// wgpuRenderBundleEncoder prefix, in snake_case; it is released when nothing
-// refers to it.
+// wgpuRenderBundleEncoder prefix, in snake_case (create_x is x, and so is a
+// get_x that takes arguments); it is released when nothing refers to it.
 // type RenderBundleEncoder
 // [handle]: the WGPURenderBundleEncoder pointer, for gpu.c
 local render_bundle_encoder_meta = {__type: "gpu.RenderBundleEncoder", __index: render_bundle_encoder_methods, __get: render_bundle_encoder_get, __set: render_bundle_encoder_set}
+
+// label(self) -> string?
+// The object's name in error messages and debuggers: what it was made with or
+// last set to.
+func render_bundle_encoder_get.label(self){}
 
 // label(self, v: string)
 // C: `void wgpuRenderBundleEncoderSetLabel(WGPURenderBundleEncoder
 // renderBundleEncoder, WGPUStringView label)`
 func render_bundle_encoder_set.label(self, v){}
-
-// pipeline(self, v: RenderPipeline)
-// C: `void wgpuRenderBundleEncoderSetPipeline(WGPURenderBundleEncoder
-// renderBundleEncoder, WGPURenderPipeline pipeline)`
-func render_bundle_encoder_set.pipeline(self, v){}
 
 // draw(vertex_count: int, instance_count: int, first_vertex: int,
 //   first_instance: int)
@@ -1903,17 +1573,17 @@ func render_bundle_encoder_methods.pop_debug_group(self){}
 // renderBundleEncoder, WGPUStringView groupLabel)`
 func render_bundle_encoder_methods.push_debug_group(self, group_label){}
 
-// set_bind_group(group_index: int, group: BindGroup, dynamic_offset_count: int,
-//   dynamic_offsets: {int})
+// set_bind_group(group_index: int, group: BindGroup, dynamic_offsets: {int})
 // C: `void wgpuRenderBundleEncoderSetBindGroup(WGPURenderBundleEncoder
 // renderBundleEncoder, uint32_t groupIndex, WGPUBindGroup group, size_t
 // dynamicOffsetCount, uint32_t const * dynamicOffsets)`
-func render_bundle_encoder_methods.set_bind_group(self, group_index, group, dynamic_offset_count, dynamic_offsets){}
+func render_bundle_encoder_methods.set_bind_group(self, group_index, group, dynamic_offsets){}
 
-// set_immediates(offset: int, data: any, size: int)
+// set_immediates(offset: int, data: any)
 // C: `void wgpuRenderBundleEncoderSetImmediates(WGPURenderBundleEncoder
 // renderBundleEncoder, uint32_t offset, void const * data, size_t size)`
-func render_bundle_encoder_methods.set_immediates(self, offset, data, size){}
+// [data]: a slang/buffer, a string, or a list of numbers (32-bit floats)
+func render_bundle_encoder_methods.set_immediates(self, offset, data){}
 
 // set_index_buffer(buffer: Buffer, format: string, offset: int, size: int)
 // C: `void wgpuRenderBundleEncoderSetIndexBuffer(WGPURenderBundleEncoder
@@ -1921,11 +1591,6 @@ func render_bundle_encoder_methods.set_immediates(self, offset, data, size){}
 // offset, uint64_t size)`
 // [format]: "uint16", "uint32"
 func render_bundle_encoder_methods.set_index_buffer(self, buffer, format, offset, size){}
-
-// set_label(label: string)
-// C: `void wgpuRenderBundleEncoderSetLabel(WGPURenderBundleEncoder
-// renderBundleEncoder, WGPUStringView label)`
-func render_bundle_encoder_methods.set_label(self, label){}
 
 // set_pipeline(pipeline: RenderPipeline)
 // C: `void wgpuRenderBundleEncoderSetPipeline(WGPURenderBundleEncoder

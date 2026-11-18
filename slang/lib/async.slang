@@ -1,5 +1,6 @@
 // slang/async: Futures, Streams and await on coroutines, driven by the uv
-// event loop (the native `uv` module). Callback style and await style mix:
+// event loop (the native `uv` module), or by the page's frames in a
+// browser. Callback style and await style mix:
 //
 //   local async = require("slang/async")
 //   async.main(func(){
@@ -31,19 +32,166 @@
 //
 // Handles (TCP connections, pipes, timers) are the native `uv` module's;
 // [connect], [serve] and [reader] turn them into Futures and Streams.
+//
+// Futures, await, [sleep], [timeout] and [main] need only a [Loop]: libuv's
+// where there is one, and in a browser the page's frames ([frame_loop]),
+// where files, sockets and processes are not there. A library with an
+// event queue of its own (a GPU's, a window system's) joins the loop with
+// [pump]; a program that draws frames itself calls [poll] once a frame.
 local thread = require("slang/thread")
 local str = require("slang/string")
+local time = require("slang/time")
 
 local async = {}
 
-// ------------------------------------------------------------ scheduler
+// ------------------------------------------------------------ the loop
+
+// What runs deferred functions and timers and waits for events: libuv's
+// loop by default, [frame_loop] in a browser. [set_loop] installs another.
+// type Loop = {wake: func(), after: func(ms: float, f: func()): func(),
+//   step: func(wait: bool): bool}
+// [wake]: something was deferred: the loop makes a turn soon, in which it
+//   calls the function [set_loop] gave it
+// [after]: calls f once, ms milliseconds from now, from the loop; returns
+//   a function that cancels it
+// [step]: handles what has happened, with wait after waiting for
+//   something to happen; returns whether the loop expects more (a timer
+//   that has not fired, an open handle)
 
 local uv = null
+local loop = null
 local ready = {}
-local wake = null
 
+// the functions deferred so far, run; whether there were any
+local func run_ready(){
+  local batch = ready
+  if(len(batch) == 0){
+    return false
+  }
+  ready = {}
+  for(let local g in values(batch)){
+    g()
+  }
+  return true
+}
+
+// the page of a browser build (the native module slang/web there), or null
+local func page(){
+  local entry = __PACKAGES.preloaded["slang/web"]
+  if(entry != null and raw_type(entry[1]) == "table" and entry[1].frame != null and
+    entry[1].app == null){
+    return entry[1]
+  }
+  return null
+}
+
+local func uv_loop(){
+  uv = require("uv")
+  local wake = null
+  return {
+    wake: func(){
+      if(wake == null){
+        wake = uv.timer()
+      }
+      if(not wake:is_active()){
+        wake:start(0, 0, run_ready)
+      }
+    },
+    after: func(ms, f){
+      local timer = uv.timer()
+      local open = true
+      timer:start(ms, 0, func(){
+        open = false
+        timer:close()
+        f()
+      })
+      return func(){
+        if(open){
+          open = false
+          timer:stop()
+          timer:close()
+        }
+      }
+    },
+    step: func(wait){
+      return uv.run(wait and "once" or "nowait")
+    },
+  }
+}
+
+// frame_loop(frame: func()) -> Loop
+// A loop for a program that something else runs a frame at a time: timers
+// follow slang/time's clock, and when there is nothing to do it calls
+// frame() to hand over control until the next frame. What a browser build
+// uses, with slang/web's frame.
+func async.frame_loop(frame){
+  local timers = {}
+  return {
+    wake: func(){},
+    after: func(ms, f){
+      local timer = {at: time.clock() + ms, f: f}
+      append(timers, timer)
+      return func(){
+        timer.f = null
+      }
+    },
+    step: func(wait){
+      local ran = run_ready()
+      local now = time.clock()
+      local due = {}
+      local later = {}
+      for(let local timer in values(timers)){
+        if(timer.f == null){
+          // (cancelled)
+        } else if(timer.at <= now){
+          append(due, timer)
+        } else {
+          append(later, timer)
+        }
+      }
+      timers = later
+      for(let local timer in values(due)){
+        if(timer.f != null){
+          timer.f()
+          ran = true
+        }
+      }
+      if(not ran and wait and len(timers) > 0){
+        frame()
+        return true
+      }
+      return len(timers) > 0 or len(ready) > 0
+    },
+  }
+}
+
+local func the_loop(){
+  if(loop == null){
+    local p = page()
+    if(p != null){
+      loop = async.frame_loop(p.frame)
+    } else {
+      loop = uv_loop()
+    }
+  }
+  return loop
+}
+
+// set_loop(l?: Loop)
+// Replaces what drives futures and timers; null restores the default
+// (libuv's loop, the page's frames in a browser). Set it before anything
+// waits: timers and deferred functions of the loop before stay with it.
+func async.set_loop(l){
+  loop = l
+}
+
+// libuv, for what needs the operating system
 local func loop_module(){
   if(uv == null){
+    if(page() != null){
+      raise(error.new(error.kinds.unsupported,
+        "async: this needs the operating system (libuv), which a browser does not give"))
+    }
     uv = require("uv")
   }
   return uv
@@ -52,18 +200,56 @@ local func loop_module(){
 // runs f from the loop, after the current callback or coroutine returns
 local func schedule(f){
   append(ready, f)
-  if(wake == null){
-    wake = loop_module().timer()
+  the_loop().wake()
+}
+
+// The event sources the loop cannot wait on, as [pump] took them
+local pumps = {}
+local pump_armed = false
+local pump_tick = null
+pump_tick = func(){
+  pump_armed = false
+  local list = pumps
+  pumps = {}
+  for(let local p in values(list)){
+    if(p.step != null and p.step() == true){
+      append(pumps, p)
+    }
   }
-  if(not wake:is_active()){
-    wake:start(0, 0, func(){
-      local batch = ready
-      ready = {}
-      for(let local g in values(batch)){
-        g()
-      }
-    })
+  if(len(pumps) > 0 and not pump_armed){
+    pump_armed = true
+    the_loop().after(1, pump_tick)
   }
+}
+
+// pump(step: func(): bool) -> func()
+// Joins an event source the loop cannot wait on to the loop: step()
+// handles what has happened there and says whether it expects more. The
+// loop calls it about every millisecond (every frame in a browser) while
+// it does, and waits for it as for a timer. Returns a function that takes
+// it out again. For bindings of libraries with an event queue of their
+// own: step() asks the library for its events and completes the futures
+// they answer.
+func async.pump(step){
+  local p = {step: step}
+  append(pumps, p)
+  if(not pump_armed){
+    pump_armed = true
+    the_loop().after(1, pump_tick)
+  }
+  return func(){
+    p.step = null
+  }
+}
+
+// poll() -> bool
+// Handles what is ready without waiting: timers that are due, finished
+// I/O, async functions that can go on. Returns whether the loop expects
+// more. For a program with a loop of its own (one that draws frames):
+// called once a frame, it keeps futures and async functions going without
+// [main].
+func async.poll(){
+  return the_loop().step(false)
 }
 
 // coroutines started by async.run, by thread object
@@ -283,9 +469,7 @@ func async.race(futures){
 func async.timeout(f, ms, message){
   local c = async.completer()
   local settled = false
-  local timer = loop_module().timer()
-  timer:start(ms, 0, func(){
-    timer:close()
+  local cancel = the_loop().after(ms, func(){
     if(not settled){
       settled = true
       c.fail(error.new(
@@ -296,8 +480,7 @@ func async.timeout(f, ms, message){
   on_settled(f, func(f){
     if(settled){ return }
     settled = true
-    timer:stop()
-    timer:close()
+    cancel()
     if(f.state == "done"){
       c.complete(f.value)
     } else {
@@ -362,9 +545,7 @@ func async.run(f){
 // Completes (with null) after ms milliseconds.
 func async.sleep(ms){
   return async.wrap(func(cb){
-    local timer = loop_module().timer()
-    timer:start(ms, 0, func(){
-      timer:close()
+    the_loop().after(ms, func(){
       cb(null, null)
     })
   })
@@ -395,16 +576,16 @@ func async.receive(ch){
 }
 
 // The driver: what async.main calls to wait for and handle one batch of
-// events, returning whether there is more to do. By default libuv's
-// run("once"); a GUI extension (slang/webview) sets its own, which waits on
-// the window system and on libuv together.
+// events, returning whether there is more to do. By default the [Loop]'s
+// step (libuv's run("once")); a GUI extension (slang/webview) sets its own,
+// which waits on the window system and on libuv together.
 local driver = null
 
 // set_driver(step?: func(): bool)
 // Replaces how [main] waits for events: step() handles one batch and says
-// whether there is more to do. null restores libuv's run("once"). For GUI
-// extensions (slang/webview) that wait on a window system and libuv
-// together.
+// whether there is more to do. null restores the loop's own step (libuv's
+// run("once")). For GUI extensions (slang/webview) that wait on a window
+// system and libuv together.
 func async.set_driver(step){
   driver = step
 }
@@ -415,14 +596,14 @@ func async.set_driver(step){
 // runs dry while f still waits. Failed futures nobody awaited or caught
 // are printed as "async: unhandled error in a future".
 func async.main(f){
-  local uv = loop_module()
+  local l = the_loop()
   local fut = async.run(f)
   for(fut.state == "pending"){
     local more = false
     if(driver != null){
       more = driver()
     } else {
-      more = uv.run("once")
+      more = l.step(true)
     }
     if(not more and fut.state == "pending"){
       raise(error.new(

@@ -474,4 +474,58 @@ t.group("async in isolates"){
     ch:send(1)
     assert(ch:receive() == 1)
   }
+
+  t.test("poll handles what is ready without waiting"){
+    local time = require("slang/time")
+    local got = null
+    async.run(func(){
+      await(async.sleep(5))
+      got = "woke"
+    })
+    async.poll()
+    assert(got == null)
+    for(local t0 = time.clock(); got == null and time.clock() - t0 < 2000;){
+      time.sleep(1)
+      async.poll()
+    }
+    assert(got == "woke")
+  }
+
+  t.test("a pump joins an event queue the loop cannot wait on"){
+    local c = async.completer()
+    local steps = 0
+    async.pump(func(){
+      steps = steps + 1
+      if(steps == 3){
+        c.complete("answered")
+        return false
+      }
+      return true
+    })
+    assert(async.main(func(){ return await(c.future) }) == "answered")
+    assert(steps == 3)
+  }
+
+  t.test("a frame loop runs timers and async functions without libuv"){
+    local time = require("slang/time")
+    local frames = 0
+    async.set_loop(async.frame_loop(func(){
+      frames = frames + 1
+      time.sleep(1)
+    }))
+    local r = try {
+      async.main(func(){
+        local a = async.run(func(){
+          await(async.sleep(8))
+          return "a"
+        })
+        local late = async.timeout(async.sleep(500), 3)
+        local e = try { await(late) } catch(local e) { e }
+        return {await(a), e.kind}
+      })
+    } catch(local e) { e }
+    async.set_loop(null)
+    assert(r == {"a", error.kinds.timeout}, r)
+    assert(frames > 0)
+  }
 }

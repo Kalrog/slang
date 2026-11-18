@@ -2125,7 +2125,10 @@ static void make_meta(slang_State *S, const char *type_name, const slang_Reg *me
 
 static void on_wake(uv_async_t *a) {
     uv_ctx *cx = CTX(a->loop);
-    cx->killed = 1;
+    /* a kill ends the loop for good; an interrupt (slang/vm's
+     * catch_interrupt) only makes uv.run return, so that the program
+     * reaches the point where it deals with it */
+    if (cx->run_S == NULL || slang_interrupted(cx->run_S)) cx->killed = 1;
     uv_stop(&cx->loop);
 }
 

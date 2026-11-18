@@ -80,6 +80,11 @@ PREFIX ?= /usr/local
 LIB_SRC  := $(wildcard slang/lib/*.slang)
 COMPILER_SRC := $(wildcard slang/compiler/*.slang)
 SEED_DIR := boot/slang
+# the grammar extensions the binary carries: those of libraries it carries
+# (slang/async, slang/html, slang/test, slang/json, slang/sqlite); the list
+# is also in zig/build.zig (seedModule)
+EXT_SRC  := extensions/async.slang extensions/html.slang extensions/inline_test.slang extensions/json.slang extensions/sqlite.slang
+EXT_SEED_DIR := boot/extensions
 
 .PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed fixpoint bench bench-compare bench-vectors raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test inkblast inkblast-test synth synth3d synth-test synth-mix modular modular-test modular-demos live live-test tracker tracker-test tracker-demos dsp car dsp-test granular granular-test delve delve-test courier courier-test switchback switchback-test switchback-web switchback-web-serve switchback-daily switchback-sound siege siege-test midi-test microphone-test studio-test studio-demo window-test gpu-test gpu swarm kernel-test kernel-bench fm fm3d fm-test fm-gen clean doc \
         vscode vscode-grammar
@@ -175,6 +180,12 @@ seed: build
 	  bin/slang compile $$f -o $(SEED_DIR)/$$n.slb --origin slang/$$n || exit 1; \
 	  echo "seed: $$f -> $(SEED_DIR)/$$n.slb"; \
 	done
+	@mkdir -p $(EXT_SEED_DIR)
+	@for f in $(EXT_SRC); do \
+	  n=$$(basename $$f .slang); \
+	  bin/slang compile $$f -o $(EXT_SEED_DIR)/$$n.slb --origin extensions/$$n || exit 1; \
+	  echo "seed: $$f -> $(EXT_SEED_DIR)/$$n.slb"; \
+	done
 	cd zig && $(ZIG) build -Doptimize=ReleaseFast -p ..
 	bin/slang run slang/seed_parsers.slang $(SEED_DIR)/pegc_root.slb
 	cd zig && $(ZIG) build -Doptimize=ReleaseFast -p ..
@@ -186,6 +197,11 @@ fixpoint: build
 	  n=$$(basename $$f .slang); \
 	  bin/slang compile $$f -o /tmp/slang-fixpoint/$$n.slb --origin slang/$$n || exit 1; \
 	  cmp $(SEED_DIR)/$$n.slb /tmp/slang-fixpoint/$$n.slb || { echo "fixpoint: $$n differs"; exit 1; }; \
+	done
+	@for f in $(EXT_SRC); do \
+	  n=$$(basename $$f .slang); \
+	  bin/slang compile $$f -o /tmp/slang-fixpoint/ext_$$n.slb --origin extensions/$$n || exit 1; \
+	  cmp $(EXT_SEED_DIR)/$$n.slb /tmp/slang-fixpoint/ext_$$n.slb || { echo "fixpoint: extensions/$$n differs"; exit 1; }; \
 	done
 	@bin/slang run slang/seed_parsers.slang /tmp/slang-fixpoint/pegc_root.slb > /dev/null || exit 1
 	@cmp $(SEED_DIR)/pegc_root.slb /tmp/slang-fixpoint/pegc_root.slb || { echo "fixpoint: root parsers differ"; exit 1; }

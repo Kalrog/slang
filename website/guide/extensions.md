@@ -68,6 +68,12 @@ print(x, "\n")
   that later units must see belongs in a module the extension requires,
   since modules are loaded once.
 
+The extensions of libraries the binary carries are in the binary too:
+`extensions/async`, `extensions/html`, `extensions/inline_test`,
+`extensions/json` and `extensions/sqlite` load wherever slang runs, in a
+package as well. The others in `extensions/` are files of the repository,
+found through a project's search paths.
+
 `slang expand file` prints what a file looks like once its extensions are
 applied: core slang, with the unquotes executed and the extension
 statements gone. Parsing that output gives the same bytecode as the

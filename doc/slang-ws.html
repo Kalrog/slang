@@ -105,9 +105,9 @@ async.main(func(){
 <p>How a connection ended: the close code the other side sent (1005 when none; 1006 when the connection dropped) or the one it was closed with.</p>
 <dl class="params"><dt><code>code: int</code></dt><dd></dd><dt><code>reason: string</code></dt><dd></dd></dl>
 <h2 id="type-Options">type Options</h2>
-<pre><code>type Options = {max_message?: int, tls?: bool | table}</code></pre>
+<pre><code>type Options = {max_message?: int, tls?: bool | table, headers?: {[string]: string}}</code></pre>
 <p>Options of <a href="#accept"><code>accept</code></a> and <a href="#connect"><code>connect</code></a>.</p>
-<dl class="params"><dt><code>max_message?: int</code></dt><dd>the largest message in bytes (16 MiB); a larger one closes with 1009</dd><dt><code>tls?: bool | table</code></dt><dd>connect only: wss, true or slang/tls's connect options</dd></dl>
+<dl class="params"><dt><code>max_message?: int</code></dt><dd>the largest message in bytes (16 MiB); a larger one closes with 1009</dd><dt><code>tls?: bool | table</code></dt><dd>connect only: wss, true or slang/tls's connect options</dd><dt><code>headers?: {[string]: string}</code></dt><dd>connect only: more headers for the handshake (Cookie, Authorization, Origin)</dd></dl>
 <p class="muted">slang/lib/ws.slang</p>
 </body>
 </html>

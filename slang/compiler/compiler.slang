@@ -315,6 +315,7 @@ func compiler.compile(code, origin, env){
 //     name: "app", version: "1.0.0",                  // as a package
 //     dependencies: {json5: {git: "https://...", version: "^1.2"},
 //                    util: {path: "../util"}},
+//     executables: {app: "bin/app.slang"},            // `slang app`
 //   }
 // Dependencies are fetched by `slang get` (slang/pkg) into the package
 // cache and pinned in slang.lock next to the project file; a package is
@@ -436,12 +437,23 @@ local func apply_layer(g, names, key){
 
 // ------------------------------------------------------------ packages
 
+// home() -> string: where slang keeps what it fetches and installs
+// $SLANG_HOME, else ~/.slang: the package cache (pkg), the installed
+// packages (tools) and the launchers of their executables (bin).
+func compiler.home(){
+  local dir = os.getenv("SLANG_HOME")
+  if(dir == null or dir == ""){
+    dir = concat(os.getenv("HOME") or ".", "/.slang")
+  }
+  return dir
+}
+
 // package_root() -> string: where fetched packages live
-// $SLANG_PKG_DIR, else ~/.slang/pkg; a package is <root>/<name>@<version>.
+// $SLANG_PKG_DIR, else pkg in [home]; a package is <root>/<name>@<version>.
 func compiler.package_root(){
   local dir = os.getenv("SLANG_PKG_DIR")
   if(dir == null){
-    dir = concat(os.getenv("HOME") or ".", "/.slang/pkg")
+    dir = concat(compiler.home(), "/pkg")
   }
   return dir
 }
@@ -913,6 +925,44 @@ func compiler.forget_project(path){
   delete(workspace_states, compiler.absolute_path(path))
 }
 
+// enter_project(path: string) -> Project?
+// From here on the program compiles and requires under the project of the
+// file or directory at path (the nearest slang.project above it): its
+// packages, search paths, dialects and ambient extensions, in a root
+// grammar of its own; without a project file, plain slang. For a program
+// that runs other people's code where that code lives: a notebook's
+// kernel, a runner. The modules loaded before stay loaded, under the names
+// they have. Gives the project, or null. Raises what [load_project]
+// raises: the program then goes on as plain slang, without a project.
+func compiler.enter_project(path){
+  compiler.workspace()
+  local key = null
+  if(os.is_dir(path)){
+    key = find_project(compiler.absolute_path(path)) or ""
+  } else {
+    key = workspace_key(path)
+  }
+  local st = new_state(key)
+  workspace_states[key] = st
+  use_state(st)
+  if(key != ""){
+    try {
+      compiler.load_project(key)
+    } catch(local e) {
+      st.load_error = e.message
+      st.project = null
+      st.root = new_grammar()
+      st.packages = {}
+      st.pkgs = {}
+      st.search_paths = default_search_paths
+      st.dialect_suffixes = {}
+      load_state(st)
+      raise(e)
+    }
+  }
+  return project
+}
+
 // the grammar of a dialect: the project's grammar plus the dialect's
 // extensions
 local func dialect_grammar(proj, suffix){
@@ -1274,9 +1324,11 @@ local func find_project_for(path){
 // [ast]: its (expanded) AST, along with symbols
 
 // What [highlight] and the other tree functions take.
-// type ParseOptions = {find_project?: bool, symbols?: bool}
+// type ParseOptions = {find_project?: bool, symbols?: bool, result?: bool}
 // [find_project]: look up the file's project while none is loaded
 // [symbols]: also analyse the names (highlight only)
+// [result]: the text may end in an expression, as a REPL line or a
+//   notebook cell does (highlight only)
 
 // dialect_kind(path: string, options?: ParseOptions) -> string?
 // How the project compiles a file at path when its suffix is a dialect's:
@@ -1336,7 +1388,10 @@ func compiler.highlight(source, path, options){
   local parsed = null
   local raised = null
   try {
-    parsed = g:parse_source(text, path, {recover: true, testing: true})
+    parsed = g:parse_source(text, path, {
+      recover: true, testing: true,
+      result: options != null and options.result == true
+    })
   } catch(local e) {
     raised = e
   }
@@ -1698,13 +1753,121 @@ func compiler.highlight_json(path, check){
   return json.encode(out)
 }
 
+// ------------------------------------------------------------ sessions
+//
+// A session compiles chunks one after another as one program written a
+// piece at a time: the lines of the REPL, the cells of a notebook.
+
+// A session, from [session].
+// type Session = {env: table, declared: {[string]: bool}}
+// [env]: where the session's locals live; the chunks' globals read through
+//   it to the program's
+// [declared]: the names the chunks declared as locals so far
+
+local session_methods = {}
+local session_meta = {__index: session_methods}
+
+// session() -> Session
+// A new session. A chunk's top-level locals (`local x`, `local func f`,
+// the locals of a top-level `let`) stay for the chunks compiled after it;
+// they are kept apart from the globals, so a chunk's `local len = 3` is
+// seen by the session only. Everything else is as in a file: an
+// assignment to an undeclared name sets a global, a local inside a block
+// ends with it.
+func compiler.session(){
+  local globals = _ENV
+  local declared = {}
+  local env = {}
+  env.@meta = {
+    __index: globals,
+    __newindex: func(t, key, value){
+      if(declared[key]){
+        set_raw(t, key, value)
+      } else {
+        globals[key] = value
+      }
+    },
+  }
+  local s = {env: env, declared: declared}
+  s.@meta = session_meta
+  return s
+}
+
+// the locals a top-level pattern declares become the session's
+local func declare_pattern(s, node){
+  if(node == null){
+    return
+  }
+  if(node.type == "VarPattern"){
+    if(node.isLocal){
+      node.isLocal = false
+      s.declared[node.name.value] = true
+    }
+  } else if(node.type == "TablePattern"){
+    for(let local f in values(node.fields)){
+      declare_pattern(s, f)
+    }
+  } else if(node.type == "FieldPattern"){
+    declare_pattern(s, node.value)
+  } else if(node.type == "MatcherPattern"){
+    declare_pattern(s, node.sub)
+  }
+}
+
+// compile(source: string, origin?: string, line?: int) -> function
+// Compiles a chunk of the session with the root grammar: statements that
+// may end in an expression. Calling the function runs the chunk and gives
+// the value of that expression, or of a call the chunk ends with; null
+// otherwise. Extension statements are not scoped: they stay in effect
+// for the chunks after. Raises as [compile] does.
+// [origin]: the name in error messages and locations; "repl" by default
+// [line]: the lines before the chunk in what origin names (a notebook
+//   cell's place in its file), added to the lines of its locations
+func session_methods.compile(s, source, origin, line){
+  origin = origin or "repl"
+  if(line != null and line > 0){
+    source = concat("\n" * line, source)
+  }
+  local node = root:parse_source(source, origin, {scoped: false, result: true})
+  local list = node.statements
+  for(let local st in values(list)){
+    if(st.type == "Declaration" and st.is_local and
+      st.left.type == "Identifier"){
+      st.is_local = false
+      s.declared[st.left.value] = true
+    } else if(st.type == "LetStat"){
+      declare_pattern(s, st.pattern)
+    }
+  }
+  local n = len(list)
+  if(n > 0 and list[n - 1].type == "CallStat"){
+    list[n - 1] = ast.node(
+      "Return", {value: list[n - 1].call}, list[n - 1].token
+    )
+  }
+  return vm.load_proto(generate_from(node, origin, source), s.env)
+}
+
+// names() -> {string}
+// The names the session's chunks declared, sorted.
+func session_methods.names(s){
+  local out = {}
+  for(let local name in keys(s.declared)){
+    append(out, name)
+  }
+  return require("slang/table").sort(out)
+}
+
+local repl_session = null
+
 // compile_repl(source: string) -> function
-// Compiles a line of the REPL with the root grammar: a chunk, or else an
-// expression, whose function returns its value. Extension statements are
-// not scoped: they stay in effect for the lines after.
+// Compiles a line of the REPL in the REPL's [Session]: a chunk whose
+// function returns the value of the expression or call it ends with.
 func compiler.compile_repl(source){
-  local node = root:parse_repl(source)
-  return vm.load_proto(codegen.generate(node, "repl"))
+  if(repl_session == null){
+    repl_session = compiler.session()
+  }
+  return repl_session:compile(source, "repl")
 }
 
 compile = compiler.compile

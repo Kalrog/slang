@@ -125,9 +125,11 @@ func socket_get.open(s){
 // type CloseInfo = {code: int, reason: string}
 
 // Options of [accept] and [connect].
-// type Options = {max_message?: int, tls?: bool | table}
+// type Options = {max_message?: int, tls?: bool | table,
+//   headers?: {[string]: string}}
 // [max_message]: the largest message in bytes (16 MiB); a larger one closes with 1009
 // [tls]: connect only: wss, true or slang/tls's connect options
+// [headers]: connect only: more headers for the handshake (Cookie, Authorization, Origin)
 
 local func new_socket(conn, rest, client, options){
   options = options or {}
@@ -513,10 +515,21 @@ func ws.connect(host, port, path, options){
     if(port != (secure and 443 or 80)){
       authority = concat(authority, ":", string(port))
     }
+    // (a header's name and value may not break out of their line)
+    local extra = {}
+    for(let local e in entries((options or {}).headers or {})){
+      local line = concat(string(e[0]), ": ", string(e[1]))
+      if(str.index_of(line, "\r") >= 0 or str.index_of(line, "\n") >= 0){
+        conn:close()
+        raise(error.new(error.kinds.argument,
+          "ws: a header may not contain a line break"))
+      }
+      append(extra, concat(line, "\r\n"))
+    }
     async.await(async.write(conn, concat(
       "GET ", path or "/", " HTTP/1.1\r\nHost: ", authority,
       "\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: ",
-      key, "\r\nSec-WebSocket-Version: 13\r\n\r\n"
+      key, "\r\nSec-WebSocket-Version: 13\r\n", str.join(extra, ""), "\r\n"
     )))
     local p = require("llhttp").parser("response", null)
     local reader = async.reader(conn)

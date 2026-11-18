@@ -267,13 +267,13 @@ return {token: op, ast: +{-{async}.await(-{exp})}}</code></pre>
 <p>Runs a parsed extension statement (what the &quot;extension_statement&quot; rule produced) and returns the statement node to emit, or null; the parser of a unit calls it between top-level statements.</p>
 
 </div>
-<div class="def" id="Grammar:parse_source"><h3><code>Grammar:parse_source(source: string, origin: string, options?: {scoped?: bool, tree?: bool, recover?: bool, sandbox?: bool, testing?: bool}) -> <a href="slang-ast.html#type-Node">ast.Node</a></code></h3>
+<div class="def" id="Grammar:parse_source"><h3><code>Grammar:parse_source(source: string, origin: string, options?: {scoped?: bool, tree?: bool, recover?: bool, sandbox?: bool, testing?: bool, result?: bool}) -> <a href="slang-ast.html#type-Node">ast.Node</a></code></h3>
 <p>Parses a unit to a Block node, one top-level statement at a time, running its unquotes and extension statements. Raises on failure; the details of a parse failure are in g.state.last_failure ({message, pos, far_pos, far_message}).</p>
 
 </div>
-<div class="def" id="Grammar:parse_repl"><h3><code>Grammar:parse_repl(source: string) -> <a href="slang-ast.html#type-Node">ast.Node</a></code></h3>
-<p>A chunk, or an expression wrapped in a Return. The REPL is one unit spread over many lines: its extension statements are not scoped.</p>
-
+<div class="def" id="Grammar:parse_repl"><h3><code>Grammar:parse_repl(source: string, origin?: string) -> <a href="slang-ast.html#type-Node">ast.Node</a></code></h3>
+<p>A chunk that may end in an expression, which is then its Return. The REPL is one unit spread over many lines: its extension statements are not scoped.</p>
+<dl class="params"><dt><code>origin</code></dt><dd>&quot;repl&quot; by default</dd></dl>
 </div>
 <h2 id="type-FileGrammar">type FileGrammar</h2>
 <pre><code>type FileGrammar = {item: <a href="slang-peg.html#type-Parser">peg.Parser</a>, unit: func(items: {any}, g: <a href="#type-Grammar">Grammar</a>): <a href="#type-Code">Code</a>, keywords?: {string}, sources?: {string}}</code></pre>

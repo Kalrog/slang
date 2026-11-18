@@ -1,4 +1,5 @@
-// slang/pkg: packages: `slang get`, `slang update [name...]`, `slang deps`.
+// slang/pkg: packages: `slang get`, `slang update [name...]`, `slang deps`,
+// and their executables: `slang exec`, `slang install`, `slang uninstall`.
 //
 // A project lists what it uses in its slang.project:
 //
@@ -33,6 +34,28 @@
 // install scripts. Compiling a package runs its grammar extensions, as
 // compiling any slang does; the hashes in slang.lock pin exactly what that
 // is.
+//
+// A package offers programs in its slang.project:
+//
+//   executables: {notebook: "bin/notebook.slang"},
+//
+// `slang exec notebook args...` runs one, and so does `slang notebook
+// args...`, as long as no command of slang has the name. The executables
+// in reach are those of the project (the nearest slang.project above the
+// working directory), of the packages it depends on directly, and of the
+// installed packages, found in that order; `package:name` says which
+// package is meant. An executable of the project or of one of its
+// dependencies runs under the project, as `slang run` of its file would.
+//
+// `slang install` makes a package's executables available everywhere:
+// from a directory (`slang install ../notebook`, no argument for the
+// package in the working directory) or a repository (`slang install
+// https://... [version]`). An installed package is a project of its own
+// under tools/<name> in slang's home ($SLANG_HOME, else ~/.slang): a
+// generated slang.project with the one dependency and its slang.lock, so
+// what an installed program runs with is pinned like any build. Each
+// executable also gets a launcher in the home's bin, a script to put on
+// PATH. Installing runs nothing of the package.
 local str = require("slang/string")
 local os = require("slang/os")
 local encoding = require("slang/encoding")
@@ -619,20 +642,411 @@ local func deps(dir){
   }
 }
 
-local USAGE = "usage: slang get | slang update [package...] | slang deps\n"
+// ------------------------------------------------------------ executables
+
+// A program a package offers, as [executables] lists it.
+// type Executable = {name: string, package?: string, file: string,
+//   project: string, from: string}
+// [package]: the package that offers it; null for a project without a name
+// [file]: its main file
+// [project]: the project file it runs under
+// [from]: "project", "dependency" or "installed"
+
+local exe_re = regex.compile("^[a-z0-9][a-z0-9_-]*$")
+
+local func read_manifest(dir){
+  local path = concat(dir, "/slang.project")
+  if(not os.exists(path)){
+    return {}
+  }
+  return compiler.read_table_file(path)
+}
+
+// the executables a manifest declares, appended to out
+local func executables_of(manifest, dir, package, project, from, out){
+  local list = manifest.executables or {}
+  for(let local name in values(sorted_keys(list))){
+    local file = list[name]
+    if(type(name) != "string" or not exe_re:matches(name) or
+      type(file) != "string"){
+      raise(error.new(error.kinds.format, concat(
+        dir, "/slang.project: executables: ", string(name),
+        ": a name of lowercase letters, digits, - and _, and its main file, expected"
+      )))
+    }
+    append(out, {
+      name: name, package: package,
+      file: compiler.absolute_path(compiler.join_path(dir, file)),
+      project: project, from: from
+    })
+  }
+}
+
+// the directory of each direct dependency of the project in dir, by name
+// (null for one not fetched): where slang.lock has it, else its path
+local func dependency_dirs(dir, manifest){
+  local out = {}
+  local lock = {}
+  local lock_path = concat(dir, "/slang.lock")
+  if(os.exists(lock_path)){
+    lock = compiler.read_table_file(lock_path)
+  }
+  for(let local e in entries(manifest.dependencies or {})){
+    local name = e[0]
+    local l = lock[name]
+    local found = null
+    if(l != null and l.path != null){
+      found = compiler.absolute_path(compiler.join_path(dir, l.path))
+    } else if(l != null and l.version != null){
+      found = compiler.package_dir(name, l.version)
+    } else if(type(e[1]) == "table" and e[1].path != null){
+      found = compiler.absolute_path(compiler.join_path(dir, e[1].path))
+    }
+    if(found != null and not os.is_dir(found)){
+      found = null
+    }
+    out[name] = found
+  }
+  return out
+}
+
+// the executables of the direct dependencies of the project in dir
+local func dependency_executables(dir, manifest, from, out){
+  local dirs = dependency_dirs(dir, manifest)
+  for(let local name in values(sorted_keys(dirs))){
+    if(dirs[name] != null){
+      executables_of(
+        read_manifest(dirs[name]), dirs[name], name,
+        concat(dir, "/slang.project"), from, out,
+      )
+    }
+  }
+}
+
+local func tools_dir(){
+  return concat(compiler.home(), "/tools")
+}
+
+local func bin_dir(){
+  return concat(compiler.home(), "/bin")
+}
+
+// executables() -> {Executable}
+// The executables in reach of the working directory, those found first
+// first: the project's own, those of its direct dependencies, the
+// installed ones. A name may come up more than once: the first is the one
+// `slang exec name` runs.
+func pkg.executables(){
+  local out = {}
+  local dir = find_project()
+  if(dir != null){
+    local manifest = read_manifest(dir)
+    executables_of(
+      manifest, dir, manifest.name, concat(dir, "/slang.project"), "project",
+      out,
+    )
+    dependency_executables(dir, manifest, "dependency", out)
+  }
+  local tools = tools_dir()
+  if(os.is_dir(tools)){
+    for(let local name in values(sorted_names(os.list_dir(tools)))){
+      local tool = concat(tools, "/", name)
+      if(os.exists(concat(tool, "/slang.project"))){
+        dependency_executables(tool, read_manifest(tool), "installed", out)
+      }
+    }
+  }
+  return out
+}
+
+// find_executable(name: string) -> Executable?
+// The executable `slang exec name` runs: the first of [executables] with
+// the name; "package:name" takes only that package's. Null when there is
+// none.
+func pkg.find_executable(name){
+  local package = null
+  local colon = str.index_of(name, ":")
+  if(colon >= 0){
+    package = str.substring(name, 0, colon)
+    name = str.substring(name, colon + 1)
+  }
+  for(let local e in values(pkg.executables())){
+    if(e.name == name and (package == null or e.package == package)){
+      return e
+    }
+  }
+  return null
+}
+
+// load_executable(name: string) -> function?
+// The main function of the executable [find_executable] finds, loaded as
+// `slang run` loads a main file, under the executable's project; null
+// when there is no such executable. What `slang exec` calls.
+func pkg.load_executable(name){
+  local e = pkg.find_executable(name)
+  if(e == null){
+    return null
+  }
+  if(not os.exists(e.file)){
+    raise(error.new(error.kinds.not_found, concat(
+      "executable ", e.name, ": ", e.file, " does not exist"
+    ), {path: e.file}))
+  }
+  compiler.load_project(e.project)
+  return compiler.load_main(e.file)
+}
+
+local func list_executables(){
+  local list = pkg.executables()
+  if(len(list) == 0){
+    print("no executables: none in this project or its dependencies, none installed\n")
+    return
+  }
+  local seen = {}
+  for(let local e in values(list)){
+    local label = e.name
+    if(seen[e.name]){
+      // hidden by an earlier one of the name
+      label = concat(e.package or "", ":", e.name)
+    }
+    seen[e.name] = true
+    local where = e.from
+    if(e.package != null and e.from != "project"){
+      where = concat(e.from, ", package ", e.package)
+    }
+    print(str.format("%-20s", label), " ", where, "\n")
+  }
+}
+
+// ------------------------------------------------------------ install
+
+local func is_repository(source){
+  return str.contains(source, "://") or str.starts_with(source, "git@") or
+    str.ends_with(source, ".git")
+}
+
+local func launcher_text(name, package){
+  return concat(
+    "#!/bin/sh\n",
+    "# slang install: ", name, " of the package ", package, "\n",
+    "slang=", quote(os.executable()), "\n",
+    "[ -x \"$slang\" ] || slang=slang\n",
+    // (the home it was installed into, whatever the caller's is)
+    "SLANG_HOME=", quote(compiler.absolute_path(compiler.home())), "\n",
+    "export SLANG_HOME\n",
+    "exec \"$slang\" exec ", name, " \"$@\"\n"
+  )
+}
+
+// the package a launcher was written for, or null
+local func launcher_owner(path){
+  if(not os.exists(path)){
+    return null
+  }
+  local marker = " of the package "
+  for(let local line in values(str.split(os.read_file(path), "\n"))){
+    local i = str.index_of(line, marker)
+    if(str.starts_with(line, "# slang install: ") and i >= 0){
+      return str.substring(line, i + len(marker))
+    }
+  }
+  return null
+}
+
+local func remove_launchers(name, keep){
+  local bin = bin_dir()
+  if(not os.is_dir(bin)){
+    return
+  }
+  for(let local file in values(sorted_names(os.list_dir(bin)))){
+    local path = concat(bin, "/", file)
+    if(not keep[file] and launcher_owner(path) == name){
+      os.remove(path)
+    }
+  }
+}
+
+// install(source?: string, version?: string) -> {name: string,
+//   executables: {Executable}, bin: string}
+// Installs a package's executables for every directory: `slang install`.
+// The package becomes the one dependency of a project of its own,
+// tools/<name> under slang's home, fetched and pinned as [get] does, and
+// each executable gets a launcher in the home's bin (given as bin).
+// Installing a package again replaces what was installed. Raises when the
+// package has no name or no executables.
+// [source]: a directory (the working directory by default) or a
+//   repository's URL
+// [version]: for a repository, the least version wanted ("1.2": the newest
+//   within major 1); the newest of all by default
+func pkg.install(source, version){
+  source = source or "."
+  local manifest = null
+  local spec = null
+  if(is_repository(source)){
+    local found = null
+    if(version != null){
+      local min = pkg.parse_version(version)
+      if(min == null){
+        raise(error.new(error.kinds.format, concat(
+          "a version like \"1.2\" expected, not ", version
+        )))
+      }
+      found = pick(source, min, true, true)
+    } else {
+      local all = versions_of(source, true)
+      if(len(all) == 0){
+        raise(error.new(error.kinds.not_found, concat(
+          source, " has no versions (tags vMAJOR.MINOR.PATCH)"
+        )))
+      }
+      found = all[len(all) - 1]
+    }
+    manifest = parse_manifest(
+      file_at(source, found, "slang.project"),
+      concat(source, "@", found.text, "/slang.project"),
+    )
+    spec = concat(
+      "{git: ", quote(source), ", version: ", quote(concat("^", found.text)), "}"
+    )
+  } else {
+    local dir = compiler.absolute_path(source)
+    if(not os.is_dir(dir)){
+      raise(error.new(error.kinds.not_found, concat(
+        "no directory ", dir, " (a repository is given by its URL)"
+      ), {path: dir}))
+    }
+    manifest = read_manifest(dir)
+    spec = concat("{path: ", quote(dir), "}")
+  }
+  local name = manifest.name
+  if(name == null){
+    raise(error.new(error.kinds.format, concat(
+      source, ": its slang.project gives it no name, so it is no package"
+    )))
+  }
+  check_name(name, source)
+  if(count(manifest.executables or {}) == 0){
+    raise(error.new(error.kinds.format, concat(
+      "package ", name, " has no executables (executables: {name: \"main.slang\"} in its slang.project)"
+    )))
+  }
+  local tool = concat(tools_dir(), "/", name)
+  os.mkdir_all(tool)
+  os.write_file(concat(tool, "/slang.project"), concat(
+    "// made by slang install; slang uninstall ", name, " removes it\n",
+    "{\n  dependencies: {\n    [", quote(name), "]: ", spec, ",\n  },\n}\n"
+  ))
+  // chosen anew: the version asked for now, not the one locked before
+  if(os.exists(concat(tool, "/slang.lock"))){
+    os.remove(concat(tool, "/slang.lock"))
+  }
+  local chosen = pkg.get(tool, null)
+  local list = {}
+  executables_of(
+    read_manifest(chosen[name].dir), chosen[name].dir, name,
+    concat(tool, "/slang.project"), "installed", list,
+  )
+  local bin = bin_dir()
+  os.mkdir_all(bin)
+  local kept = {}
+  for(let local e in values(list)){
+    local path = concat(bin, "/", e.name)
+    local owner = launcher_owner(path)
+    if(owner != null and owner != name){
+      print(e.name, ": replaces the launcher of the package ", owner, "\n")
+    }
+    os.write_file(path, launcher_text(e.name, name))
+    run({"chmod", "+x", path})
+    kept[e.name] = true
+  }
+  remove_launchers(name, kept)
+  return {name: name, executables: list, bin: bin}
+}
+
+// uninstall(name: string) -> bool
+// Takes back [install]: the package's project under tools and its
+// launchers. False when no such package is installed.
+func pkg.uninstall(name){
+  local tool = concat(tools_dir(), "/", name)
+  if(not name_re:matches(name) or not os.is_dir(tool)){
+    return false
+  }
+  remove_launchers(name, {})
+  os.remove_all(tool)
+  return true
+}
+
+local func on_path(dir){
+  for(let local part in values(str.split(os.getenv("PATH") or "", ":"))){
+    if(part == dir){
+      return true
+    }
+  }
+  return false
+}
+
+local func install_command(arguments){
+  local source = arguments[1]
+  local version = arguments[2]
+  // url@1.2 as well as url 1.2
+  if(source != null and version == null and is_repository(source)){
+    local at = str.last_index_of(source, "@")
+    if(at > 0 and pkg.parse_version(str.substring(source, at + 1)) != null){
+      version = str.substring(source, at + 1)
+      source = str.substring(source, 0, at)
+    }
+  }
+  local r = pkg.install(source, version)
+  local names = {}
+  for(let local e in values(r.executables)){
+    append(names, e.name)
+  }
+  print("installed ", r.name, ": ", str.join(names, ", "), "\n")
+  print("run with `slang ", names[0], "`")
+  if(not on_path(r.bin)){
+    print("; with ", r.bin, " on PATH, as `", names[0], "`")
+  }
+  print("\n")
+}
+
+local USAGE = concat(
+  "usage: slang get | slang update [package...] | slang deps\n",
+  "       slang exec [[package:]name [args...]]\n",
+  "       slang install [dir | url [version]] | slang uninstall package\n"
+)
 
 // main(arguments: {string}) -> int: the exit code
 // The commands: {"get"}, {"update", names...} or {"deps"}, for the project
-// in the working directory or the nearest one above it.
+// in the working directory or the nearest one above it; {"exec"} (lists
+// the executables: slang itself runs one), {"install", source?, version?}
+// and {"uninstall", name}.
 func pkg.main(arguments){
   local command = arguments[0]
   local dir = find_project()
-  if(dir == null){
+  local anywhere = command == "exec" or command == "install" or
+    command == "uninstall"
+  if(dir == null and not anywhere){
     os.write_stderr("no slang.project here or in a directory above\n")
     return 1
   }
   try {
-    if(command == "get"){
+    if(command == "exec"){
+      list_executables()
+    } else if(command == "install"){
+      install_command(arguments)
+    } else if(command == "uninstall"){
+      if(arguments[1] == null){
+        os.write_stderr(USAGE)
+        return 2
+      }
+      if(not pkg.uninstall(arguments[1])){
+        os.write_stderr(concat(
+          "slang uninstall: no package ", arguments[1], " is installed\n"
+        ))
+        return 1
+      }
+      print("uninstalled ", arguments[1], "\n")
+    } else if(command == "get"){
       report(pkg.get(dir, null))
       print("slang.lock written\n")
     } else if(command == "update"){

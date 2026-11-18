@@ -197,3 +197,93 @@ t.group("packages: native modules"){
     sh(concat("rm -rf '", scratch, "'"))
   }
 }
+
+t.group("packages: executables"){
+  t.test("exec runs the project's, a dependency's and an installed package's"){
+    local home = concat(scratch, "/home")
+    os.mkdir_all(concat(scratch, "/hello/bin"))
+    os.mkdir_all(concat(scratch, "/eapp/sub"))
+    os.mkdir_all(concat(scratch, "/elsewhere"))
+    write(
+      "hello/slang.project",
+      "{name: \"hello\", executables: {hello: \"bin/hello.slang\", [\"hello-twice\"]: \"bin/twice.slang\"}}\n",
+    )
+    write("hello/init.slang", "return {greet: func(who){ return concat(\"hello \", who) }}\n")
+    write(
+      "hello/bin/hello.slang",
+      "print(require(\"hello\").greet(args()[0] or \"world\"), \" \", len(args()), \"\\n\")\n",
+    )
+    write(
+      "hello/bin/twice.slang",
+      "local h = require(\"hello\")\nprint(h.greet(\"a\"), \", \", h.greet(\"b\"), \"\\n\")\n",
+    )
+    write(
+      "eapp/slang.project",
+      "{name: \"eapp\", dependencies: {hello: {path: \"../hello\"}}, executables: {eapp: \"main.slang\"}}\n",
+    )
+    write("eapp/main.slang", "print(\"eapp \", args()[0], \"\\n\")\n")
+    local func run(dir, command){
+      return sh(
+        concat("SLANG_HOME=", home, " ", slang, " ", command),
+        concat(scratch, "/", dir),
+      )
+    }
+    run("eapp", "get")
+    // the project's own, from a folder below it; arguments are the program's
+    assert(run("eapp/sub", "exec eapp one") == "eapp one\n")
+    // a dependency's: by name, as a command of slang, and by its package
+    assert(run("eapp", "exec hello you") == "hello you 1\n")
+    assert(run("eapp", "hello-twice") == "hello a, hello b\n")
+    assert(run("eapp", "exec hello:hello") == "hello world 0\n")
+    local listed = run("eapp", "exec")
+    assert(
+      str.index_of(listed, "eapp") >= 0 and
+        str.index_of(listed, "hello-twice") >= 0,
+      listed,
+    )
+    // elsewhere there is none, until the package is installed
+    local r = os.exec(
+      {"sh", "-c", concat("SLANG_HOME=", home, " ", slang, " hello")},
+      concat(scratch, "/elsewhere"),
+    )
+    assert(r.status == 2 and str.index_of(r.stderr, "is no command") >= 0, r.stderr)
+    local out = run("elsewhere", "install ../hello")
+    assert(str.index_of(out, "installed hello: hello, hello-twice") >= 0, out)
+    assert(run("elsewhere", "hello there") == "hello there 1\n")
+    assert(run("elsewhere", "exec hello-twice") == "hello a, hello b\n")
+    // its launcher is a script that runs it
+    assert(sh(concat(home, "/bin/hello launched"), scratch) == "hello launched 1\n")
+    assert(os.exists(concat(home, "/tools/hello/slang.lock")))
+    // installing again without one of them takes that launcher away
+    write("hello/slang.project", "{name: \"hello\", executables: {hello: \"bin/hello.slang\"}}\n")
+    run("elsewhere", "install ../hello")
+    assert(not os.exists(concat(home, "/bin/hello-twice")))
+    assert(os.exists(concat(home, "/bin/hello")))
+    // and uninstalling takes all of it
+    run("elsewhere", "uninstall hello")
+    assert(not os.exists(concat(home, "/bin/hello")))
+    assert(not os.exists(concat(home, "/tools/hello")))
+    r = os.exec(
+      {"sh", "-c", concat("SLANG_HOME=", home, " ", slang, " uninstall hello")},
+      concat(scratch, "/elsewhere"),
+    )
+    assert(r.status == 1)
+    sh(concat("rm -rf '", scratch, "'"))
+  }
+  t.test("a package without a name or without executables is not installed"){
+    local home = concat(scratch, "/home")
+    os.mkdir_all(concat(scratch, "/plain"))
+    os.mkdir_all(concat(scratch, "/lib"))
+    write("plain/slang.project", "{executables: {x: \"x.slang\"}}\n")
+    write("lib/slang.project", "{name: \"lib\"}\n")
+    for(let local dir in values({"plain", "lib"})){
+      local r = os.exec(
+        {"sh", "-c", concat("SLANG_HOME=", home, " ", slang, " install ", dir)},
+        scratch,
+      )
+      assert(r.status == 1, dir)
+      assert(str.index_of(r.stderr, "slang install: ") == 0, r.stderr)
+    }
+    sh(concat("rm -rf '", scratch, "'"))
+  }
+}

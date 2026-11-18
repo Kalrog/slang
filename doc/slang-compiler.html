@@ -59,6 +59,7 @@ local h = compiler.highlight(source, &quot;main.slang&quot;, {symbols: true})</c
 <li><a href="#find_project"><code>find_project</code></a></li>
 <li><a href="#dirname"><code>dirname</code></a></li>
 <li><a href="#join_path"><code>join_path</code></a></li>
+<li><a href="#home"><code>home</code></a></li>
 <li><a href="#package_root"><code>package_root</code></a></li>
 <li><a href="#package_dir"><code>package_dir</code></a></li>
 <li><a href="#read_table_file"><code>read_table_file</code></a></li>
@@ -72,6 +73,7 @@ local h = compiler.highlight(source, &quot;main.slang&quot;, {symbols: true})</c
 <li><a href="#for_file"><code>for_file</code></a></li>
 <li><a href="#project_error"><code>project_error</code></a></li>
 <li><a href="#forget_project"><code>forget_project</code></a></li>
+<li><a href="#enter_project"><code>enter_project</code></a></li>
 <li><a href="#keywords"><code>keywords</code></a></li>
 <li><a href="#cache_root"><code>cache_root</code></a></li>
 <li><a href="#pegc_cache"><code>pegc_cache</code></a></li>
@@ -87,6 +89,7 @@ local h = compiler.highlight(source, &quot;main.slang&quot;, {symbols: true})</c
 <li><a href="#expand_file"><code>expand_file</code></a></li>
 <li><a href="#highlight_file"><code>highlight_file</code></a></li>
 <li><a href="#highlight_json"><code>highlight_json</code></a></li>
+<li><a href="#session"><code>session</code></a></li>
 <li><a href="#compile_repl"><code>compile_repl</code></a></li>
 <li><a href="#type-Project"><code>type Project</code></a></li>
 <li><a href="#type-Dialect"><code>type Dialect</code></a></li>
@@ -98,6 +101,7 @@ local h = compiler.highlight(source, &quot;main.slang&quot;, {symbols: true})</c
 <li><a href="#type-Analysis"><code>type Analysis</code></a></li>
 <li><a href="#type-Require"><code>type Require</code></a></li>
 <li><a href="#type-ExtensionGrammar"><code>type ExtensionGrammar</code></a></li>
+<li><a href="#type-Session"><code>type Session</code></a></li>
 </ul>
 <div class="def" id="explain"><h3><code>compiler.explain</code></h3>
 <p>Whether the compiler tells on stderr what it does: the project and its extensions, the extensions and rule changes of each unit, the packages. <code>slang run --explain</code> sets it; SLANG_EXPLAIN=1 does the same. It also turns on grammar warnings.</p>
@@ -152,8 +156,12 @@ f()   // 42</code></pre>
 
 </div>
 <h2>packages</h2>
+<div class="def" id="home"><h3><code>compiler.home() -> string</code></h3>
+<p>$SLANG_HOME, else ~/.slang: the package cache (pkg), the installed packages (tools) and the launchers of their executables (bin).</p>
+<dl class="params"><dt>returns</dt><dd>where slang keeps what it fetches and installs</dd></dl>
+</div>
 <div class="def" id="package_root"><h3><code>compiler.package_root() -> string</code></h3>
-<p>$SLANG_PKG_DIR, else ~/.slang/pkg; a package is &lt;root&gt;/&lt;name&gt;@&lt;version&gt;.</p>
+<p>$SLANG_PKG_DIR, else pkg in <a href="#home"><code>home</code></a>; a package is &lt;root&gt;/&lt;name&gt;@&lt;version&gt;.</p>
 <dl class="params"><dt>returns</dt><dd>where fetched packages live</dd></dl>
 </div>
 <div class="def" id="package_dir"><h3><code>compiler.package_dir(name: string, version: string) -> string</code></h3>
@@ -202,6 +210,10 @@ f()   // 42</code></pre>
 </div>
 <div class="def" id="forget_project"><h3><code>compiler.forget_project(path?: string)</code></h3>
 <p>Drops the workspace's state of the project file at path (all of them without one): it is made anew from the file when next needed.</p>
+
+</div>
+<div class="def" id="enter_project"><h3><code>compiler.enter_project(path: string) -> <a href="#type-Project">Project</a>?</code></h3>
+<p>From here on the program compiles and requires under the project of the file or directory at path (the nearest slang.project above it): its packages, search paths, dialects and ambient extensions, in a root grammar of its own; without a project file, plain slang. For a program that runs other people's code where that code lives: a notebook's kernel, a runner. The modules loaded before stay loaded, under the names they have. Gives the project, or null. Raises what <a href="#load_project"><code>load_project</code></a> raises: the program then goes on as plain slang, without a project.</p>
 
 </div>
 <div class="def" id="keywords"><h3><code>compiler.keywords(path: string) -> {string}</code></h3>
@@ -266,8 +278,13 @@ f()   // 42</code></pre>
 <p><a href="#highlight_file"><code>highlight_file</code></a> as JSON text, {tokens, diagnostics} (<code>slang highlight</code>); the tokens without stop. (<code>slang highlight --check</code>): compile errors, and locals never used and globals not defined as hints and warnings with a length</p>
 <dl class="params"><dt><code>check</code></dt><dd>when the file parses, also compile it and lint it on its own</dd></dl>
 </div>
+<h2>sessions</h2>
+<div class="def" id="session"><h3><code>compiler.session() -> <a href="#type-Session">Session</a></code></h3>
+<p>A new session. A chunk's top-level locals (<code>local x</code>, <code>local func f</code>, the locals of a top-level <code>let</code>) stay for the chunks compiled after it; they are kept apart from the globals, so a chunk's <code>local len = 3</code> is seen by the session only. Everything else is as in a file: an assignment to an undeclared name sets a global, a local inside a block ends with it.</p>
+
+</div>
 <div class="def" id="compile_repl"><h3><code>compiler.compile_repl(source: string) -> function</code></h3>
-<p>Compiles a line of the REPL with the root grammar: a chunk, or else an expression, whose function returns its value. Extension statements are not scoped: they stay in effect for the lines after.</p>
+<p>Compiles a line of the REPL in the REPL's <a href="#type-Session"><code>Session</code></a>: a chunk whose function returns the value of the expression or call it ends with.</p>
 
 </div>
 <h2 id="type-Project">type Project</h2>
@@ -295,9 +312,9 @@ f()   // 42</code></pre>
 <p>What <a href="#highlight"><code>highlight</code></a> tells about a file.</p>
 <dl class="params"><dt><code>tokens: {<a href="#type-Token">Token</a>}</code></dt><dd>in source order, not overlapping</dd><dt><code>diagnostics: {<a href="#type-Diagnostic">Diagnostic</a>}</code></dt><dd></dd><dt><code>symbols?: <a href="slang-symbols.html#type-Index">symbols.Index</a></code></dt><dd>its definitions and uses, when asked for and the file parsed</dd><dt><code>ast?: table</code></dt><dd>its (expanded) AST, along with symbols</dd></dl>
 <h2 id="type-ParseOptions">type ParseOptions</h2>
-<pre><code>type ParseOptions = {find_project?: bool, symbols?: bool}</code></pre>
+<pre><code>type ParseOptions = {find_project?: bool, symbols?: bool, result?: bool}</code></pre>
 <p>What <a href="#highlight"><code>highlight</code></a> and the other tree functions take.</p>
-<dl class="params"><dt><code>find_project?: bool</code></dt><dd>look up the file's project while none is loaded</dd><dt><code>symbols?: bool</code></dt><dd>also analyse the names (highlight only)</dd></dl>
+<dl class="params"><dt><code>find_project?: bool</code></dt><dd>look up the file's project while none is loaded</dd><dt><code>symbols?: bool</code></dt><dd>also analyse the names (highlight only)</dd><dt><code>result?: bool</code></dt><dd>the text may end in an expression, as a REPL line or a notebook cell does (highlight only)</dd></dl>
 <h2 id="type-Analysis">type Analysis</h2>
 <pre><code>type Analysis = {function: function, requires?: {<a href="#type-Require">Require</a>}, computed: {int}}</code></pre>
 <p>What <a href="#analyze_file"><code>analyze_file</code></a> finds in a file.</p>
@@ -310,6 +327,10 @@ f()   // 42</code></pre>
 <pre><code>type ExtensionGrammar = {grammar: table, base: table}</code></pre>
 <p>What loading an extension did to a grammar, for its documentation.</p>
 <dl class="params"><dt><code>grammar: table</code></dt><dd>a grammar derived from the root with the extension loaded</dd><dt><code>base: table</code></dt><dd>the root it was derived from, as it was before</dd></dl>
+<h2 id="type-Session">type Session</h2>
+<pre><code>type Session = {env: table, declared: {[string]: bool}}</code></pre>
+<p>A session, from <a href="#session"><code>session</code></a>.</p>
+<dl class="params"><dt><code>env: table</code></dt><dd>where the session's locals live; the chunks' globals read through it to the program's</dd><dt><code>declared: {[string]: bool}</code></dt><dd>the names the chunks declared as locals so far</dd></dl>
 <p class="muted">slang/compiler/compiler.slang</p>
 </body>
 </html>

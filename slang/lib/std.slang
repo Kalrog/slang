@@ -157,6 +157,8 @@ error.meta.__tostring = error.message
 // kinds of their own; these are the shared ones (see the stubs for what
 // each means).
 error.kinds = {
+  // ctrl-c, for a program that catches it (slang/vm's catch_interrupt)
+  interrupted: "interrupted",
   error: "error",
   assertion: "assertion",
   type: "type",

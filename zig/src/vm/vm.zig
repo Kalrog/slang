@@ -201,6 +201,13 @@ pub const VM = struct {
     /// Set from another OS thread to stop this VM at its next safe point
     /// (an isolate's kill); errors raised then cannot be caught.
     interrupt: std.atomic.Value(bool) = .init(false),
+    /// A SIGINT (slang/vm's catch_interrupt, vm/interrupt.zig) that
+    /// interrupt_target has not taken yet: that thread raises an error of
+    /// kind "interrupted" at its next safe point, which can be caught.
+    soft_interrupt: std.atomic.Value(bool) = .init(false),
+    /// The thread a SIGINT raises in (compared, never followed); null: none,
+    /// and an interrupt stays pending (slang/vm's interrupted()).
+    interrupt_target: ?*Thread = null,
     /// The isolate this VM runs (slang/isolate), null for the main VM.
     isolate: ?*anyopaque = null,
     /// Made by slang_isolate_new for an OS thread of the caller's: checked
@@ -276,6 +283,7 @@ pub const VM = struct {
             d.destroy();
             vm.debugger = null;
         }
+        @import("interrupt.zig").detach(vm);
         // (no kill reaches a VM being destroyed: the hooks go first)
         vm.hooks_lock.lockUncancelable(vm.io);
         vm.interrupt_hooks.clearAndFree(vm.gpa);

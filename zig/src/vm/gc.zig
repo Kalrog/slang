@@ -223,10 +223,26 @@ pub inline fn safePoint(vm: *VM, th: *Thread) root.Error!void {
 // (out of line: the fast path, one compare, is in every call and loop)
 noinline fn slowPoint(vm: *VM, th: *Thread) root.Error!void {
     @branchHint(.cold);
-    _ = th;
     if (vm.interrupt.load(.seq_cst)) return vm.raise("isolate killed", .{});
+    // a SIGINT meant for this thread (slang/vm's catch_interrupt): an error
+    // like any other, which the code may catch
+    if (vm.soft_interrupt.load(.seq_cst) and vm.interrupt_target == th) {
+        vm.soft_interrupt.store(false, .seq_cst);
+        return vm.raiseKind("interrupted", "interrupted", .{});
+    }
     step(vm);
     runFinalizers(vm);
+}
+
+/// A SIGINT arrived (vm/interrupt.zig, on its own OS thread): the thread it
+/// is meant for raises at its next safe point, and what waits outside the
+/// interpreter (an event loop) is woken, so that it gets there.
+pub fn softInterrupt(vm: *VM) void {
+    vm.soft_interrupt.store(true, .seq_cst);
+    @atomicStore(usize, &vm.next_gc, 0, .seq_cst);
+    vm.hooks_lock.lockUncancelable(vm.io);
+    defer vm.hooks_lock.unlock(vm.io);
+    for (vm.interrupt_hooks.items) |h| h.f(h.data);
 }
 
 /// Stops vm at its next safe point; called from another OS thread.
@@ -801,8 +817,9 @@ pub fn schedule(vm: *VM) void {
         break :blk @max(vm.gc_minimum, if (grown >= limit) std.math.maxInt(usize) else @as(usize, @intFromFloat(grown)));
     };
     @atomicStore(usize, &vm.next_gc, next, .seq_cst);
-    // a kill that arrived meanwhile keeps its zero
-    if (vm.interrupt.load(.seq_cst)) @atomicStore(usize, &vm.next_gc, 0, .seq_cst);
+    // a kill that arrived meanwhile keeps its zero, and so does a SIGINT
+    // its thread has not taken yet
+    if (vm.interrupt.load(.seq_cst) or vm.soft_interrupt.load(.seq_cst)) @atomicStore(usize, &vm.next_gc, 0, .seq_cst);
 }
 
 fn freeObject(vm: *VM, o: *Object) void {

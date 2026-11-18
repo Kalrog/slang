@@ -40,7 +40,7 @@ details.expanded summary { cursor: pointer; color: var(--muted); }
 <body>
 <nav><a href="index.html">index</a></nav>
 <h1>slang/pkg</h1>
-<p>slang/pkg: packages: <code>slang get</code>, <code>slang update [name...]</code>, <code>slang deps</code>.</p>
+<p>slang/pkg: packages: <code>slang get</code>, <code>slang update [name...]</code>, <code>slang deps</code>, and their executables: <code>slang exec</code>, <code>slang install</code>, <code>slang uninstall</code>.</p>
 <p>A project lists what it uses in its slang.project:</p>
 <pre><code>name: &quot;app&quot;,
 dependencies: {
@@ -50,6 +50,10 @@ dependencies: {
 <p>A package is a git repository whose slang.project gives its name (the name it is required by, the same in every project that uses it) and whose tags vMAJOR.MINOR.PATCH are its versions. <code>version: &quot;1.2&quot;</code> (or &quot;^1.2&quot;) asks for 1.2.0 or later within major 1 (within 0.2 for a 0.x version); a path dependency is a directory, for working on two packages at once. <code>require(&quot;json5/parse&quot;)</code> loads parse.slang of the package (<code>require(&quot;json5&quot;)</code> its init.slang), compiled under the package's own slang.project: its extensions never reach the project that uses it.</p>
 <p>Versions are chosen as Go does (minimal version selection): every package gets the highest of the minimums asked for it, by the project, by other packages, or by slang.lock, which pins what was chosen (the version, its commit and a hash of its files). So a build is the same until someone asks for more: <code>slang update</code> moves the named packages (or all) to their newest version within the same major. Two majors of one package, or two packages under one name, are errors: one program never mixes them.</p>
 <p>Packages are fetched with git into the package cache ($SLANG_PKG_DIR, else ~/.slang/pkg; a git mirror per repository under .mirrors), one directory per version; with the cache complete nothing needs the network. Nothing in a package runs when it is fetched: there are no install scripts. Compiling a package runs its grammar extensions, as compiling any slang does; the hashes in slang.lock pin exactly what that is.</p>
+<p>A package offers programs in its slang.project:</p>
+<pre><code>executables: {notebook: &quot;bin/notebook.slang&quot;},</code></pre>
+<p><code>slang exec notebook args...</code> runs one, and so does <code>slang notebook args...</code>, as long as no command of slang has the name. The executables in reach are those of the project (the nearest slang.project above the working directory), of the packages it depends on directly, and of the installed packages, found in that order; <code>package:name</code> says which package is meant. An executable of the project or of one of its dependencies runs under the project, as <code>slang run</code> of its file would.</p>
+<p><code>slang install</code> makes a package's executables available everywhere: from a directory (<code>slang install ../notebook</code>, no argument for the package in the working directory) or a repository (<code>slang install https://... [version]</code>). An installed package is a project of its own under tools/&lt;name&gt; in slang's home ($SLANG_HOME, else ~/.slang): a generated slang.project with the one dependency and its slang.lock, so what an installed program runs with is pinned like any build. Each executable also gets a launcher in the home's bin, a script to put on PATH. Installing runs nothing of the package.</p>
 <ul class="toc">
 <li><a href="#parse_version"><code>parse_version</code></a></li>
 <li><a href="#compare"><code>compare</code></a></li>
@@ -58,9 +62,15 @@ dependencies: {
 <li><a href="#tree_hash"><code>tree_hash</code></a></li>
 <li><a href="#resolve"><code>resolve</code></a></li>
 <li><a href="#get"><code>get</code></a></li>
+<li><a href="#executables"><code>executables</code></a></li>
+<li><a href="#find_executable"><code>find_executable</code></a></li>
+<li><a href="#load_executable"><code>load_executable</code></a></li>
+<li><a href="#install"><code>install</code></a></li>
+<li><a href="#uninstall"><code>uninstall</code></a></li>
 <li><a href="#main"><code>main</code></a></li>
 <li><a href="#type-Version"><code>type Version</code></a></li>
 <li><a href="#type-Chosen"><code>type Chosen</code></a></li>
+<li><a href="#type-Executable"><code>type Executable</code></a></li>
 </ul>
 <h2>versions</h2>
 <div class="def" id="parse_version"><h3><code>pkg.parse_version(s: string) -> <a href="#type-Version">Version</a>?</code></h3>
@@ -94,8 +104,30 @@ dependencies: {
 <p><code>slang get</code> (and <code>slang update</code> with update): resolves the build list of the project in dir, installs what is missing into the package cache, checks the files against slang.lock's hashes and writes slang.lock.</p>
 <dl class="params"><dt><code>update</code></dt><dd>as for <a href="#resolve"><code>resolve</code></a>; the named repositories are fetched again</dd></dl>
 </div>
+<h2>executables</h2>
+<div class="def" id="executables"><h3><code>pkg.executables() -> {<a href="#type-Executable">Executable</a>}</code></h3>
+<p>The executables in reach of the working directory, those found first first: the project's own, those of its direct dependencies, the installed ones. A name may come up more than once: the first is the one <code>slang exec name</code> runs.</p>
+
+</div>
+<div class="def" id="find_executable"><h3><code>pkg.find_executable(name: string) -> <a href="#type-Executable">Executable</a>?</code></h3>
+<p>The executable <code>slang exec name</code> runs: the first of <a href="#executables"><code>executables</code></a> with the name; &quot;package:name&quot; takes only that package's. Null when there is none.</p>
+
+</div>
+<div class="def" id="load_executable"><h3><code>pkg.load_executable(name: string) -> function?</code></h3>
+<p>The main function of the executable <a href="#find_executable"><code>find_executable</code></a> finds, loaded as <code>slang run</code> loads a main file, under the executable's project; null when there is no such executable. What <code>slang exec</code> calls.</p>
+
+</div>
+<h2>install</h2>
+<div class="def" id="install"><h3><code>pkg.install(source?: string, version?: string) -> {name: string, executables: {<a href="#type-Executable">Executable</a>}, bin: string}</code></h3>
+<p>Installs a package's executables for every directory: <code>slang install</code>. The package becomes the one dependency of a project of its own, tools/&lt;name&gt; under slang's home, fetched and pinned as <a href="#get"><code>get</code></a> does, and each executable gets a launcher in the home's bin (given as bin). Installing a package again replaces what was installed. Raises when the package has no name or no executables.</p>
+<dl class="params"><dt><code>source</code></dt><dd>a directory (the working directory by default) or a repository's URL</dd><dt><code>version</code></dt><dd>for a repository, the least version wanted (&quot;1.2&quot;: the newest within major 1); the newest of all by default</dd></dl>
+</div>
+<div class="def" id="uninstall"><h3><code>pkg.uninstall(name: string) -> bool</code></h3>
+<p>Takes back <a href="#install"><code>install</code></a>: the package's project under tools and its launchers. False when no such package is installed.</p>
+
+</div>
 <div class="def" id="main"><h3><code>pkg.main(arguments: {string}) -> int</code></h3>
-<p>The commands: {&quot;get&quot;}, {&quot;update&quot;, names...} or {&quot;deps&quot;}, for the project in the working directory or the nearest one above it.</p>
+<p>The commands: {&quot;get&quot;}, {&quot;update&quot;, names...} or {&quot;deps&quot;}, for the project in the working directory or the nearest one above it; {&quot;exec&quot;} (lists the executables: slang itself runs one), {&quot;install&quot;, source?, version?} and {&quot;uninstall&quot;, name}.</p>
 <dl class="params"><dt>returns</dt><dd>the exit code</dd></dl>
 </div>
 <h2 id="type-Version">type Version</h2>
@@ -106,6 +138,10 @@ dependencies: {
 <pre><code>type Chosen = {name: string, git?: string, path?: string, version?: <a href="#type-Version">Version</a>, dir?: string, manifest?: table, required: {{from: string, asked: string}}, commit?: string, hash?: string}</code></pre>
 <p>A package of a build list, as <a href="#resolve"><code>resolve</code></a> chooses it.</p>
 <dl class="params"><dt><code>name: string</code></dt><dd></dd><dt><code>git?: string</code></dt><dd>the repository, for a package fetched with git</dd><dt><code>path?: string</code></dt><dd>the directory, for a path dependency (then dir is the same)</dd><dt><code>version?: <a href="#type-Version">Version</a></code></dt><dd>the version chosen, for a package fetched with git</dd><dt><code>dir?: string</code></dt><dd>where its files are (a git package's once <a href="#get"><code>get</code></a> installed it)</dd><dt><code>manifest?: table</code></dt><dd>its slang.project, for a path dependency</dd><dt><code>required: {{from: string, asked: string}}</code></dt><dd>who asked for it and what they asked for</dd><dt><code>commit?: string</code></dt><dd>the commit of its tag, once installed</dd><dt><code>hash?: string</code></dt><dd><a href="#tree_hash"><code>tree_hash</code></a> of its files, once installed</dd></dl>
+<h2 id="type-Executable">type Executable</h2>
+<pre><code>type Executable = {name: string, package?: string, file: string, project: string, from: string}</code></pre>
+<p>A program a package offers, as <a href="#executables"><code>executables</code></a> lists it.</p>
+<dl class="params"><dt><code>name: string</code></dt><dd></dd><dt><code>package?: string</code></dt><dd>the package that offers it; null for a project without a name</dd><dt><code>file: string</code></dt><dd>its main file</dd><dt><code>project: string</code></dt><dd>the project file it runs under</dd><dt><code>from: string</code></dt><dd>&quot;project&quot;, &quot;dependency&quot; or &quot;installed&quot;</dd></dl>
 <p class="muted">slang/compiler/pkg.slang</p>
 </body>
 </html>

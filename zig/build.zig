@@ -289,6 +289,9 @@ fn addNative(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.buil
 /// The seed bytecode (slang/lib and slang/compiler compiled to .slb) lives in
 /// boot/slang at the repository root. It is copied into a generated module
 /// that embeds every file under its module name ("slang/compiler", ...).
+/// The grammar extensions of libraries the binary carries are in it too
+/// (boot/extensions, as "extensions/html", ...): `extension
+/// "extensions/html"` works wherever slang runs, not only in a checkout.
 fn seedModule(b: *std.Build) *std.Build.Module {
     const names = [_][]const u8{ "ast", "async", "buffer", "build", "codegen", "compiler", "crypto", "doc", "ffi", "format", "grammar", "html", "http", "json", "jwt", "net", "optimizer", "parse_error", "resolve", "package", "path", "peg", "pegc", "pegc_root", "pkg", "sqlite", "std", "symbols", "test", "tls", "web", "webview", "ws", "zlib" };
     const wf = b.addWriteFiles();
@@ -298,6 +301,13 @@ fn seedModule(b: *std.Build) *std.Build.Module {
         const file = b.fmt("{s}.slb", .{n});
         _ = wf.addCopyFile(b.path(b.fmt("../boot/slang/{s}", .{file})), file);
         src.appendSlice(b.allocator, b.fmt("    .{{ .name = \"slang/{s}\", .data = @embedFile(\"{s}\") }},\n", .{ n, file })) catch @panic("OOM");
+    }
+    // (slang/async, slang/html, slang/test, slang/json and slang/sqlite have one)
+    const extensions = [_][]const u8{ "async", "html", "inline_test", "json", "sqlite" };
+    for (extensions) |n| {
+        const file = b.fmt("ext_{s}.slb", .{n});
+        _ = wf.addCopyFile(b.path(b.fmt("../boot/extensions/{s}.slb", .{n})), file);
+        src.appendSlice(b.allocator, b.fmt("    .{{ .name = \"extensions/{s}\", .data = @embedFile(\"{s}\") }},\n", .{ n, file })) catch @panic("OOM");
     }
     src.appendSlice(b.allocator, "};\n") catch @panic("OOM");
     const root = wf.add("seed.zig", src.items);

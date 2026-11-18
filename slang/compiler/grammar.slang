@@ -3047,12 +3047,14 @@ local never = peg.custom(func(self, ctx, pos){
   return -1
 })
 
-local func parse_top_level(g, source, origin, scoped, recover, tree){
+local func parse_top_level(g, source, origin, scoped, recover, tree, result){
   local lin = g.state
   local tok_semicolon = fmt.drop(peg.ref(lin.token_fn, ";"):optional())
   local parsers = {
     statement: peg.seq(rule_ref(lin, "statement"), tok_semicolon):pick(0),
     final: peg.seq(rule_ref(lin, "final_statement"), tok_semicolon):pick(0),
+    // the expression a unit parsed with {result: true} may end in
+    result: peg.seq(rule_ref(lin, "expr"), tok_semicolon):pick(0),
     extension_statement: peg.seq(
       rule_ref(lin, "extension_statement"),
       tok_semicolon,
@@ -3092,6 +3094,8 @@ local func parse_top_level(g, source, origin, scoped, recover, tree){
   local far_start = 0
   local last_far = -1
   local last_pos = 0
+  // whether a final statement (a return) was parsed
+  local ended = false
   for(true){
     for(true){
       if(ctx.far_pos > last_far){
@@ -3165,9 +3169,33 @@ local func parse_top_level(g, source, origin, scoped, recover, tree){
             }
             emit(lin, statements, ctx.value)
             pos = q
+            ended = true
           }
           break
         }
+      }
+    }
+    // a unit with a result may end in an expression: its value is the
+    // unit's (a failure of this try is not the one to report)
+    if(result and not ended and file == null and
+      match_at(space_re, source, pos) < len(source)){
+      local far_pos = ctx.far_pos
+      local far_msg = ctx.far_msg
+      unit:activate()
+      ctx.rule_memo = {}
+      local q = parse_statement(lin, parsers.result, ctx, pos)
+      if(q >= 0 and match_at(space_re, source, q) == len(source)){
+        if(tree){
+          append(trees, ctx.tree)
+          tree_values[len(trees) - 1] = ctx.value
+        }
+        emit(lin, statements, ast.node(
+          "Return", {value: ctx.value}, ctx.value.token
+        ))
+        pos = q
+      } else {
+        ctx.far_pos = far_pos
+        ctx.far_msg = far_msg
       }
     }
     stop = match_at(space_re, source, pos)
@@ -3263,7 +3291,8 @@ local func parse_top_level(g, source, origin, scoped, recover, tree){
 }
 
 // parse_source(source: string, origin: string, options?: {scoped?: bool,
-//   tree?: bool, recover?: bool, sandbox?: bool, testing?: bool}) -> ast.Node
+//   tree?: bool, recover?: bool, sandbox?: bool, testing?: bool,
+//   result?: bool}) -> ast.Node
 // Parses a unit to a Block node, one top-level statement at a time,
 // running its unquotes and extension statements. Raises on failure; the
 // details of a parse failure are in g.state.last_failure ({message, pos,
@@ -3273,6 +3302,7 @@ local func parse_top_level(g, source, origin, scoped, recover, tree){
 // [recover]: implies tree; goes past statements that fail to parse, which become error regions in the tree; their failures are in g.state.failures
 // [sandbox]: no unquotes and no extension statements may run
 // [testing]: the unit is compiled for a test run (see [Grammar.testing]); a nested parse that does not say inherits it
+// [result]: the unit may end in an expression, which becomes its Return: what a REPL line or a notebook cell gives
 func methods.parse_source(g, source, origin, options){
   local lin = g.state
   local outer_origin = lin.origin
@@ -3303,7 +3333,10 @@ func methods.parse_source(g, source, origin, options){
   lin.parse_depth = lin.parse_depth + 1
   local r = try { {
     ok: true,
-    value: parse_top_level(g, source, origin, scoped, recover, tree),
+    value: parse_top_level(
+      g, source, origin, scoped, recover, tree,
+      options != null and options.result == true,
+    ),
   } } catch(local e) { {ok: false, error: e} }
   lin.parse_depth = lin.parse_depth - 1
   if(tree and not r.ok and lin.tree_parts != null){
@@ -3332,22 +3365,15 @@ func methods.parse_source(g, source, origin, options){
   return r.value
 }
 
-// parse_repl(source: string) -> ast.Node
-// A chunk, or an expression wrapped in a Return. The REPL is one unit
-// spread over many lines: its extension statements are not scoped.
-func methods.parse_repl(g, source){
-  local failure = null
-  try {
-    return g:parse_source(source, "repl", {scoped: false})
-  } catch(local e) {
-    failure = e
-  }
-  g:activate()
-  local exp = peg.run(rule_ref(g.state, "expr"):end(), source)
-  if(exp.ok){
-    return ast.node("Return", {value: exp.value}, exp.value.token)
-  }
-  raise(failure)
+// parse_repl(source: string, origin?: string) -> ast.Node
+// A chunk that may end in an expression, which is then its Return. The
+// REPL is one unit spread over many lines: its extension statements are
+// not scoped.
+// [origin]: "repl" by default
+func methods.parse_repl(g, source, origin){
+  return g:parse_source(
+    source, origin or "repl", {scoped: false, result: true}
+  )
 }
 
 // new(opts?: Options) -> Grammar

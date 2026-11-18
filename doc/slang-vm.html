@@ -60,6 +60,8 @@ px.keep = img            // the image lives as long as px or img does</code></pr
 <li><a href="#weak_keys"><code>weak_keys</code></a></li>
 <li><a href="#weak_values"><code>weak_values</code></a></li>
 <li><a href="#weak"><code>weak</code></a></li>
+<li><a href="#catch_interrupt"><code>catch_interrupt</code></a></li>
+<li><a href="#interrupted"><code>interrupted</code></a></li>
 <li><a href="#load_bytecode"><code>load_bytecode</code></a></li>
 <li><a href="#load_bytes"><code>load_bytes</code></a></li>
 <li><a href="#to_bytes"><code>to_bytes</code></a></li>
@@ -110,6 +112,18 @@ vm.gc.automatic = true</code></pre>
 <p>A weak reference: r.value is v while something else keeps v alive, and null once it is collected (a <a href="#weak_values"><code>weak_values</code></a> table holding v as value).</p>
 <pre><code>local r = vm.weak(window)
 if(r.value != null){ r.value:redraw() }</code></pre>
+
+</div>
+<div class="def" id="catch_interrupt"><h3><code>vm.catch_interrupt(thread?: thread.Coroutine | bool)</code></h3>
+<p>From now on an interrupt (ctrl-c, SIGINT) does not end the process: it raises an error of kind interrupted in thread, at its next call or loop, once that coroutine is the one running; code blocked in an event loop (slang/async) is woken first. true is the calling coroutine. null or false name none: an interrupt is then only noted, for <a href="#interrupted"><code>interrupted</code></a>. What a REPL or a notebook's kernel stops the code it runs with:</p>
+<pre><code>vm.catch_interrupt(true)
+try { work() } catch({kind: ^error.kinds.interrupted}) { print(&quot;stopped\n&quot;) }
+vm.catch_interrupt(null)</code></pre>
+<p>Code inside C (a long native call) is not interrupted before it returns. Raises an error of kind unsupported in an isolate, on Windows and in the browser.</p>
+
+</div>
+<div class="def" id="interrupted"><h3><code>vm.interrupted(clear?: bool) -> bool</code></h3>
+<p>Whether an interrupt arrived that no coroutine has taken yet (see <a href="#catch_interrupt"><code>catch_interrupt</code></a>); with clear it is forgotten.</p>
 
 </div>
 <div class="def" id="load_bytecode"><h3><code>vm.load_bytecode(path: string) -> function</code></h3>

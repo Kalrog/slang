@@ -16,6 +16,7 @@ const boot = @import("boot.zig");
 const bundle = @import("bundle/exe.zig");
 const bundle_format = @import("bundle/format.zig");
 const isolates = @import("stdlib/isolatelib.zig");
+const interrupt = @import("vm/interrupt.zig");
 
 // The C API must be compiled and exported even though nothing in the CLI
 // calls it: native extensions resolve the slang_* symbols against the
@@ -55,6 +56,12 @@ fn usage(io: std.Io) noreturn {
         \\  slang get                   fetch the project's packages and write slang.lock
         \\  slang update [package...]   move packages to their newest version (same major)
         \\  slang deps                  list the packages the project uses and who asks for them
+        \\  slang exec [[package:]name [args...]]
+        \\                              run an executable of the project, its packages or an installed
+        \\                              package (no name: list them); `slang name args...` does the same
+        \\  slang install [dir|url [version]]
+        \\                              make a package's executables available everywhere
+        \\  slang uninstall <package>
         \\  slang doc [-o dir] [file|dir...]
         \\                              HTML documentation of the modules (default: the project, or slang's library)
         \\  slang build [--dir] [-o out] [--list] [--strip] [file.slang]
@@ -133,12 +140,52 @@ pub fn main(init: std.process.Init) !u8 {
         all.append(init.gpa, cmd) catch oom();
         all.appendSlice(init.gpa, args) catch oom();
         return toolMain(init, "slang/pkg", all.items);
+    } else if (std.mem.eql(u8, cmd, "install") or std.mem.eql(u8, cmd, "uninstall")) {
+        var all: std.ArrayList([]const u8) = .empty;
+        defer all.deinit(init.gpa);
+        all.append(init.gpa, cmd) catch oom();
+        all.appendSlice(init.gpa, args) catch oom();
+        return toolMain(init, "slang/pkg", all.items);
+    } else if (std.mem.eql(u8, cmd, "exec")) {
+        // without a name: the list
+        if (args.len < 1) return toolMain(init, "slang/pkg", &.{"exec"});
+        return exec(init, args[0], args[1..], true);
     } else if (std.mem.eql(u8, cmd, "disasm")) {
         if (args.len < 1) usage(io);
         disasmFile(init, args[0]);
+    } else if (cmd.len > 0 and cmd[0] != '-') {
+        // no command of slang's: an executable of a package
+        return exec(init, cmd, args, false);
     } else {
         usage(io);
     }
+    return 0;
+}
+
+/// `slang exec name args...`, and `slang name args...` for a name that is
+/// no command: runs an executable a package offers (slang/pkg finds it and
+/// loads its project), with the arguments as its own.
+fn exec(init: std.process.Init, name: []const u8, args: []const []const u8, explicit: bool) u8 {
+    const vm = newVM(init, args);
+    defer vm.destroy();
+    const pkg = vm.call(vm.getGlobal("require"), &.{vm.str("slang/pkg")}) catch fail(vm);
+    const main_fn = vm.call(pkg.table.getName("load_executable"), &.{vm.str(name)}) catch fail(vm);
+    if (main_fn == .null) {
+        vm.flush();
+        var w = stderr(vm.io);
+        if (explicit) {
+            w.interface.print("slang exec: no executable {s} in this project, its packages or the installed ones (`slang exec` lists them)\n", .{name}) catch {};
+        } else {
+            w.interface.print("slang: {s} is no command, and no executable of this project, its packages or the installed ones\n", .{name}) catch {};
+        }
+        w.interface.flush() catch {};
+        if (!explicit) usage(vm.io);
+        return 2;
+    }
+    _ = vm.call(main_fn, &.{}) catch fail(vm);
+    vm.flush();
+    ended(vm, 0);
+    isolates.finish(vm, 0);
     return 0;
 }
 
@@ -341,6 +388,7 @@ fn repl(init: std.process.Init) void {
     const compile_repl = compiler.table.getName("compile_repl");
     const out = vm.out();
     out.writeAll("Slang REPL (exit or ctrl-d to quit)\n") catch {};
+    const catching = if (interrupt.install(vm)) |_| true else |_| false;
     while (true) {
         out.writeAll(">>> ") catch {};
         vm.flush();
@@ -352,10 +400,17 @@ fn repl(init: std.process.Init) void {
             printError(vm);
             continue;
         };
+        // ctrl-c stops the line, not the REPL
+        vm.soft_interrupt.store(false, .seq_cst);
+        vm.interrupt_target = if (catching) vm.main else null;
         const res = vm.call(f, &.{}) catch {
+            vm.interrupt_target = null;
             printError(vm);
             continue;
         };
+        vm.interrupt_target = null;
+        // a statement has no value to show
+        if (res == .null) continue;
         vm_mod.format.writeValue(out, res) catch {};
         out.writeByte('\n') catch {};
     }

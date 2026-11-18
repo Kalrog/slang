@@ -12,6 +12,7 @@ const stdlib = @import("stdlib.zig");
 const object = @import("../vm/object.zig");
 const gc = @import("../vm/gc.zig");
 const disasm = @import("../vm/disasm.zig");
+const interrupt = @import("../vm/interrupt.zig");
 
 /// slang/vm: access to closures, upvalues and bytecode, and the collector.
 pub fn module(vm: *VM) *Table {
@@ -34,6 +35,8 @@ pub fn module(vm: *VM) *Table {
         .{ .name = "weak_keys", .f = vmWeakKeys },
         .{ .name = "weak_values", .f = vmWeakValues },
         .{ .name = "weak", .f = vmWeak },
+        .{ .name = "catch_interrupt", .f = vmCatchInterrupt },
+        .{ .name = "interrupted", .f = vmInterrupted },
     });
     m.set(vm.gpa, vm.str("gc"), .{ .table = gcObject(vm) });
     return m;
@@ -53,6 +56,35 @@ fn vmArgCount(th: *Thread, args: []Value) Error!Value {
         if (fr.cl.proto != null) return .{ .int = @intCast(fr.nargs) };
     }
     return .{ .int = 0 };
+}
+
+/// catch_interrupt(thread?): from now on SIGINT (ctrl-c) does not end the
+/// process: it raises an error of kind "interrupted" in thread, at its next
+/// call or loop, once that thread is the one running. true is the calling
+/// thread; null or false none, and an interrupt is only noted (interrupted()).
+fn vmCatchInterrupt(th: *Thread, args: []Value) Error!Value {
+    const vm = th.vm;
+    if (!interrupt.supported or vm.isolate != null) {
+        return vm.raiseKind("unsupported", "catch_interrupt: only the main program can catch interrupts, and not on this system", .{});
+    }
+    const target: ?*Thread = if (args.len == 0) null else switch (args[0]) {
+        .null => null,
+        .bool => |b| if (b) th else null,
+        .thread => |t| t,
+        else => return vm.raiseKind("argument", "catch_interrupt: a coroutine, true or null expected, got {s}", .{args[0].typeName()}),
+    };
+    interrupt.install(vm) catch return vm.raiseKind("io", "catch_interrupt: cannot watch for interrupts", .{});
+    vm.interrupt_target = target;
+    return .null;
+}
+
+/// interrupted(clear?): whether an interrupt arrived that no thread has
+/// taken; with clear it is forgotten.
+fn vmInterrupted(th: *Thread, args: []Value) Error!Value {
+    const vm = th.vm;
+    const pending = vm.soft_interrupt.load(.seq_cst);
+    if (args.len > 0 and args[0].truthy()) vm.soft_interrupt.store(false, .seq_cst);
+    return .{ .bool = pending };
 }
 
 /// collect(): a full collection now; what nothing refers to any more is

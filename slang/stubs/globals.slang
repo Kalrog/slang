@@ -85,6 +85,8 @@ error.meta = {}
 // (catch({kind: ^error.kinds.not_found})). Reading a kind not listed
 // raises. Programs and libraries may add kinds of their own.
 error.kinds = {
+  // ctrl-c, for a program that catches it (slang/vm's catch_interrupt)
+  interrupted: "interrupted",
   // raise of a string, and errors no other kind fits
   error: "error",
   // assert failed

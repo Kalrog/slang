@@ -110,6 +110,26 @@ func m.weak_values(){}
 //   if(r.value != null){ r.value:redraw() }
 func m.weak(v){}
 
+// catch_interrupt(thread?: thread.Coroutine | bool)
+// From now on an interrupt (ctrl-c, SIGINT) does not end the process: it
+// raises an error of kind interrupted in thread, at its next call or loop,
+// once that coroutine is the one running; code blocked in an event loop
+// (slang/async) is woken first. true is the calling coroutine. null or
+// false name none: an interrupt is then only noted, for [interrupted].
+// What a REPL or a notebook's kernel stops the code it runs with:
+//   vm.catch_interrupt(true)
+//   try { work() } catch({kind: ^error.kinds.interrupted}) { print("stopped\n") }
+//   vm.catch_interrupt(null)
+// Code inside C (a long native call) is not interrupted before it returns.
+// Raises an error of kind unsupported in an isolate, on Windows and in the
+// browser.
+func m.catch_interrupt(thread){}
+
+// interrupted(clear?: bool) -> bool
+// Whether an interrupt arrived that no coroutine has taken yet (see
+// [catch_interrupt]); with clear it is forgotten.
+func m.interrupted(clear){}
+
 // load_bytecode(path: string) -> function
 // The main function of a compiled .slb file.
 func m.load_bytecode(path){}

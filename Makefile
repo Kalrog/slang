@@ -21,6 +21,8 @@
 #   make midi-test    run the midi package's tests (packages/midi; no device needed)
 #   make microphone-test run the microphone package's tests (packages/microphone; no device needed)
 #   make kernel-test  run the kernel package's tests (packages/kernel; ships its interpreter)
+#   make notebook-test run the notebook packages' tests (packages/notebook, packages/notebook_server: the format, a kernel, the server; no browser needed)
+#   make notebook     serve the notebooks of packages/notebook/examples to the browser (slang notebook-server)
 #   make studio-test  run the studio package's tests (packages/studio: instruments, effects, the mixer, sequences; no sound card needed)
 #   make studio-demo  render the studio's demo piece to packages/studio/demo.wav and say how much of a core it takes
 #   make window-test  run the window package's tests (packages/window; ships SDL3, opens hidden windows)
@@ -86,7 +88,7 @@ SEED_DIR := boot/slang
 EXT_SRC  := extensions/async.slang extensions/html.slang extensions/inline_test.slang extensions/json.slang extensions/sqlite.slang
 EXT_SEED_DIR := boot/extensions
 
-.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed fixpoint bench bench-compare bench-vectors raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test inkblast inkblast-test synth synth3d synth-test synth-mix modular modular-test modular-demos live live-test tracker tracker-test tracker-demos dsp car dsp-test granular granular-test delve delve-test courier courier-test switchback switchback-test switchback-web switchback-web-serve switchback-daily switchback-sound siege siege-test midi-test microphone-test studio-test studio-demo window-test gpu-test gpu swarm kernel-test kernel-bench fm fm3d fm-test fm-gen clean doc \
+.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed fixpoint bench bench-compare bench-vectors raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test inkblast inkblast-test synth synth3d synth-test synth-mix modular modular-test modular-demos live live-test tracker tracker-test tracker-demos dsp car dsp-test granular granular-test delve delve-test courier courier-test switchback switchback-test switchback-web switchback-web-serve switchback-daily switchback-sound siege siege-test midi-test microphone-test notebook-test notebook studio-test studio-demo window-test gpu-test gpu swarm kernel-test kernel-bench fm fm3d fm-test fm-gen clean doc \
         vscode vscode-grammar
 
 all: build
@@ -153,6 +155,7 @@ test: build unit
 	  else echo "no joltc for $(SLANG_PLATFORM): packages/jolt and examples/siege not tested"; fi
 	$(MAKE) midi-test
 	$(MAKE) microphone-test
+	$(MAKE) notebook-test
 	@if [ -d "packages/window/lib/$(SLANG_PLATFORM)" ]; then $(MAKE) window-test; \
 	  else echo "no SDL3 for $(SLANG_PLATFORM): packages/window not tested"; fi
 	@if [ -d "packages/gpu/lib/$(SLANG_PLATFORM)" ]; then $(MAKE) gpu-test; \
@@ -338,6 +341,13 @@ car: build
 dsp-test: build
 	cd packages/dsp && ../../bin/slang test test
 	cd examples/dsp && ../../bin/slang test test
+
+notebook-test: build
+	cd packages/notebook && ../../bin/slang test test
+	cd packages/notebook_server && ../../bin/slang test test
+
+notebook: build
+	cd packages/notebook_server && ../../bin/slang exec notebook-server ../notebook/examples
 
 studio-test: build
 	cd packages/studio && ../../bin/slang test test

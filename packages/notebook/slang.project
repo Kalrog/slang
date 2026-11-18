@@ -1,0 +1,5 @@
+{
+  name: "notebook",
+  // slang notebook run|new|export ...
+  executables: {notebook: "bin/notebook.slang"},
+}

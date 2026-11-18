@@ -15,6 +15,8 @@ repository.
 | `slang fmt file\|dir...` | formats files in place; `--check` lists the ones that would change |
 | `slang doc [-o dir] [file\|dir...]` | writes HTML documentation from doc comments |
 | `slang get`, `slang update`, `slang deps` | packages, see [Projects and packages](projects.md) |
+| `slang exec name [args...]`, `slang name [args...]` | runs an executable a package offers |
+| `slang install [dir\|url]`, `slang uninstall package` | a package's executables, everywhere |
 | `slang build [file.slang]` | one executable, see [Single executables](build.md) |
 | `slang expand file` | prints a file as core slang, after its extensions were applied |
 | `slang highlight [--check] file` | the file's tokens and errors as JSON, for tools |
@@ -25,6 +27,11 @@ repository.
 project file, the units compiled and the extensions in effect; `--profile
 out.folded` writes a sampled profile as folded stacks, for a flame graph;
 `--debug PORT` waits for a debugger.
+
+The REPL is one session: a line's top-level locals stay for the lines
+after it, a line that ends in an expression or a call prints its value,
+and ctrl-c stops a line that runs too long. [Notebooks](notebooks.md) are
+the same session with a document around it.
 
 ## Tests
 
@@ -114,7 +121,8 @@ compiler, so the cache never changes what a program does.
 |---|---|
 | `SLANG_CACHE_DIR` | where the bytecode cache is (default `~/.cache/slang`) |
 | `SLANG_NO_CACHE=1` | turns the bytecode cache off |
-| `SLANG_PKG_DIR` | where packages are fetched to (default `~/.slang/pkg`) |
+| `SLANG_HOME` | where slang keeps packages (`pkg`), installed packages (`tools`) and their launchers (`bin`); default `~/.slang` |
+| `SLANG_PKG_DIR` | where packages are fetched to (default `pkg` in slang's home) |
 | `SLANG_NATIVE_PATH` | more directories to look for native modules in |
 | `SLANG_DEBUG=PORT` | waits for a debugger, with any command |
 | `SLANG_GRAMMAR_WARNINGS=1` | reports conflicts between grammar extensions |

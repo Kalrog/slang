@@ -688,6 +688,10 @@ local GUIDES = {
     blurb: "Futures and await, HTTP, the web framework, WebSockets and SQLite.",
   },
   {
+    slug: "notebooks",
+    blurb: "Notebooks as Markdown files: cells that share a session, plots and tables, in the browser and in the terminal.",
+  },
+  {
     slug: "extensions",
     blurb: "Quotes and compile, extension statements, dialects for a project, and the grammar API.",
   },

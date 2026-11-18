@@ -1,0 +1,8 @@
+{
+  name: "notebook_server",
+  dependencies: {
+    notebook: {path: "../notebook"},
+  },
+  // slang notebook-server [folder | notebook.md]
+  executables: {["notebook-server"]: "bin/server.slang"},
+}

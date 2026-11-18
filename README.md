@@ -94,6 +94,7 @@ slang build main.slang    # one executable, no slang needed to run it
 | [Tools](website/guide/tools.md) | the `slang` command, tests, formatting, docs, editors, the debugger |
 | [Single executables](website/guide/build.md) | `slang build` |
 | [Async and the web](website/guide/async.md) | futures and `await`, HTTP, the web framework, SQLite |
+| [Notebooks](website/guide/notebooks.md) | notebooks as Markdown files, in the browser and the terminal |
 | [Extending the language](website/guide/extensions.md) | quotes, extension statements, dialects, the grammar API |
 | [Working with C](website/guide/c.md) | the FFI, buffers, native modules, embedding |
 

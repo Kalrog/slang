@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>slang notebooks</title>
+<link rel="icon" href="/static/logo.svg">
+<link rel="stylesheet" href="/static/notebook.css">
+<link rel="stylesheet" href="/static/app.css">
+<script>
+  // the theme chosen before, ahead of the first paint
+  try {
+    var theme = localStorage.getItem("slang-notebook-theme");
+    if (theme) document.documentElement.dataset.theme = theme;
+  } catch (e) {}
+</script>
+</head>
+<body>
+<header class="bar">
+  <a class="brand" href="/" title="All notebooks">
+    <img src="/static/logo.svg" alt="" width="26" height="26">
+    <span>notebooks</span>
+  </a>
+  <nav class="crumbs" id="crumbs" aria-label="Location"></nav>
+  <div class="actions" id="actions"></div>
+</header>
+<main id="main"></main>
+<div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

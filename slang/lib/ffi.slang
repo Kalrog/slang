@@ -803,9 +803,18 @@ local func preprocess(text, defines){
 // {kind: "struct", name, info}, {kind: "func", ret, params, variadic},
 // {kind: "opaque", name, why}; a type also has c, its C spelling.
 
+// C's types that are as wide as a pointer (and long): 64 bits, or 32 where
+// slang itself is built for 32 bits (in a browser)
+local word = "int64"
+local uword = "uint64"
+if(ct.sizeof(ct.pointer(null)) == 4){
+  word = "int32"
+  uword = "uint32"
+}
+
 local builtin_typedefs = {
-  size_t: "uint64", ssize_t: "int64", ptrdiff_t: "int64", intptr_t: "int64",
-  uintptr_t: "uint64", int8_t: "int8", uint8_t: "uint8", int16_t: "int16",
+  size_t: uword, ssize_t: word, ptrdiff_t: word, intptr_t: word,
+  uintptr_t: uword, int8_t: "int8", uint8_t: "uint8", int16_t: "int16",
   uint16_t: "uint16", int32_t: "int32", uint32_t: "uint32", int64_t: "int64",
   uint64_t: "uint64", wchar_t: "int32", off_t: "int64"
 }
@@ -1116,10 +1125,16 @@ func ffi.cdef(text, options){
           name: u and "uint16" or "int16",
           c: u and "unsigned short" or "short",
         }
-      } else if(c.long != null){
+      } else if(c.long != null and c.long >= 2){
         base = {
           kind: "prim",
           name: u and "uint64" or "int64",
+          c: u and "unsigned long long" or "long long",
+        }
+      } else if(c.long != null){
+        base = {
+          kind: "prim",
+          name: u and uword or word,
           c: u and "unsigned long" or "long",
         }
       } else if(c.int != null or c.signed != null or u){

@@ -87,6 +87,20 @@ t.group("ffi: declarations"){
     assert(ffi.sizeof("Item", C) == 20)
     assert(ffi.sizeof("int64_t[3]", C) == 24)
   }
+  t.test("size_t, long and their kind are as wide as a pointer"){
+    // (8 bytes here; 4 where slang is built for 32 bits, in a browser)
+    local word = ffi.sizeof("void *")
+    for(let local name in values({
+      "size_t", "ssize_t", "ptrdiff_t", "intptr_t", "uintptr_t", "long",
+      "unsigned long"
+    })){
+      assert(ffi.sizeof(name) == word, name)
+    }
+    assert(ffi.sizeof("long long") == 8 and ffi.sizeof("unsigned long long") == 8)
+    assert(ffi.sizeof("int64_t") == 8 and ffi.sizeof("int") == 4)
+    local W = ffi.cdef("typedef struct Words { char c; size_t n; long l; long long q; } Words;")
+    assert(ffi.sizeof("Words", W) == 2 * word + 8 + word)
+  }
   t.test("doc comments in Doxygen style; initializers with braces"){
     local D = ffi.cdef(str.join({
       "typedef struct { float x, y; } V;",

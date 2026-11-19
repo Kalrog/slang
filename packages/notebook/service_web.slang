@@ -37,6 +37,13 @@ func service.main(arguments){
   local func emit(m){
     web.send(json.encode(m))
   }
+  // slang's library as sources, when the page brought them: what the
+  // language server reads to say what the library's names are
+  local os = require("slang/os")
+  if(os.is_dir(browser.LIBRARY)){
+    __PACKAGES.library_sources = {browser.LIBRARY}
+    __PACKAGES.stub_sources = {browser.STUBS}
+  }
   // the kernel's files: this package, as this worker has it
   local package = browser.package_files()
   local nb = null

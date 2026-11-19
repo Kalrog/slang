@@ -205,6 +205,64 @@ t.group("notebook server"){
     })
     os.remove_all(scratch)
   }
+  t.test("an editor's questions: the language server answers through the notebook's socket"){
+    async.main(func(){
+      local s = setup()
+      os.write_file(concat(scratch, "/helper.slang"),
+        "local helper = {}\n\n// shout(text: string) -> string\n// The text, louder.\nfunc helper.shout(text){\n  return concat(text, \"!\")\n}\n\nreturn helper\n")
+      os.write_file(concat(scratch, "/lang.md"),
+        "# L\n\n```slang\nlocal helper = require(\"helper\")\nlocal word = \"hi\"\n```\n\n```slang\nhelper.shout(word)\nnowhere\n```\n")
+      local options = {headers: {
+        Cookie: concat("slang_notebook_", string(s.port), "=test-token"),
+        Origin: concat("http://127.0.0.1:", string(s.port))
+      }}
+      local url = concat("ws://127.0.0.1:", string(s.port), "/ws?path=lang.md")
+      local socket = async.await(ws.connect(url, options))
+      local nb = wait_for(socket, "notebook")
+      assert(nb.language == true)
+      local a = nb.cells[1].id
+      local b = nb.cells[2].id
+      socket:send(json.encode({op: "check", seq: 1}))
+      local found = wait_for(socket, "diagnostics")
+      assert(found.seq == 1 and len(found.cells[a]) == 0 and len(found.cells[b]) == 1)
+      assert(found.cells[b][0].severity == "warning" and found.cells[b][0].range[0] == 1)
+      // what a name is, from the project's file, rendered
+      socket:send(json.encode({
+        op: "language", seq: 2, method: "hover", id: b, line: 0, character: 9
+      }))
+      local hover = wait_for(socket, "language")
+      assert(hover.seq == 2 and str.index_of(hover.result.html, "The text, louder.") > 0)
+      // a definition in a file comes with the lines around it
+      socket:send(json.encode({
+        op: "language", seq: 3, method: "definition", id: b, line: 0, character: 9
+      }))
+      local place = wait_for(socket, "language").result[0]
+      assert(place.shown == "helper.slang" and place.range[0] == 4 and place.first == 1)
+      assert(str.index_of(place.html, "shout") > 0)
+      // the cell as it is typed comes with the question
+      socket:send(json.encode({
+        op: "language", seq: 4, method: "complete", id: b, line: 0, character: 7,
+        trigger: ".", source: "helper.\nnowhere"
+      }))
+      local items = wait_for(socket, "language").result
+      assert(len(items) == 1 and items[0].label == "shout")
+      socket:send(json.encode({op: "language", seq: 5, method: "doc", text: "**b**"}))
+      assert(wait_for(socket, "language").result.html == "<p><strong>b</strong></p>\n")
+      // an update is followed by what the code says now, for every page
+      local other = async.await(ws.connect(url, options))
+      wait_for(other, "notebook")
+      socket:send(json.encode({op: "update", cells: {
+        {id: nb.cells[0].id, type: "markdown", source: "# L"},
+        {id: a, type: "code", source: "local word = \"hi\""},
+        {id: b, type: "code", source: "word +"},
+      }}))
+      found = wait_for(other, "diagnostics")
+      assert(found.seq == null and found.cells[b][0].severity == "error")
+      s.close()
+      async.await(s.done)
+    })
+    os.remove_all(scratch)
+  }
   t.test("a kernel in the page: the server asks, the page's worker answers"){
     os.mkdir_all(scratch)
     os.write_file(concat(scratch, "/slang.project"), "{name: \"scratch\"}\n")

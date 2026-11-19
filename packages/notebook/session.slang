@@ -13,10 +13,26 @@ extension "extensions/html"
 // From a page: {op: "update", cells}, {op: "run", ids}, {op:
 // "interrupt"}, {op: "restart"}, {op: "clear", ids?}, {op: "save"}, {op:
 // "kernel", kind}, {op: "highlight", id, seq, source}, {op: "render", id,
-// seq, source}, {op: "variables"}. To the pages: {event: "notebook", ...}
-// with everything ([snapshot]), then "cells", "cell" (a kernel's event
-// about a cell), "state", "kernel", "tokens", "rendered", "variables",
-// "saved" and "problem".
+// seq, source}, {op: "variables"}, {op: "check", seq, id?, source?} and
+// {op: "language", seq, method, ...} (see below). To the pages: {event:
+// "notebook", ...} with everything ([snapshot]), then "cells", "cell" (a
+// kernel's event about a cell), "state", "kernel", "tokens", "rendered",
+// "variables", "diagnostics", "language", "saved" and "problem".
+//
+// What an editor knows about the code is asked of notebook/language (the
+// slang language server over all the code cells). "check" gives every
+// cell's mistakes: {event: "diagnostics", seq, cells: {id: {{range,
+// severity, message, unused?}}}}; they also follow an "update" by
+// themselves. "language" asks one question, about a place (id, line,
+// character) in a cell whose text may come along (source): method is
+// "hover", "complete" (trigger?), "signature", "definition",
+// "references", "occurrences", "prepare_rename", "rename" (name),
+// "format", "outline",
+// "find" (query) or "doc" (text: Markdown to render). The answer is
+// {event: "language", seq, method, id, result} or one with error, or
+// with unavailable where there is no language server. Ranges are {line,
+// character, end_line, end_character} lists counted as a page's script
+// counts (see notebook/language); Markdown comes rendered (html).
 //
 // What the cells showed is kept here, not in the page, so a page that
 // loads again shows it again and a running cell goes on. Edits are saved
@@ -28,6 +44,8 @@ local tbl = require("slang/table")
 local document = require("notebook/document")
 local markdown = require("notebook/markdown")
 local highlight = require("notebook/highlight")
+local language = require("notebook/language")
+local os = require("slang/os")
 
 local session = {}
 
@@ -146,7 +164,8 @@ func session.snapshot(nb){
     event: "notebook", path: nb.host.name, name: nb.host.name,
     title: document.title(nb.cells, nb.host.name), cells: cells,
     kernel: session.kernel_status(nb), project: nb.project,
-    kind: kernel_kind(nb), kinds: json.array(nb.host.kernels)
+    kind: kernel_kind(nb), kinds: json.array(nb.host.kernels),
+    language: language.available()
   }
 }
 
@@ -187,6 +206,13 @@ func session.load(nb){
   nb.cells = doc.cells
   nb.settings = doc.settings or {}
   nb.text = document.format(nb.cells, nb.settings)
+  if(nb.language != null){
+    try {
+      nb.language:sync(nb.cells)
+    } catch(local e) {
+      nb.language = null
+    }
+  }
 }
 
 // save(nb: Notebook)
@@ -457,7 +483,226 @@ local func update(nb, incoming, from){
     append(views, cell_view(nb, cell))
   }
   nb.host.broadcast({event: "cells", cells: views}, from)
+  // and what the code says now, for all of them
+  if(nb.language != null){
+    try {
+      nb.language:sync(nb.cells)
+      nb.host.broadcast({
+        event: "diagnostics", cells: nb.language:diagnostics()
+      })
+    } catch(local e) {
+      nb.host.send(from, {event: "problem", message: error.message(e)})
+    }
+  }
   save_soon(nb)
+}
+
+// ------------------------------------------------------------ the language
+
+// the notebook's language (notebook/language), made when a page first
+// asks; null where there is no language server
+local func language_of(nb){
+  if(nb.language == null and not nb.language_tried){
+    nb.language_tried = true
+    try {
+      local made = language.new({path: nb.host.path, name: nb.host.name})
+      if(made != null){
+        made:sync(nb.cells)
+        nb.language = made
+      }
+    } catch(local e) {
+      nb.language = null
+    }
+  }
+  return nb.language
+}
+
+// every cell's mistakes, for the page that asked; the cell it is editing
+// may come along as it is now
+local func check(nb, page, m){
+  local reply = {event: "diagnostics", seq: m.seq, cells: {}}
+  local lang = language_of(nb)
+  if(lang == null){
+    reply.unavailable = true
+  } else {
+    if(type(m.id) == "string" and type(m.source) == "string" and
+      lang:edit(m.id, m.source)){
+      reply.id = m.id
+    }
+    reply.cells = lang:diagnostics()
+  }
+  nb.host.send(page, reply)
+}
+
+local MAX_PLACES = 200
+local MAX_LINE = 240
+
+// places in files, as a page shows them: the path from the project, the
+// line's text, and (preview) the lines around the first, coloured
+local func show_places(nb, lang, list, preview){
+  local files = {}
+  local out = json.array({})
+  for(let local at in values(list)){
+    if(len(out) < MAX_PLACES){
+      if(at.path != null){
+        at.shown = lang:shown(at.path)
+        local lines = files[at.path]
+        if(lines == null){
+          local text = try { os.read_file(at.path) } catch { null }
+          lines = text != null and str.split(text, "\n") or {}
+          files[at.path] = lines
+        }
+        local line = at.range[0]
+        local text = str.trim(lines[line] or "")
+        if(len(text) > MAX_LINE){
+          text = str.substring(text, 0, MAX_LINE)
+        }
+        at.text = text
+        if(preview and len(out) == 0 and len(lines) > 0){
+          local first = line - 3
+          if(first < 0){
+            first = 0
+          }
+          local part = {}
+          for(local i = first; i < len(lines) and i < line + 16; i = i + 1){
+            append(part, lines[i])
+          }
+          at.first = first
+          at.html = highlight.html(str.join(part, "\n"), nb.host.path)
+        }
+      }
+      append(out, at)
+    }
+  }
+  return out
+}
+
+// the notebook's outline: the headings of its text and what its code
+// defines, in the cells' order
+local func outline(nb, lang){
+  local out = json.array({})
+  for(let local cell in values(nb.cells)){
+    if(cell.type == "markdown"){
+      local fenced = false
+      local line = 0
+      for(let local text in values(str.split(cell.source, "\n"))){
+        local trimmed = str.trim(text)
+        if(str.starts_with(trimmed, "```") or str.starts_with(trimmed, "~~~")){
+          fenced = not fenced
+        } else if(not fenced){
+          local level = 0
+          for(level < len(text) and str.byte_at(text, level) == '#'){
+            level = level + 1
+          }
+          if(level >= 1 and level <= 6 and level < len(text) and
+            str.byte_at(text, level) == ' '){
+            append(out, {
+              id: cell.id, kind: "heading", level: level,
+              name: str.trim(str.substring(text, level)),
+              range: json.array({line, 0, line, 0}), children: json.array({})
+            })
+          }
+        }
+        line = line + 1
+      }
+    } else if(lang != null and lang:has(cell.id)){
+      for(let local sym in values(lang:symbols(cell.id))){
+        sym.id = cell.id
+        append(out, sym)
+      }
+    }
+  }
+  return out
+}
+
+// what the language says to one question of a page (see the module doc)
+local func language_answer(nb, lang, m){
+  local method = m.method
+  if(method == "outline"){
+    return outline(nb, lang)
+  }
+  if(method == "doc"){
+    return {html: render_text(nb, type(m.text) == "string" and m.text or "")}
+  }
+  if(lang == null){
+    return null
+  }
+  if(method == "find"){
+    return show_places(
+      nb, lang, lang:find(type(m.query) == "string" and m.query or ""), false
+    )
+  }
+  if(type(m.id) != "string" or not lang:has(m.id)){
+    return null
+  }
+  local at = {
+    line: type(m.line) == "int" and m.line or 0,
+    character: type(m.character) == "int" and m.character or 0
+  }
+  if(method == "hover"){
+    local r = lang:hover(m.id, at)
+    if(r != null){
+      r.html = render_text(nb, r.markdown)
+    }
+    return r
+  }
+  if(method == "complete"){
+    return lang:complete(m.id, at, m.trigger)
+  }
+  if(method == "signature"){
+    local r = lang:signature(m.id, at)
+    if(r != null and r.markdown != null){
+      r.html = render_text(nb, r.markdown)
+    }
+    return r
+  }
+  if(method == "definition"){
+    return show_places(nb, lang, lang:definition(m.id, at), true)
+  }
+  if(method == "references"){
+    return show_places(nb, lang, lang:references(m.id, at), false)
+  }
+  if(method == "occurrences"){
+    return lang:occurrences(m.id, at)
+  }
+  if(method == "prepare_rename"){
+    return lang:prepare_rename(m.id, at)
+  }
+  if(method == "rename"){
+    local r = lang:rename(m.id, at, m.name)
+    if(len(r.files) > 0){
+      // a page changes its notebook, not the project's files
+      raise(error.new(error.kinds.error, concat(
+        "not renamed here: the name is also used in ",
+        lang:shown(r.files[0]),
+        len(r.files) > 1 and concat(" and ", string(len(r.files) - 1), " more") or "",
+        "; rename it in an editor that has the whole project"
+      )))
+    }
+    return r
+  }
+  if(method == "format"){
+    return lang:format(m.id)
+  }
+  raise(error.new(error.kinds.argument, concat("language: no ", string(method))))
+}
+
+local func ask_language(nb, page, m){
+  local reply = {event: "language", seq: m.seq, method: m.method, id: m.id}
+  local lang = language_of(nb)
+  if(lang == null and m.method != "outline" and m.method != "doc"){
+    reply.unavailable = true
+  } else {
+    try {
+      if(lang != null and type(m.id) == "string" and type(m.source) == "string"){
+        lang:edit(m.id, m.source)
+      }
+      reply.result = language_answer(nb, lang, m)
+    } catch(local e) {
+      reply.error = error.message(e)
+    }
+  }
+  nb.host.send(page, reply)
 }
 
 local func clear(nb, ids){
@@ -489,7 +734,7 @@ func session.new(host){
   local nb = {
     host: host, cells: {}, settings: {}, queue: {}, running: null,
     kernel: null, project: null, count: 0, next_id: 0, save_timer: null,
-    text: ""
+    text: "", language: null, language_tried: false
   }
   session.load(nb)
   return nb
@@ -532,6 +777,10 @@ func session.on_message(nb, page, m){
     nb.host.send(page, {
       event: "rendered", id: m.id, seq: m.seq, html: render_text(nb, m.source)
     })
+  } else if(op == "check"){
+    check(nb, page, m)
+  } else if(op == "language" and type(m.method) == "string"){
+    ask_language(nb, page, m)
   } else if(op == "variables"){
     if(nb.kernel != null and nb.kernel.status() != "dead"){
       nb.kernel.variables(func(list){
@@ -554,6 +803,14 @@ func session.close(nb){
   nb.kernel = null
   if(k != null){
     k.kill()
+  }
+  if(nb.language != null){
+    try {
+      nb.language:close()
+    } catch(local e) {
+      nb.language = null
+    }
+    nb.language = null
   }
 }
 

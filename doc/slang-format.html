@@ -194,9 +194,9 @@ d.group({&quot;[&quot;, d.indent({d.softline, a, &quot;,&quot;, d.line, b}), d.s
 
 </div>
 <h2 id="type-FormatOptions">type FormatOptions</h2>
-<pre><code>type FormatOptions = {find_project?: bool, width?: int, check?: bool}</code></pre>
+<pre><code>type FormatOptions = {find_project?: bool, width?: int, check?: bool, result?: bool}</code></pre>
 <p>What <a href="#source"><code>source</code></a> takes.</p>
-<dl class="params"><dt><code>find_project?: bool</code></dt><dd>look up the file's project (see compiler.highlight)</dd><dt><code>width?: int</code></dt><dd>the columns to fit in; 80 by default</dd><dt><code>check?: bool</code></dt><dd>false skips the checks of the result</dd></dl>
+<dl class="params"><dt><code>find_project?: bool</code></dt><dd>look up the file's project (see compiler.highlight)</dd><dt><code>width?: int</code></dt><dd>the columns to fit in; 80 by default</dd><dt><code>check?: bool</code></dt><dd>false skips the checks of the result</dd><dt><code>result?: bool</code></dt><dd>the text may end in an expression, as a notebook cell does</dd></dl>
 <p class="muted">slang/compiler/format.slang</p>
 </body>
 </html>

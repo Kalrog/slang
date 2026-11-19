@@ -3047,7 +3047,27 @@ local never = peg.custom(func(self, ctx, pos){
   return -1
 })
 
-local func parse_top_level(g, source, origin, scoped, recover, tree, result){
+// whether a cell of a unit made of cells (their end offsets) ends in the
+// space around pos, where what was parsed from `from` on ends, with more
+// of the unit after it
+local func cell_ends(cells, source, from, pos){
+  if(cells == null){
+    return false
+  }
+  local after = match_at(space_re, source, pos)
+  if(after >= len(source)){
+    return false
+  }
+  local before = trivia_start(source, from, pos)
+  for(let local e in values(cells)){
+    if(e >= before and e <= after){
+      return true
+    }
+  }
+  return false
+}
+
+local func parse_top_level(g, source, origin, scoped, recover, tree, result, cells){
   local lin = g.state
   local tok_semicolon = fmt.drop(peg.ref(lin.token_fn, ";"):optional())
   local parsers = {
@@ -3167,11 +3187,51 @@ local func parse_top_level(g, source, origin, scoped, recover, tree, result){
               append(trees, ctx.tree)
               tree_values[len(trees) - 1] = ctx.value
             }
-            emit(lin, statements, ctx.value)
-            pos = q
-            ended = true
+            if(cell_ends(cells, source, pos, q)){
+              // a cell's return with cells after it: the unit goes on (a
+              // Return here would end it), the value is still evaluated
+              if(ctx.value.type == "Return" and ctx.value.value != null){
+                emit(lin, statements, ast.node(
+                  "CallStat", {call: ctx.value.value}, ctx.value.token
+                ))
+              }
+              pos = q
+            } else {
+              emit(lin, statements, ctx.value)
+              pos = q
+              ended = true
+              break
+            }
+          } else if(cells == null){
+            break
+          } else {
+            // a cell may end in an expression, as the unit may: with cells
+            // after it, it is evaluated and the unit goes on
+            local far_pos = ctx.far_pos
+            local far_msg = ctx.far_msg
+            unit:activate()
+            ctx.rule_memo = {}
+            q = parse_statement(lin, parsers.result, ctx, pos)
+            if(q >= 0 and cell_ends(cells, source, pos, q)){
+              if(tree){
+                append(trees, ctx.tree)
+                tree_values[len(trees) - 1] = ctx.value
+              }
+              emit(lin, statements, ast.node(
+                "CallStat", {call: ctx.value}, ctx.value.token
+              ))
+              pos = q
+              ctx.far_pos = -1
+              ctx.far_msg = null
+              last_far = -1
+              last_pos = pos
+              far_start = pos
+            } else {
+              ctx.far_pos = far_pos
+              ctx.far_msg = far_msg
+              break
+            }
           }
-          break
         }
       }
     }
@@ -3292,7 +3352,7 @@ local func parse_top_level(g, source, origin, scoped, recover, tree, result){
 
 // parse_source(source: string, origin: string, options?: {scoped?: bool,
 //   tree?: bool, recover?: bool, sandbox?: bool, testing?: bool,
-//   result?: bool}) -> ast.Node
+//   result?: bool, cells?: {int}}) -> ast.Node
 // Parses a unit to a Block node, one top-level statement at a time,
 // running its unquotes and extension statements. Raises on failure; the
 // details of a parse failure are in g.state.last_failure ({message, pos,
@@ -3303,6 +3363,7 @@ local func parse_top_level(g, source, origin, scoped, recover, tree, result){
 // [sandbox]: no unquotes and no extension statements may run
 // [testing]: the unit is compiled for a test run (see [Grammar.testing]); a nested parse that does not say inherits it
 // [result]: the unit may end in an expression, which becomes its Return: what a REPL line or a notebook cell gives
+// [cells]: the unit is the cells of a notebook one after another, and these are the offsets where they end: each cell may end in an expression as with result (those before the last are evaluated and the unit goes on)
 func methods.parse_source(g, source, origin, options){
   local lin = g.state
   local outer_origin = lin.origin
@@ -3335,7 +3396,8 @@ func methods.parse_source(g, source, origin, options){
     ok: true,
     value: parse_top_level(
       g, source, origin, scoped, recover, tree,
-      options != null and options.result == true,
+      options != null and (options.result == true or options.cells != null),
+      options != null and options.cells or null,
     ),
   } } catch(local e) { {ok: false, error: e} }
   lin.parse_depth = lin.parse_depth - 1

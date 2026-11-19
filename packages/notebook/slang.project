@@ -1,5 +1,9 @@
 {
   name: "notebook",
+  dependencies: {
+    // the language server: what notebook/language asks about a cell's code
+    lsp: {path: "../../lsp"},
+  },
   // slang notebook run|new|export ...
   executables: {notebook: "bin/notebook.slang"},
 }

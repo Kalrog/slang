@@ -65,6 +65,36 @@ t.group("sessions"){
     // a return of its own stays the last word
     t.raises(func(){ g:parse_source("return 1\n2", "r", {result: true}) })
   }
+  t.test("parse_source with cells: every cell of a notebook may end in an expression"){
+    local g = compiler.grammar()
+    local a = "local x = 1\nx + 1 // the first"
+    local b = "// the second\nlocal y = x * 2\nreturn y"
+    local c = "x + y"
+    local text = concat(a, "\n", b, "\n", c)
+    local ends = {len(a), len(a) + 1 + len(b), len(text)}
+    local block = g:parse_source(text, "r", {cells: ends})
+    local types = {}
+    for(let local st in values(block.statements)){
+      append(types, st.type)
+    }
+    // the cells before the last are evaluated and the unit goes on (a
+    // cell's own return too); the last one's expression is the Return
+    assert(str.join(types, " ") == "Declaration CallStat Declaration CallStat Return")
+    // an expression in the middle of a cell is still no statement
+    t.raises(func(){ g:parse_source("x + 1\nlocal y = 2\ny", "r", {cells: {19}}) })
+    // the names are one unit's: what highlight says of the cells together
+    local h = compiler.highlight(text, "/tmp/cells.md.slang", {
+      symbols: true, cells: ends,
+    })
+    assert(len(h.diagnostics) == 0 and len(h.symbols.defs) == 2)
+    assert(len(compiler.highlight(text, "/tmp/cells.md.slang", {result: true}).diagnostics) > 0)
+  }
+  t.test("a text that ends in an expression is formatted as one"){
+    local format = require("slang/format")
+    assert(format.source("local   t = {1,2}\nt[0]+1", "/tmp/cell.slang", {result: true}) ==
+      "local t = {1, 2}\nt[0] + 1\n")
+    t.raises(func(){ format.source("local t = 1\nt + 1", "/tmp/cell.slang") })
+  }
 }
 
 // ------------------------------------------------------------ in a process

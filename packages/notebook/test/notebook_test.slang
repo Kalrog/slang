@@ -640,6 +640,119 @@ t.group("a session and a kernel somewhere else"){
   }
 }
 
+t.group("a notebook's language"){
+  t.test("the code cells are one notebook to the language server"){
+    local language = require("notebook/language")
+    assert(language.available())
+    os.mkdir_all(concat(scratch, "/lang"))
+    write("lang/slang.project", "{name: \"lang\"}")
+    write("lang/util.slang", """// helpers
+local util = {}
+
+// greet(name: string) -> string
+// A greeting for name.
+func util.greet(name){
+  return concat("hello ", name)
+}
+
+return util
+""")
+    local l = language.new({path: concat(scratch, "/lang/notes.md")})
+    l:sync({
+      {id: "a", type: "code", source: "local util = require(\"util\")\nlocal who = \"you\"\nwho"},
+      {id: "m", type: "markdown", source: "# text"},
+      {id: "b", type: "code", source: "util.greet(who)\nnope(1)"},
+    })
+    // a cell may end in an expression; a name of a cell is known below it
+    local found = l:diagnostics()
+    assert(len(found.a) == 0 and len(found.b) == 1)
+    assert(found.b[0].severity == "warning" and found.b[0].range[0] == 1)
+    assert(str.starts_with(found.b[0].message, "nope is not defined"))
+    local h = l:hover("b", {line: 0, character: 6})
+    assert(str.index_of(h.markdown, "A greeting for name.") > 0 and h.range[1] == 5)
+    // a definition is in a file, or in a cell
+    local d = l:definition("b", {line: 0, character: 6})
+    assert(str.ends_with(d[0].path, "/lang/util.slang") and d[0].range[0] == 5)
+    d = l:definition("b", {line: 0, character: 12})
+    assert(d[0].id == "a" and d[0].range[0] == 1 and d[0].range[1] == 6)
+    local uses = l:references("a", {line: 1, character: 7})
+    assert(len(uses) == 3 and uses[2].id == "b" and uses[2].range[1] == 11)
+    local marks = l:occurrences("b", {line: 0, character: 12})
+    assert(len(marks) == 3 and marks[0].id == "a" and marks[0].write and
+      marks[2].id == "b" and not marks[2].write)
+    assert(l:signature("b", {line: 0, character: 11}).label ==
+      "greet(name: string) -> string")
+    // the cell being typed in is taken as it is
+    assert(l:edit("b", "util.\nnope(1)") and not l:edit("zz", ""))
+    local items = l:complete("b", {line: 0, character: 5}, ".")
+    assert(len(items) == 1 and items[0].label == "greet" and items[0].kind == "function")
+    l:edit("b", "print(who)\nlocal = 1")
+    found = l:diagnostics()
+    assert(found.b[0].severity == "error" and found.b[0].range[0] == 1)
+    l:edit("b", "print(who)")
+    local renamed = l:rename("a", {line: 1, character: 7}, "whom")
+    assert(len(renamed.changes.a) == 2 and renamed.changes.b[0].text == "whom")
+    assert(len(renamed.files) == 0)
+    assert(l:symbols("a")[1].name == "who")
+    assert(l:find("gre")[0].name == "greet")
+    // cells come, go and change places
+    l:sync({
+      {id: "b", type: "code", source: "local   q = {1,2}\nq[0]"},
+      {id: "n", type: "code", source: "q"},
+    })
+    found = l:diagnostics()
+    assert(found.a == null and len(found.b) == 0 and len(found.n) == 0)
+    assert(l:format("b")[0].text == "local q = {1, 2}\nq[0]")
+    assert(l:definition("n", {line: 0, character: 0})[0].id == "b")
+    l:close()
+  }
+  t.test("a session answers a page's questions about its code"){
+    local h = fake_host("# T\n\n## Part\n\n```slang\n// doubles a number\nlocal func twice(n){ return n * 2 }\n```\n\n```slang\ntwice(2)\nmissing\n```\n")
+    local nb = session.new(h)
+    assert(session.snapshot(nb).language == true)
+    local a = nb.cells[1].id
+    local b = nb.cells[2].id
+    session.on_message(nb, "page", {op: "check", seq: 1})
+    local found = h.take("diagnostics")[0]
+    assert(found.seq == 1 and len(found.cells[a]) == 0)
+    assert(str.starts_with(found.cells[b][0].message, "missing is not defined"))
+    // a question carries the cell as the page has it
+    session.on_message(nb, "page", {
+      op: "language", seq: 2, method: "hover", id: b, line: 0, character: 2,
+      source: "twice(2)"
+    })
+    local answer = h.take("language")[0]
+    assert(answer.seq == 2 and answer.id == b)
+    assert(str.index_of(answer.result.html, "doubles a number") > 0)
+    session.on_message(nb, "page", {op: "check", seq: 3})
+    assert(len(h.take("diagnostics")[0].cells[b]) == 0)
+    session.on_message(nb, "page", {
+      op: "language", seq: 4, method: "definition", id: b, line: 0, character: 2
+    })
+    answer = h.take("language")[0]
+    assert(answer.result[0].id == a and answer.result[0].range[0] == 1)
+    // the outline: the text's headings and what the code defines
+    session.on_message(nb, "page", {op: "language", seq: 5, method: "outline"})
+    local outline = h.take("language")[0].result
+    assert(outline[0].kind == "heading" and outline[0].name == "T")
+    assert(outline[1].level == 2 and outline[2].name == "twice" and outline[2].id == a)
+    // what cannot be done is said, not raised
+    session.on_message(nb, "page", {
+      op: "language", seq: 6, method: "rename", id: b, line: 0, character: 6,
+      name: "x"
+    })
+    assert(h.take("language")[0].error != null)
+    // an update is followed by what the code says now
+    session.on_message(nb, "page", {op: "update", cells: {
+      {id: a, type: "code", source: "local n = 1"},
+      {id: b, type: "code", source: "n +"},
+    }})
+    found = h.take("diagnostics")[0]
+    assert(found.cells[b][0].severity == "error")
+    session.close(nb)
+  }
+}
+
 t.group("a notebook in a browser"){
   t.test("the worker's script and the package's files"){
     local source = browser.worker_source()
@@ -660,6 +773,17 @@ t.group("a notebook in a browser"){
     }
     local args = browser.kernel_args("/work/a.md")
     assert(args[2] == "/pkg/notebook/bin/kernel_web.slang" and args[3] == "/work/a.md")
+    // the session's language is among them; what it asks comes apart
+    assert(files["/pkg/notebook/language.slang"] != null)
+    local more = browser.language_files()
+    assert(more["/lsp/server.slang"] != null and more["/lsp/navigate.slang"] != null)
+    assert(str.index_of(more["/pkg/notebook/slang.lock"], "../../lsp") > 0)
+    // slang's library to read about, without the compiler's own modules
+    assert(more["/slang/lib/json.slang"] != null and more["/slang/lib/grammar.slang"] == null)
+    assert(more["/slang/stubs/slang/string.slang"] != null and more["/slang/stubs/globals.slang"] != null)
+    // (the library is only read; what runs needs no event loop)
+    assert(str.index_of(more["/lsp/server.slang"], "require(\"uv\")") < 0)
+    assert(str.index_of(more["/lsp/navigate.slang"], "require(\"uv\")") < 0)
   }
   t.test("a project's files for the worker: the project's folder, without what is hidden or huge"){
     os.mkdir_all(concat(scratch, "/proj/notes/.cache"))
@@ -704,6 +828,7 @@ t.group("a notebook in a browser"){
     assert(str.index_of(config.notebook.text, "local a = \"</script>\"") > 0)
     assert(str.index_of(config.notebook.outputs, "\"text/plain\"") > 0)
     assert(config.files["/pkg/notebook/service_web.slang"] != null)
+    assert(config.files["/lsp/server.slang"] != null, "the language server is in the page")
     assert(str.starts_with(config.key, "mine.md:"))
     // an empty one
     assert(json.decode(str.substring(

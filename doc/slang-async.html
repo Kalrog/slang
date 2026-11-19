@@ -40,7 +40,7 @@ details.expanded summary { cursor: pointer; color: var(--muted); }
 <body>
 <nav><a href="index.html">index</a></nav>
 <h1>slang/async</h1>
-<p>slang/async: Futures, Streams and await on coroutines, driven by the uv event loop (the native <code>uv</code> module). Callback style and await style mix:</p>
+<p>slang/async: Futures, Streams and await on coroutines, driven by the uv event loop (the native <code>uv</code> module), or by the page's frames in a browser. Callback style and await style mix:</p>
 <pre><code>local async = require(&quot;slang/async&quot;)
 async.main(func(){
   local conn = async.await(async.connect(&quot;127.0.0.1&quot;, 8080))
@@ -56,7 +56,12 @@ async.main(func(){
 <p>A <a href="#type-Future"><code>Future</code></a> completes once, with a value or an error (any value; errors raised inside async functions are error tables, see [error]). A <a href="#type-Stream"><code>Stream</code></a> is a sequence of values ending with done or an error; its next() gives the next <a href="#type-Event"><code>Event</code></a> as a Future, listen() consumes it with a callback. A <a href="#type-Completer"><code>Completer</code></a> makes a Future, a <a href="#type-Controller"><code>Controller</code></a> a Stream.</p>
 <p><a href="#await"><code>await</code></a> must be called from a coroutine started by <a href="#run"><code>run</code></a> or <a href="#main"><code>main</code></a> (an &quot;async function&quot;). It registers a waiter that reschedules the coroutine and yields; a completed Future returns immediately without yielding. Waiters run from the loop (a zero timer), never inside the code that completed the Future, so completing a Future never re-enters the completer.</p>
 <p>Handles (TCP connections, pipes, timers) are the native <code>uv</code> module's; <a href="#connect"><code>connect</code></a>, <a href="#serve"><code>serve</code></a> and <a href="#reader"><code>reader</code></a> turn them into Futures and Streams.</p>
+<p>Futures, await, <a href="#sleep"><code>sleep</code></a>, <a href="#timeout"><code>timeout</code></a> and <a href="#main"><code>main</code></a> need only a <a href="#type-Loop"><code>Loop</code></a>: libuv's where there is one, and in a browser the page's frames (<a href="#frame_loop"><code>frame_loop</code></a>), where files, sockets and processes are not there. A library with an event queue of its own (a GPU's, a window system's) joins the loop with <a href="#pump"><code>pump</code></a>; a program that draws frames itself calls <a href="#poll"><code>poll</code></a> once a frame.</p>
 <ul class="toc">
+<li><a href="#frame_loop"><code>frame_loop</code></a></li>
+<li><a href="#set_loop"><code>set_loop</code></a></li>
+<li><a href="#pump"><code>pump</code></a></li>
+<li><a href="#poll"><code>poll</code></a></li>
 <li><a href="#completer"><code>completer</code></a></li>
 <li><a href="#value"><code>value</code></a></li>
 <li><a href="#failed"><code>failed</code></a></li>
@@ -84,6 +89,7 @@ async.main(func(){
 <li><a href="#on_signal"><code>on_signal</code></a></li>
 <li><a href="#spawn"><code>spawn</code></a></li>
 <li><a href="#exec"><code>exec</code></a></li>
+<li><a href="#type-Loop"><code>type Loop</code></a></li>
 <li><a href="#type-Future"><code>type Future</code></a></li>
 <li><a href="#Future:is_done"><code>Future:is_done</code></a></li>
 <li><a href="#Future:then"><code>Future:then</code></a></li>
@@ -107,6 +113,23 @@ async.main(func(){
 <li><a href="#async.Stream:collect"><code>async.Stream:collect</code></a></li>
 <li><a href="#async.Stream:listen"><code>async.Stream:listen</code></a></li>
 </ul>
+<h2>the loop</h2>
+<div class="def" id="frame_loop"><h3><code>async.frame_loop(frame: func()) -> <a href="#type-Loop">Loop</a></code></h3>
+<p>A loop for a program that something else runs a frame at a time: timers follow slang/time's clock, and when there is nothing to do it calls frame() to hand over control until the next frame. What a browser build uses, with slang/web's frame.</p>
+
+</div>
+<div class="def" id="set_loop"><h3><code>async.set_loop(l?: <a href="#type-Loop">Loop</a>)</code></h3>
+<p>Replaces what drives futures and timers; null restores the default (libuv's loop, the page's frames in a browser). Set it before anything waits: timers and deferred functions of the loop before stay with it.</p>
+
+</div>
+<div class="def" id="pump"><h3><code>async.pump(step: func(): bool) -> func()</code></h3>
+<p>Joins an event source the loop cannot wait on to the loop: step() handles what has happened there and says whether it expects more. The loop calls it about every millisecond (every frame in a browser) while it does, and waits for it as for a timer. Returns a function that takes it out again. For bindings of libraries with an event queue of their own: step() asks the library for its events and completes the futures they answer.</p>
+
+</div>
+<div class="def" id="poll"><h3><code>async.poll() -> bool</code></h3>
+<p>Handles what is ready without waiting: timers that are due, finished I/O, async functions that can go on. Returns whether the loop expects more. For a program with a loop of its own (one that draws frames): called once a frame, it keeps futures and async functions going without <a href="#main"><code>main</code></a>.</p>
+
+</div>
 <h2>futures</h2>
 <div class="def" id="completer"><h3><code>async.completer() -> <a href="#type-Completer">Completer</a></code></h3>
 <p>A pending <a href="#type-Future"><code>Future</code></a> and the functions that settle it.</p>
@@ -158,7 +181,7 @@ return c.future</code></pre>
 
 </div>
 <div class="def" id="set_driver"><h3><code>async.set_driver(step?: func(): bool)</code></h3>
-<p>Replaces how <a href="#main"><code>main</code></a> waits for events: step() handles one batch and says whether there is more to do. null restores libuv's run(&quot;once&quot;). For GUI extensions (slang/webview) that wait on a window system and libuv together.</p>
+<p>Replaces how <a href="#main"><code>main</code></a> waits for events: step() handles one batch and says whether there is more to do. null restores the loop's own step (libuv's run(&quot;once&quot;)). For GUI extensions (slang/webview) that wait on a window system and libuv together.</p>
 
 </div>
 <div class="def" id="main"><h3><code>async.main(f: function)</code></h3>
@@ -248,6 +271,10 @@ local r = async.await(p.exit)   // {status: 0}</code></pre>
 print(r.status, r.stdout)</code></pre>
 <dl class="params"><dt><code>options</code></dt><dd>input (written to stdin, else empty); cwd and env: <a href="#spawn"><code>spawn</code></a></dd></dl>
 </div>
+<h2 id="type-Loop">type Loop</h2>
+<pre><code>type Loop = {wake: func(), after: func(ms: float, f: func()): func(), step: func(wait: bool): bool}</code></pre>
+<p>What runs deferred functions and timers and waits for events: libuv's loop by default, <a href="#frame_loop"><code>frame_loop</code></a> in a browser. <a href="#set_loop"><code>set_loop</code></a> installs another.</p>
+<dl class="params"><dt><code>wake: func()</code></dt><dd>something was deferred: the loop makes a turn soon, in which it calls the function <a href="#set_loop"><code>set_loop</code></a> gave it</dd><dt><code>after: func(ms: float, f: func()): func()</code></dt><dd>calls f once, ms milliseconds from now, from the loop; returns a function that cancels it</dd><dt><code>step: func(wait: bool): bool</code></dt><dd>handles what has happened, with wait after waiting for something to happen; returns whether the loop expects more (a timer that has not fired, an open handle)</dd></dl>
 <h2 id="type-Future">type Future</h2>
 <p>The result of an operation that finishes later: it completes once, with a value or an error. <a href="#await"><code>await</code></a> it in an async function, or chain <a href="#Future:then"><code>Future.then</code></a> and <a href="#Future:catch"><code>Future.catch</code></a>. A failed Future nobody awaits or catches is reported by <a href="#main"><code>main</code></a>.</p>
 <div class="def" id="Future:is_done"><h3><code>Future:is_done() -> bool</code></h3>

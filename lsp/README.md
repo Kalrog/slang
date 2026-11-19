@@ -8,6 +8,11 @@ compiler does it), over stdio on the `uv` extension.
 bin/slang run lsp/main.slang      # speaks LSP on stdin/stdout, logs to stderr
 ```
 
+The folder is also a package (`lsp`): a project that depends on it can
+`require("lsp/server")` and ask in its own process, as the notebook
+package does for the cells of a notebook, and `slang lsp` runs the server
+once the package is installed.
+
 `lsp/server.slang` is the logic (`new`, `handle(message)`), tested in
 process by `test/lsp_test.slang`; `lsp/main.slang` is the stdio transport.
 Supported: `initialize` (semantic tokens, full sync, `positionEncoding`
@@ -58,7 +63,22 @@ lossless tree), `slang.project` support
 {uri}` (the `t.group`/`t.test` calls of a test file, nested, with ranges),
 `didChangeWatchedFiles` (the grammars are reset),
 `shutdown`/`exit`, and a `slang/project` notification with the project's
-dialect suffixes. `editors/vscode` is the VS Code client, `editors/nvim`
+dialect suffixes.
+
+Notebooks (`notebookDocument/didOpen`, `didChange`, `didClose`; the slang
+cells of any notebook): the cells are analysed as one document, their text
+one after another under the notebook's path with `.slang` added, so a name
+of one cell is known in the cells after it, as it is when they run in one
+session, and a cell may end in an expression (the compiler's `cells`
+option). A cell is asked about by its own uri: hover, definition,
+references, documentHighlight, rename, completion, signatureHelp,
+inlayHint, documentSymbol, semanticTokens and formatting (a cell alone)
+answer for the cell, with what they say of the notebook's document moved
+into its cells; diagnostics are published per cell. `slang/highlights
+{textDocument, position}` is documentHighlight over all the cells of a
+notebook (`{uri, range, kind}`). Without a project, modules are looked for
+in the notebook's folder first, where its kernel runs. A notebook's
+top-level locals are never "unused": cells are yet to be written. `editors/vscode` is the VS Code client, `editors/nvim`
 the Neovim plugin.
 
 Names (`lsp/navigate.slang`) come from `slang/symbols`: codegen resolves

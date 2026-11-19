@@ -318,6 +318,10 @@ func export.app(nb, options){
   options = options or {}
   local web_dir = browser.web_dir()
   local config = {files: browser.package_files(), key: "app"}
+  // the language server, for what the page's editor knows about the code
+  for(let local e in entries(browser.language_files())){
+    config.files[e[0]] = e[1]
+  }
   local title = options.title or "slang notebook"
   if(nb != null){
     local name = "notebook.md"

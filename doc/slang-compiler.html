@@ -312,9 +312,9 @@ f()   // 42</code></pre>
 <p>What <a href="#highlight"><code>highlight</code></a> tells about a file.</p>
 <dl class="params"><dt><code>tokens: {<a href="#type-Token">Token</a>}</code></dt><dd>in source order, not overlapping</dd><dt><code>diagnostics: {<a href="#type-Diagnostic">Diagnostic</a>}</code></dt><dd></dd><dt><code>symbols?: <a href="slang-symbols.html#type-Index">symbols.Index</a></code></dt><dd>its definitions and uses, when asked for and the file parsed</dd><dt><code>ast?: table</code></dt><dd>its (expanded) AST, along with symbols</dd></dl>
 <h2 id="type-ParseOptions">type ParseOptions</h2>
-<pre><code>type ParseOptions = {find_project?: bool, symbols?: bool, result?: bool}</code></pre>
+<pre><code>type ParseOptions = {find_project?: bool, symbols?: bool, result?: bool, cells?: {int}}</code></pre>
 <p>What <a href="#highlight"><code>highlight</code></a> and the other tree functions take.</p>
-<dl class="params"><dt><code>find_project?: bool</code></dt><dd>look up the file's project while none is loaded</dd><dt><code>symbols?: bool</code></dt><dd>also analyse the names (highlight only)</dd><dt><code>result?: bool</code></dt><dd>the text may end in an expression, as a REPL line or a notebook cell does (highlight only)</dd></dl>
+<dl class="params"><dt><code>find_project?: bool</code></dt><dd>look up the file's project while none is loaded</dd><dt><code>symbols?: bool</code></dt><dd>also analyse the names (highlight only)</dd><dt><code>result?: bool</code></dt><dd>the text may end in an expression, as a REPL line or a notebook cell does (highlight and tree)</dd><dt><code>cells?: {int}</code></dt><dd>the text is the cells of a notebook one after another, and these are the offsets where they end: each may end in an expression (highlight only)</dd></dl>
 <h2 id="type-Analysis">type Analysis</h2>
 <pre><code>type Analysis = {function: function, requires?: {<a href="#type-Require">Require</a>}, computed: {int}}</code></pre>
 <p>What <a href="#analyze_file"><code>analyze_file</code></a> finds in a file.</p>

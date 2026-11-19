@@ -70,6 +70,7 @@ numbers:end():parse(&quot;1, x&quot;)         // {&quot;error&quot;, &quot;end o
 <li><a href="#string"><code>string</code></a></li>
 <li><a href="#char"><code>char</code></a></li>
 <li><a href="#pattern"><code>pattern</code></a></li>
+<li><a href="#regex"><code>regex</code></a></li>
 <li><a href="#any"><code>any</code></a></li>
 <li><a href="#digit"><code>digit</code></a></li>
 <li><a href="#letter"><code>letter</code></a></li>
@@ -103,6 +104,7 @@ numbers:end():parse(&quot;1, x&quot;)         // {&quot;error&quot;, &quot;end o
 <li><a href="#ref"><code>ref</code></a></li>
 <li><a href="#resolve"><code>resolve</code></a></li>
 <li><a href="#custom"><code>custom</code></a></li>
+<li><a href="#trivia"><code>trivia</code></a></li>
 <li><a href="#fail"><code>fail</code></a></li>
 <li><a href="#reset_refs"><code>reset_refs</code></a></li>
 <li><a href="#parse"><code>parse</code></a></li>
@@ -157,6 +159,8 @@ numbers:end():parse(&quot;1, x&quot;)         // {&quot;error&quot;, &quot;end o
 <li><a href="#Parser:parse"><code>Parser:parse</code></a></li>
 <li><a href="#Parser:run"><code>Parser:run</code></a></li>
 <li><a href="#type-Separated"><code>type Separated</code></a></li>
+<li><a href="#type-TriviaOptions"><code>type TriviaOptions</code></a></li>
+<li><a href="#type-Comment"><code>type Comment</code></a></li>
 <li><a href="#type-Placement"><code>type Placement</code></a></li>
 <li><a href="#type-Walker"><code>type Walker</code></a></li>
 <li><a href="#Walker:level"><code>Walker:level</code></a></li>
@@ -254,6 +258,12 @@ numbers:end():parse(&quot;1, x&quot;)         // {&quot;error&quot;, &quot;end o
 <p>One character of a class: single characters and ranges, negated by a leading <code>^</code> (a regex character class without the brackets). Its value is the character. <a href="#star"><code>star</code></a> and <a href="#plus"><code>plus</code></a> of a pattern run natively.</p>
 <pre><code>peg.pattern(&quot;a-zA-Z_&quot;)</code></pre>
 
+</div>
+<div class="def" id="regex"><h3><code>peg.regex(pattern: string | Regex, message?: string) -> <a href="#type-Parser">Parser</a></code></h3>
+<p>What a regular expression matches where the parser stands (slang/regex: RE2 syntax, leftmost-first); its value is the text matched. A pattern that can match nothing succeeds without consuming, as <a href="#epsilon"><code>epsilon</code></a> does. For the tokens of a language: a number, a name.</p>
+<pre><code>local name = peg.regex(&quot;[_\\p{XID_Start}]\\p{XID_Continue}*&quot;, &quot;expected a name&quot;)
+local number = peg.regex(&quot;[0-9]+(?:\\.[0-9]+)?&quot;):token(&quot;number&quot;):trim()</code></pre>
+<dl class="params"><dt><code>message</code></dt><dd>what a failure says; &quot;/pattern/ expected&quot; by default</dd></dl>
 </div>
 <div class="def" id="any"><h3><code>peg.any(message?: string) -> <a href="#type-Parser">Parser</a></code></h3>
 <p>Any one character (a UTF-8 sequence); fails only at the end of the input.</p>
@@ -401,6 +411,16 @@ expr:set(peg.choice(group, peg.digit()))</code></pre>
   }
   return peg.fail(ctx, pos, &quot;capital expected&quot;)
 })</code></pre>
+
+</div>
+<div class="def" id="trivia"><h3><code>peg.trivia(options?: <a href="#type-TriviaOptions">TriviaOptions</a>) -> <a href="#type-Parser">Parser</a></code></h3>
+<p>What a language skips between its tokens: blankspace and comments. The parser for <a href="#trim"><code>trim</code></a> (it takes everything in one go and fails where there is nothing to skip); its skip_at(ctx, pos) is the skip function of a <a href="#walker"><code>walker</code></a> or <a href="#dispatch"><code>dispatch</code></a>. Without options it is slang's own: whitespace and <code>//</code> comments. With them it is a language's that differs: the highlighter shows what comments finds as comments, and the formatter keeps them where they are (see slang/format).</p>
+<pre><code>local trivia = peg.trivia({
+  skip: func(buffer, pos){ ... },          // past blanks, # comments
+  comments: func(buffer, start, stop){ ... },
+})
+local number = peg.regex(&quot;[0-9]+&quot;):token(&quot;number&quot;):trim(trivia)
+local w = peg.walker(trivia.skip_at)</code></pre>
 
 </div>
 <div class="def" id="fail"><h3><code>peg.fail(ctx: <a href="#type-Context">Context</a>, pos: int, message: string) -> int</code></h3>
@@ -643,6 +663,16 @@ trivia: options.trivia(buffer, start, stop) -&gt; spans (comments) for the
 <pre><code>type Separated = {elements: {any}, separators: {any}}</code></pre>
 <p>The value of <a href="#star_separated"><code>star_separated</code></a> and <a href="#plus_separated"><code>plus_separated</code></a>.</p>
 <dl class="params"><dt><code>elements: {any}</code></dt><dd>the values of the elements</dd><dt><code>separators: {any}</code></dt><dd>the values of the separators between them</dd></dl>
+<h2 id="type-TriviaOptions">type TriviaOptions</h2>
+<pre><code>type TriviaOptions = {skip: func(buffer: string, pos: int): int, comments?: func(buffer: string, start: int, stop: int): {<a href="#type-Comment">Comment</a>}}</code></pre>
+<p>What <a href="#trivia"><code>trivia</code></a> takes. A comment in a stretch of trivia. type Comment = {start: int, stop: int, block?: bool}</p>
+<dl class="params"><dt><code>skip: func(buffer: string, pos: int): int</code></dt><dd>the position after the blankspace and comments at pos (pos when there are none)</dd><dt><code>comments?: func(buffer: string, start: int, stop: int): {<a href="#type-Comment">Comment</a>}</code></dt><dd>the comments in buffer[start, stop), a stretch skip went over, in order</dd></dl>
+<h2 id="type-Comment">type Comment</h2>
+<pre><code>type Comment = {start: int, stop: int, block?: bool}</code></pre>
+<p>What <a href="#trivia"><code>trivia</code></a> takes. type TriviaOptions = {skip: func(buffer: string, pos: int): int,</p>
+<pre><code>comments?: func(buffer: string, start: int, stop: int): {Comment}}</code></pre>
+<p>A comment in a stretch of trivia.</p>
+<dl class="params"><dt><code>start: int</code></dt><dd></dd><dt><code>stop: int</code></dt><dd></dd><dt><code>block?: bool</code></dt><dd>a comment that ends by itself (<code>/* ... */</code>), so that code may follow it on its line; a line comment ends with its line</dd></dl>
 <h2 id="type-Placement">type Placement</h2>
 <pre><code>type Placement = {after?: string, before?: string, at?: int, aliases?: {string}}</code></pre>
 <p>Where a level or primary goes among the others (by name or alias).</p>

@@ -1,0 +1,5 @@
+{
+  name: "lsp",
+  // slang lsp [dir]: the language server on stdin and stdout
+  executables: {lsp: "main.slang"},
+}

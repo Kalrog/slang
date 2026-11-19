@@ -1538,6 +1538,21 @@ local func matches_in(w, key, path, index, out, with_declaration){
   }
 }
 
+// highlights(path: string, pos: int) -> {Location}
+// The uses and the definition of the name at pos in its own file: what
+// [references] gives, without looking at the other files of the project.
+func methods.highlights(w, path, pos){
+  local key = key_at(w, path, pos)
+  local out = {}
+  if(key != null){
+    local f = w:file(path)
+    if(f != null){
+      matches_in(w, key, path, f.index, out, true)
+    }
+  }
+  return out
+}
+
 func methods.references(w, path, pos, with_declaration){
   local key = key_at(w, path, pos)
   if(key == null){

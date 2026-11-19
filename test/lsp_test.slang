@@ -1114,3 +1114,161 @@ t.group("language server: names"){
     assert(str.index_of(r.result.contents.value, "local buffer") >= 0)
   }
 }
+
+t.group("language server: notebooks"){
+  local nb = "file:///tmp/lsp_test/notes.md"
+  local c1 = "cell:/tmp/lsp_test/notes.md#1"
+  local c2 = "cell:/tmp/lsp_test/notes.md#2"
+  local c3 = "cell:/tmp/lsp_test/notes.md#3"
+  local text = "cell:/tmp/lsp_test/notes.md#text"
+  local func opened(){
+    local s = lsp.new({root: "/tmp/lsp_test"})
+    local caps = s:handle(request(1, "initialize", {capabilities: {}}))[0].result.capabilities
+    assert(caps.notebookDocumentSync.notebookSelector[0].cells[0].language == "slang")
+    local replies = s:handle(notify("notebookDocument/didOpen", {
+      notebookDocument: {
+        uri: nb, notebookType: "slang-notebook", version: 1,
+        cells: {
+          {kind: 2, document: c1}, {kind: 1, document: text},
+          {kind: 2, document: c2}, {kind: 2, document: c3},
+        },
+      },
+      cellTextDocuments: {
+        {
+          uri: c1, languageId: "slang", version: 1,
+          text: "// doubles a number\nlocal func twice(n){ return n * 2 }\ntwice(2)",
+        },
+        {uri: text, languageId: "markdown", version: 1, text: "# hi"},
+        {
+          uri: c2, languageId: "slang", version: 1,
+          text: "local   y = twice( 4 )\ny + 1",
+        },
+        {
+          uri: c3, languageId: "slang", version: 1,
+          text: "print(y)\nlocal = 3\nprint(twice(y))",
+        },
+      },
+    }))
+    return {server: s, replies: replies}
+  }
+  // the diagnostics a list of replies has for a cell
+  local func diagnostics_of(replies, uri){
+    for(let local m in values(replies)){
+      if(m.method == "textDocument/publishDiagnostics" and m.params.uri == uri){
+        return m.params.diagnostics
+      }
+    }
+    return null
+  }
+  local func ask(s, method, uri, line, character, more){
+    local params = more or {}
+    params.textDocument = {uri: uri}
+    if(line != null){
+      params.position = {line: line, character: character}
+    }
+    local r = s:handle(request(7, method, params))[0]
+    assert(r.error == null, r.error and r.error.message)
+    return r.result
+  }
+  t.test("cells are one unit: each may end in an expression, errors are their cell's"){
+    local o = opened()
+    // every slang cell is told, the text cell is not
+    assert(len(diagnostics_of(o.replies, c1)) == 0)
+    assert(len(diagnostics_of(o.replies, c2)) == 0)
+    assert(diagnostics_of(o.replies, text) == null)
+    local found = diagnostics_of(o.replies, c3)
+    assert(len(found) == 1 and found[0].severity == 1)
+    assert(found[0].range.start.line == 1 and found[0].range.start.character == 6)
+  }
+  t.test("a name of a cell is known in the cells after it"){
+    local s = opened().server
+    // the first cell's comment is the doc of what it defines
+    local h = ask(s, "textDocument/hover", c2, 0, 13)
+    assert(str.index_of(h.contents.value, "doubles a number") > 0)
+    assert(h.range.start.line == 0 and h.range.start.character == 12)
+    local d = ask(s, "textDocument/definition", c3, 0, 6)
+    assert(d[0].uri == c2 and d[0].range.start.line == 0 and
+      d[0].range.start.character == 8)
+    local uses = ask(s, "textDocument/references", c1, 1, 12, {
+      context: {includeDeclaration: true},
+    })
+    assert(len(uses) == 4 and uses[0].uri == c1 and uses[2].uri == c2 and
+      uses[3].uri == c3 and uses[3].range.start.line == 2)
+    // highlights are the asked cell's
+    local marks = ask(s, "textDocument/documentHighlight", c3, 0, 6)
+    assert(len(marks) == 2 and marks[1].range.start.line == 2)
+    // and the notebook's, when asked for all of them
+    local all = ask(s, "slang/highlights", c3, 0, 6)
+    assert(len(all) == 4 and all[0].uri == c2 and all[0].kind == 3 and
+      all[3].uri == c3)
+    local sig = ask(s, "textDocument/signatureHelp", c2, 0, 18)
+    assert(sig.signatures[0].label == "twice(n)")
+    local outline = ask(s, "textDocument/documentSymbol", c2)
+    assert(len(outline) == 1 and outline[0].name == "y" and
+      outline[0].selectionRange.start.line == 0)
+    local hints = ask(s, "textDocument/inlayHint", c2, null, null, {
+      range: {start: {line: 0, character: 0}, ["end"]: {line: 2, character: 0}},
+    })
+    assert(len(hints) == 1 and hints[0].label == "n:" and
+      hints[0].position.line == 0)
+  }
+  t.test("edits come back by cell: rename, a cell formatted alone, tokens"){
+    local s = opened().server
+    local r = ask(s, "textDocument/rename", c2, 0, 8, {newName: "z"})
+    assert(len(r.changes[c2]) == 2 and len(r.changes[c3]) == 2)
+    assert(r.changes[c3][1].range.start.line == 2 and r.changes[c1] == null)
+    // a cell is formatted with the expression it ends in, and keeps its end
+    local edits = ask(s, "textDocument/formatting", c2, null, null, {options: {}})
+    assert(edits[0].newText == "local y = twice(4)\ny + 1")
+    assert(edits[0].range["end"].line == 1 and edits[0].range["end"].character == 5)
+    local data = ask(s, "textDocument/semanticTokens/full", c3).data
+    // print at 0:0, a function
+    assert(data[0] == 0 and data[1] == 0 and data[2] == 5 and data[3] == 18)
+    // what has no answer for a cell says so
+    local refused = s:handle(request(8, "slang/expand", {uri: c2}))[0]
+    assert(refused.error != null)
+  }
+  t.test("cells change, come and go"){
+    local s = opened().server
+    local replies = s:handle(notify("notebookDocument/didChange", {
+      notebookDocument: {uri: nb, version: 2},
+      change: {
+        cells: {
+          structure: {
+            array: {start: 3, deleteCount: 1, cells: {{kind: 2, document: "cell:new"}}},
+            didOpen: {{uri: "cell:new", languageId: "slang", version: 1, text: "y +"}},
+            didClose: {{uri: c3}},
+          },
+          textContent: {
+            {document: {uri: c2, version: 2}, changes: {{text: "local y = nothing_here\ny"}}},
+          },
+        },
+      },
+    }))
+    // the closed cell's diagnostics are taken back
+    assert(len(diagnostics_of(replies, c3)) == 0)
+    assert(diagnostics_of(replies, "cell:new")[0].severity == 1)
+    replies = s:handle(notify("notebookDocument/didChange", {
+      notebookDocument: {uri: nb, version: 3},
+      change: {
+        cells: {
+          textContent: {
+            {document: {uri: "cell:new", version: 2}, changes: {{text: "y + 1"}}},
+          },
+        },
+      },
+    }))
+    // it parses now: the lint runs, over every cell
+    assert(len(diagnostics_of(replies, "cell:new")) == 0)
+    local found = diagnostics_of(replies, c2)
+    assert(len(found) == 1 and found[0].severity == 2 and
+      str.starts_with(found[0].message, "nothing_here is not defined"))
+    // a notebook's top-level locals are not unused: cells are yet to come
+    assert(len(diagnostics_of(replies, c1)) == 0)
+    replies = s:handle(notify("notebookDocument/didClose", {
+      notebookDocument: {uri: nb},
+    }))
+    assert(len(replies) == 3 and len(replies[0].params.diagnostics) == 0)
+    assert(s.documents["file:///tmp/lsp_test/notes.md.slang"] == null)
+  }
+}

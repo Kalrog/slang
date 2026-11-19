@@ -47,13 +47,15 @@ ct.define(v2, {{&quot;x&quot;, ct.primitive(&quot;float&quot;)}, {&quot;y&quot;,
 local p = ct.new(v2)
 p.x = 3
 ct.value(p)                            // {x: 3.0, y: 0.0}</code></pre>
-<p>Types live as long as the program. Memory is a <a href="#type-Pointer"><code>Pointer</code></a> (an address, indexed like C, unchecked) or a <a href="#type-Buffer"><code>Buffer</code></a> (an address with a length, checked; see slang/buffer). Values convert to C as slang/ffi describes: numbers and bools for arithmetic types, a string for const char *, a table for a struct (fields by name or position).</p>
+<p>Types live as long as the program. Memory is a <a href="#type-Pointer"><code>Pointer</code></a> (an address, indexed like C, unchecked) or a <a href="#type-Buffer"><code>Buffer</code></a> (an address with a length, checked; see slang/buffer). Values convert to C as slang/ffi describes: numbers and bools for arithmetic types, a string for const char *, a table for a struct (fields by name or position). A struct or an array whose parts are structs or arrays themselves also takes its numbers in a row: a list of them, or a buffer of numbers.</p>
 <ul class="toc">
 <li><a href="#primitive"><code>primitive</code></a></li>
 <li><a href="#pointer"><code>pointer</code></a></li>
 <li><a href="#array"><code>array</code></a></li>
 <li><a href="#struct"><code>struct</code></a></li>
 <li><a href="#define"><code>define</code></a></li>
+<li><a href="#layout"><code>layout</code></a></li>
+<li><a href="#stride"><code>stride</code></a></li>
 <li><a href="#sizeof"><code>sizeof</code></a></li>
 <li><a href="#offsetof"><code>offsetof</code></a></li>
 <li><a href="#type_name"><code>type_name</code></a></li>
@@ -79,9 +81,9 @@ ct.value(p)                            // {x: 3.0, y: 0.0}</code></pre>
 <p>The type of a pointer to target (null: void *).</p>
 
 </div>
-<div class="def" id="array"><h3><code>ctypes.array(elem: <a href="#type-Type">Type</a>, n: int) -> <a href="#type-Type">Type</a></code></h3>
-<p>The type of n elems in a row (a struct field).</p>
-
+<div class="def" id="array"><h3><code>ctypes.array(elem: <a href="#type-Type">Type</a>, n: int, strict?: bool) -> <a href="#type-Type">Type</a></code></h3>
+<p>The type of n elems in a row, their <a href="#stride"><code>stride</code></a> apart (a struct field).</p>
+<dl class="params"><dt><code>strict</code></dt><dd>a list converted to it must have n values (as elem is by default)</dd></dl>
 </div>
 <div class="def" id="struct"><h3><code>ctypes.struct(name: string) -> <a href="#type-Type">Type</a></code></h3>
 <p>A struct type, opaque (without a size) until <a href="#define"><code>define</code></a> gives its fields.</p>
@@ -90,6 +92,14 @@ ct.value(p)                            // {x: 3.0, y: 0.0}</code></pre>
 <div class="def" id="define"><h3><code>ctypes.define(struct_type: <a href="#type-Type">Type</a>, fields: {{any}})</code></h3>
 <p>Gives a struct its fields, laid out by C's rules.</p>
 <dl class="params"><dt><code>fields</code></dt><dd>{name, type, [default]} per field; default fills a field left out</dd></dl>
+</div>
+<div class="def" id="layout"><h3><code>ctypes.layout(struct_type: <a href="#type-Type">Type</a>, fields: {{any}}, options: table)</code></h3>
+<p>Gives a struct its fields at offsets that are given, and its size and alignment: a layout that is not C's (see slang/buffer's layout). A C function cannot take or return such a struct by value.</p>
+<dl class="params"><dt><code>fields</code></dt><dd>{name, type, offset, [default]} per field</dd><dt><code>options</code></dt><dd>{size, align?, stride?, strict?}: stride is how far apart two values are in a row (the size by default); strict makes tables and lists converted to it fit exactly</dd></dl>
+</div>
+<div class="def" id="stride"><h3><code>ctypes.stride(type: <a href="#type-Type">Type</a>) -> int</code></h3>
+<p>How far apart two values of the type are in a row, in bytes.</p>
+
 </div>
 <div class="def" id="sizeof"><h3><code>ctypes.sizeof(type: <a href="#type-Type">Type</a>) -> int</code></h3>
 <p>Its size in bytes.</p>
@@ -146,7 +156,7 @@ ct.value(p)                            // {x: 3.0, y: 0.0}</code></pre>
 <h2 id="type-Type">type Type</h2>
 <p>A C type: a scalar, a pointer, an array or a struct.</p>
 <h2 id="type-Pointer">type Pointer</h2>
-<p>An address and the type it points to (none for void *). p[i] and p.field read and write like C; an element or field that is a struct is a pointer again. Pointers are == when their addresses are.</p>
+<p>An address and the type it points to (none for void *). p[i] and p.field read and write like C; an element or field that is a struct is a pointer again. Pointers are == when their addresses are. type() of a pointer to a struct is &quot;buffer.struct&quot; (a struct in memory), of any other &quot;ffi.pointer&quot;.</p>
 <h2 id="type-Buffer">type Buffer</h2>
 <p>An address, an element type and a length; indexes are checked. Its methods are slang/buffer's.</p>
 <p class="muted">slang/stubs/slang/ctypes.slang</p>

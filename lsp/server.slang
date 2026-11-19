@@ -19,7 +19,10 @@
 // formatting and rangeFormatting (slang fmt's formatter), hover and
 // definition on extension syntax, slang.project keys (completion, hover,
 // checks), slang/expand (the expanded file), slang/tests (a test file's
-// groups and tests), shutdown, exit.
+// groups and tests), slang/highlights (documentHighlight over all the
+// cells of a notebook), notebooks (notebookDocument/didOpen, didChange,
+// didClose: the slang cells of a notebook are analysed as one document,
+// and each cell is asked about by its own uri), shutdown, exit.
 // Highlighting and the symbols come from one compiler.highlight, so
 // extensions and dialects are the real ones; lsp/navigate answers the
 // questions about names.
@@ -464,7 +467,7 @@ func lsp.new(options){
     documents: {}, encoding: "utf-16", initialized: false,
     shutdown_requested: false, exited: false, log: options.log or func(text){},
     root: options.root, nav: null, parameter_hints: "literals", lint: true,
-    lint_globals: {}, lint_modules: {}
+    lint_globals: {}, lint_modules: {}, notebooks: {}, cells: {}
   }
   s.@meta = meta
   // every file under its own project (a folder may hold several)
@@ -499,6 +502,8 @@ local func notification(method, params){
 }
 
 local lint = null
+local cell_diagnostics = null
+local in_notebook_folder = null
 local project_lint = null
 local project_completion = null
 local project_hover = null
@@ -556,7 +561,10 @@ local func global_known(s, doc, name){
 local func module_known(s, name){
   // (per project: what require finds depends on its search paths)
   local p = compiler.project()
-  local key = concat(p and p.path or "", "\n", name)
+  local key = concat(
+    p and p.path or "", "\n", string((__PACKAGES.search_paths or {})[0]), "\n",
+    name
+  )
   local hit = s.lint_modules[key]
   if(hit == null){
     hit = __PACKAGES.preloaded[name] != null or vm.embedded(name) != null or
@@ -601,8 +609,10 @@ lint = func(s, doc){
     }
   }
   for(let local d in values(index.defs)){
+    // (a notebook's top-level locals stay for the cells yet to be written)
     if(d.kind == "local" and not used[d] and
       not str.starts_with(d.name, "_") and
+      not (doc.notebook != null and d.scope == null) and
       written_at(text, d.start, d.stop, d.name)){
       append(out, lint_diagnostic(
         doc,
@@ -697,7 +707,7 @@ local func analyse(s, uri){
   try {
     h = compiler.for_file(doc.path, func(){
       return compiler.highlight(doc.text, doc.path, {
-        find_project: true, symbols: true
+        find_project: true, symbols: true, cells: doc.cell_ends
       })
     })
   } catch(local e) {
@@ -807,6 +817,12 @@ handlers["initialize"] = func(s, id, params){
       capabilities: {
         positionEncoding: s.encoding,
         textDocumentSync: 1,
+        // the slang cells of any notebook (see the notebooks section)
+        notebookDocumentSync: {
+          notebookSelector: json.array({
+            {notebook: "*", cells: json.array({{language: "slang"}})},
+          }),
+        },
         hoverProvider: true,
         documentFormattingProvider: true,
         documentRangeFormattingProvider: true,
@@ -916,7 +932,18 @@ handlers["workspace/didChangeWatchedFiles"] = func(s, id, params){
   }
   local out = {}
   for(let local e in entries(s.documents)){
-    append(out, analyse(s, e[0]))
+    if(e[1].notebook != null){
+      local notes = compiler.for_file(e[1].path, func(){
+        return in_notebook_folder(e[1].path, func(){
+          return cell_diagnostics(s, e[1], analyse(s, e[0]))
+        })
+      })
+      for(let local n in values(notes)){
+        append(out, n)
+      }
+    } else {
+      append(out, analyse(s, e[0]))
+    }
   }
   local p = project_notification(s)
   if(p != null){ append(out, p) }
@@ -1338,7 +1365,8 @@ handlers["textDocument/documentHighlight"] = func(s, id, params){
   }
   local index = at.doc.symbols
   local out = json.array({})
-  for(let local l in values(nav_of(s):references(at.doc.path, at.pos, true))){
+  // (the document alone is looked at: this is asked at every move)
+  for(let local l in values(nav_of(s):highlights(at.doc.path, at.pos))){
     if(l.path == at.doc.path){
       local found = index.by_start[l.start]
       local write = found != null and (found.kind != null or found.write)
@@ -2714,27 +2742,37 @@ handlers["slang/expand"] = func(s, id, params){
 
 // ------------------------------------------------------------ formatting
 
-// the whole document formatted as `slang fmt` would: one edit replacing it,
-// or none when it is formatted already. A file that does not parse is left
-// as it is (its diagnostics say why); a formatter whose checks fail on a
-// file that parses is a bug in the formatter, and the editor is told.
-handlers["textDocument/formatting"] = func(s, id, params){
-  local doc = s.documents[params.textDocument.uri]
-  if(doc == null){
-    return {response(id, json.array({}))}
+// the whole text formatted as `slang fmt` would: one edit replacing it, or
+// none when it is formatted already. A text that does not parse is left as
+// it is (its diagnostics say why); a formatter whose checks fail on a text
+// that parses is a bug in the formatter, and the editor is told.
+// [unit]: {text, path, uri, clean, result}: clean when the text has no
+//   parse errors, result for a notebook's cell (it may end in an
+//   expression, and keeps its own last line break or lack of one)
+local func formatted_text(unit){
+  local out = format.source(unit.text, unit.path, {
+    find_project: true, result: unit.result
+  })
+  if(out != null and unit.result and not str.ends_with(unit.text, "\n") and
+    str.ends_with(out, "\n")){
+    out = str.substring(out, 0, len(out) - 1)
   }
-  local text = doc.text
+  return out
+}
+
+local func format_whole(s, id, unit){
+  local text = unit.text
   local formatted = null
   local message = null
   try {
-    formatted = format.source(text, doc.path, {find_project: true})
+    formatted = formatted_text(unit)
   } catch(local e) {
     message = e.message
   }
   if(message != null){
-    s.log(concat("formatting failed for ", doc.uri, ": ", message))
+    s.log(concat("formatting failed for ", unit.uri, ": ", message))
     local out = {response(id, json.array({}))}
-    if(len(doc.diagnostics) == 0){
+    if(unit.clean){
       append(out, notification("window/showMessage", {
         type: 2,
         message: concat("slang: the file was not formatted: ", message),
@@ -2752,14 +2790,27 @@ handlers["textDocument/formatting"] = func(s, id, params){
   }
 }
 
+handlers["textDocument/formatting"] = func(s, id, params){
+  local doc = s.documents[params.textDocument.uri]
+  if(doc == null){
+    return {response(id, json.array({}))}
+  }
+  return format_whole(s, id, {
+    text: doc.text, path: doc.path, uri: doc.uri,
+    clean: len(doc.diagnostics) == 0, result: false
+  })
+}
+
 // The lines a range touches, formatted. The whole document is formatted;
 // both texts have the same tokens (but trailing commas and `;`), so the
 // tokens on the selected lines are found in the result, the regions grow
 // to whole lines on both sides until they hold the same tokens (the
 // formatter joins and splits lines), and those lines of the result replace
 // the document's.
-local func line_tokens(text, path){
-  local h = try { compiler.highlight(text, path, {}) } catch { null }
+local func line_tokens(text, path, result){
+  local h = try {
+    compiler.highlight(text, path, {result: result})
+  } catch { null }
   if(h == null or len(h.diagnostics) > 0){
     return null
   }
@@ -2773,26 +2824,20 @@ local func line_tokens(text, path){
   return out
 }
 
-handlers["textDocument/rangeFormatting"] = func(s, id, params){
-  local doc = s.documents[params.textDocument.uri]
-  if(doc == null){
-    return {response(id, json.array({}))}
-  }
-  local text = doc.text
-  local formatted = try {
-    format.source(text, doc.path, {find_project: true})
-  } catch { null }
+local func format_range(s, id, unit, range){
+  local text = unit.text
+  local formatted = try { formatted_text(unit) } catch { null }
   if(formatted == null or formatted == text){
     return {response(id, json.array({}))}
   }
-  local a = line_tokens(text, doc.path)
-  local b = line_tokens(formatted, doc.path)
+  local a = line_tokens(text, unit.path, unit.result)
+  local b = line_tokens(formatted, unit.path, unit.result)
   if(a == null or b == null or len(a) != len(b) or len(a) == 0){
     return {response(id, json.array({}))}
   }
-  local first_line = params.range.start.line
-  local last_line = params.range["end"].line
-  if(params.range["end"].character == 0 and last_line > first_line){
+  local first_line = range.start.line
+  local last_line = range["end"].line
+  if(range["end"].character == 0 and last_line > first_line){
     last_line = last_line - 1
   }
   local i = -1
@@ -2848,6 +2893,512 @@ handlers["textDocument/rangeFormatting"] = func(s, id, params){
   }
 }
 
+handlers["textDocument/rangeFormatting"] = func(s, id, params){
+  local doc = s.documents[params.textDocument.uri]
+  if(doc == null){
+    return {response(id, json.array({}))}
+  }
+  return format_range(s, id, {
+    text: doc.text, path: doc.path, uri: doc.uri, result: false
+  }, params.range)
+}
+
+// ------------------------------------------------------------ notebooks
+//
+// A notebook (notebookDocument/didOpen, didChange, didClose) is analysed
+// as one document: the text of its slang cells one after another, each on
+// lines of its own, under the notebook's path with ".slang" added (a plain
+// slang file of the notebook's project). So a name of one cell is known in
+// the cells after it, as it is when they run in one session, and a cell
+// may end in an expression (compiler.highlight's cells). A request about a
+// cell is answered from that document: its position moves down by the
+// lines before the cell, and what the answer says of the document moves
+// back into the cells (locations, edits, diagnostics). A cell is formatted
+// alone.
+
+// What f() gives, with modules looked for as a notebook's cells find them:
+// a notebook's kernel runs in the notebook's folder, so without a project
+// that folder is where require looks first. (Under the compiler state of
+// the notebook's file: compiler.for_file.)
+in_notebook_folder = func(path, f){
+  if(compiler.project() != null){
+    return f()
+  }
+  local was = __PACKAGES.search_paths
+  local paths = {compiler.dirname(path)}
+  for(let local dir in values(was or {})){
+    append(paths, dir)
+  }
+  __PACKAGES.search_paths = paths
+  local r = try { {ok: true, value: f()} } catch(local e) { {ok: false, error: e} }
+  __PACKAGES.search_paths = was
+  if(not r.ok){
+    raise(r.error)
+  }
+  return r.value
+}
+
+// every slang cell of a notebook gets its place in the notebook's
+// document, which gets their text
+local func lay_out(s, nb){
+  local doc = s.documents[nb.doc_uri]
+  if(doc == null){
+    doc = {
+      uri: nb.doc_uri, path: lsp.uri_to_path(nb.doc_uri), text: "",
+      tokens: {}, diagnostics: {}, notebook: nb
+    }
+    s.documents[nb.doc_uri] = doc
+  }
+  // (the document starts with an empty line: a comment that starts a file
+  // is the file's doc, one that starts a notebook's first cell is the doc
+  // of what that cell defines first)
+  local parts = {""}
+  local places = {}
+  local ends = {}
+  local line = 1
+  local start = 1
+  for(let local c in values(nb.cells)){
+    local cell = s.cells[c.document]
+    if(cell != null and same(cell.notebook, nb)){
+      cell.line = line
+      cell.start = start
+      cell.lines = str.count(cell.text, "\n") + 1
+      append(parts, cell.text)
+      append(places, cell)
+      start = start + len(cell.text)
+      append(ends, start)
+      start = start + 1
+      line = line + cell.lines
+    }
+  }
+  doc.text = str.join(parts, "\n")
+  doc.version = nb.version
+  doc.cells = places
+  doc.cell_ends = ends
+  return doc
+}
+
+// the cell a line of the notebook's document is in
+local func cell_at(doc, line){
+  local found = null
+  for(let local c in values(doc.cells or {})){
+    if(c.line > line){
+      break
+    }
+    found = c
+  }
+  return found
+}
+
+// a range of the notebook's document as one of the cell it starts in
+// (cut at the cell's end): {cell, range}, or null
+local func to_cell(s, doc, range){
+  local cell = cell_at(doc, range.start.line)
+  if(cell == null){
+    return null
+  }
+  local stop = {
+    line: range["end"].line - cell.line, character: range["end"].character
+  }
+  if(stop.line >= cell.lines){
+    local starts = str.line_starts(cell.text)
+    local last = cell.lines - 1
+    stop = {
+      line: last,
+      character: character_at(
+        cell.text, starts[last] or len(cell.text), len(cell.text), s.encoding
+      ),
+    }
+  }
+  return {
+    cell: cell,
+    range: {
+      start: {
+        line: range.start.line - cell.line, character: range.start.character
+      },
+      ["end"]: stop,
+    },
+  }
+}
+
+// the diagnostics of a notebook's document, as its cells' (every cell gets
+// its list, an empty one too)
+cell_diagnostics = func(s, doc, note){
+  local by_cell = {}
+  for(let local c in values(doc.cells)){
+    by_cell[c.uri] = json.array({})
+  }
+  for(let local d in values(note.params.diagnostics)){
+    local tc = to_cell(s, doc, d.range)
+    if(tc != null){
+      local moved = {}
+      for(let local e in entries(d)){
+        moved[e[0]] = e[1]
+      }
+      moved.range = tc.range
+      append(by_cell[tc.cell.uri], moved)
+    }
+  }
+  local out = {}
+  for(let local c in values(doc.cells)){
+    append(out, notification("textDocument/publishDiagnostics", {
+      uri: c.uri, version: c.version, diagnostics: by_cell[c.uri]
+    }))
+  }
+  return out
+}
+
+// the notebook's document made anew and analysed: its cells' diagnostics
+local func refresh(s, nb){
+  local doc = lay_out(s, nb)
+  return cell_diagnostics(s, doc, analyse(s, doc.uri))
+}
+
+local func open_cell(s, nb, td){
+  if(td.languageId != null and td.languageId != "slang"){
+    return
+  }
+  s.cells[td.uri] = {
+    uri: td.uri, notebook: nb, text: td.text or "", version: td.version,
+    line: 0, start: 0, lines: 1
+  }
+}
+
+handlers["notebookDocument/didOpen"] = func(s, id, params){
+  local nd = params.notebookDocument
+  local nb = {
+    uri: nd.uri, version: nd.version, cells: {},
+    doc_uri: lsp.path_to_uri(concat(lsp.uri_to_path(nd.uri), ".slang"))
+  }
+  s.notebooks[nd.uri] = nb
+  for(let local c in values(nd.cells or {})){
+    append(nb.cells, {kind: c.kind, document: c.document})
+  }
+  for(let local td in values(params.cellTextDocuments or {})){
+    open_cell(s, nb, td)
+  }
+  local out = refresh(s, nb)
+  local p = project_notification(s)
+  if(p != null){ append(out, p) }
+  return out
+}
+
+handlers["notebookDocument/didChange"] = func(s, id, params){
+  local nb = s.notebooks[params.notebookDocument.uri]
+  if(nb == null){
+    return {}
+  }
+  nb.version = params.notebookDocument.version
+  local cells = (params.change or {}).cells or {}
+  local out = {}
+  local structure = cells.structure
+  if(structure != null){
+    // cells taken out and put in at one place of the list
+    local a = structure.array
+    local next = {}
+    for(local i = 0; i < a.start and i < len(nb.cells); i = i + 1){
+      append(next, nb.cells[i])
+    }
+    for(let local c in values(a.cells or {})){
+      append(next, {kind: c.kind, document: c.document})
+    }
+    for(local i = a.start + a.deleteCount; i < len(nb.cells); i = i + 1){
+      append(next, nb.cells[i])
+    }
+    nb.cells = next
+    for(let local td in values(structure.didOpen or {})){
+      open_cell(s, nb, td)
+    }
+    for(let local td in values(structure.didClose or {})){
+      if(s.cells[td.uri] != null){
+        delete(s.cells, td.uri)
+        append(out, notification("textDocument/publishDiagnostics", {
+          uri: td.uri, diagnostics: json.array({})
+        }))
+      }
+    }
+  }
+  // full sync: a cell's last change carries its whole text
+  for(let local tc in values(cells.textContent or {})){
+    local cell = s.cells[tc.document.uri]
+    if(cell != null){
+      for(let local change in values(tc.changes or {})){
+        cell.text = change.text
+      }
+      cell.version = tc.document.version
+    }
+  }
+  for(let local n in values(refresh(s, nb))){
+    append(out, n)
+  }
+  return out
+}
+
+handlers["notebookDocument/didClose"] = func(s, id, params){
+  local uri = params.notebookDocument.uri
+  local nb = s.notebooks[uri]
+  if(nb == null){
+    return {}
+  }
+  local out = {}
+  for(let local c in values(nb.cells)){
+    if(s.cells[c.document] != null){
+      delete(s.cells, c.document)
+      append(out, notification("textDocument/publishDiagnostics", {
+        uri: c.document, diagnostics: json.array({})
+      }))
+    }
+  }
+  local doc = s.documents[nb.doc_uri]
+  if(doc != null and s.nav != null){
+    s.nav:close(doc.path)
+  }
+  delete(s.documents, nb.doc_uri)
+  delete(s.notebooks, uri)
+  return out
+}
+
+// a request's parameters about a cell, as about the notebook's document
+local func into_document(doc, cell, params){
+  local out = {}
+  for(let local e in entries(params)){
+    out[e[0]] = e[1]
+  }
+  out.textDocument = {uri: doc.uri}
+  local func moved(p){
+    return {line: p.line + cell.line, character: p.character}
+  }
+  if(params.position != null){
+    out.position = moved(params.position)
+  }
+  if(params.range != null){
+    out.range = {
+      start: moved(params.range.start), ["end"]: moved(params.range["end"])
+    }
+  }
+  return out
+}
+
+// locations: those in the notebook's document are in its cells
+local func cell_locations(s, doc, cell, list){
+  local out = json.array({})
+  for(let local l in values(list)){
+    if(l.uri == doc.uri){
+      local tc = to_cell(s, doc, l.range)
+      if(tc != null){
+        append(out, {uri: tc.cell.uri, range: tc.range})
+      }
+    } else {
+      append(out, l)
+    }
+  }
+  return out
+}
+
+// the symbols of an outline that are in a cell (a section of the
+// notebook's document that starts in another cell gives its own)
+local func cell_symbols(s, doc, cell, list, out){
+  for(let local sym in values(list)){
+    local name = to_cell(s, doc, sym.selectionRange)
+    if(name != null and same(name.cell, cell)){
+      local whole = to_cell(s, doc, sym.range)
+      local moved = {}
+      for(let local e in entries(sym)){
+        moved[e[0]] = e[1]
+      }
+      moved.selectionRange = name.range
+      moved.range = whole != null and same(whole.cell, cell) and whole.range or
+        name.range
+      moved.children = cell_symbols(
+        s, doc, cell, sym.children or {}, json.array({})
+      )
+      append(out, moved)
+    } else {
+      cell_symbols(s, doc, cell, sym.children or {}, out)
+    }
+  }
+  return out
+}
+
+// what an answer about the notebook's document is for the cell asked about
+local answers = {}
+
+answers["textDocument/hover"] = func(s, doc, cell, r){
+  if(r.range != null){
+    local tc = to_cell(s, doc, r.range)
+    if(tc != null and same(tc.cell, cell)){
+      r.range = tc.range
+    } else {
+      delete(r, "range")
+    }
+  }
+  return r
+}
+
+answers["textDocument/definition"] = cell_locations
+answers["textDocument/references"] = cell_locations
+
+answers["textDocument/documentHighlight"] = func(s, doc, cell, r){
+  local out = json.array({})
+  for(let local h in values(r)){
+    local tc = to_cell(s, doc, h.range)
+    if(tc != null and same(tc.cell, cell)){
+      append(out, {range: tc.range, kind: h.kind})
+    }
+  }
+  return out
+}
+
+// slang/highlights {textDocument, position} -> {{uri, range, kind}}:
+// documentHighlight for a notebook's cell, over all the notebook's cells
+// (for a document, its own highlights with its uri)
+handlers["slang/highlights"] = func(s, id, params){
+  local uri = params.textDocument.uri
+  local replies = handlers["textDocument/documentHighlight"](s, id, params)
+  for(let local r in values(replies)){
+    if(r.result != null){
+      local out = json.array({})
+      for(let local h in values(r.result)){
+        append(out, {uri: uri, range: h.range, kind: h.kind})
+      }
+      r.result = out
+    }
+  }
+  return replies
+}
+
+answers["slang/highlights"] = func(s, doc, cell, r){
+  local out = json.array({})
+  for(let local h in values(r)){
+    local tc = to_cell(s, doc, h.range)
+    if(tc != null){
+      append(out, {uri: tc.cell.uri, range: tc.range, kind: h.kind})
+    }
+  }
+  return out
+}
+
+answers["textDocument/prepareRename"] = func(s, doc, cell, r){
+  local tc = to_cell(s, doc, r.range)
+  if(tc != null){
+    r.range = tc.range
+  }
+  return r
+}
+
+answers["textDocument/rename"] = func(s, doc, cell, r){
+  local changes = {}
+  for(let local e in entries(r.changes or {})){
+    if(e[0] == doc.uri){
+      for(let local edit in values(e[1])){
+        local tc = to_cell(s, doc, edit.range)
+        if(tc != null){
+          if(changes[tc.cell.uri] == null){
+            changes[tc.cell.uri] = json.array({})
+          }
+          append(changes[tc.cell.uri], {
+            range: tc.range, newText: edit.newText
+          })
+        }
+      }
+    } else {
+      changes[e[0]] = e[1]
+    }
+  }
+  return {changes: changes}
+}
+
+answers["textDocument/completion"] = func(s, doc, cell, r){
+  for(let local item in values(r)){
+    if(item.textEdit != null){
+      local tc = to_cell(s, doc, item.textEdit.range)
+      if(tc != null){
+        item.textEdit = {range: tc.range, newText: item.textEdit.newText}
+      }
+    }
+  }
+  return r
+}
+
+answers["textDocument/signatureHelp"] = func(s, doc, cell, r){
+  return r
+}
+
+answers["textDocument/inlayHint"] = func(s, doc, cell, r){
+  local out = json.array({})
+  for(let local hint in values(r)){
+    local line = hint.position.line - cell.line
+    if(line >= 0 and line < cell.lines){
+      hint.position = {line: line, character: hint.position.character}
+      append(out, hint)
+    }
+  }
+  return out
+}
+
+answers["textDocument/documentSymbol"] = func(s, doc, cell, r){
+  return cell_symbols(s, doc, cell, r, json.array({}))
+}
+
+// a cell's tokens: those of the notebook's document that are in it
+local func cell_tokens(s, doc, cell){
+  local stop = cell.start + len(cell.text)
+  local out = {}
+  for(let local t in values(doc.tokens)){
+    if(t.start >= cell.start and t.start < stop){
+      local token_stop = t.stop
+      if(token_stop > stop){
+        token_stop = stop
+      }
+      append(out, {
+        line: t.line - cell.line, start: t.start - cell.start,
+        stop: token_stop - cell.start, category: t.category
+      })
+    }
+  }
+  return lsp.semantic_tokens(cell.text, out, s.encoding)
+}
+
+// a request about a notebook's cell
+local func handle_cell(s, cell, message){
+  local method = message.method
+  local id = message.id
+  local params = message.params or {}
+  local doc = s.documents[cell.notebook.doc_uri]
+  if(method == "textDocument/semanticTokens/full"){
+    return {response(id, {data: cell_tokens(s, doc, cell)})}
+  }
+  if(method == "textDocument/formatting" or
+    method == "textDocument/rangeFormatting"){
+    local unit = {
+      text: cell.text, path: doc.path, uri: cell.uri,
+      clean: len(doc.diagnostics) == 0, result: true
+    }
+    if(method == "textDocument/formatting"){
+      return format_whole(s, id, unit)
+    }
+    return format_range(s, id, unit, params.range)
+  }
+  local answer = answers[method]
+  if(answer == null){
+    if(id == null){
+      return {}
+    }
+    return {
+      error_response(
+        id, -32601, concat(method, " is not answered for a notebook's cell")
+      ),
+    }
+  }
+  local replies = handlers[method](s, id, into_document(doc, cell, params))
+  for(let local r in values(replies)){
+    if(id != null and r.id == id and r.result != null){
+      r.result = answer(s, doc, cell, r.result)
+    }
+  }
+  return replies
+}
+
 // handle(message) -> the messages to send in reply
 func methods.handle(s, message){
   local method = message.method
@@ -2867,9 +3418,28 @@ func methods.handle(s, message){
   local params = message.params or {}
   local td = params.textDocument
   local uri = type(td) == "table" and td.uri or params.uri
+  if(uri == null and type(params.notebookDocument) == "table"){
+    uri = params.notebookDocument.uri
+  }
   local path = type(uri) == "string" and lsp.uri_to_path(uri) or null
+  // a notebook's cell: the notebook's document answers
+  local cell = type(uri) == "string" and s.cells[uri] or null
+  if(cell != null){
+    path = s.documents[cell.notebook.doc_uri].path
+  }
+  local notebook = cell != null or type(params.notebookDocument) == "table"
   try {
-    return compiler.for_file(path, func(){ return h(s, id, params) })
+    return compiler.for_file(path, func(){
+      if(cell != null){
+        return in_notebook_folder(path, func(){
+          return handle_cell(s, cell, message)
+        })
+      }
+      if(notebook){
+        return in_notebook_folder(path, func(){ return h(s, id, params) })
+      }
+      return h(s, id, params)
+    })
   } catch(local e) {
     s.log(concat("error handling ", method, ": ", e.message))
     if(id != null){

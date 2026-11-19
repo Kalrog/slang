@@ -169,6 +169,42 @@ await test("a page's session: it shows, colours, runs through the page's kernel,
   assert.equal(out.find((m) => m.page).page.cells.length, 1);
 });
 
+await test("a page's language: the language server in the worker, with the library's sources", async () => {
+  // what notebook/browser's language_files gives a page: the lsp package
+  // where the notebook package's project says it is, the lock that says
+  // so, and the library to read about
+  const lsp = path.resolve(pkg, "../../lsp");
+  const more = { "/pkg/notebook/slang.lock": '{\n  ["lsp"]: {path: "../../lsp"},\n}\n' };
+  for (const name of ["server.slang", "navigate.slang", "slang.project"]) {
+    more["/lsp/" + name] = fs.readFileSync(path.join(lsp, name), "utf8");
+  }
+  const stubs = path.resolve(pkg, "../../slang/stubs");
+  more["/slang/stubs/slang/string.slang"] = fs.readFileSync(path.join(stubs, "slang/string.slang"), "utf8");
+  more["/slang/stubs/globals.slang"] = fs.readFileSync(path.join(stubs, "globals.slang"), "utf8");
+  more["/slang/lib/json.slang"] = fs.readFileSync(path.resolve(pkg, "../../slang/lib/json.slang"), "utf8");
+  const service = await start(["slang", "run", "/pkg/notebook/bin/service_web.slang"], more, "/work");
+  let out = service.send(
+    { open: { name: "demo.md", text: '```slang\nlocal str = require("slang/string")\n// doubles a number\nlocal func twice(n){ return n * 2 }\n```\n\n```slang\ntwice(2)\nnowhere\n```\n' } },
+    { page: { op: "check", seq: 1 } },
+  );
+  assert.equal(out[0].page.language, true);
+  const found = out.find((m) => m.page && m.page.event === "diagnostics").page;
+  assert.deepEqual(found.cells.c1, []);
+  assert.equal(found.cells.c2[0].severity, "warning");
+  assert.deepEqual(found.cells.c2[0].range, [1, 0, 1, 7]);
+  out = service.send(
+    { page: { op: "language", seq: 2, method: "hover", id: "c2", line: 0, character: 2 } },
+    { page: { op: "language", seq: 3, method: "definition", id: "c2", line: 0, character: 2 } },
+    // the cell as it is being typed comes with the question
+    { page: { op: "language", seq: 4, method: "complete", id: "c2", line: 0, character: 4, trigger: ".", source: "str.\ntwice(2)" } },
+  );
+  const answers = out.filter((m) => m.page && m.page.event === "language").map((m) => m.page);
+  assert.ok(answers[0].result.html.includes("doubles a number"));
+  assert.deepEqual(answers[1].result[0], { id: "c1", range: [2, 11, 2, 16] });
+  // the library's names come from its sources in the page
+  assert.ok(answers[2].result.some((item) => item.label === "upper" && item.kind === "function"));
+});
+
 console.log("Tests succeeded: " + passed);
 if (process.exitCode) console.log("Some tests failed");
 else console.log("All tests passed");

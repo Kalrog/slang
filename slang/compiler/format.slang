@@ -2346,7 +2346,10 @@ local func layout(f, tree, width){
 local func format_text(text, path, options){
   local compiler = require("slang/compiler")
   local ast = require("slang/ast")
-  local tree = compiler.tree(text, path, {find_project: options.find_project})
+  local result = options.result == true
+  local tree = compiler.tree(text, path, {
+    find_project: options.find_project, result: result
+  })
   if(tree == null){
     return null
   }
@@ -2355,7 +2358,7 @@ local func format_text(text, path, options){
   // Some layouts depend on the source's: a block written on one line that
   // doesn't fit is broken, and is then a block written over several lines.
   // Formatting again until nothing changes makes the result stable.
-  local out_tree = compiler.tree(out, path)
+  local out_tree = compiler.tree(out, path, {result: result})
   local passes = 1
   for(true){
     local again = layout(new_formatter(out, out_tree), out_tree, options.width)
@@ -2369,7 +2372,7 @@ local func format_text(text, path, options){
       ), {path: path}))
     }
     out = again
-    out_tree = compiler.tree(out, path)
+    out_tree = compiler.tree(out, path, {result: result})
   }
   if(options.check == false){
     return out
@@ -2408,10 +2411,12 @@ local func format_text(text, path, options){
 local PROJECT_PREFIX = "return "
 
 // What [source] takes.
-// type FormatOptions = {find_project?: bool, width?: int, check?: bool}
+// type FormatOptions = {find_project?: bool, width?: int, check?: bool,
+//   result?: bool}
 // [find_project]: look up the file's project (see compiler.highlight)
 // [width]: the columns to fit in; 80 by default
 // [check]: false skips the checks of the result
+// [result]: the text may end in an expression, as a notebook cell does
 
 // source(text: string, path: string, options?: FormatOptions) -> string?
 // The formatted text, or null for a file of a compile dialect. Raises when

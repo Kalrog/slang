@@ -47,6 +47,7 @@ The guide [Notebooks](../../website/guide/notebooks.md) has the rest.
 | `notebook/remote`, `notebook/browser` | a kernel that is in a page, as a session sees it; what a page needs (slang.wasm, the worker, the files) |
 | `notebook/inspect` | a value as text and as a tree to unfold |
 | `notebook/markdown`, `notebook/highlight` | Markdown to HTML; code coloured by slang's parser |
+| `notebook/language` | what an editor knows about the cells' code: slang's language server (the `lsp` package), with the code cells as one notebook |
 
 ```slang
 local async = require("slang/async")

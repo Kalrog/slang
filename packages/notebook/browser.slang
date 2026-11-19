@@ -73,7 +73,7 @@ func browser.worker_source(){
 // without a server
 local MODULES = {
   "init", "inspect", "runner", "kernel_web", "document", "markdown",
-  "highlight", "remote", "session", "service_web", "browser"
+  "highlight", "remote", "session", "service_web", "browser", "language"
 }
 
 // package_files() -> {[string]: string}
@@ -89,6 +89,76 @@ func browser.package_files(){
   }
   for(let local name in values(names)){
     out[concat(browser.PACKAGE, "/", name)] = os.read_file(concat(dir, "/", name))
+  }
+  return out
+}
+
+// where slang's library is in a worker, as sources to read about: its
+// modules written in slang, and the stubs that describe the native ones
+browser.LIBRARY = "/slang/lib"
+browser.STUBS = "/slang/stubs"
+
+// the compiler's own modules: a megabyte of source a notebook's editor
+// can do without
+local COMPILER_MODULES = {
+  ast: true, build: true, codegen: true, compiler: true, doc: true,
+  format: true, grammar: true, optimizer: true, parse_error: true, peg: true,
+  pegc: true, pkg: true, resolve: true, symbols: true
+}
+
+// the slang files below dir, by their path below to
+local func sources(dir, to, out, depth){
+  local names = try { os.list_dir(dir) } catch { {} }
+  for(let local name in values(names)){
+    local file = concat(dir, "/", name)
+    if(str.ends_with(name, ".slang")){
+      local text = try { os.read_file(file) } catch { null }
+      if(text != null and out[concat(to, "/", name)] == null){
+        out[concat(to, "/", name)] = text
+      }
+    } else if(depth > 0 and not str.starts_with(name, ".") and os.is_dir(file)){
+      sources(file, concat(to, "/", name), out, depth - 1)
+    }
+  }
+}
+
+// language_files() -> {[string]: string}
+// What the language server needs in the worker of a page without a
+// server, where the session asks it about the cells' code
+// (notebook/language), by path there: its own files (the lsp package,
+// where the notebook package's project says it is), and the sources of
+// slang's library to read about (under [LIBRARY] and [STUBS]; without the
+// compiler's own modules). Empty when there is no language server here.
+func browser.language_files(){
+  local out = {}
+  local server = try { compiler.module_path("lsp/server") } catch { null }
+  if(server == null){
+    return out
+  }
+  local from = compiler.dirname(server)
+  // (../../lsp from the notebook package)
+  local up = compiler.dirname(compiler.dirname(browser.PACKAGE))
+  local to = str.ends_with(up, "/") and concat(up, "lsp") or concat(up, "/lsp")
+  for(let local name in values({"server.slang", "navigate.slang", "slang.project"})){
+    local text = try { os.read_file(concat(from, "/", name)) } catch { null }
+    if(text != null){
+      out[concat(to, "/", name)] = text
+    }
+  }
+  // the lock that says where the package is
+  out[concat(browser.PACKAGE, "/slang.lock")] = "{\n  [\"lsp\"]: {path: \"../../lsp\"},\n}\n"
+  local library = {}
+  for(let local dir in values(__PACKAGES.library_sources or {})){
+    sources(dir, browser.LIBRARY, library, 0)
+  }
+  for(let local e in entries(library)){
+    local name = str.substring(e[0], len(browser.LIBRARY) + 1, len(e[0]) - 6)
+    if(not COMPILER_MODULES[name]){
+      out[e[0]] = e[1]
+    }
+  }
+  for(let local dir in values(__PACKAGES.stub_sources or {})){
+    sources(dir, browser.STUBS, out, 2)
   }
   return out
 }

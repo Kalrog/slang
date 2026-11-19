@@ -48,16 +48,28 @@ for(local i = 0; i &lt; len(samples); i = i + 1){
 }
 local points = buffer.new(&quot;Vector2&quot;, 100, rl.decls)
 points[3].x = 10                       // a struct element is a view</code></pre>
-<p>Indexes count from 0, like lists, and are checked: an index out of range raises. b[i] of a scalar is a number; of a struct a pointer to the element (<a href="slang-ffi.html#type-Pointer"><code>ffi.Pointer</code></a>), so b[i].x = 3 writes in place; b[i] = v converts v as slang/ffi does (a table for a struct). len(b) is the number of elements, == compares type and contents, and values, keys and entries iterate a buffer like a list. The methods are those of <a href="#type-Buffer"><code>Buffer</code></a>.</p>
+<p>Indexes count from 0, like lists, and are checked: an index out of range raises. b[i] of a scalar is a number; of a struct the struct in the buffer's memory (type() of it is &quot;buffer.struct&quot;), so b[i].x = 3 writes in place; b[i] = v converts v (a table for a struct: fields by name or in their order; numbers in a row for one whose parts are structs or arrays themselves). len(b) is the number of elements, == compares type and contents, and values, keys and entries iterate a buffer like a list. The methods are those of <a href="#type-Buffer"><code>Buffer</code></a>.</p>
 <p>Types are C names: scalars (&quot;float&quot;, &quot;double&quot;, &quot;int&quot;, &quot;uint8_t&quot;, &quot;int32&quot;, ...) or, with declarations from <a href="slang-ffi.html#cdef"><code>ffi.cdef</code></a>, structs (&quot;Vector2&quot;); an <a href="slang-ffi.html#type-Type"><code>ffi.Type</code></a> value works too. Memory a buffer allocates is zeroed and freed by the collector once nothing refers to it (slices, casts and element pointers keep it alive).</p>
+<p>A struct need not be C's. <a href="#layout"><code>layout</code></a> makes a struct type from a layout that is given: every field at its offset, the size, the alignment, and how far apart two of them are in a row. A package whose data has rules of its own (a shading language's structs, a file format's records) lays its types out by those rules and uses them like any other:</p>
+<pre><code>local vec3 = buffer.layout(&quot;vec3f&quot;, {
+  size: 12, align: 16, stride: 16,
+  fields: {{&quot;x&quot;, &quot;float&quot;, 0}, {&quot;y&quot;, &quot;float&quot;, 4}, {&quot;z&quot;, &quot;float&quot;, 8}},
+})
+local points = buffer.new(vec3, 100)   // 16 bytes apart
+points[3] = {1, 2, 3}</code></pre>
 <ul class="toc">
 <li><a href="#new"><code>new</code></a></li>
 <li><a href="#shared"><code>shared</code></a></li>
 <li><a href="#from"><code>from</code></a></li>
 <li><a href="#from_string"><code>from_string</code></a></li>
 <li><a href="#wrap"><code>wrap</code></a></li>
+<li><a href="#layout"><code>layout</code></a></li>
+<li><a href="#array"><code>array</code></a></li>
+<li><a href="#stride"><code>stride</code></a></li>
+<li><a href="#is_struct"><code>is_struct</code></a></li>
 <li><a href="#is"><code>is</code></a></li>
 <li><a href="#type-Buffer"><code>type Buffer</code></a></li>
+<li><a href="#type-Layout"><code>type Layout</code></a></li>
 </ul>
 <div class="def" id="new"><h3><code>buffer.new(t: string | <a href="slang-ffi.html#type-Type">ffi.Type</a>, n: int, decls?: <a href="slang-ffi.html#type-Decls">ffi.Decls</a>) -> <a href="#type-Buffer">Buffer</a></code></h3>
 <p>A buffer of n zeroed elements of type t.</p>
@@ -84,15 +96,35 @@ worker_channel:send({image: image, from: 0, to: h / 2})</code></pre>
 local samples = buffer.wrap(ffi.gc(lib.decode(file), lib.release), n)</code></pre>
 
 </div>
+<div class="def" id="layout"><h3><code>buffer.layout(name: string, layout: <a href="#type-Layout">Layout</a>) -> <a href="slang-ffi.html#type-Type">ffi.Type</a></code></h3>
+<p>A struct type laid out as given, not by C's rules: for data with a layout of its own. Its values are structs in memory like any other (&quot;buffer.struct&quot;), in buffers, as fields of other structs and through pointers. Only a C function cannot take or return one by value: libffi knows C's layouts alone.</p>
+
+</div>
+<div class="def" id="array"><h3><code>buffer.array(t: string | <a href="slang-ffi.html#type-Type">ffi.Type</a>, n: int, strict?: bool) -> <a href="slang-ffi.html#type-Type">ffi.Type</a></code></h3>
+<p>The type of n values of t in a row, <a href="#stride"><code>stride</code></a> apart: a field of a struct.</p>
+<dl class="params"><dt><code>strict</code></dt><dd>a list given for it must have n values (as t is by default)</dd></dl>
+</div>
+<div class="def" id="stride"><h3><code>buffer.stride(t: string | <a href="slang-ffi.html#type-Type">ffi.Type</a>, decls?: <a href="slang-ffi.html#type-Decls">ffi.Decls</a>) -> int</code></h3>
+<p>How far apart two values of the type are in a row, in bytes: its size, unless its <a href="#layout"><code>layout</code></a> says otherwise.</p>
+
+</div>
+<div class="def" id="is_struct"><h3><code>buffer.is_struct(v) -> bool</code></h3>
+<p>Whether v is a struct in memory: an element of a buffer of structs, a field that is a struct, what a C function handed out a pointer to.</p>
+
+</div>
 <div class="def" id="is"><h3><code>buffer.is(v) -> bool</code></h3>
 <p>Whether v is a buffer.</p>
 
 </div>
 <h2 id="type-Buffer">type Buffer</h2>
-<pre><code>type Buffer = {size: int, type: <a href="slang-ffi.html#type-Type">ffi.Type</a>, shared: bool, keep: any, slice: func(from?: int, to?: int): <a href="#type-Buffer">Buffer</a>, copy: func(): <a href="#type-Buffer">Buffer</a>, fill: func(v: any): <a href="#type-Buffer">Buffer</a>, set: func(src: {any} | <a href="#type-Buffer">Buffer</a>, at?: int): <a href="#type-Buffer">Buffer</a>, cast: func(t: <a href="slang-ffi.html#type-Type">ffi.Type</a>): <a href="#type-Buffer">Buffer</a>, to_list: func(): {any}, to_string: func(): string, same: func(other: any): bool, pointer: func(): <a href="slang-ffi.html#type-Pointer">ffi.Pointer</a>, lock: func(f?: func(): any): any, unlock: func()}</code></pre>
+<pre><code>type Buffer = {size: int, type: <a href="slang-ffi.html#type-Type">ffi.Type</a>, shared: bool, keep: any, slice: func(from?: int, to?: int): <a href="#type-Buffer">Buffer</a>, copy: func(): <a href="#type-Buffer">Buffer</a>, fill: func(v: any): <a href="#type-Buffer">Buffer</a>, set: func(src: {any} | <a href="#type-Buffer">Buffer</a>, at?: int): <a href="#type-Buffer">Buffer</a>, cast: func(t: <a href="slang-ffi.html#type-Type">ffi.Type</a>): <a href="#type-Buffer">Buffer</a>, to_list: func(): {any}, to_string: func(): string, same: func(other: any): bool, pointer: func(): <a href="slang-ffi.html#type-Pointer">ffi.Pointer</a>, detach: func(), lock: func(f?: func(): any): any, unlock: func()}</code></pre>
 <p>A buffer: n elements of one C type in a row. Methods are called with <code>:</code> (b:slice(0, 4)); size, type and shared are properties (b.size).</p>
 <p>slice and set raise when the indexes are out of range; set copies correctly between overlapping slices of one buffer. fill and set return the buffer.</p>
-<dl class="params"><dt><code>size: int</code></dt><dd>the size in bytes (len(b) is the number of elements)</dd><dt><code>type: <a href="slang-ffi.html#type-Type">ffi.Type</a></code></dt><dd>the element type</dd><dt><code>shared: bool</code></dt><dd>whether the memory is shared between isolates (<a href="#shared"><code>shared</code></a>)</dd><dt><code>keep: any</code></dt><dd>a value the buffer keeps alive (and so do its slices, casts and element pointers): what owns the memory a <a href="#wrap"><code>wrap</code></a>ped buffer sees, such as the image whose pixels it is; settable, null by default</dd><dt><code>slice: func(from?: int, to?: int): <a href="#type-Buffer">Buffer</a></code></dt><dd>the elements from .. to - 1 (all by default), sharing the memory</dd><dt><code>copy: func(): <a href="#type-Buffer">Buffer</a></code></dt><dd>a new buffer with the same elements, in memory of its own</dd><dt><code>fill: func(v: any): <a href="#type-Buffer">Buffer</a></code></dt><dd>sets every element to v; returns the buffer</dd><dt><code>set: func(src: {any} | <a href="#type-Buffer">Buffer</a>, at?: int): <a href="#type-Buffer">Buffer</a></code></dt><dd>writes a list's elements, or a buffer's of the same type, from at (0)</dd><dt><code>cast: func(t: <a href="slang-ffi.html#type-Type">ffi.Type</a>): <a href="#type-Buffer">Buffer</a></code></dt><dd>a view of the same bytes as another type, as many as fit whole</dd><dt><code>to_list: func(): {any}</code></dt><dd>the elements as a list, structs copied into tables</dd><dt><code>to_string: func(): string</code></dt><dd>the bytes as a string</dd><dt><code>same: func(other: any): bool</code></dt><dd>whether other is a buffer of the same address, length and type</dd><dt><code>pointer: func(): <a href="slang-ffi.html#type-Pointer">ffi.Pointer</a></code></dt><dd>a pointer to the first element, keeping the memory alive</dd><dt><code>lock: func(f?: func(): any): any</code></dt><dd>on a shared buffer, holds its mutex while f() runs and returns f's result (released when f raises too); without f, until [unlock]</dd><dt><code>unlock: func()</code></dt><dd>releases the mutex lock() took</dd></dl>
+<dl class="params"><dt><code>size: int</code></dt><dd>the size in bytes (len(b) is the number of elements)</dd><dt><code>type: <a href="slang-ffi.html#type-Type">ffi.Type</a></code></dt><dd>the element type</dd><dt><code>shared: bool</code></dt><dd>whether the memory is shared between isolates (<a href="#shared"><code>shared</code></a>)</dd><dt><code>keep: any</code></dt><dd>a value the buffer keeps alive (and so do its slices, casts and element pointers): what owns the memory a <a href="#wrap"><code>wrap</code></a>ped buffer sees, such as the image whose pixels it is; settable, null by default</dd><dt><code>slice: func(from?: int, to?: int): <a href="#type-Buffer">Buffer</a></code></dt><dd>the elements from .. to - 1 (all by default), sharing the memory</dd><dt><code>copy: func(): <a href="#type-Buffer">Buffer</a></code></dt><dd>a new buffer with the same elements, in memory of its own</dd><dt><code>fill: func(v: any): <a href="#type-Buffer">Buffer</a></code></dt><dd>sets every element to v; returns the buffer</dd><dt><code>set: func(src: {any} | <a href="#type-Buffer">Buffer</a>, at?: int): <a href="#type-Buffer">Buffer</a></code></dt><dd>writes a list's elements, or a buffer's of the same type, from at (0)</dd><dt><code>cast: func(t: <a href="slang-ffi.html#type-Type">ffi.Type</a>): <a href="#type-Buffer">Buffer</a></code></dt><dd>a view of the same bytes as another type, as many as fit whole</dd><dt><code>to_list: func(): {any}</code></dt><dd>the elements as a list, structs copied into tables</dd><dt><code>to_string: func(): string</code></dt><dd>the bytes as a string</dd><dt><code>same: func(other: any): bool</code></dt><dd>whether other is a buffer of the same address, length and type</dd><dt><code>pointer: func(): <a href="slang-ffi.html#type-Pointer">ffi.Pointer</a></code></dt><dd>a pointer to the first element, keeping the memory alive</dd><dt><code>detach: func()</code></dt><dd>lets go of the memory: the length is 0 from now on, so indexing raises. For a <a href="#wrap"><code>wrap</code></a>ped view of memory C is about to take back; slices, casts and element pointers made before are not reached</dd><dt><code>lock: func(f?: func(): any): any</code></dt><dd>on a shared buffer, holds its mutex while f() runs and returns f's result (released when f raises too); without f, until [unlock]</dd><dt><code>unlock: func()</code></dt><dd>releases the mutex lock() took</dd></dl>
+<h2 id="type-Layout">type Layout</h2>
+<pre><code>type Layout = {size: int, align?: int, stride?: int, strict?: bool, fields: {{any}}, decls?: <a href="slang-ffi.html#type-Decls">ffi.Decls</a>}</code></pre>
+<p>What <a href="#layout"><code>layout</code></a> takes.</p>
+<dl class="params"><dt><code>size: int</code></dt><dd>the struct's size in bytes</dd><dt><code>align?: int</code></dt><dd>what its address is a multiple of: 1, 2, 4, 8 or 16 (1)</dd><dt><code>stride?: int</code></dt><dd>how far apart two of them are in a row (an array, a buffer); the size by default</dd><dt><code>strict?: bool</code></dt><dd>a table or a list given for it must fit: no key that is not a field, as many values as it takes. Without it what is missing stays zero and what is left over is not used, as in C</dd><dt><code>fields: {{any}}</code></dt><dd>{name, type, offset} per field (a fourth element: the value of a field a table leaves out); types as <a href="#new"><code>new</code></a> takes them</dd><dt><code>decls?: <a href="slang-ffi.html#type-Decls">ffi.Decls</a></code></dt><dd>the declarations that define the fields' struct names</dd></dl>
 <p class="muted">slang/lib/buffer.slang</p>
 </body>
 </html>

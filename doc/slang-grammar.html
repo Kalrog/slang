@@ -267,7 +267,7 @@ return {token: op, ast: +{-{async}.await(-{exp})}}</code></pre>
 <p>Runs a parsed extension statement (what the &quot;extension_statement&quot; rule produced) and returns the statement node to emit, or null; the parser of a unit calls it between top-level statements.</p>
 
 </div>
-<div class="def" id="Grammar:parse_source"><h3><code>Grammar:parse_source(source: string, origin: string, options?: {scoped?: bool, tree?: bool, recover?: bool, sandbox?: bool, testing?: bool, result?: bool}) -> <a href="slang-ast.html#type-Node">ast.Node</a></code></h3>
+<div class="def" id="Grammar:parse_source"><h3><code>Grammar:parse_source(source: string, origin: string, options?: {scoped?: bool, tree?: bool, recover?: bool, sandbox?: bool, testing?: bool, result?: bool, cells?: {int}}) -> <a href="slang-ast.html#type-Node">ast.Node</a></code></h3>
 <p>Parses a unit to a Block node, one top-level statement at a time, running its unquotes and extension statements. Raises on failure; the details of a parse failure are in g.state.last_failure ({message, pos, far_pos, far_message}).</p>
 
 </div>

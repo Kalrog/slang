@@ -1324,11 +1324,15 @@ local func find_project_for(path){
 // [ast]: its (expanded) AST, along with symbols
 
 // What [highlight] and the other tree functions take.
-// type ParseOptions = {find_project?: bool, symbols?: bool, result?: bool}
+// type ParseOptions = {find_project?: bool, symbols?: bool, result?: bool,
+//   cells?: {int}}
 // [find_project]: look up the file's project while none is loaded
 // [symbols]: also analyse the names (highlight only)
 // [result]: the text may end in an expression, as a REPL line or a
-//   notebook cell does (highlight only)
+//   notebook cell does (highlight and tree)
+// [cells]: the text is the cells of a notebook one after another, and
+//   these are the offsets where they end: each may end in an expression
+//   (highlight only)
 
 // dialect_kind(path: string, options?: ParseOptions) -> string?
 // How the project compiles a file at path when its suffix is a dialect's:
@@ -1390,7 +1394,8 @@ func compiler.highlight(source, path, options){
   try {
     parsed = g:parse_source(text, path, {
       recover: true, testing: true,
-      result: options != null and options.result == true
+      result: options != null and options.result == true,
+      cells: options != null and options.cells or null
     })
   } catch(local e) {
     raised = e
@@ -1574,7 +1579,9 @@ func compiler.tree(source, path, options){
     return null
   }
   local g = found.grammar
-  local block = g:parse_source(source, path, {tree: true})
+  local block = g:parse_source(source, path, {
+    tree: true, result: options != null and options.result == true
+  })
   local tree = g.state.last_tree
   tree.ast = block
   return tree

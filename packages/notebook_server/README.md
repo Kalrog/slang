@@ -31,6 +31,13 @@ server and its kernels.
   reload shows it, and a running cell runs on.
 - Code is coloured by slang's own parser, under the notebook's project.
   The page loads nothing from elsewhere.
+- The editor asks slang's language server (the `lsp` package, in the
+  server's process) about the code, all cells read as one program:
+  mistakes underlined as you type, completion (ctrl+space or command+I),
+  the signature of the call being written, what a name is under the
+  mouse, its definition (command+B or command+click), its uses
+  (shift+F12), renaming in every cell (F2), formatting (alt+shift+F, or
+  **Format** in the cell's corner), and an **Outline** of the notebook.
 - The server listens on 127.0.0.1 only and wants its token, which the
   address it prints carries: a notebook server runs code, and any page in
   a browser can reach a port of the machine.

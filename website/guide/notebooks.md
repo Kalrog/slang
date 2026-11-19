@@ -118,6 +118,32 @@ port, `--no-open` only prints the address.
   cell above or below, D twice deletes, M and Y make it text or code, the
   arrows move.
 
+### What the editor knows
+
+A cell's editor asks slang's language server, the one the editors use,
+about the code. It reads all the code cells as one program, top to bottom,
+as they run: a name of one cell is known in the cells below it.
+
+- **Mistakes** are underlined as you type: what does not parse, names
+  nothing defines, modules that are not there, calls that do not fit the
+  documented types of what they call. The mouse over one says what it is.
+- **Completion** opens while you type a name, and after `.` and `:` with
+  what the value before it has, in `require("` with the modules there are,
+  and in a table literal with the fields a function's doc asks for.
+  Ctrl+space or command+I asks for it; enter or tab takes the chosen one.
+- After `(` the **signature** of what is called shows above the line, the
+  argument being written marked.
+- The mouse over a name shows what it is, with its doc. From there, or
+  with the keys: its **definition** (command+B, or command+click) is gone
+  to when it is in a cell and shown when it is in a file; its **uses**
+  (shift+F12) are listed; **rename** (F2) changes it in every cell. A name
+  that other files of the project use is not renamed from here.
+- The other uses of the name at the cursor are marked in every cell.
+- **Format** in a cell's corner (alt+shift+F) formats its code as
+  `slang fmt` does.
+- **Outline** lists the notebook's headings and what its code defines; a
+  click goes there.
+
 Each open notebook has a kernel, started when its first cell runs. The
 outputs are kept by the server, so a reload shows them and a running cell
 runs on.
@@ -170,7 +196,7 @@ Kernels in the page need slang as WebAssembly: `make wasm` builds
 
 `slang notebook export --live notes.md` writes `notes.html`: not a picture
 of the notebook but the notebook itself, with slang inside the page (about
-2 MB). Whoever opens the file can edit the cells and run them, without
+3 MB). Whoever opens the file can edit the cells and run them, without
 slang and without a server. It opens showing what the cells showed when
 they last ran.
 
@@ -184,6 +210,8 @@ they last ran.
   one.
 - The kernel is the `wasm` one, with its limits, and there is no project:
   the page has only what slang itself brings and the `notebook` module.
+- The editor knows the same as on the server: the language server runs
+  in the page too, with the sources of slang's library to read about.
 
 A page that is served rather than opened from a disk can load slang from
 next to it instead of carrying it (`--vm slang.wasm`). For **Stop** to keep

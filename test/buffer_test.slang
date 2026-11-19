@@ -106,4 +106,56 @@ t.group("buffers"){
     assert(len(b) == 0 and b.size == 0)
     t.raises(func(){ return b[0] })
   }
+  t.test("a layout of one's own: offsets, alignment and stride as given"){
+    // a shading language's vec3f: 12 bytes, 16 apart in a row
+    local vec3 = buffer.layout("vec3f", {
+      size: 12,
+      align: 16,
+      stride: 16,
+      strict: true,
+      fields: {{"x", "float", 0}, {"y", "float", 4}, {"z", "float", 8}},
+    })
+    local light = buffer.layout("Light", {
+      size: 48,
+      align: 16,
+      strict: true,
+      fields: {
+        {"position", vec3, 0},
+        {"power", "float", 12},
+        {"axes", buffer.array(vec3, 2), 16},
+      },
+    })
+    assert(buffer.stride(vec3) == 16 and buffer.stride(light) == 48)
+    local lights = buffer.new(light, 2)
+    assert(lights.size == 96 and buffer.is_struct(lights[1]))
+    lights[1] = {position: {1, 2, 3}, power: 4, axes: {5, 6, 7, 8, 9, 10}}
+    local l = lights[1]
+    assert(l.position.z == 3 and l.power == 4 and l.axes[1].x == 8)
+    // the numbers where the layout puts them (48 bytes on, columns 16 apart)
+    local floats = buffer.wrap(lights:pointer(), 24, "float")
+    assert(floats:slice(12, 24):to_list() == {
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0,
+        7.0,
+        0.0,
+        8.0,
+        9.0,
+        10.0,
+        0.0,
+      })
+    // a buffer of numbers fills the numbers of a field in a row
+    l.axes = buffer.from({1, 1, 1, 2, 2, 2}, "float")
+    assert(l.axes[1].y == 2)
+    // strict: what does not fit raises
+    t.raises(func(){
+      l.position = {1, 2, 3, 4}
+    }, "vec3f has 3 fields, got 4 values")
+    t.raises(func(){ l.position = {x: 1, w: 2} }, "vec3f has no field w")
+    t.raises(func(){ l.axes = {1, 2, 3} }, "takes 6 numbers, got 3")
+    t.raises(func(){ l.powr = 1 }, "buffer: Light has no field powr")
+  }
 }

@@ -96,9 +96,13 @@ t.group("ffi: declarations"){
     })){
       assert(ffi.sizeof(name) == word, name)
     }
-    assert(ffi.sizeof("long long") == 8 and ffi.sizeof("unsigned long long") == 8)
+    assert(ffi.sizeof("long long") == 8 and ffi.sizeof(
+        "unsigned long long",
+      ) == 8)
     assert(ffi.sizeof("int64_t") == 8 and ffi.sizeof("int") == 4)
-    local W = ffi.cdef("typedef struct Words { char c; size_t n; long l; long long q; } Words;")
+    local W = ffi.cdef(
+      "typedef struct Words { char c; size_t n; long l; long long q; } Words;",
+    )
     assert(ffi.sizeof("Words", W) == 2 * word + 8 + word)
   }
   t.test("doc comments in Doxygen style; initializers with braces"){
@@ -121,8 +125,14 @@ t.group("ffi: declarations"){
     local os = require("slang/os")
     local dir = concat(os.getenv("TMPDIR") or "/tmp/", "/slang-ffi-test")
     os.mkdir_all(dir)
-    os.write_file(concat(dir, "/ffi_a.h"), "#include \"ffi_b.h\"\n#include <stdint.h>\nB f(void);\n")
-    os.write_file(concat(dir, "/ffi_b.h"), "#pragma once\n#include \"ffi_b.h\"\ntypedef int B;\n")
+    os.write_file(
+      concat(dir, "/ffi_a.h"),
+      "#include \"ffi_b.h\"\n#include <stdint.h>\nB f(void);\n",
+    )
+    os.write_file(
+      concat(dir, "/ffi_b.h"),
+      "#pragma once\n#include \"ffi_b.h\"\ntypedef int B;\n",
+    )
     local text = ffi.header(concat(dir, "/ffi_a.h"))
     assert(str.index_of(text, "typedef int B;") >= 0)
     assert(str.index_of(text, "#include <stdint.h>") >= 0)
@@ -213,7 +223,11 @@ t.group("ffi: struct fields by key"){
     assert(lib.ft_vec_add({x: 1}, {}).x == 1)
     assert(lib.ft_vec_add({x: 1}, {}).y == 0)
     local e = t.raises(func(){ lib.ft_vec_add({x: "a"}, {}) })
-    assert(e.message == "bad argument #1 to 'ft_vec_add' (float expected, got string)", e.message)
+    assert(
+      e.message ==
+        "bad argument #1 to 'ft_vec_add' (float expected, got string)",
+      e.message,
+    )
   }
 }
 
@@ -308,14 +322,19 @@ t.group("ffi: callbacks"){
     }, {1, 2})
     assert(v.x == 2 and v.y == 4 and seen == "scaled")
     // a string cannot be returned: C would keep a pointer into slang
-    t.raises(func(){ lib.ft_name_of(func(i){ return "x" }, 1) }, "bad result of a callback")
+    t.raises(func(){
+      lib.ft_name_of(func(i){ return "x" }, 1)
+    }, "bad result of a callback")
   }
   t.test("a callback kept by C, in a struct, is called later"){
     local total = 0
-    lib.ft_set_handler({on_value: func(x){
-      total = total + x
-      return x * 10
-    }, base: 100})
+    lib.ft_set_handler({
+      on_value: func(x){
+        total = total + x
+        return x * 10
+      },
+      base: 100,
+    })
     assert(lib.ft_fire(1) == 1010 and lib.ft_fire(2) == 1020)
     assert(total == 203)
     lib.ft_set_handler({on_value: null, base: 0})
@@ -333,7 +352,9 @@ t.group("ffi: callbacks"){
     assert(lib.ft_apply(func(x){ return lib.ft_apply(inner, x) * 2 }, 4) == 10)
   }
   t.test("an error in a callback is raised when the C call returns"){
-    local e = t.raises(func(){ lib.ft_apply(func(x){ raise(concat("bad ", x)) }, 7) })
+    local e = t.raises(func(){
+      lib.ft_apply(func(x){ raise(concat("bad ", x)) }, 7)
+    })
     assert(e.message == "bad 7", e.message)
     // an error in a nested callback goes up through the outer one
     e = t.raises(func(){
@@ -346,7 +367,7 @@ t.group("ffi: callbacks"){
     assert(lib.ft_apply(func(x){
       try {
         lib.ft_apply(func(y){ raise("caught") }, x)
-      } catch(local e){
+      } catch(local e) {
         return 99
       }
     }, 1) == 99)
@@ -430,12 +451,43 @@ t.group("ffi: callbacks"){
   t.test("a function made anew on each pass is caught, not leaked"){
     local failure = null
     for(local i = 0; i < 1100; i = i + 1){
-      try { lib.ft_apply(func(x){ return x }, i) } catch(local e) { failure = e }
+      try {
+        lib.ft_apply(func(x){ return x }, i)
+      } catch(local e) {
+        failure = e
+      }
       if(failure != null){
         break
       }
     }
     assert(failure != null, "no callback failed")
     assert(str.index_of(failure.message, "ffi.callback") >= 0, failure.message)
+  }
+  t.test("a layout that is not C's goes to C through a pointer only"){
+    local buffer = require("slang/buffer")
+    local core = __PACKAGES.preloaded["slang/ffi_core"][1]
+    local ct = __PACKAGES.preloaded["slang/ctypes"][1]
+    // 12 bytes, 16 apart: no C struct of three floats
+    local vec3 = buffer.layout("vec3f", {
+      size: 12,
+      align: 16,
+      stride: 16,
+      fields: {{"x", "float", 0}, {"y", "float", 4}, {"z", "float", 8}},
+    })
+    local symbol = core.symbol(lib.handle, "ft_vec_add")
+    local e = t.raises(func(){
+      core.func(symbol, ct.primitive("void"), {vec3}, "by_value")
+    })
+    assert(
+      str.contains(e.message, "not laid out as C lays structs out"),
+      e.message,
+    )
+    // as a pointer it is memory like any other
+    assert(type(core.func(
+      symbol,
+      ct.primitive("void"),
+      {ct.pointer(vec3)},
+      "by_pointer",
+    )) == "function")
   }
 }

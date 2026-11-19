@@ -44,6 +44,7 @@ const InternBytesCtx = struct {
 pub const LibState = struct {
     type_meta: ?*Table = null,
     pointer_meta: ?*Table = null,
+    struct_meta: ?*Table = null,
     buffer_meta: ?*Table = null,
     buffer_methods: ?*Table = null,
     file_meta: ?*Table = null,

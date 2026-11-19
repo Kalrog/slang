@@ -11,9 +11,11 @@
 //   points[3].x = 10                       // a struct element is a view
 //
 // Indexes count from 0, like lists, and are checked: an index out of range
-// raises. b[i] of a scalar is a number; of a struct a pointer to the
-// element ([ffi.Pointer]), so b[i].x = 3 writes in place; b[i] = v
-// converts v as slang/ffi does (a table for a struct). len(b) is the
+// raises. b[i] of a scalar is a number; of a struct the struct in the
+// buffer's memory (type() of it is "buffer.struct"), so b[i].x = 3 writes
+// in place; b[i] = v converts v (a table for a struct: fields by name or in
+// their order; numbers in a row for one whose parts are structs or arrays
+// themselves). len(b) is the
 // number of elements, == compares type and contents, and values, keys and
 // entries iterate a buffer like a list. The methods are those of
 // [Buffer].
@@ -23,6 +25,19 @@
 // ("Vector2"); an [ffi.Type] value works too. Memory a buffer allocates is
 // zeroed and freed by the collector once nothing refers to it (slices,
 // casts and element pointers keep it alive).
+//
+// A struct need not be C's. [layout] makes a struct type from a layout
+// that is given: every field at its offset, the size, the alignment, and
+// how far apart two of them are in a row. A package whose data has rules
+// of its own (a shading language's structs, a file format's records) lays
+// its types out by those rules and uses them like any other:
+//
+//   local vec3 = buffer.layout("vec3f", {
+//     size: 12, align: 16, stride: 16,
+//     fields: {{"x", "float", 0}, {"y", "float", 4}, {"z", "float", 8}},
+//   })
+//   local points = buffer.new(vec3, 100)   // 16 bytes apart
+//   points[3] = {1, 2, 3}
 
 // A buffer: n elements of one C type in a row. Methods are called with
 // `:` (b:slice(0, 4)); size, type and shared are properties (b.size).
@@ -150,6 +165,62 @@ func buffer.wrap(p, n, t, decls){
     return ct.wrap(p, n)
   }
   return ct.wrap(p, n, type_of(t, decls))
+}
+
+// What [layout] takes.
+// type Layout = {size: int, align?: int, stride?: int, strict?: bool,
+//   fields: {{any}}, decls?: ffi.Decls}
+// [size]: the struct's size in bytes
+// [align]: what its address is a multiple of: 1, 2, 4, 8 or 16 (1)
+// [stride]: how far apart two of them are in a row (an array, a buffer);
+//   the size by default
+// [strict]: a table or a list given for it must fit: no key that is not a
+//   field, as many values as it takes. Without it what is missing stays
+//   zero and what is left over is not used, as in C
+// [fields]: {name, type, offset} per field (a fourth element: the value of
+//   a field a table leaves out); types as [new] takes them
+// [decls]: the declarations that define the fields' struct names
+
+// layout(name: string, layout: Layout) -> ffi.Type
+// A struct type laid out as given, not by C's rules: for data with a layout
+// of its own. Its values are structs in memory like any other
+// ("buffer.struct"), in buffers, as fields of other structs and through
+// pointers. Only a C function cannot take or return one by value: libffi
+// knows C's layouts alone.
+func buffer.layout(name, layout){
+  local t = ct.struct(name)
+  local fields = {}
+  for(let local f in values(layout.fields)){
+    append(fields, {f[0], type_of(f[1], layout.decls), f[2], f[3]})
+  }
+  ct.layout(t, fields, {
+    size: layout.size,
+    align: layout.align,
+    stride: layout.stride,
+    strict: layout.strict == true,
+  })
+  return t
+}
+
+// array(t: string | ffi.Type, n: int, strict?: bool) -> ffi.Type
+// The type of n values of t in a row, [stride] apart: a field of a struct.
+// [strict]: a list given for it must have n values (as t is by default)
+func buffer.array(t, n, strict){
+  return ct.array(type_of(t), n, strict)
+}
+
+// stride(t: string | ffi.Type, decls?: ffi.Decls) -> int
+// How far apart two values of the type are in a row, in bytes: its size,
+// unless its [layout] says otherwise.
+func buffer.stride(t, decls){
+  return ct.stride(type_of(t, decls))
+}
+
+// is_struct(v) -> bool
+// Whether v is a struct in memory: an element of a buffer of structs, a
+// field that is a struct, what a C function handed out a pointer to.
+func buffer.is_struct(v){
+  return type(v) == "buffer.struct"
 }
 
 // is(v) -> bool

@@ -125,6 +125,21 @@ pub const Type = struct {
     char: bool = false,
     /// a function pointer's signature
     sig: ?*Signature = null,
+    /// the distance between two values of the type in a row (an array, a
+    /// buffer), when it is not the size: a layout that is not C's may have
+    /// values further apart than they are big (0: the size)
+    stride: usize = 0,
+    /// laid out by a layout given with its offsets (slang/buffer's
+    /// layout), not by C's rules: libffi cannot pass it by value
+    foreign: bool = false,
+    /// a table or a list converted to it must fit: no unknown field, as
+    /// many elements as it has (C's own are filled with zeros and cut)
+    strict: bool = false,
+
+    /// How far apart two values of the type are in a row.
+    pub fn step(t: *const Type) usize {
+        return if (t.stride != 0) t.stride else t.size;
+    }
 
     pub fn isScalar(t: *const Type) bool {
         return switch (t.kind) {
@@ -150,6 +165,8 @@ pub fn sameType(a: *const Type, b: *const Type) bool {
 
 pub const type_tname = "ffi.type";
 pub const pointer_tname = "ffi.pointer";
+/// a pointer to a struct: a struct in memory, whoever laid it out
+pub const struct_tname = "buffer.struct";
 pub const buffer_tname = "buffer";
 
 
@@ -179,6 +196,8 @@ pub fn module(vm: *VM) *Table {
         .{ .name = "array", .f = ctArray },
         .{ .name = "struct", .f = ctStruct },
         .{ .name = "define", .f = ctDefine },
+        .{ .name = "layout", .f = ctLayout },
+        .{ .name = "stride", .f = ctStride },
         .{ .name = "sizeof", .f = ctSizeof },
         .{ .name = "offsetof", .f = ctOffsetof },
         .{ .name = "type_name", .f = ctTypeName },
@@ -206,6 +225,14 @@ pub fn module(vm: *VM) *Table {
     pm.set(vm.gpa, vm.str("__type"), vm.str(pointer_tname));
     vm.lib.pointer_meta = pm;
     vm.registry.set(vm.gpa, vm.str("ctypes_pointer_meta"), .{ .table = pm });
+    // a struct in memory is the same kind of value under its own name
+    const sm = vm.newTable(0, 4);
+    sm.set(vm.gpa, vm.str("__index"), vm.nativeValue("buffer.struct.__index", ptrIndex));
+    sm.set(vm.gpa, vm.str("__newindex"), vm.nativeValue("buffer.struct.__newindex", ptrNewIndex));
+    sm.set(vm.gpa, vm.str("__eq"), vm.nativeValue("buffer.struct.__eq", ptrEq));
+    sm.set(vm.gpa, vm.str("__type"), vm.str(struct_tname));
+    vm.lib.struct_meta = sm;
+    vm.registry.set(vm.gpa, vm.str("ctypes_struct_meta"), .{ .table = sm });
 
     const methods = stdlib.makeModule(vm, &.{
         .{ .name = "slice", .f = bufSlice },
@@ -382,6 +409,7 @@ fn ctArray(th: *Thread, args: []Value) Error!Value {
     const vm = th.vm;
     const elem = try argType(th, args, 0, "elem");
     const n: usize = @intCast(@max(0, try api.argInt(th, args, 1, "n")));
+    const strict = api.argBool(args, 2, elem.strict);
     // libffi has no arrays: a struct of n elements has the same layout
     const els = typeArena(vm).alloc(?*FfiType, n + 1) catch oom();
     for (0..n) |i| els[i] = elem.ffi;
@@ -390,8 +418,10 @@ fn ctArray(th: *Thread, args: []Value) Error!Value {
     f.* = .{ .size = 0, .alignment = 0, .type = T_STRUCT, .elements = els.ptr };
     return typeValue(vm, newType(vm, .{
         .kind = .array,
-        .size = elem.size * n,
+        .size = elem.step() * n,
         .alignment = elem.alignment,
+        .foreign = elem.foreign,
+        .strict = strict,
         .name = std.fmt.allocPrint(typeArena(vm), "{s}[{d}]", .{ elem.name, n }) catch oom(),
         .ffi = f,
         .elem = elem,
@@ -479,6 +509,7 @@ fn ctDefine(th: *Thread, args: []Value) Error!Value {
         els[i] = ft.ffi;
         offset += ft.size;
         alignment = @max(alignment, ft.alignment);
+        if (ft.foreign) t.foreign = true;
     }
     els[n] = null;
     t.fields = fields;
@@ -487,6 +518,76 @@ fn ctDefine(th: *Thread, args: []Value) Error!Value {
     t.ffi.elements = els.ptr;
     t.complete = true;
     return .null;
+}
+
+/// layout(struct_type, {{name, type, offset, [default]}, ...}, {size,
+/// align, [stride], [strict]}): the fields at the offsets given, and the
+/// struct's size and alignment as given: a layout that is someone else's
+/// (a shading language's, a file format's), not C's. stride is how far
+/// apart its values are in a row (its size by default); strict makes
+/// tables and lists converted to it fit exactly.
+fn ctLayout(th: *Thread, args: []Value) Error!Value {
+    const vm = th.vm;
+    const t = try argType(th, args, 0, "struct");
+    const list = try api.argTable(th, args, 1, "fields");
+    const options = try api.argTable(th, args, 2, "options");
+    if (t.kind != .@"struct") return vm.raise("buffer.layout: {s} is not a struct", .{t.name});
+    const size_v = options.getStr(vm.newString("size"));
+    const align_v = options.getStr(vm.newString("align"));
+    const stride_v = options.getStr(vm.newString("stride"));
+    if (size_v != .int or size_v.int <= 0) return vm.raise("buffer.layout: {s} needs a size", .{t.name});
+    const size: usize = @intCast(size_v.int);
+    const alignment: usize = if (align_v == .int and align_v.int > 0) @intCast(align_v.int) else 1;
+    if (!std.math.isPowerOfTwo(alignment) or alignment > 16) {
+        return vm.raise("buffer.layout: {s} cannot be aligned to {d} bytes (1, 2, 4, 8 or 16)", .{ t.name, alignment });
+    }
+    const stride: usize = if (stride_v == .int and stride_v.int > 0) @intCast(stride_v.int) else size;
+    if (stride < size) return vm.raise("buffer.layout: the stride of {s} ({d}) is less than its size ({d})", .{ t.name, stride, size });
+    const n = list.arrayLen();
+    const fields = typeArena(vm).alloc(Field, n) catch oom();
+    for (0..n) |i| {
+        const entry = list.getInt(@intCast(i)).asTable() orelse return vm.raise("buffer.layout: field {d} must be {{name, type, offset}}", .{i});
+        const fname = entry.getInt(0).asBytes() orelse return vm.raise("buffer.layout: field {d} has no name", .{i});
+        const ft = asType(entry.getInt(1)) orelse return vm.raise("buffer.layout: field {s} has no type", .{fname});
+        if (!ft.complete or ft.kind == .void) return vm.raise("buffer.layout: field {s} of {s} has the incomplete type {s}", .{ fname, t.name, ft.name });
+        const off_v = entry.getInt(2);
+        if (off_v != .int or off_v.int < 0) return vm.raise("buffer.layout: field {s} of {s} has no offset", .{ fname, t.name });
+        const offset: usize = @intCast(off_v.int);
+        if (offset + ft.size > size) {
+            return vm.raise("buffer.layout: field {s} of {s} ends at byte {d}, after the struct's {d}", .{ fname, t.name, offset + ft.size, size });
+        }
+        if (offset % @max(ft.alignment, 1) != 0 and ft.isScalar()) {
+            return vm.raise("buffer.layout: field {s} of {s} at byte {d} is not aligned to its {d} bytes", .{ fname, t.name, offset, ft.alignment });
+        }
+        for (fields[0..i]) |prev| {
+            if (std.mem.eql(u8, prev.name, fname)) return vm.raise("buffer.layout: {s} has two fields named {s}", .{ t.name, fname });
+        }
+        const def = entry.getInt(3);
+        fields[i] = .{
+            .name = typeArena(vm).dupe(u8, fname) catch oom(),
+            .key = pinKey(vm, fname),
+            .offset = offset,
+            .ty = ft,
+            .default = switch (def) {
+                .int, .float, .bool => def,
+                else => null,
+            },
+        };
+    }
+    t.fields = fields;
+    t.alignment = alignment;
+    t.size = size;
+    t.stride = if (stride != size) stride else 0;
+    t.foreign = true;
+    t.strict = options.getStr(vm.newString("strict")).truthy();
+    t.complete = true;
+    return .null;
+}
+
+/// stride(type) -> how far apart two values of the type are in a row
+fn ctStride(th: *Thread, args: []Value) Error!Value {
+    const t = try argType(th, args, 0, "type");
+    return .{ .int = @intCast(t.step()) };
 }
 
 fn ctSizeof(th: *Thread, args: []Value) Error!Value {
@@ -515,9 +616,23 @@ fn ctTypeName(th: *Thread, args: []Value) Error!Value {
 
 // ------------------------------------------------------------ pointers
 
+/// Whether a pointer to ty is a struct in memory (a "buffer.struct") and
+/// not a C pointer (an "ffi.pointer": to a number, to bytes, to a struct
+/// nobody defined, to nothing known).
+fn isStruct(ty: ?*Type) bool {
+    const t = ty orelse return false;
+    return t.kind == .@"struct" and t.complete;
+}
+
 pub fn newPointer(vm: *VM, addr: usize, ty: ?*Type, owner: Value) Value {
     if (addr == 0) return .null;
-    const u = vm.newUserdataOf(Ptr, .{ .addr = addr, .ty = ty }, pointer_tname, vm.lib.pointer_meta);
+    const is_struct = isStruct(ty);
+    const u = vm.newUserdataOf(
+        Ptr,
+        .{ .addr = addr, .ty = ty },
+        if (is_struct) struct_tname else pointer_tname,
+        if (is_struct) vm.lib.struct_meta else vm.lib.pointer_meta,
+    );
     u.owner = owner;
     u.kind = .pointer;
     u.to_string = ptrToString;
@@ -527,6 +642,7 @@ pub fn newPointer(vm: *VM, addr: usize, ty: ?*Type, owner: Value) Value {
 fn ptrToString(u: *Userdata, w: *std.Io.Writer) std.Io.Writer.Error!void {
     const p = u.as(Ptr);
     const name = if (p.ty) |t| t.name else "void";
+    if (isStruct(p.ty)) return w.print("buffer.struct<{s}>: 0x{x}", .{ name, p.addr });
     try w.print("ffi.pointer<{s}>: 0x{x}", .{ name, p.addr });
 }
 
@@ -578,9 +694,9 @@ pub fn newBuffer(th: *Thread, t: *Type, n: usize) Error!*Userdata {
 fn ownedMemory(th: *Thread, t: *Type, n: usize, kind: vm_mod.UserKind) Error!*Userdata {
     const vm = th.vm;
     if (!t.complete or t.size == 0) return vm.raise("{s} has no size", .{t.name});
-    const bytes = std.math.mul(usize, t.size, n) catch return vm.raise("{d} values of {s} do not fit in memory", .{ n, t.name });
-    const tname = if (kind == .buffer) buffer_tname else pointer_tname;
-    const meta = if (kind == .buffer) vm.lib.buffer_meta else vm.lib.pointer_meta;
+    const bytes = std.math.mul(usize, t.step(), n) catch return vm.raise("{d} values of {s} do not fit in memory", .{ n, t.name });
+    const tname = if (kind == .buffer) buffer_tname else if (isStruct(t)) struct_tname else pointer_tname;
+    const meta = if (kind == .buffer) vm.lib.buffer_meta else if (isStruct(t)) vm.lib.struct_meta else vm.lib.pointer_meta;
     const u = vm.newUserdata(@sizeOf(Ptr) + bytes + 16, tname, meta);
     const base = @intFromPtr(u.data.ptr) + @sizeOf(Ptr);
     u.as(Ptr).* = .{ .addr = std.mem.alignForward(usize, base, @max(t.alignment, 1)), .ty = t, .count = n };
@@ -605,7 +721,7 @@ fn ctOffset(th: *Thread, args: []Value) Error!Value {
     const u = try argMemory(th, args, 0, "pointer");
     const n = try api.argInt(th, args, 1, "n");
     const p = u.as(Ptr);
-    const size: i64 = if (p.ty) |t| @intCast(t.size) else 1;
+    const size: i64 = if (p.ty) |t| @intCast(t.step()) else 1;
     const addr: i64 = @as(i64, @intCast(p.addr)) + n * size;
     return newPointer(th.vm, @intCast(addr), p.ty, ownerOf(u));
 }
@@ -649,7 +765,7 @@ fn place(th: *Thread, u: *Userdata, key: Value) Error!?Place {
             if (u.kind == .buffer and (i < 0 or i >= p.count)) {
                 return th.vm.raise("buffer index {d} out of range (length {d})", .{ i, p.count });
             }
-            const addr: i64 = @as(i64, @intCast(p.addr)) + i * @as(i64, @intCast(t.size));
+            const addr: i64 = @as(i64, @intCast(p.addr)) + i * @as(i64, @intCast(t.step()));
             return .{ .addr = @intCast(addr), .ty = t };
         },
         .string => |s| {
@@ -686,9 +802,10 @@ fn ptrNewIndex(th: *Thread, args: []Value) Error!Value {
     const key = api.arg(args, 1);
     const pl = (try place(th, u, key)) orelse {
         const k = key.asBytes() orelse "?";
-        return th.vm.raise("ffi: {s} has no field {s}", .{ if (u.as(Ptr).ty) |t| t.name else "void", k });
+        return th.vm.raise("buffer: {s} has no field {s}", .{ if (u.as(Ptr).ty) |t| t.name else "void", k });
     };
     var conv = Conv{ .th = th };
+    if (isStruct(u.as(Ptr).ty)) conv.label = "buffer: cannot store the value";
     try conv.toC(api.arg(args, 2), pl.ty, @ptrFromInt(pl.addr), false);
     return .null;
 }
@@ -729,7 +846,7 @@ fn argBuffer(th: *Thread, args: []Value, i: usize, name: []const u8) Error!*User
 fn bytesOf(u: *Userdata) []u8 {
     const p = u.as(Ptr);
     const base: [*]u8 = @ptrFromInt(p.addr);
-    return base[0 .. p.count * p.ty.?.size];
+    return base[0 .. p.count * p.ty.?.step()];
 }
 
 /// buffer(type, n) -> n zeroed elements of type
@@ -749,8 +866,8 @@ fn ctBufferFrom(th: *Thread, args: []Value) Error!Value {
     const t = try argType(th, args, 0, "type");
     const src = api.arg(args, 1);
     if (src.asBytes()) |s| {
-        if (t.size == 0 or s.len % t.size != 0) return vm.raise("buffer.from: {d} bytes are not a whole number of {s}", .{ s.len, t.name });
-        const u = try ownedMemory(th, t, s.len / t.size, .buffer);
+        if (t.size == 0 or s.len % t.step() != 0) return vm.raise("buffer.from: {d} bytes are not a whole number of {s}", .{ s.len, t.name });
+        const u = try ownedMemory(th, t, s.len / t.step(), .buffer);
         @memcpy(bytesOf(u), s);
         return .{ .userdata = u };
     }
@@ -759,7 +876,7 @@ fn ctBufferFrom(th: *Thread, args: []Value) Error!Value {
     const u = try ownedMemory(th, t, n, .buffer);
     var conv = Conv{ .th = th, .label = "buffer.from" };
     const base: [*]u8 = @ptrFromInt(u.as(Ptr).addr);
-    for (0..n) |i| try conv.toC(list.getInt(@intCast(i)), t, base + i * t.size, false);
+    for (0..n) |i| try conv.toC(list.getInt(@intCast(i)), t, base + i * t.step(), false);
     return .{ .userdata = u };
 }
 
@@ -805,7 +922,7 @@ fn bufNewIndex(th: *Thread, args: []Value) Error!Value {
     }
     if (key != .int) return th.vm.raise("a buffer is indexed with ints, not {s}", .{key.typeName()});
     const pl = (try place(th, u, key)).?;
-    var conv = Conv{ .th = th };
+    var conv = Conv{ .th = th, .label = "buffer: cannot store the value" };
     try conv.toC(api.arg(args, 2), pl.ty, @ptrFromInt(pl.addr), false);
     return .null;
 }
@@ -845,7 +962,7 @@ fn bufSlice(th: *Thread, args: []Value) Error!Value {
     const to = if (api.arg(args, 2) == .null) count else try api.argInt(th, args, 2, "to");
     if (from < 0 or to < from or to > count) return th.vm.raise("buffer:slice({d}, {d}) out of range (length {d})", .{ from, to, count });
     const t = p.ty.?;
-    return .{ .userdata = newBufferView(th.vm, p.addr + @as(usize, @intCast(from)) * t.size, t, @intCast(to - from), ownerOf(u)) };
+    return .{ .userdata = newBufferView(th.vm, p.addr + @as(usize, @intCast(from)) * t.step(), t, @intCast(to - from), ownerOf(u)) };
 }
 
 /// b:copy() -> a new buffer with the same elements
@@ -868,7 +985,7 @@ fn bufFill(th: *Thread, args: []Value) Error!Value {
     try conv.toC(api.arg(args, 1), t, base, false);
     // the first element, copied over the rest
     var i: usize = 1;
-    while (i < p.count) : (i += 1) @memcpy(base[i * t.size ..][0..t.size], base[0..t.size]);
+    while (i < p.count) : (i += 1) @memcpy(base[i * t.step() ..][0..t.size], base[0..t.size]);
     return args[0];
 }
 
@@ -886,14 +1003,14 @@ fn bufSet(th: *Thread, args: []Value) Error!Value {
         if (!sameType(sp.ty.?, t)) return th.vm.raise("buffer:set: a buffer of {s} into a buffer of {s}", .{ sp.ty.?.name, t.name });
         if (at < 0 or at + @as(i64, @intCast(sp.count)) > p.count) return th.vm.raise("buffer:set: {d} elements at {d} do not fit (length {d})", .{ sp.count, at, p.count });
         // the memory may overlap (slices of one buffer)
-        std.mem.copyForwards(u8, base[@as(usize, @intCast(at)) * t.size ..][0 .. sp.count * t.size], bytesOf(s));
+        std.mem.copyForwards(u8, base[@as(usize, @intCast(at)) * t.step() ..][0 .. sp.count * t.step()], bytesOf(s));
         return args[0];
     }
     const list = src.asTable() orelse return api.argError(th, "list", 1, "list or buffer", src);
     const n = list.arrayLen();
     if (at < 0 or at + @as(i64, @intCast(n)) > p.count) return th.vm.raise("buffer:set: {d} elements at {d} do not fit (length {d})", .{ n, at, p.count });
     var conv = Conv{ .th = th, .label = "buffer:set" };
-    for (0..n) |i| try conv.toC(list.getInt(@intCast(i)), t, base + (@as(usize, @intCast(at)) + i) * t.size, false);
+    for (0..n) |i| try conv.toC(list.getInt(@intCast(i)), t, base + (@as(usize, @intCast(at)) + i) * t.step(), false);
     return args[0];
 }
 
@@ -904,7 +1021,7 @@ fn bufCast(th: *Thread, args: []Value) Error!Value {
     const t = try argType(th, args, 1, "type");
     if (!t.complete or t.size == 0) return th.vm.raise("buffer:cast: {s} has no size", .{t.name});
     const bytes = bytesOf(u).len;
-    return .{ .userdata = newBufferView(th.vm, u.as(Ptr).addr, t, bytes / t.size, ownerOf(u)) };
+    return .{ .userdata = newBufferView(th.vm, u.as(Ptr).addr, t, bytes / t.step(), ownerOf(u)) };
 }
 
 /// b:to_list() -> the elements as a list (structs as tables)
@@ -914,7 +1031,7 @@ fn bufToList(th: *Thread, args: []Value) Error!Value {
     const t = p.ty.?;
     const out = th.vm.newTable(p.count, 0);
     const base: [*]const u8 = @ptrFromInt(p.addr);
-    for (0..p.count) |i| out.append(th.vm.gpa, fromC(th.vm, t, base + i * t.size, .null));
+    for (0..p.count) |i| out.append(th.vm.gpa, fromC(th.vm, t, base + i * t.step(), .null));
     return .{ .table = out };
 }
 
@@ -1022,7 +1139,7 @@ fn ctSharedBuffer(th: *Thread, args: []Value) Error!Value {
     if (n < 0) return vm.raise("buffer.shared: a negative length {d}", .{n});
     const name = primitiveName(t) orelse return vm.raise("buffer.shared: {s} is not a number type (shared buffers hold numbers)", .{t.name});
     const ty = primitive(std.mem.span(name)).?;
-    const bytes = std.math.mul(usize, ty.size, @intCast(n)) catch return vm.raise("{d} values of {s} do not fit in memory", .{ n, ty.name });
+    const bytes = std.math.mul(usize, ty.step(), @intCast(n)) catch return vm.raise("{d} values of {s} do not fit in memory", .{ n, ty.name });
     const mem = std.heap.c_allocator.alignedAlloc(u8, .@"16", @max(bytes, 1)) catch oom();
     @memset(mem, 0);
     const m = std.heap.c_allocator.create(SharedMem) catch oom();
@@ -1244,7 +1361,7 @@ pub const Conv = struct {
 
     fn temp(c: *Conv, t: *Type, n: usize, v: Value) Error![*]u8 {
         const s = c.scratch orelse return c.th.vm.raise("{s} (a {s} cannot be stored in C memory: use ffi.new)", .{ c.what(), v.typeName() });
-        const size = @max(t.size * n, 1);
+        const size = @max(t.step() * n, 1);
         const mem = s.bytes(c.th.vm.gpa, size);
         @memset(mem[0..size], 0);
         return mem;
@@ -1322,7 +1439,7 @@ pub const Conv = struct {
                 const n = if (list) tbl.arrayLen() else 1;
                 const mem = try c.temp(elem, @max(n, 1), v);
                 if (list) {
-                    for (0..n) |i| try c.toC(tbl.getInt(@intCast(i)), elem, mem + i * elem.size, false);
+                    for (0..n) |i| try c.toC(tbl.getInt(@intCast(i)), elem, mem + i * elem.step(), false);
                 } else {
                     try c.structToC(v, elem, mem);
                 }
@@ -1337,16 +1454,37 @@ pub const Conv = struct {
         if (!t.complete) return c.th.vm.raise("{s} ({s} is an incomplete struct)", .{ c.what(), t.name });
         if (asMemory(v)) |u| {
             const p = u.as(Ptr);
-            if (p.ty != t) return c.fail(t, v);
-            @memcpy(dst[0..t.size], @as([*]const u8, @ptrFromInt(p.addr))[0..t.size]);
-            return;
+            if (p.ty == t) {
+                @memcpy(dst[0..t.size], @as([*]const u8, @ptrFromInt(p.addr))[0..t.size]);
+                return;
+            }
+            // a buffer of numbers: one for each number of the struct
+            if (u.kind == .buffer and p.ty.?.isScalar()) return c.flat(.{ .buffer = u }, t, dst);
+            return c.fail(t, v);
         }
         const tbl = v.asTable() orelse return c.fail(t, v);
+        if (isFlat(tbl, if (t.fields.len > 0) t.fields[0].ty else null)) return c.flat(.{ .list = tbl }, t, dst);
+        if (t.strict) try c.fits(tbl, t);
         for (t.fields, 0..) |f, i| {
             var fv = fieldOf(tbl, f.key);
             if (fv == .null) fv = tbl.getInt(@intCast(i));
             if (fv == .null) fv = f.default orelse continue; // zero, like C's {0}
             try c.toC(fv, f.ty, dst + f.offset, false);
+        }
+    }
+
+    /// A strict struct takes a table whose keys are its fields and whose
+    /// list is no longer than they are many.
+    fn fits(c: *Conv, tbl: *Table, t: *Type) Error!void {
+        if (tbl.arrayLen() > t.fields.len) {
+            return c.th.vm.raise("{s} ({s} has {d} fields, got {d} values)", .{ c.what(), t.name, t.fields.len, tbl.arrayLen() });
+        }
+        var state: u64 = 0;
+        while (tbl.nextLive(&state)) |e| {
+            if (e.key != .string) continue;
+            if (findField(t, e.key.string.bytes()) == null) {
+                return c.th.vm.raise("{s} ({s} has no field {s})", .{ c.what(), t.name, e.key.string.bytes() });
+            }
         }
     }
 
@@ -1361,13 +1499,101 @@ pub const Conv = struct {
         }
         if (asBuffer(v)) |u| {
             const p = u.as(Ptr);
-            if (!sameType(p.ty.?, elem)) return c.fail(t, v);
-            const n = @min(p.count, t.count) * elem.size;
-            @memcpy(dst[0..n], bytesOf(u)[0..n]);
-            return;
+            if (sameType(p.ty.?, elem)) {
+                if (t.strict and p.count != t.count) return c.count(t, t.count, p.count);
+                const n = @min(p.count, t.count) * elem.step();
+                @memcpy(dst[0..n], bytesOf(u)[0..n]);
+                return;
+            }
+            // a buffer of numbers: one for each number of the array
+            if (p.ty.?.isScalar() and !elem.isScalar()) return c.flat(.{ .buffer = u }, t, dst);
+            return c.fail(t, v);
         }
         const tbl = v.asTable() orelse return c.fail(t, v);
-        for (0..@min(tbl.arrayLen(), t.count)) |i| try c.toC(tbl.getInt(@intCast(i)), elem, dst + i * elem.size, false);
+        if (isFlat(tbl, elem)) return c.flat(.{ .list = tbl }, t, dst);
+        if (t.strict and tbl.arrayLen() != t.count) return c.count(t, t.count, tbl.arrayLen());
+        for (0..@min(tbl.arrayLen(), t.count)) |i| try c.toC(tbl.getInt(@intCast(i)), elem, dst + i * elem.step(), false);
+    }
+
+    fn count(c: *Conv, t: *Type, want: usize, got: usize) Error {
+        return c.th.vm.raise("{s} ({s} takes {d} values, got {d})", .{ c.what(), t.name, want, got });
+    }
+
+    /// Whether a list is given flat for something whose parts are structs
+    /// or arrays themselves: its first element is a number where the first
+    /// part (of type first) is not one. C's initializers allow the same
+    /// (a float m[4][4] from sixteen numbers).
+    fn isFlat(tbl: *Table, first: ?*Type) bool {
+        const ft = first orelse return false;
+        if (ft.kind != .@"struct" and ft.kind != .array) return false;
+        return switch (tbl.getInt(0)) {
+            .int, .float => true,
+            else => false,
+        };
+    }
+
+    /// Numbers in a row, from a list or from a buffer of numbers.
+    const Numbers = union(enum) {
+        list: *Table,
+        buffer: *Userdata,
+
+        fn len(n: Numbers) usize {
+            return switch (n) {
+                .list => |tbl| tbl.arrayLen(),
+                .buffer => |u| u.as(Ptr).count,
+            };
+        }
+
+        fn at(n: Numbers, vm: *VM, i: usize) Value {
+            switch (n) {
+                .list => |tbl| return tbl.getInt(@intCast(i)),
+                .buffer => |u| {
+                    const p = u.as(Ptr);
+                    const base: [*]const u8 = @ptrFromInt(p.addr);
+                    return fromC(vm, p.ty.?, base + i * p.ty.?.size, .null);
+                },
+            }
+        }
+    };
+
+    /// How many numbers a type holds, through its structs and arrays.
+    fn leaves(t: *const Type) usize {
+        switch (t.kind) {
+            .@"struct" => {
+                var n: usize = 0;
+                for (t.fields) |f| n += leaves(f.ty);
+                return n;
+            },
+            .array => return t.count * leaves(t.elem.?),
+            else => return 1,
+        }
+    }
+
+    /// Numbers given flat for a struct or an array: each goes to the next
+    /// number of the type, in the order of its fields and elements. One
+    /// number for each when the type is strict; else those missing stay
+    /// zero and those left over are not used.
+    fn flat(c: *Conv, numbers: Numbers, t: *Type, dst: [*]u8) Error!void {
+        const want = leaves(t);
+        if (t.strict and numbers.len() != want) {
+            return c.th.vm.raise("{s} ({s} takes {d} numbers, got {d})", .{ c.what(), t.name, want, numbers.len() });
+        }
+        var next: usize = 0;
+        try c.flatInto(numbers, &next, t, dst);
+    }
+
+    fn flatInto(c: *Conv, numbers: Numbers, next: *usize, t: *Type, dst: [*]u8) Error!void {
+        switch (t.kind) {
+            .@"struct" => for (t.fields) |f| try c.flatInto(numbers, next, f.ty, dst + f.offset),
+            .array => {
+                const elem = t.elem.?;
+                for (0..t.count) |i| try c.flatInto(numbers, next, elem, dst + i * elem.step());
+            },
+            else => {
+                if (next.* < numbers.len()) try c.toC(numbers.at(c.th.vm, next.*), t, dst, false);
+                next.* += 1;
+            },
+        }
     }
 
     /// the C copies back into their tables
@@ -1377,7 +1603,7 @@ pub const Conv = struct {
             if (w.list) {
                 for (0..w.n) |i| {
                     const old = w.table.getInt(@intCast(i));
-                    const mem = w.mem + i * w.ty.size;
+                    const mem = w.mem + i * w.ty.step();
                     if (w.ty.kind == .@"struct" and old.asTable() != null) {
                         fillTable(vm, w.ty, mem, old.asTable().?, false);
                     } else {
@@ -1437,7 +1663,7 @@ pub fn fromC(vm: *VM, t: *Type, src: [*]const u8, owner: Value) Value {
                 break :blk vm.str(src[0..n]);
             }
             const tbl = vm.newTable(t.count, 0);
-            for (0..t.count) |i| tbl.append(vm.gpa, fromC(vm, elem, src + i * elem.size, owner));
+            for (0..t.count) |i| tbl.append(vm.gpa, fromC(vm, elem, src + i * elem.step(), owner));
             break :blk .{ .table = tbl };
         },
     };

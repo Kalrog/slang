@@ -162,11 +162,13 @@ fn ffiFunc(th: *Thread, args: []Value) Error!Value {
     for (0..n) |i| {
         const t = ctypes.asType(list.getInt(@intCast(i))) orelse return vm.raise("ffi.func: argument {d} of {s} has no type", .{ i, name });
         if (!t.complete or t.kind == .void or t.kind == .array) return vm.raise("ffi.func: argument {d} of {s} cannot be a {s}", .{ i, name, t.name });
+        if (t.foreign) return vm.raise("ffi.func: argument {d} of {s} is a {s}, which is not laid out as C lays structs out: it goes to C through a pointer only", .{ i, name, t.name });
         types[i] = t;
         ffi_types[i] = t.ffi;
         writeback[i] = if (wb) |w| w.getInt(@intCast(i)).truthy() else false;
     }
     if (!ret.complete or ret.kind == .array) return vm.raise("ffi.func: {s} cannot return a {s}", .{ name, ret.name });
+    if (ret.foreign) return vm.raise("ffi.func: {s} cannot return a {s}, which is not laid out as C lays structs out", .{ name, ret.name });
     const f = vm.gpa.create(Func) catch oom();
     f.* = .{
         .f = @ptrFromInt(sym.as(Ptr).addr),

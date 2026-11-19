@@ -13,14 +13,18 @@
 // indexed like C, unchecked) or a [Buffer] (an address with a length,
 // checked; see slang/buffer). Values convert to C as slang/ffi describes:
 // numbers and bools for arithmetic types, a string for const char *, a
-// table for a struct (fields by name or position).
+// table for a struct (fields by name or position). A struct or an array
+// whose parts are structs or arrays themselves also takes its numbers in a
+// row: a list of them, or a buffer of numbers.
 
 // A C type: a scalar, a pointer, an array or a struct.
 // type Type
 
 // An address and the type it points to (none for void *). p[i] and
 // p.field read and write like C; an element or field that is a struct is a
-// pointer again. Pointers are == when their addresses are.
+// pointer again. Pointers are == when their addresses are. type() of a
+// pointer to a struct is "buffer.struct" (a struct in memory), of any
+// other "ffi.pointer".
 // type Pointer
 
 // An address, an element type and a length; indexes are checked. Its
@@ -39,9 +43,11 @@ func m.primitive(name){}
 // The type of a pointer to target (null: void *).
 func m.pointer(target){}
 
-// array(elem: Type, n: int) -> Type
-// The type of n elems in a row (a struct field).
-func m.array(elem, n){}
+// array(elem: Type, n: int, strict?: bool) -> Type
+// The type of n elems in a row, their [stride] apart (a struct field).
+// [strict]: a list converted to it must have n values (as elem is by
+//   default)
+func m.array(elem, n, strict){}
 
 // struct(name: string) -> Type
 // A struct type, opaque (without a size) until [define] gives its fields.
@@ -51,6 +57,20 @@ func m.struct(name){}
 // Gives a struct its fields, laid out by C's rules.
 // [fields]: {name, type, [default]} per field; default fills a field left out
 func m.define(struct_type, fields){}
+
+// layout(struct_type: Type, fields: {{any}}, options: table)
+// Gives a struct its fields at offsets that are given, and its size and
+// alignment: a layout that is not C's (see slang/buffer's layout). A C
+// function cannot take or return such a struct by value.
+// [fields]: {name, type, offset, [default]} per field
+// [options]: {size, align?, stride?, strict?}: stride is how far apart two
+//   values are in a row (the size by default); strict makes tables and
+//   lists converted to it fit exactly
+func m.layout(struct_type, fields, options){}
+
+// stride(type: Type) -> int
+// How far apart two values of the type are in a row, in bytes.
+func m.stride(type){}
 
 // sizeof(type: Type) -> int
 // Its size in bytes.

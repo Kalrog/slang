@@ -477,4 +477,36 @@ t.group("wgsl: a program's declarations in slang"){
     assert(program.is(p) and p.P.size == 16 and p.main.workgroup_size[0] == 8)
     assert(type(gpu.device():compute_pipeline(p)) == "gpu.ComputePipeline")
   }
+  t.test("a program's fields are found where the WGSL declares them"){
+    // (what the language server goes by: the block is a table written out,
+    // its keys at the names in the WGSL)
+    local source = "extension \"gpu/syntax\"\nwgsl shade {\n  const LIGHTS = 3;\n  // every frame\n  struct Uniforms { time: f32 }\n  @group(0) @binding(0) var<uniform> u: Uniforms;\n  @fragment fn fs() -> @location(0) vec4f { return vec4f(u.time); }\n}\nlocal a = shade.Uniforms\nlocal b = shade.fs\nlocal c = shade.u\nlocal d = shade.LIGHTS\n"
+    local h = compiler.highlight(source, path.join(here, "fields.slang"), {
+      find_project: true, symbols: true
+    })
+    local symbols = require("slang/symbols")
+    for(let local want in values({
+      {"shade.Uniforms", "struct Uniforms", 7},
+      {"shade.fs", "fn fs", 3},
+      {"shade.u\n", "> u:", 2},
+      {"shade.LIGHTS", "const LIGHTS", 6},
+    })){
+      local use = str.index_of(source, want[0]) + 6
+      local found = symbols.at(h.symbols, use)
+      assert(found != null and found.def != null, want[0])
+      assert(
+        found.def.start == str.index_of(source, want[1]) + want[2],
+        concat(want[0], " is found at ", string(found.def.start)),
+      )
+    }
+    // and the comment above a declaration is its doc
+    local uniforms = symbols.at(
+      h.symbols,
+      str.index_of(source, "shade.Uniforms") + 6,
+    )
+    assert(
+      str.contains(uniforms.def.doc or "", "every frame"),
+      uniforms.def.doc,
+    )
+  }
 }

@@ -2229,22 +2229,18 @@ func device_m.shader(self, options){
   if(type(options) == "string"){
     options = {code: options}
   }
-  if(type(options) == "gpu.Entry"){
-    options = options.program
-  }
   local program = null
-  if(type(options) == "gpu.Program"){
+  if(type(options) == "gpu.Entry" or type(options) == "gpu.Program"){
     // one module for a program on a device
-    program = options
+    program = program_lib.info(options)
     local made = modules_of(self)[program]
     if(made != null){
       return made
     }
-    local info = program_lib.info(program)
     options = {
       // a wgsl block: its tokens back at their places in the file
-      code: info.code or wgsl_source(info.wgsl, info.at),
-      label: info.label,
+      code: program.code or wgsl_source(program.wgsl, program.at),
+      label: program.label,
     }
   }
   local keep = {}
@@ -2344,6 +2340,9 @@ local func copy_table(t){
 // entry points (gpu/program). {module, entry_point?, program?, entry?}
 local func stage_shader(device, given, stage, entry_point){
   local t = type(given)
+  // what the program is made of (gpu/program's Info), and the entry point
+  local info = null
+  local entry = null
   if(t == "gpu.Entry"){
     if(given.stage != stage){
       raise(error.new(error.kinds.argument, concat(
@@ -2356,62 +2355,58 @@ local func stage_shader(device, given, stage, entry_point){
         " stage",
       )))
     }
-    return {
-      module: device:shader(given.program),
-      entry_point: given.name,
-      program: given.program,
-      entry: given,
+    info = given.info
+    entry = given
+  } else if(t == "gpu.Program"){
+    info = program_lib.info(given)
+  } else if(t == "gpu.ShaderModule" and given.program != null){
+    info = given.program
+  } else {
+    return {module: given}
+  }
+  if(entry == null and entry_point != null){
+    entry = info.names[entry_point]
+    if(type(entry) != "gpu.Entry"){
+      raise(error.new(error.kinds.argument, concat(
+        "gpu: the program has no entry point ",
+        string(entry_point),
+      )))
     }
   }
-  if(t == "gpu.Program"){
-    local entry = null
-    if(entry_point != null){
-      entry = given[entry_point]
-      if(type(entry) != "gpu.Entry"){
-        raise(error.new(error.kinds.argument, concat(
-          "gpu: the program has no entry point ",
-          string(entry_point),
-        )))
-      }
-    } else {
-      entry = program_lib.entry(given, stage)
-      if(entry == null){
-        // none, or several: which one is meant has to be said
-        local names = {}
-        for(let local e in values(program_lib.info(given).entries)){
-          if(e.stage == stage){
-            append(names, e.name)
-          }
-        }
-        if(len(names) == 0){
-          raise(error.new(error.kinds.argument, concat(
-            "gpu: the program has no ",
-            stage,
-            " stage",
-          )))
-        }
-        raise(error.new(error.kinds.argument, concat(
-          "gpu: the program has ",
-          string(len(names)),
-          " ",
-          stage,
-          " stages (",
-          str.join(names, ", "),
-          "): give one of them instead of the program",
-        )))
+  if(entry == null){
+    entry = program_lib.stage_entry(info, stage)
+  }
+  if(entry == null){
+    // none, or several: which one is meant has to be said
+    local names = {}
+    for(let local e in values(info.entries)){
+      if(e.stage == stage){
+        append(names, e.name)
       }
     }
-    return {
-      module: device:shader(given),
-      entry_point: entry.name,
-      program: given,
-      entry: entry,
+    if(len(names) == 0){
+      raise(error.new(error.kinds.argument, concat(
+        "gpu: the program has no ",
+        stage,
+        " stage",
+      )))
     }
+    raise(error.new(error.kinds.argument, concat(
+      "gpu: the program has ",
+      string(len(names)),
+      " ",
+      stage,
+      " stages (",
+      str.join(names, ", "),
+      "): give one of them instead of the program",
+    )))
   }
-  if(t == "gpu.ShaderModule" and given.program != null){
-    return stage_shader(device, given.program, stage, entry_point)
+  return {
+    module: device:shader(entry),
+    entry_point: entry.name,
+    program: info,
+    entry: entry,
   }
-  return {module: given}
 }
 
 // The layout of a vertex buffer that holds structs of a program: every
@@ -2479,7 +2474,7 @@ local func remember(pipeline, device, stages){
         // (which entry point runs is the WGSL compiler's to say: all of
         // the program's variables may be used)
         names = {}
-        for(let local v in values(program_lib.info(st.program).variables)){
+        for(let local v in values(st.program.variables)){
           append(names, v.name)
         }
       }
@@ -2718,7 +2713,7 @@ local func bind_by_name(self, resources, group){
   local lacking = {}
   for(let local st in values(self.stages)){
     if(st.program != null){
-      for(let local v in values(program_lib.info(st.program).variables)){
+      for(let local v in values(st.program.variables)){
         known[v.name] = true
         if(v.group == group and self.uses[v.name] and not bound[v.name]){
           bound[v.name] = true

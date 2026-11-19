@@ -126,20 +126,22 @@ func struct_methods.array(self, src){
 // ------------------------------------------------------------ programs
 
 // An entry point of a program: a function a pipeline runs.
-// type Entry = {program: Program, name: string, stage: string,
-//   workgroup_size?: {int}, inputs: {table}, uses: {string}}
+// type Entry = {name: string, stage: string, workgroup_size?: {int},
+//   inputs: {table}, uses: {string}, info: Info}
 // [stage]: "vertex", "fragment" or "compute"
 // [workgroup_size]: a compute stage's {x, y, z}
 // [inputs]: what a vertex stage reads from vertex buffers: {name,
 //   location, format}
 // [uses]: the names of the resource variables it uses
+// [info]: its program's [Info]
 local entry_meta = {__type: "gpu.Entry"}
 
 // A resource variable of a program: what a bind group gives it.
-// type Variable = {program: Program, name: string, group: int,
-//   binding: int, kind: string, access?: string, type: table,
-//   struct?: Struct}
+// type Variable = {name: string, group: int, binding: int, kind: string,
+//   access?: string, type: table, struct?: Struct, info: Info}
 // [kind]: "uniform", "storage", "texture" or "sampler"
+// [access]: a storage variable's "read" or "read_write"
+// [type]: its type as gpu/layout describes it
 // [struct]: the struct it holds (one, or an array of them), when it does
 local variable_meta = {__type: "gpu.Variable"}
 
@@ -153,12 +155,23 @@ local variable_meta = {__type: "gpu.Variable"}
 // [variables]: its resource variables
 local program_meta = {__type: "gpu.Program"}
 
-// new(data: table) -> Program
-// The program of a description: {label, wgsl, at} (its tokens and their
-// places, see gpu/syntax) with gpu/layout's structs, consts, vars and
-// entries.
-func program.new(data){
-  // what the package reads, under a name no WGSL declaration can have
+// The metatable of programs: a `wgsl name { }` block is a table of its
+// declarations with it.
+program.meta = program_meta
+
+// What a program is made of: what the gpu package reads of one.
+// type Info = {label: string, wgsl?: string, at?: string, code?: string,
+//   structs: {Struct}, entries: {Entry}, variables: {Variable},
+//   consts: {{any}}, names: {[string]: any}}
+// [wgsl]: the program's tokens, [at] their places (see gpu/syntax)
+// [code]: the program's text, when it was made of text
+// [consts]: {name, value} for each constant
+// [names]: every declaration by its name
+
+// build(data: table) -> Info
+// What a description says (gpu/layout's structs, consts, vars and entries,
+// with a label and the program's tokens or text), as values.
+func program.build(data){
   local info = {
     label: data.label,
     wgsl: data.wgsl,
@@ -167,8 +180,9 @@ func program.new(data){
     structs: {},
     entries: {},
     variables: {},
+    consts: data.consts or {},
+    names: {},
   }
-  local p = {__info: info}
   local layouts = {}
   for(let local s in values(data.structs or {})){
     layouts[s.name] = s
@@ -185,7 +199,7 @@ func program.new(data){
     if(l == null){
       return null
     }
-    s = {name: name, members: l.members, program: p}
+    s = {name: name, members: l.members}
     if(l.unsupported != null){
       s.unsupported = l.unsupported
       // (asked for its memory, it says why it has none)
@@ -224,20 +238,20 @@ func program.new(data){
   for(let local l in values(data.structs or {})){
     local s = make(l.name)
     append(info.structs, s)
-    p[l.name] = s
+    info.names[l.name] = s
   }
-  for(let local c in values(data.consts or {})){
-    p[c[0]] = c[1]
+  for(let local c in values(info.consts)){
+    info.names[c[0]] = c[1]
   }
   for(let local v in values(data.vars or {})){
     local variable = {
-      program: p,
       name: v.name,
       group: v.group,
       binding: v.binding,
       kind: v.kind,
       access: v.access,
       type: v.type,
+      info: info,
     }
     local held = v.type
     if(held.k == "array"){
@@ -248,22 +262,37 @@ func program.new(data){
     }
     variable.@meta = variable_meta
     append(info.variables, variable)
-    p[v.name] = variable
+    info.names[v.name] = variable
   }
   for(let local e in values(data.entries or {})){
     local entry = {
-      program: p,
       name: e.name,
       stage: e.stage,
       workgroup_size: e.workgroup_size,
       inputs: e.inputs,
       uses: e.uses,
+      info: info,
     }
     entry.@meta = entry_meta
     append(info.entries, entry)
-    p[e.name] = entry
+    info.names[e.name] = entry
   }
-  for(let local key in values({"label", "structs", "entries", "variables"})){
+  return info
+}
+
+// the fields a program has besides its declarations, where no declaration
+// has the name
+local own_fields = {"label", "structs", "entries", "variables"}
+
+// new(data: table) -> Program
+// The program of a description (see [build]).
+func program.new(data){
+  local info = program.build(data)
+  local p = {__info: info}
+  for(let local e in entries(info.names)){
+    p[e[0]] = e[1]
+  }
+  for(let local key in values(own_fields)){
     if(p[key] == null){
       p[key] = info[key]
     }
@@ -271,6 +300,63 @@ func program.new(data){
   p.@meta = program_meta
   return p
 }
+
+// ------------------------------------------------------------ blocks
+//
+// A `wgsl name { }` block is, in the code gpu/syntax makes of it, a table
+// with a field for each declaration, written out: the language server and
+// slang doc see the program's fields where they are declared. The fields'
+// values come from here, by the place the block stands at in its file.
+
+// the programs of the blocks being made, by their place
+local places = {}
+
+// block(place: string, data: table) -> Info
+// [build], for the block at place ("origin:line:column"): the block's
+// other fields find what was built under it.
+func program.block(place, data){
+  local info = program.build(data)
+  places[place] = info
+  return info
+}
+
+// struct(place: string, name: string) -> Struct
+// The struct a block declares under name.
+func program.struct(place, name){
+  return places[place].names[name]
+}
+
+// entry(place: string, name: string) -> Entry
+// The entry point a block declares under name.
+func program.entry(place, name){
+  return places[place].names[name]
+}
+
+// variable(place: string, name: string) -> Variable
+// The resource variable a block declares under name.
+func program.variable(place, name){
+  return places[place].names[name]
+}
+
+// structs(place: string) -> {Struct}
+// The structs of a block in the order they are declared.
+func program.structs(place){
+  return places[place].structs
+}
+
+// entries(place: string) -> {Entry}
+// The entry points of a block.
+func program.entries(place){
+  return places[place].entries
+}
+
+// variables(place: string) -> {Variable}
+// The resource variables of a block.
+func program.variables(place){
+  return places[place].variables
+}
+
+// ------------------------------------------------------------ text
 
 // parse(text: string, label?: string) -> Program
 // The program of WGSL text, parsed now (a `wgsl name { }` block is parsed
@@ -293,17 +379,21 @@ func program.is(v){
   return type(v) == "gpu.Program"
 }
 
-// info(p: Program) -> {label, structs, entries, variables}
-// The program's label and its declarations by kind, whatever it declares.
-func program.info(p){
-  return p.__info
+// info(v: Program | Entry | Variable) -> Info
+// What the program is made of: of a program, or of the program an entry
+// point or a variable belongs to.
+func program.info(v){
+  if(type(v) == "gpu.Program"){
+    return v.__info
+  }
+  return v.info
 }
 
-// entry(p: Program, stage: string) -> Entry?
+// stage_entry(info: Info, stage: string) -> Entry?
 // The program's entry point of a stage when it has exactly one, else null.
-func program.entry(p, stage){
+func program.stage_entry(info, stage){
   local found = null
-  for(let local e in values(p.__info.entries)){
+  for(let local e in values(info.entries)){
     if(e.stage == stage){
       if(found != null){
         return null

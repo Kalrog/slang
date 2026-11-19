@@ -99,6 +99,12 @@ uniforms:write(u)
     `sim.step.workgroup_size`) and stands for itself in a pipeline;
   - a resource variable has its group, binding and kind (`pond.u.binding`);
   - a `const` is its number (`sim.COUNT`).
+- **Editors know the program's fields.** In the code the block becomes,
+  the program is a table with a field for each declaration, at the name in
+  the WGSL: hovering `pond.Uniforms` shows the comment above the struct,
+  going to its definition lands on the struct, and `pond.Uniforms:new` and
+  `pond.fs.stage` are known for what they are. The members of a struct's
+  values (`u.time`) are not known yet.
 
 ### Structs
 

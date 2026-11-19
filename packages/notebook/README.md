@@ -29,13 +29,19 @@ nb.display(nb.table(rows), nb.audio(wet, {rate: 48000}))
 ```
 
 The guide [Notebooks](../../website/guide/notebooks.md) has the rest.
-`examples/tour.md` is a notebook that shows what cells can show.
+`examples/tour.md` is a notebook that shows what cells can show,
+`examples/controls.md` one whose cells show controls,
+`examples/filters/filters.md` designs, plays and measures biquad filters
+(with the dsp package);
+`examples/gpu/gpu.md` draws with the GPU into a texture and shows it as
+an image (it needs a kernel on this machine: slang in a page has no `gpu`
+package).
 
 ## The modules
 
 | module | what it is |
 |---|---|
-| `notebook` | what cells call: `plot`, `table`, `audio`, `image`, `pixels`, `code`, `html`, `markdown`, `display` |
+| `notebook` | what cells call: `plot`, `table`, `audio`, `image`, `pixels`, `code`, `html`, `markdown`, `display`; controls (`slider`, `checkbox`, `dropdown`, `input`, `button`, `panel`, `interact`, `on`) and outputs to replace (`output`) |
 | `notebook/document` | a notebook as a file: Markdown to cells and back, the sidecar of outputs |
 | `notebook/client` | starts a kernel and runs code in it: `execute`, `interrupt`, `shutdown` |
 | `notebook/kernel`, `notebook/protocol` | the process that runs the cells, and how it talks |

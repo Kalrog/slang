@@ -1,0 +1,7 @@
+// The project of the notebook gpu.md: the gpu package for its cells
+{
+  name: "notebook_gpu_example",
+  dependencies: {
+    gpu: {path: "../../../gpu"},
+  },
+}

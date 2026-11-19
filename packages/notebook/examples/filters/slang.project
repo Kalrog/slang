@@ -1,0 +1,10 @@
+// The project of the notebook filters.md: the dsp package, and its
+// language in the cells
+{
+  name: "notebook_filters_example",
+  dependencies: {
+    kernel: {path: "../../../kernel"},
+    dsp: {path: "../../../dsp"},
+  },
+  extensions: {"dsp"},
+}

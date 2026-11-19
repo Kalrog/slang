@@ -47,15 +47,22 @@ local func make(data){
   return d
 }
 
-// where displays go while a kernel runs the code: sink(kind, data)
+// where displays go while a kernel runs the code: sink(kind, data, cell?)
 local sink = null
+// the cell whose code runs, as the kernel names it
+local where = func(){ return null }
 
-// attach(f?: func(kind: string, data: table?))
-// Sends what [display] and [clear] show to f from now on (null: back to
-// printing): kind is "display" with a [Display]'s data, or "clear". The
-// notebook's kernel calls it; a program has no reason to.
-func nb.attach(f){
+// attach(f?: func(kind: string, data: table?, cell?: string),
+//   current?: func(): string)
+// Sends what [display], [clear] and an [Output] show to f from now on
+// (null: back to printing): kind is "display" with a [Display]'s data,
+// "update" with an output's new data and the cell that has it, or
+// "clear". current names the cell whose code runs: the one that has the
+// controls and outputs made now. The notebook's kernel calls it; a
+// program has no reason to.
+func nb.attach(f, current){
   sink = f
+  where = current or func(){ return null }
 }
 
 // in_notebook() -> bool
@@ -777,6 +784,468 @@ func nb.audio(samples, options){
 }
 
 // ------------------------------------------------------------ showing
+
+// ------------------------------------------------------------ controls
+
+// the mime types of a control and of an output that can be replaced
+local CONTROL = "application/vnd.slang.control+json"
+local OUTPUT = "application/vnd.slang.output"
+
+// what makes this kernel's controls and outputs its own: a control from
+// an earlier kernel is one the page can tell is no longer live
+local instance = concat("k", string(to_int(math.random() * 2147483647)))
+local made = 0
+local func new_name(){
+  made = made + 1
+  return concat(instance, "-", string(made))
+}
+
+// instance() -> string
+// What the names of this kernel's controls start with (and a "-"). The
+// notebook's kernel tells the page, which greys out the others.
+func nb.instance(){
+  return instance
+}
+
+// the controls and the handlers there are, by name: {control?, handler?,
+// cell}
+local registry = {}
+
+// A control in a notebook's page, from [slider], [checkbox], [dropdown],
+// [input] and [button]: shown like any other value, and what the page
+// does with it calls on_change in the kernel, with the cells' locals.
+// type Control = {name: string, kind: string, value: any, label?: string,
+//   on_change?: func(value: any): any}
+// [name]: what the page calls it by
+// [kind]: "slider", "checkbox", "dropdown", "input" or "button"
+// [value]: what it is set to now; it follows the page
+// [on_change]: called with the new value when the page changes it (a
+//   button's is null); may be set later
+local control_meta = {__type: "notebook.Control"}
+
+local func control_spec(c){
+  local spec = {name: c.name, kind: c.kind, label: c.label, value: c.value}
+  if(c.kind == "slider"){
+    spec.min = c.min
+    spec.max = c.max
+    spec.step = c.step
+    spec.scale = c.scale
+  } else if(c.kind == "dropdown"){
+    spec.options = tbl.map(c.options, func(o){ return string(o) })
+    spec.value = tbl.index_of(c.options, c.value)
+  } else if(c.kind == "input"){
+    spec.placeholder = c.placeholder
+  } else if(c.kind == "panel"){
+    spec.controls = tbl.map(c.controls, control_spec)
+  }
+  return spec
+}
+
+// a control as a page that cannot run it shows it, from its spec (what
+// the page gets): as it was last set
+local func Still(props){
+  local c = props.spec
+  local label = c.label and <span class="nb-control-label">{string(c.label)}</span>
+  if(c.kind == "slider" and c.scale == "log"){
+    // (where the value is between min and max, in thousandths of the way)
+    local at = to_int(1000 * math.log(c.value / c.min) / math.log(c.max / c.min))
+    return <label class="nb-control nb-slider">{label}
+      <input type="range" min="0" max="1000" step="1" value={string(at)} disabled/>
+      <output>{string(c.value)}</output>
+    </label>
+  }
+  if(c.kind == "slider"){
+    return <label class="nb-control nb-slider">{label}
+      <input type="range" min={string(c.min)} max={string(c.max)}
+        step={string(c.step)} value={string(c.value)} disabled/>
+      <output>{string(c.value)}</output>
+    </label>
+  }
+  if(c.kind == "checkbox"){
+    return <label class="nb-control nb-checkbox">
+      {c.value == true and <input type="checkbox" checked disabled/> or
+        <input type="checkbox" disabled/>}
+      {label}
+    </label>
+  }
+  if(c.kind == "dropdown"){
+    local options = c.options or {}
+    local shown = {}
+    for(local i = 0; i < len(options); i = i + 1){
+      append(shown, i == c.value and <option selected>{string(options[i])}</option> or
+        <option>{string(options[i])}</option>)
+    }
+    return <label class="nb-control nb-dropdown">{label}
+      <select disabled>{shown}</select>
+    </label>
+  }
+  if(c.kind == "input"){
+    return <label class="nb-control nb-input">{label}
+      <input type="text" value={string(c.value or "")} disabled/>
+    </label>
+  }
+  if(c.kind == "button"){
+    return <span class="nb-control nb-button">
+      <button disabled>{string(c.label or "Run")}</button>
+    </span>
+  }
+  return <div class="nb-panel">
+    {tbl.map(c.controls or {}, func(k){ return <Still spec={k}/> })}
+  </div>
+}
+
+// control_html(spec: table) -> string
+// A control as HTML that does nothing: what an exported page shows of
+// it, from the spec its data carries (application/vnd.slang.control+json).
+func nb.control_html(spec){
+  return html.render(<Still spec={spec}/>)
+}
+
+local func control_text(c){
+  if(c.kind == "panel"){
+    return str.join(tbl.map(c.controls, control_text), "  ")
+  }
+  if(c.kind == "button"){
+    return concat("[", c.label or "Run", "]")
+  }
+  return concat(c.label or c.kind, ": ", inspect.text(c.value))
+}
+
+control_meta.__display = func(c){
+  return make({
+    [CONTROL]: control_spec(c),
+    ["text/html"]: nb.control_html(control_spec(c)),
+    ["text/plain"]: control_text(c)
+  })
+}
+
+local func new_control(kind, options, on_change){
+  local c = {
+    kind: kind, name: new_name(), label: options.label, value: options.value,
+    on_change: on_change
+  }
+  c.@meta = control_meta
+  registry[c.name] = {control: c, cell: where()}
+  return c
+}
+
+local func number_or(v, default){
+  if(type(v) == "int" or type(v) == "double"){
+    return v
+  }
+  return default
+}
+
+// How [slider] and the other controls start.
+// type ControlOptions = {label?: string, value?: any, min?: number,
+//   max?: number, step?: number, scale?: string, options?: {any},
+//   placeholder?: string}
+// [label]: the text beside it
+// [value]: what it is set to at first
+// [min], [max], [step]: a slider's range (0 to 1) and its step (1 for a
+//   range of ints, else the power of ten nearest below a hundredth of
+//   the range)
+// [scale]: "log" for a slider whose equal moves multiply its value by as
+//   much (a frequency, a time): min must be above 0; the value is not
+//   rounded to a step unless step is given
+// [options]: a dropdown's choices: any values, shown as their text
+// [placeholder]: what an empty input shows
+
+// slider(options?: ControlOptions, on_change?: func(value: number)) -> Control
+// A number from min to max.
+//   local speed = nb.slider({label: "speed", min: 1, max: 10}, func(v){
+//     print("now ", v, "\n")
+//   })
+func nb.slider(options, on_change){
+  options = options or {}
+  local lo = number_or(options.min, 0)
+  local hi = number_or(options.max, 1)
+  if(hi < lo){
+    raise(error.new(error.kinds.argument, "slider: max is below min"))
+  }
+  local step = options.step
+  local log = options.scale == "log"
+  if(log and not (lo > 0 and hi > lo)){
+    raise(error.new(error.kinds.argument,
+      "slider: a log scale needs 0 < min < max"))
+  }
+  if(log){
+    // (the page moves it smoothly; its value is not rounded)
+  } else if(step == null){
+    if(type(lo) == "int" and type(hi) == "int"){
+      step = 1
+    } else if(hi > lo){
+      // a power of ten, about a hundredth of the range
+      local target = (hi - lo) / 100
+      step = 1.0
+      for(step > target){
+        step = step / 10
+      }
+      for(step * 10 <= target){
+        step = step * 10
+      }
+    } else {
+      step = 0.01
+    }
+  }
+  local c = new_control("slider", options, on_change)
+  c.min = lo
+  c.max = hi
+  c.step = step
+  if(log){
+    c.scale = "log"
+  }
+  c.value = number_or(options.value, lo)
+  return c
+}
+
+// checkbox(options?: ControlOptions, on_change?: func(value: bool)) -> Control
+// Yes or no; false at first unless options.value says otherwise.
+func nb.checkbox(options, on_change){
+  options = options or {}
+  local c = new_control("checkbox", options, on_change)
+  c.value = options.value == true
+  return c
+}
+
+// dropdown(options: ControlOptions, on_change?: func(value: any)) -> Control
+// One of options.options; the first unless options.value is another.
+//   nb.dropdown({label: "wave", options: {"sine", "saw"}}, func(w){ ... })
+// Raises an error of kind argument without options to choose from.
+func nb.dropdown(options, on_change){
+  if(options == null or raw_type(options.options) != "table" or
+    len(options.options) == 0){
+    raise(error.new(error.kinds.argument, "dropdown: options to choose from"))
+  }
+  local c = new_control("dropdown", options, on_change)
+  c.options = options.options
+  if(tbl.index_of(c.options, c.value) < 0){
+    c.value = c.options[0]
+  }
+  return c
+}
+
+// input(options?: ControlOptions, on_change?: func(value: string)) -> Control
+// A line of text: on_change gets it when enter is pressed or it is left.
+func nb.input(options, on_change){
+  options = options or {}
+  local c = new_control("input", options, on_change)
+  c.value = string(options.value or "")
+  c.placeholder = options.placeholder
+  return c
+}
+
+// button(label: string | ControlOptions, on_click?: func()) -> Control
+// A button: on_click is called with each click.
+//   nb.button("Roll", func(){ dice:show(math.random(1, 6)) })
+func nb.button(label, on_click){
+  local options = label
+  if(raw_type(label) != "table"){
+    options = {label: label}
+  }
+  return new_control("button", options, on_click)
+}
+
+// panel(controls: {Control} | {[string]: Control}) -> Display
+// The controls side by side, in one box: a list, or a record whose keys
+// label the controls that have no label of their own.
+func nb.panel(controls){
+  local list = {}
+  for(let local e in entries(controls)){
+    local c = e[1]
+    if(type(c) != "notebook.Control"){
+      raise(error.new(error.kinds.argument, "panel: controls only"))
+    }
+    if(c.label == null and type(e[0]) == "string"){
+      c.label = e[0]
+    }
+    append(list, c)
+  }
+  local p = {kind: "panel", controls: list}
+  return make({
+    [CONTROL]: control_spec(p),
+    ["text/html"]: nb.control_html(control_spec(p)),
+    ["text/plain"]: control_text(p)
+  })
+}
+
+// on(name: string, f: func(value: any): any)
+// What the page's own HTML can call: `slang.call(name, value)` in a
+// script of a cell's HTML calls f with value (what JSON carries) and is
+// a promise of what f gives back (as JSON; null for what JSON has no
+// form of).
+//   nb.on("roll", func(sides){ return math.random(1, sides) })
+//   nb.html("<button onclick='slang.call(\"roll\", 6).then(alert)'>roll</button>")
+func nb.on(name, f){
+  if(type(name) != "string" or str.starts_with(name, concat(instance, "-"))){
+    raise(error.new(error.kinds.argument, "on: a name of your own"))
+  }
+  registry[name] = {handler: f, cell: where()}
+}
+
+// ------------------------------------------------------------ outputs
+
+// What [output] gives: a place under the cell whose content is replaced.
+// type Output = {name: string, show: func(...values), clear: func()}
+// [show]: shows the values there instead of what it showed (one value, or
+//   several, one under another)
+// [clear]: shows nothing there
+local output_methods = {}
+local output_meta = {__index: output_methods, __type: "notebook.Output"}
+
+local func output_data(name, values){
+  local n = tbl.span(values)
+  local data = null
+  if(n == 1){
+    data = nb.bundle(values[0])
+  } else {
+    // several: one under another
+    local parts = {}
+    local texts = {}
+    for(local i = 0; i < n; i = i + 1){
+      local d = nb.bundle(values[i])
+      append(parts, d)
+      append(texts, d["text/plain"] or "")
+    }
+    data = {["text/plain"]: str.join(texts, "\n")}
+    data["application/vnd.slang.stack+json"] = parts
+  }
+  local out = {}
+  for(let local e in entries(data)){
+    out[e[0]] = e[1]
+  }
+  out[OUTPUT] = name
+  return out
+}
+
+// output(...values) -> Output
+// Shows the values now (or nothing), at a place whose content [Output.show]
+// replaces later: from a cell, or from a control's on_change.
+//   local view = nb.output()
+//   nb.slider({max: 10}, func(v){ view:show(nb.plot(curve(v))) })
+func nb.output(...values){
+  local o = {name: new_name(), cell: where()}
+  o.@meta = output_meta
+  local data = output_data(o.name, values)
+  if(sink != null){
+    sink("display", data)
+  } else if(tbl.span(values) > 0){
+    print(data["text/plain"], "\n")
+  }
+  return o
+}
+
+func output_methods.show(o, ...values){
+  local data = output_data(o.name, values)
+  if(sink != null){
+    sink("update", data, o.cell)
+  } else {
+    print(data["text/plain"], "\n")
+  }
+}
+
+func output_methods.clear(o){
+  output_methods.show(o)
+}
+
+// interact(controls: {[string]: Control}, f: func(values: table): any)
+// Controls, and under them what f gives for what they are set to, again
+// each time one changes: f gets a record of their values by the same
+// keys. A control's own on_change is called first.
+//   nb.interact({t: nb.slider({max: 6.0})}, func(v){ return draw(v.t) })
+func nb.interact(controls, f){
+  local func current(){
+    local v = {}
+    for(let local e in entries(controls)){
+      v[e[0]] = e[1].value
+    }
+    return v
+  }
+  local panel = nb.panel(controls)
+  nb.display(panel)
+  local view = nb.output(f(current()))
+  for(let local e in entries(controls)){
+    local c = e[1]
+    local own = c.on_change
+    c.on_change = func(value){
+      if(own != null){
+        own(value)
+      }
+      view:show(f(current()))
+    }
+  }
+  return null
+}
+
+// owner(name: string) -> string?
+// The cell that made the control or handler named so, or null when there
+// is none (it is from an earlier kernel, or its cell ran again).
+func nb.owner(name){
+  local r = registry[name]
+  return r and r.cell
+}
+
+// forget(cell: string)
+// The controls and handlers the cell made are no longer called: it runs
+// again. The notebook's kernel calls it.
+func nb.forget(cell){
+  for(let local e in values(tbl.entries(registry))){
+    if(e[1].cell == cell){
+      delete(registry, e[0])
+    }
+  }
+}
+
+// a value from the page as the control takes it
+local func coerce(c, value){
+  if(c.kind == "slider"){
+    local v = number_or(value, c.value)
+    if(c.scale != "log" and type(c.step) == "int" and type(c.min) == "int"){
+      v = to_int(math.floor(v + 0.5))
+    }
+    return math.max(c.min, math.min(c.max, v))
+  }
+  if(c.kind == "checkbox"){
+    return value == true
+  }
+  if(c.kind == "dropdown"){
+    if(type(value) == "int" and value >= 0 and value < len(c.options)){
+      return c.options[value]
+    }
+    return c.value
+  }
+  if(c.kind == "input"){
+    return string(value or "")
+  }
+  return null
+}
+
+// call(name: string, value: any) -> any
+// What the page asks for: the control named so takes the value and its
+// on_change is called with it, or the handler is called with it; gives
+// what that gives. Raises an error of kind not_found for a name there is
+// nothing by. The notebook's kernel calls it.
+func nb.call(name, value){
+  local r = registry[name]
+  if(r == null){
+    raise(error.new(error.kinds.not_found,
+      "this control is from an earlier run: run its cell again"))
+  }
+  if(r.handler != null){
+    return r.handler(value)
+  }
+  local c = r.control
+  if(c.kind != "button"){
+    c.value = coerce(c, value)
+  }
+  if(c.on_change == null){
+    return null
+  }
+  if(c.kind == "button"){
+    return c.on_change()
+  }
+  return c.on_change(c.value)
+}
 
 // bundle(v) -> {[string]: any}
 // The forms v is shown in, by MIME type: a [Display]'s own, what

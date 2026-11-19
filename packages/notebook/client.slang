@@ -15,9 +15,13 @@
 //   {event: "stream", id, name, text}    it printed (name: "stdout" or "stderr")
 //   {event: "display", id, data}         it showed something (notebook.display)
 //   {event: "result", id, data}          its value; data: forms by MIME type
+//   {event: "update", id, output, data}  an output it showed gets new data
 //   {event: "clear", id}                 what it showed so far is taken back
 //   {event: "error", id, error}          it failed: {kind, message, location, stack}
 //   {event: "done", id, status, ms}      it ended: "ok", "error", "interrupted"
+//   {event: "calling", id}               a control the cell made is called
+//   {event: "called", id, call, control, status, result?, error?}
+//                                        and that call ended
 //   {event: "exit", status, signal}      the kernel itself ended
 //
 // Needs slang/async: start a kernel inside async.main or async.run.
@@ -103,6 +107,12 @@ func client.start(options){
     } else if(event.event == "start"){
       k.current = event.id
       k.status = "busy"
+      deliver(event)
+    } else if(event.event == "calling"){
+      // what a control's function prints is its cell's
+      if(event.id != null){
+        k.current = event.id
+      }
       deliver(event)
     } else if(event.event == "done"){
       k.running = k.running - 1
@@ -218,6 +228,22 @@ func kernel_methods.execute(k, code, options){
     line: options.line
   })
   return waiter.future
+}
+
+// How [Kernel.call] calls a control or a handler of the page's.
+// type CallOptions = {call: string, control: string, value?: any}
+// [call]: what the called event of the answer carries
+// [control]: the name of the control or the handler (notebook's on)
+// [value]: what the control was set to, or what the handler gets
+
+// call(options: CallOptions)
+// Calls what a cell made for the page, after the cells asked for before
+// it. What happens arrives as events: calling, what it shows, called.
+func kernel_methods.call(k, options){
+  send(k, {
+    op: "call", call: options.call, control: options.control,
+    value: options.value
+  })
 }
 
 // variables() -> async.Future

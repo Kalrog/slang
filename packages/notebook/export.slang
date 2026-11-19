@@ -25,6 +25,7 @@ local browser = require("notebook/browser")
 local markdown = require("notebook/markdown")
 local highlight = require("notebook/highlight")
 local inspect = require("notebook/inspect")
+local nb = require("notebook")
 
 local export = {}
 
@@ -113,10 +114,25 @@ func export.tree_html(node){
 // ------------------------------------------------------------ outputs
 
 local images = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+local CONTROL = "application/vnd.slang.control+json"
+local STACK = "application/vnd.slang.stack+json"
 
 // the richest form of what was shown
-local func Data(props){
+local Data = null
+Data = func(props){
   local data = props.data
+  // several values one under another (an output of notebook's that shows
+  // more than one)
+  local stack = data[STACK]
+  if(raw_type(stack) == "table"){
+    return <div class="nb-stack">
+      {tbl.map(stack, func(d){ return <Data data={d or {}}/> })}
+    </div>
+  }
+  // a control as it was last set (its HTML is as it was made)
+  if(raw_type(data[CONTROL]) == "table"){
+    return <div class="nb-rich">{html.raw(nb.control_html(data[CONTROL]))}</div>
+  }
   if(data["text/html"] != null){
     return <div class="nb-rich">{html.raw(data["text/html"])}</div>
   }

@@ -5,7 +5,8 @@
 // It runs the cells as notebook/kernel does (notebook/runner), and talks
 // through slang/web's messages instead of standard input and output: a
 // command is a message from the page ({op: "execute", id, code, origin?,
-// line?}, {op: "variables", id}, {op: "shutdown"}, as JSON), an event one
+// line?}, {op: "call", call, control, value}, {op: "variables", id},
+// {op: "shutdown"}, as JSON), an event one
 // to it. What the cells print is the worker's output; the page gets both
 // in the order they were made.
 //
@@ -48,6 +49,8 @@ func kernel.main(arguments){
             event: "done", id: msg.id, status: status,
             ms: time.clock() - started
           })
+        } else if(msg.op == "call"){
+          cells.call(msg)
         } else if(msg.op == "variables"){
           cells.variables(msg)
         } else if(msg.op == "shutdown"){

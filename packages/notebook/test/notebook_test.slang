@@ -294,6 +294,66 @@ t.group("values"){
     assert(got[1][1]["text/markdown"] == "*m*" and got[2][0] == "clear")
     assert(not nb.in_notebook())
   }
+  t.test("controls call back, outputs are replaced, interact ties them"){
+    local got = {}
+    local cell = "c1"
+    nb.attach(func(kind, data, owner){ append(got, {kind, data, owner}) },
+      func(){ return cell })
+    local CONTROL = "application/vnd.slang.control+json"
+    local OUTPUT = "application/vnd.slang.output"
+    local seen = {}
+    local s = nb.slider({label: "n", min: 0, max: 10}, func(v){ append(seen, v) })
+    assert(s.step == 1 and s.value == 0 and nb.owner(s.name) == "c1")
+    assert(str.starts_with(s.name, concat(nb.instance(), "-")))
+    local spec = nb.bundle(s)[CONTROL]
+    assert(spec.kind == "slider" and spec.max == 10 and spec.label == "n")
+    assert(str.index_of(nb.bundle(s)["text/html"], "disabled") > 0, "the page without a kernel shows it still")
+    // the page's value is the control's, in its range and step
+    nb.call(s.name, 7.6)
+    nb.call(s.name, 99)
+    assert(seen[0] == 8 and seen[1] == 10 and s.value == 10)
+    // a log scale: no rounding to a step, and no scale that cannot be one
+    local f = nb.slider({min: 20.0, max: 20000.0, value: 440.0, scale: "log"})
+    assert(nb.bundle(f)[CONTROL].scale == "log" and f.step == null)
+    nb.call(f.name, 1234.5)
+    assert(f.value == 1234.5)
+    assert((try { nb.slider({min: 0.0, max: 1.0, scale: "log"}) } catch(local x) { x }).kind == "argument")
+    assert(nb.slider({min: 1.0, max: 20.0}).step == 0.1)
+    local d = nb.dropdown({options: {"sine", "saw"}, value: "saw"})
+    assert(nb.bundle(d)[CONTROL].value == 1)
+    nb.call(d.name, 0)
+    assert(d.value == "sine")
+    local clicks = 0
+    local b = nb.button("go", func(){ clicks = clicks + 1 })
+    nb.call(b.name, null)
+    assert(clicks == 1)
+    nb.on("twice", func(x){ return x * 2 })
+    assert(nb.call("twice", 21) == 42)
+    // an output shows now, and is replaced in its cell later
+    got = {}
+    local view = nb.output("first")
+    cell = "c2"
+    view:show(1, 2)
+    assert(got[0][0] == "display" and got[0][1][OUTPUT] == view.name)
+    assert(got[1][0] == "update" and got[1][2] == "c1" and got[1][1][OUTPUT] == view.name)
+    assert(len(got[1][1]["application/vnd.slang.stack+json"]) == 2)
+    // interact: a panel, then what f gives, again with each change
+    got = {}
+    local t1 = nb.slider({max: 1.0})
+    nb.interact({t: t1, on: nb.checkbox()}, func(v){ return concat(string(v.t), " ", string(v.on)) })
+    assert(len(got) == 2 and got[0][1][CONTROL].kind == "panel")
+    assert(got[0][1][CONTROL].controls[0].label == "t")
+    assert(got[1][1]["text/plain"] == "\"0 false\"")
+    nb.call(t1.name, 0.5)
+    assert(got[2][0] == "update" and got[2][1]["text/plain"] == "\"0.5 false\"")
+    // a cell that runs again takes its controls along
+    nb.forget("c1")
+    assert(nb.owner(s.name) == null and nb.owner("twice") == null)
+    local e = try { nb.call(s.name, 1) } catch(local x) { x }
+    assert(e.kind == "not_found")
+    assert(nb.owner(t1.name) == "c2")
+    nb.attach(null)
+  }
 }
 
 t.group("markdown"){
@@ -379,6 +439,14 @@ local func start(path){
   return {k: k, events: events, by: by}
 }
 
+// waits until f gives true, for at most two seconds
+local func soon(f){
+  for(local i = 0; i < 200 and not f(); i = i + 1){
+    async.await(async.sleep(10))
+  }
+  return f()
+}
+
 t.group("kernel"){
   t.test("cells share a session; values, printing and errors are events"){
     os.mkdir_all(scratch)
@@ -415,6 +483,64 @@ t.group("kernel"){
       assert(str.join(names, " ") == "n=40 t=null", str.join(names, " "))
       async.await(k:shutdown())
       assert(k.status == "dead" and len(s.by("exit")) == 1)
+    })
+    os.remove_all(scratch)
+  }
+  t.test("a control's function runs in the session, under its cell"){
+    os.mkdir_all(scratch)
+    async.main(func(){
+      local s = start(scratch)
+      local k = s.k
+      local ready = async.await(k.ready)
+      assert(type(ready.instance) == "string")
+      local code = """local nb = require("notebook")
+local factor = 2
+local view = nb.output("none yet")
+local n = nb.slider({max: 10}, func(v){
+  print("got ", v, "\\n")
+  view:show(v * factor)
+})
+nb.on("add", func(x){ return {sum: x[0] + x[1]} })
+nb.button("fail", func(){ raise(error.new(error.kinds.state, "no")) })
+n"""
+      async.await(k:execute(code, {id: "a"}))
+      local slider = s.by("result", "a")[0].data["application/vnd.slang.control+json"]
+      assert(slider.kind == "slider" and str.starts_with(slider.name, ready.instance))
+      local function_called = func(call){
+        return func(){
+          for(let local e in values(s.by("called"))){
+            if(e.call == call){
+              return e
+            }
+          }
+          return null
+        }
+      }
+      // what it prints and what it shows are the cell's
+      k:call({call: "q1", control: slider.name, value: 4})
+      local done = soon(function_called("q1"))
+      assert(done != null and done.status == "ok" and done.id == "a")
+      local updated = s.by("update", "a")
+      assert(len(updated) == 1 and updated[0].data["text/plain"] == "8")
+      assert(len(s.by("calling", "a")) == 1)
+      local printed = s.by("stream", "a")
+      assert(printed[len(printed) - 1].text == "got 4\n")
+      // the session sees what the control did
+      async.await(k:execute("factor = 3\nn.value", {id: "b"}))
+      assert(s.by("result", "b")[0].data["text/plain"] == "4")
+      // a handler gives back what JSON carries
+      k:call({call: "q2", control: "add", value: {20, 22}})
+      assert(soon(function_called("q2")).result.sum == 42)
+      // an error is the call's, not the cell's
+      k:call({call: "q3", control: "nothing", value: null})
+      local missing = soon(function_called("q3"))
+      assert(missing.status == "error" and missing.error.kind == "not_found")
+      async.await(k:execute(code, {id: "a"}))
+      // the cell ran again: its first slider is gone
+      k:call({call: "q4", control: slider.name, value: 1})
+      assert(soon(function_called("q4")).error.kind == "not_found")
+      k:kill()
+      async.await(k.exit)
     })
     os.remove_all(scratch)
   }
@@ -604,6 +730,62 @@ t.group("a session and a kernel somewhere else"){
     assert(asked.op == "variables")
     h.kernel.receive({event: "variables", id: asked.id, variables: {{name: "x", type: "int", text: "1"}}})
     assert(h.take("variables")[0].variables[0].name == "x")
+  }
+  t.test("a page's call goes to the kernel, its answer back to that page"){
+    local h = fake_host("# T\n\n```slang\nslider\n```\n")
+    local nb = session.new(h)
+    local a = session.snapshot(nb).cells[1].id
+    // no kernel: nothing to call
+    session.on_message(nb, "p1", {op: "call", seq: 1, control: "k-1", value: 2})
+    local answer = h.take("called")[0]
+    assert(answer.seq == 1 and answer.status == "error" and answer.error.kind == "closed")
+    session.on_message(nb, "p1", {op: "run", ids: {a}})
+    h.kernel.receive({event: "ready", instance: "k9"})
+    local told = h.take("kernel")
+    assert(told[len(told) - 1].instance == "k9" and session.snapshot(nb).instance == "k9")
+    h.kernel.receive({event: "start", id: a})
+    h.kernel.receive({event: "result", id: a, data: {
+      ["application/vnd.slang.control+json"]: {kind: "panel", controls: {
+        {name: "k9-1", kind: "slider", value: 0, min: 0, max: 10, step: 1}
+      }},
+      ["text/plain"]: "slider"
+    }})
+    h.kernel.receive({event: "display", id: a, data: {
+      ["application/vnd.slang.output"]: "k9-2", ["text/plain"]: "0"
+    }})
+    h.kernel.receive({event: "done", id: a, status: "ok", ms: 1})
+    session.on_message(nb, "p1", {op: "call", seq: 2, control: "k9-1", value: 6, id: a})
+    local op = h.ops[len(h.ops) - 1]
+    assert(op.op == "call" and op.control == "k9-1" and op.value == 6)
+    // the value is kept, and the other pages follow
+    local spec = nb.cells[1].outputs[0].data["application/vnd.slang.control+json"]
+    assert(spec.controls[0].value == 6)
+    assert(h.take("control")[0].value == 6)
+    h.kernel.receive({event: "calling", id: a})
+    h.kernel.receive({event: "update", id: a, output: "k9-2", data: {
+      ["application/vnd.slang.output"]: "k9-2", ["text/plain"]: "12"
+    }})
+    h.kernel.receive({event: "called", id: a, call: op.call, control: "k9-1", status: "ok"})
+    assert(nb.cells[1].outputs[1].data["text/plain"] == "12")
+    local sent = h.sent
+    local called = null
+    local updated = null
+    for(let local m in values(sent)){
+      if(m.event == "called"){
+        called = m
+      } else if(m.event == "cell" and m.e.event == "update"){
+        updated = m
+      }
+    }
+    assert(called.seq == 2 and called.status == "ok")
+    assert(updated.e.data["text/plain"] == "12")
+    // a kernel that ends answers what still waits
+    h.sent = {}
+    session.on_message(nb, "p1", {op: "call", seq: 3, control: "k9-1", value: 1})
+    h.kernel.receive({event: "exit", status: 1})
+    local lost = h.take("called")
+    assert(len(lost) == 1 and lost[0].seq == 3 and lost[0].error.kind == "closed")
+    assert(session.snapshot(nb).instance == null)
   }
   t.test("the notebook chooses its kernel where there is a choice; a lost kernel ends its cell"){
     local h = fake_host("<!-- slang-notebook kernel: wasm -->\n\n```slang\nfor(true){}\n```\n")

@@ -121,6 +121,9 @@ func kernel.main(arguments){
       if(type(msg) == "table"){
         if(msg.op == "execute"){
           execute(msg)
+        } else if(msg.op == "call"){
+          // (a coroutine of its own, as a cell has: it may await)
+          async.await(async.run(func(){ return cells.call(msg) }))
         } else if(msg.op == "variables"){
           cells.variables(msg)
         } else if(msg.op == "shutdown"){

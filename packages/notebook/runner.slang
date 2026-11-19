@@ -18,6 +18,9 @@ local inspect = require("notebook/inspect")
 
 local runner = {}
 
+// the key of an output's name in its data (notebook's [Output])
+local OUTPUT = "application/vnd.slang.output"
+
 // an error as the events carry it; the trace ends where the runner's own
 // frames begin
 local func describe(e){
@@ -59,6 +62,11 @@ local func describe(e){
 //   "interrupted". A cell whose state.abandoned became true sends neither.
 // [variables]: sends the session's locals: {event: "variables", id,
 //   variables: {name, type, text}}
+// [call]: does what the page asked of a control or a handler (a call
+//   command: {call, control, value}): sends {event: "calling", id} with
+//   the cell that made it, then {event: "called", id, call, control,
+//   status, result?, error?}; gives the status, "ok", "error" or
+//   "interrupted"
 
 // new(target: string, send: func(event: table)) -> Runner
 // A runner for the notebook at target (its file, or its folder), whose
@@ -66,9 +74,13 @@ local func describe(e){
 // notebook.display goes there too, under the id of the cell being run.
 func runner.new(target, send){
   local r = {current: null}
-  nb.attach(func(kind, data){
-    send({event: kind, id: r.current, data: data})
-  })
+  nb.attach(func(kind, data, cell){
+    if(kind == "update"){
+      send({event: kind, id: cell, output: data[OUTPUT], data: data})
+    } else {
+      send({event: kind, id: r.current, data: data})
+    }
+  }, func(){ return r.current })
   // from here on, the notebook's project
   local project = null
   local failure = null
@@ -78,7 +90,7 @@ func runner.new(target, send){
     failure = error.message(e)
   }
   local session = compiler.session()
-  r.ready = {event: "ready"}
+  r.ready = {event: "ready", instance: nb.instance()}
   if(project != null){
     r.ready.project = project.path
   }
@@ -102,6 +114,8 @@ func runner.new(target, send){
     state = state or {}
     local status = "ok"
     r.current = msg.id
+    // what it made when it ran before is not called any more
+    nb.forget(msg.id)
     if(r.can_interrupt){
       vm.interrupted(true)
       vm.catch_interrupt(true)
@@ -129,6 +143,43 @@ func runner.new(target, send){
       }
     }
     return status
+  }
+
+  func r.call(msg){
+    local owner = nb.owner(msg.control)
+    local before = r.current
+    r.current = owner
+    send({event: "calling", id: owner})
+    local reply = {
+      event: "called", id: owner, call: msg.call, control: msg.control,
+      status: "ok"
+    }
+    if(r.can_interrupt){
+      vm.interrupted(true)
+      vm.catch_interrupt(true)
+    }
+    try {
+      local result = nb.call(msg.control, msg.value)
+      if(r.can_interrupt){
+        vm.catch_interrupt(null)
+      }
+      // what JSON can carry of it, for a script of the page
+      if(result != null){
+        local text = try { json.encode(result) } catch { null }
+        if(text != null){
+          reply.result = result
+        }
+      }
+    } catch(local e) {
+      if(r.can_interrupt){
+        vm.catch_interrupt(null)
+      }
+      reply.error = describe(e)
+      reply.status = reply.error.kind == "interrupted" and "interrupted" or "error"
+    }
+    r.current = before
+    send(reply)
+    return reply.status
   }
 
   func r.variables(msg){

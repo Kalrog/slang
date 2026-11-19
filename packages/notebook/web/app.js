@@ -18,6 +18,11 @@
   "use strict";
 
   const VALUE = "application/vnd.slang.value+json";
+  // a control of notebook's (slider, button, ...), an output that can be
+  // replaced (by its name), and several values one under another
+  const CONTROL = "application/vnd.slang.control+json";
+  const OUTPUT = "application/vnd.slang.output";
+  const STACK = "application/vnd.slang.stack+json";
   // {vm, worker, files, notebook, key} of a page without a server, or null
   const CONFIG = (() => {
     const el = document.getElementById("nb-config");
@@ -415,8 +420,14 @@
     return el;
   }
 
-  function dataElement(data) {
+  // what a value shows as; cell: the cell it is under, which a control
+  // needs to call back
+  function dataElement(data, cell) {
     data = data || {};
+    if (data[CONTROL] != null && cell) return controlElement(data[CONTROL], cell);
+    if (data[STACK] != null) {
+      return h("div", { class: "nb-stack" }, list(data[STACK]).map((d) => dataElement(d, cell)));
+    }
     if (data["text/html"] != null) return rich(data["text/html"]);
     if (data["image/svg+xml"] != null) return rich(data["image/svg+xml"]);
     for (const mime of ["image/png", "image/jpeg", "image/gif", "image/webp"]) {
@@ -433,6 +444,82 @@
     }
     return h("pre", null, String(data["text/plain"] == null ? "" : data["text/plain"]));
   }
+
+  // ---------------------------------------------------------------- controls
+
+  // A control of notebook's, live: what is done to it calls its function
+  // in the kernel (a "call" to the session), one call at a time: while
+  // one runs, the newest value waits.
+  function controlElement(spec, cell) {
+    const nb = cell.nb;
+    if (spec.kind === "panel") {
+      return h("div", { class: "nb-panel" }, list(spec.controls).map((c) => controlElement(c, cell)));
+    }
+    const label = spec.label != null ? h("span", { class: "nb-control-label" }, String(spec.label)) : null;
+    const error = h("div", { class: "nb-control-error", hidden: true });
+    const entry = { spec: spec, cell: cell, inputs: [], error: error, busy: false, waiting: NONE, set: null };
+    const call = (value) => nb.callControl(entry, value);
+    let body;
+    if (spec.kind === "slider" && spec.scale === "log") {
+      // equal moves multiply the value by as much: the input runs from 0
+      // to 1000 along the logarithm of the value
+      const span = Math.log(spec.max / spec.min);
+      const toValue = (p) => {
+        let v = spec.min * Math.exp(span * p / 1000);
+        if (spec.step) v = Math.round(v / spec.step) * spec.step;
+        return Math.min(spec.max, Math.max(spec.min, v));
+      };
+      const toPlace = (v) => Math.round(1000 * Math.log(v / spec.min) / span);
+      const show = (v) => { v = Number(v); return Math.abs(v) >= 100 ? String(Math.round(v)) : v.toPrecision(3); };
+      const out = h("output", null, show(spec.value));
+      const input = h("input", { type: "range", min: 0, max: 1000, step: 1, value: toPlace(spec.value) });
+      input.addEventListener("input", () => { const v = toValue(Number(input.value)); out.textContent = show(v); call(v); });
+      entry.set = (v) => { input.value = toPlace(v); out.textContent = show(v); };
+      entry.inputs.push(input);
+      body = h("label", { class: "nb-control nb-slider" }, label, input, out);
+    } else if (spec.kind === "slider") {
+      const decimals = Math.max(0, Math.min(6, -Math.floor(Math.log10(spec.step || 1) + 1e-9)));
+      const show = (v) => Number(v).toFixed(Number.isInteger(spec.step) ? 0 : decimals);
+      const out = h("output", null, show(spec.value));
+      const input = h("input", { type: "range", min: spec.min, max: spec.max, step: spec.step, value: spec.value });
+      input.addEventListener("input", () => { out.textContent = show(input.value); call(Number(input.value)); });
+      entry.set = (v) => { input.value = v; out.textContent = show(v); };
+      entry.inputs.push(input);
+      body = h("label", { class: "nb-control nb-slider" }, label, input, out);
+    } else if (spec.kind === "checkbox") {
+      const input = h("input", { type: "checkbox" });
+      input.checked = spec.value === true;
+      input.addEventListener("change", () => call(input.checked));
+      entry.set = (v) => { input.checked = v === true; };
+      entry.inputs.push(input);
+      body = h("label", { class: "nb-control nb-checkbox" }, input, label);
+    } else if (spec.kind === "dropdown") {
+      const select = h("select", null, list(spec.options).map((o, i) => h("option", { value: i }, o)));
+      select.value = String(spec.value);
+      select.addEventListener("change", () => call(Number(select.value)));
+      entry.set = (v) => { select.value = String(v); };
+      entry.inputs.push(select);
+      body = h("label", { class: "nb-control nb-dropdown" }, label, select);
+    } else if (spec.kind === "input") {
+      const input = h("input", { type: "text", value: spec.value == null ? "" : spec.value, placeholder: spec.placeholder });
+      input.addEventListener("change", () => call(input.value));
+      entry.set = (v) => { input.value = v == null ? "" : v; };
+      entry.inputs.push(input);
+      body = h("label", { class: "nb-control nb-input" }, label, input);
+    } else {
+      const button = h("button", { type: "button" }, spec.label == null ? "Run" : String(spec.label));
+      button.addEventListener("click", () => call(null));
+      entry.inputs.push(button);
+      body = h("span", { class: "nb-control nb-button" }, button);
+    }
+    entry.el = h("div", { class: "nb-control-box" }, body, error);
+    nb.controls.set(spec.name, entry);
+    nb.liven(entry);
+    return entry.el;
+  }
+
+  // (no value waits to be sent)
+  const NONE = {};
 
   function errorElement(cell, e) {
     e = e || {};
@@ -1538,7 +1625,7 @@
       } else if (o.type === "error") {
         el = errorElement(this, o.error);
       } else {
-        el = dataElement(o.data);
+        el = dataElement(o.data, this);
       }
       this.outputs.push({ o: o, el: el });
       this.out.append(el);
@@ -1575,6 +1662,16 @@
         }
       } else if (kind === "display" || kind === "result") {
         this.addOutput({ type: kind, data: e.data });
+      } else if (kind === "update") {
+        // an output shown before gets new content, in its place
+        const name = e.data && e.data[OUTPUT];
+        const entry = this.outputs.find((x) => x.o.data && x.o.data[OUTPUT] === name);
+        if (entry) {
+          entry.o.data = e.data;
+          const el = dataElement(e.data, this);
+          entry.el.replaceWith(el);
+          entry.el = el;
+        }
       } else if (kind === "error") {
         this.addOutput({ type: "error", error: e.error });
         if (e.error && e.error.cell_line != null) this.editor.setMark(e.error.cell_line);
@@ -1659,6 +1756,14 @@
       this.language = new Language(this);
       this.assist = new Assist(this);
       this.kernel = "none";
+      // the controls shown, by name; the calls waiting for their answer,
+      // by seq; the names of the kernel's own controls start with instance
+      this.controls = new Map();
+      this.calls = new Map();
+      this.callSeq = 0;
+      this.instance = null;
+      // what a cell's own HTML calls: slang.call(name, value)
+      window.slang = { call: (name, value) => this.call(name, value) };
       this.retry = 500;
       this.lastD = 0;
       this.list = h("div", { class: "notebook" });
@@ -1716,6 +1821,66 @@
       this.path = name;
       setCrumbs(name, true);
       document.title = name.split("/").pop() + " - slang notebook";
+    }
+
+    // ---- controls
+
+    // whether a control is one the kernel has: it can be used, or it is
+    // greyed out until its cell runs again
+    liven(entry) {
+      const live = this.instance != null && entry.spec.name.startsWith(this.instance + "-");
+      entry.el.classList.toggle("stale", !live);
+      entry.el.title = live ? "" : "Made by a kernel that is gone: run the cell again to use it";
+      for (const input of entry.inputs) input.disabled = !live;
+    }
+
+    setInstance(instance) {
+      if (instance === undefined || instance === this.instance) return;
+      this.instance = instance;
+      for (const [name, entry] of this.controls) {
+        if (!entry.el.isConnected) this.controls.delete(name);
+        else this.liven(entry);
+      }
+    }
+
+    // a control was changed: its function is called with the value, or
+    // the value waits for the call that runs
+    callControl(entry, value) {
+      if (entry.busy) { entry.waiting = value; return; }
+      entry.busy = true;
+      const done = (answer) => {
+        entry.busy = false;
+        const failed = answer.status === "error" || answer.status === "interrupted";
+        entry.error.hidden = !failed;
+        entry.error.textContent = failed && answer.error ? (answer.error.kind || "error") + ": " + (answer.error.message || "") : "";
+        if (entry.waiting !== NONE) {
+          const next = entry.waiting;
+          entry.waiting = NONE;
+          this.callControl(entry, next);
+        }
+      };
+      this.ask(entry.spec.name, value, entry.cell.id).then(done, done);
+    }
+
+    // calls a handler of the kernel's (notebook's on): a promise of what
+    // it gives back, failing with its error
+    call(name, value) {
+      return this.ask(String(name), value === undefined ? null : value, null).then((answer) => {
+        if (answer.status !== "ok") {
+          const e = answer.error || {};
+          throw new Error((e.kind || "error") + ": " + (e.message || answer.status));
+        }
+        return answer.result === undefined ? null : answer.result;
+      });
+    }
+
+    // the "call" to the session; a promise of the "called" answer
+    ask(control, value, id) {
+      const seq = ++this.callSeq;
+      return new Promise((resolve) => {
+        this.calls.set(seq, resolve);
+        this.send({ op: "call", seq: seq, control: control, value: value, id: id });
+      });
     }
 
     setKernel(status, project) {
@@ -1948,6 +2113,10 @@
       const cell = m.id != null ? this.byId.get(m.id) : null;
       switch (m.event) {
         case "notebook":
+          // (a session met again: what was asked of the one before has no
+          // answer coming)
+          for (const resolve of this.calls.values()) resolve({ status: "lost" });
+          this.calls.clear();
           if (this.loaded && this.dirty) {
             // we have edits the server has not: ours stay, its outputs come
             this.sync();
@@ -1965,6 +2134,7 @@
           this.loaded = true;
           this.setKinds(list(m.kinds), m.kind);
           this.setKernel(m.kernel, m.project);
+          this.setInstance(m.instance == null ? null : m.instance);
           this.language.on = m.language !== false;
           this.check(null);
           break;
@@ -1984,7 +2154,19 @@
         case "kernel":
           this.setKinds(null, m.kind);
           this.setKernel(m.status, m.project);
+          this.setInstance(m.instance == null ? null : m.instance);
           break;
+        case "called": {
+          const resolve = this.calls.get(m.seq);
+          if (resolve) { this.calls.delete(m.seq); resolve(m); }
+          break;
+        }
+        case "control": {
+          // another page moved it
+          const entry = this.controls.get(m.control);
+          if (entry && entry.set && entry.el.isConnected) entry.set(m.value);
+          break;
+        }
         case "kernel_op":
           // the server's session asks something of the kernel in this page
           if (m.op && m.op.op === "start") this.kernelId = m.kernel;

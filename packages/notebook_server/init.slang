@@ -116,6 +116,7 @@ local func process_kernel(entry, on_event){
     kind: "process",
     status: func(){ return k.status },
     execute: func(code, options){ k:execute(code, options) },
+    call: func(options){ k:call(options) },
     variables: func(reply){ k:variables():then(reply) },
     interrupt: func(){ k:interrupt() },
     kill: func(){ k:kill() }

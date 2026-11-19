@@ -241,3 +241,65 @@
 .nb-tree .v-int, .nb-tree .v-double { color: var(--nb-number); }
 .nb-tree .v-bool, .nb-tree .v-null { color: var(--nb-keyword); }
 .nb-tree .v-function, .nb-tree .v-other { color: var(--nb-muted); }
+
+/* ---- controls (notebook's slider, checkbox, dropdown, input, button) */
+
+.nb-control-box { display: inline-flex; flex-direction: column; gap: 4px; vertical-align: top; }
+.nb-control-box.stale { opacity: 0.55; }
+
+.nb-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--nb-body);
+  font-size: 14px;
+  color: var(--nb-ink);
+}
+
+.nb-control-label { color: var(--nb-muted); }
+.nb-control input[type="range"] { width: 220px; accent-color: var(--nb-accent); }
+.nb-control input[type="checkbox"] { accent-color: var(--nb-accent); width: 16px; height: 16px; margin: 0; }
+.nb-control output { font-family: var(--nb-mono); font-size: 13px; min-width: 4ch; color: var(--nb-number); }
+
+.nb-control select, .nb-control input[type="text"], .nb-control button {
+  font: inherit;
+  color: var(--nb-ink);
+  background: var(--nb-card);
+  border: 1px solid var(--nb-line);
+  border-radius: 7px;
+  padding: 4px 10px;
+}
+
+.nb-control input[type="text"] { min-width: 200px; }
+.nb-control select:focus-visible, .nb-control input[type="text"]:focus-visible, .nb-control button:focus-visible {
+  outline: 2px solid var(--nb-accent);
+  outline-offset: 1px;
+}
+
+.nb-control button { cursor: pointer; font-weight: 600; }
+.nb-control button:hover:not(:disabled) { border-color: var(--nb-accent); color: var(--nb-accent); }
+.nb-control :disabled { cursor: default; }
+
+.nb-control-error {
+  font-family: var(--nb-mono);
+  font-size: 12.5px;
+  color: var(--nb-error);
+  white-space: pre-wrap;
+}
+
+/* controls side by side, in one box */
+.nb-panel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 24px;
+  align-items: flex-start;
+  padding: 10px 14px;
+  border: 1px solid var(--nb-line);
+  border-radius: 9px;
+  background: var(--nb-soft);
+}
+
+/* several values in one output, one under another (not .nb-row: the
+   page's completion list has that) */
+.nb-stack { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.nb-out .nb-stack > * + * { margin-top: 0; }

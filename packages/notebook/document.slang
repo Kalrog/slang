@@ -380,7 +380,8 @@ local STREAM_LIMIT = 400000
 // apply(cell: Cell, event: table)
 // Takes an event of the kernel (notebook/client) into the outputs of the
 // cell it is about: "start" empties them, what the cell prints is joined
-// into streams, displays, the result and an error are added, "clear"
+// into streams, displays, the result and an error are added, "update"
+// replaces the data of the output it names (notebook's Output), "clear"
 // empties them again, "done" notes the time. Printing beyond 400 kB is
 // cut.
 func document.apply(cell, event){
@@ -407,6 +408,15 @@ func document.apply(cell, event){
     }
   } else if(kind == "display" or kind == "result"){
     append(outputs, {type: kind, data: event.data})
+  } else if(kind == "update"){
+    // an output shown before, found by its name
+    for(let local o in values(outputs)){
+      if(raw_type(o.data) == "table" and event.output != null and
+        o.data["application/vnd.slang.output"] == event.output){
+        o.data = event.data
+        break
+      }
+    }
   } else if(kind == "error"){
     append(outputs, {type: "error", error: event.error})
   } else if(kind == "done"){

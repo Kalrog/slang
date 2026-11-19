@@ -98,6 +98,66 @@ A value of your own shows itself when its metatable has `__display`, a
 function of the value that gives one of these. Outside a notebook the same
 calls print text, so a module that uses them also runs as a program.
 
+## Controls
+
+A cell can show controls: sliders, checkboxes, dropdowns, text inputs and
+buttons. Using one in the page calls its function in the kernel, with the
+cells' locals. An output made with `nb.output` is a place under the cell
+that such a function fills again with `show`.
+
+```slang
+local nb = require("notebook")
+
+local view = nb.output("move the slider")
+local speed = nb.slider({label: "speed", min: 1, max: 10}, func(v){
+  view:show(nb.plot({1, v, v * v}, {title: "speed"}))
+})
+speed
+```
+
+`nb.interact` does that in one step: the controls, and under them what a
+function gives for their values, again each time one of them changes. The
+function gets their values by the same keys.
+
+```slang
+local nb = require("notebook")
+local math = require("slang/math")
+
+nb.interact({
+  frequency: nb.slider({min: 1.0, max: 20.0, value: 6.0}),
+  smooth: nb.checkbox(),
+}, func(v){
+  local ys = {}
+  for(local i = 0; i < 200; i = i + 1){
+    append(ys, math.sin(i / 20 * v.frequency))
+  }
+  return nb.plot(ys, {kind: v.smooth and "line" or "bar"})
+})
+```
+
+| function | shows |
+|---|---|
+| `nb.slider(options, f)` | a number from `min` to `max` (0 to 1), in steps of `step`; `scale: "log"` for a frequency or a time |
+| `nb.checkbox(options, f)` | yes or no |
+| `nb.dropdown(options, f)` | one of `options.options` |
+| `nb.input(options, f)` | a line of text, given to `f` when enter is pressed or it is left |
+| `nb.button(label, f)` | a button: `f()` with each click |
+| `nb.panel(controls)` | controls side by side, in one box |
+| `nb.output(...values)` | a place whose content `show(...values)` replaces; `clear()` empties it |
+| `nb.interact(controls, f)` | controls, and what `f(values)` gives under them |
+| `nb.on(name, f)` | a function the page's own HTML calls: `slang.call(name, value)` is a promise of what it gives back |
+
+Options also take `label` and `value`. A control's `value` is what it is
+set to now, for the cells after it too, and its function can be set or
+changed later as `on_change`. Calls wait for the cell that runs, and while
+one runs only the newest value of a control waits after it, so a slider
+that is dragged does not pile up work.
+
+A control works while the kernel that made it runs: after a restart, or
+in a notebook just opened, it is greyed out until its cell runs again. A
+cell that runs again replaces its controls. An exported page shows them
+as they were last set, without doing anything.
+
 ## In the browser
 
 `slang notebook-server [folder | notebook.md]` serves a folder's notebooks

@@ -13,11 +13,22 @@ extension "extensions/html"
 // From a page: {op: "update", cells}, {op: "run", ids}, {op:
 // "interrupt"}, {op: "restart"}, {op: "clear", ids?}, {op: "save"}, {op:
 // "kernel", kind}, {op: "highlight", id, seq, source}, {op: "render", id,
-// seq, source}, {op: "variables"}, {op: "check", seq, id?, source?} and
-// {op: "language", seq, method, ...} (see below). To the pages: {event:
-// "notebook", ...} with everything ([snapshot]), then "cells", "cell" (a
-// kernel's event about a cell), "state", "kernel", "tokens", "rendered",
-// "variables", "diagnostics", "language", "saved" and "problem".
+// seq, source}, {op: "variables"}, {op: "check", seq, id?, source?},
+// {op: "language", seq, method, ...} (see below) and {op: "call", seq,
+// control, value, id?}. To the pages: {event: "notebook", ...} with
+// everything ([snapshot]), then "cells", "cell" (a kernel's event about a
+// cell), "state", "kernel", "tokens", "rendered", "variables",
+// "diagnostics", "language", "control", "called", "saved" and "problem".
+//
+// A "call" is what a page's control (notebook's slider, button, ...) or
+// its own script (slang.call) asks of the kernel: control is the name of
+// the control or handler, id the cell that shows the control. The page
+// that asked gets {event: "called", seq, control, status, result?,
+// error?} when it is done; the other pages get {event: "control", id,
+// control, value}, the control's new value, which is also kept with the
+// cell's outputs. The "notebook" and "kernel" events carry the kernel's
+// instance: the names of its controls start with it and a "-" (the
+// others are from an earlier kernel, and nothing answers them).
 //
 // What an editor knows about the code is asked of notebook/language (the
 // slang language server over all the code cells). "check" gives every
@@ -48,6 +59,11 @@ local language = require("notebook/language")
 local os = require("slang/os")
 
 local session = {}
+
+// the mime type of a control (notebook's Control)
+local CONTROL = "application/vnd.slang.control+json"
+// several values in one output, one under another
+local STACK = "application/vnd.slang.stack+json"
 
 // What a session needs from whoever runs it.
 // type Host = {name: string, path?: string, kernels: {string},
@@ -83,8 +99,18 @@ local session = {}
 // (defined below: a text cell's Markdown, its slang blocks coloured)
 local render_text = null
 
-// what the page gets of an output: Markdown comes rendered
-local func present_data(nb, data){
+// what the page gets of an output: Markdown comes rendered, also in the
+// values of an output that shows several
+local present_data = null
+present_data = func(nb, data){
+  if(raw_type(data) == "table" and raw_type(data[STACK]) == "table"){
+    local out = {}
+    for(let local e in entries(data)){
+      out[e[0]] = e[1]
+    }
+    out[STACK] = tbl.map(data[STACK], func(d){ return present_data(nb, d) })
+    return out
+  }
   if(raw_type(data) != "table" or data["text/markdown"] == null or
     data["text/html"] != null){
     return data
@@ -134,6 +160,14 @@ local func cell_view(nb, cell){
   return view
 }
 
+// the kernel's instance while it runs
+local func instance_of(nb){
+  if(nb.kernel == null or nb.kernel.status() == "dead"){
+    return null
+  }
+  return nb.instance
+}
+
 // kernel_status(nb: Notebook) -> string
 // "none" before a cell was run, else the kernel's status.
 func session.kernel_status(nb){
@@ -165,7 +199,7 @@ func session.snapshot(nb){
     title: document.title(nb.cells, nb.host.name), cells: cells,
     kernel: session.kernel_status(nb), project: nb.project,
     kind: kernel_kind(nb), kinds: json.array(nb.host.kernels),
-    language: language.available()
+    language: language.available(), instance: instance_of(nb)
   }
 }
 
@@ -255,7 +289,7 @@ local func set_state(nb, cell, state){
 local func tell_kernel(nb){
   nb.host.broadcast({
     event: "kernel", status: session.kernel_status(nb), project: nb.project,
-    kind: kernel_kind(nb)
+    kind: kernel_kind(nb), instance: instance_of(nb)
   })
 }
 
@@ -281,6 +315,7 @@ local func on_kernel_event(nb, k, event){
   local kind = event.event
   if(kind == "ready"){
     nb.project = event.project
+    nb.instance = event.instance
     if(event.error != null){
       nb.host.broadcast({
         event: "problem",
@@ -292,6 +327,14 @@ local func on_kernel_event(nb, k, event){
   }
   if(kind == "exit"){
     drop_queue(nb)
+    // (the calls that were waiting get no answer from it)
+    for(let local e in values(tbl.entries(nb.calls))){
+      nb.host.send(e[1].page, {
+        event: "called", seq: e[1].seq, control: e[1].control,
+        status: "error", error: {kind: "closed", message: "the kernel ended"}
+      })
+    }
+    nb.calls = {}
     if(nb.running != null){
       local at = find(nb, nb.running)
       nb.running = null
@@ -303,6 +346,29 @@ local func on_kernel_event(nb, k, event){
       })
     }
     tell_kernel(nb)
+    return
+  }
+  if(kind == "calling"){
+    return
+  }
+  if(kind == "called"){
+    local asked = nb.calls[event.call]
+    if(asked != null){
+      delete(nb.calls, event.call)
+      local reply = {
+        event: "called", seq: asked.seq, control: event.control,
+        status: event.status
+      }
+      if(event.result != null){
+        reply.result = event.result
+      }
+      if(event.error != null){
+        reply.error = event.error
+      }
+      nb.host.send(asked.page, reply)
+    }
+    // what it showed and printed is to be kept
+    save_soon(nb)
     return
   }
   local at = find(nb, event.id)
@@ -393,6 +459,69 @@ pump = func(nb, page){
   }
 }
 
+// the spec of a control among outputs, panels' controls included
+local func control_in(outputs, name){
+  local func search(spec){
+    if(raw_type(spec) != "table"){
+      return null
+    }
+    if(spec.name == name){
+      return spec
+    }
+    for(let local k in values(spec.controls or {})){
+      local found = search(k)
+      if(found != null){
+        return found
+      }
+    }
+    return null
+  }
+  for(let local o in values(outputs or {})){
+    if(raw_type(o.data) == "table"){
+      local found = search(o.data[CONTROL])
+      if(found != null){
+        return found
+      }
+    }
+  }
+  return null
+}
+
+// what a page asks of a control or a handler
+local func call(nb, page, m){
+  local func fail(kind, message){
+    nb.host.send(page, {
+      event: "called", seq: m.seq, control: m.control, status: "error",
+      error: {kind: kind, message: message}
+    })
+  }
+  if(type(m.control) != "string"){
+    fail("argument", "a call names a control")
+    return
+  }
+  if(nb.kernel == null or nb.kernel.status() == "dead"){
+    fail("closed", "The kernel is not running: run the cell again")
+    return
+  }
+  // the control's value is kept, and the other pages follow it
+  if(type(m.id) == "string"){
+    local at = find(nb, m.id)
+    if(at >= 0){
+      local spec = control_in(nb.cells[at].outputs, m.control)
+      if(spec != null and spec.kind != "button"){
+        spec.value = m.value
+        nb.host.broadcast({
+          event: "control", id: m.id, control: m.control, value: m.value
+        }, page)
+      }
+    }
+  }
+  nb.next_call = nb.next_call + 1
+  local name = concat("q", string(nb.next_call))
+  nb.calls[name] = {page: page, seq: m.seq, control: m.control}
+  nb.kernel.call({call: name, control: m.control, value: m.value})
+}
+
 local func run_cells(nb, ids, page){
   for(let local id in values(ids)){
     local at = find(nb, id)
@@ -414,6 +543,7 @@ local func stop_kernel(nb){
   }
   nb.queue = {}
   nb.running = null
+  nb.instance = null
   for(let local cell in values(nb.cells)){
     set_state(nb, cell, "idle")
   }
@@ -734,7 +864,8 @@ func session.new(host){
   local nb = {
     host: host, cells: {}, settings: {}, queue: {}, running: null,
     kernel: null, project: null, count: 0, next_id: 0, save_timer: null,
-    text: "", language: null, language_tried: false
+    text: "", language: null, language_tried: false, calls: {},
+    next_call: 0, instance: null
   }
   session.load(nb)
   return nb
@@ -781,6 +912,8 @@ func session.on_message(nb, page, m){
     check(nb, page, m)
   } else if(op == "language" and type(m.method) == "string"){
     ask_language(nb, page, m)
+  } else if(op == "call"){
+    call(nb, page, m)
   } else if(op == "variables"){
     if(nb.kernel != null and nb.kernel.status() != "dead"){
       nb.kernel.variables(func(list){

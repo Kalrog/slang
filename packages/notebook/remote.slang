@@ -9,7 +9,8 @@
 //
 // What the session asks of the kernel goes out through send as an
 // operation for the page: {op: "start", ...}, {op: "execute", id, code,
-// origin, line}, {op: "variables", id}, {op: "interrupt"}, {op: "kill"}.
+// origin, line}, {op: "call", call, control, value}, {op: "variables",
+// id}, {op: "interrupt"}, {op: "kill"}.
 // The page passes the worker's events back to [Remote.receive]: the
 // kernel's own (ready, start, display, result, clear, error, done,
 // variables), {event: "stream", name, text} for what the cells print, and
@@ -21,6 +22,7 @@ local remote = {}
 // A kernel in a page, from [new].
 // type Remote = {status: func(): string, start: func(options: table),
 //   execute: func(code: string, options?: table),
+//   call: func(options: table),
 //   variables: func(reply: func(list: table)), interrupt: func(),
 //   kill: func(), receive: func(event: table), lost: func()}
 // [status]: "starting", "idle", "busy" or "dead"
@@ -75,6 +77,14 @@ func remote.new(send, on_event){
       line: options.line
     })
   }
+  func k.call(options){
+    if(status != "dead"){
+      send({
+        op: "call", call: options.call, control: options.control,
+        value: options.value
+      })
+    }
+  }
   func k.variables(reply){
     if(status == "dead"){
       reply({})
@@ -119,6 +129,11 @@ func remote.new(send, on_event){
       if(running <= 0){
         running = 0
         status = "idle"
+      }
+      on_event(event)
+    } else if(kind == "calling"){
+      if(event.id != null){
+        current = event.id
       }
       on_event(event)
     } else if(kind == "variables"){

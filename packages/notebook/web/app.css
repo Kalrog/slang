@@ -523,6 +523,32 @@ select.tool.kind[hidden] { display: none; }
 .marks .o-read { background: color-mix(in srgb, var(--nb-function) 15%, transparent); }
 .marks .o-write { background: color-mix(in srgb, var(--nb-accent) 20%, transparent); }
 
+/* line numbers: the text again, unseen, one block a line; the number
+   sits in the gutter left of it */
+.editor pre.lines {
+  position: absolute;
+  inset: 0;
+  min-height: 0;
+  color: transparent;
+  pointer-events: none;
+  user-select: none;
+}
+.editor:not(.numbered) pre.lines { display: none; }
+.editor.numbered { --nb-gutter: calc(var(--nb-digits, 2) * 1ch + 14px); }
+.editor.numbered pre, .editor.numbered textarea { padding-left: calc(var(--nb-gutter) + 10px); }
+.lines .ln { display: block; position: relative; min-height: 1.55em; }
+.lines .ln::before {
+  content: attr(data-n);
+  position: absolute;
+  right: calc(100% + 10px);
+  width: var(--nb-gutter);
+  padding-right: 4px;
+  box-sizing: border-box;
+  text-align: right;
+  color: var(--nb-faint);
+}
+.lines .ln.failed::before { color: var(--nb-error); }
+
 /* asking where the mouse is in the text: the painted code answers */
 .editor.probing textarea { pointer-events: none; }
 .editor.probing pre:not(.marks) { pointer-events: auto; }

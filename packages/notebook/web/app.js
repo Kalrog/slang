@@ -1075,7 +1075,11 @@
       this.marks = h("pre", { class: "marks", "aria-hidden": "true" });
       this.diagnostics = [];
       this.occurrences = [];
-      this.el = h("div", { class: "editor" }, this.marks, this.pre, this.area);
+      // beside the code, its line numbers: the text again, unseen, one
+      // block a line, so a line that wraps keeps its number's place
+      this.lines = h("pre", { class: "lines", "aria-hidden": "true" });
+      this.el = h("div", { class: "editor" }, this.lines, this.marks, this.pre, this.area);
+      if (cell.type === "code") this.el.classList.add("numbered");
       this.last = "";
       const assist = cell.nb.assist;
       this.area.editor = this;
@@ -1263,7 +1267,16 @@
       }
       // (a last empty line needs something to have a height)
       this.code.innerHTML = html + escapeHtml(text.slice(pos)) + "\n";
+      this.paintLines();
       this.paintMarks();
+    }
+
+    paintLines() {
+      if (this.cell.type !== "code") return;
+      const lines = this.area.value.split("\n");
+      this.el.style.setProperty("--nb-digits", Math.max(2, String(lines.length).length));
+      this.lines.innerHTML = lines.map((line, i) =>
+        '<span class="ln" data-n="' + (i + 1) + '">' + escapeHtml(line) + "</span>").join("");
     }
 
     // the typing changed the text: the colours before the change stay,
@@ -1387,11 +1400,21 @@
 
     setMark(line) {
       if (this.mark) { this.mark.remove(); this.mark = null; }
+      for (const ln of this.lines.querySelectorAll(".failed")) ln.classList.remove("failed");
       if (line == null) return;
       this.mark = h("div", { class: "mark" });
-      const lineHeight = parseFloat(getComputedStyle(this.pre).lineHeight) || 20;
-      this.mark.style.top = (10 + (line - 1) * lineHeight) + "px";
-      this.el.insertBefore(this.mark, this.pre);
+      const at = this.lines.children[line - 1];
+      if (at && this.cell.type === "code") {
+        // (where the line is, wrapped lines before it included)
+        this.mark.style.top = at.offsetTop + "px";
+        this.mark.style.height = at.offsetHeight + "px";
+        at.classList.add("failed");
+      } else {
+        const lineHeight = parseFloat(getComputedStyle(this.pre).lineHeight) || 20;
+        this.mark.style.top = (10 + (line - 1) * lineHeight) + "px";
+      }
+      // (under the line numbers, which stay readable over it)
+      this.el.insertBefore(this.mark, this.lines);
     }
 
     focus(at) {

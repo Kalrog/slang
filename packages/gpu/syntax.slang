@@ -17,7 +17,9 @@
 // for WebGPU: nothing of the language is changed. It is parsed when the
 // slang file is, by gpu/wgsl, so a mistake in its syntax is a compile error
 // at its line, and it is highlighted and formatted like the slang code
-// around it. After it, name is a local: the program, for [Device.shader].
+// around it. After it, name is a local: the program (gpu/program), for
+// [Device.shader], with what it declares as its fields: its structs as
+// values to make memory of, its entry points, variables and constants.
 // What the WGSL compiler has to say about it later (a type that does not
 // fit, a name it does not know) it says with the lines and columns of the
 // slang file.
@@ -29,27 +31,55 @@ local ast = require("slang/ast")
 local fmt = require("slang/format")
 local str = require("slang/string")
 local wgsl = require("gpu/wgsl")
+local layout = require("gpu/layout")
 local g = require("slang/compiler").grammar()
 
-// wgsl name { program }: local name = {label: "name", wgsl: tokens, at: places}
+// the AST of a value: a literal, or a table literal of its elements and
+// fields
+local func value_ast(v, token){
+  if(type(v) != "table"){
+    return ast.literal(token, v)
+  }
+  local fields = {}
+  local n = len(v)
+  for(local i = 0; i < n; i = i + 1){
+    append(fields, ast.node(
+      "Field", {key: null, value: value_ast(v[i], token)}, token
+    ))
+  }
+  for(let local e in entries(v)){
+    local key = e[0]
+    if(not(type(key) == "int" and key >= 0 and key < n) and e[1] != null){
+      append(fields, ast.node("Field", {
+        key: ast.literal(token, key),
+        value: value_ast(e[1], token),
+      }, token))
+    }
+  }
+  return ast.node("Table", {fields: fields}, token)
+}
+
+// wgsl name { program }: local name = program.new({label, wgsl, at, ...})
 // The program goes into the code as its tokens and, apart from them, the
 // places they stand at ("origin:line:column", which slang/format knows as
 // locations): formatting the file moves the program without changing what
-// the code means.
-local func expand(word, name, open, close){
+// the code means. What it declares (gpu/layout: its structs laid out, its
+// constants, variables and entry points) goes in beside them, worked out
+// here, when the file is compiled.
+local func expand(word, name, open, close, items){
   local origin = g:origin() or "wgsl"
+  local tokens = wgsl.tokens(open.buffer, open.stop, close.start)
   local texts = {}
   local places = {}
-  for(let local t in values(wgsl.tokens(open.buffer, open.stop, close.start))){
+  for(let local t in values(tokens)){
     append(texts, t.text)
     append(places, concat(origin, ":", string(t.line), ":", string(t.column)))
   }
-  local func field(key, value){
-    return ast.node("Field", {
-      key: ast.literal(word, key),
-      value: ast.literal(word, value),
-    }, word)
-  }
+  local data = layout.describe(items, tokens)
+  data.label = name.value
+  data.wgsl = str.join(texts, " ")
+  data.at = str.join(places, " ")
+  local runtime = g:unit_local("gpu/program", +{require("gpu/program")})
   local id = ast.node("Identifier", {value: name.value}, name)
   return {
     token: word,
@@ -57,13 +87,7 @@ local func expand(word, name, open, close){
       pattern: ast.node(
         "VarPattern", {isLocal: true, canBeNull: false, name: id}, name
       ),
-      right: ast.node("Table", {
-        fields: {
-          field("label", name.value),
-          field("wgsl", str.join(texts, " ")),
-          field("at", str.join(places, " ")),
-        },
-      }, word),
+      right: +{-{runtime}.new(-{value_ast(data, word)})},
     }, word),
   }
 }
@@ -92,5 +116,5 @@ g:statement("wgsl_block", peg.seq(
   fmt.indent(wgsl.items, "hardline", "hardline"),
   fmt.gaps(tok("}"), "hardline"),
 ):map(func(v){
-  return expand(v[0], v[1], v[2], v[4])
+  return expand(v[0], v[1], v[2], v[4], v[3])
 }))

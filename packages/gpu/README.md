@@ -43,42 +43,115 @@ a compute shader without a window.
 ## WGSL in slang files
 
 With the extension `gpu/syntax`, a shader is written in the slang file
-that uses it, as WGSL and nothing but WGSL:
+that uses it, as WGSL and nothing but WGSL, and what it declares is there
+for the slang code around it:
 
 ```slang
 extension "gpu/syntax"
 local gpu = require("gpu")
 
-wgsl doubler {
-  @group(0) @binding(0) var<storage, read_write> v: array<f32>;
+wgsl pond {
+  struct Uniforms {
+    size: vec2f,
+    mouse: vec2f,
+    time: f32,
+  }
+  @group(0) @binding(0) var<uniform> u: Uniforms;
 
-  @compute @workgroup_size(64)
-  fn main(@builtin(global_invocation_id) id: vec3u) {
-    v[id.x] = v[id.x] * 2.0;
+  @vertex
+  fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+    var corners = array(vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0));
+    return vec4f(corners[i], 0.0, 1.0);
+  }
+
+  @fragment
+  fn fs(@builtin(position) at: vec4f) -> @location(0) vec4f {
+    let d = distance(at.xy, u.mouse) / u.size.y;
+    return vec4f(vec3f(0.5 + 0.5 * sin(d * 40.0 - u.time * 4.0)), 1.0);
   }
 }
 
 local device = gpu.device()
-local pipeline = device:compute_pipeline({shader: device:shader(doubler)})
+local pipeline = device:render_pipeline({
+  shader: pond,
+  fragment: {targets: {{format: "bgra8_unorm"}}},
+})
+local uniforms = device:buffer({type: pond.Uniforms, usage: "uniform|copy_dst"})
+local group = pipeline:bind({u: uniforms})
+
+local u = pond.Uniforms:new({size: {800, 600}})
+u.mouse = {400, 300}
+u.time = 1.5
+uniforms:write(u)
 ```
 
-- The block is parsed with the file, by a grammar of WGSL written with
+- **The block is parsed with the file**, by a grammar of WGSL written with
   `slang/peg` (`gpu/wgsl`): a mistake in its syntax is a compile error at
-  its line.
-- Editors highlight it and `slang fmt` formats it, like the slang code
-  around it.
-- After the block its name is a local: the program, for `device:shader`.
-- What WGSL's own compiler finds later (a type that does not fit, a name
-  it does not know) it reports with the line and the column of the slang
-  file.
+  its line. Editors highlight it and `slang fmt` formats it, like the
+  slang code around it.
+- **What WGSL's own compiler finds later** (a type that does not fit, a
+  name it does not know) it reports with the line and the column of the
+  slang file.
+- **After the block its name is the program**, with what it declares as
+  its fields, under the names WGSL gives them:
+  - a struct is a type to make memory of (`pond.Uniforms`);
+  - an entry point says what it is (`pond.fs.stage`,
+    `sim.step.workgroup_size`) and stands for itself in a pipeline;
+  - a resource variable has its group, binding and kind (`pond.u.binding`);
+  - a `const` is its number (`sim.COUNT`).
+
+### Structs
+
+`pond.Uniforms:new({...})` is one struct and `sim.Particle:array(n)` (or
+`:array({{...}, {...}})`) a slang/buffer of them, laid out as WGSL lays
+them out: a `vec3f` is 12 bytes at a multiple of 16, a matrix's columns
+are 16 apart. So their memory is what the GPU reads, without a copy in
+between.
+
+- A member is read and written by name: `u.time = 1.5`, `u.mouse.x`,
+  `ps[3].vel = {0, 1}`.
+- A vector takes its numbers as a list or by name (`{x: 1, y: 2}`), a
+  matrix its numbers column after column, an array a list, a struct a
+  table.
+- What does not fit raises: a member the struct does not have, a list of
+  the wrong length.
+- They go wherever the package takes data: `device:buffer({contents: u,
+  ...})`, `buffer:write(u)`, `device:buffer({type: sim.Particle, count:
+  n, ...})` for room for n of them, and `buffer:read(sim.Particle)` or
+  `buffer:map("read", {type: sim.Particle})` to get them back.
+
+A struct that holds what slang has no memory for (a `bool`, an `f16`, an
+array without a length) raises when its memory is asked for. The values
+are `"buffer.struct"`s of `slang/buffer`, whose `buffer.layout` is what
+lays them out.
+
+### Pipelines and bindings
+
+- A pipeline takes the program as its `shader`, or one of its entry points
+  where a program has several of a stage: `device:compute_pipeline(sim.step)`,
+  `vertex: {module: scene.vs}`.
+- `pipeline:bind({u: uniforms, particles: buffer})` makes a bind group
+  from resources named as the program's variables are. Only what the
+  pipeline's entry points use is bound, so one table of resources serves
+  all pipelines of a program.
+- A vertex buffer's layout is a struct: `vertex: {buffers:
+  {scene.Vertex}}`. Each member is an attribute at its offset, at the
+  location it carries (`@location(0) position: vec3f`) or that of the
+  vertex stage's input of its name.
+- `pass:dispatch(n)` dispatches as many workgroups as n invocations take,
+  by the entry point's `@workgroup_size`.
+
+`examples/gpu` (triangle, cube, waves) and `examples/swarm` in the slang
+repository are written this way.
+
+### The grammar
 
 The grammar takes the language as the specification gives it, with
 wgpu's 64-bit number suffixes besides. It does not check what WGSL's
 compiler checks: types, names, and where WGSL asks for parentheses between
 operators. `require("gpu/wgsl").parse(text)` gives the declarations of a
-WGSL text (structs with their members, variables with their bindings,
-functions with their parameters), which is what a later version will
-build struct values and bindings by name from.
+WGSL text, and `require("gpu/program").parse(text)` a program of it, made
+when the code runs.
 
 ## Using it
 
@@ -287,7 +360,8 @@ when the GPU has not answered for ten seconds.
 
 ## Not yet
 
-- `.wgsl` files as modules, and structs and bindings of a `wgsl` block as
+- `.wgsl` files as modules.
+- Structs that hold a `bool`, an `f16` or an array without a length as
   slang values.
 - Errors are raised at the next call on any device: with several devices,
   an error can surface at a call on another one.

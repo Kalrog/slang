@@ -332,12 +332,17 @@ func device_methods.pop_error_scope(self){}
 //   device:buffer({size: 1024, usage: "uniform|copy_dst"})
 //   device:buffer({contents: {0, 0.5, -0.5, -0.5, 0.5, -0.5}, usage: "vertex"})
 // type BufferOptions = {size?: int, usage: string | {string},
-//   contents?: any, type?: string, mapped_at_creation?: bool,
-//   label?: string}
+//   contents?: any, type?: string | program.Struct, count?: int,
+//   mapped_at_creation?: bool, label?: string}
 // [usage]: buffer_usage names: map_read, map_write, copy_src, copy_dst,
 //   index, vertex, uniform, storage, indirect, query_resolve
-// [contents]: data written into it at once: a slang/buffer, a string, or a
-//   list of numbers (32-bit floats, or of [type]); size and copy_dst follow
+// [contents]: data written into it at once: a slang/buffer, a struct of a
+//   WGSL program (pond.Uniforms:new()), a string, or a list (of 32-bit
+//   floats, or of [type]); size and copy_dst follow
+// [type]: what the buffer holds: a number type ("uint16_t") or a struct of
+//   a WGSL program. Without contents and size, the buffer has room for
+//   [count] of them
+// [count]: how many of [type] (1)
 // [mapped_at_creation]: the buffer starts mapped for writing, whatever its
 //   usage: fill its [Buffer.view], then [Buffer.unmap]
 func device_methods.buffer(self, options){}
@@ -359,11 +364,13 @@ func device_methods.texture(self, options){}
 //   device:sampler({mag_filter: "linear", min_filter: "linear"})
 func device_methods.sampler(self, options){}
 
-// shader(code: string | ShaderOptions) -> ShaderModule
+// shader(code: string | ShaderOptions | program.Program) -> ShaderModule
 // A WGSL shader module; raises with the compiler's messages when the code
 // does not compile. A program of a `wgsl name { }` block (gpu/syntax) is
 // given as it is: device:shader(name); the compiler's messages then name
-// the lines and columns of the file the block is in.
+// the lines and columns of the file the block is in. A program has one
+// module on a device: asking again gives the same one. Pipelines take a
+// program where they take a module, so this is seldom called for one.
 // type ShaderOptions = {code: string, label?: string}
 func device_methods.shader(self, options){}
 
@@ -958,6 +965,21 @@ local render_pipeline_set = {}
 // [handle]: the WGPURenderPipeline pointer, for gpu.c
 local render_pipeline_meta = {__type: "gpu.RenderPipeline", __index: render_pipeline_methods, __get: render_pipeline_get, __set: render_pipeline_set}
 
+// bind(resources: {[string]: any}, group?: int) -> BindGroup
+// A bind group for the pipeline with its resources given by name: the
+// names of the variables of the WGSL program the pipeline was made of
+// (a `wgsl name { }` block). Only the variables the pipeline's entry
+// points use are bound, so one table of resources serves several
+// pipelines of a program; a name the program does not have, and a variable
+// in use that nothing is given for, raise.
+//   wgsl pond { @group(0) @binding(0) var<uniform> u: Uniforms; ... }
+//   local group = pipeline:bind({u: uniforms})
+//   pass:set_bind_group(0, group)
+// [resources]: a Buffer, {buffer, offset, size}, a Texture, a TextureView
+//   or a Sampler for each name
+// [group]: the @group the names are of (0)
+func render_pipeline_methods.bind(self, resources, group){}
+
 // label(self) -> string?
 // The object's name in error messages and debuggers: what it was made with or
 // last set to.
@@ -987,6 +1009,11 @@ local compute_pipeline_set = {}
 // type ComputePipeline
 // [handle]: the WGPUComputePipeline pointer, for gpu.c
 local compute_pipeline_meta = {__type: "gpu.ComputePipeline", __index: compute_pipeline_methods, __get: compute_pipeline_get, __set: compute_pipeline_set}
+
+// bind(resources: {[string]: any}, group?: int) -> BindGroup
+// A bind group for the pipeline with its resources given by the names of
+// its WGSL program's variables ([RenderPipeline.bind]).
+func compute_pipeline_methods.bind(self, resources, group){}
 
 // label(self) -> string?
 // The object's name in error messages and debuggers: what it was made with or
@@ -1298,6 +1325,15 @@ func compute_pass_encoder_methods.set_bind_group(self, index, group, offsets){}
 
 // dispatch_workgroups(x: int, y?: int, z?: int)
 func compute_pass_encoder_methods.dispatch_workgroups(self, x, y, z){}
+
+// dispatch(x: int, y?: int, z?: int)
+// Dispatches as many workgroups as it takes to run x (by y, by z)
+// invocations: each count divided by the workgroup size of the pipeline's
+// entry point, rounded up. For a pipeline made of a WGSL program (a `wgsl
+// name { }` block), whose @workgroup_size the package knows.
+//   pass:set_pipeline(step)
+//   pass:dispatch(count)          // count particles, 64 to a workgroup
+func compute_pass_encoder_methods.dispatch(self, x, y, z){}
 
 // finish(): ends the pass (WebGPU's end)
 func compute_pass_encoder_methods.finish(self){}

@@ -1,14 +1,53 @@
 // A lit, spinning cube: vertex and index buffers, a uniform buffer written
 // every frame, a depth buffer that follows the window's size, and input.
+// The shader is WGSL in a `wgsl` block (the extension gpu/syntax), and its
+// structs are what slang fills the buffers with: the vertices and the
+// uniforms are set by their members' names.
 // Drag with the mouse to turn it, scroll to zoom, space to pause the
 // spin, escape to quit.
 //   cd examples/gpu && ../../bin/slang run cube.slang
+extension "gpu/syntax"
 local gpu = require("gpu")
 local window = require("window")
-local buffer = require("slang/buffer")
 local math = require("slang/math")
 local os = require("slang/os")
 local str = require("slang/string")
+
+wgsl shade {
+  struct Uniforms {
+    view_proj: mat4x4f,
+    model: mat4x4f,
+    light: vec3f,
+  }
+  @group(0) @binding(0) var<uniform> u: Uniforms;
+
+  // what the vertex buffer holds
+  struct Vertex {
+    @location(0) position: vec3f,
+    @location(1) normal: vec3f,
+  }
+
+  struct Out {
+    @builtin(position) position: vec4f,
+    @location(0) normal: vec3f,
+  }
+
+  @vertex
+  fn vs(v: Vertex) -> Out {
+    var out: Out;
+    out.position = u.view_proj * u.model * vec4f(v.position, 1.0);
+    out.normal = (u.model * vec4f(v.normal, 0.0)).xyz;
+    return out;
+  }
+
+  @fragment
+  fn fs(in: Out) -> @location(0) vec4f {
+    let n = normalize(in.normal);
+    let diffuse = max(dot(n, normalize(u.light)), 0.0);
+    let base = vec3f(0.95, 0.55, 0.2) * (0.5 + 0.5 * n * n);
+    return vec4f(base * (0.15 + 0.85 * diffuse), 1.0);
+  }
+}
 
 local win = window.open({
   title: "cube", width: 900, height: 640, resizable: true
@@ -31,66 +70,30 @@ for(let local f in values(faces)){
   local n = f[0]
   local u = f[1]
   local v = f[2]
-  local base = len(vertices) / 6
+  local base = len(vertices)
   for(let local c in values({{-1, -1}, {1, -1}, {1, 1}, {-1, 1}})){
+    local position = {}
     for(local k = 0; k < 3; k = k + 1){
-      append(vertices, n[k] + u[k] * c[0] + v[k] * c[1])
+      append(position, n[k] + u[k] * c[0] + v[k] * c[1])
     }
-    for(local k = 0; k < 3; k = k + 1){
-      append(vertices, n[k])
-    }
+    append(vertices, {position: position, normal: n})
   }
   for(let local i in values({0, 1, 2, 0, 2, 3})){
     append(indices, base + i)
   }
 }
-local vertex_buffer = device:buffer({contents: vertices, usage: "vertex"})
+local vertex_buffer = device:buffer({
+  contents: shade.Vertex:array(vertices),
+  usage: "vertex",
+})
 local index_buffer = device:buffer({
   contents: indices, type: "uint16_t", usage: "index"
 })
 
-local shader = device:shader("""
-  struct Uniforms {
-    view_proj: mat4x4f,
-    model: mat4x4f,
-    light: vec4f,
-  };
-  @group(0) @binding(0) var<uniform> u: Uniforms;
-
-  struct Out {
-    @builtin(position) position: vec4f,
-    @location(0) normal: vec3f,
-  };
-
-  @vertex
-  fn vs(@location(0) position: vec3f, @location(1) normal: vec3f) -> Out {
-    var out: Out;
-    out.position = u.view_proj * u.model * vec4f(position, 1.0);
-    out.normal = (u.model * vec4f(normal, 0.0)).xyz;
-    return out;
-  }
-
-  @fragment
-  fn fs(in: Out) -> @location(0) vec4f {
-    let n = normalize(in.normal);
-    let diffuse = max(dot(n, normalize(u.light.xyz)), 0.0);
-    let base = vec3f(0.95, 0.55, 0.2) * (0.5 + 0.5 * n * n);
-    return vec4f(base * (0.15 + 0.85 * diffuse), 1.0);
-  }""")
-
 local pipeline = device:render_pipeline({
-  shader: shader,
-  vertex: {
-    buffers: {
-      {
-        array_stride: 24,
-        attributes: {
-          {format: "float32x3", offset: 0, shader_location: 0},
-          {format: "float32x3", offset: 12, shader_location: 1},
-        },
-      },
-    },
-  },
+  shader: shade,
+  // the buffer's layout is the struct's
+  vertex: {buffers: {shade.Vertex}},
   fragment: {targets: {{format: surface.format}}},
   primitive: {topology: "triangle_list", cull_mode: "back"},
   depth_stencil: {
@@ -100,31 +103,38 @@ local pipeline = device:render_pipeline({
   },
 })
 
-local uniform_data = buffer.new("float", 36)
 local uniforms = device:buffer({
-  size: uniform_data.size,
+  type: shade.Uniforms,
   usage: "uniform|copy_dst",
 })
-local bind_group = device:bind_group({
-  layout: pipeline:bind_group_layout(0),
-  entries: {{binding: 0, resource: uniforms}},
-})
+local bind_group = pipeline:bind({u: uniforms})
+local u = shade.Uniforms:new({light: {0.4, 0.8, 0.6}})
 
-// ---- matrices, column-major as WGSL reads them, written at offset
-local func perspective(out, at, fovy, aspect, near, far){
+// ---- matrices: 16 numbers, column after column, as WGSL reads them
+local func perspective(fovy, aspect, near, far){
   local f = 1 / math.tan(fovy / 2)
-  for(local i = 0; i < 16; i = i + 1){
-    out[at + i] = 0
+  return {
+    f / aspect,
+    0,
+    0,
+    0,
+    0,
+    f,
+    0,
+    0,
+    0,
+    0,
+    far / (near - far),
+    -1,
+    0,
+    0,
+    near * far / (near - far),
+    0,
   }
-  out[at + 0] = f / aspect
-  out[at + 5] = f
-  out[at + 10] = far / (near - far)
-  out[at + 11] = -1
-  out[at + 14] = near * far / (near - far)
 }
 
-// rotation about y by yaw, then x by pitch, moved back by distance
-local func model_view(yaw, pitch){
+// rotation about y by yaw, then x by pitch
+local func rotation(yaw, pitch){
   local cy = math.cos(yaw)
   local sy = math.sin(yaw)
   local cp = math.cos(pitch)
@@ -149,17 +159,19 @@ local func model_view(yaw, pitch){
   }
 }
 
-local func multiply(out, at, a, b){
-  // out = a * b, column-major
+// a * b
+local func multiply(a, b){
+  local out = {}
   for(local c = 0; c < 4; c = c + 1){
     for(local r = 0; r < 4; r = r + 1){
       local s = 0
       for(local k = 0; k < 4; k = k + 1){
         s = s + a[k * 4 + r] * b[c * 4 + k]
       }
-      out[at + c * 4 + r] = s
+      append(out, s)
     }
   }
+  return out
 }
 
 local depth = null
@@ -184,8 +196,6 @@ local dragging = false
 local frames = 0
 // CUBE_FRAMES=n stops after n frames (for tests)
 local limit = os.getenv("CUBE_FRAMES")
-local proj = buffer.new("float", 16)
-local view = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}
 
 for(win.open){
   for(let local e in values(win:events())){
@@ -212,17 +222,14 @@ for(win.open){
   }
   local frame = surface:texture()
   if(frame != null){
-    perspective(proj, 0, 0.9, surface.width / surface.height, 0.1, 100)
-    view[14] = -distance
-    multiply(uniform_data, 0, proj, view)
-    local model = model_view(yaw, pitch)
-    for(local i = 0; i < 16; i = i + 1){
-      uniform_data[16 + i] = model[i]
-    }
-    uniform_data[32] = 0.4
-    uniform_data[33] = 0.8
-    uniform_data[34] = 0.6
-    uniforms:write(uniform_data)
+    // the camera looks down -z from `distance` away
+    local view = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, -distance, 1}
+    local projection = perspective(
+      0.9, surface.width / surface.height, 0.1, 100
+    )
+    u.view_proj = multiply(projection, view)
+    u.model = rotation(yaw, pitch)
+    uniforms:write(u)
 
     local encoder = device:encoder()
     local pass = encoder:render_pass({

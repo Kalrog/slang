@@ -10,6 +10,7 @@ local format = require("slang/format")
 local compiler = require("slang/compiler")
 local wgsl = require("gpu/wgsl")
 local gpu = require("gpu")
+local buffer = require("slang/buffer")
 
 // the package's directory (where the tests run), and this file
 local here = __PACKAGES.search_paths[0]
@@ -34,6 +35,88 @@ wgsl mistaken {
   @compute @workgroup_size(1)
   fn main() {
     let wrong: u32 = 1.5;
+  }
+}
+
+// a program with what slang reads of one: structs of every shape, a
+// constant, resources, and entry points of every stage
+wgsl scene {
+  const LIGHTS = 2;
+  const N: u32 = LIGHTS + 1u;
+
+  struct Light {
+    position: vec3f,
+    power: f32,
+    color: vec3f,
+  }
+  struct Uniforms {
+    size: vec2f,
+    time: f32,
+    view: mat4x4f,
+    normal: mat3x3f,
+    lights: array<Light, N>,
+    counts: array<u32, 2>,
+  }
+  struct Particle {
+    pos: vec2f,
+    vel: vec2f,
+  }
+  struct Vertex {
+    @location(0) position: vec2f,
+    @location(1) color: vec3f,
+  }
+  struct Switches {
+    on: bool,
+  }
+
+  // (storage: a uniform's arrays must be 16 bytes apart)
+  @group(0) @binding(0) var<storage, read> u: Uniforms;
+  @group(0) @binding(1) var<storage, read_write> particles: array<Particle>;
+  @group(0) @binding(2) var<storage, read_write> total: array<f32>;
+  @group(0) @binding(3) var tex: texture_2d<f32>;
+  @group(0) @binding(4) var smp: sampler;
+
+  fn moved(i: u32) -> vec2f {
+    return particles[i].pos + particles[i].vel * u.time;
+  }
+
+  @compute @workgroup_size(4)
+  fn step(@builtin(global_invocation_id) id: vec3u) {
+    if (id.x < arrayLength(&particles)) {
+      particles[id.x].pos = moved(id.x);
+    }
+  }
+
+  @compute @workgroup_size(1)
+  fn sum() {
+    var s = 0.0;
+    for (var i = 0u; i < arrayLength(&particles); i++) {
+      s += particles[i].pos.x;
+    }
+    total[0] = s;
+  }
+
+  struct Colored {
+    @builtin(position) position: vec4f,
+    @location(0) color: vec3f,
+  }
+
+  @vertex
+  fn vs(v: Vertex) -> Colored {
+    var out: Colored;
+    out.position = vec4f(v.position, 0.0, 1.0);
+    out.color = v.color;
+    return out;
+  }
+
+  @fragment
+  fn fs(in: Colored) -> @location(0) vec4f {
+    return vec4f(in.color, 1.0);
+  }
+
+  @fragment
+  fn textured() -> @location(0) vec4f {
+    return textureSample(tex, smp, vec2f(0.5));
   }
 }
 
@@ -220,5 +303,178 @@ t.group("wgsl: blocks in slang files"){
         concat(want, " not in ", all),
       )
     }
+  }
+}
+
+t.group("wgsl: a program's declarations in slang"){
+  t.test("a program has what it declares, by name"){
+    assert(type(scene) == "gpu.Program" and scene.label == "scene")
+    assert(scene.LIGHTS == 2 and scene.N == 3)
+    assert(type(scene.Uniforms) == "gpu.Struct")
+    local step = scene.step
+    assert(type(step) == "gpu.Entry" and step.stage == "compute")
+    assert(step.workgroup_size == {4, 1, 1})
+    // what an entry point uses, through the functions it calls
+    assert(step.uses == {"u", "particles"}, step.uses)
+    assert(scene.sum.uses == {"particles", "total"}, scene.sum.uses)
+    assert(scene.textured.uses == {"tex", "smp"} and scene.fs.uses == {})
+    assert(scene.vs.inputs == {
+        {name: "position", location: 0, format: "float32x2"},
+        {name: "color", location: 1, format: "float32x3"},
+      }, scene.vs.inputs)
+    local particles = scene.particles
+    assert(type(particles) == "gpu.Variable" and particles.binding == 1)
+    assert(particles.kind == "storage" and particles.access == "read_write")
+    assert(particles.struct == scene.Particle)
+    assert(scene.tex.kind == "texture" and scene.smp.kind == "sampler")
+  }
+  t.test("structs are laid out as WGSL lays them out"){
+    local places = {}
+    for(let local m in values(scene.Uniforms.members)){
+      append(places, concat(m.name, "@", string(m.offset)))
+    }
+    assert(places == {
+        "size@0",
+        "time@8",
+        "view@16",
+        "normal@80",
+        "lights@128",
+        "counts@224",
+      }, places)
+    assert(scene.Uniforms.size == 240 and scene.Uniforms.align == 16)
+    assert(scene.Light.size == 32 and scene.Particle.stride == 16)
+    // a vec3f is 12 bytes at a multiple of 16: a float fits behind it
+    assert(scene.Light.members[1].offset == 12)
+  }
+  t.test("a struct's value is set by its members' names"){
+    local u = scene.Uniforms:new({size: {800, 600}, time: 1.5})
+    assert(buffer.is_struct(u) and u.size.x == 800 and u.time == 1.5)
+    u.size = {x: 1, y: 2}
+    u.view = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}
+    // nine numbers, column after column (the columns are 16 bytes apart)
+    u.normal = {1, 2, 3, 4, 5, 6, 7, 8, 9}
+    u.lights[2] = {position: {1, 2, 3}, power: 4, color: {5, 6, 7}}
+    u.counts = {7, 8}
+    assert(u.size.y == 2 and u.view[3].w == 1 and u.normal[2].z == 9)
+    assert(u.lights[2].color.y == 6 and u.lights[2].power == 4)
+    assert(u.counts[1] == 8)
+    local floats = buffer.wrap(u, 60, "float")
+    assert(floats:slice(20, 32):to_list() == {
+        1.0,
+        2.0,
+        3.0,
+        0.0,
+        4.0,
+        5.0,
+        6.0,
+        0.0,
+        7.0,
+        8.0,
+        9.0,
+        0.0,
+      })
+    // what does not fit raises
+    t.raises(func(){ u.size = {1, 2, 3} }, "vec2f has 2 fields, got 3 values")
+    t.raises(func(){ u.normal = {1, 2, 3} }, "takes 9 numbers, got 3")
+    t.raises(func(){ u.tiem = 1 }, "Uniforms has no field tiem")
+    t.raises(func(){ scene.Uniforms:new({tiem: 1}) }, "has no field tiem")
+    local e = t.raises(func(){ scene.Switches:new() })
+    assert(e.kind == error.kinds.unsupported, e)
+    assert(str.contains(e.message, "its member on is bool"), e.message)
+  }
+  t.test("pipelines of entry points, resources by name, typed buffers"){
+    local device = gpu.device()
+    local ps = scene.Particle:array({
+      {pos: {0, 0}, vel: {1, 2}},
+      {pos: {10, 10}, vel: {-1, 0}},
+      {pos: {5, 5}},
+    })
+    local particles = device:buffer({contents: ps, usage: "storage|copy_src"})
+    local uniforms = device:buffer({
+      contents: scene.Uniforms:new({time: 0.5}),
+      usage: "storage",
+    })
+    local total = device:buffer({
+      type: "float", count: 1, usage: "storage|copy_src"
+    })
+    assert(uniforms.size == scene.Uniforms.size and total.size == 4)
+    // one table of resources: each pipeline binds what its entry point uses
+    local resources = {particles: particles, u: uniforms, total: total}
+    local step = device:compute_pipeline(scene.step)
+    local sum = device:compute_pipeline({
+      shader: scene,
+      compute: {entry_point: "sum"},
+    })
+    local encoder = device:encoder()
+    local pass = encoder:compute_pass()
+    pass:set_pipeline(step)
+    pass:set_bind_group(0, step:bind(resources))
+    pass:dispatch(len(ps))
+    pass:set_pipeline(sum)
+    pass:set_bind_group(0, sum:bind(resources))
+    pass:dispatch(1)
+    pass:finish()
+    device.queue:submit(encoder:finish())
+    local back = particles:read(scene.Particle)
+    assert(len(back) == 3 and back[0].pos.x == 0.5 and back[0].pos.y == 1)
+    assert(back[1].pos.x == 9.5 and total:read("float")[0] == 15)
+    t.raises(func(){
+      step:bind({particles: particles})
+    }, "nothing is given for u")
+    t.raises(func(){ step:bind({nope: total}) }, "no variable nope")
+    t.raises(func(){
+      device:compute_pipeline(scene)
+    }, "2 compute stages (step, sum)")
+    t.raises(func(){
+      device:compute_pipeline(scene.fs)
+    }, "fs is a fragment stage")
+  }
+  t.test("a vertex buffer's layout is its struct's"){
+    local device = gpu.device()
+    local target = device:texture({
+      size: {4, 4},
+      format: "rgba8_unorm",
+      usage: "render_attachment|copy_src",
+    })
+    local pipeline = device:render_pipeline({
+      vertex: {module: scene.vs, buffers: {scene.Vertex}},
+      fragment: {module: scene.fs, targets: {{format: "rgba8_unorm"}}},
+    })
+    // a triangle over the whole target
+    local vertices = device:buffer({
+      contents: scene.Vertex:array({
+        {position: {-1, -1}, color: {1, 0.5, 0}},
+        {position: {3, -1}, color: {1, 0.5, 0}},
+        {position: {-1, 3}, color: {1, 0.5, 0}},
+      }),
+      usage: "vertex",
+    })
+    assert(vertices.size == 3 * scene.Vertex.stride)
+    local encoder = device:encoder()
+    local pass = encoder:render_pass({
+      color_attachments: {{view: target:view(), clear_value: {0, 0, 1, 1}}},
+    })
+    pass:set_pipeline(pipeline)
+    pass:set_vertex_buffer(0, vertices)
+    pass:draw(3)
+    pass:finish()
+    local readback = device:buffer({size: 256 * 4, usage: "copy_dst|map_read"})
+    encoder:copy_texture_to_buffer(
+      {texture: target},
+      {buffer: readback, layout: {bytes_per_row: 256, rows_per_image: 4}},
+      {4, 4},
+    )
+    device.queue:submit(encoder:finish())
+    local pixels = readback:read()
+    assert({pixels[0], pixels[1], pixels[2], pixels[3]} == {255, 128, 0, 255})
+  }
+  t.test("WGSL text is a program too"){
+    local program = require("gpu/program")
+    local p = program.parse(
+      "struct P { a: vec3f, b: f32 }\n@compute @workgroup_size(8) fn main() {}",
+      "text",
+    )
+    assert(program.is(p) and p.P.size == 16 and p.main.workgroup_size[0] == 8)
+    assert(type(gpu.device():compute_pipeline(p)) == "gpu.ComputePipeline")
   }
 }

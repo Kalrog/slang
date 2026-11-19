@@ -26,7 +26,7 @@ local math = require("slang/math")
 local os = require("slang/os")
 local str = require("slang/string")
 local time = require("slang/time")
-local shaders = require("sim/shaders")
+local swarm = require("sim/shaders")
 local sound = require("sim/sound")
 
 local count = str.to_number(os.getenv("SWARM_COUNT") or "1048576") | 0
@@ -38,49 +38,40 @@ local win = window.open({
 local device = gpu.device()
 local surface = device:surface(win)
 
-// ---- buffers
-local particles = device:buffer({size: count * 16, usage: "storage"})
+// ---- buffers: of the program's structs
+local particles = device:buffer({
+  type: swarm.Particle, count: count, usage: "storage"
+})
 local energy = device:buffer({size: 4, usage: "storage|copy_src|copy_dst"})
-local u = buffer.new("float", 12)
-local uniforms = device:buffer({size: u.size, usage: "uniform|copy_dst"})
+local u = swarm.Uniforms:new({exposure: 1.4, size: 0.004})
+local uniforms = device:buffer({
+  type: swarm.Uniforms,
+  usage: "uniform|copy_dst",
+})
 
-// ---- pipelines
-local simulate = device:shader(shaders.simulate)
-local seed_pipeline = device:compute_pipeline({
-  compute: {module: simulate, entry_point: "seed"},
-})
-local step_pipeline = device:compute_pipeline({
-  compute: {module: simulate, entry_point: "step"},
-})
+// ---- pipelines: one for each entry point
+local seed_pipeline = device:compute_pipeline(swarm.seed)
+local step_pipeline = device:compute_pipeline(swarm.step)
 local draw_pipeline = device:render_pipeline({
-  shader: device:shader(shaders.draw),
-  fragment: {targets: {{format: "rgba16_float", blend: "additive"}}},
+  vertex: {module: swarm.draw_vs},
+  fragment: {
+    module: swarm.draw_fs,
+    targets: {{format: "rgba16_float", blend: "additive"}},
+  },
   primitive: {topology: "triangle_strip"},
 })
 local tonemap_pipeline = device:render_pipeline({
-  shader: device:shader(shaders.tonemap),
-  fragment: {targets: {{format: surface.format}}},
+  vertex: {module: swarm.tone_vs},
+  fragment: {module: swarm.tone_fs, targets: {{format: surface.format}}},
 })
 
-local func simulation_group(pipeline){
-  return device:bind_group({
-    layout: pipeline:bind_group_layout(0),
-    entries: {
-      {binding: 0, resource: particles},
-      {binding: 1, resource: uniforms},
-      {binding: 2, resource: energy},
-    },
-  })
+// the program's variables by name; a pipeline binds the ones it uses
+local resources = {
+  u: uniforms, particles: particles, shown: particles, energy: energy
 }
-local seed_group = simulation_group(seed_pipeline)
-local step_group = simulation_group(step_pipeline)
-local draw_group = device:bind_group({
-  layout: draw_pipeline:bind_group_layout(0),
-  entries: {
-    {binding: 0, resource: particles},
-    {binding: 1, resource: uniforms},
-  },
-})
+local seed_group = seed_pipeline:bind(resources)
+local step_group = step_pipeline:bind(resources)
+local draw_group = draw_pipeline:bind(resources)
 
 // the HDR target and its tone-mapping bind group, made again when the
 // window's size changes
@@ -95,25 +86,18 @@ local func hdr_for(w, h){
       usage: "render_attachment|texture_binding",
     })
     hdr_view = hdr:view()
-    tonemap_group = device:bind_group({
-      layout: tonemap_pipeline:bind_group_layout(0),
-      entries: {
-        {binding: 0, resource: hdr_view},
-        {binding: 1, resource: uniforms},
-      },
-    })
+    tonemap_group = tonemap_pipeline:bind({hdr: hdr_view, u: uniforms})
   }
   return hdr_view
 }
 
-local groups = math.floor((count + 255) / 256) | 0
-
+// one invocation for each particle
 local func dispatch(pipeline, group){
   local encoder = device:encoder()
   local pass = encoder:compute_pass()
   pass:set_pipeline(pipeline)
   pass:set_bind_group(0, group)
-  pass:dispatch_workgroups(groups)
+  pass:dispatch(count)
   pass:finish()
   return encoder
 }
@@ -131,7 +115,7 @@ local zero = buffer.new("uint32_t", 1)
 local pad = null
 
 local func scatter(){
-  u[3] = (time.clock() - start) / 1000
+  u.time = (time.clock() - start) / 1000
   uniforms:write(u)
   device.queue:submit(dispatch(seed_pipeline, seed_group):finish())
 }
@@ -150,7 +134,7 @@ local func to_world(x, y){
   return {(x / win.width * 2 - 1) * aspect, 1 - y / win.height * 2}
 }
 
-u[2] = win.width / win.height
+u.aspect = win.width / win.height
 scatter()
 
 local frames = 0
@@ -219,17 +203,14 @@ for(win.open){
 
   local frame = surface:texture()
   if(frame != null){
-    u[0] = mouse[0]
-    u[1] = mouse[1]
-    u[2] = surface.width / surface.height
-    u[3] = (now - start) / 1000
-    u[4] = dt
-    u[5] = force
-    u[6] = burst
-    u[7] = flow
-    u[8] = 1.4
-    u[9] = palette
-    u[10] = 0.004
+    u.mouse = mouse
+    u.aspect = surface.width / surface.height
+    u.time = (now - start) / 1000
+    u.dt = dt
+    u.force = force
+    u.burst = burst
+    u.flow = flow
+    u.palette = palette
     uniforms:write(u)
     burst = 0.0
 
@@ -270,7 +251,7 @@ for(win.open){
       energy:write(zero)
     }
     audio.params[sound.FORCE] = force
-    audio.params[sound.PAN] = mouse[0] / u[2]
+    audio.params[sound.PAN] = mouse[0] / u.aspect
   }
 
   frames = frames + 1

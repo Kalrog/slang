@@ -1,12 +1,12 @@
 // Ripples on a pond: a fragment shader over the whole window, written as
-// WGSL in a `wgsl` block (the extension gpu/syntax), with a uniform block
-// for the time, the window's size and the mouse. Move the mouse to move
-// the fourth source, click to change the colors, escape to quit.
+// WGSL in a `wgsl` block (the extension gpu/syntax). The block's Uniforms
+// struct is a value in slang, set by its members' names: the time, the
+// window's size and the mouse. Move the mouse to move the fourth source,
+// click to change the colors, escape to quit.
 //   cd examples/gpu && ../../bin/slang run waves.slang
 extension "gpu/syntax"
 local gpu = require("gpu")
 local window = require("window")
-local buffer = require("slang/buffer")
 local os = require("slang/os")
 local str = require("slang/string")
 local time = require("slang/time")
@@ -61,20 +61,15 @@ local win = window.open({
 local device = gpu.device()
 local surface = device:surface(win)
 local pipeline = device:render_pipeline({
-  shader: device:shader(pond),
+  shader: pond,
   fragment: {targets: {{format: surface.format}}},
 })
 
-// Uniforms, as WGSL lays the struct out: six floats
-local values_of = buffer.new("float", 6)
-local uniforms = device:buffer({
-  size: values_of.size,
-  usage: "uniform|copy_dst",
-})
-local bind_group = device:bind_group({
-  layout: pipeline:bind_group_layout(0),
-  entries: {{binding: 0, resource: uniforms}},
-})
+// the block's struct as a value, set by its members' names, and the buffer
+// the shader reads it from, bound by its variable's name
+local u = pond.Uniforms:new()
+local uniforms = device:buffer({type: pond.Uniforms, usage: "uniform|copy_dst"})
+local bind_group = pipeline:bind({u: uniforms})
 
 local started = time.clock()
 local mouse = {400, 300}
@@ -99,13 +94,11 @@ for(win.open){
   if(frame != null){
     // (the mouse is in the window's points, the surface in pixels)
     local density = surface.width / win.width
-    values_of[0] = surface.width
-    values_of[1] = surface.height
-    values_of[2] = mouse[0] * density
-    values_of[3] = mouse[1] * density
-    values_of[4] = (time.clock() - started) / 1000
-    values_of[5] = palette
-    uniforms:write(values_of)
+    u.size = {surface.width, surface.height}
+    u.mouse = {mouse[0] * density, mouse[1] * density}
+    u.time = (time.clock() - started) / 1000
+    u.palette = palette
+    uniforms:write(u)
 
     local encoder = device:encoder()
     local pass = encoder:render_pass({

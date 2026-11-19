@@ -3,7 +3,6 @@
 //   cd packages/gpu && ../../bin/slang run examples/compute.slang
 extension "gpu/syntax"
 local gpu = require("gpu")
-local math = require("slang/math")
 
 // the shader, as WGSL: parsed, highlighted and formatted with this file
 wgsl doubler {
@@ -23,8 +22,7 @@ print(
   device.adapter.info.backend_type, ")\n"
 )
 
-local shader = device:shader(doubler)
-local pipeline = device:compute_pipeline({shader: shader})
+local pipeline = device:compute_pipeline(doubler)
 
 local n = 1000
 local input = {}
@@ -36,11 +34,10 @@ local data = device:buffer({contents: input, usage: "storage|copy_src"})
 local encoder = device:encoder()
 local pass = encoder:compute_pass()
 pass:set_pipeline(pipeline)
-pass:set_bind_group(0, device:bind_group({
-  layout: pipeline:bind_group_layout(0),
-  entries: {{binding: 0, resource: data}},
-}))
-pass:dispatch_workgroups(math.floor((n + 63) / 64) | 0)
+// the buffer for the shader's variable v, and as many workgroups as cover
+// n numbers
+pass:set_bind_group(0, pipeline:bind({v: data}))
+pass:dispatch(n)
 pass:finish()
 device.queue:submit(encoder:finish())
 

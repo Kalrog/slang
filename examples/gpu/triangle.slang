@@ -1,27 +1,27 @@
 // A colored triangle in a window: the smallest program drawing with the
 // gpu and window packages. Escape closes it.
 //   cd examples/gpu && ../../bin/slang run triangle.slang
+extension "gpu/syntax"
 local gpu = require("gpu")
 local window = require("window")
 local os = require("slang/os")
 local str = require("slang/string")
 
-local win = window.open({
-  title: "triangle", width: 640, height: 480, resizable: true
-})
-local device = gpu.device()
-local surface = device:surface(win)
-
-local shader = device:shader("""
+// the shader: WGSL, in the file that uses it
+wgsl colors {
   struct Out {
     @builtin(position) position: vec4f,
     @location(0) color: vec3f,
-  };
+  }
 
   @vertex
   fn vs(@builtin(vertex_index) i: u32) -> Out {
     var points = array(vec2f(0.0, 0.6), vec2f(-0.6, -0.5), vec2f(0.6, -0.5));
-    var colors = array(vec3f(1.0, 0.3, 0.2), vec3f(0.2, 0.9, 0.4), vec3f(0.2, 0.4, 1.0));
+    var colors = array(
+      vec3f(1.0, 0.3, 0.2),
+      vec3f(0.2, 0.9, 0.4),
+      vec3f(0.2, 0.4, 1.0),
+    );
     var out: Out;
     out.position = vec4f(points[i], 0.0, 1.0);
     out.color = colors[i];
@@ -31,10 +31,17 @@ local shader = device:shader("""
   @fragment
   fn fs(in: Out) -> @location(0) vec4f {
     return vec4f(in.color, 1.0);
-  }""")
+  }
+}
+
+local win = window.open({
+  title: "triangle", width: 640, height: 480, resizable: true
+})
+local device = gpu.device()
+local surface = device:surface(win)
 
 local pipeline = device:render_pipeline({
-  shader: shader,
+  shader: colors,
   fragment: {targets: {{format: surface.format}}},
 })
 

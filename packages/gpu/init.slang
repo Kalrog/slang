@@ -67,6 +67,10 @@ local math = require("slang/math")
 local table_lib = require("slang/table")
 local time = require("slang/time")
 local async = require("slang/async")
+// WGSL programs as values (the `wgsl name { }` blocks of gpu/syntax) and
+// what they declare
+local program_lib = require("gpu/program")
+local layout_lib = require("gpu/layout")
 
 // ------------------------------------------------------------ names
 
@@ -704,7 +708,8 @@ convert = func(t, v, keep){
   }
   if(kind == "ptr"){
     local tv = type(v)
-    if(v == null or tv == "ffi.pointer" or tv == "string"){
+    if(v == null or tv == "ffi.pointer" or tv == "buffer.struct" or
+      tv == "string"){
       return v
     }
     if(buffer_lib.is(v)){
@@ -813,15 +818,49 @@ local func bytes_of(data, as_type){
   if(buffer_lib.is(data)){
     return {pointer: data:pointer(), size: data.size, keep: data}
   }
+  if(buffer_lib.is_struct(data)){
+    // one struct in memory (a program's Uniforms:new()): its bytes
+    local b = buffer_lib.wrap(data, 1)
+    return {pointer: b:pointer(), size: b.size, keep: b}
+  }
   if(type(data) == "string"){
     local b = buffer_lib.from_string(data)
     return {pointer: b:pointer(), size: len(data), keep: b}
   }
   if(raw_type(data) == "table"){
-    local b = buffer_lib.from(data, as_type or "float")
+    local t = as_type or "float"
+    if(type(t) == "gpu.Struct"){
+      t = t.type
+    }
+    local b = buffer_lib.from(data, t)
     return {pointer: b:pointer(), size: b.size, keep: b}
   }
-  raise("gpu: data must be a slang/buffer, a string or a list of numbers")
+  raise(
+    "gpu: data must be a slang/buffer, a struct, a string or a list of numbers",
+  )
+}
+
+// the element type a name ("float"), a struct of a program or a type of
+// slang/buffer stands for
+local func element_type(t){
+  if(type(t) == "string"){
+    return ffi.type(t, C)
+  }
+  if(type(t) == "gpu.Struct"){
+    return t.type
+  }
+  return t
+}
+
+// a name for an element type, for telling views apart
+local func element_name(t){
+  if(type(t) == "string"){
+    return t
+  }
+  if(type(t) == "gpu.Struct"){
+    return concat("struct ", t.name)
+  }
+  return string(t)
 }
 
 // every function's C declaration by class and snake_case name:
@@ -1629,25 +1668,35 @@ local func descriptor_call(fname){
 //   device:buffer({size: 1024, usage: "uniform|copy_dst"})
 //   device:buffer({contents: {0, 0.5, -0.5, -0.5, 0.5, -0.5}, usage: "vertex"})
 // type BufferOptions = {size?: int, usage: string | {string},
-//   contents?: any, type?: string, mapped_at_creation?: bool,
-//   label?: string}
+//   contents?: any, type?: string | program.Struct, count?: int,
+//   mapped_at_creation?: bool, label?: string}
 // [usage]: buffer_usage names: map_read, map_write, copy_src, copy_dst,
 //   index, vertex, uniform, storage, indirect, query_resolve
-// [contents]: data written into it at once: a slang/buffer, a string, or a
-//   list of numbers (32-bit floats, or of [type]); size and copy_dst follow
+// [contents]: data written into it at once: a slang/buffer, a struct of a
+//   WGSL program (pond.Uniforms:new()), a string, or a list (of 32-bit
+//   floats, or of [type]); size and copy_dst follow
+// [type]: what the buffer holds: a number type ("uint16_t") or a struct of
+//   a WGSL program. Without contents and size, the buffer has room for
+//   [count] of them
+// [count]: how many of [type] (1)
 // [mapped_at_creation]: the buffer starts mapped for writing, whatever its
 //   usage: fill its [Buffer.view], then [Buffer.unmap]
 func device_m.buffer(self, options){
   local data = null
-  local desc = options
+  local desc = {}
+  for(let local e in entries(options)){
+    desc[e[0]] = e[1]
+  }
+  desc.contents = null
+  desc.type = null
+  desc.count = null
+  if(options.contents == null and options.size == null and options.type != null){
+    // room for count values of the type
+    desc.size = buffer_lib.stride(element_type(options.type)) *
+      (options.count or 1)
+  }
   if(options.contents != null){
     data = bytes_of(options.contents, options.type)
-    desc = {}
-    for(let local e in entries(options)){
-      desc[e[0]] = e[1]
-    }
-    desc.contents = null
-    desc.type = null
     local usage = flags_value("WGPUBufferUsage", options.usage)
     desc.usage = usage | K.WGPUBufferUsage_CopyDst
     if(desc.size == null){
@@ -1872,7 +1921,9 @@ func buffer_m.view(self, as_type, offset, size){
       ")",
     )))
   }
-  local key = concat(as_type, ":", string(offset), ":", string(size))
+  local key = concat(
+    element_name(as_type), ":", string(offset), ":", string(size)
+  )
   local v = m.views[key]
   if(v == null){
     local p = null
@@ -1893,7 +1944,7 @@ func buffer_m.view(self, as_type, offset, size){
     }
     v = buffer_lib.wrap(p, size, "uint8_t")
     if(as_type != "uint8_t"){
-      v = v:cast(ffi.type(as_type, C))
+      v = v:cast(element_type(as_type))
     }
     v.keep = self
     m.views[key] = v
@@ -1959,7 +2010,7 @@ local func read_future(self, as_type, offset, size, open){
       source:unmap()
     }
     if(as_type != null and as_type != "uint8_t"){
-      return copy:cast(ffi.type(as_type, C))
+      return copy:cast(element_type(as_type))
     }
     return copy
   })
@@ -2153,21 +2204,47 @@ local func wgsl_source(tokens, at){
   return str.join(parts, "")
 }
 
-// shader(code: string | ShaderOptions) -> ShaderModule
+// the shader modules made of programs on a device, by program
+local device_modules = {}
+device_modules.@meta = {__mode: "k"}
+local func modules_of(device){
+  local made = device_modules[device]
+  if(made == null){
+    made = {}
+    made.@meta = {__mode: "k"}
+    device_modules[device] = made
+  }
+  return made
+}
+
+// shader(code: string | ShaderOptions | program.Program) -> ShaderModule
 // A WGSL shader module; raises with the compiler's messages when the code
 // does not compile. A program of a `wgsl name { }` block (gpu/syntax) is
 // given as it is: device:shader(name); the compiler's messages then name
-// the lines and columns of the file the block is in.
+// the lines and columns of the file the block is in. A program has one
+// module on a device: asking again gives the same one. Pipelines take a
+// program where they take a module, so this is seldom called for one.
 // type ShaderOptions = {code: string, label?: string}
 func device_m.shader(self, options){
   if(type(options) == "string"){
     options = {code: options}
   }
-  if(options.code == null and options.wgsl != null){
-    // a wgsl block: its tokens back at their places in the file
+  if(type(options) == "gpu.Entry"){
+    options = options.program
+  }
+  local program = null
+  if(type(options) == "gpu.Program"){
+    // one module for a program on a device
+    program = options
+    local made = modules_of(self)[program]
+    if(made != null){
+      return made
+    }
+    local info = program_lib.info(program)
     options = {
-      code: wgsl_source(options.wgsl, options.at),
-      label: options.label,
+      // a wgsl block: its tokens back at their places in the file
+      code: info.code or wgsl_source(info.wgsl, info.at),
+      label: info.label,
     }
   }
   local keep = {}
@@ -2185,7 +2262,12 @@ func device_m.shader(self, options){
     }, keep),
   )
   check()
-  return wrap(ShaderModule, m, options)
+  local module = wrap(ShaderModule, m, options)
+  if(program != null and module != null){
+    module.program = program
+    modules_of(self)[program] = module
+  }
+  return module
 }
 
 // compilation_info() -> async.Future
@@ -2257,19 +2339,200 @@ local func copy_table(t){
 }
 
 // what render_pipeline makes of its options: the descriptor
-local func render_pipeline_desc(options){
+// What a pipeline's options give as a stage's shader, for the stage
+// ("vertex", "fragment", "compute"): a module, or a program or one of its
+// entry points (gpu/program). {module, entry_point?, program?, entry?}
+local func stage_shader(device, given, stage, entry_point){
+  local t = type(given)
+  if(t == "gpu.Entry"){
+    if(given.stage != stage){
+      raise(error.new(error.kinds.argument, concat(
+        "gpu: ",
+        given.name,
+        " is a ",
+        given.stage,
+        " stage, not a ",
+        stage,
+        " stage",
+      )))
+    }
+    return {
+      module: device:shader(given.program),
+      entry_point: given.name,
+      program: given.program,
+      entry: given,
+    }
+  }
+  if(t == "gpu.Program"){
+    local entry = null
+    if(entry_point != null){
+      entry = given[entry_point]
+      if(type(entry) != "gpu.Entry"){
+        raise(error.new(error.kinds.argument, concat(
+          "gpu: the program has no entry point ",
+          string(entry_point),
+        )))
+      }
+    } else {
+      entry = program_lib.entry(given, stage)
+      if(entry == null){
+        // none, or several: which one is meant has to be said
+        local names = {}
+        for(let local e in values(program_lib.info(given).entries)){
+          if(e.stage == stage){
+            append(names, e.name)
+          }
+        }
+        if(len(names) == 0){
+          raise(error.new(error.kinds.argument, concat(
+            "gpu: the program has no ",
+            stage,
+            " stage",
+          )))
+        }
+        raise(error.new(error.kinds.argument, concat(
+          "gpu: the program has ",
+          string(len(names)),
+          " ",
+          stage,
+          " stages (",
+          str.join(names, ", "),
+          "): give one of them instead of the program",
+        )))
+      }
+    }
+    return {
+      module: device:shader(given),
+      entry_point: entry.name,
+      program: given,
+      entry: entry,
+    }
+  }
+  if(t == "gpu.ShaderModule" and given.program != null){
+    return stage_shader(device, given.program, stage, entry_point)
+  }
+  return {module: given}
+}
+
+// The layout of a vertex buffer that holds structs of a program: every
+// member an attribute at its offset, at the location the member has
+// (@location(0) position: vec3f) or the vertex stage's input of its name.
+local func vertex_layout(given, entry){
+  local s = given
+  local step_mode = null
+  if(type(given) != "gpu.Struct"){
+    s = given.struct
+    step_mode = given.step_mode
+  }
+  local attributes = {}
+  for(let local m in values(s.members)){
+    local location = m.location
+    if(location == null and entry != null){
+      for(let local input in values(entry.inputs)){
+        if(input.name == m.name){
+          location = input.location
+        }
+      }
+    }
+    local format = layout_lib.format(m.type)
+    if(location == null){
+      raise(error.new(error.kinds.argument, concat(
+        "gpu: ",
+        s.name,
+        ".",
+        m.name,
+        " has no @location, and the vertex stage has no input of its name",
+      )))
+    }
+    if(format == null){
+      raise(error.new(error.kinds.argument, concat(
+        "gpu: ",
+        s.name,
+        ".",
+        m.name,
+        " is not something a vertex buffer holds",
+      )))
+    }
+    append(attributes, {
+      format: format, offset: m.offset, shader_location: location
+    })
+  }
+  return {array_stride: s.stride, step_mode: step_mode, attributes: attributes}
+}
+
+// what a pipeline remembers of the programs it was made of: for binding
+// resources by name (see bind)
+local func remember(pipeline, device, stages){
+  if(pipeline == null){
+    return null
+  }
+  pipeline.device = device
+  local uses = {}
+  local program = null
+  for(let local st in values(stages)){
+    if(st.program != null){
+      program = st.program
+      local names = null
+      if(st.entry != null){
+        names = st.entry.uses
+      } else {
+        // (which entry point runs is the WGSL compiler's to say: all of
+        // the program's variables may be used)
+        names = {}
+        for(let local v in values(program_lib.info(st.program).variables)){
+          append(names, v.name)
+        }
+      }
+      for(let local n in values(names)){
+        uses[n] = true
+      }
+    }
+  }
+  pipeline.program = program
+  pipeline.uses = uses
+  pipeline.stages = stages
+  return pipeline
+}
+
+// what render_pipeline makes of its options: the descriptor, and the
+// stages' shaders
+local func render_pipeline_desc(device, options){
   local desc = copy_table(options)
   local shader = desc.shader
   desc.shader = null
   desc.vertex = copy_table(desc.vertex or {})
-  if(desc.vertex.module == null){
-    desc.vertex.module = shader
+  local stages = {}
+  local vs = stage_shader(
+    device,
+    desc.vertex.module or shader,
+    "vertex",
+    desc.vertex.entry_point,
+  )
+  desc.vertex.module = vs.module
+  desc.vertex.entry_point = desc.vertex.entry_point or vs.entry_point
+  append(stages, vs)
+  if(desc.vertex.buffers != null){
+    local buffers = {}
+    for(let local b in values(desc.vertex.buffers)){
+      if(type(b) == "gpu.Struct" or type(b.struct) == "gpu.Struct"){
+        append(buffers, vertex_layout(b, vs.entry))
+      } else {
+        append(buffers, b)
+      }
+    }
+    desc.vertex.buffers = buffers
   }
   if(desc.fragment != null){
     desc.fragment = copy_table(desc.fragment)
-    if(desc.fragment.module == null){
-      desc.fragment.module = shader
-    }
+    local fs = stage_shader(
+      device,
+      desc.fragment.module or shader,
+      "fragment",
+      desc.fragment.entry_point,
+    )
+    desc.fragment.module = fs.module
+    desc.fragment.entry_point = desc.fragment.entry_point or fs.entry_point
+    append(stages, fs)
     local targets = {}
     for(let local t in values(desc.fragment.targets or {})){
       local target = copy_table(t)
@@ -2286,7 +2549,7 @@ local func render_pipeline_desc(options){
   if(desc.layout == "auto"){
     desc.layout = null
   }
-  return desc
+  return {desc: desc, stages: stages}
 }
 
 // render_pipeline(options: RenderPipelineOptions) -> RenderPipeline
@@ -2327,11 +2590,9 @@ local func render_pipeline_desc(options){
 // [multisample]: count, for a multisampled target
 // [layout]: "auto" (the default: from the shader) or a pipeline layout
 func device_m.render_pipeline(self, options){
-  local p = descriptor_call("wgpuDeviceCreateRenderPipeline")(
-    self,
-    render_pipeline_desc(options),
-  )
-  return wrap(classes.RenderPipeline, p, options)
+  local made = render_pipeline_desc(self, options)
+  local p = descriptor_call("wgpuDeviceCreateRenderPipeline")(self, made.desc)
+  return remember(wrap(classes.RenderPipeline, p, options), self, made.stages)
 }
 
 // a pipeline made without waiting: a future of it. wgpu-native makes
@@ -2342,9 +2603,11 @@ local func pipeline_async(device, fname, cls, describe, now){
       return async.value(now())
     })
   }
+  local made = null
   return request(func(answer){
     local keep = {}
-    lib[fname](device.handle, with_descriptor(fname, 1, describe(), keep), {
+    made = describe()
+    lib[fname](device.handle, with_descriptor(fname, 1, made.desc, keep), {
       mode: spontaneous,
       callback: func(status, pipeline, msg, u1, u2){
         if(status == K.WGPUCreatePipelineAsyncStatus_Success){
@@ -2357,7 +2620,7 @@ local func pipeline_async(device, fname, cls, describe, now){
       },
     })
   }):then(func(p){
-    return wrap(cls, p)
+    return remember(wrap(cls, p), device, made.stages)
   })
 }
 
@@ -2371,7 +2634,7 @@ func device_m.render_pipeline_async(self, options){
     "wgpuDeviceCreateRenderPipelineAsync",
     classes.RenderPipeline,
     func(){
-      return render_pipeline_desc(options)
+      return render_pipeline_desc(self, options)
     },
     func(){
       return self:render_pipeline(options)
@@ -2380,17 +2643,26 @@ func device_m.render_pipeline_async(self, options){
 }
 
 // what compute_pipeline makes of its options: the descriptor
-local func compute_pipeline_desc(options){
+local func compute_pipeline_desc(device, options){
+  // (a program or an entry point alone: its compute stage)
+  if(type(options) == "gpu.Program" or type(options) == "gpu.Entry"){
+    options = {shader: options}
+  }
   local desc = copy_table(options)
   desc.compute = copy_table(desc.compute or {})
-  if(desc.compute.module == null){
-    desc.compute.module = desc.shader
-  }
+  local cs = stage_shader(
+    device,
+    desc.compute.module or desc.shader,
+    "compute",
+    desc.compute.entry_point,
+  )
+  desc.compute.module = cs.module
+  desc.compute.entry_point = desc.compute.entry_point or cs.entry_point
   desc.shader = null
   if(desc.layout == "auto"){
     desc.layout = null
   }
-  return desc
+  return {desc: desc, stages: {cs}}
 }
 
 // compute_pipeline(options: ComputePipelineOptions) -> ComputePipeline
@@ -2404,11 +2676,13 @@ local func compute_pipeline_desc(options){
 //   than one compute function
 // [layout]: "auto" (the default: from the shader) or a pipeline layout
 func device_m.compute_pipeline(self, options){
-  local p = descriptor_call("wgpuDeviceCreateComputePipeline")(
-    self,
-    compute_pipeline_desc(options),
-  )
-  return wrap(classes.ComputePipeline, p, options)
+  local made = compute_pipeline_desc(self, options)
+  local p = descriptor_call("wgpuDeviceCreateComputePipeline")(self, made.desc)
+  local label = null
+  if(raw_type(options) == "table" and options.@meta == null){
+    label = options
+  }
+  return remember(wrap(classes.ComputePipeline, p, label), self, made.stages)
 }
 
 // compute_pipeline_async(options: ComputePipelineOptions) -> async.Future
@@ -2420,12 +2694,86 @@ func device_m.compute_pipeline_async(self, options){
     "wgpuDeviceCreateComputePipelineAsync",
     classes.ComputePipeline,
     func(){
-      return compute_pipeline_desc(options)
+      return compute_pipeline_desc(self, options)
     },
     func(){
       return self:compute_pipeline(options)
     },
   )
+}
+
+// a bind group for a pipeline made of WGSL programs, its resources given
+// by the names of the programs' variables
+local func bind_by_name(self, resources, group){
+  group = group or 0
+  if(self.program == null){
+    raise(error.new(
+      error.kinds.state,
+      "gpu: bind takes resources by name for a pipeline made of a WGSL program (a wgsl block); this one was made of a shader module",
+    ))
+  }
+  local known = {}
+  local bound = {}
+  local entries_out = {}
+  local lacking = {}
+  for(let local st in values(self.stages)){
+    if(st.program != null){
+      for(let local v in values(program_lib.info(st.program).variables)){
+        known[v.name] = true
+        if(v.group == group and self.uses[v.name] and not bound[v.name]){
+          bound[v.name] = true
+          local r = resources[v.name]
+          if(r == null){
+            append(lacking, v.name)
+          } else {
+            append(entries_out, {binding: v.binding, resource: r})
+          }
+        }
+      }
+    }
+  }
+  for(let local name in keys(resources)){
+    if(not known[name]){
+      raise(error.new(error.kinds.argument, concat(
+        "gpu: bind: the program has no variable ",
+        string(name),
+      )))
+    }
+  }
+  if(len(lacking) > 0){
+    raise(error.new(error.kinds.argument, concat(
+      "gpu: bind: nothing is given for ",
+      str.join(lacking, ", "),
+    )))
+  }
+  return self.device:bind_group({
+    layout: self:bind_group_layout(group),
+    entries: entries_out,
+  })
+}
+
+// bind(resources: {[string]: any}, group?: int) -> BindGroup
+// A bind group for the pipeline with its resources given by name: the
+// names of the variables of the WGSL program the pipeline was made of
+// (a `wgsl name { }` block). Only the variables the pipeline's entry
+// points use are bound, so one table of resources serves several
+// pipelines of a program; a name the program does not have, and a variable
+// in use that nothing is given for, raise.
+//   wgsl pond { @group(0) @binding(0) var<uniform> u: Uniforms; ... }
+//   local group = pipeline:bind({u: uniforms})
+//   pass:set_bind_group(0, group)
+// [resources]: a Buffer, {buffer, offset, size}, a Texture, a TextureView
+//   or a Sampler for each name
+// [group]: the @group the names are of (0)
+func classes.RenderPipeline.methods.bind(self, resources, group){
+  return bind_by_name(self, resources, group)
+}
+
+// bind(resources: {[string]: any}, group?: int) -> BindGroup
+// A bind group for the pipeline with its resources given by the names of
+// its WGSL program's variables ([RenderPipeline.bind]).
+func classes.ComputePipeline.methods.bind(self, resources, group){
+  return bind_by_name(self, resources, group)
 }
 
 // bind_group(options: BindGroupOptions) -> BindGroup
@@ -2662,6 +3010,7 @@ local cpass_m = classes.ComputePassEncoder.methods
 // set_pipeline(pipeline: ComputePipeline)
 func cpass_m.set_pipeline(self, p){
   lib.wgpuComputePassEncoderSetPipeline(self.handle, p.handle)
+  self.pipeline = p
 }
 
 // set_bind_group(index: int, group: BindGroup, offsets?: {int})
@@ -2681,6 +3030,36 @@ func cpass_m.set_bind_group(self, index, group, offsets){
 // dispatch_workgroups(x: int, y?: int, z?: int)
 func cpass_m.dispatch_workgroups(self, x, y, z){
   lib.wgpuComputePassEncoderDispatchWorkgroups(self.handle, x, y or 1, z or 1)
+}
+
+// dispatch(x: int, y?: int, z?: int)
+// Dispatches as many workgroups as it takes to run x (by y, by z)
+// invocations: each count divided by the workgroup size of the pipeline's
+// entry point, rounded up. For a pipeline made of a WGSL program (a `wgsl
+// name { }` block), whose @workgroup_size the package knows.
+//   pass:set_pipeline(step)
+//   pass:dispatch(count)          // count particles, 64 to a workgroup
+func cpass_m.dispatch(self, x, y, z){
+  local entry = null
+  if(self.pipeline != null and self.pipeline.stages != null){
+    entry = self.pipeline.stages[0].entry
+  }
+  if(entry == null or entry.workgroup_size == null){
+    raise(error.new(
+      error.kinds.state,
+      "gpu: dispatch needs the workgroup size of a pipeline made of a WGSL program (a wgsl block): set one, or use dispatch_workgroups",
+    ))
+  }
+  local size = entry.workgroup_size
+  local func groups(n, per){
+    return math.floor((n + per - 1) / per) | 0
+  }
+  lib.wgpuComputePassEncoderDispatchWorkgroups(
+    self.handle,
+    groups(x, size[0]),
+    groups(y or 1, size[1]),
+    groups(z or 1, size[2]),
+  )
 }
 
 // finish(): ends the pass (WebGPU's end)

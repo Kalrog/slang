@@ -154,6 +154,24 @@ t.group("jolt: queries"){
     assert(s.world:cast_ray({10, 10, 0}, {0, 5, 0}) == null)
     s.world:destroy()
   }
+  t.test("a body filter: a ray from inside the ball passes it to the floor"){
+    local s = scene()
+    // (cast from inside the ball: it hits the ball at once)
+    local inside = s.world:cast_ray({0, 3, 0}, {0, -10, 0})
+    assert(inside != null and inside.body == s.ball and near(inside.fraction, 0))
+    local ball = s.ball.id
+    local asked = 0
+    local past = jolt.body_filter(func(id){
+      asked = asked + 1
+      return id != ball
+    })
+    local hit = s.world:cast_ray({0, 3, 0}, {0, -10, 0}, {body_filter: past.ptr})
+    assert(hit != null and hit.body != s.ball and near(hit.point.y, 0), hit and hit.point)
+    assert(asked > 0, "it was asked")
+    // and the other queries take it too
+    assert(len(s.world:collide_point({0, 3, 0}, {body_filter: past.ptr})) == 0)
+    s.world:destroy()
+  }
   t.test("points inside, shapes cast and overlapping"){
     local s = scene()
     local inside = s.world:collide_point({0, 3, 0})

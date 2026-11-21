@@ -632,12 +632,26 @@ local func define_class(name, chain, methods, type_name, getters, setters){
     name: name, links: links, methods: methods, getters: getters,
     setters: setters
   }
+  local shown = type_name or concat("jolt.", name)
   class.@meta = {
-    __type: type_name or concat("jolt.", name),
+    __type: shown,
     __index: found,
     __get: getters,
     __set: setters,
     __class: class,
+    // short: printing the fields would follow a body to its world, the
+    // world to all its bodies and on and on, without end
+    __tostring: func(o){
+      local id = get_raw(o, "id")
+      local kind = get_raw(o, "kind")
+      if(id != null){
+        return concat(shown, "#", string(id))
+      }
+      if(kind != null){
+        return concat(shown, "(", string(kind), ")")
+      }
+      return shown
+    },
   }
   if(classes.finished){
     add_properties(class)
@@ -960,6 +974,10 @@ local LinearCurve = define_class("LinearCurve", {"LinearCurve"}, {})
 // Which sub groups of a collision group collide ([group_filter_table]).
 // type GroupFilterTable
 local GroupFilterTable = define_class("GroupFilterTable", {"GroupFilterTable", "GroupFilter"}, {})
+
+// Which bodies a query sees ([body_filter]): as QueryFilters.body_filter.
+// type BodyFilter
+local BodyFilter = define_class("BodyFilter", {"BodyFilter"}, {})
 
 // Skeletons, poses, animations and ragdolls ([skeleton], [skeleton_pose],
 // [skeletal_animation], [skeleton_mapper], [ragdoll_settings]), each with
@@ -2423,6 +2441,46 @@ func jolt.group_filter_table(sub_groups){
   init()
   return wrapper(GroupFilterTable, lib.JPH_GroupFilterTable_Create(sub_groups),
     lib.JPH_GroupFilter_Destroy)
+}
+
+// Body filters: joltc calls one pair of functions for every filter (its
+// procs, set the first time), with the filter's user data, here its id
+// in body_filters
+local body_filter_procs = null
+local body_filters = {}
+local next_body_filter = 1
+
+local func keeps_body(user, body_id){
+  local keep = body_filters[ffi.address(user)]
+  return keep == null or keep(body_id) != false
+}
+
+local func keeps_body_locked(user, body){
+  local keep = body_filters[ffi.address(user)]
+  return keep == null or keep(lib.JPH_Body_GetID(body)) != false
+}
+
+// body_filter(keep: func(body_id: int) -> bool) -> BodyFilter
+// A filter for queries (filters.body_filter: cast_ray, collide_point,
+// cast_shape, collide_shape): the bodies keep says false for are left
+// out (a ray from inside a body through it, past the body itself). keep
+// gets Jolt's body id (body.id); it runs during the query, on the calling
+// thread. Make one and keep it (each one made stays known to the
+// binding), not one a query.
+func jolt.body_filter(keep){
+  init()
+  if(body_filter_procs == null){
+    body_filter_procs = ffi.new("JPH_BodyFilter_Procs", 1, C)
+    body_filter_procs.should_collide = keeps_body
+    body_filter_procs.should_collide_locked = keeps_body_locked
+    lib.JPH_BodyFilter_SetProcs(body_filter_procs)
+  }
+  local id = next_body_filter
+  next_body_filter = next_body_filter + 1
+  body_filters[id] = keep
+  // (freed when collected; its keep stays in body_filters: make filters
+  // once and keep them, not one a query)
+  return wrapper(BodyFilter, lib.JPH_BodyFilter_Create(ffi.cast(id)), lib.JPH_BodyFilter_Destroy)
 }
 
 // skeleton() -> Skeleton

@@ -114,7 +114,9 @@ to fill and free.
   (`body`, `fraction`, `point`) or null; `world:collide_point(p)`,
   `world:cast_shape(shape, transform, direction)` and
   `world:collide_shape(shape, transform)` are lists of hits with their
-  `body`. `world.narrow_phase` and `world.broad_phase` have the rest of
+  `body`. Each takes filters last: `{body_filter: f.ptr}` with
+  `f = jolt.body_filter(func(body_id){ return ... })` leaves out the
+  bodies it says false for (a ray from inside a body, past it). `world.narrow_phase` and `world.broad_phase` have the rest of
   joltc's query functions as methods.
 - **Contacts:** `jolt.world({contact_events: true})` collects the
   contacts that begin and end in each step, and

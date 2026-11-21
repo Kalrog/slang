@@ -38,6 +38,47 @@ wgsl mistaken {
   }
 }
 
+// includes: base reaches with_includes twice (directly and through
+// shared), and is taken once
+wgsl inc_base {
+  const SCALE = 2.0;
+  struct Light {
+    dir: vec3f,
+    power: f32,
+  }
+}
+
+wgsl inc_shared {
+  #include inc_base
+  @group(0) @binding(0) var<uniform> light: Light;
+  fn lit(n: vec3f) -> f32 {
+    return max(dot(n, light.dir), 0.0) * light.power * SCALE;
+  }
+}
+
+wgsl with_includes {
+  #include inc_shared
+  #include inc_base
+  @group(1) @binding(0) var<storage, read_write> out: array<f32>;
+
+  @compute @workgroup_size(1)
+  fn main() {
+    out[0] = lit(vec3f(0.0, 1.0, 0.0));
+  }
+}
+
+wgsl include_mistaken {
+  #include inc_base
+  fn bad() -> f32 {
+    let wrong_again: u32 = 1.5;
+    return SCALE;
+  }
+  @compute @workgroup_size(1)
+  fn main() {
+    let x = bad();
+  }
+}
+
 // a program with what slang reads of one: structs of every shape, a
 // constant, resources, and entry points of every stage
 wgsl scene {
@@ -214,6 +255,84 @@ t.group("wgsl: the grammar"){
 }
 
 t.group("wgsl: blocks in slang files"){
+  t.test("includes put other blocks' declarations first, once each"){
+    assert(type(with_includes.Light) == "gpu.Struct", "an included struct")
+    assert(with_includes.SCALE == 2.0, "an included const")
+    assert(with_includes.light.group == 0, "an included variable")
+    assert(with_includes.out.group == 1, "its own variable")
+    local info = require("gpu/program").info(with_includes)
+    assert(str.count(info.wgsl, "struct Light") == 1, "base once")
+    assert(
+      str.index_of(info.wgsl, "struct Light") <
+        str.index_of(info.wgsl, "fn lit"),
+      "in order",
+    )
+    local light = with_includes.Light:new({dir: {0, 1, 0}, power: 3})
+    assert(light.power == 3, "laid out")
+  }
+  t.test("a block with includes runs on the device"){
+    if(gpu.version() != "browser"){
+      local device = gpu.device()
+      local light = device:buffer({
+        contents: with_includes.Light:new({dir: {0, 1, 0}, power: 3}),
+        usage: "uniform",
+      })
+      local out = device:buffer({size: 4, usage: "storage|copy_src"})
+      local pipeline = device:compute_pipeline({shader: with_includes})
+      local encoder = device:encoder()
+      local pass = encoder:compute_pass()
+      pass:set_pipeline(pipeline)
+      pass:set_bind_group(0, pipeline:bind({light: light}, 0))
+      pass:set_bind_group(1, pipeline:bind({out: out}, 1))
+      pass:dispatch(1)
+      pass:finish()
+      device.queue:submit(encoder:finish())
+      assert(out:read("float")[0] == 6, "1 * 3 * SCALE")
+    }
+  }
+  t.test("the compiler speaks of the lines of a block with includes"){
+    if(gpu.version() != "browser"){
+      local source = str.split(os.read_file(this_file), "\n")
+      local line = 0
+      for(local i = 0; i < len(source); i = i + 1){
+        if(str.contains(source[i], "let wrong_again: u32") and line == 0){
+          line = i + 1
+        }
+      }
+      local e = t.raises(func(){
+        gpu.device():shader(include_mistaken)
+      })
+      assert(
+        str.contains(e.message, concat("wgsl_test.slang:", string(line), ":")),
+        e.message,
+      )
+    }
+  }
+  t.test("includes that find nothing are compile errors"){
+    local cases = {
+      {"wgsl a {\n  #include nothing\n}\n", "no wgsl block nothing"},
+      {
+        "wgsl a {\n  #include b\n}\nwgsl b { const X = 1; }\n",
+        "before it in this file",
+      },
+      {
+        "wgsl a {\n  #include b from \"no/such/module\"\n}\n",
+        "no module no/such/module",
+      },
+    }
+    for(let local c in values(cases)){
+      local h = compiler.highlight(
+        concat("extension \"gpu/syntax\"\n", c[0]),
+        path.join(here, "includes.slang"),
+        {find_project: true},
+      )
+      local said = ""
+      for(let local d in values(h.diagnostics or {})){
+        said = concat(said, d.message, "\n")
+      }
+      assert(str.contains(said, c[1]), said)
+    }
+  }
   t.test("a block is a program for the device"){
     local device = gpu.device()
     local pipeline = device:compute_pipeline({shader: device:shader(doubler)})
@@ -244,9 +363,10 @@ t.group("wgsl: blocks in slang files"){
         gpu.device():shader(mistaken)
       })
       local column = str.index_of(source[line - 1], "wrong") + 1
+      // named by the file the block is in, not wgsl's own name for it
       assert(str.contains(
         e.message,
-        concat("wgsl:", string(line), ":", string(column)),
+        concat("wgsl_test.slang:", string(line), ":", string(column)),
       ), e.message)
     }
   }

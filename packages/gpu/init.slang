@@ -2169,25 +2169,57 @@ func device_m.sampler(self, options){
 
 // ---- shaders and pipelines
 
-// wgsl_source(tokens: string, at: string) -> string
+// wgsl_source(tokens: string, at: string) -> {code: string, lines: table}
 // The program of a `wgsl name { }` block (gpu/syntax) as text: its tokens
 // (their texts, a space between them) at their places (one
 // "origin:line:column" for each, a space between them), every token on
 // its line and in its column, so that what a WGSL compiler says about a
-// line and a column is true of the file the block is in.
+// line and a column is true of the file the block is in. A block with
+// #includes has tokens of several files (or of one file out of order):
+// where the origin changes or the line goes back, the text goes on at a
+// new line, and lines (generated line -> {origin, line}) tells where each
+// line of the text came from, for [source_messages].
 local func wgsl_source(tokens, at){
   local texts = str.split(tokens, " ")
   local places = str.split(at, " ")
   local parts = {}
+  local lines = {}
+  // the line being written, and the file and line it stands for
   local line = 1
   local column = 1
+  local src_origin = null
+  local src_line = 1
   for(local i = 0; i < len(texts); i = i + 1){
     local place = str.split(places[i], ":")
     local want_line = str.parse_int(place[len(place) - 2], 10)
     local want_column = str.parse_int(place[len(place) - 1], 10)
-    if(want_line > line){
-      append(parts, "\n" * (want_line - line))
-      line = want_line
+    // the origin: all before the last two parts (it may hold colons)
+    local origin_parts = {}
+    for(local k = 0; k < len(place) - 2; k = k + 1){
+      append(origin_parts, place[k])
+    }
+    local origin = str.join(origin_parts, ":")
+    if(src_origin == null){
+      src_origin = origin
+      for(local l = 1; l <= line; l = l + 1){
+        lines[l] = {origin: origin, line: l}
+      }
+    }
+    if(origin != src_origin or want_line < src_line){
+      // another file, or back in this one: a fresh line
+      append(parts, "\n")
+      line = line + 1
+      column = 1
+      src_origin = origin
+      src_line = want_line
+      lines[line] = {origin: origin, line: want_line}
+    } else if(want_line > src_line){
+      append(parts, "\n" * (want_line - src_line))
+      for(local l = 1; l <= want_line - src_line; l = l + 1){
+        lines[line + l] = {origin: origin, line: src_line + l}
+      }
+      line = line + (want_line - src_line)
+      src_line = want_line
       column = 1
     }
     if(want_column > column){
@@ -2201,7 +2233,52 @@ local func wgsl_source(tokens, at){
     append(parts, texts[i])
     column = column + len(texts[i])
   }
-  return str.join(parts, "")
+  return {code: str.join(parts, ""), lines: lines}
+}
+
+// source_messages(message: string, lines: table, label?: string) -> string
+// The compiler's message with each "wgsl:line" or "label:line" it names
+// (parse errors say the one, validation errors the other) turned into the
+// file and line that line of the text came from.
+local func source_messages(message, lines, label){
+  local func rewrite(text, prefix){
+    local out = {}
+    local pos = 0
+    local n = len(prefix)
+    for(true){
+      local i = str.index_of(text, prefix, pos)
+      if(i < 0){
+        append(out, str.substring(text, pos))
+        break
+      }
+      append(out, str.substring(text, pos, i))
+      local j = i + n
+      local k = j
+      for(k < len(text) and str.byte_at(text, k) >= '0' and
+        str.byte_at(text, k) <= '9'){
+        k = k + 1
+      }
+      local mapped = null
+      // (a whole name: not the end of a longer one)
+      local whole = i == 0 or str.byte_at(text, i - 1) == ' '
+      if(k > j and whole){
+        mapped = lines[str.parse_int(str.substring(text, j, k), 10)]
+      }
+      if(mapped != null){
+        append(out, concat(mapped.origin, ":", string(mapped.line)))
+        pos = k
+      } else {
+        append(out, prefix)
+        pos = j
+      }
+    }
+    return str.join(out, "")
+  }
+  message = rewrite(message, "wgsl:")
+  if(label != null and label != "wgsl"){
+    message = rewrite(message, concat(label, ":"))
+  }
+  return message
 }
 
 // the shader modules made of programs on a device, by program
@@ -2237,11 +2314,15 @@ func device_m.shader(self, options){
     if(made != null){
       return made
     }
-    options = {
+    local code = program.code
+    local lines = null
+    if(code == null){
       // a wgsl block: its tokens back at their places in the file
-      code: program.code or wgsl_source(program.wgsl, program.at),
-      label: program.label,
+      local made = wgsl_source(program.wgsl, program.at)
+      code = made.code
+      lines = made.lines
     }
+    options = {code: code, label: program.label, lines: lines}
   }
   local keep = {}
   local wgsl = ffi.new("WGPUShaderSourceWGSL", 1, C)
@@ -2257,6 +2338,14 @@ func device_m.shader(self, options){
       label: options.label,
     }, keep),
   )
+  if(options.lines != null and pending_error != null){
+    // the compiler's lines and columns, in the files the block came from
+    pending_error.message = source_messages(
+      pending_error.message,
+      options.lines,
+      options.label,
+    )
+  }
   check()
   local module = wrap(ShaderModule, m, options)
   if(program != null and module != null){

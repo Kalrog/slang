@@ -480,10 +480,8 @@ const BinDecoder = struct {
                 const narr = try d.count();
                 const t = vm.newTable(narr, 0);
                 for (0..narr) |_| {
-                    const x = try d.value(depth + 1);
-                    // (lists hold no null)
-                    if (x == .null) return d.malformed();
-                    t.append(vm.gpa, x);
+                    // (a list may hold null, like any table's array part)
+                    t.append(vm.gpa, try d.value(depth + 1));
                 }
                 const nhash = try d.count();
                 for (0..nhash) |_| {

@@ -159,11 +159,20 @@ t.group("string escapes"){
     assert(len(b.encode(1.5)) == 5, "a float that fits 32 bits is five")
     assert(len(b.encode(0.1)) == 9)
   }
+  t.test("binary keeps null in a list"){
+    local b = e.binary
+    local v = {1, null, 3, null}
+    local back = b.decode(b.encode(v))
+    assert(len(back) == 4 and back[0] == 1 and back[1] == null and back[2] == 3 and back[3] == null, string(back))
+    // as the bytes say: a table of one list element, null
+    local one = b.decode("\x07\x01\x00\x00")
+    assert(type(one) == "table" and len(one) == 1 and one[0] == null, string(one))
+  }
   t.test("binary raises on what it cannot encode or decode"){
     local b = e.binary
     t.raises(func(){ b.encode(print) }, error.kinds.argument)
     t.raises(func(){ b.encode({f: print}) }, error.kinds.argument)
-    for(let local bad in values({"", "\x07\x05", "\x06\x09ab", "\x03\xff", "\x21\x21", "\x07\x01\x00\x00", "\x1f"})){
+    for(let local bad in values({"", "\x07\x05", "\x06\x09ab", "\x03\xff", "\x21\x21", "\x1f"})){
       t.raises(func(){ b.decode(bad) }, error.kinds.format)
     }
     local deep = {}

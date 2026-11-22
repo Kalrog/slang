@@ -2,7 +2,7 @@
 // symbols of the open documents and of the project's files.
 //
 //   local w = navigate.new({root, read})
-//   w:open(path, text, index)      a document the editor has open (its
+//   w:open(path, text, index, ast) a document the editor has open (its
 //                                  index from compiler.highlight)
 //   w:close(path)
 //   w:definition(path, pos) -> list of {path, start, stop}
@@ -47,8 +47,12 @@ func navigate.new(options){
   return w
 }
 
-func methods.open(w, path, text, index){
-  w.documents[path] = {path: path, text: text, index: index}
+func methods.open(w, path, text, index, tree){
+  w.documents[path] = {path: path, text: text, index: index, ast: tree}
+  // (what a type name finds in the project, and what a function is
+  // called with, may have changed)
+  w.class_cache = null
+  w.called_cache = null
 }
 
 func methods.close(w, path){
@@ -83,7 +87,7 @@ func methods.file(w, path){
   if(index == null){
     return null
   }
-  cached = {path: path, text: text, index: index}
+  cached = {path: path, text: text, index: index, ast: h.ast}
   w.cache[path] = cached
   return cached
 }
@@ -358,17 +362,125 @@ local MAX_DEPTH = 24
 local value_of_def = null
 local value_of_node = null
 local field_of = null
+local instance_fields = null
+local class_value = null
+local type_value = null
+local called_value = null
 
 // a definition with no fields, for values known by their type alone
 local func no_fields(name){
   return {name: name, kind: "local", fields: {}}
 }
 
+// whether a table value is a meta: it has __index, __get or __set
+local func is_meta_table(v){
+  if(v == null or v.def == null or v.def.fields == null){
+    return false
+  }
+  local fields = v.def.fields
+  return fields.__index != null or fields.__get != null or fields.__set != null
+}
+
+// The objects of a class, from the value of its table (a meta: C.__index =
+// C), as a value named name: the meta and the fields its objects are made
+// with. Null when the value is no meta.
+class_value = func(w, v, name){
+  if(not is_meta_table(v)){
+    return null
+  }
+  local fields = {}
+  for(let local e in entries(instance_fields(w, v.path, v.def))){
+    fields[e[0]] = e[1]
+  }
+  fields["@meta"] = v.def
+  return {
+    path: v.path, def: {name: name, kind: "local", fields: fields},
+    type_name: name
+  }
+}
+
+// the class a file's local named name holds (local Camera = {} with
+// Camera.__index = Camera, or local Vec3 = m3.Vec3), else the one its
+// module returns under that name; as class_value gives it, or null
+local func class_in(w, path, name, depth){
+  local f = w:file(path)
+  if(f == null){
+    return null
+  }
+  for(let local d in values(f.index.defs)){
+    if(d.name == name and d.kind == "local" and d.params == null){
+      local c = class_value(w, value_of_def(w, path, d, depth + 1), name)
+      if(c != null){
+        return c
+      }
+    }
+  }
+  if(f.index.returned != null){
+    local m = field_of(w, value_of_def(w, path, f.index.returned, depth + 1), name, depth + 1)
+    if(m != null){
+      return class_value(w, value_of_def(w, m.path, m.def, depth + 1), name)
+    }
+  }
+  return null
+}
+
+// whether a text may define a class or type called name: `local Name =`
+// or `// type Name`
+local func may_define_class(text, name){
+  for(let local pattern in values({concat("local ", name, " ="), concat("// type ", name)})){
+    local i = str.index_of(text, pattern)
+    for(i >= 0){
+      local after = str.byte_at(text, i + len(pattern))
+      if(not is_name_byte(after) or str.ends_with(pattern, "=")){
+        return true
+      }
+      i = str.index_of(text, pattern, i + 1)
+    }
+  }
+  return false
+}
+
+// A type name no declaration and no local of the file explains (a doc
+// that says Inside where the class is another module's): the one class or
+// declared type of that name in the project's files, or null when there is
+// none or more than one.
+local func class_in_project(w, path, name, depth){
+  local found = null
+  local found_meta = null
+  for(let local p in values(w:project_files())){
+    if(p != path){
+      local doc = w.documents[p]
+      local text = doc and doc.text or try { w.read(p) } catch { null }
+      if(text != null and may_define_class(text, name)){
+        local f = w:file(p)
+        local v = null
+        local decl = f and (f.index.types or {})[name]
+        if(decl != null){
+          v = type_value(w, p, {kind: "name", name: name, here: true}, depth + 1)
+        } else {
+          v = class_in(w, p, name, depth + 1)
+        }
+        if(v != null){
+          // (the same class seen through two files is one)
+          local meta = v.def and v.def.fields and v.def.fields["@meta"] or v.def
+          if(found == null){
+            found = v
+            found_meta = meta
+          } else if(meta != found_meta){
+            return null
+          }
+        }
+      }
+    }
+  }
+  return found
+}
+
 // What a declared type is, as a value: a type with methods is the table that
 // holds them; a shape is a table of its fields (each with its type, so
 // that req.headers. goes on); mod.Name is the type Name of the module the
 // local mod holds. Null for the built-in types and what cannot be found.
-local func type_value(w, path, t, depth){
+type_value = func(w, path, t, depth){
   if(t == null or depth > MAX_DEPTH){
     return null
   }
@@ -424,7 +536,8 @@ local func type_value(w, path, t, depth){
         local mp = module_path_in(path, d.module)
         if(mp != null){
           return type_value(
-            w, mp, {kind: "name", name: str.substring(name, dot + 1)}, depth + 1
+            w, mp, {kind: "name", name: str.substring(name, dot + 1), here: true},
+            depth + 1
           )
         }
       }
@@ -433,14 +546,30 @@ local func type_value(w, path, t, depth){
   }
   local decl = (f.index.types or {})[name]
   if(decl == null){
-    return null
+    // no declared type: a class of that name (a meta table) the file
+    // holds or returns, else (for a name the file's own doc uses) the one
+    // of the project
+    local c = class_in(w, path, name, depth + 1)
+    if(c == null and not t.here){
+      if(w.class_cache == null){
+        w.class_cache = {}
+      }
+      local hit = w.class_cache[name]
+      if(hit == null){
+        hit = class_in_project(w, path, name, depth + 1) or false
+        w.class_cache[name] = hit
+      }
+      c = hit or null
+    }
+    return c
   }
   if(decl.table != null){
     local fields = decl.table.fields or {}
     local v = {path: path, def: decl.table, type_name: name}
     if(fields.__index != null or fields.__get != null or fields.__set != null){
-      // a metatable: the type is that of the objects it is the meta of
-      v.def = {name: name, kind: "local", fields: {["@meta"]: decl.table}}
+      // a metatable: the type is that of the objects it is the meta of,
+      // with the fields they are made with
+      v = class_value(w, {path: path, def: decl.table}, name)
     }
     if(decl.type != null){
       // another type's fields under the table's (type Request =
@@ -634,12 +763,21 @@ field_of = func(w, value, name, depth){
     return property or own
   }
   local index = field_of(w, mv, "__index", depth + 1)
-  if(index == null){
-    return null
-  }
-  return field_of(
+  local method = index and field_of(
     w, value_of_def(w, index.path, index.def, depth + 1), name, depth + 1
   )
+  if(method != null){
+    return method
+  }
+  // a field the meta's objects get elsewhere: in another constructor, or
+  // assigned to self by a method
+  if(mv != null and mv.def != null and mv.def.start != null){
+    local d = instance_fields(w, mv.path, mv.def)[name]
+    if(d != null){
+      return {path: mv.path, def: d}
+    }
+  }
+  return null
 }
 
 // the __type of a value's meta, or null
@@ -660,6 +798,10 @@ local func type_name_of(w, value){
       if(e[1].table == mv.def){
         return e[0]
       }
+    }
+    // else a class's name: the local that holds its meta (Camera)
+    if(is_meta_table(mv) and mv.def.name != null and mv.def.kind == "local"){
+      return mv.def.name
     }
   }
   return null
@@ -915,6 +1057,27 @@ local func instances_of(w, path){
   return index.instances
 }
 
+// whether a function of a meta's table makes objects rather than being
+// called on one (its first parameter is not self): it is named new, or
+// its doc lists every parameter (new(options) -> T, where a method's
+// leaves the object out). A first parameter named self is always the
+// object, and so is a metamethod's first.
+local func is_constructor(d, fn){
+  local p = fn.params[0]
+  if(p != null and p.value == "self"){
+    return false
+  }
+  local name = d.name or ""
+  if(str.starts_with(name, "__")){
+    return false
+  }
+  if(name == "new"){
+    return true
+  }
+  local sig = d.info and d.info.signature
+  return sig != null and sig.params != null and len(sig.params) == len(fn.params)
+}
+
 // the function definition a parameter is the first parameter of, in its
 // file: {param start: def}
 local func first_params_of(w, path){
@@ -927,7 +1090,8 @@ local func first_params_of(w, path){
     local out = {}
     for(let local d in values(index.defs)){
       local fn = d.value
-      if(fn != null and fn.type == "Function" and len(fn.params or {}) > 0){
+      if(fn != null and fn.type == "Function" and len(fn.params or {}) > 0 and
+        not is_constructor(d, fn)){
         local p = fn.params[0]
         if(p.token != null and p.token.start != null){
           out[p.token.start] = d
@@ -937,6 +1101,49 @@ local func first_params_of(w, path){
     index.first_params = out
   }
   return index.first_params
+}
+
+// The fields the objects of a meta have, in the file it is in: those of
+// the tables the file gives it as their meta, then those its methods
+// assign their self (self.port = p in a method other than the
+// constructor): {name: def}
+instance_fields = func(w, path, meta){
+  local f = w:file(path)
+  if(f == null or meta == null or meta.start == null){
+    return {}
+  }
+  local index = f.index
+  if(index.instance_fields == null){
+    index.instance_fields = {}
+  }
+  local known = index.instance_fields[meta.start]
+  if(known != null){
+    return known
+  }
+  local fields = {}
+  index.instance_fields[meta.start] = fields
+  for(let local o in values(instances_of(w, path)[meta.start] or {})){
+    for(let local e in entries(o.fields)){
+      if(e[0] != "@meta" and fields[e[0]] == null){
+        fields[e[0]] = e[1]
+      }
+    }
+  }
+  local firsts = first_params_of(w, path)
+  local metas = metas_of(w, path)
+  for(let local d in values(index.defs)){
+    local owner = d.owner
+    if(d.kind == "field" and fields[d.name] == null and owner != null and
+      owner.kind == "parameter" and owner.start != null and
+      not meta_keys[d.name] and d.name != "@meta"){
+      local fn = firsts[owner.start]
+      if(fn != null and fn.kind == "field" and fn.owner != null and
+        fn.owner.start != null and metas[fn.owner.start] == meta){
+        fields[d.name] = d
+      }
+    }
+  }
+  return fields
 }
 
 // What the first parameter of a method is (self): an object of the meta
@@ -952,14 +1159,9 @@ local func self_value(w, path, def){
   local meta = metas_of(w, path)[table.start]
   local f = w:file(path)
   if(meta != null){
-    // its fields: those of the tables the file makes objects of the meta
     local fields = {}
-    for(let local o in values(instances_of(w, path)[meta.start] or {})){
-      for(let local e in entries(o.fields)){
-        if(fields[e[0]] == null){
-          fields[e[0]] = e[1]
-        }
-      }
+    for(let local e in entries(instance_fields(w, path, meta))){
+      fields[e[0]] = e[1]
     }
     fields["@meta"] = meta
     local v = {path: path, def: {name: def.name, kind: "local", fields: fields}}
@@ -1154,7 +1356,8 @@ value_of_def = func(w, path, def, depth){
         return later
       }
     }
-    return null
+    // else what the calls of its function pass it
+    return called_value(w, path, def, depth + 1)
   }
   local v = def.value
   if(v == null or (v.type != "Table" and v.type != "Function")){
@@ -1179,6 +1382,65 @@ value_of_def = func(w, path, def, depth){
     return {path: path, def: def, node: v}
   }
   return {path: path, def: def}
+}
+
+// the metamethods arithmetic calls, by operator
+local operator_methods = {
+  ["+"]: "__add", ["-"]: "__sub", ["*"]: "__mul", ["/"]: "__div",
+  ["%"]: "__mod", ["**"]: "__pow"
+}
+
+// the meta of a value (the definition of its table), or null
+local func meta_def_of(w, v, depth){
+  local meta = field_of(w, v, "@meta", depth + 1)
+  if(meta == null){
+    return null
+  }
+  local mv = value_of_def(w, meta.path, meta.def, depth + 1)
+  return mv and mv.def
+}
+
+// What an operator gives on objects: what the metamethod (name) of the
+// left side's meta returns, else the right side's (2 * v). A metamethod
+// with returns of several metas (a Quat times a Vec3 or a Quat) gives the
+// one of the right side's meta, else the left side's.
+local func operator_value(w, path, name, left_node, right_node, depth){
+  if(depth > MAX_DEPTH){
+    return null
+  }
+  local left = value_of_node(w, path, left_node, depth + 1)
+  local right = right_node and value_of_node(w, path, right_node, depth + 1)
+  local left_meta = meta_def_of(w, left, depth)
+  local right_meta = meta_def_of(w, right, depth)
+  for(let? local side in values({left, right})){
+    local m = field_of(w, side, name, depth + 1)
+    local fn = m and value_of_def(w, m.path, m.def, depth + 1)
+    local node = function_of(fn)
+    if(node != null){
+      local declared = fn.def and fn.def.info and fn.def.info.signature and
+        fn.def.info.signature.result and fn.def.info.signature.result.type
+      if(declared != null){
+        return call_value(w, fn, depth + 1)
+      }
+      local first = null
+      local of_left = null
+      for(let local r in values(returns_of(node.body, {}))){
+        local v = value_of_node(w, fn.path, r, depth + 1)
+        if(v != null){
+          local vm = meta_def_of(w, v, depth)
+          if(right_meta != null and vm == right_meta){
+            return v
+          }
+          if(of_left == null and left_meta != null and vm == left_meta){
+            of_left = v
+          }
+          first = first or v
+        }
+      }
+      return of_left or first
+    }
+  }
+  return null
 }
 
 value_of_node = func(w, path, node, depth){
@@ -1263,6 +1525,22 @@ value_of_node = func(w, path, node, depth){
     // `options or {}`: the first side that has a value
     return value_of_node(w, path, node.left, depth + 1) or
       value_of_node(w, path, node.right, depth + 1)
+  }
+  if(t == "BinOp" and operator_methods[node.op] != null){
+    return operator_value(
+      w, path, operator_methods[node.op], node.left, node.right, depth + 1
+    )
+  }
+  if(t == "UnOp" and node.op == "-"){
+    return operator_value(w, path, "__unm", node.operand, null, depth + 1)
+  }
+  if(t == "IfExpr"){
+    // either branch: the first that tells
+    return value_of_node(w, path, node.thenValue, depth + 1) or
+      value_of_node(w, path, node.elseValue, depth + 1)
+  }
+  if(t == "TryExpr"){
+    return value_of_node(w, path, node.value, depth + 1)
   }
   return null
 }
@@ -1379,6 +1657,11 @@ local func key_at(w, path, pos){
     local m = module_file(path, def.owner)
     if(m != null){
       return {kind: "export", path: m, name: def.name}
+    }
+    // a field of a local table (a method of a class, func T.name): its
+    // uses are members (o:name(), T.name) across the project
+    if(def.owner != null and def.owner.global == null){
+      return {kind: "member", path: path, def: def, name: def.name}
     }
   }
   return {kind: "local", path: path, def: def}
@@ -1591,6 +1874,132 @@ func methods.references(w, path, pos, with_declaration){
   return out
 }
 
+// ------------------------------------------------------------ call sites
+//
+// A parameter neither its doc nor its function's code tells anything of
+// (func Cabin.new(g)) is what its function's calls pass: the argument of
+// the first call in the project whose value can be told.
+
+// the calls in a file by where the name they call starts (f(...), o.f(...),
+// o:f(...)): {start: Call or Invoke node}
+local func calls_of(w, path){
+  local f = w:file(path)
+  if(f == null or f.ast == null){
+    return {}
+  }
+  if(f.index.calls != null){
+    return f.index.calls
+  }
+  local out = {}
+  local func walk(node){
+    if(node == null or type(node) == "string"){
+      return null
+    }
+    local spec = ast.specs[node.type]
+    if(spec == null){
+      return null
+    }
+    local name = null
+    if(node.type == "Invoke"){
+      name = node.name
+    } else if(node.type == "Call"){
+      local callee = node.function
+      if(callee.type == "Identifier"){
+        name = callee
+      } else if(callee.type == "Index" and callee.index != null and
+        callee.index.type == "String"){
+        name = callee.index
+      }
+    }
+    if(name != null and name.token != null and name.token.start != null){
+      out[name.token.start] = node
+    }
+    for(let local field in values(spec)){
+      local child = node[field[0]]
+      if(child != null){
+        if(field[1] == "list"){
+          for(let local c in values(child)){
+            walk(c)
+          }
+        } else if(field[1] != "value"){
+          walk(child)
+        }
+      }
+    }
+  }
+  walk(f.ast)
+  f.index.calls = out
+  return out
+}
+
+// the function definition each parameter of a file belongs to, and its
+// place: {param start: {fn, index}}
+local func param_owners(w, path){
+  local f = w:file(path)
+  if(f == null){
+    return {}
+  }
+  local index = f.index
+  if(index.param_owners == null){
+    local out = {}
+    for(let local d in values(index.defs)){
+      local fn = d.value
+      if(fn != null and fn.type == "Function" and d.start != null){
+        for(local i = 0; i < len(fn.params or {}); i = i + 1){
+          local p = fn.params[i]
+          if(p.token != null and p.token.start != null){
+            out[p.token.start] = {fn: d, index: i}
+          }
+        }
+      }
+    }
+    index.param_owners = out
+  }
+  return index.param_owners
+}
+
+called_value = func(w, path, def, depth){
+  // (not while calls are checked: the lint stays quick, and reports only
+  // what is certain)
+  if(def.start == null or depth > MAX_DEPTH or w.checking){
+    return null
+  }
+  if(w.called_cache == null){
+    w.called_cache = {}
+  }
+  local key = concat(path, ":", string(def.start))
+  local hit = w.called_cache[key]
+  if(hit != null){
+    return hit or null
+  }
+  // (while it is worked out, a call that passes the parameter itself on
+  // tells nothing)
+  w.called_cache[key] = false
+  local owner = param_owners(w, path)[def.start]
+  local found = null
+  if(owner != null){
+    for(let local loc in values(w:references(path, owner.fn.start, false))){
+      local call = calls_of(w, loc.path)[loc.start]
+      if(call != null){
+        // o:f(a) passes o as the first parameter
+        local i = owner.index
+        if(call.type == "Invoke"){
+          i = i - 1
+        }
+        local arg = i >= 0 and call.args[i]
+        if(arg != null and arg != false and arg.type != "Spread"){
+          found = value_of_node(w, loc.path, arg, depth + 1)
+          if(found != null){
+            break
+          }
+        }
+      }
+    }
+  }
+  w.called_cache[key] = found or false
+  return found
+}
+
 // ------------------------------------------------------------ by name
 //
 // While a document is edited it often does not parse: its index is of an
@@ -1674,14 +2083,28 @@ func methods.members(w, target){
   if(target == null){
     return out
   }
-  local func add_fields(value, depth){
+  // what an object finds through its meta: neither the meta's own keys
+  // (__index, __add, ...) nor what makes objects (new)
+  local func hidden(name, def, via_meta){
+    if(not via_meta){
+      return false
+    }
+    if(str.starts_with(name, "__")){
+      return true
+    }
+    local fn = def and def.value
+    return fn != null and fn.type == "Function" and len(fn.params or {}) > 0 and
+      is_constructor(def, fn) or (name == "new" and fn != null)
+  }
+  local func add_fields(value, depth, via_meta){
     if(value == null or depth > 4){
       return null
     }
     // (a key named meta would set out's metatable: it is the meta)
     if(value.def != null){
       for(let local e in entries(value.def.fields or {})){
-        if(e[0] != "@meta" and out[e[0]] == null){
+        if(e[0] != "@meta" and out[e[0]] == null and
+          not hidden(e[0], e[1], via_meta)){
           // an assigned field may be a property's setter at work
           out[e[0]] = assigned(e[1]) and field_of(w, value, e[0], 0) or
             {path: value.path, def: e[1]}
@@ -1692,7 +2115,8 @@ func methods.members(w, target){
       for(let local fld in values(value.node.fields)){
         if(fld.type == "Field" and fld.key != null and
           fld.key.type == "String" and fld.key.value != "@meta" and
-          out[fld.key.value] == null){
+          out[fld.key.value] == null and
+          not (via_meta and str.starts_with(fld.key.value, "__"))){
           local key = fld.key.token
           out[fld.key.value] = {
             path: value.path,
@@ -1722,11 +2146,19 @@ func methods.members(w, target){
       }
       local index = field_of(w, mv, "__index", 0)
       if(index != null){
-        add_fields(value_of_def(w, index.path, index.def, 0), depth + 1)
+        add_fields(value_of_def(w, index.path, index.def, 0), depth + 1, true)
+      }
+      // the fields its objects get elsewhere (self.port = p in a method)
+      if(mv != null and mv.def != null and mv.def.start != null){
+        for(let local e in entries(instance_fields(w, mv.path, mv.def))){
+          if(out[e[0]] == null){
+            out[e[0]] = {path: mv.path, def: e[1]}
+          }
+        }
       }
     }
   }
-  add_fields(value_of_def(w, target.path, target.def, 0), 0)
+  add_fields(value_of_def(w, target.path, target.def, 0), 0, false)
   return out
 }
 
@@ -2179,10 +2611,8 @@ local func span_of(node){
   return {t.start, t.stop or t.start + 1}
 }
 
-// check_calls(path: string, block: table) -> {{start, stop, message}}
-// The calls in the file's AST that do not fit the typed docs of what they
-// call.
-func methods.check_calls(w, path, block){
+// the calls in block that do not fit the typed docs of what they call
+local func check_calls_unguarded(w, path, block){
   local out = {}
   local f = w:file(path)
   if(f == null){
@@ -2290,6 +2720,18 @@ func methods.check_calls(w, path, block){
     }
   }
   return out
+}
+
+// check_calls(path: string, block: table) -> {{start, stop, message}}
+// The calls in block that do not fit the typed docs of what they call.
+// (What a function's calls pass a parameter is not followed: the lint
+// stays quick.)
+func methods.check_calls(w, path, block){
+  w.checking = true
+  defer {
+    w.checking = false
+  }
+  return check_calls_unguarded(w, path, block)
 }
 
 // ------------------------------------------------------------ hover
@@ -2403,8 +2845,9 @@ func methods.hover(w, path, pos){
       // the type it is found to have (a callback's parameter, self, a
       // loop's element)
       local v = value_of_def(w, d.path, def, 0)
-      if(v != null and v.type_name != null){
-        signature = concat(signature, ": ", v.type_name)
+      local name = v and (v.type_name or type_name_of(w, v))
+      if(name != null){
+        signature = concat(signature, ": ", name)
       }
     }
     append(lines, concat("```slang\n", word, " ", signature, "\n```"))

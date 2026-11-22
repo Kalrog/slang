@@ -120,6 +120,12 @@ return m"""
     )
     assert(blocks[2].text == "More.")
     assert(symbols.doc_above("x\n// a\n\n// b\n// c\ny", 18) == "b\nc")
+    // a type declaration is code up to where its brackets close, however
+    // its lines are indented
+    blocks = symbols.doc_blocks("Prose.\ntype T = {a: int,\n  b: int}\nMore.")
+    assert(len(blocks) == 3 and blocks[1].kind == "code" and
+      blocks[1].text == "type T = {a: int,\n  b: int}", string(blocks))
+    assert(blocks[2].kind == "text" and blocks[2].text == "More.")
   }
 }
 
@@ -156,6 +162,16 @@ t.group("typed docs"){
     info = symbols.doc_info("new(n) -> Buffer: n zeroed elements", "new")
     assert(symbols.type_text(info.signature.result.type) == "Buffer")
     assert(info.signature.result.text == "n zeroed elements")
+    // a parameter type not in the notation costs that parameter its type,
+    // not the signature
+    info = symbols.doc_info(
+      "f(a: {x?, y?}, b: int, c: func(v) -> int) -> bool", "f"
+    )
+    local q = info.signature.params
+    assert(q[0].type == null and q[0].malformed == "{x?, y?}")
+    assert(symbols.type_text(q[1].type) == "int" and q[1].malformed == null)
+    assert(q[2].malformed == "func(v) -> int")
+    assert(symbols.type_text(info.signature.result.type) == "bool")
   }
   t.test("declared types, typed parameters, the page"){
     local src = """// web: a module

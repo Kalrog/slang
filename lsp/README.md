@@ -45,14 +45,25 @@ the entry pattern of `entries(x)`), function types (a call of a
 callee's doc says `func(req: Request)` gets a Request); a local's or
 field's first doc line `name: Type` declares its type, and `type Name =
 other.Type` above a table of methods is that type's fields with these
-methods),
+methods; classes written as metatables need no declaration: a doc type
+name that names no declared type is the class a local of the file holds
+(`local Vec3 = m3.Vec3`), else the one class of that name in the project,
+with the fields its constructors give and those its methods assign `self`;
+operators follow the metamethods (`a + b` is what `__add` returns) and
+`if` expressions their branches; a constructor's first parameter (`new`,
+or a doc that lists every parameter) is not `self`; and a parameter no doc
+types is what the calls of its function across the project pass it, for
+hover and completion, not for the lint),
 lint warnings with the parse errors (unused locals, globals no project
 file defines, requires of missing modules, computed requires, calls that
 do not fit the typed doc of what they call: an argument whose type is
 certain, a literal or a local given one and never assigned again, that
 does not fit its parameter's type or a shape's field, and more arguments
 than the function takes; `initializationOptions.lint: false` turns them
-off), `formatting` and
+off; a doc's parameter type or `type` declaration that is not in the
+notation is reported where the doc writes it, and the parameter is read
+untyped instead of losing the whole signature; a module local only doc
+types name is used), `formatting` and
 `rangeFormatting` (`slang fmt`'s formatter; a range formats the lines it
 touches), hover and definition on a `require` (the module's file, as
 `require` finds it, and its doc comment), hover and definition on

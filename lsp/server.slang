@@ -482,7 +482,7 @@ local func nav_of(s){
     s.nav = navigate.new({root: s.root or os.cwd()})
     for(let local e in entries(s.documents)){
       local doc = e[1]
-      s.nav:open(doc.path, doc.symbols_text or doc.text, doc.symbols)
+      s.nav:open(doc.path, doc.symbols_text or doc.text, doc.symbols, doc.ast)
     }
   }
   return s.nav
@@ -523,6 +523,86 @@ local func is_project_file(path){
 // change or the project does.
 
 local SEVERITY = {warning: 2, information: 3, hint: 4}
+
+// the text up to its first space or line break
+local func first_word(t){
+  for(local i = 0; i < len(t); i = i + 1){
+    local b = str.byte_at(t, i)
+    if(b == ' ' or b == '\n'){
+      return str.substring(t, 0, i)
+    }
+  }
+  return t
+}
+
+// where the doc above a statement at pos writes what (its first word, the
+// signature's lines having been joined): the last place before pos in
+// the comment lines right above it, or null
+local func doc_text_at(text, pos, what){
+  local word = first_word(what)
+  // (from the start of the statement's line: `local func f` starts at func)
+  local from = pos
+  for(from > 0 and str.byte_at(text, from - 1) != '\n'){
+    from = from - 1
+  }
+  // the comment block: the // lines right above the statement
+  for(true){
+    local line_start = from
+    if(line_start <= 0){
+      break
+    }
+    local k = line_start - 2
+    for(k >= 0 and str.byte_at(text, k) != '\n'){
+      k = k - 1
+    }
+    local prev = k + 1
+    if(not str.starts_with(str.trim(str.substring(text, prev, line_start)), "//")){
+      break
+    }
+    from = prev
+  }
+  local found = null
+  local i = str.index_of(text, word, from)
+  for(i >= 0 and i < pos){
+    found = i
+    i = str.index_of(text, word, i + 1)
+  }
+  return found
+}
+
+local func is_name_char(b){
+  return b != null and (b == '_' or (b >= '0' and b <= '9') or
+    (b >= 'A' and b <= 'Z') or (b >= 'a' and b <= 'z'))
+}
+
+// the locals of required modules a doc names a type through (`thing.Game`
+// in a comment): they are used, though no code reads them
+local func doc_type_modules(text){
+  local out = {}
+  local i = str.index_of(text, "//")
+  for(i >= 0){
+    local stop = str.index_of(text, "\n", i)
+    if(stop < 0){
+      stop = len(text)
+    }
+    local line = str.substring(text, i, stop)
+    // name.Capitalized
+    for(local k = 1; k + 1 < len(line); k = k + 1){
+      local c = str.byte_at(line, k + 1)
+      if(str.byte_at(line, k) == '.' and c >= 'A' and c <= 'Z'){
+        local a = k
+        for(a > 0 and is_name_char(str.byte_at(line, a - 1))){
+          a = a - 1
+        }
+        if(a < k){
+          out[str.substring(line, a, k)] = true
+        }
+      }
+    }
+    i = str.index_of(text, "//", stop)
+  }
+  return out
+}
 
 local func lint_diagnostic(doc, start, stop, message, severity, tags){
   local d = {
@@ -608,6 +688,13 @@ lint = func(s, doc){
       used[r.def] = true
     }
   }
+  local in_docs = null
+  for(let local d in values(index.defs)){
+    if(d.kind == "local" and d.module != null and not used[d]){
+      in_docs = in_docs or doc_type_modules(text)
+      used[d] = in_docs[d.name]
+    }
+  }
   for(let local d in values(index.defs)){
     // (a notebook's top-level locals stay for the cells yet to be written)
     if(d.kind == "local" and not used[d] and
@@ -635,6 +722,32 @@ lint = func(s, doc){
       append(out, lint_diagnostic(doc, d.start, d.stop, concat(
         d.name,
         " is a global (globals start with an uppercase letter; is a local meant, or `global`?)",
+      ), SEVERITY.warning))
+    }
+  }
+  // a doc's parameter type that is not in the notation: the parameter is
+  // read untyped; marked where the doc writes it
+  for(let local d in values(index.defs)){
+    local sig = d.info and d.info.signature
+    if(sig != null and d.statement != null and written_at(text, d.start, d.stop, d.name)){
+      for(let local p in values(sig.params)){
+        if(p.malformed != null){
+          local at = doc_text_at(text, d.statement, p.malformed)
+          local start = at or d.start
+          local stop = at and at + len(first_word(p.malformed)) or d.stop
+          append(out, lint_diagnostic(doc, start, stop, concat(
+            "the doc's type of ", p.name, " is not in the doc notation: ",
+            p.malformed, " (the parameter is read untyped)"
+          ), SEVERITY.warning))
+        }
+      }
+    }
+  }
+  for(let local decl in values(index.types or {})){
+    if(decl.malformed != null and written_at(text, decl.start, decl.stop, decl.name)){
+      append(out, lint_diagnostic(doc, decl.start, decl.stop, concat(
+        "type ", decl.name, " is not in the doc notation: ", decl.malformed,
+        " (the type is not declared)"
       ), SEVERITY.warning))
     }
   }
@@ -738,7 +851,7 @@ local func analyse(s, uri){
     }
   }
   if(s.nav != null){
-    s.nav:open(doc.path, doc.symbols_text or doc.text, doc.symbols)
+    s.nav:open(doc.path, doc.symbols_text or doc.text, doc.symbols, doc.ast)
   }
   local diagnostics = lsp_diagnostics(doc.text, doc.diagnostics, s.encoding)
   // a project file that failed to load: the file was read as plain slang

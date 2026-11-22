@@ -517,6 +517,8 @@ t.group("language server: names"){
     ))
     assert(
       mods == {
+          "test/navigate/classes",
+          "test/navigate/classes_main",
           "test/navigate/main",
           "test/navigate/typed",
           "test/navigate/typed_main",
@@ -922,6 +924,106 @@ t.group("language server: names"){
         (by.n != null or extra == "box.copy."), extra)
     }
     assert(completed("box:").size == null, "a property is not a method")
+  }
+  t.test("classes as metatables: constructors, operators, call sites"){
+    // test/navigate/classes.slang declares no types
+    local cs = lsp.new({root: dir})
+    cs:handle(request(1, "initialize", {capabilities: {}}))
+    local lib_path = concat(dir, "/classes.slang")
+    local main_path2 = concat(dir, "/classes_main.slang")
+    local lib_src = os.read_file(lib_path)
+    local main_src = os.read_file(main_path2)
+    open_doc(cs, lsp.path_to_uri(lib_path), lib_src)
+    open_doc(cs, lsp.path_to_uri(main_path2), main_src)
+    local func at(path, src, word, nth){
+      local i = -1
+      for(local k = 0; k <= (nth or 0); k = k + 1){
+        i = str.index_of(src, word, i + 1)
+      }
+      local lc = str.line_col(src, i)
+      return {
+        textDocument: {uri: lsp.path_to_uri(path)},
+        position: {line: lc[0] - 1, character: lc[1] - 1},
+      }
+    }
+    local func hover(path, src, word, nth){
+      local h = cs:handle(request(9, "textDocument/hover", at(path, src, word, nth)))[0].result
+      return h == null and "" or h.contents.value
+    }
+    local func main_hover(word, nth){
+      return hover(main_path2, main_src, word, nth)
+    }
+    // a field a method assigns self; the type of a local is its class
+    local h = main_hover("speed +")
+    assert(str.index_of(h, "field Body.speed") >= 0, h)
+    h = main_hover("b = Body")
+    assert(str.index_of(h, "local b: Body") >= 0, h)
+    // operators (__add, __unm) and if expressions keep the class
+    for(let local word in values({"length(), w", "length(), u", "length(), b"})){
+      h = main_hover(word)
+      assert(str.index_of(h, "func Vec:length()") >= 0, concat(word, ": ", h))
+    }
+    // completion after : lists methods, not the constructor or metamethods
+    local lc = str.line_col(main_src, str.index_of(main_src, "start()"))
+    local labels = {}
+    for(let local i in values(cs:handle(request(9, "textDocument/completion", {
+      textDocument: {uri: lsp.path_to_uri(main_path2)},
+      position: {line: lc[0] - 1, character: lc[1] - 1},
+    }))[0].result)){
+      labels[i.label] = true
+    }
+    assert(labels.start and labels.where and labels.near, string(labels))
+    assert(labels.new == null and labels.__add == null and labels.__index == null,
+      string(labels))
+    // a constructor's first parameter is not an object of its class (it
+    // is what its calls pass); a doc type names a class with no
+    // declaration
+    h = hover(lib_path, lib_src, "at: options.at")
+    assert(str.index_of(h, "Body") < 0, h)
+    h = hover(lib_path, lib_src, "at.x ==")
+    assert(str.index_of(h, "field Body.at") >= 0, h)
+    // a parameter no doc types is what the calls pass
+    h = hover(lib_path, lib_src, "load")
+    assert(str.index_of(h, "field load") >= 0, h)
+    // references from a method's definition: its calls in other files
+    local refs = cs:handle(request(9, "textDocument/references", {
+      textDocument: {uri: lsp.path_to_uri(lib_path)},
+      position: at(lib_path, lib_src, "length(self)").position,
+      context: {includeDeclaration: false},
+    }))[0].result
+    assert(len(refs) == 3 and str.ends_with(refs[0].uri, "classes_main.slang"),
+      string(len(refs)))
+  }
+  t.test("lint: doc types not in the notation, modules named in doc types"){
+    local ls = lsp.new({root: dir})
+    ls:handle(request(1, "initialize", {capabilities: {}}))
+    local r = open_doc(
+      ls,
+      lsp.path_to_uri(concat(dir, "/doc_lint.slang")),
+      str.join({
+        "local util = require(\"test/navigate/util\")",
+        "// type Options = {a?, b?}",
+        "",
+        "// f(options: {a?, b?}, n: number) -> util.Thing",
+        "local func f(options, n){ return n }",
+        "print(f({}, 1))",
+        "",
+      }, "\n"),
+    )
+    local got = {}
+    for(let local d in values(r[0].params.diagnostics)){
+      append(got, concat(string(d.range.start.line), ":", d.message))
+    }
+    assert(got == {
+        "3:the doc's type of options is not in the doc notation: {a?, b?} (the parameter is read untyped)",
+        "1:type Options is not in the doc notation: {a?, b?} (the type is not declared)",
+      }, str.join(got, " | "))
+    // the rest of the signature is kept
+    local h = ls:handle(request(9, "textDocument/hover", {
+      textDocument: {uri: lsp.path_to_uri(concat(dir, "/doc_lint.slang"))},
+      position: {line: 5, character: 6},
+    }))[0].result.contents.value
+    assert(str.index_of(h, "f(options, n: number) -> util.Thing") >= 0, h)
   }
   t.test("values the code gives later: self, the fields of objects, assignments"){
     local later_uri = lsp.path_to_uri(concat(dir, "/later.slang"))

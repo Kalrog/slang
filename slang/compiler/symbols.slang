@@ -84,7 +84,10 @@ local symbols = {}
 // [text]: what follows the parameters without `->` (it begins the prose)
 
 // A parameter of a signature or a function type.
-// type Param = {name: string, type?: Type, optional: bool, rest: bool}
+// type Param = {name: string, type?: Type, optional: bool, rest: bool,
+//   malformed?: string}
+// [malformed]: a signature's parameter type that is not in the notation, as
+//   written (the parameter is then untyped)
 // [rest]: `...name`
 
 // What a signature says after `->`: name and type, type and description
@@ -106,8 +109,11 @@ local symbols = {}
 
 // A type declared in a doc comment.
 // type TypeDecl = {name: string, type?: Type, start: int, stop: int,
-//   doc?: string, info: DocInfo, line_end: int, table?: Def}
-// [type]: null for a bare declaration
+//   doc?: string, info: DocInfo, line_end: int, table?: Def,
+//   malformed?: string}
+// [type]: null for a bare declaration, and for one not in the notation
+// [malformed]: what a declaration says after = when that is not in the
+//   notation
 // [table]: the table defined right below a bare declaration, or one of a
 //   type name (its methods, on top of that type's fields)
 // [start]: where the name starts (stop: past its end)
@@ -193,13 +199,41 @@ local func indent_of(line){
   return i
 }
 
+// how many brackets a text leaves open: ( { [ less ) } ]
+local func open_brackets(text){
+  local d = 0
+  for(local i = 0; i < len(text); i = i + 1){
+    local b = str.byte_at(text, i)
+    if(b == '(' or b == '{' or b == '['){
+      d = d + 1
+    } else if(b == ')' or b == '}' or b == ']'){
+      d = d - 1
+    }
+  }
+  return d
+}
+
+// whether a doc line starts a type declaration (`type Name = ...`, `type
+// Name`)
+local func starts_type(line){
+  if(not str.starts_with(line, "type ")){
+    return false
+  }
+  local b = str.byte_at(line, 5)
+  return b != null and b >= 'A' and b <= 'Z'
+}
+
 // doc_blocks(text?: string) -> {DocBlock}
 // A doc split into paragraphs and code samples. Lines indented by two or
 // more spaces are code, kept as they are less their common indentation; a
-// blank line ends a paragraph, not a sample.
+// blank line ends a paragraph, not a sample. A type declaration (`type
+// Name = {...}`) is code too, with the lines it goes on over until its
+// brackets close, however they are indented.
 func symbols.doc_blocks(text){
   local blocks = {}
   local current = null
+  // the brackets the type declaration being read leaves open
+  local type_open = 0
   local func close(){
     if(current != null){
       if(current.kind == "code"){
@@ -227,7 +261,21 @@ func symbols.doc_blocks(text){
   }
   for(let local line in values(str.split(text or "", "\n"))){
     local blank = str.trim(line) == ""
-    if(indent_of(line) >= 2 and not blank){
+    if(type_open > 0){
+      // a type declaration goes on
+      append(current.lines, line)
+      type_open = type_open + open_brackets(line)
+      if(type_open <= 0){
+        close()
+      }
+    } else if(starts_type(line)){
+      close()
+      current = {kind: "code", lines: {line}}
+      type_open = open_brackets(line)
+      if(type_open <= 0){
+        close()
+      }
+    } else if(indent_of(line) >= 2 and not blank){
       if(current == null or current.kind != "code"){
         close()
         current = {kind: "code", lines: {}}
@@ -364,9 +412,28 @@ local func read_name(text, i){
 
 local parse_union = null
 
+// where the parameter at i ends: the next , or ) outside brackets (or the
+// end of the text)
+local func parameter_end(text, i){
+  local depth = 0
+  for(; i < len(text); i = i + 1){
+    local b = str.byte_at(text, i)
+    if(b == '(' or b == '[' or b == '{'){
+      depth = depth + 1
+    } else if((b == ')' or b == ']' or b == '}') and depth > 0){
+      depth = depth - 1
+    } else if((b == ',' or b == ')') and depth == 0){
+      return i
+    }
+  }
+  return i
+}
+
 // the parameters of a function type or a signature: {params, stop} after
-// the closing ), or null
-local func parse_params(text, i){
+// the closing ), or null. tolerant (a signature's): a parameter whose type
+// is not in the notation is kept without one, its text as malformed, and
+// the rest are read on
+local func parse_params(text, i, tolerant){
   local params = {}
   i = skip_spaces(text, i)
   if(str.char_at(text, i) == ")"){
@@ -403,11 +470,19 @@ local func parse_params(text, i){
     i = skip_spaces(text, i)
     if(str.char_at(text, i) == ":"){
       local t = parse_union(text, i + 1)
-      if(t == null){
+      local after = t and skip_spaces(text, t.stop)
+      local ends = t != null and
+        (str.char_at(text, after) == "," or str.char_at(text, after) == ")")
+      if(ends){
+        p.type = t.type
+        i = t.stop
+      } else if(tolerant){
+        local stop = parameter_end(text, i + 1)
+        p.malformed = str.trim(str.substring(text, i + 1, stop))
+        i = stop
+      } else {
         return null
       }
-      p.type = t.type
-      i = t.stop
     }
     append(params, p)
     i = skip_spaces(text, i)
@@ -743,7 +818,7 @@ func symbols.doc_info(doc, name){
         text = concat(text, " ", str.trim(lines[j]))
       }
       local start = open + len(name) + 1
-      local ps = parse_params(text, start)
+      local ps = parse_params(text, start, true)
       if(ps != null){
         local sig = {params: ps.params, result: null}
         local tail = str.trim(str.substring(text, ps.stop))
@@ -851,6 +926,9 @@ func symbols.types(source){
             body = concat(body, " ", str.trim(more))
           }
           decl.type = symbols.parse_type(str.trim(body))
+          if(decl.type == null){
+            decl.malformed = str.trim(body)
+          }
         }
         // the end of the comment block: a bare type names the table below
         local e = last

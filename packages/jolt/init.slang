@@ -249,11 +249,14 @@ local func wrapper_class(v){
 local body_cptr = null
 
 // a value as C takes it: a wrapper stands for its pointer (a body for its
-// id, or its pointer when C wants one)
+// id, or its pointer when C wants one; a world for its physics system)
 local func unwrap(v, t){
   local class = wrapper_class(v)
   if(class == null){
     return v
+  }
+  if(class.name == "World"){
+    return v.system
   }
   if(class.name == "Body"){
     if(t != null and t.kind == "ptr"){

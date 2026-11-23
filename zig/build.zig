@@ -376,7 +376,7 @@ fn addNative(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.buil
     if (from_source) |d| archive_mod.addIncludePath(d.getEmittedIncludeTree());
     const archive = b.addLibrary(.{ .name = ext_name, .linkage = .static, .root_module = archive_mod });
     static.install(b.addInstallArtifact(archive, .{ .dest_dir = .{ .override = .{ .custom = "lib/static" } } }));
-    if (from_source) |d| static.install(b.addInstallArtifact(d, .{ .dest_dir = .{ .override = .{ .custom = "lib/static" } } }));
+    if (from_source) |d| static.install(b.addInstallArtifact(d, .{ .dest_dir = .{ .override = .{ .custom = "lib/static" } }, .h_dir = .disabled }));
 
     const t = &static.text;
     const a = b.allocator;

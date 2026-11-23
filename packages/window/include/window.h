@@ -354,3 +354,4 @@ bool SDL_SetAudioStreamGain(SDL_AudioStream *stream, float gain);
 bool SDL_SetAudioStreamFrequencyRatio(SDL_AudioStream *stream, float ratio);
 bool SDL_LoadWAV(const char *path, SDL_AudioSpec *spec, Uint8 **audio_buf, Uint32 *audio_len);
 const char * SDL_GetCurrentAudioDriver(void);
+SDL_AudioDeviceID * SDL_GetAudioRecordingDevices(int *count);

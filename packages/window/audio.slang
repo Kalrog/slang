@@ -1,5 +1,6 @@
-// window/audio: sound through SDL3's audio: streams computed in slang, and
-// sounds (WAV files or samples) SDL mixes. No window is needed.
+// window/audio: sound through SDL3's audio: streams computed in slang,
+// sounds (WAV files or samples) SDL mixes, and microphones. No window is
+// needed.
 //
 //   local audio = require("window/audio")
 //   local player = audio.play(func(freq){
@@ -33,6 +34,7 @@ local ffi = require("slang/ffi")
 local isolate = require("slang/isolate")
 local buffer = require("slang/buffer")
 local math = require("slang/math")
+local str = require("slang/string")
 local sdl = require("window/sdl")
 local C = sdl.C
 local lib = sdl.lib
@@ -493,6 +495,230 @@ func audio.stop_all(){
     voice_methods.stop(v)
   }
   voices = {}
+}
+
+// ------------------------------------------------------------ microphones
+
+// microphones() -> {MicrophoneInfo}
+// The devices that record, in SDL's order (an index into this list, or a
+// part of a name, picks one for [microphone]).
+// type MicrophoneInfo = {name: string, id: int}
+func audio.microphones(){
+  init()
+  local count = ffi.new("int", 1, C)
+  local ids = lib.SDL_GetAudioRecordingDevices(count)
+  local out = {}
+  if(ids == null){
+    return out
+  }
+  for(local i = 0; i < count[0]; i = i + 1){
+    append(out, {name: lib.SDL_GetAudioDeviceName(ids[i]) or "", id: ids[i]})
+  }
+  lib.SDL_free(ids)
+  return out
+}
+
+local mic_methods = {}
+local mic_get = {}
+
+// A microphone, as [microphone] or [virtual_microphone] opens it: what it
+// recorded waits (up to options.buffer frames, the oldest dropped first)
+// until [Microphone.read] takes it.
+// type Microphone
+// [name]: the device's name ("virtual" for a virtual one)
+// [sample_rate]: frames per second of what read gives
+// [channels]: samples per frame, interleaved
+// [dropped]: frames lost because nobody read them in time
+local mic_meta = {
+  __type: "window.Microphone",
+  __index: mic_methods,
+  __get: mic_get,
+}
+
+local func open_mic(stream, name, options){
+  local channels = options.channels or 1
+  local m = {
+    stream: stream,
+    name: name,
+    sample_rate: options.sample_rate or 48000,
+    channels: channels,
+    // the most bytes kept waiting (two seconds by default)
+    limit: (options.buffer or (options.sample_rate or 48000) * 2) * channels * 4,
+    scratch: null,
+    peak: 0.0,
+    dropped: 0,
+    closed: false,
+  }
+  m.@meta = mic_meta
+  return m
+}
+
+// microphone(options?: MicrophoneOptions) -> Microphone
+// Starts recording from a device, the system's default unless
+// options.device names another. SDL converts to the rate and channels
+// asked for. Raises when there is no such device or it cannot record
+// (macOS asks the user once whether the program may use the microphone,
+// and records silence until it may).
+//   local mic = audio.microphone({sample_rate: 48000})
+//   local samples = buffer.new("float", 960)
+//   local frames = mic:read(samples)         // each tick
+// type MicrophoneOptions = {device?: int | string, sample_rate?: int,
+//   channels?: int, buffer?: int}
+// [device]: an index into [microphones], or a part of a device's name
+//   (any case)
+// [sample_rate]: 48000 by default
+// [channels]: 1 by default
+// [buffer]: the most frames kept until read (two seconds by default)
+func audio.microphone(options){
+  options = options or {}
+  init()
+  local id = K.SDL_AUDIO_DEVICE_DEFAULT_RECORDING
+  local name = null
+  if(options.device != null){
+    local all = audio.microphones()
+    local found = null
+    if(type(options.device) == "int"){
+      found = all[options.device]
+    } else {
+      local want = str.lower(string(options.device))
+      for(let local d in values(all)){
+        if(found == null and str.contains(str.lower(d.name), want)){
+          found = d
+        }
+      }
+    }
+    if(found == null){
+      raise(error.new(error.kinds.not_found, concat(
+        "window/audio: no microphone ", string(options.device),
+      )))
+    }
+    id = found.id
+    name = found.name
+  }
+  local stream = lib.SDL_OpenAudioDeviceStream(id, {
+    format: K.SDL_AUDIO_F32,
+    channels: options.channels or 1,
+    freq: options.sample_rate or 48000,
+  }, null, null)
+  if(stream == null){
+    fail("cannot open the microphone")
+  }
+  if(name == null){
+    name = lib.SDL_GetAudioDeviceName(lib.SDL_GetAudioStreamDevice(stream)) or ""
+  }
+  check(lib.SDL_ResumeAudioStreamDevice(stream), "cannot start the microphone")
+  return open_mic(stream, name, options)
+}
+
+// virtual_microphone(options?: MicrophoneOptions) -> Microphone
+// A microphone without a device: what [Microphone.write] puts in, read
+// takes out (tests, bots, a file played in). options.device is ignored.
+func audio.virtual_microphone(options){
+  options = options or {}
+  init()
+  local spec = {
+    format: K.SDL_AUDIO_F32,
+    channels: options.channels or 1,
+    freq: options.sample_rate or 48000,
+  }
+  local stream = lib.SDL_CreateAudioStream(spec, spec)
+  if(stream == null){
+    fail("SDL_CreateAudioStream")
+  }
+  local m = open_mic(stream, "virtual", options)
+  m.virtual = true
+  return m
+}
+
+// read(out?: Buffer) -> int | Buffer
+// Takes what waits: into out (a buffer of floats; as many whole frames as
+// fit) and returns the frames read, or, without out, returns all of it as
+// a new buffer.
+func mic_methods.read(self, out){
+  if(self.closed){
+    raise("window/audio: the microphone is closed")
+  }
+  local frame_bytes = self.channels * 4
+  local available = lib.SDL_GetAudioStreamAvailable(self.stream)
+  // too much waiting: the oldest goes
+  if(available > self.limit){
+    local extra = available - self.limit
+    extra = extra - extra % frame_bytes
+    if(self.scratch == null or self.scratch.size < extra){
+      self.scratch = buffer.new("float", (extra / 4) | 0)
+    }
+    lib.SDL_GetAudioStreamData(self.stream, self.scratch, extra)
+    self.dropped = self.dropped + ((extra / frame_bytes) | 0)
+    available = available - extra
+  }
+  local result = null
+  if(out == null){
+    out = buffer.new("float", (available / 4) | 0)
+    result = out
+  }
+  local bytes = out.size
+  if(bytes > available){
+    bytes = available
+  }
+  bytes = bytes - bytes % frame_bytes
+  local got = 0
+  if(bytes > 0){
+    got = lib.SDL_GetAudioStreamData(self.stream, out, bytes)
+    if(got < 0){
+      fail("cannot read the microphone")
+    }
+  }
+  local samples = (got / 4) | 0
+  local peak = self.peak
+  for(local i = 0; i < samples; i = i + 1){
+    local v = out[i]
+    if(v < 0){
+      v = -v
+    }
+    if(v > peak){
+      peak = v
+    }
+  }
+  self.peak = peak
+  if(result != null){
+    return result
+  }
+  return (samples / self.channels) | 0
+}
+
+// write(samples: Buffer)
+// A virtual microphone's input: float samples, channels interleaved.
+func mic_methods.write(self, samples){
+  if(not self.virtual){
+    raise("window/audio: only a virtual microphone takes write")
+  }
+  check(lib.SDL_PutAudioStreamData(self.stream, samples, samples.size), "write")
+}
+
+// close()
+// Stops recording. Closing twice does nothing.
+func mic_methods.close(self){
+  if(not self.closed){
+    self.closed = true
+    lib.SDL_DestroyAudioStream(self.stream)
+  }
+}
+
+// level(self) -> number
+// The loudest sample read since level was last looked at, 0 to 1.
+func mic_get.level(self){
+  local p = self.peak
+  self.peak = 0.0
+  return p
+}
+
+// waiting(self) -> int
+// Frames recorded and not read yet.
+func mic_get.waiting(self){
+  if(self.closed){
+    return 0
+  }
+  return (lib.SDL_GetAudioStreamAvailable(self.stream) / (self.channels * 4)) | 0
 }
 
 // ------------------------------------------------------------ the device

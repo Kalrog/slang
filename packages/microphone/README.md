@@ -3,6 +3,10 @@
 Audio input for slang programs: the devices that record (CoreAudio on
 macOS), read as float samples a block or a frame at a time.
 
+The window package records too, through SDL3 on macOS, Linux and Windows
+(`audio.microphone` in window/audio, see its README); new code should use
+that. This package stays for what uses it (examples/granular).
+
 ```
 local microphone = require("microphone")
 microphone.devices()                 // {{name: "MacBook Pro Microphone",

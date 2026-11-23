@@ -125,7 +125,8 @@ Keys are named the way SDL names them, in lower case with `_` for spaces:
 
 ## Audio: window/audio
 
-`require("window/audio")` plays sound through SDL's audio. It needs no
+`require("window/audio")` plays sound and records from microphones
+through SDL's audio, the same on macOS, Linux and Windows. It needs no
 window.
 
 ```slang
@@ -173,6 +174,21 @@ floats. A sound has `sample_rate`, `channels`, `frames` and `duration` (ms).
 
 **The device.** `audio.volume` (settable) is the gain of all sounds.
 `audio.driver` and `audio.device_name` say what plays them.
+
+**Microphones.** `audio.microphone(options)` starts recording from the
+default device, or from `options.device` (an index into
+`audio.microphones()`, or a part of a name). SDL converts to
+`sample_rate` (48000) and `channels` (1). What it records waits, up to
+`buffer` frames (two seconds), the oldest dropped first.
+- `mic:read(out)` takes what waits into a buffer of floats and returns the
+  frames read; `mic:read()` returns all of it as a new buffer. Read each
+  frame or tick: nothing runs slang on the audio thread.
+- `mic.level` (the loudest sample since it was last looked at), `waiting`,
+  `dropped`, `name`, `sample_rate`, `channels`; `mic:close()`.
+- `audio.virtual_microphone(options)` has no device: what `mic:write(samples)`
+  puts in, `read` takes out (tests, bots, a file played in).
+- macOS asks once whether the program (the terminal or editor that runs
+  slang) may use the microphone, and records silence until it may.
 
 Only WAV is decoded; SDL has no Ogg or MP3 decoder. `examples/tones.slang`
 plays a stream and a computed sound over it.

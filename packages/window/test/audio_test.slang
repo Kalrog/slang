@@ -104,3 +104,48 @@ t.group("window/audio: streams"){
     assert(len(audio.driver) > 0)
   }
 }
+
+t.group("window/audio: microphones"){
+  t.test("a virtual microphone reads what was written, a frame at a time"){
+    local mic = audio.virtual_microphone({sample_rate: 48000, channels: 1})
+    local samples = buffer.new("float", 1000)
+    for(local i = 0; i < 1000; i = i + 1){
+      samples[i] = (i % 10) / 20.0
+    }
+    mic:write(samples)
+    assert(mic.waiting == 1000, string(mic.waiting))
+    local out = buffer.new("float", 960)
+    assert(mic:read(out) == 960 and out[9] == samples[9])
+    assert(mic.level > 0.44 and mic.level == 0.0)
+    local rest = mic:read()
+    assert(len(rest) == 40 and rest[0] == samples[960])
+    assert(mic:read(out) == 0)
+    mic:close()
+    mic:close()
+    t.raises(func(){ mic:read(out) })
+  }
+  t.test("a virtual microphone drops the oldest beyond its buffer"){
+    local mic = audio.virtual_microphone({buffer: 100})
+    local samples = buffer.new("float", 150)
+    for(local i = 0; i < 150; i = i + 1){
+      samples[i] = i / 1000.0
+    }
+    mic:write(samples)
+    local out = mic:read()
+    assert(len(out) == 100 and mic.dropped == 50 and out[0] == samples[50])
+    mic:close()
+  }
+  t.test("the default microphone records, where there is one"){
+    if(len(audio.microphones()) == 0){
+      t.skip("no microphone")
+    }
+    local mic = audio.microphone({sample_rate: 48000})
+    assert(type(mic.name) == "string")
+    time.sleep(150)
+    local out = buffer.new("float", 48000)
+    // (silence where the program may not use the microphone)
+    assert(mic:read(out) > 0)
+    mic:close()
+    t.raises(func(){ audio.microphone({device: "no such microphone anywhere"}) })
+  }
+}

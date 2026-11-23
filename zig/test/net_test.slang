@@ -110,6 +110,29 @@ t.group("net"){
     client:close()
     server:close()
   }
+  t.test("a server takes IPv4 and IPv6 clients on one socket"){
+    local server = net.server({protocol: proto})
+    local got = {}
+    server:on("n", func(peer, m){ got[m.i] = peer.ip })
+    local clients = {}
+    for(let local host in values({"127.0.0.1", "::1", "[::1]", "localhost"})){
+      local c = net.connect(host, server.port, {protocol: proto})
+      c:send("n", {i: len(clients)})
+      append(clients, c)
+    }
+    local hosts = {server}
+    for(let local c in values(clients)){
+      append(hosts, c)
+    }
+    assert(until(hosts, func(){ return count(got) == 4 }), string(got))
+    // (IPv4 arrives mapped into IPv6)
+    // (an IPv4 client shows as IPv4, not mapped into IPv6)
+    assert(got[0] == "127.0.0.1" and got[1] == "::1" and got[2] == "::1" and got[3] == "127.0.0.1", string(got))
+    for(let local c in values(clients)){
+      c:close()
+    }
+    server:close()
+  }
   t.test("a server that is not there"){
     local client = net.connect("127.0.0.1", 9, {timeout: 300})
     local reason = null

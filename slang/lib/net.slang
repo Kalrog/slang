@@ -856,7 +856,8 @@ local server_meta = {__type: "net.Server", __index: server_methods, __get: serve
 //   max_peers?: int, timeout?: number, simulate?: Simulate,
 //   secure?: bool | ServerSecure}
 // [port]: the UDP port (0, the default, picks a free one)
-// [host]: the address to listen on, "0.0.0.0" (every IPv4 one) by default
+// [host]: the address to listen on; by default every one, IPv6 and IPv4
+//   ("::", or "0.0.0.0" where the machine has no IPv6)
 // [protocol]: the messages; without one, names and whole tables travel
 // [max_peers]: more clients are turned away ("server full"), 32 by default
 // [timeout]: a client not heard from for this many ms is gone (5000)
@@ -899,7 +900,19 @@ func net.server(options){
     }
   }
   h.@meta = server_meta
-  h.udp:bind(options.host or "0.0.0.0", options.port or 0)
+  if(options.host != null){
+    h.udp:bind(options.host, options.port or 0)
+  } else {
+    // IPv6 and IPv4 on one socket (IPv4 clients arrive as ::ffff:a.b.c.d);
+    // IPv4 alone where the machine has no IPv6
+    try {
+      h.udp:bind("::", options.port or 0)
+    } catch {
+      h.udp:close()
+      h.udp = uv.udp()
+      h.udp:bind("0.0.0.0", options.port or 0)
+    }
+  }
   h.port = h.udp:getsockname().port
   listen(h)
   return h
@@ -957,9 +970,15 @@ local func admit(h, ip, port, t, accept, keys){
     c.send_key = keys.send
     c.recv_key = keys.recv
   }
+  // (an IPv4 client of a server listening on IPv6 too arrives as
+  // ::ffff:a.b.c.d: its peer says a.b.c.d; replies go to what it came from)
+  local shown = ip
+  if(str.starts_with(ip, "::ffff:") and str.contains(ip, ".")){
+    shown = str.substring(ip, 7)
+  }
   local peer = {
-    @meta: peer_meta, id: h.next_id, address: c.address, ip: ip, port: port, server: h, conn: c,
-    secure: keys != null,
+    @meta: peer_meta, id: h.next_id, address: concat(shown, ":", string(port)), ip: shown, port: port,
+    server: h, conn: c, secure: keys != null,
   }
   h.next_id = h.next_id + 1
   c.peer = peer
@@ -1335,21 +1354,34 @@ func net.connect(host, port, options){
   if(host == "localhost"){
     host = "127.0.0.1"
   }
+  // an IPv6 address as URLs write it
+  if(str.starts_with(host, "[") and str.ends_with(host, "]")){
+    host = str.substring(host, 1, len(host) - 1)
+  }
   if(is_ip(host)){
     start_client(cl, host, port)
   } else {
     cl.resolving = true
-    uv.getaddrinfo(host, port, "ipv4", func(err, addresses){
-      cl.resolving = false
-      if(cl.closed or cl.conn.state == "closed"){
-        return
-      }
-      if(err != null or len(addresses) == 0){
-        cl.failed = concat("net: cannot find ", host, if(err != null){ concat(": ", err.message) } else { "" })
-        return
-      }
-      start_client(cl, addresses[0].ip, port)
-    })
+    // an IPv4 address when the name has one, else an IPv6 one
+    local func lookup(family){
+      uv.getaddrinfo(host, port, family, func(err, addresses){
+        if(cl.closed or cl.conn.state == "closed"){
+          cl.resolving = false
+          return
+        }
+        if(err != null or len(addresses) == 0){
+          if(family == "ipv4"){
+            return lookup("ipv6")
+          }
+          cl.resolving = false
+          cl.failed = concat("net: cannot find ", host, if(err != null){ concat(": ", err.message) } else { "" })
+          return
+        }
+        cl.resolving = false
+        start_client(cl, addresses[0].ip, port)
+      })
+    }
+    lookup("ipv4")
   }
   return cl
 }

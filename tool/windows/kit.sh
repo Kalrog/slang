@@ -52,7 +52,7 @@ if [ -d "$GAME" ]; then
   (cd "$GAME/tools/opus" && "$ZIG" build --prefix ../.. -Dtarget=x86_64-windows-gnu)
   echo "copying the game"
   mkdir -p "$OUT/model_coder"
-  copy_tree "$GAME" "$OUT/model_coder" '^(build|export|dist)/|^lib/(macos|linux)-'
+  copy_tree "$GAME" "$OUT/model_coder" '^(build|export|dist)/|^lib/(macos|linux)-|^windows_report\.txt$|^burrower_shot\.png$'
 fi
 
 cat > "$OUT/check.cmd" <<'EOF'
@@ -67,9 +67,9 @@ EOF
 
 cat > "$OUT/play.cmd" <<'EOF'
 @echo off
-rem Starts the game. To play together on one network: one player runs
-rem play.cmd and reads the join code in this window; the other runs
-rem play.cmd --join <the first player's IP address> --code <the join code>
+rem Starts the game at its main menu: host a game, or join one (the
+rem host's address and join code). Options after play.cmd go to the game
+rem (play.cmd --help lists them).
 cd /d "%~dp0model_coder"
 ..\slang\bin\slang.exe run game\burrower.slang %*
 if errorlevel 1 pause
@@ -97,15 +97,19 @@ Windows on a Mac. Nothing here installs anything or needs admin rights.
    - does the window open, how smooth is it (choppy, stutters)?
    - mouse and keyboard: does everything respond?
    - sound: do you hear the machine and the surroundings?
-   - two computers on one network: one runs play.cmd; its black window
-     says "hosting on port 7797, encrypted; join code xxxx-xxxx-xxxx-xxxx".
-     The other opens a command prompt in this folder and runs
-       play.cmd --join <the first one's IP address> --code <that code>
-     (ipconfig shows the IP address, "IPv4 Address"). When Windows
-     Firewall asks on the first computer, allow "Private networks", or
-     the second cannot connect. The join code is new each time the game
-     starts. Without --code it still connects (encrypted) and says the
-     host's code, to compare.
+   - playing together: one player picks Host in the menu; the game
+     copies its join code (also shown with Esc in the game). The other
+     picks Join and enters the host's address and that code (ctrl+V
+     pastes). On one network the address is the host's IPv4 address
+     (ipconfig shows it); over the internet the host's router must
+     forward UDP port 7797 to the host. When Windows Firewall asks on the
+     host, allow "Private networks", or nobody can connect. The join code
+     is new each time a game is hosted.
+     Over IPv6 (when the host's connection has no public IPv4 address):
+     the host's router opens UDP port 7797 for the host's IPv6 address,
+     and the address field takes it as it is (2a02:810d:...) or with a
+     port as [2a02:810d:...]:7797. The joining player needs IPv6 too.
+   - is it smooth enough to play? This is what we most want to know.
    If something fails, the black window shows the error: a screenshot
    of it helps.
 

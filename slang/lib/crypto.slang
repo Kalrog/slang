@@ -12,7 +12,7 @@
 //   key.type, key.bits, key.private                 // "ec", 256, true
 //
 // hash, hmac, equal, random_bytes, hasher, pbkdf2, scrypt, encrypt,
-// decrypt and the _async forms are slang's own (Zig's std.crypto, on every
+// decrypt, x25519 and the _async forms are slang's own (Zig's std.crypto, on every
 // platform, slang/crypto_core). Digests: md5, sha1, sha224, sha256, sha384,
 // sha512, sha512-224, sha512-256, sha3-224 to sha3-512, blake2b512,
 // blake2s256. Ciphers: aes-128-gcm, aes-256-gcm, chacha20-poly1305, with a

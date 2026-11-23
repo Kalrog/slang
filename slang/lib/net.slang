@@ -41,10 +41,29 @@
 // delayed by latency ms plus up to jitter ms (so packets also overtake each
 // other), and dropped with the probability loss.
 //
-// There is no encryption or authentication: anyone who can reach the port
-// can connect, and a peer's messages are what it chose to send. Servers
-// check what clients tell them.
+// options.secure encrypts a connection: a server with it takes only
+// encrypted ones, a client with it connects only encrypted. Every packet
+// after the handshake is sealed (ChaCha20-Poly1305, keys from X25519 key
+// agreement, new for every connection): nobody on the way reads it, and
+// what was changed, replayed or sent in a peer's name is dropped. The
+// server has a key of its own ([ServerSecure].key, random by default); its
+// [Server.fingerprint] is short text that a client can be given
+// ([ClientSecure].fingerprint) to know it reached that server and nobody
+// in between. A password, when the server has one, must be the client's
+// too. A server answers a connection attempt with a cookie first, so an
+// address that is not the sender's gets nothing set up for it.
+//
+//   local server = net.server({port: 7777, secure: {password: "tunnel"}})
+//   print(server.fingerprint)                 // "k3mq-7x2b-..." for players
+//   local client = net.connect(ip, 7777, {secure: {
+//     fingerprint: "k3mq-7x2b-...", password: "tunnel",
+//   }})
+//
+// Without secure there is no encryption or authentication: anyone who can
+// reach the port can connect. Either way a peer's messages are what it
+// chose to send: servers check what clients tell them.
 local uv = require("uv")
+local crypto = require("slang/crypto_core")
 local enc = require("slang/encoding")
 local math = require("slang/math")
 local str = require("slang/string")
@@ -61,6 +80,11 @@ local ACCEPT = 1
 local REJECT = 2
 local DATA = 3
 local DISCONNECT = 4
+// the encrypted handshake: the client's hello, the server's challenge
+// (a cookie and its key), the client's answer (its key and a proof)
+local HELLO = 5
+local CHALLENGE = 6
+local SECURE = 7
 
 local MAGIC = "slang/net 1"
 // the encoded messages that go into one packet, at most
@@ -87,6 +111,9 @@ local PART_TYPE = -1
 net.max_unreliable = BUDGET - 64
 
 local MODES = {reliable: true, unreliable: true, sequenced: true}
+local CIPHER = "chacha20-poly1305"
+// a cookie is good for this long (ms) and the period after
+local COOKIE_PERIOD = 10000
 local EVENTS = {connect: true, disconnect: true}
 
 local func now(){
@@ -112,6 +139,91 @@ local func is_ip(s){
     }
   }
   return len(s) > 0
+}
+
+// ------------------------------------------------------------ keys
+
+// the 12-byte iv of packet s: the lane (0 packets, 1 the handshake), then
+// s, big-endian (keys are new for every connection and each way, and s
+// only grows: an iv is never used twice with a key)
+local func iv_of(s, lane){
+  return str.from_bytes({
+    0, 0, 0, lane, (s >> 56) & 255, (s >> 48) & 255, (s >> 40) & 255, (s >> 32) & 255,
+    (s >> 24) & 255, (s >> 16) & 255, (s >> 8) & 255, s & 255,
+  })
+}
+
+local func sha(...parts){
+  return crypto.hash("sha256", str.join(parts, ""))
+}
+
+// HKDF-SHA256 (RFC 5869), one block: 32 bytes of key from ikm
+local func hkdf(ikm, salt, info){
+  return crypto.hmac("sha256", crypto.hmac("sha256", salt, ikm), concat(info, "\x01"))
+}
+
+local func psk_of(password){
+  if(password == null or password == ""){
+    return ""
+  }
+  if(type(password) != "string"){
+    raise(error.new(error.kinds.argument, "net: secure.password is a string"))
+  }
+  return sha("slang/net password ", password)
+}
+
+// what both sides of a handshake hash into its keys
+local func transcript(signature, nonce, server_public, client_public){
+  return sha(MAGIC, "\n", signature, "\n", string(nonce), "\n", server_public, client_public)
+}
+
+local B32 = "0123456789abcdefghjkmnpqrstvwxyz"
+
+// fingerprint(public: string) -> string
+// The short text that names a server's key ([Server.fingerprint]): 80
+// bits of its hash in 16 letters and digits, four groups of four.
+func net.fingerprint(public){
+  local d = sha("slang/net key ", public)
+  local out = {}
+  local acc = 0
+  local bits = 0
+  for(local i = 0; i < 10; i = i + 1){
+    acc = (acc << 8) | str.byte_at(d, i)
+    bits = bits + 8
+    for(bits >= 5){
+      bits = bits - 5
+      local k = (acc >> bits) & 31
+      append(out, str.substring(B32, k, k + 1))
+      if(len(out) % 5 == 4 and len(out) < 19){
+        append(out, "-")
+      }
+    }
+    acc = acc & ((1 << bits) - 1)
+  }
+  return str.join(out, "")
+}
+
+// a fingerprint as typed: any case, the dashes and spaces left out, the
+// letters that look like digits read as those
+local func plain_fingerprint(text){
+  local s = str.lower(text)
+  for(let local r in values({{"-", ""}, {" ", ""}, {"o", "0"}, {"i", "1"}, {"l", "1"}})){
+    s = str.replace(s, r[0], r[1])
+  }
+  return s
+}
+
+local func secure_of(o, what){
+  if(o == null or o == false){
+    return null
+  }
+  if(o == true){
+    return {}
+  }
+  if(type(o) != "table"){
+    raise(error.new(error.kinds.argument, concat("net: options.secure is true or ", what)))
+  }
+  return o
 }
 
 // ------------------------------------------------------------ protocols
@@ -453,7 +565,12 @@ local func send_data(c, rel, unrel, seqd, rids, t){
     }
     c.sent_first = c.sent_first + 1
   }
-  send_packet(c.host, {DATA, s, c.recv_high, c.recv_bits, rel, unrel, seqd}, c.ip, c.port)
+  if(c.send_key == null){
+    send_packet(c.host, {DATA, s, c.recv_high, c.recv_bits, rel, unrel, seqd}, c.ip, c.port)
+  } else {
+    local body = encode({c.recv_high, c.recv_bits, rel, unrel, seqd})
+    send_packet(c.host, {DATA, s, crypto.encrypt(CIPHER, c.send_key, iv_of(s, 0), body)}, c.ip, c.port)
+  }
   c.last_send = t
   c.need_ack = false
 }
@@ -563,8 +680,43 @@ local func deliver_reliable(c, m){
   deliver(c, m.kind, data)
 }
 
+// a sealed packet's contents (DATA, DISCONNECT: {kind, s, sealed}), or
+// null when it is not what the other side sealed
+local func unseal(c, p){
+  if(type(p[1]) != "int" or type(p[2]) != "string"){
+    return null
+  }
+  return crypto.decrypt(CIPHER, c.recv_key, iv_of(p[1], 0), p[2])
+}
+
+// a DATA packet as it was sent, opened on an encrypted connection; null
+// when it does not open
+local func opened(c, p){
+  if(c.recv_key == null){
+    return p
+  }
+  local body = unseal(c, p)
+  local q = if(body == null){ null } else { try { decode(body) } catch { null } }
+  if(type(q) != "table"){
+    return null
+  }
+  return {DATA, p[1], q[0], q[1], q[2], q[3], q[4]}
+}
+
+// a DISCONNECT's reason, or null when it is not the other side's
+local func goodbye_reason(c, p){
+  if(c.recv_key == null){
+    return text_or(p[1], "disconnected")
+  }
+  return text_or(unseal(c, p), null)
+}
+
 // a DATA packet from the other side of c
 local func on_data(c, p, t){
+  p = opened(c, p)
+  if(p == null){
+    return
+  }
   local s = p[1]
   local ack = p[2]
   local bits = p[3]
@@ -696,17 +848,26 @@ local server_get = {}
 // [port]: the port it listens on (the one picked, for port 0)
 // [peers]: the connected clients by id; a program reads it, net changes it
 // [protocol]: the [Protocol] of its options
+// [fingerprint]: its key's, with options.secure
 local server_meta = {__type: "net.Server", __index: server_methods, __get: server_get}
 
 // Options of [server].
 // type ServerOptions = {port?: int, host?: string, protocol?: Protocol,
-//   max_peers?: int, timeout?: number, simulate?: Simulate}
+//   max_peers?: int, timeout?: number, simulate?: Simulate,
+//   secure?: bool | ServerSecure}
 // [port]: the UDP port (0, the default, picks a free one)
 // [host]: the address to listen on, "0.0.0.0" (every IPv4 one) by default
 // [protocol]: the messages; without one, names and whole tables travel
 // [max_peers]: more clients are turned away ("server full"), 32 by default
 // [timeout]: a client not heard from for this many ms is gone (5000)
 // [simulate]: a worse network, for testing
+// [secure]: only encrypted connections (true, or with a key or password)
+
+// What an encrypting server has: its key and a password.
+// type ServerSecure = {key?: string, password?: string}
+// [key]: its X25519 secret, 32 bytes (crypto_core.random_bytes(32)); keep
+//   one to keep the [Server.fingerprint]. A new one by default
+// [password]: clients must have it too
 
 // The simulated network of options.simulate.
 // type Simulate = {latency?: number, jitter?: number, loss?: number}
@@ -726,6 +887,17 @@ func net.server(options){
   h.peers = {}
   h.next_id = 1
   h.max_peers = options.max_peers or 32
+  local sec = secure_of(options.secure, "{key?, password?}")
+  if(sec != null){
+    local secret = sec.key or crypto.random_bytes(32)
+    if(type(secret) != "string" or len(secret) != 32){
+      raise(error.new(error.kinds.argument, "net: secure.key is 32 bytes"))
+    }
+    h.secure = {
+      secret: secret, public: crypto.x25519(secret), psk: psk_of(sec.password),
+      cookie_key: crypto.random_bytes(32),
+    }
+  }
   h.@meta = server_meta
   h.udp:bind(options.host or "0.0.0.0", options.port or 0)
   h.port = h.udp:getsockname().port
@@ -736,6 +908,16 @@ func net.server(options){
 // protocol(self) -> Protocol?
 func server_get.protocol(h){
   return h.proto
+}
+
+// fingerprint(self) -> string?
+// The short text that names this server's key (see [fingerprint]), for
+// clients to check that they reached it; null without options.secure.
+func server_get.fingerprint(h){
+  if(h.secure == null){
+    return null
+  }
+  return net.fingerprint(h.secure.public)
 }
 
 // on(event: string, handler: function?)
@@ -766,6 +948,85 @@ local func reject(h, reason, ip, port){
   send_packet(h, {REJECT, reason}, ip, port)
 }
 
+// a new peer, connected; accept(peer) is the ACCEPT packet it is sent
+// (again when the client did not hear it)
+local func admit(h, ip, port, t, accept, keys){
+  local c = new_conn(h, ip, port, t)
+  c.state = "connected"
+  if(keys != null){
+    c.send_key = keys.send
+    c.recv_key = keys.recv
+  }
+  local peer = {
+    @meta: peer_meta, id: h.next_id, address: c.address, ip: ip, port: port, server: h, conn: c,
+    secure: keys != null,
+  }
+  h.next_id = h.next_id + 1
+  c.peer = peer
+  h.by_address[c.address] = c
+  h.peers[peer.id] = peer
+  c.accept = accept(peer)
+  send_packet(h, c.accept, ip, port)
+  local handler = h.handlers.connect
+  if(handler != null){
+    handler(peer)
+  }
+}
+
+// the cookie of a hello from ip:port at a period: only who gets packets
+// at that address can know it
+local func cookie_of(h, ip, port, nonce, period){
+  return str.substring(crypto.hmac(
+    "sha256", h.secure.cookie_key, concat(ip, ":", string(port), "/", string(nonce), "/", string(period)),
+  ), 0, 16)
+}
+
+// a SECURE packet ({SECURE, MAGIC, signature, nonce, cookie, the client's
+// key, proof}): the client proves it knows the server's key and the
+// password; the server answers with its key for this connection and
+// proof that it is the server
+local func secure_connect(h, p, ip, port, t){
+  local sec = h.secure
+  local signature = h.proto != null and h.proto.signature or ""
+  local nonce = p[3]
+  local client_public = p[5]
+  if(p[1] != MAGIC or p[2] != signature or type(nonce) != "int" or type(p[4]) != "string"
+     or type(client_public) != "string" or len(client_public) != 32 or type(p[6]) != "string"){
+    return
+  }
+  local period = to_int(math.floor(t / COOKIE_PERIOD))
+  if(not crypto.equal(p[4], cookie_of(h, ip, port, nonce, period))
+     and not crypto.equal(p[4], cookie_of(h, ip, port, nonce, period - 1))){
+    return
+  }
+  if(count(h.peers) >= h.max_peers){
+    return reject(h, "net: the server is full", ip, port)
+  }
+  local es = crypto.x25519(sec.secret, client_public)
+  if(es == null){
+    return
+  }
+  local th = transcript(signature, nonce, sec.public, client_public)
+  local proof_key = hkdf(concat(es, sec.psk), th, "slang/net proof")
+  if(crypto.decrypt(CIPHER, proof_key, iv_of(0, 1), p[6], th) != "hello"){
+    return reject(h, "net: wrong password", ip, port)
+  }
+  local mine = crypto.random_bytes(32)
+  local mine_public = crypto.x25519(mine)
+  local ee = crypto.x25519(mine, client_public)
+  if(ee == null){
+    return
+  }
+  local th2 = sha(th, mine_public)
+  local ikm = concat(es, ee, sec.psk)
+  local keys = {send: hkdf(ikm, th2, "slang/net s2c"), recv: hkdf(ikm, th2, "slang/net c2s")}
+  admit(h, ip, port, t, func(peer){
+    local confirm = crypto.encrypt(CIPHER, keys.send, iv_of(0, 1), string(peer.id), th2)
+    return {ACCEPT, peer.id, nonce, mine_public, confirm}
+  }, keys)
+  h.by_address[concat(ip, ":", string(port))].nonce = nonce
+}
+
 local func server_receive(h, data, ip, port, t){
   local p = try { decode(data) } catch { null }
   if(type(p) != "table"){
@@ -774,40 +1035,63 @@ local func server_receive(h, data, ip, port, t){
   local address = concat(ip, ":", string(port))
   local c = h.by_address[address]
   local kind = p[0]
+  local signature = h.proto != null and h.proto.signature or ""
   if(kind == DATA){
     if(c != null){
       on_data(c, p, t)
     }
   } else if(kind == CONNECT){
+    if(h.secure != null){
+      if(c == null and p[1] == MAGIC){
+        reject(h, "net: the server takes only encrypted connections", ip, port)
+      }
+      return
+    }
     if(c != null){
-      send_packet(h, {ACCEPT, c.peer.id, p[3]}, ip, port)
+      send_packet(h, c.accept, ip, port)
       return
     }
     if(p[1] != MAGIC){
       return
     }
-    local signature = h.proto != null and h.proto.signature or ""
     if(p[2] != signature){
       return reject(h, "net: the client speaks another protocol", ip, port)
     }
     if(count(h.peers) >= h.max_peers){
       return reject(h, "net: the server is full", ip, port)
     }
-    c = new_conn(h, ip, port, t)
-    c.state = "connected"
-    local peer = {@meta: peer_meta, id: h.next_id, address: c.address, ip: ip, port: port, server: h, conn: c}
-    h.next_id = h.next_id + 1
-    c.peer = peer
-    h.by_address[address] = c
-    h.peers[peer.id] = peer
-    send_packet(h, {ACCEPT, peer.id, p[3]}, ip, port)
-    local handler = h.handlers.connect
-    if(handler != null){
-      handler(peer)
+    local nonce = p[3]
+    admit(h, ip, port, t, func(peer){ return {ACCEPT, peer.id, nonce} }, null)
+  } else if(kind == HELLO){
+    if(c != null or p[1] != MAGIC or type(p[3]) != "int"){
+      return
     }
+    if(h.secure == null){
+      return reject(h, "net: the server does not encrypt", ip, port)
+    }
+    if(p[2] != signature){
+      return reject(h, "net: the client speaks another protocol", ip, port)
+    }
+    local period = to_int(math.floor(t / COOKIE_PERIOD))
+    send_packet(h, {CHALLENGE, p[3], cookie_of(h, ip, port, p[3], period), h.secure.public}, ip, port)
+  } else if(kind == SECURE){
+    if(h.secure == null){
+      return
+    }
+    if(c != null){
+      // (the client did not hear the accept)
+      if(c.nonce == p[3]){
+        send_packet(h, c.accept, ip, port)
+      }
+      return
+    }
+    secure_connect(h, p, ip, port, t)
   } else if(kind == DISCONNECT){
     if(c != null){
-      close_conn(c, text_or(p[1], "disconnected"), false)
+      local reason = goodbye_reason(c, p)
+      if(reason != null){
+        close_conn(c, reason, false)
+      }
     }
   }
 }
@@ -821,7 +1105,13 @@ close_conn = func(c, reason, tell){
   c.state = "closed"
   if(tell){
     for(local i = 0; i < GOODBYES; i = i + 1){
-      send_packet(h, {DISCONNECT, reason}, c.ip, c.port)
+      if(c.send_key == null){
+        send_packet(h, {DISCONNECT, reason}, c.ip, c.port)
+      } else {
+        local s = c.seq
+        c.seq = s + 1
+        send_packet(h, {DISCONNECT, s, crypto.encrypt(CIPHER, c.send_key, iv_of(s, 0), string(reason))}, c.ip, c.port)
+      }
     }
   }
   local handler = h.handlers.disconnect
@@ -957,6 +1247,14 @@ func client_get.connected(cl){
   return cl.conn.state == "connected"
 }
 
+// fingerprint(self) -> string?
+// With options.secure, the fingerprint of the key the server answered
+// with (once it did): what a player compares with the host's, when it
+// was not given.
+func client_get.fingerprint(cl){
+  return cl.server_fingerprint
+}
+
 // rtt(self) -> number
 // The round-trip time to the server in ms, smoothed.
 func client_get.rtt(cl){
@@ -970,14 +1268,31 @@ func client_get.loss(cl){
 }
 
 // Options of [connect].
-// type ConnectOptions = {protocol?: Protocol, timeout?: number, simulate?: Simulate}
+// type ConnectOptions = {protocol?: Protocol, timeout?: number, simulate?: Simulate,
+//   secure?: bool | ClientSecure}
 // [protocol]: the server's [Protocol]
+// [secure]: connect encrypted (the server must have options.secure)
 // [timeout]: ms without a word from the server before giving up (5000)
 // [simulate]: a worse network, for testing
 
+// What an encrypting client knows of its server.
+// type ClientSecure = {fingerprint?: string, password?: string}
+// [fingerprint]: the server's ([Server.fingerprint]); without it any key
+//   is taken (encrypted, but whoever answers could be in between); see
+//   [Client.fingerprint]
+// [password]: the server's
+
 local func send_connect(cl, t){
   local signature = cl.proto != null and cl.proto.signature or ""
-  send_packet(cl, {CONNECT, MAGIC, signature, cl.nonce}, cl.conn.ip, cl.conn.port)
+  local sec = cl.secure
+  local packet = if(sec == null){
+    {CONNECT, MAGIC, signature, cl.nonce}
+  } else if(sec.answer == null){
+    {HELLO, MAGIC, signature, cl.nonce}
+  } else {
+    {SECURE, MAGIC, signature, cl.nonce, sec.answer.cookie, sec.public, sec.answer.proof}
+  }
+  send_packet(cl, packet, cl.conn.ip, cl.conn.port)
   cl.last_connect = t
 }
 
@@ -1004,6 +1319,18 @@ func net.connect(host, port, options){
   cl.@meta = client_meta
   cl.is_server = false
   cl.nonce = math.random_int(0, 0x7FFF_FFFF)
+  local sec = secure_of(options.secure, "{fingerprint?, password?}")
+  if(sec != null){
+    if(sec.fingerprint != null and type(sec.fingerprint) != "string"){
+      raise(error.new(error.kinds.argument, "net: secure.fingerprint is a string"))
+    }
+    local secret = crypto.random_bytes(32)
+    cl.secure = {
+      secret: secret, public: crypto.x25519(secret), psk: psk_of(sec.password),
+      expect: if(sec.fingerprint == null){ null } else { plain_fingerprint(sec.fingerprint) },
+      answer: null,
+    }
+  }
   cl.conn = new_conn(cl, "", port, now())
   if(host == "localhost"){
     host = "127.0.0.1"
@@ -1058,7 +1385,51 @@ local func client_receive(cl, data, ip, port, t){
     if(c.state == "connected"){
       on_data(c, p, t)
     }
+  } else if(kind == CHALLENGE){
+    local sec = cl.secure
+    if(sec == null or c.state != "connecting" or sec.answer != null or p[1] != cl.nonce
+       or type(p[2]) != "string" or type(p[3]) != "string" or len(p[3]) != 32){
+      return
+    }
+    local fingerprint = net.fingerprint(p[3])
+    if(sec.expect != null and plain_fingerprint(fingerprint) != sec.expect){
+      return close_conn(c, concat(
+        "net: the server's key is not the one expected (", fingerprint, "): another server, or someone in between",
+      ), false)
+    }
+    local es = crypto.x25519(sec.secret, p[3])
+    if(es == null){
+      return
+    }
+    cl.server_fingerprint = fingerprint
+    local signature = cl.proto != null and cl.proto.signature or ""
+    local th = transcript(signature, cl.nonce, p[3], sec.public)
+    local proof_key = hkdf(concat(es, sec.psk), th, "slang/net proof")
+    sec.answer = {
+      cookie: p[2], th: th, es: es,
+      proof: crypto.encrypt(CIPHER, proof_key, iv_of(0, 1), "hello", th),
+    }
+    send_connect(cl, t)
   } else if(kind == ACCEPT){
+    if(c.state == "connecting" and p[2] == cl.nonce and type(p[1]) == "int" and cl.secure != null){
+      // the server's key for this connection, and its proof
+      local a = cl.secure.answer
+      if(a == null or type(p[3]) != "string" or len(p[3]) != 32 or type(p[4]) != "string"){
+        return
+      }
+      local ee = crypto.x25519(cl.secure.secret, p[3])
+      if(ee == null){
+        return
+      }
+      local th2 = sha(a.th, p[3])
+      local ikm = concat(a.es, ee, cl.secure.psk)
+      local recv = hkdf(ikm, th2, "slang/net s2c")
+      if(crypto.decrypt(CIPHER, recv, iv_of(0, 1), p[4], th2) != string(p[1])){
+        return
+      }
+      c.send_key = hkdf(ikm, th2, "slang/net c2s")
+      c.recv_key = recv
+    }
     if(c.state == "connecting" and p[2] == cl.nonce and type(p[1]) == "int"){
       c.state = "connected"
       c.last_recv = t
@@ -1073,7 +1444,10 @@ local func client_receive(cl, data, ip, port, t){
       close_conn(c, text_or(p[1], "net: rejected"), false)
     }
   } else if(kind == DISCONNECT){
-    close_conn(c, text_or(p[1], "disconnected"), false)
+    local reason = goodbye_reason(c, p)
+    if(reason != null){
+      close_conn(c, reason, false)
+    }
   }
 }
 

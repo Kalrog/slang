@@ -60,9 +60,16 @@ for(not rl.window.should_close){
 <p>A <a href="#type-Protocol"><code>Protocol</code></a> names the messages up front and the fields of each, so that a message travels as its number and its values without the field names; both sides must use the same one (a client with another is turned away). Without one, a message travels with its name and its whole table.</p>
 <p>Message data is anything slang/encoding's binary form takes: null, booleans, numbers, strings and tables of them. A reliable message may be large (it is split into packets); an unreliable one must fit in one packet (<a href="#max_unreliable"><code>max_unreliable</code></a> bytes encoded).</p>
 <p>options.simulate makes a host's network worse on purpose, to see how a game plays with lag and loss: every packet it sends or receives is delayed by latency ms plus up to jitter ms (so packets also overtake each other), and dropped with the probability loss.</p>
-<p>There is no encryption or authentication: anyone who can reach the port can connect, and a peer's messages are what it chose to send. Servers check what clients tell them.</p>
+<p>options.secure encrypts a connection: a server with it takes only encrypted ones, a client with it connects only encrypted. Every packet after the handshake is sealed (ChaCha20-Poly1305, keys from X25519 key agreement, new for every connection): nobody on the way reads it, and what was changed, replayed or sent in a peer's name is dropped. The server has a key of its own (<a href="#type-ServerSecure"><code>ServerSecure</code></a>.key, random by default); its <a href="#type-Server"><code>Server.fingerprint</code></a> is short text that a client can be given (<a href="#type-ClientSecure"><code>ClientSecure</code></a>.fingerprint) to know it reached that server and nobody in between. A password, when the server has one, must be the client's too. A server answers a connection attempt with a cookie first, so an address that is not the sender's gets nothing set up for it.</p>
+<pre><code>local server = net.server({port: 7777, secure: {password: &quot;tunnel&quot;}})
+print(server.fingerprint)                 // &quot;k3mq-7x2b-...&quot; for players
+local client = net.connect(ip, 7777, {secure: {
+  fingerprint: &quot;k3mq-7x2b-...&quot;, password: &quot;tunnel&quot;,
+}})</code></pre>
+<p>Without secure there is no encryption or authentication: anyone who can reach the port can connect. Either way a peer's messages are what it chose to send: servers check what clients tell them.</p>
 <ul class="toc">
 <li><a href="#max_unreliable"><code>max_unreliable</code></a></li>
+<li><a href="#fingerprint"><code>fingerprint</code></a></li>
 <li><a href="#protocol"><code>protocol</code></a></li>
 <li><a href="#server"><code>server</code></a></li>
 <li><a href="#connect"><code>connect</code></a></li>
@@ -71,11 +78,13 @@ for(not rl.window.should_close){
 <li><a href="#type-SendOptions"><code>type SendOptions</code></a></li>
 <li><a href="#type-Server"><code>type Server</code></a></li>
 <li><a href="#type-ServerOptions"><code>type ServerOptions</code></a></li>
+<li><a href="#type-ServerSecure"><code>type ServerSecure</code></a></li>
 <li><a href="#type-Simulate"><code>type Simulate</code></a></li>
 <li><a href="#type-BroadcastOptions"><code>type BroadcastOptions</code></a></li>
 <li><a href="#type-RunOptions"><code>type RunOptions</code></a></li>
 <li><a href="#type-Client"><code>type Client</code></a></li>
 <li><a href="#type-ConnectOptions"><code>type ConnectOptions</code></a></li>
+<li><a href="#type-ClientSecure"><code>type ClientSecure</code></a></li>
 <li><a href="#type-net.Peer"><code>type net.Peer</code></a></li>
 <li><a href="#net.Peer.rtt"><code>net.Peer.rtt</code></a></li>
 <li><a href="#net.Peer.loss"><code>net.Peer.loss</code></a></li>
@@ -84,6 +93,7 @@ for(not rl.window.should_close){
 <li><a href="#net.Peer:disconnect"><code>net.Peer:disconnect</code></a></li>
 <li><a href="#type-net.Server"><code>type net.Server</code></a></li>
 <li><a href="#net.Server.protocol"><code>net.Server.protocol</code></a></li>
+<li><a href="#net.Server.fingerprint"><code>net.Server.fingerprint</code></a></li>
 <li><a href="#net.Server:on"><code>net.Server:on</code></a></li>
 <li><a href="#net.Server:broadcast"><code>net.Server:broadcast</code></a></li>
 <li><a href="#net.Server:poll"><code>net.Server:poll</code></a></li>
@@ -94,6 +104,7 @@ for(not rl.window.should_close){
 <li><a href="#net.Client.id"><code>net.Client.id</code></a></li>
 <li><a href="#net.Client.state"><code>net.Client.state</code></a></li>
 <li><a href="#net.Client.connected"><code>net.Client.connected</code></a></li>
+<li><a href="#net.Client.fingerprint"><code>net.Client.fingerprint</code></a></li>
 <li><a href="#net.Client.rtt"><code>net.Client.rtt</code></a></li>
 <li><a href="#net.Client.loss"><code>net.Client.loss</code></a></li>
 <li><a href="#net.Client:on"><code>net.Client:on</code></a></li>
@@ -105,6 +116,11 @@ for(not rl.window.should_close){
 </ul>
 <div class="def" id="max_unreliable"><h3><code>net.max_unreliable</code></h3>
 <p>max_unreliable: the largest unreliable or sequenced message, encoded</p>
+
+</div>
+<h2>keys</h2>
+<div class="def" id="fingerprint"><h3><code>net.fingerprint(public: string) -> string</code></h3>
+<p>The short text that names a server's key (<a href="#type-Server"><code>Server.fingerprint</code></a>): 80 bits of its hash in 16 letters and digits, four groups of four.</p>
 
 </div>
 <h2>protocols</h2>
@@ -142,9 +158,13 @@ for(not rl.window.should_close){
 <p>A server: <a href="#server"><code>server</code></a> makes one.</p>
 <dl class="params"><dt><code>port: int</code></dt><dd>the port it listens on (the one picked, for port 0)</dd><dt><code>peers: {int: <a href="#type-Peer">Peer</a>}</code></dt><dd>the connected clients by id; a program reads it, net changes it</dd><dt><code>protocol: <a href="#type-Protocol">Protocol</a>?</code></dt><dd>the <a href="#type-Protocol"><code>Protocol</code></a> of its options</dd><dt><code>on: func(event: string, handler: function?)</code></dt><dd></dd><dt><code>broadcast: func(name: string, data?: any, options?: <a href="#type-BroadcastOptions">BroadcastOptions</a>)</code></dt><dd></dd><dt><code>poll: func()</code></dt><dd></dd><dt><code>flush: func()</code></dt><dd></dd><dt><code>run: func(options?: <a href="#type-RunOptions">RunOptions</a>)</code></dt><dd></dd><dt><code>close: func()</code></dt><dd></dd></dl>
 <h2 id="type-ServerOptions">type ServerOptions</h2>
-<pre><code>type ServerOptions = {port?: int, host?: string, protocol?: <a href="#type-Protocol">Protocol</a>, max_peers?: int, timeout?: number, simulate?: <a href="#type-Simulate">Simulate</a>}</code></pre>
+<pre><code>type ServerOptions = {port?: int, host?: string, protocol?: <a href="#type-Protocol">Protocol</a>, max_peers?: int, timeout?: number, simulate?: <a href="#type-Simulate">Simulate</a>, secure?: bool | <a href="#type-ServerSecure">ServerSecure</a>}</code></pre>
 <p>Options of <a href="#server"><code>server</code></a>.</p>
-<dl class="params"><dt><code>port?: int</code></dt><dd>the UDP port (0, the default, picks a free one)</dd><dt><code>host?: string</code></dt><dd>the address to listen on, &quot;0.0.0.0&quot; (every IPv4 one) by default</dd><dt><code>protocol?: <a href="#type-Protocol">Protocol</a></code></dt><dd>the messages; without one, names and whole tables travel</dd><dt><code>max_peers?: int</code></dt><dd>more clients are turned away (&quot;server full&quot;), 32 by default</dd><dt><code>timeout?: number</code></dt><dd>a client not heard from for this many ms is gone (5000)</dd><dt><code>simulate?: <a href="#type-Simulate">Simulate</a></code></dt><dd>a worse network, for testing</dd></dl>
+<dl class="params"><dt><code>port?: int</code></dt><dd>the UDP port (0, the default, picks a free one)</dd><dt><code>host?: string</code></dt><dd>the address to listen on, &quot;0.0.0.0&quot; (every IPv4 one) by default</dd><dt><code>protocol?: <a href="#type-Protocol">Protocol</a></code></dt><dd>the messages; without one, names and whole tables travel</dd><dt><code>max_peers?: int</code></dt><dd>more clients are turned away (&quot;server full&quot;), 32 by default</dd><dt><code>timeout?: number</code></dt><dd>a client not heard from for this many ms is gone (5000)</dd><dt><code>simulate?: <a href="#type-Simulate">Simulate</a></code></dt><dd>a worse network, for testing</dd><dt><code>secure?: bool | <a href="#type-ServerSecure">ServerSecure</a></code></dt><dd>only encrypted connections (true, or with a key or password)</dd></dl>
+<h2 id="type-ServerSecure">type ServerSecure</h2>
+<pre><code>type ServerSecure = {key?: string, password?: string}</code></pre>
+<p>What an encrypting server has: its key and a password.</p>
+<dl class="params"><dt><code>key?: string</code></dt><dd>its X25519 secret, 32 bytes (crypto_core.random_bytes(32)); keep one to keep the <a href="#type-Server"><code>Server.fingerprint</code></a>. A new one by default</dd><dt><code>password?: string</code></dt><dd>clients must have it too</dd></dl>
 <h2 id="type-Simulate">type Simulate</h2>
 <pre><code>type Simulate = {latency?: number, jitter?: number, loss?: number}</code></pre>
 <p>The simulated network of options.simulate.</p>
@@ -162,9 +182,13 @@ for(not rl.window.should_close){
 <p>A connection to a server: <a href="#connect"><code>connect</code></a> makes one.</p>
 <dl class="params"><dt><code>id: int?</code></dt><dd></dd><dt><code>state: string</code></dt><dd>&quot;connecting&quot;, &quot;connected&quot; or &quot;closed&quot;</dd><dt><code>reason: string?</code></dt><dd>why it closed, once it is closed</dd><dt><code>on: func(event: string, handler: function?)</code></dt><dd></dd><dt><code>send: func(name: string, data?: any, options?: <a href="#type-SendOptions">SendOptions</a>)</code></dt><dd></dd><dt><code>poll: func()</code></dt><dd></dd><dt><code>flush: func()</code></dt><dd></dd><dt><code>run: func(options?: <a href="#type-RunOptions">RunOptions</a>)</code></dt><dd></dd><dt><code>close: func()</code></dt><dd></dd></dl>
 <h2 id="type-ConnectOptions">type ConnectOptions</h2>
-<pre><code>type ConnectOptions = {protocol?: <a href="#type-Protocol">Protocol</a>, timeout?: number, simulate?: <a href="#type-Simulate">Simulate</a>}</code></pre>
+<pre><code>type ConnectOptions = {protocol?: <a href="#type-Protocol">Protocol</a>, timeout?: number, simulate?: <a href="#type-Simulate">Simulate</a>, secure?: bool | <a href="#type-ClientSecure">ClientSecure</a>}</code></pre>
 <p>Options of <a href="#connect"><code>connect</code></a>.</p>
-<dl class="params"><dt><code>protocol?: <a href="#type-Protocol">Protocol</a></code></dt><dd>the server's <a href="#type-Protocol"><code>Protocol</code></a></dd><dt><code>timeout?: number</code></dt><dd>ms without a word from the server before giving up (5000)</dd><dt><code>simulate?: <a href="#type-Simulate">Simulate</a></code></dt><dd>a worse network, for testing</dd></dl>
+<dl class="params"><dt><code>protocol?: <a href="#type-Protocol">Protocol</a></code></dt><dd>the server's <a href="#type-Protocol"><code>Protocol</code></a></dd><dt><code>timeout?: number</code></dt><dd>ms without a word from the server before giving up (5000)</dd><dt><code>simulate?: <a href="#type-Simulate">Simulate</a></code></dt><dd>a worse network, for testing</dd><dt><code>secure?: bool | <a href="#type-ClientSecure">ClientSecure</a></code></dt><dd>connect encrypted (the server must have options.secure)</dd></dl>
+<h2 id="type-ClientSecure">type ClientSecure</h2>
+<pre><code>type ClientSecure = {fingerprint?: string, password?: string}</code></pre>
+<p>What an encrypting client knows of its server.</p>
+<dl class="params"><dt><code>fingerprint?: string</code></dt><dd>the server's (<a href="#type-Server"><code>Server.fingerprint</code></a>); without it any key is taken (encrypted, but whoever answers could be in between); see <a href="#type-Client"><code>Client.fingerprint</code></a></dd><dt><code>password?: string</code></dt><dd>the server's</dd></dl>
 <h2 id="type-net.Peer">type net.Peer</h2>
 
 <div class="def" id="net.Peer.rtt"><h3><code>net.Peer.rtt: number (read-only)</code></h3>
@@ -190,6 +214,10 @@ for(not rl.window.should_close){
 <h2 id="type-net.Server">type net.Server</h2>
 
 <div class="def" id="net.Server.protocol"><h3><code>net.Server.protocol: Protocol? (read-only)</code></h3>
+
+</div>
+<div class="def" id="net.Server.fingerprint"><h3><code>net.Server.fingerprint: string? (read-only)</code></h3>
+<p>The short text that names this server's key (see <a href="#fingerprint"><code>fingerprint</code></a>), for clients to check that they reached it; null without options.secure.</p>
 
 </div>
 <div class="def" id="net.Server:on"><h3><code>net.Server:on(event: string, handler: function?)</code></h3>
@@ -226,6 +254,10 @@ for(not rl.window.should_close){
 
 </div>
 <div class="def" id="net.Client.connected"><h3><code>net.Client.connected: bool (read-only)</code></h3>
+
+</div>
+<div class="def" id="net.Client.fingerprint"><h3><code>net.Client.fingerprint: string? (read-only)</code></h3>
+<p>With options.secure, the fingerprint of the key the server answered with (once it did): what a player compares with the host's, when it was not given.</p>
 
 </div>
 <div class="def" id="net.Client.rtt"><h3><code>net.Client.rtt: number (read-only)</code></h3>

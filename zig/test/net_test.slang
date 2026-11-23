@@ -3,6 +3,7 @@
 local t = require("slang/test")
 local net = require("slang/net")
 local time = require("slang/time")
+local str = require("slang/string")
 
 // polls the hosts until done() is true; false after a few seconds
 local func until(hosts, done){
@@ -134,3 +135,110 @@ t.group("net"){
     assert(got == 42, string(got))
   }
 }
+
+t.group("net: encrypted"){
+  // what a host has queued to send (the simulated network holds it)
+  local func on_the_wire(h){
+    local all = {}
+    for(let local p in values(h.sim_out)){
+      append(all, p[1])
+    }
+    return str.join(all, "")
+  }
+  t.test("a client checks the server's key and password; messages go both ways"){
+    local server = net.server({protocol: proto, secure: {password: "tunnel"}})
+    local fp = server.fingerprint
+    assert(len(fp) == 19 and str.substring(fp, 4, 5) == "-", fp)
+    local heard = null
+    local from = null
+    local gone = null
+    server:on("connect", func(peer){ peer:send("hello", {name: "server", level: 2}) })
+    server:on("hello", func(peer, m){ from = m.name })
+    server:on("disconnect", func(peer, reason){ gone = reason })
+    // typed in another case, with spaces
+    local client = net.connect("127.0.0.1", server.port, {protocol: proto, secure: {
+      fingerprint: str.replace(str.upper(fp), "-", " "), password: "tunnel",
+    }})
+    client:on("hello", func(m){ heard = m })
+    client:send("hello", {name: "client"})
+    assert(until({server, client}, func(){ return heard != null and from != null }))
+    assert(heard.level == 2 and from == "client")
+    assert(server.peers[1].secure and client.fingerprint == fp)
+    client:close()
+    assert(until({server}, func(){ return gone != null }))
+    assert(gone == "net: the client closed", gone)
+    server:close()
+  }
+  t.test("nothing readable on the wire; changed packets are dropped"){
+    local slow = {latency: 30}
+    local server = net.server({protocol: proto, secure: true, simulate: slow})
+    local client = net.connect("127.0.0.1", server.port, {protocol: proto, secure: true, simulate: slow})
+    assert(until({server, client}, func(){ return client.connected }))
+    local got = {}
+    server:on("hello", func(peer, m){ append(got, m.name) })
+    client:send("hello", {name: "the secret word"})
+    client:flush()
+    assert(len(client.sim_out) > 0)
+    assert(not str.contains(on_the_wire(client), "the secret word"))
+    // a bit flipped in the first packet: dropped, the message is resent
+    local first = client.sim_out[0]
+    local b = str.byte_at(first[1], len(first[1]) - 1)
+    first[1] = concat(str.substring(first[1], 0, len(first[1]) - 1), str.from_bytes({b ^ 1}))
+    assert(until({server, client}, func(){ return len(got) > 0 }))
+    for(local i = 0; i < 20; i = i + 1){
+      server:poll()
+      client:poll()
+      time.sleep(2)
+    }
+    assert(len(got) == 1 and got[0] == "the secret word", string(got))
+    client:close()
+    server:close()
+  }
+  t.test("reliable messages through loss, encrypted"){
+    local bad = {latency: 5, jitter: 10, loss: 0.25}
+    local server = net.server({simulate: bad, secure: true})
+    local client = net.connect("127.0.0.1", server.port, {simulate: bad, secure: {fingerprint: server.fingerprint}})
+    local got = {}
+    server:on("n", func(peer, m){ append(got, m) })
+    for(local i = 0; i < 60; i = i + 1){
+      client:send("n", i)
+    }
+    assert(until({server, client}, func(){ return len(got) == 60 }), string(len(got)))
+    for(local i = 0; i < 60; i = i + 1){
+      assert(got[i] == i, string(got))
+    }
+    client:close()
+    server:close()
+  }
+  t.test("turned away: the password, the key, one side not encrypting"){
+    local cases = {
+      {{secure: {password: "a"}}, {secure: {password: "b"}}, "net: wrong password"},
+      {{secure: {password: "a"}}, {secure: true}, "net: wrong password"},
+      {{secure: true}, {secure: {fingerprint: "0000-0000-0000-0000"}}, "is not the one expected"},
+      {{secure: true}, {}, "net: the server takes only encrypted connections"},
+      {{}, {secure: true}, "net: the server does not encrypt"},
+    }
+    for(let local k in values(cases)){
+      local server = net.server(k[0])
+      local client = net.connect("127.0.0.1", server.port, k[1])
+      local reason = null
+      client:on("disconnect", func(r){ reason = r })
+      assert(until({server, client}, func(){ return reason != null }), k[2])
+      assert(str.contains(reason, k[2]), reason)
+      assert(count(server.peers) == 0)
+      server:close()
+    }
+  }
+  t.test("a kept key keeps the fingerprint"){
+    local key = require("slang/crypto_core").random_bytes(32)
+    local a = net.server({secure: {key: key}})
+    local b = net.server({secure: {key: key}})
+    local c = net.server({secure: true})
+    assert(a.fingerprint == b.fingerprint and a.fingerprint != c.fingerprint)
+    t.raises(func(){ net.server({secure: {key: "short"}}) })
+    a:close()
+    b:close()
+    c:close()
+  }
+}
+

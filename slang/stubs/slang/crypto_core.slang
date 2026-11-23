@@ -91,4 +91,18 @@ func m.encrypt(cipher, key, iv, plaintext, aad){}
 // the key or the iv do not match the tag.
 func m.decrypt(cipher, key, iv, sealed, aad){}
 
+// ------------------------------------------------------------ key agreement
+
+// x25519(secret: string, public?: string) -> string?
+// Key agreement on Curve25519 (RFC 7748). With one argument, the 32-byte
+// public key of a 32-byte secret (make one with random_bytes(32)); with
+// two, the 32 bytes both sides arrive at from their own secret and the
+// other's public key, or null for a public key that would make it zero
+// (a peer that is up to something). Hash the result before using it as a
+// key (HKDF, say).
+//   local a = core.random_bytes(32)
+//   local b = core.random_bytes(32)
+//   core.x25519(a, core.x25519(b)) == core.x25519(b, core.x25519(a))  // true
+func m.x25519(secret, public){}
+
 return m

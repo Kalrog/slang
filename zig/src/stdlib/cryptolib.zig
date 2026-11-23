@@ -1,7 +1,7 @@
 //! slang/crypto_core: the common cryptography from Zig's std.crypto, the
 //! same on every platform (no OpenSSL): hash, hmac, hasher, random_bytes,
 //! equal, pbkdf2, scrypt (and their _async forms on libuv's pool), encrypt
-//! and decrypt (AES-GCM, ChaCha20-Poly1305). slang/crypto is built on it;
+//! and decrypt (AES-GCM, ChaCha20-Poly1305), x25519 (key agreement). slang/crypto is built on it;
 //! keys (RSA, EC, Ed25519 in PEM) and TLS stay with OpenSSL (the crypto and
 //! tls extensions).
 //!
@@ -87,6 +87,7 @@ pub fn module(vm: *VM) *Table {
         .{ .name = "scrypt", .f = scrypt },
         .{ .name = "encrypt", .f = encrypt },
         .{ .name = "decrypt", .f = decrypt },
+        .{ .name = "x25519", .f = x25519 },
     });
     t.set(vm.gpa, vm.str("pbkdf2_async"), .{ .function = capi.newCClosure(vm, pbkdf2Async, "pbkdf2_async", &.{}) });
     t.set(vm.gpa, vm.str("scrypt_async"), .{ .function = capi.newCClosure(vm, scryptAsync, "scrypt_async", &.{}) });
@@ -522,4 +523,28 @@ fn decrypt(th: *Thread, args: []Value) Error!Value {
         }
     }
     unreachable;
+}
+
+// ---- key agreement ----
+
+const X25519 = std.crypto.dh.X25519;
+
+/// x25519(secret, [public]) -> 32 bytes: with one argument the public key
+/// of a 32-byte secret (random_bytes(32)); with two, the secret the two
+/// sides share (each its own secret and the other's public key), or null
+/// when public is a point that would make it zero (a bad peer)
+fn x25519(th: *Thread, args: []Value) Error!Value {
+    const vm = th.vm;
+    const secret = try argBytes(th, args, 0, "secret");
+    if (secret.len != X25519.secret_length) return vm.raiseKind("argument", "crypto: an x25519 secret is 32 bytes, got {d}", .{secret.len});
+    const sk = secret[0..X25519.secret_length].*;
+    if (api.arg(args, 1) == .null) {
+        const pk = X25519.recoverPublicKey(sk);
+        return vm.str(&pk);
+    }
+    const public = try argBytes(th, args, 1, "public");
+    if (public.len != X25519.public_length) return vm.raiseKind("argument", "crypto: an x25519 public key is 32 bytes, got {d}", .{public.len});
+    var shared = X25519.scalarmult(sk, public[0..X25519.public_length].*) catch return .null;
+    defer std.crypto.secureZero(u8, &shared);
+    return vm.str(&shared);
 }

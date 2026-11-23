@@ -57,6 +57,7 @@ core.hasher(&quot;sha256&quot;):update(&quot;a&quot;):update(&quot;bc&quot;):dig
 <li><a href="#scrypt_async"><code>scrypt_async</code></a></li>
 <li><a href="#encrypt"><code>encrypt</code></a></li>
 <li><a href="#decrypt"><code>decrypt</code></a></li>
+<li><a href="#x25519"><code>x25519</code></a></li>
 <li><a href="#type-Hasher"><code>type Hasher</code></a></li>
 <li><a href="#Hasher:update"><code>Hasher:update</code></a></li>
 <li><a href="#Hasher:digest"><code>Hasher:digest</code></a></li>
@@ -106,6 +107,14 @@ core.hasher(&quot;sha256&quot;):update(&quot;a&quot;):update(&quot;bc&quot;):dig
 </div>
 <div class="def" id="decrypt"><h3><code>crypto_core.decrypt(cipher: string, key: string, iv: string, sealed: string, aad?: string) -> string?</code></h3>
 <p>The plaintext of what <a href="#encrypt"><code>encrypt</code></a> made, or null when the data, the aad, the key or the iv do not match the tag.</p>
+
+</div>
+<h2>key agreement</h2>
+<div class="def" id="x25519"><h3><code>crypto_core.x25519(secret: string, public?: string) -> string?</code></h3>
+<p>Key agreement on Curve25519 (RFC 7748). With one argument, the 32-byte public key of a 32-byte secret (make one with random_bytes(32)); with two, the 32 bytes both sides arrive at from their own secret and the other's public key, or null for a public key that would make it zero (a peer that is up to something). Hash the result before using it as a key (HKDF, say).</p>
+<pre><code>local a = core.random_bytes(32)
+local b = core.random_bytes(32)
+core.x25519(a, core.x25519(b)) == core.x25519(b, core.x25519(a))  // true</code></pre>
 
 </div>
 <h2 id="type-Hasher">type Hasher</h2>

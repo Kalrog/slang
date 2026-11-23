@@ -135,7 +135,8 @@ build-safe:
 install: build
 	install -d $(PREFIX)/bin $(PREFIX)/lib/slang
 	install -m 755 bin/slang $(PREFIX)/bin/slang
-	install -m 644 $$(find lib -maxdepth 1 -type f) $(PREFIX)/lib/slang/
+	install -m 644 $$(find lib -maxdepth 1 -type f ! -name 'libslang.*') $(PREFIX)/lib/slang/
+	install -m 755 $$(find lib -maxdepth 1 -type f -name 'libslang.*') $(PREFIX)/lib/
 	install -d $(PREFIX)/lib/slang/static
 	install -m 644 lib/static/* $(PREFIX)/lib/slang/static/
 	install -d $(PREFIX)/lib/slang/src
@@ -144,11 +145,12 @@ install: build
 	cp -R slang/stubs/. $(PREFIX)/lib/slang/stubs/
 	install -d $(PREFIX)/include
 	install -m 644 zig/include/slang.h $(PREFIX)/include/slang.h
-	@echo "installed $(PREFIX)/bin/slang and $$(find lib -maxdepth 1 -type f | wc -l | tr -d ' ') extensions in $(PREFIX)/lib/slang"
+	@echo "installed $(PREFIX)/bin/slang, $(PREFIX)/lib/libslang (for embedding) and $$(find lib -maxdepth 1 -type f ! -name 'libslang.*' | wc -l | tr -d ' ') extensions in $(PREFIX)/lib/slang"
 
 uninstall:
 	rm -f $(PREFIX)/bin/slang
 	rm -rf $(PREFIX)/lib/slang
+	rm -f $(PREFIX)/lib/libslang.dylib $(PREFIX)/lib/libslang.so
 	rm -f $(PREFIX)/include/slang.h
 
 unit:

@@ -1,0 +1,42 @@
+//! The command line started from C: what std.start does for an executable
+//! (the arguments, the environment, an allocator and the I/O), then
+//! main.zig. Used by libslang.a's main (runtime_lib.zig) and by the shared
+//! library's slang_main (lib.zig), which slang.exe calls on Windows.
+
+const std = @import("std");
+const builtin = @import("builtin");
+const cli = @import("main.zig");
+
+/// Runs the command line. On Windows argc, argv and envp are not used: the
+/// arguments and the environment are the process's own, in UTF-16 (the
+/// command line and the global block, as std.start reads them), where C's
+/// are in the ANSI codepage. envp null: the C library's environ.
+pub fn run(argc: c_int, argv: [*][*:0]u8, envp: ?[*:null]?[*:0]u8) c_int {
+    const windows = builtin.os.tag == .windows;
+    const block: std.process.Environ.Block = if (windows) .global else blk: {
+        const env = envp orelse std.c.environ;
+        var n: usize = 0;
+        while (env[n] != null) n += 1;
+        break :blk .{ .slice = env[0..n :null] };
+    };
+    const args: std.process.Args.Vector = if (windows)
+        std.os.windows.peb().ProcessParameters.CommandLine.slice()
+    else
+        argv[0..@intCast(argc)];
+    const gpa = std.heap.c_allocator;
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    var threaded: std.Io.Threaded = .init(gpa, .{ .argv0 = .init(.{ .vector = args }), .environ = .{ .block = block } });
+    defer threaded.deinit();
+    var environ_map = std.process.Environ.createMap(.{ .block = block }, gpa) catch return 1;
+    defer environ_map.deinit();
+    const preopens = std.process.Preopens.init(arena.allocator()) catch return 1;
+    return cli.main(.{
+        .minimal = .{ .args = .{ .vector = args }, .environ = .{ .block = block } },
+        .arena = &arena,
+        .gpa = gpa,
+        .io = threaded.io(),
+        .environ_map = &environ_map,
+        .preopens = preopens,
+    }) catch 1;
+}

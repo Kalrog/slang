@@ -7,6 +7,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+/* exported from the slang library too (slang.dll: extensions import them) */
+#if defined(_WIN32)
+#define VARARGS_API __declspec(dllexport)
+#else
+#define VARARGS_API __attribute__((visibility("default")))
+#endif
+
 typedef struct slang_State slang_State;
 
 // capi.zig
@@ -38,7 +45,7 @@ static char *format(char *small, size_t size, size_t *len, const char *fmt, va_l
   return big;
 }
 
-void slang_pushfstring(slang_State *S, const char *fmt, ...) {
+VARARGS_API void slang_pushfstring(slang_State *S, const char *fmt, ...) {
   char small[512];
   size_t len;
   va_list ap;
@@ -49,7 +56,7 @@ void slang_pushfstring(slang_State *S, const char *fmt, ...) {
   if (text != small) free(text);
 }
 
-int slang_error(slang_State *S, const char *fmt, ...) {
+VARARGS_API int slang_error(slang_State *S, const char *fmt, ...) {
   char small[512];
   size_t len;
   va_list ap;
@@ -61,7 +68,7 @@ int slang_error(slang_State *S, const char *fmt, ...) {
   return r;
 }
 
-int slang_errorkind(slang_State *S, const char *kind, const char *fmt, ...) {
+VARARGS_API int slang_errorkind(slang_State *S, const char *kind, const char *fmt, ...) {
   char small[512];
   size_t len;
   va_list ap;

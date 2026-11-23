@@ -110,3 +110,27 @@ registering natives and calling slang functions go through the same stack
 API the modules use. `slang_isolate_new` makes a VM for a thread the host
 owns, and `slang_send` and `slang_receive` (with `try` forms) use channels
 from C.
+
+The VM to link is the slang library: `libslang.dylib` or `libslang.so`,
+which `make install` puts in the install prefix's `lib`, next to
+`include/slang.h`.
+
+```c
+#include <stdio.h>
+#include "slang.h"
+
+int main(void) {
+    slang_State *S = slang_new();
+    if (slang_dostring(S, "return concat(\"hello \", \"from slang\")", "host") != SLANG_OK) {
+        fprintf(stderr, "%s\n", slang_tostring(S, -1));
+        return 1;
+    }
+    printf("%s\n", slang_tostring(S, -1));
+    slang_close(S);
+    return 0;
+}
+```
+
+```sh
+cc host.c -I/usr/local/include -L/usr/local/lib -lslang -Wl,-rpath,/usr/local/lib -o host
+```

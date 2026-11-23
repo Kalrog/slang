@@ -276,6 +276,8 @@ fn osExecutable(th: *Thread, args: []Value) Error!Value {
     const vm = th.vm;
     const path = std.process.executablePathAlloc(vm.io, vm.gpa) catch |e| return vm.raise("executable: {t}", .{e});
     defer vm.gpa.free(path);
+    // (slash-separated on Windows too, as os.cwd)
+    if (@import("builtin").os.tag == .windows) std.mem.replaceScalar(u8, path, '\\', '/');
     return vm.str(path);
 }
 

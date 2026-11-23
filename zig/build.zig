@@ -40,23 +40,50 @@ pub fn build(b: *std.Build) void {
     // slang.h's printf-style functions are C (see src/capi_varargs.c)
     mod.addCSourceFile(.{ .file = b.path("src/capi_varargs.c"), .flags = &.{"-std=c11"} });
 
-    const exe = b.addExecutable(.{
+    const windows = target.result.os.tag == .windows;
+    // (the debugger's sockets are Winsock on Windows)
+    if (windows) mod.linkSystemLibrary("ws2_32", .{});
+
+    // The slang library (src/lib.zig): the VM, the C API and the command
+    // line as slang_main; slang.dll, libslang.dylib or libslang.so. A C or
+    // Zig program embeds slang by linking it.
+    const lib_mod = b.createModule(.{
+        .root_source_file = b.path("src/lib.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    lib_mod.addOptions("build_options", options);
+    lib_mod.addImport("seed", seed);
+    lib_mod.addCSourceFile(.{ .file = b.path("src/capi_varargs.c"), .flags = &.{"-std=c11"} });
+    if (with_ffi and !target.result.cpu.arch.isWasm()) lib_mod.linkSystemLibrary("ffi", .{});
+    if (windows) lib_mod.linkSystemLibrary("ws2_32", .{});
+    const shared = b.addLibrary(.{ .name = "slang", .linkage = .dynamic, .root_module = lib_mod });
+    shared.link_gc_sections = false;
+    if (!target.result.cpu.arch.isWasm()) b.installArtifact(shared);
+
+    // The executable. On Windows a launcher calling slang.dll's slang_main:
+    // a DLL's imports name the file they come from, so native extensions
+    // link against slang.dll, which every program running slang loads. On
+    // macOS and Linux it is the whole VM, and extensions resolve slang_*
+    // against it at load time.
+    const exe = if (windows) blk: {
+        const launcher_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
+        launcher_mod.addCSourceFile(.{ .file = b.path("src/launcher.c"), .flags = &.{"-std=c11"} });
+        launcher_mod.linkLibrary(shared);
+        break :blk b.addExecutable(.{ .name = "slang", .root_module = launcher_mod });
+    } else b.addExecutable(.{
         .name = "slang",
         .root_module = mod,
     });
-    // Native extensions resolve slang_* symbols against the executable: the
-    // exports must survive the link even though nothing in the CLI uses them.
-    exe.rdynamic = true;
-    exe.link_gc_sections = false;
+    if (!windows) {
+        // the exports must survive the link even though nothing in the CLI
+        // uses them
+        exe.rdynamic = true;
+        exe.link_gc_sections = false;
+    }
     b.installArtifact(exe);
 
-    // Windows: the debugger's sockets are Winsock. A DLL cannot leave
-    // slang_* to be resolved against the executable that loads it, so the
-    // extensions are not built there yet (plans: how extensions find the VM).
-    if (target.result.os.tag == .windows) {
-        mod.linkSystemLibrary("ws2_32", .{});
-        return;
-    }
 
     // WebAssembly (the playground, see website/): the VM alone, as a WASI
     // command; nothing native loads in a browser
@@ -74,7 +101,7 @@ pub fn build(b: *std.Build) void {
     hello_mod.addCSourceFile(.{ .file = b.path("../extensions/native/hello.c"), .flags = &.{"-std=c11"} });
     hello_mod.addIncludePath(b.path("include"));
     const hello = b.addLibrary(.{ .name = "hello", .linkage = .dynamic, .root_module = hello_mod });
-    hello.linker_allow_shlib_undefined = true;
+    linkExtension(hello, shared, windows);
     b.installArtifact(hello);
 
     // A plain C library for the FFI tests (zig/test/ffi_test.slang), installed
@@ -100,7 +127,7 @@ pub fn build(b: *std.Build) void {
     });
     vec_mod.addImport("slang", translated.createModule());
     const vec = b.addLibrary(.{ .name = "vec", .linkage = .dynamic, .root_module = vec_mod });
-    vec.linker_allow_shlib_undefined = true;
+    linkExtension(vec, shared, windows);
     b.installArtifact(vec);
 
     // The vector benchmark's libraries (bench/vectors, `make bench-vectors`):
@@ -122,6 +149,11 @@ pub fn build(b: *std.Build) void {
     for ([_]*std.Build.Step.Compile{ v3, cv3 }) |lib| {
         bench_libs.dependOn(&b.addInstallArtifact(lib, .{ .dest_dir = .{ .override = .{ .custom = "build/bench" } } }).step);
     }
+
+    // Windows: slang's own extensions and the runtime archive for `slang
+    // build` wait for Windows builds of their libraries (libuv, OpenSSL,
+    // sqlite, zlib, libffi).
+    if (windows) return;
 
     // The native extensions (extensions/native), each a library installed as
     // lib/<name>.<ext>, linked against its third-party library: statically
@@ -194,7 +226,26 @@ pub fn build(b: *std.Build) void {
     static.install(b.addInstallFileWithDir(manifest, .{ .custom = "lib/static" }, "manifest.slang"));
 
     const tests = b.addTest(.{ .root_module = mod });
-    b.step("test", "run the Zig unit tests").dependOn(&b.addRunArtifact(tests).step);
+    const test_step = b.step("test", "run the Zig unit tests and the embedding test");
+    test_step.dependOn(&b.addRunArtifact(tests).step);
+    // a C program embedding slang through the slang library
+    const embed_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
+    embed_mod.addCSourceFile(.{ .file = b.path("test/embed.c"), .flags = &.{"-std=c11"} });
+    embed_mod.addIncludePath(b.path("include"));
+    embed_mod.linkLibrary(shared);
+    const embed = b.addExecutable(.{ .name = "embed_test", .root_module = embed_mod });
+    test_step.dependOn(&b.addRunArtifact(embed).step);
+}
+
+/// How an extension library reaches the VM's slang_*: on Windows it links
+/// against slang.dll (a DLL's imports name their file); elsewhere they stay
+/// undefined and resolve against the program that loads it.
+fn linkExtension(lib: *std.Build.Step.Compile, shared: *std.Build.Step.Compile, windows: bool) void {
+    if (windows) {
+        lib.root_module.linkLibrary(shared);
+    } else {
+        lib.linker_allow_shlib_undefined = true;
+    }
 }
 
 /// A native extension: one source file in extensions/native, the

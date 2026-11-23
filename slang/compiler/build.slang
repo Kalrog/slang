@@ -348,6 +348,30 @@ local func on_macos(){
   return str.starts_with(os.platform(), "macos")
 }
 
+local func on_windows(){
+  return str.starts_with(os.platform(), "windows")
+}
+
+// an executable's file name: with .exe on Windows
+local func exe_name(path){
+  if(on_windows() and not str.ends_with(str.lower(path), ".exe")){
+    return concat(path, ".exe")
+  }
+  return path
+}
+
+// Windows: the runtime is slang.exe, a launcher, and the VM is slang.dll
+// next to it (the extensions link against it); a program built from it
+// needs slang.dll in its folder too
+local func copy_runtime_library(out){
+  if(on_windows()){
+    os.copy_file(
+      concat(dirname(os.executable()), "/slang.dll"),
+      concat(dirname(out), "/slang.dll"),
+    )
+  }
+}
+
 local func codesign(identity, file){
   local r = try {
     os.exec({"codesign", "--force", "--sign", identity, file})
@@ -563,19 +587,30 @@ local func link_runtime(plan, natives){
 // build_file(plan, out) -> {exe, report}: one executable, the extensions
 // linked in
 local func build_file(plan, out){
+  out = exe_name(out)
   local base = os.executable()
   if(len(plan.native_names) > 0){
+    if(on_windows()){
+      raise(error.new(error.kinds.unsupported, concat(
+        "the program needs native extensions (",
+        str.join(plan.native_names, ", "),
+        "), which cannot be linked in on Windows yet: build it with --dir",
+      )))
+    }
     base = link_runtime(plan, plan.native_names)
   }
-  return {exe: out, report: write(plan, base, out, entries_of(plan, false))}
+  local report = write(plan, base, out, entries_of(plan, false))
+  copy_runtime_library(out)
+  return {exe: out, report: report}
 }
 
 // build_dir(plan, dir) -> {exe, report}: the executable, lib/ with the
 // extensions and the assets, in dir
 local func build_dir(plan, dir){
   os.mkdir_all(dir)
-  local exe = join(dir, plan.name)
+  local exe = exe_name(join(dir, plan.name))
   local report = write(plan, os.executable(), exe, entries_of(plan, true))
+  copy_runtime_library(exe)
   for(let local a in values(plan.assets)){
     local target = join(dir, a.name)
     os.mkdir_all(dirname(target))

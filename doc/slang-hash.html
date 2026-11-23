@@ -40,7 +40,7 @@ details.expanded summary { cursor: pointer; color: var(--muted); }
 <body>
 <nav><a href="index.html">index</a></nav>
 <h1>slang/hash</h1>
-<p>slang/hash: checksums and digests, built into the VM. slang/crypto (an OpenSSL extension) has the others and HMAC.</p>
+<p>slang/hash: checksums and digests, built into the VM. slang/crypto has the other digests and HMAC.</p>
 <pre><code>local hash = require(&quot;slang/hash&quot;)
 hash.crc32(&quot;abc&quot;)                          // 891568578
 str.format(&quot;%x&quot;, hash.sha256(&quot;abc&quot;))       // &quot;ba7816bf...&quot;</code></pre>

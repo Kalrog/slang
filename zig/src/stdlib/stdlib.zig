@@ -164,6 +164,8 @@ pub fn open(vm: *VM) void {
     }
     preload(vm, "slang/utf8", .{ .table = @import("utf8lib.zig").module(vm) });
     preload(vm, "slang/hash", .{ .table = @import("hashlib.zig").module(vm) });
+    // hashes, MACs, key derivation and AEAD from Zig's std.crypto
+    preload(vm, "slang/crypto_core", .{ .table = @import("cryptolib.zig").module(vm) });
     preload(vm, "slang/regex", .{ .table = @import("regex.zig").module(vm) });
     preload(vm, "slang/encoding", .{ .table = @import("encoding.zig").module(vm) });
     preload(vm, "slang/time", .{ .table = @import("timelib.zig").module(vm) });

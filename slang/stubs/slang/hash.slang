@@ -1,5 +1,5 @@
-// slang/hash: checksums and digests, built into the VM. slang/crypto (an
-// OpenSSL extension) has the others and HMAC.
+// slang/hash: checksums and digests, built into the VM. slang/crypto has
+// the other digests and HMAC.
 //
 //   local hash = require("slang/hash")
 //   hash.crc32("abc")                          // 891568578

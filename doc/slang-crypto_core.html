@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>slang/crypto_core</title>
+<style>
+:root { --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --code: #f6f8fa;
+  --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6edf3; --muted: #9198a1; --bg: #0d1117; --code: #161b22;
+    --line: #3d444d; --link: #4493f8; }
+}
+body { font: 16px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg);
+  background: var(--bg); max-width: 52rem; margin: 0 auto; padding: 1rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: 0.9rem; margin-bottom: 1rem; }
+h1 { font-size: 1.8rem; margin: 0.5rem 0; }
+h2 { font-size: 1.3rem; border-bottom: 1px solid var(--line);
+  padding-bottom: 0.3rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin: 1.5rem 0 0.25rem; }
+code, pre { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--code); padding: 0.75rem 1rem; border-radius: 6px;
+  overflow-x: auto; }
+.def p { margin: 0.25rem 0 0.5rem; }
+.muted { color: var(--muted); }
+ul.toc { columns: 2; padding-left: 1.2rem; }
+@media (max-width: 40rem) { ul.toc { columns: 1; } }
+dt { margin-top: 0.75rem; }
+dd { margin-left: 1rem; color: var(--muted); }
+dl.params dt { margin-top: 0.4rem; }
+dl.params dd { margin: 0 0 0 1.5rem; }
+pre.ebnf { white-space: pre-wrap; border-left: 3px solid var(--link); }
+dl.syntax dd { margin: 0.2rem 0 0.8rem 0.2rem; }
+figure.example { margin: 1rem 0; }
+details.expanded summary { cursor: pointer; color: var(--muted); }
+</style>
+</head>
+<body>
+<nav><a href="index.html">index</a></nav>
+<h1>slang/crypto_core</h1>
+<p>slang/crypto_core: hashes, MACs, random bytes, key derivation and authenticated encryption, built into the VM from Zig's std.crypto: the same on every platform, without OpenSSL. slang/crypto has all of it under the same names, and keys; most code should use that.</p>
+<pre><code>local core = require(&quot;slang/crypto_core&quot;)
+core.hash(&quot;sha256&quot;, &quot;abc&quot;)  // 32 raw bytes
+core.hasher(&quot;sha256&quot;):update(&quot;a&quot;):update(&quot;bc&quot;):digest()</code></pre>
+<p>Digests (any case): &quot;md5&quot;, &quot;sha1&quot;, &quot;sha224&quot;, &quot;sha256&quot;, &quot;sha384&quot;, &quot;sha512&quot;, &quot;sha512-224&quot;, &quot;sha512-256&quot;, &quot;sha3-224&quot;, &quot;sha3-256&quot;, &quot;sha3-384&quot;, &quot;sha3-512&quot;, &quot;blake2b512&quot;, &quot;blake2s256&quot;. Results are raw byte strings; slang/encoding makes hex or base64 of them.</p>
+<ul class="toc">
+<li><a href="#hash"><code>hash</code></a></li>
+<li><a href="#hmac"><code>hmac</code></a></li>
+<li><a href="#random_bytes"><code>random_bytes</code></a></li>
+<li><a href="#equal"><code>equal</code></a></li>
+<li><a href="#hasher"><code>hasher</code></a></li>
+<li><a href="#pbkdf2"><code>pbkdf2</code></a></li>
+<li><a href="#scrypt"><code>scrypt</code></a></li>
+<li><a href="#pbkdf2_async"><code>pbkdf2_async</code></a></li>
+<li><a href="#scrypt_async"><code>scrypt_async</code></a></li>
+<li><a href="#encrypt"><code>encrypt</code></a></li>
+<li><a href="#decrypt"><code>decrypt</code></a></li>
+<li><a href="#type-Hasher"><code>type Hasher</code></a></li>
+<li><a href="#Hasher:update"><code>Hasher:update</code></a></li>
+<li><a href="#Hasher:digest"><code>Hasher:digest</code></a></li>
+</ul>
+<h2>hashes and MACs</h2>
+<div class="def" id="hash"><h3><code>crypto_core.hash(digest: string, data: string) -> string</code></h3>
+<p>The raw digest of data (a string or a buffer, as every data argument).</p>
+
+</div>
+<div class="def" id="hmac"><h3><code>crypto_core.hmac(digest: string, key: string, data: string) -> string</code></h3>
+<p>The raw HMAC of data under key.</p>
+
+</div>
+<div class="def" id="random_bytes"><h3><code>crypto_core.random_bytes(n: int) -> string</code></h3>
+<p>n cryptographically random bytes, n from 0 to 1048576.</p>
+
+</div>
+<div class="def" id="equal"><h3><code>crypto_core.equal(a: string, b: string) -> bool</code></h3>
+<p>Whether the strings are equal, in time that depends only on their lengths (for comparing MACs and tokens).</p>
+
+</div>
+<div class="def" id="hasher"><h3><code>crypto_core.hasher(digest: string) -> <a href="#type-Hasher">Hasher</a></code></h3>
+<p>A hasher for incremental hashing.</p>
+
+</div>
+<h2>key derivation</h2>
+<div class="def" id="pbkdf2"><h3><code>crypto_core.pbkdf2(digest: string, password: string, salt: string, iterations: int, length: int) -> string</code></h3>
+<p>length bytes (1 to 4096) derived with PBKDF2-HMAC; at least one iteration.</p>
+
+</div>
+<div class="def" id="scrypt"><h3><code>crypto_core.scrypt(password: string, salt: string, n: int, r: int, p: int, length: int) -> string</code></h3>
+<p>length bytes (1 to 4096) derived with scrypt; n a power of two above 1, r and p positive.</p>
+
+</div>
+<div class="def" id="pbkdf2_async"><h3><code>crypto_core.pbkdf2_async(digest: string, password: string, salt: string, iterations: int, length: int, cb: func(err: string?, bytes: string?))</code></h3>
+<p>Runs <a href="#pbkdf2"><code>pbkdf2</code></a> on libuv's thread pool and calls cb from the loop.</p>
+
+</div>
+<div class="def" id="scrypt_async"><h3><code>crypto_core.scrypt_async(password: string, salt: string, n: int, r: int, p: int, length: int, cb: func(err: string?, bytes: string?))</code></h3>
+<p>Runs <a href="#scrypt"><code>scrypt</code></a> on libuv's thread pool and calls cb from the loop.</p>
+
+</div>
+<h2>encryption</h2>
+<div class="def" id="encrypt"><h3><code>crypto_core.encrypt(cipher: string, key: string, iv: string, plaintext: string, aad?: string) -> string</code></h3>
+<p>The ciphertext followed by the 16-byte tag.</p>
+<dl class="params"><dt><code>cipher</code></dt><dd>an AEAD: &quot;aes-128-gcm&quot;, &quot;aes-256-gcm&quot; or &quot;chacha20-poly1305&quot;</dd><dt><code>key</code></dt><dd>as long as the cipher needs (32 bytes for aes-256-gcm)</dd><dt><code>iv</code></dt><dd>12 bytes; never reuse one with the same key</dd><dt><code>aad</code></dt><dd>data that is authenticated but not encrypted</dd></dl>
+</div>
+<div class="def" id="decrypt"><h3><code>crypto_core.decrypt(cipher: string, key: string, iv: string, sealed: string, aad?: string) -> string?</code></h3>
+<p>The plaintext of what <a href="#encrypt"><code>encrypt</code></a> made, or null when the data, the aad, the key or the iv do not match the tag.</p>
+
+</div>
+<h2 id="type-Hasher">type Hasher</h2>
+<p>A digest computed piece by piece: <a href="#Hasher:update"><code>Hasher.update</code></a> as often as needed, then <a href="#Hasher:digest"><code>Hasher.digest</code></a> once.</p>
+<div class="def" id="Hasher:update"><h3><code>Hasher:update(data: string) -> <a href="#type-Hasher">Hasher</a></code></h3>
+<p>Adds data; returns the hasher, so calls chain.</p>
+
+</div>
+<div class="def" id="Hasher:digest"><h3><code>Hasher:digest() -> string</code></h3>
+<p>The raw digest; the hasher raises on further use.</p>
+
+</div>
+<p class="muted">slang/stubs/slang/crypto_core.slang</p>
+</body>
+</html>

@@ -126,7 +126,7 @@ fn callC(th: *Thread, args: []Value) Error!Value {
     return th.stack[th.top - 1];
 }
 
-fn newCClosure(vm: *VM, f: CFunction, name: []const u8, nvals: []const Value) *Closure {
+pub fn newCClosure(vm: *VM, f: CFunction, name: []const u8, nvals: []const Value) *Closure {
     const cl = vm.newNative(name, callC, nvals);
     cl.cfunc = f;
     return cl;

@@ -40,7 +40,7 @@ details.expanded summary { cursor: pointer; color: var(--muted); }
 <body>
 <nav><a href="index.html">index</a></nav>
 <h1>slang/crypto</h1>
-<p>slang/crypto: the crypto native extension (OpenSSL) plus what web code builds from it: password hashes, random tokens, signed and sealed values.</p>
+<p>slang/crypto: hashes, MACs, random bytes, key derivation and authenticated encryption, plus what web code builds from them: password hashes, random tokens, signed and sealed values; keys from OpenSSL.</p>
 <pre><code>local crypto = require(&quot;slang/crypto&quot;)
 local stored = crypto.hash_password(&quot;hunter2&quot;)
 crypto.verify_password(&quot;hunter2&quot;, stored)       // true
@@ -49,10 +49,14 @@ crypto.verify_signed(secret, cookie)            // &quot;user=42&quot;
 crypto.hex(&quot;sha256&quot;, &quot;abc&quot;)                     // &quot;ba7816bf...&quot;
 local key = crypto.generate_key(&quot;ec&quot;)
 key.type, key.bits, key.private                 // &quot;ec&quot;, 256, true</code></pre>
-<p>The native extension's functions are here too, under the same names: hash, hmac, equal, random_bytes, hasher, pbkdf2, scrypt, encrypt, decrypt, private_key, public_key, generate_key, version and the _async forms; <a href="#c"><code>c</code></a> is the extension itself. Results are raw byte strings; slang/encoding makes hex or base64 of them.</p>
+<p>hash, hmac, equal, random_bytes, hasher, pbkdf2, scrypt, encrypt, decrypt and the _async forms are slang's own (Zig's std.crypto, on every platform, slang/crypto_core). Digests: md5, sha1, sha224, sha256, sha384, sha512, sha512-224, sha512-256, sha3-224 to sha3-512, blake2b512, blake2s256. Ciphers: aes-128-gcm, aes-256-gcm, chacha20-poly1305, with a 12-byte iv. Keys (private_key, public_key, generate_key, and version) come from the crypto extension, OpenSSL, where it is built (<a href="#openssl"><code>openssl</code></a>). Results are raw byte strings; slang/encoding makes hex or base64 of them.</p>
 <p>Password hashes use scrypt with n = 2^15, r = 8, p = 1 (32 MiB, the OWASP recommendation) and a 16-byte salt; <a href="#verify_password"><code>verify_password</code></a> also accepts &quot;$pbkdf2-sha256$i=...$salt$hash&quot;. <a href="#seal"><code>seal</code></a> uses AES-256-GCM with a random 12-byte iv and needs a 32-byte key.</p>
 <ul class="toc">
-<li><a href="#c"><code>c</code></a></li>
+<li><a href="#openssl"><code>openssl</code></a></li>
+<li><a href="#private_key"><code>private_key</code></a></li>
+<li><a href="#public_key"><code>public_key</code></a></li>
+<li><a href="#generate_key"><code>generate_key</code></a></li>
+<li><a href="#version"><code>version</code></a></li>
 <li><a href="#hex"><code>hex</code></a></li>
 <li><a href="#token"><code>token</code></a></li>
 <li><a href="#hash_password"><code>hash_password</code></a></li>
@@ -66,8 +70,24 @@ key.type, key.bits, key.private                 // &quot;ec&quot;, 256, true</co
 <li><a href="#type-Key"><code>type Key</code></a></li>
 <li><a href="#type-Hasher"><code>type Hasher</code></a></li>
 </ul>
-<div class="def" id="c"><h3><code>crypto.c</code></h3>
-<p>The native extension under this module (OpenSSL).</p>
+<div class="def" id="openssl"><h3><code>crypto.openssl() -> table</code></h3>
+<p>The crypto extension (OpenSSL), for keys; raises an error of kind unsupported where it is not built.</p>
+
+</div>
+<div class="def" id="private_key"><h3><code>crypto.private_key(pem: string, passphrase?: string) -> <a href="#type-Key">Key</a></code></h3>
+<p>A private key from PEM (OpenSSL).</p>
+
+</div>
+<div class="def" id="public_key"><h3><code>crypto.public_key(pem: string) -> <a href="#type-Key">Key</a></code></h3>
+<p>A public key from PEM, &quot;BEGIN PUBLIC KEY&quot; (OpenSSL).</p>
+
+</div>
+<div class="def" id="generate_key"><h3><code>crypto.generate_key(type: string, param?: any) -> <a href="#type-Key">Key</a></code></h3>
+<p>A new key: &quot;rsa&quot; (bits, 2048), &quot;ec&quot; (curve, &quot;P-256&quot;) or &quot;ed25519&quot; (OpenSSL).</p>
+
+</div>
+<div class="def" id="version"><h3><code>crypto.version() -> string</code></h3>
+<p>OpenSSL's version.</p>
 
 </div>
 <div class="def" id="hex"><h3><code>crypto.hex(digest: string, data: string) -> string</code></h3>
@@ -113,10 +133,10 @@ key.type, key.bits, key.private                 // &quot;ec&quot;, 256, true</co
 
 </div>
 <h2 id="type-Key">type Key</h2>
-<pre><code>type Key = <a href="crypto.html#type-Key">native.Key</a></code></pre>
+<pre><code>type Key = any</code></pre>
 <p>A key, as private_key, public_key and generate_key make it: key.type, key.bits and key.private, key:sign(...), key:verify(...), key:public_pem().</p>
 <h2 id="type-Hasher">type Hasher</h2>
-<pre><code>type Hasher = <a href="crypto.html#type-Hasher">native.Hasher</a></code></pre>
+<pre><code>type Hasher = <a href="slang-crypto_core.html#type-Hasher">native.Hasher</a></code></pre>
 <p>An incremental hasher, from hasher.</p>
 <p class="muted">slang/lib/crypto.slang</p>
 </body>

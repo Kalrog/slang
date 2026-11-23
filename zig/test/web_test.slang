@@ -8,14 +8,6 @@ local http = require("slang/http")
 local a = require("slang/async")
 local os = require("slang/os")
 local uv = require("uv")
-// sessions, CSRF tokens and WebSocket handshakes need slang/crypto, which
-// is not built everywhere yet (Windows)
-local has_crypto = try { require("slang/crypto") != null } catch { false }
-local func needs_crypto(){
-  if(not has_crypto){
-    t.skip("needs slang/crypto, not built for this platform yet")
-  }
-}
 
 local scratch = concat(
   os.temp_dir(), "/slang-web-test-", string(uv.getpid())
@@ -242,7 +234,6 @@ t.group("the test client"){
 }
 
 t.group("sessions and CSRF"){
-  t.setup(needs_crypto)
   t.test("sessions are encrypted cookies, saved when changed"){
     local app = web.app()
     app:use(web.sessions({secret: "a secret of some length"}))
@@ -310,7 +301,6 @@ t.group("sessions and CSRF"){
 }
 
 t.group("WebSockets"){
-  t.setup(needs_crypto)
   t.test("an echo through an app, text and large messages, close codes"){
     local app = web.app()
     local closed_with = null

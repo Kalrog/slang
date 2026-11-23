@@ -1,5 +1,6 @@
-// slang/crypto: the crypto native extension (OpenSSL) plus what web code
-// builds from it: password hashes, random tokens, signed and sealed values.
+// slang/crypto: hashes, MACs, random bytes, key derivation and
+// authenticated encryption, plus what web code builds from them: password
+// hashes, random tokens, signed and sealed values; keys from OpenSSL.
 //
 //   local crypto = require("slang/crypto")
 //   local stored = crypto.hash_password("hunter2")
@@ -10,11 +11,15 @@
 //   local key = crypto.generate_key("ec")
 //   key.type, key.bits, key.private                 // "ec", 256, true
 //
-// The native extension's functions are here too, under the same names:
 // hash, hmac, equal, random_bytes, hasher, pbkdf2, scrypt, encrypt,
-// decrypt, private_key, public_key, generate_key, version and the _async
-// forms; [c] is the extension itself. Results are raw byte strings;
-// slang/encoding makes hex or base64 of them.
+// decrypt and the _async forms are slang's own (Zig's std.crypto, on every
+// platform, slang/crypto_core). Digests: md5, sha1, sha224, sha256, sha384,
+// sha512, sha512-224, sha512-256, sha3-224 to sha3-512, blake2b512,
+// blake2s256. Ciphers: aes-128-gcm, aes-256-gcm, chacha20-poly1305, with a
+// 12-byte iv. Keys (private_key, public_key, generate_key, and version)
+// come from the crypto extension, OpenSSL, where it is built ([openssl]).
+// Results are raw byte strings; slang/encoding makes hex or base64 of
+// them.
 //
 // Password hashes use scrypt with n = 2^15, r = 8, p = 1 (32 MiB, the
 // OWASP recommendation) and a 16-byte salt; [verify_password] also accepts
@@ -24,12 +29,12 @@
 // A key, as private_key, public_key and generate_key make it: key.type,
 // key.bits and key.private, key:sign(...), key:verify(...),
 // key:public_pem().
-// type Key = native.Key
+// type Key = any
 
 // An incremental hasher, from hasher.
 // type Hasher = native.Hasher
 
-local native = require("crypto")
+local native = require("slang/crypto_core")
 local encoding = require("slang/encoding")
 local str = require("slang/string")
 
@@ -37,8 +42,48 @@ local crypto = {}
 for(let local e in entries(native)){
   crypto[e[0]] = e[1]
 }
-// The native extension under this module (OpenSSL).
-crypto.c = native
+
+local openssl_ext = null
+
+// openssl() -> table
+// The crypto extension (OpenSSL), for keys; raises an error of kind
+// unsupported where it is not built.
+func crypto.openssl(){
+  if(openssl_ext == null){
+    openssl_ext = try { require("crypto") } catch(local e) {
+      raise(error.new(error.kinds.unsupported, concat(
+        "crypto: keys need the crypto extension (OpenSSL), which is not ",
+        "built here: ", e.message,
+      )))
+    }
+  }
+  return openssl_ext
+}
+
+// private_key(pem: string, passphrase?: string) -> Key
+// A private key from PEM (OpenSSL).
+func crypto.private_key(pem, passphrase){
+  return crypto.openssl().private_key(pem, passphrase)
+}
+
+// public_key(pem: string) -> Key
+// A public key from PEM, "BEGIN PUBLIC KEY" (OpenSSL).
+func crypto.public_key(pem){
+  return crypto.openssl().public_key(pem)
+}
+
+// generate_key(type: string, param?: any) -> Key
+// A new key: "rsa" (bits, 2048), "ec" (curve, "P-256") or "ed25519"
+// (OpenSSL).
+func crypto.generate_key(type, param){
+  return crypto.openssl().generate_key(type, param)
+}
+
+// version() -> string
+// OpenSSL's version.
+func crypto.version(){
+  return crypto.openssl().version()
+}
 
 // hex(digest: string, data: string) -> string
 // The digest of data as lowercase hex.

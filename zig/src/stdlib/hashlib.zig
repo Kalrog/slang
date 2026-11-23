@@ -1,4 +1,4 @@
-//! slang/hash: checksums and digests that need no OpenSSL (slang/crypto has
+//! slang/hash: checksums and a digest the compiler uses (slang/crypto has
 //! the rest).
 
 const std = @import("std");

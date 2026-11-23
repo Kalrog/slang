@@ -44,7 +44,9 @@ zig build -Doptimize=ReleaseFast -p .. -Dsqlite=false   # without SQLite
 ```
 
 Without `libuv` there is no `slang/async`, `slang/http` or `slang/web`;
-without `crypto`, no `slang/tls`, `slang/crypto` or `slang/jwt`. The
+without `crypto` (OpenSSL), no `slang/tls` and no keys (RSA, EC, Ed25519)
+in `slang/crypto` and `slang/jwt`: their hashes, MACs, password hashes and
+encryption are slang's own. The
 language, the tools and the rest of the library need none of them.
 
 ## Your first program

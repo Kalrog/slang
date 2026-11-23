@@ -142,7 +142,7 @@ local func find_wgpu(){
     return {header: header, library: env}
   }
   local dir = concat(pkg, "/lib/", os.platform())
-  for(let local name in values({"libwgpu_native.dylib", "libwgpu_native.so"})){
+  for(let local name in values({"libwgpu_native.dylib", "libwgpu_native.so", "wgpu_native.dll"})){
     local file = concat(dir, "/", name)
     if(os.exists(file)){
       return {header: header, library: file}

@@ -30,6 +30,7 @@ local func find_sdl(){
   local dir = concat(pkg, "/lib/", os.platform())
   append(candidates, concat(dir, "/libSDL3.dylib"))
   append(candidates, concat(dir, "/libSDL3.so"))
+  append(candidates, concat(dir, "/SDL3.dll"))
   for(let local p in values({
     "/opt/homebrew/lib", "/usr/local/lib", "/usr/lib"
   })){

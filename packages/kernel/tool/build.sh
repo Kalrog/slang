@@ -4,6 +4,10 @@
 #
 #   tool/build.sh                          this machine's platform
 #   tool/build.sh aarch64-linux x86_64-macos ...   zig target triples
+#   tool/build.sh x86_64-windows-gnu       Windows: links slang.lib, so
+#                                          `make windows` in slang first
+#                                          (the JIT is arm64-only: the
+#                                          interpreter runs the kernels)
 set -e
 cd "$(dirname "$0")/../native"
 ZIG=${ZIG:-zig}

@@ -13,7 +13,9 @@
 # Platforms: macos-aarch64, macos-x86_64 (on a Mac, with Xcode's tools),
 # linux-x86_64, linux-aarch64 (on Linux of that architecture, with the X11
 # and Wayland development packages SDL's README-linux lists). Needs cmake
-# and ninja.
+# and ninja. windows-x86_64 is SDL's own release build (SDL3-<version>-
+# win32-x64.zip, pinned and checked), fetched on any machine: SDL3.dll
+# needs only Windows' DLLs.
 set -e
 cd "$(dirname "$0")/.."
 PKG=$(pwd)
@@ -22,6 +24,7 @@ mkdir -p "$CACHE"
 
 SDL_VERSION=3.4.20
 SDL_SHA=f3bb06f55bed9557227a700af2ea62e49497ebdf58037732a731a5fb3ef8581f
+SDL_WIN64_SHA=368bed8b24e44ad9ea372990814f2343fcfb9e468abb7f8f4a3bc146c7304752
 
 fetch() { # url file sha
   if [ ! -f "$2" ]; then curl -sL -o "$2.part" "$1" && mv "$2.part" "$2"; fi
@@ -47,6 +50,14 @@ host() {
 build() { # platform
   P=$1
   OUT=$CACHE/build-$P
+  if [ "$P" = windows-x86_64 ]; then
+    fetch "https://github.com/libsdl-org/SDL/releases/download/release-$SDL_VERSION/SDL3-$SDL_VERSION-win32-x64.zip" "$CACHE/sdl-win32-x64.zip" $SDL_WIN64_SHA
+    rm -rf "$OUT" && mkdir -p "$OUT" && unzip -q -o "$CACHE/sdl-win32-x64.zip" -d "$OUT"
+    mkdir -p "$PKG/lib/$P"
+    cp "$OUT/SDL3.dll" "$PKG/lib/$P/SDL3.dll"
+    echo "  lib/$P/SDL3.dll"
+    return
+  fi
   case $P in
     macos-aarch64) FLAGS="-DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0" ;;
     macos-x86_64) FLAGS="-DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0" ;;

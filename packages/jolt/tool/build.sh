@@ -8,7 +8,8 @@
 #   tool/build.sh linux-x86_64 macos-x86_64 ...
 #
 # Platforms: macos-aarch64, macos-x86_64 (on a Mac, with Xcode's tools),
-# linux-x86_64, linux-aarch64 (cross-compiled by zig c++; ZIG names zig).
+# linux-x86_64, linux-aarch64, windows-x86_64 (cross-compiled by zig c++;
+# ZIG names zig).
 # Needs cmake and ninja. x86_64 builds target SSE4.2, without AVX, so they
 # run on any x86_64 CPU of the last 15 years.
 set -e
@@ -75,6 +76,21 @@ build() { # platform
         -DCMAKE_C_COMPILER=$OUT/cc -DCMAKE_CXX_COMPILER=$OUT/c++ \
         -DCMAKE_AR=$OUT/ar -DCMAKE_RANLIB=$OUT/ranlib -DCMAKE_SHARED_LINKER_FLAGS=-s"
       ;;
+    windows-x86_64)
+      # MinGW's ABI, as slang's own Windows build (x86_64-windows-gnu)
+      TARGET=x86_64-windows-gnu
+      mkdir -p "$OUT"
+      wrapper "$OUT/cc" cc $TARGET
+      wrapper "$OUT/c++" c++ $TARGET
+      printf '#!/bin/sh\nexec "%s" ar "$@"\n' "$ZIG" > "$OUT/ar"
+      printf '#!/bin/sh\nexec "%s" ranlib "$@"\n' "$ZIG" > "$OUT/ranlib"
+      printf '#!/bin/sh\nexec "%s" rc "$@"\n' "$ZIG" > "$OUT/rc"
+      chmod +x "$OUT/ar" "$OUT/ranlib" "$OUT/rc"
+      FLAGS="-DCMAKE_SYSTEM_NAME=Windows -DCMAKE_SYSTEM_PROCESSOR=AMD64 \
+        -DCMAKE_C_COMPILER=$OUT/cc -DCMAKE_CXX_COMPILER=$OUT/c++ \
+        -DCMAKE_AR=$OUT/ar -DCMAKE_RANLIB=$OUT/ranlib -DCMAKE_RC_COMPILER=$OUT/rc \
+        -DCMAKE_SHARED_LINKER_FLAGS=-s"
+      ;;
     *) echo "unknown platform: $P" >&2; exit 1 ;;
   esac
   case $P in
@@ -96,6 +112,7 @@ build() { # platform
   case $P in
     macos-*) cp "$OUT/lib/libjoltc.dylib" "$PKG/lib/$P/libjoltc.dylib" ;;
     linux-*) cp "$OUT/lib/libjoltc.so" "$PKG/lib/$P/libjoltc.so" ;;
+    windows-*) cp "$OUT/bin/libjoltc.dll" "$PKG/lib/$P/joltc.dll" ;;
   esac
   echo "  lib/$P/$(ls "$PKG/lib/$P")"
 }

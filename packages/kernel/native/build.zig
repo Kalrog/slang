@@ -1,7 +1,8 @@
 //! Builds kernel/vm, the package's native module, into
 //! lib/<platform>/vm.<ext> of the package (run with --prefix .., as
 //! tool/build.sh does). The slang_* functions it calls are resolved
-//! against the slang executable when it is loaded.
+//! against the slang executable when it is loaded; on Windows the DLL
+//! imports them from slang.dll (-Dslang-lib names slang.lib).
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
@@ -35,7 +36,15 @@ pub fn build(b: *std.Build) void {
     }
 
     const lib = b.addLibrary(.{ .name = "vm", .linkage = .dynamic, .root_module = mod });
-    lib.linker_allow_shlib_undefined = true;
+    if (target.result.os.tag == .windows) {
+        // A DLL imports slang_* from slang.dll: link its import library
+        // (slang's Windows build makes lib/slang.lib)
+        const slang_lib = b.option([]const u8, "slang-lib", "slang.lib of slang's Windows build (Windows only)") orelse
+            "../../../zig/zig-out-windows/lib/slang.lib";
+        mod.addObjectFile(.{ .cwd_relative = slang_lib });
+    } else {
+        lib.linker_allow_shlib_undefined = true;
+    }
 
     // the platform as slang's os.platform() names it
     const t = target.result;

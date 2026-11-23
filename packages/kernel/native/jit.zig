@@ -989,6 +989,9 @@ pub fn compile(gpa: Allocator, p: *const vm.Program, strides: *const [64]u32) Er
 }
 
 pub fn free(code: *Code) void {
+    // (where there is no JIT nothing was mapped, and munmap may not exist:
+    // Windows)
+    if (comptime !available) return;
     code.mem.unmap();
 }
 

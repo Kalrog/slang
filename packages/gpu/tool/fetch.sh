@@ -11,7 +11,9 @@
 #   tool/fetch.sh                        this machine's platform
 #   tool/fetch.sh linux-x86_64 ...       others
 #
-# Platforms: macos-aarch64, macos-x86_64, linux-x86_64, linux-aarch64.
+# Platforms: macos-aarch64, macos-x86_64, linux-x86_64, linux-aarch64,
+# windows-x86_64 (the GNU toolchain's build: it needs no Visual C++
+# runtime installed, only Windows' own DLLs).
 set -e
 cd "$(dirname "$0")/.."
 PKG=$(pwd)
@@ -25,6 +27,7 @@ sha_of() {
     macos-x86_64) echo 8e2f7378548ddd0e2cf21e7d864dda46e953f0af724855a33778b85ead206d41 ;;
     linux-x86_64) echo 95a4d90c071005a98d03eab348beaa6b07e16eb00d1dcdb9f8348f75eb97ec5a ;;
     linux-aarch64) echo 015fcdf1dbae82e614a783cc38017e5399ae0927a889fe9b69c9b664bc61b47a ;;
+    windows-x86_64) echo d471e3614733c1d4ddd61bfd19868356477d0d37bf531bf8c6cb64a7f579bd2a ;;
     *) echo "unknown platform: $1" >&2; exit 1 ;;
   esac
 }
@@ -43,8 +46,11 @@ fetch() { # platform
   P=$1
   SHA=$(sha_of "$P")
   ZIP=$CACHE/wgpu-$WGPU_VERSION-$P.zip
+  # (the release names Windows builds by toolchain)
+  ASSET=$P
+  [ "$P" = windows-x86_64 ] && ASSET=windows-x86_64-gnu
   if [ ! -f "$ZIP" ]; then
-    curl -sL -o "$ZIP.part" "https://github.com/gfx-rs/wgpu-native/releases/download/$WGPU_VERSION/wgpu-$P-release.zip"
+    curl -sL -o "$ZIP.part" "https://github.com/gfx-rs/wgpu-native/releases/download/$WGPU_VERSION/wgpu-$ASSET-release.zip"
     mv "$ZIP.part" "$ZIP"
   fi
   echo "$SHA  $ZIP" | shasum -a 256 -c - > /dev/null || { echo "checksum mismatch: $ZIP"; rm -f "$ZIP"; exit 1; }
@@ -54,8 +60,10 @@ fetch() { # platform
   case $P in
     macos-*) cp "$OUT/lib/libwgpu_native.dylib" "$PKG/lib/$P/" ;;
     linux-*) cp "$OUT/lib/libwgpu_native.so" "$PKG/lib/$P/" ;;
+    windows-*) cp "$OUT/lib/wgpu_native.dll" "$PKG/lib/$P/" ;;
   esac
-  cp "$OUT/include/webgpu/webgpu.h" "$OUT/include/webgpu/wgpu.h" "$PKG/include/"
+  # (the Windows release's headers have CRLF line ends)
+  for h in webgpu.h wgpu.h; do tr -d '\r' < "$OUT/include/webgpu/$h" > "$PKG/include/$h"; done
   echo "  lib/$P/$(ls "$PKG/lib/$P")"
 }
 

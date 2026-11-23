@@ -43,7 +43,7 @@ local snake = names.snake
 // ------------------------------------------------------------ the library
 
 local func library_in(dir){
-  for(let local name in values({"libjoltc.dylib", "libjoltc.so"})){
+  for(let local name in values({"libjoltc.dylib", "libjoltc.so", "joltc.dll"})){
     local file = concat(dir, "/", name)
     if(os.exists(file)){
       return file

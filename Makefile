@@ -89,7 +89,7 @@ SEED_DIR := boot/slang
 EXT_SRC  := extensions/async.slang extensions/html.slang extensions/inline_test.slang extensions/json.slang extensions/sqlite.slang
 EXT_SEED_DIR := boot/extensions
 
-.PHONY: all build wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed fixpoint bench bench-compare bench-vectors raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test inkblast inkblast-test synth synth3d synth-test synth-mix modular modular-test modular-demos live live-test tracker tracker-test tracker-demos dsp car dsp-test granular granular-test delve delve-test courier courier-test switchback switchback-test switchback-web switchback-web-serve switchback-daily switchback-sound siege siege-test midi-test microphone-test notebook-test notebook studio-test studio-demo window-test gpu-test gpu gpu-web-test swarm kernel-test kernel-bench fm fm3d fm-test fm-gen clean doc \
+.PHONY: all build windows wasm wasm-gfx website serve build-safe install uninstall test test-safe test-gui unit seed fixpoint bench bench-compare bench-vectors raylib-test box2d-test jolt-test physics breakout deckhand deckhand-test inkblast inkblast-test synth synth3d synth-test synth-mix modular modular-test modular-demos live live-test tracker tracker-test tracker-demos dsp car dsp-test granular granular-test delve delve-test courier courier-test switchback switchback-test switchback-web switchback-web-serve switchback-daily switchback-sound siege siege-test midi-test microphone-test notebook-test notebook studio-test studio-demo window-test gpu-test gpu gpu-web-test swarm kernel-test kernel-bench fm fm3d fm-test fm-gen clean doc \
         vscode vscode-grammar
 
 all: build
@@ -97,6 +97,13 @@ all: build
 # bin/slang and lib/*.dylib (the install prefix is the repository root)
 build:
 	cd zig && $(ZIG) build -Doptimize=ReleaseFast -p ..
+
+# slang for Windows (x86_64, the GNU toolchain), cross-compiled into
+# zig/zig-out-windows: bin/slang.exe and slang.dll, lib/ with the
+# extensions and slang.lib (what package natives link on Windows). Its
+# third-party libraries are fetched pinned (zig/build.zig.zon).
+windows:
+	cd zig && $(ZIG) build -Dtarget=x86_64-windows-gnu -Doptimize=ReleaseFast -p zig-out-windows
 
 # the VM as WebAssembly (WASI): website/public/slang.wasm for the
 # playground, lib/slang.wasm for notebooks that run in the browser (the

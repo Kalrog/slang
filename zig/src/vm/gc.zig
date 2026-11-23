@@ -225,6 +225,12 @@ pub inline fn safePoint(vm: *VM, th: *Thread) root.Error!void {
     if (vm.bytes_allocated >= vm.next_gc) try slowPoint(vm, th);
 }
 
+/// Whether safePoint would do more than count: the interpreter's loop back
+/// edges spill their frame (pc, top) only then, not on every iteration.
+pub inline fn safePointDue(vm: *VM) bool {
+    return signals.polled or vm.bytes_allocated >= vm.next_gc;
+}
+
 /// In a worker: asks the page whether it wants the running code stopped
 /// (only a page can know: nothing reaches a worker that is busy).
 noinline fn pollHost(vm: *VM) void {

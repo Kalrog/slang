@@ -325,33 +325,45 @@ fn runLoop(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
         var ftop: usize = base + proto.max_stack;
         var pc: usize = frame.pc;
         var stack: [*]Value = th.stack.ptr;
-        var ins: u32 = undefined;
+        // The instruction word, in memory: fetch stores it, each opcode
+        // loads it once. Held in a register across the indirect jump, as
+        // it was, LLVM gives each opcode's copy its own register, and every
+        // dispatch copies it into all of them (a dozen movs on x86-64, which
+        // has half AArch64's registers) before jumping.
+        var ins_slot: u32 = undefined;
+        const insp: *volatile u32 = &ins_slot;
         th.top = ftop;
-        sw: switch (fetch(trace, th, code, fi, base, &pc, ftop, &ins)) {
+        sw: switch (fetch(trace, th, code, fi, base, &pc, ftop, insp)) {
             // ---- loads
             .move => {
+                const ins = insp.*;
                 stack[base + ops.argA(ins)] = stack[base + ops.argB(ins)];
-                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
             },
             .load_k => {
+                const ins = insp.*;
                 stack[base + ops.argA(ins)] = consts[ops.argBx(ins)];
-                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
             },
             .load_int => {
+                const ins = insp.*;
                 putRaw(&stack[base + ops.argA(ins)], .int, @bitCast(@as(i64, ops.argSBx(ins))));
-                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
             },
             .load_bool => {
+                const ins = insp.*;
                 putRaw(&stack[base + ops.argA(ins)], .bool, @intFromBool(ops.argB(ins) != 0));
                 if (ops.argC(ins) != 0) pc += 1;
-                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
             },
             .load_null => {
+                const ins = insp.*;
                 const a = base + ops.argA(ins);
                 @memset(stack[a .. a + ops.argB(ins) + 1], .null);
-                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
             },
             .closure => {
+                const ins = insp.*;
                 spill(th, fi, pc, ftop);
                 gc.safePoint(vm, th) catch |e| {
                     try th.handleError(e, stop_depth);
@@ -359,40 +371,82 @@ fn runLoop(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 };
                 const c = th.makeClosure(th.frames.items[fi], proto.children[ops.argBx(ins)]);
                 stack[base + ops.argA(ins)] = .{ .function = c };
-                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
             },
             // ---- upvalues
             .get_upval => {
+                const ins = insp.*;
                 stack[base + ops.argA(ins)] = cl.upvals[ops.argB(ins)].get();
-                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
             },
             .set_upval => {
+                const ins = insp.*;
                 const v = stack[base + ops.argA(ins)];
                 const u = cl.upvals[ops.argB(ins)];
                 u.set(v);
                 // a closed upvalue is an object of its own (open, the value
                 // is on a stack: rescanned)
                 if (u.th == null) gc.barrier(vm, &u.obj, v);
-                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
             },
             .close => {
+                const ins = insp.*;
                 th.closeUpvalues(base + ops.argA(ins));
-                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
             },
             // ---- arithmetic
             inline .add, .sub, .mul, .div, .mod, .pow, .band, .bor, .bxor, .shl, .shr => |op| {
+                const ins = insp.*;
                 const core = comptime coreOf(op);
+                // int op int and float op float, read and written in place
+                // (numArith's ?Value result goes through memory on x86-64)
+                {
+                    const rb = inPlace(&stack[base + ops.argB(ins)]);
+                    const rc = rkRaw(stack, base, consts, ins);
+                    const dst = &stack[base + ops.argA(ins)];
+                    switch (core) {
+                        .add, .sub, .mul => {
+                            if (rb.tag == tag_int and rc.tag == tag_int) {
+                                const x = rawInt(rb);
+                                const y = rawInt(rc);
+                                const r = switch (core) {
+                                    .add => x +% y,
+                                    .sub => x -% y,
+                                    else => x *% y,
+                                };
+                                putRaw(dst, .int, @bitCast(r));
+                                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
+                            }
+                            if (rb.tag == tag_float and rc.tag == tag_float) {
+                                const x = rawFloat(rb);
+                                const y = rawFloat(rc);
+                                const r = switch (core) {
+                                    .add => x + y,
+                                    .sub => x - y,
+                                    else => x * y,
+                                };
+                                putRaw(dst, .float, @bitCast(r));
+                                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
+                            }
+                        },
+                        .div => if (rb.tag == tag_float and rc.tag == tag_float) {
+                            putRaw(dst, .float, @bitCast(rawFloat(rb) / rawFloat(rc)));
+                            continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
+                        },
+                        else => {},
+                    }
+                }
                 const b = stack[base + ops.argB(ins)];
                 const c = rk(stack, base, consts, ins);
                 switch (core) {
                     .add, .sub, .mul, .div, .mod => if (numArith(core, b, c)) |r| {
                         putValue(&stack[base + ops.argA(ins)], r);
-                        continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                        continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
                     },
                     .band, .bor, .bxor, .shl, .shr => if (b == .int and c == .int) {
                         if (bitop(core, b.int, c.int)) |r| {
                             putValue(&stack[base + ops.argA(ins)], r);
-                            continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                            continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
                         }
                     },
                     else => {},
@@ -404,9 +458,10 @@ fn runLoop(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 };
                 stack = th.stack.ptr;
                 stack[base + ops.argA(ins)] = r;
-                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
             },
             .neg => {
+                const ins = insp.*;
                 const a = stack[base + ops.argB(ins)];
                 switch (a) {
                     .int => |i| stack[base + ops.argA(ins)] = .{ .int = 0 -% i },
@@ -427,16 +482,18 @@ fn runLoop(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                         stack[base + ops.argA(ins)] = r;
                     },
                 }
-                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
             },
             .not => {
+                const ins = insp.*;
                 // (read first: a tagged union written in place takes its tag
                 // before the operand is read)
                 const v = stack[base + ops.argB(ins)];
                 stack[base + ops.argA(ins)] = .{ .bool = !v.truthy() };
-                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
             },
             .bnot => {
+                const ins = insp.*;
                 const a = stack[base + ops.argB(ins)];
                 if (a == .int) {
                     stack[base + ops.argA(ins)] = .{ .int = ~a.int };
@@ -449,16 +506,40 @@ fn runLoop(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                     stack = th.stack.ptr;
                     stack[base + ops.argA(ins)] = r;
                 }
-                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
             },
             // ---- compare and branch
             inline .eq, .lt, .le, .gt, .ge => |op| {
+                const ins = insp.*;
                 const core: Op = comptime switch (op) {
                     .eq => .eq,
                     .lt, .gt => .lt,
                     else => .leq,
                 };
                 const swap = comptime (op == .gt or op == .ge);
+                // int with int and float with float, read in place
+                {
+                    const rx = inPlace(&stack[base + ops.argB(ins)]);
+                    const ry = rkRaw(stack, base, consts, ins);
+                    const rl = if (swap) ry else rx;
+                    const rr = if (swap) rx else ry;
+                    const fast: ?bool = if (rl.tag == tag_int and rr.tag == tag_int) switch (core) {
+                        .lt => rawInt(rl) < rawInt(rr),
+                        .leq => rawInt(rl) <= rawInt(rr),
+                        else => rawInt(rl) == rawInt(rr),
+                    } else if (rl.tag == tag_float and rr.tag == tag_float) switch (core) {
+                        .lt => rawFloat(rl) < rawFloat(rr),
+                        .leq => rawFloat(rl) <= rawFloat(rr),
+                        else => rawFloat(rl) == rawFloat(rr),
+                    } else if (core == .eq and (rl.tag == tag_null or rr.tag == tag_null))
+                        rl.tag == rr.tag // as eqInline: null equals only null
+                    else
+                        null;
+                    if (fast) |res| {
+                        if (res != (ops.argA(ins) != 0)) pc += 1 else takeJump(code, &pc);
+                        continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
+                    }
+                }
                 const x = stack[base + ops.argB(ins)];
                 const y = rk(stack, base, consts, ins);
                 const l = if (swap) y else x;
@@ -487,14 +568,16 @@ fn runLoop(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                     stack = th.stack.ptr;
                 }
                 if (res != (ops.argA(ins) != 0)) pc += 1 else takeJump(code, &pc);
-                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
             },
             .@"test" => {
+                const ins = insp.*;
                 const v = stack[base + ops.argA(ins)];
                 if (v.truthy() != ops.argK(ins)) pc += 1 else takeJump(code, &pc);
-                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
             },
             .test_set => {
+                const ins = insp.*;
                 const v = stack[base + ops.argB(ins)];
                 if (v.truthy() != ops.argK(ins)) {
                     pc += 1;
@@ -502,11 +585,12 @@ fn runLoop(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                     stack[base + ops.argA(ins)] = v;
                     takeJump(code, &pc);
                 }
-                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
             },
             .jump => {
+                const ins = insp.*;
                 const off = ops.argSBx(ins);
-                if (off < 0) {
+                if (off < 0 and gc.safePointDue(vm)) {
                     spill(th, fi, pc, ftop);
                     gc.safePoint(vm, th) catch |e| {
                         try th.handleError(e, stop_depth);
@@ -514,22 +598,24 @@ fn runLoop(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                     };
                 }
                 pc = @intCast(@as(i64, @intCast(pc)) + off);
-                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
             },
             // ---- tables
             .new_table => {
+                const ins = insp.*;
                 spill(th, fi, pc, ftop);
                 gc.safePoint(vm, th) catch |e| {
                     try th.handleError(e, stop_depth);
                     continue :outer;
                 };
                 stack[base + ops.argA(ins)] = .{ .table = vm.newTable(ops.argB(ins), ops.argC(ins)) };
-                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
             },
             inline .get_field, .get_index, .get_up_field => |op| {
+                const ins = insp.*;
                 if (op != .get_index) quicken: {
                     const key = quickenable(proto, code, pc, consts[ops.argC(ins)], op) orelse break :quicken;
-                    ins = quicken(vm, proto, code, pc, ins, key, op);
+                    insp.* = quicken(vm, proto, code, pc, ins, key, op);
                     continue :sw if (op == .get_field) .get_field_q else .get_up_field_q;
                 }
                 const obj = switch (op) {
@@ -540,7 +626,7 @@ fn runLoop(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 var getter: Value = .null;
                 if (getFastG(vm, obj, key, &getter)) |v| {
                     stack[base + ops.argA(ins)] = v;
-                    continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                    continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
                 }
                 if (getter != .null) {
                     const switched = callAccessor(th, fi, pc, base, ftop, getter, obj, null, @intCast(ops.argA(ins))) catch |e| {
@@ -549,7 +635,7 @@ fn runLoop(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                     };
                     if (switched) continue :outer;
                     stack = th.stack.ptr;
-                    continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                    continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
                 }
                 spill(th, fi, pc, ftop);
                 const v = th.getTable(obj, key) catch |e| {
@@ -558,15 +644,16 @@ fn runLoop(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 };
                 stack = th.stack.ptr;
                 stack[base + ops.argA(ins)] = v;
-                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
             },
             inline .get_field_q, .get_up_field_q => |op| {
+                const ins = insp.*;
                 const ic = &proto.ics.items[ops.cacheOf(ins)];
                 const obj = if (op == .get_up_field_q) cl.upvals[ops.argB(ins)].get() else stack[base + ops.argB(ins)];
                 var getter: Value = .null;
                 if (icGet(vm, ic, obj, &getter)) |v| {
                     stack[base + ops.argA(ins)] = v;
-                    continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                    continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
                 }
                 if (getter != .null) {
                     const switched = callAccessor(th, fi, pc, base, ftop, getter, obj, null, @intCast(ops.argA(ins))) catch |e| {
@@ -575,22 +662,23 @@ fn runLoop(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                     };
                     if (switched) continue :outer;
                     stack = th.stack.ptr;
-                    continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                    continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
                 }
                 // a miss: the instruction as it was compiled
-                ins = ic.orig;
+                insp.* = ic.orig;
                 continue :sw if (op == .get_field_q) .get_field else .get_up_field;
             },
             inline .set_field, .set_index, .set_up_field => |op| {
+                const ins = insp.*;
                 if (op != .set_index) quicken: {
                     const key = quickenable(proto, code, pc, consts[ops.argB(ins)], op) orelse break :quicken;
-                    ins = quicken(vm, proto, code, pc, ins, key, op);
+                    insp.* = quicken(vm, proto, code, pc, ins, key, op);
                     continue :sw if (op == .set_field) .set_field_q else .set_up_field_q;
                 }
                 const obj = if (op == .set_up_field) cl.upvals[ops.argA(ins)].get() else stack[base + ops.argA(ins)];
                 const key = if (op == .set_index) stack[base + ops.argB(ins)] else consts[ops.argB(ins)];
                 const val = rk(stack, base, consts, ins);
-                if (setFast(vm, obj, key, val)) continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                if (setFast(vm, obj, key, val)) continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
                 if (findSetter(vm, obj, key)) |f| {
                     const switched = callAccessor(th, fi, pc, base, ftop, f, obj, val, thread_mod.dest_drop) catch |e| {
                         try th.handleError(e, stop_depth);
@@ -598,7 +686,7 @@ fn runLoop(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                     };
                     if (switched) continue :outer;
                     stack = th.stack.ptr;
-                    continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                    continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
                 }
                 spill(th, fi, pc, ftop);
                 th.setTable(obj, key, val) catch |e| {
@@ -606,27 +694,30 @@ fn runLoop(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                     continue :outer;
                 };
                 stack = th.stack.ptr;
-                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
             },
             inline .set_field_q, .set_up_field_q => |op| {
+                const ins = insp.*;
                 const ic = &proto.ics.items[ops.cacheOf(ins)];
                 const obj = if (op == .set_up_field_q) cl.upvals[ops.argA(ins)].get() else stack[base + ops.argA(ins)];
                 if (icStore(vm, ic, obj, rk(stack, base, consts, ins))) {
-                    continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                    continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
                 }
-                ins = ic.orig;
+                insp.* = ic.orig;
                 continue :sw if (op == .set_field_q) .set_field else .set_up_field;
             },
             .init_field => {
+                const ins = insp.*;
                 const t = stack[base + ops.argA(ins)].table;
                 t.set(vm.gpa, consts[ops.argB(ins)], rk(stack, base, consts, ins));
-                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
             },
             .self => {
+                const ins = insp.*;
                 quicken: {
                     if (!ops.argK(ins)) break :quicken;
                     const key = quickenable(proto, code, pc, consts[ops.argC(ins)], .self) orelse break :quicken;
-                    ins = quicken(vm, proto, code, pc, ins, key, .self);
+                    insp.* = quicken(vm, proto, code, pc, ins, key, .self);
                     continue :sw .self_q;
                 }
                 const obj = stack[base + ops.argB(ins)];
@@ -645,9 +736,10 @@ fn runLoop(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 }
                 stack[a + 1] = obj;
                 stack[a] = f;
-                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
             },
             .self_q => {
+                const ins = insp.*;
                 const ic = &proto.ics.items[ops.cacheOf(ins)];
                 const obj = stack[base + ops.argB(ins)];
                 var getter: Value = .null;
@@ -655,12 +747,13 @@ fn runLoop(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                     const a = base + ops.argA(ins);
                     stack[a + 1] = obj;
                     stack[a] = f;
-                    continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                    continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
                 }
-                ins = ic.orig;
+                insp.* = ic.orig;
                 continue :sw .self;
             },
             .set_list => {
+                const ins = insp.*;
                 const a = base + ops.argA(ins);
                 const t = stack[a].table;
                 var start: usize = ops.argC(ins);
@@ -669,27 +762,30 @@ fn runLoop(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                     pc += 1;
                 }
                 for (0..ops.argB(ins)) |i| t.set(vm.gpa, .{ .int = @intCast(start + i) }, stack[a + 1 + i]);
-                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
             },
             // ---- metatables, types
             .get_meta => {
+                const ins = insp.*;
                 const v = stack[base + ops.argB(ins)];
                 stack[base + ops.argA(ins)] = switch (v) {
                     .table => |t| Value.fromTable(t.meta),
                     .userdata => |u| Value.fromTable(u.meta),
                     else => .null,
                 };
-                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
             },
             .set_meta => {
+                const ins = insp.*;
                 th.setMeta(stack[base + ops.argA(ins)], stack[base + ops.argB(ins)]) catch |e| {
                     spill(th, fi, pc, ftop);
                     try th.handleError(e, stop_depth);
                     continue :outer;
                 };
-                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
             },
             .type => {
+                const ins = insp.*;
                 spill(th, fi, pc, ftop);
                 const r = th.typeOf(stack[base + ops.argB(ins)]) catch |e| {
                     try th.handleError(e, stop_depth);
@@ -697,10 +793,11 @@ fn runLoop(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 };
                 stack = th.stack.ptr;
                 stack[base + ops.argA(ins)] = r;
-                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
             },
             // ---- functions
             .call => {
+                const ins = insp.*;
                 spill(th, fi, pc, ftop);
                 gc.safePoint(vm, th) catch |e| {
                     try th.handleError(e, stop_depth);
@@ -726,14 +823,15 @@ fn runLoop(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                     pc = fr.pc;
                     th.top = ftop;
                     stack = th.stack.ptr;
-                    continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                    continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
                 }
                 // a native ran: its result is in R[A]
                 th.top = ftop;
                 stack = th.stack.ptr;
-                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
             },
             .call_spread => {
+                const ins = insp.*;
                 spill(th, fi, pc, ftop);
                 gc.safePoint(vm, th) catch |e| {
                     try th.handleError(e, stop_depth);
@@ -765,9 +863,10 @@ fn runLoop(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 if (is_slang) continue :outer;
                 th.top = ftop;
                 stack = th.stack.ptr;
-                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
             },
             .@"return", .return_null => {
+                const ins = insp.*;
                 const res: Value = if (ops.opOf(ins) == .@"return") stack[base + ops.argA(ins)] else .null;
                 const fn_idx = base - 1;
                 const dest = th.frames.items[fi].dest;
@@ -793,10 +892,11 @@ fn runLoop(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                 pc = fr.pc;
                 th.top = ftop;
                 stack = th.stack.ptr;
-                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
             },
             // ---- errors
             .try_begin => {
+                const ins = insp.*;
                 const a = base + ops.argA(ins);
                 th.pushHandler(.{
                     .frame = @intCast(fi),
@@ -805,13 +905,14 @@ fn runLoop(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                     .top = @intCast(a),
                     .close_from = @intCast(a),
                 });
-                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
             },
             .try_end => {
                 _ = th.handlers.pop();
-                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
             },
             .throw => {
+                const ins = insp.*;
                 const v = stack[base + ops.argA(ins)];
                 spill(th, fi, pc, ftop);
                 vm.setErrorFromValue(v);
@@ -820,11 +921,36 @@ fn runLoop(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
             },
             // ---- loops
             .for_loop => {
+                const ins = insp.*;
                 // the update and the condition of a for; the jump word after
                 // it goes to the body and carries the flags
                 const ra = base + ops.argA(ins);
                 const j = code[pc];
                 const flags = ops.argA(j);
+                // all three ints, read in place: the loop counter's case
+                {
+                    const ri = inPlace(&stack[ra]);
+                    const rs = inPlace(if (flags & ops.for_flags.step_k != 0) &consts[ops.argB(ins)] else &stack[base + ops.argB(ins)]);
+                    const rl = inPlace(if (flags & ops.for_flags.limit_k != 0) &consts[ops.argC(ins)] else &stack[base + ops.argC(ins)]);
+                    if (ri.tag == tag_int and rs.tag == tag_int and rl.tag == tag_int) {
+                        const k = if (flags & ops.for_flags.sub != 0) rawInt(ri) -% rawInt(rs) else rawInt(ri) +% rawInt(rs);
+                        putRaw(&stack[ra], .int, @bitCast(k));
+                        const c = if (flags & ops.for_flags.leq != 0) k <= rawInt(rl) else k < rawInt(rl);
+                        if (c != (flags & ops.for_flags.negate != 0)) {
+                            if (gc.safePointDue(vm)) {
+                                spill(th, fi, pc, ftop);
+                                gc.safePoint(vm, th) catch |e| {
+                                    try th.handleError(e, stop_depth);
+                                    continue :outer;
+                                };
+                            }
+                            pc = @intCast(@as(i64, @intCast(pc)) + 1 + ops.argSBx(j));
+                        } else {
+                            pc += 1;
+                        }
+                        continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
+                    }
+                }
                 const step = if (flags & ops.for_flags.step_k != 0) consts[ops.argB(ins)] else stack[base + ops.argB(ins)];
                 const limit = if (flags & ops.for_flags.limit_k != 0) consts[ops.argC(ins)] else stack[base + ops.argC(ins)];
                 const is_sub = flags & ops.for_flags.sub != 0;
@@ -859,18 +985,21 @@ fn runLoop(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                     }
                 }
                 if (cont) {
-                    spill(th, fi, pc, ftop);
-                    gc.safePoint(vm, th) catch |e| {
-                        try th.handleError(e, stop_depth);
-                        continue :outer;
-                    };
+                    if (gc.safePointDue(vm)) {
+                        spill(th, fi, pc, ftop);
+                        gc.safePoint(vm, th) catch |e| {
+                            try th.handleError(e, stop_depth);
+                            continue :outer;
+                        };
+                    }
                     pc = @intCast(@as(i64, @intCast(pc)) + 1 + off);
                 } else {
                     pc += 1;
                 }
-                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
             },
             .forin_prep => {
+                const ins = insp.*;
                 // R[A] = f, R[A+1] = x: the built-in keys, values or entries
                 // of a table become a walk of the table in the loop
                 // (forin_next) with nothing allocated; anything else is the
@@ -882,16 +1011,34 @@ fn runLoop(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                     if (iterKind(f.function)) |kind| {
                         stack[a] = x;
                         stack[a + 1] = .{ .int = kind };
-                        continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                        continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
                     }
                 }
-                ins = ops.abc(.call, ops.argA(ins), 1, 0, false);
+                insp.* = ops.abc(.call, ops.argA(ins), 1, 0, false);
                 continue :sw .call;
             },
             .forin_next => {
+                const ins = insp.*;
                 const a = base + ops.argA(ins);
                 const it = stack[a];
                 if (it == .table) {
+                    // keys and values over the array part, in place:
+                    // nextLive's ?Entry (two Values) is built and copied
+                    // through stack temporaries on x86-64
+                    {
+                        const st: u64 = @bitCast(rawInt(inPlace(&stack[a + 1])));
+                        const idx = st >> 3;
+                        const items = it.table.arr.items;
+                        if (st & 4 == 0 and st & 3 != 2 and idx < items.len) {
+                            putRaw(&stack[a + 1], .int, (idx + 1) << 3 | (st & 3));
+                            if (st & 3 == 0)
+                                putRaw(&stack[a + 2], .int, idx)
+                            else
+                                stack[a + 2] = items[@intCast(idx)];
+                            pc += 2 + @as(usize, @intCast(ops.argSBx(code[pc + 1])));
+                            continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
+                        }
+                    }
                     var state: u64 = @intCast(stack[a + 1].int);
                     if (it.table.nextLive(&state)) |entry| {
                         stack[a + 1] = .{ .int = @intCast(state) };
@@ -906,13 +1053,14 @@ fn runLoop(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
                         // the first: the end
                         pc += 1 + @as(usize, @intCast(ops.argSBx(code[pc])));
                     }
-                    continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                    continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
                 }
                 // an iterator function: the call after the two words
                 pc += 2;
-                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, &ins);
+                continue :sw fetch(trace, th, code, fi, base, &pc, ftop, insp);
             },
             _ => {
+                const ins = insp.*;
                 spill(th, fi, pc, ftop);
                 return vm.raise("unknown opcode {d}", .{ins & 0x7F});
             },
@@ -923,15 +1071,16 @@ fn runLoop(th: *Thread, stop_depth: usize, comptime trace: bool) Error!void {
 /// Fetches the next instruction and returns its opcode. The trace build
 /// (profiler, debugger, SLANG_TRACE, SLANG_OPSTATS) also runs the hook and
 /// keeps the frame's pc current at every instruction.
-inline fn fetch(comptime trace: bool, th: *Thread, code: []const u32, fi: usize, base: usize, pc: *usize, ftop: usize, ins: *u32) ops.Op {
-    ins.* = code[pc.*];
+inline fn fetch(comptime trace: bool, th: *Thread, code: []const u32, fi: usize, base: usize, pc: *usize, ftop: usize, ins: *volatile u32) ops.Op {
+    const word = code[pc.*];
+    ins.* = word;
     if (trace) {
         th.top = ftop;
-        traceInstruction(th, fi, base, pc.*, ins.*);
+        traceInstruction(th, fi, base, pc.*, word);
     }
     pc.* += 1;
     if (trace) th.frames.items[fi].pc = @intCast(pc.*);
-    return ops.opOf(ins.*);
+    return ops.opOf(word);
 }
 
 /// Before anything that can raise, call, yield or collect: the frame's pc
@@ -947,9 +1096,41 @@ inline fn spill(th: *Thread, fi: usize, pc: usize, ftop: usize) void {
 /// next instruction (a 16-byte load) stalls that load until the parts
 /// reach the cache: the store cannot be forwarded. Arithmetic chains
 /// (x = x * a + b) paid that on every operation.
+/// Written as a 2 x u64 vector: on AArch64 that is one stp either way, but
+/// on x86-64 an array of two words becomes two 8-byte movs, and the next
+/// read of the register (a 16-byte movups) cannot be forwarded from two
+/// stores: about 12 cycles on every arithmetic result and loop counter.
 inline fn putRaw(dst: *Value, tag: root.Kind, bits: u64) void {
-    const words: *[2]u64 = @ptrCast(dst);
+    const words: *@Vector(2, u64) = @ptrCast(@alignCast(dst));
     words.* = .{ bits, @backingInt(tag) };
+}
+
+/// A value seen as its two words, as putRaw writes it: the payload, then
+/// the tag in the low byte of the second.
+const Raw = extern struct { bits: u64, tag: u8 };
+
+/// A register or constant read in place: its tag and payload are two loads.
+/// Copying the Value instead (const v = stack[i]) is a 16-byte copy that
+/// LLVM routes through a stack temporary on x86-64 before reading the
+/// parts: three instructions and a store-to-load round trip per operand.
+inline fn inPlace(p: *const Value) *const Raw {
+    return @ptrCast(@alignCast(p));
+}
+
+/// RK(C) in place.
+inline fn rkRaw(stack: [*]Value, base: usize, consts: []const Value, ins: u32) *const Raw {
+    return inPlace(if (ops.argK(ins)) &consts[ops.argC(ins)] else &stack[base + ops.argC(ins)]);
+}
+
+const tag_null: u8 = @backingInt(root.Kind.null);
+const tag_int: u8 = @backingInt(root.Kind.int);
+const tag_float: u8 = @backingInt(root.Kind.float);
+
+inline fn rawInt(r: *const Raw) i64 {
+    return @bitCast(r.bits);
+}
+inline fn rawFloat(r: *const Raw) f64 {
+    return @bitCast(r.bits);
 }
 
 /// A value (an arithmetic result) into a register in one store when it is

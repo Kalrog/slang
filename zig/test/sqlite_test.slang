@@ -18,7 +18,7 @@ local func fresh(){
 t.group("sqlite binding"){
   t.test("a database file is opened in WAL mode unless asked otherwise"){
     local os = require("slang/os")
-    local dir = concat(os.getenv("TMPDIR") or "/tmp/", "/slang-sqlite-open")
+    local dir = concat(os.temp_dir(), "/slang-sqlite-open")
     os.mkdir_all(dir)
     local path = concat(dir, "/a.db")
     local db = sqlite.open(path)

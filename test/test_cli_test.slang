@@ -5,7 +5,7 @@ local os = require("slang/os")
 local time = require("slang/time")
 
 local dir = concat(
-  os.getenv("TMPDIR") or "/tmp/", "/slang-test-cli-", string(to_int(time.now()))
+  os.temp_dir(), "/slang-test-cli-", string(to_int(time.now()))
 )
 
 t.group("slang test"){

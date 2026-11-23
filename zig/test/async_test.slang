@@ -1,6 +1,7 @@
 // slang/async: futures, await on coroutines, streams, tcp adapters
 local t = require("slang/test")
 local str = require("slang/string")
+local windows = str.starts_with(require("slang/os").platform(), "windows")
 local async = require("slang/async")
 local await = async.await
 
@@ -161,7 +162,7 @@ t.group("async"){
 local os = require("slang/os")
 local uv = require("uv")
 local scratch = concat(
-  os.getenv("TMPDIR") or "/tmp/", "/slang-async-test-", string(uv.getpid())
+  os.temp_dir(), "/slang-async-test-", string(uv.getpid())
 )
 os.mkdir_all(scratch)
 
@@ -208,6 +209,10 @@ t.group("async: files, names, processes, signals"){
     })
   }
   t.test("exec collects output and the exit status"){
+    // (it runs /bin/sh; Windows has none)
+    if(windows){
+      return
+    }
     async.main(func(){
       local r = await(
         async.exec("/bin/sh", {"-c", "cat; echo oops >&2; exit 4"}, {

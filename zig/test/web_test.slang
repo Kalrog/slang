@@ -10,7 +10,7 @@ local os = require("slang/os")
 local uv = require("uv")
 
 local scratch = concat(
-  os.getenv("TMPDIR") or "/tmp/", "/slang-web-test-", string(uv.getpid())
+  os.temp_dir(), "/slang-web-test-", string(uv.getpid())
 )
 os.mkdir_all(scratch)
 os.write_file(concat(scratch, "/hello.txt"), "hello, static world\n")

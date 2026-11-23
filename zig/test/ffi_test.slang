@@ -123,7 +123,7 @@ t.group("ffi: declarations"){
   }
   t.test("header: quoted includes spliced in, each once"){
     local os = require("slang/os")
-    local dir = concat(os.getenv("TMPDIR") or "/tmp/", "/slang-ffi-test")
+    local dir = concat(os.temp_dir(), "/slang-ffi-test")
     os.mkdir_all(dir)
     os.write_file(
       concat(dir, "/ffi_a.h"),

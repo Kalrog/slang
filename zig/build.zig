@@ -113,7 +113,7 @@ pub fn build(b: *std.Build) void {
     hello_mod.addIncludePath(b.path("include"));
     const hello = b.addLibrary(.{ .name = "hello", .linkage = .dynamic, .root_module = hello_mod });
     linkExtension(hello, shared, windows);
-    b.installArtifact(hello);
+    installExtension(b, hello, windows);
 
     // A plain C library for the FFI tests (zig/test/ffi_test.slang), installed
     // as lib/libffitest.<ext> where slang/ffi's load("ffitest") finds it.
@@ -121,7 +121,7 @@ pub fn build(b: *std.Build) void {
         const ft_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
         ft_mod.addCSourceFile(.{ .file = b.path("test/ffitest.c"), .flags = &.{"-std=c11"} });
         const ft = b.addLibrary(.{ .name = "ffitest", .linkage = .dynamic, .root_module = ft_mod });
-        b.installArtifact(ft);
+        installExtension(b, ft, windows);
     }
 
     // Zig extensions import the header through translate-c as "slang".
@@ -139,7 +139,7 @@ pub fn build(b: *std.Build) void {
     vec_mod.addImport("slang", translated.createModule());
     const vec = b.addLibrary(.{ .name = "vec", .linkage = .dynamic, .root_module = vec_mod });
     linkExtension(vec, shared, windows);
-    b.installArtifact(vec);
+    installExtension(b, vec, windows);
 
     // The vector benchmark's libraries (bench/vectors, `make bench-vectors`):
     // a Zig extension and a C library for slang/ffi, into build/bench under
@@ -260,6 +260,21 @@ pub fn build(b: *std.Build) void {
     embed_mod.linkLibrary(shared);
     const embed = b.addExecutable(.{ .name = "embed_test", .root_module = embed_mod });
     test_step.dependOn(&b.addRunArtifact(embed).step);
+}
+
+/// Installs a library the tests load: into lib/ (on Windows too, where a
+/// DLL would go to bin/ by default), where slang's native search paths and
+/// slang/ffi look.
+fn installExtension(b: *std.Build, lib: *std.Build.Step.Compile, windows: bool) void {
+    if (windows) {
+        b.getInstallStep().dependOn(&b.addInstallArtifact(lib, .{
+            .dest_dir = .{ .override = .lib },
+            .implib_dir = .disabled,
+            .pdb_dir = .disabled,
+        }).step);
+    } else {
+        b.installArtifact(lib);
+    }
 }
 
 /// How an extension library reaches the VM's slang_*: on Windows it links

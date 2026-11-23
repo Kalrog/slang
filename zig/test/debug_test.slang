@@ -7,7 +7,7 @@ local uv = require("uv")
 local async = require("slang/async")
 
 local scratch = concat(
-  os.getenv("TMPDIR") or "/tmp/",
+  os.temp_dir(),
   "/slang-debug-test-",
   string(uv.getpid()),
 )

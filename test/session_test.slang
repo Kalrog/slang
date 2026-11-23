@@ -101,7 +101,7 @@ t.group("sessions"){
 
 local slang = compiler.absolute_path("bin/slang")
 local scratch = concat(
-  os.getenv("TMPDIR") or "/tmp/", "/slang-session-test-",
+  os.temp_dir(), "/slang-session-test-",
   string(to_int(time.now()))
 )
 
@@ -148,7 +148,7 @@ t.group("sessions: in a process"){
     ))
     sh(concat(slang, " get"), concat(scratch, "/proj"))
     local out = sh(
-      concat(slang, " run tool/main.slang proj/notes.md ", os.getenv("TMPDIR") or "/tmp"),
+      concat(slang, " run tool/main.slang proj/notes.md ", os.temp_dir()),
       scratch,
     )
     assert(out == "45\ntrue the tool's own\ntrue\n", out)

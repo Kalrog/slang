@@ -156,7 +156,7 @@ t.group("language server"){
     // an empty workspace: the document's global t is looked for in the
     // workspace's files, and the working directory (the repository) would
     // have every file that assigns some t parsed
-    local root = concat(os.getenv("TMPDIR") or "/tmp/", "/slang-lsp-empty")
+    local root = concat(os.temp_dir(), "/slang-lsp-empty")
     os.mkdir_all(root)
     local s = lsp.new({root: root})
     local init = s:handle(request(1, "initialize", {capabilities: {}}))

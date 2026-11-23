@@ -1,0 +1,42 @@
+# The Windows checks (tool/windows/check.slang) on a GitHub-hosted Windows
+# machine: the kit is cross-compiled on Linux (tool/windows/kit.sh), then
+# runs headless (no GPU, window or sound) on Windows; the report is kept
+# as an artifact. Started by hand only (Actions > windows > Run workflow):
+# a private repository pays for its minutes, Windows ones count double.
+name: windows
+
+on:
+  workflow_dispatch:
+
+jobs:
+  kit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.0
+      - name: Build the Windows kit
+        run: ZIG=zig sh tool/windows/kit.sh dist/windows-kit
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-kit
+          path: dist/windows-kit
+          retention-days: 7
+
+  check:
+    needs: kit
+    runs-on: windows-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-kit
+          path: kit
+      - name: Run the checks
+        shell: cmd
+        run: kit\slang\bin\slang.exe run kit\slang\tool\windows\check.slang --headless --report windows_report.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-report
+          path: windows_report.txt

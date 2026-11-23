@@ -1,0 +1,8 @@
+{
+  name: "windows_checks",
+  // the packages the checks look at, from this checkout (or the test kit)
+  dependencies: {
+    gpu: {path: "../../packages/gpu"},
+    window: {path: "../../packages/window"},
+  },
+}

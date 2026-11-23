@@ -190,12 +190,17 @@ fn osRemoveAll(th: *Thread, args: []Value) Error!Value {
     return .null;
 }
 
-/// temp_dir(): the directory for temporary files (TMPDIR, else /tmp).
+/// temp_dir(): the directory for temporary files (TMPDIR, else TEMP or
+/// TMP, else /tmp), slash-separated on Windows too.
 fn osTempDir(th: *Thread, args: []Value) Error!Value {
     _ = args;
-    const dir = th.vm.getenv("TMPDIR") orelse th.vm.getenv("TEMP") orelse "/tmp";
-    const trimmed = if (dir.len > 1) std.mem.trimEnd(u8, dir, "/") else dir;
-    return th.vm.str(trimmed);
+    const vm = th.vm;
+    const dir = vm.getenv("TMPDIR") orelse vm.getenv("TEMP") orelse vm.getenv("TMP") orelse "/tmp";
+    const copy = vm.gpa.dupe(u8, dir) catch oom();
+    defer vm.gpa.free(copy);
+    if (@import("builtin").os.tag == .windows) std.mem.replaceScalar(u8, copy, '\\', '/');
+    const trimmed = if (copy.len > 1) std.mem.trimEnd(u8, copy, "/") else copy;
+    return vm.str(trimmed);
 }
 
 /// read_line(): the next line of standard input without its line ending,

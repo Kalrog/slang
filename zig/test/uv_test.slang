@@ -1,6 +1,7 @@
 // the uv extension: timers, tcp, errors, closing
 local t = require("slang/test")
 local str = require("slang/string")
+local windows = str.starts_with(require("slang/os").platform(), "windows")
 local uv = require("uv")
 
 t.group("uv"){
@@ -141,7 +142,7 @@ t.group("uv"){
 // a fresh directory for the file tests
 local os = require("slang/os")
 local scratch = concat(
-  os.getenv("TMPDIR") or "/tmp/", "/slang-uv-test-", string(uv.getpid())
+  os.temp_dir(), "/slang-uv-test-", string(uv.getpid())
 )
 os.mkdir_all(scratch)
 
@@ -232,6 +233,10 @@ t.group("uv: files, names, processes, signals, poll"){
     assert(str.starts_with(bad.code, "EAI_") and bad.kind == "network", bad.code)
   }
   t.test("spawn: pipes, exit status, environment, cwd"){
+    // (it runs /bin/sh; Windows has none)
+    if(windows){
+      return
+    }
     local out = uv.pipe()
     local input = uv.pipe()
     local result = null

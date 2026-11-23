@@ -238,7 +238,7 @@ local v = 1 <> 2
   }
   t.test("highlight_json with check: compile errors, then lint"){
     local os = require("slang/os")
-    local dir = concat(os.getenv("TMPDIR") or "/tmp/", "/slang-check-test")
+    local dir = concat(os.temp_dir(), "/slang-check-test")
     os.mkdir_all(dir)
     local func check(source){
       os.write_file(concat(dir, "/c.slang"), source)

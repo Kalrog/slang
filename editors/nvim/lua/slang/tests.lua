@@ -80,7 +80,7 @@ function M.run(spec)
   end
   local buf = spec.buf
   local nodes = index(spec.tests or {}, nil, {})
-  local status = {} -- path -> "passed" | "failed"
+  local status = {} -- path -> "passed" | "failed" | "skipped"
   if buf then
     vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
     vim.diagnostic.reset(ns, buf)
@@ -117,6 +117,12 @@ function M.run(spec)
       passed = passed + 1
       if buf and node then
         mark(buf, node, " ✓", "DiagnosticOk")
+      end
+      return
+    end
+    if e.status == "skipped" then
+      if buf and node then
+        mark(buf, node, " – " .. (e.message or "skipped"), "DiagnosticHint")
       end
       return
     end

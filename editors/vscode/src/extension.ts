@@ -277,7 +277,7 @@ function fileOf(item: vscode.TestItem): vscode.TestItem {
 type TestEvent = {
   event: "test" | "done";
   path?: string[];
-  status?: "passed" | "failed";
+  status?: "passed" | "failed" | "skipped";
   message?: string;
   location?: { origin: string; line: number; column: number };
 };
@@ -342,6 +342,8 @@ async function runTests(
         }
         if (e.status === "passed") {
           run.passed(it);
+        } else if (e.status === "skipped") {
+          run.skipped(it);
         } else {
           const message = new vscode.TestMessage(e.message ?? "failed");
           if (e.location && it.uri) {

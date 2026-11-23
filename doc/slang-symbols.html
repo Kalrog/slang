@@ -74,7 +74,7 @@ local found = symbols.at(index, pos)   // the def or ref at pos</code></pre>
 
 </div>
 <div class="def" id="doc_blocks"><h3><code>symbols.doc_blocks(text?: string) -> {<a href="#type-DocBlock">DocBlock</a>}</code></h3>
-<p>A doc split into paragraphs and code samples. Lines indented by two or more spaces are code, kept as they are less their common indentation; a blank line ends a paragraph, not a sample.</p>
+<p>A doc split into paragraphs and code samples. Lines indented by two or more spaces are code, kept as they are less their common indentation; a blank line ends a paragraph, not a sample. A type declaration (<code>type Name = {...}</code>) is code too, with the lines it goes on over until its brackets close, however they are indented.</p>
 
 </div>
 <h2>typed docs</h2>
@@ -133,9 +133,9 @@ local found = symbols.at(index, pos)   // the def or ref at pos</code></pre>
 <p>A typed signature: the parameters and what comes after them.</p>
 <dl class="params"><dt><code>params: {<a href="#type-Param">Param</a>}</code></dt><dd></dd><dt><code>result?: <a href="#type-Result">Result</a></code></dt><dd>after <code>-&gt;</code></dd><dt><code>text?: string</code></dt><dd>what follows the parameters without <code>-&gt;</code> (it begins the prose)</dd></dl>
 <h2 id="type-Param">type Param</h2>
-<pre><code>type Param = {name: string, type?: <a href="#type-Type">Type</a>, optional: bool, rest: bool}</code></pre>
+<pre><code>type Param = {name: string, type?: <a href="#type-Type">Type</a>, optional: bool, rest: bool, malformed?: string}</code></pre>
 <p>A parameter of a signature or a function type.</p>
-<dl class="params"><dt><code>name: string</code></dt><dd></dd><dt><code>type?: <a href="#type-Type">Type</a></code></dt><dd></dd><dt><code>optional: bool</code></dt><dd></dd><dt><code>rest: bool</code></dt><dd><code>...name</code></dd></dl>
+<dl class="params"><dt><code>name: string</code></dt><dd></dd><dt><code>type?: <a href="#type-Type">Type</a></code></dt><dd></dd><dt><code>optional: bool</code></dt><dd></dd><dt><code>rest: bool</code></dt><dd><code>...name</code></dd><dt><code>malformed?: string</code></dt><dd>a signature's parameter type that is not in the notation, as written (the parameter is then untyped)</dd></dl>
 <h2 id="type-Result">type Result</h2>
 <pre><code>type Result = {name?: string, type?: <a href="#type-Type">Type</a>, text?: string}</code></pre>
 <p>What a signature says after <code>-&gt;</code>: name and type, type and description (text), or prose alone (text).</p>
@@ -149,9 +149,9 @@ local found = symbols.at(index, pos)   // the def or ref at pos</code></pre>
 <p>A field of a shape type.</p>
 <dl class="params"><dt><code>name: string</code></dt><dd></dd><dt><code>optional: bool</code></dt><dd></dd><dt><code>type: <a href="#type-Type">Type</a></code></dt><dd></dd></dl>
 <h2 id="type-TypeDecl">type TypeDecl</h2>
-<pre><code>type TypeDecl = {name: string, type?: <a href="#type-Type">Type</a>, start: int, stop: int, doc?: string, info: <a href="#type-DocInfo">DocInfo</a>, line_end: int, table?: <a href="#type-Def">Def</a>}</code></pre>
+<pre><code>type TypeDecl = {name: string, type?: <a href="#type-Type">Type</a>, start: int, stop: int, doc?: string, info: <a href="#type-DocInfo">DocInfo</a>, line_end: int, table?: <a href="#type-Def">Def</a>, malformed?: string}</code></pre>
 <p>A type declared in a doc comment.</p>
-<dl class="params"><dt><code>name: string</code></dt><dd></dd><dt><code>type?: <a href="#type-Type">Type</a></code></dt><dd>null for a bare declaration</dd><dt><code>start: int</code></dt><dd>where the name starts (stop: past its end)</dd><dt><code>stop: int</code></dt><dd></dd><dt><code>doc?: string</code></dt><dd>the comments above and below the declaration line(s)</dd><dt><code>info: <a href="#type-DocInfo">DocInfo</a></code></dt><dd>the doc read by <a href="#doc_info"><code>doc_info</code></a>: its items describe the fields</dd><dt><code>line_end: int</code></dt><dd>where its comment block ends</dd><dt><code>table?: <a href="#type-Def">Def</a></code></dt><dd>a bare one's methods table, the definition right below it</dd></dl>
+<dl class="params"><dt><code>name: string</code></dt><dd></dd><dt><code>type?: <a href="#type-Type">Type</a></code></dt><dd>null for a bare declaration, and for one not in the notation</dd><dt><code>start: int</code></dt><dd>where the name starts (stop: past its end)</dd><dt><code>stop: int</code></dt><dd></dd><dt><code>doc?: string</code></dt><dd>the comments above and below the declaration line(s)</dd><dt><code>info: <a href="#type-DocInfo">DocInfo</a></code></dt><dd>the doc read by <a href="#doc_info"><code>doc_info</code></a>: its items describe the fields</dd><dt><code>line_end: int</code></dt><dd>where its comment block ends</dd><dt><code>table?: <a href="#type-Def">Def</a></code></dt><dd>a bare one's methods table, the definition right below it</dd><dt><code>malformed?: string</code></dt><dd>what a declaration says after = when that is not in the notation</dd></dl>
 <h2 id="type-DocBlock">type DocBlock</h2>
 <pre><code>type DocBlock = {kind: string, text: string}</code></pre>
 <p>A paragraph (&quot;text&quot;, its lines joined) or code sample (&quot;code&quot;) of a doc.</p>

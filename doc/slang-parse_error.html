@@ -79,11 +79,13 @@ details.expanded summary { cursor: pointer; color: var(--muted); }
 </div>
 <h2 id="type-Diagnosis">type Diagnosis</h2>
 <pre><code>type Diagnosis = {message: string, pos: int, notes: {<a href="#type-Note">Note</a>}, hints: {string}}</code></pre>
-<p>What <a href="#describe"><code>describe</code></a> gives. type Note = {pos: int, message: string}</p>
+<p>What <a href="#describe"><code>describe</code></a> gives.</p>
+<pre><code>type Note = {pos: int, message: string}</code></pre>
 <dl class="params"><dt><code>message: string</code></dt><dd></dd><dt><code>pos: int</code></dt><dd>the byte offset to report the message at</dd><dt><code>notes: {<a href="#type-Note">Note</a>}</code></dt><dd></dd><dt><code>hints: {string}</code></dt><dd>suggestions, each a sentence</dd></dl>
 <h2 id="type-Note">type Note</h2>
 <pre><code>type Note = {pos: int, message: string}</code></pre>
-<p>What <a href="#describe"><code>describe</code></a> gives. type Diagnosis = {message: string, pos: int, notes: {Note}, hints: {string}}</p>
+<p>What <a href="#describe"><code>describe</code></a> gives.</p>
+<pre><code>type Diagnosis = {message: string, pos: int, notes: {Note}, hints: {string}}</code></pre>
 <dl class="params"><dt><code>pos: int</code></dt><dd>the byte offset to report the message at</dd><dt><code>message: string</code></dt><dd></dd></dl>
 <p class="muted">slang/compiler/parse_error.slang</p>
 </body>

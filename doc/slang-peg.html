@@ -665,12 +665,14 @@ trivia: options.trivia(buffer, start, stop) -&gt; spans (comments) for the
 <dl class="params"><dt><code>elements: {any}</code></dt><dd>the values of the elements</dd><dt><code>separators: {any}</code></dt><dd>the values of the separators between them</dd></dl>
 <h2 id="type-TriviaOptions">type TriviaOptions</h2>
 <pre><code>type TriviaOptions = {skip: func(buffer: string, pos: int): int, comments?: func(buffer: string, start: int, stop: int): {<a href="#type-Comment">Comment</a>}}</code></pre>
-<p>What <a href="#trivia"><code>trivia</code></a> takes. A comment in a stretch of trivia. type Comment = {start: int, stop: int, block?: bool}</p>
+<p>What <a href="#trivia"><code>trivia</code></a> takes. A comment in a stretch of trivia.</p>
+<pre><code>type Comment = {start: int, stop: int, block?: bool}</code></pre>
 <dl class="params"><dt><code>skip: func(buffer: string, pos: int): int</code></dt><dd>the position after the blankspace and comments at pos (pos when there are none)</dd><dt><code>comments?: func(buffer: string, start: int, stop: int): {<a href="#type-Comment">Comment</a>}</code></dt><dd>the comments in buffer[start, stop), a stretch skip went over, in order</dd></dl>
 <h2 id="type-Comment">type Comment</h2>
 <pre><code>type Comment = {start: int, stop: int, block?: bool}</code></pre>
-<p>What <a href="#trivia"><code>trivia</code></a> takes. type TriviaOptions = {skip: func(buffer: string, pos: int): int,</p>
-<pre><code>comments?: func(buffer: string, start: int, stop: int): {Comment}}</code></pre>
+<p>What <a href="#trivia"><code>trivia</code></a> takes.</p>
+<pre><code>type TriviaOptions = {skip: func(buffer: string, pos: int): int,
+  comments?: func(buffer: string, start: int, stop: int): {Comment}}</code></pre>
 <p>A comment in a stretch of trivia.</p>
 <dl class="params"><dt><code>start: int</code></dt><dd></dd><dt><code>stop: int</code></dt><dd></dd><dt><code>block?: bool</code></dt><dd>a comment that ends by itself (<code>/* ... */</code>), so that code may follow it on its line; a line comment ends with its line</dd></dl>
 <h2 id="type-Placement">type Placement</h2>

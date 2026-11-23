@@ -421,25 +421,32 @@ fn runTests(init: std.process.Init, args: []const []const u8) u8 {
         const all = vm.call(vm.getGlobal("compile"), &.{ vm.str(src.items), vm.str("test runner") }) catch fail(vm);
         web.start(vm, all.function);
         return 0;
-    } else if (std.mem.endsWith(u8, target, ".slang")) {
-        const cl = loadFile(vm, target);
-        _ = vm.call(.{ .function = cl }, &.{}) catch fail(vm);
+    }
+    // the test files, in order of their names; slang/test loads them, so
+    // one that does not load is a failure in the report, not the run's end
+    const files = vm.newTable(1, 0);
+    // (held while the file names are made: a collection may run)
+    vm.registry.set(vm.gpa, vm.str("test files"), .{ .table = files });
+    if (std.mem.endsWith(u8, target, ".slang")) {
+        files.append(vm.gpa, vm.str(target));
     } else {
         const names = oslib.listDir(vm, target) catch |e| failMsg(vm, "cannot list {s}: {t}", .{ target, e });
         defer oslib.freeNames(vm, names);
+        std.mem.sort([]u8, names, {}, struct {
+            fn less(_: void, a: []u8, b: []u8) bool {
+                return std.mem.lessThan(u8, a, b);
+            }
+        }.less);
         for (names) |name| {
             if (!std.mem.endsWith(u8, name, "test.slang")) continue;
             const path = std.fmt.allocPrint(vm.gpa, "{s}/{s}", .{ target, name }) catch oom();
             defer vm.gpa.free(path);
-            const cl = loadFile(vm, path);
-            _ = vm.call(.{ .function = cl }, &.{}) catch fail(vm);
+            files.append(vm.gpa, vm.str(path));
         }
     }
-    const runner = vm.call(vm.getGlobal("compile"), &.{
-        vm.str("\n\t\treturn require(\"slang/test\").run_cli(args())\n\t"),
-        vm.str("test runner"),
-    }) catch fail(vm);
-    const failed = vm.call(runner, &.{}) catch fail(vm);
+    const testing = vm.call(vm.getGlobal("require"), &.{vm.str("slang/test")}) catch fail(vm);
+    const argv = vm.call(vm.getGlobal("args"), &.{}) catch fail(vm);
+    const failed = vm.call(testing.table.getName("run_files"), &.{ .{ .table = files }, argv }) catch fail(vm);
     vm.flush();
     const code: u8 = if (failed.truthy()) 1 else 0;
     ended(vm, code);

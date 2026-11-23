@@ -121,7 +121,7 @@ libc.div(17, 5)                      // {quot: 3, rem: 2}</code></pre>
 </div>
 <h2>libraries</h2>
 <div class="def" id="load"><h3><code>ffi.load(name: string?, decls: <a href="#type-Decls">Decls</a>, options?: <a href="#type-LoadOptions">LoadOptions</a>) -> <a href="#type-Library">Library</a></code></h3>
-<p>Loads a C library with the declarations of its functions. A library name (&quot;raylib&quot;) is libraylib.dylib or .so in options.paths, slang's native search paths, /opt/homebrew/lib, /usr/local/lib, /usr/lib, then wherever the system finds it. Raises &quot;ffi.load: ...&quot; (of kind not_found) with what each attempt said when it cannot load it.</p>
+<p>Loads a C library with the declarations of its functions. A library name (&quot;raylib&quot;) is libraylib.dylib or .so in options.paths, slang's native search paths, /opt/homebrew/lib, /usr/local/lib, /usr/lib, then wherever the system finds it; on Windows raylib.dll or libraylib.dll in options.paths, the native search paths and the program's folder. Raises &quot;ffi.load: ...&quot; (of kind not_found) with what each attempt said when it cannot load it.</p>
 <dl class="params"><dt><code>name</code></dt><dd>a path (with a / or a .), a library name, or null for the program</dd></dl>
 </div>
 <div class="def" id="c_layer"><h3><code>ffi.c_layer(lib: <a href="#type-Library">Library</a>, type_name?: string) -> table</code></h3>

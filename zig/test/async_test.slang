@@ -209,9 +209,8 @@ t.group("async: files, names, processes, signals"){
     })
   }
   t.test("exec collects output and the exit status"){
-    // (it runs /bin/sh; Windows has none)
     if(windows){
-      return
+      t.skip("runs /bin/sh, which Windows has not")
     }
     async.main(func(){
       local r = await(

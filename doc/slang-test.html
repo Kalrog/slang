@@ -47,20 +47,24 @@ t.group(&quot;math&quot;){
     assert(1 + 1 == 2, &quot;1 + 1&quot;)
   }
 }</code></pre>
-<p>A test passes when its function returns and fails when it raises (a failed <code>assert</code> or any other error); the report shows the message and where it was raised. Registering only collects: <code>slang test</code> loads the test files, then calls <a href="#run_cli"><code>run_cli</code></a> with its arguments, which runs everything registered and reports. Tests can also live in the file they test, as <code>group(name){ ... }</code> and <code>test(name){ ... }</code> statements that only a test run compiles (see extensions/inline_test).</p>
-<p>With --json, <a href="#run"><code>run</code></a> prints one JSON object per line instead of the report: {event: &quot;test&quot;, path, status, message, location} for each test that ran (status &quot;passed&quot; or &quot;failed&quot;; message and location when it failed), then {event: &quot;done&quot;, passed, failed}. With --only &quot;group / test&quot;, only the tests under that path run: a group's name, a test's, or the names from a top group down, joined by &quot; / &quot;.</p>
+<p>A test passes when its function returns and fails when it raises (a failed <code>assert</code> or any other error); the report shows the message, where it was raised and the calls that led there in the test's own code. A test that calls <a href="#skip"><code>skip</code></a> is skipped. Registering only collects: <code>slang test</code> loads the test files (<a href="#run_files"><code>run_files</code></a>), then runs everything registered and reports. Tests can also live in the file they test, as <code>group(name){ ... }</code> and <code>test(name){ ... }</code> statements that only a test run compiles (see extensions/inline_test).</p>
+<p>Nothing that goes wrong stops the run: a file that does not load, a group whose code raises while it registers, a setup or a teardown that raises, each is a failure in the report, and the other tests still run.</p>
+<p>With --json, <a href="#run"><code>run</code></a> prints one JSON object per line instead of the report: {event: &quot;test&quot;, path, status, message, location, file, ms} for each test that ran (status &quot;passed&quot;, &quot;failed&quot; or &quot;skipped&quot;; message and location when it failed or was skipped; file when a test file registered it), then {event: &quot;done&quot;, passed, failed, skipped, ms}. With --only &quot;group / test&quot;, only the tests under that path run: a group's name, a test's, or the names from a top group down, joined by &quot; / &quot;.</p>
 <ul class="toc">
 <li><a href="#group"><code>group</code></a></li>
 <li><a href="#test"><code>test</code></a></li>
 <li><a href="#setup"><code>setup</code></a></li>
 <li><a href="#teardown"><code>teardown</code></a></li>
+<li><a href="#skip"><code>skip</code></a></li>
 <li><a href="#raises"><code>raises</code></a></li>
 <li><a href="#run"><code>run</code></a></li>
 <li><a href="#run_cli"><code>run_cli</code></a></li>
+<li><a href="#run_files"><code>run_files</code></a></li>
 <li><a href="#type-Options"><code>type Options</code></a></li>
 </ul>
+<h2>the API</h2>
 <div class="def" id="group"><h3><code>test.group(name: string, f: function)</code></h3>
-<p>Registers a group: runs f at once, and the tests, groups, setups and teardowns f registers belong to the group. Usually written with a block: t.group(&quot;name&quot;){ ... }.</p>
+<p>Registers a group: runs f at once, and the tests, groups, setups and teardowns f registers belong to the group. Usually written with a block: t.group(&quot;name&quot;){ ... }. When f raises, the group keeps what it registered until then and the error is one of its failures.</p>
 
 </div>
 <div class="def" id="test"><h3><code>test.test(name: string, f: function)</code></h3>
@@ -68,11 +72,16 @@ t.group(&quot;math&quot;){
 
 </div>
 <div class="def" id="setup"><h3><code>test.setup(f: function)</code></h3>
-<p>Registers f to run before each test and subgroup of the current group (each subgroup once, not before each of its tests).</p>
+<p>Registers f to run before each test and subgroup of the current group (each subgroup once, not before each of its tests). When it raises, the test (or every test of the subgroup) fails without running.</p>
 
 </div>
 <div class="def" id="teardown"><h3><code>test.teardown(f: function)</code></h3>
-<p>Registers f to run after each test and subgroup of the current group, whether it passed or not.</p>
+<p>Registers f to run after each test and subgroup of the current group, whether it passed or not. When it raises, that is a failure of its own in the report.</p>
+
+</div>
+<div class="def" id="skip"><h3><code>test.skip(reason: string)</code></h3>
+<p>Ends the test that calls it as skipped, not failed: for a test that cannot run here (a platform without what it needs).</p>
+<pre><code>if(windows){ t.skip(&quot;runs /bin/sh&quot;) }</code></pre>
 
 </div>
 <div class="def" id="raises"><h3><code>test.raises(f: function, expected?: string) -> Error</code></h3>
@@ -82,11 +91,15 @@ t.raises(func(){ json.decode(&quot;{&quot;) }, &quot;JSON value expected&quot;)<
 
 </div>
 <div class="def" id="run"><h3><code>test.run(opts?: <a href="#type-Options">Options</a>) -> int</code></h3>
-<p>Runs the registered tests, prints the report (or JSON lines) and returns the number of tests that failed.</p>
+<p>Runs the registered tests, prints the report (or JSON lines) and returns the number of tests that failed (with an --only that matches no test, 1).</p>
 
 </div>
 <div class="def" id="run_cli"><h3><code>test.run_cli(argv: {string}) -> bool</code></h3>
 <p><a href="#run"><code>run</code></a> with the options of <code>slang test</code> read from argv (--json, --only path; anything else is ignored); true when a test failed.</p>
+
+</div>
+<div class="def" id="run_files"><h3><code>test.run_files(files: {string}, argv: {string}) -> bool</code></h3>
+<p>What <code>slang test</code> does: loads each test file (compiled as the compiler compiles a test run's files), then <a href="#run_cli"><code>run_cli</code></a>. A file that does not load (it does not compile, or raises while it registers its tests) is a failed test named after it, and the other files still run.</p>
 
 </div>
 <h2 id="type-Options">type Options</h2>

@@ -49,9 +49,14 @@ test.group("math"){
 }
 ```
 
-`slang test` runs the files and reports each test; a test fails when it
-raises. `--only "group / test"` runs one, and `--json` prints the results
-for editors and CI. The exit status is 0 when every test passed.
+`slang test` runs the files in order of their names and reports each test;
+a test fails when it raises, with where and the calls in the test that led
+there. `test.skip("why")` ends a test as skipped (a platform without what
+it needs). Nothing stops the run: a file that does not load, a setup or
+teardown that raises, a group whose code raises, each is a failure in the
+report, and the other tests still run. `--only "group / test"` runs one
+(and fails when no test matches), and `--json` prints the results for
+editors and CI. The exit status is 0 when no test failed.
 
 ## Formatting
 

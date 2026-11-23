@@ -233,9 +233,8 @@ t.group("uv: files, names, processes, signals, poll"){
     assert(str.starts_with(bad.code, "EAI_") and bad.kind == "network", bad.code)
   }
   t.test("spawn: pipes, exit status, environment, cwd"){
-    // (it runs /bin/sh; Windows has none)
     if(windows){
-      return
+      t.skip("runs /bin/sh, which Windows has not")
     }
     local out = uv.pipe()
     local input = uv.pipe()

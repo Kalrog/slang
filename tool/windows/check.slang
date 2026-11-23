@@ -155,6 +155,7 @@ local func suite(name, dir, file){
   local r = run({exe, "test", file}, dir)
   local total = null
   local failed = null
+  local skipped_tests = null
   local details = {}
   local all = str.lines(r.out)
   for(local i = 0; i < len(all); i = i + 1){
@@ -163,13 +164,19 @@ local func suite(name, dir, file){
       total = str.trim(str.substring(line, 13))
     } else if(str.starts_with(line, "Tests failed: ")){
       failed = str.trim(str.substring(line, 14))
-    } else if(str.ends_with(line, " Failed") or str.starts_with(str.trim(line), "Error")){
+    } else if(str.starts_with(line, "Tests skipped: ")){
+      skipped_tests = str.trim(str.substring(line, 15))
+    } else if(str.contains(line, " Failed") or str.contains(line, " Skipped: ") or
+      str.starts_with(str.trim(line), "Error") or str.starts_with(str.trim(line), "at ")){
       if(len(details) < 40){
         append(details, concat("      ", str.trim(line)))
       }
     }
   }
   local timing = concat(" (", string(r.ms), " ms)")
+  if(skipped_tests != null){
+    timing = concat(", ", skipped_tests, " skipped", timing)
+  }
   if(total == null){
     counts.crash = counts.crash + 1
     say("CRASH ", name, timing, ", exit status ", string(r.status), "\n", tail_of(r.out, 30))

@@ -3,19 +3,29 @@
 // is the loop alone. The FFI rows run when lib/libffitest.* exists
 // (make build makes it).
 local time = require("slang/time")
+local str = require("slang/string")
 local os = require("slang/os")
 local math = require("slang/math")
 local buffer = require("slang/buffer")
 local ffi = require("slang/ffi")
 
 local n = 1000000
+// each row is run ROUNDS times (MICRO_ROUNDS, 3 by default) and the
+// fastest kept: the others met a collection or another program
+local ROUNDS = to_int(str.to_number(os.getenv("MICRO_ROUNDS") or "3")) or 3
 
 local func row(name, f){
-  local t0 = time.clock()
-  local r = f()
-  local t1 = time.clock()
-  local ns = (t1 - t0) * 1000000 / n
-  print(name, ": ", to_int(ns), " ns\n")
+  local best = math.inf
+  local r = null
+  for(local k = 0; k < ROUNDS; k = k + 1){
+    local t0 = time.clock()
+    r = f()
+    local ns = (time.clock() - t0) * 1000000 / n
+    if(ns < best){
+      best = ns
+    }
+  }
+  print(name, ": ", str.format("%.2f", best), " ns\n")
   return r
 }
 

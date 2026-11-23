@@ -1,0 +1,3 @@
+# built by build.sh, per platform; the Lua source it fetches
+/bin/
+/.cache/

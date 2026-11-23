@@ -1,0 +1,300 @@
+{
+  "label": "macos-aarch64-apple-m2-pro",
+  "machine": {
+    "platform": "macos-aarch64",
+    "cpu": "Apple M2 Pro",
+    "cpus": 10,
+    "slang": "d5ca766",
+    "date": "2026-11-23T18:30:43.932Z"
+  },
+  "results": [
+    {
+      "group": "native",
+      "name": "C sawtooth",
+      "value": 2.66,
+      "unit": "ns/sample"
+    },
+    {
+      "group": "native",
+      "name": "C int mix",
+      "value": 1.738,
+      "unit": "ns/round"
+    },
+    {
+      "group": "native",
+      "name": "C switch vm",
+      "value": 1.176,
+      "unit": "ns/instruction"
+    },
+    {
+      "group": "native",
+      "name": "C threaded vm",
+      "value": 1.073,
+      "unit": "ns/instruction"
+    },
+    {
+      "group": "native",
+      "name": "C pointer chase",
+      "value": 73.159,
+      "unit": "ns/load"
+    },
+    {
+      "group": "native",
+      "name": "Zig sha256",
+      "value": 0.42800727486611057,
+      "unit": "ns/byte"
+    },
+    {
+      "group": "native",
+      "name": "Zig chacha20-poly1305",
+      "value": 1.8017094135284148,
+      "unit": "ns/byte"
+    },
+    {
+      "group": "native",
+      "name": "Zig x25519",
+      "value": 29726.25000000107,
+      "unit": "ns/op"
+    },
+    {
+      "group": "interp",
+      "name": "fib slang",
+      "value": 64.46229199999999,
+      "unit": "ms"
+    },
+    {
+      "group": "interp",
+      "name": "fib lua",
+      "value": 28.825,
+      "unit": "ms"
+    },
+    {
+      "group": "interp",
+      "name": "sieve slang",
+      "value": 116.372209,
+      "unit": "ms"
+    },
+    {
+      "group": "interp",
+      "name": "sieve lua",
+      "value": 71.629,
+      "unit": "ms"
+    },
+    {
+      "group": "interp",
+      "name": "nbody slang",
+      "value": 220.28104199999999,
+      "unit": "ms"
+    },
+    {
+      "group": "interp",
+      "name": "nbody lua",
+      "value": 123.553,
+      "unit": "ms"
+    },
+    {
+      "group": "interp",
+      "name": "objects slang",
+      "value": 258.85625,
+      "unit": "ms"
+    },
+    {
+      "group": "interp",
+      "name": "objects lua",
+      "value": 271.202,
+      "unit": "ms"
+    },
+    {
+      "group": "interp",
+      "name": "strings slang",
+      "value": 68.740166,
+      "unit": "ms"
+    },
+    {
+      "group": "interp",
+      "name": "strings lua",
+      "value": 139.543,
+      "unit": "ms"
+    },
+    {
+      "group": "interp",
+      "name": "hashmap slang",
+      "value": 106.867917,
+      "unit": "ms"
+    },
+    {
+      "group": "interp",
+      "name": "hashmap lua",
+      "value": 56.847,
+      "unit": "ms"
+    },
+    {
+      "group": "interp",
+      "name": "dijkstra slang",
+      "value": 225.46291599999998,
+      "unit": "ms"
+    },
+    {
+      "group": "interp",
+      "name": "dijkstra lua",
+      "value": 117.202,
+      "unit": "ms"
+    },
+    {
+      "group": "micro",
+      "name": "loop alone",
+      "value": 5.48,
+      "unit": "ns"
+    },
+    {
+      "group": "micro",
+      "name": "field get plain",
+      "value": 8.82,
+      "unit": "ns"
+    },
+    {
+      "group": "micro",
+      "name": "field get with meta",
+      "value": 8.57,
+      "unit": "ns"
+    },
+    {
+      "group": "micro",
+      "name": "field get hashed",
+      "value": 8.73,
+      "unit": "ns"
+    },
+    {
+      "group": "micro",
+      "name": "field get missing + __index",
+      "value": 9.39,
+      "unit": "ns"
+    },
+    {
+      "group": "micro",
+      "name": "field set plain",
+      "value": 6.21,
+      "unit": "ns"
+    },
+    {
+      "group": "micro",
+      "name": "field set with meta",
+      "value": 6.18,
+      "unit": "ns"
+    },
+    {
+      "group": "micro",
+      "name": "slang call, 1 arg",
+      "value": 21.38,
+      "unit": "ns"
+    },
+    {
+      "group": "micro",
+      "name": "native call (len)",
+      "value": 16.89,
+      "unit": "ns"
+    },
+    {
+      "group": "micro",
+      "name": "native call (math.sin)",
+      "value": 16.83,
+      "unit": "ns"
+    },
+    {
+      "group": "micro",
+      "name": "method call o:get()",
+      "value": 27.45,
+      "unit": "ns"
+    },
+    {
+      "group": "micro",
+      "name": "{x: i, y: i}",
+      "value": 58.42,
+      "unit": "ns"
+    },
+    {
+      "group": "micro",
+      "name": "{}",
+      "value": 18.55,
+      "unit": "ns"
+    },
+    {
+      "group": "micro",
+      "name": "closure",
+      "value": 34.2,
+      "unit": "ns"
+    },
+    {
+      "group": "micro",
+      "name": "for..in values() per element",
+      "value": 8.66,
+      "unit": "ns"
+    },
+    {
+      "group": "micro",
+      "name": "list get items[i]",
+      "value": 9.64,
+      "unit": "ns"
+    },
+    {
+      "group": "micro",
+      "name": "buffer set b[i] = x",
+      "value": 7.95,
+      "unit": "ns"
+    },
+    {
+      "group": "micro",
+      "name": "buffer get b[i]",
+      "value": 10.39,
+      "unit": "ns"
+    },
+    {
+      "group": "micro",
+      "name": "float mul-add x = x * 0.5 + 1.0",
+      "value": 15.6,
+      "unit": "ns"
+    },
+    {
+      "group": "micro",
+      "name": "float compare x < 0.5",
+      "value": 5.48,
+      "unit": "ns"
+    },
+    {
+      "group": "micro",
+      "name": "concat(\"a\", \"b\")",
+      "value": 35.65,
+      "unit": "ns"
+    },
+    {
+      "group": "micro",
+      "name": "concat(\"item\", i), 1M distinct",
+      "value": 106.93,
+      "unit": "ns"
+    },
+    {
+      "group": "micro",
+      "name": "ffi ft_f64(x), scalar in and out",
+      "value": 46.48,
+      "unit": "ns"
+    },
+    {
+      "group": "micro",
+      "name": "ffi ft_vec_add(a, b), two tables, struct out",
+      "value": 145.72,
+      "unit": "ns"
+    },
+    {
+      "group": "micro",
+      "name": "ffi ft_sum_vecs(buf, 1), a struct buffer",
+      "value": 52.58,
+      "unit": "ns"
+    },
+    {
+      "group": "micro",
+      "name": "ffi ft_sum_vecs({a}, 1), a list of tables",
+      "value": 81.59,
+      "unit": "ns"
+    }
+  ]
+}

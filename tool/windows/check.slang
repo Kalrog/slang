@@ -301,6 +301,12 @@ if(os.is_dir(game)){
     exe, "run", "game/burrower.slang", "--shot", concat(kit, "/burrower_shot.png"),
     "--ticks", "300", "--port", "7811", "--voice", "off",
   })
+  // a host and a bot, two processes over loopback, encrypted, on a "bad"
+  // network: the bot works the controls, goes out through the airlock and
+  // back in (no GPU, window or sound: it runs headless, in CI too)
+  program("game: host and bot (two processes, encrypted)", game, {
+    exe, "run", "tools/bot_check.slang", "--port", "7812",
+  })
   say("")
 }
 

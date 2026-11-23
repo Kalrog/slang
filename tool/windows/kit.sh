@@ -68,7 +68,8 @@ EOF
 cat > "$OUT/play.cmd" <<'EOF'
 @echo off
 rem Starts the game. To play together on one network: one player runs
-rem play.cmd, the other play.cmd --join <the first player's IP address>.
+rem play.cmd and reads the join code in this window; the other runs
+rem play.cmd --join <the first player's IP address> --code <the join code>
 cd /d "%~dp0model_coder"
 ..\slang\bin\slang.exe run game\burrower.slang %*
 if errorlevel 1 pause
@@ -96,8 +97,15 @@ Windows on a Mac. Nothing here installs anything or needs admin rights.
    - does the window open, how smooth is it (choppy, stutters)?
    - mouse and keyboard: does everything respond?
    - sound: do you hear the machine and the surroundings?
-   - two computers on one network: one runs play.cmd, the other
-     play.cmd --join <the first one's IP address>
+   - two computers on one network: one runs play.cmd; its black window
+     says "hosting on port 7797, encrypted; join code xxxx-xxxx-xxxx-xxxx".
+     The other opens a command prompt in this folder and runs
+       play.cmd --join <the first one's IP address> --code <that code>
+     (ipconfig shows the IP address, "IPv4 Address"). When Windows
+     Firewall asks on the first computer, allow "Private networks", or
+     the second cannot connect. The join code is new each time the game
+     starts. Without --code it still connects (encrypted) and says the
+     host's code, to compare.
    If something fails, the black window shows the error: a screenshot
    of it helps.
 

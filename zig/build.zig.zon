@@ -16,7 +16,7 @@
         },
         .sqlite = .{
             .url = "https://www.sqlite.org/2026/sqlite-amalgamation-3540100.zip",
-            .hash = "N-V-__8AAETTsACt-JClKW4BKM6GIeql6to34i9WbXMgbXeI",
+            .hash = "N-V-__8AAETTsABEodUZZFAyfdAm9hEyqBXuLw9pRSO0vFh9",
             .lazy = true,
         },
         .libffi = .{

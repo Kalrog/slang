@@ -38,11 +38,9 @@ pub fn zlib(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.Optim
 /// of sqlite have them.
 pub fn sqlite(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) ?*Compile {
     const dep = b.lazyDependency("sqlite", .{}) orelse return null;
-    // (the zip keeps its folder)
-    const dir = "sqlite-amalgamation-3540100";
     const lib = staticLib(b, "sqlite3", target, optimize);
     lib.root_module.addCSourceFile(.{
-        .file = dep.path(dir ++ "/sqlite3.c"),
+        .file = dep.path("sqlite3.c"),
         .flags = &.{
             "-std=c11",                         "-DSQLITE_THREADSAFE=1",
             "-DSQLITE_ENABLE_FTS5",              "-DSQLITE_ENABLE_RTREE",
@@ -50,7 +48,7 @@ pub fn sqlite(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.Opt
             "-D_DEFAULT_SOURCE",
         },
     });
-    lib.installHeadersDirectory(dep.path(dir), "", .{ .include_extensions = &.{".h"} });
+    lib.installHeadersDirectory(dep.path(""), "", .{ .include_extensions = &.{ "sqlite3.h", "sqlite3ext.h" } });
     return lib;
 }
 

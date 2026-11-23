@@ -172,8 +172,8 @@ pub fn build(b: *std.Build) void {
     // by default) for where its library is installed.
     const with_libuv = b.option(bool, "libuv", "build the uv extension (needs libuv installed)") orelse true;
     const libuv_prefix = b.option([]const u8, "libuv-prefix", "where libuv is installed") orelse "/opt/homebrew";
-    const with_sqlite = b.option(bool, "sqlite", "build the sqlite extension (needs sqlite installed)") orelse true;
-    const sqlite_prefix = b.option([]const u8, "sqlite-prefix", "where sqlite is installed") orelse "/opt/homebrew/opt/sqlite";
+    // sqlite: built from its pinned source (deps.zig), on every platform
+    const with_sqlite = b.option(bool, "sqlite", "build the sqlite extension") orelse true;
     // crypto and tls: OpenSSL 3's libcrypto and libssl
     const with_crypto = b.option(bool, "crypto", "build the crypto and tls extensions (needs OpenSSL 3 installed)") orelse true;
     const openssl_prefix = b.option([]const u8, "openssl-prefix", "where OpenSSL 3 is installed") orelse "/opt/homebrew/opt/openssl@3";
@@ -186,7 +186,7 @@ pub fn build(b: *std.Build) void {
 
     const natives = [_]Native{
         .{ .name = "uv", .source = "uv.c", .enabled = with_libuv, .prefix = libuv_prefix, .libs = &.{"uv"} },
-        .{ .name = "sqlite", .source = "sqlite.c", .enabled = with_sqlite, .prefix = sqlite_prefix, .libs = &.{"sqlite3"} },
+        .{ .name = "sqlite", .source = "sqlite.c", .enabled = with_sqlite, .from_source = deps.sqlite },
         .{ .name = "crypto", .source = "crypto.c", .enabled = with_crypto, .prefix = openssl_prefix, .libs = &.{"crypto"} },
         .{ .name = "tls", .source = "tls.c", .enabled = with_crypto, .prefix = openssl_prefix, .libs = &.{ "ssl", "crypto" } },
         .{
@@ -207,12 +207,14 @@ pub fn build(b: *std.Build) void {
     };
 
     // Windows: the extensions with their libraries built from source
-    // (deps.zig), linked against slang.dll. sqlite, crypto, tls and
-    // webview, and lib/static for `slang build`, are not built there yet.
+    // (deps.zig), linked against slang.dll. crypto, tls and webview, and
+    // lib/static for `slang build`, are not built there yet.
     if (windows) {
         for (natives) |n| {
             if (!n.enabled) continue;
-            const dep: ?*std.Build.Step.Compile = if (std.mem.eql(u8, n.name, "uv"))
+            const dep: ?*std.Build.Step.Compile = if (n.from_source) |f|
+                f(b, target, optimize) orelse continue
+            else if (std.mem.eql(u8, n.name, "uv"))
                 deps.libuv(b, target, optimize) orelse continue
             else if (std.mem.eql(u8, n.name, "zlib"))
                 deps.zlib(b, target, optimize) orelse continue
@@ -302,6 +304,8 @@ const Native = struct {
     flags: []const []const u8 = &.{"-std=c11"},
     vendor: ?[]const u8 = null,
     vendor_sources: []const []const u8 = &.{},
+    /// its library built from pinned source (deps.zig) and linked in
+    from_source: ?*const fn (*std.Build, std.Build.ResolvedTarget, std.builtin.OptimizeMode) ?*std.Build.Step.Compile = null,
 };
 
 /// The module of an extension's code: its source, slang.h, its libraries'
@@ -351,7 +355,11 @@ const StaticLibs = struct {
 fn addNative(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, n: Native, static: *StaticLibs) void {
     const ext_name = b.fmt("{s}_ext", .{n.name});
 
+    // a library from source: linked into the extension, and its archive
+    // into lib/static for executables
+    const from_source: ?*std.Build.Step.Compile = if (n.from_source) |f| (f(b, target, optimize) orelse return) else null;
     const m = nativeModule(b, target, optimize, n);
+    if (from_source) |d| m.linkLibrary(d);
     if (n.prefix) |prefix| m.addLibraryPath(.{ .cwd_relative = b.fmt("{s}/lib", .{prefix}) });
     for (n.libs) |lib| m.linkSystemLibrary(lib, .{ .preferred_link_mode = .static });
     for (n.frameworks) |f| m.linkFramework(f, .{});
@@ -364,12 +372,16 @@ fn addNative(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.buil
 
     // the static archive: the extension (with its vendored library), its
     // other libraries are linked into the executable
-    const archive = b.addLibrary(.{ .name = ext_name, .linkage = .static, .root_module = nativeModule(b, target, optimize, n) });
+    const archive_mod = nativeModule(b, target, optimize, n);
+    if (from_source) |d| archive_mod.addIncludePath(d.getEmittedIncludeTree());
+    const archive = b.addLibrary(.{ .name = ext_name, .linkage = .static, .root_module = archive_mod });
     static.install(b.addInstallArtifact(archive, .{ .dest_dir = .{ .override = .{ .custom = "lib/static" } } }));
+    if (from_source) |d| static.install(b.addInstallArtifact(d, .{ .dest_dir = .{ .override = .{ .custom = "lib/static" } } }));
 
     const t = &static.text;
     const a = b.allocator;
     t.print(a, "    {s}: {{archives: {{\"lib{s}.a\"", .{ n.name, ext_name }) catch @panic("OOM");
+    if (from_source) |d| t.print(a, ", \"lib{s}.a\"", .{d.name}) catch @panic("OOM");
     var dynamic: std.ArrayList([]const u8) = .empty;
     for (n.libs) |l| {
         if (static.copyArchive(n.prefix.?, l)) {

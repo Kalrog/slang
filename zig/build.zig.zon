@@ -14,6 +14,11 @@
             .hash = "N-V-__8AABtNRAB58M85Dm0p6z6iRHP3Zz3eyo08HU4EF5mq",
             .lazy = true,
         },
+        .sqlite = .{
+            .url = "https://www.sqlite.org/2026/sqlite-amalgamation-3540100.zip",
+            .hash = "N-V-__8AAETTsACt-JClKW4BKM6GIeql6to34i9WbXMgbXeI",
+            .lazy = true,
+        },
         .libffi = .{
             .url = "https://github.com/libffi/libffi/releases/download/v3.4.8/libffi-3.4.8.tar.gz",
             .hash = "N-V-__8AAHQyVADE_Ln7y1U-qyWM-6qFj6s8dCa84kphlZcg",

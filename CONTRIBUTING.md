@@ -14,9 +14,11 @@ make bench      # bench/
 
 Requirements: Zig 0.17 (`brew install anyzig` picks the version pinned in
 `zig/build.zig.zon`); libffi (part of macOS, `libffi-dev` on Linux);
-libuv, SQLite, OpenSSL 3 and zlib for the native extensions, each with a
+libuv, OpenSSL 3 and zlib for the native extensions, each with a
 `-D<name>=false` option to leave it out and a `-D<name>-prefix` option for
-where it is installed (see `zig/build.zig`). raylib and Box2D for their
+where it is installed (see `zig/build.zig`). SQLite is built from its
+pinned source (`zig/build.zig.zon`, `zig/deps.zig`), fetched by the first
+build. raylib and Box2D for their
 packages and the examples on them (`brew install raylib box2d`).
 
 `make test-safe` builds into `zig/zig-out-safe` and `zig/zig-out-stress`.

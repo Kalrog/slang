@@ -12,9 +12,10 @@ browser.
 
 - [Zig](https://ziglang.org) 0.17. `brew install anyzig` gives a `zig`
   that fetches the version pinned in `zig/build.zig.zon`.
-- The libraries behind the native modules: libuv (the event loop), SQLite,
-  OpenSSL 3 and zlib. With Homebrew: `brew install libuv sqlite openssl@3
-  zlib`. Any of them can be left out, see below.
+- The libraries behind the native modules: libuv (the event loop),
+  OpenSSL 3 and zlib. With Homebrew: `brew install libuv openssl@3 zlib`.
+  Any of them can be left out, see below. SQLite needs nothing installed:
+  the build fetches its pinned source and compiles it.
 - libffi, for calling C libraries from slang. It is part of macOS; on
   Linux it is the package `libffi-dev`.
 
@@ -37,7 +38,7 @@ where they are, or leave a module out:
 ```sh
 cd zig
 zig build -Doptimize=ReleaseFast -p .. \
-  -Dlibuv-prefix=/usr -Dsqlite-prefix=/usr \
+  -Dlibuv-prefix=/usr \
   -Dopenssl-prefix=/usr -Dzlib-prefix=/usr
 zig build -Doptimize=ReleaseFast -p .. -Dsqlite=false   # without SQLite
 ```

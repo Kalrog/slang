@@ -1,9 +1,9 @@
 //! Third-party libraries built from their pinned sources (build.zig.zon,
-//! lazy: fetched only by a build that needs them) where the system has no
-//! copy to link: today the Windows build (x86_64-windows-gnu), which links
-//! libffi into slang.dll and zlib and libuv into their extensions. Each is
-//! a static library; null while the source is not fetched yet (zig build
-//! fetches it and runs again).
+//! lazy: fetched only by a build that needs them): sqlite on every
+//! platform (one version everywhere, nothing to install); on Windows
+//! (x86_64-windows-gnu), where the system has no copy to link, also libffi
+//! (into slang.dll), zlib and libuv. Each is a static library; null while
+//! the source is not fetched yet (zig build fetches it and runs again).
 
 const std = @import("std");
 
@@ -30,6 +30,27 @@ pub fn zlib(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.Optim
     });
     lib.root_module.addIncludePath(dep.path(""));
     lib.installHeadersDirectory(dep.path(""), "", .{ .include_extensions = &.{ "zlib.h", "zconf.h" } });
+    return lib;
+}
+
+/// sqlite 3.54.1, its amalgamation: what the sqlite extension links, on
+/// every platform. FTS5, R*Tree and the math functions on, as most builds
+/// of sqlite have them.
+pub fn sqlite(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) ?*Compile {
+    const dep = b.lazyDependency("sqlite", .{}) orelse return null;
+    // (the zip keeps its folder)
+    const dir = "sqlite-amalgamation-3540100";
+    const lib = staticLib(b, "sqlite3", target, optimize);
+    lib.root_module.addCSourceFile(.{
+        .file = dep.path(dir ++ "/sqlite3.c"),
+        .flags = &.{
+            "-std=c11",                         "-DSQLITE_THREADSAFE=1",
+            "-DSQLITE_ENABLE_FTS5",              "-DSQLITE_ENABLE_RTREE",
+            "-DSQLITE_ENABLE_MATH_FUNCTIONS",    "-DSQLITE_OMIT_LOAD_EXTENSION",
+            "-D_DEFAULT_SOURCE",
+        },
+    });
+    lib.installHeadersDirectory(dep.path(dir), "", .{ .include_extensions = &.{".h"} });
     return lib;
 }
 

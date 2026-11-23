@@ -61,8 +61,8 @@ print(5 |> double |> double, "\n") // 20
 
 Slang builds from source on macOS and Linux. It needs
 [Zig](https://ziglang.org) 0.17 (`brew install anyzig`) and, for the
-native modules, libuv, SQLite, OpenSSL 3 and zlib (`brew install libuv
-sqlite openssl@3 zlib`).
+native modules, libuv, OpenSSL 3 and zlib (`brew install libuv openssl@3
+zlib`); SQLite is built from its source.
 
 ```sh
 git clone https://github.com/Kalrog/slang

@@ -59,11 +59,10 @@ local not_on_windows = {
   ["test/build_test.slang"]: "drives sh",
   ["test/session_test.slang"]: "drives sh",
   ["test/pkg_test.slang"]: "pkg needs git, tar and sh",
-  // not built for Windows yet (plans: OpenSSL or CNG, sqlite)
+  // not built for Windows yet (plans/PLAN_WINDOWS.md: crypto from Zig std)
   ["zig/test/crypto_test.slang"]: "no crypto on Windows yet",
   ["zig/test/tls_test.slang"]: "no tls on Windows yet",
-  ["zig/test/sqlite_test.slang"]: "no sqlite on Windows yet",
-  ["zig/test/bytes_test.slang"]: "needs crypto and sqlite",
+  ["zig/test/bytes_test.slang"]: "needs crypto",
 }
 local on_windows = str.starts_with(os.platform(), "windows")
 

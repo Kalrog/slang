@@ -10,8 +10,11 @@ const std = @import("std");
 const Build = std.Build;
 const Compile = Build.Step.Compile;
 
+/// A static library of C sources. Position-independent: the extensions
+/// that link these are shared libraries, which on Linux cannot take code
+/// built for a fixed address (macOS and Windows build PIC anyway).
 fn staticLib(b: *Build, name: []const u8, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) *Compile {
-    const m = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
+    const m = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true, .pic = true });
     return b.addLibrary(.{ .name = name, .linkage = .static, .root_module = m });
 }
 

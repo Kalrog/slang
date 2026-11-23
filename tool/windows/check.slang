@@ -118,10 +118,24 @@ local func skipped(name){
   return false
 }
 
+// a path as Windows itself writes it (for the programs started: slang's
+// own paths use slashes, which Windows takes, but a backslash is the safe
+// spelling when starting a process)
+local func native(path){
+  if(on_windows){
+    return str.replace(path, "/", "\\")
+  }
+  return path
+}
+
 // runs a command in dir; {status, out, ms}
 local func run(command, dir){
   local t0 = time.clock()
-  local r = try { os.exec(command, dir) } catch(local e) { {status: -1, stdout: "", stderr: string(e)} }
+  local argv = {native(command[0])}
+  for(local i = 1; i < len(command); i = i + 1){
+    append(argv, command[i])
+  }
+  local r = try { os.exec(argv, native(dir)) } catch(local e) { {status: -1, stdout: "", stderr: string(e)} }
   return {status: r.status, out: concat(r.stdout or "", r.stderr or ""), ms: to_int(time.clock() - t0)}
 }
 

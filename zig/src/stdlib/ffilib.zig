@@ -45,7 +45,9 @@ extern fn ffi_prep_closure_loc(closure: *anyopaque, cif: *Cif, fun: ClosureFn, u
 const FFI_OK: c_int = 0;
 const default_abi: c_uint = switch (builtin.cpu.arch) {
     .aarch64 => if (builtin.os.tag == .windows) 2 else 1, // FFI_WIN64 / FFI_SYSV
-    .x86_64 => if (builtin.os.tag == .windows) 1 else 2, // FFI_WIN64 / FFI_UNIX64
+    // FFI_GNUW64 (the windows-gnu target: long double is 80-bit, as the
+    // libffi in deps.zig is built) / FFI_UNIX64
+    .x86_64 => if (builtin.os.tag == .windows) 2 else 2,
     .wasm32 => 2, // FFI_WASM32_EMSCRIPTEN
     else => @compileError("ffi: unsupported architecture"),
 };

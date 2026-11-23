@@ -532,8 +532,10 @@ local func evaluate(tokens, lookup){
 
 local func platform_defines(){
   local p = os.platform()
-  local d = {
-    __STDC__: 1, __STDC_VERSION__: 201112, __STDC_HOSTED__: 1, __LP64__: 1
+  local d = {__STDC__: 1, __STDC_VERSION__: 201112, __STDC_HOSTED__: 1}
+  // (Windows is LLP64: long stays 32 bits there)
+  if(not str.starts_with(p, "windows")){
+    d.__LP64__ = 1
   }
   if(str.starts_with(p, "macos")){
     d.__APPLE__ = 1
@@ -811,12 +813,18 @@ if(ct.sizeof(ct.pointer(null)) == 4){
   word = "int32"
   uword = "uint32"
 }
+// long: as wide as a pointer, but 32 bits on Windows (LLP64), where
+// wchar_t is 16 bits too
+local on_windows = str.starts_with(os.platform(), "windows")
+local long_t = on_windows and "int32" or word
+local ulong_t = on_windows and "uint32" or uword
 
 local builtin_typedefs = {
   size_t: uword, ssize_t: word, ptrdiff_t: word, intptr_t: word,
   uintptr_t: uword, int8_t: "int8", uint8_t: "uint8", int16_t: "int16",
   uint16_t: "uint16", int32_t: "int32", uint32_t: "uint32", int64_t: "int64",
-  uint64_t: "uint64", wchar_t: "int32", off_t: "int64"
+  uint64_t: "uint64", wchar_t: on_windows and "uint16" or "int32",
+  off_t: "int64"
 }
 
 local qualifiers = {
@@ -1134,7 +1142,7 @@ func ffi.cdef(text, options){
       } else if(c.long != null){
         base = {
           kind: "prim",
-          name: u and uword or word,
+          name: u and ulong_t or long_t,
           c: u and "unsigned long" or "long",
         }
       } else if(c.int != null or c.signed != null or u){
@@ -1630,6 +1638,12 @@ local func library_dirs(options){
   for(let local d in values(__PACKAGES.native_search_paths or {})){
     append(dirs, d)
   }
+  if(on_windows){
+    // the program's own folder (a game ships its DLLs next to its .exe)
+    local exe = os.executable()
+    append(dirs, str.substring(exe, 0, str.last_index_of(exe, "/")))
+    return dirs
+  }
   for(let local d in values({
     "/opt/homebrew/lib", "/usr/local/lib", "/usr/lib",
     "/usr/lib/x86_64-linux-gnu", "/usr/lib/aarch64-linux-gnu"
@@ -1637,6 +1651,19 @@ local func library_dirs(options){
     append(dirs, d)
   }
   return dirs
+}
+
+// the file names a library name has: libraylib.dylib; on Windows
+// raylib.dll first (DLLs rarely have the lib prefix), then libraylib.dll
+local func library_files(name){
+  local out = {}
+  if(on_windows){
+    append(out, concat(name, ".dll"))
+  }
+  for(let local suffix in values(library_suffixes())){
+    append(out, concat("lib", name, suffix))
+  }
+  return out
 }
 
 // the library: name is a path (with a / or a suffix) or a name ("raylib"
@@ -1662,8 +1689,8 @@ local func open_library(name, options){
     }
   } else {
     for(let local dir in values(library_dirs(options))){
-      for(let local suffix in values(library_suffixes())){
-        local path = concat(dir, "/lib", name, suffix)
+      for(let local file in values(library_files(name))){
+        local path = concat(dir, "/", file)
         if(os.exists(path)){
           local h = try_open(path)
           if(h != null){
@@ -1672,8 +1699,9 @@ local func open_library(name, options){
         }
       }
     }
-    for(let local suffix in values(library_suffixes())){
-      local h = try_open(concat("lib", name, suffix))
+    // wherever the system finds it
+    for(let local file in values(library_files(name))){
+      local h = try_open(file)
       if(h != null){
         return h
       }
@@ -1733,7 +1761,8 @@ local library_meta = {
 // Loads a C library with the declarations of its functions. A library
 // name ("raylib") is libraylib.dylib or .so in options.paths, slang's
 // native search paths, /opt/homebrew/lib, /usr/local/lib, /usr/lib, then
-// wherever the system finds it. Raises "ffi.load: ..." (of kind
+// wherever the system finds it; on Windows raylib.dll or libraylib.dll in
+// options.paths, the native search paths and the program's folder. Raises "ffi.load: ..." (of kind
 // not_found) with what each attempt said when it cannot load it.
 // [name]: a path (with a / or a .), a library name, or null for the program
 func ffi.load(name, decls, options){

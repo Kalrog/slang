@@ -1,4 +1,5 @@
 const std = @import("std");
+const deps = @import("deps.zig");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -23,7 +24,13 @@ pub fn build(b: *std.Build) void {
     mod.addImport("seed", seed);
     // (under Emscripten emcc links libffi; -Dffi-include names its headers)
     const ffi_include = b.option([]const u8, "ffi-include", "libffi's headers (Emscripten)");
-    if (with_ffi and target.result.os.tag != .emscripten) mod.linkSystemLibrary("ffi", .{});
+    // (Windows has no system libffi: it is built from source, see deps.zig)
+    const windows_ffi = if (with_ffi and target.result.os.tag == .windows) deps.libffi(b, target, optimize) else null;
+    if (windows_ffi) |lib| {
+        mod.linkLibrary(lib);
+    } else if (with_ffi and target.result.os.tag != .emscripten and target.result.os.tag != .windows) {
+        mod.linkSystemLibrary("ffi", .{});
+    }
     if (ffi_include) |dir| mod.addIncludePath(.{ .cwd_relative = dir });
 
     // Emscripten (the playground with raylib, see website/): Zig compiles the
@@ -56,7 +63,11 @@ pub fn build(b: *std.Build) void {
     lib_mod.addOptions("build_options", options);
     lib_mod.addImport("seed", seed);
     lib_mod.addCSourceFile(.{ .file = b.path("src/capi_varargs.c"), .flags = &.{"-std=c11"} });
-    if (with_ffi and !target.result.cpu.arch.isWasm()) lib_mod.linkSystemLibrary("ffi", .{});
+    if (windows_ffi) |lib| {
+        lib_mod.linkLibrary(lib);
+    } else if (with_ffi and !target.result.cpu.arch.isWasm() and !windows) {
+        lib_mod.linkSystemLibrary("ffi", .{});
+    }
     if (windows) lib_mod.linkSystemLibrary("ws2_32", .{});
     const shared = b.addLibrary(.{ .name = "slang", .linkage = .dynamic, .root_module = lib_mod });
     shared.link_gc_sections = false;
@@ -150,11 +161,6 @@ pub fn build(b: *std.Build) void {
         bench_libs.dependOn(&b.addInstallArtifact(lib, .{ .dest_dir = .{ .override = .{ .custom = "build/bench" } } }).step);
     }
 
-    // Windows: slang's own extensions and the runtime archive for `slang
-    // build` wait for Windows builds of their libraries (libuv, OpenSSL,
-    // sqlite, zlib, libffi).
-    if (windows) return;
-
     // The native extensions (extensions/native), each a library installed as
     // lib/<name>.<ext>, linked against its third-party library: statically
     // where the install has a static archive (lib<x>.a), so that the
@@ -199,6 +205,25 @@ pub fn build(b: *std.Build) void {
             .frameworks = &.{ "Cocoa", "WebKit" },
         },
     };
+
+    // Windows: the extensions with their libraries built from source
+    // (deps.zig), linked against slang.dll. sqlite, crypto, tls and
+    // webview, and lib/static for `slang build`, are not built there yet.
+    if (windows) {
+        for (natives) |n| {
+            if (!n.enabled) continue;
+            const dep: ?*std.Build.Step.Compile = if (std.mem.eql(u8, n.name, "uv"))
+                deps.libuv(b, target, optimize) orelse continue
+            else if (std.mem.eql(u8, n.name, "zlib"))
+                deps.zlib(b, target, optimize) orelse continue
+            else if (n.vendor != null)
+                null
+            else
+                continue;
+            addWindowsNative(b, target, optimize, n, dep, shared);
+        }
+        return;
+    }
 
     var static: StaticLibs = .{ .b = b };
     // the runtime: what main.zig is, as a library whose main is C's
@@ -345,6 +370,29 @@ fn addNative(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.buil
     t.appendSlice(a, "}, frameworks: {") catch @panic("OOM");
     for (n.frameworks) |f| t.print(a, "\"{s}\", ", .{f}) catch @panic("OOM");
     t.appendSlice(a, "}},\n") catch @panic("OOM");
+}
+
+/// A native extension on Windows: lib/<name>.dll, with its library built
+/// from source (deps.zig) linked in statically, importing slang_* from
+/// slang.dll.
+fn addWindowsNative(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, n: Native, dep: ?*std.Build.Step.Compile, shared: *std.Build.Step.Compile) void {
+    const m = nativeModule(b, target, optimize, .{
+        .name = n.name,
+        .source = n.source,
+        .enabled = true,
+        .flags = n.flags,
+        .vendor = n.vendor,
+        .vendor_sources = n.vendor_sources,
+    });
+    if (dep) |d| m.linkLibrary(d);
+    const lib = b.addLibrary(.{ .name = b.fmt("{s}_ext", .{n.name}), .linkage = .dynamic, .root_module = m });
+    linkExtension(lib, shared, true);
+    b.getInstallStep().dependOn(&b.addInstallArtifact(lib, .{
+        .dest_dir = .{ .override = .lib },
+        .dest_sub_path = b.fmt("{s}.dll", .{n.name}),
+        .implib_dir = .disabled,
+        .pdb_dir = .disabled,
+    }).step);
 }
 
 /// The seed bytecode (slang/lib and slang/compiler compiled to .slb) lives in

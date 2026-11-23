@@ -1622,9 +1622,15 @@ static int l_getaddrinfo(slang_State *S) {
 
 static const struct { const char *name; int num; } signal_names[] = {
     {"SIGINT", SIGINT}, {"SIGTERM", SIGTERM}, {"SIGHUP", SIGHUP}, {"SIGQUIT", SIGQUIT},
-    {"SIGKILL", SIGKILL}, {"SIGUSR1", SIGUSR1}, {"SIGUSR2", SIGUSR2}, {"SIGPIPE", SIGPIPE},
-    {"SIGCHLD", SIGCHLD}, {"SIGWINCH", SIGWINCH}, {"SIGALRM", SIGALRM}, {"SIGCONT", SIGCONT},
-    {"SIGSTOP", SIGSTOP}, {"SIGTSTP", SIGTSTP}, {NULL, 0},
+    {"SIGKILL", SIGKILL}, {"SIGWINCH", SIGWINCH},
+#ifndef _WIN32
+    /* (Windows has the ones above: libuv emulates SIGHUP, SIGQUIT and
+     * SIGWINCH there) */
+    {"SIGUSR1", SIGUSR1}, {"SIGUSR2", SIGUSR2}, {"SIGPIPE", SIGPIPE},
+    {"SIGCHLD", SIGCHLD}, {"SIGALRM", SIGALRM}, {"SIGCONT", SIGCONT},
+    {"SIGSTOP", SIGSTOP}, {"SIGTSTP", SIGTSTP},
+#endif
+    {NULL, 0},
 };
 
 static const char *signal_name(int num) {

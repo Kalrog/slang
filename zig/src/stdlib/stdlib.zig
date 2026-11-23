@@ -78,6 +78,15 @@ pub fn makeModule(vm: *VM, natives: []const Native) *Table {
     return t;
 }
 
+/// A path as slang keeps it: the parts joined, with slashes on Windows too
+/// (as os.cwd() gives them).
+fn slangPath(vm: *VM, parts: []const []const u8) Value {
+    const joined = std.fs.path.join(vm.gpa, parts) catch @panic("out of memory");
+    defer vm.gpa.free(joined);
+    if (@import("builtin").os.tag == .windows) std.mem.replaceScalar(u8, joined, '\\', '/');
+    return vm.str(joined);
+}
+
 /// Installs the core globals and the preloaded native modules.
 pub fn open(vm: *VM) void {
     const pkgs = vm.packages;
@@ -91,7 +100,10 @@ pub fn open(vm: *VM) void {
     // slang finds <prefix>/lib/slang/*.dylib, a checkout its lib/)
     const nsp = vm.newTable(1, 0);
     if (vm.getenv("SLANG_NATIVE_PATH")) |env_path| {
-        var it = std.mem.splitScalar(u8, env_path, ':');
+        // (a list as PATH is one: ';' between directories on Windows,
+        // where ':' follows a drive letter)
+        const sep: u8 = if (@import("builtin").os.tag == .windows) ';' else ':';
+        var it = std.mem.splitScalar(u8, env_path, sep);
         while (it.next()) |dir| {
             if (dir.len > 0) nsp.append(vm.gpa, vm.str(dir));
         }
@@ -99,9 +111,7 @@ pub fn open(vm: *VM) void {
     nsp.append(vm.gpa, vm.str("."));
     // a built program (slang build --dir) keeps its extensions in lib/ next to it
     if (bundle.current) |b| {
-        const dir = std.fs.path.join(vm.gpa, &.{ b.exe_dir, "lib" }) catch @panic("out of memory");
-        defer vm.gpa.free(dir);
-        nsp.append(vm.gpa, vm.str(dir));
+        nsp.append(vm.gpa, slangPath(vm, &.{ b.exe_dir, "lib" }));
     }
     // where slang's own library sources are, for tools (go to definition,
     // slang doc): a checkout's slang/lib and slang/compiler, an installed
@@ -118,26 +128,14 @@ pub fn open(vm: *VM) void {
             &.{ bin_dir, "..", "slang", "compiler" },
             &.{ bin_dir, "..", "lib", "slang", "src" },
         };
-        for (source_dirs) |parts| {
-            const dir = std.fs.path.join(vm.gpa, parts) catch @panic("out of memory");
-            defer vm.gpa.free(dir);
-            lsp_dirs.append(vm.gpa, vm.str(dir));
-        }
+        for (source_dirs) |parts| lsp_dirs.append(vm.gpa, slangPath(vm, parts));
         const stub_parts = [_][]const []const u8{
             &.{ bin_dir, "..", "slang", "stubs" },
             &.{ bin_dir, "..", "lib", "slang", "stubs" },
         };
-        for (stub_parts) |parts| {
-            const dir = std.fs.path.join(vm.gpa, parts) catch @panic("out of memory");
-            defer vm.gpa.free(dir);
-            stub_dirs.append(vm.gpa, vm.str(dir));
-        }
-        const ext_dir = std.fs.path.join(vm.gpa, &.{ bin_dir, "..", "lib", "slang" }) catch @panic("out of memory");
-        defer vm.gpa.free(ext_dir);
-        nsp.append(vm.gpa, vm.str(ext_dir));
-        const lib_dir = std.fs.path.join(vm.gpa, &.{ bin_dir, "..", "lib" }) catch @panic("out of memory");
-        defer vm.gpa.free(lib_dir);
-        nsp.append(vm.gpa, vm.str(lib_dir));
+        for (stub_parts) |parts| stub_dirs.append(vm.gpa, slangPath(vm, parts));
+        nsp.append(vm.gpa, slangPath(vm, &.{ bin_dir, "..", "lib", "slang" }));
+        nsp.append(vm.gpa, slangPath(vm, &.{ bin_dir, "..", "lib" }));
     } else |_| {}
     pkgs.set(vm.gpa, vm.str("native_search_paths"), .{ .table = nsp });
     pkgs.set(vm.gpa, vm.str("library_sources"), .{ .table = lsp_dirs });

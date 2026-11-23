@@ -6,6 +6,8 @@
 /zig/zig-out
 /zig/.zig-cache
 /zig/zig-out-*
+# pinned third-party sources zig fetches (zig/build.zig.zon), unpacked
+/zig/zig-pkg/
 examples/webserver/todos.db
 examples/webserver/uploads/
 examples/desktop/todos.db

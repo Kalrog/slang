@@ -12,6 +12,8 @@ const Thread = vm_mod.Thread;
 const Error = vm_mod.Error;
 const api = vm_mod.api;
 const capi = @import("capi.zig");
+const dynlib = @import("dynlib.zig");
+const Library = dynlib.Library;
 
 const extensions: []const []const u8 = switch (builtin.os.tag) {
     .windows => &.{".dll"},
@@ -53,9 +55,9 @@ fn findLibrary(vm: *VM, name: []const u8) ?[]u8 {
 /// slang build), or null. (On macOS the search also sees extensions already
 /// loaded from a library, which is the same extension.)
 fn selfLookup(version_sym: [:0]const u8, open_sym: [:0]const u8) ?struct { version: *const fn () callconv(.c) c_int, open: capi.CFunction } {
-    const self = std.c.dlopen(null, .{ .LAZY = true }) orelse return null;
-    const version = std.c.dlsym(self, version_sym) orelse return null;
-    const open = std.c.dlsym(self, open_sym) orelse return null;
+    const self = Library.self() orelse return null;
+    const version = self.symbol(version_sym) orelse return null;
+    const open = self.symbol(open_sym) orelse return null;
     return .{ .version = @ptrCast(@alignCast(version)), .open = @ptrCast(@alignCast(open)) };
 }
 
@@ -145,8 +147,10 @@ fn loadLibrary(th: *Thread, args: []Value) Error!Value {
             findLibrary(vm, name) orelse return .null;
         defer vm.gpa.free(file);
 
-        var lib = std.DynLib.open(file) catch |e| {
-            return vm.raise("cannot load extension {s}: {t}", .{ file, e });
+        var lib = Library.open(vm.gpa, file, false) catch |e| {
+            var buf: [128]u8 = undefined;
+            const why = dynlib.lastError(&buf) orelse @errorName(e);
+            return vm.raise("cannot load extension {s}: {s}", .{ file, why });
         };
         version_fn = lib.lookup(VersionFn, version_sym) orelse {
             lib.close();

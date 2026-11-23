@@ -50,6 +50,14 @@ pub fn build(b: *std.Build) void {
     exe.link_gc_sections = false;
     b.installArtifact(exe);
 
+    // Windows: the debugger's sockets are Winsock. A DLL cannot leave
+    // slang_* to be resolved against the executable that loads it, so the
+    // extensions are not built there yet (plans: how extensions find the VM).
+    if (target.result.os.tag == .windows) {
+        mod.linkSystemLibrary("ws2_32", .{});
+        return;
+    }
+
     // WebAssembly (the playground, see website/): the VM alone, as a WASI
     // command; nothing native loads in a browser
     if (target.result.cpu.arch.isWasm()) {

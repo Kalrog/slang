@@ -308,6 +308,8 @@ fn osCwd(th: *Thread, args: []Value) Error!Value {
     _ = args;
     const dir = std.process.currentPathAlloc(th.vm.io, th.vm.gpa) catch |e| return th.vm.raise("cwd: {t}", .{e});
     defer th.vm.gpa.free(dir);
+    // paths in slang are slash-separated on Windows too ("C:/Users/me")
+    if (@import("builtin").os.tag == .windows) std.mem.replaceScalar(u8, dir, '\\', '/');
     return th.vm.str(dir);
 }
 

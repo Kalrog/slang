@@ -8,6 +8,7 @@
 //! bundled, its stored form, its build-time stat.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const vm_mod = @import("../vm.zig");
 const oom = vm_mod.oom;
 const VM = vm_mod.VM;
@@ -247,7 +248,10 @@ fn toolWriteExecutable(th: *Thread, args: []Value) Error!Value {
     defer gpa.free(tmp);
     const cwd = std.Io.Dir.cwd();
     cwd.writeFile(vm.io, .{ .sub_path = tmp, .data = image }) catch |e| return vm.raiseOs(e, tmp, "cannot write {s}: {t}", .{ tmp, e });
-    cwd.setFilePermissions(vm.io, tmp, .fromMode(0o755), .{}) catch |e| return vm.raiseOs(e, tmp, "cannot make {s} executable: {t}", .{ tmp, e });
+    // (Windows has no executable bit: a .exe is one)
+    if (builtin.os.tag != .windows) {
+        cwd.setFilePermissions(vm.io, tmp, .fromMode(0o755), .{}) catch |e| return vm.raiseOs(e, tmp, "cannot make {s} executable: {t}", .{ tmp, e });
+    }
     // a new file, not new contents: macOS caches signatures per file
     cwd.rename(tmp, cwd, out_path, vm.io) catch |e| return vm.raiseOs(e, out_path, "cannot write {s}: {t}", .{ out_path, e });
     return .{ .table = report };

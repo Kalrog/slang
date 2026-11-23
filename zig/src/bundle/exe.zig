@@ -134,6 +134,50 @@ pub fn resolve(path: []const u8) ?Bundle.Hit {
     return b.resolve(path);
 }
 
+const Payload = struct { index: format.Index };
+
+/// POSIX: the payload in the executable mapped whole; unmapped again when
+/// there is none, or it does not parse.
+fn mapPayload(file: std.Io.File, len: u64) !?Payload {
+    const map = std.posix.mmap(null, @intCast(len), .{ .READ = true }, .{ .TYPE = .PRIVATE }, file.handle, 0) catch return null;
+    const payload = find(map) orelse {
+        std.posix.munmap(map);
+        return null;
+    };
+    const index = format.Index.parse(payload) catch |e| {
+        std.posix.munmap(map);
+        return e;
+    };
+    return .{ .index = index };
+}
+
+/// Windows: the trailer at the end of the file, then the payload it
+/// locates, read into memory (kept for the process's life). An
+/// Authenticode signature would come after the trailer, which is not
+/// looked for yet.
+fn readPayload(gpa: std.mem.Allocator, io: std.Io, file: std.Io.File, len: u64) !?Payload {
+    var t: [trailer_len]u8 = undefined;
+    const got = file.readPositionalAll(io, &t, len - trailer_len) catch return null;
+    if (got != trailer_len or !std.mem.eql(u8, t[0..8], trailer_magic)) return null;
+    const off = std.mem.readInt(u64, t[8..16], .little);
+    const n = std.mem.readInt(u64, t[16..24], .little);
+    if (off > len - trailer_len or n > len - trailer_len - off) return null;
+    const data = try gpa.alloc(u8, @intCast(n));
+    const read = file.readPositionalAll(io, data, off) catch {
+        gpa.free(data);
+        return null;
+    };
+    if (read != n) {
+        gpa.free(data);
+        return null;
+    }
+    const index = format.Index.parse(data) catch |e| {
+        gpa.free(data);
+        return e;
+    };
+    return .{ .index = index };
+}
+
 /// Looks for a payload in the running executable (mapped, never copied) and
 /// makes it current. An executable without one costs a map and a look at
 /// its end. The mapping of one with a payload stays for the process's life.
@@ -147,15 +191,11 @@ pub fn open(gpa: std.mem.Allocator, io: std.Io) !?*Bundle {
     defer file.close(io);
     const len = file.length(io) catch return null;
     if (len < trailer_len) return null;
-    const map = std.posix.mmap(null, @intCast(len), .{ .READ = true }, .{ .TYPE = .PRIVATE }, file.handle, 0) catch return null;
-    const payload = find(map) orelse {
-        std.posix.munmap(map);
-        return null;
-    };
-    const index = format.Index.parse(payload) catch |e| {
-        std.posix.munmap(map);
-        return e;
-    };
+    const payload = (if (builtin.os.tag == .windows)
+        try readPayload(gpa, io, file, len)
+    else
+        try mapPayload(file, len)) orelse return null;
+    const index = payload.index;
     const b = try gpa.create(Bundle);
     b.* = .{
         .index = index,

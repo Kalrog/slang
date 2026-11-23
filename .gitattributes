@@ -1,0 +1,21 @@
+# Text files keep LF on every OS (a Windows checkout with core.autocrlf
+# would otherwise rewrite them: tests compare sources byte for byte, and the
+# formatter writes LF).
+* text=auto eol=lf
+
+# Binary: the seed must stay byte-identical (make fixpoint), and the shipped
+# libraries, fonts, images and sounds are not text.
+*.slb binary
+*.dylib binary
+*.so binary
+*.dll binary
+*.lib binary
+*.a binary
+*.exe binary
+*.wasm binary
+*.ttf binary
+*.png binary
+*.jpg binary
+*.wav binary
+*.mid binary
+*.vsix binary

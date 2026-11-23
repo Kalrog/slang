@@ -27,8 +27,7 @@ const Closure = root.Closure;
 const Error = root.Error;
 const Stringify = std.json.Stringify;
 
-extern "c" fn socket(domain: c_int, sock_type: c_int, protocol: c_int) c_int;
-extern "c" fn close(fd: c_int) c_int;
+const Socket = @import("socket.zig").Socket;
 
 const Mode = enum { run, step_in, step_over, step_out, pause };
 
@@ -58,7 +57,7 @@ const path_source =
 pub const Debugger = struct {
     vm: *VM,
     gpa: std.mem.Allocator,
-    fd: c_int,
+    sock: Socket,
     inbuf: std.ArrayList(u8) = .empty,
     seq: i64 = 1,
     breakpoints: std.StringHashMapUnmanaged(std.ArrayList(Breakpoint)) = .empty,
@@ -95,28 +94,22 @@ pub const Debugger = struct {
 
     /// Listens on 127.0.0.1:port, waits for the editor and its configuration.
     pub fn start(vm: *VM, port: u16) !*Debugger {
-        const listen_fd = socket(std.c.AF.INET, std.c.SOCK.STREAM, 0);
-        if (listen_fd < 0) return error.SocketFailed;
-        defer _ = close(listen_fd);
-        const one: c_int = 1;
-        _ = std.c.setsockopt(listen_fd, std.c.SOL.SOCKET, std.c.SO.REUSEADDR, &one, @sizeOf(c_int));
-        var addr: std.c.sockaddr.in = .{
-            .port = std.mem.nativeToBig(u16, port),
-            .addr = std.mem.nativeToBig(u32, 0x7f000001),
+        const Waiting = struct {
+            io: std.Io,
+            port: u16,
+            pub fn call(w: @This()) void {
+                var errbuf: [128]u8 = undefined;
+                var ew = std.Io.File.stderr().writerStreaming(w.io, &errbuf);
+                ew.interface.print("slang: waiting for a debugger on 127.0.0.1:{d}\n", .{w.port}) catch {};
+                ew.interface.flush() catch {};
+            }
         };
-        if (std.c.bind(listen_fd, @ptrCast(&addr), @sizeOf(std.c.sockaddr.in)) != 0) return error.BindFailed;
-        if (std.c.listen(listen_fd, 1) != 0) return error.ListenFailed;
-        var errbuf: [128]u8 = undefined;
-        var ew = std.Io.File.stderr().writerStreaming(vm.io, &errbuf);
-        ew.interface.print("slang: waiting for a debugger on 127.0.0.1:{d}\n", .{port}) catch {};
-        ew.interface.flush() catch {};
-        const fd = std.c.accept(listen_fd, null, null);
-        if (fd < 0) return error.AcceptFailed;
+        const sock = try Socket.accept(port, Waiting{ .io = vm.io, .port = port });
 
         const d = vm.gpa.create(Debugger) catch oom();
         const roots = vm.newTable(0, 4);
         vm.registry.set(vm.gpa, vm.str("debugger"), .{ .table = roots });
-        d.* = .{ .vm = vm, .gpa = vm.gpa, .fd = fd, .roots = roots };
+        d.* = .{ .vm = vm, .gpa = vm.gpa, .sock = sock, .roots = roots };
         // (the helper first: compiling it collects, and a key string made
         // before it would be held by nothing meanwhile)
         const eval = try d.helper(eval_source);
@@ -144,12 +137,9 @@ pub const Debugger = struct {
     fn receive(d: *Debugger, block: bool) ?std.json.Parsed(std.json.Value) {
         while (true) {
             if (d.takeMessage()) |m| return m;
-            if (!block) {
-                var fds = [_]std.c.pollfd{.{ .fd = d.fd, .events = std.c.POLL.IN, .revents = 0 }};
-                if (std.c.poll(&fds, 1, 0) <= 0) return null;
-            }
+            if (!block and !d.sock.readable()) return null;
             var buf: [4096]u8 = undefined;
-            const n = std.c.read(d.fd, &buf, buf.len);
+            const n = d.sock.read(&buf);
             if (n <= 0) {
                 d.terminated = true;
                 return null;
@@ -189,7 +179,7 @@ pub const Debugger = struct {
     fn writeAll(d: *Debugger, bytes: []const u8) void {
         var off: usize = 0;
         while (off < bytes.len) {
-            const n = std.c.write(d.fd, bytes[off..].ptr, bytes.len - off);
+            const n = d.sock.write(bytes[off..]);
             if (n <= 0) {
                 d.terminated = true;
                 return;
@@ -881,12 +871,12 @@ pub const Debugger = struct {
         d.finishEvent(o);
         d.finishEvent(d.event("terminated"));
         d.terminated = true;
-        _ = close(d.fd);
+        d.sock.close();
     }
 
     /// Frees what the debugger holds (the VM is being destroyed).
     pub fn destroy(d: *Debugger) void {
-        if (!d.terminated) _ = close(d.fd);
+        if (!d.terminated) d.sock.close();
         d.inbuf.deinit(d.gpa);
         var bps = d.breakpoints.iterator();
         while (bps.next()) |e| {

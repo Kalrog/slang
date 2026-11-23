@@ -126,7 +126,7 @@ pub const VM = struct {
     ref_free: std.ArrayList(i64) = .empty,
     next_ref: i64 = 1,
     /// Shared libraries opened for native extensions (never closed).
-    libraries: std.ArrayList(std.DynLib) = .empty,
+    libraries: std.ArrayList(@import("../dynlib.zig").Library) = .empty,
     /// The extensions' data (slang_setextdata), finalized last to first
     /// when the VM is destroyed, after every value is gone.
     ext: std.ArrayList(ExtSlot) = .empty,

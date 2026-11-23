@@ -12,10 +12,19 @@ comptime {
 }
 
 fn cMain(argc: c_int, argv: [*][*:0]u8, envp: [*:null]?[*:0]u8) callconv(.c) c_int {
-    var n: usize = 0;
-    while (envp[n] != null) n += 1;
-    const block: std.process.Environ.Block = .{ .slice = envp[0..n :null] };
-    const args = argv[0..@intCast(argc)];
+    // (on Windows the arguments and the environment are the process's own,
+    // in UTF-16: the command line and the global block, as std.start reads
+    // them; C's argv and envp are in the ANSI codepage)
+    const windows = @import("builtin").os.tag == .windows;
+    const block: std.process.Environ.Block = if (windows) .global else blk: {
+        var n: usize = 0;
+        while (envp[n] != null) n += 1;
+        break :blk .{ .slice = envp[0..n :null] };
+    };
+    const args: std.process.Args.Vector = if (windows)
+        std.os.windows.peb().ProcessParameters.CommandLine.slice()
+    else
+        argv[0..@intCast(argc)];
     const gpa = std.heap.c_allocator;
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena.deinit();

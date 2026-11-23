@@ -349,6 +349,41 @@ func compiler.compile(code, origin, env){
 //   function; the tools see nothing of such a file (no tokens, no tree)
 // [extensions]: extensions loaded on top of the project's for these files
 
+// Paths are slash-separated on every OS. On Windows os.cwd() and the
+// home directories come with slashes ("C:/Users/me"), which Windows takes
+// as well as backslashes, and a path starts at a drive's root ("C:/") as
+// well as at "/".
+local windows = str.starts_with(os.platform(), "windows")
+
+// the length of the root a path starts with: 1 for "/", 3 for "C:/" (on
+// Windows), 0 for a relative path
+local func root_len(path){
+  if(str.starts_with(path, "/")){
+    return 1
+  }
+  if(windows and len(path) >= 3 and str.char_at(path, 1) == ":" and
+    str.char_at(path, 2) == "/"){
+    local b = str.byte_at(path, 0)
+    if((b >= 'A' and b <= 'Z') or (b >= 'a' and b <= 'z')){
+      return 3
+    }
+  }
+  return 0
+}
+
+// a path as slang writes it: on Windows, backslashes become slashes
+local func slashed(path){
+  if(windows){
+    return str.replace(path, "\\", "/")
+  }
+  return path
+}
+
+local func is_root(dir){
+  local n = root_len(dir)
+  return n > 0 and n == len(dir)
+}
+
 local func dirname(path){
   local i = len(path) - 1
   for(i >= 0 and str.char_at(path, i) != "/"){
@@ -357,25 +392,27 @@ local func dirname(path){
   if(i < 0){
     return "."
   }
-  if(i == 0){
-    return "/"
+  local root = root_len(path)
+  if(i < root){
+    return str.substring(path, 0, root)
   }
   return str.substring(path, 0, i)
 }
 
 local func join_path(dir, path){
-  if(str.starts_with(path, "/")){
+  if(root_len(path) > 0){
     return path
   }
-  if(dir == "/"){
-    return concat("/", path)
+  if(is_root(dir)){
+    return concat(dir, path)
   }
   return concat(dir, "/", path)
 }
 
 // find_project(dir) -> the path of slang.project in dir or above, or null
 local func find_project(dir){
-  if(not str.starts_with(dir, "/")){
+  dir = slashed(dir)
+  if(root_len(dir) == 0){
     dir = join_path(os.cwd(), dir)
   }
   for(true){
@@ -383,7 +420,7 @@ local func find_project(dir){
     if(os.exists(candidate)){
       return candidate
     }
-    if(dir == "/"){
+    if(is_root(dir)){
       return null
     }
     dir = dirname(dir)
@@ -443,9 +480,15 @@ local func apply_layer(g, names, key){
 func compiler.home(){
   local dir = os.getenv("SLANG_HOME")
   if(dir == null or dir == ""){
-    dir = concat(os.getenv("HOME") or ".", "/.slang")
+    // (on Windows: %LOCALAPPDATA%\slang)
+    local local_data = windows and os.getenv("LOCALAPPDATA")
+    if(local_data){
+      dir = concat(local_data, "/slang")
+    } else {
+      dir = concat(os.getenv("HOME") or ".", "/.slang")
+    }
   }
-  return dir
+  return slashed(dir)
 }
 
 // package_root() -> string: where fetched packages live
@@ -672,7 +715,16 @@ func compiler.load_project(path){
 // from the working directory. Symbolic links are not resolved.
 func compiler.absolute_path(path){
   local parts = {}
-  for(let local part in values(str.split(join_path(os.cwd(), path), "/"))){
+  local full = join_path(os.cwd(), slashed(path))
+  // (the root: "/", or a drive's on Windows)
+  local root = str.substring(full, 0, root_len(full))
+  if(root == "/"){
+    root = ""
+  } else {
+    full = str.substring(full, len(root))
+    root = str.trim_suffix(root, "/")
+  }
+  for(let local part in values(str.split(full, "/"))){
     if(part == ".."){
       if(len(parts) > 0){
         remove(parts, len(parts) - 1)
@@ -681,7 +733,7 @@ func compiler.absolute_path(path){
       append(parts, part)
     }
   }
-  return concat("/", str.join(parts, "/"))
+  return concat(root, "/", str.join(parts, "/"))
 }
 
 // the stub a package has for one of its modules: <package>/stubs/a.slang
@@ -1112,13 +1164,18 @@ if(vm.build_id != null){
 func compiler.cache_root(){
   local dir = os.getenv("SLANG_CACHE_DIR")
   if(dir == null){
+    // (on Windows: %LOCALAPPDATA%\slang\cache)
+    local local_data = windows and os.getenv("LOCALAPPDATA")
+    if(local_data){
+      return slashed(concat(local_data, "/slang/cache"))
+    }
     local home = os.getenv("HOME")
     if(home == null){
       return null
     }
     dir = concat(home, "/.cache/slang")
   }
-  return dir
+  return slashed(dir)
 }
 
 local func get_cache_dir(){

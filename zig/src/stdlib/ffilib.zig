@@ -61,10 +61,14 @@ var static_handle: u8 = 0;
 /// given more room than any of them needs.
 const Cif = extern struct { space: [16]usize align(16) };
 
-extern "c" fn dlopen(path: ?[*:0]const u8, mode: c_int) ?*anyopaque;
-extern "c" fn dlsym(handle: ?*anyopaque, name: [*:0]const u8) ?*anyopaque;
-extern "c" fn dlerror() ?[*:0]const u8;
-const RTLD_NOW: c_int = 2;
+const Library = @import("../dynlib.zig").Library;
+const dynlib = @import("../dynlib.zig");
+
+/// The handle of the program itself (open(null)), and on Windows the
+/// libraries whose symbols it stands for too: there the C library is not
+/// part of the executable but ucrtbase.dll.
+var self_handle: ?*anyopaque = null;
+const windows_system_libraries = [_][]const u8{ "ucrtbase.dll", "msvcrt.dll", "kernel32.dll" };
 
 const library_tname = "ffi.library";
 const func_tname = "ffi.func";
@@ -114,15 +118,19 @@ fn ffiOpen(th: *Thread, args: []Value) Error!Value {
     if (static_symbols) {
         h = &static_handle;
     } else if (api.arg(args, 0) == .null) {
-        h = dlopen(null, RTLD_NOW);
+        if (Library.self()) |lib| {
+            h = lib.handle;
+            self_handle = lib.handle;
+        }
     } else {
         const path = try api.argString(th, args, 0, "path");
-        const z = vm.gpa.dupeSentinel(u8, path, 0) catch oom();
-        defer vm.gpa.free(z);
-        h = dlopen(z.ptr, RTLD_NOW);
+        if (Library.open(vm.gpa, path, true)) |lib| {
+            h = lib.handle;
+        } else |_| {}
     }
     if (h == null) {
-        const msg = if (dlerror()) |e| std.mem.span(e) else "cannot open";
+        var buf: [128]u8 = undefined;
+        const msg = dynlib.lastError(&buf) orelse "cannot open";
         const t = vm.newTable(2, 0);
         t.append(vm.gpa, .null);
         t.append(vm.gpa, vm.str(msg));
@@ -139,8 +147,22 @@ fn ffiSymbol(th: *Thread, args: []Value) Error!Value {
     const name = try api.argString(th, args, 1, "name");
     const z = vm.gpa.dupeSentinel(u8, name, 0) catch oom();
     defer vm.gpa.free(z);
-    const p = (if (static_symbols) slang_ffi_static_symbol(z.ptr) else dlsym(h, z.ptr)) orelse return .null;
+    const p = (if (static_symbols) slang_ffi_static_symbol(z.ptr) else lookupSymbol(vm, h, z.ptr)) orelse return .null;
     return ctypes.newPointer(vm, @intFromPtr(p), null, .null);
+}
+
+/// A symbol of a library; for the program itself on Windows, also of the
+/// C library and kernel32 (which POSIX's dlopen(null) sees).
+fn lookupSymbol(vm: *VM, h: ?*anyopaque, name: [*:0]const u8) ?*anyopaque {
+    const lib: Library = .{ .handle = h orelse return null };
+    if (lib.symbol(name)) |p| return p;
+    if (builtin.os.tag == .windows and h == self_handle) {
+        for (windows_system_libraries) |file| {
+            const sys = Library.open(vm.gpa, file, true) catch continue;
+            if (sys.symbol(name)) |p| return p;
+        }
+    }
+    return null;
 }
 
 // ------------------------------------------------------------ functions

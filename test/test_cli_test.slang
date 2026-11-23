@@ -74,6 +74,10 @@ t.group("slang test"){
       "  t.test(\"three\"){ }",
       "  t.test(\"skipped\"){ t.skip(\"not here\") }",
       "}",
+      "t.group(\"needs\"){",
+      "  t.setup(func(){ t.skip(\"absent here\") })",
+      "  t.test(\"x\"){ raise(\"never runs\") }",
+      "}",
       "t.group(\"broken\"){",
       "  t.test(\"before\"){ }",
       "  raise(\"group broke\")",
@@ -98,7 +102,9 @@ t.group("slang test"){
     assert(e["broken / (the group's code)"].status == "failed", r.stdout)
     local loading = e[concat("(loading ", dir, "/b_test.slang)")]
     assert(loading != null and loading.status == "failed", r.stdout)
-    assert(r.done.skipped == 1 and r.done.failed == 4, r.stdout)
+    // a skip in a setup skips the group's tests
+    assert(e["needs / x"].status == "skipped" and e["needs / x"].message == "absent here", r.stdout)
+    assert(r.done.skipped == 2 and r.done.failed == 4, r.stdout)
   }
   t.test("the report shows the calls that led to a failure"){
     write("d_test.slang", {

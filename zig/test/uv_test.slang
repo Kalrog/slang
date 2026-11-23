@@ -1,7 +1,50 @@
 // the uv extension: timers, tcp, errors, closing
 local t = require("slang/test")
 local str = require("slang/string")
-local windows = str.starts_with(require("slang/os").platform(), "windows")
+local os = require("slang/os")
+local windows = str.starts_with(os.platform(), "windows")
+// a child process for the tests, the same on every OS (slang itself
+// instead of /bin/sh, cat and sleep):
+//   cat [status]   stdin to stdout; with a status, "oops" to stderr and exit
+//   greet status   a line of stdin, $GREETING and the folder, then exit
+//   env NAME       NAME=value
+//   sleep ms
+local child_source = """
+local os = require("slang/os")
+local a = args()
+if(a[0] == "cat"){
+  local line = os.read_line()
+  local first = true
+  for(line != null){
+    if(not first){ print("\\n") }
+    print(line)
+    first = false
+    line = os.read_line()
+  }
+  if(a[1] != null){
+    os.write_stderr("oops\\n")
+    os.exit(to_int(a[1]))
+  }
+} else if(a[0] == "greet"){
+  print(concat(os.read_line(), " ", os.getenv("GREETING"), " ", os.cwd(), "\\n"))
+  os.exit(to_int(a[1]))
+} else if(a[0] == "env"){
+  print(concat(a[1], "=", os.getenv(a[1]), "\\n"))
+} else if(a[0] == "sleep"){
+  require("slang/time").sleep(to_int(a[1]))
+}
+"""
+local child_dir = concat(
+  os.temp_dir(), "/slang-child-", string(to_int(require("slang/time").now()))
+)
+local child_file = concat(child_dir, "/child.slang")
+os.mkdir_all(child_dir)
+os.write_file(child_file, child_source)
+// the slang executable, with backslashes on Windows
+local slang_exe = os.executable()
+if(windows){
+  slang_exe = str.replace(slang_exe, "/", "\\")
+}
 local uv = require("uv")
 
 t.group("uv"){
@@ -140,7 +183,6 @@ t.group("uv"){
 }
 
 // a fresh directory for the file tests
-local os = require("slang/os")
 local scratch = concat(
   os.temp_dir(), "/slang-uv-test-", string(uv.getpid())
 )
@@ -233,17 +275,14 @@ t.group("uv: files, names, processes, signals, poll"){
     assert(str.starts_with(bad.code, "EAI_") and bad.kind == "network", bad.code)
   }
   t.test("spawn: pipes, exit status, environment, cwd"){
-    if(windows){
-      t.skip("runs /bin/sh, which Windows has not")
-    }
     local out = uv.pipe()
     local input = uv.pipe()
     local result = null
     local chunks = {}
     uv.spawn(
-      "/bin/sh",
-      {"-c", "read x; echo \"$x $GREETING $(pwd)\"; exit 3"},
-      {stdio: {input, out, "inherit"}, env: {GREETING: "hi"}, cwd: "/"},
+      slang_exe,
+      {"run", child_file, "greet", "3"},
+      {stdio: {input, out, "inherit"}, env: {GREETING: "hi"}, cwd: child_dir},
       func(err, r){ result = r },
     )
     input:write("piped\n")
@@ -256,12 +295,15 @@ t.group("uv: files, names, processes, signals, poll"){
       }
     })
     uv.run()
-    assert(str.join(chunks, "") == "piped hi /\n", str.join(chunks, ""))
+    // the folder by its last name (Windows may give the rest in 8.3 form)
+    local said = str.join(chunks, "")
+    assert(str.starts_with(said, "piped hi ") and
+      str.ends_with(said, concat(str.substring(child_dir, str.last_index_of(child_dir, "/")), "\n")), said)
     assert(result.status == 3 and result.signal == null)
   }
   t.test("spawn: kill, signal names, a missing program"){
     local result = null
-    local p = uv.spawn("/bin/sleep", {"10"}, null, func(err, r){ result = r })
+    local p = uv.spawn(slang_exe, {"run", child_file, "sleep", "10000"}, null, func(err, r){ result = r })
     assert(p:pid() > 0)
     p:kill("SIGTERM")
     uv.run()
@@ -277,6 +319,9 @@ t.group("uv: files, names, processes, signals, poll"){
     t.raises(func(){ p:kill("SIGNOPE") })
   }
   t.test("signals arrive by name; an unref'd handle does not hold the loop"){
+    if(windows){
+      t.skip("Windows has no SIGUSR1 and SIGUSR2, and a program cannot signal itself")
+    }
     local got = null
     local s = uv.signal()
     s:start("SIGUSR1", func(err, name){

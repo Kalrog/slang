@@ -52,7 +52,7 @@ test.group("math"){
 `slang test` runs the files in order of their names and reports each test;
 a test fails when it raises, with where and the calls in the test that led
 there. `test.skip("why")` ends a test as skipped (a platform without what
-it needs). Nothing stops the run: a file that does not load, a setup or
+it needs); in a setup it skips the group's tests. Nothing stops the run: a file that does not load, a setup or
 teardown that raises, a group whose code raises, each is a failure in the
 report, and the other tests still run. `--only "group / test"` runs one
 (and fails when no test matches), and `--json` prints the results for

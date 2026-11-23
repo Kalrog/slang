@@ -200,10 +200,18 @@ func test.run(self, path){
   report(path, self.name, self.status, e, self.file, ms)
 }
 
-// a test that cannot run (its group's setup failed): failed with e
+// a test that cannot run (its group's setup failed): failed with e, or
+// skipped when the setup skipped (test.skip in a setup skips the group's
+// tests: a group that needs what a platform has not)
 func test.fail(self, path, prefix, e){
   self.ran = true
   ran_any = true
+  if(type(e) == "table" and e.skipped == true){
+    self.status = "skipped"
+    self.error = e
+    report(path, self.name, "skipped", e, self.file, null)
+    return
+  }
   self.status = "failed"
   self.error = e
   report(path, self.name, "failed", e, self.file, null, prefix)
@@ -365,7 +373,8 @@ func m.teardown(f){
 
 // skip(reason: string)
 // Ends the test that calls it as skipped, not failed: for a test that
-// cannot run here (a platform without what it needs).
+// cannot run here (a platform without what it needs). Called in a setup,
+// it skips each test of the group.
 //   if(windows){ t.skip("runs /bin/sh") }
 func m.skip(reason){
   raise(error.new(error.kinds.error, concat("skipped: ", reason), {

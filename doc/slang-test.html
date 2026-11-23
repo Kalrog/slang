@@ -80,7 +80,7 @@ t.group(&quot;math&quot;){
 
 </div>
 <div class="def" id="skip"><h3><code>test.skip(reason: string)</code></h3>
-<p>Ends the test that calls it as skipped, not failed: for a test that cannot run here (a platform without what it needs).</p>
+<p>Ends the test that calls it as skipped, not failed: for a test that cannot run here (a platform without what it needs). Called in a setup, it skips each test of the group.</p>
 <pre><code>if(windows){ t.skip(&quot;runs /bin/sh&quot;) }</code></pre>
 
 </div>

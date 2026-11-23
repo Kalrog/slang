@@ -1922,12 +1922,17 @@ static const slang_Reg process_methods[] = {
 
 /* ---- polling a foreign file descriptor ---- */
 
-/* poll(fd): watches a socket or pipe some other library owns (libpq) */
+/* poll(fd): watches a socket or pipe some other library owns (libpq); on
+   Windows fd is a SOCKET (what fileno gives for tcp and udp) */
 static int l_poll(slang_State *S) {
     int64_t fd = slang_checkint(S, 1);
     if (slang_failed(S)) return SLANG_ERROR;
     handle *h = new_handle(S, "uv.poll");
+#ifdef _WIN32
+    int r = fd < 0 ? UV_EBADF : uv_poll_init_socket(loop_of(S), &h->u.poll, (uv_os_sock_t)(uintptr_t)fd);
+#else
     int r = uv_poll_init(loop_of(S), &h->u.poll, (int)fd);
+#endif
     if (r < 0) {
         /* not initialized: nothing to close */
         h->closed = 1;

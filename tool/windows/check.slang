@@ -53,12 +53,17 @@ for(local i = 0; i < len(argv); i = i + 1){
 }
 
 // suites that drive a Unix shell throughout (sh -c with rm, codesign,
-// pipes) or pkg, which Windows has not yet (plans/PLAN_WINDOWS.md): left
-// out on Windows, with the reason in the report
-local posix_only = {
+// pipes), pkg, or extensions Windows has not yet (plans/PLAN_WINDOWS.md):
+// left out on Windows, with the reason in the report
+local not_on_windows = {
   ["test/build_test.slang"]: "drives sh",
   ["test/session_test.slang"]: "drives sh",
   ["test/pkg_test.slang"]: "pkg needs git, tar and sh",
+  // not built for Windows yet (plans: OpenSSL or CNG, sqlite)
+  ["zig/test/crypto_test.slang"]: "no crypto on Windows yet",
+  ["zig/test/tls_test.slang"]: "no tls on Windows yet",
+  ["zig/test/sqlite_test.slang"]: "no sqlite on Windows yet",
+  ["zig/test/bytes_test.slang"]: "needs crypto and sqlite",
 }
 local on_windows = str.starts_with(os.platform(), "windows")
 
@@ -141,9 +146,9 @@ local func run(command, dir){
 
 // a test suite: `slang test file` in dir, its summary and its failures
 local func suite(name, dir, file){
-  if(on_windows and posix_only[name] != null){
+  if(on_windows and not_on_windows[name] != null){
     counts.skip = counts.skip + 1
-    say("SKIP  ", name, " (", posix_only[name], ")")
+    say("SKIP  ", name, " (", not_on_windows[name], ")")
     return null
   }
   if(skipped(name)){

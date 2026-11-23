@@ -4,6 +4,7 @@
 local t = require("slang/test")
 local ffi = require("slang/ffi")
 local str = require("slang/string")
+local os = require("slang/os")
 
 local header = str.join({
   "#include <stdint.h>",
@@ -68,6 +69,16 @@ local C = ffi.cdef(header)
 local lib = ffi.load("ffitest", C)
 
 t.group("ffi: declarations"){
+  t.test("calling conventions, also inside a declarator's brackets"){
+    local W = ffi.cdef(str.join({
+      "typedef void (__cdecl *TraceFn)(const char *message);",
+      "typedef int (__stdcall* Cmp)(int a, int b);",
+      "__declspec(dllimport) int __cdecl f(TraceFn t, Cmp c);",
+    }, "\n"))
+    assert(ffi.sizeof("TraceFn", W) == ffi.sizeof("void *"))
+    assert(ffi.sizeof("Cmp", W) == ffi.sizeof("void *"))
+    assert(W.functions.f != null and len(W.functions.f.params) == 2)
+  }
   t.test("constants from #define and enums, #if decides"){
     assert(C.constants.FT_VERSION == "1.2")
     assert(C.constants.FT_LIMIT == 64)
@@ -87,15 +98,17 @@ t.group("ffi: declarations"){
     assert(ffi.sizeof("Item", C) == 20)
     assert(ffi.sizeof("int64_t[3]", C) == 24)
   }
-  t.test("size_t, long and their kind are as wide as a pointer"){
+  t.test("size_t and its kind are as wide as a pointer; long is too, but on Windows"){
     // (8 bytes here; 4 where slang is built for 32 bits, in a browser)
     local word = ffi.sizeof("void *")
     for(let local name in values({
-      "size_t", "ssize_t", "ptrdiff_t", "intptr_t", "uintptr_t", "long",
-      "unsigned long"
+      "size_t", "ssize_t", "ptrdiff_t", "intptr_t", "uintptr_t"
     })){
       assert(ffi.sizeof(name) == word, name)
     }
+    // Windows keeps long at 32 bits (LLP64)
+    local long = str.starts_with(os.platform(), "windows") and 4 or word
+    assert(ffi.sizeof("long") == long and ffi.sizeof("unsigned long") == long)
     assert(ffi.sizeof("long long") == 8 and ffi.sizeof(
         "unsigned long long",
       ) == 8)

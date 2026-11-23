@@ -22,6 +22,32 @@ extern "c" fn fflush(f: *FILE) c_int;
 extern "c" fn ferror(f: *FILE) c_int;
 extern "c" fn fgets(buf: [*]u8, n: c_int, f: *FILE) ?[*]u8;
 
+const builtin = @import("builtin");
+const windows = builtin.os.tag == .windows;
+// Windows: the file is opened by zig (UTF-16 paths, and others may remove
+// it while it is open, as on Unix), and C's FILE wraps the handle
+extern "c" fn _open_osfhandle(handle: isize, flags: c_int) c_int;
+extern "c" fn _fdopen(fd: c_int, mode: [*:0]const u8) ?*FILE;
+
+fn openWindows(vm: *VM, path: []const u8, cmode: [*:0]const u8) !*FILE {
+    const m = std.mem.span(cmode);
+    const read = m[0] == 'r' or std.mem.indexOfScalar(u8, m, '+') != null;
+    const cwd = std.Io.Dir.cwd();
+    const f = if (std.mem.eql(u8, m, "rb"))
+        try cwd.openFile(vm.io, path, .{ .mode = .read_only })
+    else
+        try cwd.createFile(vm.io, path, .{ .read = read, .truncate = m[0] == 'w' });
+    const O_APPEND: c_int = 0x0008;
+    const O_BINARY: c_int = 0x8000;
+    const flags: c_int = O_BINARY | (if (m[0] == 'a') O_APPEND else 0);
+    const fd = _open_osfhandle(@intCast(@intFromPtr(f.handle)), flags);
+    if (fd < 0) {
+        f.close(vm.io);
+        return error.SystemResources;
+    }
+    return _fdopen(fd, cmode) orelse error.SystemResources;
+}
+
 pub const tname = "file";
 
 const Handle = struct {
@@ -89,7 +115,9 @@ pub fn osOpen(th: *Thread, args: []Value) Error!Value {
             if (cwd.createFile(vm.io, path, .{})) |f| f.close(vm.io) else |_| {}
         };
     }
-    const f = fopen(pathz, cmode) orelse {
+    const f = if (windows)
+        openWindows(vm, path, cmode) catch |e| return vm.raiseOs(e, path, "cannot open {s}: {t}", .{ path, e })
+    else fopen(pathz, cmode) orelse {
         // fopen does not say why: a stat that fails does (not_found, ...)
         _ = std.Io.Dir.cwd().statFile(vm.io, path, .{}) catch |e| return vm.raiseOs(e, path, "cannot open {s}: {t}", .{ path, e });
         return vm.raiseOs(error.AccessDenied, path, "cannot open {s}", .{path});

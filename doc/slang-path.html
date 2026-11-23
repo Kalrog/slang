@@ -40,7 +40,7 @@ details.expanded summary { cursor: pointer; color: var(--muted); }
 <body>
 <nav><a href="index.html">index</a></nav>
 <h1>slang/path</h1>
-<p>slang/path: slash-separated paths, as files and URLs use them (Go's path and path/filepath on Unix). Nothing here touches the disk except <a href="#abs"><code>abs</code></a>, which reads the current directory.</p>
+<p>slang/path: slash-separated paths, as files and URLs use them (Go's path and path/filepath on Unix). Nothing here touches the disk except <a href="#abs"><code>abs</code></a>, which reads the current directory. On Windows a drive, &quot;C:/&quot;, is a root as &quot;/&quot; is (slang gives Windows paths with slashes).</p>
 <pre><code>local path = require(&quot;slang/path&quot;)
 path.join(&quot;a&quot;, &quot;b/../c&quot;, &quot;d.txt&quot;)   // &quot;a/c/d.txt&quot;
 path.dir(&quot;src/main.slang&quot;)          // &quot;src&quot;
@@ -87,7 +87,7 @@ path.rel(&quot;/a/b&quot;, &quot;/a/c/d&quot;)          // &quot;../c/d&quot;</c
 
 </div>
 <div class="def" id="is_abs"><h3><code>path.is_abs(p: string) -> bool</code></h3>
-<p>Whether p starts at the root.</p>
+<p>Whether p starts at a root: &quot;/&quot;, or a drive &quot;C:/&quot; on Windows.</p>
 
 </div>
 <div class="def" id="abs"><h3><code>path.abs(p: string) -> string</code></h3>

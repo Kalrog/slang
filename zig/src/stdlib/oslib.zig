@@ -133,10 +133,9 @@ fn osAppendFile(th: *Thread, args: []Value) Error!Value {
     const path = try api.argString(th, args, 0, "path");
     const content = try api.argString(th, args, 1, "content");
     const cwd = std.Io.Dir.cwd();
-    const f = cwd.openFile(vm.io, path, .{ .mode = .write_only }) catch |e| switch (e) {
-        error.FileNotFound => cwd.createFile(vm.io, path, .{}) catch |e2| return vm.raiseOs(e2, path, "cannot write {s}: {t}", .{ path, e2 }),
-        else => return vm.raiseOs(e, path, "cannot write {s}: {t}", .{ path, e }),
-    };
+    // readable too: on Windows a write-only handle may not read its size
+    const f = cwd.createFile(vm.io, path, .{ .read = true, .truncate = false }) catch |e|
+        return vm.raiseOs(e, path, "cannot write {s}: {t}", .{ path, e });
     defer f.close(vm.io);
     const st = f.stat(vm.io) catch |e| return vm.raiseOs(e, path, "cannot write {s}: {t}", .{ path, e });
     f.writePositionalAll(vm.io, content, st.size) catch |e| return vm.raiseOs(e, path, "cannot write {s}: {t}", .{ path, e });

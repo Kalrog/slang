@@ -831,7 +831,15 @@ local qualifiers = {
   const: true, volatile: true, restrict: true, __restrict: true,
   __restrict__: true, extern: true, static: true, inline: true, __inline: true,
   __inline__: true, register: true, auto: true, _Noreturn: true,
-  __extension__: true, __cdecl: true, __stdcall: true
+  __extension__: true, __cdecl: true, __stdcall: true, __fastcall: true,
+  __vectorcall: true, __thiscall: true, _cdecl: true, _stdcall: true
+}
+
+// calling conventions, which may also stand inside a declarator's
+// brackets: void (__cdecl *f)(void) (all the same on 64-bit Windows)
+local conventions = {
+  __cdecl: true, __stdcall: true, __fastcall: true, __vectorcall: true,
+  __thiscall: true, _cdecl: true, _stdcall: true
 }
 
 // cdef(text: string, options?: CdefOptions) -> Decls
@@ -1210,6 +1218,9 @@ func ffi.cdef(text, options){
   // names of types) may leave the name out
   parse_declarator = func(base, abstract){
     local t = base
+    for(peek() != null and conventions[peek().text]){
+      pos = pos + 1
+    }
     for(is("*")){
       pos = pos + 1
       t = {kind: "ptr", to: t, const_to: t.const == true, c: concat(t.c, " *")}
@@ -1224,7 +1235,8 @@ func ffi.cdef(text, options){
     local name = null
     local inner_start = null
     if(is("(") and peek(1) != null and
-      (peek(1).text == "*" or peek(1).text == "^" or peek(1).text == "(")){
+      (peek(1).text == "*" or peek(1).text == "^" or peek(1).text == "(" or
+        conventions[peek(1).text])){
       // ( declarator ): parsed after the suffixes, which apply first
       inner_start = pos
       skip_group()

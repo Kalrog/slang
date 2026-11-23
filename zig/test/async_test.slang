@@ -1,7 +1,50 @@
 // slang/async: futures, await on coroutines, streams, tcp adapters
 local t = require("slang/test")
 local str = require("slang/string")
-local windows = str.starts_with(require("slang/os").platform(), "windows")
+local os = require("slang/os")
+local windows = str.starts_with(os.platform(), "windows")
+// a child process for the tests, the same on every OS (slang itself
+// instead of /bin/sh, cat and sleep):
+//   cat [status]   stdin to stdout; with a status, "oops" to stderr and exit
+//   greet status   a line of stdin, $GREETING and the folder, then exit
+//   env NAME       NAME=value
+//   sleep ms
+local child_source = """
+local os = require("slang/os")
+local a = args()
+if(a[0] == "cat"){
+  local line = os.read_line()
+  local first = true
+  for(line != null){
+    if(not first){ print("\\n") }
+    print(line)
+    first = false
+    line = os.read_line()
+  }
+  if(a[1] != null){
+    os.write_stderr("oops\\n")
+    os.exit(to_int(a[1]))
+  }
+} else if(a[0] == "greet"){
+  print(concat(os.read_line(), " ", os.getenv("GREETING"), " ", os.cwd(), "\\n"))
+  os.exit(to_int(a[1]))
+} else if(a[0] == "env"){
+  print(concat(a[1], "=", os.getenv(a[1]), "\\n"))
+} else if(a[0] == "sleep"){
+  require("slang/time").sleep(to_int(a[1]))
+}
+"""
+local child_dir = concat(
+  os.temp_dir(), "/slang-child-", string(to_int(require("slang/time").now()))
+)
+local child_file = concat(child_dir, "/child.slang")
+os.mkdir_all(child_dir)
+os.write_file(child_file, child_source)
+// the slang executable, with backslashes on Windows
+local slang_exe = os.executable()
+if(windows){
+  slang_exe = str.replace(slang_exe, "/", "\\")
+}
 local async = require("slang/async")
 local await = async.await
 
@@ -159,7 +202,6 @@ t.group("async"){
   }
 }
 
-local os = require("slang/os")
 local uv = require("uv")
 local scratch = concat(
   os.temp_dir(), "/slang-async-test-", string(uv.getpid())
@@ -209,17 +251,14 @@ t.group("async: files, names, processes, signals"){
     })
   }
   t.test("exec collects output and the exit status"){
-    if(windows){
-      t.skip("runs /bin/sh, which Windows has not")
-    }
     async.main(func(){
       local r = await(
-        async.exec("/bin/sh", {"-c", "cat; echo oops >&2; exit 4"}, {
+        async.exec(slang_exe, {"run", child_file, "cat", "4"}, {
           input: "in",
         }),
       )
-      assert(r.status == 4 and r.stdout == "in" and r.stderr == "oops\n")
-      local e = await(async.exec("/usr/bin/env", {}, {env: {ONLY: "this"}}))
+      assert(r.status == 4 and r.stdout == "in" and r.stderr == "oops\n", r.stdout)
+      local e = await(async.exec(slang_exe, {"run", child_file, "env", "ONLY"}, {env: {ONLY: "this"}}))
       assert(e.stdout == "ONLY=this\n", e.stdout)
       local m = t.raises(func(){ await(async.exec("/no/such/program", {})) })
       assert(str.starts_with(m.message, "ENOENT") and m.kind == error.kinds.not_found, m.message)
@@ -227,7 +266,7 @@ t.group("async: files, names, processes, signals"){
   }
   t.test("spawn gives pipes and an exit future"){
     async.main(func(){
-      local p = async.spawn("/bin/cat", {}, {
+      local p = async.spawn(slang_exe, {"run", child_file, "cat"}, {
         stdio: {"pipe", "pipe", "inherit"},
       })
       p.stdin:write("echo")
@@ -239,6 +278,9 @@ t.group("async: files, names, processes, signals"){
     })
   }
   t.test("on_signal calls back and does not keep the program running"){
+    if(windows){
+      t.skip("Windows has no SIGUSR2, and a program cannot signal itself")
+    }
     local got = {}
     async.main(func(){
       local h = async.on_signal("SIGUSR2", func(name){ append(got, name) })

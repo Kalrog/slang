@@ -39,11 +39,20 @@ t.group("os"){
     assert(f:read_line() == "three" and f:read_line() == null)
     f:close()
     local lines = {}
-    for(let local line in os.open(p):lines()){
+    f = os.open(p)
+    for(let local line in f:lines()){
       append(lines, line)
     }
+    f:close()
     assert(lines == {"one", "two", "three"})
-    assert(os.open(p):read_bytes(3) == {111, 110, 101})
+    f = os.open(p)
+    assert(f:read_bytes(3) == {111, 110, 101})
+    f:close()
+    // a file can be removed while it is open (on Windows too)
+    f = os.open(p)
+    os.remove(p)
+    assert(not os.exists(p))
+    f:close()
     // reading needs the file
     t.raises(func(){ os.open(concat(dir, "/missing.txt")) })
   }

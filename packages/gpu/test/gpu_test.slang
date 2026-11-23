@@ -6,6 +6,18 @@ local t = require("slang/test")
 local async = require("slang/async")
 local gpu = require("gpu")
 
+// whether two colors are the same within one step per channel: converting
+// a float to 8 bits may round either way where it lands on a half (0.5 is
+// 127.5: NVIDIA's Vulkan gives 127, Metal 128)
+local func same_color(a, b){
+  for(local i = 0; i < 4; i = i + 1){
+    if(a[i] - b[i] > 1 or b[i] - a[i] > 1){
+      return false
+    }
+  }
+  return true
+}
+
 local device = gpu.device()
 // in a browser WebGPU is the browser's own, which tells less about the
 // adapter and reports mistakes later
@@ -198,9 +210,9 @@ t.group("gpu: rendering"){
     device.queue:submit(encoder:finish())
     local pixels = readback:read()
     local at = 256 * 10 + 4 * 10
-    assert({
+    assert(same_color({
       pixels[at], pixels[at + 1], pixels[at + 2], pixels[at + 3]
-    } == {255, 128, 0, 255}, {
+    }, {255, 128, 0, 255}), {
       pixels[at], pixels[at + 1], pixels[at + 2], pixels[at + 3]
     })
   }

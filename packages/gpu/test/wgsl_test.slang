@@ -12,6 +12,18 @@ local wgsl = require("gpu/wgsl")
 local gpu = require("gpu")
 local buffer = require("slang/buffer")
 
+// whether two colors are the same within one step per channel: converting
+// a float to 8 bits may round either way where it lands on a half (0.5 is
+// 127.5: NVIDIA's Vulkan gives 127, Metal 128)
+local func same_color(a, b){
+  for(local i = 0; i < 4; i = i + 1){
+    if(a[i] - b[i] > 1 or b[i] - a[i] > 1){
+      return false
+    }
+  }
+  return true
+}
+
 // the package's directory (where the tests run), and this file
 local here = __PACKAGES.search_paths[0]
 local this_file = path.join(here, "test/wgsl_test.slang")
@@ -586,7 +598,11 @@ t.group("wgsl: a program's declarations in slang"){
     )
     device.queue:submit(encoder:finish())
     local pixels = readback:read()
-    assert({pixels[0], pixels[1], pixels[2], pixels[3]} == {255, 128, 0, 255})
+    assert(same_color({
+      pixels[0], pixels[1], pixels[2], pixels[3]
+    }, {255, 128, 0, 255}), {
+      pixels[0], pixels[1], pixels[2], pixels[3]
+    })
   }
   t.test("WGSL text is a program too"){
     local program = require("gpu/program")

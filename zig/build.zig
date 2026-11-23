@@ -361,7 +361,11 @@ fn addNative(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.buil
     const m = nativeModule(b, target, optimize, n);
     if (from_source) |d| m.linkLibrary(d);
     if (n.prefix) |prefix| m.addLibraryPath(.{ .cwd_relative = b.fmt("{s}/lib", .{prefix}) });
-    for (n.libs) |lib| m.linkSystemLibrary(lib, .{ .preferred_link_mode = .static });
+    // Homebrew's archives are position-independent and go into the
+    // extension; a Linux distribution's (libuv.a, libz.a) are not, and
+    // cannot: there the extension links the shared library
+    const link_mode: std.builtin.LinkMode = if (target.result.os.tag.isDarwin()) .static else .dynamic;
+    for (n.libs) |lib| m.linkSystemLibrary(lib, .{ .preferred_link_mode = link_mode });
     for (n.frameworks) |f| m.linkFramework(f, .{});
     const lib = b.addLibrary(.{ .name = ext_name, .linkage = .dynamic, .root_module = m });
     // slang_* resolve against the executable that loads it
